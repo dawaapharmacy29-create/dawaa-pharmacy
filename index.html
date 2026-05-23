@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1B2B4B" />
+    <meta name="description" content="Dawaa Pharmacy 2027 - نظام تشغيل الصيدلية الذكي" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Dawaa 2027" />
+    <title>Dawaa Pharmacy 2027 — نظام تشغيل الصيدلية الذكي</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <script>
+      try {
+        var pal = localStorage.getItem("dawaa_palette");
+        if (pal === "royal" || pal === "forest" || pal === "ocean") document.documentElement.dataset.palette = pal;
+        else document.documentElement.dataset.palette = "ocean";
+        if (localStorage.getItem("dawaa_theme") === "light") document.documentElement.classList.add("light-mode");
+      } catch (e) {}
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- SW SKIP_WAITING handler -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', function(e) {
+          if (e.data && e.data.type === 'SKIP_WAITING') {
+            navigator.serviceWorker.getRegistration().then(function(reg) {
+              if (reg && reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            });
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

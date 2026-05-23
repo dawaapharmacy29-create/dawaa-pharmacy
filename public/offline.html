@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>غير متصل — صيدليات دواء</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: #0d1829;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Cairo', 'Tajawal', system-ui, sans-serif;
+      color: #fff;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 400px;
+    }
+    .logo {
+      width: 80px;
+      height: 80px;
+      border-radius: 20px;
+      margin: 0 auto 1.5rem;
+      display: block;
+    }
+    .icon {
+      width: 80px;
+      height: 80px;
+      background: rgba(0, 201, 167, 0.1);
+      border: 2px solid rgba(0, 201, 167, 0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.5rem;
+      font-size: 2rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.75rem;
+    }
+    p {
+      color: #6b7a99;
+      font-size: 0.9rem;
+      line-height: 1.7;
+      margin-bottom: 2rem;
+    }
+    .btn {
+      display: inline-block;
+      background: linear-gradient(135deg, #00C9A7, #00a38a);
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 0.75rem 2rem;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .status {
+      margin-top: 1.5rem;
+      font-size: 0.8rem;
+      color: #4a5568;
+    }
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: #e53e3e;
+      border-radius: 50%;
+      margin-left: 6px;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="container">
+    <img src="/icon-192.png" alt="دواء" class="logo" onerror="this.style.display='none'" />
+    <div class="icon" id="icon-fallback" style="display:none">📡</div>
+    <h1>لا يوجد اتصال بالإنترنت</h1>
+    <p>
+      يبدو إن الاتصال بالنت انقطع.<br />
+      تأكد من الاتصال وحاول تاني.
+    </p>
+    <button class="btn" onclick="tryReconnect()">إعادة المحاولة</button>
+    <div class="status">
+      <span class="dot"></span>غير متصل حالياً
+    </div>
+  </div>
+  <script>
+    // Hide logo if not loaded, show emoji fallback
+    document.querySelector('.logo').addEventListener('error', function() {
+      this.style.display = 'none';
+      document.getElementById('icon-fallback').style.display = 'flex';
+    });
+
+    function tryReconnect() {
+      window.location.href = '/';
+    }
+
+    // Auto-reload when connection restored
+    window.addEventListener('online', () => {
+      window.location.href = '/';
+    });
+  </script>
+</body>
+</html>
