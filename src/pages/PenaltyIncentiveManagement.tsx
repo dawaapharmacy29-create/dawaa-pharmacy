@@ -82,7 +82,7 @@ function stripLegacyNoise(value: string) {
     .replace(/multiplier:\d+/gi, " ")
     .replace(/final:\d+/gi, " ")
     .replace(/approver:[^\s]+/gi, " ")
-    .replace(/[\[\]{}|,]+/g, " ")
+    .replace(/[[\]{}|,]+/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
 }

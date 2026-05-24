@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ElementType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -441,7 +441,7 @@ function SalesHeroCard({ total }: { total: number }) {
   );
 }
 
-function Kpi({ label, value, hint, icon: Icon, tone = "teal" }: any) {
+function Kpi({ label, value, hint, icon: Icon, tone = "teal" }: { label: string; value: ReactNode; hint: string; icon: ElementType; tone?: "teal" | "danger" }) {
   const color = tone === "danger" ? "text-rose-300 bg-rose-500/12" : "text-teal-300 bg-teal-500/12";
   return (
     <Link to="/analytics" className="group rounded-3xl border border-white/10 bg-[#12233d]/90 p-4 shadow-xl shadow-black/10 transition hover:-translate-y-0.5 hover:border-teal-400/30 hover:bg-[#142947]">
@@ -457,7 +457,7 @@ function Kpi({ label, value, hint, icon: Icon, tone = "teal" }: any) {
   );
 }
 
-function Panel({ title, link, children, className }: { title: string; link: string; children: React.ReactNode; className?: string }) {
+function Panel({ title, link, children, className }: { title: string; link: string; children: ReactNode; className?: string }) {
   return (
     <section className={cx("rounded-3xl border border-white/10 bg-[#10213a]/92 p-4 shadow-xl shadow-black/10", className)}>
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -469,7 +469,7 @@ function Panel({ title, link, children, className }: { title: string; link: stri
   );
 }
 
-function AlertRow({ label, sub, count, tone, icon: Icon, route }: any) {
+function AlertRow({ label, sub, count, tone, icon: Icon, route }: { label: string; sub: string; count: number; tone: "danger" | "warning" | "info" | "success"; icon: ElementType; route: string }) {
   const colors: Record<string, string> = {
     danger: "bg-rose-500/15 text-rose-300 border-rose-500/25",
     warning: "bg-amber-500/15 text-amber-300 border-amber-500/25",
@@ -491,7 +491,7 @@ function DoctorPerformanceRow({ rank, name, sales, percent }: { rank: number; na
   </div>;
 }
 
-function TaskChip({ count, label, icon: Icon, tone }: any) {
+function TaskChip({ count, label, icon: Icon, tone }: { count: number; label: string; icon: ElementType; tone: "danger" | "warning" | "info" | "success" }) {
   const tones: Record<string, string> = { danger: "bg-rose-500/15 text-rose-300", warning: "bg-amber-500/15 text-amber-300", info: "bg-blue-500/15 text-blue-300", success: "bg-emerald-500/15 text-emerald-300" };
   return <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] p-3">
     <div className="flex items-center gap-3"><span className={cx("flex h-9 w-9 items-center justify-center rounded-xl text-sm font-black", tones[tone])}>{count}</span><span className="text-sm font-bold text-white">{label}</span></div>
@@ -499,7 +499,7 @@ function TaskChip({ count, label, icon: Icon, tone }: any) {
   </div>;
 }
 
-function MiniLedger({ tone, icon: Icon, label, value, hint }: any) {
+function MiniLedger({ tone, icon: Icon, label, value, hint }: { tone: "success" | "danger"; icon: ElementType; label: string; value: ReactNode; hint: string }) {
   const cls = tone === "success" ? "border-teal-400/20 bg-teal-500/10 text-teal-300" : "border-rose-400/20 bg-rose-500/10 text-rose-300";
   return <div className={cx("rounded-3xl border p-5 text-center", cls)}>
     <Icon className="mx-auto mb-2 h-8 w-8" />

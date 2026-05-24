@@ -14,7 +14,7 @@ import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/utils";
-import { getCurrentCycle } from "@/lib/pharmacy-cycle";
+import { formatCycleDate, getCurrentCycle, getCycleForDate } from "@/lib/pharmacy-cycle";
 import {
   aggregateInvoiceAnalytics,
   getShiftFromDateTime,
@@ -75,11 +75,18 @@ function daysBetween(a: string, b: string) {
   return Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000));
 }
 
+function isDateInRange(day: string, start: string, end: string) {
+  if (!day) return false;
+  return day >= start && day <= end;
+}
+
 export default function Analytics() {
   const { user } = useAuth();
   const cycle = getCurrentCycle();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatCycleDate(new Date());
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [periodStart, setPeriodStart] = useState(() => formatCycleDate(cycle.start));
+  const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(cycle.end));
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedBranch, setSelectedBranch] = useState(ALL_FILTER);
   const [selectedDoctor, setSelectedDoctor] = useState(ALL_FILTER);
@@ -117,7 +124,19 @@ export default function Analytics() {
   const filteredInvoices = useMemo(() => {
     return invoices.filter((row) => {
       const shift = getShiftFromDateTime(dateTimeOf(row), bounds);
-      if (selectedDate !== ALL_FILTER && dayKey(row) !== selectedDate) return false;
+      if (!isDateInRange(dayKey(row), periodStart, periodEnd)) return false;
+      if (selectedBranch !== ALL_FILTER && row.branch !== selectedBranch) return false;
+      if (selectedDoctor !== ALL_FILTER && row.seller_name !== selectedDoctor) return false;
+      if (selectedShift !== ALL_FILTER && shift !== selectedShift) return false;
+      if (selectedType !== ALL_FILTER && row.invoice_type !== selectedType) return false;
+      return true;
+    });
+  }, [bounds, invoices, periodEnd, periodStart, selectedBranch, selectedDoctor, selectedShift, selectedType]);
+
+  const dayInvoices = useMemo(() => {
+    return invoices.filter((row) => {
+      const shift = getShiftFromDateTime(dateTimeOf(row), bounds);
+      if (dayKey(row) !== selectedDate) return false;
       if (selectedBranch !== ALL_FILTER && row.branch !== selectedBranch) return false;
       if (selectedDoctor !== ALL_FILTER && row.seller_name !== selectedDoctor) return false;
       if (selectedShift !== ALL_FILTER && shift !== selectedShift) return false;
@@ -125,24 +144,20 @@ export default function Analytics() {
       return true;
     });
   }, [bounds, invoices, selectedBranch, selectedDate, selectedDoctor, selectedShift, selectedType]);
-
-  const dayInvoices = useMemo(() => invoices.filter((row) => dayKey(row) === selectedDate), [invoices, selectedDate]);
   const agg = useMemo(() => aggregateInvoiceAnalytics(filteredInvoices, bounds), [filteredInvoices, bounds]);
   const dayAgg = useMemo(() => aggregateInvoiceAnalytics(dayInvoices, bounds), [dayInvoices, bounds]);
 
-  const currentCycleInvoices = useMemo(() => {
-    const start = cycle.start.toISOString().slice(0, 10);
-    const end = cycle.end.toISOString().slice(0, 10);
+  const periodInvoices = useMemo(() => {
     return invoices.filter((row) => {
       const day = dayKey(row);
-      return day >= start && day <= end;
+      return isDateInRange(day, periodStart, periodEnd);
     });
-  }, [cycle.end, cycle.start, invoices]);
+  }, [invoices, periodEnd, periodStart]);
 
   const doctorRows = useMemo(() => {
-    return Object.entries(dayAgg.perDoctor)
+    return Object.entries(agg.perDoctor)
       .map(([doctor, stats]) => {
-        const doctorInvoices = dayInvoices.filter((row) => (row.seller_name || "غير محدد") === doctor);
+        const doctorInvoices = filteredInvoices.filter((row) => (row.seller_name || "غير محدد") === doctor);
         const customers = new Set(doctorInvoices.map((row) => row.customer_code || row.customer_name).filter(Boolean)).size;
         const delivery = doctorInvoices.filter((row) => isDeliveryInvoice(row.invoice_type)).length;
         return {
@@ -152,16 +167,16 @@ export default function Analytics() {
           avg: stats.count ? Math.round(stats.sales / stats.count) : 0,
           customers,
           delivery,
-          percent: dayAgg.totalSales ? Math.round((stats.sales / dayAgg.totalSales) * 100) : 0,
+          percent: agg.totalSales ? Math.round((stats.sales / agg.totalSales) * 100) : 0,
         };
       })
       .sort((a, b) => b.sales - a.sales);
-  }, [dayAgg, dayInvoices]);
+  }, [agg, filteredInvoices]);
 
   const branchRows = useMemo(() => {
-    return Object.entries(dayAgg.perBranch)
+    return Object.entries(agg.perBranch)
       .map(([branch, stats]) => {
-        const rows = dayInvoices.filter((row) => (row.branch || "غير محدد") === branch);
+        const rows = filteredInvoices.filter((row) => (row.branch || "غير محدد") === branch);
         const customers = new Set(rows.map((row) => row.customer_code || row.customer_name).filter(Boolean)).size;
         return {
           branch,
@@ -169,11 +184,11 @@ export default function Analytics() {
           sales: stats.sales,
           avg: stats.count ? Math.round(stats.sales / stats.count) : 0,
           customers,
-          percent: dayAgg.totalSales ? Math.round((stats.sales / dayAgg.totalSales) * 100) : 0,
+          percent: agg.totalSales ? Math.round((stats.sales / agg.totalSales) * 100) : 0,
         };
       })
       .sort((a, b) => b.sales - a.sales);
-  }, [dayAgg, dayInvoices]);
+  }, [agg, filteredInvoices]);
 
   const shiftRows = useMemo(() => {
     return ["صباحي", "مسائي", "ليلي"].map((shift) => {
@@ -222,8 +237,8 @@ export default function Analytics() {
       map.set(key, [...(map.get(key) || []), row]);
     }
 
-    const currentStart = cycle.start.toISOString().slice(0, 10);
-    const currentEnd = cycle.end.toISOString().slice(0, 10);
+    const currentStart = periodStart;
+    const currentEnd = periodEnd;
     return [...map.entries()]
       .map(([code, rows]) => {
         const sorted = rows.sort((a, b) => dayKey(a).localeCompare(dayKey(b)));
@@ -250,7 +265,7 @@ export default function Analytics() {
           reason = `تأخر عن موعد الشراء المتوقع (${expectedNextDate})`;
         } else if (isActualDrop) {
           status = "متراجع";
-          reason = "سحب الدورة الحالية أقل من 60% من المتوسط";
+          reason = "سحب الفترة المحددة أقل من 60% من المتوسط";
         } else if (first >= new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)) {
           status = "عميل جديد";
           reason = "أول شراء خلال آخر 30 يوم";
@@ -280,12 +295,12 @@ export default function Analytics() {
       .filter((row) => ["متراجع", "معرض للفقد", "مفقود", "مهم جدًا"].includes(row.status))
       .sort((a, b) => b.avgMonthly - a.avgMonthly)
       .slice(0, 80);
-  }, [cycle.end, cycle.start, invoices, today]);
+  }, [invoices, periodEnd, periodStart, today]);
 
   const targetRows = useMemo(() => {
     const targetMap = new Map(branchTargets.map((target) => [target.branch_name, target]));
-    const cycleDays = Math.max(1, daysBetween(cycle.start.toISOString().slice(0, 10), cycle.end.toISOString().slice(0, 10)) + 1);
-    const elapsedDays = Math.max(1, Math.min(cycleDays, daysBetween(cycle.start.toISOString().slice(0, 10), today) + 1));
+    const cycleDays = Math.max(1, daysBetween(periodStart, periodEnd) + 1);
+    const elapsedDays = Math.max(1, Math.min(cycleDays, daysBetween(periodStart, today) + 1));
     const remainingDays = Math.max(1, cycleDays - elapsedDays);
     const configuredBranches = uniqueSorted([
       ...DEFAULT_TARGET_BRANCHES,
@@ -294,7 +309,7 @@ export default function Analytics() {
     return configuredBranches.map((branch) => {
       const target = targetMap.get(branch);
       const targetAmount = targetDrafts[branch] ?? Number(target?.target_amount || defaultTargetAmount(branch));
-      const sales = currentCycleInvoices.filter((row) => row.branch === branch).reduce((sum, row) => sum + amountOf(row), 0);
+      const sales = periodInvoices.filter((row) => row.branch === branch).reduce((sum, row) => sum + amountOf(row), 0);
       const remaining = Math.max(0, targetAmount - sales);
       const percentage = targetAmount ? Math.round((sales / targetAmount) * 100) : 0;
       const currentDaily = sales / elapsedDays;
@@ -304,7 +319,7 @@ export default function Analytics() {
       const status = targetAmount === 0 ? "بدون تارجت" : sales >= expectedNow ? "متقدم" : sales >= expectedNow * 0.9 ? "على المسار" : sales >= expectedNow * 0.7 ? "يحتاج متابعة" : "متأخر";
       return { branch, targetId: target?.id, targetAmount, sales, remaining, percentage, cycleDays, elapsedDays, remainingDays, currentDaily, requiredDaily, projected, status };
     });
-  }, [branchTargets, currentCycleInvoices, cycle.end, cycle.start, targetDrafts, today]);
+  }, [branchTargets, periodEnd, periodInvoices, periodStart, targetDrafts, today]);
 
   const smartAlerts = useMemo(() => {
     const alerts = [
@@ -328,6 +343,20 @@ export default function Analytics() {
     ];
     return alerts;
   }, [customerInsights, targetRows]);
+
+  const applyCycle = (dateValue: string) => {
+    const nextCycle = getCycleForDate(new Date(`${dateValue}T12:00:00`));
+    setPeriodStart(formatCycleDate(nextCycle.start));
+    setPeriodEnd(formatCycleDate(nextCycle.end));
+  };
+
+  const applyPreviousCycle = () => {
+    const previousDate = new Date(`${periodStart}T12:00:00`);
+    previousDate.setDate(previousDate.getDate() - 1);
+    const previousCycle = getCycleForDate(previousDate);
+    setPeriodStart(formatCycleDate(previousCycle.start));
+    setPeriodEnd(formatCycleDate(previousCycle.end));
+  };
 
   const saveShiftSettings = async () => {
     saveShiftBounds(bounds);
@@ -397,18 +426,24 @@ export default function Analytics() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">التحليلات والمبيعات</h1>
-          <p className="text-slate-400 text-sm mt-1">مركز تحليل فواتير B Connect من جدول sales_invoices - الدورة الحالية: {cycle.label}</p>
+          <p className="text-slate-400 text-sm mt-1">مركز تحليل فواتير B Connect من جدول sales_invoices - الفترة: {periodStart} إلى {periodEnd}</p>
         </div>
       </div>
 
       {invError && <div className="stat-card border border-red-500/30 text-red-200 text-sm">{invError}</div>}
 
       <div className="stat-card space-y-3">
-        <div className="grid md:grid-cols-5 gap-3">
-          <Filter label="اليوم">
+        <div className="grid md:grid-cols-6 gap-3">
+          <Filter label="بداية الفترة">
+            <input className="input-dark" type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} />
+          </Filter>
+          <Filter label="نهاية الفترة">
+            <input className="input-dark" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} />
+          </Filter>
+          <Filter label="دورة 26-25">
             <div className="flex gap-2">
-              <input className="input-dark" type="date" value={selectedDate === ALL_FILTER ? latestInvoiceDate : selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
-              <button type="button" className="btn-secondary px-3 text-xs" onClick={() => setSelectedDate(latestInvoiceDate)}>آخر يوم</button>
+              <button type="button" className="btn-secondary px-3 text-xs" onClick={() => applyCycle(today)}>الحالية</button>
+              <button type="button" className="btn-secondary px-3 text-xs" onClick={applyPreviousCycle}>السابقة</button>
             </div>
           </Filter>
           <Filter label="الفرع">
@@ -437,6 +472,17 @@ export default function Analytics() {
               {invoiceTypes.map((type) => <option key={type}>{type}</option>)}
             </select>
           </Filter>
+        </div>
+        <div className="grid md:grid-cols-[220px_1fr] gap-3 items-end">
+          <Filter label="يوم تفصيلي داخل تحليل اليوم">
+            <div className="flex gap-2">
+              <input className="input-dark" type="date" value={selectedDate === ALL_FILTER ? latestInvoiceDate : selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+              <button type="button" className="btn-secondary px-3 text-xs" onClick={() => setSelectedDate(latestInvoiceDate)}>آخر يوم</button>
+            </div>
+          </Filter>
+          <div className="text-xs text-slate-400 pb-2">
+            التحليلات العامة والدكاترة والعملاء والتارجت تعتمد على الفترة المحددة من {periodStart} إلى {periodEnd}.
+          </div>
         </div>
       </div>
 
@@ -483,7 +529,7 @@ export default function Analytics() {
             </ChartCard>
           </div>
           <TwoTables doctorRows={doctorRows.slice(0, 8)} branchRows={branchRows} />
-          <DataTable headers={["الفرع", "مبيعات الدورة الحالية", "التارجت", "نسبة التحقيق", "متوسط البيع اليومي", "المتبقي", "الحالة"]}>
+          <DataTable headers={["الفرع", "مبيعات الفترة", "التارجت", "نسبة التحقيق", "متوسط البيع اليومي", "المتبقي", "الحالة"]}>
             {targetRows.map((row) => (
               <tr key={row.branch}>
                 <Cell>{row.branch}</Cell>
@@ -585,7 +631,7 @@ export default function Analytics() {
       )}
 
       {activeTab === "customers" && (
-        <DataTable headers={["الكود", "العميل", "آخر فاتورة شراء", "موعد الشراء المتوقع", "أيام التأخير", "متوسط السحب الشهري", "سحب الدورة الحالية", "نسبة انخفاض السحب", "الحالة", "سبب التنبيه", "الدكتور", "الفرع", "واتساب"]}>
+        <DataTable headers={["الكود", "العميل", "آخر فاتورة شراء", "موعد الشراء المتوقع", "أيام التأخير", "متوسط السحب الشهري", "سحب الفترة", "نسبة انخفاض السحب", "الحالة", "سبب التنبيه", "الدكتور", "الفرع", "واتساب"]}>
           {customerInsights.map((row) => (
             <tr key={row.code}>
               <Cell>{row.code}</Cell>
@@ -616,7 +662,7 @@ export default function Analytics() {
               <button type="button" className="btn-primary px-4 py-2 text-sm" onClick={addBranchTarget}>إضافة فرع</button>
             </div>
           </div>
-          <DataTable headers={["الفرع", "مبيعات الشهر/الدورة حتى الآن", "التارجت", "نسبة التحقيق", "متوسط المبيعات اليومية", "المتبقي", "اليومي المطلوب", "توقع نهاية الدورة", "الحالة", "حفظ"]}>
+          <DataTable headers={["الفرع", "مبيعات الفترة", "التارجت", "نسبة التحقيق", "متوسط المبيعات اليومية", "المتبقي", "اليومي المطلوب", "توقع نهاية الفترة", "الحالة", "حفظ"]}>
             {targetRows.map((row) => (
               <tr key={row.branch}>
                 <Cell>{row.branch}</Cell>

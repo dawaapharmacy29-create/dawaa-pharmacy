@@ -22,6 +22,10 @@ function isoDateOnly(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+export function formatCycleDate(date: Date): string {
+  return isoDateOnly(date);
+}
+
 export function getPointsCycle(date: Date | string = new Date()): PointsCycleRange {
   const baseDate = typeof date === "string" ? new Date(`${date.slice(0, 10)}T12:00:00`) : date;
   const cycle = getCycleForDate(baseDate);

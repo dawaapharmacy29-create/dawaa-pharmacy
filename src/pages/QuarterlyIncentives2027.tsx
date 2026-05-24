@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ElementType, type ReactNode } from "react";
 import { Award, Crown, FileText, TrendingUp, Users } from "lucide-react";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { formatMoney, formatNumber, getInvoiceAmount, getInvoiceCustomer, getInvoiceDoctor, normalizeArabicName, quarterlyIncentiveFromScore, quarterlyPillars2027 } from "@/lib/dawaa2027";
@@ -127,6 +127,6 @@ export default function QuarterlyIncentives2027() {
   );
 }
 
-function Kpi({ icon: Icon, label, value, hint }: any) {
+function Kpi({ icon: Icon, label, value, hint }: { icon: ElementType; label: string; value: ReactNode; hint: string }) {
   return <div className="stat-card"><div className="flex items-center justify-between"><div><div className="text-xs text-slate-400">{label}</div><div className="mt-2 text-2xl font-black text-white">{value}</div><div className="mt-1 text-xs text-slate-500">{hint}</div></div><div className="rounded-2xl bg-purple-500/15 p-3 text-purple-300"><Icon className="h-6 w-6" /></div></div></div>;
 }

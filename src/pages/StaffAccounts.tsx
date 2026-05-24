@@ -207,7 +207,7 @@ function missingColumnFromMessage(message: string) {
 }
 
 async function updateAccountFlexible(accountId: string, payload: Record<string, unknown>) {
-  let next = { ...payload };
+  const next = { ...payload };
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const result = await supabase.from(TABLES.staffAccounts).update(next).eq("id", accountId);
     if (!result.error) return result;
@@ -220,7 +220,7 @@ async function updateAccountFlexible(accountId: string, payload: Record<string, 
 }
 
 async function insertAccountFlexible(payload: Record<string, unknown>) {
-  let next = { ...payload };
+  const next = { ...payload };
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const result = await supabase.from(TABLES.staffAccounts).insert(next);
     if (!result.error) return result;
@@ -411,7 +411,7 @@ export default function StaffAccounts() {
       const username = generateUsername(staffMember.name);
       const temporaryPassword = generateDefaultPassword(staffMember.name);
 
-      const accountData: any = {
+      const accountData: Record<string, unknown> = {
         staff_id: staffMember.id,
         username,
         temporary_password: temporaryPassword,
@@ -556,7 +556,7 @@ export default function StaffAccounts() {
         const username = generateUsername(member.name);
         const temporaryPassword = generateDefaultPassword(member.name);
 
-        const accountData: any = {
+        const accountData: Record<string, unknown> = {
           staff_id: member.id,
           username,
           temporary_password: temporaryPassword,

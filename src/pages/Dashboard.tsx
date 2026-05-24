@@ -28,6 +28,7 @@ import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { TABLES } from "@/lib/supabaseTables";
 import { DAYS_AR, INITIAL_POINTS } from "@/lib/constants";
 import {
+  formatCycleDate,
   getCurrentCycle,
   getCycleProgress,
   getRemainingDays,
@@ -128,6 +129,8 @@ function normalizeBranch(branch?: string | null) {
 export default function Dashboard() {
   const { user } = useAuth();
   const cycle = getCurrentCycle();
+  const cycleStart = formatCycleDate(cycle.start);
+  const cycleEnd = formatCycleDate(cycle.end);
   const progress = getCycleProgress();
   const remaining = getRemainingDays();
   const shiftBounds = loadShiftBounds();
@@ -143,13 +146,11 @@ export default function Dashboard() {
         return;
       }
       setInvoiceLoading(true);
-      const since = new Date();
-      since.setDate(since.getDate() - 55);
-      const ymd = since.toISOString().slice(0, 10);
       const { data, error } = await supabase
         .from("sales_invoices")
         .select("*")
-        .gte("invoice_date", ymd)
+        .gte("invoice_date", cycleStart)
+        .lte("invoice_date", cycleEnd)
         .order("invoice_date", { ascending: false })
         .limit(9000);
       if (!cancelled && !error && data)
@@ -159,7 +160,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [cycleEnd, cycleStart]);
 
   const series = useMemo(
     () => buildDailySalesByBusinessDay(invoiceRows, 14),
@@ -678,8 +679,7 @@ export default function Dashboard() {
             {formatCurrency(periodSales)}
           </div>
           <div className="text-slate-400 text-xs mb-4">
-            مجموع قيمة الفواتير في الفترة المعروضة من الاستيراد (حتى ~
-            {invoiceRows.length} سجل)
+            مجموع قيمة الفواتير في دورة {cycleStart} إلى {cycleEnd} ({invoiceRows.length} سجل)
           </div>
 
           {invoiceLoading ? (

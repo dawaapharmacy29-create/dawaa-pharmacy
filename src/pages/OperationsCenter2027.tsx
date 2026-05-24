@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ElementType, type ReactNode } from "react";
 import { BellRing, CheckCircle2, Clock, Plus, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useSupabaseQuery, supabaseInsert, supabaseUpdate } from "@/hooks/useSupabaseQuery";
@@ -101,5 +101,5 @@ export default function OperationsCenter2027() {
   );
 }
 
-function Kpi({ icon: Icon, label, value, hint }: any) { return <div className="stat-card"><div className="flex items-center justify-between"><div><div className="text-xs text-slate-400">{label}</div><div className="mt-2 text-3xl font-black text-white">{value}</div><div className="mt-1 text-xs text-slate-500">{hint}</div></div><div className="rounded-2xl bg-teal-500/15 p-3 text-teal-300"><Icon className="h-6 w-6" /></div></div></div>; }
+function Kpi({ icon: Icon, label, value, hint }: { icon: ElementType; label: string; value: ReactNode; hint: string }) { return <div className="stat-card"><div className="flex items-center justify-between"><div><div className="text-xs text-slate-400">{label}</div><div className="mt-2 text-3xl font-black text-white">{value}</div><div className="mt-1 text-xs text-slate-500">{hint}</div></div><div className="rounded-2xl bg-teal-500/15 p-3 text-teal-300"><Icon className="h-6 w-6" /></div></div></div>; }
 function Empty({ text }: { text: string }) { return <div className="rounded-2xl border border-dashed border-slate-600 p-6 text-center text-sm text-slate-400">{text}</div>; }
