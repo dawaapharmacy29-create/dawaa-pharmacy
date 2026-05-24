@@ -169,9 +169,26 @@ const FULL_PERMISSIONS = [
     key: "view_activity_log",
     label: "\u0633\u062c\u0644 \u0627\u0644\u0623\u0646\u0634\u0637\u0629",
   },
+  { key: "view_shortages", label: "النواقص" },
+  { key: "manage_shortages", label: "إدارة النواقص" },
+  { key: "view_supplies", label: "المستلزمات" },
+  { key: "manage_supplies", label: "إدارة المستلزمات" },
+  { key: "view_accessories", label: "الإكسسوار" },
+  { key: "manage_accessories", label: "إدارة الإكسسوار" },
+  { key: "view_shelf_organization", label: "تنظيم الأدوية والرفوف" },
+  { key: "manage_shelf_organization", label: "إدارة تنظيم الرفوف" },
+  { key: "view_inventory_counts", label: "الجرد" },
+  { key: "manage_inventory_counts", label: "إدارة الجرد" },
+  { key: "view_branch_cleaning", label: "نظافة الفروع" },
+  { key: "manage_branch_cleaning", label: "إدارة نظافة الفروع" },
+  { key: "review_branch_cleaning", label: "مراجعة نظافة الفروع" },
+  { key: "view_training", label: "التدريب والاختبارات" },
+  { key: "manage_training", label: "إدارة التدريب" },
 ];
 
 const PERMISSION_GROUPS = [
+  { title: "??????? ????????", keys: ["view_shortages", "manage_shortages", "view_supplies", "manage_supplies", "view_accessories", "manage_accessories", "view_shelf_organization", "manage_shelf_organization", "view_inventory_counts", "manage_inventory_counts", "view_branch_cleaning", "manage_branch_cleaning", "review_branch_cleaning"] },
+  { title: "???????", keys: ["view_training", "manage_training"] },
   { title: "لوحة التحكم", keys: ["view_dashboard", "view_doctor_dashboard"] },
   { title: "العملاء وخدمة العملاء", keys: ["view_customers", "edit_customers", "view_customer_service", "manage_followups"] },
   { title: "الفريق والجدول", keys: ["view_team", "view_schedule", "manage_time_off"] },
@@ -302,6 +319,15 @@ export default function StaffAccounts() {
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [accountSearch, setAccountSearch] = useState("");
+  const [showManualAccount, setShowManualAccount] = useState(false);
+  const [manualAccount, setManualAccount] = useState({
+    staff_id: "",
+    name: "",
+    username: "",
+    password: "",
+    role: "صيدلاني",
+    branch: "فرع شكري",
+  });
 
   const {
     data: staffRows,
@@ -369,6 +395,62 @@ export default function StaffAccounts() {
 
   const refresh = () => {
     refetchStaff();
+    refetchAccounts();
+  };
+
+  const createManualAccount = async () => {
+    if (!user) {
+      toast.error("يجب تسجيل الدخول أولًا");
+      return;
+    }
+    const selectedStaff = staff.find((item) => item.id === manualAccount.staff_id);
+    const name = (selectedStaff?.name || manualAccount.name).trim();
+    const username = (manualAccount.username || generateUsername(name)).trim();
+    const password = (manualAccount.password || generateDefaultPassword(name)).trim();
+    if (!name || !username || !password) {
+      toast.error("أكمل الاسم واسم المستخدم وكلمة المرور");
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      staff_id: selectedStaff?.id || null,
+      username,
+      temporary_password: password,
+      password_status: "مؤقتة",
+      name,
+      staff_name: name,
+      role: selectedStaff?.role || manualAccount.role,
+      staff_role: selectedStaff?.role || manualAccount.role,
+      branch: selectedStaff?.branch || manualAccount.branch,
+      branch_id: selectedStaff?.branch_id || null,
+      active: true,
+      can_login: true,
+      visible_in_admin: true,
+      permissions: {},
+    };
+    if (currentUserId) {
+      payload.created_by = currentUserId;
+      payload.updated_by = currentUserId;
+    }
+
+    const { error } = await insertAccountFlexible(payload);
+    if (error) {
+      toast.error(friendlyError(error));
+      return;
+    }
+
+    toast.success(`تم إنشاء الحساب: ${username}`);
+    await logActivity(
+      getSafeCurrentUserId() ?? null,
+      user.name || "",
+      "إضافة حساب يدوي",
+      "حسابات وصلاحيات الفريق",
+      name,
+      String(payload.branch || ""),
+      { username, temporary_password: "***" },
+    );
+    setShowManualAccount(false);
+    setManualAccount({ staff_id: "", name: "", username: "", password: "", role: "صيدلاني", branch: "فرع شكري" });
     refetchAccounts();
   };
 
@@ -778,6 +860,14 @@ export default function StaffAccounts() {
         <div className="flex gap-2">
           <button
             type="button"
+            onClick={() => setShowManualAccount(true)}
+            className="btn-secondary flex items-center gap-2"
+            disabled={!canCreateAccount}
+          >
+            <UserPlus size={16} /> إضافة حساب
+          </button>
+          <button
+            type="button"
             onClick={createAllAccounts}
             className="btn-primary flex items-center gap-2"
             disabled={!canCreateAccount}
@@ -1107,6 +1197,59 @@ export default function StaffAccounts() {
           </div>
         )}
       </div>
+
+      {showManualAccount && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setShowManualAccount(false)}>
+          <div className="w-full max-w-2xl rounded-2xl border border-[#2d4063] bg-[#10213a] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-black text-white">إضافة حساب داخل التطبيق</h2>
+              <button type="button" className="btn-secondary px-3 py-2" onClick={() => setShowManualAccount(false)}>إغلاق</button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="text-xs text-slate-300 space-y-1 md:col-span-2">
+                <span>ربط بموظف موجود</span>
+                <select className="input-dark" value={manualAccount.staff_id} onChange={(event) => {
+                  const selected = staff.find((item) => item.id === event.target.value);
+                  setManualAccount((current) => ({
+                    ...current,
+                    staff_id: event.target.value,
+                    name: selected?.name || current.name,
+                    role: selected?.role || current.role,
+                    branch: selected?.branch || current.branch,
+                    username: selected ? generateUsername(selected.name) : current.username,
+                    password: selected ? generateDefaultPassword(selected.name) : current.password,
+                  }));
+                }}>
+                  <option value="">بدون ربط مباشر</option>
+                  {staff.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.role} - {item.branch}</option>)}
+                </select>
+              </label>
+              <EditField label="اسم صاحب الحساب" value={manualAccount.name} onChange={(value) => setManualAccount((current) => ({ ...current, name: value }))} />
+              <EditField label="اسم المستخدم" value={manualAccount.username} onChange={(value) => setManualAccount((current) => ({ ...current, username: value }))} />
+              <EditField label="كلمة المرور المؤقتة" value={manualAccount.password} onChange={(value) => setManualAccount((current) => ({ ...current, password: value }))} />
+              <EditField label="المسؤولية/الدور" value={manualAccount.role} onChange={(value) => setManualAccount((current) => ({ ...current, role: value }))} />
+              <label className="text-xs text-slate-300 space-y-1">
+                <span>الفرع</span>
+                <select className="input-dark" value={manualAccount.branch} onChange={(event) => setManualAccount((current) => ({ ...current, branch: event.target.value }))}>
+                  {["فرع شكري", "فرع الشامي", "كل الفروع"].map((branch) => <option key={branch}>{branch}</option>)}
+                </select>
+              </label>
+            </div>
+            <button type="button" className="btn-primary mt-4 w-full" onClick={createManualAccount}>
+              إنشاء الحساب
+            </button>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function EditField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="text-xs text-slate-300 space-y-1">
+      <span>{label}</span>
+      <input className="input-dark" value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
   );
 }

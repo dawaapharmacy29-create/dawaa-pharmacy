@@ -42,6 +42,8 @@ interface StagnantMedicine {
   product_type?: string | null;
   expiry_date: string | null;
   quantity_available: number | null;
+  product_price?: number | null;
+  unit_price?: number | null;
   batch_details?: ExpiryBatch[] | string | null;
   branch: string | null;
   priority: string | null;
@@ -159,6 +161,7 @@ const blankForm = {
   product_type: "",
   expiry_date: "",
   quantity_available: 0,
+  product_price: 0,
   batches_text: "",
   responsible_doctor_id: "",
   responsible_doctor_name: "",
@@ -817,6 +820,8 @@ export default function StagnantMedicines() {
         product_type: form.product_type || null,
         expiry_date: form.expiry_date || batches[0]?.expiry_date || null,
         quantity_available: totalQuantity,
+        product_price: Number(form.product_price || 0),
+        unit_price: Number(form.product_price || 0),
         total_quantity: totalQuantity,
         batch_details: batches,
         responsible_doctor: selectedDoctor.name,
@@ -954,6 +959,7 @@ export default function StagnantMedicines() {
       quantity_available: Number(
         medicine.quantity_available || medicine.total_quantity || 0,
       ),
+      product_price: Number(medicine.product_price || medicine.unit_price || 0),
       batches_text: batchesToText(
         medicine.batch_details,
         medicine.quantity_available,
@@ -1507,6 +1513,12 @@ export default function StagnantMedicines() {
                       {medicine.incentive_per_unit || 0} ج
                     </div>
                   </div>
+                  <div className="bg-white/5 rounded-xl p-3">
+                    <div className="text-slate-400 text-xs">سعر الصنف</div>
+                    <div className="text-white font-bold num mt-1">
+                      {Number(medicine.product_price || medicine.unit_price || 0).toLocaleString("ar-EG")} ج
+                    </div>
+                  </div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
@@ -1735,6 +1747,24 @@ export default function StagnantMedicines() {
                       })
                     }
                     required
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-300 text-sm block mb-1">
+                    سعر الصنف
+                  </label>
+                  <input
+                    className="input-dark"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={form.product_price}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        product_price: Number(e.target.value),
+                      })
+                    }
                   />
                 </div>
                 <div>

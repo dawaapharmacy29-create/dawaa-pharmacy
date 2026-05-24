@@ -103,6 +103,36 @@ export function getCustomerLatestInvoices(customer: CustomerLike, invoices: Invo
     .slice(0, limit);
 }
 
+export function getCustomerInvoices(customer: CustomerLike, invoices: InvoiceLike[]): InvoiceLike[] {
+  return invoices.filter((invoice) => matchCustomerInvoice(customer, invoice));
+}
+
+export function getCustomerMonthlyInteractionCounts(customer: CustomerLike, invoices: InvoiceLike[]) {
+  const counts = new Map<string, number>();
+  for (const invoice of getCustomerInvoices(customer, invoices)) {
+    const date = validDate(getInvoiceDate(invoice));
+    if (!date) continue;
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+export function getCustomerMonthlyInteractionSummary(customer: CustomerLike, invoices: InvoiceLike[], today = new Date()) {
+  const counts = getCustomerMonthlyInteractionCounts(customer, invoices);
+  const currentKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const previousCounts = [...counts.entries()]
+    .filter(([month]) => month !== currentKey)
+    .map(([, count]) => count)
+    .filter((count) => count > 0);
+  const expectedMonthlyVisits = previousCounts.length
+    ? Math.round(previousCounts.reduce((sum, count) => sum + count, 0) / previousCounts.length)
+    : 0;
+  const currentMonthVisits = counts.get(currentKey) || 0;
+  const shouldAlert = today.getDate() >= 20 && expectedMonthlyVisits > 0 && currentMonthVisits < expectedMonthlyVisits;
+  return { counts, currentKey, currentMonthVisits, expectedMonthlyVisits, shouldAlert };
+}
+
 export function getMostImportantDoctorByValue(customer: CustomerLike, invoices: InvoiceLike[]): string {
   return getCustomerMetrics(customer, invoices).mostImportantDoctorByValue;
 }

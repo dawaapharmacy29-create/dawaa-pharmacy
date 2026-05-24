@@ -222,6 +222,33 @@ const PERMISSION_CATEGORIES = [
     ],
   },
   {
+    name: "المخزون والتشغيل",
+    permissions: [
+      { key: "view_shortages", label: "مشاهدة النواقص" },
+      { key: "manage_shortages", label: "إدارة النواقص" },
+      { key: "view_supplies", label: "مشاهدة المستلزمات" },
+      { key: "manage_supplies", label: "إدارة المستلزمات" },
+      { key: "view_accessories", label: "مشاهدة الإكسسوار" },
+      { key: "manage_accessories", label: "إدارة الإكسسوار" },
+      { key: "view_shelf_organization", label: "مشاهدة تنظيم الرفوف" },
+      { key: "manage_shelf_organization", label: "إدارة تنظيم الرفوف" },
+      { key: "view_inventory_counts", label: "مشاهدة الجرد" },
+      { key: "manage_inventory_counts", label: "إدارة الجرد" },
+      { key: "view_branch_cleaning", label: "مشاهدة نظافة الفروع" },
+      { key: "manage_branch_cleaning", label: "إدارة نظافة الفروع" },
+      { key: "review_branch_cleaning", label: "مراجعة نظافة الفروع" },
+    ],
+  },
+  {
+    name: "التدريب والمسؤوليات",
+    permissions: [
+      { key: "view_training", label: "مشاهدة التدريب" },
+      { key: "manage_training", label: "إدارة التدريب" },
+      { key: "view_manager_performance", label: "مشاهدة تقييم المسؤولين" },
+      { key: "manage_manager_performance", label: "إدارة تقييم المسؤولين" },
+    ],
+  },
+  {
     name: "الإعدادات",
     permissions: [
       { key: "view_settings", label: "مشاهدة الإعدادات" },
@@ -289,6 +316,7 @@ export default function RolesPermissions() {
     "حسابات وصلاحيات",
   );
   const [saving, setSaving] = useState(false);
+  const responsibilityTemplates = ["مسؤول خدمة العملاء", "مسؤول المخزون والتشغيل", "مسؤول المشتريات", "مسؤول النظافة", "مسؤول الاستوريز والعروض", "مراجع الجرد", "مراجع تنظيم الرفوف"];
 
   const {
     data: roles,
@@ -737,7 +765,7 @@ export default function RolesPermissions() {
               value={newRoleName}
               onChange={(event) => setNewRoleName(event.target.value)}
               className="input-dark"
-              placeholder="اسم دور جديد"
+              placeholder="اسم دور أو مسؤولية جديدة"
               disabled={saving}
             />
             <button
@@ -749,6 +777,18 @@ export default function RolesPermissions() {
               <Plus size={16} />
               إضافة
             </button>
+          </div>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {responsibilityTemplates.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setNewRoleName(item)}
+                className="rounded-full border border-teal-400/20 bg-teal-500/10 px-3 py-1.5 text-xs text-teal-200 hover:bg-teal-500/20"
+              >
+                {item}
+              </button>
+            ))}
           </div>
           {rolesLoading ? (
             <div className="text-slate-400 text-center py-8">

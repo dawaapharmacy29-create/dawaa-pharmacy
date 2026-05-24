@@ -1,6 +1,6 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import type { Customer, DailyFollowup } from "@/types/database";
-import { classifyCustomer, customerStatus } from "@/lib/customerMetrics";
+import { classifyCustomer, customerStatus, getCustomerMonthlyInteractionSummary } from "@/lib/customerMetrics";
 import { enrichCustomersWithSalesMetrics, fetchSalesInvoices } from "@/lib/salesInvoiceSource";
 import { getScript } from "@/lib/followupScripts";
 import { cleanEgyptianPhone } from "@/lib/whatsapp";
@@ -136,12 +136,12 @@ function phoneKey(value?: string | null) {
 
 function normalizeCustomer(row: Record<string, unknown>): Customer {
   const phone = readCustomerPhone(row);
-  const customerCode = readFirstText(row, ["customer_code", "code", "customer_id", "id", "كود العميل", "كود"]);
+  const customerCode = readFirstText(row, ["customer_code", "code", "customer_id", "كود العميل", "كود"]);
   const lastPurchase = readFirstText(row, ["last_purchase", "last_purchase_date", "last_invoice_date", "آخر شراء"]);
   const firstPurchase = readFirstText(row, ["first_purchase", "first_purchase_date", "أول شراء"]);
 
   return {
-    id: customerCode || phone || String(row.id || ""),
+    id: String(row.id || customerCode || phone || ""),
     customer_code: customerCode,
     name: readFirstText(row, ["name", "customer_name", "client_name", "اسم العميل", "العميل"], "عميل بدون اسم"),
     phone,
@@ -229,7 +229,7 @@ function buildNotes(category: string, c: Customer, batch: string, topDoctor?: st
     "قائمة يومية ذكية",
     `دفعة: ${batch}`,
     `الفئة: ${category}`,
-    `كود العميل: ${c.customer_code || c.id}`,
+    `كود العميل: ${c.customer_code || "غير مسجل"}`,
     `متوسط شهري: ${Math.round(c.avg_monthly || 0)} ج.م`,
     `آخر شراء: ${c.last_purchase || "غير محدد"}`,
     `أول شراء: ${c.first_purchase || "غير محدد"}`,
@@ -287,6 +287,10 @@ function pickBucket(
     })
     .sort((a, b) => bucketScore(b, existing) - bucketScore(a, existing))
     .slice(0, limit);
+}
+
+function needsMonthlyFrequencyFollowup(c: Customer, invoices: Record<string, unknown>[]) {
+  return getCustomerMonthlyInteractionSummary(c as unknown as Record<string, unknown>, invoices).shouldAlert;
 }
 
 async function loadCustomerPhoneLookup(followups: DailyFollowup[]) {
@@ -470,6 +474,7 @@ export async function generateTodayFollowups() {
   const picked = new Set<string>(((todayRows ?? []) as DailyFollowup[]).map((row) => row.customer_id || row.customer_phone || row.customer_name || "").filter(Boolean));
 
   const bucketDefinitions: Array<[string, (c: Customer) => boolean, number]> = [
+    ["أقل من المعدل الشهري", (c) => needsMonthlyFrequencyFollowup(c, invoices), 8],
     ["مهم جدًا", isVip, LIMITS.vip],
     ["مهم", isImportant, LIMITS.important],
     ["متوسط", isMedium, LIMITS.medium],
@@ -489,9 +494,13 @@ export async function generateTodayFollowups() {
     bucket.customers.map((c) => {
       const code = c.customer_code || c.id;
       const topDoctor = topDoctors.get(code) || null;
+      const monthly = getCustomerMonthlyInteractionSummary(c as unknown as Record<string, unknown>, invoices);
+      const monthlyNote = monthly.shouldAlert
+        ? `\nتنبيه التكرار الشهري: العميل تعامل هذا الشهر ${monthly.currentMonthVisits} مرة، ومتوسطه المعتاد ${monthly.expectedMonthlyVisits} مرة.`
+        : "";
       return {
         customer_id: code,
-        customer_code: c.customer_code || code,
+        customer_code: c.customer_code || null,
         customer_name: c.name,
         customer_phone: c.phone,
         branch: c.branch,
@@ -501,7 +510,7 @@ export async function generateTodayFollowups() {
         status: "معلق",
         date: today,
         followup_date: today,
-        notes: buildNotes(bucket.category, c, batch, topDoctor),
+        notes: `${buildNotes(bucket.category, c, batch, topDoctor)}${monthlyNote}`,
       };
     }),
   );

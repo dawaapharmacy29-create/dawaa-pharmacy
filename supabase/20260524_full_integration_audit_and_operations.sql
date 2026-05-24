@@ -195,6 +195,21 @@ alter table if exists public.inventory_count_sessions
   add column if not exists reviewer_staff_name text,
   add column if not exists created_by_name text;
 
+alter table if exists public.inventory_count_items
+  add column if not exists expiry_date date,
+  add column if not exists unit_price numeric,
+  add column if not exists reviewed_qty numeric,
+  add column if not exists reviewed_expiry_date date,
+  add column if not exists review_result text;
+
+alter table if exists public.stagnant_medicines
+  add column if not exists product_price numeric,
+  add column if not exists unit_price numeric;
+
+alter table if exists public.incentive_medicines
+  add column if not exists product_price numeric,
+  add column if not exists unit_price numeric;
+
 create table if not exists public.branch_cleaning_responsibles (
   id uuid primary key default gen_random_uuid(),
   branch text not null,

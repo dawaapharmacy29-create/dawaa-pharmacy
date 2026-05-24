@@ -369,6 +369,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   const [branchFilter, setBranchFilter] = useState("الكل");
   const [statusFilter, setStatusFilter] = useState("الكل");
   const [form, setForm] = useState<Record<string, string | number | boolean | null>>(config.defaultValues);
+  const [inventoryFile, setInventoryFile] = useState<File | null>(null);
   const { data: staffRows } = useSupabaseQuery<StaffChoice>({
     table: "staff",
     orderBy: { column: "name", ascending: true },
@@ -443,13 +444,19 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
           }
         : {}),
     };
-    const { error: saveError } = await supabase.from(config.table).insert(payload);
+    const insertQuery = supabase.from(config.table).insert(payload).select("id").single();
+    const { data: insertedRow, error: saveError } = await insertQuery;
     if (saveError) {
       toast.error("تعذر الحفظ. تأكد من تشغيل ترقية قاعدة البيانات.");
     } else {
+      if (module === "inventory" && inventoryFile && insertedRow?.id) {
+        const imported = await importInventoryItems(String(insertedRow.id), inventoryFile);
+        if (imported > 0) toast.success(`تم رفع ${imported} صنف للجرد من ملف Excel`);
+      }
       toast.success("تم الحفظ بنجاح");
       await logActivity(getSafeCurrentUserId(), user?.name || "النظام", `إضافة ${config.title}`, config.title, String(form[config.primaryField] || config.title), String(form[config.branchField || "branch"] || "كل الفروع"), { route_path: config.route, new_value: payload });
       setForm(config.defaultValues);
+      setInventoryFile(null);
       await loadRows();
     }
     setSaving(false);
@@ -513,6 +520,20 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
             />
           ))}
         </div>
+        {module === "inventory" && (
+          <label className="mt-3 block rounded-xl border border-dashed border-teal-400/30 bg-teal-500/5 p-4 text-sm text-slate-300">
+            <span className="mb-2 block font-bold text-teal-300">استيراد ملف الجرد Excel</span>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(event) => setInventoryFile(event.target.files?.[0] || null)}
+              className="block w-full text-xs text-slate-300 file:ml-3 file:rounded-lg file:border-0 file:bg-teal-500 file:px-3 file:py-2 file:font-bold file:text-[#07111f]"
+            />
+            <span className="mt-2 block text-xs text-slate-500">
+              الأعمدة المقبولة: اسم الصنف، الكمية المتوقعة، الكمية الفعلية، تاريخ الصلاحية، السعر، سبب الفرق، الإجراء.
+            </span>
+          </label>
+        )}
         <button type="button" onClick={submit} disabled={saving} className="btn-primary mt-4 flex items-center gap-2 px-4 py-2 text-sm">
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
           حفظ
@@ -678,6 +699,50 @@ function safeJsonObject(value: string) {
   } catch {
     return {};
   }
+}
+
+async function importInventoryItems(sessionId: string, file: File) {
+  const XLSX = await import("xlsx");
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+  const pick = (row: Record<string, unknown>, keys: string[]) => {
+    for (const key of keys) {
+      const found = Object.keys(row).find((item) => item.trim().toLowerCase() === key.trim().toLowerCase());
+      if (found && row[found] !== "") return row[found];
+    }
+    return "";
+  };
+  const toNumber = (value: unknown) => {
+    const next = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
+    return Number.isFinite(next) ? next : null;
+  };
+  const toDate = (value: unknown) => {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(String(value));
+    return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().slice(0, 10);
+  };
+  const items = rows
+    .map((row) => ({
+      session_id: sessionId,
+      item_name: String(pick(row, ["اسم الصنف", "الصنف", "item_name", "name"])).trim(),
+      expected_qty: toNumber(pick(row, ["الكمية المتوقعة", "expected_qty", "السيستم", "الرصيد"])),
+      actual_qty: toNumber(pick(row, ["الكمية الفعلية", "actual_qty", "الفعلي", "الكمية"])),
+      expiry_date: toDate(pick(row, ["تاريخ الصلاحية", "expiry_date", "الصلاحية", "تاريخ الانتهاء"])),
+      unit_price: toNumber(pick(row, ["السعر", "سعر الصنف", "unit_price", "price"])),
+      reason: String(pick(row, ["سبب الفرق", "reason"])).trim() || null,
+      action: String(pick(row, ["الإجراء", "action"])).trim() || null,
+      notes: String(pick(row, ["ملاحظات", "notes"])).trim() || null,
+    }))
+    .filter((row) => row.item_name);
+  if (!items.length) return 0;
+  const { error } = await supabase.from("inventory_count_items").insert(items);
+  if (error) {
+    toast.error(`تم حفظ جلسة الجرد، لكن تعذر رفع الأصناف: ${error.message}`);
+    return 0;
+  }
+  return items.length;
 }
 
 export default OperationalModulePage;

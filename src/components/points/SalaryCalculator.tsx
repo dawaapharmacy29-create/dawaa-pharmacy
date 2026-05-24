@@ -3,6 +3,7 @@ import { Calculator, FileText, TrendingDown, TrendingUp, Wallet } from "lucide-r
 import { jsPDF } from "jspdf";
 import { formatCurrency } from "@/lib/utils";
 import { calculateIncentive, POINT_VALUE_EGP, STARTING_POINTS } from "@/lib/points";
+import { cleanTechnicalText, formatTransactionExecutor, formatTransactionSource, getTransactionShortReason } from "@/lib/pointsLedger";
 
 export interface IncentiveTransaction {
   id: string;
@@ -59,7 +60,8 @@ function rowDate(row: IncentiveTransaction) {
 }
 
 function rowDetails(row: IncentiveTransaction) {
-  return row.manager_note || row.description || "-";
+  const details = cleanTechnicalText(row.manager_note || row.description || "");
+  return details || getTransactionShortReason(row as unknown as Record<string, unknown>) || "-";
 }
 
 function buildTransactionRows(rows: IncentiveTransaction[]) {
@@ -76,12 +78,12 @@ function buildTransactionRows(rows: IncentiveTransaction[]) {
       (row) => `
         <tr>
           <td>${escapeHtml(rowDate(row))}</td>
-          <td>${escapeHtml(row.reason || row.description || "-")}</td>
+          <td>${escapeHtml(getTransactionShortReason(row as unknown as Record<string, unknown>))}</td>
           <td>${escapeHtml(transactionPoints(row))}</td>
           <td>${escapeHtml(rowDetails(row))}</td>
-          <td>${escapeHtml(row.source || row.source_type || "-")}</td>
-          <td>${escapeHtml(row.created_by || "-")}</td>
-          <td>${escapeHtml(row.status || "approved")}</td>
+          <td>${escapeHtml(formatTransactionSource(row as unknown as Record<string, unknown>))}</td>
+          <td>${escapeHtml(formatTransactionExecutor(row as unknown as Record<string, unknown>))}</td>
+          <td>${escapeHtml(row.status === "pending" ? "قيد المراجعة" : row.status === "rejected" ? "مرفوض" : "معتمد")}</td>
         </tr>
       `,
     )
