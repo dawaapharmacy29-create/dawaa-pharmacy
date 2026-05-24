@@ -1,5 +1,5 @@
-import { useMemo, useState, useRef, useCallback } from "react";
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw, ShieldAlert, Trash2, Pencil, Save } from "lucide-react";
 import { BRANCHES } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
@@ -20,8 +20,38 @@ import {
 type Step = "idle" | "parsing" | "preview" | "importing" | "done";
 type ImportKind = "sales" | "customers";
 
+interface ManagedInvoiceRow {
+  id: string;
+  import_batch: string | null;
+  branch: string | null;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  invoice_type: string | null;
+  customer_code: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  amount: number | null;
+  net_amount: number | null;
+  gross_amount: number | null;
+  seller_name: string | null;
+}
+
+interface InvoiceEditForm {
+  branch: string;
+  invoice_number: string;
+  invoice_date: string;
+  invoice_type: string;
+  customer_code: string;
+  customer_name: string;
+  customer_phone: string;
+  seller_name: string;
+  amount: string;
+  net_amount: string;
+  gross_amount: string;
+}
+
 export default function Invoices() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [step, setStep] = useState<Step>("idle");
   const [importKind, setImportKind] = useState<ImportKind>("sales");
   const [branch, setBranch] = useState<string>(BRANCHES[0]);
@@ -31,6 +61,30 @@ export default function Invoices() {
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [progress, setProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [managedInvoices, setManagedInvoices] = useState<ManagedInvoiceRow[]>([]);
+  const [managedLoading, setManagedLoading] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [editInvoice, setEditInvoice] = useState<ManagedInvoiceRow | null>(null);
+  const [editForm, setEditForm] = useState<InvoiceEditForm | null>(null);
+
+  const loadManagedInvoices = useCallback(async () => {
+    if (!isAdmin) return;
+    setManagedLoading(true);
+    const { data, error } = await supabase
+      .from("sales_invoices")
+      .select("id,import_batch,branch,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,gross_amount,seller_name")
+      .order("invoice_date", { ascending: false })
+      .limit(5000);
+
+    if (error) toast.error(`تعذر تحميل الفواتير: ${error.message}`);
+    else setManagedInvoices((data || []) as ManagedInvoiceRow[]);
+    setManagedLoading(false);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    void loadManagedInvoices();
+  }, [loadManagedInvoices]);
 
   const readFile = (file: File): Promise<ArrayBuffer> =>
     new Promise((resolve, reject) => {
@@ -101,6 +155,7 @@ export default function Invoices() {
         branch
       );
       if (importKind === "sales") {
+        await loadManagedInvoices();
         await supabase.from("notifications").insert({
           title: "استيراد ملف فواتير جديد",
           message: `تم استيراد ${summary.insertedRows} فاتورة مبيعات من ملف ${fileName}`,
@@ -128,6 +183,153 @@ export default function Invoices() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const invoiceBatches = useMemo(() => {
+    const map = new Map<string, { batch: string; count: number; total: number; firstDate: string; lastDate: string; branches: Set<string> }>();
+    for (const invoice of managedInvoices) {
+      const batch = invoice.import_batch || "بدون رقم دفعة";
+      const date = String(invoice.invoice_date || "").slice(0, 10);
+      const current = map.get(batch) || {
+        batch,
+        count: 0,
+        total: 0,
+        firstDate: date || "-",
+        lastDate: date || "-",
+        branches: new Set<string>(),
+      };
+      current.count += 1;
+      current.total += Number(invoice.amount ?? invoice.net_amount ?? 0) || 0;
+      if (date && (current.firstDate === "-" || date < current.firstDate)) current.firstDate = date;
+      if (date && (current.lastDate === "-" || date > current.lastDate)) current.lastDate = date;
+      if (invoice.branch) current.branches.add(invoice.branch);
+      map.set(batch, current);
+    }
+    return [...map.values()].sort((a, b) => b.lastDate.localeCompare(a.lastDate)).slice(0, 25);
+  }, [managedInvoices]);
+
+  const logInvoiceAdminAction = async (action: string, description: string, details?: Record<string, unknown>) => {
+    const currentUserProfile = getCurrentUserProfile();
+    await logActivity(
+      currentUserProfile.id,
+      currentUserProfile.name,
+      action,
+      "الفواتير",
+      description,
+      "كل الفروع",
+      details,
+    );
+  };
+
+  const deleteInvoiceBatch = async (batch: string) => {
+    if (!isAdmin || adminBusy) return;
+    if (!window.confirm(`تأكيد مسح دفعة الفواتير: ${batch}`)) return;
+
+    setAdminBusy(true);
+    const affectedIdentifiers = Array.from(new Set(
+      managedInvoices
+        .filter((invoice) => (batch === "بدون رقم دفعة" ? !invoice.import_batch : invoice.import_batch === batch))
+        .map((invoice) => invoice.customer_code || invoice.customer_phone)
+        .filter(Boolean),
+    ));
+    const query = supabase.from("sales_invoices").delete();
+    const { error } = batch === "بدون رقم دفعة"
+      ? await query.is("import_batch", null)
+      : await query.eq("import_batch", batch);
+
+    if (error) {
+      toast.error(`تعذر مسح الدفعة: ${error.message}`);
+    } else {
+      toast.success("تم مسح دفعة الفواتير");
+      if (affectedIdentifiers.length > 0) {
+        await supabase.from("customer_analysis").delete().in("customer_code", affectedIdentifiers);
+      }
+      await logInvoiceAdminAction("مسح دفعة فواتير", `مسح دفعة ${batch}`, { import_batch: batch });
+      await loadManagedInvoices();
+    }
+    setAdminBusy(false);
+  };
+
+  const deleteAllInvoices = async () => {
+    if (!isAdmin || adminBusy) return;
+    if (deleteConfirmText.trim() !== "مسح الفواتير") {
+      toast.error("اكتب عبارة التأكيد كما هي: مسح الفواتير");
+      return;
+    }
+
+    setAdminBusy(true);
+    const { error } = await supabase.from("sales_invoices").delete().not("id", "is", null);
+    if (error) {
+      toast.error(`تعذر مسح الفواتير: ${error.message}`);
+      setAdminBusy(false);
+      return;
+    }
+
+    await supabase.from("customer_analysis").delete().not("id", "is", null);
+    await logInvoiceAdminAction("مسح كل الفواتير", "مسح كل فواتير التجربة وتحليل العملاء المرتبط بها", {
+      deleted_invoice_count: managedInvoices.length,
+    });
+    setDeleteConfirmText("");
+    setManagedInvoices([]);
+    setAdminBusy(false);
+    toast.success("تم مسح كل الفواتير التجريبية. يمكنك رفع الفواتير من البداية الآن.");
+  };
+
+  const startEditInvoice = (invoice: ManagedInvoiceRow) => {
+    setEditInvoice(invoice);
+    setEditForm({
+      branch: invoice.branch || branch,
+      invoice_number: invoice.invoice_number || "",
+      invoice_date: String(invoice.invoice_date || "").slice(0, 10),
+      invoice_type: invoice.invoice_type || "",
+      customer_code: invoice.customer_code || "",
+      customer_name: invoice.customer_name || "",
+      customer_phone: invoice.customer_phone || "",
+      seller_name: invoice.seller_name || "",
+      amount: String(invoice.amount ?? ""),
+      net_amount: String(invoice.net_amount ?? ""),
+      gross_amount: String(invoice.gross_amount ?? ""),
+    });
+  };
+
+  const saveInvoiceEdit = async () => {
+    if (!isAdmin || !editInvoice || !editForm || adminBusy) return;
+    const amount = Number(editForm.amount);
+    const netAmount = editForm.net_amount.trim() ? Number(editForm.net_amount) : amount;
+    const grossAmount = editForm.gross_amount.trim() ? Number(editForm.gross_amount) : amount;
+    if (!editForm.invoice_date || !Number.isFinite(amount)) {
+      toast.error("راجع التاريخ وقيمة الفاتورة قبل الحفظ");
+      return;
+    }
+
+    setAdminBusy(true);
+    const payload = {
+      branch: editForm.branch,
+      invoice_number: editForm.invoice_number,
+      invoice_date: editForm.invoice_date,
+      invoice_type: editForm.invoice_type,
+      customer_code: editForm.customer_code,
+      customer_name: editForm.customer_name,
+      customer_phone: editForm.customer_phone,
+      seller_name: editForm.seller_name,
+      amount,
+      net_amount: Number.isFinite(netAmount) ? netAmount : amount,
+      gross_amount: Number.isFinite(grossAmount) ? grossAmount : amount,
+    };
+    const { error } = await supabase.from("sales_invoices").update(payload).eq("id", editInvoice.id);
+    if (error) {
+      toast.error(`تعذر تعديل الفاتورة: ${error.message}`);
+    } else {
+      toast.success("تم حفظ تعديل الفاتورة");
+      await logInvoiceAdminAction("تعديل فاتورة", `تعديل فاتورة ${editForm.invoice_number || editInvoice.id}`, {
+        invoice_id: editInvoice.id,
+        new_value: payload,
+      });
+      setEditInvoice(null);
+      setEditForm(null);
+      await loadManagedInvoices();
+    }
+    setAdminBusy(false);
+  };
+
   const validCount = parseResult?.rows.length ?? 0;
   const errorCount = parseResult?.errors.length ?? 0;
   const totalAmount = importKind === "sales" && parseResult
@@ -149,6 +351,151 @@ export default function Invoices() {
           <Download size={15} /> تحميل نموذج مبيعات
         </button>
       </div>
+
+      {isAdmin && (
+        <div className="bg-[#1B2B4B] border border-red-500/25 rounded-2xl p-5 space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <div className="section-title flex items-center gap-2">
+                <ShieldAlert size={18} className="text-red-300" />
+                إدارة الفواتير المستوردة
+              </div>
+              <div className="text-slate-400 text-xs mt-1">
+                هذا القسم ظاهر للمدير العام فقط. استخدمه لمسح بيانات التجربة أو تعديل فاتورة قبل إعادة الرفع المنظم.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={loadManagedInvoices}
+              disabled={managedLoading || adminBusy}
+              className="btn-secondary px-4 py-2 text-sm flex items-center gap-2"
+            >
+              <RefreshCw size={15} className={managedLoading ? "animate-spin" : ""} />
+              تحديث القائمة
+            </button>
+          </div>
+
+          <div className="grid md:grid-cols-[1fr_auto] gap-3 items-end rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+            <label className="block text-xs text-slate-300 space-y-1">
+              <span>لمسح كل الفواتير التجريبية اكتب: مسح الفواتير</span>
+              <input
+                className="input-dark"
+                value={deleteConfirmText}
+                onChange={(event) => setDeleteConfirmText(event.target.value)}
+                placeholder="مسح الفواتير"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={deleteAllInvoices}
+              disabled={adminBusy || deleteConfirmText.trim() !== "مسح الفواتير"}
+              className="rounded-xl bg-red-500/20 border border-red-400/30 px-4 py-2 text-sm font-bold text-red-200 hover:bg-red-500/30 disabled:opacity-50 flex items-center gap-2"
+            >
+              <Trash2 size={15} />
+              مسح كل الفواتير
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatTile value={managedInvoices.length} label="فواتير محملة" color="text-white" />
+            <StatTile value={invoiceBatches.length} label="دفعات ظاهرة" color="text-teal-400" />
+            <StatTile value={managedInvoices.reduce((sum, row) => sum + (Number(row.amount ?? row.net_amount ?? 0) || 0), 0)} label="إجمالي الظاهر" color="text-amber-400" isCurrency />
+            <StatTile value={new Set(managedInvoices.map((row) => row.customer_code || row.customer_phone || row.customer_name).filter(Boolean)).size} label="عملاء ظاهرين" color="text-purple-300" />
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">آخر دفعات الرفع</div>
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>الدفعة</th>
+                    <th>الفترة</th>
+                    <th>الفروع</th>
+                    <th>عدد الفواتير</th>
+                    <th>الإجمالي</th>
+                    <th>مسح</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoiceBatches.map((batchRow) => (
+                    <tr key={batchRow.batch}>
+                      <td className="text-white font-medium max-w-xs truncate">{batchRow.batch}</td>
+                      <td className="text-slate-300">{batchRow.firstDate} إلى {batchRow.lastDate}</td>
+                      <td className="text-slate-300">{[...batchRow.branches].join("، ") || "-"}</td>
+                      <td className="num">{batchRow.count.toLocaleString("ar-EG")}</td>
+                      <td className="text-amber-300 font-bold">{formatCurrency(batchRow.total)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => deleteInvoiceBatch(batchRow.batch)}
+                          disabled={adminBusy}
+                          className="rounded-lg border border-red-400/30 bg-red-500/10 p-2 text-red-200 hover:bg-red-500/20 disabled:opacity-50"
+                          title="مسح هذه الدفعة"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {invoiceBatches.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="text-center text-slate-400 py-6">لا توجد فواتير مستوردة حاليا.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">آخر الفواتير للتعديل السريع</div>
+            <div className="overflow-x-auto max-h-80 overflow-y-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>رقم الفاتورة</th>
+                    <th>التاريخ</th>
+                    <th>الفرع</th>
+                    <th>العميل</th>
+                    <th>الدكتور</th>
+                    <th>القيمة</th>
+                    <th>تعديل</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {managedInvoices.slice(0, 120).map((invoice) => (
+                    <tr key={invoice.id}>
+                      <td className="num">{invoice.invoice_number || "-"}</td>
+                      <td>{invoice.invoice_date ? formatDate(invoice.invoice_date) : "-"}</td>
+                      <td>{invoice.branch || "-"}</td>
+                      <td>{invoice.customer_name || invoice.customer_code || "-"}</td>
+                      <td>{invoice.seller_name || "-"}</td>
+                      <td className="text-teal-300 font-bold">{formatCurrency(Number(invoice.amount ?? invoice.net_amount ?? 0) || 0)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => startEditInvoice(invoice)}
+                          disabled={adminBusy}
+                          className="rounded-lg border border-teal-400/30 bg-teal-500/10 p-2 text-teal-200 hover:bg-teal-500/20 disabled:opacity-50"
+                          title="تعديل الفاتورة"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {managedInvoices.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="text-center text-slate-400 py-6">لا توجد فواتير للتعديل.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
         <div className="flex flex-col md:flex-row gap-3 md:items-center">
@@ -327,6 +674,64 @@ export default function Invoices() {
           <button onClick={handleReset} className="btn-primary flex items-center gap-2"><RefreshCw size={16} /> استيراد ملف آخر</button>
         </div>
       )}
+
+      {isAdmin && editInvoice && editForm && (
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-3xl p-6">
+            <div className="flex items-start justify-between gap-3 mb-5">
+              <div>
+                <div className="section-title">تعديل فاتورة</div>
+                <div className="text-slate-400 text-xs mt-1">أي تعديل هنا ينعكس على التحليلات بعد تحديث الصفحة.</div>
+              </div>
+              <button
+                type="button"
+                className="text-slate-400 hover:text-white"
+                onClick={() => {
+                  setEditInvoice(null);
+                  setEditForm(null);
+                }}
+              >
+                <XCircle size={20} />
+              </button>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-3">
+              <EditField label="الفرع" value={editForm.branch} onChange={(value) => setEditForm({ ...editForm, branch: value })} />
+              <EditField label="رقم الفاتورة" value={editForm.invoice_number} onChange={(value) => setEditForm({ ...editForm, invoice_number: value })} />
+              <label className="text-slate-300 text-xs space-y-1 block">
+                <span>تاريخ الفاتورة</span>
+                <input className="input-dark" type="date" value={editForm.invoice_date} onChange={(event) => setEditForm({ ...editForm, invoice_date: event.target.value })} />
+              </label>
+              <EditField label="نوع الفاتورة" value={editForm.invoice_type} onChange={(value) => setEditForm({ ...editForm, invoice_type: value })} />
+              <EditField label="كود العميل" value={editForm.customer_code} onChange={(value) => setEditForm({ ...editForm, customer_code: value })} />
+              <EditField label="اسم العميل" value={editForm.customer_name} onChange={(value) => setEditForm({ ...editForm, customer_name: value })} />
+              <EditField label="هاتف العميل" value={editForm.customer_phone} onChange={(value) => setEditForm({ ...editForm, customer_phone: value })} />
+              <EditField label="الدكتور/المستخدم" value={editForm.seller_name} onChange={(value) => setEditForm({ ...editForm, seller_name: value })} />
+              <EditField label="صافي الفاتورة" value={editForm.amount} type="number" onChange={(value) => setEditForm({ ...editForm, amount: value })} />
+              <EditField label="بعد الخصم" value={editForm.net_amount} type="number" onChange={(value) => setEditForm({ ...editForm, net_amount: value })} />
+              <EditField label="قيمة الفاتورة قبل الخصم" value={editForm.gross_amount} type="number" onChange={(value) => setEditForm({ ...editForm, gross_amount: value })} />
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button type="button" className="btn-primary flex items-center gap-2" onClick={saveInvoiceEdit} disabled={adminBusy}>
+                <Save size={16} />
+                حفظ التعديل
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setEditInvoice(null);
+                  setEditForm(null);
+                }}
+                disabled={adminBusy}
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -357,6 +762,15 @@ function StatTile({ value, label, color, isCurrency = false }: { value: number; 
       <div className={`text-xl font-bold ${color} num`}>{isCurrency ? formatCurrency(value) : value.toLocaleString("ar-EG")}</div>
       <div className="text-slate-400 text-xs mt-1">{label}</div>
     </div>
+  );
+}
+
+function EditField({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return (
+    <label className="text-slate-300 text-xs space-y-1 block">
+      <span>{label}</span>
+      <input className="input-dark" type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
   );
 }
 

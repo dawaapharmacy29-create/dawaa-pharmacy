@@ -30,6 +30,7 @@ import { DAYS_AR, INITIAL_POINTS } from "@/lib/constants";
 import {
   formatCycleDate,
   getCurrentCycle,
+  getCycleForDate,
   getCycleProgress,
   getRemainingDays,
 } from "@/lib/pharmacy-cycle";
@@ -135,6 +136,8 @@ export default function Dashboard() {
   const remaining = getRemainingDays();
   const shiftBounds = loadShiftBounds();
 
+  const [periodStart, setPeriodStart] = useState(cycleStart);
+  const [periodEnd, setPeriodEnd] = useState(cycleEnd);
   const [invoiceRows, setInvoiceRows] = useState<SalesInvoiceRow[]>([]);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
 
@@ -149,8 +152,8 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from("sales_invoices")
         .select("*")
-        .gte("invoice_date", cycleStart)
-        .lte("invoice_date", cycleEnd)
+        .gte("invoice_date", periodStart)
+        .lte("invoice_date", periodEnd)
         .order("invoice_date", { ascending: false })
         .limit(9000);
       if (!cancelled && !error && data)
@@ -160,7 +163,21 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [cycleEnd, cycleStart]);
+  }, [periodEnd, periodStart]);
+
+  const applyPeriodCycle = (dateValue: string) => {
+    const selectedCycle = getCycleForDate(new Date(`${dateValue}T12:00:00`));
+    setPeriodStart(formatCycleDate(selectedCycle.start));
+    setPeriodEnd(formatCycleDate(selectedCycle.end));
+  };
+
+  const applyPreviousPeriodCycle = () => {
+    const previousDate = new Date(`${periodStart}T12:00:00`);
+    previousDate.setDate(previousDate.getDate() - 1);
+    const previousCycle = getCycleForDate(previousDate);
+    setPeriodStart(formatCycleDate(previousCycle.start));
+    setPeriodEnd(formatCycleDate(previousCycle.end));
+  };
 
   const series = useMemo(
     () => buildDailySalesByBusinessDay(invoiceRows, 14),
@@ -424,6 +441,48 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <div className="stat-card">
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+          <label className="block text-xs text-slate-300 space-y-1">
+            <span>بداية فترة التحليل</span>
+            <input
+              className="input-dark"
+              type="date"
+              value={periodStart}
+              onChange={(event) => setPeriodStart(event.target.value)}
+            />
+          </label>
+          <label className="block text-xs text-slate-300 space-y-1">
+            <span>نهاية فترة التحليل</span>
+            <input
+              className="input-dark"
+              type="date"
+              value={periodEnd}
+              onChange={(event) => setPeriodEnd(event.target.value)}
+            />
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn-secondary px-3 py-2 text-xs"
+              onClick={() => applyPeriodCycle(cycleStart)}
+            >
+              الدورة الحالية
+            </button>
+            <button
+              type="button"
+              className="btn-secondary px-3 py-2 text-xs"
+              onClick={applyPreviousPeriodCycle}
+            >
+              الدورة السابقة
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 text-xs text-slate-400">
+          المبيعات والرسم في اللوحة محسوبين من {periodStart} إلى {periodEnd}.
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           icon={UserCheck}
@@ -679,7 +738,7 @@ export default function Dashboard() {
             {formatCurrency(periodSales)}
           </div>
           <div className="text-slate-400 text-xs mb-4">
-            مجموع قيمة الفواتير في دورة {cycleStart} إلى {cycleEnd} ({invoiceRows.length} سجل)
+            مجموع قيمة الفواتير في فترة {periodStart} إلى {periodEnd} ({invoiceRows.length} سجل)
           </div>
 
           {invoiceLoading ? (
