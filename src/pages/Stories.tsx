@@ -5,9 +5,11 @@ import ImageUploadBox from "@/components/ImageUploadBox";
 import { supabase } from "@/lib/supabase";
 import { BRANCHES } from "@/lib/constants";
 import { useAuth } from "@/hooks/useAuth";
+import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { formatCurrency } from "@/lib/utils";
 
 type Row = Record<string, unknown>;
+type StaffOption = { id?: string; name?: string | null; role?: string | null; branch?: string | null };
 const ALL = "الكل";
 
 function text(row: Row, key: string, fallback = "") {
@@ -49,6 +51,7 @@ async function insertResilient(table: string, payload: Record<string, unknown>) 
 
 export default function Stories() {
   const { user } = useAuth();
+  const { data: staffRows } = useSupabaseQuery<StaffOption>({ table: "staff", realtimeEnabled: false });
   const [stories, setStories] = useState<Row[]>([]);
   const [reports, setReports] = useState<Row[]>([]);
   const [sales, setSales] = useState<Row[]>([]);
@@ -69,6 +72,7 @@ export default function Stories() {
     related_item_name: "",
     related_item_code: "",
     planned_quantity: 0,
+    uploaded_by_staff_id: "",
     uploaded_by_staff_name: user?.name || "",
     branch: "كل الفروع",
     notes: "",
@@ -121,6 +125,14 @@ export default function Stories() {
     return { views, inquiries, salesValue, missing };
   }, [reportByStory, reports, stories]);
 
+  const doctors = useMemo(
+    () =>
+      (staffRows || []).filter((item) =>
+        [item.name, item.role].filter(Boolean).some((value) => /د\/|دكتور|صيدلي|صيدلاني|doctor|pharmacist/i.test(String(value))),
+      ),
+    [staffRows],
+  );
+
   const updateField = (key: string, value: string | number) => setForm((current) => ({ ...current, [key]: value }));
 
   const submit = async (event: FormEvent) => {
@@ -133,7 +145,7 @@ export default function Stories() {
         related_offer_id: form.related_offer_id || null,
         image_url: image.publicUrl || null,
         image_path: image.path || null,
-        uploaded_by_staff_id: safeUuid(user?.staffId) || safeUuid(user?.id),
+        uploaded_by_staff_id: safeUuid(form.uploaded_by_staff_id) || safeUuid(user?.staffId) || safeUuid(user?.id),
         uploaded_by_staff_name: form.uploaded_by_staff_name || user?.name || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -206,7 +218,21 @@ export default function Stories() {
             <Field label="كود الصنف" value={form.related_item_code} onChange={(v) => updateField("related_item_code", v)} />
             <Field label="الكمية المخططة" type="number" value={form.planned_quantity} onChange={(v) => updateField("planned_quantity", Number(v))} />
             <Select label="الفرع" value={form.branch} options={["كل الفروع", ...BRANCHES]} onChange={(v) => updateField("branch", v)} />
-            <Field label="تم الرفع بواسطة" value={form.uploaded_by_staff_name} onChange={(v) => updateField("uploaded_by_staff_name", v)} />
+            <Select
+              label="تم الرفع بواسطة"
+              value={form.uploaded_by_staff_id}
+              options={["", ...doctors.map((doctor) => String(doctor.id || doctor.name || ""))]}
+              labels={["اختر الدكتور", ...doctors.map((doctor) => `${doctor.name || "دكتور"}${doctor.branch ? ` - ${doctor.branch}` : ""}`)]}
+              onChange={(v) => {
+                const selected = doctors.find((doctor) => String(doctor.id || doctor.name || "") === v);
+                setForm((current) => ({
+                  ...current,
+                  uploaded_by_staff_id: v,
+                  uploaded_by_staff_name: selected?.name || "",
+                  branch: selected?.branch || current.branch,
+                }));
+              }}
+            />
             <Textarea label="ملاحظات" value={form.notes} onChange={(v) => updateField("notes", v)} />
           </div>
         </div>

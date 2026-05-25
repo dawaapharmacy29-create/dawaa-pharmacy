@@ -20,6 +20,7 @@ import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { formatDate } from "@/lib/utils";
 import { displayEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
 import ImageUploadBox from "@/components/ImageUploadBox";
+import CustomerSmartSearch, { type CustomerSearchResult } from "@/components/CustomerSmartSearch";
 import {
   createCustomerRequest,
   getCustomerRequestEvents,
@@ -385,8 +386,7 @@ function CreateRequestPanel({
   user: { id?: string; name?: string } | null;
   onCreated: (request: CustomerRequest) => void;
 }) {
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerSearchResult | null>(null);
   const [medicineName, setMedicineName] = useState("");
   const [image, setImage] = useState({ publicUrl: "", path: "" });
   const [quantity, setQuantity] = useState(1);
@@ -400,18 +400,6 @@ function CreateRequestPanel({
   const [special, setSpecial] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const filteredCustomers = useMemo(() => {
-    const q = customerSearch.trim().toLowerCase();
-    return (customers || [])
-      .filter((customer) => !q || customerLabel(customer).toLowerCase().includes(q))
-      .slice(0, 80);
-  }, [customers, customerSearch]);
-
-  const customer = useMemo(
-    () => filteredCustomers.find((item) => normalizeCustomer(item).id === selectedCustomerId) || customers.find((item) => normalizeCustomer(item).id === selectedCustomerId),
-    [customers, filteredCustomers, selectedCustomerId],
-  );
-  const selectedCustomer = customer ? normalizeCustomer(customer) : null;
   const selectedDoctor = doctors.find((item) => item.id === doctorId);
 
   const submit = async (event: FormEvent) => {
@@ -457,19 +445,17 @@ function CreateRequestPanel({
     <form onSubmit={submit} className="bg-[#1B2B4B] border border-teal-400/25 rounded-2xl p-5 space-y-4">
       <div className="section-title flex items-center gap-2"><ClipboardList size={20} /> تسجيل طلب صنف غير متوفر</div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div>
+        <div className="lg:col-span-3">
           <label className="text-slate-300 text-xs">بحث عن العميل</label>
-          <input className="input-dark mt-1" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} placeholder="اسم / كود / رقم" />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="text-slate-300 text-xs">العميل</label>
-          <select className="input-dark mt-1" value={selectedCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>
-            <option value="">اختر العميل</option>
-            {filteredCustomers.map((item) => {
-              const normalized = normalizeCustomer(item);
-              return <option key={normalized.id} value={normalized.id}>{customerLabel(item)}</option>;
-            })}
-          </select>
+          <div className="mt-1">
+            <CustomerSmartSearch
+              value={selectedCustomer}
+              onSelect={setSelectedCustomer}
+              placeholder="ابحث باسم العميل أو الكود أو الهاتف، مثال: محمد* أو 010*"
+              disabled={saving}
+              allowCreate
+            />
+          </div>
         </div>
         <div>
           <label className="text-slate-300 text-xs">اسم الصنف المطلوب *</label>

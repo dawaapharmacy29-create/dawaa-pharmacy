@@ -443,7 +443,7 @@ export default function Invoices() {
             <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">آخر دفعات الرفع</div>
             <div className="overflow-x-auto">
               <table className="data-table">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
                   <tr>
                     <th>الدفعة</th>
                     <th>الفترة</th>
@@ -488,7 +488,7 @@ export default function Invoices() {
             <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">آخر الفواتير للتعديل السريع</div>
             <div className="overflow-x-auto max-h-80 overflow-y-auto">
               <table className="data-table">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
                   <tr>
                     <th>رقم الفاتورة</th>
                     <th>التاريخ</th>
@@ -633,7 +633,7 @@ export default function Invoices() {
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="data-table">
-                  <thead>
+                  <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
                     <tr>
                       <th>#</th>
                       <th>العميل</th>

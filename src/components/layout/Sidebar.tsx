@@ -76,6 +76,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { path: "/team", icon: UserCheck, label: "الفريق", permission: "view_team" },
       { path: "/schedule", icon: Calendar, label: "الجداول والإجازات", permission: "view_schedule" },
+      { path: "/time-off", icon: Calendar, label: "الإذونات والإجازات الاستثنائية", permission: "view_schedule" },
       { path: "/staff-accounts", icon: ShieldCheck, label: "حسابات وصلاحيات", adminOnly: true, permission: "view_staff_accounts" },
       { path: "/shift-performance", icon: ClipboardList, label: "تقييم الشيفتات", permission: "view_shift_performance" },
       { path: "/training", icon: BookOpenCheck, label: "التدريب والاختبارات", permission: "view_dashboard" },
@@ -189,12 +190,24 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   useEffect(() => {
     const nav = navRef.current;
     if (!nav) return;
-    const savedScroll = sessionStorage.getItem("sidebarScroll");
-    if (savedScroll) nav.scrollTop = parseInt(savedScroll, 10);
     const saveScroll = () => sessionStorage.setItem("sidebarScroll", nav.scrollTop.toString());
-    nav.addEventListener("scroll", saveScroll);
+    nav.addEventListener("scroll", saveScroll, { passive: true });
     return () => nav.removeEventListener("scroll", saveScroll);
-  }, [location.pathname]);
+  }, []);
+
+  useEffect(() => {
+    const savedScroll = sessionStorage.getItem("sidebarScroll");
+    if (!savedScroll) return;
+    const restore = () => {
+      if (navRef.current) navRef.current.scrollTop = Number(savedScroll) || 0;
+    };
+    const frameId = window.requestAnimationFrame(restore);
+    const timerId = window.setTimeout(restore, 80);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timerId);
+    };
+  }, [location.pathname, groups.length, openGroups]);
 
   const handleLogout = () => {
     logout();
@@ -257,7 +270,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                       key={item.path}
                       to={item.path}
                       end={item.path === "/"}
-                      onClick={onMobileClose}
+                      onClick={() => {
+                        if (navRef.current) sessionStorage.setItem("sidebarScroll", navRef.current.scrollTop.toString());
+                        onMobileClose();
+                      }}
                       className={({ isActive }) => cn("nav-item", isActive ? "nav-item-active" : "nav-item-inactive", collapsed ? "justify-center px-2" : "")}
                       title={collapsed ? item.label : undefined}
                     >

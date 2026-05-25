@@ -1,4 +1,4 @@
-import { useMemo, useState, type ElementType, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -83,6 +83,13 @@ const REQUEST_FUNNEL = [
 ];
 
 const STAGNANT_COLORS = ["#ef4444", "#f97316", "#facc15", "#10b981"];
+const DASHBOARD_CUSTOM_ITEMS_KEY = "dawaa-dashboard-custom-priorities";
+
+type CustomDashboardItem = {
+  id: string;
+  label: string;
+  route: string;
+};
 
 function asDate(value: unknown) {
   if (!value) return null;
@@ -134,6 +141,10 @@ export default function ExecutiveDashboard2027() {
   const previousCycle = useMemo(() => getPreviousCycle(), []);
   const [periodStart, setPeriodStart] = useState(() => formatCycleDate(currentCycle.start));
   const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(currentCycle.end));
+  const [editMode, setEditMode] = useState(false);
+  const [customLabel, setCustomLabel] = useState("");
+  const [customRoute, setCustomRoute] = useState("/operations-center");
+  const [customItems, setCustomItems] = useState<CustomDashboardItem[]>([]);
   const { data: invoices } = useSupabaseQuery<Record<string, unknown>>({ table: "sales_invoices", limit: 7000, realtimeEnabled: false });
   const { data: followups } = useSupabaseQuery<Record<string, unknown>>({ table: "daily_followups", limit: 1200, realtimeEnabled: true });
   const { data: requests } = useSupabaseQuery<Record<string, unknown>>({ table: "customer_requests", limit: 1200, realtimeEnabled: true });
@@ -152,6 +163,36 @@ export default function ExecutiveDashboard2027() {
   const { data: stories } = useSupabaseQuery<Record<string, unknown>>({ table: "whatsapp_stories", limit: 500, realtimeEnabled: true });
   const { data: trainingAssignments } = useSupabaseQuery<Record<string, unknown>>({ table: "training_assignments", limit: 1000, realtimeEnabled: true });
   const { data: deliveryOrders } = useSupabaseQuery<Record<string, unknown>>({ table: "delivery_orders", limit: 700, realtimeEnabled: true });
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DASHBOARD_CUSTOM_ITEMS_KEY);
+      if (saved) setCustomItems(JSON.parse(saved));
+    } catch {
+      setCustomItems([]);
+    }
+  }, []);
+
+  const saveCustomItems = (items: CustomDashboardItem[]) => {
+    setCustomItems(items);
+    localStorage.setItem(DASHBOARD_CUSTOM_ITEMS_KEY, JSON.stringify(items));
+  };
+
+  const addCustomItem = () => {
+    const label = customLabel.trim();
+    if (!label) return;
+    saveCustomItems([...customItems, { id: crypto.randomUUID(), label, route: customRoute || "/operations-center" }]);
+    setCustomLabel("");
+  };
+
+  const moveCustomItem = (id: string, direction: -1 | 1) => {
+    const index = customItems.findIndex((item) => item.id === id);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= customItems.length) return;
+    const next = [...customItems];
+    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    saveCustomItems(next);
+  };
 
   const model = useMemo(() => {
     const periodStartDate = new Date(`${periodStart}T00:00:00`);
@@ -473,9 +514,42 @@ export default function ExecutiveDashboard2027() {
 
         <Panel title="أولويات اليوم" link="/operations-center" className="xl:col-span-1">
           <div className="max-h-[460px] space-y-3 overflow-y-auto pr-1">
-            {model.operationsPriorities.map((item) => (
+            {[
+              ...customItems.map((item) => ({ ...item, count: 0, icon: Sparkles, tone: "info" as const })),
+              ...model.operationsPriorities,
+            ].map((item) => (
               <TaskChip key={item.label} {...item} />
             ))}
+          </div>
+          <div className="mt-3 border-t border-white/10 pt-3">
+            <button type="button" onClick={() => setEditMode((value) => !value)} className="rounded-xl border border-teal-400/25 bg-teal-500/10 px-3 py-2 text-xs font-black text-teal-200">
+              {editMode ? "إنهاء التعديل" : "تعديل بنود اللوحة"}
+            </button>
+            {editMode && (
+              <div className="mt-3 space-y-2 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                  <input className="input-dark" value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} placeholder="اسم البند الجديد" />
+                  <select className="input-dark" value={customRoute} onChange={(event) => setCustomRoute(event.target.value)}>
+                    <option value="/operations-center">مركز المهام</option>
+                    <option value="/customer-service">خدمة العملاء</option>
+                    <option value="/customer-requests">طلبات العملاء</option>
+                    <option value="/stagnant-medicines">الأدوية الراكدة</option>
+                    <option value="/incentive-medicines">أدوية اللستة</option>
+                    <option value="/inventory-counts">الجرد</option>
+                    <option value="/branch-cleaning">نظافة الفروع</option>
+                  </select>
+                  <button type="button" onClick={addCustomItem} className="btn-primary px-4">إضافة</button>
+                </div>
+                {customItems.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 rounded-xl bg-white/[0.04] p-2 text-xs text-slate-200">
+                    <span className="flex-1">{item.label}</span>
+                    <button type="button" onClick={() => moveCustomItem(item.id, -1)} className="rounded-lg bg-white/10 px-2 py-1">فوق</button>
+                    <button type="button" onClick={() => moveCustomItem(item.id, 1)} className="rounded-lg bg-white/10 px-2 py-1">تحت</button>
+                    <button type="button" onClick={() => saveCustomItems(customItems.filter((current) => current.id !== item.id))} className="rounded-lg bg-red-500/15 px-2 py-1 text-red-200">حذف</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </Panel>
       </section>

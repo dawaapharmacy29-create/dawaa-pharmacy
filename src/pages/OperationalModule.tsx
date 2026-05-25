@@ -6,8 +6,9 @@ import { logActivity, useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { BRANCHES } from "@/lib/constants";
 import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
+import ImageUploadBox from "@/components/ImageUploadBox";
 
-type FieldKind = "text" | "number" | "date" | "select" | "textarea" | "staff" | "checklist";
+type FieldKind = "text" | "number" | "date" | "select" | "textarea" | "staff" | "checklist" | "image";
 
 interface ModuleField {
   key: string;
@@ -170,13 +171,15 @@ const configs: Record<string, ModuleConfig> = {
     defaultStatus: "pending",
     statuses: COMMON_STATUSES,
     dashboardHint: "أي فرع لم يغلق مهمة النظافة يظهر كتنبيه يومي.",
-    defaultValues: { branch: BRANCHES[0], task_date: new Date().toISOString().slice(0, 10), date: new Date().toISOString().slice(0, 10), shift: "morning", responsible_staff_name: "", responsible_staff_id: "", reviewer_staff_name: "", reviewer_staff_id: "", checklist: "{}", status: "pending", notes: "" },
+    defaultValues: { branch: BRANCHES[0], task_date: new Date().toISOString().slice(0, 10), date: new Date().toISOString().slice(0, 10), shift: "morning", responsible_staff_name: "", cleaner_name: "", responsible_staff_id: "", reviewer_staff_name: "", reviewer_staff_id: "", cleanliness_rating: 0, review_photo_url: "", review_photo_path: "", checklist: "{}", status: "pending", notes: "" },
     fields: [
       { key: "branch", label: "الفرع", kind: "select", options: BRANCH_OPTIONS, required: true },
       { key: "task_date", label: "التاريخ", kind: "date" },
       { key: "shift", label: "الشيفت", kind: "select", options: ["morning", "evening", "closing"] },
-      { key: "responsible_staff_name", label: "مسؤول النظافة", kind: "staff", staffIdKey: "responsible_staff_id" },
+      { key: "responsible_staff_name", label: "مسؤول النظافة", kind: "select", options: ["", "حبيبه", "هبه"] },
       { key: "reviewer_staff_name", label: "الدكتور المراجع اليومي", kind: "staff", staffIdKey: "reviewer_staff_id" },
+      { key: "cleanliness_rating", label: "تقييم مستوى النظافة", kind: "select", options: ["0", "1", "2", "3", "4", "5"] },
+      { key: "review_photo_url", label: "صورة مراجعة النظافة", kind: "image" },
       { key: "checklist", label: "جدول النظافة اليومي", kind: "checklist", checklistItems: CLEANING_CHECKLIST },
       { key: "notes", label: "ملاحظات", kind: "textarea" },
     ],
@@ -724,8 +727,9 @@ function Field({
   const selectedByName = staffOptions.find((staff) => staff.name === String(value || ""));
   const staffSelectValue = selectedStaffId || selectedByName?.id || "";
   const checklistValue = typeof value === "string" ? safeJsonObject(value) : {};
+  const imagePathKey = field.key.endsWith("_url") ? field.key.replace(/_url$/, "_path") : `${field.key}_path`;
   return (
-    <label className={`text-xs text-slate-300 space-y-1 ${kind === "textarea" || kind === "checklist" ? "md:col-span-3" : ""}`}>
+    <label className={`text-xs text-slate-300 space-y-1 ${kind === "textarea" || kind === "checklist" || kind === "image" ? "md:col-span-3" : ""}`}>
       <span>{field.label}{field.required ? " *" : ""}</span>
       {kind === "select" ? (
         <select className={common} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}>
@@ -769,6 +773,15 @@ function Field({
             );
           })}
         </div>
+      ) : kind === "image" ? (
+        <ImageUploadBox
+          bucket="customer-request-images"
+          folder="cleaning-reviews"
+          label={field.label}
+          valueUrl={String(value || "")}
+          valuePath={String(form[imagePathKey] || "")}
+          onUploaded={({ publicUrl, path }) => onChange(publicUrl, { [imagePathKey]: path })}
+        />
       ) : (
         <input className={common} type={kind} value={String(value ?? "")} onChange={(event) => onChange(kind === "number" ? Number(event.target.value) : event.target.value)} placeholder={field.placeholder} />
       )}
