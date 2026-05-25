@@ -10,7 +10,7 @@ import { getCurrentCycle, isDateInCycle } from "@/lib/pharmacy-cycle";
 import { computeStaffPerformance2027, performanceRecommendation } from "@/lib/dawaa2027Data";
 import { formatMoney, formatNumber } from "@/lib/dawaa2027";
 import { monthCycleFromDate, type ReviewItemSummary } from "@/lib/conversationReviews";
-import { effectiveCyclePoints, getTransactionShortReason, pointRecordDelta } from "@/lib/pointsLedger";
+import { effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, pointRecordDelta } from "@/lib/pointsLedger";
 import { TABLES } from "@/lib/supabaseTables";
 
 interface StaffRow {
@@ -189,6 +189,8 @@ export default function StaffDetail() {
       setStaff(row);
 
       const pointByIdReq = supabase.from(TABLES.employeeTransactions).select("*").eq("staff_id", id).order("created_at", { ascending: false }).limit(150);
+      const pointByEmployeeIdReq = supabase.from(TABLES.employeeTransactions).select("*").eq("employee_id", id).order("created_at", { ascending: false }).limit(150);
+      const pointByNameReq = supabase.from(TABLES.employeeTransactions).select("*").eq("employee_name", row.name).order("created_at", { ascending: false }).limit(150);
       const isDeliveryRole = /delivery|توصيل|دليفري/i.test(row.role || "");
       const invoiceReq = supabase.from("sales_invoices").select("*").limit(10000);
       const incentiveByIdReq = supabase.from("incentive_medicines").select("*").eq("doctor_id", id).limit(200);
@@ -201,8 +203,10 @@ export default function StaffDetail() {
       const stagnantDispensesReq = supabase.from("stagnant_medicine_dispenses").select("*").limit(3000);
       const listSalesReq = supabase.from("incentive_medicine_sales").select("*").limit(3000);
 
-      const [prById, invRes, incentiveById, incentiveByName, stagnantById, stagnantByName, scheduleRes, timeOffRes, followupsRes, stagnantDispensesRes, listSalesRes] = await Promise.all([
+      const [prById, prByEmployeeId, prByName, invRes, incentiveById, incentiveByName, stagnantById, stagnantByName, scheduleRes, timeOffRes, followupsRes, stagnantDispensesRes, listSalesRes] = await Promise.all([
         pointByIdReq,
+        pointByEmployeeIdReq,
+        pointByNameReq,
         invoiceReq,
         incentiveByIdReq,
         incentiveByNameReq,
@@ -215,7 +219,7 @@ export default function StaffDetail() {
         listSalesReq,
       ]);
       const pointRowsByKey = new Map<string, PointRecord>();
-      for (const record of ((prById.data || []) as PointRecord[])) {
+      for (const record of ([...(prById.data || []), ...(prByEmployeeId.data || []), ...(prByName.data || [])] as PointRecord[])) {
         const signedPoints = pointRecordDelta(record);
         const rawPoints = Math.abs(signedPoints);
         pointRowsByKey.set(record.id, {
@@ -286,7 +290,7 @@ export default function StaffDetail() {
 
   const cyclePointsRows = useMemo(() => {
     return pointsRows.filter((row) => {
-      if ((row.status || "approved") !== "approved") return false;
+      if (!isApprovedPointRecord(row)) return false;
       if (row.month_cycle) return row.month_cycle === activeMonthCycle;
       return row.created_at ? isDateInCycle(new Date(row.created_at), cycle) : false;
     });
@@ -301,8 +305,8 @@ export default function StaffDetail() {
   }, [activeMonthCycle, cycle, reviews]);
 
   const grouped = useMemo(() => {
-    const bonuses = cyclePointsRows.filter((r) => r.type === "مكافأة" || r.type === "bonus" || toNumber(r.points_delta) > 0);
-    const deductions = cyclePointsRows.filter((r) => r.type === "خصم" || r.type === "deduction" || toNumber(r.points_delta) < 0);
+    const bonuses = cyclePointsRows.filter((r) => pointRecordDelta(r) > 0);
+    const deductions = cyclePointsRows.filter((r) => pointRecordDelta(r) < 0);
     return {
       bonuses,
       deductions,

@@ -64,7 +64,17 @@ export function normalizeStaffLedgerKey(value: unknown) {
 export function pointRecordStatus(row: PointLedgerRecord) {
   const note = row.manager_note || "";
   const match = note.match(/(?:status|حالة):(pending|approved|rejected)/);
-  const status = row.status || match?.[1] || "approved";
+  const status = String(row.status || match?.[1] || "approved")
+    .trim()
+    .toLowerCase()
+    .replace("معتمد", "approved")
+    .replace("تم الاعتماد", "approved")
+    .replace("مقبول", "approved")
+    .replace("قيد المراجعة", "pending")
+    .replace("معلق", "pending")
+    .replace("مرفوض", "rejected")
+    .replace("ملغي", "cancelled")
+    .replace("ملغى", "cancelled");
   if (status === "active") return "approved";
   if (status === "cancelled") return "rejected";
   return status;

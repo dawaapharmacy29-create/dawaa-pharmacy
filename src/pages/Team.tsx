@@ -3,7 +3,7 @@ import { Search, Plus, Phone, Edit2, UserCheck, Loader2, Eye, ClipboardList } fr
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
 import { isCurrentlyOnShift, matchesOrderedSegments, percent } from "@/lib/utils";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { effectiveCyclePoints, getTransactionShortReason, pointRecordDelta, type PointLedgerRecord } from "@/lib/pointsLedger";
+import { effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, pointRecordDelta, recordBelongsToStaff, type PointLedgerRecord } from "@/lib/pointsLedger";
 import { BRANCHES, DAYS_AR, ROLES, INITIAL_POINTS } from "@/lib/constants";
 import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -50,8 +50,10 @@ interface ShiftSchedule {
 
 interface EmployeeTransaction {
   id: string;
-  staff_id: string;
-  type: 'penalty' | 'reward';
+  staff_id?: string | null;
+  employee_id?: string | null;
+  employee_name?: string | null;
+  type?: string | null;
   points?: number | null;
   amount?: number | null;
   points_delta?: number | null;
@@ -93,8 +95,10 @@ export default function Team() {
   const holidayDay = (employee: Employee) =>
     schedules.find((item) => (item.staff_id === employee.id || item.staff_name === employee.name) && item.branch === employee.branch && item.is_off)?.day_name || employee.holiday_day || "غير محدد";
 
-  const getEmployeeTransactions = (employeeId: string) => {
-    return employeeTransactions?.filter(t => t.staff_id === employeeId) || [];
+  const getEmployeeTransactions = (employee: Employee) => {
+    return (employeeTransactions || []).filter((transaction) =>
+      recordBelongsToStaff(transaction as PointLedgerRecord, employee),
+    );
   };
 
   const filtered = useMemo(() => employees.filter(e => {
@@ -202,10 +206,10 @@ export default function Team() {
           const onShift = Boolean(shift?.shift_start && shift?.shift_end && !shift.is_off && isCurrentlyOnShift(shift.shift_start, shift.shift_end) && emp.status === "نشط");
           const points = effectiveCyclePoints(emp, pointRecords || [], cycle);
           const pointsPct = percent(points, emp.max_points || INITIAL_POINTS);
-          const transactions = getEmployeeTransactions(emp.id);
-          const activeTransactions = transactions.filter(t => t.status !== 'cancelled');
-          const penaltyRows = activeTransactions.filter(t => t.type === 'penalty');
-          const bonusRows = activeTransactions.filter(t => t.type === 'reward');
+          const transactions = getEmployeeTransactions(emp);
+          const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord));
+          const penaltyRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) < 0);
+          const bonusRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) > 0);
           const penalties = penaltyRows.length;
           const bonuses = bonusRows.length;
           const penaltyPoints = penaltyRows.reduce((sum, row) => sum + transactionPoints(row), 0);
@@ -285,7 +289,7 @@ export default function Team() {
 
       {showAddModal && <EmployeeModal onClose={() => setShowAddModal(false)} onSaved={refetch} user={user} />}
       {editing && <EmployeeModal employee={editing} onClose={() => setEditing(null)} onSaved={refetch} user={user} />}
-      {viewing && <EmployeeDetailsModal employee={viewing} schedules={schedules.filter((item) => (item.staff_id === viewing.id || item.staff_name === viewing.name) && item.branch === viewing.branch)} transactions={getEmployeeTransactions(viewing.id)} onClose={() => setViewing(null)} />}
+      {viewing && <EmployeeDetailsModal employee={viewing} schedules={schedules.filter((item) => (item.staff_id === viewing.id || item.staff_name === viewing.name) && item.branch === viewing.branch)} transactions={getEmployeeTransactions(viewing)} onClose={() => setViewing(null)} />}
     </div>
   );
 }
@@ -581,10 +585,12 @@ function RankingList({ title, rows }: { title: string; rows: Array<Employee & { 
 }
 
 function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { employee: Employee; schedules: ShiftSchedule[]; transactions: EmployeeTransaction[]; onClose: () => void }) {
-  const points = Number(employee.points ?? employee.max_points ?? INITIAL_POINTS);
-  const activeTransactions = transactions.filter(t => t.status !== 'cancelled');
-  const penaltyRows = activeTransactions.filter(t => t.type === 'penalty');
-  const bonusRows = activeTransactions.filter(t => t.type === 'reward');
+  const cycle = getCurrentCycle();
+  const pointRecords = transactions as PointLedgerRecord[];
+  const points = effectiveCyclePoints(employee, pointRecords, cycle);
+  const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord));
+  const penaltyRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) < 0);
+  const bonusRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) > 0);
   const penalties = penaltyRows.length;
   const bonuses = bonusRows.length;
   const permissions = schedules.filter((item) => item.is_off).length;
@@ -624,11 +630,13 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
               <div className="text-slate-400 text-sm py-4 text-center">لا توجد جزاءات أو مكافآت مسجلة لهذا الموظف.</div>
             ) : (
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {activeTransactions.map((t) => (
-                  <div key={t.id} className={`rounded-lg border p-3 ${t.type === 'penalty' ? 'bg-red-500/10 border-red-400/30' : 'bg-green-500/10 border-green-400/30'}`}>
+                {activeTransactions.map((t) => {
+                  const isPenalty = pointRecordDelta(t as PointLedgerRecord) < 0;
+                  return (
+                  <div key={t.id} className={`rounded-lg border p-3 ${isPenalty ? 'bg-red-500/10 border-red-400/30' : 'bg-green-500/10 border-green-400/30'}`}>
                     <div className="flex items-center justify-between mb-1">
-                      <span className={`text-xs font-bold ${t.type === 'penalty' ? 'text-red-300' : 'text-green-300'}`}>
-                        {t.type === 'penalty' ? 'جزاء' : 'مكافأة'}
+                      <span className={`text-xs font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}>
+                        {isPenalty ? 'جزاء' : 'مكافأة'}
                       </span>
                       <span className="text-slate-400 text-xs">{new Date(t.created_at).toLocaleDateString('ar-EG')}</span>
                     </div>
@@ -636,12 +644,12 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
                     {t.description && <div className="text-slate-400 text-xs mt-1">{t.description}</div>}
                     <div className="flex gap-4 mt-2 text-xs">
                       {(t.points !== null && t.points !== undefined) || (t.points_delta !== null && t.points_delta !== undefined) ? (
-                        <span className={`font-bold ${t.type === 'penalty' ? 'text-red-300' : 'text-green-300'}`}>
+                        <span className={`font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}>
                           النقاط: {transactionPoints(t)}
                         </span>
                       ) : null}
                       {t.amount !== null && t.amount !== undefined && (
-                        <span className={`font-bold ${t.type === 'penalty' ? 'text-red-300' : 'text-green-300'}`}>
+                        <span className={`font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}>
                           المبلغ: {t.amount} ج.م
                         </span>
                       )}
@@ -652,7 +660,7 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
                       )}
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             )}
           </div>
