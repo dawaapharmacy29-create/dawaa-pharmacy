@@ -208,9 +208,61 @@ function dateLabel(value?: string | null) {
   }
 }
 
+function customerCodeOf(row: DailyFollowup) {
+  return String(row.customer_code || "").trim();
+}
+
+function customerPhoneOf(row: DailyFollowup) {
+  return String(row.customer_phone || row.phone || "").trim();
+}
+
+function lastPurchaseOf(row: DailyFollowup) {
+  return row.last_purchase_date || readNoteValue(row.notes, NOTE_LABELS.lastPurchase) || "";
+}
+
+function currentPurchaseCountOf(row: DailyFollowup) {
+  return Number(row.purchase_count_current_month ?? 0) || 0;
+}
+
+function averagePurchaseCountOf(row: DailyFollowup) {
+  const direct = Number(row.average_monthly_purchase_count ?? 0);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const fromNotes = Number(readNoteValue(row.notes, NOTE_LABELS.avgMonthly) || 0);
+  return Number.isFinite(fromNotes) ? fromNotes : 0;
+}
+
+function wildcardMatch(value: unknown, query: string) {
+  const raw = query.trim().toLowerCase();
+  if (!raw) return true;
+  const text = String(value ?? "").toLowerCase();
+  const pattern = raw
+    .split("*")
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(pattern || ".*").test(text);
+}
+
+function followupMatchesSearch(row: DailyFollowup, query: string) {
+  return [
+    row.customer_name,
+    customerCodeOf(row),
+    customerPhoneOf(row),
+    cleanEgyptianPhone(customerPhoneOf(row)),
+    row.branch,
+    row.category,
+    row.status,
+    row.followup_status,
+    row.contact_result,
+    row.responsible_name,
+    row.assigned_to,
+  ].some((value) => wildcardMatch(value, query));
+}
+
 export default function CustomerService() {
   const [followups, setFollowups] = useState<DailyFollowup[]>([]);
   const [selected, setSelected] = useState<DailyFollowup | null>(null);
+  const [customer360, setCustomer360] = useState<DailyFollowup | null>(null);
+  const [followupSearch, setFollowupSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [bulkDoctor, setBulkDoctor] = useState("");
@@ -407,6 +459,10 @@ export default function CustomerService() {
     };
   }, [followups]);
 
+  const filteredFollowups = useMemo(
+    () => followups.filter((item) => followupMatchesSearch(item, followupSearch)),
+    [followups, followupSearch],
+  );
 
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
@@ -414,8 +470,9 @@ export default function CustomerService() {
       const matchesBranch = historyBranch === "all" || displayBranch(item.branch).includes(historyBranch);
       const haystack = [
         item.customer_name,
-        item.customer_code,
-        item.customer_phone,
+        customerCodeOf(item),
+        customerPhoneOf(item),
+        cleanEgyptianPhone(customerPhoneOf(item)),
         item.assigned_to,
         item.status,
         followupCategory(item),
@@ -425,7 +482,7 @@ export default function CustomerService() {
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
-      return matchesBranch && (!q || haystack.includes(q));
+      return matchesBranch && (!q || wildcardMatch(haystack, q));
     });
   }, [history, historySearch, historyBranch]);
 
@@ -517,10 +574,10 @@ export default function CustomerService() {
       })
     : "";
   const whatsappHref = selected
-    ? generateWhatsAppLink(selected.customer_phone, message)
+    ? generateWhatsAppLink(customerPhoneOf(selected), message)
     : "";
   const cleanSelectedPhone = selected
-    ? cleanEgyptianPhone(selected.customer_phone)
+    ? cleanEgyptianPhone(customerPhoneOf(selected))
     : "";
   const phoneHref = cleanSelectedPhone ? `tel:+${cleanSelectedPhone}` : "";
 
@@ -544,7 +601,7 @@ export default function CustomerService() {
       details: {
         customer_name: selected.customer_name,
         customer_code: selected.customer_code,
-        phone: selected.customer_phone,
+        phone: customerPhoneOf(selected),
         staff_name: assignedDoctor(selected),
       },
     });
@@ -876,7 +933,17 @@ export default function CustomerService() {
         </div>
       </div>
 
-      {followups.length === 0 ? (
+      <div className="relative">
+        <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          value={followupSearch}
+          onChange={(event) => setFollowupSearch(event.target.value)}
+          className="input-dark pr-9"
+          placeholder="بحث باسم العميل أو الكود أو الهاتف... يمكن استخدام *"
+        />
+      </div>
+
+      {filteredFollowups.length === 0 ? (
         <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl py-16 text-center">
           <CalendarClock size={42} className="mx-auto text-slate-500 mb-3" />
           <div className="text-white font-bold">لا توجد قائمة متابعة لليوم</div>
@@ -887,15 +954,18 @@ export default function CustomerService() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <div className="space-y-2 max-h-[calc(100vh-310px)] overflow-y-auto">
-            {followups.map((item) => {
+            {filteredFollowups.map((item) => {
               const validPhone = Boolean(
-                cleanEgyptianPhone(item.customer_phone),
+                cleanEgyptianPhone(customerPhoneOf(item)),
               );
 
               return (
                 <button
                   key={item.id}
-                  onClick={() => setSelected(item)}
+                  onClick={() => {
+                    setSelected(item);
+                    setCustomer360(item);
+                  }}
                   className={`w-full text-right p-3 rounded-xl border transition-all ${selected?.id === item.id ? "bg-teal-500/10 border-teal-500/30" : "bg-[#1B2B4B] border-[#2d4063] hover:border-teal-500/20"}`}
                 >
                   <div className="flex items-center gap-2.5">
@@ -907,8 +977,8 @@ export default function CustomerService() {
                         {item.customer_name || "عميل بدون اسم"}
                       </span>
                       <span className="block text-slate-400 text-xs truncate">
-                        كود: {item.customer_code || "بدون كود"} - هاتف:{" "}
-                        {displayEgyptianPhone(item.customer_phone)} -{" "}
+                        كود: {customerCodeOf(item) || "بدون كود"} - هاتف:{" "}
+                        {displayEgyptianPhone(customerPhoneOf(item))} -{" "}
                         {displayBranch(item.branch)}
                       </span>
                     </span>
@@ -929,6 +999,14 @@ export default function CustomerService() {
                       {assignedDoctor(item)}
                     </span>
                   </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
+                    <span>آخر شراء: {lastPurchaseOf(item) ? dateLabel(lastPurchaseOf(item)) : "لا يوجد"}</span>
+                    <span>شراء الشهر: {currentPurchaseCountOf(item).toLocaleString("ar-EG")}</span>
+                    <span>المتوسط الشهري: {averagePurchaseCountOf(item).toLocaleString("ar-EG")}</span>
+                    <span>{displayBranch(item.branch)}</span>
+                  </div>
+                  {item.purchase_frequency_status === "decreased" && <div className="mt-2 badge-warning w-fit">انخفاض في تكرار الشراء</div>}
+                  {item.purchase_frequency_status === "stopped" && <div className="mt-2 badge-danger w-fit">توقف عن الشراء</div>}
                 </button>
               );
             })}
@@ -949,13 +1027,20 @@ export default function CustomerService() {
                       <div className="flex flex-wrap items-center gap-3 mt-1 text-slate-400 text-sm">
                         <span className="flex items-center gap-1">
                           <Phone size={13} />
-                          {displayEgyptianPhone(selected.customer_phone)}
+                          {displayEgyptianPhone(customerPhoneOf(selected))}
                         </span>
                         <span>
-                          كود العميل: {selected.customer_code || "بدون كود"}
+                          كود العميل: {customerCodeOf(selected) || "بدون كود"}
                         </span>
                         <span>{displayBranch(selected.branch)}</span>
                         <span>الفئة: {followupCategory(selected)}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span className="badge-info">آخر شراء: {lastPurchaseOf(selected) ? dateLabel(lastPurchaseOf(selected)) : "لا يوجد"}</span>
+                        <span className="badge-info">شراء الشهر: {currentPurchaseCountOf(selected).toLocaleString("ar-EG")}</span>
+                        <span className="badge-info">المتوسط الشهري: {averagePurchaseCountOf(selected).toLocaleString("ar-EG")}</span>
+                        {selected.purchase_frequency_status === "decreased" && <span className="badge-warning">انخفاض في تكرار الشراء</span>}
+                        {selected.purchase_frequency_status === "stopped" && <span className="badge-danger">توقف عن الشراء</span>}
                       </div>
                     </div>
                     <button
@@ -1116,6 +1201,7 @@ export default function CustomerService() {
 
                 <FollowupResultForm
                   followup={selected}
+                  responsibleName={user?.name || assignedDoctor(selected)}
                   defaultScript={scriptKeyFromCategory(
                     followupCategory(selected),
                   )}
@@ -1149,6 +1235,57 @@ export default function CustomerService() {
           </div>
         </div>
       )}
+      {customer360 && (
+        <Customer360QuickView followup={customer360} onClose={() => setCustomer360(null)} />
+      )}
+    </div>
+  );
+}
+
+function Customer360QuickView({ followup, onClose }: { followup: DailyFollowup; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" dir="rtl" onClick={onClose}>
+      <div className="max-h-[88vh] w-full max-w-3xl overflow-auto rounded-2xl border border-teal-400/30 bg-[#10213a] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="sticky top-0 z-10 -mx-5 -mt-5 mb-4 flex items-start justify-between gap-3 border-b border-white/10 bg-[#10213a] p-5">
+          <div>
+            <div className="text-xs font-bold text-teal-300">ملف العميل 360</div>
+            <div className="mt-1 text-2xl font-black text-white">{followup.customer_name || "عميل بدون اسم"}</div>
+            <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-300">
+              <span className="badge-info">كود: {customerCodeOf(followup) || "بدون كود"}</span>
+              <span className="badge-info">هاتف: {displayEgyptianPhone(customerPhoneOf(followup))}</span>
+              <span className="badge-info">{displayBranch(followup.branch)}</span>
+            </div>
+          </div>
+          <button type="button" className="btn-secondary px-4" onClick={onClose}>إغلاق</button>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <Detail label="آخر شراء" value={lastPurchaseOf(followup) ? dateLabel(lastPurchaseOf(followup)) : "لا يوجد"} />
+          <Detail label="عدد مرات الشراء هذا الشهر" value={currentPurchaseCountOf(followup).toLocaleString("ar-EG")} />
+          <Detail label="متوسط مرات الشراء شهريًا" value={averagePurchaseCountOf(followup).toLocaleString("ar-EG")} />
+          <Detail label="الفرع" value={displayBranch(followup.branch)} />
+          <Detail label="حالة المتابعة" value={displayStatus(followup.followup_status || followup.status)} />
+          <Detail label="المسؤول" value={followup.responsible_name || assignedDoctor(followup)} />
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {followup.purchase_frequency_status === "decreased" && <span className="badge-warning">انخفاض في تكرار الشراء</span>}
+          {followup.purchase_frequency_status === "stopped" && <span className="badge-danger">توقف عن الشراء</span>}
+        </div>
+
+        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+          <div className="mb-2 font-bold text-white">ملخص المتابعة</div>
+          <div className="text-sm leading-7 text-slate-300">{followupSummary(followup)}</div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -110,6 +110,15 @@ function removeColumn<T extends Record<string, unknown>>(payload: T, column: str
   return next;
 }
 
+function isUuidLike(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value ?? "").trim());
+}
+
+function safeUuid(value: unknown) {
+  const text = String(value ?? "").trim();
+  return isUuidLike(text) ? text : null;
+}
+
 async function insertResilient(table: string, payload: Record<string, unknown>) {
   let nextPayload = payload;
   const removed = new Set<string>();
@@ -159,6 +168,17 @@ export const REQUEST_STATUS_LABELS: Record<string, string> = {
   cancelled: "ملغي",
   not_available: "غير متوفر",
 };
+
+Object.assign(REQUEST_STATUS_LABELS, {
+  new: "1 - تسجيل الطلب",
+  purchasing_review: "2 - استلام الطلب من المشتريات",
+  searching_suppliers: "3 - البحث ومحاولة توفير الطلب",
+  available: "4 - توفير الطلب",
+  customer_contacted: "5 - التواصل مع العميل",
+  delivered: "6 - تسليم العميل",
+  cancelled: "العميل ألغى الطلب",
+  not_available: "غير متوفر",
+});
 
 export const REQUEST_STATUS_FLOW: Array<{ value: CustomerRequestStatus; label: string }> = [
   { value: "new", label: REQUEST_STATUS_LABELS.new },
@@ -225,7 +245,7 @@ export async function createCustomerRequest(input: CustomerRequestInput) {
   const needsConfirmation = Boolean(input.needs_customer_confirmation || input.is_expensive_or_special);
   const status: CustomerRequestStatus = needsConfirmation ? "needs_customer_confirmation" : "new";
   const payload: Record<string, unknown> = {
-    customer_id: input.customer_id || input.customer_code || null,
+    customer_id: safeUuid(input.customer_id),
     customer_code: input.customer_code || null,
     customer_name: input.customer_name,
     customer_phone: input.customer_phone || null,
@@ -240,16 +260,16 @@ export async function createCustomerRequest(input: CustomerRequestInput) {
     request_type: input.request_type || "missing_medicine",
     needs_customer_confirmation: needsConfirmation,
     is_expensive_or_special: Boolean(input.is_expensive_or_special),
-    doctor_id: input.doctor_id || null,
+    doctor_id: safeUuid(input.doctor_id),
     doctor_name: input.doctor_name || null,
     doctor_notes: input.doctor_notes || null,
     supplier_hint: input.supplier_hint || null,
     requested_at: input.requested_at || new Date().toISOString(),
     needed_by_date: input.needed_by_date || null,
     expected_fulfillment_days: input.expected_fulfillment_days || null,
-    potential_source_id: input.potential_source_id || null,
+    potential_source_id: safeUuid(input.potential_source_id),
     potential_source_text: input.potential_source_text || input.supplier_hint || null,
-    created_by: input.created_by || null,
+    created_by: safeUuid(input.created_by),
     created_by_name: input.created_by_name || null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -291,6 +311,12 @@ export async function updateCustomerRequestStatus(
     expected_arrival_date: input.expected_arrival_date ?? request.expected_arrival_date,
     updated_at: new Date().toISOString(),
   };
+  if (input.status === "purchasing_review") payload.purchasing_received_by_name = input.user_name || input.purchasing_assignee || null;
+  if (["searching_suppliers", "sourcing"].includes(input.status)) payload.searching_by_name = input.user_name || input.purchasing_assignee || null;
+  if (["available", "arrived"].includes(input.status)) payload.provided_by_name = input.user_name || null;
+  if (input.status === "customer_contacted") payload.customer_contacted_by_name = input.user_name || null;
+  if (input.status === "delivered") payload.delivered_by_name = input.user_name || null;
+  if (input.status === "not_available") payload.unavailable_since = new Date().toISOString();
   if (["closed", "delivered", "cancelled", "not_available"].includes(input.status)) {
     payload.closed_at = new Date().toISOString();
   }
@@ -301,7 +327,7 @@ export async function updateCustomerRequestStatus(
     new_status: input.status,
     action: "تغيير حالة طلب عميل",
     notes: input.notes || input.purchasing_notes || input.contact_summary || "تم تحديث حالة الطلب",
-    created_by: input.user_id || null,
+    created_by: safeUuid(input.user_id),
     created_by_name: input.user_name || null,
   });
   await logActivity({
@@ -309,7 +335,7 @@ export async function updateCustomerRequestStatus(
     module: "طلبات العملاء",
     target_type: "customer_request",
     target_id: request.id,
-    user_id: input.user_id || undefined,
+    user_id: safeUuid(input.user_id) || undefined,
     user_name: input.user_name || undefined,
     branch_name: request.branch || undefined,
     details: {
@@ -340,7 +366,7 @@ export async function addCustomerRequestEvent(
     new_status: input.new_status || null,
     action: input.action,
     notes: input.notes || null,
-    created_by: input.created_by || null,
+    created_by: safeUuid(input.created_by),
     created_by_name: input.created_by_name || null,
     created_at: new Date().toISOString(),
   };

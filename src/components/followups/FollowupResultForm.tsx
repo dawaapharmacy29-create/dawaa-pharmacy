@@ -9,12 +9,13 @@ import type { DailyFollowup } from "@/types/database";
 interface FollowupResultFormProps {
   followup: DailyFollowup;
   defaultScript?: ScriptKey;
+  responsibleName?: string | null;
   onSaved?: (followup: DailyFollowup) => void;
 }
 
 const channels = ["واتساب", "مكالمة", "داخل الفرع"] as const;
 
-export default function FollowupResultForm({ followup, defaultScript = "medium", onSaved }: FollowupResultFormProps) {
+export default function FollowupResultForm({ followup, defaultScript = "medium", responsibleName, onSaved }: FollowupResultFormProps) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     channel: "واتساب",
@@ -65,12 +66,18 @@ export default function FollowupResultForm({ followup, defaultScript = "medium",
       ].filter(Boolean).join("\n");
 
       const status = form.orderCreated ? "طلب أوردر" : form.reaction === "no_answer" ? "لم يرد" : "تم التواصل";
+      const contactResult = FOLLOWUP_REACTIONS.find((item) => item.value === form.reaction)?.label || form.reaction;
       const updated = await updateFollowupStatus(followup.id, {
         status,
+        followup_status: status,
+        contact_status: form.reaction === "no_answer" ? "not_reached" : "reached",
+        contact_result: contactResult,
+        contacted_at: new Date().toISOString(),
+        responsible_name: responsibleName || followup.responsible_name || followup.assigned_to || null,
         notes: report,
         contact_method: form.channel,
         followup_summary: form.summary,
-        followup_result: FOLLOWUP_REACTIONS.find((item) => item.value === form.reaction)?.label || form.reaction,
+        followup_result: contactResult,
         next_followup_date: nextDate || null,
         request_type: form.orderCreated ? "customer_order" : null,
         request_details: form.orderCreated ? `أوردر من المتابعة بقيمة ${Number(form.orderValue || 0)} ج.م` : null,

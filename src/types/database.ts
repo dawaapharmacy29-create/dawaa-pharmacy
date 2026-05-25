@@ -27,8 +27,18 @@ export interface DailyFollowup {
   customer_code?: string | null;
   customer_name: string | null;
   customer_phone: string | null;
+  phone?: string | null;
   branch: string | null;
   status: string | null;
+  followup_status?: string | null;
+  contact_status?: string | null;
+  contact_result?: string | null;
+  contacted_at?: string | null;
+  responsible_name?: string | null;
+  last_purchase_date?: string | null;
+  purchase_count_current_month?: number | null;
+  average_monthly_purchase_count?: number | null;
+  purchase_frequency_status?: string | null;
   assigned_to: string | null;
   notes: string | null;
   date?: string | null;

@@ -39,6 +39,9 @@ export interface RawInvoiceRow {
   notes: string;
   saveStatus: string;
   deviceName: string;
+  customerLinkStatus: "matched_by_file" | "unmatched_customer";
+  importValidationStatus: "valid" | "zero_amount";
+  importWarning: string | null;
   raw: Record<string, unknown>;
 }
 
@@ -72,6 +75,15 @@ export interface ImportSummary {
   needsReviewRows: number;
   /** عملاء لم يُربطوا بكود واضح */
   unlinkedCustomersEstimate: number;
+  unmatchedCustomerRows?: number;
+  zeroAmountRows?: number;
+  rejectedRows?: number;
+  firstInvoiceDate?: string | null;
+  lastInvoiceDate?: string | null;
+  fileNetSales?: number;
+  importedNetSales?: number;
+  dailyCounts?: Array<{ date: string; count: number; total: number }>;
+  branchCounts?: Array<{ branch: string; count: number; total: number }>;
 }
 
 export interface ParseResult {
@@ -561,7 +573,7 @@ export function parseInvoiceFile(
 
   const seen = new Set<string>();
   parsed.rows.forEach(({ rowIndex, record }) => {
-    const name = cleanText(getValue(record, headers, NAME_KEYS));
+    const rawName = cleanText(getValue(record, headers, NAME_KEYS));
     const grossAmount = parseAmount(getValue(record, headers, GROSS_AMOUNT_KEYS));
     const discountedAmount = parseAmount(getValue(record, headers, DISCOUNTED_AMOUNT_KEYS));
     const netAmount = parseAmount(getValue(record, headers, AMOUNT_KEYS));
@@ -586,11 +598,16 @@ export function parseInvoiceFile(
       : null;
     const analysisDateTime = closeDateTime || invoiceDateTime;
 
-    if (!name || name === "." || name === "*") return;
-    if (amount === null || amount <= 0) {
-      if (invoiceNumber || customerCode || name) {
-        return;
-      }
+    const isUnmatchedCustomer = !rawName || rawName === "." || rawName === "*";
+    const name = isUnmatchedCustomer ? "عميل غير مسجل" : rawName;
+    const normalizedAmount = amount ?? 0;
+    if (amount === null && !(invoiceNumber || customerCode || rawName || date)) return;
+    if (normalizedAmount < 0) {
+      errors.push({
+        row: rowIndex,
+        field: "قيمة الفاتورة",
+        message: `قيمة فاتورة سالبة في الصف ${rowIndex}`,
+      });
       return;
     }
     if (!date) {
@@ -601,13 +618,21 @@ export function parseInvoiceFile(
       });
       return;
     }
+    if (!invoiceNumber) {
+      errors.push({
+        row: rowIndex,
+        field: "رقم الفاتورة",
+        message: `رقم الفاتورة غير موجود في الصف ${rowIndex}`,
+      });
+      return;
+    }
     // Import the invoice even when the old file has no customer code/phone.
     // It will be marked for review later, and customer matching can still use the name as a fallback.
     if (!customerCode && !isValidPhone(phone) && !name) return;
 
     const uniqueKey = invoiceNumber || customerCode || phone
-      ? `${invoiceNumber || customerCode || phone}-${date}-${amount}`
-      : `row-${rowIndex}-${date}-${amount}`;
+      ? `${invoiceNumber || customerCode || phone}-${date}-${normalizedAmount}`
+      : `row-${rowIndex}-${date}-${normalizedAmount}`;
     if (seen.has(uniqueKey)) {
       errors.push({
         row: rowIndex,
@@ -621,13 +646,13 @@ export function parseInvoiceFile(
     rows.push({
       rowIndex,
       invoiceNumber,
-      customerCode,
+      customerCode: isUnmatchedCustomer ? "" : customerCode,
       name,
-      phone: isValidPhone(phone) ? phone : "",
-      amount,
+      phone: !isUnmatchedCustomer && isValidPhone(phone) ? phone : "",
+      amount: normalizedAmount,
       grossAmount,
       discountedAmount,
-      netAmount: amount,
+      netAmount: normalizedAmount,
       discountAmount,
       courierCash,
       extraFees,
@@ -647,6 +672,13 @@ export function parseInvoiceFile(
       notes: cleanText(getValue(record, headers, NOTES_KEYS)),
       saveStatus: cleanText(getValue(record, headers, SAVE_STATUS_KEYS)),
       deviceName: cleanText(getValue(record, headers, DEVICE_KEYS)),
+      customerLinkStatus: isUnmatchedCustomer ? "unmatched_customer" : "matched_by_file",
+      importValidationStatus: normalizedAmount === 0 ? "zero_amount" : "valid",
+      importWarning: isUnmatchedCustomer
+        ? "عميل غير مسجل في الملف"
+        : normalizedAmount === 0
+          ? "فاتورة صافيها صفر وتحتاج مراجعة"
+          : null,
       raw: {
         ...record,
         invoice_datetime: invoiceDateTime,
@@ -764,6 +796,15 @@ export async function importCustomersToDB(
     importBatch,
     needsReviewRows: 0,
     unlinkedCustomersEstimate: 0,
+    unmatchedCustomerRows: rows.filter((row) => row.customerLinkStatus === "unmatched_customer").length,
+    zeroAmountRows: rows.filter((row) => row.importValidationStatus === "zero_amount").length,
+    rejectedRows: 0,
+    firstInvoiceDate: rows.map((row) => row.date).filter(Boolean).sort()[0] || null,
+    lastInvoiceDate: rows.map((row) => row.date).filter(Boolean).sort().pop() || null,
+    fileNetSales: rows.reduce((sum, row) => sum + (Number(row.netAmount ?? row.amount ?? row.grossAmount ?? 0) || 0), 0),
+    importedNetSales: 0,
+    dailyCounts: [],
+    branchCounts: [],
   };
 
   const analysisPayloads = rows.map((row) => {
@@ -1180,9 +1221,9 @@ export async function importInvoicesToDB(
     branch: row.branch || branch,
     invoice_number: row.invoiceNumber,
     invoice_type: row.invoiceType,
-    customer_code: row.customerCode,
+    customer_code: row.customerLinkStatus === "unmatched_customer" ? null : row.customerCode || null,
     customer_name: row.name,
-    customer_phone: row.phone || (row.customerCode ? `code:${row.customerCode}` : ""),
+    customer_phone: row.customerLinkStatus === "unmatched_customer" ? null : (row.phone || (row.customerCode ? `code:${row.customerCode}` : null)),
     invoice_date: row.date,
     invoice_datetime: row.invoiceDateTime,
     close_datetime: row.closeDateTime,
@@ -1205,6 +1246,10 @@ export async function importInvoicesToDB(
     notes: row.notes,
     save_status: row.saveStatus,
     device_name: row.deviceName,
+    customer_link_status: row.customerLinkStatus,
+    import_validation_status: row.importValidationStatus,
+    import_warning: row.importWarning,
+    source_row_number: row.rowIndex,
     raw_data: row.raw,
   }));
 
@@ -1228,6 +1273,7 @@ export async function importInvoicesToDB(
       });
     } else {
       summary.insertedRows += chunk.length;
+      summary.importedNetSales = (summary.importedNetSales || 0) + chunk.reduce((sum, row) => sum + (Number(row.net_amount ?? row.amount ?? row.gross_amount ?? 0) || 0), 0);
     }
     reportProgress(
       onProgress,
@@ -1249,7 +1295,9 @@ export async function importInvoicesToDB(
     }
   >();
   for (const row of newRows) {
+    if (row.customerLinkStatus === "unmatched_customer") continue;
     const key = row.customerCode || safeIdentifier(row.phone, row.customerCode);
+    if (!key) continue;
     const rowBranch = row.branch || branch;
     const current = grouped.get(key);
     if (current) {
@@ -1471,6 +1519,25 @@ export async function importInvoicesToDB(
   }
 
   await refreshCustomerAnalysisForImportedRows(rows, branch, summary);
+
+  const daily = new Map<string, { date: string; count: number; total: number }>();
+  const branches = new Map<string, { branch: string; count: number; total: number }>();
+  for (const row of newRows) {
+    const value = Number(row.netAmount ?? row.amount ?? row.grossAmount ?? 0) || 0;
+    const day = daily.get(row.date) || { date: row.date, count: 0, total: 0 };
+    day.count += 1;
+    day.total += value;
+    daily.set(row.date, day);
+
+    const branchName = row.branch || branch;
+    const branchRow = branches.get(branchName) || { branch: branchName, count: 0, total: 0 };
+    branchRow.count += 1;
+    branchRow.total += value;
+    branches.set(branchName, branchRow);
+  }
+  summary.dailyCounts = [...daily.values()].sort((a, b) => a.date.localeCompare(b.date));
+  summary.branchCounts = [...branches.values()].sort((a, b) => b.count - a.count);
+  summary.rejectedRows = summary.errors.length;
 
   return summary;
 }

@@ -19,6 +19,15 @@ function num(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function isUuidLike(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value ?? "").trim());
+}
+
+function safeUuid(value: unknown) {
+  const textValue = String(value ?? "").trim();
+  return isUuidLike(textValue) ? textValue : null;
+}
+
 function missingColumn(message: string) {
   return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || "";
 }
@@ -121,9 +130,10 @@ export default function Stories() {
     try {
       const created = await insertResilient("whatsapp_stories", {
         ...form,
+        related_offer_id: form.related_offer_id || null,
         image_url: image.publicUrl || null,
         image_path: image.path || null,
-        uploaded_by_staff_id: user?.staffId || user?.id || null,
+        uploaded_by_staff_id: safeUuid(user?.staffId) || safeUuid(user?.id),
         uploaded_by_staff_name: form.uploaded_by_staff_name || user?.name || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -148,7 +158,7 @@ export default function Stories() {
         sales_count: report.salesCount,
         sales_value: report.salesValue,
         report_notes: report.notes,
-        report_by_staff_id: user?.staffId || user?.id || null,
+        report_by_staff_id: safeUuid(user?.staffId) || safeUuid(user?.id),
         report_by_staff_name: user?.name || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

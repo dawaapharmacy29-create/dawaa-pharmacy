@@ -28,6 +28,15 @@ function num(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function isUuidLike(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value ?? "").trim());
+}
+
+function safeUuid(value: unknown) {
+  const textValue = String(value ?? "").trim();
+  return isUuidLike(textValue) ? textValue : null;
+}
+
 function missingColumn(message: string) {
   return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || "";
 }
@@ -130,7 +139,8 @@ export default function Offers() {
         ...form,
         image_url: image.publicUrl || null,
         image_path: image.path || null,
-        created_by: user?.name || user?.id || null,
+        created_by: safeUuid(user?.id),
+        created_by_name: user?.name || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
