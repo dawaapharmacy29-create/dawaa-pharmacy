@@ -444,23 +444,23 @@ export default function ExecutiveDashboard2027() {
           </div>
         </Panel>
 
-        <Panel title="الأدوية الراكدة - تحتاج إجراء" link="/stagnant-medicines" className="xl:col-span-1">
-          <div className="grid items-center gap-4 md:grid-cols-[1.1fr_.9fr] xl:grid-cols-1 2xl:grid-cols-[1fr_.9fr]">
-            <div className="h-48">
+        <Panel title="الأدوية الراكدة - تحتاج إجراء" link="/stagnant-medicines" className="min-h-[390px] overflow-hidden xl:col-span-1">
+          <div className="grid items-start gap-4 md:grid-cols-[1fr_.9fr] xl:grid-cols-1 2xl:grid-cols-[1fr_.9fr]">
+            <div className="relative mx-auto h-44 w-full max-w-[240px] overflow-hidden">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={model.stagnantBuckets} dataKey="value" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                  <Pie data={model.stagnantBuckets} dataKey="value" innerRadius={48} outerRadius={74} paddingAngle={2}>
                     {model.stagnantBuckets.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                   </Pie>
                   <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="pointer-events-none -mt-28 text-center">
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
                 <div className="text-xs text-slate-400">إجمالي الأصناف</div>
                 <div className="text-3xl font-black text-white">{formatNumber(model.stagnantBuckets.reduce((s, b) => s + b.value, 0))}</div>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 text-xs sm:text-sm">
               {model.stagnantBuckets.map((b) => (
                 <div key={b.name} className="flex items-center justify-between rounded-2xl bg-white/5 p-2 text-sm">
                   <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: b.color }} />{b.name}</div>
