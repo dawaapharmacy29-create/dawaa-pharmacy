@@ -728,6 +728,7 @@ function Field({
   const staffSelectValue = selectedStaffId || selectedByName?.id || "";
   const checklistValue = typeof value === "string" ? safeJsonObject(value) : {};
   const imagePathKey = field.key.endsWith("_url") ? field.key.replace(/_url$/, "_path") : `${field.key}_path`;
+  const [customChecklistItem, setCustomChecklistItem] = useState("");
   return (
     <label className={`text-xs text-slate-300 space-y-1 ${kind === "textarea" || kind === "checklist" || kind === "image" ? "md:col-span-3" : ""}`}>
       <span>{field.label}{field.required ? " *" : ""}</span>
@@ -754,8 +755,25 @@ function Field({
       ) : kind === "textarea" ? (
         <textarea className={common} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} />
       ) : kind === "checklist" ? (
-        <div className="grid gap-2 rounded-xl border border-[#2d4063] bg-[#162847] p-3 md:grid-cols-3">
-          {(field.checklistItems || []).map((item) => {
+        <div className="rounded-xl border border-[#2d4063] bg-[#162847] p-3">
+          <div className="mb-3 flex gap-2">
+            <input className={common} value={customChecklistItem} onChange={(event) => setCustomChecklistItem(event.target.value)} placeholder="إضافة بند جديد لجدول النظافة" />
+            <button
+              type="button"
+              className="btn-secondary whitespace-nowrap px-4"
+              onClick={() => {
+                const item = customChecklistItem.trim();
+                if (!item) return;
+                const next = { ...(checklistValue as Record<string, boolean>), [item]: false };
+                onChange(JSON.stringify(next));
+                setCustomChecklistItem("");
+              }}
+            >
+              إضافة
+            </button>
+          </div>
+          <div className="grid gap-2 md:grid-cols-3">
+          {[...(field.checklistItems || []), ...Object.keys(checklistValue).filter((item) => !(field.checklistItems || []).includes(item))].map((item) => {
             const checked = Boolean((checklistValue as Record<string, unknown>)[item]);
             return (
               <label key={item} className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-sm text-slate-200">
@@ -772,6 +790,7 @@ function Field({
               </label>
             );
           })}
+          </div>
         </div>
       ) : kind === "image" ? (
         <ImageUploadBox

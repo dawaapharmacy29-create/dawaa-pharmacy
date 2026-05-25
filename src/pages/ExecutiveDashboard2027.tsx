@@ -470,7 +470,7 @@ export default function ExecutiveDashboard2027() {
         <Kpi label="متوسط تقييم العملاء" value={`${model.customerRating} / 5`} hint="من المتابعات" icon={Star} />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-4">
+      <section className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-4">
         <Panel title="متابعة العملاء والتنبيهات" link="/customer-service" className="xl:col-span-1">
           <div className="space-y-3">
             {model.topAlerts.map((a) => <AlertRow key={a.label} {...a} />)}
@@ -554,7 +554,7 @@ export default function ExecutiveDashboard2027() {
         </Panel>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-4">
+      <section className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-4">
         <Panel title="أفضل الأطباء حسب المبيعات" link="/analytics">
           <div className="space-y-2">
             {model.topDoctors.length ? model.topDoctors.map((d, index) => (

@@ -19,6 +19,7 @@ interface Staff extends StaffChoice {
 
 interface ShiftException {
   id: string;
+  staff_id?: string | null;
   staff_name: string;
   type: string;
   status: string;
@@ -82,6 +83,7 @@ export default function TimeOff() {
   });
   const staffChoices = useMemo(() => mergeStaffChoices(staff), [staff]);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     staff_id: "",
     type: "إذن تأخير",
@@ -116,7 +118,7 @@ export default function TimeOff() {
     const deductionNote = form.deduct_points ? `[خصم نقاط: ${deductionPoints}] ` : "[بدون خصم نقاط] ";
     const finalReason = `${rangeNote}${deductionNote}${form.reason}`.trim();
 
-    const error = await insertShiftException({
+    const payload = {
       staff_name: selectedStaff.name,
       staff_id: selectedStaff.id.startsWith("fallback-") ? null : selectedStaff.id,
       employee_name: selectedStaff.name,
@@ -131,7 +133,12 @@ export default function TimeOff() {
       deduction_points: deductionPoints,
       deduction_status: form.deduct_points ? form.status : "none",
       source: "manual",
-    });
+      updated_at: new Date().toISOString(),
+    };
+
+    const error = editingId
+      ? (await supabase.from(TABLES.shiftExceptions).update(payload).eq("id", editingId)).error?.message || null
+      : await insertShiftException(payload);
 
     if (error) {
       setSaving(false);
@@ -176,7 +183,32 @@ export default function TimeOff() {
 
     setSaving(false);
     toast.success(form.deduct_points ? "تم حفظ الإذن وتسجيل خصم النقاط." : "تم حفظ الإذن/الإجازة بدون خصم نقاط.");
+    setEditingId(null);
     setForm((current) => ({ ...current, reason: "", deduction_points: current.deduct_points ? current.deduction_points : "" }));
+    refetch();
+  };
+
+  const editItem = (item: ShiftException, forceDeduction = false) => {
+    const staffItem = staffChoices.find((choice) => choice.id === item.staff_id || choice.name === item.staff_name);
+    setEditingId(item.id);
+    setForm({
+      staff_id: staffItem?.id || "",
+      type: item.type || TYPES[0],
+      status: item.status || "pending",
+      date: item.date || new Date().toISOString().slice(0, 10),
+      date_end: item.date_end || item.date || new Date().toISOString().slice(0, 10),
+      reason: item.reason || "",
+      deduct_points: forceDeduction || Boolean(item.deduct_points),
+      deduction_points: String(item.deduction_points || (forceDeduction ? 10 : "")),
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const deleteItem = async (item: ShiftException) => {
+    if (!window.confirm(`هل تريد حذف سجل ${item.type} لـ ${item.staff_name}؟`)) return;
+    const { error } = await supabase.from(TABLES.shiftExceptions).delete().eq("id", item.id);
+    if (error) return toast.error(`تعذر حذف السجل: ${error.message}`);
+    toast.success("تم حذف سجل الإذن/الإجازة");
     refetch();
   };
 
@@ -240,8 +272,13 @@ export default function TimeOff() {
         <textarea value={form.reason} onChange={(event) => setForm((f) => ({ ...f, reason: event.target.value }))} placeholder="سبب الإذن أو ملاحظات" className="input-dark md:col-span-4 resize-none" rows={2} />
         <button type="submit" disabled={saving || !form.staff_id} className="btn-primary flex items-center justify-center gap-2 md:col-span-6">
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-          حفظ
+          {editingId ? "تحديث السجل" : "حفظ"}
         </button>
+        {editingId && (
+          <button type="button" onClick={() => setEditingId(null)} className="btn-secondary md:col-span-6">
+            إلغاء التعديل
+          </button>
+        )}
       </form>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -265,7 +302,7 @@ export default function TimeOff() {
         ) : (
           <div className="overflow-x-auto">
             <table className="data-table">
-              <thead><tr><th>الموظف</th><th>النوع</th><th>الحالة</th><th>الفرع</th><th>اليوم/التاريخ</th><th>خصم النقاط</th><th>السبب</th></tr></thead>
+              <thead><tr><th>الموظف</th><th>النوع</th><th>الحالة</th><th>الفرع</th><th>اليوم/التاريخ</th><th>خصم النقاط</th><th>السبب</th><th>إجراءات</th></tr></thead>
               <tbody>
                 {exceptions.map((item) => (
                   <tr key={item.id}>
@@ -276,6 +313,13 @@ export default function TimeOff() {
                     <td>{item.date || item.day_name || "-"}</td>
                     <td>{item.deduct_points ? `${item.deduction_points || 0} نقطة` : "بدون خصم"}</td>
                     <td>{item.reason || "-"}</td>
+                    <td>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => editItem(item)} className="rounded-lg bg-teal-500/15 px-2 py-1 text-xs font-bold text-teal-200">تعديل</button>
+                        <button type="button" onClick={() => editItem(item, true)} className="rounded-lg bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-200">جعله بخصم</button>
+                        <button type="button" onClick={() => deleteItem(item)} className="rounded-lg bg-red-500/15 px-2 py-1 text-xs font-bold text-red-200">حذف</button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

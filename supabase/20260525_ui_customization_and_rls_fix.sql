@@ -22,6 +22,7 @@ alter table if exists public.branch_cleaning_tasks add column if not exists revi
 alter table if exists public.branch_cleaning_tasks add column if not exists review_photo_path text;
 alter table if exists public.branch_cleaning_tasks add column if not exists monthly_incentive_amount numeric default 500;
 alter table if exists public.branch_cleaning_tasks add column if not exists updated_at timestamptz default now();
+alter table if exists public.shift_exceptions add column if not exists updated_at timestamptz default now();
 
 alter table if exists public.whatsapp_stories add column if not exists branch text;
 alter table if exists public.whatsapp_stories add column if not exists uploaded_by_staff_id text;
@@ -44,7 +45,8 @@ begin
     'whatsapp_stories',
     'story_performance_reports',
     'story_sales',
-    'branch_cleaning_tasks'
+    'branch_cleaning_tasks',
+    'shift_exceptions'
   ]
   loop
     if to_regclass('public.' || t) is not null then

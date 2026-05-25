@@ -103,7 +103,12 @@ export default function CustomerSmartSearch({
             <button
               key={`${customer.id}-${customer.code}-${customer.phone}`}
               type="button"
-              onClick={() => onSelect(customer)}
+              onClick={() => {
+                onSelect(customer);
+                setResults([]);
+                setShowCreate(false);
+                setQuery("");
+              }}
               className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-right transition hover:border-teal-400/40 hover:bg-teal-500/10"
             >
               <span className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-500/15 text-teal-300"><UserRound size={18} /></span>

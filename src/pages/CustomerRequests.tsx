@@ -424,7 +424,7 @@ function CreateRequestPanel({
         needs_customer_confirmation: special,
         doctor_id: selectedDoctor?.id || null,
         doctor_name: selectedDoctor?.name || null,
-        doctor_notes,
+        doctor_notes: doctorNotes,
         supplier_hint: supplierHint,
         requested_at: requestedAt ? new Date(requestedAt).toISOString() : new Date().toISOString(),
         needed_by_date: neededByDate || null,

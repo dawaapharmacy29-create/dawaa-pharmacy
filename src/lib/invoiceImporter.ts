@@ -505,6 +505,46 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+function schemaCacheMissingColumn(message?: string | null) {
+  if (!message) return "";
+  return (
+    message.match(/Could not find the '([^']+)' column/)?.[1] ||
+    message.match(/column "([^"]+)" does not exist/)?.[1] ||
+    message.match(/'([^']+)' column/)?.[1] ||
+    ""
+  );
+}
+
+async function insertRowsWithOptionalColumns(
+  table: string,
+  rows: Array<Record<string, unknown>>,
+) {
+  let nextRows = rows;
+  const removedColumns = new Set<string>();
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const { error } = await supabase.from(table).insert(nextRows);
+    if (!error) return { error: null, removedColumns: [...removedColumns] };
+
+    const missingColumn = schemaCacheMissingColumn(error.message);
+    if (!missingColumn || removedColumns.has(missingColumn)) {
+      return { error, removedColumns: [...removedColumns] };
+    }
+
+    removedColumns.add(missingColumn);
+    nextRows = nextRows.map((row) => {
+      const copy = { ...row };
+      delete copy[missingColumn];
+      return copy;
+    });
+  }
+
+  return {
+    error: { message: "تعذر الحفظ بعد إزالة الأعمدة الاختيارية غير الموجودة في قاعدة البيانات." },
+    removedColumns: [...removedColumns],
+  };
+}
+
 function reportProgress(
   onProgress: ((done: number, total: number) => void) | undefined,
   done: number,
@@ -1255,9 +1295,11 @@ export async function importInvoicesToDB(
 
   const chunkSize = 500;
   const totalWork = invoiceRecords.length + newRows.length;
+  const optionalColumnsRemoved = new Set<string>();
   for (let i = 0; i < invoiceRecords.length; i += chunkSize) {
-    const chunk = invoiceRecords.slice(i, i + chunkSize);
-    const { error } = await supabase.from("sales_invoices").insert(chunk);
+    const chunk = invoiceRecords.slice(i, i + chunkSize) as Array<Record<string, unknown>>;
+    const { error, removedColumns } = await insertRowsWithOptionalColumns("sales_invoices", chunk);
+    removedColumns.forEach((column) => optionalColumnsRemoved.add(column));
     if (error) {
       // Provide user-friendly error message
       const errorMsg = error.message.includes("out of range")
@@ -1280,6 +1322,14 @@ export async function importInvoicesToDB(
       Math.min(i + chunkSize, invoiceRecords.length),
       totalWork,
     );
+  }
+
+  if (optionalColumnsRemoved.size > 0) {
+    summary.errors.push({
+      row: 0,
+      field: "sales_invoices",
+      message: `تم الاستيراد، لكن أعمدة المتابعة التالية غير موجودة أو لم تظهر بعد في Supabase schema cache: ${[...optionalColumnsRemoved].join(", ")}. شغّل ملف الترقية ثم أعد تحميل الصفحة للاحتفاظ بهذه التفاصيل في الاستيرادات القادمة.`,
+    });
   }
 
   const grouped = new Map<
