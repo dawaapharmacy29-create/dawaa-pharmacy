@@ -1,7 +1,7 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { cleanEgyptianPhone } from "@/lib/whatsapp";
 
-type AnyRow = Record<string, any>;
+type AnyRow = Record<string, unknown>;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

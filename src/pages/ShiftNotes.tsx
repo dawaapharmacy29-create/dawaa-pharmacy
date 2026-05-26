@@ -174,6 +174,14 @@ function dateLabel(value?: string | null) {
   return new Date(value).toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" });
 }
 
+
+function dayKey(value?: string | null) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
 function statusClass(note: ShiftNote) {
   if (isOverdue(note)) return "bg-red-950/60 border-red-500/35 text-red-100";
   if (note.status === "completed") return "bg-emerald-500/10 border-emerald-400/25 text-emerald-200";
@@ -196,7 +204,9 @@ export default function ShiftNotes() {
   const [editing, setEditing] = useState<ShiftNote | null>(null);
   const [comment, setComment] = useState("");
   const [filter, setFilter] = useState("today");
+  const [dimensionFilter, setDimensionFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [form, setForm] = useState({ ...emptyForm, due_at: todayInput() });
 
   const canManage = isAdmin || /مدير|admin/i.test(user?.role || "");
@@ -230,6 +240,11 @@ export default function ShiftNotes() {
   useEffect(() => {
     loadNotes();
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   const addLog = async (noteId: string, action: string, details?: string) => {
     await supabase.from("shift_note_logs").insert({
@@ -509,45 +524,66 @@ export default function ShiftNotes() {
   };
 
   const filteredNotes = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const now = new Date();
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const q = debouncedSearch;
+    const today = dayKey(new Date().toISOString());
+    const tomorrowDate = new Date();
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    const tomorrow = dayKey(tomorrowDate.toISOString());
+
     return notes.filter((note) => {
-      const due = note.due_at ? new Date(note.due_at) : null;
-      const matchesFilter =
+      const dueKey = dayKey(note.due_at);
+      const closedKey = dayKey(note.closed_at);
+      const matchesPrimary =
         filter === "all" ||
         (filter === "mine" && [note.assigned_to_name, note.author_name].includes(user?.name || "")) ||
-        (filter === "today" && due && due.toDateString() === now.toDateString()) ||
-        (filter === "tomorrow" && due && due.toDateString() === tomorrow.toDateString()) ||
+        (filter === "today" && dueKey === today) ||
+        (filter === "tomorrow" && dueKey === tomorrow) ||
         (filter === "overdue" && isOverdue(note)) ||
         (filter === "urgent" && ["urgent", "critical"].includes(note.priority || "")) ||
         (filter === "recurring" && Boolean(note.is_recurring)) ||
         (filter === "assigned_pending" && note.status === "assigned_pending") ||
-        (filter === "completed_today" && note.status === "completed" && note.closed_at && new Date(note.closed_at).toDateString() === now.toDateString()) ||
+        (filter === "completed_today" && note.status === "completed" && closedKey === today) ||
         (filter === "archive" && ["completed", "cancelled"].includes(note.status || "")) ||
-        filter === note.status ||
-        filter === note.branch ||
-        filter === note.note_type ||
-        filter === note.assigned_to_name;
+        filter === note.status;
+
+      const matchesDimension =
+        dimensionFilter === "all" ||
+        dimensionFilter === note.branch ||
+        dimensionFilter === note.note_type ||
+        dimensionFilter === note.assigned_to_name;
+
+      if (!matchesPrimary || !matchesDimension) return false;
+      if (!q) return true;
+
       const haystack = [note.title, note.details, note.customer_name, note.customer_phone, note.invoice_no, note.branch, note.assigned_to_name, note.note_type, note.action_required]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
-      return matchesFilter && (!q || haystack.includes(q));
+      return haystack.includes(q);
     });
-  }, [filter, notes, search, user?.name]);
+  }, [debouncedSearch, dimensionFilter, filter, notes, user?.name]);
 
   const summary = useMemo(() => {
-    const today = new Date().toDateString();
-    return {
-      today: notes.filter((note) => note.due_at && new Date(note.due_at).toDateString() === today).length,
-      overdue: notes.filter(isOverdue).length,
-      urgent: notes.filter((note) => ["urgent", "critical"].includes(note.priority || "")).length,
-      pending: notes.filter((note) => note.status === "assigned_pending").length,
-      recurring: notes.filter((note) => note.is_recurring && note.due_at && new Date(note.due_at).toDateString() === today).length,
-      completed: notes.filter((note) => note.status === "completed" && note.closed_at && new Date(note.closed_at).toDateString() === today).length,
-    };
+    const today = dayKey(new Date().toISOString());
+    let todayCount = 0;
+    let overdue = 0;
+    let urgent = 0;
+    let pending = 0;
+    let recurring = 0;
+    let completed = 0;
+
+    for (const note of notes) {
+      const dueKey = dayKey(note.due_at);
+      const closedKey = dayKey(note.closed_at);
+      if (dueKey === today) todayCount += 1;
+      if (isOverdue(note)) overdue += 1;
+      if (["urgent", "critical"].includes(note.priority || "")) urgent += 1;
+      if (note.status === "assigned_pending") pending += 1;
+      if (note.is_recurring && dueKey === today) recurring += 1;
+      if (note.status === "completed" && closedKey === today) completed += 1;
+    }
+
+    return { today: todayCount, overdue, urgent, pending, recurring, completed };
   }, [notes]);
 
   return (
@@ -655,8 +691,8 @@ export default function ShiftNotes() {
           <option value="completed">مكتملة</option>
           <option value="cancelled">ملغية</option>
         </select>
-        <select className="input-dark" value={filter} onChange={(event) => setFilter(event.target.value)}>
-          <option value="today">حسب الفرع/النوع/المسؤول</option>
+        <select className="input-dark" value={dimensionFilter} onChange={(event) => setDimensionFilter(event.target.value)}>
+          <option value="all">حسب الفرع/النوع/المسؤول</option>
           <option value="فرع شكري">فرع شكري</option>
           <option value="فرع الشامي">فرع الشامي</option>
           {Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}

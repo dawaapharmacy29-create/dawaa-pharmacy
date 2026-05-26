@@ -9,6 +9,7 @@ import {
   normalizeCustomerStatus,
 } from "@/lib/customerAnalyticsService";
 import type { Customer } from "@/types/database";
+import { normalizeBranchName } from "@/lib/branch";
 
 const DEFAULT_LIMIT = 50;
 const ALL_FILTER = "الكل";
@@ -91,14 +92,6 @@ function normalizeArabicType(value?: string | null) {
   return normalizeCustomerSegment(value || "عادي");
 }
 
-function normalizeBranchName(value: unknown) {
-  const branch = String(value ?? "").trim();
-  if (!branch) return null;
-  if (branch.includes("شكري")) return "فرع شكري";
-  if (branch.includes("شامي") || branch.includes("الشامى")) return "فرع الشامي";
-  return branch;
-}
-
 function branchFilterValues(branch: string) {
   if (branch.includes("شكري")) return ["فرع شكري", "شكري", "الادارة فرع شكري"];
   if (branch.includes("شامي") || branch.includes("الشامى")) return ["فرع الشامي", "الشامي", "الشامى", "الفرعية الشامي"];
@@ -121,7 +114,7 @@ function normalizeCustomer(record: Record<string, unknown>): Customer {
     phone: String(readFirst(record, ["phone", "customer_phone", "phone_number", "mobile"], "")),
     whatsapp_phone: readFirst(record, ["whatsapp_phone", "phone_alt"], null) as string | null,
     whatsapp_link: readFirst(record, ["whatsapp_link"], null) as string | null,
-    branch: normalizeBranchName(readFirst(record, ["branch", "branch_name"], null)),
+    branch: (() => { const b = normalizeBranchName(readFirst(record, ["branch", "branch_name"], null)); return b === "غير محدد" ? null : b; })(),
     type: segment,
     segment,
     status,
