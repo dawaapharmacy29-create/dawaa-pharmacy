@@ -349,6 +349,74 @@ export async function updateCustomerRequestStatus(
   return updated;
 }
 
+export async function moveCustomerRequestToShortage(
+  request: CustomerRequest,
+  input: { user_id?: string | null; user_name?: string | null; notes?: string | null } = {},
+) {
+  requireSupabaseConfig();
+  const now = new Date().toISOString();
+  const shortagePayload: Record<string, unknown> = {
+    item_name: request.medicine_name,
+    branch: request.branch || null,
+    current_qty: 0,
+    min_qty: 1,
+    max_qty: null,
+    requested_qty: Number(request.quantity || 1),
+    average_sales: null,
+    priority: ["urgent", "high", "عاجل", "مهم"].includes(String(request.urgency || "")) ? "high" : "medium",
+    category: "طلب عميل",
+    status: "purchase_required",
+    responsible_staff_id: null,
+    notes:
+      input.notes ||
+      `طلب عميل منقول للنواقص: ${request.customer_name || "عميل غير محدد"} - كود ${request.customer_code || "بدون كود"} - هاتف ${request.customer_phone || "بدون رقم"} - الصنف ${request.medicine_name}`,
+    source_customer_request_id: request.id,
+    source_customer_name: request.customer_name || null,
+    source_customer_code: request.customer_code || null,
+    source_customer_phone: request.customer_phone || null,
+    source_request_status: request.status || null,
+    source_request_details: {
+      customer_id: request.customer_id,
+      customer_name: request.customer_name,
+      customer_code: request.customer_code,
+      customer_phone: request.customer_phone,
+      medicine_name: request.medicine_name,
+      quantity: request.quantity,
+      urgency: request.urgency,
+      doctor_name: request.doctor_name,
+      doctor_notes: request.doctor_notes,
+      supplier_hint: request.supplier_hint,
+      needed_by_date: request.needed_by_date,
+      created_at: request.created_at,
+    },
+    moved_from_customer_request_at: now,
+    created_at: now,
+    updated_at: now,
+  };
+
+  const shortage = await insertResilient("shortage_items", shortagePayload);
+  await updateResilient("customer_requests", request.id, {
+    shortage_item_id: (shortage as { id?: string }).id || null,
+    moved_to_shortage_at: now,
+    updated_at: now,
+  });
+  const updated = await updateCustomerRequestStatus(request, {
+    status: "not_available",
+    notes: input.notes || "تم نقل الطلب إلى صفحة النواقص للمتابعة مع المشتريات.",
+    user_id: input.user_id,
+    user_name: input.user_name,
+  });
+  await addCustomerRequestEvent(request.id, {
+    old_status: request.status,
+    new_status: "not_available",
+    action: "نقل الطلب إلى النواقص",
+    notes: `تم إنشاء سجل نواقص للصنف: ${request.medicine_name}`,
+    created_by: input.user_id || null,
+    created_by_name: input.user_name || null,
+  });
+  return { shortage, request: updated };
+}
+
 export async function addCustomerRequestEvent(
   requestId: string,
   input: {

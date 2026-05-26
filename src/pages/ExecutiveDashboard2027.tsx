@@ -145,7 +145,7 @@ export default function ExecutiveDashboard2027() {
   const [customLabel, setCustomLabel] = useState("");
   const [customRoute, setCustomRoute] = useState("/operations-center");
   const [customItems, setCustomItems] = useState<CustomDashboardItem[]>([]);
-  const { data: invoices } = useSupabaseQuery<Record<string, unknown>>({ table: "sales_invoices", limit: 7000, realtimeEnabled: false });
+  const { data: invoices } = useSupabaseQuery<Record<string, unknown>>({ table: "sales_invoices", limit: 50000, realtimeEnabled: false });
   const { data: followups } = useSupabaseQuery<Record<string, unknown>>({ table: "daily_followups", limit: 1200, realtimeEnabled: true });
   const { data: requests } = useSupabaseQuery<Record<string, unknown>>({ table: "customer_requests", limit: 1200, realtimeEnabled: true });
   const { data: transactions } = useSupabaseQuery<Record<string, unknown>>({ table: "employee_transactions", limit: 1200, realtimeEnabled: true });

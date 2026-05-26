@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
+  Copy,
   Edit3,
   Loader2,
   MessageSquare,
@@ -23,13 +24,16 @@ import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
 import { selectableStaffChoices } from "@/lib/staffFallback";
 import type { Staff } from "@/types/database";
 
-type NoteStatus = "new" | "in_progress" | "completed" | "cancelled" | "overdue";
+type NoteStatus = "new" | "assigned_pending" | "in_progress" | "completed" | "cancelled" | "overdue";
 type NotePriority = "normal" | "important" | "urgent" | "critical";
+type NoteKind = "note" | "action_task";
 
 interface ShiftNote {
   id: string;
   title: string;
   details: string | null;
+  note_kind?: NoteKind | null;
+  action_required?: string | null;
   note_type: string | null;
   branch: string | null;
   customer_id?: string | null;
@@ -43,6 +47,10 @@ interface ShiftNote {
   assigned_to_name: string | null;
   priority: NotePriority | null;
   status: NoteStatus | null;
+  received_by_name?: string | null;
+  received_at?: string | null;
+  postponed_until?: string | null;
+  postponement_reason?: string | null;
   is_recurring: boolean | null;
   repeat_days: number | null;
   recurrence_times: string[] | null;
@@ -51,6 +59,12 @@ interface ShiftNote {
   closed_at: string | null;
   closed_by_name: string | null;
   closure_reason: string | null;
+  amount_due?: number | null;
+  expected_payment_method?: string | null;
+  patient_address?: string | null;
+  delivery_address?: string | null;
+  complaint_level?: string | null;
+  resolution_required?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -71,6 +85,7 @@ interface ShiftNoteOccurrence {
   status: string | null;
   completed_by_name: string | null;
   completed_at: string | null;
+  completion_note?: string | null;
 }
 
 const typeLabels: Record<string, string> = {
@@ -82,6 +97,25 @@ const typeLabels: Record<string, string> = {
   missing_item: "صنف ناقص",
   problem: "مشكلة",
   general: "عام",
+  customer_complaint: "شكوى عميل",
+};
+
+const kindLabels: Record<NoteKind, string> = {
+  note: "ملاحظة معلوماتية",
+  action_task: "مهمة تنفيذ",
+};
+
+const actionLabels: Record<string, string> = {
+  call_customer: "اتصال بالعميل",
+  send_whatsapp: "إرسال واتساب",
+  collect_payment: "تحصيل مبلغ",
+  send_delivery: "إرسال دليفري",
+  send_nurse: "إرسال تمريض",
+  review_invoice: "مراجعة فاتورة",
+  prepare_order: "تحضير أوردر",
+  follow_up_customer: "متابعة عميل",
+  wait_customer_reply: "انتظار رد العميل",
+  general_action: "إجراء عام",
 };
 
 const priorityLabels: Record<NotePriority, string> = {
@@ -93,6 +127,7 @@ const priorityLabels: Record<NotePriority, string> = {
 
 const statusLabels: Record<NoteStatus, string> = {
   new: "جديدة",
+  assigned_pending: "بانتظار الاستلام",
   in_progress: "قيد التنفيذ",
   completed: "مكتملة",
   cancelled: "ملغية",
@@ -102,6 +137,8 @@ const statusLabels: Record<NoteStatus, string> = {
 const emptyForm = {
   title: "",
   details: "",
+  note_kind: "note" as NoteKind,
+  action_required: "general_action",
   note_type: "general",
   branch: "فرع شكري",
   customer_name: "",
@@ -110,6 +147,12 @@ const emptyForm = {
   due_at: "",
   assigned_to_name: "",
   priority: "normal" as NotePriority,
+  amount_due: "",
+  expected_payment_method: "",
+  patient_address: "",
+  delivery_address: "",
+  complaint_level: "",
+  resolution_required: "",
   is_recurring: false,
   repeat_days: 1,
   recurrence_times: "09:00,21:00",
@@ -232,6 +275,8 @@ export default function ShiftNotes() {
     const payload = {
       title: form.title.trim(),
       details: form.details.trim() || null,
+      note_kind: form.note_kind,
+      action_required: form.note_kind === "action_task" ? form.action_required : null,
       note_type: form.note_type,
       branch: form.branch,
       customer_name: form.customer_name.trim() || null,
@@ -241,12 +286,18 @@ export default function ShiftNotes() {
       assigned_to_id: selectedStaff?.id || null,
       assigned_to_name: form.assigned_to_name || null,
       priority: form.priority,
+      amount_due: form.note_type === "collection" && form.amount_due ? Number(form.amount_due) : null,
+      expected_payment_method: form.note_type === "collection" ? form.expected_payment_method || null : null,
+      patient_address: form.note_type === "nursing" ? form.patient_address || null : null,
+      delivery_address: form.note_type === "delivery" ? form.delivery_address || null : null,
+      complaint_level: form.note_type === "customer_complaint" ? form.complaint_level || null : null,
+      resolution_required: form.note_type === "customer_complaint" ? form.resolution_required || null : null,
       is_recurring: form.is_recurring,
       repeat_days: form.is_recurring ? Number(form.repeat_days || 1) : null,
       recurrence_times: form.is_recurring ? form.recurrence_times.split(",").map((item) => item.trim()).filter(Boolean) : null,
       author_id: editing?.author_id || user?.id || null,
       author_name: editing?.author_name || user?.name || null,
-      status: editing?.status || "new",
+      status: editing?.status || (form.note_kind === "action_task" && form.assigned_to_name ? "assigned_pending" : "new"),
       updated_at: new Date().toISOString(),
     };
     const request = editing
@@ -267,6 +318,14 @@ export default function ShiftNotes() {
   };
 
   const updateStatus = async (note: ShiftNote, status: NoteStatus, reason?: string) => {
+    if (status === "completed" && note.note_kind === "action_task" && ["important", "urgent", "critical"].includes(note.priority || "") && !reason) {
+      const completionNote = window.prompt("اكتب تعليق التنفيذ قبل إغلاق المهمة");
+      if (!completionNote?.trim()) {
+        toast.error("لا يمكن إغلاق المهمة المهمة بدون تعليق تنفيذ");
+        return;
+      }
+      reason = completionNote.trim();
+    }
     const payload: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
     if (["completed", "cancelled"].includes(status)) {
       payload.closed_at = new Date().toISOString();
@@ -285,6 +344,101 @@ export default function ShiftNotes() {
     if (selected?.id === note.id) await loadDetails(data as ShiftNote);
   };
 
+  const receiveNote = async (note: ShiftNote) => {
+    const { data, error } = await supabase
+      .from("shift_notes")
+      .update({
+        status: "in_progress",
+        received_by_id: user?.id || null,
+        received_by_name: user?.name || null,
+        received_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", note.id)
+      .select("*")
+      .single();
+    if (error) {
+      toast.error(`تعذر استلام المتابعة: ${error.message}`);
+      return;
+    }
+    await addLog(note.id, "receive", "تم استلام مسؤولية المتابعة");
+    toast.success("تم استلام المتابعة");
+    await loadNotes();
+    if (selected?.id === note.id) await loadDetails(data as ShiftNote);
+  };
+
+  const postponeNote = async (note: ShiftNote) => {
+    const choice = window.prompt("اكتب مدة التأجيل: 30m أو 1h أو tonight أو tomorrow أو تاريخ بصيغة 2026-05-26 20:00");
+    if (!choice) return;
+    const reason = window.prompt("سبب التأجيل");
+    if (!reason?.trim()) {
+      toast.error("سبب التأجيل مطلوب");
+      return;
+    }
+    const next = new Date();
+    if (choice === "30m") next.setMinutes(next.getMinutes() + 30);
+    else if (choice === "1h") next.setHours(next.getHours() + 1);
+    else if (choice === "tonight") next.setHours(21, 0, 0, 0);
+    else if (choice === "tomorrow") {
+      next.setDate(next.getDate() + 1);
+      next.setHours(9, 0, 0, 0);
+    } else {
+      const custom = new Date(choice);
+      if (Number.isNaN(custom.getTime())) {
+        toast.error("وقت التأجيل غير صحيح");
+        return;
+      }
+      next.setTime(custom.getTime());
+    }
+    const { data, error } = await supabase
+      .from("shift_notes")
+      .update({
+        due_at: next.toISOString(),
+        postponed_until: next.toISOString(),
+        postponement_reason: reason.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", note.id)
+      .select("*")
+      .single();
+    if (error) {
+      toast.error(`تعذر تأجيل الملاحظة: ${error.message}`);
+      return;
+    }
+    await addLog(note.id, "postpone", `تم التأجيل إلى ${dateLabel(next.toISOString())}. السبب: ${reason.trim()}`);
+    toast.success("تم تأجيل الملاحظة");
+    await loadNotes();
+    if (selected?.id === note.id) await loadDetails(data as ShiftNote);
+  };
+
+  const completeOccurrence = async (occurrence: ShiftNoteOccurrence) => {
+    if (!selected) return;
+    const note = window.prompt("تعليق تنفيذ هذه المرة");
+    if (!note?.trim()) {
+      toast.error("تعليق التنفيذ مطلوب");
+      return;
+    }
+    const { error } = await supabase
+      .from("shift_note_occurrences")
+      .update({
+        status: "completed",
+        completed_by_id: user?.id || null,
+        completed_by_name: user?.name || null,
+        completed_at: new Date().toISOString(),
+        completion_note: note.trim(),
+        notes: note.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", occurrence.id);
+    if (error) {
+      toast.error(`تعذر تنفيذ هذه المرة: ${error.message}`);
+      return;
+    }
+    await addLog(selected.id, "complete_occurrence", `تم تنفيذ مرة متكررة: ${dateLabel(occurrence.occurrence_at)} - ${note.trim()}`);
+    await loadDetails(selected);
+    toast.success("تم تسجيل تنفيذ هذه المرة");
+  };
+
   const addComment = async () => {
     if (!selected || !comment.trim()) return;
     await addLog(selected.id, "comment", comment.trim());
@@ -293,20 +447,35 @@ export default function ShiftNotes() {
   };
 
   const handoverOpenNotes = async () => {
-    const openIds = notes.filter((note) => !["completed", "cancelled"].includes(note.status || "")).map((note) => note.id);
+    const openNotes = notes.filter((note) => !["completed", "cancelled"].includes(note.status || ""));
+    const openIds = openNotes.map((note) => note.id);
     if (openIds.length === 0) {
       toast.info("لا توجد ملاحظات مفتوحة للتسليم");
       return;
     }
+    const overdue = openNotes.filter(isOverdue).length;
+    const urgent = openNotes.filter((note) => ["urgent", "critical"].includes(note.priority || "")).length;
+    const recurring = openNotes.filter((note) => note.is_recurring).length;
+    const ok = window.confirm(`سيتم تسليم ${openIds.length} ملاحظة للشيفت التالي.\nالمتأخرة: ${overdue}\nالعاجلة: ${urgent}\nالمتكررة: ${recurring}\nهل تريد المتابعة؟`);
+    if (!ok) return;
+    const handoverNote = window.prompt("تعليق تسليم اختياري للشيفت التالي") || "";
+    const now = new Date().toISOString();
     const { error } = await supabase
       .from("shift_notes")
-      .update({ handed_over: true, handed_over_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({
+        handed_over: true,
+        handed_over_at: now,
+        handed_over_by_id: user?.id || null,
+        handed_over_by_name: user?.name || "النظام",
+        handover_note: handoverNote || null,
+        updated_at: now,
+      })
       .in("id", openIds);
     if (error) {
       toast.error(`تعذر تسليم الشيفت: ${error.message}`);
       return;
     }
-    await Promise.all(openIds.map((id) => addLog(id, "handover", "تم تسليم الملحوظة للشيفت التالي")));
+    await Promise.all(openIds.map((id) => addLog(id, "handover", handoverNote ? `تم تسليم الملحوظة للشيفت التالي: ${handoverNote}` : "تم تسليم الملحوظة للشيفت التالي")));
     toast.success(`تم تسليم ${openIds.length} ملاحظة للشيفت التالي`);
     await loadNotes();
   };
@@ -316,6 +485,8 @@ export default function ShiftNotes() {
     setForm({
       title: note.title || "",
       details: note.details || "",
+      note_kind: note.note_kind || "note",
+      action_required: note.action_required || "general_action",
       note_type: note.note_type || "general",
       branch: note.branch || "فرع شكري",
       customer_name: note.customer_name || "",
@@ -324,6 +495,12 @@ export default function ShiftNotes() {
       due_at: note.due_at ? new Date(note.due_at).toISOString().slice(0, 16) : todayInput(),
       assigned_to_name: note.assigned_to_name || "",
       priority: note.priority || "normal",
+      amount_due: note.amount_due ? String(note.amount_due) : "",
+      expected_payment_method: note.expected_payment_method || "",
+      patient_address: note.patient_address || "",
+      delivery_address: note.delivery_address || "",
+      complaint_level: note.complaint_level || "",
+      resolution_required: note.resolution_required || "",
       is_recurring: Boolean(note.is_recurring),
       repeat_days: note.repeat_days || 1,
       recurrence_times: (note.recurrence_times || ["09:00", "21:00"]).join(","),
@@ -345,11 +522,15 @@ export default function ShiftNotes() {
         (filter === "tomorrow" && due && due.toDateString() === tomorrow.toDateString()) ||
         (filter === "overdue" && isOverdue(note)) ||
         (filter === "urgent" && ["urgent", "critical"].includes(note.priority || "")) ||
+        (filter === "recurring" && Boolean(note.is_recurring)) ||
+        (filter === "assigned_pending" && note.status === "assigned_pending") ||
+        (filter === "completed_today" && note.status === "completed" && note.closed_at && new Date(note.closed_at).toDateString() === now.toDateString()) ||
+        (filter === "archive" && ["completed", "cancelled"].includes(note.status || "")) ||
         filter === note.status ||
         filter === note.branch ||
         filter === note.note_type ||
         filter === note.assigned_to_name;
-      const haystack = [note.title, note.details, note.customer_name, note.customer_phone, note.invoice_no, note.branch, note.assigned_to_name]
+      const haystack = [note.title, note.details, note.customer_name, note.customer_phone, note.invoice_no, note.branch, note.assigned_to_name, note.note_type, note.action_required]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -363,6 +544,8 @@ export default function ShiftNotes() {
       today: notes.filter((note) => note.due_at && new Date(note.due_at).toDateString() === today).length,
       overdue: notes.filter(isOverdue).length,
       urgent: notes.filter((note) => ["urgent", "critical"].includes(note.priority || "")).length,
+      pending: notes.filter((note) => note.status === "assigned_pending").length,
+      recurring: notes.filter((note) => note.is_recurring && note.due_at && new Date(note.due_at).toDateString() === today).length,
       completed: notes.filter((note) => note.status === "completed" && note.closed_at && new Date(note.closed_at).toDateString() === today).length,
     };
   }, [notes]);
@@ -382,10 +565,12 @@ export default function ShiftNotes() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         <MiniStat label="ملاحظات اليوم" value={summary.today} />
         <MiniStat label="متأخرة" value={summary.overdue} danger />
         <MiniStat label="عاجلة/حرجة" value={summary.urgent} danger />
+        <MiniStat label="بانتظار الاستلام" value={summary.pending} />
+        <MiniStat label="متكررة اليوم" value={summary.recurring} />
         <MiniStat label="مكتملة اليوم" value={summary.completed} success />
       </div>
 
@@ -396,6 +581,12 @@ export default function ShiftNotes() {
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
           <input className="input-dark lg:col-span-2" placeholder="عنوان مختصر للملحوظة" value={form.title} onChange={(event) => setForm((f) => ({ ...f, title: event.target.value }))} />
+          <select className="input-dark" value={form.note_kind} onChange={(event) => setForm((f) => ({ ...f, note_kind: event.target.value as NoteKind }))}>
+            {Object.entries(kindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select className="input-dark" value={form.action_required} disabled={form.note_kind !== "action_task"} onChange={(event) => setForm((f) => ({ ...f, action_required: event.target.value }))}>
+            {Object.entries(actionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
           <select className="input-dark" value={form.note_type} onChange={(event) => setForm((f) => ({ ...f, note_type: event.target.value }))}>
             {Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
@@ -419,6 +610,24 @@ export default function ShiftNotes() {
             <input type="checkbox" checked={form.is_recurring} onChange={(event) => setForm((f) => ({ ...f, is_recurring: event.target.checked }))} />
             ملحوظة متكررة
           </label>
+          {form.note_type === "collection" && (
+            <>
+              <input className="input-dark" placeholder="المبلغ المطلوب تحصيله" value={form.amount_due} onChange={(event) => setForm((f) => ({ ...f, amount_due: event.target.value }))} />
+              <input className="input-dark" placeholder="طريقة الدفع المتوقعة" value={form.expected_payment_method} onChange={(event) => setForm((f) => ({ ...f, expected_payment_method: event.target.value }))} />
+            </>
+          )}
+          {form.note_type === "nursing" && (
+            <input className="input-dark lg:col-span-2" placeholder="عنوان المريض / مكان التمريض" value={form.patient_address} onChange={(event) => setForm((f) => ({ ...f, patient_address: event.target.value }))} />
+          )}
+          {form.note_type === "delivery" && (
+            <input className="input-dark lg:col-span-2" placeholder="عنوان الدليفري" value={form.delivery_address} onChange={(event) => setForm((f) => ({ ...f, delivery_address: event.target.value }))} />
+          )}
+          {form.note_type === "customer_complaint" && (
+            <>
+              <input className="input-dark" placeholder="درجة الشكوى" value={form.complaint_level} onChange={(event) => setForm((f) => ({ ...f, complaint_level: event.target.value }))} />
+              <input className="input-dark" placeholder="الإجراء المطلوب لحل الشكوى" value={form.resolution_required} onChange={(event) => setForm((f) => ({ ...f, resolution_required: event.target.value }))} />
+            </>
+          )}
           <input className="input-dark" type="number" min={1} placeholder="عدد أيام التكرار" value={form.repeat_days} disabled={!form.is_recurring} onChange={(event) => setForm((f) => ({ ...f, repeat_days: Number(event.target.value) }))} />
           <input className="input-dark lg:col-span-2" placeholder="أوقات التكرار مثل 09:00,21:00" value={form.recurrence_times} disabled={!form.is_recurring} onChange={(event) => setForm((f) => ({ ...f, recurrence_times: event.target.value }))} />
           <textarea className="input-dark lg:col-span-4 resize-none" rows={3} placeholder="تفاصيل الملحوظة" value={form.details} onChange={(event) => setForm((f) => ({ ...f, details: event.target.value }))} />
@@ -437,6 +646,10 @@ export default function ShiftNotes() {
           <option value="tomorrow">ملاحظات بكرة</option>
           <option value="overdue">المتأخرة</option>
           <option value="urgent">العاجلة</option>
+          <option value="recurring">المتكررة</option>
+          <option value="assigned_pending">بانتظار الاستلام</option>
+          <option value="completed_today">تمت اليوم</option>
+          <option value="archive">الأرشيف</option>
           <option value="new">جديدة</option>
           <option value="in_progress">قيد التنفيذ</option>
           <option value="completed">مكتملة</option>
@@ -466,9 +679,13 @@ export default function ShiftNotes() {
                     <div className="text-xl font-black text-white">{note.title}</div>
                     <div className="flex flex-wrap gap-2 mt-2 text-xs">
                       <span className="badge-info">{typeLabels[note.note_type || "general"] || "عام"}</span>
+                      <span className="badge-info">{kindLabels[note.note_kind || "note"]}</span>
+                      {note.action_required && <span className="badge-info">{actionLabels[note.action_required] || note.action_required}</span>}
                       <span className="badge-info">{note.branch || "غير محدد"}</span>
                       <span className="badge-info">{priorityLabels[note.priority || "normal"]}</span>
                       <span className="badge-info">{isOverdue(note) ? "متأخرة" : statusLabels[note.status || "new"]}</span>
+                      {note.received_by_name && <span className="badge-success">استلمها {note.received_by_name}</span>}
+                      {note.postponed_until && <span className="badge-warning">مؤجلة إلى {dateLabel(note.postponed_until)}</span>}
                       {note.handed_over && <span className="badge-warning">تم تسليمها للشيفت التالي</span>}
                     </div>
                   </div>
@@ -482,10 +699,14 @@ export default function ShiftNotes() {
                 </div>
                 {note.details && <p className="text-slate-300 text-sm leading-7 mt-4 line-clamp-2">{note.details}</p>}
                 <div className="flex flex-wrap gap-2 mt-4">
+                  {note.status === "assigned_pending" && <button onClick={() => receiveNote(note)} className="btn-primary text-sm flex items-center gap-2"><CheckCircle2 size={15} /> استلام المتابعة</button>}
                   <button onClick={() => updateStatus(note, "completed")} className="btn-primary text-sm flex items-center gap-2"><CheckCircle2 size={15} /> تم التنفيذ</button>
+                  <button onClick={() => postponeNote(note)} className="btn-secondary text-sm flex items-center gap-2"><Clock size={15} /> تأجيل</button>
                   <button onClick={() => startEdit(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2"><Edit3 size={15} /> تعديل</button>
                   <button onClick={() => updateStatus(note, "cancelled", "إلغاء من المستخدم")} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2 text-red-200"><Trash2 size={15} /> إلغاء</button>
-                  {phone && <a href={generateWhatsAppLink(phone, `مرحبًا، نتابع مع حضرتك بخصوص: ${note.title}`)} target="_blank" rel="noreferrer" className="btn-secondary text-sm flex items-center gap-2"><MessageSquare size={15} /> واتساب</a>}
+                  {phone && <a href={`tel:${phone}`} className="btn-secondary text-sm flex items-center gap-2"><Phone size={15} /> اتصال</a>}
+                  {phone && <button onClick={() => navigator.clipboard?.writeText(phone)} className="btn-secondary text-sm flex items-center gap-2"><Copy size={15} /> نسخ الرقم</button>}
+                  {phone && <a href={generateWhatsAppLink(phone, `حضرتك مع صيدليات دواء، بنتابع مع حضرتك بخصوص الطلب / المتابعة الخاصة بحضرتك.`)} target="_blank" rel="noreferrer" className="btn-secondary text-sm flex items-center gap-2"><MessageSquare size={15} /> واتساب</a>}
                 </div>
               </div>
             );
@@ -505,14 +726,22 @@ export default function ShiftNotes() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <Detail label="النوع" value={typeLabels[selected.note_type || "general"] || "عام"} />
+              <Detail label="نوع التسجيل" value={kindLabels[selected.note_kind || "note"]} />
+              <Detail label="الإجراء المطلوب" value={selected.action_required ? (actionLabels[selected.action_required] || selected.action_required) : "لا يوجد"} />
               <Detail label="الحالة" value={isOverdue(selected) ? "متأخرة" : statusLabels[selected.status || "new"]} />
               <Detail label="الأولوية" value={priorityLabels[selected.priority || "normal"]} />
               <Detail label="الفرع" value={selected.branch || "غير محدد"} />
               <Detail label="المسؤول" value={selected.assigned_to_name || "غير محدد"} />
+              <Detail label="استلام المسؤولية" value={selected.received_by_name ? `${selected.received_by_name} - ${dateLabel(selected.received_at)}` : "لم يتم الاستلام"} />
               <Detail label="وقت التنفيذ" value={dateLabel(selected.due_at)} />
+              <Detail label="التأجيل" value={selected.postponed_until ? `${dateLabel(selected.postponed_until)} - ${selected.postponement_reason || ""}` : "لا يوجد"} />
               <Detail label="العميل" value={selected.customer_name || "لا يوجد"} />
               <Detail label="هاتف العميل" value={selected.customer_phone || "لا يوجد"} />
               <Detail label="رقم الفاتورة" value={selected.invoice_no || "لا يوجد"} />
+              {selected.note_type === "collection" && <Detail label="التحصيل" value={`${selected.amount_due || "غير محدد"} - ${selected.expected_payment_method || "طريقة غير محددة"}`} />}
+              {selected.note_type === "nursing" && <Detail label="عنوان التمريض" value={selected.patient_address || "غير محدد"} />}
+              {selected.note_type === "delivery" && <Detail label="عنوان الدليفري" value={selected.delivery_address || "غير محدد"} />}
+              {selected.note_type === "customer_complaint" && <Detail label="مستوى الشكوى" value={`${selected.complaint_level || "غير محدد"} - ${selected.resolution_required || ""}`} />}
             </div>
             {selected.details && <div className="mt-4 bg-white/5 rounded-xl p-4 text-slate-200 leading-8">{selected.details}</div>}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
@@ -537,8 +766,14 @@ export default function ShiftNotes() {
                 <div className="space-y-2 max-h-72 overflow-y-auto">
                   {occurrences.length === 0 ? <div className="text-slate-400 text-sm">لا توجد تكرارات لهذه الملحوظة.</div> : occurrences.map((item) => (
                     <div key={item.id} className="flex items-center justify-between gap-2 bg-black/15 rounded-lg p-3 text-sm">
-                      <span>{dateLabel(item.occurrence_at)}</span>
-                      <span className="badge-info">{item.status || "pending"}</span>
+                      <div>
+                        <div>{dateLabel(item.scheduled_time || item.occurrence_at)}</div>
+                        {item.completion_note && <div className="text-xs text-slate-400 mt-1">{item.completion_note}</div>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="badge-info">{item.status || "pending"}</span>
+                        {item.status !== "completed" && <button onClick={() => completeOccurrence(item)} className="btn-secondary text-xs">تم تنفيذ هذه المرة</button>}
+                      </div>
                     </div>
                   ))}
                 </div>

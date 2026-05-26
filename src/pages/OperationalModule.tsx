@@ -492,6 +492,51 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
     }
   };
 
+  const returnShortageToCustomerRequest = async (row: Record<string, unknown>) => {
+    const requestId = String(row.source_customer_request_id || "");
+    if (!requestId) {
+      toast.error("هذا الصنف غير مرتبط بطلب عميل.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const { error: requestError } = await supabase
+      .from("customer_requests")
+      .update({
+        status: "available",
+        moved_to_shortage_at: null,
+        updated_at: now,
+      })
+      .eq("id", requestId);
+    if (requestError) {
+      toast.error(`تعذر إعادة الطلب: ${requestError.message}`);
+      return;
+    }
+    const { error: shortageError } = await supabase
+      .from("shortage_items")
+      .update({
+        status: "resolved",
+        returned_to_customer_request_at: now,
+        updated_at: now,
+      })
+      .eq("id", row.id);
+    if (shortageError) {
+      toast.error(`تم تحديث الطلب لكن تعذر تحديث النواقص: ${shortageError.message}`);
+      return;
+    }
+    await supabase.from("customer_request_events").insert({
+      request_id: requestId,
+      old_status: "not_available",
+      new_status: "available",
+      action: "إعادة الطلب من النواقص",
+      notes: `تمت إعادة متابعة الصنف من النواقص: ${String(row.item_name || row.title || "")}`,
+      created_by: getSafeCurrentUserId(),
+      created_by_name: user?.name || "النظام",
+      created_at: now,
+    });
+    toast.success("تمت إعادة الطلب إلى طلبات العملاء");
+    await loadRows();
+  };
+
   const Icon = config.icon;
   const branchOptions = Array.from(new Set(rows.map((row) => String(row[config.branchField || "branch"] || "")).filter(Boolean)));
 
@@ -612,6 +657,11 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
                         <select className="input-dark min-w-40" value={status} onChange={(event) => updateStatus(row, event.target.value)}>
                           {config.statuses.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                         </select>
+                        {module === "shortages" && row.source_customer_request_id && (
+                          <button type="button" onClick={() => returnShortageToCustomerRequest(row)} className="btn-secondary mt-2 text-xs">
+                            إعادة لطلبات العملاء
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

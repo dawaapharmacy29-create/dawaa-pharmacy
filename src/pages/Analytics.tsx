@@ -99,7 +99,7 @@ export default function Analytics() {
 
   const { data: invoices, loading: invLoad, error: invError } = useSupabaseQuery<SalesInvoiceRow>({
     table: "sales_invoices",
-    limit: 15000,
+    limit: 50000,
     orderBy: { column: "invoice_date", ascending: false },
     realtimeEnabled: false,
   });

@@ -181,6 +181,27 @@ export default function CustomerRequests() {
     window.open(generateWhatsAppLink(selected.customer_phone, message), "_blank", "noopener,noreferrer");
   };
 
+  const handleMoveToShortage = async () => {
+    if (!selected) return;
+    const confirmed = window.confirm("سيتم نقل الطلب إلى صفحة النواقص مع الاحتفاظ ببيانات العميل والطلب. هل تريد المتابعة؟");
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      const result = await moveCustomerRequestToShortage(selected, {
+        user_id: user?.id,
+        user_name: user?.name,
+      });
+      setSelected(result.request);
+      setRequests((items) => items.map((item) => (item.id === selected.id ? result.request : item)));
+      setEvents(await getCustomerRequestEvents(selected.id));
+      toast.success("تم نقل الطلب إلى النواقص وربطه بطلب العميل");
+    } catch (error) {
+      toast.error(`تعذر نقل الطلب للنواقص: ${(error as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -322,7 +343,12 @@ export default function CustomerRequests() {
                       <Detail icon={Truck} label="الفرع/الكمية" value={`${selected.branch || "غير محدد"} — ${selected.quantity || 1} علبة`} />
                     </div>
                   </div>
-                  <button onClick={openWhatsApp} className="btn-primary">واتساب العميل</button>
+                  <div className="flex flex-col gap-2">
+                    <button onClick={openWhatsApp} className="btn-primary">واتساب العميل</button>
+                    <button onClick={handleMoveToShortage} disabled={saving || selected.status === "not_available"} className="btn-secondary text-sm">
+                      نقل للنواقص
+                    </button>
+                  </div>
                 </div>
               </div>
 
