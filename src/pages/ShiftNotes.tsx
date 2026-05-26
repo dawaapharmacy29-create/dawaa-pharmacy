@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   CalendarClock,
@@ -38,6 +39,7 @@ interface ShiftNote {
   branch: string | null;
   customer_id?: string | null;
   customer_name: string | null;
+  customer_code?: string | null;
   customer_phone: string | null;
   invoice_no: string | null;
   author_id: string | null;
@@ -67,6 +69,9 @@ interface ShiftNote {
   resolution_required?: string | null;
   created_at: string | null;
   updated_at: string | null;
+  completed_by_name?: string | null;
+  deleted_at?: string | null;
+  deleted_by_name?: string | null;
 }
 
 interface ShiftNoteLog {
@@ -174,6 +179,14 @@ function dateLabel(value?: string | null) {
   return new Date(value).toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" });
 }
 
+
+function dayKey(value?: string | null) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
 function statusClass(note: ShiftNote) {
   if (isOverdue(note)) return "bg-red-950/60 border-red-500/35 text-red-100";
   if (note.status === "completed") return "bg-emerald-500/10 border-emerald-400/25 text-emerald-200";
@@ -186,6 +199,7 @@ function statusClass(note: ShiftNote) {
 export default function ShiftNotes() {
   const { user, isAdmin } = useAuth();
   const { data: staffRows } = useSupabaseQuery<Staff>({ table: "staff", realtimeEnabled: false });
+  const { data: customerRows } = useSupabaseQuery<Record<string, unknown>>({ table: "customers", realtimeEnabled: false, limit: 5000 });
   const staffChoices = useMemo(() => selectableStaffChoices(staffRows as unknown as Record<string, unknown>[]), [staffRows]);
   const [notes, setNotes] = useState<ShiftNote[]>([]);
   const [logs, setLogs] = useState<ShiftNoteLog[]>([]);
@@ -196,8 +210,11 @@ export default function ShiftNotes() {
   const [editing, setEditing] = useState<ShiftNote | null>(null);
   const [comment, setComment] = useState("");
   const [filter, setFilter] = useState("today");
+  const [dimensionFilter, setDimensionFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState({ ...emptyForm, due_at: todayInput() });
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [form, setForm] = useState({ ...emptyForm, due_at: todayInput(), customer_code: "" } as typeof emptyForm & { customer_code: string });
+  const [deletedNotes, setDeletedNotes] = useState<ShiftNote[]>([]);
 
   const canManage = isAdmin || /مدير|admin/i.test(user?.role || "");
 
@@ -213,7 +230,9 @@ export default function ShiftNotes() {
       setLoading(false);
       return;
     }
-    setNotes((data || []) as ShiftNote[]);
+    const all = (data || []) as ShiftNote[];
+    setNotes(all.filter((n) => !n.deleted_at));
+    setDeletedNotes(all.filter((n) => Boolean(n.deleted_at)));
     setLoading(false);
   };
 
@@ -230,6 +249,38 @@ export default function ShiftNotes() {
   useEffect(() => {
     loadNotes();
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 300);
+  
+  const softDeleteNote = async (note: ShiftNote) => {
+    const ok = window.confirm(`حذف الملحوظة: ${note.title} ؟ يمكن استرجاعها لاحقًا.`);
+    if (!ok) return;
+    const { error } = await supabase.from("shift_notes").update({
+      deleted_at: new Date().toISOString(),
+      deleted_by_id: user?.id || null,
+      deleted_by_name: user?.name || null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", note.id);
+    if (error) return toast.error(`تعذر حذف الملحوظة: ${error.message}`);
+    await addLog(note.id, "delete", `تم حذف الملحوظة بواسطة ${user?.name || "النظام"}`);
+    await loadNotes();
+  };
+
+  const restoreNote = async (note: ShiftNote) => {
+    const { error } = await supabase.from("shift_notes").update({
+      deleted_at: null,
+      deleted_by_id: null,
+      deleted_by_name: null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", note.id);
+    if (error) return toast.error(`تعذر استرجاع الملحوظة: ${error.message}`);
+    await addLog(note.id, "restore", `تم استرجاع الملحوظة بواسطة ${user?.name || "النظام"}`);
+    await loadNotes();
+  };
+
+  return () => window.clearTimeout(timer);
+  }, [search]);
 
   const addLog = async (noteId: string, action: string, details?: string) => {
     await supabase.from("shift_note_logs").insert({
@@ -280,6 +331,7 @@ export default function ShiftNotes() {
       note_type: form.note_type,
       branch: form.branch,
       customer_name: form.customer_name.trim() || null,
+      customer_code: form.customer_code.trim() || null,
       customer_phone: form.customer_phone.trim() || null,
       invoice_no: form.invoice_no.trim() || null,
       due_at: form.due_at ? new Date(form.due_at).toISOString() : null,
@@ -318,6 +370,10 @@ export default function ShiftNotes() {
   };
 
   const updateStatus = async (note: ShiftNote, status: NoteStatus, reason?: string) => {
+    if (status === "completed" && !user?.name) {
+      toast.error("يجب تحديد الدكتور المنفذ قبل تنفيذ الملحوظة");
+      return;
+    }
     if (status === "completed" && note.note_kind === "action_task" && ["important", "urgent", "critical"].includes(note.priority || "") && !reason) {
       const completionNote = window.prompt("اكتب تعليق التنفيذ قبل إغلاق المهمة");
       if (!completionNote?.trim()) {
@@ -332,6 +388,9 @@ export default function ShiftNotes() {
       payload.closed_by_id = user?.id || null;
       payload.closed_by_name = user?.name || null;
       payload.closure_reason = reason || null;
+      if (status === "completed") {
+        payload.completed_by_name = user?.name || null;
+      }
     }
     const { data, error } = await supabase.from("shift_notes").update(payload).eq("id", note.id).select("*").single();
     if (error) {
@@ -509,45 +568,66 @@ export default function ShiftNotes() {
   };
 
   const filteredNotes = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const now = new Date();
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const q = debouncedSearch;
+    const today = dayKey(new Date().toISOString());
+    const tomorrowDate = new Date();
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    const tomorrow = dayKey(tomorrowDate.toISOString());
+
     return notes.filter((note) => {
-      const due = note.due_at ? new Date(note.due_at) : null;
-      const matchesFilter =
+      const dueKey = dayKey(note.due_at);
+      const closedKey = dayKey(note.closed_at);
+      const matchesPrimary =
         filter === "all" ||
         (filter === "mine" && [note.assigned_to_name, note.author_name].includes(user?.name || "")) ||
-        (filter === "today" && due && due.toDateString() === now.toDateString()) ||
-        (filter === "tomorrow" && due && due.toDateString() === tomorrow.toDateString()) ||
+        (filter === "today" && dueKey === today) ||
+        (filter === "tomorrow" && dueKey === tomorrow) ||
         (filter === "overdue" && isOverdue(note)) ||
         (filter === "urgent" && ["urgent", "critical"].includes(note.priority || "")) ||
         (filter === "recurring" && Boolean(note.is_recurring)) ||
         (filter === "assigned_pending" && note.status === "assigned_pending") ||
-        (filter === "completed_today" && note.status === "completed" && note.closed_at && new Date(note.closed_at).toDateString() === now.toDateString()) ||
+        (filter === "completed_today" && note.status === "completed" && closedKey === today) ||
         (filter === "archive" && ["completed", "cancelled"].includes(note.status || "")) ||
-        filter === note.status ||
-        filter === note.branch ||
-        filter === note.note_type ||
-        filter === note.assigned_to_name;
+        filter === note.status;
+
+      const matchesDimension =
+        dimensionFilter === "all" ||
+        dimensionFilter === note.branch ||
+        dimensionFilter === note.note_type ||
+        dimensionFilter === note.assigned_to_name;
+
+      if (!matchesPrimary || !matchesDimension) return false;
+      if (!q) return true;
+
       const haystack = [note.title, note.details, note.customer_name, note.customer_phone, note.invoice_no, note.branch, note.assigned_to_name, note.note_type, note.action_required]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
-      return matchesFilter && (!q || haystack.includes(q));
+      return haystack.includes(q);
     });
-  }, [filter, notes, search, user?.name]);
+  }, [debouncedSearch, dimensionFilter, filter, notes, user?.name]);
 
   const summary = useMemo(() => {
-    const today = new Date().toDateString();
-    return {
-      today: notes.filter((note) => note.due_at && new Date(note.due_at).toDateString() === today).length,
-      overdue: notes.filter(isOverdue).length,
-      urgent: notes.filter((note) => ["urgent", "critical"].includes(note.priority || "")).length,
-      pending: notes.filter((note) => note.status === "assigned_pending").length,
-      recurring: notes.filter((note) => note.is_recurring && note.due_at && new Date(note.due_at).toDateString() === today).length,
-      completed: notes.filter((note) => note.status === "completed" && note.closed_at && new Date(note.closed_at).toDateString() === today).length,
-    };
+    const today = dayKey(new Date().toISOString());
+    let todayCount = 0;
+    let overdue = 0;
+    let urgent = 0;
+    let pending = 0;
+    let recurring = 0;
+    let completed = 0;
+
+    for (const note of notes) {
+      const dueKey = dayKey(note.due_at);
+      const closedKey = dayKey(note.closed_at);
+      if (dueKey === today) todayCount += 1;
+      if (isOverdue(note)) overdue += 1;
+      if (["urgent", "critical"].includes(note.priority || "")) urgent += 1;
+      if (note.status === "assigned_pending") pending += 1;
+      if (note.is_recurring && dueKey === today) recurring += 1;
+      if (note.status === "completed" && closedKey === today) completed += 1;
+    }
+
+    return { today: todayCount, overdue, urgent, pending, recurring, completed };
   }, [notes]);
 
   return (
@@ -566,13 +646,32 @@ export default function ShiftNotes() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <MiniStat label="ملاحظات اليوم" value={summary.today} />
-        <MiniStat label="متأخرة" value={summary.overdue} danger />
-        <MiniStat label="عاجلة/حرجة" value={summary.urgent} danger />
-        <MiniStat label="بانتظار الاستلام" value={summary.pending} />
-        <MiniStat label="متكررة اليوم" value={summary.recurring} />
-        <MiniStat label="مكتملة اليوم" value={summary.completed} success />
+        <MiniStat label="ملاحظات اليوم" value={summary.today} onClick={() => setFilter("today")} />
+        <MiniStat label="متأخرة" value={summary.overdue} danger onClick={() => setFilter("overdue")} />
+        <MiniStat label="عاجلة/حرجة" value={summary.urgent} danger onClick={() => setFilter("urgent")} />
+        <MiniStat label="بانتظار الاستلام" value={summary.pending} onClick={() => setFilter("assigned_pending")} />
+        <MiniStat label="متكررة اليوم" value={summary.recurring} onClick={() => setFilter("recurring")} />
+        <MiniStat label="مكتملة اليوم" value={summary.completed} success onClick={() => setFilter("completed_today")} />
       </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Link to="/customer-requests" className="btn-secondary">الذهاب لطلبات العملاء</Link>
+        <Link to="/shift-notes" className="btn-secondary">تحديث صفحة الملحوظات</Link>
+      </div>
+
+      {deletedNotes.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="section-title mb-2">الملاحظات المحذوفة (يمكن استرجاعها)</div>
+          <div className="space-y-2">
+            {deletedNotes.slice(0, 10).map((n) => (
+              <div key={n.id} className="flex items-center justify-between gap-3 text-sm">
+                <div className="text-slate-200">{n.title} - حذفها: {n.deleted_by_name || "غير محدد"}</div>
+                <button className="btn-secondary text-xs" onClick={() => restoreNote(n)}>استرجاع</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
         <div className="flex items-center justify-between">
@@ -598,7 +697,13 @@ export default function ShiftNotes() {
             <option>فرع الشامي</option>
             <option>كل الفروع</option>
           </select>
-          <input className="input-dark" placeholder="اسم العميل إن وجد" value={form.customer_name} onChange={(event) => setForm((f) => ({ ...f, customer_name: event.target.value }))} />
+          <input className="input-dark" placeholder="ابحث باسم/كود العميل (يدعم *)" value={form.customer_name} onChange={(event) => {
+            const q = event.target.value;
+            const raw = q.toLowerCase().replace(/\*/g, ".*");
+            const regex = new RegExp(raw);
+            const match = (customerRows || []).find((row) => regex.test(String(row.name || row.customer_name || "").toLowerCase()) || regex.test(String(row.customer_code || row.code || "").toLowerCase()));
+            setForm((f) => ({ ...f, customer_name: q, customer_code: String(match?.customer_code || match?.code || ""), customer_phone: match ? String(match.phone || match.customer_phone || f.customer_phone || "") : f.customer_phone }));
+          }} />
           <input className="input-dark" placeholder="رقم تليفون العميل" value={form.customer_phone} onChange={(event) => setForm((f) => ({ ...f, customer_phone: event.target.value }))} />
           <input className="input-dark" placeholder="رقم الفاتورة إن وجد" value={form.invoice_no} onChange={(event) => setForm((f) => ({ ...f, invoice_no: event.target.value }))} />
           <input className="input-dark" type="datetime-local" value={form.due_at} onChange={(event) => setForm((f) => ({ ...f, due_at: event.target.value }))} />
@@ -637,6 +742,25 @@ export default function ShiftNotes() {
         </button>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        <Link to="/customer-requests" className="btn-secondary">الذهاب لطلبات العملاء</Link>
+        <Link to="/shift-notes" className="btn-secondary">تحديث صفحة الملحوظات</Link>
+      </div>
+
+      {deletedNotes.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="section-title mb-2">الملاحظات المحذوفة (يمكن استرجاعها)</div>
+          <div className="space-y-2">
+            {deletedNotes.slice(0, 10).map((n) => (
+              <div key={n.id} className="flex items-center justify-between gap-3 text-sm">
+                <div className="text-slate-200">{n.title} - حذفها: {n.deleted_by_name || "غير محدد"}</div>
+                <button className="btn-secondary text-xs" onClick={() => restoreNote(n)}>استرجاع</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
         <input className="input-dark lg:col-span-2" placeholder="بحث بالعميل أو الهاتف أو العنوان أو المسؤول..." value={search} onChange={(event) => setSearch(event.target.value)} />
         <select className="input-dark" value={filter} onChange={(event) => setFilter(event.target.value)}>
@@ -655,8 +779,8 @@ export default function ShiftNotes() {
           <option value="completed">مكتملة</option>
           <option value="cancelled">ملغية</option>
         </select>
-        <select className="input-dark" value={filter} onChange={(event) => setFilter(event.target.value)}>
-          <option value="today">حسب الفرع/النوع/المسؤول</option>
+        <select className="input-dark" value={dimensionFilter} onChange={(event) => setDimensionFilter(event.target.value)}>
+          <option value="all">حسب الفرع/النوع/المسؤول</option>
           <option value="فرع شكري">فرع شكري</option>
           <option value="فرع الشامي">فرع الشامي</option>
           {Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -704,6 +828,7 @@ export default function ShiftNotes() {
                   <button onClick={() => postponeNote(note)} className="btn-secondary text-sm flex items-center gap-2"><Clock size={15} /> تأجيل</button>
                   <button onClick={() => startEdit(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2"><Edit3 size={15} /> تعديل</button>
                   <button onClick={() => updateStatus(note, "cancelled", "إلغاء من المستخدم")} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2 text-red-200"><Trash2 size={15} /> إلغاء</button>
+                  <button onClick={() => softDeleteNote(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2 text-amber-200"><Trash2 size={15} /> حذف</button>
                   {phone && <a href={`tel:${phone}`} className="btn-secondary text-sm flex items-center gap-2"><Phone size={15} /> اتصال</a>}
                   {phone && <button onClick={() => navigator.clipboard?.writeText(phone)} className="btn-secondary text-sm flex items-center gap-2"><Copy size={15} /> نسخ الرقم</button>}
                   {phone && <a href={generateWhatsAppLink(phone, `حضرتك مع صيدليات دواء، بنتابع مع حضرتك بخصوص الطلب / المتابعة الخاصة بحضرتك.`)} target="_blank" rel="noreferrer" className="btn-secondary text-sm flex items-center gap-2"><MessageSquare size={15} /> واتساب</a>}
@@ -786,12 +911,12 @@ export default function ShiftNotes() {
   );
 }
 
-function MiniStat({ label, value, danger, success }: { label: string; value: number; danger?: boolean; success?: boolean }) {
+function MiniStat({ label, value, danger, success, onClick }: { label: string; value: number; danger?: boolean; success?: boolean; onClick?: () => void }) {
   return (
-    <div className="stat-card">
+    <button type="button" onClick={onClick} className="stat-card text-right">
       <div className="text-slate-400 text-sm">{label}</div>
       <div className={`text-3xl font-black mt-2 ${danger ? "text-red-300" : success ? "text-emerald-300" : "text-teal-300"}`}>{value}</div>
-    </div>
+    </button>
   );
 }
 

@@ -28,6 +28,7 @@ import {
 } from "@/lib/followupScripts";
 import { copyText, whatsappLink } from "@/lib/whatsapp";
 import { BRANCHES } from "@/lib/constants";
+import { normalizeBranchName } from "@/lib/branch";
 import { CUSTOMER_FLAG_TEMPLATES_2027, mergeFlagsIntoNotes, parseCustomerFlags } from "@/lib/dawaa2027Data";
 import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -282,7 +283,7 @@ export default function Customers() {
                     </td>
                     <td>
                       <span className="text-slate-300 text-sm">
-                        {c.branch || "غير محدد"}
+                        {normalizeBranchName(c.branch)}
                       </span>
                     </td>
                     <td>
@@ -543,7 +544,7 @@ function CustomerModal({
             <div className="text-slate-400 text-sm flex items-center gap-2">
               <Phone size={13} />
               {c.phone || "بدون رقم"} - كود {c.customer_code || "بدون كود"} -{" "}
-              {c.branch || "غير محدد"}
+              {normalizeBranchName(c.branch)}
             </div>
           </div>
           <span
