@@ -91,6 +91,7 @@ function missingColumn(message: string) {
   return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || "";
 }
 
+// يكتب في جدول activity_log الرسمي الوحيد مع fallback تلقائي للأعمدة الناقصة
 async function insertWithColumnFallback(payload: Record<string, unknown>) {
   const next = { ...payload };
   const removed = new Set<string>();
@@ -101,7 +102,6 @@ async function insertWithColumnFallback(payload: Record<string, unknown>) {
 
     const column = missingColumn(error.message);
     if (!column || removed.has(column) || !(column in next)) {
-      console.warn("[activity_log] insert failed:", error.message);
       return false;
     }
 
@@ -119,29 +119,8 @@ export async function logActivity(input: ActivityLogInput) {
   const branchName = input.branch_name || "";
   const createdAt = new Date().toISOString();
 
-  // Try activity_logs table first (new comprehensive schema)
-  const newSchemaPayload = {
-    operation: input.action,
-    entity_type: input.target_type || null,
-    entity_id: input.target_id || null,
-    entity_title: typeof details === 'string' ? details : (details?.target_title || null),
-    user_id: input.user_id || null,
-    user_name: input.user_name || "النظام",
-    user_role: input.user_role || null,
-    branch_id: input.branch_id || null,
-    branch_name: branchName || null,
-    details: formatActivityDetails(details),
-    old_value: input.old_value || null,
-    new_value: input.new_value || null,
-    route_path: input.route_path || null,
-    created_at: createdAt,
-  };
-
-  const { error: newSchemaError } = await supabase.from("activity_logs").insert(newSchemaPayload);
-  if (!newSchemaError) return;
-
-  // Fallback to old activity_log table
-  const richPayload = {
+  // جدول واحد رسمي فقط: activity_log
+  const payload: Record<string, unknown> = {
     action: input.action,
     module: input.module,
     target_type: input.target_type || null,
@@ -153,18 +132,22 @@ export async function logActivity(input: ActivityLogInput) {
     branch_name: branchName || null,
     branch: branchName || null,
     details,
+    old_value: input.old_value || null,
+    new_value: input.new_value || null,
+    route_path: input.route_path || null,
     created_at: createdAt,
   };
 
-  const savedRich = await insertWithColumnFallback(richPayload);
-  if (savedRich) return;
+  const saved = await insertWithColumnFallback(payload);
+  if (saved) return;
 
+  // محاولة أخيرة بالحقول الأساسية فقط
   await insertWithColumnFallback({
-    user_id: richPayload.user_id,
-    user_name: richPayload.user_name,
-    action: richPayload.action,
-    module: richPayload.module,
-    branch: richPayload.branch,
+    user_id: payload.user_id,
+    user_name: payload.user_name,
+    action: payload.action,
+    module: payload.module,
+    branch: payload.branch,
     details: formatActivityDetails(details),
     created_at: createdAt,
   });

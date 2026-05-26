@@ -217,13 +217,21 @@ function normalizeCustomerLookup(value: unknown) {
     .toLowerCase();
 }
 
+const UUID_LIKE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function cleanCustomerCode(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text || UUID_LIKE_RE.test(text)) return "";
+  return text;
+}
+
 function customerSearchText(customer: CustomerOption) {
   return normalizeCustomerLookup([
     customer.customer_name,
     customer.name,
     customer.customer_code,
     customer.code,
-    customer.id,
     customer.customer_phone,
     customer.phone,
   ].filter(Boolean).join(" "));
@@ -439,7 +447,7 @@ export default function StagnantMedicines() {
       ...(customers || []),
     ]) {
       const name = customer.customer_name || customer.name || "";
-      const code = customer.customer_code || customer.code || customer.id || "";
+      const code = cleanCustomerCode(customer.customer_code || customer.code);
       const phone = customer.customer_phone || customer.phone || "";
       const key = code || phone || name;
       if (!key || (!name && !code && !phone)) continue;
@@ -472,9 +480,9 @@ export default function StagnantMedicines() {
         customer.code ||
         customer.customer_phone ||
         customer.phone ||
-        customer.id ||
         customer.customer_name ||
         customer.name ||
+        customer.id ||
         Math.random().toString();
       if (!byKey.has(String(key))) byKey.set(String(key), customer);
     }
@@ -508,12 +516,12 @@ export default function StagnantMedicines() {
       const results: CustomerOption[] = [];
 
       const mapRecord = (row: Record<string, unknown>): CustomerOption => {
-        const code = String(row.customer_code || row.code || row.customer_id || "");
+        const code = cleanCustomerCode(row.customer_code || row.code);
         const phone = String(row.customer_phone || row.phone || row.phone_number || row.mobile || "");
         const name = String(row.customer_name || row.name || row.full_name || "");
         return {
-          id: String(row.id || code || phone || name || ""),
-          customer_id: String(row.customer_id || row.id || code || ""),
+          id: String(row.id || row.customer_id || ""),
+          customer_id: String(row.customer_id || row.id || ""),
           customer_name: name,
           name,
           customer_code: code,
@@ -564,8 +572,8 @@ export default function StagnantMedicines() {
             customer_id: customer.id,
             customer_name: customer.name,
             name: customer.name,
-            customer_code: customer.customer_code || customer.id,
-            code: customer.customer_code || customer.id,
+            customer_code: cleanCustomerCode(customer.customer_code),
+            code: cleanCustomerCode(customer.customer_code),
             customer_phone: customer.phone,
             phone: customer.phone,
             branch: customer.branch || undefined,

@@ -16,6 +16,13 @@ export const DEFAULT_SHIFT_BOUNDS: ShiftBounds = {
 };
 
 const STORAGE_KEY = "dawaa_shift_bounds_v1";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function safeCustomerCode(value: unknown) {
+  const code = String(value ?? "").trim();
+  if (!code || UUID_RE.test(code)) return "";
+  return code;
+}
 
 export function loadShiftBounds(): ShiftBounds {
   try {
@@ -238,8 +245,8 @@ export function aggregateInvoiceAnalytics(rows: SalesInvoiceRow[], bounds: Shift
     }
 
     // Customer analytics
-    const customerCode = String(row.customer_code || "").trim() || "unknown";
-    const customerName = String(row.customer_name || "").trim() || "غير معروف";
+    const customerCode = safeCustomerCode(row.customer_code) || String(row.customer_phone || row.customer_name || "بدون كود").trim();
+    const customerName = String(row.customer_name || "").trim() || "عميل غير مسجل";
     const invoiceDate = String(row.analysis_datetime || row.invoice_datetime || row.invoice_date || "").slice(0, 10);
     
     const cust = customerMap.get(customerCode) || { name: customerName, total: 0, count: 0, firstDate: invoiceDate, lastDate: invoiceDate };

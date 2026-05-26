@@ -1,7 +1,13 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { phoneSearchTokens } from "@/lib/phone";
 import { matchesOrderedSegments } from "@/lib/utils";
-import { enrichCustomersWithSalesMetrics, fetchSalesInvoices, getInvoicesForCustomer, normalizeInvoice } from "@/lib/salesInvoiceSource";
+import { fetchSalesInvoices, getInvoicesForCustomer, normalizeInvoice } from "@/lib/salesInvoiceSource";
+import {
+  cleanCustomerCode as cleanMasterCustomerCode,
+  normalizeCustomerPriority,
+  normalizeCustomerSegment,
+  normalizeCustomerStatus,
+} from "@/lib/customerAnalyticsService";
 import type { Customer } from "@/types/database";
 
 const DEFAULT_LIMIT = 50;
@@ -78,13 +84,11 @@ function isUuidLikeValue(value: unknown) {
 }
 
 function cleanCustomerCode(value: unknown) {
-  const code = String(value ?? "").trim();
-  if (!code || isUuidLikeValue(code)) return null;
-  return code;
+  return cleanMasterCustomerCode(value) || null;
 }
 
 function normalizeArabicType(value?: string | null) {
-  return value?.replace("جداً", "جدا").replace("جدًّا", "جدا") ?? "";
+  return normalizeCustomerSegment(value || "عادي");
 }
 
 function normalizeBranchName(value: unknown) {
@@ -103,23 +107,36 @@ function branchFilterValues(branch: string) {
 
 function normalizeCustomer(record: Record<string, unknown>): Customer {
   const customerCode = cleanCustomerCode(readFirst(record, ["customer_code", "code"], null));
+  const totalPurchases = toNumber(readFirst(record, ["total_purchases", "total_spent", "total_amount", "purchases_total"], 0));
+  const avgMonthly = toNumber(readFirst(record, ["avg_monthly", "average_monthly", "monthly_avg", "avgMonthly"], 0));
+  const firstPurchase = readFirst(record, ["first_purchase", "first_purchase_date", "created_at"], null) as string | null;
+  const lastPurchase = readFirst(record, ["last_purchase", "last_purchase_date", "last_order_date"], null) as string | null;
+  const segment = normalizeCustomerSegment(readFirst(record, ["segment", "type", "customer_type", "priority"], null), totalPurchases, avgMonthly);
+  const status = normalizeCustomerStatus(readFirst(record, ["status", "retention_status"], null), lastPurchase, firstPurchase);
   return {
     ...record,
     id: String(readFirst(record, ["id", "customer_id", "phone"], customerCode || "")),
     customer_code: customerCode,
     name: String(readFirst(record, ["name", "customer_name", "full_name"], "عميل بدون اسم")),
     phone: String(readFirst(record, ["phone", "customer_phone", "phone_number", "mobile"], "")),
+    whatsapp_phone: readFirst(record, ["whatsapp_phone", "phone_alt"], null) as string | null,
+    whatsapp_link: readFirst(record, ["whatsapp_link"], null) as string | null,
     branch: normalizeBranchName(readFirst(record, ["branch", "branch_name"], null)),
-    type: readFirst(record, ["type", "customer_type", "segment", "priority"], null) as string | null,
-    avg_monthly: toNumber(readFirst(record, ["avg_monthly", "average_monthly", "monthly_avg", "avgMonthly"], 0)),
-    total_purchases: toNumber(readFirst(record, ["total_purchases", "total_spent", "total_amount", "purchases_total"], 0)),
-    total_invoices: toNumber(readFirst(record, ["total_invoices", "invoice_count", "orders_count"], 0)),
+    type: segment,
+    segment,
+    status,
+    priority: normalizeCustomerPriority(readFirst(record, ["priority"], null), segment, status),
+    avg_monthly: avgMonthly,
+    total_purchases: totalPurchases,
+    total_spent: totalPurchases,
+    total_invoices: toNumber(readFirst(record, ["total_invoices", "invoices_count", "invoice_count", "orders_count"], 0)),
+    invoices_count: toNumber(readFirst(record, ["invoices_count", "total_invoices", "invoice_count", "orders_count"], 0)),
     avg_invoice: toNumber(readFirst(record, ["avg_invoice", "average_invoice", "avg_order_value"], 0)),
     clv: toNumber(readFirst(record, ["clv", "customer_lifetime_value"], 0)),
     risk_score: toNumber(readFirst(record, ["risk_score", "risk", "days_inactive"], 0)),
-    retention_status: readFirst(record, ["retention_status", "status"], null) as string | null,
-    last_purchase: readFirst(record, ["last_purchase", "last_purchase_date", "last_order_date"], null) as string | null,
-    first_purchase: readFirst(record, ["first_purchase", "first_purchase_date", "created_at"], null) as string | null,
+    retention_status: status,
+    last_purchase: lastPurchase,
+    first_purchase: firstPurchase,
     notes: readFirst(record, ["notes", "note"], null) as string | null,
     whatsapp_notes: readFirst(record, ["whatsapp_notes", "whatsapp_note"], null) as string | null,
     created_at: readFirst(record, ["created_at"], null) as string | null,
@@ -360,12 +377,7 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
   const limit = normalizeLimit(options.limit);
   const offset = Math.max(options.offset ?? 0, 0);
 
-  const result = await getFallbackCustomers(options, limit, offset);
-  const invoices = await fetchSalesInvoices();
-  return {
-    ...result,
-    customers: enrichCustomersWithSalesMetrics(result.customers, invoices),
-  };
+  return getFallbackCustomers(options, limit, offset);
 }
 
 export async function getCustomerById(id: string) {
@@ -391,9 +403,7 @@ export async function getCustomerById(id: string) {
     if (rows.length) break;
   }
   if (!rows.length && lastError && !isMissingColumnError(lastError)) throw new Error(lastError.message || "تعذر تحميل العميل");
-  const customer = normalizeCustomer(rows[0] ?? {});
-  const invoices = await fetchSalesInvoices();
-  return enrichCustomersWithSalesMetrics([customer], invoices)[0];
+  return normalizeCustomer(rows[0] ?? {});
 }
 
 function getCustomerLookup(customer: Customer) {

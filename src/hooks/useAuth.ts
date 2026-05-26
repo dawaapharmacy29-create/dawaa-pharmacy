@@ -15,65 +15,6 @@ interface StaffAccountLoginRow {
   permissions?: Record<string, boolean> | null;
 }
 
-const AUTH_USERS = [
-  {
-    username: "admin",
-    password: "admin123",
-    role: "أدمن",
-    name: "المدير العام",
-    branch: "الكل",
-    id: "00000000-0000-0000-0000-000000000000",
-  },
-  {
-    username: "yasmine.farouk",
-    password: "pass123",
-    role: "مدير فرع",
-    name: "ياسمين فاروق",
-    branch: "فرع شكري",
-    id: "11111111-0010-0000-0000-000000000010",
-  },
-  {
-    username: "omar.sherif",
-    password: "pass123",
-    role: "مدير فرع",
-    name: "عمر الشريف",
-    branch: "فرع الشامي",
-    id: "11111111-0011-0000-0000-000000000011",
-  },
-  {
-    username: "ahmed.mahmoud",
-    password: "pass123",
-    role: "صيدلاني",
-    name: "د. أحمد محمود",
-    branch: "فرع شكري",
-    id: "11111111-0001-0000-0000-000000000001",
-  },
-  {
-    username: "sara.khaled",
-    password: "pass123",
-    role: "صيدلاني",
-    name: "د. سارة خالد",
-    branch: "فرع شكري",
-    id: "11111111-0002-0000-0000-000000000002",
-  },
-  {
-    username: "mona.ramadan",
-    password: "pass123",
-    role: "خدمة عملاء",
-    name: "منى رمضان",
-    branch: "فرع شكري",
-    id: "11111111-0009-0000-0000-000000000009",
-  },
-  {
-    username: "ali.hassan",
-    password: "pass123",
-    role: "توصيل",
-    name: "علي حسن",
-    branch: "فرع شكري",
-    id: "11111111-0004-0000-0000-000000000004",
-  },
-];
-
 const STORAGE_KEY = "dawaa_auth_user_v2";
 const listeners = new Set<() => void>();
 let currentUser: User | null = readStoredUser();
@@ -138,8 +79,8 @@ function logAuthActivity(user: User, action: string, details: string) {
       details,
       branch: user.branch,
     })
-    .then(({ error }) => {
-      if (error) console.warn("[auth] activity log error:", error.message);
+    .then(() => {
+      // نتجاهل الأخطاء في سجل الأنشطة — لا تؤثر على تجربة المستخدم
     });
 }
 
@@ -154,39 +95,34 @@ async function loginWithStaffAccount(
     p_password: password,
   });
 
-  if (error) {
-    console.warn("[auth] staff account login unavailable:", error.message);
-    return null;
-  }
+  if (error) return null;
 
   const row = Array.isArray(data)
     ? (data[0] as StaffAccountLoginRow | undefined)
     : (data as StaffAccountLoginRow | null);
   if (!row?.id || row.active === false || row.can_login === false) return null;
 
-  // Set the current user context for RLS
+  // ضبط سياق المستخدم لـ RLS
   try {
     await supabase.rpc("set_current_user_context", {
       p_user_id: row.id,
     });
-  } catch (e) {
-    console.warn("[auth] failed to set user context for RLS:", e);
+  } catch {
+    // نكمل حتى لو فشل ضبط السياق
   }
 
-  // Get effective permissions from roles + overrides
+  // جيب الصلاحيات الفعلية من الأدوار والتخصيصات
   let effectivePermissions = row.permissions || {};
   try {
     const { data: permsData, error: permsError } = await supabase.rpc(
       "get_user_permissions",
-      {
-        p_user_id: row.id,
-      },
+      { p_user_id: row.id },
     );
     if (!permsError && permsData) {
       effectivePermissions = permsData as Record<string, boolean>;
     }
-  } catch (e) {
-    console.warn("[auth] failed to fetch user permissions:", e);
+  } catch {
+    // استخدم الصلاحيات المخزنة في السطر كـ fallback
   }
 
   return {
@@ -216,38 +152,20 @@ export function useAuth() {
 
   const login = useCallback(
     async (username: string, password: string): Promise<boolean> => {
+      // محاولة الدخول عبر Supabase staff_accounts فقط
       const accountUser = await loginWithStaffAccount(username, password);
       if (accountUser) {
         setCurrentUser(accountUser);
-        logAuthActivity(
-          accountUser,
-          "تسجيل دخول",
-          "تسجيل دخول ناجح من حسابات الفريق",
-        );
+        logAuthActivity(accountUser, "تسجيل دخول", "تسجيل دخول ناجح");
         return true;
       }
 
-      if (isSupabaseConfigured) {
+      // لو Supabase مش متوفر — رسالة واضحة بدل الـ fallback
+      if (!isSupabaseConfigured) {
         return false;
       }
 
-      const found = AUTH_USERS.find(
-        (item) => item.username === username && item.password === password,
-      );
-      if (!found) return false;
-
-      const userData: User = {
-        id: found.id,
-        name: found.name,
-        username: found.username,
-        role: found.role,
-        branch: found.branch,
-        active: true,
-      };
-
-      setCurrentUser(userData);
-      logAuthActivity(userData, "تسجيل دخول", "تسجيل دخول ناجح");
-      return true;
+      return false;
     },
     [],
   );
@@ -256,13 +174,12 @@ export function useAuth() {
     if (currentUser)
       logAuthActivity(currentUser, "تسجيل خروج", "تسجيل خروج ناجح");
     setCurrentUser(null);
-    // Clear the user context for RLS
     try {
       await supabase.rpc("set_current_user_context", {
         p_user_id: null,
       });
-    } catch (e) {
-      console.warn("[auth] failed to clear user context:", e);
+    } catch {
+      // نكمل حتى لو فشل
     }
   }, []);
 
@@ -274,12 +191,12 @@ export function useAuth() {
     normalizedRole === "أدمن";
   const isBranchManager = normalizedRole === "مدير فرع";
   const canManage = isAdmin || isBranchManager;
+
   const checkPermission = useCallback(
     (permission?: string): boolean => {
       if (!permission) return true;
       if (isAdmin) return true;
       const permissions = user?.permissions;
-      // If no permissions configured yet, allow all (open access for demo/basic users)
       if (!permissions || Object.keys(permissions).length === 0) return true;
       if (permissions[permission] === true) return true;
       return (PERMISSION_ALIASES[permission] || []).some((alias) => permissions[alias] === true);
@@ -292,14 +209,12 @@ export function useAuth() {
       if (!permission) return true;
       if (isAdmin) return true;
 
-      // Check local permissions first
       const permissions = user?.permissions;
       if (permissions && Object.keys(permissions).length > 0) {
         if (permissions[permission] === true) return true;
         return (PERMISSION_ALIASES[permission] || []).some((alias) => permissions[alias] === true);
       }
 
-      // Fall back to server-side check if user ID is valid
       if (user?.id) {
         try {
           const { data, error } = await supabase.rpc("user_has_permission", {
@@ -309,8 +224,8 @@ export function useAuth() {
           if (!error && data !== null) {
             return data as boolean;
           }
-        } catch (e) {
-          console.warn("[auth] permission check failed:", e);
+        } catch {
+          // نرجع false لو فشل التحقق
         }
       }
 
@@ -333,8 +248,7 @@ export function useAuth() {
 }
 
 /**
- * Returns the current user's UUID, or null if not available/invalid.
- * NEVER returns "admin" or any non-UUID string.
+ * يرجع UUID المستخدم الحالي، أو null لو مش متاح أو مش UUID صحيح.
  */
 export function getSafeCurrentUserId(): string | null {
   if (!currentUser) return null;
@@ -344,18 +258,14 @@ export function getSafeCurrentUserId(): string | null {
   return currentUser.id;
 }
 
-// Helper function to get current user profile with validation
 export function getCurrentUserProfile() {
   if (!currentUser) {
     throw new Error("يجب تسجيل الدخول أولًا لتنفيذ العملية");
   }
 
-  // بعض النسخ القديمة خزنت المستخدم في localStorage بمعرف غير UUID مثل "admin".
-  // لا نوقف حفظ البيانات بسبب سجل الأنشطة؛ نستبدله بمعرف نظام آمن ونحافظ على الاسم والدور.
   const uuidRegex =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRegex.test(currentUser.id)) {
-    console.warn("Invalid user ID format, using system UUID for audit fields:", currentUser.id);
     return {
       ...currentUser,
       id: "00000000-0000-0000-0000-000000000000",

@@ -778,7 +778,7 @@ export default function CustomerService() {
                     <div className="min-w-0">
                       <div className="text-white font-bold text-sm truncate">
                         {item.customer_name || "عميل بدون اسم"}
-                        <span className="text-slate-400 font-normal"> — كود {item.customer_code || item.customer_id || "غير محدد"}</span>
+                        <span className="text-slate-400 font-normal"> — كود {item.customer_code || "بدون كود"}</span>
                       </div>
                       <div className="text-slate-400 text-xs mt-1 flex flex-wrap gap-2">
                         <span>{displayEgyptianPhone(item.customer_phone)}</span>

@@ -1,61 +1,76 @@
-# Welcome to your OnSpace project
+# دليل تطبيق الإصلاحات — صيدلية دواء 2027
 
-## How can I edit this code?
+## الملفات المرفقة وأماكنها في المشروع
 
-There are several ways of editing your application.
+| الملف المرفق | المسار في المشروع |
+|---|---|
+| `activityLog.ts` | `src/lib/activityLog.ts` |
+| `useAuth.ts` | `src/hooks/useAuth.ts` |
+| `supabaseTables.ts` | `src/lib/supabaseTables.ts` |
+| `vite.config.mjs` | `vite.config.mjs` |
+| `database_fixes.sql` | شغّله في Supabase SQL Editor |
 
-**Use OnSpace**
+---
 
-Simply visit the [OnSpace Project]() and start prompting.
+## الخطوة 1 — قاعدة البيانات (Supabase SQL Editor)
 
-Changes made via OnSpace will be committed automatically to this repo.
+1. افتح Supabase Dashboard
+2. روح **SQL Editor**
+3. انسخ محتوى `database_fixes.sql` والصقه
+4. اضغط **Run**
+5. تحقق إن النتيجة ظهرت فيها الجداول الرسمية والجديدة
 
-**Use your preferred IDE**
+---
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in OnSpace.
+## الخطوة 2 — ملفات الكود
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### أ) `src/lib/activityLog.ts`
+**ما اتغير:** حذف الـ fallback لجدول `activity_logs` المكرر. دلوقتي الكود بيكتب في `activity_log` فقط.
 
-Follow these steps:
+### ب) `src/hooks/useAuth.ts`
+**ما اتغير:**
+- حذف قائمة المستخدمين وكلمات المرور المكتوبة في الكود (الـ hardcoded passwords)
+- دلوقتي النظام بيعتمد على Supabase `staff_account_login` فقط
+- حذف كل الـ `console.warn/log` من الـ auth
+- لو Supabase مش متوفر بيرجع `false` بدل ما يستخدم بيانات مكشوفة
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+### ج) `src/lib/supabaseTables.ts`
+**ما اتغير:** أضاف كل الجداول المستخدمة في التطبيق (كانت 11 دلوقتي 45+)
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+### د) `vite.config.mjs`
+**ما اتغير:**
+- `drop_console: true` في production — يحذف كل console.log تلقائياً
+- `drop_debugger: true` — يحذف debugger statements
+- تقسيم الـ bundle لـ chunks أصغر (vendor, supabase, ui) لتحسين التحميل
 
-# Step 3: Install the necessary dependencies.
-npm i
+---
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+## ملاحظة مهمة — بعد تغيير useAuth.ts
+
+بعد ما تطبق ملف `useAuth.ts` الجديد، لازم تتأكد إن كل الموظفين عندهم حسابات في جدول `staff_accounts` في Supabase. لو حد مش عارف يدخل:
+
+1. روح Supabase → Table Editor → `staff_accounts`
+2. أضف صف جديد للموظف
+3. أو استخدم صفحة **حسابات وصلاحيات** في التطبيق لإضافته
+
+---
+
+## ملف .gitignore — أضف السطر ده
+
+```
+.pnpm-store/
 ```
 
-**Edit a file directly in GitHub**
+عشان الـ pnpm-store ميتحملش في الـ repository.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+---
 
-**Use GitHub Codespaces**
+## ملخص التحسينات
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [OnSpace]() and click on Share -> Publish.
+| التحسين | النتيجة |
+|---|---|
+| حذف hardcoded passwords | أمان أعلى |
+| توحيد activity_log | بيانات متسقة |
+| جداول الصفحات الجديدة | الصفحات هتشتغل صح |
+| drop_console في production | أداء أسرع |
+| supabaseTables.ts محدث | أسهل صيانة |

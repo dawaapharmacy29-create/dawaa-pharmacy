@@ -9,6 +9,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { getCycleForDate } from "@/lib/pharmacy-cycle";
 import { getShiftFromDateTime } from "@/lib/analyticsFromInvoices";
+import { rebuildCustomerStats } from "@/lib/customerAnalyticsService";
 
 export interface RawInvoiceRow {
   rowIndex: number;
@@ -1569,6 +1570,16 @@ export async function importInvoicesToDB(
   }
 
   await refreshCustomerAnalysisForImportedRows(rows, branch, summary);
+  try {
+    const rebuilt = await rebuildCustomerStats();
+    summary.updatedCustomers = Math.max(summary.updatedCustomers, rebuilt.customers);
+  } catch (error) {
+    summary.errors.push({
+      row: 0,
+      field: "مزامنة العملاء",
+      message: error instanceof Error ? error.message : "تعذر تحديث بيانات العملاء من الفواتير",
+    });
+  }
 
   const daily = new Map<string, { date: string; count: number; total: number }>();
   const branches = new Map<string, { branch: string; count: number; total: number }>();

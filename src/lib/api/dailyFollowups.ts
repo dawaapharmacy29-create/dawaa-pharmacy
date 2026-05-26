@@ -183,17 +183,21 @@ function normalizeCustomer(row: Record<string, unknown>): Customer {
 }
 
 function isVip(c: Customer) {
-  return Number(c.avg_monthly || 0) >= 8000;
+  return Number(c.total_purchases || 0) >= 20000 || Number(c.avg_monthly || 0) >= 5000 || c.type === "مهم جدًا";
 }
 
 function isImportant(c: Customer) {
+  if (isVip(c)) return true;
   const avg = Number(c.avg_monthly || 0);
-  return avg >= 4000 && avg < 8000;
+  const total = Number(c.total_purchases || 0);
+  return total >= 10000 || avg >= 2500 || c.type === "مهم";
 }
 
 function isMedium(c: Customer) {
+  if (isVip(c) || isImportant(c)) return false;
   const avg = Number(c.avg_monthly || 0);
-  return avg >= 1500 && avg < 4000;
+  const total = Number(c.total_purchases || 0);
+  return total >= 3000 || avg >= 800 || c.type === "متوسط";
 }
 
 function isThreatened(c: Customer) {
@@ -301,7 +305,7 @@ function pickBucket(
 ) {
   return customers
     .filter((c) => {
-      const key = c.customer_code || c.id || c.phone;
+      const key = cleanCustomerCode(c.customer_code) || phoneKey(c.phone) || c.name;
       return key && !alreadyPicked.has(key) && predicate(c);
     })
     .sort((a, b) => bucketScore(b, existing) - bucketScore(a, existing))
@@ -326,7 +330,7 @@ async function loadCustomerPhoneLookup(followups: DailyFollowup[]) {
 
   for (const search of searches) {
     const values = missing
-      .map((row) => String(search.key === "code" ? row.customer_code || row.customer_id || "" : row.customer_name || "").trim())
+      .map((row) => String(search.key === "code" ? cleanCustomerCode(row.customer_code) || "" : row.customer_name || "").trim())
       .filter(Boolean);
 
     if (values.length === 0) continue;
@@ -476,7 +480,7 @@ async function generateTodayFollowupsLegacy() {
     .from("customers")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(5000);
+      .limit(20000);
 
   if (error) throw new Error(error.message);
 
@@ -490,24 +494,27 @@ async function generateTodayFollowupsLegacy() {
     .limit(1000);
 
   const recentFollowups = (recentRows ?? []) as DailyFollowup[];
-  const picked = new Set<string>(((todayRows ?? []) as DailyFollowup[]).map((row) => row.customer_id || row.customer_phone || row.customer_name || "").filter(Boolean));
+  const picked = new Set<string>(
+    ((todayRows ?? []) as DailyFollowup[])
+      .map((row) => cleanCustomerCode(row.customer_code) || phoneKey(row.customer_phone) || row.customer_name || "")
+      .filter(Boolean),
+  );
 
   const bucketDefinitions: Array<[string, (c: Customer) => boolean, number]> = [
-    ["أقل من المعدل الشهري", (c) => needsMonthlyFrequencyFollowup(c, invoices), 8],
-    ["مهم جدًا", isVip, LIMITS.vip],
-    ["مهم", isImportant, LIMITS.important],
-    ["متوسط", isMedium, LIMITS.medium],
-    ["مهدد/متوقف", (c) => isStopped(c) || isThreatened(c), LIMITS.risk],
+    ["مهم جدًا", isVip, DAILY_FOLLOWUP_QUOTAS.important],
+    ["متوسط", isMedium, DAILY_FOLLOWUP_QUOTAS.medium],
+    ["مهدد", (c) => (isThreatened(c) || needsMonthlyFrequencyFollowup(c, invoices)) && !isStopped(c), DAILY_FOLLOWUP_QUOTAS.threatened],
+    ["متوقف", isStopped, DAILY_FOLLOWUP_QUOTAS.stopped],
   ];
 
   const buckets = bucketDefinitions.map(([category, predicate, limit]) => {
     const selected = pickBucket(customers, recentFollowups, predicate, picked, limit);
-    selected.forEach((c) => picked.add(c.customer_code || c.id || c.phone));
+    selected.forEach((c) => picked.add(cleanCustomerCode(c.customer_code) || phoneKey(c.phone) || c.name));
     return { category, customers: selected };
   });
 
   const allSelected = buckets.flatMap((bucket) => bucket.customers);
-  const topDoctors = await getTopDoctorsByCustomer(allSelected.map((c) => c.customer_code || c.id).filter(Boolean));
+  const topDoctors = await getTopDoctorsByCustomer(allSelected.map((c) => cleanCustomerCode(c.customer_code)).filter(Boolean));
   const today = start.toISOString().slice(0, 10);
   const records = buckets.flatMap((bucket) =>
     bucket.customers.map((c) => {
@@ -518,7 +525,7 @@ async function generateTodayFollowupsLegacy() {
         ? `\nتنبيه التكرار الشهري: العميل تعامل هذا الشهر ${monthly.currentMonthVisits} مرة، ومتوسطه المعتاد ${monthly.expectedMonthlyVisits} مرة.`
         : "";
       return {
-        customer_id: c.id || code || c.phone || c.name,
+        customer_id: c.id || null,
         customer_code: c.customer_code || null,
         customer_name: c.name,
         customer_phone: c.phone,
@@ -633,7 +640,7 @@ export async function generateTodayFollowups() {
   const recentFollowups = (recentRows ?? []) as DailyFollowup[];
   const picked = new Set<string>(
     ((todayRows ?? []) as DailyFollowup[])
-      .map((row) => row.customer_code || row.customer_id || row.customer_phone || row.customer_name || "")
+      .map((row) => cleanCustomerCode(row.customer_code) || phoneKey(row.customer_phone) || row.customer_name || "")
       .filter(Boolean),
   );
 

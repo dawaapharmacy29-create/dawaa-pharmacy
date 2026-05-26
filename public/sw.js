@@ -3,7 +3,7 @@
  * Versioned cache + offline fallback + auto-update
  */
 
-const APP_VERSION = "dawaa-v1.3.0-cleanup-audit";
+const APP_VERSION = "dawaa-v1.4.0-no-supabase-cache";
 const CACHE_STATIC = `${APP_VERSION}-static`;
 const CACHE_DYNAMIC = `${APP_VERSION}-dynamic`;
 const CACHE_IMAGES = `${APP_VERSION}-images`;
@@ -21,8 +21,8 @@ const PRECACHE_URLS = [
 const DYNAMIC_CACHE_MAX = 60;
 const IMAGE_CACHE_MAX = 40;
 
-// Network-first routes (always try network, fallback to cache)
-const NETWORK_FIRST_PATTERNS = [
+// Live data routes must never be cached. Supabase data is the source of truth.
+const NO_STORE_PATTERNS = [
   /supabase\.co/,
   /backend\.onspace\.ai/,
   /api\./,
@@ -93,9 +93,9 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   if (url.protocol === "chrome-extension:") return;
 
-  // Network-first: API & Supabase calls
-  if (NETWORK_FIRST_PATTERNS.some((p) => p.test(request.url))) {
-    event.respondWith(networkFirst(request));
+  // Supabase/API calls: always network, never cache dynamic operational data.
+  if (NO_STORE_PATTERNS.some((p) => p.test(request.url))) {
+    event.respondWith(networkOnly(request));
     return;
   }
 
@@ -116,6 +116,21 @@ self.addEventListener("fetch", (event) => {
 });
 
 // ─── Strategies ───────────────────────────────────────────────────────────────
+
+/** Network only for live Supabase/API data */
+async function networkOnly(request) {
+  try {
+    return await fetch(request.clone(), { cache: "no-store" });
+  } catch {
+    return new Response(JSON.stringify({ error: "offline" }), {
+      status: 503,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+}
 
 /** Network first → cache fallback */
 async function networkFirst(request) {

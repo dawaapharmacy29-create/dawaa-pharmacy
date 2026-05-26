@@ -40,11 +40,20 @@ function pick(row: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
+const UUID_LIKE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function cleanCustomerCode(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text || UUID_LIKE_RE.test(text)) return "";
+  return text;
+}
+
 export function normalizeCustomerRow(row: Record<string, unknown>): CustomerSearchResult {
   return {
-    id: pick(row, ["id", "customer_id", "customer_code", "code"]),
+    id: pick(row, ["id", "customer_id"]),
     name: pick(row, ["customer_name", "name", "full_name"]) || "عميل بدون اسم",
-    code: pick(row, ["customer_code", "code"]),
+    code: cleanCustomerCode(pick(row, ["customer_code", "code"])),
     phone: pick(row, ["customer_phone", "phone", "mobile"]),
     branch: pick(row, ["branch", "branch_name"]),
     category: pick(row, ["category", "customer_category", "status"]),
