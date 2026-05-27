@@ -251,6 +251,7 @@ export function calcCLV(totalPurchases?: number | null, monthlyAvg?: number | nu
   return { value, label: `${Math.round(value).toLocaleString("ar-EG")} ج.م`, note: null };
 }
 
+// تصنيف العميل: مهم جدًا >= 8000 | مهم 4000-8000 | متوسط 1500-4000 | عادي < 1500
 export function classifyCustomer(monthlyAvg?: number | null) {
   const avg = Number(monthlyAvg || 0);
   if (avg >= 8000) return { key: "vip" as CustomerClassKey, label: "مهم جدًا", color: "text-purple-400", bg: "bg-purple-500/15 border-purple-500/25" };
