@@ -517,13 +517,15 @@ export default function ShiftNotes() {
 
   const postponeNote = async (note: ShiftNote) => {
     const choice = window.prompt(
-      "اختار مدة التأجيل:
-1 - الليلة الساعة 9
+      `اختار مدة التأجيل:
+1 - الليلة الساعة 9 مساءً
 2 - بكرة الساعة 9 صباحًا
 3 - بعد يومين الساعة 9 صباحًا
 4 - بعد نصف ساعة
 5 - بعد ساعة
-6 - تاريخ ووقت مخصص",
+6 - تاريخ ووقت مخصص
+
+اكتب رقم الاختيار:`,
       "1",
     );
     if (!choice) return;
