@@ -27,6 +27,7 @@ import {
 } from "@/lib/analyticsFromInvoices";
 import { getSalesValue } from "@/lib/analyticsService";
 import { calculateSalesMetrics, getSalesDiagnostics, filterInvoicesByDate } from "@/lib/salesMetrics";
+import { fetchAllSalesInvoices, getSalesInvoiceDiagnostics, type SalesInvoiceFilters } from "@/lib/salesInvoiceRepository";
 
 type TabKey = "overview" | "day" | "shifts" | "doctors" | "customers" | "targets" | "alerts";
 
@@ -124,12 +125,36 @@ export default function Analytics() {
     }
   };
 
-  const { data: invoices, loading: invLoad, error: invError } = useSupabaseQuery<SalesInvoiceRow>({
-    table: "sales_invoices",
-    limit: 50000,
-    orderBy: { column: "invoice_date", ascending: false },
-    realtimeEnabled: false,
-  });
+  const [invoices, setInvoices] = useState<SalesInvoiceRow[]>([]);
+  const [invLoad, setInvLoad] = useState(true);
+  const [invError, setInvError] = useState<string | null>(null);
+  const [rowsFetched, setRowsFetched] = useState(0);
+
+  // Fetch all invoices with pagination
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setInvLoad(true);
+      setInvError(null);
+      
+      const result = await fetchAllSalesInvoices({});
+      
+      if (!cancelled) {
+        if (result.error) {
+          setInvError(result.error);
+          setInvoices([]);
+        } else {
+          setInvoices(result.invoices);
+          setRowsFetched(result.rowsFetched);
+        }
+        setInvLoad(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const { data: branchTargets, refetch: refetchTargets } = useSupabaseQuery<BranchTargetRow>({
     table: "branch_sales_targets",
@@ -197,12 +222,16 @@ export default function Analytics() {
   const salesMetrics = useMemo(() => calculateSalesMetrics(periodInvoices, { from: periodStart, to: periodEnd }), [periodInvoices, periodStart, periodEnd]);
 
   // Diagnostics for debugging
+  const diagnostics = useMemo(() => {
+    if (periodInvoices.length === 0) return null;
+    return getSalesDiagnostics(periodInvoices, { from: periodStart, to: periodEnd });
+  }, [periodInvoices, periodStart, periodEnd]);
+
   useEffect(() => {
-    if (periodInvoices.length > 0) {
-      const diagnostics = getSalesDiagnostics(periodInvoices, { from: periodStart, to: periodEnd });
+    if (diagnostics) {
       console.log("Analytics Diagnostics:", diagnostics);
     }
-  }, [periodInvoices, periodStart, periodEnd]);
+  }, [diagnostics]);
 
   const doctorRows = useMemo(() => {
     return Object.entries(agg.perDoctor)
@@ -481,6 +510,50 @@ export default function Analytics() {
       </div>
 
       {invError && <div className="stat-card border border-red-500/30 text-red-200 text-sm">{invError}</div>}
+
+      {/* Diagnostics Section */}
+      {diagnostics && (
+        <div className="stat-card space-y-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-teal-300">
+            <span>📊 معلومات تشخيصية</span>
+            <span className="text-slate-400 text-xs">(للتأكد من جلب البيانات بشكل صحيح)</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2 text-xs">
+            <div className="bg-white/5 rounded p-2">
+              <div className="text-slate-400">الصفوف المجلوبة</div>
+              <div className="text-white font-bold num">{rowsFetched.toLocaleString()}</div>
+            </div>
+            <div className="bg-white/5 rounded p-2">
+              <div className="text-slate-400">فواتير الفترة</div>
+              <div className="text-white font-bold num">{diagnostics.invoiceCount.toLocaleString()}</div>
+            </div>
+            <div className="bg-white/5 rounded p-2">
+              <div className="text-slate-400">أول فاتورة</div>
+              <div className="text-white font-bold">{String(diagnostics.firstInvoiceDate || "-")}</div>
+            </div>
+            <div className="bg-white/5 rounded p-2">
+              <div className="text-slate-400">آخر فاتورة</div>
+              <div className="text-white font-bold">{String(diagnostics.lastInvoiceDate || "-")}</div>
+            </div>
+            <div className="bg-white/5 rounded p-2">
+              <div className="text-slate-400">الصافي (net)</div>
+              <div className="text-teal-300 font-bold num">{formatCurrency(Number(diagnostics.netSales) || 0)}</div>
+            </div>
+            <div className="bg-white/5 rounded p-2">
+              <div className="text-slate-400">الإجمالي (gross)</div>
+              <div className="text-blue-300 font-bold num">{formatCurrency(Number(diagnostics.grossSales) || 0)}</div>
+            </div>
+            <div className="bg-white/5 rounded p-2">
+              <div className="text-slate-400">المبلغ (amount)</div>
+              <div className="text-purple-300 font-bold num">{formatCurrency(Number(diagnostics.totalAmount) || 0)}</div>
+            </div>
+            <div className="bg-white/5 rounded p-2">
+              <div className="text-slate-400">الخصومات</div>
+              <div className="text-red-300 font-bold num">{formatCurrency(Number(diagnostics.discounts) || 0)}</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="stat-card space-y-3">
         <div className="grid md:grid-cols-7 gap-3">

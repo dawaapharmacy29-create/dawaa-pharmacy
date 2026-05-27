@@ -53,6 +53,7 @@ import {
 } from "@/lib/dawaa2027";
 import { formatCycleDate, getCurrentCycle, getPreviousCycle } from "@/lib/pharmacy-cycle";
 import { calculateSalesMetrics, filterInvoicesByDate } from "@/lib/salesMetrics";
+import { fetchAllSalesInvoices } from "@/lib/salesInvoiceRepository";
 
 const cx = (...items: Array<string | false | null | undefined>) => items.filter(Boolean).join(" ");
 
@@ -146,7 +147,29 @@ export default function ExecutiveDashboard2027() {
   const [customLabel, setCustomLabel] = useState("");
   const [customRoute, setCustomRoute] = useState("/operations-center");
   const [customItems, setCustomItems] = useState<CustomDashboardItem[]>([]);
-  const { data: invoices } = useSupabaseQuery<Record<string, unknown>>({ table: "sales_invoices", limit: 50000, realtimeEnabled: false });
+  const [invoices, setInvoices] = useState<Record<string, unknown>[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(true);
+
+  // Fetch all invoices with pagination
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setInvoicesLoading(true);
+      const result = await fetchAllSalesInvoices({});
+      if (!cancelled) {
+        if (result.error) {
+          console.error("Error fetching invoices:", result.error);
+          setInvoices([]);
+        } else {
+          setInvoices(result.invoices);
+        }
+        setInvoicesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const { data: followups } = useSupabaseQuery<Record<string, unknown>>({ table: "daily_followups", limit: 1200, realtimeEnabled: true });
   const { data: requests } = useSupabaseQuery<Record<string, unknown>>({ table: "customer_requests", limit: 1200, realtimeEnabled: true });
   const { data: transactions } = useSupabaseQuery<Record<string, unknown>>({ table: "employee_transactions", limit: 1200, realtimeEnabled: true });

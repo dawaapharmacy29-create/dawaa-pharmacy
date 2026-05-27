@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { fetchAllSalesInvoices, type SalesInvoiceFilters } from "@/lib/salesInvoiceRepository";
 
 export type SalesAnalyticsFilters = {
   from?: string;
@@ -53,7 +54,7 @@ export function firstNumericValue(row: SalesInvoiceLike, keys: string[]): number
   return 0;
 }
 
-export function getSalesValue(row: SalesInvoiceLike) {
+export function getSalesValue(row: SalesInvoiceLike | any) {
   // صافي المبيعات الصحيح في sales_invoices: net_amount ثم amount ثم gross_amount.
   // لا تستخدم total_amount لأنه غير موجود في جدول Supabase الحالي.
   return firstNumericValue(row, ["net_amount", "amount", "gross_amount", "discounted_amount", "invoice_total", "total", "value", "invoice_value"]);
@@ -116,22 +117,12 @@ export function getSalesTotalsFromRows(rows: SalesInvoiceLike[], filters: SalesA
 }
 
 export async function fetchSalesInvoicesForAnalytics(maxRows = 100000) {
-  const pageSize = 1000;
-  const rows: SalesInvoiceLike[] = [];
-
-  for (let from = 0; from < maxRows; from += pageSize) {
-    const { data, error } = await supabase
-      .from("sales_invoices")
-      .select("*")
-      .order("invoice_date", { ascending: false })
-      .range(from, Math.min(from + pageSize - 1, maxRows - 1));
-
-    if (error) throw new Error(error.message);
-    rows.push(...((data ?? []) as SalesInvoiceLike[]));
-    if (!data || data.length < pageSize) break;
+  // Use the new centralized function with pagination
+  const result = await fetchAllSalesInvoices({});
+  if (result.error) {
+    throw new Error(result.error);
   }
-
-  return rows;
+  return result.invoices as SalesInvoiceLike[];
 }
 
 export async function getSalesTotals(filters: SalesAnalyticsFilters = {}) {

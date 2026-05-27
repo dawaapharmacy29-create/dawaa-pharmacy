@@ -51,6 +51,7 @@ import {
   pointRecordDelta,
 } from "@/lib/pointsLedger";
 import { calculateSalesMetrics, filterInvoicesByDate } from "@/lib/salesMetrics";
+import { fetchAllSalesInvoices } from "@/lib/salesInvoiceRepository";
 
 interface Employee {
   id: string;
@@ -151,16 +152,19 @@ export default function Dashboard() {
         return;
       }
       setInvoiceLoading(true);
-      const { data, error } = await supabase
-        .from("sales_invoices")
-        .select("*")
-        .gte("invoice_date", periodStart)
-        .lt("invoice_date", new Date(new Date(periodEnd).getTime() + 86400000).toISOString().slice(0, 10))
-        .order("invoice_date", { ascending: false })
-        .limit(9000);
-      if (!cancelled && !error && data)
-        setInvoiceRows(data as SalesInvoiceRow[]);
-      if (!cancelled) setInvoiceLoading(false);
+      const result = await fetchAllSalesInvoices({
+        startDate: periodStart,
+        endDate: periodEnd,
+      });
+      if (!cancelled) {
+        if (result.error) {
+          console.error("Error fetching invoices:", result.error);
+          setInvoiceRows([]);
+        } else {
+          setInvoiceRows(result.invoices);
+        }
+        setInvoiceLoading(false);
+      }
     })();
     return () => {
       cancelled = true;

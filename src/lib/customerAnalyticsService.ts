@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { getSalesValue } from "@/lib/analyticsService";
 import { cleanEgyptianPhone } from "@/lib/whatsapp";
+import { fetchAllSalesInvoices } from "@/lib/salesInvoiceRepository";
 
 type AnyRow = Record<string, unknown>;
 
@@ -79,6 +80,14 @@ function monthSpan(first: string | null, last: string | null) {
 }
 
 async function fetchPaged(table: string, select = "*", pageSize = 1000, maxRows = 100000) {
+  // Use the centralized function for sales_invoices
+  if (table === "sales_invoices") {
+    const result = await fetchAllSalesInvoices({});
+    if (result.error) throw new Error(result.error);
+    return result.invoices as AnyRow[];
+  }
+  
+  // For other tables, use the original pagination logic
   const all: AnyRow[] = [];
   for (let from = 0; from < maxRows; from += pageSize) {
     const to = from + pageSize - 1;
