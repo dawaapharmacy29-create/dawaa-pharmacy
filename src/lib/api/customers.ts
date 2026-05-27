@@ -24,13 +24,21 @@ export interface GetCustomersOptions {
   offset?: number;
   branch?: string;
   type?: string;
+  status?: string;
 }
 
 export interface CustomerStats {
   total: number;
-  vip: number;
-  atRisk: number;
+  veryImportant: number;
+  important: number;
+  medium: number;
+  normal: number;
   newC: number;
+  atRisk: number;
+  stopped: number;
+  noPurchase: number;
+  // Backward compatibility for old dashboard labels.
+  vip: number;
 }
 
 export interface CustomerInvoiceSummary {
@@ -90,7 +98,25 @@ function cleanCustomerCode(value: unknown) {
 }
 
 function normalizeArabicType(value?: string | null) {
-  return normalizeCustomerSegment(value || "عادي");
+  const raw = String(value ?? "").trim().toLowerCase().replace("جداً", "جدًا").replace("جدا", "جدًا");
+  if (["مهم جدًا", "vip", "very important"].includes(raw)) return "مهم جدًا";
+  if (["مهم", "important"].includes(raw)) return "مهم";
+  if (["متوسط", "medium"].includes(raw)) return "متوسط";
+  return "عادي";
+}
+
+function normalizeArabicStatus(value?: string | null) {
+  return normalizeCustomerStatus(value || null, null, null);
+}
+
+function segmentRank(segment?: string | null) {
+  const normalized = normalizeArabicType(segment);
+  return { "مهم جدًا": 1, "مهم": 2, "متوسط": 3, "عادي": 4 }[normalized] ?? 9;
+}
+
+function statusRank(status?: string | null) {
+  const normalized = normalizeArabicStatus(status);
+  return { "جديد": 5, "مهدد بالتوقف": 6, "متوقف": 7, "بدون شراء": 8, "نشط": 9 }[normalized] ?? 10;
 }
 
 function branchFilterValues(branch: string) {
@@ -315,12 +341,59 @@ async function fetchAllCustomers(maxRows = 20000) {
 }
 
 function matchesCustomerFilters(customer: Customer, options: GetCustomersOptions) {
-  const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
+  const branchMatch = !options.branch || options.branch === ALL_FILTER || normalizeBranchName(customer.branch) === normalizeBranchName(options.branch);
   const wantedType = normalizeArabicType(options.type);
-  const actualType = normalizeArabicType(customer.type || customer.segment);
+  const actualType = normalizeArabicType(customer.type || (customer as Customer & { segment?: string | null }).segment);
   const typeMatch = !options.type || options.type === ALL_FILTER || actualType === wantedType;
-  return branchMatch && typeMatch;
+  const wantedStatus = normalizeArabicStatus(options.status);
+  const actualStatus = normalizeArabicStatus(customer.retention_status || (customer as Customer & { status?: string | null }).status);
+  const statusMatch = !options.status || options.status === ALL_FILTER || actualStatus === wantedStatus;
+  return branchMatch && typeMatch && statusMatch;
 }
+
+function matchesSearch(customer: Customer, search?: string) {
+  const q = String(search || "").trim().toLowerCase();
+  if (!q) return true;
+  const tokens = phoneSearchTokens(q);
+  const haystack = [
+    customer.customer_code,
+    customer.name,
+    customer.phone,
+    (customer as Customer & { whatsapp_phone?: string | null }).whatsapp_phone,
+    customer.branch,
+    customer.notes,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (q.includes("*") && matchesOrderedSegments(haystack, q)) return true;
+  return [q, tokens.local, tokens.whatsapp, tokens.last4, tokens.last5]
+    .filter((term) => term && term.length >= 2)
+    .some((term) => haystack.includes(String(term).toLowerCase()));
+}
+
+function sortCustomersByPriority(customers: Customer[]) {
+  return [...customers].sort((a, b) => {
+    const segA = segmentRank(a.type || (a as Customer & { segment?: string | null }).segment);
+    const segB = segmentRank(b.type || (b as Customer & { segment?: string | null }).segment);
+    if (segA !== segB) return segA - segB;
+    const statusA = statusRank(a.retention_status || (a as Customer & { status?: string | null }).status);
+    const statusB = statusRank(b.retention_status || (b as Customer & { status?: string | null }).status);
+    if (statusA !== statusB) return statusA - statusB;
+    const avgDiff = Number(b.avg_monthly || 0) - Number(a.avg_monthly || 0);
+    if (avgDiff !== 0) return avgDiff;
+    const totalDiff = Number(b.total_purchases || (b as Customer & { total_spent?: number | null }).total_spent || 0) - Number(a.total_purchases || (a as Customer & { total_spent?: number | null }).total_spent || 0);
+    if (totalDiff !== 0) return totalDiff;
+    return String(b.last_purchase || "").localeCompare(String(a.last_purchase || ""));
+  });
+}
+
+async function getEnrichedCustomers() {
+  const [baseCustomers, invoices] = await Promise.all([fetchAllCustomers(), fetchSalesInvoices()]);
+  return enrichCustomersFromInvoices(baseCustomers as unknown as Record<string, unknown>[], invoices as Record<string, unknown>[]) as unknown as Customer[];
+}
+
 
 async function getFallbackCustomersBySearch(options: GetCustomersOptions, limit: number, offset: number) {
   const terms = searchTerms(options.search);
@@ -418,8 +491,17 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
 
   const limit = normalizeLimit(options.limit);
   const offset = Math.max(options.offset ?? 0, 0);
+  const all = await getEnrichedCustomers();
+  const filtered = sortCustomersByPriority(
+    all.filter((customer) => matchesSearch(customer, options.search) && matchesCustomerFilters(customer, options)),
+  );
 
-  return getFallbackCustomers(options, limit, offset);
+  return {
+    customers: filtered.slice(offset, offset + limit),
+    count: filtered.length,
+    limit,
+    offset,
+  };
 }
 
 export async function getCustomerById(id: string) {
@@ -529,15 +611,37 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
 
 export async function getCustomerStats(): Promise<CustomerStats> {
   try {
-    const all = await fetchAllCustomers();
-    const thirtyDaysAgo = Date.now() - 30 * 86400000;
-    const vip = all.filter((customer) => normalizeArabicType(customer.type || customer.segment) === "مهم جدًا").length;
-    const newC = all.filter((customer) => {
-      const created = new Date(String(customer.created_at || "")).getTime();
-      return Number.isFinite(created) && created >= thirtyDaysAgo;
-    }).length;
-    const atRisk = all.filter((customer) => ["مفقود", "معرض للفقدان"].includes(normalizeCustomerStatus(customer.status, customer.last_purchase || customer.last_order_date, customer.first_purchase))).length;
-    return { total: all.length, vip, newC, atRisk };
+    const all = await getEnrichedCustomers();
+    const counts = {
+      total: all.length,
+      veryImportant: 0,
+      important: 0,
+      medium: 0,
+      normal: 0,
+      newC: 0,
+      atRisk: 0,
+      stopped: 0,
+      noPurchase: 0,
+      vip: 0,
+    };
+
+    for (const customer of all) {
+      const segment = normalizeArabicType(customer.type || (customer as Customer & { segment?: string | null }).segment);
+      const status = normalizeArabicStatus(customer.retention_status || (customer as Customer & { status?: string | null }).status);
+
+      if (segment === "مهم جدًا") counts.veryImportant += 1;
+      else if (segment === "مهم") counts.important += 1;
+      else if (segment === "متوسط") counts.medium += 1;
+      else counts.normal += 1;
+
+      if (status === "جديد") counts.newC += 1;
+      else if (status === "مهدد بالتوقف") counts.atRisk += 1;
+      else if (status === "متوقف") counts.stopped += 1;
+      else if (status === "بدون شراء") counts.noPurchase += 1;
+    }
+
+    counts.vip = counts.veryImportant;
+    return counts;
   } catch (error) {
     throw new Error(getErrorMessage(error));
   }

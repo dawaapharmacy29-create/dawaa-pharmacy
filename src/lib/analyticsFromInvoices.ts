@@ -199,7 +199,7 @@ export function aggregateInvoiceAnalytics(rows: SalesInvoiceRow[], bounds: Shift
   const customerDates = new Map<string, Set<string>>();
 
   for (const row of rows) {
-    const amount = Number(row.gross_amount ?? row.amount ?? 0) || 0;
+    const amount = getSalesValue(row) || 0;
     if (!Number.isFinite(amount) || amount <= 0) continue;
 
     agg.invoiceCount++;

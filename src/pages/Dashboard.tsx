@@ -39,6 +39,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import type { SalesInvoiceRow } from "@/lib/analyticsFromInvoices";
 import { loadShiftBounds } from "@/lib/analyticsFromInvoices";
+import { getSalesValue } from "@/lib/analyticsService";
 import {
   buildDailySalesByBusinessDay,
   salesGrowthPercent,
@@ -199,7 +200,7 @@ export default function Dashboard() {
     [series],
   );
 
-  const periodSales = invoiceRows.reduce((sum, row) => sum + Number(row.gross_amount || row.amount || 0), 0);
+  const periodSales = invoiceRows.reduce((sum, row) => sum + getSalesValue(row), 0);
   const growth = salesGrowthPercent(series);
 
   const { data: employees } = useSupabaseQuery<Employee>({

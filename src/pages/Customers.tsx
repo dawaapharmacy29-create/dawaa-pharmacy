@@ -21,7 +21,7 @@ import {
 } from "@/lib/api/customers";
 import { classifyCustomer, formatCurrency, formatDate } from "@/lib/utils";
 import { calcCLV } from "@/lib/customerMetrics";
-import { normalizeCustomerSegment } from "@/lib/customerAnalyticsService";
+import { normalizeCustomerSegment, normalizeCustomerStatus } from "@/lib/customerAnalyticsService";
 import {
   getScript,
   SCRIPT_OPTIONS,
@@ -54,15 +54,22 @@ export default function Customers() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState(ALL_FILTER);
   const [typeFilter, setTypeFilter] = useState(ALL_FILTER);
+  const [statusFilter, setStatusFilter] = useState(ALL_FILTER);
   const [selected, setSelected] = useState<Customer | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const customersCountRef = useRef(0);
   const [stats, setStats] = useState<CustomerStats>({
     total: 0,
-    vip: 0,
-    atRisk: 0,
+    veryImportant: 0,
+    important: 0,
+    medium: 0,
+    normal: 0,
     newC: 0,
+    atRisk: 0,
+    stopped: 0,
+    noPurchase: 0,
+    vip: 0,
   });
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -107,6 +114,7 @@ export default function Customers() {
           offset: append ? customersCountRef.current : 0,
           branch: branchFilter,
           type: typeFilter,
+          status: statusFilter,
         });
 
         if (requestId !== requestIdRef.current) return;
@@ -128,7 +136,7 @@ export default function Customers() {
         }
       }
     },
-    [branchFilter, debouncedSearch, typeFilter],
+    [branchFilter, debouncedSearch, typeFilter, statusFilter],
   );
 
   useEffect(() => {
@@ -160,21 +168,21 @@ export default function Customers() {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
         {[
-          { label: "إجمالي العملاء", value: stats.total, color: "text-white" },
-          { label: "عملاء VIP", value: stats.vip, color: "text-purple-400" },
-          { label: "عملاء جدد", value: stats.newC, color: "text-teal-400" },
-          {
-            label: "معرضون للفقدان",
-            value: stats.atRisk,
-            color: "text-amber-400",
-          },
+          { label: "إجمالي العملاء", value: stats.total, color: "text-white", action: () => { setTypeFilter(ALL_FILTER); setStatusFilter(ALL_FILTER); } },
+          { label: "مهم جدًا", value: stats.veryImportant, color: "text-purple-400", action: () => { setTypeFilter("مهم جدًا"); setStatusFilter(ALL_FILTER); } },
+          { label: "مهم", value: stats.important, color: "text-amber-400", action: () => { setTypeFilter("مهم"); setStatusFilter(ALL_FILTER); } },
+          { label: "متوسط", value: stats.medium, color: "text-blue-400", action: () => { setTypeFilter("متوسط"); setStatusFilter(ALL_FILTER); } },
+          { label: "عادي", value: stats.normal, color: "text-slate-300", action: () => { setTypeFilter("عادي"); setStatusFilter(ALL_FILTER); } },
+          { label: "جديد", value: stats.newC, color: "text-teal-400", action: () => { setStatusFilter("جديد"); setTypeFilter(ALL_FILTER); } },
+          { label: "مهدد بالتوقف", value: stats.atRisk, color: "text-amber-300", action: () => { setStatusFilter("مهدد بالتوقف"); setTypeFilter(ALL_FILTER); } },
+          { label: "متوقف", value: stats.stopped, color: "text-red-400", action: () => { setStatusFilter("متوقف"); setTypeFilter(ALL_FILTER); } },
         ].map((s) => (
-          <div key={s.label} className="stat-card text-center">
+          <button key={s.label} type="button" onClick={s.action} className="stat-card text-center hover:border-teal-400/50 transition-colors">
             <div className={`text-3xl font-bold ${s.color} num`}>{s.value}</div>
             <div className="text-slate-400 text-sm mt-1">{s.label}</div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -208,7 +216,17 @@ export default function Customers() {
           className="input-dark md:w-40"
         >
           <option value={ALL_FILTER}>كل التصنيفات</option>
-          {["عادي", "متوسط", "مهم", "مهم جدًا"].map((t) => (
+          {["مهم جدًا", "مهم", "متوسط", "عادي"].map((t) => (
+            <option key={t}>{t}</option>
+          ))}
+        </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="input-dark md:w-44"
+        >
+          <option value={ALL_FILTER}>كل الحالات</option>
+          {["جديد", "نشط", "مهدد بالتوقف", "متوقف", "بدون شراء"].map((t) => (
             <option key={t}>{t}</option>
           ))}
         </select>
@@ -242,10 +260,12 @@ export default function Customers() {
                 <th>العميل</th>
                 <th>كود العميل</th>
                 <th>الفرع</th>
+                <th>الهاتف</th>
                 <th>التصنيف</th>
                 <th>آخر شراء</th>
                 <th>متوسط شهري</th>
                 <th>إجمالي المشتريات</th>
+                <th>عدد الفواتير</th>
                 <th>الحالة</th>
                 <th></th>
               </tr>
@@ -256,6 +276,7 @@ export default function Customers() {
                 const totalPurchases = c.total_purchases ?? 0;
                 const cls = classifyCustomer(avgMonthly);
                 const segmentLabel = normalizeCustomerSegment((c as Customer & { segment?: string | null }).segment || c.type, totalPurchases, avgMonthly);
+                const statusLabel = normalizeCustomerStatus((c as Customer & { status?: string | null }).status || c.retention_status, c.last_purchase || (c as Customer & { last_order_date?: string | null }).last_order_date, c.first_purchase);
                 return (
                   <tr
                     key={c.id}
@@ -289,6 +310,9 @@ export default function Customers() {
                       </span>
                     </td>
                     <td>
+                      <span className="text-slate-300 text-sm num">{c.phone || "بدون رقم"}</span>
+                    </td>
+                    <td>
                       <span
                         className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${cls.bg} ${cls.color}`}
                       >
@@ -311,9 +335,10 @@ export default function Customers() {
                       </span>
                     </td>
                     <td>
-                      <RetentionBadge
-                        status={c.retention_status || "غير محدد"}
-                      />
+                      <span className="text-slate-200 text-sm num">{c.invoices_count ?? c.total_invoices ?? 0}</span>
+                    </td>
+                    <td>
+                      <RetentionBadge status={statusLabel} />
                     </td>
                     <td>
                       <button
@@ -371,10 +396,11 @@ export default function Customers() {
 
 function RetentionBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    محتفظ: "badge-success",
+    نشط: "badge-success",
     جديد: "badge-info",
-    "معرض للفقدان": "badge-warning",
-    مفقود: "badge-danger",
+    "مهدد بالتوقف": "badge-warning",
+    متوقف: "badge-danger",
+    "بدون شراء": "badge-info",
   };
   return <span className={map[status] || "badge-info"}>{status}</span>;
 }

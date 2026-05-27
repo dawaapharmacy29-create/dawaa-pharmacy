@@ -18,42 +18,37 @@ export function cleanCustomerCode(value: unknown) {
 
 // تصنيف العملاء حسب المشتريات الشهرية:
 // مهم جدًا: أكثر من 8000 شهريًا | مهم: 4000-8000 | متوسط: 1500-4000 | عادي: أقل من 1500
-export function normalizeCustomerSegment(value: unknown, totalSpent = 0, avgMonthly = 0) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  // نوحّد أسماء التصنيفات القادمة من قاعدة البيانات
-  if (["مهم جدًا", "مهم جدا", "مهم جداً", "vip", "very important"].includes(raw)) return "مهم جدًا";
+export function normalizeCustomerSegment(value: unknown, _totalSpent = 0, avgMonthly = 0) {
+  const raw = String(value ?? "").trim().toLowerCase().replace("جداً", "جدًا").replace("جدا", "جدًا");
+  // توحيد القيم القديمة، لكن الحكم النهائي يكون من avg_monthly إذا كان متاحًا.
+  const avg = Number(avgMonthly || 0);
+  if (avg > 8000) return "مهم جدًا";
+  if (avg > 4000) return "مهم";
+  if (avg > 1500) return "متوسط";
+  if (avg >= 0) return "عادي";
+  if (["مهم جدًا", "vip", "very important"].includes(raw)) return "مهم جدًا";
   if (["مهم", "important"].includes(raw)) return "مهم";
   if (["متوسط", "medium"].includes(raw)) return "متوسط";
-  if (["عادي", "normal", "regular", ""].includes(raw)) {
-    // نحسب التصنيف بناءً على المتوسط الشهري أولًا، ثم الإجمالي كبديل
-    if (avgMonthly >= 8000 || totalSpent >= 32000) return "مهم جدًا";
-    if (avgMonthly >= 4000 || totalSpent >= 16000) return "مهم";
-    if (avgMonthly >= 1500 || totalSpent >= 6000) return "متوسط";
-    return "عادي";
-  }
-  return String(value || "عادي").replace("جدا", "جدًا").replace("جداً", "جدًا");
+  return "عادي";
 }
 
 export function normalizeCustomerStatus(value: unknown, lastPurchase?: string | null, firstPurchase?: string | null) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (["نشط", "active"].includes(raw)) return "نشط";
-  if (["محتفظ", "retained"].includes(raw)) return "محتفظ";
-  if (["معرض للفقدان", "at risk", "risk"].includes(raw)) return "معرض للفقدان";
-  if (["مفقود", "lost", "stopped"].includes(raw)) return "مفقود";
+  const raw = String(value ?? "").trim().toLowerCase().replace("معرض للفقدان", "مهدد بالتوقف").replace("مفقود", "متوقف");
   if (["جديد", "new"].includes(raw)) return "جديد";
-  if (["بدون شراء", "no purchase", ""].includes(raw) && !lastPurchase) return "بدون شراء";
-
+  if (["نشط", "active", "محتفظ", "retained"].includes(raw)) return "نشط";
+  if (["مهدد بالتوقف", "at risk", "risk", "معرض للتوقف"].includes(raw)) return "مهدد بالتوقف";
+  if (["متوقف", "lost", "stopped"].includes(raw)) return "متوقف";
   if (!lastPurchase) return "بدون شراء";
+
   const last = new Date(lastPurchase).getTime();
   if (Number.isNaN(last)) return "بدون شراء";
   const days = Math.floor((Date.now() - last) / 86400000);
   const first = firstPurchase ? new Date(firstPurchase).getTime() : NaN;
   const firstDays = Number.isNaN(first) ? 999 : Math.floor((Date.now() - first) / 86400000);
-  if (firstDays <= 14) return "جديد";
-  if (days <= 30) return "نشط";
-  if (days <= 60) return "محتفظ";
-  if (days <= 90) return "معرض للفقدان";
-  return "مفقود";
+  if (firstDays <= 30) return "جديد";
+  if (days <= 45) return "نشط";
+  if (days <= 90) return "مهدد بالتوقف";
+  return "متوقف";
 }
 
 export function normalizeCustomerPriority(value: unknown, segment?: string | null, status?: string | null) {
@@ -61,8 +56,8 @@ export function normalizeCustomerPriority(value: unknown, segment?: string | nul
   if (["عالية", "high"].includes(raw)) return "عالية";
   if (["متوسطة", "medium"].includes(raw)) return "متوسطة";
   if (["عادية", "normal", "low"].includes(raw)) return "عادية";
-  if (segment === "مهم جدًا" || (segment === "مهم" && ["مفقود", "معرض للفقدان"].includes(status || ""))) return "عالية";
-  if (segment === "مهم" || segment === "متوسط" || ["مفقود", "معرض للفقدان"].includes(status || "")) return "متوسطة";
+  if (segment === "مهم جدًا" || (segment === "مهم" && ["متوقف", "مهدد بالتوقف"].includes(status || ""))) return "عالية";
+  if (segment === "مهم" || segment === "متوسط" || ["متوقف", "مهدد بالتوقف"].includes(status || "")) return "متوسطة";
   return "عادية";
 }
 

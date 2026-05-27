@@ -45,7 +45,7 @@ export function buildDailySalesByBusinessDay(rows: SalesInvoiceRow[], businessDa
   const map = new Map<string, { شكري: number; شامي: number }>();
 
   for (const row of rows) {
-    const amount = Number(row.gross_amount ?? row.amount ?? 0) || 0;
+    const amount = getSalesValue(row) || 0;
     if (!Number.isFinite(amount) || amount <= 0) continue;
     const key = businessDayKey9am(row);
     if (!key) continue;
@@ -68,7 +68,7 @@ export function buildDailySalesByBusinessDay(rows: SalesInvoiceRow[], businessDa
 export function totalSalesAmount(rows: SalesInvoiceRow[]): number {
   let t = 0;
   for (const row of rows) {
-    const amount = Number(row.gross_amount ?? row.amount ?? 0) || 0;
+    const amount = getSalesValue(row) || 0;
     if (Number.isFinite(amount) && amount > 0) t += amount;
   }
   return t;

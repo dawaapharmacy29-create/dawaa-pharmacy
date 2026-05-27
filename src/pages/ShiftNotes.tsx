@@ -194,8 +194,20 @@ function dayKey(value?: string | null) {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
+function isSchemaCacheError(error: { message?: string } | null | undefined) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("schema cache") || message.includes("could not find") || message.includes("does not exist");
+}
+
+function stripOptionalShiftNoteColumns(payload: Record<string, unknown>) {
+  const fallback = { ...payload };
+  ["customer_id", "customer_code", "whatsapp_phone", "whatsapp_link", "completed_by_name", "completed_at", "cancelled_by_name", "cancelled_at", "deleted_at", "deleted_by_id", "deleted_by_name"].forEach((key) => delete fallback[key]);
+  return fallback;
+}
+
 function statusClass(note: ShiftNote) {
   if (isOverdue(note)) return "bg-red-950/60 border-red-500/35 text-red-100";
+  if (note.postponed_until && !["completed", "cancelled"].includes(note.status || "")) return "bg-amber-500/10 border-amber-400/30 text-amber-100";
   if (note.status === "completed") return "bg-emerald-500/10 border-emerald-400/25 text-emerald-200";
   if (note.status === "cancelled") return "bg-slate-500/10 border-slate-400/25 text-slate-300";
   if (note.note_type === "nursing" || note.note_type === "medical") return "bg-amber-500/10 border-amber-400/25 text-amber-100";
@@ -378,7 +390,7 @@ export default function ShiftNotes() {
     }
     setSaving(true);
     const selectedStaff = staffChoices.find((item) => item.name === form.assigned_to_name);
-    const payload = {
+    const payload: Record<string, unknown> = {
       customer_id: selectedCustomer ? String(selectedCustomer.id) : null,
       title: form.title.trim(),
       details: form.details.trim() || null,
@@ -410,10 +422,13 @@ export default function ShiftNotes() {
       status: editing?.status || (form.note_kind === "action_task" && form.assigned_to_name ? "assigned_pending" : "new"),
       updated_at: new Date().toISOString(),
     };
-    const request = editing
-      ? supabase.from("shift_notes").update(payload).eq("id", editing.id).select("*").single()
-      : supabase.from("shift_notes").insert(payload).select("*").single();
-    const { data, error } = await request;
+    const runSave = (body: Record<string, unknown>) => editing
+      ? supabase.from("shift_notes").update(body).eq("id", editing.id).select("*").single()
+      : supabase.from("shift_notes").insert(body).select("*").single();
+    let { data, error } = await runSave(payload);
+    if (error && isSchemaCacheError(error)) {
+      ({ data, error } = await runSave(stripOptionalShiftNoteColumns(payload)));
+    }
     if (error) {
       toast.error(`تعذر حفظ الملحوظة: ${error.message}`);
       setSaving(false);
@@ -446,9 +461,6 @@ export default function ShiftNotes() {
       payload.closed_by_id = user?.id || null;
       payload.closed_by_name = user?.name || null;
       payload.closure_reason = reason || null;
-      if (status === "completed") {
-        payload.completed_by_name = user?.name || null;
-      }
     }
     const { data, error } = await supabase.from("shift_notes").update(payload).eq("id", note.id).select("*").single();
     if (error) {
@@ -504,39 +516,61 @@ export default function ShiftNotes() {
   };
 
   const postponeNote = async (note: ShiftNote) => {
-    const choice = window.prompt("اكتب مدة التأجيل: 30m أو 1h أو tonight أو tomorrow أو تاريخ بصيغة 2026-05-26 20:00");
+    const choice = window.prompt(
+      "اختار مدة التأجيل:
+1 - الليلة الساعة 9
+2 - بكرة الساعة 9 صباحًا
+3 - بعد يومين الساعة 9 صباحًا
+4 - بعد نصف ساعة
+5 - بعد ساعة
+6 - تاريخ ووقت مخصص",
+      "1",
+    );
     if (!choice) return;
-    const reason = window.prompt("سبب التأجيل");
-    if (!reason?.trim()) {
-      toast.error("سبب التأجيل مطلوب");
-      return;
-    }
+
     const next = new Date();
-    if (choice === "30m") next.setMinutes(next.getMinutes() + 30);
-    else if (choice === "1h") next.setHours(next.getHours() + 1);
-    else if (choice === "tonight") next.setHours(21, 0, 0, 0);
-    else if (choice === "tomorrow") {
+    const normalized = choice.trim().toLowerCase();
+    if (["1", "الليلة", "ليل", "tonight"].includes(normalized)) {
+      next.setHours(21, 0, 0, 0);
+      if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
+    } else if (["2", "بكرة", "غدا", "غدًا", "tomorrow"].includes(normalized)) {
       next.setDate(next.getDate() + 1);
       next.setHours(9, 0, 0, 0);
+    } else if (["3", "بعد يومين"].includes(normalized)) {
+      next.setDate(next.getDate() + 2);
+      next.setHours(9, 0, 0, 0);
+    } else if (["4", "30m", "نصف ساعة"].includes(normalized)) {
+      next.setMinutes(next.getMinutes() + 30);
+    } else if (["5", "1h", "ساعة"].includes(normalized)) {
+      next.setHours(next.getHours() + 1);
     } else {
-      const custom = new Date(choice);
+      const customValue = window.prompt("اكتب التاريخ والوقت مثل: 2026-05-26 20:00");
+      if (!customValue) return;
+      const custom = new Date(customValue.replace(" ", "T"));
       if (Number.isNaN(custom.getTime())) {
         toast.error("وقت التأجيل غير صحيح");
         return;
       }
       next.setTime(custom.getTime());
     }
-    const { data, error } = await supabase
-      .from("shift_notes")
-      .update({
-        due_at: next.toISOString(),
-        postponed_until: next.toISOString(),
-        postponement_reason: reason.trim(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", note.id)
-      .select("*")
-      .single();
+
+    const reason = window.prompt("سبب التأجيل", "تأجيل بناءً على طلب العميل أو ظروف المتابعة");
+    if (!reason?.trim()) {
+      toast.error("سبب التأجيل مطلوب");
+      return;
+    }
+
+    const payload = {
+      due_at: next.toISOString(),
+      postponed_until: next.toISOString(),
+      postponement_reason: reason.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    let { data, error } = await supabase.from("shift_notes").update(payload).eq("id", note.id).select("*").single();
+    if (error && isSchemaCacheError(error)) {
+      const fallback = { due_at: next.toISOString(), updated_at: new Date().toISOString() };
+      ({ data, error } = await supabase.from("shift_notes").update(fallback).eq("id", note.id).select("*").single());
+    }
     if (error) {
       toast.error(`تعذر تأجيل الملاحظة: ${error.message}`);
       return;
@@ -585,14 +619,18 @@ export default function ShiftNotes() {
   const softDeleteNote = async (note: ShiftNote) => {
     const ok = window.confirm(`حذف الملحوظة: ${note.title} ؟ يمكن استرجاعها لاحقًا.`);
     if (!ok) return;
-    const { error } = await supabase.from("shift_notes").update({
+    let { error } = await supabase.from("shift_notes").update({
       deleted_at: new Date().toISOString(),
       deleted_by_id: user?.id || null,
       deleted_by_name: user?.name || null,
       updated_at: new Date().toISOString(),
     }).eq("id", note.id);
+    if (error && isSchemaCacheError(error)) {
+      ({ error } = await supabase.from("shift_notes").delete().eq("id", note.id));
+    }
     if (error) return toast.error(`تعذر حذف الملحوظة: ${error.message}`);
     await addLog(note.id, "delete", `تم حذف الملحوظة بواسطة ${user?.name || "النظام"}`);
+    if (selected?.id === note.id) setSelected(null);
     await loadNotes();
   };
 
@@ -797,19 +835,24 @@ export default function ShiftNotes() {
             <option>فرع الشامي</option>
             <option>كل الفروع</option>
           </select>
-          <div className="lg:col-span-2 relative">
-            <input
-              className="input-dark"
-              placeholder="ابحث باسم/كود/هاتف العميل..."
-              value={customerSearchQuery || form.customer_name}
-              onChange={(event) => {
-                const q = event.target.value;
-                setCustomerSearchQuery(q);
-                setForm((f) => ({ ...f, customer_name: q }));
-                setShowCustomerSearch(true);
-              }}
-              onFocus={() => setShowCustomerSearch(true)}
-            />
+          <div className="lg:col-span-4 relative rounded-2xl border border-teal-500/20 bg-teal-500/5 p-3">
+            <div className="text-teal-200 font-bold text-sm mb-2">بيانات العميل</div>
+            <div className="flex flex-col md:flex-row gap-2">
+              <input
+                className="input-dark flex-1"
+                placeholder="ابحث باسم / كود / هاتف العميل... أو اكتب عميل جديد غير مسجل"
+                value={customerSearchQuery || form.customer_name}
+                onChange={(event) => {
+                  const q = event.target.value;
+                  setCustomerSearchQuery(q);
+                  setForm((f) => ({ ...f, customer_name: q }));
+                  setShowCustomerSearch(true);
+                }}
+                onFocus={() => setShowCustomerSearch(true)}
+              />
+              <button type="button" className="btn-secondary" onClick={() => searchCustomers(customerSearchQuery || form.customer_name)}>بحث</button>
+              <button type="button" className="btn-secondary text-amber-200" onClick={useAsUnregisteredCustomer}>عميل غير مسجل</button>
+            </div>
             {showCustomerSearch && customerSearchResults.length > 0 && (
               <div className="absolute z-50 w-full mt-1 bg-[#1B2B4B] border border-[#2d4063] rounded-xl max-h-60 overflow-y-auto shadow-xl">
                 {customerSearchResults.map((customer) => (
@@ -985,9 +1028,11 @@ export default function ShiftNotes() {
                 {note.details && <p className="text-slate-300 text-sm leading-7 mt-4 line-clamp-2">{note.details}</p>}
                 <div className="flex flex-wrap gap-2 mt-4">
                   {note.status === "assigned_pending" && <button onClick={() => receiveNote(note)} className="btn-primary text-sm flex items-center gap-2"><CheckCircle2 size={15} /> استلام المتابعة</button>}
-                  <button onClick={() => updateStatus(note, "completed")} className="btn-primary text-sm flex items-center gap-2"><CheckCircle2 size={15} /> تم التنفيذ</button>
-                  <button onClick={() => postponeNote(note)} className="btn-secondary text-sm flex items-center gap-2"><Clock size={15} /> تأجيل</button>
+                  <button onClick={() => updateStatus(note, "completed")} className={`${note.status === "completed" ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "btn-secondary text-slate-300"} text-sm flex items-center gap-2`}><CheckCircle2 size={15} /> تم التنفيذ</button>
+                  <button onClick={() => postponeNote(note)} className={`${note.postponed_until ? "bg-amber-500/20 border border-amber-400/30 text-amber-100" : "btn-secondary"} text-sm flex items-center gap-2`}><Clock size={15} /> تأجيل</button>
                   <button onClick={() => startEdit(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2"><Edit3 size={15} /> تعديل</button>
+                  <button onClick={() => updateStatus(note, "cancelled", "إلغاء من المستخدم")} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2 text-red-200"><Trash2 size={15} /> إلغاء</button>
+                  <button onClick={() => softDeleteNote(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2 text-amber-200"><Trash2 size={15} /> مسح</button>
                   {phone && <a href={`tel:${phone}`} className="btn-secondary text-sm flex items-center gap-2"><Phone size={15} /> اتصال</a>}
                   {phone && <button onClick={() => navigator.clipboard?.writeText(phone)} className="btn-secondary text-sm flex items-center gap-2"><Copy size={15} /> نسخ الرقم</button>}
                   {phone && <a href={generateWhatsAppLink(phone, `حضرتك مع صيدليات دواء، بنتابع مع حضرتك بخصوص الملاحظة المسجلة لدينا.`)} target="_blank" rel="noreferrer" className="btn-secondary text-sm flex items-center gap-2"><MessageSquare size={15} /> واتساب</a>}

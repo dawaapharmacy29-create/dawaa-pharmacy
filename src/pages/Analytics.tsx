@@ -56,8 +56,8 @@ const dayKey = (row: SalesInvoiceRow) =>
 const dateTimeOf = (row: SalesInvoiceRow) =>
   row.analysis_datetime || row.invoice_datetime || row.close_datetime || row.close_time || row.invoice_date || "";
 
-const amountOf = (row: SalesInvoiceRow) => Number(row.gross_amount ?? row.amount ?? 0) || 0;
-const invoiceGrossOf = (row: SalesInvoiceRow) => Number(row.gross_amount ?? row.amount ?? 0) || 0;
+const amountOf = (row: SalesInvoiceRow) => getSalesValue(row) || 0;
+const invoiceGrossOf = (row: SalesInvoiceRow) => Number(row.gross_amount ?? row.amount ?? row.net_amount ?? 0) || 0;
 const invoiceDiscountedOf = (row: SalesInvoiceRow) => Number(row.discounted_amount ?? row.net_amount ?? row.amount ?? 0) || 0;
 const discountOf = (row: SalesInvoiceRow) => Number(row.discount_amount ?? 0) || 0;
 
