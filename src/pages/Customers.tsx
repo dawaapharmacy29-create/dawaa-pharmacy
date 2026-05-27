@@ -21,6 +21,7 @@ import {
 } from "@/lib/api/customers";
 import { classifyCustomer, formatCurrency, formatDate } from "@/lib/utils";
 import { calcCLV } from "@/lib/customerMetrics";
+import { normalizeCustomerSegment } from "@/lib/customerAnalyticsService";
 import {
   getScript,
   SCRIPT_OPTIONS,
@@ -207,7 +208,7 @@ export default function Customers() {
           className="input-dark md:w-40"
         >
           <option value={ALL_FILTER}>كل التصنيفات</option>
-          {["عادي", "متوسط", "مهم", "مهم جداً"].map((t) => (
+          {["عادي", "متوسط", "مهم", "مهم جدًا"].map((t) => (
             <option key={t}>{t}</option>
           ))}
         </select>
@@ -254,6 +255,7 @@ export default function Customers() {
                 const avgMonthly = c.avg_monthly ?? 0;
                 const totalPurchases = c.total_purchases ?? 0;
                 const cls = classifyCustomer(avgMonthly);
+                const segmentLabel = normalizeCustomerSegment((c as Customer & { segment?: string | null }).segment || c.type, totalPurchases, avgMonthly);
                 return (
                   <tr
                     key={c.id}
@@ -290,7 +292,7 @@ export default function Customers() {
                       <span
                         className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${cls.bg} ${cls.color}`}
                       >
-                        {c.type || cls.label}
+                        {segmentLabel || cls.label}
                       </span>
                     </td>
                     <td>
@@ -484,6 +486,7 @@ function CustomerModal({
   const totalPurchases = c.total_purchases ?? 0;
   const totalInvoices = c.total_invoices ?? 0;
   const cls = classifyCustomer(avgMonthly);
+  const segmentLabel = normalizeCustomerSegment((c as Customer & { segment?: string | null }).segment || c.type, totalPurchases, avgMonthly);
   const [details, setDetails] = useState<CustomerDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(true);
   const clv = calcCLV(totalPurchases, avgMonthly);
@@ -550,7 +553,7 @@ function CustomerModal({
           <span
             className={`text-sm font-bold px-3 py-1.5 rounded-full border ${cls.bg} ${cls.color}`}
           >
-            {c.type || cls.label}
+            {segmentLabel || cls.label}
           </span>
           <button type="button" onClick={onClose} className="btn-secondary px-3 py-2" title="إغلاق (Esc)">إغلاق</button>
         </div>

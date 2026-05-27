@@ -24,14 +24,25 @@ export interface NormalizedInvoice {
   customerPhone: string;
 }
 
-export async function fetchSalesInvoices(limit = 50000): Promise<InvoiceLike[]> {
-  const { data, error } = await supabase
-    .from("sales_invoices")
-    .select("*")
-    .order("invoice_date", { ascending: false })
-    .limit(limit);
-  if (error) throw new Error(error.message);
-  return (data ?? []) as InvoiceLike[];
+export async function fetchSalesInvoices(limit = 100000): Promise<InvoiceLike[]> {
+  const pageSize = 1000;
+  const rows: InvoiceLike[] = [];
+
+  for (let from = 0; from < limit; from += pageSize) {
+    const to = Math.min(from + pageSize - 1, limit - 1);
+    const { data, error } = await supabase
+      .from("sales_invoices")
+      .select("*")
+      .order("invoice_date", { ascending: false })
+      .range(from, to);
+
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as InvoiceLike[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
 }
 
 export function normalizeInvoice(invoice: InvoiceLike): NormalizedInvoice {

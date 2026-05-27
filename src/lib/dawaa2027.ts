@@ -70,7 +70,8 @@ export function pickFirst(row: Record<string, unknown>, keys: string[], fallback
 }
 
 export function getInvoiceAmount(row: Record<string, unknown>) {
-  return toNumber(pickFirst(row, ["total_amount", "invoice_total", "net_total", "amount", "total", "value", "invoice_value"], 0));
+  // sales_invoices is the source of truth; use net first, then amount, then gross.
+  return toNumber(pickFirst(row, ["net_amount", "amount", "gross_amount", "discounted_amount", "invoice_total", "net_total", "total", "value", "invoice_value"], 0));
 }
 
 export function getInvoiceDate(row: Record<string, unknown>) {
