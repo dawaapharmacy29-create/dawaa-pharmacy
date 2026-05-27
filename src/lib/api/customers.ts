@@ -139,7 +139,7 @@ function normalizeCustomer(record: Record<string, unknown>): Customer {
 
 function applyCustomerFilters(query: CustomerQueryBuilder, options: GetCustomersOptions) {
   if (options.branch && options.branch !== ALL_FILTER) query = query.in("branch", branchFilterValues(options.branch));
-  if (options.type && options.type !== ALL_FILTER) query = query.eq("segment", options.type);
+  if (options.type && options.type !== ALL_FILTER) query = query.eq("segment", normalizeArabicType(options.type));
   return query;
 }
 
@@ -184,7 +184,7 @@ async function rankedCustomerSearch(options: GetCustomersOptions, limit: number,
         list = list.filter((customer) => {
           const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
           const typeMatch =
-            !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type) === normalizeArabicType(options.type);
+            !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type || customer.segment) === normalizeArabicType(options.type);
           return branchMatch && typeMatch;
         });
         const total = list.length;
@@ -262,7 +262,7 @@ async function rankedCustomerSearch(options: GetCustomersOptions, limit: number,
   list = list.filter((customer) => {
     const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
     const typeMatch =
-      !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type) === normalizeArabicType(options.type);
+      !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type || customer.segment) === normalizeArabicType(options.type);
     return branchMatch && typeMatch;
   });
 
@@ -347,7 +347,7 @@ async function getFallbackCustomers(options: GetCustomersOptions, limit: number,
   const mapped = ((data ?? []) as Record<string, unknown>[]).map(normalizeCustomer);
   const filtered = mapped.filter((customer) => {
     const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
-    const typeMatch = !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type) === normalizeArabicType(options.type);
+    const typeMatch = !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type || customer.segment) === normalizeArabicType(options.type);
     return branchMatch && typeMatch;
   });
 
@@ -491,7 +491,7 @@ export async function getCustomerStats(): Promise<CustomerStats> {
       safeCount(supabase
         .from("customers")
         .select("id", { count: "exact", head: true })
-        .contains("customer_flags", { vip_customer: true })),
+        .in("segment", ["مهم جدًا", "مهم جدا", "VIP", "Very Important", "vip", "very important"])),
       safeCount(supabase
         .from("customers")
         .select("id", { count: "exact", head: true })

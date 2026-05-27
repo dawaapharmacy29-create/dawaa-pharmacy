@@ -25,6 +25,7 @@ import {
   type SalesInvoiceRow,
   type ShiftBounds,
 } from "@/lib/analyticsFromInvoices";
+import { getSalesValue } from "@/lib/analyticsService";
 
 type TabKey = "overview" | "day" | "shifts" | "doctors" | "customers" | "targets" | "alerts";
 
@@ -47,8 +48,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
 ];
 
 const ALL_FILTER = "الكل";
-const DEFAULT_TARGET_BRANCHES = ["فرع شكري", "فرع الشامي"];
-const defaultTargetAmount = (branch: string) => (branch.includes("الشامي") ? 1000000 : branch.includes("شكري") ? 1500000 : 0);
+const DEFAULT_TARGET_BRANCHES: string[] = [];
 
 const dayKey = (row: SalesInvoiceRow) =>
   String(row.analysis_datetime || row.invoice_datetime || row.invoice_date || "").slice(0, 10);
@@ -56,7 +56,7 @@ const dayKey = (row: SalesInvoiceRow) =>
 const dateTimeOf = (row: SalesInvoiceRow) =>
   row.analysis_datetime || row.invoice_datetime || row.close_datetime || row.close_time || row.invoice_date || "";
 
-const amountOf = (row: SalesInvoiceRow) => Number(row.net_amount ?? row.amount ?? 0) || 0;
+const amountOf = (row: SalesInvoiceRow) => getSalesValue(row as unknown as Record<string, unknown>);
 const invoiceGrossOf = (row: SalesInvoiceRow) => Number(row.gross_amount ?? row.amount ?? 0) || 0;
 const invoiceDiscountedOf = (row: SalesInvoiceRow) => Number(row.discounted_amount ?? row.net_amount ?? row.amount ?? 0) || 0;
 const discountOf = (row: SalesInvoiceRow) => Number(row.discount_amount ?? 0) || 0;
@@ -309,7 +309,7 @@ export default function Analytics() {
     ]);
     return configuredBranches.map((branch) => {
       const target = targetMap.get(branch);
-      const targetAmount = targetDrafts[branch] ?? Number(target?.target_amount || defaultTargetAmount(branch));
+      const targetAmount = targetDrafts[branch] ?? Number(target?.target_amount || 0);
       const sales = periodInvoices.filter((row) => row.branch === branch).reduce((sum, row) => sum + amountOf(row), 0);
       const remaining = Math.max(0, targetAmount - sales);
       const percentage = targetAmount ? Math.round((sales / targetAmount) * 100) : 0;

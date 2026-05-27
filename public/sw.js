@@ -3,7 +3,7 @@
  * Versioned cache + offline fallback + auto-update
  */
 
-const APP_VERSION = "dawaa-v1.4.0-no-supabase-cache";
+const APP_VERSION = "dawaa-v1.4.1-no-live-data-cache";
 const CACHE_STATIC = `${APP_VERSION}-static`;
 const CACHE_DYNAMIC = `${APP_VERSION}-dynamic`;
 const CACHE_IMAGES = `${APP_VERSION}-images`;
@@ -26,6 +26,16 @@ const NO_STORE_PATTERNS = [
   /supabase\.co/,
   /backend\.onspace\.ai/,
   /api\./,
+];
+
+const NO_STORE_ROUTE_PREFIXES = [
+  "/customers",
+  "/customer-service",
+  "/analytics",
+  "/dashboard",
+  "/import-invoices",
+  "/invoices",
+  "/shift-notes",
 ];
 
 // Cache-first routes (serve from cache, update in background)
@@ -96,6 +106,11 @@ self.addEventListener("fetch", (event) => {
   // Supabase/API calls: always network, never cache dynamic operational data.
   if (NO_STORE_PATTERNS.some((p) => p.test(request.url))) {
     event.respondWith(networkOnly(request));
+    return;
+  }
+
+  if (request.mode === "navigate" && url.origin === self.location.origin && NO_STORE_ROUTE_PREFIXES.some((path) => url.pathname.startsWith(path))) {
+    event.respondWith(fetch(request.clone(), { cache: "no-store" }).catch(async () => (await caches.match("/offline.html")) || new Response("", { status: 503 })));
     return;
   }
 
