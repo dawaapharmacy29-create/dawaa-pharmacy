@@ -41,6 +41,7 @@ import {
 } from "@/lib/whatsapp";
 import { logActivity } from "@/lib/activityLog";
 import { selectableStaffChoices } from "@/lib/staffFallback";
+import { normalizeBranchName as displayBranch, branchMatches } from "@/lib/branch";
 import FollowupResultForm from "@/components/followups/FollowupResultForm";
 import { toast } from "sonner";
 import type { DailyFollowup } from "@/types/database";
@@ -160,13 +161,6 @@ function displayStatus(status?: string | null) {
   return status;
 }
 
-function displayBranch(branch?: string | null) {
-  const value = String(branch || "غير محدد");
-  if (/أبو العزم|ابو العزم|العزم|شكري|shokry|shukri|shkri/i.test(value))
-    return "فرع شكري";
-  if (/الشامي|شامي|shamy|shami/i.test(value)) return "فرع الشامي";
-  return value;
-}
 
 
 function followupSummary(row: DailyFollowup) {
@@ -470,7 +464,7 @@ export default function CustomerService() {
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
     return history.filter((item) => {
-      const matchesBranch = historyBranch === "all" || displayBranch(item.branch).includes(historyBranch);
+      const matchesBranch = historyBranch === "all" || branchMatches(historyBranch, item.branch);
       const haystack = [
         item.customer_name,
         customerCodeOf(item),

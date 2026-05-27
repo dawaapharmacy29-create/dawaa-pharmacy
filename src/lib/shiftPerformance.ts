@@ -1,3 +1,4 @@
+import { normalizeBranchName as normalizeBranchNameShared } from "@/lib/branch";
 import type { EvaluationRuleDef } from "@/lib/evaluationRulesCatalog";
 
 export type ShiftType = "morning" | "evening" | "night";
@@ -51,15 +52,11 @@ export const SHIFT_ISSUES = [
 export function shiftLabel(type: ShiftType | string): string {
   return SHIFT_CONFIGS[type as ShiftType]?.label || type;
 }
-
 export function normalizeBranchName(branch?: string | null): string {
-  const value = (branch || "").trim();
-  if (!value) return "";
-  if (value.includes("شامي")) return "فرع الشامي";
-  if (value.includes("شكري") || value.includes("أبو العزم") || value.includes("ابو العزم")) return "فرع شكري";
-  if (value === "الكل") return "الكل";
-  return value.startsWith("فرع") ? value : `فرع ${value}`;
+  const normalized = normalizeBranchNameShared(branch);
+  return normalized === "غير محدد" ? "" : normalized;
 }
+
 
 function minutesOf(time?: string | null): number | null {
   if (!time) return null;

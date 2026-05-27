@@ -5,6 +5,7 @@ import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { logActivity, useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { BRANCHES } from "@/lib/constants";
+import { normalizeBranchName, branchMatches } from "@/lib/branch";
 import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
 import ImageUploadBox from "@/components/ImageUploadBox";
 
@@ -538,7 +539,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   };
 
   const Icon = config.icon;
-  const branchOptions = Array.from(new Set(rows.map((row) => String(row[config.branchField || "branch"] || "")).filter(Boolean)));
+  const branchOptions = Array.from(new Set(rows.map((row) => normalizeBranchName(row[config.branchField || "branch"])).filter(Boolean)));
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -649,7 +650,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
                   return (
                     <tr key={String(row.id)}>
                       <td className="font-bold text-white">{String(row[config.primaryField] || row.title || row.item_name || row.branch || "-")}</td>
-                      {config.branchField && <td>{String(row[config.branchField] || "-")}</td>}
+                      {config.branchField && <td>{normalizeBranchName(row[config.branchField])}</td>}
                       {config.staffNameField && <td>{String(row[config.staffNameField] || "-")}</td>}
                       {config.dueDateField && <td>{formatArabicDate(row[config.dueDateField])}</td>}
                       <td><span className={`rounded-full border px-2 py-1 text-xs ${statusMeta?.tone || STATUS_TONES.pending}`}>{statusMeta?.label || status}</span></td>
