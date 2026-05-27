@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -110,7 +110,7 @@ export default function CustomerRequests() {
     [staff],
   );
 
-  const loadRequests = async () => {
+  const loadRequests = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getCustomerRequests({ status: statusFilter, branch: branchFilter, search });
@@ -121,13 +121,14 @@ export default function CustomerRequests() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, branchFilter, search]);
 
   useEffect(() => {
-    const timer = window.setTimeout(loadRequests, 250);
+    const timer = window.setTimeout(() => {
+      void loadRequests();
+    }, 250);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, branchFilter, search]);
+  }, [loadRequests]);
 
   useEffect(() => {
     if (!selected) {
@@ -137,7 +138,7 @@ export default function CustomerRequests() {
     }
     setNewStatus(selected.status || "new");
     getCustomerRequestEvents(selected.id).then(setEvents);
-  }, [selected?.id]);
+  }, [selected]);
 
   const stats = useMemo(() => {
     const open = requests.filter((item) => !["closed", "delivered", "cancelled", "not_available"].includes(String(item.status))).length;

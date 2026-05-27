@@ -14,6 +14,7 @@ import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/utils";
+import { normalizeBranchName, branchMatches } from "@/lib/branch";
 import { formatCycleDate, getCurrentCycle, getCycleForDate } from "@/lib/pharmacy-cycle";
 import {
   aggregateInvoiceAnalytics,
@@ -110,7 +111,7 @@ export default function Analytics() {
     realtimeEnabled: false,
   });
 
-  const branches = useMemo(() => uniqueSorted(invoices.map((row) => row.branch)), [invoices]);
+  const branches = useMemo(() => uniqueSorted(invoices.map((row) => normalizeBranchName(row.branch))), [invoices]);
   const doctors = useMemo(() => uniqueSorted(invoices.map((row) => row.seller_name)), [invoices]);
   const invoiceTypes = useMemo(() => uniqueSorted(invoices.map((row) => row.invoice_type)), [invoices]);
   const latestInvoiceDate = useMemo(() => uniqueSorted(invoices.map(dayKey)).at(-1) || today, [invoices, today]);
@@ -125,7 +126,7 @@ export default function Analytics() {
     return invoices.filter((row) => {
       const shift = getShiftFromDateTime(dateTimeOf(row), bounds);
       if (!isDateInRange(dayKey(row), periodStart, periodEnd)) return false;
-      if (selectedBranch !== ALL_FILTER && row.branch !== selectedBranch) return false;
+      if (!branchMatches(selectedBranch, row.branch)) return false;
       if (selectedDoctor !== ALL_FILTER && row.seller_name !== selectedDoctor) return false;
       if (selectedShift !== ALL_FILTER && shift !== selectedShift) return false;
       if (selectedType !== ALL_FILTER && row.invoice_type !== selectedType) return false;
@@ -137,7 +138,7 @@ export default function Analytics() {
     return invoices.filter((row) => {
       const shift = getShiftFromDateTime(dateTimeOf(row), bounds);
       if (dayKey(row) !== selectedDate) return false;
-      if (selectedBranch !== ALL_FILTER && row.branch !== selectedBranch) return false;
+      if (!branchMatches(selectedBranch, row.branch)) return false;
       if (selectedDoctor !== ALL_FILTER && row.seller_name !== selectedDoctor) return false;
       if (selectedShift !== ALL_FILTER && shift !== selectedShift) return false;
       if (selectedType !== ALL_FILTER && row.invoice_type !== selectedType) return false;

@@ -72,7 +72,10 @@ export default function StaffDashboard() {
       null
     );
   }, [effectiveStaffId, staffData, user?.name]);
-  const targetStaff = staffInfo || { id: effectiveStaffId, name: user?.name || "" };
+  const targetStaff = useMemo(
+    () => staffInfo || { id: effectiveStaffId, name: user?.name || "" },
+    [staffInfo, effectiveStaffId, user?.name],
+  );
 
   // Cycle-filtered and approved records
   const cycleRecords = useMemo(
