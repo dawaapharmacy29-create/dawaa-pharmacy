@@ -21,9 +21,9 @@ export function normalizeCustomerSegment(value: unknown, totalSpent = 0, avgMont
   if (["مهم", "important"].includes(raw)) return "مهم";
   if (["متوسط", "medium"].includes(raw)) return "متوسط";
   if (["عادي", "normal", "regular", ""].includes(raw)) {
-    if (avgMonthly > 8000) return "مهم جدًا";
-    if (avgMonthly > 4000) return "مهم";
-    if (avgMonthly > 1500) return "متوسط";
+    if (totalSpent >= 20000 || avgMonthly >= 5000) return "مهم جدًا";
+    if (totalSpent >= 10000 || avgMonthly >= 2500) return "مهم";
+    if (totalSpent >= 3000 || avgMonthly >= 800) return "متوسط";
     return "عادي";
   }
   return String(value || "عادي").replace("جدا", "جدًا");

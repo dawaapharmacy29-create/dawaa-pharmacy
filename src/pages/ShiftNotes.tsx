@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   CalendarClock,
-  Check,
   CheckCircle2,
   Clock,
   Copy,
@@ -189,11 +188,6 @@ function dayKey(value?: string | null) {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
-function wildcardRegex(query: string) {
-  const safe = query.trim().toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\*/g, ".*");
-  return new RegExp(safe);
-}
-
 function statusClass(note: ShiftNote) {
   if (isOverdue(note)) return "bg-red-950/60 border-red-500/35 text-red-100";
   if (note.status === "completed") return "bg-emerald-500/10 border-emerald-400/25 text-emerald-200";
@@ -222,10 +216,6 @@ export default function ShiftNotes() {
   const [dimensionFilter, setDimensionFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [form, setForm] = useState({ ...emptyForm, due_at: todayInput(), customer_code: "" } as typeof emptyForm & { customer_code: string });
-  const [deletedNotes, setDeletedNotes] = useState<ShiftNote[]>([]);
-  const [customerMatched, setCustomerMatched] = useState(false);
-  const notesSectionRef = useRef<HTMLDivElement | null>(null);
 
   const canManage = isAdmin || /مدير|admin/i.test(user?.role || "");
 
@@ -274,16 +264,6 @@ export default function ShiftNotes() {
       actor_name: user?.name || "النظام",
       details: details || null,
     });
-  };
-
-  const resolveActorName = () => {
-    const defaultActor = user?.name || "";
-    const choice = window.prompt("مين اللي نفّذ الخطوة؟ اكتب اسم الدكتور/المستخدم", defaultActor);
-    if (!choice?.trim()) {
-      toast.error("لازم تحدد مين نفّذ الخطوة");
-      return null;
-    }
-    return choice.trim();
   };
 
   const createOccurrences = async (noteId: string) => {
@@ -376,16 +356,14 @@ export default function ShiftNotes() {
       }
       reason = completionNote.trim();
     }
-    const actorName = resolveActorName();
-    if (!actorName) return;
     const payload: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
     if (["completed", "cancelled"].includes(status)) {
       payload.closed_at = new Date().toISOString();
       payload.closed_by_id = user?.id || null;
-      payload.closed_by_name = actorName;
+      payload.closed_by_name = user?.name || null;
       payload.closure_reason = reason || null;
       if (status === "completed") {
-        payload.completed_by_name = actorName;
+        payload.completed_by_name = user?.name || null;
       }
     }
     const { data, error } = await supabase.from("shift_notes").update(payload).eq("id", note.id).select("*").single();
@@ -393,7 +371,7 @@ export default function ShiftNotes() {
       toast.error(`تعذر تحديث حالة الملحوظة: ${error.message}`);
       return;
     }
-    await addLog(note.id, status, `${reason || statusLabels[status]} (بواسطة: ${actorName})`);
+    await addLog(note.id, status, reason || statusLabels[status]);
     toast.success(status === "completed" ? "تم تنفيذ الملحوظة" : "تم تحديث الملحوظة");
     await loadNotes();
     if (selected?.id === note.id) await loadDetails(data as ShiftNote);
@@ -442,8 +420,6 @@ export default function ShiftNotes() {
   };
 
   const postponeNote = async (note: ShiftNote) => {
-    const actorName = resolveActorName();
-    if (!actorName) return;
     const choice = window.prompt("اكتب مدة التأجيل: 30m أو 1h أو tonight أو tomorrow أو تاريخ بصيغة 2026-05-26 20:00");
     if (!choice) return;
     const reason = window.prompt("سبب التأجيل");
@@ -471,7 +447,7 @@ export default function ShiftNotes() {
       .update({
         due_at: next.toISOString(),
         postponed_until: next.toISOString(),
-        postponement_reason: `${reason.trim()} (بواسطة: ${actorName})`,
+        postponement_reason: reason.trim(),
         updated_at: new Date().toISOString(),
       })
       .eq("id", note.id)
@@ -481,7 +457,7 @@ export default function ShiftNotes() {
       toast.error(`تعذر تأجيل الملاحظة: ${error.message}`);
       return;
     }
-    await addLog(note.id, "postpone", `تم التأجيل إلى ${dateLabel(next.toISOString())}. السبب: ${reason.trim()} - بواسطة: ${actorName}`);
+    await addLog(note.id, "postpone", `تم التأجيل إلى ${dateLabel(next.toISOString())}. السبب: ${reason.trim()}`);
     toast.success("تم تأجيل الملاحظة");
     await loadNotes();
     if (selected?.id === note.id) await loadDetails(data as ShiftNote);
@@ -689,17 +665,6 @@ export default function ShiftNotes() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <MiniStat label="ملاحظات اليوم" value={summary.today} onClick={() => { setFilter("today"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
-        <MiniStat label="متأخرة" value={summary.overdue} danger onClick={() => { setFilter("overdue"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
-        <MiniStat label="عاجلة/حرجة" value={summary.urgent} danger onClick={() => { setFilter("urgent"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
-        <MiniStat label="بانتظار الاستلام" value={summary.pending} onClick={() => { setFilter("assigned_pending"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
-        <MiniStat label="متكررة اليوم" value={summary.recurring} onClick={() => { setFilter("recurring"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
-        <MiniStat label="مكتملة اليوم" value={summary.completed} success onClick={() => { setFilter("completed_today"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Link to="/customer-requests" className="btn-secondary">الذهاب لطلبات العملاء</Link>
-        <Link to="/shift-notes" className="btn-secondary">تحديث صفحة الملحوظات</Link>
       </div>
 
       {deletedNotes.length > 0 && (
@@ -957,10 +922,6 @@ export default function ShiftNotes() {
     </div>
   );
 }
-
-function MiniStat({ label, value, danger, success, onClick }: { label: string; value: number; danger?: boolean; success?: boolean; onClick?: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="stat-card text-right">
       <div className="text-slate-400 text-sm">{label}</div>
       <div className={`text-3xl font-black mt-2 ${danger ? "text-red-300" : success ? "text-emerald-300" : "text-teal-300"}`}>{value}</div>
     </button>
