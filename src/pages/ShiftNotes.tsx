@@ -148,6 +148,7 @@ const emptyForm = {
   note_type: "general",
   branch: "فرع شكري",
   customer_name: "",
+  customer_code: "",
   customer_phone: "",
   invoice_no: "",
   due_at: "",
@@ -217,6 +218,7 @@ export default function ShiftNotes() {
   const [dimensionFilter, setDimensionFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [form, setForm] = useState({ ...emptyForm, due_at: todayInput() });
 
   const canManage = isAdmin || /مدير|admin/i.test(user?.role || "");
 
