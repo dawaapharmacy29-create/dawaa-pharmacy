@@ -88,6 +88,7 @@ interface ShiftNoteOccurrence {
   id: string;
   note_id: string;
   occurrence_at: string | null;
+  scheduled_time?: string | null;
   status: string | null;
   completed_by_name: string | null;
   completed_at: string | null;
@@ -148,6 +149,7 @@ const emptyForm = {
   note_type: "general",
   branch: "فرع شكري",
   customer_name: "",
+  customer_code: "",
   customer_phone: "",
   invoice_no: "",
   due_at: "",
@@ -216,6 +218,9 @@ export default function ShiftNotes() {
   const [dimensionFilter, setDimensionFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [form, setForm] = useState(emptyForm);
+  const [deletedNotes, setDeletedNotes] = useState<ShiftNote[]>([]);
+  const notesSectionRef = useRef<HTMLDivElement>(null);
 
   const canManage = isAdmin || /مدير|admin/i.test(user?.role || "");
 
@@ -568,6 +573,7 @@ export default function ShiftNotes() {
       note_type: note.note_type || "general",
       branch: note.branch || "فرع شكري",
       customer_name: note.customer_name || "",
+      customer_code: note.customer_code || "",
       customer_phone: note.customer_phone || "",
       invoice_no: note.invoice_no || "",
       due_at: note.due_at ? new Date(note.due_at).toISOString().slice(0, 16) : todayInput(),

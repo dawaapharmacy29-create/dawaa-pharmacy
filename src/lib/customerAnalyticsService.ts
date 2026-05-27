@@ -21,12 +21,115 @@ export function normalizeCustomerSegment(value: unknown, totalSpent = 0, avgMont
   if (["مهم", "important"].includes(raw)) return "مهم";
   if (["متوسط", "medium"].includes(raw)) return "متوسط";
   if (["عادي", "normal", "regular", ""].includes(raw)) {
-    if (totalSpent >= 20000 || avgMonthly >= 5000) return "مهم جدًا";
-    if (totalSpent >= 10000 || avgMonthly >= 2500) return "مهم";
-    if (totalSpent >= 3000 || avgMonthly >= 800) return "متوسط";
+    if (avgMonthly >= 8000) return "مهم جدًا";
+    if (avgMonthly >= 4000) return "مهم";
+    if (avgMonthly >= 1500) return "متوسط";
     return "عادي";
   }
   return String(value || "عادي").replace("جدا", "جدًا");
+}
+
+/**
+ * تحديث تصنيف العملاء تلقائياً بناءً على متوسط المشتريات الشهرية
+ * هذه الدالة تحسب avg_monthly من الفواتير وتحدد التصنيف المناسب
+ */
+export async function syncCustomerSegmentationFromInvoices() {
+  if (!isSupabaseConfigured) return { success: false, error: "Supabase not configured" };
+
+  try {
+    // جلب جميع الفواتير
+    const { data: invoices, error: invoicesError } = await supabase
+      .from("sales_invoices")
+      .select("*")
+      .order("invoice_date", { ascending: false });
+
+    if (invoicesError) throw invoicesError;
+
+    // جلب جميع العملاء
+    const { data: customers, error: customersError } = await supabase
+      .from("customers")
+      .select("*");
+
+    if (customersError) throw customersError;
+
+    // حساب متوسط المشتريات الشهرية لكل عميل
+    const customerStats = new Map<string, { total: number; count: number; lastPurchase: string | null }>();
+
+    for (const invoice of invoices || []) {
+      const customerCode = invoice.customer_code || invoice.code;
+      const customerPhone = invoice.customer_phone || invoice.phone;
+      const amount = Number(invoice.net_amount || invoice.amount || invoice.gross_amount || 0);
+      const invoiceDate = invoice.invoice_date || invoice.invoice_datetime || invoice.created_at;
+
+      if (!customerCode && !customerPhone) continue;
+
+      const key = customerCode || customerPhone;
+      const existing = customerStats.get(key) || { total: 0, count: 0, lastPurchase: null };
+      
+      existing.total += amount;
+      existing.count += 1;
+      if (invoiceDate && (!existing.lastPurchase || new Date(invoiceDate) > new Date(existing.lastPurchase))) {
+        existing.lastPurchase = invoiceDate;
+      }
+
+      customerStats.set(key, existing);
+    }
+
+    // تحديث تصنيف كل عميل
+    const updates = [];
+    for (const customer of customers || []) {
+      const key = customer.customer_code || customer.customer_phone || customer.phone;
+      const stats = customerStats.get(key);
+
+      if (!stats || stats.count === 0) continue;
+
+      // حساب متوسط المشتريات الشهرية
+      const firstInvoice = invoices?.find((inv: AnyRow) => 
+        (inv.customer_code === customer.customer_code || inv.customer_phone === customer.phone)
+      );
+      const firstDate = firstInvoice?.invoice_date || firstInvoice?.invoice_datetime || firstInvoice?.created_at;
+      const lastDate = stats.lastPurchase;
+
+      if (!firstDate || !lastDate) continue;
+
+      const first = new Date(firstDate);
+      const last = new Date(lastDate);
+      const months = Math.max(1, (last.getFullYear() - first.getFullYear()) * 12 + (last.getMonth() - first.getMonth()) + 1);
+      const avgMonthly = stats.total / months;
+
+      // تحديد التصنيف الجديد
+      let newSegment = "عادي";
+      if (avgMonthly >= 8000) newSegment = "مهم جدًا";
+      else if (avgMonthly >= 4000) newSegment = "مهم";
+      else if (avgMonthly >= 1500) newSegment = "متوسط";
+
+      // تحديث العميل إذا تغير التصنيف
+      if (customer.segment !== newSegment || customer.avg_monthly !== avgMonthly) {
+        updates.push({
+          id: customer.id,
+          segment: newSegment,
+          avg_monthly: avgMonthly,
+          total_purchases: stats.total,
+          total_invoices: stats.count,
+          last_purchase: lastDate,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    // تنفيذ التحديثات
+    if (updates.length > 0) {
+      const { error: updateError } = await supabase
+        .from("customers")
+        .upsert(updates);
+
+      if (updateError) throw updateError;
+    }
+
+    return { success: true, updated: updates.length };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export function normalizeCustomerStatus(value: unknown, lastPurchase?: string | null, firstPurchase?: string | null) {
