@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -191,6 +191,7 @@ function statusClass(note: ShiftNote) {
   if (isOverdue(note)) return "bg-red-950/60 border-red-500/35 text-red-100";
   if (note.status === "completed") return "bg-emerald-500/10 border-emerald-400/25 text-emerald-200";
   if (note.status === "cancelled") return "bg-slate-500/10 border-slate-400/25 text-slate-300";
+  if (note.note_type === "nursing" || note.note_type === "medical") return "bg-amber-500/10 border-amber-400/25 text-amber-100";
   if (note.priority === "critical" || note.priority === "urgent") return "bg-red-500/10 border-red-400/25 text-red-100";
   if (note.priority === "important") return "bg-amber-500/10 border-amber-400/25 text-amber-100";
   return "bg-blue-500/10 border-blue-400/25 text-blue-100";
@@ -215,6 +216,7 @@ export default function ShiftNotes() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [form, setForm] = useState({ ...emptyForm, due_at: todayInput(), customer_code: "" } as typeof emptyForm & { customer_code: string });
   const [deletedNotes, setDeletedNotes] = useState<ShiftNote[]>([]);
+  const notesSectionRef = useRef<HTMLDivElement | null>(null);
 
   const canManage = isAdmin || /مدير|admin/i.test(user?.role || "");
 
@@ -252,34 +254,7 @@ export default function ShiftNotes() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 300);
-  
-  const softDeleteNote = async (note: ShiftNote) => {
-    const ok = window.confirm(`حذف الملحوظة: ${note.title} ؟ يمكن استرجاعها لاحقًا.`);
-    if (!ok) return;
-    const { error } = await supabase.from("shift_notes").update({
-      deleted_at: new Date().toISOString(),
-      deleted_by_id: user?.id || null,
-      deleted_by_name: user?.name || null,
-      updated_at: new Date().toISOString(),
-    }).eq("id", note.id);
-    if (error) return toast.error(`تعذر حذف الملحوظة: ${error.message}`);
-    await addLog(note.id, "delete", `تم حذف الملحوظة بواسطة ${user?.name || "النظام"}`);
-    await loadNotes();
-  };
-
-  const restoreNote = async (note: ShiftNote) => {
-    const { error } = await supabase.from("shift_notes").update({
-      deleted_at: null,
-      deleted_by_id: null,
-      deleted_by_name: null,
-      updated_at: new Date().toISOString(),
-    }).eq("id", note.id);
-    if (error) return toast.error(`تعذر استرجاع الملحوظة: ${error.message}`);
-    await addLog(note.id, "restore", `تم استرجاع الملحوظة بواسطة ${user?.name || "النظام"}`);
-    await loadNotes();
-  };
-
-  return () => window.clearTimeout(timer);
+    return () => window.clearTimeout(timer);
   }, [search]);
 
   const addLog = async (noteId: string, action: string, details?: string) => {
@@ -505,6 +480,32 @@ export default function ShiftNotes() {
     await loadDetails(selected);
   };
 
+  const softDeleteNote = async (note: ShiftNote) => {
+    const ok = window.confirm(`حذف الملحوظة: ${note.title} ؟ يمكن استرجاعها لاحقًا.`);
+    if (!ok) return;
+    const { error } = await supabase.from("shift_notes").update({
+      deleted_at: new Date().toISOString(),
+      deleted_by_id: user?.id || null,
+      deleted_by_name: user?.name || null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", note.id);
+    if (error) return toast.error(`تعذر حذف الملحوظة: ${error.message}`);
+    await addLog(note.id, "delete", `تم حذف الملحوظة بواسطة ${user?.name || "النظام"}`);
+    await loadNotes();
+  };
+
+  const restoreNote = async (note: ShiftNote) => {
+    const { error } = await supabase.from("shift_notes").update({
+      deleted_at: null,
+      deleted_by_id: null,
+      deleted_by_name: null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", note.id);
+    if (error) return toast.error(`تعذر استرجاع الملحوظة: ${error.message}`);
+    await addLog(note.id, "restore", `تم استرجاع الملحوظة بواسطة ${user?.name || "النظام"}`);
+    await loadNotes();
+  };
+
   const handoverOpenNotes = async () => {
     const openNotes = notes.filter((note) => !["completed", "cancelled"].includes(note.status || ""));
     const openIds = openNotes.map((note) => note.id);
@@ -646,12 +647,12 @@ export default function ShiftNotes() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <MiniStat label="ملاحظات اليوم" value={summary.today} onClick={() => setFilter("today")} />
-        <MiniStat label="متأخرة" value={summary.overdue} danger onClick={() => setFilter("overdue")} />
-        <MiniStat label="عاجلة/حرجة" value={summary.urgent} danger onClick={() => setFilter("urgent")} />
-        <MiniStat label="بانتظار الاستلام" value={summary.pending} onClick={() => setFilter("assigned_pending")} />
-        <MiniStat label="متكررة اليوم" value={summary.recurring} onClick={() => setFilter("recurring")} />
-        <MiniStat label="مكتملة اليوم" value={summary.completed} success onClick={() => setFilter("completed_today")} />
+        <MiniStat label="ملاحظات اليوم" value={summary.today} onClick={() => { setFilter("today"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
+        <MiniStat label="متأخرة" value={summary.overdue} danger onClick={() => { setFilter("overdue"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
+        <MiniStat label="عاجلة/حرجة" value={summary.urgent} danger onClick={() => { setFilter("urgent"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
+        <MiniStat label="بانتظار الاستلام" value={summary.pending} onClick={() => { setFilter("assigned_pending"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
+        <MiniStat label="متكررة اليوم" value={summary.recurring} onClick={() => { setFilter("recurring"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
+        <MiniStat label="مكتملة اليوم" value={summary.completed} success onClick={() => { setFilter("completed_today"); notesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -761,7 +762,7 @@ export default function ShiftNotes() {
         </div>
       )}
 
-      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
+      <div ref={notesSectionRef} className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
         <input className="input-dark lg:col-span-2" placeholder="بحث بالعميل أو الهاتف أو العنوان أو المسؤول..." value={search} onChange={(event) => setSearch(event.target.value)} />
         <select className="input-dark" value={filter} onChange={(event) => setFilter(event.target.value)}>
           <option value="all">كل الملاحظات</option>
@@ -808,6 +809,7 @@ export default function ShiftNotes() {
                       <span className="badge-info">{note.branch || "غير محدد"}</span>
                       <span className="badge-info">{priorityLabels[note.priority || "normal"]}</span>
                       <span className="badge-info">{isOverdue(note) ? "متأخرة" : statusLabels[note.status || "new"]}</span>
+                      {note.is_recurring && <span className="badge-info">متكررة</span>}
                       {note.received_by_name && <span className="badge-success">استلمها {note.received_by_name}</span>}
                       {note.postponed_until && <span className="badge-warning">مؤجلة إلى {dateLabel(note.postponed_until)}</span>}
                       {note.handed_over && <span className="badge-warning">تم تسليمها للشيفت التالي</span>}
