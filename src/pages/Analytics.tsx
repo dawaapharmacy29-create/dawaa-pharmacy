@@ -83,16 +83,11 @@ function isDateInRange(day: string, start: string, end: string) {
 
 export default function Analytics() {
   const { user } = useAuth();
-  // نستخدم الدورة الأحدث التي فيها بيانات فعلية:
-  // لو الدورة الحالية بدأت بتاريخ اليوم أو الأمس (أقل من 3 أيام) نعرض الدورة السابقة افتراضيًا
   const cycle = getCurrentCycle();
-  const prevCycle = getPreviousCycle();
   const today = formatCycleDate(new Date());
-  const cycleAge = Math.floor((new Date().getTime() - cycle.start.getTime()) / 86400000);
-  const defaultCycle = cycleAge <= 2 ? prevCycle : cycle;
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
-  const [periodStart, setPeriodStart] = useState(() => formatCycleDate(defaultCycle.start));
-  const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(defaultCycle.end));
+  const [periodStart, setPeriodStart] = useState(() => formatCycleDate(cycle.start));
+  const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(cycle.end));
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedBranch, setSelectedBranch] = useState(ALL_FILTER);
   const [selectedDoctor, setSelectedDoctor] = useState(ALL_FILTER);
@@ -441,19 +436,6 @@ export default function Analytics() {
       <div className="stat-card space-y-3">
         <div className="grid md:grid-cols-6 gap-3">
           <Filter label="بداية الفترة">
-            {/* أزرار الدورة السريعة */}
-            <div className="flex gap-1 flex-wrap">
-              <button
-                type="button"
-                className="px-2 py-1 text-xs rounded bg-slate-700 hover:bg-teal-600 text-slate-200 transition-colors"
-                onClick={() => { const p = getPreviousCycle(); setPeriodStart(formatCycleDate(p.start)); setPeriodEnd(formatCycleDate(p.end)); }}
-              >الدورة السابقة</button>
-              <button
-                type="button"
-                className="px-2 py-1 text-xs rounded bg-slate-700 hover:bg-teal-600 text-slate-200 transition-colors"
-                onClick={() => { const c = getCurrentCycle(); setPeriodStart(formatCycleDate(c.start)); setPeriodEnd(formatCycleDate(c.end)); }}
-              >الدورة الحالية</button>
-            </div>
             <input className="input-dark" type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} />
           </Filter>
           <Filter label="نهاية الفترة">

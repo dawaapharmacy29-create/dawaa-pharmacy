@@ -148,7 +148,21 @@ function segmentFilterValues(type: string): string[] {
 
 function applyCustomerFilters(query: CustomerQueryBuilder, options: GetCustomersOptions) {
   if (options.branch && options.branch !== ALL_FILTER) query = query.in("branch", branchFilterValues(options.branch));
-  if (options.type && options.type !== ALL_FILTER) query = query.in("segment", segmentFilterValues(options.type));
+  if (options.type && options.type !== ALL_FILTER) {
+    const normalizedType = normalizeArabicType(options.type);
+    // استخدام OR لمطابقة جميع المتغيرات الممكنة للتصنيف
+    if (normalizedType === "مهم جدًا") {
+      query = query.or("segment.eq.مهم جدًا,segment.eq.مهم جدا,segment.eq.مهم جداً,segment.eq.VIP,segment.eq.vip,segment.eq.Very Important,segment.eq.very important,type.eq.مهم جدًا,type.eq.مهم جدا,type.eq.مهم جداً");
+    } else if (normalizedType === "مهم") {
+      query = query.or("segment.eq.مهم,segment.eq.important,segment.eq.Important,type.eq.مهم,type.eq.important");
+    } else if (normalizedType === "متوسط") {
+      query = query.or("segment.eq.متوسط,segment.eq.medium,segment.eq.Medium,type.eq.متوسط,type.eq.medium");
+    } else if (normalizedType === "عادي") {
+      query = query.or("segment.eq.عادي,segment.eq.normal,segment.eq.Normal,segment.eq.regular,segment.eq.Regular,type.eq.عادي,type.eq.normal,type.eq.regular");
+    } else {
+      query = query.eq("segment", normalizedType);
+    }
+  }
   return query;
 }
 
@@ -345,16 +359,7 @@ async function getAnalysisCustomers(options: GetCustomersOptions, limit: number,
 
 async function getFallbackCustomers(options: GetCustomersOptions, limit: number, offset: number) {
   const searchResult = await getFallbackCustomersBySearch(options, limit, offset);
-  if (searchResult) {
-    // إثراء العملاء بالتصنيف الحقيقي من الفواتير
-    try {
-      const invoices = await fetchSalesInvoices();
-      const enriched = enrichCustomersFromInvoices(searchResult.customers as Record<string, unknown>[], invoices as Record<string, unknown>[]);
-      return { ...searchResult, customers: enriched as Customer[] };
-    } catch {
-      return searchResult;
-    }
-  }
+  if (searchResult) return searchResult;
 
   const { data, error, count } = await supabase
     .from("customers")
@@ -369,14 +374,7 @@ async function getFallbackCustomers(options: GetCustomersOptions, limit: number,
     return branchMatch && typeMatch;
   });
 
-  // إثراء العملاء بالتصنيف الحقيقي من الفواتير
-  try {
-    const invoices = await fetchSalesInvoices();
-    const enriched = enrichCustomersFromInvoices(filtered as Record<string, unknown>[], invoices as Record<string, unknown>[]);
-    return { customers: enriched as Customer[], count: count ?? 0, limit, offset };
-  } catch {
-    return { customers: filtered, count: count ?? 0, limit, offset };
-  }
+  return { customers: filtered, count: count ?? 0, limit, offset };
 }
 
 async function countCustomers(options: GetCustomersOptions = {}) {
