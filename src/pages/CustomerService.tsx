@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
+  Calendar,
   CalendarClock,
   CheckCircle2,
   Copy,
+  DollarSign,
   FileText,
   Loader2,
   MessageSquare,
@@ -43,8 +45,12 @@ import { logActivity } from "@/lib/activityLog";
 import { selectableStaffChoices } from "@/lib/staffFallback";
 import { normalizeBranchName as displayBranch, branchMatches } from "@/lib/branch";
 import FollowupResultForm from "@/components/followups/FollowupResultForm";
+import CustomerSearch from "@/components/customerService/CustomerSearch";
+import FollowupResultModal, { type FollowupResultData } from "@/components/customerService/FollowupResultModal";
+import TeamPerformanceAnalytics from "@/components/customerService/TeamPerformanceAnalytics";
 import { toast } from "sonner";
 import type { DailyFollowup } from "@/types/database";
+import type { Customer } from "@/types/database";
 
 interface StaffOption {
   id: string;
@@ -272,7 +278,13 @@ export default function CustomerService() {
   const [historyStatus, setHistoryStatus] = useState("all");
   const [historyBranch, setHistoryBranch] = useState("all");
   const [showExceptional, setShowExceptional] = useState(false);
+  const [statsFilter, setStatsFilter] = useState<string | null>(null);
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [resultModalFollowup, setResultModalFollowup] = useState<DailyFollowup | null>(null);
+  const [activeTab, setActiveTab] = useState<"followups" | "analytics">("followups");
   const [exceptionalSaving, setExceptionalSaving] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [isUnregisteredCustomer, setIsUnregisteredCustomer] = useState(false);
   const [exceptionalForm, setExceptionalForm] = useState({
     customerName: "",
     customerCode: "",
@@ -336,6 +348,91 @@ export default function CustomerService() {
     }
   };
 
+  const handleCustomerSelect = (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setIsUnregisteredCustomer(false);
+    setExceptionalForm((prev) => ({
+      ...prev,
+      customerName: customer.name,
+      customerCode: customer.customer_code || "",
+      customerPhone: customer.phone,
+      branch: customer.branch || prev.branch,
+    }));
+  };
+
+  const handleUnregisteredCustomer = () => {
+    setSelectedCustomer(null);
+    setIsUnregisteredCustomer(true);
+    setExceptionalForm((prev) => ({
+      ...prev,
+      customerName: "",
+      customerCode: "",
+      customerPhone: "",
+    }));
+  };
+
+  const handleOpenResultModal = (followup: DailyFollowup) => {
+    setResultModalFollowup(followup);
+    setShowResultModal(true);
+  };
+
+  const handleSaveResult = async (resultData: FollowupResultData) => {
+    if (!resultModalFollowup) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const notes = [
+      resultData.notes,
+      `نتيجة المتابعة: ${resultData.result}`,
+      `تقييم الجودة: ${resultData.qualityRating}/5`,
+      resultData.needsNextFollowup ? `يحتاج متابعة قادمة: ${resultData.nextFollowupDate}` : "",
+      resultData.invoiceNumber ? `رقم الفاتورة: ${resultData.invoiceNumber}` : "",
+      resultData.purchaseAmount ? `قيمة الشراء بعد المتابعة: ${resultData.purchaseAmount}` : "",
+      resultData.problemSolved ? "تم حل المشكلة: نعم" : "",
+      resultData.customerSatisfied ? "العميل راضي: نعم" : "",
+      `تم التسجيل بواسطة: ${user?.name || "غير محدد"}`,
+    ].filter(Boolean).join("\n");
+
+    const updated = await updateFollowupStatus(resultModalFollowup.id, {
+      status: resultData.result,
+      followup_result: resultData.result,
+      followup_summary: resultData.notes,
+      notes: resultModalFollowup.notes ? `${resultModalFollowup.notes}\n\n${notes}` : notes,
+      contact_result: resultData.result,
+      closed_at: today,
+      next_followup_date: resultData.needsNextFollowup ? resultData.nextFollowupDate : null,
+      purchase_invoice_no: resultData.invoiceNumber || null,
+      purchase_amount: resultData.purchaseAmount || null,
+      purchase_date: resultData.purchaseAmount ? today : null,
+      purchase_after_followup: resultData.purchaseAmount > 0,
+    });
+
+    setFollowups((items) =>
+      items.map((item) => (item.id === updated.id ? updated : item)),
+    );
+    setHistory((items) =>
+      items.map((item) => (item.id === updated.id ? updated : item)),
+    );
+    setSelected((current) => (current?.id === updated.id ? updated : current));
+
+    await logActivity({
+      action: "تسجيل نتيجة متابعة",
+      module: "خدمة العملاء",
+      target_type: "customer_followup",
+      target_id: updated.id,
+      user_id: user?.id,
+      user_name: user?.name,
+      user_role: user?.role,
+      branch_name: displayBranch(updated.branch),
+      details: {
+        customer_name: updated.customer_name,
+        customer_code: updated.customer_code,
+        result: resultData.result,
+        quality_rating: resultData.qualityRating,
+        purchase_amount: resultData.purchaseAmount,
+      },
+    });
+  };
+
   const handleCreateExceptional = async () => {
     if (!exceptionalForm.customerName.trim()) {
       toast.error("اكتب اسم العميل أولًا");
@@ -355,6 +452,11 @@ export default function CustomerService() {
         `الأولوية: ${exceptionalForm.priority}`,
         `سبب المتابعة: ${exceptionalForm.reason}`,
         `المطلوب: ${exceptionalForm.reason}`,
+        selectedCustomer ? `كود العميل: ${selectedCustomer.customer_code}` : "",
+        selectedCustomer ? `التصنيف: ${selectedCustomer.type}` : "",
+        selectedCustomer ? `الحالة: ${selectedCustomer.retention_status}` : "",
+        selectedCustomer ? `المتوسط الشهري: ${selectedCustomer.avg_monthly}` : "",
+        selectedCustomer ? `آخر شراء: ${selectedCustomer.last_purchase}` : "",
         exceptionalForm.requestType ? `نوع طلب العميل: ${exceptionalForm.requestType}` : "",
         exceptionalForm.requestDetails ? `تفاصيل الطلب: ${exceptionalForm.requestDetails}` : "",
         exceptionalForm.nextFollowupDate ? `المتابعة القادمة: ${exceptionalForm.nextFollowupDate}` : "",
@@ -362,8 +464,8 @@ export default function CustomerService() {
       ].filter(Boolean).join("\n");
 
       const created = await createDailyFollowup({
-        customer_id: exceptionalForm.customerCode || exceptionalForm.customerPhone || exceptionalForm.customerName,
-        customer_code: exceptionalForm.customerCode || null,
+        customer_id: selectedCustomer?.id || exceptionalForm.customerCode || exceptionalForm.customerPhone || exceptionalForm.customerName,
+        customer_code: selectedCustomer?.customer_code || exceptionalForm.customerCode || null,
         customer_name: exceptionalForm.customerName,
         customer_phone: exceptionalForm.customerPhone || null,
         branch: exceptionalForm.branch,
@@ -387,6 +489,8 @@ export default function CustomerService() {
       setFollowups((items) => [created, ...items]);
       setHistory((items) => [created, ...items]);
       setSelected(created);
+      setSelectedCustomer(null);
+      setIsUnregisteredCustomer(false);
       setExceptionalForm({
         customerName: "",
         customerCode: "",
@@ -443,22 +547,105 @@ export default function CustomerService() {
       /مهدد|متوقف|Ù…Ù‡Ø¯Ø¯|Ù…ØªÙˆÙ‚Ù/.test(followupCategory(item)),
     ).length;
 
+    const done = followups.filter(
+      (item) =>
+        item.status &&
+        !["معلق", "pending"].includes(displayStatus(item.status)),
+    ).length;
+    
+    const noAnswer = followups.filter((item) => 
+      displayStatus(item.status).includes("لم يرد")
+    ).length;
+    
+    const deferred = followups.filter((item) => 
+      item.next_followup_date && new Date(item.next_followup_date) > new Date()
+    ).length;
+    
+    const overdue = followups.filter((item) => {
+      if (!item.followup_date) return false;
+      const followupDate = new Date(item.followup_date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return followupDate < today && displayStatus(item.status) === "معلق";
+    }).length;
+    
+    const withOrders = followups.filter((item) => 
+      item.request_type || item.request_details || /أوردر|طلب/.test(item.notes || "")
+    ).length;
+    
+    const withComplaints = followups.filter((item) => 
+      /شكوى|مشكلة|complaint/.test([item.category, item.request_type, item.notes].join(" "))
+    ).length;
+    
+    const needsManager = followups.filter((item) => 
+      /مدير|manager|إدارة/.test([item.category, item.notes, item.assigned_to].join(" "))
+    ).length;
+    
+    const purchaseValue = followups.reduce((sum, item) => 
+      sum + Number(item.purchase_amount || readNoteValue(item.notes, ["قيمة الأوردر"]) || 0), 0
+    );
+
     return {
       total: followups.length,
       important: byCategory("مهم"),
       medium: byCategory("متوسط"),
       risk,
-      done: followups.filter(
-        (item) =>
-          item.status &&
-          !["معلق", "pending"].includes(displayStatus(item.status)),
-      ).length,
+      done,
+      noAnswer,
+      deferred,
+      overdue,
+      withOrders,
+      withComplaints,
+      needsManager,
+      purchaseValue,
     };
   }, [followups]);
 
   const filteredFollowups = useMemo(
-    () => followups.filter((item) => followupMatchesSearch(item, followupSearch)),
-    [followups, followupSearch],
+    () => {
+      let filtered = followups.filter((item) => followupMatchesSearch(item, followupSearch));
+      
+      if (statsFilter === "done") {
+        filtered = filtered.filter((item) => 
+          item.status && !["معلق", "pending"].includes(displayStatus(item.status))
+        );
+      } else if (statsFilter === "noAnswer") {
+        filtered = filtered.filter((item) => 
+          displayStatus(item.status).includes("لم يرد")
+        );
+      } else if (statsFilter === "deferred") {
+        filtered = filtered.filter((item) => 
+          item.next_followup_date && new Date(item.next_followup_date) > new Date()
+        );
+      } else if (statsFilter === "overdue") {
+        filtered = filtered.filter((item) => {
+          if (!item.followup_date) return false;
+          const followupDate = new Date(item.followup_date);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          return followupDate < today && displayStatus(item.status) === "معلق";
+        });
+      } else if (statsFilter === "important") {
+        filtered = filtered.filter((item) => followupCategory(item) === "مهم");
+      } else if (statsFilter === "medium") {
+        filtered = filtered.filter((item) => followupCategory(item) === "متوسط");
+      } else if (statsFilter === "withOrders") {
+        filtered = filtered.filter((item) => 
+          item.request_type || item.request_details || /أوردر|طلب/.test(item.notes || "")
+        );
+      } else if (statsFilter === "withComplaints") {
+        filtered = filtered.filter((item) => 
+          /شكوى|مشكلة|complaint/.test([item.category, item.request_type, item.notes].join(" "))
+        );
+      } else if (statsFilter === "needsManager") {
+        filtered = filtered.filter((item) => 
+          /مدير|manager|إدارة/.test([item.category, item.notes, item.assigned_to].join(" "))
+        );
+      }
+      
+      return filtered;
+    },
+    [followups, followupSearch, statsFilter],
   );
 
   const filteredHistory = useMemo(() => {
@@ -695,12 +882,92 @@ export default function CustomerService() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Stat label="إجمالي اليوم" value={stats.total} color="text-white" />
-        <Stat label="مهمين" value={stats.important} color="text-purple-400" />
-        <Stat label="متوسط" value={stats.medium} color="text-teal-400" />
-        <Stat label="مهدد/متوقف" value={stats.risk} color="text-amber-400" />
-        <Stat label="تمت متابعتهم" value={stats.done} color="text-green-400" />
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <StatCard 
+          label="إجمالي اليوم" 
+          value={stats.total} 
+          color="text-white" 
+          active={statsFilter === null}
+          onClick={() => setStatsFilter(null)}
+        />
+        <StatCard 
+          label="تمت" 
+          value={stats.done} 
+          color="text-green-400" 
+          active={statsFilter === "done"}
+          onClick={() => setStatsFilter(statsFilter === "done" ? null : "done")}
+        />
+        <StatCard 
+          label="لم يرد" 
+          value={stats.noAnswer} 
+          color="text-amber-400" 
+          active={statsFilter === "noAnswer"}
+          onClick={() => setStatsFilter(statsFilter === "noAnswer" ? null : "noAnswer")}
+        />
+        <StatCard 
+          label="مؤجلة" 
+          value={stats.deferred} 
+          color="text-purple-400" 
+          active={statsFilter === "deferred"}
+          onClick={() => setStatsFilter(statsFilter === "deferred" ? null : "deferred")}
+        />
+        <StatCard 
+          label="متأخرة" 
+          value={stats.overdue} 
+          color="text-red-400" 
+          active={statsFilter === "overdue"}
+          onClick={() => setStatsFilter(statsFilter === "overdue" ? null : "overdue")}
+        />
+        <StatCard 
+          label="مهمة" 
+          value={stats.important} 
+          color="text-purple-300" 
+          active={statsFilter === "important"}
+          onClick={() => setStatsFilter(statsFilter === "important" ? null : "important")}
+        />
+        <StatCard 
+          label="متوسطة" 
+          value={stats.medium} 
+          color="text-teal-400" 
+          active={statsFilter === "medium"}
+          onClick={() => setStatsFilter(statsFilter === "medium" ? null : "medium")}
+        />
+        <StatCard 
+          label="طلبات عملاء" 
+          value={stats.withOrders} 
+          color="text-cyan-400" 
+          active={statsFilter === "withOrders"}
+          onClick={() => setStatsFilter(statsFilter === "withOrders" ? null : "withOrders")}
+        />
+        <StatCard 
+          label="شكاوى/مشاكل" 
+          value={stats.withComplaints} 
+          color="text-red-300" 
+          active={statsFilter === "withComplaints"}
+          onClick={() => setStatsFilter(statsFilter === "withComplaints" ? null : "withComplaints")}
+        />
+        <StatCard 
+          label="تحتاج تدخل مدير" 
+          value={stats.needsManager} 
+          color="text-orange-400" 
+          active={statsFilter === "needsManager"}
+          onClick={() => setStatsFilter(statsFilter === "needsManager" ? null : "needsManager")}
+        />
+        <StatCard 
+          label="قيمة بعد المتابعة" 
+          value={Math.round(stats.purchaseValue)} 
+          color="text-teal-300" 
+          suffix=" ج"
+          active={false}
+          onClick={() => {}}
+        />
+        <StatCard 
+          label="مهدد/متوقف" 
+          value={stats.risk} 
+          color="text-amber-400" 
+          active={false}
+          onClick={() => {}}
+        />
       </div>
 
 
@@ -769,17 +1036,32 @@ export default function CustomerService() {
                   className={`w-full text-right rounded-xl border p-3 transition-all ${selected?.id === item.id ? "bg-teal-500/10 border-teal-400/40" : "bg-white/[0.03] border-white/10 hover:border-teal-400/25"}`}
                 >
                   <div className="flex flex-col md:flex-row md:items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-white font-bold text-sm truncate">
-                        {item.customer_name || "عميل بدون اسم"}
-                        <span className="text-slate-400 font-normal"> — كود {item.customer_code || "بدون كود"}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="text-white font-bold text-sm truncate">
+                          {item.customer_name || "عميل بدون اسم"}
+                        </div>
+                        <span className="text-slate-400 text-xs">كود: {item.customer_code || "بدون كود"}</span>
+                        {item.priority === "عاجل" && (
+                          <span className="badge-danger text-xs">عاجل</span>
+                        )}
+                        {item.priority === "خطر" && (
+                          <span className="badge-danger text-xs">خطر</span>
+                        )}
                       </div>
                       <div className="text-slate-400 text-xs mt-1 flex flex-wrap gap-2">
-                        <span>{displayEgyptianPhone(item.customer_phone)}</span>
+                        <span className="flex items-center gap-1">
+                          <Phone size={12} /> {displayEgyptianPhone(item.customer_phone)}
+                        </span>
                         <span>{displayBranch(item.branch)}</span>
                         <span>المسؤول: {assignedDoctor(item)}</span>
                         <span>التاريخ: {dateLabel(item.closed_at || item.updated_at || item.created_at)}</span>
                       </div>
+                      {item.next_followup_date && (
+                        <div className="text-amber-400 text-xs mt-1 flex items-center gap-1">
+                          <Calendar size={12} /> متابعة قادمة: {dateLabel(item.next_followup_date)}
+                        </div>
+                      )}
                       <div className="text-slate-300 text-xs mt-2 line-clamp-2">
                         {followupSummary(item)}
                       </div>
@@ -788,11 +1070,32 @@ export default function CustomerService() {
                           <ShoppingBag size={13} /> {requestDetails(item)}
                         </div>
                       )}
+                      {item.purchase_amount && (
+                        <div className="mt-2 text-xs text-green-300 bg-green-500/10 border border-green-400/20 rounded-lg px-2 py-1 inline-flex items-center gap-1">
+                          <DollarSign size={13} /> شراء بعد المتابعة: {Math.round(item.purchase_amount)} ج
+                        </div>
+                      )}
+                      {item.followup_result && (
+                        <div className="mt-2 text-xs text-purple-300 bg-purple-500/10 border border-purple-400/20 rounded-lg px-2 py-1">
+                          النتيجة: {item.followup_result}
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-row md:flex-col items-end gap-2 shrink-0">
                       <span className={statusClass(item.status)}>{displayStatus(item.status)}</span>
                       <span className="badge-info text-xs">{contactMethod(item)}</span>
                       <span className="text-xs text-slate-500">{followupCategory(item)}</span>
+                      {displayStatus(item.status) === "معلق" && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenResultModal(item);
+                          }}
+                          className="text-xs text-teal-400 hover:text-teal-300"
+                        >
+                          تسجيل النتيجة
+                        </button>
+                      )}
                     </div>
                   </div>
                 </button>
@@ -818,11 +1121,76 @@ export default function CustomerService() {
 
           {showExceptional ? (
             <div className="space-y-3">
-              <input className="input-dark" placeholder="اسم العميل" value={exceptionalForm.customerName} onChange={(event) => setExceptionalForm((f) => ({ ...f, customerName: event.target.value }))} />
-              <div className="grid grid-cols-2 gap-2">
-                <input className="input-dark" placeholder="كود العميل" value={exceptionalForm.customerCode} onChange={(event) => setExceptionalForm((f) => ({ ...f, customerCode: event.target.value }))} />
-                <input className="input-dark" placeholder="رقم الهاتف" value={exceptionalForm.customerPhone} onChange={(event) => setExceptionalForm((f) => ({ ...f, customerPhone: event.target.value }))} />
-              </div>
+              <CustomerSearch
+                onSelect={handleCustomerSelect}
+                onUnregistered={handleUnregisteredCustomer}
+                branch={exceptionalForm.branch}
+                placeholder="ابحث عن العميل بالاسم، الكود، أو الهاتف..."
+              />
+              
+              {selectedCustomer && (
+                <div className="bg-teal-500/10 border border-teal-400/20 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-teal-300 font-medium">{selectedCustomer.name}</span>
+                    <button
+                      onClick={() => {
+                        setSelectedCustomer(null);
+                        setIsUnregisteredCustomer(false);
+                        setExceptionalForm((prev) => ({
+                          ...prev,
+                          customerName: "",
+                          customerCode: "",
+                          customerPhone: "",
+                        }));
+                      }}
+                      className="text-xs text-slate-400 hover:text-white"
+                    >
+                      تغيير العميل
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
+                    {selectedCustomer.customer_code && (
+                      <div>كود: {selectedCustomer.customer_code}</div>
+                    )}
+                    {selectedCustomer.phone && (
+                      <div>هاتف: {displayEgyptianPhone(selectedCustomer.phone)}</div>
+                    )}
+                    {selectedCustomer.type && (
+                      <div>التصنيف: {selectedCustomer.type}</div>
+                    )}
+                    {selectedCustomer.retention_status && (
+                      <div>الحالة: {selectedCustomer.retention_status}</div>
+                    )}
+                    {selectedCustomer.avg_monthly && (
+                      <div>المتوسط الشهري: {Math.round(selectedCustomer.avg_monthly)} ج</div>
+                    )}
+                    {selectedCustomer.last_purchase && (
+                      <div>آخر شراء: {selectedCustomer.last_purchase.slice(0, 10)}</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {isUnregisteredCustomer && (
+                <div className="bg-amber-500/10 border border-amber-400/20 rounded-xl p-3">
+                  <div className="text-amber-300 text-sm font-medium mb-2">عميل غير مسجل</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      className="input-dark"
+                      placeholder="اسم العميل"
+                      value={exceptionalForm.customerName}
+                      onChange={(event) => setExceptionalForm((f) => ({ ...f, customerName: event.target.value }))}
+                    />
+                    <input
+                      className="input-dark"
+                      placeholder="رقم الهاتف"
+                      value={exceptionalForm.customerPhone}
+                      onChange={(event) => setExceptionalForm((f) => ({ ...f, customerPhone: event.target.value }))}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2">
                 <select className="input-dark" value={exceptionalForm.branch} onChange={(event) => setExceptionalForm((f) => ({ ...f, branch: event.target.value }))}>
                   <option>فرع شكري</option>
@@ -1261,6 +1629,19 @@ export default function CustomerService() {
       {customer360 && (
         <Customer360QuickView followup={customer360} onClose={() => setCustomer360(null)} />
       )}
+
+      {showResultModal && resultModalFollowup && (
+        <FollowupResultModal
+          followup={resultModalFollowup}
+          onClose={() => {
+            setShowResultModal(false);
+            setResultModalFollowup(null);
+          }}
+          onSave={handleSaveResult}
+        />
+      )}
+
+      <TeamPerformanceAnalytics followups={history} staff={staffChoices} />
     </div>
   );
 }
@@ -1329,6 +1710,18 @@ function Stat({
       </div>
       <div className="text-slate-400 text-xs mt-1">{label}</div>
     </div>
+  );
+}
+
+function StatCard({ label, value, color, active, onClick, suffix }: { label: string; value: number; color: string; active: boolean; onClick: () => void; suffix?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`stat-card text-right transition-all ${active ? 'bg-teal-500/20 border-teal-400/50' : 'hover:bg-white/5 border-white/10'}`}
+    >
+      <div className={`text-2xl font-bold num ${color}`}>{value.toLocaleString("ar-EG")}{suffix || ""}</div>
+      <div className="text-xs text-slate-400 mt-1">{label}</div>
+    </button>
   );
 }
 
