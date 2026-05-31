@@ -1,1757 +1,875 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
-  Calendar,
+  BarChart3,
   CalendarClock,
   CheckCircle2,
-  Copy,
-  DollarSign,
-  FileText,
+  Clock,
+  HeadphonesIcon,
   Loader2,
   MessageSquare,
-  Phone,
   PhoneCall,
   Plus,
   RefreshCw,
   Search,
+  ShieldAlert,
   ShoppingBag,
-  Trash2,
-  Wand2,
+  UserRound,
+  X,
 } from "lucide-react";
-import {
-  clearTodayTrialFollowups,
-  createDailyFollowup,
-  generateTodayFollowups,
-  getFollowupHistory,
-  getTodayFollowups,
-  updateFollowupStatus,
-} from "@/lib/api/followups";
-import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { useAuth } from "@/hooks/useAuth";
-import { formatDate } from "@/lib/utils";
-import {
-  getScript,
-  SCRIPT_OPTIONS,
-  type ScriptKey,
-} from "@/lib/followupScripts";
-import {
-  cleanEgyptianPhone,
-  copyText,
-  displayEgyptianPhone,
-  generateWhatsAppLink,
-} from "@/lib/whatsapp";
-import { logActivity } from "@/lib/activityLog";
-import { selectableStaffChoices } from "@/lib/staffFallback";
-import { normalizeBranchName as displayBranch, branchMatches } from "@/lib/branch";
-import FollowupResultForm from "@/components/followups/FollowupResultForm";
-import CustomerSearch from "@/components/customerService/CustomerSearch";
-import FollowupResultModal, { type FollowupResultData } from "@/components/customerService/FollowupResultModal";
-import TeamPerformanceAnalytics from "@/components/customerService/TeamPerformanceAnalytics";
 import { toast } from "sonner";
-import type { DailyFollowup } from "@/types/database";
-import type { Customer } from "@/types/database";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
+import { ALL_FILTER, type CustomerMetric } from "@/lib/api/customers";
+import {
+  calculateFollowupStats,
+  calculateTeamPerformance,
+  createExceptionalFollowup,
+  fetchCustomerServiceFollowups,
+  generateTodayFollowupsFromCustomerMetrics,
+  recommendedAction,
+  riskLevel,
+  searchCustomerMetrics,
+  updateFollowupResult,
+  type FollowupPerformanceRow,
+  type FollowupResultPayload,
+  type FollowupRow,
+} from "@/lib/api/customerServiceCommandCenter";
+import { buildCustomerServiceWhatsAppMessage } from "@/lib/whatsappTemplates";
+import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
+import { normalizeBranchName } from "@/lib/branch";
+import { BRANCHES } from "@/lib/constants";
+import { logActivity } from "@/lib/activityLog";
 
-interface StaffOption {
-  id: string;
-  name: string;
-  role: string;
-  branch: string;
+const STATUS_OPTIONS = [ALL_FILTER, "معلق", "تم", "لم يرد", "مؤجل", "متأخرة", "يحتاج مدير", "تم الشراء بعد المتابعة"];
+const PRIORITY_OPTIONS = ["عاجل", "مهم", "متوسط", "عادي"];
+const REQUEST_TYPES = ["متابعة استثنائية", "شكوى", "طلب ناقص", "مشكلة توصيل", "طلب خاص", "استرجاع عميل"];
+const CONTACT_METHODS = ["اتصال", "واتساب", "رسالة", "زيارة"];
+
+function todayInput() {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
 }
 
-const NOTE_LABELS = {
-  category: ["الفئة", "Ø§Ù„ÙØ¦Ø©"],
-  action: ["المطلوب", "Ø§Ù„Ù…Ø·Ù„ÙˆØ¨"],
-  script: ["السكريبت المقترح", "Ø§Ù„Ø³ÙƒØ±ÙŠØ¨Øª Ø§Ù„Ù…Ù‚ØªØ±Ø­"],
-  assignee: [
-    "الدكتور الأنسب للمتابعة",
-    "Ø§Ù„Ø¯ÙƒØªÙˆØ± Ø§Ù„Ø£Ù†Ø³Ø¨ Ù„Ù„Ù…ØªØ§Ø¨Ø¹Ø©",
-  ],
-  avgMonthly: ["متوسط شهري", "Ù…ØªÙˆØ³Ø· Ø´Ù‡Ø±ÙŠ"],
-  lastPurchase: ["آخر شراء", "Ø¢Ø®Ø± Ø´Ø±Ø§Ø¡"],
-  firstPurchase: ["أول شراء", "Ø£ÙˆÙ„ Ø´Ø±Ø§Ø¡"],
-};
-
-function readNoteValue(
-  notes: string | null | undefined,
-  labels: string | string[],
-) {
-  const allLabels = Array.isArray(labels) ? labels : [labels];
-  const lines = (notes || "").split("\n");
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    for (const label of allLabels) {
-      if (trimmed.startsWith(`${label}:`))
-        return trimmed.split(":").slice(1).join(":").trim();
-    }
-  }
-
-  return "";
-}
-
-function followupCategory(followup: DailyFollowup) {
-  return (
-    followup.category ||
-    readNoteValue(followup.notes, NOTE_LABELS.category) ||
-    "متابعة"
-  );
-}
-
-function suggestedAction(followup: DailyFollowup) {
-  return (
-    followup.suggested_action ||
-    readNoteValue(followup.notes, NOTE_LABELS.action) ||
-    "تواصل مع العميل وسجل نتيجة المتابعة."
-  );
-}
-
-function assignedDoctor(followup: DailyFollowup | null) {
-  if (!followup) return "غير محدد";
-  return (
-    followup.assigned_to ||
-    readNoteValue(followup.notes, NOTE_LABELS.assignee) ||
-    "غير محدد"
-  );
-}
-
-function scriptKeyFromCategory(category: string): ScriptKey {
-  if (/vip|مهم جدًا|مهم جدا|Ø¬Ø¯/.test(category)) return "vip";
-  if (/مهم|Ù…Ù‡Ù…/.test(category)) return "important";
-  if (/متوسط|Ù…ØªÙˆØ³Ø·/.test(category)) return "medium";
-  if (/متوقف|Ù…ØªÙˆÙ‚Ù/.test(category)) return "stopped";
-  return "at_risk";
-}
-
-function suggestedScript(followup: DailyFollowup) {
-  const stored = readNoteValue(followup.notes, NOTE_LABELS.script);
-  if (stored) return stored;
-
-  return getScript(
-    scriptKeyFromCategory(followupCategory(followup)),
-    undefined,
-    {
-      customerName: followup.customer_name || "",
-      staffName: assignedDoctor(followup),
-      branchName: followup.branch || "",
-    },
-  );
-}
-
-function statusClass(status?: string | null) {
-  if (
-    !status ||
-    status === "pending" ||
-    status === "معلق" ||
-    status.includes("Ù…Ø¹Ù„Ù‚")
-  )
-    return "badge-info";
-  if (
-    status.includes("تم") ||
-    status.includes("مهتم") ||
-    status.includes("طلب أوردر")
-  )
-    return "badge-success";
-  if (
-    status.includes("شكوى") ||
-    status.includes("رفض") ||
-    status.includes("غير صحيح")
-  )
-    return "badge-danger";
-  return "badge-info";
-}
-
-function displayStatus(status?: string | null) {
-  if (!status || status === "pending") return "معلق";
-  if (status.includes("Ù…Ø¹Ù„Ù‚")) return "معلق";
-  return status;
-}
-
-
-
-function followupSummary(row: DailyFollowup) {
-  return (
-    row.followup_summary ||
-    readNoteValue(row.notes, ["ملخص ما حدث", "ملخص المتابعة", "summary"]) ||
-    suggestedAction(row)
-  );
-}
-
-function followupResult(row: DailyFollowup) {
-  return (
-    row.followup_result ||
-    readNoteValue(row.notes, ["رد فعل العميل", "نتيجة المتابعة", "result"]) ||
-    displayStatus(row.status)
-  );
-}
-
-function contactMethod(row: DailyFollowup) {
-  return (
-    row.contact_method ||
-    readNoteValue(row.notes, ["قناة التواصل", "طريقة التواصل", "method"]) ||
-    "غير محدد"
-  );
-}
-
-function requestDetails(row: DailyFollowup) {
-  return (
-    row.request_details ||
-    readNoteValue(row.notes, ["طلب العميل", "تفاصيل الطلب", "ملاحظات"]) ||
-    "لا يوجد طلب محدد مسجل"
-  );
-}
-
-function dateLabel(value?: string | null) {
+function formatDateTime(value?: string | null) {
   if (!value) return "غير محدد";
-  try {
-    return formatDate(value);
-  } catch {
-    return String(value).slice(0, 10);
-  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+  return date.toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" });
 }
 
-function customerCodeOf(row: DailyFollowup) {
-  return String(row.customer_code || "").trim();
+function formatDate(value?: string | null) {
+  if (!value) return "غير محدد";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toLocaleDateString("ar-EG");
 }
 
-function customerPhoneOf(row: DailyFollowup) {
-  return String(row.customer_phone || row.phone || "").trim();
+function formatMoney(value?: number | null) {
+  const numeric = Number(value ?? 0);
+  return `${numeric.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} ج`;
 }
 
-function lastPurchaseOf(row: DailyFollowup) {
-  return row.last_purchase_date || readNoteValue(row.notes, NOTE_LABELS.lastPurchase) || "";
+function followupStatus(row: FollowupRow) {
+  if (row.completed_at) return row.followup_status || row.status || "تم";
+  if (row.postponed_until) return "مؤجل";
+  if (row.needs_manager) return "يحتاج مدير";
+  return row.followup_status || row.status || row.contact_status || "معلق";
 }
 
-function currentPurchaseCountOf(row: DailyFollowup) {
-  return Number(row.purchase_count_current_month ?? 0) || 0;
+function responsibleOf(row: FollowupRow) {
+  return row.responsible_name || row.assigned_to || row.assigned_doctor || "غير محدد";
 }
 
-function averagePurchaseCountOf(row: DailyFollowup) {
-  const direct = Number(row.average_monthly_purchase_count ?? 0);
-  if (Number.isFinite(direct) && direct > 0) return direct;
-  const fromNotes = Number(readNoteValue(row.notes, NOTE_LABELS.avgMonthly) || 0);
-  return Number.isFinite(fromNotes) ? fromNotes : 0;
+function phoneOf(row: FollowupRow) {
+  return row.customer_phone || row.phone || "";
 }
 
-function wildcardMatch(value: unknown, query: string) {
-  const raw = query.trim().toLowerCase();
-  if (!raw) return true;
-  const text = String(value ?? "").toLowerCase();
-  const pattern = raw
-    .split("*")
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join(".*");
-  return new RegExp(pattern || ".*").test(text);
+function segmentOf(row: FollowupRow) {
+  return row.customer_metrics?.segment || row.segment || row.classification || "غير محدد";
 }
 
-function followupMatchesSearch(row: DailyFollowup, query: string) {
-  return [
-    row.customer_name,
-    customerCodeOf(row),
-    customerPhoneOf(row),
-    cleanEgyptianPhone(customerPhoneOf(row)),
-    row.branch,
-    row.category,
-    row.status,
-    row.followup_status,
-    row.contact_result,
-    row.responsible_name,
-    row.assigned_to,
-  ].some((value) => wildcardMatch(value, query));
+function customerStatusOf(row: FollowupRow) {
+  return row.customer_metrics?.customer_status || row.customer_status || "غير محدد";
+}
+
+function avgMonthlyOf(row: FollowupRow) {
+  return row.customer_metrics?.avg_monthly ?? null;
+}
+
+function lastPurchaseOf(row: FollowupRow) {
+  return row.customer_metrics?.last_purchase || row.last_purchase_date || null;
+}
+
+function isManagerUser(user: ReturnType<typeof useAuth>["user"], canManage?: boolean) {
+  const role = String(user?.role || "").toLowerCase();
+  return Boolean(canManage || ["admin", "manager", "general_manager", "owner"].includes(role) || user?.permissions?.view_full_team_analytics);
 }
 
 export default function CustomerService() {
-  const [followups, setFollowups] = useState<DailyFollowup[]>([]);
-  const [selected, setSelected] = useState<DailyFollowup | null>(null);
-  const [customer360, setCustomer360] = useState<DailyFollowup | null>(null);
-  const [followupSearch, setFollowupSearch] = useState("");
+  const { user, canManage } = useAuth();
+  const manager = isManagerUser(user, canManage);
+  const [followups, setFollowups] = useState<FollowupRow[]>([]);
+  const [branchFilter, setBranchFilter] = useState(ALL_FILTER);
+  const [statusFilter, setStatusFilter] = useState(ALL_FILTER);
+  const [responsibleFilter, setResponsibleFilter] = useState(ALL_FILTER);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [clearingTrial, setClearingTrial] = useState(false);
-  const [bulkDoctor, setBulkDoctor] = useState("");
-  const [shamyDoctor, setShamyDoctor] = useState("");
-  const [shokryDoctor, setShokryDoctor] = useState("");
-  const [scriptKey, setScriptKey] = useState<ScriptKey>("medium");
-  const [history, setHistory] = useState<DailyFollowup[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historySearch, setHistorySearch] = useState("");
-  const [historyStatus, setHistoryStatus] = useState("all");
-  const [historyBranch, setHistoryBranch] = useState("all");
+  const [error, setError] = useState<string | null>(null);
   const [showExceptional, setShowExceptional] = useState(false);
-  const [statsFilter, setStatsFilter] = useState<string | null>(null);
-  const [showResultModal, setShowResultModal] = useState(false);
-  const [resultModalFollowup, setResultModalFollowup] = useState<DailyFollowup | null>(null);
-  const [activeTab, setActiveTab] = useState<"followups" | "analytics">("followups");
-  const [exceptionalSaving, setExceptionalSaving] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [isUnregisteredCustomer, setIsUnregisteredCustomer] = useState(false);
-  const [exceptionalForm, setExceptionalForm] = useState({
-    customerName: "",
-    customerCode: "",
-    customerPhone: "",
-    branch: "فرع شكري",
-    assignedTo: "",
-    type: "متابعة استثنائية",
-    priority: "مهم",
-    reason: "",
-    requestType: "",
-    requestDetails: "",
-    nextFollowupDate: "",
-  });
-  const { user } = useAuth();
-  const { data: staff } = useSupabaseQuery<StaffOption>({
-    table: "staff",
-    realtimeEnabled: false,
-  });
+  const [resultFollowup, setResultFollowup] = useState<FollowupRow | null>(null);
+  const [postponeFollowup, setPostponeFollowup] = useState<FollowupRow | null>(null);
+  const [selectedFollowup, setSelectedFollowup] = useState<FollowupRow | null>(null);
+  const [selectedResponsible, setSelectedResponsible] = useState<string>(ALL_FILTER);
+  const [staffNames, setStaffNames] = useState<string[]>([]);
 
-  const staffChoices = useMemo(
-    () => selectableStaffChoices(staff as unknown as Record<string, unknown>[]),
-    [staff],
-  );
-  const doctors = useMemo(
-    () =>
-      staffChoices.filter(
-        (item) =>
-          item.name.includes("د/") ||
-          /صيدلي|صيدلاني|دكتور|doctor|pharmacist/i.test(item.role),
-      ),
-    [staffChoices],
-  );
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
 
-  const loadFollowups = async () => {
+  useEffect(() => {
+    supabase
+      .from("staff")
+      .select("name,role,branch")
+      .limit(200)
+      .then(({ data }) => {
+        const names = [...new Set((data || []).map((row) => String(row.name || "").trim()).filter(Boolean))];
+        setStaffNames(names);
+      });
+  }, []);
+
+  const loadFollowups = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const data = await getTodayFollowups();
-      setFollowups(data);
-      setSelected((current) =>
-        current
-          ? data.find((item) => item.id === current.id) || current
-          : data[0] || null,
-      );
-    } catch (error) {
-      toast.error(`تعذر تحميل قائمة المتابعة: ${(error as Error).message}`);
+      const rows = await fetchCustomerServiceFollowups({
+        branch: branchFilter,
+        status: statusFilter,
+        responsible: responsibleFilter,
+        search: debouncedSearch,
+      });
+      const visibleRows = manager
+        ? rows
+        : rows.filter((row) => [row.assigned_to, row.responsible_name, row.assigned_doctor].filter(Boolean).includes(user?.name || ""));
+      setFollowups(visibleRows);
+      setSelectedFollowup((current) => current && visibleRows.find((row) => row.id === current.id) || visibleRows[0] || null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر تحميل المتابعات");
+      setFollowups([]);
     } finally {
       setLoading(false);
     }
-  };
-
-
-  const loadHistory = async () => {
-    setHistoryLoading(true);
-    try {
-      const data = await getFollowupHistory({ limit: 700, status: historyStatus });
-      setHistory(data);
-    } catch (error) {
-      toast.error(`تعذر تحميل سجل المتابعات: ${(error as Error).message}`);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  const handleCustomerSelect = (customer: Customer) => {
-    setSelectedCustomer(customer);
-    setIsUnregisteredCustomer(false);
-    setExceptionalForm((prev) => ({
-      ...prev,
-      customerName: customer.name,
-      customerCode: customer.customer_code || "",
-      customerPhone: customer.phone,
-      branch: customer.branch || prev.branch,
-    }));
-  };
-
-  const handleUnregisteredCustomer = () => {
-    setSelectedCustomer(null);
-    setIsUnregisteredCustomer(true);
-    setExceptionalForm((prev) => ({
-      ...prev,
-      customerName: "",
-      customerCode: "",
-      customerPhone: "",
-    }));
-  };
-
-  const handleOpenResultModal = (followup: DailyFollowup) => {
-    setResultModalFollowup(followup);
-    setShowResultModal(true);
-  };
-
-  const handleSaveResult = async (resultData: FollowupResultData) => {
-    if (!resultModalFollowup) return;
-
-    const today = new Date().toISOString().slice(0, 10);
-    const notes = [
-      resultData.notes,
-      `نتيجة المتابعة: ${resultData.result}`,
-      `تقييم الجودة: ${resultData.qualityRating}/5`,
-      resultData.needsNextFollowup ? `يحتاج متابعة قادمة: ${resultData.nextFollowupDate}` : "",
-      resultData.invoiceNumber ? `رقم الفاتورة: ${resultData.invoiceNumber}` : "",
-      resultData.purchaseAmount ? `قيمة الشراء بعد المتابعة: ${resultData.purchaseAmount}` : "",
-      resultData.problemSolved ? "تم حل المشكلة: نعم" : "",
-      resultData.customerSatisfied ? "العميل راضي: نعم" : "",
-      `تم التسجيل بواسطة: ${user?.name || "غير محدد"}`,
-    ].filter(Boolean).join("\n");
-
-    const updated = await updateFollowupStatus(resultModalFollowup.id, {
-      status: resultData.result,
-      followup_result: resultData.result,
-      followup_summary: resultData.notes,
-      notes: resultModalFollowup.notes ? `${resultModalFollowup.notes}\n\n${notes}` : notes,
-      contact_result: resultData.result,
-      closed_at: today,
-      next_followup_date: resultData.needsNextFollowup ? resultData.nextFollowupDate : null,
-      purchase_invoice_no: resultData.invoiceNumber || null,
-      purchase_amount: resultData.purchaseAmount || null,
-      purchase_date: resultData.purchaseAmount ? today : null,
-      purchase_after_followup: resultData.purchaseAmount > 0,
-    });
-
-    setFollowups((items) =>
-      items.map((item) => (item.id === updated.id ? updated : item)),
-    );
-    setHistory((items) =>
-      items.map((item) => (item.id === updated.id ? updated : item)),
-    );
-    setSelected((current) => (current?.id === updated.id ? updated : current));
-
-    await logActivity({
-      action: "تسجيل نتيجة متابعة",
-      module: "خدمة العملاء",
-      target_type: "customer_followup",
-      target_id: updated.id,
-      user_id: user?.id,
-      user_name: user?.name,
-      user_role: user?.role,
-      branch_name: displayBranch(updated.branch),
-      details: {
-        customer_name: updated.customer_name,
-        customer_code: updated.customer_code,
-        result: resultData.result,
-        quality_rating: resultData.qualityRating,
-        purchase_amount: resultData.purchaseAmount,
-      },
-    });
-  };
-
-  const handleCreateExceptional = async () => {
-    if (!exceptionalForm.customerName.trim()) {
-      toast.error("اكتب اسم العميل أولًا");
-      return;
-    }
-    if (!exceptionalForm.reason.trim()) {
-      toast.error("اكتب سبب المتابعة الاستثنائية");
-      return;
-    }
-
-    setExceptionalSaving(true);
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const notes = [
-        "متابعة استثنائية من خدمة العملاء",
-        `نوع المتابعة: ${exceptionalForm.type}`,
-        `الأولوية: ${exceptionalForm.priority}`,
-        `سبب المتابعة: ${exceptionalForm.reason}`,
-        `المطلوب: ${exceptionalForm.reason}`,
-        selectedCustomer ? `كود العميل: ${selectedCustomer.customer_code}` : "",
-        selectedCustomer ? `التصنيف: ${selectedCustomer.type}` : "",
-        selectedCustomer ? `الحالة: ${selectedCustomer.retention_status}` : "",
-        selectedCustomer ? `المتوسط الشهري: ${selectedCustomer.avg_monthly}` : "",
-        selectedCustomer ? `آخر شراء: ${selectedCustomer.last_purchase}` : "",
-        exceptionalForm.requestType ? `نوع طلب العميل: ${exceptionalForm.requestType}` : "",
-        exceptionalForm.requestDetails ? `تفاصيل الطلب: ${exceptionalForm.requestDetails}` : "",
-        exceptionalForm.nextFollowupDate ? `المتابعة القادمة: ${exceptionalForm.nextFollowupDate}` : "",
-        `تم الإنشاء بواسطة: ${user?.name || "غير محدد"}`,
-      ].filter(Boolean).join("\n");
-
-      const created = await createDailyFollowup({
-        customer_id: selectedCustomer?.id || exceptionalForm.customerCode || exceptionalForm.customerPhone || exceptionalForm.customerName,
-        customer_code: selectedCustomer?.customer_code || exceptionalForm.customerCode || null,
-        customer_name: exceptionalForm.customerName,
-        customer_phone: exceptionalForm.customerPhone || null,
-        branch: exceptionalForm.branch,
-        assigned_to: exceptionalForm.assignedTo || user?.name || "خدمة العملاء",
-        category: exceptionalForm.type,
-        suggested_action: exceptionalForm.reason,
-        status: "معلق",
-        date: today,
-        followup_date: today,
-        followup_type: "exceptional",
-        priority: exceptionalForm.priority,
-        request_type: exceptionalForm.requestType || null,
-        request_details: exceptionalForm.requestDetails || null,
-        request_status: exceptionalForm.requestType ? "open" : null,
-        next_followup_date: exceptionalForm.nextFollowupDate || null,
-        created_by: user?.id || null,
-        created_by_name: user?.name || null,
-        notes,
-      });
-
-      setFollowups((items) => [created, ...items]);
-      setHistory((items) => [created, ...items]);
-      setSelected(created);
-      setSelectedCustomer(null);
-      setIsUnregisteredCustomer(false);
-      setExceptionalForm({
-        customerName: "",
-        customerCode: "",
-        customerPhone: "",
-        branch: "فرع شكري",
-        assignedTo: "",
-        type: "متابعة استثنائية",
-        priority: "مهم",
-        reason: "",
-        requestType: "",
-        requestDetails: "",
-        nextFollowupDate: "",
-      });
-      setShowExceptional(false);
-      toast.success("تم تسجيل المتابعة الاستثنائية وإضافتها لسجل خدمة العملاء");
-      await logActivity({
-        action: "إضافة متابعة استثنائية",
-        module: "خدمة العملاء",
-        target_type: "customer_followup",
-        target_id: created.id,
-        user_id: user?.id,
-        user_name: user?.name,
-        user_role: user?.role,
-        branch_name: exceptionalForm.branch,
-        details: {
-          customer_name: created.customer_name,
-          customer_code: created.customer_code,
-          reason: exceptionalForm.reason,
-          request_type: exceptionalForm.requestType,
-        },
-      });
-    } catch (error) {
-      toast.error(`تعذر إنشاء المتابعة الاستثنائية: ${(error as Error).message}`);
-    } finally {
-      setExceptionalSaving(false);
-    }
-  };
+  }, [branchFilter, debouncedSearch, manager, responsibleFilter, statusFilter, user?.name]);
 
   useEffect(() => {
     loadFollowups();
-    loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadFollowups]);
 
-  useEffect(() => {
-    loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyStatus]);
+  const stats = useMemo(() => calculateFollowupStats(followups), [followups]);
+  const teamPerformance = useMemo(() => calculateTeamPerformance(followups), [followups]);
+  const responsibleOptions = useMemo(() => {
+    const fromRows = followups.map(responsibleOf).filter((name) => name !== "غير محدد");
+    return [ALL_FILTER, ...new Set([...staffNames, ...fromRows])];
+  }, [followups, staffNames]);
 
-  const stats = useMemo(() => {
-    const byCategory = (name: string) =>
-      followups.filter((item) => followupCategory(item) === name).length;
-    const risk = followups.filter((item) =>
-      /مهدد|متوقف|Ù…Ù‡Ø¯Ø¯|Ù…ØªÙˆÙ‚Ù/.test(followupCategory(item)),
-    ).length;
-
-    const done = followups.filter(
-      (item) =>
-        item.status &&
-        !["معلق", "pending"].includes(displayStatus(item.status)),
-    ).length;
-    
-    const noAnswer = followups.filter((item) => 
-      displayStatus(item.status).includes("لم يرد")
-    ).length;
-    
-    const deferred = followups.filter((item) => 
-      item.next_followup_date && new Date(item.next_followup_date) > new Date()
-    ).length;
-    
-    const overdue = followups.filter((item) => {
-      if (!item.followup_date) return false;
-      const followupDate = new Date(item.followup_date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return followupDate < today && displayStatus(item.status) === "معلق";
-    }).length;
-    
-    const withOrders = followups.filter((item) => 
-      item.request_type || item.request_details || /أوردر|طلب/.test(item.notes || "")
-    ).length;
-    
-    const withComplaints = followups.filter((item) => 
-      /شكوى|مشكلة|complaint/.test([item.category, item.request_type, item.notes].join(" "))
-    ).length;
-    
-    const needsManager = followups.filter((item) => 
-      /مدير|manager|إدارة/.test([item.category, item.notes, item.assigned_to].join(" "))
-    ).length;
-    
-    const purchaseValue = followups.reduce((sum, item) => 
-      sum + Number(item.purchase_amount || readNoteValue(item.notes, ["قيمة الأوردر"]) || 0), 0
-    );
-
-    return {
-      total: followups.length,
-      important: byCategory("مهم"),
-      medium: byCategory("متوسط"),
-      risk,
-      done,
-      noAnswer,
-      deferred,
-      overdue,
-      withOrders,
-      withComplaints,
-      needsManager,
-      purchaseValue,
-    };
+  const grouped = useMemo(() => {
+    const groups = [
+      { label: "مهم جدًا", rows: [] as FollowupRow[] },
+      { label: "مهم", rows: [] as FollowupRow[] },
+      { label: "متوسط", rows: [] as FollowupRow[] },
+      { label: "مهدد بالتوقف", rows: [] as FollowupRow[] },
+      { label: "متوقف", rows: [] as FollowupRow[] },
+      { label: "طلبات خاصة", rows: [] as FollowupRow[] },
+      { label: "يحتاج مدير", rows: [] as FollowupRow[] },
+    ];
+    for (const row of followups) {
+      const segment = segmentOf(row);
+      const status = customerStatusOf(row);
+      if (row.needs_manager || followupStatus(row) === "يحتاج مدير") groups[6].rows.push(row);
+      else if (row.request_type || row.request_details) groups[5].rows.push(row);
+      else if (status === "متوقف") groups[4].rows.push(row);
+      else if (status === "مهدد بالتوقف") groups[3].rows.push(row);
+      else if (segment === "متوسط") groups[2].rows.push(row);
+      else if (segment === "مهم") groups[1].rows.push(row);
+      else if (segment === "مهم جدًا") groups[0].rows.push(row);
+      else groups[2].rows.push(row);
+    }
+    return groups.filter((group) => group.rows.length);
   }, [followups]);
-
-  const filteredFollowups = useMemo(
-    () => {
-      let filtered = followups.filter((item) => followupMatchesSearch(item, followupSearch));
-      
-      if (statsFilter === "done") {
-        filtered = filtered.filter((item) => 
-          item.status && !["معلق", "pending"].includes(displayStatus(item.status))
-        );
-      } else if (statsFilter === "noAnswer") {
-        filtered = filtered.filter((item) => 
-          displayStatus(item.status).includes("لم يرد")
-        );
-      } else if (statsFilter === "deferred") {
-        filtered = filtered.filter((item) => 
-          item.next_followup_date && new Date(item.next_followup_date) > new Date()
-        );
-      } else if (statsFilter === "overdue") {
-        filtered = filtered.filter((item) => {
-          if (!item.followup_date) return false;
-          const followupDate = new Date(item.followup_date);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          return followupDate < today && displayStatus(item.status) === "معلق";
-        });
-      } else if (statsFilter === "important") {
-        filtered = filtered.filter((item) => followupCategory(item) === "مهم");
-      } else if (statsFilter === "medium") {
-        filtered = filtered.filter((item) => followupCategory(item) === "متوسط");
-      } else if (statsFilter === "withOrders") {
-        filtered = filtered.filter((item) => 
-          item.request_type || item.request_details || /أوردر|طلب/.test(item.notes || "")
-        );
-      } else if (statsFilter === "withComplaints") {
-        filtered = filtered.filter((item) => 
-          /شكوى|مشكلة|complaint/.test([item.category, item.request_type, item.notes].join(" "))
-        );
-      } else if (statsFilter === "needsManager") {
-        filtered = filtered.filter((item) => 
-          /مدير|manager|إدارة/.test([item.category, item.notes, item.assigned_to].join(" "))
-        );
-      }
-      
-      return filtered;
-    },
-    [followups, followupSearch, statsFilter],
-  );
-
-  const filteredHistory = useMemo(() => {
-    const q = historySearch.trim().toLowerCase();
-    return history.filter((item) => {
-      const matchesBranch = historyBranch === "all" || branchMatches(historyBranch, item.branch);
-      const haystack = [
-        item.customer_name,
-        customerCodeOf(item),
-        customerPhoneOf(item),
-        cleanEgyptianPhone(customerPhoneOf(item)),
-        item.assigned_to,
-        item.status,
-        followupCategory(item),
-        followupSummary(item),
-        requestDetails(item),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return matchesBranch && (!q || wildcardMatch(haystack, q));
-    });
-  }, [history, historySearch, historyBranch]);
-
-  const historyStats = useMemo(() => {
-    const done = history.filter((item) => !["معلق", "pending"].includes(displayStatus(item.status))).length;
-    const noAnswer = history.filter((item) => displayStatus(item.status).includes("لم يرد")).length;
-    const withOrders = history.filter((item) => item.purchase_after_followup || item.request_type || /أوردر|طلب/.test(item.notes || "")).length;
-    const needsNext = history.filter((item) => item.next_followup_date || /يحتاج متابعة أخرى: نعم/.test(item.notes || "")).length;
-    const complaints = history.filter((item) => /شكوى|مشكلة|complaint/.test([item.category, item.request_type, item.notes].join(" "))).length;
-    const purchaseValue = history.reduce((sum, item) => sum + Number(item.purchase_amount || readNoteValue(item.notes, ["قيمة الأوردر"]) || 0), 0);
-    return { done, noAnswer, withOrders, needsNext, complaints, purchaseValue };
-  }, [history]);
 
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      const data = await generateTodayFollowups();
-      setFollowups(data);
-      setSelected(data[0] || null);
-      toast.success(
-        data.length
-          ? "تم تجهيز قائمة المتابعة اليومية أو تحميل قائمة اليوم الموجودة"
-          : "لا توجد بيانات كافية لإنشاء قائمة اليوم",
-      );
-    } catch (error) {
-      toast.error(`تعذر إنشاء القائمة: ${(error as Error).message}`);
+      const rows = await generateTodayFollowupsFromCustomerMetrics(branchFilter, user?.name);
+      toast.success(rows.length ? `تم إنشاء ${rows.length} متابعة` : "لا توجد متابعات جديدة مطلوبة");
+      await loadFollowups();
+      await safeLog("إنشاء قائمة متابعات يومية", { count: rows.length });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر إنشاء قائمة المتابعات");
     } finally {
       setGenerating(false);
     }
   };
 
-  const handleClearTrial = async () => {
-    const confirmed = window.confirm("سيتم مسح قائمة المتابعة التجريبية/الذكية الخاصة باليوم الحالي فقط. هل تريد المتابعة؟");
-    if (!confirmed) return;
-
-    setClearingTrial(true);
+  const safeLog = async (action: string, details: Record<string, unknown>) => {
     try {
-      const deleted = await clearTodayTrialFollowups();
-      setFollowups([]);
-      setSelected(null);
-      await loadHistory();
-      toast.success(deleted ? `تم مسح ${deleted} متابعة تجريبية من قائمة اليوم` : "لا توجد بيانات تجريبية اليوم");
-    } catch (error) {
-      toast.error(`تعذر مسح بيانات المتابعة التجريبية: ${(error as Error).message}`);
-    } finally {
-      setClearingTrial(false);
+      await logActivity({
+        action,
+        description: action,
+        target_type: "daily_followups",
+        details,
+        route_path: "/customer-service",
+        user_id: user?.id,
+        user_name: user?.name,
+        user_role: user?.role,
+        branch_name: branchFilter === ALL_FILTER ? undefined : branchFilter,
+      });
+    } catch {
+      // Activity logging should never block operational followups.
     }
   };
 
-  const setFollowupDoctor = async (
-    followup: DailyFollowup,
-    doctorName: string,
-  ) => {
-    if (!doctorName) return;
-
-    const lines = (followup.notes || "").split("\n").filter((line) => {
-      const trimmed = line.trim();
-      return !NOTE_LABELS.assignee.some((label) =>
-        trimmed.startsWith(`${label}:`),
-      );
-    });
-
-    const notes = [...lines, `الدكتور الأنسب للمتابعة: ${doctorName}`]
-      .filter(Boolean)
-      .join("\n");
-    const updated = await updateFollowupStatus(followup.id, { notes });
-    setFollowups((items) =>
-      items.map((item) => (item.id === updated.id ? updated : item)),
-    );
-    setSelected((current) => (current?.id === updated.id ? updated : current));
-    toast.success("تم تحديث المتابع المقترح");
-  };
-
-  const applyDoctorToList = async (mode: "all" | "branch") => {
-    const updates =
-      mode === "all"
-        ? followups.map((item) => ({ item, doctor: bulkDoctor }))
-        : followups.map((item) => ({
-            item,
-            doctor: displayBranch(item.branch).includes("الشامي")
-              ? shamyDoctor
-              : shokryDoctor,
-          }));
-
-    for (const update of updates) {
-      if (update.doctor) await setFollowupDoctor(update.item, update.doctor);
+  const quickUpdate = async (row: FollowupRow, payload: FollowupResultPayload, success: string) => {
+    try {
+      const updated = await updateFollowupResult(row.id, { ...payload, updated_by: user?.id || user?.name || null });
+      setFollowups((items) => items.map((item) => item.id === updated.id ? updated : item));
+      setSelectedFollowup((current) => current?.id === updated.id ? updated : current);
+      toast.success(success);
+      await safeLog(success, { followup_id: updated.id, customer_name: updated.customer_name });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر حفظ المتابعة");
     }
-
-    toast.success("تم تحديث المتابعين المقترحين");
   };
 
-  useEffect(() => {
-    if (!selected) return;
-    setScriptKey(scriptKeyFromCategory(followupCategory(selected)));
-    // Intentionally depend only on the ID — changing script key when selection changes, not on every re-render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id]);
-
-  const message = selected
-    ? getScript(scriptKey, undefined, {
-        customerName: selected.customer_name || "",
-        staffName:
-          assignedDoctor(selected) === "غير محدد"
-            ? "فريق صيدليات دواء"
-            : assignedDoctor(selected),
-        branchName: displayBranch(selected.branch),
-      })
-    : "";
-  const whatsappHref = selected
-    ? generateWhatsAppLink(customerPhoneOf(selected), message)
-    : "";
-  const cleanSelectedPhone = selected
-    ? cleanEgyptianPhone(customerPhoneOf(selected))
-    : "";
-  const phoneHref = cleanSelectedPhone ? `tel:+${cleanSelectedPhone}` : "";
-
-  const openSelectedWhatsApp = async () => {
-    if (!selected) return;
-    if (!whatsappHref) {
-      toast.error("لا يمكن فتح واتساب بدون رقم هاتف صحيح");
-      return;
-    }
-
-    window.open(whatsappHref, "_blank", "noopener,noreferrer");
-    await logActivity({
-      action: "فتح واتساب للعميل",
-      module: "خدمة العملاء",
-      target_type: "customer",
-      target_id: selected.customer_id || selected.id,
-      user_id: user?.id,
-      user_name: user?.name,
-      user_role: user?.role,
-      branch_name: displayBranch(selected.branch),
-      details: {
-        customer_name: selected.customer_name,
-        customer_code: selected.customer_code,
-        phone: customerPhoneOf(selected),
-        staff_name: assignedDoctor(selected),
-      },
-    });
-  };
-
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="text-slate-300 text-sm">
-          جاري تحميل قائمة المتابعة اليومية...
+  return (
+    <div className="space-y-5" dir="rtl">
+      <section className="dawaa-hero">
+        <div>
+          <span className="dawaa-brand-chip">Customer Service Command Center</span>
+          <h1 className="mt-3 text-2xl font-black text-slate-950">مركز خدمة العملاء</h1>
+          <p className="mt-1 text-sm font-semibold text-slate-600">إدارة المتابعات اليومية والاستثنائية وقياس أداء خدمة العملاء</p>
         </div>
-        {[1, 2, 3].map((item) => (
-          <div key={item} className="stat-card h-20 animate-pulse bg-white/5" />
+        <div className="dawaa-controls">
+          <button type="button" className="btn-secondary inline-flex items-center gap-2" onClick={loadFollowups} disabled={loading}>
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> تحديث
+          </button>
+          <button type="button" className="dawaa-button-primary" onClick={handleGenerate} disabled={generating}>
+            {generating ? <Loader2 size={16} className="animate-spin" /> : <CalendarClock size={16} />}
+            إنشاء/تحديث قائمة اليوم
+          </button>
+          <button type="button" className="btn-secondary inline-flex items-center gap-2" onClick={() => setShowExceptional(true)}>
+            <Plus size={16} /> متابعة استثنائية
+          </button>
+        </div>
+      </section>
+
+      <section className="dawaa-panel">
+        <div className="grid gap-3 lg:grid-cols-[1fr_170px_170px_210px]">
+          <div className="relative">
+            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input className="dawaa-input w-full pr-10" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم العميل، الكود، الهاتف، المسؤول..." />
+          </div>
+          <select className="dawaa-input w-full" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}>
+            <option value={ALL_FILTER}>كل الفروع</option>
+            {BRANCHES.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+          </select>
+          <select className="dawaa-input w-full" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status === ALL_FILTER ? "كل الحالات" : status}</option>)}
+          </select>
+          <select className="dawaa-input w-full" value={responsibleFilter} onChange={(event) => setResponsibleFilter(event.target.value)}>
+            {responsibleOptions.map((name) => <option key={name} value={name}>{name === ALL_FILTER ? "كل المسؤولين" : name}</option>)}
+          </select>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+        <Kpi label="إجمالي متابعات اليوم" value={stats.totalToday} tone="blue" />
+        <Kpi label="تمت" value={stats.completed} tone="emerald" />
+        <Kpi label="لم يرد" value={stats.noAnswer} tone="amber" />
+        <Kpi label="مؤجلة" value={stats.postponed} tone="blue" />
+        <Kpi label="متأخرة" value={stats.overdue} tone="red" />
+        <Kpi label="يحتاج مدير" value={stats.needsManager} tone="red" />
+        <Kpi label="شراء بعد المتابعة" value={stats.purchaseAfterCount} tone="emerald" />
+        <Kpi label="قيمة الشراء بعد المتابعة" value={formatMoney(stats.purchaseAfterAmount)} tone="teal" />
+      </section>
+
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+          <AlertTriangle className="ml-2 inline h-4 w-4" />
+          {error}
+        </div>
+      )}
+
+      <section className="grid gap-4 xl:grid-cols-[1.45fr_.85fr]">
+        <div className="space-y-4">
+          <SectionTitle icon={HeadphonesIcon} title="قائمة المتابعات الذكية" subtitle="مجمعة حسب الأولوية والحالة من daily_followups و customer_metrics_summary" />
+          {loading ? <LoadingPanel /> : grouped.length ? grouped.map((group) => (
+            <FollowupGroup
+              key={group.label}
+              title={group.label}
+              rows={group.rows}
+              onSelect={setSelectedFollowup}
+              onResult={setResultFollowup}
+              onPostpone={setPostponeFollowup}
+              onQuickUpdate={quickUpdate}
+              selectedId={selectedFollowup?.id}
+            />
+          )) : <Empty text="لا توجد متابعات مطابقة للفلاتر الحالية" />}
+        </div>
+
+        <div className="space-y-4">
+          <CustomerDecisionPanel row={selectedFollowup} />
+          <TeamAnalytics
+            rows={teamPerformance}
+            manager={manager}
+            selected={selectedResponsible}
+            onSelect={setSelectedResponsible}
+          />
+        </div>
+      </section>
+
+      {showExceptional && (
+        <ExceptionalFollowupModal
+          branch={branchFilter === ALL_FILTER ? "" : branchFilter}
+          staffNames={staffNames}
+          userName={user?.name || ""}
+          userId={user?.id || ""}
+          onClose={() => setShowExceptional(false)}
+          onCreated={(row) => {
+            setFollowups((items) => [row, ...items]);
+            setSelectedFollowup(row);
+            setShowExceptional(false);
+            safeLog("إنشاء متابعة استثنائية", { followup_id: row.id, customer_name: row.customer_name });
+          }}
+        />
+      )}
+
+      {resultFollowup && (
+        <ResultModal
+          row={resultFollowup}
+          userId={user?.id || user?.name || ""}
+          onClose={() => setResultFollowup(null)}
+          onSaved={(updated) => {
+            setFollowups((items) => items.map((item) => item.id === updated.id ? updated : item));
+            setSelectedFollowup((current) => current?.id === updated.id ? updated : current);
+            setResultFollowup(null);
+            safeLog("تسجيل نتيجة متابعة", { followup_id: updated.id, result: updated.followup_result });
+          }}
+        />
+      )}
+
+      {postponeFollowup && (
+        <PostponeModal
+          row={postponeFollowup}
+          userId={user?.id || user?.name || ""}
+          onClose={() => setPostponeFollowup(null)}
+          onSaved={(updated) => {
+            setFollowups((items) => items.map((item) => item.id === updated.id ? updated : item));
+            setSelectedFollowup((current) => current?.id === updated.id ? updated : current);
+            setPostponeFollowup(null);
+            safeLog("تأجيل متابعة", { followup_id: updated.id, postponed_until: updated.postponed_until });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function Kpi({ label, value, tone }: { label: string; value: ReactNode; tone: "blue" | "emerald" | "amber" | "red" | "teal" }) {
+  const classes = {
+    blue: "border-blue-200 bg-blue-50 text-blue-700",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    amber: "border-amber-200 bg-amber-50 text-amber-700",
+    red: "border-red-200 bg-red-50 text-red-700",
+    teal: "border-teal-200 bg-teal-50 text-teal-700",
+  };
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${classes[tone]}`}>
+      <div className="num text-2xl font-black">{value}</div>
+      <div className="mt-1 text-xs font-black">{label}</div>
+    </div>
+  );
+}
+
+function SectionTitle({ icon: Icon, title, subtitle }: { icon: typeof HeadphonesIcon; title: string; subtitle: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="rounded-2xl bg-teal-50 p-3 text-teal-700"><Icon size={20} /></span>
+      <div>
+        <h2 className="text-lg font-black text-slate-950">{title}</h2>
+        <p className="text-sm font-semibold text-slate-500">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+function FollowupGroup({
+  title,
+  rows,
+  selectedId,
+  onSelect,
+  onResult,
+  onPostpone,
+  onQuickUpdate,
+}: {
+  title: string;
+  rows: FollowupRow[];
+  selectedId?: string;
+  onSelect: (row: FollowupRow) => void;
+  onResult: (row: FollowupRow) => void;
+  onPostpone: (row: FollowupRow) => void;
+  onQuickUpdate: (row: FollowupRow, payload: FollowupResultPayload, success: string) => void;
+}) {
+  return (
+    <section className="dawaa-panel">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-base font-black text-slate-950">{title}</h3>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{rows.length}</span>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {rows.map((row) => (
+          <FollowupCard
+            key={row.id}
+            row={row}
+            active={row.id === selectedId}
+            onSelect={() => onSelect(row)}
+            onResult={() => onResult(row)}
+            onPostpone={() => onPostpone(row)}
+            onQuickUpdate={onQuickUpdate}
+          />
         ))}
       </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-blue-500/10 border border-blue-500/25 rounded-xl p-4 text-sm text-slate-300 leading-relaxed">
-        <span className="text-blue-300 font-semibold">
-          تجديد القائمة يوميًا:{" "}
-        </span>
-        كل يوم جديد يمكنك الضغط على إنشاء/تحديث قائمة اليوم لاختيار عملاء جدد من
-        قاعدة التحليل. إذا ظلت متابعات كثيرة معلقة بعد الظهر، ستظهر تذكيرات في{" "}
-        <span className="text-white font-medium">جرس الإشعارات</span> في الأعلى.
-      </div>
-
-      <div className="flex flex-col md:flex-row md:items-center gap-3">
-        <div className="flex-1">
-          <div className="section-title">قائمة المتابعة اليومية الذكية</div>
-          <div className="text-slate-400 text-sm mt-1">
-            تضم عملاء مهمين ومتوسطين ومهددين أو متوقفين حسب قيمة العميل وآخر
-            شراء وآخر متابعة.
-          </div>
-        </div>
-        <Link
-          to="/customer-requests"
-          className="btn-secondary flex items-center justify-center gap-2"
-        >
-          <MessageSquare size={16} />
-          طلبات العملاء
-        </Link>
-        <button
-          onClick={handleGenerate}
-          disabled={generating}
-          className="btn-primary flex items-center justify-center gap-2"
-        >
-          {generating ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <Wand2 size={16} />
-          )}
-          إنشاء/تحديث قائمة اليوم
-        </button>
-        <button
-          onClick={handleClearTrial}
-          disabled={clearingTrial || generating}
-          className="btn-secondary flex items-center justify-center gap-2 border-red-400/30 text-red-200 hover:bg-red-500/10"
-        >
-          {clearingTrial ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-          مسح البيانات التجريبية
-        </button>
-        <button
-          onClick={loadFollowups}
-          disabled={generating}
-          className="btn-secondary flex items-center justify-center gap-2"
-        >
-          {generating ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <RefreshCw size={16} />
-          )}
-          تحديث العرض
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard 
-          label="إجمالي اليوم" 
-          value={stats.total} 
-          color="text-white" 
-          active={statsFilter === null}
-          onClick={() => setStatsFilter(null)}
-        />
-        <StatCard 
-          label="تمت" 
-          value={stats.done} 
-          color="text-green-400" 
-          active={statsFilter === "done"}
-          onClick={() => setStatsFilter(statsFilter === "done" ? null : "done")}
-        />
-        <StatCard 
-          label="لم يرد" 
-          value={stats.noAnswer} 
-          color="text-amber-400" 
-          active={statsFilter === "noAnswer"}
-          onClick={() => setStatsFilter(statsFilter === "noAnswer" ? null : "noAnswer")}
-        />
-        <StatCard 
-          label="مؤجلة" 
-          value={stats.deferred} 
-          color="text-purple-400" 
-          active={statsFilter === "deferred"}
-          onClick={() => setStatsFilter(statsFilter === "deferred" ? null : "deferred")}
-        />
-        <StatCard 
-          label="متأخرة" 
-          value={stats.overdue} 
-          color="text-red-400" 
-          active={statsFilter === "overdue"}
-          onClick={() => setStatsFilter(statsFilter === "overdue" ? null : "overdue")}
-        />
-        <StatCard 
-          label="مهمة" 
-          value={stats.important} 
-          color="text-purple-300" 
-          active={statsFilter === "important"}
-          onClick={() => setStatsFilter(statsFilter === "important" ? null : "important")}
-        />
-        <StatCard 
-          label="متوسطة" 
-          value={stats.medium} 
-          color="text-teal-400" 
-          active={statsFilter === "medium"}
-          onClick={() => setStatsFilter(statsFilter === "medium" ? null : "medium")}
-        />
-        <StatCard 
-          label="طلبات عملاء" 
-          value={stats.withOrders} 
-          color="text-cyan-400" 
-          active={statsFilter === "withOrders"}
-          onClick={() => setStatsFilter(statsFilter === "withOrders" ? null : "withOrders")}
-        />
-        <StatCard 
-          label="شكاوى/مشاكل" 
-          value={stats.withComplaints} 
-          color="text-red-300" 
-          active={statsFilter === "withComplaints"}
-          onClick={() => setStatsFilter(statsFilter === "withComplaints" ? null : "withComplaints")}
-        />
-        <StatCard 
-          label="تحتاج تدخل مدير" 
-          value={stats.needsManager} 
-          color="text-orange-400" 
-          active={statsFilter === "needsManager"}
-          onClick={() => setStatsFilter(statsFilter === "needsManager" ? null : "needsManager")}
-        />
-        <StatCard 
-          label="قيمة بعد المتابعة" 
-          value={Math.round(stats.purchaseValue)} 
-          color="text-teal-300" 
-          suffix=" ج"
-          active={false}
-          onClick={() => {}}
-        />
-        <StatCard 
-          label="مهدد/متوقف" 
-          value={stats.risk} 
-          color="text-amber-400" 
-          active={false}
-          onClick={() => {}}
-        />
-      </div>
-
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="xl:col-span-2 bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
-            <div>
-              <div className="section-title flex items-center gap-2">
-                <FileText size={20} className="text-teal-300" /> سجل المتابعات الكامل
-              </div>
-              <div className="text-slate-400 text-sm mt-1">
-                كل تواصل تم مع العملاء: مكالمة، واتساب، طلب أوردر، شكوى، متابعة استثنائية، ونتيجة المتابعة.
-              </div>
-            </div>
-            <button onClick={loadHistory} disabled={historyLoading} className="btn-secondary flex items-center justify-center gap-2">
-              {historyLoading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-              تحديث السجل
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-            <div className="relative md:col-span-2">
-              <Search size={16} className="absolute right-3 top-3 text-slate-400" />
-              <input
-                value={historySearch}
-                onChange={(event) => setHistorySearch(event.target.value)}
-                className="input-dark pr-9"
-                placeholder="بحث باسم العميل، الكود، الهاتف، المسؤول، النتيجة أو الطلب..."
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <select value={historyStatus} onChange={(event) => setHistoryStatus(event.target.value)} className="input-dark">
-                <option value="all">كل الحالات</option>
-                <option value="معلق">معلق</option>
-                <option value="تم التواصل">تم التواصل</option>
-                <option value="طلب أوردر">طلب أوردر</option>
-                <option value="لم يرد">لم يرد</option>
-              </select>
-              <select value={historyBranch} onChange={(event) => setHistoryBranch(event.target.value)} className="input-dark">
-                <option value="all">كل الفروع</option>
-                <option value="شكري">فرع شكري</option>
-                <option value="الشامي">فرع الشامي</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 mb-4">
-            <MiniStat label="تمت" value={historyStats.done} color="text-green-300" />
-            <MiniStat label="لم يرد" value={historyStats.noAnswer} color="text-amber-300" />
-            <MiniStat label="طلبات" value={historyStats.withOrders} color="text-cyan-300" />
-            <MiniStat label="متابعة قادمة" value={historyStats.needsNext} color="text-purple-300" />
-            <MiniStat label="شكاوى/مشاكل" value={historyStats.complaints} color="text-red-300" />
-            <MiniStat label="قيمة بعد المتابعة" value={Math.round(historyStats.purchaseValue)} color="text-teal-300" suffix=" ج" />
-          </div>
-
-          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-            {filteredHistory.length === 0 ? (
-              <div className="bg-white/5 rounded-xl p-8 text-center text-slate-400">
-                لا توجد متابعات مطابقة للفلاتر الحالية.
-              </div>
-            ) : (
-              filteredHistory.slice(0, 120).map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setSelected(item)}
-                  className={`w-full text-right rounded-xl border p-3 transition-all ${selected?.id === item.id ? "bg-teal-500/10 border-teal-400/40" : "bg-white/[0.03] border-white/10 hover:border-teal-400/25"}`}
-                >
-                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <div className="text-white font-bold text-sm truncate">
-                          {item.customer_name || "عميل بدون اسم"}
-                        </div>
-                        <span className="text-slate-400 text-xs">كود: {item.customer_code || "بدون كود"}</span>
-                        {item.priority === "عاجل" && (
-                          <span className="badge-danger text-xs">عاجل</span>
-                        )}
-                        {item.priority === "خطر" && (
-                          <span className="badge-danger text-xs">خطر</span>
-                        )}
-                      </div>
-                      <div className="text-slate-400 text-xs mt-1 flex flex-wrap gap-2">
-                        <span className="flex items-center gap-1">
-                          <Phone size={12} /> {displayEgyptianPhone(item.customer_phone)}
-                        </span>
-                        <span>{displayBranch(item.branch)}</span>
-                        <span>المسؤول: {assignedDoctor(item)}</span>
-                        <span>التاريخ: {dateLabel(item.closed_at || item.updated_at || item.created_at)}</span>
-                      </div>
-                      {item.next_followup_date && (
-                        <div className="text-amber-400 text-xs mt-1 flex items-center gap-1">
-                          <Calendar size={12} /> متابعة قادمة: {dateLabel(item.next_followup_date)}
-                        </div>
-                      )}
-                      <div className="text-slate-300 text-xs mt-2 line-clamp-2">
-                        {followupSummary(item)}
-                      </div>
-                      {(item.request_type || item.request_details || /أوردر|طلب/.test(item.notes || "")) && (
-                        <div className="mt-2 text-xs text-cyan-200 bg-cyan-500/10 border border-cyan-400/20 rounded-lg px-2 py-1 inline-flex items-center gap-1">
-                          <ShoppingBag size={13} /> {requestDetails(item)}
-                        </div>
-                      )}
-                      {item.purchase_amount && (
-                        <div className="mt-2 text-xs text-green-300 bg-green-500/10 border border-green-400/20 rounded-lg px-2 py-1 inline-flex items-center gap-1">
-                          <DollarSign size={13} /> شراء بعد المتابعة: {Math.round(item.purchase_amount)} ج
-                        </div>
-                      )}
-                      {item.followup_result && (
-                        <div className="mt-2 text-xs text-purple-300 bg-purple-500/10 border border-purple-400/20 rounded-lg px-2 py-1">
-                          النتيجة: {item.followup_result}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-row md:flex-col items-end gap-2 shrink-0">
-                      <span className={statusClass(item.status)}>{displayStatus(item.status)}</span>
-                      <span className="badge-info text-xs">{contactMethod(item)}</span>
-                      <span className="text-xs text-slate-500">{followupCategory(item)}</span>
-                      {displayStatus(item.status) === "معلق" && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenResultModal(item);
-                          }}
-                          className="text-xs text-teal-400 hover:text-teal-300"
-                        >
-                          تسجيل النتيجة
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div>
-              <div className="section-title flex items-center gap-2">
-                <Plus size={20} className="text-teal-300" /> متابعة استثنائية
-              </div>
-              <div className="text-slate-400 text-xs mt-1">
-                للشكاوى، الكاش باك، طلب صنف، مشكلة توصيل، أو أي تواصل خارج قائمة اليوم.
-              </div>
-            </div>
-            <button className="btn-secondary text-xs" onClick={() => setShowExceptional((value) => !value)}>
-              {showExceptional ? "إغلاق" : "إضافة"}
-            </button>
-          </div>
-
-          {showExceptional ? (
-            <div className="space-y-3">
-              <CustomerSearch
-                onSelect={handleCustomerSelect}
-                onUnregistered={handleUnregisteredCustomer}
-                branch={exceptionalForm.branch}
-                placeholder="ابحث عن العميل بالاسم، الكود، أو الهاتف..."
-              />
-              
-              {selectedCustomer && (
-                <div className="bg-teal-500/10 border border-teal-400/20 rounded-xl p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-teal-300 font-medium">{selectedCustomer.name}</span>
-                    <button
-                      onClick={() => {
-                        setSelectedCustomer(null);
-                        setIsUnregisteredCustomer(false);
-                        setExceptionalForm((prev) => ({
-                          ...prev,
-                          customerName: "",
-                          customerCode: "",
-                          customerPhone: "",
-                        }));
-                      }}
-                      className="text-xs text-slate-400 hover:text-white"
-                    >
-                      تغيير العميل
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
-                    {selectedCustomer.customer_code && (
-                      <div>كود: {selectedCustomer.customer_code}</div>
-                    )}
-                    {selectedCustomer.phone && (
-                      <div>هاتف: {displayEgyptianPhone(selectedCustomer.phone)}</div>
-                    )}
-                    {selectedCustomer.type && (
-                      <div>التصنيف: {selectedCustomer.type}</div>
-                    )}
-                    {selectedCustomer.retention_status && (
-                      <div>الحالة: {selectedCustomer.retention_status}</div>
-                    )}
-                    {selectedCustomer.avg_monthly && (
-                      <div>المتوسط الشهري: {Math.round(selectedCustomer.avg_monthly)} ج</div>
-                    )}
-                    {selectedCustomer.last_purchase && (
-                      <div>آخر شراء: {selectedCustomer.last_purchase.slice(0, 10)}</div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {isUnregisteredCustomer && (
-                <div className="bg-amber-500/10 border border-amber-400/20 rounded-xl p-3">
-                  <div className="text-amber-300 text-sm font-medium mb-2">عميل غير مسجل</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      className="input-dark"
-                      placeholder="اسم العميل"
-                      value={exceptionalForm.customerName}
-                      onChange={(event) => setExceptionalForm((f) => ({ ...f, customerName: event.target.value }))}
-                    />
-                    <input
-                      className="input-dark"
-                      placeholder="رقم الهاتف"
-                      value={exceptionalForm.customerPhone}
-                      onChange={(event) => setExceptionalForm((f) => ({ ...f, customerPhone: event.target.value }))}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-2">
-                <select className="input-dark" value={exceptionalForm.branch} onChange={(event) => setExceptionalForm((f) => ({ ...f, branch: event.target.value }))}>
-                  <option>فرع شكري</option>
-                  <option>فرع الشامي</option>
-                </select>
-                <select className="input-dark" value={exceptionalForm.priority} onChange={(event) => setExceptionalForm((f) => ({ ...f, priority: event.target.value }))}>
-                  <option>عادي</option>
-                  <option>مهم</option>
-                  <option>عاجل</option>
-                  <option>خطر</option>
-                </select>
-              </div>
-              <select className="input-dark" value={exceptionalForm.type} onChange={(event) => setExceptionalForm((f) => ({ ...f, type: event.target.value }))}>
-                <option>متابعة استثنائية</option>
-                <option>شكوى عميل</option>
-                <option>تسوية / كاش باك</option>
-                <option>تأخير أوردر</option>
-                <option>طلب صنف ناقص</option>
-                <option>عميل VIP</option>
-                <option>متابعة من المدير</option>
-                <option>مشكلة في التوصيل</option>
-              </select>
-              <select className="input-dark" value={exceptionalForm.assignedTo} onChange={(event) => setExceptionalForm((f) => ({ ...f, assignedTo: event.target.value }))}>
-                <option value="">المسؤول عن المتابعة</option>
-                {staffChoices.map((person) => (
-                  <option key={person.id} value={person.name}>{person.name} - {displayBranch(person.branch)}</option>
-                ))}
-              </select>
-              <textarea className="input-dark resize-none" rows={3} placeholder="سبب المتابعة والمطلوب من خدمة العملاء" value={exceptionalForm.reason} onChange={(event) => setExceptionalForm((f) => ({ ...f, reason: event.target.value }))} />
-              <div className="grid grid-cols-2 gap-2">
-                <select className="input-dark" value={exceptionalForm.requestType} onChange={(event) => setExceptionalForm((f) => ({ ...f, requestType: event.target.value }))}>
-                  <option value="">بدون طلب محدد</option>
-                  <option value="missing_medicine">صنف ناقص</option>
-                  <option value="cashback">كاش باك / تسوية</option>
-                  <option value="complaint">شكوى</option>
-                  <option value="delivery">طلب توصيل</option>
-                  <option value="refund_exchange">استبدال / مرتجع</option>
-                  <option value="reservation">حجز صنف</option>
-                </select>
-                <input type="date" className="input-dark" value={exceptionalForm.nextFollowupDate} onChange={(event) => setExceptionalForm((f) => ({ ...f, nextFollowupDate: event.target.value }))} />
-              </div>
-              <textarea className="input-dark resize-none" rows={2} placeholder="تفاصيل طلب العميل إن وجدت" value={exceptionalForm.requestDetails} onChange={(event) => setExceptionalForm((f) => ({ ...f, requestDetails: event.target.value }))} />
-              <button onClick={handleCreateExceptional} disabled={exceptionalSaving} className="btn-primary w-full flex items-center justify-center gap-2">
-                {exceptionalSaving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                حفظ المتابعة الاستثنائية
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="bg-white/5 rounded-xl p-4 text-slate-300 text-sm leading-relaxed">
-                استخدمها عند وجود مشكلة عاجلة، طلب صنف ناقص، شكوى، تسوية كاش باك، أو تواصل مطلوب من المدير خارج قائمة اليوم.
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-red-500/10 border border-red-400/20 rounded-xl p-3 text-red-200 flex items-center gap-2"><AlertTriangle size={16} /> شكاوى عاجلة</div>
-                <div className="bg-cyan-500/10 border border-cyan-400/20 rounded-xl p-3 text-cyan-200 flex items-center gap-2"><ShoppingBag size={16} /> طلبات أصناف</div>
-                <div className="bg-purple-500/10 border border-purple-400/20 rounded-xl p-3 text-purple-200 flex items-center gap-2"><MessageSquare size={16} /> متابعة مدير</div>
-                <div className="bg-green-500/10 border border-green-400/20 rounded-xl p-3 text-green-200 flex items-center gap-2"><CheckCircle2 size={16} /> كاش باك</div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div>
-          <div className="text-slate-300 text-xs mb-1">
-            تعيين دكتور لكل قائمة اليوم
-          </div>
-          <select
-            value={bulkDoctor}
-            onChange={(event) => setBulkDoctor(event.target.value)}
-            className="input-dark"
-          >
-            <option value="">اختر الدكتور</option>
-            {doctors.map((doctor) => (
-              <option key={doctor.id} value={doctor.name}>
-                {doctor.name} - {displayBranch(doctor.branch)}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => applyDoctorToList("all")}
-            disabled={!bulkDoctor}
-            className="btn-secondary mt-2 w-full"
-          >
-            تطبيق على كل العملاء
-          </button>
-        </div>
-        <div>
-          <div className="text-slate-300 text-xs mb-1">عملاء فرع الشامي</div>
-          <select
-            value={shamyDoctor}
-            onChange={(event) => setShamyDoctor(event.target.value)}
-            className="input-dark"
-          >
-            <option value="">اختر الدكتور</option>
-            {doctors
-              .filter((doctor) =>
-                displayBranch(doctor.branch).includes("الشامي"),
-              )
-              .map((doctor) => (
-                <option key={doctor.id} value={doctor.name}>
-                  {doctor.name}
-                </option>
-              ))}
-          </select>
-        </div>
-        <div>
-          <div className="text-slate-300 text-xs mb-1">عملاء فرع شكري</div>
-          <select
-            value={shokryDoctor}
-            onChange={(event) => setShokryDoctor(event.target.value)}
-            className="input-dark"
-          >
-            <option value="">اختر الدكتور</option>
-            {doctors
-              .filter((doctor) => displayBranch(doctor.branch).includes("شكري"))
-              .map((doctor) => (
-                <option key={doctor.id} value={doctor.name}>
-                  {doctor.name}
-                </option>
-              ))}
-          </select>
-          <button
-            onClick={() => applyDoctorToList("branch")}
-            disabled={!shamyDoctor && !shokryDoctor}
-            className="btn-secondary mt-2 w-full"
-          >
-            توزيع حسب الفرع
-          </button>
-        </div>
-      </div>
-
-      <div className="relative">
-        <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          value={followupSearch}
-          onChange={(event) => setFollowupSearch(event.target.value)}
-          className="input-dark pr-9"
-          placeholder="بحث باسم العميل أو الكود أو الهاتف... يمكن استخدام *"
-        />
-      </div>
-
-      {filteredFollowups.length === 0 ? (
-        <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl py-16 text-center">
-          <CalendarClock size={42} className="mx-auto text-slate-500 mb-3" />
-          <div className="text-white font-bold">لا توجد قائمة متابعة لليوم</div>
-          <div className="text-slate-400 text-sm mt-1">
-            اضغط إنشاء قائمة اليوم ليتم اختيار العملاء تلقائيًا.
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <div className="space-y-2 max-h-[calc(100vh-310px)] overflow-y-auto">
-            {filteredFollowups.map((item) => {
-              const validPhone = Boolean(
-                cleanEgyptianPhone(customerPhoneOf(item)),
-              );
-
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setSelected(item);
-                    setCustomer360(item);
-                  }}
-                  className={`w-full text-right p-3 rounded-xl border transition-all ${selected?.id === item.id ? "bg-teal-500/10 border-teal-500/30" : "bg-[#1B2B4B] border-[#2d4063] hover:border-teal-500/20"}`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-8 h-8 rounded-full bg-teal-500/20 flex items-center justify-center text-teal-400 text-xs font-bold">
-                      {(item.customer_name || "ع")[0]}
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-white text-sm font-semibold truncate">
-                        {item.customer_name || "عميل بدون اسم"}
-                      </span>
-                      <span className="block text-slate-400 text-xs truncate">
-                        كود: {customerCodeOf(item) || "بدون كود"} - هاتف:{" "}
-                        {displayEgyptianPhone(customerPhoneOf(item))} -{" "}
-                        {displayBranch(item.branch)}
-                      </span>
-                    </span>
-                    <span className="badge-info text-xs">
-                      {followupCategory(item)}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className={statusClass(item.status)}>
-                      {displayStatus(item.status)}
-                    </span>
-                    <span
-                      className={`text-xs ${validPhone ? "text-green-300" : "text-amber-300"}`}
-                    >
-                      {validPhone ? "رقم صالح للواتساب" : "بدون رقم صالح"}
-                    </span>
-                    <span className="text-slate-500 text-xs">
-                      {assignedDoctor(item)}
-                    </span>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
-                    <span>آخر شراء: {lastPurchaseOf(item) ? dateLabel(lastPurchaseOf(item)) : "لا يوجد"}</span>
-                    <span>شراء الشهر: {currentPurchaseCountOf(item).toLocaleString("ar-EG")}</span>
-                    <span>المتوسط الشهري: {averagePurchaseCountOf(item).toLocaleString("ar-EG")}</span>
-                    <span>{displayBranch(item.branch)}</span>
-                  </div>
-                  {item.purchase_frequency_status === "decreased" && <div className="mt-2 badge-warning w-fit">انخفاض في تكرار الشراء</div>}
-                  {item.purchase_frequency_status === "stopped" && <div className="mt-2 badge-danger w-fit">توقف عن الشراء</div>}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="lg:col-span-2">
-            {selected && (
-              <div className="space-y-4">
-                <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
-                  <div className="flex flex-wrap items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-teal-500/20 flex items-center justify-center text-teal-400 text-xl font-bold">
-                      {(selected.customer_name || "ع")[0]}
-                    </div>
-                    <div className="flex-1 min-w-[240px]">
-                      <div className="text-white font-bold text-lg">
-                        {selected.customer_name || "عميل بدون اسم"}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 mt-1 text-slate-400 text-sm">
-                        <span className="flex items-center gap-1">
-                          <Phone size={13} />
-                          {displayEgyptianPhone(customerPhoneOf(selected))}
-                        </span>
-                        <span>
-                          كود العميل: {customerCodeOf(selected) || "بدون كود"}
-                        </span>
-                        <span>{displayBranch(selected.branch)}</span>
-                        <span>الفئة: {followupCategory(selected)}</span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <span className="badge-info">آخر شراء: {lastPurchaseOf(selected) ? dateLabel(lastPurchaseOf(selected)) : "لا يوجد"}</span>
-                        <span className="badge-info">شراء الشهر: {currentPurchaseCountOf(selected).toLocaleString("ar-EG")}</span>
-                        <span className="badge-info">المتوسط الشهري: {averagePurchaseCountOf(selected).toLocaleString("ar-EG")}</span>
-                        {selected.purchase_frequency_status === "decreased" && <span className="badge-warning">انخفاض في تكرار الشراء</span>}
-                        {selected.purchase_frequency_status === "stopped" && <span className="badge-danger">توقف عن الشراء</span>}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={openSelectedWhatsApp}
-                      disabled={!whatsappHref}
-                      className={`btn-primary flex items-center gap-2 ${!whatsappHref ? "opacity-50 cursor-not-allowed" : ""}`}
-                      title={
-                        whatsappHref
-                          ? "فتح واتساب برسالة المتابعة"
-                          : "لا يمكن فتح واتساب بدون رقم هاتف صحيح"
-                      }
-                    >
-                      <MessageSquare size={16} /> واتساب
-                    </button>
-                    {phoneHref && (
-                      <a
-                        href={phoneHref}
-                        className="btn-secondary flex items-center gap-2"
-                      >
-                        <PhoneCall size={16} /> اتصال
-                      </a>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Detail
-                    label="المتابع المقترح"
-                    value={assignedDoctor(selected)}
-                  />
-                  <Detail
-                    label="تاريخ المتابعة"
-                    value={
-                      selected.followup_date ||
-                      (selected.created_at
-                        ? formatDate(selected.created_at)
-                        : "اليوم")
-                    }
-                  />
-                  <Detail
-                    label="متوسط شهري"
-                    value={
-                      readNoteValue(selected.notes, NOTE_LABELS.avgMonthly) ||
-                      "غير محدد"
-                    }
-                  />
-                  <Detail
-                    label="آخر شراء"
-                    value={
-                      readNoteValue(selected.notes, NOTE_LABELS.lastPurchase) ||
-                      "غير محدد"
-                    }
-                  />
-                  <Detail
-                    label="أول شراء"
-                    value={
-                      readNoteValue(
-                        selected.notes,
-                        NOTE_LABELS.firstPurchase,
-                      ) || "غير محدد"
-                    }
-                  />
-                  <Detail
-                    label="الدكتور الأنسب"
-                    value={assignedDoctor(selected)}
-                  />
-                </div>
-
-                <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
-                  <div className="section-title mb-3">
-                    تغيير المتابع المقترح
-                  </div>
-                  <select
-                    value={
-                      assignedDoctor(selected) === "غير محدد"
-                        ? ""
-                        : assignedDoctor(selected)
-                    }
-                    onChange={(event) =>
-                      setFollowupDoctor(selected, event.target.value)
-                    }
-                    className="input-dark"
-                  >
-                    <option value="">اختر الدكتور</option>
-                    {doctors.map((doctor) => (
-                      <option key={doctor.id} value={doctor.name}>
-                        {doctor.name} - {displayBranch(doctor.branch)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
-                    <div className="section-title">السكريبت المقترح</div>
-                    <select
-                      value={scriptKey}
-                      onChange={(event) =>
-                        setScriptKey(event.target.value as ScriptKey)
-                      }
-                      className="input-dark md:w-72"
-                    >
-                      {SCRIPT_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="bg-white/5 rounded-xl p-4 text-slate-200 text-sm leading-relaxed whitespace-pre-line">
-                    {message || suggestedScript(selected)}
-                  </div>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    <button
-                      onClick={async () => {
-                        const ok = await copyText(
-                          message || suggestedScript(selected),
-                        );
-                        toast[ok ? "success" : "error"](
-                          ok ? "تم نسخ الرسالة" : "تعذر النسخ",
-                        );
-                      }}
-                      className="btn-secondary flex items-center gap-2"
-                    >
-                      <Copy size={16} /> نسخ الرسالة
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openSelectedWhatsApp}
-                      disabled={!whatsappHref}
-                      className={`btn-primary flex items-center gap-2 ${!whatsappHref ? "opacity-50 cursor-not-allowed" : ""}`}
-                      title={
-                        whatsappHref
-                          ? "فتح واتساب برسالة المتابعة"
-                          : "لا يمكن فتح واتساب بدون رقم هاتف صحيح"
-                      }
-                    >
-                      <MessageSquare size={16} /> فتح واتساب
-                    </button>
-                    {phoneHref && (
-                      <a
-                        href={phoneHref}
-                        className="btn-secondary flex items-center gap-2"
-                      >
-                        <PhoneCall size={16} /> اتصال
-                      </a>
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
-                  <div className="section-title mb-3">المطلوب في المتابعة</div>
-                  <div className="bg-white/5 rounded-xl p-4 text-slate-200 text-sm leading-relaxed">
-                    {suggestedAction(selected)}
-                  </div>
-                </div>
-
-                <FollowupResultForm
-                  followup={selected}
-                  responsibleName={user?.name || assignedDoctor(selected)}
-                  defaultScript={scriptKeyFromCategory(
-                    followupCategory(selected),
-                  )}
-                  onSaved={(updated) => {
-                    setFollowups((items) =>
-                      items.map((item) =>
-                        item.id === updated.id ? updated : item,
-                      ),
-                    );
-                    setSelected(updated);
-                    logActivity({
-                      action: "تسجيل نتيجة متابعة عميل",
-                      module: "خدمة العملاء",
-                      target_type: "customer",
-                      target_id: updated.customer_id || updated.id,
-                      user_id: user?.id,
-                      user_name: user?.name,
-                      user_role: user?.role,
-                      branch_name: displayBranch(updated.branch),
-                      details: {
-                        customer_name: updated.customer_name,
-                        customer_code: updated.customer_code,
-                        status: updated.status,
-                        assigned_to: assignedDoctor(updated),
-                      },
-                    });
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      {customer360 && (
-        <Customer360QuickView followup={customer360} onClose={() => setCustomer360(null)} />
-      )}
-
-      {showResultModal && resultModalFollowup && (
-        <FollowupResultModal
-          followup={resultModalFollowup}
-          onClose={() => {
-            setShowResultModal(false);
-            setResultModalFollowup(null);
-          }}
-          onSave={handleSaveResult}
-        />
-      )}
-
-      <TeamPerformanceAnalytics followups={history} staff={staffChoices} />
-    </div>
+    </section>
   );
 }
 
-function Customer360QuickView({ followup, onClose }: { followup: DailyFollowup; onClose: () => void }) {
+function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpdate }: {
+  row: FollowupRow;
+  active: boolean;
+  onSelect: () => void;
+  onResult: () => void;
+  onPostpone: () => void;
+  onQuickUpdate: (row: FollowupRow, payload: FollowupResultPayload, success: string) => void;
+}) {
+  const phone = phoneOf(row);
+  const cleanPhone = cleanEgyptianPhone(phone);
+  const message = buildCustomerServiceWhatsAppMessage({
+    customerName: row.customer_name || row.name,
+    staffName: responsibleOf(row),
+    branch: row.branch,
+    reason: row.followup_reason || row.suggested_action || row.request_type,
+  });
+  const wa = cleanPhone ? generateWhatsAppLink(cleanPhone, message) : "";
+  return (
+    <article className={`rounded-2xl border bg-white p-4 shadow-sm transition hover:shadow-md ${active ? "border-teal-300 ring-2 ring-teal-100" : "border-slate-200"}`} onClick={onSelect}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-base font-black text-slate-950">{row.customer_name || row.name || "عميل بدون اسم"}</div>
+          <div className="mt-1 flex flex-wrap gap-2 text-xs font-bold text-slate-500">
+            <span>كود: {row.customer_code || "بدون كود"}</span>
+            <span>هاتف: {phone || "لا يوجد"}</span>
+            <span>{normalizeBranchName(row.branch)}</span>
+          </div>
+        </div>
+        <StatusBadge status={followupStatus(row)} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-semibold text-slate-600">
+        <span>التصنيف: {segmentOf(row)}</span>
+        <span>الحالة: {customerStatusOf(row)}</span>
+        <span>آخر شراء: {formatDate(lastPurchaseOf(row))}</span>
+        <span>متوسط شهري: {avgMonthlyOf(row) === null ? "غير متاح" : formatMoney(avgMonthlyOf(row))}</span>
+        <span>المسؤول: {responsibleOf(row)}</span>
+        <span>الموعد: {formatDateTime(row.followup_datetime || row.followup_date)}</span>
+      </div>
+      <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-700">
+        {row.suggested_action || row.followup_reason || row.request_details || "تواصل مع العميل وسجل نتيجة المتابعة."}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+        <a href={wa || undefined} target="_blank" rel="noopener noreferrer" className={`btn-secondary inline-flex items-center gap-1 px-3 py-2 ${!wa ? "pointer-events-none opacity-50" : ""}`} title={wa ? "فتح واتساب" : "لا يوجد رقم هاتف"}>
+          <MessageSquare size={14} /> واتساب
+        </a>
+        {cleanPhone ? <a href={`tel:${cleanPhone}`} className="btn-secondary inline-flex items-center gap-1 px-3 py-2"><PhoneCall size={14} /> اتصال</a> : null}
+        <button type="button" className="btn-secondary px-3 py-2" onClick={() => onQuickUpdate(row, { status: "تم", followup_status: "تم", contact_status: "تم التواصل", completed_at: new Date().toISOString() }, "تم تسجيل المتابعة")}>تم</button>
+        <button type="button" className="btn-secondary px-3 py-2" onClick={() => onQuickUpdate(row, { status: "لم يرد", followup_status: "لم يرد", contact_status: "لم يرد", contact_result: "لم يرد" }, "تم تسجيل لم يرد")}>لم يرد</button>
+        <button type="button" className="btn-secondary px-3 py-2" onClick={onPostpone}>تأجيل</button>
+        <button type="button" className="btn-secondary px-3 py-2" onClick={() => onQuickUpdate(row, { status: "يحتاج مدير", followup_status: "يحتاج مدير", needs_manager: true, response_status: "manager_required" }, "تم تحويلها للمدير")}>يحتاج مدير</button>
+        <button type="button" className="dawaa-button-primary px-3" onClick={onResult}>تسجيل نتيجة</button>
+      </div>
+    </article>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const cls = status.includes("تم") ? "border-emerald-200 bg-emerald-50 text-emerald-700" :
+    status.includes("لم يرد") ? "border-amber-200 bg-amber-50 text-amber-700" :
+    status.includes("مؤجل") ? "border-blue-200 bg-blue-50 text-blue-700" :
+    status.includes("مدير") ? "border-red-200 bg-red-50 text-red-700" :
+    "border-slate-200 bg-slate-50 text-slate-600";
+  return <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${cls}`}>{status}</span>;
+}
+
+function TeamAnalytics({ rows, manager, selected, onSelect }: { rows: FollowupPerformanceRow[]; manager: boolean; selected: string; onSelect: (value: string) => void }) {
+  const visible = manager ? rows : rows.slice(0, 3);
+  const selectedRow = rows.find((row) => row.responsible === selected) || visible[0] || null;
+  return (
+    <section className="dawaa-panel">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-base font-black text-slate-950">تحليل أداء خدمة العملاء</h3>
+        {!manager && <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-black text-amber-700">عرض محدود</span>}
+      </div>
+      {visible.length ? (
+        <div className="space-y-3">
+          <select className="dawaa-input w-full" value={selectedRow?.responsible || selected} onChange={(event) => onSelect(event.target.value)}>
+            {visible.map((row) => <option key={row.responsible} value={row.responsible}>{row.responsible}</option>)}
+          </select>
+          <div className="grid grid-cols-2 gap-2">
+            <SmallMetric label="المسند" value={selectedRow?.assigned || 0} />
+            <SmallMetric label="المكتمل" value={selectedRow?.completed || 0} />
+            <SmallMetric label="المتأخر" value={selectedRow?.overdue || 0} danger />
+            <SmallMetric label="لم يرد" value={selectedRow?.noAnswer || 0} />
+            <SmallMetric label="تحويل شراء" value={selectedRow?.purchaseAfterCount || 0} />
+            <SmallMetric label="قيمة الشراء" value={formatMoney(selectedRow?.purchaseAfterAmount || 0)} />
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-700">
+            {performanceSuggestion(selectedRow)}
+          </div>
+        </div>
+      ) : <Empty text="لا توجد بيانات أداء متاحة للفلاتر الحالية" />}
+    </section>
+  );
+}
+
+function performanceSuggestion(row: FollowupPerformanceRow | null) {
+  if (!row) return "غير متاح حاليًا";
+  if (row.overdue >= 5) return "يحتاج تقليل المتأخرات وتوزيع المتابعات على وقت أبكر.";
+  if (row.assigned && row.completionRate < 50) return "يحتاج متابعة أسرع ورفع معدل الإغلاق.";
+  if (row.noAnswer >= 5) return "نسبة عدم الرد عالية، جرب إعادة الاتصال في وقت مختلف.";
+  if (row.purchaseAfterCount >= 3) return "أداء جيد في تحويل المتابعة إلى شراء.";
+  return "الأداء مستقر، استمر في تسجيل النتائج بوضوح.";
+}
+
+function CustomerDecisionPanel({ row }: { row: FollowupRow | null }) {
+  const customer = row?.customer_metrics || null;
+  return (
+    <section className="dawaa-panel">
+      <h3 className="mb-3 text-base font-black text-slate-950">تحليل قرار العميل</h3>
+      {row ? (
+        <div className="space-y-2">
+          <Info label="الأهمية" value={segmentOf(row)} />
+          <Info label="الحالة" value={customerStatusOf(row)} />
+          <Info label="متوسط شهري" value={customer?.avg_monthly != null ? formatMoney(customer.avg_monthly) : "غير متاح"} />
+          <Info label="آخر شراء" value={formatDate(lastPurchaseOf(row))} />
+          <Info label="درجة الخطورة" value={riskLevel(customer)} />
+          <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-bold leading-6 text-teal-800">
+            {recommendedAction(customer)}
+          </div>
+        </div>
+      ) : <Empty text="اختر متابعة لعرض القرار المقترح" />}
+    </section>
+  );
+}
+
+function ExceptionalFollowupModal({ branch, staffNames, userName, userId, onClose, onCreated }: {
+  branch: string;
+  staffNames: string[];
+  userName: string;
+  userId: string;
+  onClose: () => void;
+  onCreated: (row: FollowupRow) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<CustomerMetric[]>([]);
+  const [selected, setSelected] = useState<CustomerMetric | null>(null);
+  const [unregistered, setUnregistered] = useState(false);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    customerName: "",
+    phone: "",
+    branch: branch || BRANCHES[0] || "",
+    priority: "مهم",
+    requestType: "متابعة استثنائية",
+    reason: "",
+    assignedDoctor: userName || "",
+    followupDatetime: todayInput(),
+    requestDetails: "",
+    notes: "",
+  });
+
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
+    const timeout = window.setTimeout(async () => {
+      setLoadingSearch(true);
+      try {
+        setResults(await searchCustomerMetrics(query, form.branch));
+      } finally {
+        setLoadingSearch(false);
+      }
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [form.branch, query]);
+
+  const pickCustomer = (customer: CustomerMetric) => {
+    setSelected(customer);
+    setUnregistered(false);
+    setForm((current) => ({
+      ...current,
+      customerName: customer.customer_name || "",
+      phone: customer.customer_phone || "",
+      branch: customer.branch || current.branch,
+      reason: recommendedAction(customer),
+    }));
+  };
+
+  const submit = async () => {
+    if (!form.customerName.trim()) {
+      toast.error("اسم العميل مطلوب");
+      return;
+    }
+    setSaving(true);
+    try {
+      const row = await createExceptionalFollowup({
+        customer: selected,
+        customerName: form.customerName,
+        customerPhone: form.phone,
+        branch: form.branch,
+        priority: form.priority,
+        requestType: form.requestType,
+        followupReason: form.reason,
+        assignedDoctor: form.assignedDoctor,
+        followupDatetime: form.followupDatetime ? new Date(form.followupDatetime).toISOString() : null,
+        requestDetails: form.requestDetails,
+        notes: form.notes,
+        createdBy: userId,
+        createdByName: userName,
+      });
+      toast.success("تم إنشاء المتابعة الاستثنائية");
+      onCreated(row);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر إنشاء المتابعة");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" dir="rtl" onClick={onClose}>
-      <div className="max-h-[88vh] w-full max-w-3xl overflow-auto rounded-2xl border border-teal-400/30 bg-[#10213a] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="sticky top-0 z-10 -mx-5 -mt-5 mb-4 flex items-start justify-between gap-3 border-b border-white/10 bg-[#10213a] p-5">
-          <div>
-            <div className="text-xs font-bold text-teal-300">ملف العميل 360</div>
-            <div className="mt-1 text-2xl font-black text-white">{followup.customer_name || "عميل بدون اسم"}</div>
-            <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-300">
-              <span className="badge-info">كود: {customerCodeOf(followup) || "بدون كود"}</span>
-              <span className="badge-info">هاتف: {displayEgyptianPhone(customerPhoneOf(followup))}</span>
-              <span className="badge-info">{displayBranch(followup.branch)}</span>
-            </div>
+    <Modal title="متابعة استثنائية" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div className="relative">
+            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input className="dawaa-input w-full pr-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث في customer_metrics_summary: احمد* أو *احمد* أو 010*" />
           </div>
-          <button type="button" className="btn-secondary px-4" onClick={onClose}>إغلاق</button>
+          {loadingSearch && <div className="mt-2 text-sm font-bold text-slate-500">جاري البحث...</div>}
+          {results.length > 0 && (
+            <div className="mt-2 max-h-52 overflow-auto rounded-2xl border border-slate-200 bg-white">
+              {results.map((customer) => (
+                <button key={customer.id} type="button" className="block w-full border-b border-slate-100 p-3 text-right hover:bg-teal-50" onClick={() => pickCustomer(customer)}>
+                  <div className="font-black text-slate-950">{customer.customer_name || "عميل بدون اسم"}</div>
+                  <div className="text-xs font-bold text-slate-500">كود: {customer.customer_code || "بدون"} · هاتف: {customer.customer_phone || "بدون"} · {customer.segment} · {customer.customer_status}</div>
+                </button>
+              ))}
+            </div>
+          )}
+          <button type="button" className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-black text-amber-700" onClick={() => { setSelected(null); setUnregistered(true); }}>
+            عميل غير مسجل
+          </button>
+          {selected && <div className="mt-2 rounded-xl bg-teal-50 p-2 text-xs font-black text-teal-800">تم اختيار: {selected.customer_name} · {selected.segment} · {selected.customer_status}</div>}
+          {unregistered && <div className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-black text-amber-800">عميل غير مسجل</div>}
         </div>
-
         <div className="grid gap-3 md:grid-cols-2">
-          <Detail label="آخر شراء" value={lastPurchaseOf(followup) ? dateLabel(lastPurchaseOf(followup)) : "لا يوجد"} />
-          <Detail label="عدد مرات الشراء هذا الشهر" value={currentPurchaseCountOf(followup).toLocaleString("ar-EG")} />
-          <Detail label="متوسط مرات الشراء شهريًا" value={averagePurchaseCountOf(followup).toLocaleString("ar-EG")} />
-          <Detail label="الفرع" value={displayBranch(followup.branch)} />
-          <Detail label="حالة المتابعة" value={displayStatus(followup.followup_status || followup.status)} />
-          <Detail label="المسؤول" value={followup.responsible_name || assignedDoctor(followup)} />
+          <Field label="اسم العميل"><input className="dawaa-input w-full" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} /></Field>
+          <Field label="الهاتف"><input className="dawaa-input w-full" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+          <Field label="الفرع"><select className="dawaa-input w-full" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })}>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></Field>
+          <Field label="الأولوية"><select className="dawaa-input w-full" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>{PRIORITY_OPTIONS.map((x) => <option key={x}>{x}</option>)}</select></Field>
+          <Field label="نوع الطلب"><select className="dawaa-input w-full" value={form.requestType} onChange={(e) => setForm({ ...form, requestType: e.target.value })}>{REQUEST_TYPES.map((x) => <option key={x}>{x}</option>)}</select></Field>
+          <Field label="المسؤول"><select className="dawaa-input w-full" value={form.assignedDoctor} onChange={(e) => setForm({ ...form, assignedDoctor: e.target.value })}><option value="">غير محدد</option>{staffNames.map((x) => <option key={x}>{x}</option>)}</select></Field>
+          <Field label="موعد المتابعة"><input type="datetime-local" className="dawaa-input w-full" value={form.followupDatetime} onChange={(e) => setForm({ ...form, followupDatetime: e.target.value })} /></Field>
+          <Field label="سبب المتابعة"><input className="dawaa-input w-full" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></Field>
         </div>
+        <Field label="تفاصيل الطلب"><textarea className="dawaa-input min-h-24 w-full" value={form.requestDetails} onChange={(e) => setForm({ ...form, requestDetails: e.target.value })} /></Field>
+        <Field label="ملاحظات"><textarea className="dawaa-input min-h-24 w-full" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+        <div className="flex gap-2">
+          <button type="button" className="dawaa-button-primary flex-1" onClick={submit} disabled={saving}>{saving ? "جاري الحفظ..." : "حفظ المتابعة"}</button>
+          <button type="button" className="btn-secondary flex-1" onClick={onClose}>إلغاء</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          {followup.purchase_frequency_status === "decreased" && <span className="badge-warning">انخفاض في تكرار الشراء</span>}
-          {followup.purchase_frequency_status === "stopped" && <span className="badge-danger">توقف عن الشراء</span>}
-        </div>
+function ResultModal({ row, userId, onClose, onSaved }: { row: FollowupRow; userId: string; onClose: () => void; onSaved: (row: FollowupRow) => void }) {
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    contact_method: row.contact_method || "اتصال",
+    contact_status: row.contact_status || "تم التواصل",
+    followup_result: row.followup_result || "",
+    followup_summary: row.followup_summary || "",
+    followup_notes: row.followup_notes || "",
+    purchase_after_followup: Boolean(row.purchase_after_followup),
+    purchase_amount: String(row.purchase_amount || ""),
+    purchase_invoice_no: row.purchase_invoice_no || "",
+    purchase_date: row.purchase_date || new Date().toISOString().slice(0, 10),
+    next_followup_date: row.next_followup_date || "",
+    quality_rating: String(row.quality_rating || ""),
+    customer_satisfaction: row.customer_satisfaction || "",
+    needs_manager: Boolean(row.needs_manager),
+    response_status: row.response_status || "",
+  });
+  const save = async (quickStatus?: string) => {
+    setSaving(true);
+    try {
+      const status = quickStatus || form.contact_status || "تم";
+      const updated = await updateFollowupResult(row.id, {
+        contact_method: form.contact_method,
+        contact_status: status,
+        contact_result: form.followup_result || status,
+        followup_result: form.followup_result || status,
+        followup_summary: form.followup_summary,
+        followup_notes: form.followup_notes,
+        purchase_after_followup: form.purchase_after_followup,
+        purchase_amount: form.purchase_after_followup ? Number(form.purchase_amount || 0) : null,
+        purchase_invoice_no: form.purchase_after_followup ? form.purchase_invoice_no || null : null,
+        purchase_date: form.purchase_after_followup ? form.purchase_date || null : null,
+        next_followup_date: form.next_followup_date || null,
+        quality_rating: form.quality_rating ? Number(form.quality_rating) : null,
+        customer_satisfaction: form.customer_satisfaction || null,
+        needs_manager: form.needs_manager || status === "يحتاج مدير",
+        response_status: form.response_status || status,
+        completed_at: status === "لم يرد" || status === "مؤجل" ? null : new Date().toISOString(),
+        status,
+        followup_status: status,
+        updated_by: userId || null,
+      });
+      toast.success("تم حفظ نتيجة المتابعة");
+      onSaved(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر حفظ النتيجة");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal title={`تسجيل نتيجة: ${row.customer_name || "عميل"}`} onClose={onClose}>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Field label="طريقة التواصل"><select className="dawaa-input w-full" value={form.contact_method} onChange={(e) => setForm({ ...form, contact_method: e.target.value })}>{CONTACT_METHODS.map((x) => <option key={x}>{x}</option>)}</select></Field>
+        <Field label="حالة التواصل"><select className="dawaa-input w-full" value={form.contact_status} onChange={(e) => setForm({ ...form, contact_status: e.target.value })}>{["تم التواصل", "لم يرد", "مؤجل", "يحتاج مدير", "تم الشراء بعد المتابعة"].map((x) => <option key={x}>{x}</option>)}</select></Field>
+        <Field label="نتيجة المتابعة"><input className="dawaa-input w-full" value={form.followup_result} onChange={(e) => setForm({ ...form, followup_result: e.target.value })} /></Field>
+        <Field label="ملخص المتابعة"><input className="dawaa-input w-full" value={form.followup_summary} onChange={(e) => setForm({ ...form, followup_summary: e.target.value })} /></Field>
+        <Field label="تقييم الجودة"><input type="number" min="1" max="5" className="dawaa-input w-full" value={form.quality_rating} onChange={(e) => setForm({ ...form, quality_rating: e.target.value })} /></Field>
+        <Field label="رضا العميل"><select className="dawaa-input w-full" value={form.customer_satisfaction} onChange={(e) => setForm({ ...form, customer_satisfaction: e.target.value })}><option value="">غير محدد</option><option>راضٍ</option><option>محايد</option><option>غير راضٍ</option></select></Field>
+        <Field label="تاريخ المتابعة القادمة"><input type="date" className="dawaa-input w-full" value={form.next_followup_date} onChange={(e) => setForm({ ...form, next_followup_date: e.target.value })} /></Field>
+        <Field label="حالة الرد"><input className="dawaa-input w-full" value={form.response_status} onChange={(e) => setForm({ ...form, response_status: e.target.value })} /></Field>
+      </div>
+      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <label className="flex items-center gap-2 text-sm font-black text-slate-700">
+          <input type="checkbox" checked={form.purchase_after_followup} onChange={(e) => setForm({ ...form, purchase_after_followup: e.target.checked })} />
+          تم الشراء بعد المتابعة
+        </label>
+        {form.purchase_after_followup && (
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <input className="dawaa-input w-full" placeholder="قيمة الشراء" value={form.purchase_amount} onChange={(e) => setForm({ ...form, purchase_amount: e.target.value })} />
+            <input className="dawaa-input w-full" placeholder="رقم الفاتورة" value={form.purchase_invoice_no} onChange={(e) => setForm({ ...form, purchase_invoice_no: e.target.value })} />
+            <input type="date" className="dawaa-input w-full" value={form.purchase_date} onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} />
+          </div>
+        )}
+      </div>
+      <label className="mt-3 flex items-center gap-2 text-sm font-black text-red-700">
+        <input type="checkbox" checked={form.needs_manager} onChange={(e) => setForm({ ...form, needs_manager: e.target.checked })} />
+        يحتاج مدير
+      </label>
+      <Field label="ملاحظات المتابعة"><textarea className="dawaa-input min-h-24 w-full" value={form.followup_notes} onChange={(e) => setForm({ ...form, followup_notes: e.target.value })} /></Field>
+      <div className="mt-4 grid gap-2 md:grid-cols-5">
+        <button className="dawaa-button-primary" disabled={saving} onClick={() => save()}>حفظ النتيجة</button>
+        <button className="btn-secondary" disabled={saving} onClick={() => save("تم التواصل")}>تم التواصل</button>
+        <button className="btn-secondary" disabled={saving} onClick={() => save("لم يرد")}>لم يرد</button>
+        <button className="btn-secondary" disabled={saving} onClick={() => save("مؤجل")}>تأجيل</button>
+        <button className="btn-secondary" disabled={saving} onClick={() => save("يحتاج مدير")}>يحتاج مدير</button>
+      </div>
+    </Modal>
+  );
+}
 
-        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-          <div className="mb-2 font-bold text-white">ملخص المتابعة</div>
-          <div className="text-sm leading-7 text-slate-300">{followupSummary(followup)}</div>
+function PostponeModal({ row, userId, onClose, onSaved }: { row: FollowupRow; userId: string; onClose: () => void; onSaved: (row: FollowupRow) => void }) {
+  const [custom, setCustom] = useState(todayInput());
+  const [saving, setSaving] = useState(false);
+  const optionDate = (kind: string) => {
+    const date = new Date();
+    if (kind === "tonight") date.setHours(21, 0, 0, 0);
+    if (kind === "tomorrow") { date.setDate(date.getDate() + 1); date.setHours(9, 0, 0, 0); }
+    if (kind === "twoDays") { date.setDate(date.getDate() + 2); date.setHours(9, 0, 0, 0); }
+    return date.toISOString();
+  };
+  const save = async (date: string) => {
+    setSaving(true);
+    try {
+      const updated = await updateFollowupResult(row.id, {
+        status: "مؤجل",
+        followup_status: "مؤجل",
+        contact_status: "مؤجل",
+        postponed_until: date,
+        updated_by: userId || null,
+      });
+      toast.success("تم تأجيل المتابعة");
+      onSaved(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر التأجيل");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal title="تأجيل المتابعة" onClose={onClose}>
+      <div className="grid gap-2">
+        <button className="btn-secondary" disabled={saving} onClick={() => save(optionDate("tonight"))}>الليلة الساعة 9 مساءً</button>
+        <button className="btn-secondary" disabled={saving} onClick={() => save(optionDate("tomorrow"))}>بكرة الساعة 9 صباحًا</button>
+        <button className="btn-secondary" disabled={saving} onClick={() => save(optionDate("twoDays"))}>بعد يومين الساعة 9 صباحًا</button>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <Field label="اختيار تاريخ ووقت"><input type="datetime-local" className="dawaa-input w-full" value={custom} onChange={(e) => setCustom(e.target.value)} /></Field>
+          <button className="dawaa-button-primary mt-3 w-full" disabled={saving} onClick={() => save(new Date(custom).toISOString())}>حفظ التأجيل</button>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel max-w-4xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 p-5">
+          <h2 className="text-xl font-black text-slate-950">{title}</h2>
+          <button className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="p-5">{children}</div>
       </div>
     </div>
   );
 }
 
-function Stat({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
-  return (
-    <div className="stat-card text-center">
-      <div className={`text-2xl font-bold num ${color}`}>
-        {value.toLocaleString("ar-EG")}
-      </div>
-      <div className="text-slate-400 text-xs mt-1">{label}</div>
-    </div>
-  );
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <label className="block text-sm font-black text-slate-700"><span className="mb-1 block">{label}</span>{children}</label>;
 }
 
-function StatCard({ label, value, color, active, onClick, suffix }: { label: string; value: number; color: string; active: boolean; onClick: () => void; suffix?: string }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`stat-card text-right transition-all ${active ? 'bg-teal-500/20 border-teal-400/50' : 'hover:bg-white/5 border-white/10'}`}
-    >
-      <div className={`text-2xl font-bold num ${color}`}>{value.toLocaleString("ar-EG")}{suffix || ""}</div>
-      <div className="text-xs text-slate-400 mt-1">{label}</div>
-    </button>
-  );
+function Info({ label, value }: { label: string; value: ReactNode }) {
+  return <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 text-sm"><span className="font-bold text-slate-500">{label}</span><span className="font-black text-slate-900">{value}</span></div>;
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-xl p-4">
-      <div className="text-slate-400 text-xs">{label}</div>
-      <div className="text-white font-bold text-sm mt-1">{value}</div>
-    </div>
-  );
+function SmallMetric({ label, value, danger = false }: { label: string; value: ReactNode; danger?: boolean }) {
+  return <div className={`rounded-2xl border p-3 ${danger ? "border-red-200 bg-red-50 text-red-700" : "border-teal-200 bg-teal-50 text-teal-700"}`}><div className="text-xs font-bold">{label}</div><div className="mt-1 text-xl font-black">{value}</div></div>;
 }
 
-function MiniStat({
-  label,
-  value,
-  color = "text-white",
-  suffix = "",
-}: {
-  label: string;
-  value: number;
-  color?: string;
-  suffix?: string;
-}) {
-  return (
-    <div className="bg-white/5 rounded-xl p-2 text-center border border-white/5">
-      <div className={`text-lg font-bold num ${color}`}>
-        {value.toLocaleString("ar-EG")}
-        <span className="text-xs font-normal">{suffix}</span>
-      </div>
-      <div className="text-slate-400 text-[11px] mt-0.5">{label}</div>
-    </div>
-  );
+function LoadingPanel() {
+  return <div className="dawaa-panel flex items-center justify-center gap-2 p-8 text-sm font-black text-slate-500"><Loader2 className="h-5 w-5 animate-spin text-teal-600" /> جاري تحميل المتابعات...</div>;
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">{text}</div>;
 }

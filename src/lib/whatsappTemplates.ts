@@ -156,3 +156,22 @@ export function getTemplatesByCategory(category: WhatsAppTemplate["category"]): 
 export function getTemplateCategories(): WhatsAppTemplate["category"][] {
   return Array.from(new Set(whatsappTemplates.map((t) => t.category)));
 }
+
+export function buildCustomerServiceWhatsAppMessage(input: {
+  customerName?: string | null;
+  staffName?: string | null;
+  branch?: string | null;
+  reason?: string | null;
+}) {
+  const customerName = input.customerName || "حضرتك";
+  const staffName = input.staffName || "فريق خدمة العملاء";
+  const branch = input.branch || "دواaa Pharmacy";
+  const reason = input.reason || "الاطمئنان عليك ومتابعة احتياجاتك";
+
+  return [
+    `مرحبًا ${customerName}`,
+    `معك ${staffName} من ${branch}.`,
+    `نتواصل معك بخصوص ${reason}.`,
+    "هل يوجد أي طلب أو استفسار نقدر نساعدك فيه؟",
+  ].join("\n");
+}

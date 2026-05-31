@@ -23,11 +23,11 @@ export function normalizeCustomerSegment(value: unknown, _totalSpent = 0, avgMon
   const raw = String(value ?? "").trim().toLowerCase().replace("جداً", "جدًا").replace("جدا", "جدًا");
   // توحيد القيم القديمة، لكن الحكم النهائي يكون من avg_monthly إذا كان متاحًا.
   const avg = Number(avgMonthly || 0);
-  if (avg >= 8000) return "مهم جدًا";
-  if (avg >= 4000) return "مهم";
-  if (avg >= 1500) return "متوسط";
-  if (avg > 0) return "عادي";
-  if (["مهم جدًا", "vip", "very important"].includes(raw)) return "مهم جدًا";
+  if (avg > 8000) return "مهم جدًا";
+  if (avg > 4000) return "مهم";
+  if (avg > 1500) return "متوسط";
+  if (avg >= 0) return "عادي";
+  if (["مهم جدًا", "مهم جدا", "vip", "very important"].includes(raw)) return "مهم جدًا";
   if (["مهم", "important"].includes(raw)) return "مهم";
   if (["متوسط", "medium"].includes(raw)) return "متوسط";
   return "عادي";

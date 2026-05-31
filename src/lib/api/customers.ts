@@ -1,23 +1,37 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { phoneSearchTokens } from "@/lib/phone";
-import { matchesOrderedSegments } from "@/lib/utils";
-import { fetchSalesInvoices, getInvoicesForCustomer, normalizeInvoice } from "@/lib/salesInvoiceSource";
-import { fetchAllSalesInvoices } from "@/lib/salesInvoiceRepository";
-import {
-  cleanCustomerCode as cleanMasterCustomerCode,
-  normalizeCustomerPriority,
-  normalizeCustomerSegment,
-  normalizeCustomerStatus,
-  enrichCustomersFromInvoices,
-} from "@/lib/customerAnalyticsService";
-import type { Customer } from "@/types/database";
+import { normalizeCustomerSegment, normalizeCustomerStatus } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
 
-const DEFAULT_LIMIT = 50;
-const ALL_FILTER = "الكل";
-const PRIMARY_TABLE = "customers";
-const FALLBACK_SEARCH_COLUMNS = ["customer_code", "code", "name", "phone", "customer_name", "customer_phone", "full_name", "phone_number", "mobile"];
-type CustomerQueryBuilder = ReturnType<ReturnType<typeof supabase.from>["select"]>;
+const DEFAULT_LIMIT = 30;
+export const ALL_FILTER = "الكل";
+const SUMMARY_TABLE = "customer_metrics_summary";
+
+type Row = Record<string, unknown>;
+
+export type CustomerMetric = {
+  id: string;
+  final_customer_key: string | null;
+  customer_id: string | null;
+  customer_code: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  phone: string | null;
+  name: string | null;
+  branch: string | null;
+  invoices_count: number;
+  total_spent: number;
+  total_purchases: number;
+  avg_invoice: number;
+  first_purchase: string | null;
+  last_purchase: string | null;
+  active_months: number;
+  avg_monthly: number;
+  segment: string;
+  type: string;
+  customer_status: string;
+  status: string;
+  retention_status: string;
+};
 
 export interface GetCustomersOptions {
   search?: string;
@@ -35,10 +49,10 @@ export interface CustomerStats {
   medium: number;
   normal: number;
   newC: number;
+  active: number;
   atRisk: number;
   stopped: number;
   noPurchase: number;
-  // Backward compatibility for old dashboard labels.
   vip: number;
 }
 
@@ -54,9 +68,12 @@ export interface CustomerFollowupSummary {
   id: string;
   status: string | null;
   assigned_to: string | null;
+  responsible_name: string | null;
   notes: string | null;
+  followup_result: string | null;
   created_at: string | null;
-  followup_date?: string | null;
+  followup_date: string | null;
+  completed_at: string | null;
 }
 
 export interface CustomerDetails {
@@ -66,8 +83,8 @@ export interface CustomerDetails {
   topDoctor: string | null;
   lastServiceDoctor: string | null;
   lastFollowupReport: string | null;
-  avgMonthlyVisits: number;
-  currentMonthVisits: number;
+  avgMonthlyVisits: number | null;
+  currentMonthVisits: number | null;
 }
 
 function normalizeLimit(limit?: number) {
@@ -75,422 +92,153 @@ function normalizeLimit(limit?: number) {
   return Math.min(limit, 100);
 }
 
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "تعذر الاتصال بقاعدة البيانات";
-}
-
 function toNumber(value: unknown) {
   const numberValue = Number(value ?? 0);
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
-function readFirst(record: Record<string, unknown>, keys: string[], fallback: unknown = null) {
+function readFirst(row: Row | null | undefined, keys: string[], fallback: unknown = null) {
+  if (!row) return fallback;
   for (const key of keys) {
-    const value = record[key];
+    const value = row[key];
     if (value !== undefined && value !== null && value !== "") return value;
   }
   return fallback;
 }
 
-function isUuidLikeValue(value: unknown) {
+function isAll(value?: string | null) {
+  return !value || value === ALL_FILTER || value === "كل العملاء" || value === "كل التصنيفات" || value === "كل الحالات";
+}
+
+function isUuidLike(value: unknown) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value ?? "").trim());
 }
 
-function cleanCustomerCode(value: unknown) {
-  return cleanMasterCustomerCode(value) || null;
+function isoDateDaysAgo(days: number) {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - days);
+  return date.toISOString();
 }
 
-function normalizeArabicType(value?: string | null) {
-  const raw = String(value ?? "").trim().toLowerCase().replace("جداً", "جدًا").replace("جدا", "جدًا");
+function normalizeSearchPattern(search: string) {
+  const trimmed = search.replace(/\s+/g, " ").trim();
+  if (!trimmed) return null;
+  const safe = trimmed.replace(/[%,()]/g, "").replace(/\*/g, "%");
+  return safe.includes("%") ? safe : `%${safe}%`;
+}
+
+export function normalizeCustomerMetric(row: Row): CustomerMetric {
+  const totalSpent = toNumber(readFirst(row, ["total_spent"], 0));
+  const avgMonthly = toNumber(readFirst(row, ["avg_monthly"], 0));
+  const firstPurchase = readFirst(row, ["first_purchase"], null) as string | null;
+  const lastPurchase = readFirst(row, ["last_purchase"], null) as string | null;
+  const invoicesCount = toNumber(readFirst(row, ["invoices_count"], 0));
+  const segment = normalizeCustomerSegment(readFirst(row, ["segment"], null), totalSpent, avgMonthly);
+  const status = invoicesCount <= 0 || !lastPurchase
+    ? "بدون شراء"
+    : normalizeCustomerStatus(readFirst(row, ["customer_status"], null), lastPurchase, firstPurchase);
+  const customerId = readFirst(row, ["customer_id"], null) as string | null;
+  const finalKey = readFirst(row, ["final_customer_key"], null) as string | null;
+  const customerCode = readFirst(row, ["customer_code"], null) as string | null;
+  const phone = readFirst(row, ["customer_phone"], null) as string | null;
+  const name = readFirst(row, ["customer_name"], null) as string | null;
+
+  return {
+    id: String(customerId || finalKey || customerCode || phone || crypto.randomUUID()),
+    final_customer_key: finalKey,
+    customer_id: customerId,
+    customer_code: customerCode,
+    customer_name: name,
+    customer_phone: phone,
+    phone,
+    name,
+    branch: normalizeBranchName(readFirst(row, ["branch"], null)),
+    invoices_count: invoicesCount,
+    total_spent: totalSpent,
+    total_purchases: totalSpent,
+    avg_invoice: toNumber(readFirst(row, ["avg_invoice"], 0)),
+    first_purchase: firstPurchase,
+    last_purchase: lastPurchase,
+    active_months: toNumber(readFirst(row, ["active_months"], 0)),
+    avg_monthly: avgMonthly,
+    segment,
+    type: segment,
+    customer_status: status,
+    status,
+    retention_status: status,
+  };
+}
+
+function applyBranchFilter<T>(query: T, branch?: string): T {
+  if (isAll(branch)) return query;
+  return (query as any).eq("branch", branch);
+}
+
+function normalizeSegmentLabel(value?: string | null) {
+  const raw = String(value ?? "").trim().toLowerCase().replace("جدا", "جدًا").replace("جداً", "جدًا");
   if (["مهم جدًا", "vip", "very important"].includes(raw)) return "مهم جدًا";
   if (["مهم", "important"].includes(raw)) return "مهم";
   if (["متوسط", "medium"].includes(raw)) return "متوسط";
   return "عادي";
 }
 
-function normalizeArabicStatus(value?: string | null) {
-  return normalizeCustomerStatus(value || null, null, null);
+function applySegmentFilter<T>(query: T, segment?: string): T {
+  if (isAll(segment)) return query;
+  const normalized = normalizeSegmentLabel(segment);
+  if (normalized === "مهم جدًا") return (query as any).gt("avg_monthly", 8000);
+  if (normalized === "مهم") return (query as any).gt("avg_monthly", 4000).lte("avg_monthly", 8000);
+  if (normalized === "متوسط") return (query as any).gt("avg_monthly", 1500).lte("avg_monthly", 4000);
+  return (query as any).lte("avg_monthly", 1500);
 }
 
-function segmentRank(segment?: string | null) {
-  const normalized = normalizeArabicType(segment);
-  return { "مهم جدًا": 1, "مهم": 2, "متوسط": 3, "عادي": 4 }[normalized] ?? 9;
-}
+function applyStatusFilter<T>(query: T, status?: string): T {
+  if (isAll(status)) return query;
+  const normalized = normalizeCustomerStatus(status, null, null);
+  const activeCutoff = isoDateDaysAgo(45);
+  const riskCutoff = isoDateDaysAgo(90);
+  const newCutoff = isoDateDaysAgo(30);
 
-function statusRank(status?: string | null) {
-  const normalized = normalizeArabicStatus(status);
-  return { "جديد": 5, "مهدد بالتوقف": 6, "متوقف": 7, "بدون شراء": 8, "نشط": 9 }[normalized] ?? 10;
-}
-
-function branchFilterValues(branch: string) {
-  if (branch.includes("شكري")) return ["فرع شكري", "شكري", "الادارة فرع شكري"];
-  if (branch.includes("شامي") || branch.includes("الشامى")) return ["فرع الشامي", "الشامي", "الشامى", "الفرعية الشامي"];
-  return [branch];
-}
-
-function normalizeCustomer(record: Record<string, unknown>): Customer {
-  const customerCode = cleanCustomerCode(readFirst(record, ["customer_code", "code"], null));
-  const totalPurchases = toNumber(readFirst(record, ["total_purchases", "total_spent", "total_amount", "purchases_total"], 0));
-  const avgMonthly = toNumber(readFirst(record, ["avg_monthly", "average_monthly", "monthly_avg", "avgMonthly"], 0));
-  const firstPurchase = readFirst(record, ["first_purchase", "first_purchase_date", "created_at"], null) as string | null;
-  const lastPurchase = readFirst(record, ["last_purchase", "last_purchase_date", "last_order_date"], null) as string | null;
-  const segment = normalizeCustomerSegment(readFirst(record, ["segment", "type", "customer_type", "priority"], null), totalPurchases, avgMonthly);
-  const status = normalizeCustomerStatus(readFirst(record, ["status", "retention_status"], null), lastPurchase, firstPurchase);
-  return {
-    ...record,
-    id: String(readFirst(record, ["id", "customer_id", "phone"], customerCode || "")),
-    customer_code: customerCode,
-    name: String(readFirst(record, ["name", "customer_name", "full_name"], "عميل بدون اسم")),
-    phone: String(readFirst(record, ["phone", "customer_phone", "phone_number", "mobile"], "")),
-    whatsapp_phone: readFirst(record, ["whatsapp_phone", "phone_alt"], null) as string | null,
-    whatsapp_link: readFirst(record, ["whatsapp_link"], null) as string | null,
-    branch: (() => { const b = normalizeBranchName(readFirst(record, ["branch", "branch_name"], null)); return b === "غير محدد" ? null : b; })(),
-    type: segment,
-    segment,
-    status,
-    priority: normalizeCustomerPriority(readFirst(record, ["priority"], null), segment, status),
-    avg_monthly: avgMonthly,
-    total_purchases: totalPurchases,
-    total_spent: totalPurchases,
-    total_invoices: toNumber(readFirst(record, ["total_invoices", "invoices_count", "invoice_count", "orders_count"], 0)),
-    invoices_count: toNumber(readFirst(record, ["invoices_count", "total_invoices", "invoice_count", "orders_count"], 0)),
-    avg_invoice: toNumber(readFirst(record, ["avg_invoice", "average_invoice", "avg_order_value"], 0)),
-    clv: toNumber(readFirst(record, ["clv", "customer_lifetime_value"], 0)),
-    risk_score: toNumber(readFirst(record, ["risk_score", "risk", "days_inactive"], 0)),
-    retention_status: status,
-    last_purchase: lastPurchase,
-    first_purchase: firstPurchase,
-    notes: readFirst(record, ["notes", "note"], null) as string | null,
-    whatsapp_notes: readFirst(record, ["whatsapp_notes", "whatsapp_note"], null) as string | null,
-    created_at: readFirst(record, ["created_at"], null) as string | null,
-    updated_at: readFirst(record, ["updated_at"], null) as string | null,
-  } as Customer;
-}
-
-function segmentFilterValues(type: string): string[] {
-  const normalized = normalizeArabicType(type);
-  if (normalized === "مهم جدًا") return ["مهم جدًا", "مهم جدا", "مهم جداً", "VIP", "vip", "Very Important", "very important"];
-  if (normalized === "مهم") return ["مهم", "important", "Important"];
-  if (normalized === "متوسط") return ["متوسط", "medium", "Medium"];
-  return ["عادي", "normal", "Normal", "regular", "Regular", ""];
-}
-
-function applyCustomerFilters(query: CustomerQueryBuilder, options: GetCustomersOptions) {
-  if (options.branch && options.branch !== ALL_FILTER) query = query.in("branch", branchFilterValues(options.branch));
-  if (options.type && options.type !== ALL_FILTER) {
-    const normalizedType = normalizeArabicType(options.type);
-    // استخدام OR لمطابقة جميع المتغيرات الممكنة للتصنيف
-    if (normalizedType === "مهم جدًا") {
-      query = query.or("segment.eq.مهم جدًا,segment.eq.مهم جدا,segment.eq.مهم جداً,segment.eq.VIP,segment.eq.vip,segment.eq.Very Important,segment.eq.very important,type.eq.مهم جدًا,type.eq.مهم جدا,type.eq.مهم جداً");
-    } else if (normalizedType === "مهم") {
-      query = query.or("segment.eq.مهم,segment.eq.important,segment.eq.Important,type.eq.مهم,type.eq.important");
-    } else if (normalizedType === "متوسط") {
-      query = query.or("segment.eq.متوسط,segment.eq.medium,segment.eq.Medium,type.eq.متوسط,type.eq.medium");
-    } else if (normalizedType === "عادي") {
-      query = query.or("segment.eq.عادي,segment.eq.normal,segment.eq.Normal,segment.eq.regular,segment.eq.Regular,type.eq.عادي,type.eq.normal,type.eq.regular");
-    } else {
-      query = query.eq("segment", normalizedType);
-    }
+  if (normalized === "بدون شراء") {
+    return (query as any).or("invoices_count.lte.0,last_purchase.is.null");
+  }
+  if (normalized === "جديد") {
+    return (query as any).gte("first_purchase", newCutoff).gt("invoices_count", 0);
+  }
+  if (normalized === "نشط") {
+    return (query as any).gte("last_purchase", activeCutoff).lt("first_purchase", newCutoff).gt("invoices_count", 0);
+  }
+  if (normalized === "مهدد بالتوقف") {
+    return (query as any).lt("last_purchase", activeCutoff).gte("last_purchase", riskCutoff).gt("invoices_count", 0);
+  }
+  if (normalized === "متوقف") {
+    return (query as any).lt("last_purchase", riskCutoff).gt("invoices_count", 0);
   }
   return query;
 }
 
-function isMissingColumnError(error: { message?: string } | null) {
-  const message = error?.message?.toLowerCase() || "";
-  return message.includes("does not exist") || message.includes("schema cache");
+function applySearch<T>(query: T, search?: string): T {
+  const pattern = normalizeSearchPattern(search || "");
+  if (!pattern) return query;
+  const digits = String(search || "").replace(/[^\d٠-٩]/g, "");
+  const arabicDigits = "٠١٢٣٤٥٦٧٨٩";
+  const latinDigits = digits.replace(/[٠-٩]/g, (digit) => String(arabicDigits.indexOf(digit)));
+  const phonePattern = latinDigits.length >= 2 ? normalizeSearchPattern(latinDigits.includes("*") ? latinDigits : `*${latinDigits}*`) : null;
+  const clauses = [
+    `customer_code.ilike.${pattern}`,
+    `customer_name.ilike.${pattern}`,
+    `customer_phone.ilike.${phonePattern || pattern}`,
+    `final_customer_key.ilike.${pattern}`,
+  ];
+  return (query as any).or(clauses.join(","));
 }
 
-function uniqCustomers(records: Customer[]) {
-  const seen = new Set<string>();
-  return records.filter((customer) => {
-    const key = customer.customer_code || customer.id || `${customer.name}:${customer.phone}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function searchTerms(search?: string) {
-  const raw = search?.replace(/\*/g, " ").replace(/\s+/g, " ").trim();
-  if (!raw) return [];
-  const phoneTokens = phoneSearchTokens(raw);
-  return Array.from(new Set([raw, phoneTokens.local, phoneTokens.last4, phoneTokens.last5, phoneTokens.whatsapp]))
-    .map((term) => term.replace(/[%(),]/g, "").trim())
-    .filter((term) => term.length >= 2);
-}
-
-/** بحث محسّن بالأولوية: كود تام ← كود يبدأ ← اسم يبدأ ← اسم يشمل ← هاتف */
-async function rankedCustomerSearch(options: GetCustomersOptions, limit: number, offset: number) {
-  const raw = options.search!.trim();
-  const table = PRIMARY_TABLE;
-  const scored = new Map<string, { customer: Customer; rank: number }>();
-
-  /** نمط مثل `ا*س*ل*ا*م`: نجلب مرشحين بعرض أول قطعة ثم نفلتر محليًا */
-  const starParts = raw.split("*").map((s) => s.trim()).filter(Boolean);
-  if (raw.includes("*") && starParts.length >= 2) {
-    const first = starParts[0];
-    if (first.length >= 1) {
-      const { data: broad, error: broadErr } = await supabase.from(table).select("*").ilike("name", `%${first}%`).limit(200);
-      if (!broadErr && broad?.length) {
-        let list = (broad as Record<string, unknown>[]).map(normalizeCustomer).filter((c) => matchesOrderedSegments(c.name, raw));
-        list = list.filter((customer) => {
-          const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
-          const typeMatch =
-            !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type || customer.segment || customer.category) === normalizeArabicType(options.type);
-          return branchMatch && typeMatch;
-        });
-        const total = list.length;
-        return {
-          customers: list.slice(offset, offset + limit),
-          count: total,
-          limit,
-          offset,
-        };
-      }
-    }
-  }
-
-  const merge = (rows: Record<string, unknown>[], rank: number) => {
-    for (const row of rows) {
-      const customer = normalizeCustomer(row);
-      const key = String(customer.customer_code || customer.id || `${customer.phone}:${customer.name}`);
-      const prev = scored.get(key);
-      if (!prev || rank < prev.rank) scored.set(key, { customer, rank });
-    }
-  };
-
-  const startsStar = raw.endsWith("*") && !raw.startsWith("*");
-  const endsStar = raw.startsWith("*") && !raw.endsWith("*");
-  const bothStar = raw.startsWith("*") && raw.endsWith("*") && raw.length > 2;
-
-  let nameCore = raw;
-  if (startsStar) nameCore = raw.slice(0, -1).trim();
-  else if (endsStar) nameCore = raw.slice(1).trim();
-  else if (bothStar) nameCore = raw.slice(1, -1).trim();
-
-  const digitsOnly = raw.replace(/\*/g, "").replace(/\s+/g, "").replace(/[^\d٠-٩]/g, "");
-  const latinDigits = digitsOnly.replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
-
-  if (latinDigits.length >= 2 && latinDigits.length <= 10) {
-    const { data: exactCode } = await supabase.from(table).select("*").eq("customer_code", latinDigits).limit(15);
-    merge((exactCode ?? []) as Record<string, unknown>[], 1);
-    const { data: swCode } = await supabase.from(table).select("*").ilike("customer_code", `${latinDigits}%`).limit(35);
-    merge((swCode ?? []) as Record<string, unknown>[], 2);
-  }
-
-  if (nameCore.length >= 1) {
-    let namePattern = `%${nameCore}%`;
-    let rank = 4;
-    if (startsStar) {
-      namePattern = `${nameCore}%`;
-      rank = 3;
-    } else if (endsStar) {
-      namePattern = `%${nameCore}`;
-      rank = 4;
-    } else if (bothStar) {
-      namePattern = `%${nameCore}%`;
-      rank = 4;
-    }
-
-    const { data: nameRows } = await supabase.from(table).select("*").ilike("name", namePattern).limit(45);
-    merge((nameRows ?? []) as Record<string, unknown>[], rank);
-  }
-
-  const phoneTokens = phoneSearchTokens(raw.replace(/\*/g, " "));
-  for (const tok of [phoneTokens.local, phoneTokens.last4, phoneTokens.last5].filter((x) => x && String(x).length >= 2)) {
-    const { data: ph } = await supabase.from(table).select("*").ilike("phone", `%${tok}%`).limit(35);
-    merge((ph ?? []) as Record<string, unknown>[], 5);
-    const { data: ph2, error: e2 } = await supabase.from(table).select("*").ilike("phone2", `%${tok}%`).limit(20);
-    if (!e2) merge((ph2 ?? []) as Record<string, unknown>[], 5);
-  }
-
-  let list = [...scored.values()]
-    .sort((a, b) => {
-      if (a.rank !== b.rank) return a.rank - b.rank;
-      return (b.customer.total_purchases ?? 0) - (a.customer.total_purchases ?? 0);
-    })
-    .map((item) => item.customer);
-
-  list = list.filter((customer) => {
-    const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
-    const typeMatch =
-      !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type || customer.segment) === normalizeArabicType(options.type);
-    return branchMatch && typeMatch;
-  });
-
-  const total = list.length;
-  return {
-    customers: list.slice(offset, offset + limit),
-    count: total,
-    limit,
-    offset,
-  };
-}
-
-async function fetchAllCustomers(maxRows = 20000) {
-  const all: Customer[] = [];
-  const pageSize = 1000;
-  for (let from = 0; from < maxRows; from += pageSize) {
-    const { data, error } = await supabase
-      .from("customers")
-      .select("*")
-      .range(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const page = ((data ?? []) as Record<string, unknown>[]).map(normalizeCustomer);
-    all.push(...page);
-    if (page.length < pageSize) break;
-  }
-  return all;
-}
-
-function matchesCustomerFilters(customer: Customer, options: GetCustomersOptions) {
-  const branchMatch = !options.branch || options.branch === ALL_FILTER || normalizeBranchName(customer.branch) === normalizeBranchName(options.branch);
-  const wantedType = normalizeArabicType(options.type);
-  const actualType = normalizeArabicType(customer.type || (customer as Customer & { segment?: string | null }).segment);
-  const typeMatch = !options.type || options.type === ALL_FILTER || actualType === wantedType;
-  const wantedStatus = normalizeArabicStatus(options.status);
-  const actualStatus = normalizeArabicStatus(customer.retention_status || (customer as Customer & { status?: string | null }).status);
-  const statusMatch = !options.status || options.status === ALL_FILTER || actualStatus === wantedStatus;
-  return branchMatch && typeMatch && statusMatch;
-}
-
-function matchesSearch(customer: Customer, search?: string) {
-  const q = String(search || "").trim().toLowerCase();
-  if (!q) return true;
-  const tokens = phoneSearchTokens(q);
-  const haystack = [
-    customer.customer_code,
-    customer.name,
-    customer.phone,
-    (customer as Customer & { whatsapp_phone?: string | null }).whatsapp_phone,
-    customer.branch,
-    customer.notes,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (q.includes("*") && matchesOrderedSegments(haystack, q)) return true;
-  return [q, tokens.local, tokens.whatsapp, tokens.last4, tokens.last5]
-    .filter((term) => term && term.length >= 2)
-    .some((term) => haystack.includes(String(term).toLowerCase()));
-}
-
-function sortCustomersByPriority(customers: Customer[]) {
-  return [...customers].sort((a, b) => {
-    const segA = segmentRank(a.type || (a as Customer & { segment?: string | null }).segment);
-    const segB = segmentRank(b.type || (b as Customer & { segment?: string | null }).segment);
-    if (segA !== segB) return segA - segB;
-    const statusA = statusRank(a.retention_status || (a as Customer & { status?: string | null }).status);
-    const statusB = statusRank(b.retention_status || (b as Customer & { status?: string | null }).status);
-    if (statusA !== statusB) return statusA - statusB;
-    const avgDiff = Number(b.avg_monthly || 0) - Number(a.avg_monthly || 0);
-    if (avgDiff !== 0) return avgDiff;
-    const totalDiff = Number(b.total_purchases || (b as Customer & { total_spent?: number | null }).total_spent || 0) - Number(a.total_purchases || (a as Customer & { total_spent?: number | null }).total_spent || 0);
-    if (totalDiff !== 0) return totalDiff;
-    return String(b.last_purchase || "").localeCompare(String(a.last_purchase || ""));
-  });
-}
-
-async function getEnrichedCustomers() {
-  const [baseCustomers, invoiceResult] = await Promise.all([
-    fetchAllCustomers(),
-    fetchAllSalesInvoices({}),
-  ]);
-  if (invoiceResult.error) {
-    throw new Error(invoiceResult.error);
-  }
-  return enrichCustomersFromInvoices(baseCustomers as unknown as Record<string, unknown>[], invoiceResult.invoices as Record<string, unknown>[]) as unknown as Customer[];
-}
-
-
-async function getFallbackCustomersBySearch(options: GetCustomersOptions, limit: number, offset: number) {
-  const terms = searchTerms(options.search);
-  if (!options.search?.trim()) return null;
-  if (terms.length === 0) return { customers: [], count: 0, limit, offset };
-
-  const found: Customer[] = [];
-
-  for (const term of terms) {
-    for (const column of FALLBACK_SEARCH_COLUMNS) {
-      const { data, error } = await supabase
-        .from("customers")
-        .select("*")
-        .ilike(column, `%${term}%`)
-        .range(0, limit + offset - 1);
-
-      if (error) {
-        if (isMissingColumnError(error)) continue;
-        throw new Error(error.message);
-      }
-
-      found.push(...((data ?? []) as Record<string, unknown>[]).map(normalizeCustomer));
-      if (uniqCustomers(found).length >= limit + offset) break;
-    }
-    if (uniqCustomers(found).length >= limit + offset) break;
-  }
-
-  const customers = uniqCustomers(found);
-  return {
-    customers: customers.slice(offset, offset + limit),
-    count: customers.length,
-    limit,
-    offset,
-  };
-}
-
-async function getAnalysisCustomers(options: GetCustomersOptions, limit: number, offset: number) {
-  if (options.search?.trim()) {
-    return rankedCustomerSearch(options, limit, offset);
-  }
-
-  let query = supabase
-    .from(PRIMARY_TABLE)
-    .select("*", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  query = applyCustomerFilters(query, options);
-
-  const { data, error, count } = await query;
-  if (error) throw error;
-
-  return {
-    customers: ((data ?? []) as Record<string, unknown>[]).map(normalizeCustomer),
-    count: count ?? 0,
-    limit,
-    offset,
-  };
-}
-
-async function getFallbackCustomers(options: GetCustomersOptions, limit: number, offset: number) {
-  const searchResult = await getFallbackCustomersBySearch(options, limit, offset);
-  if (searchResult) return searchResult;
-
-  const hasClientSideFilter = Boolean((options.branch && options.branch !== ALL_FILTER) || (options.type && options.type !== ALL_FILTER));
-
-  if (hasClientSideFilter) {
-    const all = await fetchAllCustomers();
-    const filtered = all.filter((customer) => matchesCustomerFilters(customer, options));
-    return { customers: filtered.slice(offset, offset + limit), count: filtered.length, limit, offset };
-  }
-
-  const { data, error, count } = await supabase
-    .from("customers")
-    .select("*", { count: "exact" })
-    .range(offset, offset + limit - 1);
-
-  if (error) throw new Error(error.message);
-  const mapped = ((data ?? []) as Record<string, unknown>[]).map(normalizeCustomer);
-  return { customers: mapped, count: count ?? mapped.length, limit, offset };
-}
-
-async function countCustomers(options: GetCustomersOptions = {}) {
-  if (!isSupabaseConfigured) return 0;
-
-  const { count: cRaw, error: errRaw } = await supabase.from("customers").select("id", { count: "exact", head: true });
-  if (errRaw) throw new Error(errRaw.message);
-  return cRaw ?? 0;
+function applyListFilters<T>(query: T, options: GetCustomersOptions): T {
+  query = applyBranchFilter(query, options.branch);
+  query = applySegmentFilter(query, options.type);
+  query = applyStatusFilter(query, options.status);
+  query = applySearch(query, options.search);
+  return query;
 }
 
 export async function getCustomers(options: GetCustomersOptions = {}) {
@@ -500,131 +248,158 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
 
   const limit = normalizeLimit(options.limit);
   const offset = Math.max(options.offset ?? 0, 0);
-  const all = await getEnrichedCustomers();
-  const filtered = sortCustomersByPriority(
-    all.filter((customer) => matchesSearch(customer, options.search) && matchesCustomerFilters(customer, options)),
-  );
+  let query = supabase
+    .from(SUMMARY_TABLE)
+    .select("final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status", { count: "exact" });
+
+  query = applyListFilters(query, options);
+
+  const { data, error, count } = await query
+    .order("avg_monthly", { ascending: false, nullsFirst: false })
+    .order("total_spent", { ascending: false, nullsFirst: false })
+    .order("last_purchase", { ascending: false, nullsFirst: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) throw new Error(`customer_metrics_summary: ${error.message}`);
 
   return {
-    customers: filtered.slice(offset, offset + limit),
-    count: filtered.length,
+    customers: ((data ?? []) as Row[]).map(normalizeCustomerMetric),
+    count: count ?? 0,
     limit,
     offset,
   };
 }
 
-export async function getCustomerById(id: string) {
+async function countRows(options: GetCustomersOptions = {}) {
+  let query = supabase
+    .from(SUMMARY_TABLE)
+    .select("final_customer_key", { count: "exact", head: true });
+  query = applyListFilters(query, options);
+  const { count, error } = await query;
+  if (error) throw new Error(`customer_metrics_summary: ${error.message}`);
+  return count ?? 0;
+}
+
+export async function getCustomerStats(): Promise<CustomerStats> {
   if (!isSupabaseConfigured) {
     throw new Error("إعدادات Supabase غير موجودة.");
   }
 
-  const attempts = [
-    () => supabase.from("customers").select("*").eq("id", id).limit(1),
-    () => supabase.from("customers").select("*").eq("customer_code", id).limit(1),
-    () => supabase.from("customers").select("*").eq("code", id).limit(1),
-  ];
-  let rows: Record<string, unknown>[] = [];
-  let lastError: { message?: string } | null = null;
-  for (const run of attempts) {
-    const { data, error } = await run();
-    if (error) {
-      lastError = error;
-      if (isMissingColumnError(error)) continue;
-      throw new Error(error.message);
-    }
-    rows = (data ?? []) as Record<string, unknown>[];
-    if (rows.length) break;
-  }
-  if (!rows.length && lastError && !isMissingColumnError(lastError)) throw new Error(lastError.message || "تعذر تحميل العميل");
-  return normalizeCustomer(rows[0] ?? {});
-}
-
-function getCustomerLookup(customer: Customer) {
-  const code = cleanCustomerCode(customer.customer_code) || "";
-  const id = String(customer.id || "").trim();
-  const phone = customer.phone || "";
-  return { code, id, phone };
-}
-
-export async function getCustomerDetails(customer: Customer): Promise<CustomerDetails> {
-  if (!isSupabaseConfigured) {
-    throw new Error("إعدادات Supabase غير موجودة.");
-  }
-
-  const { code, id, phone } = getCustomerLookup(customer);
-  const followupClauses = [
-    code ? `customer_code.eq.${code}` : "",
-    code ? `customer_id.eq.${code}` : "",
-    id ? `customer_id.eq.${id}` : "",
-    phone ? `customer_phone.eq.${phone}` : "",
-    customer.name ? `customer_name.eq.${customer.name}` : "",
-  ].filter(Boolean);
-
-  const [invoiceResult, followupResult] = await Promise.all([
-    fetchAllSalesInvoices({}),
-    supabase
-      .from("daily_followups")
-      .select("*")
-      .or(followupClauses.join(","))
-      .order("created_at", { ascending: false })
-      .limit(30),
+  const [
+    total,
+    veryImportant,
+    important,
+    medium,
+    normal,
+    newC,
+    active,
+    atRisk,
+    stopped,
+    noPurchase,
+  ] = await Promise.all([
+    countRows(),
+    countRows({ type: "مهم جدًا" }),
+    countRows({ type: "مهم" }),
+    countRows({ type: "متوسط" }),
+    countRows({ type: "عادي" }),
+    countRows({ status: "جديد" }),
+    countRows({ status: "نشط" }),
+    countRows({ status: "مهدد بالتوقف" }),
+    countRows({ status: "متوقف" }),
+    countRows({ status: "بدون شراء" }),
   ]);
 
-  const allInvoices = invoiceResult.error ? [] : invoiceResult.invoices;
+  return {
+    total,
+    veryImportant,
+    important,
+    medium,
+    normal,
+    newC,
+    active,
+    atRisk,
+    stopped,
+    noPurchase,
+    vip: veryImportant,
+  };
+}
 
-  if (followupResult.error && !isMissingColumnError(followupResult.error)) {
-    throw new Error(followupResult.error.message);
+function customerInvoiceOrClauses(customer: CustomerMetric) {
+  const clauses = [
+    customer.customer_id && isUuidLike(customer.customer_id) ? `customer_id.eq.${customer.customer_id}` : "",
+    customer.customer_code ? `customer_code.eq.${customer.customer_code}` : "",
+    customer.customer_phone ? `customer_phone.eq.${customer.customer_phone}` : "",
+    customer.customer_phone ? `phone.eq.${customer.customer_phone}` : "",
+  ].filter(Boolean);
+  return clauses.join(",");
+}
+
+export async function getCustomerDetails(customer: CustomerMetric, invoiceLimit = 20): Promise<CustomerDetails> {
+  if (!isSupabaseConfigured) {
+    throw new Error("إعدادات Supabase غير موجودة.");
   }
 
-  const invoices = getInvoicesForCustomer(customer, allInvoices).slice(0, 200).map((row) => {
-    const invoice = normalizeInvoice(row);
-    return {
-      invoice_number: invoice.invoiceNumber || null,
-      invoice_date: invoice.invoiceDate,
-      amount: invoice.amount,
-      seller_name: invoice.doctor,
-      branch: normalizeBranchName(invoice.branch),
-    };
-  });
+  const invoiceClauses = customerInvoiceOrClauses(customer);
+  const followupClauses = [
+    customer.customer_code ? `customer_code.eq.${customer.customer_code}` : "",
+    customer.customer_id ? `customer_id.eq.${customer.customer_id}` : "",
+    customer.customer_phone ? `customer_phone.eq.${customer.customer_phone}` : "",
+    customer.customer_name ? `customer_name.eq.${customer.customer_name}` : "",
+  ].filter(Boolean).join(",");
 
-  const doctorScores = new Map<string, { count: number; total: number }>();
-  for (const invoice of invoices) {
-    if (!invoice.seller_name) continue;
-    const current = doctorScores.get(invoice.seller_name) || { count: 0, total: 0 };
-    current.count += 1;
-    current.total += invoice.amount;
-    doctorScores.set(invoice.seller_name, current);
-  }
+  const invoiceQuery = invoiceClauses
+    ? supabase
+      .from("sales_invoices")
+      .select("invoice_number,invoice_no,invoice_date,net_amount,amount,gross_amount,seller_name,branch")
+      .or(invoiceClauses)
+      .order("invoice_date", { ascending: false })
+      .limit(Math.min(invoiceLimit, 50))
+    : Promise.resolve({ data: [], error: null } as any);
 
-  const topDoctor = [...doctorScores.entries()]
-    .sort((a, b) => (b[1].total - a[1].total) || (b[1].count - a[1].count))[0]?.[0] || null;
+  const followupQuery = followupClauses
+    ? supabase
+      .from("daily_followups")
+      .select("id,status,assigned_to,responsible_name,notes,followup_result,created_at,followup_date,completed_at")
+      .or(followupClauses)
+      .order("created_at", { ascending: false })
+      .limit(20)
+    : Promise.resolve({ data: [], error: null } as any);
 
-  // حساب متوسط تكرار الشراء الشهري وعدد مرات الشراء في الشهر الحالي
-  const monthlyVisitCounts = new Map<string, number>();
-  for (const inv of invoices) {
-    if (!inv.invoice_date) continue;
-    const key = inv.invoice_date.slice(0, 7); // YYYY-MM
-    monthlyVisitCounts.set(key, (monthlyVisitCounts.get(key) || 0) + 1);
-  }
-  const now = new Date();
-  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const currentMonthVisits = monthlyVisitCounts.get(currentMonthKey) || 0;
-  const previousMonthCounts = [...monthlyVisitCounts.entries()]
-    .filter(([month]) => month !== currentMonthKey)
-    .map(([, count]) => count);
-  const avgMonthlyVisits = previousMonthCounts.length
-    ? Math.round((previousMonthCounts.reduce((sum, c) => sum + c, 0) / previousMonthCounts.length) * 10) / 10
-    : 0;
+  const [invoiceResult, followupResult] = await Promise.all([invoiceQuery, followupQuery]);
+  if (invoiceResult.error) throw new Error(`sales_invoices: ${invoiceResult.error.message}`);
+  if (followupResult.error) throw new Error(`daily_followups: ${followupResult.error.message}`);
 
-  const followups = ((followupResult.data ?? []) as Record<string, unknown>[]).map((row) => ({
-    id: String(readFirst(row, ["id"], "")),
-    status: readFirst(row, ["status"], null) as string | null,
-    assigned_to: readFirst(row, ["assigned_to"], null) as string | null,
-    notes: readFirst(row, ["notes"], null) as string | null,
-    created_at: readFirst(row, ["created_at"], null) as string | null,
-    followup_date: readFirst(row, ["followup_date"], null) as string | null,
+  const invoices = ((invoiceResult.data ?? []) as Row[]).map((row) => ({
+    invoice_number: readFirst(row, ["invoice_number", "invoice_no"], null) as string | null,
+    invoice_date: readFirst(row, ["invoice_date"], null) as string | null,
+    amount: toNumber(readFirst(row, ["net_amount", "amount", "gross_amount"], 0)),
+    seller_name: readFirst(row, ["seller_name"], null) as string | null,
+    branch: normalizeBranchName(readFirst(row, ["branch"], null)),
   }));
 
+  const followups = ((followupResult.data ?? []) as Row[]).map((row) => ({
+    id: String(readFirst(row, ["id"], crypto.randomUUID())),
+    status: readFirst(row, ["status"], null) as string | null,
+    assigned_to: readFirst(row, ["assigned_to"], null) as string | null,
+    responsible_name: readFirst(row, ["responsible_name"], null) as string | null,
+    notes: readFirst(row, ["notes"], null) as string | null,
+    followup_result: readFirst(row, ["followup_result"], null) as string | null,
+    created_at: readFirst(row, ["created_at"], null) as string | null,
+    followup_date: readFirst(row, ["followup_date"], null) as string | null,
+    completed_at: readFirst(row, ["completed_at"], null) as string | null,
+  }));
+
+  const doctorTotals = new Map<string, { total: number; count: number }>();
+  for (const invoice of invoices) {
+    if (!invoice.seller_name) continue;
+    const current = doctorTotals.get(invoice.seller_name) || { total: 0, count: 0 };
+    current.total += invoice.amount;
+    current.count += 1;
+    doctorTotals.set(invoice.seller_name, current);
+  }
+
+  const topDoctor = [...doctorTotals.entries()]
+    .sort((a, b) => (b[1].total - a[1].total) || (b[1].count - a[1].count))[0]?.[0] || null;
   const lastFollowup = followups[0] || null;
 
   return {
@@ -632,47 +407,9 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
     followups,
     lastFollowup,
     topDoctor,
-    lastServiceDoctor: lastFollowup?.assigned_to || null,
-    lastFollowupReport: lastFollowup?.notes || null,
-    avgMonthlyVisits,
-    currentMonthVisits,
+    lastServiceDoctor: lastFollowup?.responsible_name || lastFollowup?.assigned_to || null,
+    lastFollowupReport: lastFollowup?.followup_result || lastFollowup?.notes || null,
+    avgMonthlyVisits: null,
+    currentMonthVisits: null,
   };
-}
-
-export async function getCustomerStats(): Promise<CustomerStats> {
-  try {
-    const all = await getEnrichedCustomers();
-    const counts = {
-      total: all.length,
-      veryImportant: 0,
-      important: 0,
-      medium: 0,
-      normal: 0,
-      newC: 0,
-      atRisk: 0,
-      stopped: 0,
-      noPurchase: 0,
-      vip: 0,
-    };
-
-    for (const customer of all) {
-      const segment = normalizeArabicType(customer.type || (customer as Customer & { segment?: string | null }).segment);
-      const status = normalizeArabicStatus(customer.retention_status || (customer as Customer & { status?: string | null }).status);
-
-      if (segment === "مهم جدًا") counts.veryImportant += 1;
-      else if (segment === "مهم") counts.important += 1;
-      else if (segment === "متوسط") counts.medium += 1;
-      else counts.normal += 1;
-
-      if (status === "جديد") counts.newC += 1;
-      else if (status === "مهدد بالتوقف") counts.atRisk += 1;
-      else if (status === "متوقف") counts.stopped += 1;
-      else if (status === "بدون شراء") counts.noPurchase += 1;
-    }
-
-    counts.vip = counts.veryImportant;
-    return counts;
-  } catch (error) {
-    throw new Error(getErrorMessage(error));
-  }
 }
