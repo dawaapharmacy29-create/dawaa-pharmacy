@@ -29,6 +29,7 @@ export type FollowupRow = {
   staff_id: string | null;
   customer_code: string | null;
   customer_phone: string | null;
+  customer_flags?: Record<string, boolean> | null;
   assigned_to: string | null;
   assigned_staff_id: string | null;
   contact_method: string | null;
@@ -256,38 +257,81 @@ function enrichFollowup(row: FollowupRow, metrics: CustomerMetric | null): Follo
 }
 
 async function loadMetricsForFollowups(rows: FollowupRow[]) {
-  const keys = rows
-    .flatMap((row) => [row.customer_code, row.customer_phone, row.phone])
-    .filter(Boolean)
-    .map(String);
-  if (!keys.length) return rows;
+  const codeValues = [...new Set(rows.map((row) => row.customer_code).filter(Boolean).map(String))].slice(0, 100);
+  const phoneValues = [...new Set(rows.flatMap((row) => [row.customer_phone, row.phone]).filter(Boolean).map(String))].slice(0, 100);
+  if (!codeValues.length && !phoneValues.length) return rows;
 
-  const codeValues = [...new Set(rows.map((row) => row.customer_code).filter(Boolean).map(String))].slice(0, 120);
-  const phoneValues = [...new Set(rows.flatMap((row) => [row.customer_phone, row.phone]).filter(Boolean).map(String))].slice(0, 120);
-
-  const clauses = [
+  const summaryClauses = [
     ...codeValues.map((code) => `customer_code.eq.${code}`),
     ...phoneValues.map((phone) => `customer_phone.eq.${phone}`),
+    ...phoneValues.map((phone) => `phone.eq.${phone}`),
   ];
-  if (!clauses.length) return rows;
+  const profileClauses = [
+    ...codeValues.map((code) => `customer_code.eq.${code}`),
+    ...phoneValues.map((phone) => `customer_phone.eq.${phone}`),
+    ...phoneValues.map((phone) => `phone.eq.${phone}`),
+    ...phoneValues.map((phone) => `phone_alt.eq.${phone}`),
+    ...phoneValues.map((phone) => `whatsapp_phone.eq.${phone}`),
+  ];
 
-  const { data, error } = await supabase
-    .from("customer_metrics_summary")
-    .select("final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status")
-    .or(clauses.join(","))
-    .limit(250);
+  const [summaryResult, profileResult] = await Promise.all([
+    supabase
+      .from("customer_metrics_summary")
+      .select("final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status")
+      .or(summaryClauses.join(","))
+      .limit(250),
+    supabase
+      .from("customers")
+      .select("id,customer_id,customer_code,customer_name,customer_phone,phone,customer_flags,customer_notes,service_notes,team_notes,handling_notes,address,phone_alt,whatsapp_phone")
+      .or(profileClauses.join(","))
+      .limit(250),
+  ]);
 
-  if (error) return rows;
+  if (summaryResult.error || profileResult.error) {
+    return rows;
+  }
+
+  const summaryData = (summaryResult.data ?? []) as Row[];
+  const profileData = (profileResult.data ?? []) as Row[];
 
   const byCode = new Map<string, CustomerMetric>();
   const byPhone = new Map<string, CustomerMetric>();
-  for (const raw of (data ?? []) as Row[]) {
+  for (const raw of summaryData) {
     const metric = normalizeCustomerMetric(raw);
     if (metric.customer_code) byCode.set(metric.customer_code, metric);
     if (metric.customer_phone) byPhone.set(metric.customer_phone, metric);
   }
 
-  return rows.map((row) => enrichFollowup(row, (row.customer_code && byCode.get(row.customer_code)) || (row.customer_phone && byPhone.get(row.customer_phone)) || (row.phone && byPhone.get(row.phone)) || null));
+  const profilesByKey = new Map<string, Row>();
+  for (const profile of profileData) {
+    const code = String(profile.customer_code || "");
+    const phone = String(profile.customer_phone || profile.phone || profile.phone_alt || profile.whatsapp_phone || "");
+    if (code) profilesByKey.set(`code:${code}`, profile);
+    if (phone) profilesByKey.set(`phone:${phone}`, profile);
+  }
+
+  return rows.map((row) => {
+    const customerMetric = (row.customer_code && byCode.get(row.customer_code))
+      || (row.customer_phone && byPhone.get(row.customer_phone))
+      || (row.phone && byPhone.get(row.phone))
+      || null;
+
+    const profileKey = row.customer_code ? `code:${row.customer_code}` : row.customer_phone ? `phone:${row.customer_phone}` : row.phone ? `phone:${row.phone}` : "";
+    const profile = profileKey ? profilesByKey.get(profileKey) : null;
+
+    let enriched = enrichFollowup(row, customerMetric);
+    if (profile) {
+      enriched = {
+        ...enriched,
+        customer_flags: profile.customer_flags as Record<string, boolean> | null,
+        customer_name: enriched.customer_name || String(profile.customer_name || ""),
+        customer_phone: enriched.customer_phone || String(profile.customer_phone || profile.phone || ""),
+        phone: enriched.phone || String(profile.customer_phone || profile.phone || ""),
+      };
+    }
+
+    return enriched;
+  });
 }
 
 export async function searchCustomerMetrics(search: string, branch?: string) {

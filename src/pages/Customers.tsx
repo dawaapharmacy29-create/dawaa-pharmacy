@@ -10,11 +10,13 @@ import {
   Search,
   Users,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   ALL_FILTER,
   getCustomerDetails,
   getCustomers,
   getCustomerStats,
+  saveCustomerProfileNotes,
   type CustomerDetails,
   type CustomerMetric,
   type CustomerStats,
@@ -391,6 +393,19 @@ function CustomerDetailsModal({ customer, onClose }: { customer: CustomerMetric;
   const [details, setDetails] = useState<CustomerDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    customerNotes: "",
+    whatsappNotes: "",
+    serviceNotes: "",
+    teamNotes: "",
+    handlingNotes: "",
+    address: "",
+    phoneAlt: "",
+    whatsappPhone: "",
+  });
   const wa = customer.customer_phone ? whatsappLink(customer.customer_phone, `السلام عليكم ${customer.customer_name || ""}`.trim()) : null;
 
   useEffect(() => {
@@ -412,6 +427,55 @@ function CustomerDetailsModal({ customer, onClose }: { customer: CustomerMetric;
     };
   }, [customer]);
 
+  useEffect(() => {
+    if (!details) return;
+    setForm({
+      customerNotes: details.customerNotes || "",
+      whatsappNotes: details.whatsappNotes || "",
+      serviceNotes: details.serviceNotes || "",
+      teamNotes: details.teamNotes || "",
+      handlingNotes: details.handlingNotes || "",
+      address: details.address || "",
+      phoneAlt: details.phoneAlt || "",
+      whatsappPhone: details.whatsappPhone || "",
+    });
+  }, [details]);
+
+  const saveProfile = async () => {
+    setSaveError(null);
+    setSaveLoading(true);
+    try {
+      const updated = await saveCustomerProfileNotes(customer, {
+        customer_notes: form.customerNotes || null,
+        whatsapp_notes: form.whatsappNotes || null,
+        service_notes: form.serviceNotes || null,
+        team_notes: form.teamNotes || null,
+        handling_notes: form.handlingNotes || null,
+        address: form.address || null,
+        phone_alt: form.phoneAlt || null,
+        whatsapp_phone: form.whatsappPhone || null,
+      });
+
+      setDetails((current) => current ? {
+        ...current,
+        customerNotes: updated.customer_notes || updated.notes || form.customerNotes || null,
+        whatsappNotes: updated.whatsapp_notes || null,
+        serviceNotes: updated.service_notes || null,
+        teamNotes: updated.team_notes || null,
+        handlingNotes: updated.handling_notes || null,
+        address: updated.address || null,
+        phoneAlt: updated.phone_alt || null,
+        whatsappPhone: updated.whatsapp_phone || null,
+      } : current);
+      setEditing(false);
+      toast.success("تم حفظ بيانات العميل");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "تعذر حفظ بيانات العميل");
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel max-w-6xl" onClick={(event) => event.stopPropagation()}>
@@ -423,6 +487,12 @@ function CustomerDetailsModal({ customer, onClose }: { customer: CustomerMetric;
               <span>{customer.customer_phone || "بدون رقم"}</span>
               <span>كود {customer.customer_code || "بدون كود"}</span>
               <span>{normalizeBranchName(customer.branch)}</span>
+              {details?.isPseudoCustomer ? (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-black text-amber-700">عميل غير موثوق</span>
+              ) : null}
+              {details?.purchaseFrequencyStatus ? (
+                <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-1 text-xs font-black text-teal-700">{details.purchaseFrequencyStatus}</span>
+              ) : null}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -444,13 +514,125 @@ function CustomerDetailsModal({ customer, onClose }: { customer: CustomerMetric;
           <Metric label="آخر شراء" value={customer.last_purchase ? formatDate(customer.last_purchase) : "غير محدد"} />
           <Metric label="أشهر النشاط" value={String(customer.active_months)} />
           <Metric label="التصنيف والحالة" value={`${customer.segment} · ${customer.customer_status}`} />
+          <Metric label="الشهر الحالي" value={details?.currentMonthVisits != null ? String(details.currentMonthVisits) : "غير متاح"} />
+          <Metric label="الشهر السابق" value={details?.previousMonthVisits != null ? String(details.previousMonthVisits) : "غير متاح"} />
+          <Metric label="متوسط عدد الزيارات" value={details?.avgMonthlyVisits != null ? String(details.avgMonthlyVisits) : "غير متاح"} />
+          <Metric label="توصية المتابعة" value={details?.purchaseFrequencyRecommendation || "غير متاح"} />
         </div>
 
-        {(details?.customerNotes || details?.whatsappNotes) && (
+        {details && (
           <div className="mx-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-700">
-            <div className="mb-2 font-black text-slate-950">ملاحظات العميل</div>
-            {details?.customerNotes ? <div className="whitespace-pre-line">{details.customerNotes}</div> : null}
-            {details?.whatsappNotes ? <div className="mt-2 whitespace-pre-line text-slate-600">{details.whatsappNotes}</div> : null}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="mb-2 font-black text-slate-950">ملاحظات وبيانات العميل</div>
+                <div className="text-xs text-slate-500">معلومات من سجل العميل في جدول العملاء وتاريخ المتابعات الأخيرة.</div>
+              </div>
+              <button type="button" className="btn-secondary px-3 py-2" onClick={() => setEditing((current) => !current)}>
+                {editing ? "إلغاء" : "تعديل"}
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold text-slate-500">ملاحظات العميل</div>
+                <div className="mt-2 whitespace-pre-line text-slate-700">{details.customerNotes || "لا توجد ملاحظات"}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold text-slate-500">ملاحظات واتساب</div>
+                <div className="mt-2 whitespace-pre-line text-slate-700">{details.whatsappNotes || "لا توجد"}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold text-slate-500">ملاحظات خدمة العملاء</div>
+                <div className="mt-2 whitespace-pre-line text-slate-700">{details.serviceNotes || "لا توجد"}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold text-slate-500">ملاحظات الفريق</div>
+                <div className="mt-2 whitespace-pre-line text-slate-700">{details.teamNotes || "لا توجد"}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold text-slate-500">ملاحظات التعامل</div>
+                <div className="mt-2 whitespace-pre-line text-slate-700">{details.handlingNotes || "لا توجد"}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold text-slate-500">العنوان</div>
+                <div className="mt-2 text-slate-700">{details.address || "غير محدد"}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold text-slate-500">هاتف إضافي</div>
+                <div className="mt-2 text-slate-700">{details.phoneAlt || "غير محدد"}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold text-slate-500">واتساب إضافي</div>
+                <div className="mt-2 text-slate-700">{details.whatsappPhone || "غير محدد"}</div>
+              </div>
+            </div>
+
+            {details.customerFlags.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {details.customerFlags.map((flag) => (
+                  <span key={flag} className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{flag}</span>
+                ))}
+              </div>
+            )}
+
+            {details.isPseudoCustomer && (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+                تنبيه: هذا العميل يبدو كعميل غير مسجل أو بياناته غير مكتملة. راجع رقم الهاتف والبريد قبل المتابعة.
+              </div>
+            )}
+
+            {saveError && (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+                {saveError}
+              </div>
+            )}
+
+            {editing && (
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <label className="block text-sm font-bold text-slate-700">
+                    ملاحظات العميل
+                    <textarea rows={4} value={form.customerNotes} onChange={(e) => setForm({ ...form, customerNotes: e.target.value })} className="dawaa-input mt-2 w-full" />
+                  </label>
+                  <label className="block text-sm font-bold text-slate-700">
+                    ملاحظات واتساب
+                    <textarea rows={4} value={form.whatsappNotes} onChange={(e) => setForm({ ...form, whatsappNotes: e.target.value })} className="dawaa-input mt-2 w-full" />
+                  </label>
+                  <label className="block text-sm font-bold text-slate-700">
+                    ملاحظات خدمة العملاء
+                    <textarea rows={3} value={form.serviceNotes} onChange={(e) => setForm({ ...form, serviceNotes: e.target.value })} className="dawaa-input mt-2 w-full" />
+                  </label>
+                  <label className="block text-sm font-bold text-slate-700">
+                    ملاحظات الفريق
+                    <textarea rows={3} value={form.teamNotes} onChange={(e) => setForm({ ...form, teamNotes: e.target.value })} className="dawaa-input mt-2 w-full" />
+                  </label>
+                  <label className="block text-sm font-bold text-slate-700">
+                    ملاحظات التعامل
+                    <textarea rows={3} value={form.handlingNotes} onChange={(e) => setForm({ ...form, handlingNotes: e.target.value })} className="dawaa-input mt-2 w-full" />
+                  </label>
+                  <label className="block text-sm font-bold text-slate-700">
+                    العنوان
+                    <input type="text" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="dawaa-input mt-2 w-full" />
+                  </label>
+                  <label className="block text-sm font-bold text-slate-700">
+                    هاتف إضافي
+                    <input type="text" value={form.phoneAlt} onChange={(e) => setForm({ ...form, phoneAlt: e.target.value })} className="dawaa-input mt-2 w-full" />
+                  </label>
+                  <label className="block text-sm font-bold text-slate-700">
+                    واتساب إضافي
+                    <input type="text" value={form.whatsappPhone} onChange={(e) => setForm({ ...form, whatsappPhone: e.target.value })} className="dawaa-input mt-2 w-full" />
+                  </label>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button type="button" className="dawaa-button-primary px-4 py-2" onClick={saveProfile} disabled={saveLoading}>
+                    {saveLoading ? "جاري الحفظ..." : "حفظ التغييرات"}
+                  </button>
+                  <button type="button" className="btn-secondary px-4 py-2" onClick={() => setEditing(false)} disabled={saveLoading}>
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

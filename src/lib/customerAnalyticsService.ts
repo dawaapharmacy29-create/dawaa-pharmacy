@@ -62,6 +62,43 @@ export function normalizeCustomerPriority(value: unknown, segment?: string | nul
   return "عادية";
 }
 
+const CUSTOMER_FLAG_LABELS: Record<string, string> = {
+  high_value: "عالي القيمة",
+  price_sensitive: "حساس للسعر",
+  no_delivery: "لا توصيل",
+  no_substitutes: "لا بدائل",
+  needs_special_handling: "يحتاج تعامل خاص",
+  vip: "VIP",
+  callback_required: "متابعة لاحقة",
+  blacklisted: "محظور",
+};
+
+export function customerFlagLabels(flags?: Record<string, boolean> | null) {
+  if (!flags || typeof flags !== "object") return [];
+  return Object.entries(flags)
+    .filter(([, value]) => Boolean(value))
+    .map(([key]) => CUSTOMER_FLAG_LABELS[key] || key);
+}
+
+export function isValidEgyptPhone(phone?: string | null, customerCode?: string | null) {
+  const clean = cleanEgyptianPhone(phone);
+  if (!clean) return false;
+  if (customerCode && String(phone || "").trim() === String(customerCode || "").trim()) {
+    return false;
+  }
+  return true;
+}
+
+export function isPseudoCustomer(customer?: { customer_name?: string | null; name?: string | null; customer_phone?: string | null; phone?: string | null; customer_id?: string | null; customer_code?: string | null; }) {
+  const name = String(customer?.customer_name || customer?.name || "").toLowerCase();
+  const phone = String(customer?.customer_phone || customer?.phone || "");
+  const noPhone = !isValidEgyptPhone(phone, customer?.customer_code);
+  const pseudoKeywords = ["عميل غير مسجل", "عميل الصيدلية", "غير معروف", "anonymous", "unknown"];
+  const pseudoName = pseudoKeywords.some((term) => name.includes(term));
+  const hasId = Boolean(customer?.customer_id && isUuidLike(customer.customer_id));
+  return noPhone && (!hasId || pseudoName);
+}
+
 function invoiceAmount(row: AnyRow) {
   const value = getSalesValue(row);
   return Number.isFinite(value) ? value : 0;

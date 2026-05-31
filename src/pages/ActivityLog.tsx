@@ -80,21 +80,21 @@ export default function ActivityLog() {
 
     setLoading(true);
     let table: "activity_log" | "activity_logs" = "activity_logs";
-    
-    // Try new activity_logs table first
-    const primary = await supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(500);
 
-    if (primary.error) {
-      // Fallback to old activity_log table
+    const primary = await supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(500);
+    if (!primary.error && (primary.data?.length ?? 0) > 0) {
+      setLogs((primary.data || []) as ActivityLogEntry[]);
+      table = "activity_logs";
+    } else {
       const secondary = await supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(500);
-      if (!secondary.error) {
-        table = "activity_log";
+      if (!secondary.error && (secondary.data?.length ?? 0) > 0) {
         setLogs((secondary.data || []) as ActivityLogEntry[]);
+        table = "activity_log";
+      } else if (!primary.error) {
+        setLogs((primary.data || []) as ActivityLogEntry[]);
       } else {
         setLogs([]);
       }
-    } else {
-      setLogs((primary.data || []) as ActivityLogEntry[]);
     }
 
     setSourceTable(table);

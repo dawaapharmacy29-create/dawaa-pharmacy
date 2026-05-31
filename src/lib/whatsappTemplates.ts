@@ -162,16 +162,38 @@ export function buildCustomerServiceWhatsAppMessage(input: {
   staffName?: string | null;
   branch?: string | null;
   reason?: string | null;
+  flags?: string[];
+  purchaseFrequencyStatus?: string | null;
 }) {
   const customerName = input.customerName || "حضرتك";
   const staffName = input.staffName || "فريق خدمة العملاء";
   const branch = input.branch || "دواaa Pharmacy";
   const reason = input.reason || "الاطمئنان عليك ومتابعة احتياجاتك";
+  const flags = input.flags || [];
+  const frequencyStatus = input.purchaseFrequencyStatus || "";
 
-  return [
+  const lines = [
     `مرحبًا ${customerName}`,
     `معك ${staffName} من ${branch}.`,
     `نتواصل معك بخصوص ${reason}.`,
-    "هل يوجد أي طلب أو استفسار نقدر نساعدك فيه؟",
-  ].join("\n");
+  ];
+
+  if (frequencyStatus === "توقف عن الشراء") {
+    lines.push("لاحظنا توقفًا في مشترياتك مؤخراً، نود التأكد من توافر احتياجاتك في أسرع وقت.");
+  } else if (frequencyStatus === "انخفض الشراء") {
+    lines.push("لاحظنا انخفاضًا في زياراتك، هل هناك أي خدمات أو عروض خاصة نقدر نساعدك بها؟");
+  }
+
+  if (flags.includes("لا توصيل")) {
+    lines.push("إذا كنت تفضل عدم التوصيل، نقدر نتعامل معك عبر الاستلام من الصيدلية.");
+  }
+  if (flags.includes("حساس للسعر")) {
+    lines.push("يمكننا تقديم عروض خاصة تناسب ميزانيتك عند الطلب.");
+  }
+  if (flags.includes("يحتاج تعامل خاص")) {
+    lines.push("نحن هنا لتقديم خدمة مميزة تناسب احتياجاتك الخاصة.");
+  }
+
+  lines.push("هل يوجد أي طلب أو استفسار نقدر نساعدك فيه؟");
+  return lines.join("\n");
 }

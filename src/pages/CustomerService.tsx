@@ -37,6 +37,7 @@ import {
 } from "@/lib/api/customerServiceCommandCenter";
 import { buildCustomerServiceWhatsAppMessage } from "@/lib/whatsappTemplates";
 import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
+import { isValidEgyptPhone, customerFlagLabels } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
 import { BRANCHES } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
@@ -457,13 +458,16 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
 }) {
   const phone = phoneOf(row);
   const cleanPhone = cleanEgyptianPhone(phone);
+  const hasValidPhone = isValidEgyptPhone(phone, row.customer_code);
   const message = buildCustomerServiceWhatsAppMessage({
     customerName: row.customer_name || row.name,
     staffName: responsibleOf(row),
     branch: row.branch,
     reason: row.followup_reason || row.suggested_action || row.request_type,
+    flags: row.customer_flags ? customerFlagLabels(row.customer_flags) : [],
+    purchaseFrequencyStatus: row.purchase_frequency_status ? (row.purchase_frequency_status === "stopped" ? "توقف عن الشراء" : row.purchase_frequency_status === "decreased" ? "انخفض الشراء" : row.purchase_frequency_status === "normal" ? "طبيعي" : row.purchase_frequency_status) : undefined,
   });
-  const wa = cleanPhone ? generateWhatsAppLink(cleanPhone, message) : "";
+  const wa = cleanPhone && hasValidPhone ? generateWhatsAppLink(cleanPhone, message) : "";
   return (
     <article className={`rounded-2xl border bg-white p-4 shadow-sm transition hover:shadow-md ${active ? "border-teal-300 ring-2 ring-teal-100" : "border-slate-200"}`} onClick={onSelect}>
       <div className="flex items-start justify-between gap-3">
@@ -484,6 +488,17 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
         <span>متوسط شهري: {avgMonthlyOf(row) === null ? "غير متاح" : formatMoney(avgMonthlyOf(row))}</span>
         <span>المسؤول: {responsibleOf(row)}</span>
         <span>الموعد: {formatDateTime(row.followup_datetime || row.followup_date)}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
+        {!hasValidPhone ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">رقم غير صالح</span> : null}
+        {row.purchase_frequency_status ? (
+          <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-1 text-teal-700">
+            {row.purchase_frequency_status === "stopped" ? "توقف عن الشراء" : row.purchase_frequency_status === "decreased" ? "انخفض الشراء" : row.purchase_frequency_status === "normal" ? "طبيعي" : row.purchase_frequency_status}
+          </span>
+        ) : null}
+        {row.customer_flags ? customerFlagLabels(row.customer_flags).map((flag) => (
+          <span key={flag} className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700">{flag}</span>
+        )) : null}
       </div>
       <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-700">
         {row.suggested_action || row.followup_reason || row.request_details || "تواصل مع العميل وسجل نتيجة المتابعة."}
