@@ -1,4 +1,9 @@
 import type { Customer } from "@/types/database";
+import {
+  hasCustomerFlag,
+  parseCustomerFlags,
+  type CustomerFlagsObject,
+} from "@/lib/customerFlags";
 
 export interface WhatsAppTemplate {
   id: string;
@@ -162,14 +167,14 @@ export function buildCustomerServiceWhatsAppMessage(input: {
   staffName?: string | null;
   branch?: string | null;
   reason?: string | null;
-  flags?: string[];
+  flags?: CustomerFlagsObject | any;
   purchaseFrequencyStatus?: string | null;
 }) {
   const customerName = input.customerName || "حضرتك";
   const staffName = input.staffName || "فريق خدمة العملاء";
   const branch = input.branch || "دواaa Pharmacy";
   const reason = input.reason || "الاطمئنان عليك ومتابعة احتياجاتك";
-  const flags = input.flags || [];
+  const flags = parseCustomerFlags(input.flags);
   const frequencyStatus = input.purchaseFrequencyStatus || "";
 
   const lines = [
@@ -184,16 +189,37 @@ export function buildCustomerServiceWhatsAppMessage(input: {
     lines.push("لاحظنا انخفاضًا في زياراتك، هل هناك أي خدمات أو عروض خاصة نقدر نساعدك بها؟");
   }
 
-  if (flags.includes("لا توصيل")) {
-    lines.push("إذا كنت تفضل عدم التوصيل، نقدر نتعامل معك عبر الاستلام من الصيدلية.");
+  // Price sensitive: Use softer price-aware language
+  if (hasCustomerFlag(flags, "price_sensitive")) {
+    lines.push("نقدر نرشح لحضرتك أنسب اختيار من حيث الجودة والسعر.");
   }
-  if (flags.includes("حساس للسعر")) {
-    lines.push("يمكننا تقديم عروض خاصة تناسب ميزانيتك عند الطلب.");
+
+  // No delivery: Do not mention adding delivery cost
+  if (hasCustomerFlag(flags, "no_delivery")) {
+    lines.push("نقدر تجهيز طلبك للاستلام من الصيدلية.");
   }
-  if (flags.includes("يحتاج تعامل خاص")) {
+
+  // No substitutes: Do not suggest alternatives directly
+  if (hasCustomerFlag(flags, "no_substitutes")) {
+    lines.push("لو الصنف المطلوب غير متوفر نبلغ حضرتك قبل أي بديل.");
+  }
+
+  // Needs special handling: Use extra polite careful tone
+  if (hasCustomerFlag(flags, "needs_special_handling")) {
     lines.push("نحن هنا لتقديم خدمة مميزة تناسب احتياجاتك الخاصة.");
   }
 
+  // Prefers call: Note for the staff (not included in WhatsApp message)
+  // This is handled in the UI component
+
   lines.push("هل يوجد أي طلب أو استفسار نقدر نساعدك فيه؟");
   return lines.join("\n");
+}
+
+/**
+ * Check if customer prefers call over WhatsApp
+ */
+export function customerPrefersCall(flags?: CustomerFlagsObject | any): boolean {
+  const parsedFlags = parseCustomerFlags(flags);
+  return hasCustomerFlag(parsedFlags, "prefers_call");
 }

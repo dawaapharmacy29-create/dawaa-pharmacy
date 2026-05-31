@@ -105,6 +105,15 @@ export interface CustomerDetails {
   customerFlags: string[];
   isPseudoCustomer: boolean;
   hasValidPhone: boolean;
+  purchaseAnalysis: PurchaseAnalysis | null;
+}
+
+export interface PurchaseAnalysis {
+  purchaseCountCurrentMonth: number;
+  purchaseCountPreviousMonth: number;
+  averageMonthlyPurchaseCount: number;
+  purchaseFrequencyStatus: string;
+  recommendation: string;
 }
 
 interface CustomerProfile {
@@ -643,6 +652,15 @@ export async function getCustomerDetails(customer: CustomerMetric, invoiceLimit 
   const validPhone = isValidEgyptPhone(profilePhone, customer.customer_code);
   const flags = customerFlagLabels(profile?.customer_flags as Record<string, boolean> | null);
 
+  // Purchase analysis
+  const purchaseAnalysis: PurchaseAnalysis | null = {
+    purchaseCountCurrentMonth: currentMonthVisits,
+    purchaseCountPreviousMonth: previousMonthVisits,
+    averageMonthlyPurchaseCount: avgMonthlyVisits || 0,
+    purchaseFrequencyStatus: purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits),
+    recommendation: purchaseFrequencyRecommendation(purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits)),
+  };
+
   return {
     invoices,
     followups,
@@ -666,5 +684,6 @@ export async function getCustomerDetails(customer: CustomerMetric, invoiceLimit 
     customerFlags: flags,
     isPseudoCustomer: isPseudo,
     hasValidPhone: validPhone,
+    purchaseAnalysis,
   };
 }

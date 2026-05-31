@@ -37,10 +37,16 @@ import {
 } from "@/lib/api/customerServiceCommandCenter";
 import { buildCustomerServiceWhatsAppMessage } from "@/lib/whatsappTemplates";
 import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
-import { isValidEgyptPhone, customerFlagLabels } from "@/lib/customerAnalyticsService";
+import { isValidEgyptPhone } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
 import { BRANCHES } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
+import {
+  getActiveCustomerFlags,
+  parseCustomerFlags,
+  hasCustomerFlag,
+} from "@/lib/customerFlags";
+import { CustomerFlagsBadges } from "@/components/CustomerFlagsBadges";
 
 const STATUS_OPTIONS = [ALL_FILTER, "معلق", "تم", "لم يرد", "مؤجل", "متأخرة", "يحتاج مدير", "تم الشراء بعد المتابعة"];
 const PRIORITY_OPTIONS = ["عاجل", "مهم", "متوسط", "عادي"];
@@ -179,6 +185,7 @@ export default function CustomerService() {
 
   const grouped = useMemo(() => {
     const groups = [
+      { label: "توقف عن الشراء", rows: [] as FollowupRow[] },
       { label: "مهم جدًا", rows: [] as FollowupRow[] },
       { label: "مهم", rows: [] as FollowupRow[] },
       { label: "متوسط", rows: [] as FollowupRow[] },
@@ -190,14 +197,27 @@ export default function CustomerService() {
     for (const row of followups) {
       const segment = segmentOf(row);
       const status = customerStatusOf(row);
-      if (row.needs_manager || followupStatus(row) === "يحتاج مدير") groups[6].rows.push(row);
-      else if (row.request_type || row.request_details) groups[5].rows.push(row);
-      else if (status === "متوقف") groups[4].rows.push(row);
-      else if (status === "مهدد بالتوقف") groups[3].rows.push(row);
-      else if (segment === "متوسط") groups[2].rows.push(row);
-      else if (segment === "مهم") groups[1].rows.push(row);
-      else if (segment === "مهم جدًا") groups[0].rows.push(row);
-      else groups[2].rows.push(row);
+      const purchaseStatus = row.purchase_frequency_status;
+      
+      // Priority 1: Purchase drop customers (توقف عن الشراء, انخفض الشراء, يحتاج متابعة)
+      if (purchaseStatus === "stopped" || purchaseStatus === "decreased" || purchaseStatus === "needs_followup") {
+        groups[0].rows.push(row);
+      }
+      // Priority 2: Needs manager
+      else if (row.needs_manager || followupStatus(row) === "يحتاج مدير") groups[7].rows.push(row);
+      // Priority 3: Special requests
+      else if (row.request_type || row.request_details) groups[6].rows.push(row);
+      // Priority 4: Stopped
+      else if (status === "متوقف") groups[5].rows.push(row);
+      // Priority 5: At risk
+      else if (status === "مهدد بالتوقف") groups[4].rows.push(row);
+      // Priority 6: Very important
+      else if (segment === "مهم جدًا") groups[1].rows.push(row);
+      // Priority 7: Important
+      else if (segment === "مهم") groups[2].rows.push(row);
+      // Priority 8: Medium
+      else if (segment === "متوسط") groups[3].rows.push(row);
+      else groups[3].rows.push(row);
     }
     return groups.filter((group) => group.rows.length);
   }, [followups]);
@@ -220,7 +240,7 @@ export default function CustomerService() {
     try {
       await logActivity({
         action,
-        description: action,
+        module: "customer_service",
         target_type: "daily_followups",
         details,
         route_path: "/customer-service",
@@ -459,12 +479,13 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
   const phone = phoneOf(row);
   const cleanPhone = cleanEgyptianPhone(phone);
   const hasValidPhone = isValidEgyptPhone(phone, row.customer_code);
+  const activeFlags = getActiveCustomerFlags(row.customer_flags);
   const message = buildCustomerServiceWhatsAppMessage({
     customerName: row.customer_name || row.name,
     staffName: responsibleOf(row),
     branch: row.branch,
     reason: row.followup_reason || row.suggested_action || row.request_type,
-    flags: row.customer_flags ? customerFlagLabels(row.customer_flags) : [],
+    flags: activeFlags.map(f => f.label),
     purchaseFrequencyStatus: row.purchase_frequency_status ? (row.purchase_frequency_status === "stopped" ? "توقف عن الشراء" : row.purchase_frequency_status === "decreased" ? "انخفض الشراء" : row.purchase_frequency_status === "normal" ? "طبيعي" : row.purchase_frequency_status) : undefined,
   });
   const wa = cleanPhone && hasValidPhone ? generateWhatsAppLink(cleanPhone, message) : "";
@@ -496,9 +517,7 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
             {row.purchase_frequency_status === "stopped" ? "توقف عن الشراء" : row.purchase_frequency_status === "decreased" ? "انخفض الشراء" : row.purchase_frequency_status === "normal" ? "طبيعي" : row.purchase_frequency_status}
           </span>
         ) : null}
-        {row.customer_flags ? customerFlagLabels(row.customer_flags).map((flag) => (
-          <span key={flag} className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700">{flag}</span>
-        )) : null}
+        <CustomerFlagsBadges customerFlags={row.customer_flags} limit={3} compact />
       </div>
       <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-700">
         {row.suggested_action || row.followup_reason || row.request_details || "تواصل مع العميل وسجل نتيجة المتابعة."}
