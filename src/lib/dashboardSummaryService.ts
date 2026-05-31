@@ -39,12 +39,46 @@ export type DashboardKpis = {
   invoicesWithoutBranch: number | null;
 };
 
+export type DashboardMetricStatus = "ready" | "empty" | "unavailable" | "error";
+
+export type DashboardMetric = {
+  value: number | null;
+  status: DashboardMetricStatus;
+  source: string;
+  message: string | null;
+  error: string | null;
+};
+
+export type DashboardKpiMetrics = {
+  netSales: DashboardMetric;
+  invoicesCount: DashboardMetric;
+  avgInvoice: DashboardMetric;
+  uniqueCustomers: DashboardMetric;
+  overdueFollowups: DashboardMetric;
+  urgentNotifications: DashboardMetric;
+};
+
+export type DashboardActionItem = {
+  key: string;
+  label: string;
+  value: number | null;
+  status: DashboardMetricStatus;
+  severity: "danger" | "warning" | "info";
+  recommendation: string;
+  route: string;
+  source: string;
+  message: string | null;
+  error: string | null;
+};
+
 export type CustomerIntelligence = {
   importantNeedFollowup: number | null;
   stoppedCustomers: number | null;
   atRiskCustomers: number | null;
   customersWithoutValidPhone: number | null;
   incompleteCustomers: number | null;
+  unlinkedCustomers: number | null;
+  dueTodayFollowups: number | null;
   overdueFollowups: number | null;
   needsManagerFollowups: number | null;
   error: string | null;
@@ -130,6 +164,8 @@ export type DashboardSummary = {
   notifications: DashboardNotification[];
   activity: DashboardActivity[];
   customerIntelligence: CustomerIntelligence;
+  normalizedKpis: DashboardKpiMetrics;
+  actionCenter: DashboardActionItem[];
   dataHealth: DataHealth;
   sourceHealth: SourceHealth;
   errors: SourceError[];
@@ -164,9 +200,24 @@ const CUSTOMER_INTELLIGENCE_EMPTY: CustomerIntelligence = {
   atRiskCustomers: null,
   customersWithoutValidPhone: null,
   incompleteCustomers: null,
+  unlinkedCustomers: null,
+  dueTodayFollowups: null,
   overdueFollowups: null,
   needsManagerFollowups: null,
   error: null,
+};
+
+function emptyMetric(source: string, message = "غير متاح حاليًا"): DashboardMetric {
+  return { value: null, status: "unavailable", source, message, error: null };
+}
+
+const KPI_METRICS_EMPTY: DashboardKpiMetrics = {
+  netSales: emptyMetric("get_dashboard_kpis"),
+  invoicesCount: emptyMetric("get_dashboard_kpis"),
+  avgInvoice: emptyMetric("get_dashboard_kpis"),
+  uniqueCustomers: emptyMetric("get_dashboard_kpis"),
+  overdueFollowups: emptyMetric("followup_performance_summary"),
+  urgentNotifications: emptyMetric("notifications"),
 };
 
 function toNumber(value: unknown): number {
@@ -178,6 +229,63 @@ function toNullableNumber(value: unknown): number | null {
   if (value === undefined || value === null || value === "") return null;
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function hasNumber(value: number | null | undefined): value is number {
+  return value !== null && value !== undefined && Number.isFinite(Number(value));
+}
+
+function sumNumbers<T>(rows: T[], selector: (row: T) => number) {
+  return rows.reduce((sum, row) => sum + selector(row), 0);
+}
+
+function metric(
+  value: number | null,
+  source: string,
+  options: { empty?: boolean; error?: string | null; unavailableMessage?: string | null } = {},
+): DashboardMetric {
+  if (options.error) {
+    return {
+      value: null,
+      status: "error",
+      source,
+      message: friendlySourceError(options.error),
+      error: options.error,
+    };
+  }
+
+  if (hasNumber(value)) {
+    return {
+      value,
+      status: options.empty ? "empty" : "ready",
+      source,
+      message: options.empty ? "لا توجد بيانات في الفترة المحددة" : null,
+      error: null,
+    };
+  }
+
+  return {
+    value: null,
+    status: "unavailable",
+    source,
+    message: options.unavailableMessage || "غير متاح حاليًا",
+    error: null,
+  };
+}
+
+export function friendlySourceError(message: string | null | undefined) {
+  const value = String(message || "").toLowerCase();
+  if (!value) return "غير متاح حاليًا";
+  if (value.includes("timeout") || value.includes("statement timeout")) {
+    return "المصدر استغرق وقتًا طويلًا، يحتاج تحسين أو استخدام ملخص أسرع";
+  }
+  if (value.includes("does not exist") || value.includes("not found") || value.includes("could not find")) {
+    return "مصدر البيانات غير موجود أو يحتاج تحديث";
+  }
+  if (value.includes("permission denied")) return "لا توجد صلاحية لقراءة المصدر";
+  if (value.includes("ambiguous")) return "دالة المؤشرات تحتاج إصلاح SQL";
+  if (value.includes("function")) return "دالة المؤشرات غير موجودة أو تحتاج تحديث";
+  return "حدث خطأ في مصدر البيانات";
 }
 
 function readFirst(row: Row | null | undefined, keys: string[], fallback: unknown = null) {
@@ -374,9 +482,17 @@ function startOfTodayIso() {
   return date.toISOString();
 }
 
+function startOfTomorrowIso() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + 1);
+  return date.toISOString();
+}
+
 async function fetchCustomerIntelligence(branch: string, errors: SourceError[], health: SourceHealth): Promise<CustomerIntelligence> {
   try {
     const today = startOfTodayIso();
+    const tomorrow = startOfTomorrowIso();
     const applyBranch = (query: any) => (!isAllBranches(branch) ? query.eq("branch", branch) : query);
     const [
       importantNeedFollowup,
@@ -384,6 +500,8 @@ async function fetchCustomerIntelligence(branch: string, errors: SourceError[], 
       atRiskCustomers,
       customersWithoutValidPhone,
       incompleteCustomers,
+      unlinkedCustomers,
+      dueTodayFollowups,
       overdueFollowups,
       needsManagerFollowups,
     ] = await Promise.all([
@@ -392,8 +510,18 @@ async function fetchCustomerIntelligence(branch: string, errors: SourceError[], 
       ),
       countRows("customer_metrics_summary", (query) => applyBranch(query.eq("customer_status", "متوقف"))),
       countRows("customer_metrics_summary", (query) => applyBranch(query.eq("customer_status", "مهدد بالتوقف"))),
-      countRows("customer_metrics_summary", (query) => applyBranch(query.or("customer_phone.is.null,customer_phone.eq."))),
-      countRows("customer_metrics_summary", (query) => applyBranch(query.or("customer_code.is.null,customer_code.eq.,customer_name.is.null,customer_name.eq."))),
+      countRows("customer_metrics_summary", (query) =>
+        applyBranch(query.or("customer_phone.is.null,customer_phone.eq.,customer_phone.ilike.code:%")),
+      ),
+      countRows("customer_metrics_summary", (query) =>
+        applyBranch(query.or("customer_code.is.null,customer_code.eq.,customer_name.is.null,customer_name.eq.,customer_name.ilike.%عميل غير مسجل%,customer_name.ilike.%عميل الصيدلية%")),
+      ),
+      countRows("customer_metrics_summary", (query) =>
+        applyBranch(query.or("customer_id.is.null,customer_code.is.null,customer_code.eq.,customer_name.ilike.%عميل غير مسجل%,customer_name.ilike.%عميل الصيدلية%")),
+      ),
+      countRows("daily_followups", (query) =>
+        applyBranch(query.gte("followup_datetime", today).lt("followup_datetime", tomorrow).is("completed_at", null)),
+      ),
       countRows("daily_followups", (query) =>
         applyBranch(query.lt("followup_datetime", today).is("completed_at", null).is("postponed_until", null)),
       ),
@@ -407,6 +535,8 @@ async function fetchCustomerIntelligence(branch: string, errors: SourceError[], 
       atRiskCustomers,
       customersWithoutValidPhone,
       incompleteCustomers,
+      unlinkedCustomers,
+      dueTodayFollowups,
       overdueFollowups,
       needsManagerFollowups,
       error: null,
@@ -496,6 +626,220 @@ function mapActivity(row: Row): DashboardActivity {
   };
 }
 
+function sourceError(errors: SourceError[], source: string) {
+  return errors.find((item) => item.source === source)?.message || null;
+}
+
+function sumFollowupRows(rows: FollowupPerformanceSummary[]) {
+  return rows.reduce(
+    (acc, row) => ({
+      assignedCount: acc.assignedCount + row.assignedCount,
+      completedCount: acc.completedCount + row.completedCount,
+      overdueCount: acc.overdueCount + row.overdueCount,
+      noAnswerCount: acc.noAnswerCount + row.noAnswerCount,
+      postponedCount: acc.postponedCount + row.postponedCount,
+      needsManagerCount: acc.needsManagerCount + row.needsManagerCount,
+      purchaseAfterFollowupAmount: acc.purchaseAfterFollowupAmount + row.purchaseAfterFollowupAmount,
+    }),
+    {
+      assignedCount: 0,
+      completedCount: 0,
+      overdueCount: 0,
+      noAnswerCount: 0,
+      postponedCount: 0,
+      needsManagerCount: 0,
+      purchaseAfterFollowupAmount: 0,
+    },
+  );
+}
+
+function buildNormalizedKpis(args: {
+  kpis: DashboardKpis | null;
+  dailySales: SalesDailySummary[];
+  followupPerformance: FollowupPerformanceSummary[];
+  notifications: DashboardNotification[];
+  customerIntelligence: CustomerIntelligence;
+  errors: SourceError[];
+}): DashboardKpiMetrics {
+  const { kpis, dailySales, followupPerformance, notifications, customerIntelligence, errors } = args;
+  const rpcError = sourceError(errors, "get_dashboard_kpis");
+  const salesSummaryError = sourceError(errors, "sales_daily_summary");
+  const followupError = sourceError(errors, "followup_performance_summary");
+  const notificationsError = sourceError(errors, "notifications");
+  const salesSummaryHasRows = dailySales.length > 0;
+  const salesNetFromSummary = salesSummaryHasRows ? sumNumbers(dailySales, (row) => row.netTotal) : null;
+  const invoicesFromSummary = salesSummaryHasRows ? sumNumbers(dailySales, (row) => row.invoicesCount) : null;
+  const netSales = hasNumber(kpis?.netSales)
+    ? metric(kpis.netSales, "get_dashboard_kpis")
+    : hasNumber(salesNetFromSummary)
+      ? metric(salesNetFromSummary, "sales_daily_summary")
+      : metric(null, "sales_daily_summary", { error: salesSummaryError, unavailableMessage: rpcError ? "تعذر تحميل صافي المبيعات من الدالة والملخص اليومي" : "غير متاح حاليًا" });
+
+  const invoicesCount = hasNumber(kpis?.invoicesCount)
+    ? metric(kpis.invoicesCount, "get_dashboard_kpis", { empty: kpis.invoicesCount === 0 })
+    : hasNumber(invoicesFromSummary)
+      ? metric(invoicesFromSummary, "sales_daily_summary", { empty: invoicesFromSummary === 0 })
+      : metric(null, "get_dashboard_kpis", { error: rpcError });
+
+  const avgFromNet = hasNumber(netSales.value) && hasNumber(invoicesCount.value) && invoicesCount.value > 0
+    ? netSales.value / invoicesCount.value
+    : null;
+  const avgInvoice = hasNumber(kpis?.avgInvoice)
+    ? metric(kpis.avgInvoice, "get_dashboard_kpis")
+    : hasNumber(avgFromNet)
+      ? metric(avgFromNet, netSales.source)
+      : metric(null, "get_dashboard_kpis", { error: rpcError });
+
+  const followupTotals = sumFollowupRows(followupPerformance);
+  const overdueFallback = hasNumber(customerIntelligence.overdueFollowups)
+    ? customerIntelligence.overdueFollowups
+    : followupPerformance.length
+      ? followupTotals.overdueCount
+      : null;
+
+  const urgentCount = notifications.filter((item) => /urgent|high|عاجل|مرتفع/i.test(String(item.priority || ""))).length;
+
+  return {
+    netSales,
+    invoicesCount,
+    avgInvoice,
+    uniqueCustomers: hasNumber(kpis?.uniqueCustomers)
+      ? metric(kpis.uniqueCustomers, "get_dashboard_kpis", { empty: kpis.uniqueCustomers === 0 })
+      : metric(null, "get_dashboard_kpis", { error: rpcError }),
+    overdueFollowups: hasNumber(kpis?.overdueFollowups)
+      ? metric(kpis.overdueFollowups, "get_dashboard_kpis")
+      : hasNumber(overdueFallback)
+        ? metric(overdueFallback, hasNumber(customerIntelligence.overdueFollowups) ? "daily_followups" : "followup_performance_summary")
+        : metric(null, "followup_performance_summary", { error: followupError || customerIntelligence.error }),
+    urgentNotifications: notificationsError
+      ? metric(null, "notifications", { error: notificationsError })
+      : metric(urgentCount, "notifications"),
+  };
+}
+
+function actionStatus(value: number | null, error?: string | null): DashboardMetricStatus {
+  if (error) return "error";
+  if (!hasNumber(value)) return "unavailable";
+  return "ready";
+}
+
+function buildActionCenter(args: {
+  normalizedKpis: DashboardKpiMetrics;
+  customerIntelligence: CustomerIntelligence;
+  dataHealth: DataHealth;
+  errors: SourceError[];
+}): DashboardActionItem[] {
+  const { normalizedKpis, customerIntelligence, dataHealth, errors } = args;
+  const customerError = customerIntelligence.error || sourceError(errors, "customer_metrics_summary");
+  const dataHealthError = dataHealth.error;
+  const doctorMissing = dataHealthError ? null : dataHealth.invoicesWithoutSellerName;
+  const branchMissing = dataHealthError ? null : dataHealth.invoicesWithoutBranch;
+  const unlinked = hasNumber(customerIntelligence.unlinkedCustomers)
+    ? customerIntelligence.unlinkedCustomers
+    : dataHealthError
+      ? null
+      : dataHealth.invoicesWithoutCustomerCode;
+
+  return [
+    {
+      key: "overdue-followups",
+      label: "متابعات متأخرة",
+      value: normalizedKpis.overdueFollowups.value,
+      status: normalizedKpis.overdueFollowups.status,
+      severity: "danger",
+      recommendation: "راجع الحالات المتأخرة قبل نهاية الوردية",
+      route: "/customer-service",
+      source: normalizedKpis.overdueFollowups.source,
+      message: normalizedKpis.overdueFollowups.message,
+      error: normalizedKpis.overdueFollowups.error,
+    },
+    {
+      key: "due-today",
+      label: "مهام مستحقة اليوم",
+      value: customerIntelligence.dueTodayFollowups,
+      status: actionStatus(customerIntelligence.dueTodayFollowups, customerError),
+      severity: "warning",
+      recommendation: "وزع المهام حسب الأولوية",
+      route: "/customer-service",
+      source: "daily_followups",
+      message: customerError ? friendlySourceError(customerError) : null,
+      error: customerError,
+    },
+    {
+      key: "important-risk",
+      label: "عملاء مهمين يحتاجون متابعة",
+      value: customerIntelligence.importantNeedFollowup,
+      status: actionStatus(customerIntelligence.importantNeedFollowup, customerError),
+      severity: "info",
+      recommendation: "ابدأ بالعملاء المهمين أو المتوقفين",
+      route: "/customers",
+      source: "customer_metrics_summary",
+      message: customerError ? friendlySourceError(customerError) : null,
+      error: customerError,
+    },
+    {
+      key: "needs-manager",
+      label: "شكاوى تحتاج مدير",
+      value: customerIntelligence.needsManagerFollowups,
+      status: actionStatus(customerIntelligence.needsManagerFollowups, customerError),
+      severity: "danger",
+      recommendation: "متابعة مدير مطلوبة قبل نهاية اليوم",
+      route: "/customer-service",
+      source: "daily_followups",
+      message: customerError ? friendlySourceError(customerError) : null,
+      error: customerError,
+    },
+    {
+      key: "unlinked-customers",
+      label: "فواتير تحتاج ربط عميل",
+      value: unlinked,
+      status: actionStatus(unlinked, customerError || dataHealthError),
+      severity: "warning",
+      recommendation: "اربط الفواتير قبل تحليل العملاء",
+      route: "/customers",
+      source: hasNumber(customerIntelligence.unlinkedCustomers) ? "customer_metrics_summary" : "sales_invoices_health",
+      message: customerError || dataHealthError ? friendlySourceError(customerError || dataHealthError) : null,
+      error: customerError || dataHealthError,
+    },
+    {
+      key: "missing-doctor",
+      label: "فواتير بدون دكتور",
+      value: doctorMissing,
+      status: actionStatus(doctorMissing, dataHealthError),
+      severity: "warning",
+      recommendation: "أكمل اسم الدكتور لتحسين تقييم الفريق",
+      route: "/invoices",
+      source: "sales_invoices_health",
+      message: dataHealthError ? friendlySourceError(dataHealthError) : null,
+      error: dataHealthError,
+    },
+    {
+      key: "missing-branch",
+      label: "فواتير بدون فرع",
+      value: branchMissing,
+      status: actionStatus(branchMissing, dataHealthError),
+      severity: "warning",
+      recommendation: "راجع بيانات الاستيراد والفرع",
+      route: "/invoices",
+      source: "sales_invoices_health",
+      message: dataHealthError ? friendlySourceError(dataHealthError) : null,
+      error: dataHealthError,
+    },
+    {
+      key: "urgent-notifications",
+      label: "تنبيهات عاجلة",
+      value: normalizedKpis.urgentNotifications.value,
+      status: normalizedKpis.urgentNotifications.status,
+      severity: normalizedKpis.urgentNotifications.value ? "danger" : "info",
+      recommendation: "ابدأ بالتنبيهات الأعلى أولوية",
+      route: "/notifications",
+      source: "notifications",
+      message: normalizedKpis.urgentNotifications.message,
+      error: normalizedKpis.urgentNotifications.error,
+    },
+  ];
+}
+
 export async function fetchExecutiveDashboardSummary(params: {
   startDate: string;
   endDate: string;
@@ -511,6 +855,8 @@ export async function fetchExecutiveDashboardSummary(params: {
       notifications: [],
       activity: [],
       customerIntelligence: { ...CUSTOMER_INTELLIGENCE_EMPTY, error: "إعدادات Supabase غير موجودة." },
+      normalizedKpis: KPI_METRICS_EMPTY,
+      actionCenter: [],
       dataHealth: { ...DATA_HEALTH_EMPTY, error: "إعدادات Supabase غير موجودة." },
       sourceHealth: SOURCE_HEALTH_EMPTY,
       errors: [{ source: "Supabase", message: "إعدادات Supabase غير موجودة." }],
@@ -573,15 +919,33 @@ export async function fetchExecutiveDashboardSummary(params: {
     fetchCustomerIntelligence(branch, errors, sourceHealth),
   ]);
 
+  const dailySales = dailyRows.map(mapDaily).filter((row) => row.saleDate);
+  const staffSales = staffRows.map(mapStaff).filter((row) => row.sellerName);
+  const deliveryPerformance = deliveryRows.map(mapDelivery).filter((row) => row.deliveryStaff);
+  const followupPerformance = followupRows.map(mapFollowup).filter((row) => row.followupDate);
+  const notifications = notificationsRows.map(mapNotification);
+  const activity = activityRows.map(mapActivity);
+  const normalizedKpis = buildNormalizedKpis({
+    kpis,
+    dailySales,
+    followupPerformance,
+    notifications,
+    customerIntelligence,
+    errors,
+  });
+  const actionCenter = buildActionCenter({ normalizedKpis, customerIntelligence, dataHealth, errors });
+
   return {
     kpis,
-    dailySales: dailyRows.map(mapDaily).filter((row) => row.saleDate),
-    staffSales: staffRows.map(mapStaff).filter((row) => row.sellerName),
-    deliveryPerformance: deliveryRows.map(mapDelivery).filter((row) => row.deliveryStaff),
-    followupPerformance: followupRows.map(mapFollowup).filter((row) => row.followupDate),
-    notifications: notificationsRows.map(mapNotification),
-    activity: activityRows.map(mapActivity),
+    dailySales,
+    staffSales,
+    deliveryPerformance,
+    followupPerformance,
+    notifications,
+    activity,
     customerIntelligence,
+    normalizedKpis,
+    actionCenter,
     dataHealth,
     sourceHealth,
     errors,

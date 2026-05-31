@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
-  Activity,
   AlertTriangle,
   BellRing,
   CalendarDays,
@@ -15,7 +14,6 @@ import {
   ShoppingCart,
   Stethoscope,
   TrendingUp,
-  Truck,
   Users,
   Wallet,
 } from "lucide-react";
@@ -34,13 +32,15 @@ import {
   ALL_BRANCHES,
   ALL_BRANCHES_LABEL,
   fetchExecutiveDashboardSummary,
+  friendlySourceError,
   type DashboardActivity,
+  type DashboardActionItem,
+  type DashboardMetric,
   type DashboardNotification,
   type DashboardSummary,
   type DeliveryPerformanceSummary,
   type FollowupPerformanceSummary,
   type SalesDailySummary,
-  type SourceError,
   type StaffSalesSummary,
 } from "@/lib/dashboardSummaryService";
 import { formatMoney, formatNumber } from "@/lib/dawaa2027";
@@ -90,10 +90,6 @@ function priorityClass(priority?: string | null) {
   if (value.includes("urgent") || value.includes("عاجل")) return "border-red-200 bg-red-50 text-red-700";
   if (value.includes("high") || value.includes("مرتفع")) return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-teal-200 bg-teal-50 text-teal-700";
-}
-
-function errorFor(errors: SourceError[], source: string) {
-  return errors.find((item) => item.source === source)?.message || null;
 }
 
 function sumFollowups(rows: FollowupPerformanceSummary[]) {
@@ -181,12 +177,9 @@ export default function ExecutiveDashboard2027() {
 
   const errors = summary?.errors || [];
   const kpis = summary?.kpis || null;
+  const normalizedKpis = summary?.normalizedKpis;
   const sourceHealth = summary?.sourceHealth;
-  const dataHealth = summary?.dataHealth;
-  const customerIntel = summary?.customerIntelligence;
-  const rpcError = errorFor(errors, "get_dashboard_kpis");
-  const customerIntelError = customerIntel?.error || errorFor(errors, "customer_metrics_summary");
-  const hasInvoiceRows = numberValue(kpis?.invoicesCount) !== 0;
+  const hasInvoiceRows = numberValue(normalizedKpis?.invoicesCount.value ?? kpis?.invoicesCount) !== 0;
   const urgentNotifications = useMemo(
     () => (summary?.notifications || []).filter((item) => /urgent|high|عاجل|مرتفع/i.test(String(item.priority || ""))).length,
     [summary],
@@ -227,88 +220,16 @@ export default function ExecutiveDashboard2027() {
     }
   };
 
-  const actionCards = [
-    {
-      label: "متابعات متأخرة",
-      value: displayCount(kpis?.overdueFollowups ?? followupTotals.overdueCount),
-      recommendation: "راجع الحالات المتأخرة قبل نهاية الوردية",
-      source: "followup_performance_summary",
-      reason: errorFor(errors, "followup_performance_summary") ? "راجع صحة المصدر" : null,
-      route: "/customer-service",
-      tone: "danger" as const,
-      icon: AlertTriangle,
-    },
-    {
-      label: "مهام مستحقة اليوم",
-      value: hasValue(kpis?.dueFollowups) ? displayCount(kpis?.dueFollowups) : hasValue(kpis?.tasksDueToday) ? displayCount(kpis?.tasksDueToday) : "غير متاح حاليًا",
-      recommendation: "وزع المهام حسب الأولوية",
-      source: "get_dashboard_kpis",
-      reason: rpcError || (!hasValue(kpis?.dueFollowups) && !hasValue(kpis?.tasksDueToday)) ? "راجع صحة المصدر" : null,
-      route: "/operations-center",
-      tone: "warning" as const,
-      icon: ClipboardList,
-    },
-    {
-      label: "فواتير تحتاج ربط عميل",
-      value: displayCount(kpis?.invoicesWithoutCustomerCode ?? dataHealth?.invoicesWithoutCustomerCode),
-      recommendation: "اربط الفواتير قبل تحليل العملاء",
-      source: "sales_invoices health",
-      reason: dataHealth?.error ? "راجع صحة المصدر" : null,
-      route: "/invoices",
-      tone: "warning" as const,
-      icon: Users,
-    },
-    {
-      label: "فواتير بدون دكتور",
-      value: displayCount(kpis?.invoicesWithoutSellerName ?? dataHealth?.invoicesWithoutSellerName),
-      recommendation: "أكمل اسم الدكتور لتحسين تقييم الفريق",
-      source: "sales_invoices health",
-      reason: dataHealth?.error ? "راجع صحة المصدر" : null,
-      route: "/invoices",
-      tone: "warning" as const,
-      icon: Stethoscope,
-    },
-    {
-      label: "فواتير بدون فرع",
-      value: displayCount(kpis?.invoicesWithoutBranch ?? dataHealth?.invoicesWithoutBranch),
-      recommendation: "راجع بيانات الاستيراد والفرع",
-      source: "sales_invoices health",
-      reason: dataHealth?.error ? "راجع صحة المصدر" : null,
-      route: "/invoices",
-      tone: "warning" as const,
-      icon: Database,
-    },
-    {
-      label: "تنبيهات عاجلة",
-      value: displayCount(urgentNotifications),
-      recommendation: "ابدأ بالتنبيهات الأعلى أولوية",
-      source: "notifications",
-      reason: errorFor(errors, "notifications") ? "راجع صحة المصدر" : null,
-      route: "/notifications",
-      tone: urgentNotifications ? "danger" as const : "info" as const,
-      icon: BellRing,
-    },
-    {
-      label: "عملاء مهمين يحتاجون متابعة",
-      value: displayCount(customerIntel?.importantNeedFollowup),
-      recommendation: "ابدأ بالعملاء المهمين المهددين أو المتوقفين",
-      source: "customer_metrics_summary",
-      reason: customerIntelError ? "راجع صحة المصدر" : null,
-      route: "/customers",
-      tone: "info" as const,
-      icon: HeadphonesIcon,
-    },
-    {
-      label: "شكاوى تحتاج مدير",
-      value: displayCount(customerIntel?.needsManagerFollowups),
-      recommendation: "متابعة مدير مطلوبة قبل نهاية اليوم",
-      source: "daily_followups.needs_manager",
-      reason: customerIntelError ? "راجع صحة المصدر" : null,
-      route: "/customer-service",
-      tone: "danger" as const,
-      icon: SearchX,
-    },
-  ];
+  const actionIconByKey: Record<string, ElementType> = {
+    "overdue-followups": AlertTriangle,
+    "due-today": ClipboardList,
+    "important-risk": HeadphonesIcon,
+    "needs-manager": SearchX,
+    "unlinked-customers": Users,
+    "missing-doctor": Stethoscope,
+    "missing-branch": Database,
+    "urgent-notifications": BellRing,
+  };
 
   return (
     <div className="dawaa-dashboard-light min-h-full space-y-5" dir="rtl">
@@ -358,7 +279,11 @@ export default function ExecutiveDashboard2027() {
           <div className="mt-3 grid gap-2">
             {errors.map((item) => (
               <div key={`${item.source}-${item.message}`} className="rounded-xl bg-white p-3 text-xs text-slate-700">
-                <b>{item.source}</b>: {item.message}
+                <div><b>{item.source}</b>: {friendlySourceError(item.message)}</div>
+                <details className="mt-2">
+                  <summary className="cursor-pointer font-bold text-slate-500">الرسالة التقنية</summary>
+                  <div className="mt-1 break-words text-slate-500">{item.message}</div>
+                </details>
               </div>
             ))}
           </div>
@@ -366,17 +291,19 @@ export default function ExecutiveDashboard2027() {
       )}
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard label="صافي مبيعات الفترة" value={displayMoney(kpis?.netSales)} subtitle="صافي قيمة الدورة" source="get_dashboard_kpis" icon={Wallet} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} empty={!hasInvoiceRows} />
-        <KpiCard label="عدد الفواتير" value={displayCount(kpis?.invoicesCount)} subtitle="فواتير الفترة المحددة" source="get_dashboard_kpis" icon={ShoppingCart} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} empty={!hasInvoiceRows} />
-        <KpiCard label="متوسط الفاتورة" value={displayMoney(kpis?.avgInvoice)} subtitle="متوسط صافي الفاتورة" source="get_dashboard_kpis" icon={TrendingUp} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} empty={!hasInvoiceRows} />
-        <KpiCard label="العملاء المشترين" value={displayCount(kpis?.uniqueCustomers)} subtitle="عملاء لديهم شراء" source="get_dashboard_kpis" icon={Users} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} empty={!hasInvoiceRows} />
-        <KpiCard label="المتابعات المتأخرة" value={displayCount(kpis?.overdueFollowups ?? followupTotals.overdueCount)} subtitle="تحتاج تدخل إداري" source="get_dashboard_kpis" icon={AlertTriangle} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} tone="danger" />
-        <KpiCard label="التنبيهات العاجلة" value={displayCount(urgentNotifications)} subtitle="من جدول التنبيهات" source="notifications" icon={BellRing} loading={loading} sourceError={errorFor(errors, "notifications")} tone={urgentNotifications ? "danger" : "teal"} />
+        <KpiCard label="صافي مبيعات الفترة" metric={normalizedKpis?.netSales} formatter="money" subtitle="صافي قيمة الدورة" icon={Wallet} loading={loading} empty={!hasInvoiceRows} />
+        <KpiCard label="عدد الفواتير" metric={normalizedKpis?.invoicesCount} formatter="count" subtitle="فواتير الفترة المحددة" icon={ShoppingCart} loading={loading} empty={!hasInvoiceRows} />
+        <KpiCard label="متوسط الفاتورة" metric={normalizedKpis?.avgInvoice} formatter="money" subtitle="متوسط صافي الفاتورة" icon={TrendingUp} loading={loading} empty={!hasInvoiceRows} />
+        <KpiCard label="العملاء المشترين" metric={normalizedKpis?.uniqueCustomers} formatter="count" subtitle="عملاء لديهم شراء" icon={Users} loading={loading} empty={!hasInvoiceRows} />
+        <KpiCard label="المتابعات المتأخرة" metric={normalizedKpis?.overdueFollowups} formatter="count" subtitle="تحتاج تدخل إداري" icon={AlertTriangle} loading={loading} tone="danger" />
+        <KpiCard label="التنبيهات العاجلة" metric={normalizedKpis?.urgentNotifications} formatter="count" subtitle="تنبيهات عالية الأولوية" icon={BellRing} loading={loading} tone={urgentNotifications ? "danger" : "teal"} />
       </section>
 
       <Panel title="مركز القرار السريع" source="RPC + summary views + lightweight counts" featured>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {actionCards.map((card) => <ActionCard key={card.label} {...card} />)}
+          {(summary?.actionCenter || []).map((card) => (
+            <ActionCard key={card.key} item={card} icon={actionIconByKey[card.key] || AlertTriangle} />
+          ))}
         </div>
       </Panel>
 
@@ -406,7 +333,7 @@ export default function ExecutiveDashboard2027() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-          ) : <Empty text={sourceHealth?.salesSummaryAvailable ? "لا توجد مبيعات في الفترة المحددة" : "غير متاح - sales_daily_summary غير متوفر"} />}
+          ) : <Empty text={sourceHealth?.salesSummaryAvailable ? "لا توجد بيانات مبيعات يومية للفترة المحددة" : "بيانات المبيعات اليومية غير متاحة حاليًا"} />}
         </Panel>
 
         <Panel title="أداء الفروع" source="sales_daily_summary">
@@ -452,59 +379,49 @@ export default function ExecutiveDashboard2027() {
 
 function KpiCard({
   label,
-  value,
+  metric,
+  formatter,
   subtitle,
-  source,
   icon: Icon,
   loading,
-  sourceError,
   empty,
   tone = "teal",
 }: {
   label: string;
-  value: ReactNode;
+  metric?: DashboardMetric;
+  formatter: "money" | "count";
   subtitle: string;
-  source: string;
   icon: ElementType;
   loading: boolean;
-  sourceError?: string | null;
   empty?: boolean;
   tone?: "teal" | "danger";
 }) {
   const iconClass = tone === "danger" ? "bg-red-50 text-red-600" : "bg-teal-50 text-teal-700";
-  const state = sourceError ? "غير متاح" : empty ? "لا توجد بيانات" : null;
+  const value = formatter === "money" ? displayMoney(metric?.value) : displayCount(metric?.value);
+  const isError = metric?.status === "error" || metric?.status === "unavailable";
+  const isEmpty = metric?.status === "empty" || empty;
+  const state = isError ? "غير متاح" : isEmpty ? "لا توجد بيانات" : null;
+  const detail = isError ? (metric?.message || "راجع صحة المصدر") : isEmpty ? "لا توجد بيانات في الفترة المحددة" : subtitle;
   return (
     <div className="dawaa-card min-h-[154px]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs font-bold text-slate-500">{label}</div>
           <div className="mt-2 text-2xl font-black text-slate-950">{loading ? "..." : state || value}</div>
-          <div className="mt-1 text-xs leading-5 text-slate-500">{sourceError ? "راجع تفاصيل مصادر البيانات" : empty ? "لا توجد بيانات في الفترة المحددة" : subtitle}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500">{detail}</div>
         </div>
         <div className={cx("rounded-2xl p-3", iconClass)}><Icon className="h-5 w-5" /></div>
       </div>
-      <div className="mt-4 text-[11px] font-bold text-slate-400">المصدر: {source}</div>
+      {metric?.status === "ready" && <div className="mt-4 text-[11px] font-bold text-slate-400">بيانات ملخصة ومعتمدة</div>}
     </div>
   );
 }
 
 function ActionCard({
-  label,
-  value,
-  recommendation,
-  reason,
-  source,
-  route,
-  tone,
+  item,
   icon: Icon,
 }: {
-  label: string;
-  value: ReactNode;
-  recommendation: string;
-  reason?: string | null;
-  source?: string;
-  route?: string;
-  tone: "danger" | "warning" | "info";
+  item: DashboardActionItem;
   icon: ElementType;
 }) {
   const colors = {
@@ -517,26 +434,29 @@ function ActionCard({
     warning: "bg-white text-amber-600",
     info: "bg-white text-blue-600",
   };
+  const isUnavailable = item.status === "error" || item.status === "unavailable";
+  const value = isUnavailable ? "غير متاح حاليًا" : displayCount(item.value);
+  const detail = isUnavailable ? item.message || "راجع صحة مصادر البيانات" : item.recommendation;
   const content = (
-    <div className={cx("min-h-[138px] rounded-2xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md", colors[tone])}>
+    <div className={cx("min-h-[138px] rounded-2xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md", colors[item.severity])}>
       <div className="flex items-start justify-between gap-3">
-        <div className="text-sm font-black">{label}</div>
-        <span className={cx("rounded-xl p-2", iconColors[tone])}><Icon className="h-4 w-4" /></span>
+        <div className="text-sm font-black">{item.label}</div>
+        <span className={cx("rounded-xl p-2", iconColors[item.severity])}><Icon className="h-4 w-4" /></span>
       </div>
-      <div className="mt-3 text-2xl font-black text-slate-950">{reason ? "غير متاح حاليًا" : value}</div>
-      <div className="mt-2 line-clamp-2 text-xs font-semibold opacity-80">{reason || recommendation}</div>
-      {source && <div className="mt-2 text-[11px] font-black opacity-70">المصدر: {source}</div>}
+      <div className="mt-3 text-2xl font-black text-slate-950">{value}</div>
+      <div className="mt-2 line-clamp-2 text-xs font-semibold opacity-80">{detail}</div>
+      <div className="mt-2 text-[11px] font-black opacity-70">{isUnavailable ? "تفاصيل المصدر في لوحة الصحة" : "جاهز للإجراء"}</div>
     </div>
   );
-  return route ? <Link to={route}>{content}</Link> : content;
+  return item.route ? <Link to={item.route}>{content}</Link> : content;
 }
 
-function Panel({ title, source, children, featured = false }: { title: string; source: string; children: ReactNode; featured?: boolean }) {
+function Panel({ title, source: _source, children, featured = false }: { title: string; source: string; children: ReactNode; featured?: boolean }) {
   return (
     <section className={cx("dawaa-panel", featured && "border-teal-200 bg-gradient-to-b from-white to-teal-50/45")}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-black text-slate-950">{title}</h2>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold text-slate-500">المصدر: {source}</span>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold text-slate-500">بيانات تشغيلية</span>
       </div>
       {children}
     </section>
@@ -544,7 +464,7 @@ function Panel({ title, source, children, featured = false }: { title: string; s
 }
 
 function BranchPerformance({ rows, available }: { rows: ReturnType<typeof aggregateBranches>; available: boolean }) {
-  if (!available) return <Empty text="غير متاح - sales_daily_summary غير متوفر" />;
+  if (!available) return <Empty text="بيانات أداء الفروع غير متاحة حاليًا" />;
   if (!rows.length) return <Empty text="لا توجد بيانات في الفترة المحددة" />;
   return (
     <div className="space-y-2">
@@ -574,7 +494,7 @@ function performanceBadge(index: number, total: number) {
 
 function DoctorsTable({ rows, available }: { rows: StaffSalesSummary[]; available: boolean }) {
   const sorted = [...rows].sort((a, b) => b.netTotal - a.netTotal).slice(0, 10);
-  if (!available) return <Empty text="غير متاح - staff_sales_summary غير متوفر" />;
+  if (!available) return <Empty text="مصدر ترتيب الدكاترة غير متاح حاليًا" />;
   if (!sorted.length) return <Empty text="لا توجد بيانات في الفترة المحددة" />;
   return (
     <CompactTable>
@@ -613,7 +533,7 @@ function DoctorsTable({ rows, available }: { rows: StaffSalesSummary[]; availabl
 
 function DeliveryTable({ rows, available }: { rows: DeliveryPerformanceSummary[]; available: boolean }) {
   const sorted = [...rows].sort((a, b) => b.deliverySalesTotal - a.deliverySalesTotal).slice(0, 10);
-  if (!available) return <Empty text="غير متاح - delivery_performance_summary غير متوفر" />;
+  if (!available) return <Empty text="مصدر ترتيب الدليفري غير متاح حاليًا" />;
   if (!sorted.length) return <Empty text="لا توجد بيانات في الفترة المحددة" />;
   return (
     <CompactTable>
@@ -648,7 +568,7 @@ function DeliveryTable({ rows, available }: { rows: DeliveryPerformanceSummary[]
 }
 
 function FollowupPerformance({ totals, available }: { totals: ReturnType<typeof sumFollowups>; available: boolean }) {
-  if (!available) return <Empty text="غير متاح - followup_performance_summary غير متوفر" />;
+  if (!available) return <Empty text="بيانات أداء المتابعات غير متاحة حاليًا" />;
   const completionRate = totals.assignedCount ? (totals.completedCount / totals.assignedCount) * 100 : null;
   return (
     <div className="grid grid-cols-2 gap-2">
@@ -683,7 +603,7 @@ function CustomerIntelligencePanel({ summary }: { summary: DashboardSummary | nu
 
 function DataHealthPanel({ summary }: { summary: DashboardSummary | null }) {
   const health = summary?.dataHealth;
-  if (!health || health.error) return <Empty text={health?.error ? `غير متاح حاليًا: ${health.error}` : "غير متاح حاليًا"} />;
+  if (!health || health.error) return <Empty text={health?.error ? friendlySourceError(health.error) : "غير متاح حاليًا"} />;
   return (
     <div className="grid grid-cols-2 gap-2">
       <MiniStat label="بدون كود عميل" value={displayCount(health.invoicesWithoutCustomerCode)} tone={health.invoicesWithoutCustomerCode ? "danger" : "teal"} />
@@ -737,8 +657,8 @@ function SourceHealthPanel({ summary }: { summary: DashboardSummary | null }) {
 }
 
 function NotificationsList({ rows, available }: { rows: DashboardNotification[]; available: boolean }) {
-  if (!available) return <Empty text="غير متاح - notifications غير متوفر" />;
-  if (!rows.length) return <Empty text="لا توجد تنبيهات متاحة حتى الآن" />;
+  if (!available) return <Empty text="مصدر التنبيهات غير متاح" />;
+  if (!rows.length) return <Empty text="لا توجد تنبيهات حاليًا" />;
   return (
     <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
       {rows.map((row) => {
@@ -756,7 +676,7 @@ function NotificationsList({ rows, available }: { rows: DashboardNotification[];
 }
 
 function ActivityList({ rows, available }: { rows: DashboardActivity[]; available: boolean }) {
-  if (!available) return <Empty text="غير متاح - activity_log غير متوفر" />;
+  if (!available) return <Empty text="مصدر سجل النشاط غير متاح حاليًا" />;
   if (!rows.length) return <Empty text="لا توجد أنشطة مسجلة" />;
   return (
     <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
