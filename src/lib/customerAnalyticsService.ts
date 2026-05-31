@@ -1,7 +1,6 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { getSalesValue } from "@/lib/analyticsService";
 import { cleanEgyptianPhone } from "@/lib/whatsapp";
-import { fetchAllSalesInvoices } from "@/lib/salesInvoiceRepository";
 
 type AnyRow = Record<string, unknown>;
 
@@ -81,25 +80,19 @@ export function customerFlagLabels(flags?: Record<string, boolean> | null) {
 }
 
 export function isValidEgyptPhone(phone?: string | null, customerCode?: string | null) {
+  const trimmed = String(phone || "").trim().toLowerCase();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("code:")) return false;
+
+  const codeDigits = String(customerCode || "").replace(/\D/g, "");
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return false;
+  if (codeDigits && digits === codeDigits) return false;
+  if (customerCode && trimmed === String(customerCode || "").trim().toLowerCase()) return false;
+  if (digits.length < 10 || digits.length > 13) return false;
+
   const clean = cleanEgyptianPhone(phone);
   if (!clean) return false;
-  
-  // Invalid if starts with "code:"
-  const trimmed = String(phone || "").trim().toLowerCase();
-  if (trimmed.startsWith("code:")) return false;
-  
-  // Invalid if equals customerCode
-  if (customerCode && trimmed === String(customerCode || "").trim()) {
-    return false;
-  }
-  if (customerCode && trimmed === `code:${String(customerCode || "").trim()}`) {
-    return false;
-  }
-  
-  // Valid if 10-13 digits (Egyptian mobile: 01xxxxxxxxx or 201xxxxxxxxx)
-  const digits = clean.replace(/\D/g, "");
-  if (digits.length < 10 || digits.length > 13) return false;
-  
   return true;
 }
 
@@ -181,14 +174,10 @@ function monthSpan(first: string | null, last: string | null) {
 }
 
 async function fetchPaged(table: string, select = "*", pageSize = 1000, maxRows = 100000) {
-  // Use the centralized function for sales_invoices
   if (table === "sales_invoices") {
-    const result = await fetchAllSalesInvoices({});
-    if (result.error) throw new Error(result.error);
-    return result.invoices as AnyRow[];
+    throw new Error("تحميل كل sales_invoices غير مسموح. استخدم customer_metrics_summary أو استعلامًا محدودًا.");
   }
-  
-  // For other tables, use the original pagination logic
+
   const all: AnyRow[] = [];
   for (let from = 0; from < maxRows; from += pageSize) {
     const to = from + pageSize - 1;

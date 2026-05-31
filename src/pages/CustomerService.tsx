@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
-  BarChart3,
   CalendarClock,
-  CheckCircle2,
-  Clock,
   HeadphonesIcon,
   Loader2,
   MessageSquare,
@@ -12,9 +9,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  ShieldAlert,
-  ShoppingBag,
-  UserRound,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -43,8 +37,6 @@ import { BRANCHES } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
 import {
   getActiveCustomerFlags,
-  parseCustomerFlags,
-  hasCustomerFlag,
 } from "@/lib/customerFlags";
 import { CustomerFlagsBadges } from "@/components/CustomerFlagsBadges";
 
@@ -52,6 +44,10 @@ const STATUS_OPTIONS = [ALL_FILTER, "معلق", "تم", "لم يرد", "مؤجل
 const PRIORITY_OPTIONS = ["عاجل", "مهم", "متوسط", "عادي"];
 const REQUEST_TYPES = ["متابعة استثنائية", "شكوى", "طلب ناقص", "مشكلة توصيل", "طلب خاص", "استرجاع عميل"];
 const CONTACT_METHODS = ["اتصال", "واتساب", "رسالة", "زيارة"];
+const CUSTOMER_CARE_RESPONSIBLES = [
+  { branch: "فرع الشامي", name: "د ضحى" },
+  { branch: "فرع شكري", name: "د دنيا" },
+];
 
 function todayInput() {
   const date = new Date();
@@ -86,16 +82,32 @@ function followupStatus(row: FollowupRow) {
 }
 
 function responsibleOf(row: FollowupRow) {
-  return row.responsible_name || row.assigned_to || row.assigned_doctor || "غير محدد";
+  const explicit = row.responsible_name || row.assigned_to || row.assigned_doctor;
+  if (explicit) return explicit;
+  const normalizedBranch = normalizeBranchName(row.branch);
+  return CUSTOMER_CARE_RESPONSIBLES.find((item) => normalizeBranchName(item.branch) === normalizedBranch)?.name || "غير محدد";
+}
+
+function customerCareResponsibleForBranch(branch?: string | null) {
+  const normalizedBranch = normalizeBranchName(branch);
+  return CUSTOMER_CARE_RESPONSIBLES.find((item) => normalizeBranchName(item.branch) === normalizedBranch)?.name || "";
 }
 
 function phoneOf(row: FollowupRow) {
   const bestPhone = getBestCustomerPhone(
     row,
     row.customer_metrics,
-    null // customerDetails not available in row, would need enrichment
+    row
   );
   return bestPhone || "";
+}
+
+function phoneDisplay(phone: string | null | undefined, customerCode?: string | null) {
+  return phone && isValidEgyptPhone(phone, customerCode) ? phone : "بدون رقم صحيح";
+}
+
+function importantHandlingNote(row: FollowupRow) {
+  return row.handling_notes || row.service_notes || row.whatsapp_notes || row.customer_notes || row.notes || "";
 }
 
 function segmentOf(row: FollowupRow) {
@@ -117,6 +129,28 @@ function lastPurchaseOf(row: FollowupRow) {
 function isManagerUser(user: ReturnType<typeof useAuth>["user"], canManage?: boolean) {
   const role = String(user?.role || "").toLowerCase();
   return Boolean(canManage || ["admin", "manager", "general_manager", "owner"].includes(role) || user?.permissions?.view_full_team_analytics);
+}
+
+function isOverdueFollowup(row: FollowupRow) {
+  if (row.completed_at || row.postponed_until) return false;
+  const due = row.followup_datetime || row.followup_date || row.date;
+  return due ? new Date(due).getTime() < Date.now() : false;
+}
+
+function compareFollowupPriority(a: FollowupRow, b: FollowupRow) {
+  const score = (row: FollowupRow) => {
+    let value = 0;
+    if (row.needs_manager) value += 1000;
+    if (isOverdueFollowup(row)) value += 800;
+    if (segmentOf(row) === "مهم جدًا") value += 500;
+    if (segmentOf(row) === "مهم") value += 350;
+    if (["stopped", "decreased", "توقف عن الشراء", "انخفض الشراء"].includes(row.purchase_frequency_status || "")) value += 300;
+    value += Number(avgMonthlyOf(row) || 0) / 100;
+    return value;
+  };
+  const scoreDiff = score(b) - score(a);
+  if (scoreDiff) return scoreDiff;
+  return new Date(lastPurchaseOf(a) || "2100-01-01").getTime() - new Date(lastPurchaseOf(b) || "2100-01-01").getTime();
 }
 
 export default function CustomerService() {
@@ -161,12 +195,15 @@ export default function CustomerService() {
       const rows = await fetchCustomerServiceFollowups({
         branch: branchFilter,
         status: statusFilter,
-        responsible: responsibleFilter,
+        responsible: CUSTOMER_CARE_RESPONSIBLES.some((item) => item.name === responsibleFilter) ? ALL_FILTER : responsibleFilter,
         search: debouncedSearch,
       });
+      const responsibleRows = responsibleFilter !== ALL_FILTER
+        ? rows.filter((row) => responsibleOf(row) === responsibleFilter)
+        : rows;
       const visibleRows = manager
-        ? rows
-        : rows.filter((row) => [row.assigned_to, row.responsible_name, row.assigned_doctor].filter(Boolean).includes(user?.name || ""));
+        ? responsibleRows
+        : responsibleRows.filter((row) => [row.assigned_to, row.responsible_name, row.assigned_doctor, responsibleOf(row)].filter(Boolean).includes(user?.name || ""));
       setFollowups(visibleRows);
       setSelectedFollowup((current) => current && visibleRows.find((row) => row.id === current.id) || visibleRows[0] || null);
     } catch (err) {
@@ -185,42 +222,38 @@ export default function CustomerService() {
   const teamPerformance = useMemo(() => calculateTeamPerformance(followups), [followups]);
   const responsibleOptions = useMemo(() => {
     const fromRows = followups.map(responsibleOf).filter((name) => name !== "غير محدد");
-    return [ALL_FILTER, ...new Set([...staffNames, ...fromRows])];
+    return [ALL_FILTER, ...new Set([...CUSTOMER_CARE_RESPONSIBLES.map((item) => item.name), ...staffNames, ...fromRows])];
   }, [followups, staffNames]);
 
   const grouped = useMemo(() => {
     const groups = [
-      { label: "توقف عن الشراء", rows: [] as FollowupRow[] },
+      { label: "أولوية قصوى", rows: [] as FollowupRow[] },
       { label: "مهم جدًا", rows: [] as FollowupRow[] },
       { label: "مهم", rows: [] as FollowupRow[] },
       { label: "متوسط", rows: [] as FollowupRow[] },
       { label: "مهدد بالتوقف", rows: [] as FollowupRow[] },
       { label: "متوقف", rows: [] as FollowupRow[] },
-      { label: "طلبات خاصة", rows: [] as FollowupRow[] },
-      { label: "يحتاج مدير", rows: [] as FollowupRow[] },
+      { label: "بدون رقم صحيح", rows: [] as FollowupRow[] },
+      { label: "طلبات خاصة / يحتاج مدير", rows: [] as FollowupRow[] },
     ];
-    for (const row of followups) {
+    const sortedRows = [...followups].sort(compareFollowupPriority);
+    for (const row of sortedRows) {
       const segment = segmentOf(row);
       const status = customerStatusOf(row);
       const purchaseStatus = row.purchase_frequency_status;
-      
-      // Priority 1: Purchase drop customers (توقف عن الشراء, انخفض الشراء, يحتاج متابعة)
-      if (purchaseStatus === "stopped" || purchaseStatus === "decreased" || purchaseStatus === "needs_followup") {
+
+      if (!isValidEgyptPhone(phoneOf(row), row.customer_code)) groups[6].rows.push(row);
+      else if (row.needs_manager || followupStatus(row) === "يحتاج مدير" || row.request_type || row.request_details) groups[7].rows.push(row);
+      else if (
+        (segment === "مهم جدًا" && ["متوقف", "مهدد بالتوقف"].includes(status)) ||
+        ["stopped", "decreased", "توقف عن الشراء", "انخفض الشراء"].includes(purchaseStatus || "")
+      ) {
         groups[0].rows.push(row);
       }
-      // Priority 2: Needs manager
-      else if (row.needs_manager || followupStatus(row) === "يحتاج مدير") groups[7].rows.push(row);
-      // Priority 3: Special requests
-      else if (row.request_type || row.request_details) groups[6].rows.push(row);
-      // Priority 4: Stopped
       else if (status === "متوقف") groups[5].rows.push(row);
-      // Priority 5: At risk
       else if (status === "مهدد بالتوقف") groups[4].rows.push(row);
-      // Priority 6: Very important
       else if (segment === "مهم جدًا") groups[1].rows.push(row);
-      // Priority 7: Important
       else if (segment === "مهم") groups[2].rows.push(row);
-      // Priority 8: Medium
       else if (segment === "متوسط") groups[3].rows.push(row);
       else groups[3].rows.push(row);
     }
@@ -323,6 +356,8 @@ export default function CustomerService() {
         <Kpi label="قيمة الشراء بعد المتابعة" value={formatMoney(stats.purchaseAfterAmount)} tone="teal" />
       </section>
 
+      <CustomerCareIncentivePanel followups={followups} />
+
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
           <AlertTriangle className="ml-2 inline h-4 w-4" />
@@ -356,6 +391,11 @@ export default function CustomerService() {
             onSelect={setSelectedResponsible}
           />
         </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <FollowupHistoryPanel followups={followups} />
+        <CustomerHandlingEvaluationPanel />
       </section>
 
       {showExceptional && (
@@ -418,6 +458,102 @@ function Kpi({ label, value, tone }: { label: string; value: ReactNode; tone: "b
       <div className="num text-2xl font-black">{value}</div>
       <div className="mt-1 text-xs font-black">{label}</div>
     </div>
+  );
+}
+
+function calculateCareScore(rows: FollowupRow[]) {
+  const completed = rows.filter((row) => Boolean(row.completed_at) || ["تم", "تم التواصل", "تم الشراء بعد المتابعة"].includes(followupStatus(row))).length;
+  const overdue = rows.filter(isOverdueFollowup).length;
+  const noAnswer = rows.filter((row) => followupStatus(row) === "لم يرد").length;
+  const postponed = rows.filter((row) => Boolean(row.postponed_until) || followupStatus(row) === "مؤجل").length;
+  const needsManager = rows.filter((row) => Boolean(row.needs_manager)).length;
+  const purchaseRows = rows.filter((row) => Boolean(row.purchase_after_followup));
+  const recovered = purchaseRows.filter((row) => ["متوقف", "مهدد بالتوقف"].includes(customerStatusOf(row))).length;
+  const improved = purchaseRows.filter((row) => ["stopped", "decreased", "توقف عن الشراء", "انخفض الشراء"].includes(row.purchase_frequency_status || "")).length;
+  const qualityRows = rows.filter((row) => Number(row.quality_rating || 0) > 0);
+  const avgQuality = qualityRows.length ? qualityRows.reduce((sum, row) => sum + Number(row.quality_rating || 0), 0) / qualityRows.length : null;
+  const excellentSatisfaction = rows.filter((row) => String(row.customer_satisfaction || "").includes("ممتاز") || String(row.customer_satisfaction || "").includes("راض")).length;
+  const sameDay = rows.filter((row) => row.completed_at && row.followup_date && String(row.completed_at).slice(0, 10) === String(row.followup_date).slice(0, 10)).length;
+  const contactedWithoutResult = rows.filter((row) => row.contacted_at && !row.followup_result && !row.followup_summary).length;
+  const points =
+    completed * 2 +
+    purchaseRows.length * 5 +
+    recovered * 10 +
+    improved * 5 +
+    qualityRows.filter((row) => Number(row.quality_rating || 0) >= 5).length * 3 +
+    excellentSatisfaction * 3 +
+    sameDay * 2 -
+    overdue * 3 -
+    contactedWithoutResult * 2;
+  const safePoints = Math.max(0, points);
+  return {
+    assigned: rows.length,
+    completed,
+    completionRate: rows.length ? (completed / rows.length) * 100 : 0,
+    overdue,
+    noAnswer,
+    postponed,
+    needsManager,
+    purchaseAfterCount: purchaseRows.length,
+    purchaseAfterAmount: purchaseRows.reduce((sum, row) => sum + Number(row.purchase_amount || 0), 0),
+    recovered,
+    improved,
+    avgQuality,
+    points: safePoints,
+    incentive: Math.min(safePoints / 500, 1) * 1500,
+  };
+}
+
+function CustomerCareIncentivePanel({ followups }: { followups: FollowupRow[] }) {
+  return (
+    <section className="dawaa-panel">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-black text-slate-950">أداء مسؤولي خدمة العملاء والحافز</h2>
+          <p className="text-sm font-semibold text-slate-500">الهدف الشهري: 500 نقطة = 1500 جنيه. الحساب للعرض فقط ولا يكتب في النقاط.</p>
+        </div>
+        <span className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-black text-teal-700">دورة 26 إلى 25</span>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {CUSTOMER_CARE_RESPONSIBLES.map((responsible) => {
+          const rows = followups.filter((row) => responsibleOf(row) === responsible.name || normalizeBranchName(row.branch) === normalizeBranchName(responsible.branch));
+          const score = calculateCareScore(rows);
+          const strengths = score.purchaseAfterCount > 0 ? "تحويل جيد للمتابعات إلى شراء" : score.completionRate >= 80 ? "التزام جيد بإنهاء المتابعات" : "يحتاج تسجيل نتائج أكثر";
+          const improvement = score.overdue > 0 ? "تقليل المتأخرات قبل نهاية الوردية" : score.noAnswer > 0 ? "إعادة الاتصال في وقت مختلف" : "الحفاظ على جودة التسجيل";
+          return (
+            <div key={responsible.name} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-lg font-black text-slate-950">{responsible.name}</div>
+                  <div className="text-xs font-bold text-slate-500">{responsible.branch}</div>
+                </div>
+                <div className="rounded-2xl bg-teal-50 px-3 py-2 text-center text-teal-700">
+                  <div className="text-xl font-black">{score.points}</div>
+                  <div className="text-[11px] font-bold">نقطة</div>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <Info label="المسند" value={score.assigned} />
+                <Info label="المكتمل" value={score.completed} />
+                <Info label="نسبة الإنجاز" value={`${score.completionRate.toFixed(0)}%`} />
+                <Info label="المتأخر" value={score.overdue} />
+                <Info label="شراء بعد المتابعة" value={score.purchaseAfterCount} />
+                <Info label="قيمة الشراء" value={formatMoney(score.purchaseAfterAmount)} />
+                <Info label="عملاء تم استرجاعهم" value={score.recovered} />
+                <Info label="متوسط الجودة" value={score.avgQuality === null ? "غير متاح" : score.avgQuality.toFixed(1)} />
+              </div>
+              <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-black text-emerald-700">
+                الحافز المتوقع: {formatMoney(score.incentive)}
+              </div>
+              <div className="mt-2 grid gap-2 text-xs font-bold text-slate-600 md:grid-cols-2">
+                <div className="rounded-xl bg-slate-50 p-2">نقطة قوة: {strengths}</div>
+                <div className="rounded-xl bg-slate-50 p-2">يحتاج تحسين: {improvement}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -485,6 +621,7 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
   const cleanPhone = cleanEgyptianPhone(phone);
   const hasValidPhone = phone && isValidEgyptPhone(phone, row.customer_code);
   const activeFlags = getActiveCustomerFlags(row.customer_flags);
+  const handlingNote = importantHandlingNote(row);
   const message = buildCustomerServiceWhatsAppMessage({
     customerName: row.customer_name || row.name,
     staffName: responsibleOf(row),
@@ -501,7 +638,7 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
           <div className="truncate text-base font-black text-slate-950">{row.customer_name || row.name || "عميل بدون اسم"}</div>
           <div className="mt-1 flex flex-wrap gap-2 text-xs font-bold text-slate-500">
             <span>كود: {row.customer_code || "بدون كود"}</span>
-            <span>هاتف: {hasValidPhone ? phone : "لا يوجد رقم صحيح"}</span>
+            <span>هاتف: {phoneDisplay(phone, row.customer_code)}</span>
             <span>{normalizeBranchName(row.branch)}</span>
           </div>
         </div>
@@ -512,8 +649,10 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
         <span>الحالة: {customerStatusOf(row)}</span>
         <span>آخر شراء: {formatDate(lastPurchaseOf(row))}</span>
         <span>متوسط شهري: {avgMonthlyOf(row) === null ? "غير متاح" : formatMoney(avgMonthlyOf(row))}</span>
-        <span>المسؤول: {responsibleOf(row)}</span>
+        <span>مسؤول خدمة العملاء: {responsibleOf(row)}</span>
         <span>الموعد: {formatDateTime(row.followup_datetime || row.followup_date)}</span>
+        <span>شراء الشهر الحالي: {row.purchase_count_current_month ?? "غير متاح"}</span>
+        <span>متوسط مرات الشراء: {row.average_monthly_purchase_count ?? "غير متاح"}</span>
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
         {!hasValidPhone ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">رقم غير صالح</span> : null}
@@ -527,6 +666,11 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
       <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-700">
         {row.suggested_action || row.followup_reason || row.request_details || "تواصل مع العميل وسجل نتيجة المتابعة."}
       </div>
+      {handlingNote ? (
+        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-bold leading-5 text-amber-800">
+          ملاحظة مهمة قبل التواصل: {handlingNote}
+        </div>
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
         <a href={wa || undefined} target="_blank" rel="noopener noreferrer" className={`btn-secondary inline-flex items-center gap-1 px-3 py-2 ${!wa ? "pointer-events-none opacity-50" : ""}`} title={wa ? "فتح واتساب" : "لا يوجد رقم هاتف صحيح"}>
           <MessageSquare size={14} /> واتساب
@@ -603,11 +747,73 @@ function CustomerDecisionPanel({ row }: { row: FollowupRow | null }) {
           <Info label="متوسط شهري" value={customer?.avg_monthly != null ? formatMoney(customer.avg_monthly) : "غير متاح"} />
           <Info label="آخر شراء" value={formatDate(lastPurchaseOf(row))} />
           <Info label="درجة الخطورة" value={riskLevel(customer)} />
+          <Info label="الهاتف" value={phoneDisplay(phoneOf(row), row.customer_code)} />
+          <Info label="مسؤول خدمة العملاء" value={responsibleOf(row)} />
           <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-bold leading-6 text-teal-800">
             {recommendedAction(customer)}
           </div>
+          <CustomerFlagsBadges customerFlags={row.customer_flags} limit={5} compact />
+          {importantHandlingNote(row) ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-800">
+              {importantHandlingNote(row)}
+            </div>
+          ) : null}
         </div>
       ) : <Empty text="اختر متابعة لعرض القرار المقترح" />}
+    </section>
+  );
+}
+
+function FollowupHistoryPanel({ followups }: { followups: FollowupRow[] }) {
+  const latest = [...followups]
+    .sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime())
+    .slice(0, 12);
+  return (
+    <section className="dawaa-panel">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-base font-black text-slate-950">سجل المتابعات</h3>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">آخر {latest.length}</span>
+      </div>
+      {latest.length ? (
+        <div className="max-h-96 space-y-2 overflow-y-auto">
+          {latest.map((row) => (
+            <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-black text-slate-950">{row.customer_name || row.name || "عميل"}</div>
+                  <div className="mt-1 text-xs font-bold text-slate-500">{normalizeBranchName(row.branch)} · {responsibleOf(row)} · {formatDateTime(row.followup_datetime || row.created_at)}</div>
+                </div>
+                <StatusBadge status={followupStatus(row)} />
+              </div>
+              <div className="mt-2 grid gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-3">
+                <span>النتيجة: {row.followup_result || row.contact_result || "غير محدد"}</span>
+                <span>شراء: {row.purchase_after_followup ? "نعم" : "لا"}</span>
+                <span>القيمة: {row.purchase_after_followup ? formatMoney(row.purchase_amount || 0) : "غير متاح"}</span>
+              </div>
+              {row.followup_notes || row.notes ? <div className="mt-2 rounded-xl bg-slate-50 p-2 text-xs text-slate-600">{row.followup_notes || row.notes}</div> : null}
+            </div>
+          ))}
+        </div>
+      ) : <Empty text="لا توجد متابعات مسجلة في الفلاتر الحالية" />}
+    </section>
+  );
+}
+
+function CustomerHandlingEvaluationPanel() {
+  return (
+    <section className="dawaa-panel">
+      <h3 className="text-base font-black text-slate-950">تقييم تعاملات العملاء</h3>
+      <p className="mt-1 text-sm font-semibold text-slate-500">
+        مركز تقييم واتساب، المكالمات، التعامل داخل الفرع، الشكاوى، وجودة إغلاق المتابعة.
+      </p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {["سرعة الرد", "استخدام اسم العميل", "فهم طلب العميل", "جودة الترشيح", "التعامل مع السعر", "التعامل مع البدائل", "حل المشكلة", "إغلاق المتابعة", "رضا العميل", "الالتزام بملاحظات العميل"].map((item) => (
+          <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700">{item}</div>
+        ))}
+      </div>
+      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
+        سيتم ربط تقييم المحادثات والتعاملات هنا بعد تفعيل مصدر التقييمات.
+      </div>
     </section>
   );
 }
@@ -633,7 +839,7 @@ function ExceptionalFollowupModal({ branch, staffNames, userName, userId, onClos
     priority: "مهم",
     requestType: "متابعة استثنائية",
     reason: "",
-    assignedDoctor: userName || "",
+    assignedDoctor: customerCareResponsibleForBranch(branch) || userName || "",
     followupDatetime: todayInput(),
     requestDetails: "",
     notes: "",
@@ -656,14 +862,20 @@ function ExceptionalFollowupModal({ branch, staffNames, userName, userId, onClos
   }, [form.branch, query]);
 
   const pickCustomer = (customer: CustomerMetric) => {
+    const validPhone = getBestCustomerPhone(
+      { customer_phone: customer.customer_phone, phone: customer.phone, customer_code: customer.customer_code },
+      customer,
+      null,
+    );
     setSelected(customer);
     setUnregistered(false);
     setForm((current) => ({
       ...current,
       customerName: customer.customer_name || "",
-      phone: customer.customer_phone || "",
+      phone: validPhone || "",
       branch: customer.branch || current.branch,
       reason: recommendedAction(customer),
+      assignedDoctor: customerCareResponsibleForBranch(customer.branch || current.branch) || current.assignedDoctor,
     }));
   };
 
@@ -712,7 +924,7 @@ function ExceptionalFollowupModal({ branch, staffNames, userName, userId, onClos
               {results.map((customer) => (
                 <button key={customer.id} type="button" className="block w-full border-b border-slate-100 p-3 text-right hover:bg-teal-50" onClick={() => pickCustomer(customer)}>
                   <div className="font-black text-slate-950">{customer.customer_name || "عميل بدون اسم"}</div>
-                  <div className="text-xs font-bold text-slate-500">كود: {customer.customer_code || "بدون"} · هاتف: {customer.customer_phone || "بدون"} · {customer.segment} · {customer.customer_status}</div>
+                  <div className="text-xs font-bold text-slate-500">كود: {customer.customer_code || "بدون"} · هاتف: {phoneDisplay(customer.customer_phone, customer.customer_code)} · {customer.segment} · {customer.customer_status}</div>
                 </button>
               ))}
             </div>
@@ -726,10 +938,13 @@ function ExceptionalFollowupModal({ branch, staffNames, userName, userId, onClos
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="اسم العميل"><input className="dawaa-input w-full" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} /></Field>
           <Field label="الهاتف"><input className="dawaa-input w-full" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
-          <Field label="الفرع"><select className="dawaa-input w-full" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })}>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></Field>
+          <Field label="الفرع"><select className="dawaa-input w-full" value={form.branch} onChange={(e) => {
+            const nextBranch = e.target.value;
+            setForm({ ...form, branch: nextBranch, assignedDoctor: customerCareResponsibleForBranch(nextBranch) || form.assignedDoctor });
+          }}>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></Field>
           <Field label="الأولوية"><select className="dawaa-input w-full" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>{PRIORITY_OPTIONS.map((x) => <option key={x}>{x}</option>)}</select></Field>
           <Field label="نوع الطلب"><select className="dawaa-input w-full" value={form.requestType} onChange={(e) => setForm({ ...form, requestType: e.target.value })}>{REQUEST_TYPES.map((x) => <option key={x}>{x}</option>)}</select></Field>
-          <Field label="المسؤول"><select className="dawaa-input w-full" value={form.assignedDoctor} onChange={(e) => setForm({ ...form, assignedDoctor: e.target.value })}><option value="">غير محدد</option>{staffNames.map((x) => <option key={x}>{x}</option>)}</select></Field>
+          <Field label="المسؤول"><select className="dawaa-input w-full" value={form.assignedDoctor} onChange={(e) => setForm({ ...form, assignedDoctor: e.target.value })}><option value="">غير محدد</option>{[...new Set([...CUSTOMER_CARE_RESPONSIBLES.map((item) => item.name), ...staffNames])].map((x) => <option key={x}>{x}</option>)}</select></Field>
           <Field label="موعد المتابعة"><input type="datetime-local" className="dawaa-input w-full" value={form.followupDatetime} onChange={(e) => setForm({ ...form, followupDatetime: e.target.value })} /></Field>
           <Field label="سبب المتابعة"><input className="dawaa-input w-full" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></Field>
         </div>
@@ -749,6 +964,7 @@ function ResultModal({ row, userId, onClose, onSaved }: { row: FollowupRow; user
   const phone = phoneOf(row);
   const hasValidPhone = phone && isValidEgyptPhone(phone, row.customer_code);
   const activeFlags = getActiveCustomerFlags(row.customer_flags);
+  const handlingNote = importantHandlingNote(row);
   const [form, setForm] = useState({
     contact_method: row.contact_method || "اتصال",
     contact_status: row.contact_status || "تم التواصل",
@@ -804,17 +1020,24 @@ function ResultModal({ row, userId, onClose, onSaved }: { row: FollowupRow; user
         <h3 className="mb-2 text-sm font-black text-slate-700">معلومات العميل</h3>
         <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-600">
           <span>الكود: {row.customer_code || "بدون"}</span>
-          <span>الهاتف: {hasValidPhone ? phone : "لا يوجد رقم صحيح"}</span>
+          <span>الهاتف: {phoneDisplay(phone, row.customer_code)}</span>
           <span>الفرع: {normalizeBranchName(row.branch)}</span>
+          <span>مسؤول خدمة العملاء: {responsibleOf(row)}</span>
           <span>التصنيف: {segmentOf(row)}</span>
           <span>الحالة: {customerStatusOf(row)}</span>
           <span>متوسط شهري: {avgMonthlyOf(row) === null ? "غير متاح" : formatMoney(avgMonthlyOf(row))}</span>
+          <span>تحذير التكرار: {row.purchase_frequency_status || "غير متاح"}</span>
         </div>
         {activeFlags.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             <CustomerFlagsBadges customerFlags={row.customer_flags} limit={5} compact />
           </div>
         )}
+        {handlingNote ? (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-800">
+            تنبيهات التعامل مع العميل: {handlingNote}
+          </div>
+        ) : null}
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="طريقة التواصل"><select className="dawaa-input w-full" value={form.contact_method} onChange={(e) => setForm({ ...form, contact_method: e.target.value })}>{CONTACT_METHODS.map((x) => <option key={x}>{x}</option>)}</select></Field>

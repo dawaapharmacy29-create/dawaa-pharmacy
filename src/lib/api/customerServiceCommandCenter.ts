@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { ALL_FILTER, getCustomers, normalizeCustomerMetric, type CustomerMetric } from "@/lib/api/customers";
 import { normalizeBranchName } from "@/lib/branch";
+import { getBestCustomerPhone } from "@/lib/customerAnalyticsService";
 
 export type FollowupRow = {
   id: string;
@@ -30,6 +31,14 @@ export type FollowupRow = {
   customer_code: string | null;
   customer_phone: string | null;
   customer_flags?: Record<string, boolean> | null;
+  customer_notes?: string | null;
+  service_notes?: string | null;
+  team_notes?: string | null;
+  handling_notes?: string | null;
+  whatsapp_notes?: string | null;
+  address?: string | null;
+  phone_alt?: string | null;
+  whatsapp_phone?: string | null;
   assigned_to: string | null;
   assigned_staff_id: string | null;
   contact_method: string | null;
@@ -101,6 +110,11 @@ export type FollowupPerformanceRow = {
   purchaseAfterAmount: number;
   avgQualityRating: number | null;
   completionRate: number;
+  recoveredCustomers: number;
+  improvedFrequencyCount: number;
+  avgCustomerSatisfaction: number | null;
+  totalPoints: number;
+  incentiveValueEstimate: number;
 };
 
 export type CreateExceptionalFollowupInput = {
@@ -282,7 +296,7 @@ async function loadMetricsForFollowups(rows: FollowupRow[]) {
       .limit(250),
     supabase
       .from("customers")
-      .select("id,customer_id,customer_code,customer_name,customer_phone,phone,customer_flags,customer_notes,service_notes,team_notes,handling_notes,address,phone_alt,whatsapp_phone")
+      .select("id,customer_id,customer_code,customer_name,customer_phone,phone,customer_flags,customer_notes,service_notes,team_notes,handling_notes,whatsapp_notes,address,phone_alt,whatsapp_phone")
       .or(profileClauses.join(","))
       .limit(250),
   ]);
@@ -321,12 +335,21 @@ async function loadMetricsForFollowups(rows: FollowupRow[]) {
 
     let enriched = enrichFollowup(row, customerMetric);
     if (profile) {
+      const bestPhone = getBestCustomerPhone(enriched, customerMetric, profile);
       enriched = {
         ...enriched,
         customer_flags: profile.customer_flags as Record<string, boolean> | null,
+        customer_notes: profile.customer_notes as string | null,
+        service_notes: profile.service_notes as string | null,
+        team_notes: profile.team_notes as string | null,
+        handling_notes: profile.handling_notes as string | null,
+        whatsapp_notes: profile.whatsapp_notes as string | null,
+        address: profile.address as string | null,
+        phone_alt: profile.phone_alt as string | null,
+        whatsapp_phone: profile.whatsapp_phone as string | null,
         customer_name: enriched.customer_name || String(profile.customer_name || ""),
-        customer_phone: enriched.customer_phone || String(profile.customer_phone || profile.phone || ""),
-        phone: enriched.phone || String(profile.customer_phone || profile.phone || ""),
+        customer_phone: bestPhone || enriched.customer_phone,
+        phone: bestPhone || enriched.phone,
       };
     }
 
@@ -444,6 +467,11 @@ export function calculateTeamPerformance(rows: FollowupRow[]): FollowupPerforman
       purchaseAfterAmount: 0,
       avgQualityRating: null,
       completionRate: 0,
+      recoveredCustomers: 0,
+      improvedFrequencyCount: 0,
+      avgCustomerSatisfaction: null,
+      totalPoints: 0,
+      incentiveValueEstimate: 0,
       qualitySum: 0,
       qualityCount: 0,
     };
@@ -456,6 +484,8 @@ export function calculateTeamPerformance(rows: FollowupRow[]): FollowupPerforman
     if (row.purchase_after_followup) {
       current.purchaseAfterCount += 1;
       current.purchaseAfterAmount += toNumber(row.purchase_amount);
+      if (["متوقف", "مهدد بالتوقف"].includes(row.customer_status || row.customer_metrics?.customer_status || "")) current.recoveredCustomers += 1;
+      if (["stopped", "decreased", "توقف عن الشراء", "انخفض الشراء"].includes(row.purchase_frequency_status || "")) current.improvedFrequencyCount += 1;
     }
     const rating = toNumber(row.quality_rating);
     if (rating > 0) {
@@ -464,6 +494,17 @@ export function calculateTeamPerformance(rows: FollowupRow[]): FollowupPerforman
       current.avgQualityRating = current.qualitySum / current.qualityCount;
     }
     current.completionRate = current.assigned ? (current.completed / current.assigned) * 100 : 0;
+    const satisfaction = String(row.customer_satisfaction || "");
+    const excellentSatisfaction = satisfaction.includes("ممتاز") || satisfaction.includes("راض");
+    current.totalPoints =
+      current.completed * 2 +
+      current.purchaseAfterCount * 5 +
+      current.recoveredCustomers * 10 +
+      current.improvedFrequencyCount * 5 +
+      (rating >= 5 ? 3 : 0) +
+      (excellentSatisfaction ? 3 : 0) -
+      current.overdue * 3;
+    current.incentiveValueEstimate = Math.min(Math.max(current.totalPoints, 0) / 500, 1) * 1500;
     map.set(responsible, current);
   }
   return [...map.values()]

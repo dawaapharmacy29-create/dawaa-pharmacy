@@ -4,6 +4,7 @@ import {
   normalizeCustomerStatus,
   isPseudoCustomer,
   isValidEgyptPhone,
+  getBestCustomerPhone,
   customerFlagLabels,
 } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
@@ -640,7 +641,18 @@ export async function getCustomerDetails(customer: CustomerMetric, invoiceLimit 
     return "استمر في دعم العميل وقدم خدمات واضحة للحفاظ على العلاقة.";
   }
 
-  const profilePhone = profile?.customer_phone || profile?.phone || customer.customer_phone || null;
+  const profilePhone = getBestCustomerPhone(
+    { customer_phone: customer.customer_phone, phone: customer.phone, customer_code: customer.customer_code },
+    customer,
+    profile
+      ? {
+          whatsapp_phone: profile.whatsapp_phone || null,
+          phone: profile.phone || null,
+          phone_alt: profile.phone_alt || null,
+          customer_phone: profile.customer_phone || null,
+        }
+      : null,
+  );
   const isPseudo = isPseudoCustomer({
     customer_name: customer.customer_name,
     customer_phone: profilePhone,

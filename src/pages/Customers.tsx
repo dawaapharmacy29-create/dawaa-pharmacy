@@ -38,6 +38,7 @@ import {
 import { CustomerFlagsBadges } from "@/components/CustomerFlagsBadges";
 import { logActivity } from "@/lib/activityLog";
 import { useAuth } from "@/hooks/useAuth";
+import { getBestCustomerPhone } from "@/lib/customerAnalyticsService";
 
 const PAGE_SIZE = 30;
 
@@ -57,6 +58,34 @@ const EMPTY_STATS: CustomerStats = {
 
 const SEGMENT_OPTIONS = ["مهم جدًا", "مهم", "متوسط", "عادي"];
 const STATUS_OPTIONS = ["جديد", "نشط", "مهدد بالتوقف", "متوقف", "بدون شراء"];
+
+function bestCustomerPhone(customer: CustomerMetric, details?: CustomerDetails | null) {
+  return getBestCustomerPhone(
+    { customer_phone: customer.customer_phone, phone: customer.phone, customer_code: customer.customer_code },
+    customer,
+    details
+      ? {
+          whatsapp_phone: details.whatsappPhone,
+          phone_alt: details.phoneAlt,
+          customer_phone: customer.customer_phone,
+          phone: customer.phone,
+        }
+      : null,
+  );
+}
+
+function CustomerPhoneCell({ customer }: { customer: CustomerMetric }) {
+  const phone = bestCustomerPhone(customer);
+  if (!phone) {
+    return (
+      <div className="flex flex-col gap-1">
+        <span className="font-black text-slate-500">بدون رقم</span>
+        <span className="w-fit rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-black text-amber-700">رقم غير صالح</span>
+      </div>
+    );
+  }
+  return <span className="num font-bold text-slate-800">{phone}</span>;
+}
 
 export default function Customers() {
   const { user } = useAuth();
@@ -285,7 +314,7 @@ export default function Customers() {
                           <span className="font-black text-slate-950">{customer.customer_name || "عميل بدون اسم"}</span>
                         </div>
                       </td>
-                      <td className="num">{customer.customer_phone || "بدون رقم"}</td>
+                      <td><CustomerPhoneCell customer={customer} /></td>
                       <td>{normalizeBranchName(customer.branch)}</td>
                       <td><SegmentBadge segment={customer.segment} /></td>
                       <td><StatusBadge status={customer.customer_status} /></td>
@@ -426,7 +455,8 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
     whatsappPhone: "",
   });
   const [customerFlags, setCustomerFlags] = useState<Record<string, boolean>>({});
-  const wa = customer.customer_phone ? whatsappLink(customer.customer_phone, `السلام عليكم ${customer.customer_name || ""}`.trim()) : null;
+  const displayPhone = bestCustomerPhone(customer, details);
+  const wa = displayPhone ? whatsappLink(displayPhone, `السلام عليكم ${customer.customer_name || ""}`.trim()) : null;
 
   useEffect(() => {
     let active = true;
@@ -544,7 +574,8 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
             <div className="text-2xl font-black text-slate-950">{customer.customer_name || "عميل بدون اسم"}</div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-500">
               <Phone size={14} />
-              <span>{customer.customer_phone || "بدون رقم"}</span>
+              <span>{displayPhone || "بدون رقم"}</span>
+              {!displayPhone ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-black text-amber-700">رقم غير صالح</span> : null}
               <span>كود {customer.customer_code || "بدون كود"}</span>
               <span>{normalizeBranchName(customer.branch)}</span>
               {details?.isPseudoCustomer ? (
