@@ -9,6 +9,7 @@ import {
   Database,
   HeadphonesIcon,
   Loader2,
+  PackageSearch,
   RefreshCw,
   SearchX,
   ShoppingCart,
@@ -149,10 +150,62 @@ function getSalesOverview(rows: Array<{ saleDate: string; netTotal: number; invo
   };
 }
 
+function monthKey(dateValue: string) {
+  return String(dateValue || "").slice(0, 7) || "غير محدد";
+}
+
+function monthLabel(value: string) {
+  if (value === "غير محدد") return value;
+  const date = new Date(`${value}-01T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("ar-EG", { month: "long", year: "numeric" });
+}
+
+function getMonthDiff(start: string, end: string) {
+  const s = new Date(`${start}T12:00:00`);
+  const e = new Date(`${end}T12:00:00`);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
+  return (e.getFullYear() - s.getFullYear()) * 12 + e.getMonth() - s.getMonth() + 1;
+}
+
+function aggregateMonthly(rows: SalesDailySummary[]) {
+  const byMonth = new Map<string, { month: string; label: string; netTotal: number; invoicesCount: number; activeDays: number; uniqueCustomers: number }>();
+  for (const row of rows) {
+    const key = monthKey(row.saleDate);
+    const current = byMonth.get(key) || { month: key, label: monthLabel(key), netTotal: 0, invoicesCount: 0, activeDays: 0, uniqueCustomers: 0 };
+    current.netTotal += row.netTotal;
+    current.invoicesCount += row.invoicesCount;
+    current.uniqueCustomers += row.uniqueCustomers;
+    if (row.netTotal > 0 || row.invoicesCount > 0) current.activeDays += 1;
+    byMonth.set(key, current);
+  }
+  return [...byMonth.values()]
+    .map((row) => ({ ...row, avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0 }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+}
+
+function getTrendDirection(monthly: ReturnType<typeof aggregateMonthly>) {
+  if (monthly.length < 2) return { label: "غير متاح", growth: null as number | null, explanation: "الفترة لا تكفي لقياس اتجاه واضح" };
+  const first = monthly[0].netTotal;
+  const last = monthly[monthly.length - 1].netTotal;
+  const growth = first > 0 ? ((last - first) / first) * 100 : null;
+  const increases = monthly.slice(1).filter((row, index) => row.netTotal >= monthly[index].netTotal).length;
+  const decreases = monthly.slice(1).filter((row, index) => row.netTotal < monthly[index].netTotal).length;
+  const label = growth === null ? "غير متاح" : increases && decreases ? "متذبذب" : growth >= 0 ? "صاعد" : "هابط";
+  return {
+    label,
+    growth,
+    explanation: growth === null
+      ? "الشهر الأول لا يحتوي مبيعات كافية لحساب النمو"
+      : `التغير من أول شهر إلى آخر شهر ${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%`,
+  };
+}
+
 export default function ExecutiveDashboard2027() {
   const currentCycle = useMemo(() => getCurrentCycle(), []);
   const [periodStart, setPeriodStart] = useState(() => formatCycleDate(currentCycle.start));
   const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(currentCycle.end));
+  const [periodMode, setPeriodMode] = useState<"current" | "previous" | "custom">("current");
   const [branch, setBranch] = useState(ALL_BRANCHES);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -219,6 +272,14 @@ export default function ExecutiveDashboard2027() {
   const branchRows = useMemo(() => aggregateBranches(summary?.dailySales || []), [summary]);
   const followupTotals = useMemo(() => sumFollowups(summary?.followupPerformance || []), [summary]);
   const salesOverview = useMemo(() => getSalesOverview(dailyTrend), [dailyTrend]);
+  const monthlyTrend = useMemo(() => aggregateMonthly(summary?.dailySales || []), [summary]);
+  const isMultiMonth = periodMode === "custom" && getMonthDiff(periodStart, periodEnd) > 1;
+  const trendRows = isMultiMonth ? monthlyTrend : dailyTrend;
+  const trendDirection = useMemo(() => getTrendDirection(monthlyTrend), [monthlyTrend]);
+  const bestMonth = useMemo(() => [...monthlyTrend].sort((a, b) => b.netTotal - a.netTotal)[0] || null, [monthlyTrend]);
+  const worstMonth = useMemo(() => [...monthlyTrend].filter((row) => row.netTotal > 0).sort((a, b) => a.netTotal - b.netTotal)[0] || null, [monthlyTrend]);
+  const monthlyAverage = monthlyTrend.length ? salesOverview.total / monthlyTrend.length : 0;
+  const dailyAverage = salesOverview.activeDays ? salesOverview.total / salesOverview.activeDays : 0;
 
   const refreshDashboardSummaries = async () => {
     setRefreshingSummaries(true);
@@ -230,10 +291,16 @@ export default function ExecutiveDashboard2027() {
     }
   };
 
-  const setCycleRange = (cycle: ReturnType<typeof getCurrentCycle>) => {
+  const setCycleRange = (cycle: ReturnType<typeof getCurrentCycle>, mode: "current" | "previous") => {
+    setPeriodMode(mode);
     setPeriodStart(formatCycleDate(cycle.start));
     setPeriodEnd(formatCycleDate(cycle.end));
   };
+
+  const periodTitle = periodMode === "current" ? "الدورة الحالية" : periodMode === "previous" ? "الدورة السابقة" : "فترة مخصصة";
+  const periodDescription = periodMode === "custom"
+    ? `تحليل فترة مخصصة: ${periodStart} إلى ${periodEnd}`
+    : `${periodTitle}: ${periodStart} إلى ${periodEnd}`;
 
   const actionIconByKey: Record<string, ElementType> = {
     "overdue-followups": AlertTriangle,
@@ -258,7 +325,7 @@ export default function ExecutiveDashboard2027() {
           <p className="mt-1 text-sm font-semibold text-slate-600">مركز قيادة موحد للمبيعات والعملاء والمتابعات والفريق</p>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
             <CalendarDays className="h-4 w-4 text-teal-600" />
-            <span>الدورة الحالية: {periodStart} إلى {periodEnd}</span>
+            <span>{periodDescription}</span>
             <span className="rounded-full bg-slate-100 px-2 py-1">آخر تحديث: {displayShortTime(lastRefreshed)}</span>
           </div>
         </div>
@@ -267,10 +334,10 @@ export default function ExecutiveDashboard2027() {
           <select className="dawaa-input min-w-[150px]" value={branch} onChange={(event) => setBranch(event.target.value)} aria-label="اختيار الفرع">
             {branchOptions.map((item) => <option key={item} value={item}>{item === ALL_BRANCHES ? ALL_BRANCHES_LABEL : item}</option>)}
           </select>
-          <input className="dawaa-input w-[145px]" type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} aria-label="بداية الفترة" />
-          <input className="dawaa-input w-[145px]" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} aria-label="نهاية الفترة" />
-          <button type="button" className="btn-secondary px-3 py-2" onClick={() => setCycleRange(getCurrentCycle())}>الدورة الحالية</button>
-          <button type="button" className="btn-secondary px-3 py-2" onClick={() => setCycleRange(getPreviousCycle())}>الدورة السابقة</button>
+          <input className="dawaa-input w-[145px]" type="date" value={periodStart} onChange={(event) => { setPeriodMode("custom"); setPeriodStart(event.target.value); }} aria-label="بداية الفترة" />
+          <input className="dawaa-input w-[145px]" type="date" value={periodEnd} onChange={(event) => { setPeriodMode("custom"); setPeriodEnd(event.target.value); }} aria-label="نهاية الفترة" />
+          <button type="button" className="btn-secondary px-3 py-2" onClick={() => setCycleRange(getCurrentCycle(), "current")}>الدورة الحالية</button>
+          <button type="button" className="btn-secondary px-3 py-2" onClick={() => setCycleRange(getPreviousCycle(), "previous")}>الدورة السابقة</button>
           <button
             type="button"
             className="dawaa-button-primary"
@@ -308,10 +375,10 @@ export default function ExecutiveDashboard2027() {
       )}
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard label="صافي مبيعات الفترة" metric={normalizedKpis?.netSales} formatter="money" subtitle="صافي قيمة الدورة" icon={Wallet} loading={loading} empty={!hasInvoiceRows} />
-        <KpiCard label="عدد الفواتير" metric={normalizedKpis?.invoicesCount} formatter="count" subtitle="فواتير الفترة المحددة" icon={ShoppingCart} loading={loading} empty={!hasInvoiceRows} />
-        <KpiCard label="متوسط الفاتورة" metric={normalizedKpis?.avgInvoice} formatter="money" subtitle="متوسط صافي الفاتورة" icon={TrendingUp} loading={loading} empty={!hasInvoiceRows} />
-        <KpiCard label="العملاء المشترين" metric={normalizedKpis?.uniqueCustomers} formatter="count" subtitle="عملاء لديهم شراء" icon={Users} loading={loading} empty={!hasInvoiceRows} />
+        <KpiCard label="صافي مبيعات الفترة" metric={normalizedKpis?.netSales} formatter="money" subtitle={periodMode === "custom" ? "إجمالي مبيعات الفترة المخصصة" : "صافي قيمة الدورة"} icon={Wallet} loading={loading} empty={!hasInvoiceRows} onClick={() => navigate(`/analytics?start=${periodStart}&end=${periodEnd}`)} />
+        <KpiCard label="عدد الفواتير" metric={normalizedKpis?.invoicesCount} formatter="count" subtitle="فواتير الفترة المحددة" icon={ShoppingCart} loading={loading} empty={!hasInvoiceRows} onClick={() => navigate(`/invoices?start=${periodStart}&end=${periodEnd}`)} />
+        <KpiCard label="متوسط الفاتورة" metric={normalizedKpis?.avgInvoice} formatter="money" subtitle="متوسط صافي الفاتورة" icon={TrendingUp} loading={loading} empty={!hasInvoiceRows} onClick={() => navigate(`/analytics?metric=avg_invoice&start=${periodStart}&end=${periodEnd}`)} />
+        <KpiCard label="العملاء المشترين" metric={normalizedKpis?.uniqueCustomers} formatter="count" subtitle="عملاء لديهم شراء" icon={Users} loading={loading} empty={!hasInvoiceRows} onClick={() => navigate(`/customers?status=active&start=${periodStart}&end=${periodEnd}`)} />
         <KpiCard
           label="المتابعات المتأخرة"
           metric={normalizedKpis?.overdueFollowups}
@@ -338,18 +405,34 @@ export default function ExecutiveDashboard2027() {
         <DecisionCenter summary={summary} actionIconByKey={actionIconByKey} />
       </Panel>
 
+      {isMultiMonth && (
+        <Panel title="تحليل الفترة المخصصة" source="sales_daily_summary">
+          <MultiPeriodSummary
+            total={salesOverview.total}
+            monthlyAverage={monthlyAverage}
+            dailyAverage={dailyAverage}
+            activeDays={salesOverview.activeDays}
+            bestMonth={bestMonth}
+            worstMonth={worstMonth}
+            trend={trendDirection}
+            invoices={numberValue(normalizedKpis?.invoicesCount.value ?? kpis?.invoicesCount)}
+            customers={numberValue(normalizedKpis?.uniqueCustomers.value ?? kpis?.uniqueCustomers)}
+          />
+        </Panel>
+      )}
+
       <section className="grid gap-4 xl:grid-cols-[1.45fr_.9fr]">
         <Panel title="نظرة المبيعات" source="sales_daily_summary.sale_date">
           <div className="mb-4 grid gap-2 sm:grid-cols-4">
             <MiniStat label="إجمالي الفترة" value={formatMoney(salesOverview.total)} />
-            <MiniStat label="أفضل يوم" value={salesOverview.bestDay ? `${salesOverview.bestDay.label} · ${formatMoney(salesOverview.bestDay.netTotal)}` : "غير متاح"} />
-            <MiniStat label="أقل يوم" value={salesOverview.lowestDay ? `${salesOverview.lowestDay.label} · ${formatMoney(salesOverview.lowestDay.netTotal)}` : "غير متاح"} />
+            <MiniStat label={isMultiMonth ? "أفضل شهر" : "أفضل يوم"} value={isMultiMonth ? (bestMonth ? `${bestMonth.label} · ${formatMoney(bestMonth.netTotal)}` : "غير متاح") : (salesOverview.bestDay ? `${salesOverview.bestDay.label} · ${formatMoney(salesOverview.bestDay.netTotal)}` : "غير متاح")} />
+            <MiniStat label={isMultiMonth ? "أضعف شهر" : "أقل يوم"} value={isMultiMonth ? (worstMonth ? `${worstMonth.label} · ${formatMoney(worstMonth.netTotal)}` : "غير متاح") : (salesOverview.lowestDay ? `${salesOverview.lowestDay.label} · ${formatMoney(salesOverview.lowestDay.netTotal)}` : "غير متاح")} />
             <MiniStat label="أيام نشطة" value={formatNumber(salesOverview.activeDays)} />
           </div>
-          {dailyTrend.length ? (
+          {trendRows.length ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dailyTrend}>
+                <AreaChart data={trendRows}>
                   <defs>
                     <linearGradient id="salesNetAreaLight" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#00AFA5" stopOpacity={0.34} />
@@ -365,10 +448,15 @@ export default function ExecutiveDashboard2027() {
               </ResponsiveContainer>
             </div>
           ) : <Empty text={sourceHealth?.salesSummaryAvailable ? "لا توجد بيانات مبيعات يومية للفترة المحددة" : "بيانات المبيعات اليومية غير متاحة حاليًا"} />}
+          {isMultiMonth && (
+            <div className="mt-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm font-bold text-teal-800">
+              اتجاه المبيعات: {trendDirection.label} · {trendDirection.explanation}
+            </div>
+          )}
         </Panel>
 
         <Panel title="أداء الفروع" source="sales_daily_summary">
-          <BranchPerformance rows={branchRows} available={Boolean(sourceHealth?.salesSummaryAvailable)} />
+          <BranchPerformance rows={branchRows} available={Boolean(sourceHealth?.salesSummaryAvailable)} onBranchClick={(nextBranch) => { setBranch(nextBranch); setPeriodMode("custom"); }} />
         </Panel>
       </section>
 
@@ -384,6 +472,9 @@ export default function ExecutiveDashboard2027() {
       <section className="grid gap-4 xl:grid-cols-4">
         <Panel title="أداء المتابعات" source="followup_performance_summary.followup_date">
           <FollowupPerformance totals={followupTotals} available={Boolean(sourceHealth?.followupSummaryAvailable)} />
+        </Panel>
+        <Panel title="أثر خدمة العملاء" source="followup_performance_summary + daily_followups">
+          <CustomerServiceImpact rows={summary?.followupPerformance || []} totals={followupTotals} />
         </Panel>
         <Panel title="ذكاء العملاء والمتابعات" source="customer_metrics_summary + daily_followups">
           <CustomerIntelligencePanel summary={summary} />
@@ -559,6 +650,45 @@ function DecisionItem({ item, icon: Icon, compact = false }: { item: DashboardAc
   return item.route ? <Link to={item.route}>{body}</Link> : body;
 }
 
+function MultiPeriodSummary({
+  total,
+  monthlyAverage,
+  dailyAverage,
+  activeDays,
+  bestMonth,
+  worstMonth,
+  trend,
+  invoices,
+  customers,
+}: {
+  total: number;
+  monthlyAverage: number;
+  dailyAverage: number;
+  activeDays: number;
+  bestMonth: ReturnType<typeof aggregateMonthly>[number] | null;
+  worstMonth: ReturnType<typeof aggregateMonthly>[number] | null;
+  trend: ReturnType<typeof getTrendDirection>;
+  invoices: number | null;
+  customers: number | null;
+}) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <MiniStat label="إجمالي مبيعات الفترة" value={formatMoney(total)} />
+      <MiniStat label="متوسط المبيعات الشهري" value={formatMoney(monthlyAverage)} />
+      <MiniStat label="متوسط المبيعات اليومي" value={formatMoney(dailyAverage)} />
+      <MiniStat label="عدد أيام البيع النشطة" value={formatNumber(activeDays)} />
+      <MiniStat label="عدد الفواتير" value={displayCount(invoices)} />
+      <MiniStat label="عدد العملاء المشترين" value={displayCount(customers)} />
+      <MiniStat label="أفضل شهر" value={bestMonth ? `${bestMonth.label} · ${formatMoney(bestMonth.netTotal)}` : "غير متاح"} />
+      <MiniStat label="أضعف شهر" value={worstMonth ? `${worstMonth.label} · ${formatMoney(worstMonth.netTotal)}` : "غير متاح"} />
+      <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 md:col-span-2 xl:col-span-4">
+        <div className="text-sm font-black text-teal-950">اتجاه المبيعات: {trend.label}</div>
+        <div className="mt-1 text-sm font-bold text-teal-700">{trend.explanation}</div>
+      </div>
+    </div>
+  );
+}
+
 function ActionCard({
   item,
   icon: Icon,
@@ -605,13 +735,13 @@ function Panel({ title, source: _source, children, featured = false }: { title: 
   );
 }
 
-function BranchPerformance({ rows, available }: { rows: ReturnType<typeof aggregateBranches>; available: boolean }) {
+function BranchPerformance({ rows, available, onBranchClick }: { rows: ReturnType<typeof aggregateBranches>; available: boolean; onBranchClick: (branch: string) => void }) {
   if (!available) return <Empty text="بيانات أداء الفروع غير متاحة حاليًا" />;
   if (!rows.length) return <Empty text="لا توجد بيانات في الفترة المحددة" />;
   return (
     <div className="space-y-2">
       {rows.map((row) => (
-        <div key={row.branch} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <button key={row.branch} type="button" onClick={() => onBranchClick(row.branch)} className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-right shadow-sm transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md">
           <div className="flex items-center justify-between gap-3">
             <div className="font-black text-slate-900">{row.branch}</div>
             <div className="text-sm font-black text-teal-700">{formatMoney(row.netTotal)}</div>
@@ -622,7 +752,8 @@ function BranchPerformance({ rows, available }: { rows: ReturnType<typeof aggreg
             <span>{formatNumber(row.uniqueCustomers)} عميل</span>
             <span>{row.share.toFixed(1)}%</span>
           </div>
-        </div>
+          <div className="mt-2 text-xs font-black text-teal-700">تحليل هذا الفرع</div>
+        </button>
       ))}
     </div>
   );
@@ -728,6 +859,54 @@ function FollowupPerformance({ totals, available }: { totals: ReturnType<typeof 
   );
 }
 
+function CustomerServiceImpact({ rows, totals }: { rows: FollowupPerformanceSummary[]; totals: ReturnType<typeof sumFollowups> }) {
+  const summarize = (items: FollowupPerformanceSummary[]) => {
+    const total = sumFollowups(items);
+    return {
+      ...total,
+      completionRate: total.assignedCount ? (total.completedCount / total.assignedCount) * 100 : null,
+    };
+  };
+  const dohaStats = summarize(rows.filter((row) => String(row.responsibleName || "").includes("ضحى") || String(row.branch || "").includes("الشامي")));
+  const doniaStats = summarize(rows.filter((row) => String(row.responsibleName || "").includes("دنيا") || String(row.branch || "").includes("شكري")));
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <MiniStat label="مسندة" value={formatNumber(totals.assignedCount)} />
+        <MiniStat label="مكتملة" value={formatNumber(totals.completedCount)} />
+        <MiniStat label="متأخرة" value={formatNumber(totals.overdueCount)} tone="danger" />
+        <MiniStat label="يحتاج مدير" value={formatNumber(totals.needsManagerCount)} tone="danger" />
+        <MiniStat label="لم يرد" value={formatNumber(totals.noAnswerCount)} />
+        <MiniStat label="قيمة شراء بعد المتابعة" value={formatMoney(totals.purchaseAfterFollowupAmount)} />
+      </div>
+      <ResponsibleImpact name="د ضحى" branch="فرع الشامي" stats={dohaStats} />
+      <ResponsibleImpact name="د دنيا" branch="فرع شكري" stats={doniaStats} />
+    </div>
+  );
+}
+
+function ResponsibleImpact({ name, branch, stats }: { name: string; branch: string; stats: ReturnType<typeof sumFollowups> & { completionRate: number | null } }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className="font-black text-slate-950">{name}</div>
+          <div className="text-xs font-bold text-slate-500">{branch}</div>
+        </div>
+        <div className="text-left">
+          <div className="text-sm font-black text-teal-700">{stats.completionRate === null ? "غير متاح" : `${stats.completionRate.toFixed(0)}%`}</div>
+          <div className="text-[11px] font-bold text-slate-500">إنجاز</div>
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-xs font-bold text-slate-600">
+        <span>مسند: {formatNumber(stats.assignedCount)}</span>
+        <span>مكتمل: {formatNumber(stats.completedCount)}</span>
+        <span>متأخر: {formatNumber(stats.overdueCount)}</span>
+      </div>
+    </div>
+  );
+}
+
 function CustomerIntelligencePanel({ summary }: { summary: DashboardSummary | null }) {
   const intel = summary?.customerIntelligence;
   if (!intel || intel.error) return <Empty text={intel?.error ? "غير متاح حاليًا - راجع صحة المصدر" : "غير متاح حاليًا"} />;
@@ -752,6 +931,9 @@ function DataHealthPanel({ summary }: { summary: DashboardSummary | null }) {
       <MiniStat label="بدون هاتف" value={displayCount(health.invoicesWithoutCustomerPhone)} tone={health.invoicesWithoutCustomerPhone ? "danger" : "teal"} />
       <MiniStat label="بدون دكتور" value={displayCount(health.invoicesWithoutSellerName)} tone={health.invoicesWithoutSellerName ? "danger" : "teal"} />
       <MiniStat label="بدون فرع" value={displayCount(health.invoicesWithoutBranch)} tone={health.invoicesWithoutBranch ? "danger" : "teal"} />
+      <MiniStat label="عملاء بدون رقم صحيح" value={displayCount(summary?.customerIntelligence.customersWithoutValidPhone)} tone={summary?.customerIntelligence.customersWithoutValidPhone ? "danger" : "teal"} />
+      <MiniStat label="هواتف code:xxxx" value="غير متاح" tone="danger" />
+      <MiniStat label="أكواد مكررة" value="غير متاح" tone="danger" />
       <InfoLine label="آخر تاريخ فاتورة" value={health.lastInvoiceDate ? displayDate(health.lastInvoiceDate) : "غير محدد"} />
       <InfoLine label="آخر دفعة استيراد" value={health.latestImportBatch || "غير محدد"} />
     </div>
