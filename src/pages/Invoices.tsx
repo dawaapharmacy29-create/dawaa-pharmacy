@@ -21,8 +21,9 @@ import {
 import {
   applyCustomerPhoneUpdate,
   CUSTOMER_PHONE_CONFIRMATION,
-  parseCustomerPhoneCsv,
+  parseCustomerPhoneFile,
   previewCustomerPhoneUpdate,
+  type CustomerPhoneParseResult,
   type CustomerPhoneCsvRow,
   type CustomerPhoneUpdateResult,
 } from "@/lib/customerPhoneUpdateService";
@@ -102,9 +103,11 @@ export default function Invoices() {
   const [summaryRefreshBusy, setSummaryRefreshBusy] = useState(false);
   const [phoneUpdateRows, setPhoneUpdateRows] = useState<CustomerPhoneCsvRow[]>([]);
   const [phoneUpdateResult, setPhoneUpdateResult] = useState<CustomerPhoneUpdateResult | null>(null);
+  const [phoneUpdateParseResult, setPhoneUpdateParseResult] = useState<CustomerPhoneParseResult | null>(null);
   const [phoneUpdateBusy, setPhoneUpdateBusy] = useState(false);
   const [phoneUpdateFileName, setPhoneUpdateFileName] = useState("");
   const [phoneUpdateConfirmText, setPhoneUpdateConfirmText] = useState("");
+  const [copyPhoneToWhatsapp, setCopyPhoneToWhatsapp] = useState(false);
   useEscapeKey(() => {
     setEditInvoice(null);
     setEditForm(null);
@@ -274,6 +277,7 @@ export default function Invoices() {
     setParseResult(null);
     setImportSummary(null);
     setProgress(0);
+    setPhoneUpdateParseResult(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -300,17 +304,22 @@ export default function Invoices() {
   };
 
   const handlePhoneUpdateFile = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      toast.error("ملف تحديث أرقام العملاء يجب أن يكون CSV");
+    if (!/\.(csv|xlsx|xls)$/i.test(file.name)) {
+      toast.error("ملف تحديث أرقام العملاء يجب أن يكون CSV أو Excel");
       return;
     }
 
     setPhoneUpdateBusy(true);
     setPhoneUpdateFileName(file.name);
     setPhoneUpdateResult(null);
+    setPhoneUpdateParseResult(null);
     setPhoneUpdateConfirmText("");
     try {
-      const rows = await parseCustomerPhoneCsv(file);
+      const parsed = await parseCustomerPhoneFile(file, {
+        copyPhoneToWhatsappWhenMissing: copyPhoneToWhatsapp,
+      });
+      const rows = parsed.rows;
+      setPhoneUpdateParseResult(parsed);
       setPhoneUpdateRows(rows);
       if (rows.length === 0) {
         toast.error("لم يتم العثور على صفوف صالحة في ملف تحديث الأرقام");
@@ -351,6 +360,25 @@ export default function Invoices() {
     } finally {
       setPhoneUpdateBusy(false);
     }
+  };
+
+  const downloadPhoneUpdatePreviewReport = () => {
+    if (!phoneUpdateResult) return;
+    const headers = ["row_no", "customer_code", "customer_name", "branch", "new_phone", "new_whatsapp_phone", "status", "match_method", "would_update_phone", "would_update_whatsapp"];
+    const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const lines = [
+      headers.join(","),
+      ...phoneUpdateResult.rows.map((row) => headers.map((key) => escapeCsv((row as any)[key])).join(",")),
+    ];
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `customer-phone-preview-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const invoiceBatches = useMemo(() => {
@@ -573,25 +601,36 @@ export default function Invoices() {
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="section-title">تحديث أرقام العملاء من CSV</div>
+            <div className="section-title">تحديث أرقام العملاء من CSV / Excel</div>
             <div className="text-sm text-slate-400">
-              يحدّث public.customers فقط، ولا يلمس sales_invoices أو customer_metrics_summary مباشرة.
+              يقبل CSV أو Excel، ويحدّث public.customers فقط، ولا يلمس sales_invoices أو customer_metrics_summary مباشرة.
             </div>
           </div>
-          <label className="btn-secondary flex w-fit cursor-pointer items-center gap-2">
-            <Upload size={15} /> اختيار ملف CSV
-            <input
-              type="file"
-              accept=".csv"
-              className="hidden"
-              disabled={phoneUpdateBusy}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void handlePhoneUpdateFile(file);
-                event.currentTarget.value = "";
-              }}
-            />
-          </label>
+          <div className="flex flex-col items-start gap-2">
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-200">
+              <input
+                type="checkbox"
+                checked={copyPhoneToWhatsapp}
+                onChange={(event) => setCopyPhoneToWhatsapp(event.target.checked)}
+                disabled={phoneUpdateBusy}
+              />
+              استخدم نفس الرقم للواتساب إذا كان واتساب فارغًا
+            </label>
+            <label className="btn-secondary flex w-fit cursor-pointer items-center gap-2">
+              <Upload size={15} /> اختيار ملف CSV / Excel
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                disabled={phoneUpdateBusy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void handlePhoneUpdateFile(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+          </div>
         </div>
 
         {phoneUpdateBusy && (
@@ -603,10 +642,30 @@ export default function Invoices() {
         {phoneUpdateResult && (
           <div className="space-y-4">
             <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-              الملف: <span className="font-bold text-white">{phoneUpdateFileName || "CSV"}</span>
+              الملف: <span className="font-bold text-white">{phoneUpdateFileName || "ملف العملاء"}</span>
               <span className="mx-2 text-slate-500">|</span>
               الحالة: <span className="font-bold text-teal-300">{phoneUpdateResult.apply ? "تم التطبيق" : "معاينة فقط بدون كتابة"}</span>
             </div>
+            {phoneUpdateParseResult && (
+              <div className="rounded-xl border border-teal-300/20 bg-teal-400/10 px-4 py-3 text-sm text-teal-50">
+                <div className="font-black">خريطة الأعمدة المكتشفة</div>
+                <div className="mt-2 grid gap-2 md:grid-cols-3">
+                  <span>كود العميل: {phoneUpdateParseResult.mapping.customerCodeColumn || "غير موجود"}</span>
+                  <span>اسم العميل: {phoneUpdateParseResult.mapping.customerNameColumn || "غير موجود"}</span>
+                  <span>الفرع/العنوان: {phoneUpdateParseResult.mapping.branchColumn || "غير موجود"}</span>
+                  <span>الهاتف الأساسي: {phoneUpdateParseResult.mapping.phoneColumn || "غير موجود"}</span>
+                  <span>واتساب: {phoneUpdateParseResult.mapping.whatsappColumn || "غير موجود"}</span>
+                  <span>إصلاح صفر البداية: {phoneUpdateParseResult.stats.normalizedLeadingZero.toLocaleString("ar-EG")}</span>
+                  <span>تحويل من +20/0020: {phoneUpdateParseResult.stats.normalizedInternational.toLocaleString("ar-EG")}</span>
+                  <span>أرقام غير صالحة في الملف: {phoneUpdateParseResult.stats.invalidPhones.toLocaleString("ar-EG")}</span>
+                </div>
+                {(phoneUpdateParseResult.mapping.ambiguousPhoneColumns.length > 1 || phoneUpdateParseResult.mapping.ambiguousWhatsappColumns.length > 1) && (
+                  <div className="mt-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-amber-50">
+                    يوجد أكثر من عمود رقم. تم اختيار أول عمود للهاتف والثاني للواتساب عند توفره. راجع أول 200 صف قبل التطبيق.
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <ResultTile value={phoneUpdateResult.rowsInFile} label="صف في الملف" />
               <ResultTile value={phoneUpdateResult.matchedCustomers} label="عملاء مطابقون" />
@@ -649,7 +708,12 @@ export default function Invoices() {
             )}
 
             <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
-              <div className="border-b border-white/10 px-4 py-3 text-sm font-bold text-white">أول 200 صف من نتيجة الفحص</div>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3 text-sm font-bold text-white">
+                <span>أول 200 صف من نتيجة الفحص</span>
+                <button type="button" onClick={downloadPhoneUpdatePreviewReport} className="btn-secondary px-3 py-1 text-xs">
+                  تنزيل تقرير المعاينة
+                </button>
+              </div>
               <div className="max-h-72 overflow-auto">
                 <table className="data-table">
                   <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
