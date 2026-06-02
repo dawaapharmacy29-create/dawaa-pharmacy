@@ -18,6 +18,14 @@ import {
   type ImportSummary,
   type ParseResult,
 } from "@/lib/invoiceImporter";
+import {
+  applyCustomerPhoneUpdate,
+  CUSTOMER_PHONE_CONFIRMATION,
+  parseCustomerPhoneCsv,
+  previewCustomerPhoneUpdate,
+  type CustomerPhoneCsvRow,
+  type CustomerPhoneUpdateResult,
+} from "@/lib/customerPhoneUpdateService";
 
 type Step = "idle" | "parsing" | "preview" | "importing" | "done";
 type ImportKind = "sales" | "customers";
@@ -92,6 +100,11 @@ export default function Invoices() {
   const [duplicateAudit, setDuplicateAudit] = useState<DuplicateInvoiceGroup[]>([]);
   const [duplicateAuditLoading, setDuplicateAuditLoading] = useState(false);
   const [summaryRefreshBusy, setSummaryRefreshBusy] = useState(false);
+  const [phoneUpdateRows, setPhoneUpdateRows] = useState<CustomerPhoneCsvRow[]>([]);
+  const [phoneUpdateResult, setPhoneUpdateResult] = useState<CustomerPhoneUpdateResult | null>(null);
+  const [phoneUpdateBusy, setPhoneUpdateBusy] = useState(false);
+  const [phoneUpdateFileName, setPhoneUpdateFileName] = useState("");
+  const [phoneUpdateConfirmText, setPhoneUpdateConfirmText] = useState("");
   useEscapeKey(() => {
     setEditInvoice(null);
     setEditForm(null);
@@ -284,6 +297,60 @@ export default function Invoices() {
       return;
     }
     toast.success(`تم تحديث ملخصات المبيعات من ${startDate} إلى ${endDate}`);
+  };
+
+  const handlePhoneUpdateFile = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      toast.error("ملف تحديث أرقام العملاء يجب أن يكون CSV");
+      return;
+    }
+
+    setPhoneUpdateBusy(true);
+    setPhoneUpdateFileName(file.name);
+    setPhoneUpdateResult(null);
+    setPhoneUpdateConfirmText("");
+    try {
+      const rows = await parseCustomerPhoneCsv(file);
+      setPhoneUpdateRows(rows);
+      if (rows.length === 0) {
+        toast.error("لم يتم العثور على صفوف صالحة في ملف تحديث الأرقام");
+        return;
+      }
+      const preview = await previewCustomerPhoneUpdate(rows);
+      setPhoneUpdateResult(preview);
+      toast.success(`تمت معاينة ${preview.rowsInFile.toLocaleString("ar-EG")} صف بدون كتابة`);
+    } catch (error) {
+      toast.error(`تعذر معاينة ملف الأرقام: ${(error as Error).message}`);
+    } finally {
+      setPhoneUpdateBusy(false);
+    }
+  };
+
+  const handleApplyPhoneUpdate = async () => {
+    if (phoneUpdateConfirmText.trim() !== CUSTOMER_PHONE_CONFIRMATION) {
+      toast.error(`اكتب عبارة التأكيد: ${CUSTOMER_PHONE_CONFIRMATION}`);
+      return;
+    }
+    if (phoneUpdateRows.length === 0) {
+      toast.error("لا توجد صفوف جاهزة للتطبيق");
+      return;
+    }
+
+    setPhoneUpdateBusy(true);
+    try {
+      const result = await applyCustomerPhoneUpdate(phoneUpdateRows, {
+        id: user?.id,
+        name: user?.name,
+        role: user?.role,
+      });
+      setPhoneUpdateResult(result);
+      setPhoneUpdateConfirmText("");
+      toast.success("تم تحديث أرقام العملاء وإعادة بناء ملخص العملاء");
+    } catch (error) {
+      toast.error(`تعذر تحديث أرقام العملاء: ${(error as Error).message}`);
+    } finally {
+      setPhoneUpdateBusy(false);
+    }
   };
 
   const invoiceBatches = useMemo(() => {
@@ -501,6 +568,131 @@ export default function Invoices() {
         <button onClick={generateTemplateFile} className="btn-secondary mt-4 flex items-center gap-2">
           <Download size={15} /> تحميل نموذج مبيعات
         </button>
+      </div>
+
+      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="section-title">تحديث أرقام العملاء من CSV</div>
+            <div className="text-sm text-slate-400">
+              يحدّث public.customers فقط، ولا يلمس sales_invoices أو customer_metrics_summary مباشرة.
+            </div>
+          </div>
+          <label className="btn-secondary flex w-fit cursor-pointer items-center gap-2">
+            <Upload size={15} /> اختيار ملف CSV
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              disabled={phoneUpdateBusy}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void handlePhoneUpdateFile(file);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
+        </div>
+
+        {phoneUpdateBusy && (
+          <div className="flex items-center gap-2 rounded-xl border border-teal-300/25 bg-teal-400/10 px-4 py-3 text-sm text-teal-50">
+            <Loader2 size={16} className="animate-spin" /> جاري فحص ملف أرقام العملاء...
+          </div>
+        )}
+
+        {phoneUpdateResult && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+              الملف: <span className="font-bold text-white">{phoneUpdateFileName || "CSV"}</span>
+              <span className="mx-2 text-slate-500">|</span>
+              الحالة: <span className="font-bold text-teal-300">{phoneUpdateResult.apply ? "تم التطبيق" : "معاينة فقط بدون كتابة"}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <ResultTile value={phoneUpdateResult.rowsInFile} label="صف في الملف" />
+              <ResultTile value={phoneUpdateResult.matchedCustomers} label="عملاء مطابقون" />
+              <ResultTile value={phoneUpdateResult.validPhones} label="أرقام صالحة" />
+              <ResultTile value={phoneUpdateResult.invalidPhones} label="أرقام مرفوضة" />
+              <ResultTile value={phoneUpdateResult.wouldUpdatePhone} label="سيحدث الهاتف" />
+              <ResultTile value={phoneUpdateResult.wouldUpdateWhatsapp} label="سيحدث واتساب" />
+              <ResultTile value={phoneUpdateResult.skippedExistingValid} label="رقم صالح موجود" />
+              <ResultTile value={phoneUpdateResult.needsReviewRows} label="تحتاج مراجعة" />
+              <ResultTile value={phoneUpdateResult.unmatchedRows} label="غير مطابق" />
+              <ResultTile value={phoneUpdateResult.customersUpdated} label="عملاء تم تحديثهم" />
+              <ResultTile value={phoneUpdateResult.invalidSummaryPhoneCountBefore} label="غير صالح قبل" />
+              <ResultTile value={phoneUpdateResult.invalidSummaryPhoneCountAfter} label="غير صالح بعد" />
+            </div>
+
+            {!phoneUpdateResult.apply && (
+              <div className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-4">
+                <div className="font-bold text-amber-100">تأكيد الكتابة</div>
+                <div className="mt-1 text-sm text-amber-50/85">
+                  لن يتم تحديث أي عميل إلا بعد كتابة العبارة التالية حرفيًا: {CUSTOMER_PHONE_CONFIRMATION}
+                </div>
+                <div className="mt-3 flex flex-col gap-3 md:flex-row">
+                  <input
+                    className="input-dark flex-1"
+                    value={phoneUpdateConfirmText}
+                    onChange={(event) => setPhoneUpdateConfirmText(event.target.value)}
+                    placeholder={CUSTOMER_PHONE_CONFIRMATION}
+                    disabled={phoneUpdateBusy}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyPhoneUpdate}
+                    disabled={phoneUpdateBusy || phoneUpdateConfirmText.trim() !== CUSTOMER_PHONE_CONFIRMATION}
+                    className="btn-primary disabled:opacity-50"
+                  >
+                    تطبيق تحديث أرقام العملاء
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+              <div className="border-b border-white/10 px-4 py-3 text-sm font-bold text-white">أول 200 صف من نتيجة الفحص</div>
+              <div className="max-h-72 overflow-auto">
+                <table className="data-table">
+                  <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
+                    <tr>
+                      <th>#</th>
+                      <th>الكود</th>
+                      <th>العميل</th>
+                      <th>الفرع</th>
+                      <th>الهاتف الجديد</th>
+                      <th>واتساب جديد</th>
+                      <th>الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {phoneUpdateResult.rows.map((row) => (
+                      <tr key={row.row_no}>
+                        <td className="text-slate-500 text-xs">{row.row_no}</td>
+                        <td className="num">{row.customer_code || "-"}</td>
+                        <td className="text-white font-medium">{row.customer_name || "-"}</td>
+                        <td>{row.branch || "-"}</td>
+                        <td className="num text-teal-300">{row.new_phone || "-"}</td>
+                        <td className="num text-teal-300">{row.new_whatsapp_phone || "-"}</td>
+                        <td>
+                          <span className={`rounded-full px-2 py-1 text-xs font-bold ${
+                            row.status === "ready_to_update"
+                              ? "bg-emerald-400/15 text-emerald-100"
+                              : row.status.includes("review")
+                                ? "bg-amber-400/15 text-amber-100"
+                                : row.status === "unmatched" || row.status === "invalid_phone"
+                                  ? "bg-rose-400/15 text-rose-100"
+                                  : "bg-slate-400/15 text-slate-100"
+                          }`}>
+                            {row.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {isAdmin && (
@@ -878,6 +1070,32 @@ export default function Invoices() {
                 <div className="font-bold text-teal-100">حالة تحديث الملخصات</div>
                 <div className="mt-2 text-sm text-teal-50/85">
                   {importSummary.summaryRefreshMessage || "لم يتم طلب تحديث ملخصات إضافي."}
+                </div>
+                <div className="mt-4 space-y-2">
+                  {(importSummary.postImportRefreshSteps || []).map((refreshStep) => {
+                    const isSuccess = refreshStep.status === "success";
+                    const isFailed = refreshStep.status === "failed";
+                    return (
+                      <div
+                        key={refreshStep.key}
+                        className={`rounded-xl border px-3 py-2 text-sm ${
+                          isSuccess
+                            ? "border-emerald-300/35 bg-emerald-300/15 text-emerald-50"
+                            : isFailed
+                              ? "border-rose-300/35 bg-rose-300/15 text-rose-50"
+                              : "border-amber-300/35 bg-amber-300/15 text-amber-50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-bold">{refreshStep.label}</span>
+                          <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs">
+                            {isSuccess ? "تم" : isFailed ? "فشل" : "تخطي"}
+                          </span>
+                        </div>
+                        <div className="mt-1 opacity-90">{refreshStep.message}</div>
+                      </div>
+                    );
+                  })}
                 </div>
                 <button
                   type="button"

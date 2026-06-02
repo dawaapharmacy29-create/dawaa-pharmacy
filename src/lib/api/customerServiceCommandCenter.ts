@@ -9,6 +9,10 @@ import {
   isAllFilter,
 } from "@/lib/customerFollowupEnrichmentService";
 
+export function clearCustomerServiceCommandCenterCache() {
+  // Customer Service command center fetches live followups/summary data; this hook keeps import invalidation explicit.
+}
+
 export type FollowupRow = {
   id: string;
   date: string | null;

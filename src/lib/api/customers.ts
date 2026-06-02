@@ -14,6 +14,10 @@ const DEFAULT_LIMIT = 30;
 export const ALL_FILTER = "الكل";
 const SUMMARY_TABLE = "customer_metrics_summary";
 
+export function clearCustomersCache() {
+  // Customers list reads customer_metrics_summary directly; this hook keeps import invalidation explicit.
+}
+
 type Row = Record<string, unknown>;
 
 export type CustomerMetric = {
