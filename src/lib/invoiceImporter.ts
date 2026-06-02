@@ -88,6 +88,7 @@ export interface ImportSummary {
   importedNetSales?: number;
   dailyCounts?: Array<{ date: string; count: number; total: number }>;
   branchCounts?: Array<{ branch: string; count: number; total: number }>;
+  skippedDuplicateInvoices?: Array<{ invoiceNumber: string; branch: string; date: string }>;
 }
 
 export interface ParseResult {
@@ -1222,6 +1223,7 @@ export async function importInvoicesToDB(
     importBatch,
     needsReviewRows: 0,
     unlinkedCustomersEstimate: 0,
+    skippedDuplicateInvoices: [],
   };
   if (rows.length === 0) return summary;
 
@@ -1290,6 +1292,11 @@ export async function importInvoicesToDB(
     const dedupeKey = `${row.branch || branch}-${row.invoiceNumber}-${row.date}`;
     if (row.invoiceNumber && existingSet.has(dedupeKey)) {
       summary.skippedDuplicates++;
+      summary.skippedDuplicateInvoices?.push({
+        invoiceNumber: row.invoiceNumber,
+        branch: row.branch || branch,
+        date: row.date,
+      });
       return false;
     }
     if (!row.customerCode && !row.phone) {

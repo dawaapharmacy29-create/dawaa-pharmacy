@@ -147,6 +147,14 @@ const GROUPS: NavGroup[] = [
   },
 ];
 
+function isRouteActive(itemPath: string, pathname: string) {
+  if (itemPath === "/") return pathname === "/" || pathname === "/executive-2027";
+  if (itemPath === "/team" && pathname.startsWith("/staff/")) return true;
+  if (itemPath === "/schedule" && pathname.startsWith("/schedules")) return true;
+  if (itemPath === "/analytics" && pathname === "/analytics-sales") return true;
+  return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+}
+
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
@@ -179,7 +187,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
     setOpenGroups((current) => {
       const next = { ...current };
       groups.forEach((group) => {
-        if (group.items.some((item) => item.path === location.pathname || (item.path !== "/" && location.pathname.startsWith(item.path)))) {
+        if (group.items.some((item) => isRouteActive(item.path, location.pathname))) {
           next[group.title] = true;
         }
       });
@@ -250,7 +258,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
         {groups.map((group) => {
           const GroupIcon = group.icon;
           const open = collapsed || openGroups[group.title];
-          const active = group.items.some((item) => item.path === location.pathname || (item.path !== "/" && location.pathname.startsWith(item.path)));
+          const active = group.items.some((item) => isRouteActive(item.path, location.pathname));
           return (
             <div key={group.title} className="space-y-1">
               {!collapsed && (
@@ -275,7 +283,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                         if (navRef.current) sessionStorage.setItem("sidebarScroll", navRef.current.scrollTop.toString());
                         onMobileClose();
                       }}
-                      className={({ isActive }) => cn("nav-item", isActive ? "nav-item-active" : "nav-item-inactive", collapsed ? "justify-center px-2" : "")}
+                      className={() => cn("nav-item", isRouteActive(item.path, location.pathname) ? "nav-item-active" : "nav-item-inactive", collapsed ? "justify-center px-2" : "")}
                       title={collapsed ? item.label : undefined}
                     >
                       <item.icon className="h-4.5 w-4.5 flex-shrink-0" size={18} />

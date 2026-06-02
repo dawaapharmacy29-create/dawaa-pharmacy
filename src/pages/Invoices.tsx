@@ -743,6 +743,22 @@ export default function Invoices() {
               </div>
             </div>
           )}
+          {importKind === "sales" && (importSummary.skippedDuplicateInvoices?.length || 0) > 0 && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+              <div className="mb-3 font-bold text-amber-200">فواتير مكررة تم تخطيها</div>
+              <div className="max-h-44 space-y-2 overflow-auto">
+                {(importSummary.skippedDuplicateInvoices || []).slice(0, 30).map((row, index) => (
+                  <div key={`${row.branch}-${row.date}-${row.invoiceNumber}-${index}`} className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200">
+                    <span>{row.invoiceNumber}</span>
+                    <span>{row.branch} | {row.date}</span>
+                  </div>
+                ))}
+              </div>
+              {(importSummary.skippedDuplicateInvoices?.length || 0) > 30 && (
+                <div className="mt-2 text-xs text-amber-100/80">تم عرض أول 30 فقط من التكرارات.</div>
+              )}
+            </div>
+          )}
           {importSummary.errors.length > 0 && (
             <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 space-y-2">
               {importSummary.errors.slice(0, 20).map((error, index) => <div key={index} className="text-red-200/80 text-xs">{error.message}</div>)}

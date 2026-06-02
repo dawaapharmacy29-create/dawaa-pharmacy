@@ -47,6 +47,7 @@ import {
 } from "@/lib/executiveDashboardDataService";
 import { formatMoney, formatNumber } from "@/lib/dawaa2027";
 import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 const cx = (...items: Array<string | false | null | undefined>) => items.filter(Boolean).join(" ");
 
@@ -238,6 +239,11 @@ export default function ExecutiveDashboard2027() {
   ];
 
   const decisions = buildDecisionCards(data, followups);
+  const handleSearch = (query: string) => {
+    const value = query.trim();
+    if (!value) return;
+    navigate(`/customers?search=${encodeURIComponent(value)}`);
+  };
 
   return (
     <div className="min-h-screen bg-[#F7F9FB] text-slate-900" dir="rtl">
@@ -264,6 +270,10 @@ export default function ExecutiveDashboard2027() {
           setStartDate(formatCycleDate(cycle.start));
           setEndDate(formatCycleDate(cycle.end));
         }}
+        onExport={() => toast.info("تصدير تقرير لوحة القيادة سيتم ربطه قريبًا")}
+        onNotifications={() => navigate("/operations-center")}
+        onSettings={() => navigate("/roles-permissions")}
+        onSearch={handleSearch}
       />
 
       <main className="space-y-4 p-4">
@@ -274,7 +284,7 @@ export default function ExecutiveDashboard2027() {
           {kpis.map((kpi) => <KpiCard key={kpi.label} {...kpi} />)}
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[1.15fr_.85fr_1fr]">
+        <section className="grid items-stretch gap-4 xl:grid-cols-[1.15fr_.85fr_1fr]">
           <ChartPanel title={isLongPeriod ? "تطور المبيعات حسب الشهر" : "تطور المبيعات حسب اليوم"} action="sales">
             <SalesTrendChart rows={data?.salesTrend || []} />
           </ChartPanel>
@@ -286,7 +296,7 @@ export default function ExecutiveDashboard2027() {
           </ChartPanel>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[.9fr_.9fr_.7fr_.7fr_.7fr]">
+        <section className="grid items-stretch gap-4 xl:grid-cols-[.9fr_.9fr_.7fr_.7fr_.7fr]">
           <Panel title="مسار متابعة العملاء">
             <FollowupFunnel rows={data?.followupFunnel || []} />
           </Panel>
@@ -306,15 +316,12 @@ export default function ExecutiveDashboard2027() {
           <AlertsCard data={data} followups={followups} />
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[1.2fr_.75fr_.75fr]">
+        <section className="grid items-stretch gap-4 xl:grid-cols-[1.05fr_.95fr]">
           <Panel title="مركز القرار السريع / اقتراحات ذكية">
             <DecisionGrid rows={decisions} />
           </Panel>
-          <Panel title="معاينة ملف العميل">
-            <CustomerPreview preview={data?.customerPreview || null} />
-          </Panel>
-          <Panel title="آخر 5 فواتير">
-            <InvoicePreview rows={data?.latestInvoicesPreview || []} />
+          <Panel title="تحليل آخر 5 أيام حسب الفرع">
+            <LastFiveDaysByBranch rows={data?.last5DaysByBranch || []} />
           </Panel>
         </section>
 
@@ -337,7 +344,12 @@ function TopBar(props: {
   onBranch: (value: string) => void;
   onCurrent: () => void;
   onPrevious: () => void;
+  onExport: () => void;
+  onNotifications: () => void;
+  onSettings: () => void;
+  onSearch: (query: string) => void;
 }) {
+  const [query, setQuery] = useState("");
   return (
     <header className="sticky top-0 z-20 border-b border-[#E5EAF0] bg-white/95 px-4 py-3 backdrop-blur">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -349,15 +361,23 @@ function TopBar(props: {
             <div className="text-sm font-black text-slate-950">{props.userName}</div>
             <div className="text-xs font-bold text-slate-500">مدير عام</div>
           </div>
-          <button type="button" className="top-icon"><Bell size={18} /><span className="notify-dot">3</span></button>
-          <button type="button" className="top-icon"><Settings size={18} /></button>
-          <button type="button" className="top-action"><Download size={16} /> تصدير</button>
+          <button type="button" onClick={props.onNotifications} className="top-icon"><Bell size={18} /><span className="notify-dot">3</span></button>
+          <button type="button" onClick={props.onSettings} className="top-icon"><Settings size={18} /></button>
+          <button type="button" onClick={props.onExport} className="top-action"><Download size={16} /> تصدير</button>
         </div>
 
         <div className="flex min-w-[260px] flex-1 justify-center">
           <label className="relative w-full max-w-md">
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input className="h-10 w-full rounded-xl border border-[#E5EAF0] bg-[#F7F9FB] px-10 text-sm font-semibold outline-none transition focus:border-teal-300 focus:bg-white" placeholder="ابحث عن عميل، دكتور، صنف..." />
+            <input
+              className="h-10 w-full rounded-xl border border-[#E5EAF0] bg-[#F7F9FB] px-10 text-sm font-semibold outline-none transition focus:border-teal-300 focus:bg-white"
+              placeholder="ابحث عن عميل، دكتور، صنف..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") props.onSearch(query);
+              }}
+            />
           </label>
         </div>
 
@@ -478,25 +498,72 @@ function BranchChart({ rows, onBranch }: { rows: ExecutiveDashboardData["branchP
 }
 
 function DoctorRanking({ rows }: { rows: ExecutiveDashboardData["doctorPerformance"] }) {
-  const top = rows.filter((row) => row.sellerName).slice(0, 8);
+  const top = rows.filter((row) => row.displayName).slice(0, 8);
   if (!top.length) return <EmptyState text="لا توجد بيانات دكاترة للفترة المحددة" />;
   return (
-    <div className="space-y-3">
+    <div className="max-h-[252px] space-y-3 overflow-y-auto pr-1">
       {top.map((row, index) => {
         const max = top[0]?.netTotal || 1;
+        const route = row.staffId ? `/staff/${row.staffId}` : `/team?search=${encodeURIComponent(row.displayName || row.sellerName || "")}`;
         return (
-          <Link key={`${row.sellerName}-${row.branch}-${index}`} to={`/staff-detail?name=${encodeURIComponent(row.sellerName || "")}`} className="block">
+          <Link key={`${row.staffId || row.normalizedName}-${row.branch}-${index}`} to={route} className="block rounded-xl p-1 transition hover:bg-slate-50">
             <div className="mb-1 flex items-center justify-between text-xs font-black text-slate-700">
-              <span>{index + 1}. {row.sellerName}</span>
+              <span>{index + 1}. {row.displayName}</span>
               <span>{formatMoney(row.netTotal)}</span>
             </div>
             <div className="h-3 overflow-hidden rounded-full bg-slate-100">
               <div className="h-full rounded-full bg-teal-500" style={{ width: `${Math.max(8, (row.netTotal / max) * 100)}%` }} />
             </div>
             <div className="mt-1 text-[11px] font-bold text-slate-500">{row.branch || "غير محدد"} · {formatNumber(row.invoicesCount)} فاتورة · {formatMoney(row.avgInvoice)} متوسط</div>
+            {row.duplicateWarning && <div className="mt-1 text-[10px] font-bold text-amber-600">{row.duplicateWarning}</div>}
           </Link>
         );
       })}
+    </div>
+  );
+}
+
+function LastFiveDaysByBranch({ rows }: { rows: ExecutiveDashboardData["last5DaysByBranch"] }) {
+  if (!rows.length) return <EmptyState text="لا توجد بيانات آخر 5 أيام للفترة المحددة" />;
+  const dates = [...new Set(rows.map((row) => row.date))].sort();
+  const branches = [...new Set(rows.map((row) => row.branch))].slice(0, 6);
+  const chartRows = dates.map((date) => {
+    const point: Record<string, string | number> = { date };
+    for (const branchName of branches) {
+      point[branchName] = rows.find((row) => row.date === date && row.branch === branchName)?.netTotal || 0;
+    }
+    return point;
+  });
+  const best = [...rows].sort((a, b) => (b.changePercent ?? -999) - (a.changePercent ?? -999))[0];
+  const weak = [...rows].filter((row) => row.changePercent !== null).sort((a, b) => (a.changePercent ?? 999) - (b.changePercent ?? 999))[0];
+  return (
+    <div className="space-y-3">
+      <div className="h-[230px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartRows}>
+            <CartesianGrid stroke="#E5EAF0" vertical={false} />
+            <XAxis dataKey="date" stroke="#64748B" fontSize={10} />
+            <YAxis stroke="#64748B" fontSize={10} width={58} />
+            <Tooltip formatter={(value, name) => [formatMoney(Number(value || 0)), String(name)]} />
+            {branches.map((branch, index) => (
+              <Bar
+                key={branch}
+                dataKey={branch}
+                name={branch}
+                stackId="branch"
+                fill={["#00AFA5", "#1E88E5", "#43B581", "#F59E0B", "#8B5CF6", "#EF4444"][index % 6]}
+                radius={[6, 6, 0, 0]}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        <MiniLine label="أفضل تحسن" value={best ? `${best.branch} ${best.changePercent !== null ? best.changePercent.toFixed(1) : 0}%` : "غير متاح"} />
+        <MiniLine label="يحتاج متابعة" value={weak ? `${weak.branch} ${weak.changePercent !== null ? weak.changePercent.toFixed(1) : 0}%` : "غير متاح"} />
+        <MiniLine label="الأيام" value={dates.length} />
+        <MiniLine label="الفروع" value={branches.length} />
+      </div>
     </div>
   );
 }
@@ -718,9 +785,9 @@ function DataHealthDebug({ data, startDate, endDate, branch, mode, salesDiff }: 
           <MiniLine label="عملاء رقم غير صالح" value={countText(data?.customerAnalytics.customersWithoutValidPhone)} />
         </DebugBox>
       </div>
-      {salesDiff > 1 && (
+      {(data?.salesAccuracy.mismatchPercent ?? 0) > 1 && (
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
-          يوجد اختلاف بين RPC و sales_daily_summary. الرقم المعروض يستخدم المصدر المحدد في بطاقة المبيعات، ويجب إصلاح SQL إذا كان RPC يتأخر أو يختلف.
+          يوجد فرق أكبر من 1% بين RPC و sales_daily_summary. الرقم المعروض يستخدم المصدر المحدد في بطاقة المبيعات، ويجب إصلاح SQL إذا كان RPC يتأخر أو يختلف.
         </div>
       )}
     </details>
@@ -746,4 +813,3 @@ function LoadingStrip() {
 function ErrorStrip({ text }: { text: string }) {
   return <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-700">{text}</div>;
 }
-

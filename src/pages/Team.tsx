@@ -4,7 +4,9 @@ import { Search, Plus, Phone, Edit2, UserCheck, Loader2, Eye, ClipboardList } fr
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
 import { isCurrentlyOnShift, matchesOrderedSegments, percent } from "@/lib/utils";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { canonicalMaxPoints, effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff, type PointLedgerRecord } from "@/lib/pointsLedger";
+import { getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff, type PointLedgerRecord } from "@/lib/pointsLedger";
+import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
+import { normalizeStaffName } from "@/lib/staffIdentityService";
 import { BRANCHES, DAYS_AR, ROLES, INITIAL_POINTS } from "@/lib/constants";
 import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -72,6 +74,15 @@ function transactionPoints(row: Pick<EmployeeTransaction, "points" | "points_del
   return Math.abs(pointRecordDelta(row));
 }
 
+function uniqueEmployeesByIdentity(rows: Employee[]) {
+  const map = new Map<string, Employee>();
+  for (const row of rows) {
+    const key = row.id || `${normalizeStaffName(row.name)}__${row.branch || ""}__${row.role || ""}`;
+    if (!map.has(key)) map.set(key, row);
+  }
+  return [...map.values()];
+}
+
 export default function Team() {
   const { user, canManage } = useAuth();
   const canCreateTeam = canManage || user?.permissions?.create_team_member === true;
@@ -110,6 +121,7 @@ export default function Team() {
     const matchRole = roleFilter === "الكل" || e.role === roleFilter;
     return matchSearch && matchBranch && matchRole;
   }), [employees, search, branchFilter, roleFilter]);
+  const displayEmployees = useMemo(() => uniqueEmployeesByIdentity(filtered), [filtered]);
 
   const onShiftNow = employees.filter(e => {
     const shift = todayShift(e);
@@ -121,10 +133,11 @@ export default function Team() {
 
   const roles = [...new Set(employees.map(e => e.role))];
   const branchRankings = useMemo(() => {
+    const uniqueEmployees = uniqueEmployeesByIdentity(employees);
     return BRANCHES.map((branch) => {
-      const branchEmployees = employees
+      const branchEmployees = uniqueEmployees
         .filter((employee) => employee.branch === branch)
-        .map((employee) => ({ ...employee, cyclePoints: effectiveCyclePoints(employee, pointRecords || [], cycle) }))
+        .map((employee) => ({ ...employee, cyclePoints: calculateStaffCycleIncentiveFromRows({ staff: employee, records: pointRecords || [], cycle }).finalPoints }))
         .sort((a, b) => b.cyclePoints - a.cyclePoints);
       return {
         branch,
@@ -202,20 +215,17 @@ export default function Team() {
 
       {/* Employee Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filtered.map((emp) => {
+        {displayEmployees.map((emp) => {
           const shift = todayShift(emp);
           const onShift = Boolean(shift?.shift_start && shift?.shift_end && !shift.is_off && isCurrentlyOnShift(shift.shift_start, shift.shift_end) && emp.status === "نشط");
-          const points = effectiveCyclePoints(emp, pointRecords || [], cycle);
-          const maxPoints = canonicalMaxPoints(emp);
+          const incentive = calculateStaffCycleIncentiveFromRows({ staff: emp, records: pointRecords || [], cycle });
+          const points = incentive.finalPoints;
+          const maxPoints = incentive.startingPoints;
           const pointsPct = percent(points, maxPoints);
-          const transactions = getEmployeeTransactions(emp);
-          const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord) && isRecordInCycle(t as PointLedgerRecord, cycle));
-          const penaltyRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) < 0);
-          const bonusRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) > 0);
-          const penalties = penaltyRows.length;
-          const bonuses = bonusRows.length;
-          const penaltyPoints = penaltyRows.reduce((sum, row) => sum + transactionPoints(row), 0);
-          const bonusPoints = bonusRows.reduce((sum, row) => sum + transactionPoints(row), 0);
+          const penalties = incentive.deductionTransactions.length;
+          const bonuses = incentive.rewardTransactions.length;
+          const penaltyPoints = incentive.approvedDeductionPoints;
+          const bonusPoints = incentive.approvedRewardPoints;
           return (
             <div key={emp.id} className="stat-card card-glow">
               <div className="flex items-start gap-3">
@@ -587,8 +597,9 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
   useEscapeKey(onClose, true);
   const cycle = getCurrentCycle();
   const pointRecords = transactions as PointLedgerRecord[];
-  const points = effectiveCyclePoints(employee, pointRecords, cycle);
-  const maxPoints = canonicalMaxPoints(employee);
+  const incentive = calculateStaffCycleIncentiveFromRows({ staff: employee, records: pointRecords, cycle });
+  const points = incentive.finalPoints;
+  const maxPoints = incentive.startingPoints;
   const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord) && isRecordInCycle(t as PointLedgerRecord, cycle));
   const penaltyRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) < 0);
   const bonusRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) > 0);

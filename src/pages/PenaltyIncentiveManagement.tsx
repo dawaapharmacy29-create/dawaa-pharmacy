@@ -31,8 +31,6 @@ import {
   formatTransactionSource,
   getTransactionDetails,
   getTransactionShortReason,
-  canonicalMaxPoints,
-  effectiveCyclePoints,
   isApprovedPointRecord,
   isRecordInCycle,
   normalizeTransactionType,
@@ -40,6 +38,7 @@ import {
   pointRecordStatus,
   type PointLedgerRecord,
 } from "@/lib/pointsLedger";
+import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -281,10 +280,11 @@ export default function PenaltyIncentiveManagement() {
 
       if (finalStatus === "approved") {
         const approvedRows = cycleRecords.filter(isApprovedPointRecord) as PointLedgerRecord[];
+        const currentIncentive = calculateStaffCycleIncentiveFromRows({ staff: selectedStaff, records: approvedRows, cycle });
         await applyStaffDelta(
           selectedStaff.id,
-          effectiveCyclePoints(selectedStaff, approvedRows, cycle),
-          canonicalMaxPoints(selectedStaff),
+          currentIncentive.finalPoints,
+          currentIncentive.startingPoints,
           form.type === "مكافأة" ? form.points : -form.points,
           selectedStaff.name,
           selectedStaff.branch,
@@ -364,10 +364,11 @@ export default function PenaltyIncentiveManagement() {
       if (staff) {
         const delta = isBonus(row) ? absPoints(row) : -absPoints(row);
         const approvedRows = cycleRecords.filter(isApprovedPointRecord) as PointLedgerRecord[];
+        const currentIncentive = calculateStaffCycleIncentiveFromRows({ staff, records: approvedRows, cycle });
         await applyStaffDelta(
           staff.id,
-          effectiveCyclePoints(staff, approvedRows, cycle),
-          canonicalMaxPoints(staff),
+          currentIncentive.finalPoints,
+          currentIncentive.startingPoints,
           delta,
           staff.name,
           staff.branch,

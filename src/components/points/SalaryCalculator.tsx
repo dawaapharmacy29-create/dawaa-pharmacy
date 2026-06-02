@@ -40,6 +40,19 @@ function transactionKind(row: IncentiveTransaction) {
   return row.type === "reward" || row.type === "bonus" || row.type === "مكافأة" ? "reward" : "penalty";
 }
 
+function transactionKey(row: IncentiveTransaction) {
+  return String(row.id || `${row.source_type || row.source || "unknown"}:${row.created_at || ""}:${row.points_delta ?? row.points ?? ""}:${row.reason || row.description || ""}`);
+}
+
+function uniqueTransactions(rows: IncentiveTransaction[]) {
+  const map = new Map<string, IncentiveTransaction>();
+  for (const row of rows) {
+    const key = transactionKey(row);
+    if (!map.has(key)) map.set(key, row);
+  }
+  return [...map.values()];
+}
+
 function cleanFileName(value: string) {
   return value
     .replace(/[\\/:*?"<>|]/g, "-")
@@ -95,8 +108,9 @@ function buildReportHtml(props: SalaryCalculatorProps) {
   const finalIncentive = calculateIncentive(props.currentPoints);
   const rewardMoney = props.rewardPoints * POINT_VALUE_EGP;
   const penaltyMoney = props.penaltyPoints * POINT_VALUE_EGP;
-  const rewardRows = props.records.filter((row) => transactionKind(row) === "reward");
-  const penaltyRows = props.records.filter((row) => transactionKind(row) === "penalty");
+  const uniqueRecords = uniqueTransactions(props.records);
+  const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === "reward");
+  const penaltyRows = uniqueRecords.filter((row) => transactionKind(row) === "penalty");
 
   return `
     <div class="report">
@@ -236,6 +250,7 @@ function buildReportStyles() {
     .section {
       margin-top: 16px;
       page-break-inside: avoid;
+      break-inside: avoid;
     }
     .section h3 {
       background: #eef6f6;
@@ -292,6 +307,10 @@ function buildReportStyles() {
       vertical-align: top;
       word-break: break-word;
       text-align: right;
+    }
+    tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     thead th {
       background: #0f172a;
@@ -352,17 +371,21 @@ async function exportIncentiveReport(props: SalaryCalculatorProps) {
     const pageHeight = doc.internal.pageSize.getHeight();
     const imageWidth = pageWidth;
     const imageHeight = (canvas.height * imageWidth) / canvas.width;
-    const imageData = canvas.toDataURL("image/jpeg", 0.98);
+    const imageData = canvas.toDataURL("image/png");
 
     let heightLeft = imageHeight;
     let y = 0;
-    doc.addImage(imageData, "JPEG", 0, y, imageWidth, imageHeight);
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+    doc.addImage(imageData, "PNG", 0, y, imageWidth, imageHeight);
     heightLeft -= pageHeight;
 
     while (heightLeft > 0) {
       doc.addPage();
+      doc.setFillColor(255, 255, 255);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
       y = heightLeft - imageHeight;
-      doc.addImage(imageData, "JPEG", 0, y, imageWidth, imageHeight);
+      doc.addImage(imageData, "PNG", 0, y, imageWidth, imageHeight);
       heightLeft -= pageHeight;
     }
 
@@ -377,8 +400,9 @@ export default function SalaryCalculator(props: SalaryCalculatorProps) {
   const finalIncentive = calculateIncentive(props.currentPoints);
   const rewardMoney = props.rewardPoints * POINT_VALUE_EGP;
   const penaltyMoney = props.penaltyPoints * POINT_VALUE_EGP;
-  const rewardRows = props.records.filter((row) => transactionKind(row) === "reward");
-  const penaltyRows = props.records.filter((row) => transactionKind(row) === "penalty");
+  const uniqueRecords = uniqueTransactions(props.records);
+  const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === "reward");
+  const penaltyRows = uniqueRecords.filter((row) => transactionKind(row) === "penalty");
 
   return (
     <div className="stat-card space-y-4">

@@ -8,7 +8,7 @@ import { BRANCHES, INITIAL_POINTS } from "@/lib/constants";
 import { mergeRulesFromSupabase, type EvaluationRuleDef } from "@/lib/evaluationRulesCatalog";
 import { calculateIncentive, getPerformanceLevel, MAX_BASE_INCENTIVE, POINT_VALUE_EGP } from "@/lib/points";
 import { approverHintFromRule, applyStaffDelta } from "@/lib/pointsPersistence";
-import { canonicalMaxPoints, effectiveCyclePoints, formatTransactionExecutor, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus } from "@/lib/pointsLedger";
+import { formatTransactionExecutor, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus } from "@/lib/pointsLedger";
 import { type PointsTxnStatus } from "@/lib/pointsWorkflow";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { calculateStaffCycleIncentiveFromRows, getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
@@ -190,7 +190,7 @@ export default function Points() {
   });
 
   const topPerformers = [...staffChoices]
-    .sort((a, b) => effectiveCyclePoints(b, approvedCycleRecords, cycle) - effectiveCyclePoints(a, approvedCycleRecords, cycle))
+    .sort((a, b) => staffIncentiveSummary(b).currentPoints - staffIncentiveSummary(a).currentPoints)
     .slice(0, 3);
   const pendingApprovals = validRecords.filter((row) => pointRecordStatus(row) === "pending" && isDeductionRecord(row));
   const myCycleRecords = approvedCycleRecords.filter((row) => row.employee_id === user?.id);
@@ -235,7 +235,7 @@ export default function Points() {
       staff,
       records,
       currentPoints: incentive.finalPoints,
-      maxPoints: canonicalMaxPoints(staff),
+      maxPoints: incentive.startingPoints,
       rewardPoints: incentive.approvedRewardPoints,
       penaltyPoints: incentive.approvedDeductionPoints,
       pendingRewardPoints: incentive.pendingRewardPoints,
@@ -316,10 +316,11 @@ export default function Points() {
       const rowEmployeeName = normalizeStaffLookupKey(String(row.employee_name || ""));
       const employee = staffChoices.find((staff) => staff.id === row.employee_id || normalizeStaffLookupKey(staff.name) === rowEmployeeName);
       if (employee) {
+        const currentIncentive = calculateStaffCycleIncentiveFromRows({ staff: employee, records: approvedCycleRecords, cycle });
         await applyStaffDelta(
           employee.id,
-          effectiveCyclePoints(employee, approvedCycleRecords, cycle),
-          canonicalMaxPoints(employee),
+          currentIncentive.finalPoints,
+          currentIncentive.startingPoints,
           -recordPoints(row),
           employee.name,
           employee.branch,
@@ -407,7 +408,8 @@ export default function Points() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {topPerformers.map((employee, index) => {
-          const employeePoints = effectiveCyclePoints(employee, approvedCycleRecords, cycle);
+          const employeeSummary = staffIncentiveSummary(employee);
+          const employeePoints = employeeSummary.currentPoints;
           return (
           <div
             key={employee.id}
@@ -418,10 +420,10 @@ export default function Points() {
             <div className="text-slate-400 text-xs mt-0.5">{employee.branch}</div>
             <div className={`text-2xl font-bold num mt-2 ${index === 0 ? "text-amber-400" : index === 1 ? "text-slate-300" : "text-orange-400"}`}>{employeePoints}</div>
             <div className="text-slate-400 text-xs mt-1">
-              {getPerformanceLevel(employeePoints)} - حافز متوقع {calculateIncentive(employeePoints).toLocaleString("ar-EG")} ج
+              {getPerformanceLevel(employeePoints)} - حافز متوقع {employeeSummary.incentive.toLocaleString("ar-EG")} ج
             </div>
             <div className="progress-bar mt-2">
-              <div className="progress-fill" style={{ width: `${percent(employeePoints, canonicalMaxPoints(employee))}%` }} />
+              <div className="progress-fill" style={{ width: `${percent(employeePoints, employeeSummary.maxPoints)}%` }} />
             </div>
             <div className="text-slate-400 text-xs mt-2">{employee.branch}</div>
             <button
@@ -465,7 +467,7 @@ export default function Points() {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">النقاط:</span>
-                <span className="text-white num">{effectiveCyclePoints(selectedStaffForSalary, approvedCycleRecords, cycle)}</span>
+                <span className="text-white num">{staffIncentiveSummary(selectedStaffForSalary).currentPoints}</span>
               </div>
             </div>
             <button
@@ -524,16 +526,14 @@ export default function Points() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {filteredStaff.map((employee) => {
-              const points = effectiveCyclePoints(employee, approvedCycleRecords, cycle);
-              const maxPoints = canonicalMaxPoints(employee);
+              const summary = staffIncentiveSummary(employee);
+              const points = summary.currentPoints;
+              const maxPoints = summary.maxPoints;
               const pointPercent = percent(points, maxPoints);
               const normalizedEmployeeName = normalizeStaffLookupKey(employee.name);
-              const employeeRecords = approvedCycleRecords.filter((row) => {
-                const employeeName = String(row.employee_name || "").trim();
-                return row.employee_id === employee.id || employeeName === employee.name.trim() || normalizeStaffLookupKey(employeeName) === normalizedEmployeeName;
-              });
-              const rewards = employeeRecords.filter(isBonusRecord).reduce((sum, row) => sum + recordPoints(row), 0);
-              const deductions = employeeRecords.filter(isDeductionRecord).reduce((sum, row) => sum + recordPoints(row), 0);
+              const employeeRecords = summary.records;
+              const rewards = summary.rewardPoints;
+              const deductions = summary.penaltyPoints;
 
               return (
                 <Link key={employee.id} to={`/staff/${employee.id}`} className="stat-card hover:border-teal-500/30 block transition-colors">

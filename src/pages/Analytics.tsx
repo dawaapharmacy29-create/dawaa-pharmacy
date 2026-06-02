@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { AlertTriangle, CalendarDays, RefreshCw, Save, Stethoscope, Store, TrendingUp, Users } from "lucide-react";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
 import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
@@ -48,6 +49,13 @@ function formatMoney(value: number | null | undefined) {
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function periodDays(start: string, end: string) {
+  const startDate = new Date(`${start}T12:00:00`);
+  const endDate = new Date(`${end}T12:00:00`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+  return Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
 }
 
 export default function Analytics() {
@@ -224,7 +232,7 @@ export default function Analytics() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">
-            <ChartCard title="تطور المبيعات اليومي">
+            <ChartCard title={periodDays(periodStart, periodEnd) > 45 ? "تطور المبيعات حسب الفترة" : "تطور المبيعات اليومي"}>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={data?.dailyTrend || []}>
                   <CartesianGrid stroke="#E5EAF0" vertical={false} />
@@ -248,20 +256,32 @@ export default function Analytics() {
             </ChartCard>
             <ChartCard title="أفضل الدكاترة">
               <div className="space-y-2">
-                {(data?.doctorRows || []).slice(0, 8).map((row, index) => (
-                  <div key={`${row.doctor}-${row.branch}-${index}`} className="rounded-xl border border-slate-100 p-3">
+                {(data?.doctorRows || []).slice(0, 8).map((row, index) => {
+                  const body = (
+                    <>
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="font-bold text-slate-900">{index + 1}. {row.doctor}</div>
                         <div className="text-xs text-slate-500">{row.branch || "غير محدد"} - {formatNumber(row.invoicesCount)} فاتورة</div>
+                        {row.duplicateWarning && <div className="mt-1 text-[11px] font-bold text-amber-600">{row.duplicateWarning}</div>}
                       </div>
                       <div className="font-black text-teal-700">{formatMoney(row.netSales)}</div>
                     </div>
                     <div className="mt-2 h-2 rounded-full bg-slate-100">
                       <div className="h-2 rounded-full bg-teal-500" style={{ width: `${Math.min(100, (row.netSales / Math.max(1, data?.doctorRows?.[0]?.netSales || 1)) * 100)}%` }} />
                     </div>
-                  </div>
-                ))}
+                    </>
+                  );
+                  return row.staffId ? (
+                    <Link key={`${row.staffId}-${row.branch}-${index}`} to={`/staff/${row.staffId}`} className="block rounded-xl border border-slate-100 p-3 transition hover:border-teal-200 hover:bg-teal-50/40">
+                      {body}
+                    </Link>
+                  ) : (
+                    <div key={`${row.doctor}-${row.branch}-${index}`} className="rounded-xl border border-slate-100 p-3">
+                      {body}
+                    </div>
+                  );
+                })}
                 {!data?.doctorRows.length && <Empty text="لا توجد بيانات دكاترة للفترة المحددة" />}
               </div>
             </ChartCard>

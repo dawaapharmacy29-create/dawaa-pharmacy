@@ -2,9 +2,10 @@ import { useMemo } from "react";
 import { TrendingUp, TrendingDown, Award, Star, Calendar, BellRing, CheckSquare, HeadphonesIcon, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { canonicalMaxPoints, effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus, recordBelongsToStaff } from "@/lib/pointsLedger";
+import { getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus, recordBelongsToStaff } from "@/lib/pointsLedger";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { calculateIncentive, getPerformanceLevel } from "@/lib/points";
+import { getPerformanceLevel } from "@/lib/points";
+import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
 import { formatDateTime, percent } from "@/lib/utils";
 import { TABLES } from "@/lib/supabaseTables";
 import { normalizeNotification } from "@/lib/notificationService";
@@ -131,36 +132,28 @@ export default function StaffDashboard() {
     [staffCycleRecords],
   );
 
-  // Effective points using ledger logic
-  const currentPoints = useMemo(() => {
-    return effectiveCyclePoints(
-      {
-        id: staffInfo?.id || user?.staffId || user?.id,
-        name: staffInfo?.name || user?.name,
-        points: staffInfo?.points,
-        max_points: staffInfo?.max_points,
-      },
-      approvedCycleRecords,
-      cycle,
-    );
-  }, [staffInfo, approvedCycleRecords, cycle, user]);
+  const incentiveSummary = useMemo(() => calculateStaffCycleIncentiveFromRows({
+    staff: {
+      id: staffInfo?.id || user?.staffId || user?.id,
+      name: staffInfo?.name || user?.name,
+      points: staffInfo?.points,
+      max_points: staffInfo?.max_points,
+    },
+    records: cycleRecords,
+    cycle,
+  }), [staffInfo, cycleRecords, cycle, user]);
 
-  const maxPoints = canonicalMaxPoints(staffInfo);
-  const incentiveAmount = calculateIncentive(currentPoints);
+  const currentPoints = incentiveSummary.finalPoints;
+  const maxPoints = incentiveSummary.startingPoints;
+  const incentiveAmount = incentiveSummary.incentiveValue;
   const performanceLevel = getPerformanceLevel(currentPoints);
   const pointsPercent = percent(currentPoints, maxPoints);
 
   // Cycle bonus / deduction totals
-  const bonusRecords = approvedCycleRecords.filter(isRewardRecord);
-  const deductionRecords = approvedCycleRecords.filter(isPenaltyRecord);
-  const bonusPoints = bonusRecords.reduce(
-    (sum, r) => sum + Math.abs(pointRecordDelta(r)),
-    0,
-  );
-  const deductionPoints = deductionRecords.reduce(
-    (sum, r) => sum + Math.abs(pointRecordDelta(r)),
-    0,
-  );
+  const bonusRecords = incentiveSummary.rewardTransactions;
+  const deductionRecords = incentiveSummary.deductionTransactions;
+  const bonusPoints = incentiveSummary.approvedRewardPoints;
+  const deductionPoints = incentiveSummary.approvedDeductionPoints;
 
   // ── Loading state ──
   if (staffLoading || recLoading) {

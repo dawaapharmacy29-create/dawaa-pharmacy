@@ -1,5 +1,7 @@
 import { normalizeBranchName } from "@/lib/branch";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import type { StaffSalesSummary } from "@/lib/dashboardSummaryService";
+import { fetchStaffIdentityRows, groupStaffSalesPerformance } from "@/lib/staffIdentityService";
 
 type Row = Record<string, unknown>;
 
@@ -20,7 +22,7 @@ export type SalesAnalyticsSummary = {
   };
   dailyTrend: Array<{ date: string; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number }>;
   branchRows: Array<{ branch: string; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number; share: number }>;
-  doctorRows: Array<{ doctor: string; branch: string; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number }>;
+  doctorRows: Array<{ staffId: string | null; doctor: string; branch: string | null; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number; duplicateWarning: string | null }>;
   customerCards: {
     important: number | null;
     stopped: number | null;
@@ -111,9 +113,10 @@ export async function loadSalesAnalyticsSummary(filters: SalesAnalyticsFilters, 
 
   const errorsBySection: Record<string, string> = {};
   const sourceHealth: SalesAnalyticsSummary["sourceHealth"] = [];
-  const [salesResult, staffResult, customerResult, healthResult] = await Promise.allSettled([
+  const [salesResult, staffResult, staffIdentityResult, customerResult, healthResult] = await Promise.allSettled([
     fetchAllSummaryRows("sales_daily_summary", "sale_date", filters.startDate, filters.endDate, filters.branch),
     fetchAllSummaryRows("staff_sales_summary", "sale_date", filters.startDate, filters.endDate, filters.branch, filters.doctor),
+    fetchStaffIdentityRows(),
     Promise.all([
       countCustomers((query) => query.in("segment", ["مهم جدًا", "مهم"])),
       countCustomers((query) => query.eq("customer_status", "متوقف")),
@@ -161,14 +164,27 @@ export async function loadSalesAnalyticsSummary(filters: SalesAnalyticsFilters, 
     byBranch.set(branch, current);
   }
 
-  const doctorRows = staffRows
+  const staffIdentityRows = staffIdentityResult.status === "fulfilled" ? staffIdentityResult.value : [];
+  const staffSalesRows = staffRows.map((row) => ({
+    saleDate: String(read(row, ["sale_date"], "") || "").slice(0, 10),
+    sellerName: read(row, ["seller_name", "doctor_name"], null) as string | null,
+    branch: normalizeBranchName(read(row, ["branch"], null)),
+    netTotal: toNumber(read(row, ["net_total", "net_sales", "sales_total"])),
+    invoicesCount: toNumber(read(row, ["invoices_count", "invoice_count"])),
+    avgInvoice: toNumber(read(row, ["avg_invoice"])),
+    uniqueCustomers: toNumber(read(row, ["unique_customers", "customers_count"])),
+  })) satisfies StaffSalesSummary[];
+
+  const doctorRows = groupStaffSalesPerformance(staffSalesRows, staffIdentityRows)
     .map((row) => ({
-      doctor: String(read(row, ["seller_name", "doctor_name"], "غير محدد")),
-      branch: normalizeBranchName(read(row, ["branch"], null)),
-      netSales: toNumber(read(row, ["net_total", "net_sales", "sales_total"])),
-      invoicesCount: toNumber(read(row, ["invoices_count", "invoice_count"])),
-      avgInvoice: toNumber(read(row, ["avg_invoice"])),
-      uniqueCustomers: toNumber(read(row, ["unique_customers", "customers_count"])),
+      staffId: row.staffId,
+      doctor: row.displayName,
+      branch: row.branch,
+      netSales: row.netTotal,
+      invoicesCount: row.invoicesCount,
+      avgInvoice: row.avgInvoice,
+      uniqueCustomers: row.uniqueCustomers,
+      duplicateWarning: row.duplicateWarning,
     }))
     .filter((row) => row.doctor && row.doctor !== "غير محدد")
     .sort((a, b) => b.netSales - a.netSales)

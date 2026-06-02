@@ -6,8 +6,12 @@ import {
   type DeliveryPerformanceSummary,
   type FollowupPerformanceSummary,
   type SalesDailySummary,
-  type StaffSalesSummary,
 } from "@/lib/dashboardSummaryService";
+import {
+  fetchStaffIdentityRows,
+  groupStaffSalesPerformance,
+  type GroupedStaffSalesPerformance,
+} from "@/lib/staffIdentityService";
 
 type Row = Record<string, unknown>;
 
@@ -31,6 +35,16 @@ export type BranchPerformancePoint = {
   uniqueCustomers: number;
   share: number;
   bestPeriod: string | null;
+};
+
+export type LastFiveDaysBranchPoint = {
+  date: string;
+  branch: string;
+  netTotal: number;
+  invoicesCount: number;
+  avgInvoice: number;
+  previousDayNetTotal: number | null;
+  changePercent: number | null;
 };
 
 export type OperationalTrackingItem = {
@@ -86,8 +100,9 @@ export type ExecutiveDashboardData = {
   summary: DashboardSummary;
   kpis: DashboardSummary["normalizedKpis"];
   salesTrend: TrendPoint[];
+  last5DaysByBranch: LastFiveDaysBranchPoint[];
   branchPerformance: BranchPerformancePoint[];
-  doctorPerformance: StaffSalesSummary[];
+  doctorPerformance: GroupedStaffSalesPerformance[];
   followupFunnel: DashboardFunnelStep[];
   followupResults: DashboardResultSlice[];
   customerServiceImpact: FollowupPerformanceSummary[];
@@ -115,6 +130,7 @@ export type ExecutiveDashboardData = {
     rpcNetSales: number | null;
     summaryNetSales: number | null;
     invoicesCount: number | null;
+    mismatchPercent: number | null;
   };
 };
 
@@ -215,6 +231,41 @@ function buildBranchPerformance(rows: SalesDailySummary[]): BranchPerformancePoi
     .sort((a, b) => b.netTotal - a.netTotal);
 }
 
+function buildLastFiveDaysByBranch(rows: SalesDailySummary[]): LastFiveDaysBranchPoint[] {
+  const dates = [...new Set(rows.map((row) => row.saleDate).filter(Boolean))].sort().slice(-5);
+  const byKey = new Map<string, LastFiveDaysBranchPoint>();
+  for (const row of rows.filter((item) => dates.includes(item.saleDate))) {
+    const branch = row.branch || "غير محدد";
+    const key = `${row.saleDate}__${branch}`;
+    const current = byKey.get(key) || {
+      date: row.saleDate,
+      branch,
+      netTotal: 0,
+      invoicesCount: 0,
+      avgInvoice: 0,
+      previousDayNetTotal: null,
+      changePercent: null,
+    };
+    current.netTotal += row.netTotal;
+    current.invoicesCount += row.invoicesCount;
+    byKey.set(key, current);
+  }
+  const values = [...byKey.values()].map((row) => ({
+    ...row,
+    avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0,
+  })).sort((a, b) => a.date.localeCompare(b.date) || a.branch.localeCompare(b.branch));
+
+  for (const row of values) {
+    const previousDate = dates[dates.indexOf(row.date) - 1];
+    if (!previousDate) continue;
+    const previous = values.find((candidate) => candidate.date === previousDate && candidate.branch === row.branch);
+    if (!previous) continue;
+    row.previousDayNetTotal = previous.netTotal;
+    row.changePercent = previous.netTotal ? ((row.netTotal - previous.netTotal) / previous.netTotal) * 100 : null;
+  }
+  return values;
+}
+
 async function fetchTrackingTable(args: {
   table: string;
   select: string;
@@ -288,11 +339,15 @@ function buildSalesAccuracy(summary: DashboardSummary) {
   const summaryNetSales = summary.dailySales.reduce((sum, row) => sum + row.netTotal, 0);
   const summaryInvoices = summary.dailySales.reduce((sum, row) => sum + row.invoicesCount, 0);
   const kpiNet = summary.kpis?.netSales ?? null;
+  const mismatchPercent = kpiNet && summaryNetSales
+    ? (Math.abs(kpiNet - summaryNetSales) / Math.max(Math.abs(summaryNetSales), 1)) * 100
+    : null;
   return {
     netSalesSource: summary.normalizedKpis.netSales.source,
     rpcNetSales: kpiNet,
     summaryNetSales,
     invoicesCount: summary.normalizedKpis.invoicesCount.value ?? summaryInvoices,
+    mismatchPercent,
   };
 }
 
@@ -430,11 +485,10 @@ export async function loadExecutiveDashboardData(params: {
   if (!params.forceRefresh && dashboardCache.has(key)) return dashboardCache.get(key)!;
 
   const errorsBySection: Record<string, string> = {};
-  const [summaryResult, trackingResult, customerPreviewResult, latestInvoicesResult] = await Promise.allSettled([
+  const [summaryResult, trackingResult, staffIdentityResult] = await Promise.allSettled([
     fetchExecutiveDashboardSummary(params),
     loadOperationalTracking(errorsBySection),
-    fetchCustomerPreview(params.branch),
-    fetchLatestInvoices(params.startDate, params.endDate, params.branch),
+    fetchStaffIdentityRows(),
   ]);
 
   if (summaryResult.status === "rejected") {
@@ -444,17 +498,16 @@ export async function loadExecutiveDashboardData(params: {
   const summary = summaryResult.value;
   const tracking = trackingResult.status === "fulfilled" ? trackingResult.value : { stagnantItems: [], listItems: [] };
   if (trackingResult.status === "rejected") errorsBySection.operationalTracking = "تعذر تحميل متابعة الرواكد واللستة";
-  const customerPreview = customerPreviewResult.status === "fulfilled" ? customerPreviewResult.value : null;
-  if (customerPreviewResult.status === "rejected") errorsBySection.customerPreview = "تعذر تحميل معاينة العميل";
-  const latestInvoices = latestInvoicesResult.status === "fulfilled" ? latestInvoicesResult.value : { rows: [], error: "تعذر تحميل آخر الفواتير" };
-  if (latestInvoices.error) errorsBySection.latestInvoicesPreview = "تعذر تحميل آخر الفواتير";
+  const staffIdentities = staffIdentityResult.status === "fulfilled" ? staffIdentityResult.value : [];
+  if (staffIdentityResult.status === "rejected") errorsBySection.staffIdentity = "تعذر تحميل ربط الدكاترة بملفات الفريق";
 
   const data: ExecutiveDashboardData = {
     summary,
     kpis: summary.normalizedKpis,
     salesTrend: buildSalesTrend(summary.dailySales, params.mode, params.startDate, params.endDate),
+    last5DaysByBranch: buildLastFiveDaysByBranch(summary.dailySales),
     branchPerformance: buildBranchPerformance(summary.dailySales),
-    doctorPerformance: [...summary.staffSales].sort((a, b) => b.netTotal - a.netTotal).slice(0, 10),
+    doctorPerformance: groupStaffSalesPerformance(summary.staffSales, staffIdentities).slice(0, 12),
     followupFunnel: buildFollowupFunnel(summary.followupPerformance),
     followupResults: buildFollowupResults(summary.followupPerformance),
     customerServiceImpact: summary.followupPerformance,
@@ -465,8 +518,8 @@ export async function loadExecutiveDashboardData(params: {
     listItemTracking: tracking.listItems,
     deliveryPerformance: summary.deliveryPerformance,
     deliveryTracking: buildDeliveryTracking(summary.deliveryPerformance),
-    customerPreview,
-    latestInvoicesPreview: latestInvoices.rows,
+    customerPreview: null,
+    latestInvoicesPreview: [],
     dataHealth: summary.dataHealth,
     quickDecisionItems: summary.actionCenter,
     sourceHealth: summary.sourceHealth,
