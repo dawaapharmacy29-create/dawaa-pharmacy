@@ -7,8 +7,9 @@ import { supabase } from "@/lib/supabase";
 import { TABLES } from "@/lib/supabaseTables";
 import { formatCurrency, toNumber } from "@/lib/utils";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { effectiveCyclePoints, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff } from "@/lib/pointsLedger";
+import { pointRecordDelta } from "@/lib/pointsLedger";
 import { calculateIncentive, POINT_VALUE_EGP, STARTING_POINTS, MAX_BASE_INCENTIVE } from "@/lib/points";
+import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
 import { toast } from "sonner";
 
 interface DoctorMetrics {
@@ -179,29 +180,15 @@ export default function DoctorDashboard() {
     realtimeEnabled: true,
   });
 
-  const pointsBalance = useMemo(() => {
-    return effectiveCyclePoints(
-      selectedStaff || { id: effectiveId, name: effectiveName, points: null, max_points: STARTING_POINTS },
-      pointRecords || [],
-      cycle,
-    );
-  }, [cycle, effectiveId, effectiveName, pointRecords, selectedStaff]);
+  const incentiveSummary = useMemo(() => calculateStaffCycleIncentiveFromRows({
+    staff: selectedStaff || { id: effectiveId, name: effectiveName, points: null, max_points: STARTING_POINTS },
+    records: pointRecords || [],
+    cycle,
+  }), [cycle, effectiveId, effectiveName, pointRecords, selectedStaff]);
 
-  const rewardsBalance = useMemo(() => {
-    const target = selectedStaff || { id: effectiveId, name: effectiveName };
-    return (pointRecords || [])
-      .filter((row) => isApprovedPointRecord(row) && isRecordInCycle(row, cycle) && recordBelongsToStaff(row, target))
-      .filter((row) => pointRecordDelta(row) > 0)
-      .reduce((sum, row) => sum + pointRecordDelta(row), 0);
-  }, [cycle, effectiveId, effectiveName, pointRecords, selectedStaff]);
-
-  const discountBalance = useMemo(() => {
-    const target = selectedStaff || { id: effectiveId, name: effectiveName };
-    return Math.abs((pointRecords || [])
-      .filter((row) => isApprovedPointRecord(row) && isRecordInCycle(row, cycle) && recordBelongsToStaff(row, target))
-      .filter((row) => pointRecordDelta(row) < 0)
-      .reduce((sum, row) => sum + pointRecordDelta(row), 0));
-  }, [cycle, effectiveId, effectiveName, pointRecords, selectedStaff]);
+  const pointsBalance = incentiveSummary.finalPoints;
+  const rewardsBalance = incentiveSummary.approvedRewardPoints;
+  const discountBalance = incentiveSummary.approvedDeductionPoints;
 
   if (!permissions?.can_view_dashboard) {
     return (
