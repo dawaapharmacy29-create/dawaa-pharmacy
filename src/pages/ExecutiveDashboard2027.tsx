@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -32,7 +32,6 @@ import { formatCycleDate, getCurrentCycle, getPreviousCycle } from "@/lib/pharma
 import {
   ALL_BRANCHES,
   ALL_BRANCHES_LABEL,
-  fetchExecutiveDashboardSummary,
   friendlySourceError,
   type DashboardActivity,
   type DashboardActionItem,
@@ -44,6 +43,7 @@ import {
   type SalesDailySummary,
   type StaffSalesSummary,
 } from "@/lib/dashboardSummaryService";
+import { loadExecutiveDashboardData, type ExecutiveDashboardData, type OperationalTrackingItem } from "@/lib/executiveDashboardDataService";
 import { formatMoney, formatNumber } from "@/lib/dawaa2027";
 
 const cx = (...items: Array<string | false | null | undefined>) => items.filter(Boolean).join(" ");
@@ -208,11 +208,15 @@ export default function ExecutiveDashboard2027() {
   const [periodMode, setPeriodMode] = useState<"current" | "previous" | "custom">("current");
   const [branch, setBranch] = useState(ALL_BRANCHES);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [dashboardData, setDashboardData] = useState<ExecutiveDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshingSummaries, setRefreshingSummaries] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
 
   const loadSummary = async () => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
     setLoading(true);
     try {
       if (import.meta.env.DEV) {
@@ -223,18 +227,20 @@ export default function ExecutiveDashboard2027() {
           net_sales_source: "get_dashboard_kpis ثم sales_daily_summary عند غياب net_total",
         });
       }
-      const result = await fetchExecutiveDashboardSummary({ startDate: periodStart, endDate: periodEnd, branch });
-      setSummary(result);
-      setLastRefreshed(new Date().toISOString());
+      const result = await loadExecutiveDashboardData({ startDate: periodStart, endDate: periodEnd, branch, mode: periodMode });
+      if (requestId !== requestIdRef.current) return;
+      setDashboardData(result);
+      setSummary(result.summary);
+      setLastRefreshed(result.lastUpdated);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodStart, periodEnd, branch]);
+  }, [periodStart, periodEnd, branch, periodMode]);
 
   const errors = summary?.errors || [];
   const kpis = summary?.kpis || null;
@@ -466,6 +472,15 @@ export default function ExecutiveDashboard2027() {
         </Panel>
         <Panel title="ترتيب الدليفري" source="delivery_performance_summary">
           <DeliveryTable rows={summary?.deliveryPerformance || []} available={Boolean(sourceHealth?.deliverySummaryAvailable)} />
+        </Panel>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Panel title="Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø±ÙˆØ§ÙƒØ¯" source="stagnant_medicines">
+          <OperationalTrackingPanel rows={dashboardData?.stagnantItems || []} error={dashboardData?.errorsBySection.stagnantItems} emptyText="Ù…ØµØ¯Ø± Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø±ÙˆØ§ÙƒØ¯ ØºÙŠØ± Ù…ØªØ§Ø­ Ø­Ø§Ù„ÙŠÙ‹Ø§" />
+        </Panel>
+        <Panel title="Ù…ØªØ§Ø¨Ø¹Ø© Ø£ØµÙ†Ø§Ù Ø§Ù„Ù„Ø³ØªØ©" source="list_items">
+          <OperationalTrackingPanel rows={dashboardData?.listItems || []} error={dashboardData?.errorsBySection.listItems} emptyText="Ù…ØµØ¯Ø± Ø£ØµÙ†Ø§Ù Ø§Ù„Ù„Ø³ØªØ© ØºÙŠØ± Ù…ØªØ§Ø­ Ø­Ø§Ù„ÙŠÙ‹Ø§" />
         </Panel>
       </section>
 
@@ -837,6 +852,34 @@ function DeliveryTable({ rows, available }: { rows: DeliveryPerformanceSummary[]
         ))}
       </tbody>
     </CompactTable>
+  );
+}
+
+function OperationalTrackingPanel({ rows, error, emptyText }: { rows: OperationalTrackingItem[]; error?: string | null; emptyText: string }) {
+  if (error) return <Empty text={error} />;
+  if (!rows.length) return <Empty text={emptyText} />;
+  return (
+    <div className="space-y-3">
+      {rows.map((row) => (
+        <Link key={row.id} to={row.route} className="block rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate font-black text-slate-950">{row.title}</div>
+              <div className="mt-1 text-xs font-bold text-slate-500">{row.responsible || "Ø¨Ø¯ÙˆÙ† Ù…Ø³Ø¤ÙˆÙ„ Ù…Ø­Ø¯Ø¯"}</div>
+            </div>
+            <div className="text-left text-sm font-black text-teal-700">{row.metric}</div>
+          </div>
+          {row.progress !== null && (
+            <div className="mt-3">
+              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-teal-500" style={{ width: `${Math.max(0, Math.min(100, row.progress))}%` }} />
+              </div>
+              <div className="mt-1 text-[11px] font-bold text-slate-500">{row.progress.toFixed(0)}%</div>
+            </div>
+          )}
+        </Link>
+      ))}
+    </div>
   );
 }
 

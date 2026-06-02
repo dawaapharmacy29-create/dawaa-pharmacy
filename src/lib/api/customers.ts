@@ -8,6 +8,7 @@ import {
   customerFlagLabels,
 } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
+import { getCustomerFullProfile } from "@/lib/customerProfileService";
 
 const DEFAULT_LIMIT = 30;
 export const ALL_FILTER = "الكل";
@@ -526,6 +527,83 @@ export async function getCustomerDetails(customer: CustomerMetric, invoiceLimit 
   if (!isSupabaseConfigured) {
     throw new Error("إعدادات Supabase غير موجودة.");
   }
+
+  const fullProfile = await getCustomerFullProfile({
+    customer_code: customer.customer_code,
+    customer_id: customer.customer_id,
+    final_customer_key: customer.final_customer_key,
+    customer_phone: customer.customer_phone || customer.phone,
+    customer_name: customer.customer_name || customer.name,
+  });
+
+  const limitedInvoices = fullProfile.latestInvoices.slice(0, Math.min(invoiceLimit, 100));
+  const limitedFollowups = fullProfile.latestFollowups.slice(0, 20);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const previousMonthDate = new Date();
+  previousMonthDate.setMonth(previousMonthDate.getMonth() - 1);
+  const previousMonth = previousMonthDate.toISOString().slice(0, 7);
+  const currentMonthVisitsFromProfile = fullProfile.monthlyPurchaseTrend.find((row) => row.month === currentMonth)?.invoicesCount ?? 0;
+  const previousMonthVisitsFromProfile = fullProfile.monthlyPurchaseTrend.find((row) => row.month === previousMonth)?.invoicesCount ?? 0;
+  const avgMonthlyVisitsFromProfile = fullProfile.monthlyPurchaseTrend.length
+    ? Math.round(fullProfile.monthlyPurchaseTrend.reduce((sum, row) => sum + row.invoicesCount, 0) / fullProfile.monthlyPurchaseTrend.length)
+    : null;
+
+  const frequencyStatusFromProfile = currentMonthVisitsFromProfile === 0 && previousMonthVisitsFromProfile >= 2
+    ? "توقف عن الشراء"
+    : currentMonthVisitsFromProfile * 2 <= previousMonthVisitsFromProfile && previousMonthVisitsFromProfile >= 2
+      ? "انخفض الشراء"
+      : currentMonthVisitsFromProfile === 0
+        ? "يحتاج متابعة"
+        : "طبيعي";
+
+  const frequencyRecommendationFromProfile = frequencyStatusFromProfile === "توقف عن الشراء"
+    ? "تابع العميل فورًا لاستعادة الشراء."
+    : frequencyStatusFromProfile === "انخفض الشراء"
+      ? "راجع سبب انخفاض الشراء وحدد متابعة قريبة."
+      : "استمر في دعم العميل وسجل نتيجة التواصل.";
+
+  const doctorTotalsFromProfile = new Map<string, { total: number; count: number }>();
+  for (const invoice of limitedInvoices) {
+    if (!invoice.seller_name) continue;
+    const current = doctorTotalsFromProfile.get(invoice.seller_name) || { total: 0, count: 0 };
+    current.total += invoice.amount;
+    current.count += 1;
+    doctorTotalsFromProfile.set(invoice.seller_name, current);
+  }
+  const topDoctorFromProfile = [...doctorTotalsFromProfile.entries()]
+    .sort((a, b) => (b[1].total - a[1].total) || (b[1].count - a[1].count))[0]?.[0] || null;
+
+  return {
+    invoices: limitedInvoices,
+    followups: limitedFollowups,
+    lastFollowup: limitedFollowups[0] || null,
+    topDoctor: topDoctorFromProfile,
+    lastServiceDoctor: limitedFollowups[0]?.responsible_name || limitedFollowups[0]?.assigned_to || null,
+    lastFollowupReport: limitedFollowups[0]?.followup_result || limitedFollowups[0]?.notes || null,
+    avgMonthlyVisits: avgMonthlyVisitsFromProfile,
+    currentMonthVisits: currentMonthVisitsFromProfile,
+    previousMonthVisits: previousMonthVisitsFromProfile,
+    purchaseFrequencyStatus: frequencyStatusFromProfile,
+    purchaseFrequencyRecommendation: frequencyRecommendationFromProfile,
+    customerNotes: fullProfile.notes.customerNotes || fullProfile.notes.notes,
+    whatsappNotes: fullProfile.notes.whatsappNotes,
+    serviceNotes: fullProfile.notes.serviceNotes,
+    teamNotes: fullProfile.notes.teamNotes,
+    handlingNotes: fullProfile.notes.handlingNotes,
+    address: fullProfile.notes.address,
+    phoneAlt: fullProfile.notes.phoneAlt,
+    whatsappPhone: fullProfile.notes.whatsappPhone,
+    customerFlags: customerFlagLabels(fullProfile.flags),
+    isPseudoCustomer: fullProfile.dataHealth.isPseudoCustomer,
+    hasValidPhone: fullProfile.dataHealth.hasValidPhone,
+    purchaseAnalysis: {
+      purchaseCountCurrentMonth: currentMonthVisitsFromProfile,
+      purchaseCountPreviousMonth: previousMonthVisitsFromProfile,
+      averageMonthlyPurchaseCount: avgMonthlyVisitsFromProfile || 0,
+      purchaseFrequencyStatus: frequencyStatusFromProfile,
+      recommendation: frequencyRecommendationFromProfile,
+    },
+  };
 
   const invoiceClauses = customerInvoiceOrClauses(customer);
   const followupClauses = [

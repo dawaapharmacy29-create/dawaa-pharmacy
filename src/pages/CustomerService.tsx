@@ -17,7 +17,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
-import { ALL_FILTER, getCustomerDetails, type CustomerDetails, type CustomerMetric } from "@/lib/api/customers";
+import { ALL_FILTER, type CustomerMetric } from "@/lib/api/customers";
 import {
   calculateFollowupStats,
   calculateTeamPerformance,
@@ -36,6 +36,7 @@ import {
 import { buildCustomerCareScript, chooseCustomerCareScriptType } from "@/lib/whatsappTemplates";
 import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
 import { isValidEgyptPhone, getBestCustomerPhone } from "@/lib/customerAnalyticsService";
+import { getCustomerFullProfile, type CustomerFullProfile } from "@/lib/customerProfileService";
 import { normalizeBranchName } from "@/lib/branch";
 import { BRANCHES } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
@@ -1150,37 +1151,51 @@ function metricFromCustomer(value: CustomerMetric | FollowupRow): CustomerMetric
 
 function CustomerProfileModal({ customer, onClose }: { customer: CustomerMetric | FollowupRow; onClose: () => void }) {
   const metric = useMemo(() => metricFromCustomer(customer), [customer]);
-  const [details, setDetails] = useState<CustomerDetails | null>(null);
+  const [details, setDetails] = useState<CustomerFullProfile | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
     setLoading(true);
     setError("");
-    getCustomerDetails(metric, 10)
+    getCustomerFullProfile({
+      customer_code: metric.customer_code,
+      customer_id: metric.customer_id,
+      final_customer_key: metric.final_customer_key,
+      customer_phone: metric.customer_phone || metric.phone,
+      customer_name: metric.customer_name || metric.name,
+      signal: controller.signal,
+    })
       .then((result) => {
         if (!cancelled) setDetails(result);
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "تعذر تحميل ملف العميل");
+        if (!cancelled && !controller.signal.aborted) setError(err instanceof Error ? err.message : "تعذر تحميل ملف العميل");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !controller.signal.aborted) setLoading(false);
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [metric]);
 
   const profile = details?.profile || {};
-  const displayPhone = getBestCustomerPhone(
+  const profileMetric = details?.metrics || metric;
+  const displayPhone = details?.displayPhone || getBestCustomerPhone(
     { customer_code: metric.customer_code, customer_phone: metric.customer_phone, phone: metric.phone } as FollowupRow,
-    metric,
+    profileMetric,
     profile as Record<string, unknown>,
   );
-  const activeFlags = getActiveCustomerFlags((profile.customer_flags as Record<string, boolean> | null) || ("customer_flags" in customer ? customer.customer_flags : null));
   const notes = [
+    details?.notes.customerNotes,
+    details?.notes.serviceNotes,
+    details?.notes.teamNotes,
+    details?.notes.handlingNotes,
+    details?.notes.whatsappNotes,
     profile.customer_notes,
     profile.service_notes,
     profile.team_notes,
@@ -1232,26 +1247,28 @@ function CustomerProfileModal({ customer, onClose }: { customer: CustomerMetric 
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
             <h4 className="mb-3 font-black text-slate-950">آخر 10 فواتير</h4>
             <div className="space-y-2">
-              {(details?.invoices || []).slice(0, 10).map((invoice, index) => (
+              {details?.errorsBySection.latestInvoices ? <div className="mb-2 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-700">{details.errorsBySection.latestInvoices}</div> : null}
+              {(details?.latestInvoices || []).slice(0, 10).map((invoice, index) => (
                 <div key={`${invoice.invoice_number}-${index}`} className="rounded-xl bg-slate-50 p-3 text-sm">
                   <div className="font-bold text-slate-900">{invoice.invoice_number || "فاتورة"}</div>
                   <div className="text-xs text-slate-500">{formatDate(invoice.invoice_date)} · {formatMoney(invoice.amount)} · {invoice.seller_name || "غير محدد"}</div>
                 </div>
               ))}
-              {!details?.invoices?.length && <Empty text="لا توجد فواتير متاحة أو تعذر تحميلها" />}
+              {!details?.latestInvoices?.length && <Empty text="لا توجد فواتير متاحة أو تعذر تحميلها" />}
             </div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
             <h4 className="mb-3 font-black text-slate-950">آخر 10 متابعات</h4>
             <div className="space-y-2">
-              {(details?.followups || []).slice(0, 10).map((followup) => (
+              {details?.errorsBySection.latestFollowups ? <div className="mb-2 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-700">{details.errorsBySection.latestFollowups}</div> : null}
+              {(details?.latestFollowups || []).slice(0, 10).map((followup) => (
                 <div key={followup.id} className="rounded-xl bg-slate-50 p-3 text-sm">
                   <div className="font-bold text-slate-900">{followup.followup_result || followup.status || "متابعة"}</div>
                   <div className="text-xs text-slate-500">{formatDate(followup.followup_date)} · {followup.responsible_name || followup.assigned_to || "غير محدد"}</div>
                   <div className="mt-1 text-xs text-slate-600">{followup.notes || "لا توجد ملاحظات"}</div>
                 </div>
               ))}
-              {!details?.followups?.length && <Empty text="لا توجد متابعات سابقة" />}
+              {!details?.latestFollowups?.length && <Empty text="لا توجد متابعات سابقة" />}
             </div>
           </div>
         </section>
