@@ -790,6 +790,11 @@ function DataHealthDebug({ data, startDate, endDate, branch, mode, salesDiff }: 
           يوجد فرق أكبر من 1% بين RPC و sales_daily_summary. الرقم المعروض يستخدم المصدر المحدد في بطاقة المبيعات، ويجب إصلاح SQL إذا كان RPC يتأخر أو يختلف.
         </div>
       )}
+      {data?.errorsBySection.salesSummaryGap && (
+        <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">
+          {data.errorsBySection.salesSummaryGap}
+        </div>
+      )}
     </details>
   );
 }

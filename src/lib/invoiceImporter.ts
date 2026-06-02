@@ -1054,6 +1054,13 @@ async function refreshCustomerAnalysisForImportedRows(
   fallbackBranch: string,
   summary: ImportSummary,
 ) {
+  void rows;
+  void fallbackBranch;
+  summary.summaryRefreshStatus = summary.summaryRefreshStatus || "unavailable";
+  summary.summaryRefreshMessage =
+    summary.summaryRefreshMessage || "تم الاستيراد، ويلزم تحديث الملخصات قبل الاعتماد على الداشبورد";
+  return;
+
   const affectedCodes = Array.from(new Set(rows.map((row) => row.customerCode).filter(Boolean)));
   const affectedPhones = Array.from(new Set(rows.map((row) => row.phone).filter(Boolean)));
   if (affectedCodes.length === 0 && affectedPhones.length === 0) return;
@@ -1239,6 +1246,18 @@ async function linkSellerToStaffId(sellerName: string, branch: string): Promise<
 }
 
 async function refreshImportSummaries(summary: ImportSummary) {
+  if (summary.firstInvoiceDate && summary.lastInvoiceDate) {
+    const { error } = await supabase.rpc("rebuild_sales_daily_summary", {
+      p_start_date: summary.firstInvoiceDate,
+      p_end_date: summary.lastInvoiceDate,
+    });
+    if (!error) {
+      summary.summaryRefreshStatus = "refreshed";
+      summary.summaryRefreshMessage = "تم تحديث ملخصات المبيعات اليومية بعد الاستيراد.";
+      return;
+    }
+  }
+
   const rpcCandidates = [
     "refresh_dashboard_summaries",
     "refresh_sales_daily_summary",
@@ -1255,7 +1274,7 @@ async function refreshImportSummaries(summary: ImportSummary) {
   }
 
   summary.summaryRefreshStatus = "unavailable";
-  summary.summaryRefreshMessage = "تم الاستيراد، لكن يلزم تحديث الملخصات من لوحة الإدارة";
+  summary.summaryRefreshMessage = "تم الاستيراد، ويلزم تحديث الملخصات قبل الاعتماد على الداشبورد";
 }
 
 export async function importInvoicesToDB(
@@ -1278,6 +1297,10 @@ export async function importInvoicesToDB(
     skippedDuplicateInvoices: [],
     schemaWarnings: [],
     staffLinkingMode: "name_fallback",
+    firstInvoiceDate: rows.map((row) => row.date).filter(Boolean).sort()[0] || null,
+    lastInvoiceDate: rows.map((row) => row.date).filter(Boolean).sort().pop() || null,
+    fileNetSales: rows.reduce((sum, row) => sum + (Number(row.netAmount ?? row.discountedAmount ?? row.amount ?? 0) || 0), 0),
+    importedNetSales: 0,
   };
   if (rows.length === 0) return summary;
 

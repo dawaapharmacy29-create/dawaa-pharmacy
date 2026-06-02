@@ -474,6 +474,15 @@ function buildDeliveryTracking(rows: DeliveryPerformanceSummary[]) {
   };
 }
 
+async function checkSalesSummaryGaps(startDate: string, endDate: string) {
+  const { data, error } = await supabase.rpc("check_sales_daily_summary_gaps", {
+    p_start_date: startDate,
+    p_end_date: endDate,
+  });
+  if (error) return { count: 0, error: error.message };
+  return { count: (data || []).length, error: null };
+}
+
 export async function loadExecutiveDashboardData(params: {
   startDate: string;
   endDate: string;
@@ -485,10 +494,11 @@ export async function loadExecutiveDashboardData(params: {
   if (!params.forceRefresh && dashboardCache.has(key)) return dashboardCache.get(key)!;
 
   const errorsBySection: Record<string, string> = {};
-  const [summaryResult, trackingResult, staffIdentityResult] = await Promise.allSettled([
+  const [summaryResult, trackingResult, staffIdentityResult, salesGapResult] = await Promise.allSettled([
     fetchExecutiveDashboardSummary(params),
     loadOperationalTracking(errorsBySection),
     fetchStaffIdentityRows(),
+    checkSalesSummaryGaps(params.startDate, params.endDate),
   ]);
 
   if (summaryResult.status === "rejected") {
@@ -500,6 +510,10 @@ export async function loadExecutiveDashboardData(params: {
   if (trackingResult.status === "rejected") errorsBySection.operationalTracking = "تعذر تحميل متابعة الرواكد واللستة";
   const staffIdentities = staffIdentityResult.status === "fulfilled" ? staffIdentityResult.value : [];
   if (staffIdentityResult.status === "rejected") errorsBySection.staffIdentity = "تعذر تحميل ربط الدكاترة بملفات الفريق";
+
+  if (salesGapResult.status === "fulfilled" && salesGapResult.value.count > 0) {
+    errorsBySection.salesSummaryGap = `sales_daily_summary ناقص أو غير مطابق لبيانات sales_invoices في ${salesGapResult.value.count} يوم. يلزم تحديث ملخصات المبيعات.`;
+  }
 
   const data: ExecutiveDashboardData = {
     summary,

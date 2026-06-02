@@ -91,6 +91,7 @@ export default function Invoices() {
   const [editForm, setEditForm] = useState<InvoiceEditForm | null>(null);
   const [duplicateAudit, setDuplicateAudit] = useState<DuplicateInvoiceGroup[]>([]);
   const [duplicateAuditLoading, setDuplicateAuditLoading] = useState(false);
+  const [summaryRefreshBusy, setSummaryRefreshBusy] = useState(false);
   useEscapeKey(() => {
     setEditInvoice(null);
     setEditForm(null);
@@ -157,7 +158,7 @@ export default function Invoices() {
       [...groups.values()]
         .filter((group) => group.count > 1)
         .sort((a, b) => String(b.latest_created_at || "").localeCompare(String(a.latest_created_at || "")))
-        .slice(0, 20),
+        .slice(0, 30),
     );
     setDuplicateAuditLoading(false);
   }, [isAdmin]);
@@ -261,6 +262,28 @@ export default function Invoices() {
     setImportSummary(null);
     setProgress(0);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const rebuildSalesSummaries = async (range?: { startDate?: string | null; endDate?: string | null }) => {
+    const startDate = range?.startDate || importSummary?.firstInvoiceDate || invoiceBatches[0]?.firstDate;
+    const endDate = range?.endDate || importSummary?.lastInvoiceDate || invoiceBatches[0]?.lastDate;
+    if (!startDate || !endDate || startDate === "-" || endDate === "-") {
+      toast.error("لا يوجد مدى تاريخ واضح لتحديث الملخصات");
+      return;
+    }
+
+    setSummaryRefreshBusy(true);
+    const { error } = await supabase.rpc("rebuild_sales_daily_summary", {
+      p_start_date: startDate,
+      p_end_date: endDate,
+    });
+    setSummaryRefreshBusy(false);
+
+    if (error) {
+      toast.error(`تعذر تحديث ملخصات المبيعات: ${error.message}`);
+      return;
+    }
+    toast.success(`تم تحديث ملخصات المبيعات من ${startDate} إلى ${endDate}`);
   };
 
   const invoiceBatches = useMemo(() => {
@@ -550,7 +573,7 @@ export default function Invoices() {
             </div>
             {duplicateAudit.length > 0 && (
               <div className="mt-4 rounded-xl border border-amber-200/30 bg-slate-950/25 p-3">
-                <div className="mb-2 text-sm font-bold text-amber-100">يوجد فواتير مكررة تحتاج مراجعة</div>
+                <div className="mb-2 text-sm font-bold text-amber-100">يوجد فواتير مكررة قديمة تحتاج مراجعة</div>
                 <div className="max-h-56 space-y-2 overflow-auto">
                   {duplicateAudit.map((group) => (
                     <div key={`${group.invoice_number}-${group.branch}-${group.sale_date}`} className="grid grid-cols-4 gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-100">
@@ -844,8 +867,8 @@ export default function Invoices() {
                 <ResultTile value={importSummary.invoicesWithoutCustomer || 0} label="بدون عميل" />
                 <ResultTile value={importSummary.invoicesWithoutDoctor || 0} label="بدون دكتور" />
                 <ResultTile value={importSummary.invoicesWithoutBranch || 0} label="بدون فرع" />
-                <ResultTile value={Math.round(importSummary.fileNetSales || 0)} label="صافي الملف" />
-                <ResultTile value={Math.round(importSummary.importedNetSales || 0)} label="صافي المستورد" />
+                <ResultTile value={importSummary.fileNetSales} label="صافي الملف" isCurrency />
+                <ResultTile value={importSummary.importedNetSales} label="صافي المستورد" isCurrency />
               </>
             )}
           </div>
@@ -856,6 +879,17 @@ export default function Invoices() {
                 <div className="mt-2 text-sm text-teal-50/85">
                   {importSummary.summaryRefreshMessage || "لم يتم طلب تحديث ملخصات إضافي."}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => rebuildSalesSummaries({
+                    startDate: importSummary.firstInvoiceDate,
+                    endDate: importSummary.lastInvoiceDate,
+                  })}
+                  disabled={summaryRefreshBusy}
+                  className="mt-3 rounded-xl border border-teal-200/40 bg-teal-300/15 px-4 py-2 text-sm font-bold text-teal-50 hover:bg-teal-300/25 disabled:opacity-50"
+                >
+                  {summaryRefreshBusy ? "جاري تحديث الملخصات..." : "تحديث الملخصات"}
+                </button>
               </div>
               <div className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-4">
                 <div className="font-bold text-sky-100">ربط الدكاترة</div>
@@ -1039,10 +1073,14 @@ function EditField({ label, value, onChange, type = "text" }: { label: string; v
   );
 }
 
-function ResultTile({ value, label }: { value: number; label: string }) {
+function ResultTile({ value, label, isCurrency = false }: { value: number | null | undefined; label: string; isCurrency?: boolean }) {
+  const safeValue = Number(value);
+  const displayValue = Number.isFinite(safeValue) ? safeValue : 0;
   return (
     <div className="bg-teal-500/10 border border-white/5 rounded-2xl p-4">
-      <div className="text-xl font-bold text-teal-400 num">{value.toLocaleString("ar-EG")}</div>
+      <div className="text-xl font-bold text-teal-400 num">
+        {isCurrency ? formatCurrency(displayValue) : displayValue.toLocaleString("ar-EG")}
+      </div>
       <div className="text-slate-400 text-xs mt-1">{label}</div>
     </div>
   );
