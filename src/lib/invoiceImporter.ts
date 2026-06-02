@@ -1246,16 +1246,34 @@ async function linkSellerToStaffId(sellerName: string, branch: string): Promise<
 }
 
 async function refreshImportSummaries(summary: ImportSummary) {
+  const refreshMessages: string[] = [];
+  let refreshedAny = false;
+
   if (summary.firstInvoiceDate && summary.lastInvoiceDate) {
     const { error } = await supabase.rpc("rebuild_sales_daily_summary", {
       p_start_date: summary.firstInvoiceDate,
       p_end_date: summary.lastInvoiceDate,
     });
     if (!error) {
-      summary.summaryRefreshStatus = "refreshed";
-      summary.summaryRefreshMessage = "تم تحديث ملخصات المبيعات اليومية بعد الاستيراد.";
-      return;
+      refreshedAny = true;
+      refreshMessages.push("تم تحديث ملخصات المبيعات اليومية بعد الاستيراد.");
+    } else if (import.meta.env.DEV) {
+      console.warn("[invoiceImporter] rebuild_sales_daily_summary failed", error);
     }
+  }
+
+  const { error: customerMetricsError } = await supabase.rpc("rebuild_customer_metrics_summary");
+  if (!customerMetricsError) {
+    refreshedAny = true;
+    refreshMessages.push("تم تحديث ملخصات العملاء بعد الاستيراد.");
+  } else if (import.meta.env.DEV) {
+    console.warn("[invoiceImporter] rebuild_customer_metrics_summary failed", customerMetricsError);
+  }
+
+  if (refreshedAny) {
+    summary.summaryRefreshStatus = "refreshed";
+    summary.summaryRefreshMessage = refreshMessages.join(" ");
+    return;
   }
 
   const rpcCandidates = [
@@ -1424,7 +1442,7 @@ export async function importInvoicesToDB(
     invoice_type: row.invoiceType,
     customer_code: row.customerLinkStatus === "unmatched_customer" ? null : row.customerCode || null,
     customer_name: row.name,
-    customer_phone: row.customerLinkStatus === "unmatched_customer" ? null : (row.phone || (row.customerCode ? `code:${row.customerCode}` : null)),
+    customer_phone: row.customerLinkStatus === "unmatched_customer" ? null : row.phone || null,
     invoice_date: row.date,
     invoice_datetime: row.invoiceDateTime,
     close_datetime: row.closeDateTime,
