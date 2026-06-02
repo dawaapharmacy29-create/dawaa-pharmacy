@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { BRANCHES } from "@/lib/constants";
 import { normalizeBranchName, branchMatches } from "@/lib/branch";
 import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
+import { matchesOrderedSegments } from "@/lib/utils";
 import ImageUploadBox from "@/components/ImageUploadBox";
 
 type FieldKind = "text" | "number" | "date" | "select" | "textarea" | "staff" | "checklist" | "image";
@@ -422,14 +423,14 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   }, [loadRows]);
 
   const filteredRows = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = query.trim();
     return rows.filter((row) => {
       const status = String(row[config.statusField] ?? "");
       const branch = config.branchField ? String(row[config.branchField] ?? "") : "";
       if (statusFilter !== "الكل" && status !== statusFilter) return false;
       if (branchFilter !== "الكل" && branch !== branchFilter) return false;
       if (!needle) return true;
-      return config.searchKeys.some((key) => String(row[key] ?? "").toLowerCase().includes(needle));
+      return config.searchKeys.some((key) => matchesOrderedSegments(String(row[key] ?? ""), needle));
     });
   }, [branchFilter, config, query, rows, statusFilter]);
 

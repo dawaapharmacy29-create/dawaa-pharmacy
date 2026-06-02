@@ -23,6 +23,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
+import { matchesOrderedSegments } from "@/lib/utils";
 import { selectableStaffChoices } from "@/lib/staffFallback";
 import type { Staff } from "@/types/database";
 
@@ -251,10 +252,12 @@ export default function ShiftNotes() {
       return;
     }
     try {
+      const pattern = query.trim().replace(/[%,()]/g, "").replace(/\*/g, "%");
+      const ilikePattern = pattern.includes("%") ? pattern : `%${pattern}%`;
       const { data, error } = await supabase
         .from("customers")
         .select("*")
-        .or(`name.ilike.%${query}%,customer_code.ilike.%${query}%,phone.ilike.%${query}%,whatsapp_phone.ilike.%${query}%,address.ilike.%${query}%`)
+        .or(`name.ilike.${ilikePattern},customer_code.ilike.${ilikePattern},phone.ilike.${ilikePattern},whatsapp_phone.ilike.${ilikePattern},address.ilike.${ilikePattern}`)
         .limit(10);
       if (error) throw error;
       setCustomerSearchResults(data || []);
@@ -754,9 +757,8 @@ export default function ShiftNotes() {
 
       const haystack = [note.title, note.details, note.customer_name, note.customer_phone, note.invoice_no, note.branch, note.assigned_to_name, note.note_type, note.action_required]
         .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
+        .join(" ");
+      return matchesOrderedSegments(haystack, q);
     });
   }, [debouncedSearch, dimensionFilter, filter, notes, user?.name]);
 

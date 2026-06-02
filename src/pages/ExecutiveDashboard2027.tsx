@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Area,
@@ -56,24 +56,24 @@ function hasNumber(value: unknown): value is number {
 }
 
 function countText(value: number | null | undefined) {
-  return hasNumber(value) ? formatNumber(value) : "غير متاح";
+  return hasNumber(value) ? formatNumber(value) : "ØºÙŠØ± Ù…ØªØ§Ø­";
 }
 
 function moneyText(value: number | null | undefined) {
-  return hasNumber(value) ? formatMoney(value) : "غير متاح";
+  return hasNumber(value) ? formatMoney(value) : "ØºÙŠØ± Ù…ØªØ§Ø­";
 }
 
 function dateText(value: string | null | undefined) {
-  if (!value) return "غير محدد";
+  if (!value) return "ØºÙŠØ± Ù…Ø­Ø¯Ø¯";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
   return date.toLocaleDateString("ar-EG", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function timeText(value: string | null | undefined) {
-  if (!value) return "لم يتم التحديث بعد";
+  if (!value) return "Ù„Ù… ÙŠØªÙ… Ø§Ù„ØªØ­Ø¯ÙŠØ« Ø¨Ø¹Ø¯";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "لم يتم التحديث بعد";
+  if (Number.isNaN(date.getTime())) return "Ù„Ù… ÙŠØªÙ… Ø§Ù„ØªØ­Ø¯ÙŠØ« Ø¨Ø¹Ø¯";
   return date.toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" });
 }
 
@@ -130,7 +130,7 @@ export default function ExecutiveDashboard2027() {
       })
       .catch((err) => {
         if (requestId !== requestIdRef.current) return;
-        setError(err instanceof Error ? err.message : "تعذر تحميل لوحة القيادة");
+        setError(err instanceof Error ? err.message : "ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ù„ÙˆØ­Ø© Ø§Ù„Ù‚ÙŠØ§Ø¯Ø©");
       })
       .finally(() => {
         if (requestId === requestIdRef.current) setLoading(false);
@@ -140,10 +140,10 @@ export default function ExecutiveDashboard2027() {
   const summary = data?.summary;
   const followups = useMemo(() => sumFollowupRows(data), [data]);
   const periodLabel = mode === "custom"
-    ? `تحليل فترة مخصصة: ${startDate} إلى ${endDate}`
+    ? `ØªØ­Ù„ÙŠÙ„ ÙØªØ±Ø© Ù…Ø®ØµØµØ©: ${startDate} Ø¥Ù„Ù‰ ${endDate}`
     : mode === "current"
-      ? `الدورة الحالية: ${startDate} إلى ${endDate}`
-      : `الدورة السابقة: ${startDate} إلى ${endDate}`;
+      ? `Ø§Ù„Ø¯ÙˆØ±Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ©: ${startDate} Ø¥Ù„Ù‰ ${endDate}`
+      : `Ø§Ù„Ø¯ÙˆØ±Ø© Ø§Ù„Ø³Ø§Ø¨Ù‚Ø©: ${startDate} Ø¥Ù„Ù‰ ${endDate}`;
   const isLongPeriod = periodDays(startDate, endDate) > 45;
   const salesDiff = data?.salesAccuracy.rpcNetSales !== null && data?.salesAccuracy.rpcNetSales !== undefined
     ? Math.abs(data.salesAccuracy.summaryNetSales - data.salesAccuracy.rpcNetSales)
@@ -157,84 +157,84 @@ export default function ExecutiveDashboard2027() {
 
   const kpis = [
     {
-      label: "صافي مبيعات الفترة",
+      label: "ØµØ§ÙÙŠ Ù…Ø¨ÙŠØ¹Ø§Øª Ø§Ù„ÙØªØ±Ø©",
       value: moneyText(metricValue(data?.kpis.netSales)),
-      unit: "جنيه",
+      unit: "Ø¬Ù†ÙŠÙ‡",
       icon: Wallet,
       route: `/analytics?start=${startDate}&end=${endDate}&branch=${encodeURIComponent(branch)}`,
       status: data?.kpis.netSales.status,
       source: data?.kpis.netSales.source,
-      change: data?.salesAccuracy.netSalesSource === "sales_daily_summary" ? "من ملخص المبيعات" : "من RPC",
+      change: data?.salesAccuracy.netSalesSource === "sales_daily_summary" ? "Ù…Ù† Ù…Ù„Ø®Øµ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª" : "Ù…Ù† RPC",
     },
     {
-      label: "عدد الفواتير",
+      label: "Ø¹Ø¯Ø¯ Ø§Ù„ÙÙˆØ§ØªÙŠØ±",
       value: countText(metricValue(data?.kpis.invoicesCount)),
-      unit: "فاتورة",
+      unit: "ÙØ§ØªÙˆØ±Ø©",
       icon: FileText,
       route: `/invoices?start=${startDate}&end=${endDate}`,
       status: data?.kpis.invoicesCount.status,
       source: data?.kpis.invoicesCount.source,
-      change: "ملخص الفترة",
+      change: "Ù…Ù„Ø®Øµ Ø§Ù„ÙØªØ±Ø©",
     },
     {
-      label: "متوسط قيمة الفاتورة",
+      label: "Ù…ØªÙˆØ³Ø· Ù‚ÙŠÙ…Ø© Ø§Ù„ÙØ§ØªÙˆØ±Ø©",
       value: moneyText(metricValue(data?.kpis.avgInvoice)),
-      unit: "جنيه",
+      unit: "Ø¬Ù†ÙŠÙ‡",
       icon: ShoppingCart,
       route: `/analytics?metric=avg_invoice&start=${startDate}&end=${endDate}`,
       status: data?.kpis.avgInvoice.status,
       source: data?.kpis.avgInvoice.source,
-      change: "صافي / فواتير",
+      change: "ØµØ§ÙÙŠ / ÙÙˆØ§ØªÙŠØ±",
     },
     {
-      label: "العملاء المشترين",
+      label: "Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø§Ù„Ù…Ø´ØªØ±ÙŠÙ†",
       value: countText(metricValue(data?.kpis.uniqueCustomers)),
-      unit: "عميل",
+      unit: "Ø¹Ù…ÙŠÙ„",
       icon: Users,
       route: "/customers?status=active",
       status: data?.kpis.uniqueCustomers.status,
       source: data?.kpis.uniqueCustomers.source,
-      change: "عملاء لديهم شراء",
+      change: "Ø¹Ù…Ù„Ø§Ø¡ Ù„Ø¯ÙŠÙ‡Ù… Ø´Ø±Ø§Ø¡",
     },
     {
-      label: "العملاء المهمون",
+      label: "Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø§Ù„Ù…Ù‡Ù…ÙˆÙ†",
       value: countText(data?.customerAnalytics.importantNeedFollowup),
-      unit: "يحتاج متابعة",
+      unit: "ÙŠØ­ØªØ§Ø¬ Ù…ØªØ§Ø¨Ø¹Ø©",
       icon: UserRound,
       route: "/customers?segment=important",
       status: data?.customerAnalytics.error ? "error" : "ready",
       source: "customer_metrics_summary",
-      change: "حسب avg_monthly",
+      change: "Ø­Ø³Ø¨ avg_monthly",
     },
     {
-      label: "العملاء المتوقفون",
+      label: "Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø§Ù„Ù…ØªÙˆÙ‚ÙÙˆÙ†",
       value: countText(data?.customerAnalytics.stoppedCustomers),
-      unit: "عميل",
+      unit: "Ø¹Ù…ÙŠÙ„",
       icon: AlertTriangle,
       route: "/customers?status=stopped",
       status: data?.customerAnalytics.error ? "error" : "ready",
       source: "customer_metrics_summary",
-      change: "آخر شراء قديم",
+      change: "Ø¢Ø®Ø± Ø´Ø±Ø§Ø¡ Ù‚Ø¯ÙŠÙ…",
     },
     {
-      label: "المتابعات المكتملة",
+      label: "Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø§Øª Ø§Ù„Ù…ÙƒØªÙ…Ù„Ø©",
       value: countText(followups.completed),
-      unit: "متابعة",
+      unit: "Ù…ØªØ§Ø¨Ø¹Ø©",
       icon: CheckCircle2,
       route: "/customer-service?filter=done",
       status: data?.sourceHealth.followupSummaryAvailable ? "ready" : "unavailable",
       source: "followup_performance_summary",
-      change: "خدمة العملاء",
+      change: "Ø®Ø¯Ù…Ø© Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡",
     },
     {
-      label: "الشراء بعد المتابعة",
+      label: "Ø§Ù„Ø´Ø±Ø§Ø¡ Ø¨Ø¹Ø¯ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©",
       value: moneyText(followups.purchaseAmount),
-      unit: "جنيه",
+      unit: "Ø¬Ù†ÙŠÙ‡",
       icon: Headphones,
       route: "/customer-service?filter=purchase_after_followup",
       status: data?.sourceHealth.followupSummaryAvailable ? "ready" : "unavailable",
       source: "followup_performance_summary",
-      change: "تأثير المتابعة",
+      change: "ØªØ£Ø«ÙŠØ± Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©",
     },
   ];
 
@@ -248,7 +248,7 @@ export default function ExecutiveDashboard2027() {
   return (
     <div className="min-h-screen bg-[#F7F9FB] text-slate-900" dir="rtl">
       <TopBar
-        userName={user?.name || "د. عماد"}
+        userName={user?.name || "Ø¯. Ø¹Ù…Ø§Ø¯"}
         periodLabel={periodLabel}
         startDate={startDate}
         endDate={endDate}
@@ -270,7 +270,7 @@ export default function ExecutiveDashboard2027() {
           setStartDate(formatCycleDate(cycle.start));
           setEndDate(formatCycleDate(cycle.end));
         }}
-        onExport={() => toast.info("تصدير تقرير لوحة القيادة سيتم ربطه قريبًا")}
+        onExport={() => toast.info("ØªØµØ¯ÙŠØ± ØªÙ‚Ø±ÙŠØ± Ù„ÙˆØ­Ø© Ø§Ù„Ù‚ÙŠØ§Ø¯Ø© Ø³ÙŠØªÙ… Ø±Ø¨Ø·Ù‡ Ù‚Ø±ÙŠØ¨Ù‹Ø§")}
         onNotifications={() => navigate("/operations-center")}
         onSettings={() => navigate("/roles-permissions")}
         onSearch={handleSearch}
@@ -285,42 +285,42 @@ export default function ExecutiveDashboard2027() {
         </section>
 
         <section className="grid items-stretch gap-4 xl:grid-cols-[1.15fr_.85fr_1fr]">
-          <ChartPanel title={isLongPeriod ? "تطور المبيعات حسب الشهر" : "تطور المبيعات حسب اليوم"} action="sales">
+          <ChartPanel title={isLongPeriod ? "ØªØ·ÙˆØ± Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª Ø­Ø³Ø¨ Ø§Ù„Ø´Ù‡Ø±" : "ØªØ·ÙˆØ± Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª Ø­Ø³Ø¨ Ø§Ù„ÙŠÙˆÙ…"} action="sales">
             <SalesTrendChart rows={data?.salesTrend || []} />
           </ChartPanel>
-          <ChartPanel title="أداء الفروع" action="branches">
+          <ChartPanel title="Ø£Ø¯Ø§Ø¡ Ø§Ù„ÙØ±ÙˆØ¹" action="branches">
             <BranchChart rows={data?.branchPerformance || []} onBranch={(next) => { setBranch(next); setMode("custom"); }} />
           </ChartPanel>
-          <ChartPanel title="تطور أداء الدكاترة" action="doctors">
+          <ChartPanel title="ØªØ·ÙˆØ± Ø£Ø¯Ø§Ø¡ Ø§Ù„Ø¯ÙƒØ§ØªØ±Ø©" action="doctors">
             <DoctorRanking rows={data?.doctorPerformance || []} />
           </ChartPanel>
         </section>
 
         <section className="grid items-stretch gap-4 xl:grid-cols-[.9fr_.9fr_.7fr_.7fr_.7fr]">
-          <Panel title="مسار متابعة العملاء">
+          <Panel title="Ù…Ø³Ø§Ø± Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡">
             <FollowupFunnel rows={data?.followupFunnel || []} />
           </Panel>
-          <Panel title="نتائج المتابعات">
+          <Panel title="Ù†ØªØ§Ø¦Ø¬ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø§Øª">
             <FollowupDonut rows={data?.followupResults || []} />
           </Panel>
-          <MetricPanel icon={Phone} title="عملاء بدون هاتف صالح" value={countText(data?.customerAnalytics.customersWithoutValidPhone)} route="/customers?phoneStatus=invalid" />
-          <MetricPanel icon={UserRound} title="عملاء مهمون يحتاجون متابعة" value={countText(data?.customerAnalytics.importantNeedFollowup)} route="/customer-service?filter=important" />
-          <MetricPanel icon={CheckCircle2} title="المتابعات المكتملة" value={countText(followups.completed)} route="/customer-service?filter=done" />
+          <MetricPanel icon={Phone} title="Ø¹Ù…Ù„Ø§Ø¡ Ø¨Ø¯ÙˆÙ† Ù‡Ø§ØªÙ ØµØ§Ù„Ø­" value={countText(data?.customerAnalytics.customersWithoutValidPhone)} route="/customers?phoneStatus=invalid" />
+          <MetricPanel icon={UserRound} title="Ø¹Ù…Ù„Ø§Ø¡ Ù…Ù‡Ù…ÙˆÙ† ÙŠØ­ØªØ§Ø¬ÙˆÙ† Ù…ØªØ§Ø¨Ø¹Ø©" value={countText(data?.customerAnalytics.importantNeedFollowup)} route="/customer-service?filter=important" />
+          <MetricPanel icon={CheckCircle2} title="Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø§Øª Ø§Ù„Ù…ÙƒØªÙ…Ù„Ø©" value={countText(followups.completed)} route="/customer-service?filter=done" />
         </section>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <TrackingCard title="متابعة الرواكد" icon={Package} rows={data?.stagnantTracking || []} route="/stagnant-medicines" />
-          <TrackingCard title="متابعة أصناف اللستة" icon={FileText} rows={data?.listItemTracking || []} route="/incentive-medicines" />
+          <TrackingCard title="Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø±ÙˆØ§ÙƒØ¯" icon={Package} rows={data?.stagnantTracking || []} route="/stagnant-medicines" />
+          <TrackingCard title="Ù…ØªØ§Ø¨Ø¹Ø© Ø£ØµÙ†Ø§Ù Ø§Ù„Ù„Ø³ØªØ©" icon={FileText} rows={data?.listItemTracking || []} route="/incentive-medicines" />
           <DeliveryCard data={data} />
-          <MetricPanel icon={Users} title="متابعة العملاء" value={countText(metricValue(data?.kpis.uniqueCustomers))} progressLabel="عملاء نشطون" route="/customers" />
+          <MetricPanel icon={Users} title="Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡" value={countText(metricValue(data?.kpis.uniqueCustomers))} progressLabel="Ø¹Ù…Ù„Ø§Ø¡ Ù†Ø´Ø·ÙˆÙ†" route="/customers" />
           <AlertsCard data={data} followups={followups} />
         </section>
 
         <section className="grid items-stretch gap-4 xl:grid-cols-[1.05fr_.95fr]">
-          <Panel title="مركز القرار السريع / اقتراحات ذكية">
+          <Panel title="Ù…Ø±ÙƒØ² Ø§Ù„Ù‚Ø±Ø§Ø± Ø§Ù„Ø³Ø±ÙŠØ¹ / Ø§Ù‚ØªØ±Ø§Ø­Ø§Øª Ø°ÙƒÙŠØ©">
             <DecisionGrid rows={decisions} />
           </Panel>
-          <Panel title="تحليل آخر 5 أيام حسب الفرع">
+          <Panel title="ØªØ­Ù„ÙŠÙ„ Ø¢Ø®Ø± 5 Ø£ÙŠØ§Ù… Ø­Ø³Ø¨ Ø§Ù„ÙØ±Ø¹">
             <LastFiveDaysByBranch rows={data?.last5DaysByBranch || []} />
           </Panel>
         </section>
@@ -359,19 +359,19 @@ function TopBar(props: {
           </div>
           <div>
             <div className="text-sm font-black text-slate-950">{props.userName}</div>
-            <div className="text-xs font-bold text-slate-500">مدير عام</div>
+            <div className="text-xs font-bold text-slate-500">Ù…Ø¯ÙŠØ± Ø¹Ø§Ù…</div>
           </div>
           <button type="button" onClick={props.onNotifications} className="top-icon"><Bell size={18} /><span className="notify-dot">3</span></button>
           <button type="button" onClick={props.onSettings} className="top-icon"><Settings size={18} /></button>
-          <button type="button" onClick={props.onExport} className="top-action"><Download size={16} /> تصدير</button>
+          <button type="button" onClick={props.onExport} className="top-action"><Download size={16} /> ØªØµØ¯ÙŠØ±</button>
         </div>
 
         <div className="flex min-w-[260px] flex-1 justify-center">
           <label className="relative w-full max-w-md">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
-              className="h-10 w-full rounded-xl border border-[#E5EAF0] bg-[#F7F9FB] px-10 text-sm font-semibold outline-none transition focus:border-teal-300 focus:bg-white"
-              placeholder="ابحث عن عميل، دكتور، صنف..."
+              className="h-10 w-full rounded-xl border border-[#E5EAF0] bg-[#F7F9FB] py-2 pl-10 pr-3 text-sm font-semibold outline-none transition focus:border-teal-300 focus:bg-white"
+              placeholder="بحث عن عميل، دكتور، صنف... مثال: *ا*س*لا*م"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -387,13 +387,13 @@ function TopBar(props: {
           </select>
           <input className="dash-input" type="date" value={props.startDate} onChange={(event) => props.onStartDate(event.target.value)} />
           <input className="dash-input" type="date" value={props.endDate} onChange={(event) => props.onEndDate(event.target.value)} />
-          <button className="subtle-button" type="button" onClick={props.onCurrent}>الدورة الحالية</button>
-          <button className="subtle-button" type="button" onClick={props.onPrevious}>السابقة</button>
+          <button className="subtle-button" type="button" onClick={props.onCurrent}>Ø§Ù„Ø¯ÙˆØ±Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ©</button>
+          <button className="subtle-button" type="button" onClick={props.onPrevious}>Ø§Ù„Ø³Ø§Ø¨Ù‚Ø©</button>
         </div>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-500">
         <span className="inline-flex items-center gap-1"><CalendarDays size={14} className="text-teal-600" />{props.periodLabel}</span>
-        <span className="inline-flex items-center gap-1"><RefreshCw size={13} /> آخر تحديث: {timeText(props.lastUpdated)}</span>
+        <span className="inline-flex items-center gap-1"><RefreshCw size={13} /> Ø¢Ø®Ø± ØªØ­Ø¯ÙŠØ«: {timeText(props.lastUpdated)}</span>
       </div>
     </header>
   );
@@ -416,13 +416,13 @@ function KpiCard(props: {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-black text-slate-600">{props.label}</div>
-          <div className="mt-3 text-2xl font-black tracking-normal text-slate-950">{unavailable ? "غير متاح" : props.value}</div>
-          <div className="mt-1 text-xs font-bold text-slate-500">{unavailable ? "راجع فحص المصادر" : props.unit}</div>
+          <div className="mt-3 text-2xl font-black tracking-normal text-slate-950">{unavailable ? "ØºÙŠØ± Ù…ØªØ§Ø­" : props.value}</div>
+          <div className="mt-1 text-xs font-bold text-slate-500">{unavailable ? "Ø±Ø§Ø¬Ø¹ ÙØ­Øµ Ø§Ù„Ù…ØµØ§Ø¯Ø±" : props.unit}</div>
         </div>
         <div className="rounded-2xl bg-teal-50 p-2.5 text-teal-700 transition group-hover:bg-teal-100"><Icon size={19} /></div>
       </div>
       <div className={cx("mt-4 text-xs font-black", unavailable ? "text-amber-600" : "text-teal-700")}>
-        {unavailable ? "غير مستقر" : props.change}
+        {unavailable ? "ØºÙŠØ± Ù…Ø³ØªÙ‚Ø±" : props.change}
       </div>
     </Link>
   );
@@ -441,7 +441,7 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
     <section className="card">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-black text-slate-950">{title}</h2>
-        <span className="rounded-full bg-[#E6F7F6] px-3 py-1 text-[11px] font-black text-teal-700">بيانات فعلية</span>
+        <span className="rounded-full bg-[#E6F7F6] px-3 py-1 text-[11px] font-black text-teal-700">Ø¨ÙŠØ§Ù†Ø§Øª ÙØ¹Ù„ÙŠØ©</span>
       </div>
       {children}
     </section>
@@ -449,7 +449,7 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function SalesTrendChart({ rows }: { rows: ExecutiveDashboardData["salesTrend"] }) {
-  if (!rows.length) return <EmptyState text="لا توجد بيانات مبيعات للفترة المحددة" />;
+  if (!rows.length) return <EmptyState text="Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ø¨ÙŠØ¹Ø§Øª Ù„Ù„ÙØªØ±Ø© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø©" />;
   return (
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={rows}>
@@ -463,7 +463,7 @@ function SalesTrendChart({ rows }: { rows: ExecutiveDashboardData["salesTrend"] 
         <XAxis dataKey="label" stroke="#64748B" fontSize={11} />
         <YAxis stroke="#64748B" fontSize={11} width={64} />
         <Tooltip formatter={(value) => formatMoney(Number(value || 0))} contentStyle={{ borderRadius: 14, borderColor: "#E5EAF0" }} />
-        <Area dataKey="netTotal" name="صافي المبيعات" stroke="#00AFA5" strokeWidth={3} fill="url(#salesDashArea)" type="monotone" />
+        <Area dataKey="netTotal" name="ØµØ§ÙÙŠ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª" stroke="#00AFA5" strokeWidth={3} fill="url(#salesDashArea)" type="monotone" />
       </AreaChart>
     </ResponsiveContainer>
   );
@@ -471,7 +471,7 @@ function SalesTrendChart({ rows }: { rows: ExecutiveDashboardData["salesTrend"] 
 
 function BranchChart({ rows, onBranch }: { rows: ExecutiveDashboardData["branchPerformance"]; onBranch: (branch: string) => void }) {
   const top = rows.slice(0, 6);
-  if (!top.length) return <EmptyState text="لا توجد بيانات فروع للفترة المحددة" />;
+  if (!top.length) return <EmptyState text="Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª ÙØ±ÙˆØ¹ Ù„Ù„ÙØªØ±Ø© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø©" />;
   return (
     <div className="space-y-3">
       <div className="h-[205px]">
@@ -481,7 +481,7 @@ function BranchChart({ rows, onBranch }: { rows: ExecutiveDashboardData["branchP
             <XAxis dataKey="branch" stroke="#64748B" fontSize={11} />
             <YAxis stroke="#64748B" fontSize={11} width={58} />
             <Tooltip formatter={(value) => formatMoney(Number(value || 0))} />
-            <Bar dataKey="netTotal" name="صافي المبيعات" radius={[8, 8, 0, 0]} fill="#00AFA5" />
+            <Bar dataKey="netTotal" name="ØµØ§ÙÙŠ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª" radius={[8, 8, 0, 0]} fill="#00AFA5" />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -499,7 +499,7 @@ function BranchChart({ rows, onBranch }: { rows: ExecutiveDashboardData["branchP
 
 function DoctorRanking({ rows }: { rows: ExecutiveDashboardData["doctorPerformance"] }) {
   const top = rows.filter((row) => row.displayName).slice(0, 8);
-  if (!top.length) return <EmptyState text="لا توجد بيانات دكاترة للفترة المحددة" />;
+  if (!top.length) return <EmptyState text="Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ø¯ÙƒØ§ØªØ±Ø© Ù„Ù„ÙØªØ±Ø© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø©" />;
   return (
     <div className="max-h-[252px] space-y-3 overflow-y-auto pr-1">
       {top.map((row, index) => {
@@ -514,7 +514,7 @@ function DoctorRanking({ rows }: { rows: ExecutiveDashboardData["doctorPerforman
             <div className="h-3 overflow-hidden rounded-full bg-slate-100">
               <div className="h-full rounded-full bg-teal-500" style={{ width: `${Math.max(8, (row.netTotal / max) * 100)}%` }} />
             </div>
-            <div className="mt-1 text-[11px] font-bold text-slate-500">{row.branch || "غير محدد"} · {formatNumber(row.invoicesCount)} فاتورة · {formatMoney(row.avgInvoice)} متوسط</div>
+            <div className="mt-1 text-[11px] font-bold text-slate-500">{row.branch || "ØºÙŠØ± Ù…Ø­Ø¯Ø¯"} Â· {formatNumber(row.invoicesCount)} ÙØ§ØªÙˆØ±Ø© Â· {formatMoney(row.avgInvoice)} Ù…ØªÙˆØ³Ø·</div>
             {row.duplicateWarning && <div className="mt-1 text-[10px] font-bold text-amber-600">{row.duplicateWarning}</div>}
           </Link>
         );
@@ -524,7 +524,7 @@ function DoctorRanking({ rows }: { rows: ExecutiveDashboardData["doctorPerforman
 }
 
 function LastFiveDaysByBranch({ rows }: { rows: ExecutiveDashboardData["last5DaysByBranch"] }) {
-  if (!rows.length) return <EmptyState text="لا توجد بيانات آخر 5 أيام للفترة المحددة" />;
+  if (!rows.length) return <EmptyState text="Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ø¢Ø®Ø± 5 Ø£ÙŠØ§Ù… Ù„Ù„ÙØªØ±Ø© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø©" />;
   const dates = [...new Set(rows.map((row) => row.date))].sort();
   const branches = [...new Set(rows.map((row) => row.branch))].slice(0, 6);
   const chartRows = dates.map((date) => {
@@ -559,17 +559,17 @@ function LastFiveDaysByBranch({ rows }: { rows: ExecutiveDashboardData["last5Day
         </ResponsiveContainer>
       </div>
       <div className="grid gap-2 md:grid-cols-2">
-        <MiniLine label="أفضل تحسن" value={best ? `${best.branch} ${best.changePercent !== null ? best.changePercent.toFixed(1) : 0}%` : "غير متاح"} />
-        <MiniLine label="يحتاج متابعة" value={weak ? `${weak.branch} ${weak.changePercent !== null ? weak.changePercent.toFixed(1) : 0}%` : "غير متاح"} />
-        <MiniLine label="الأيام" value={dates.length} />
-        <MiniLine label="الفروع" value={branches.length} />
+        <MiniLine label="Ø£ÙØ¶Ù„ ØªØ­Ø³Ù†" value={best ? `${best.branch} ${best.changePercent !== null ? best.changePercent.toFixed(1) : 0}%` : "ØºÙŠØ± Ù…ØªØ§Ø­"} />
+        <MiniLine label="ÙŠØ­ØªØ§Ø¬ Ù…ØªØ§Ø¨Ø¹Ø©" value={weak ? `${weak.branch} ${weak.changePercent !== null ? weak.changePercent.toFixed(1) : 0}%` : "ØºÙŠØ± Ù…ØªØ§Ø­"} />
+        <MiniLine label="Ø§Ù„Ø£ÙŠØ§Ù…" value={dates.length} />
+        <MiniLine label="Ø§Ù„ÙØ±ÙˆØ¹" value={branches.length} />
       </div>
     </div>
   );
 }
 
 function FollowupFunnel({ rows }: { rows: DashboardFunnelStep[] }) {
-  if (!rows.length) return <EmptyState text="لا توجد بيانات متابعة" />;
+  if (!rows.length) return <EmptyState text="Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ù…ØªØ§Ø¨Ø¹Ø©" />;
   const max = Math.max(...rows.map((row) => row.value || 0), 1);
   return (
     <div className="space-y-3">
@@ -577,7 +577,7 @@ function FollowupFunnel({ rows }: { rows: DashboardFunnelStep[] }) {
         <div key={row.key}>
           <div className="mb-1 flex justify-between text-xs font-black text-slate-700">
             <span>{row.label}</span>
-            <span>{countText(row.value)} {row.rate !== null ? `· ${row.rate.toFixed(1)}%` : ""}</span>
+            <span>{countText(row.value)} {row.rate !== null ? `Â· ${row.rate.toFixed(1)}%` : ""}</span>
           </div>
           <div className="h-8 overflow-hidden rounded-xl bg-[#E6F7F6]">
             <div className="h-full rounded-xl bg-gradient-to-l from-teal-500 to-teal-300" style={{ width: `${Math.max(5, ((row.value || 0) / max) * 100)}%` }} />
@@ -590,7 +590,7 @@ function FollowupFunnel({ rows }: { rows: DashboardFunnelStep[] }) {
 
 function FollowupDonut({ rows }: { rows: DashboardResultSlice[] }) {
   const clean = rows.filter((row) => (row.value || 0) > 0);
-  if (!clean.length) return <EmptyState text="لا توجد نتائج متابعة مسجلة" />;
+  if (!clean.length) return <EmptyState text="Ù„Ø§ ØªÙˆØ¬Ø¯ Ù†ØªØ§Ø¦Ø¬ Ù…ØªØ§Ø¨Ø¹Ø© Ù…Ø³Ø¬Ù„Ø©" />;
   return (
     <div className="grid grid-cols-[150px_1fr] items-center gap-3">
       <div className="h-[160px]">
@@ -622,11 +622,11 @@ function MetricPanel({ icon: Icon, title, value, route, progressLabel }: { icon:
         <div>
           <div className="text-xs font-black text-slate-600">{title}</div>
           <div className="mt-3 text-2xl font-black text-slate-950">{value}</div>
-          <div className="mt-1 text-xs font-bold text-slate-500">{progressLabel || "عرض التفاصيل"}</div>
+          <div className="mt-1 text-xs font-bold text-slate-500">{progressLabel || "Ø¹Ø±Ø¶ Ø§Ù„ØªÙØ§ØµÙŠÙ„"}</div>
         </div>
         <span className="rounded-2xl bg-teal-50 p-3 text-teal-700"><Icon size={20} /></span>
       </div>
-      <span className="text-xs font-black text-blue-600">عرض التفاصيل</span>
+      <span className="text-xs font-black text-blue-600">Ø¹Ø±Ø¶ Ø§Ù„ØªÙØ§ØµÙŠÙ„</span>
     </Link>
   );
 }
@@ -639,15 +639,15 @@ function TrackingCard({ title, icon: Icon, rows, route }: { title: string; icon:
       <div className="flex justify-between gap-3">
         <div>
           <div className="text-sm font-black text-slate-950">{title}</div>
-          <div className="mt-2 text-2xl font-black text-slate-950">{rows.length ? formatNumber(rows.length) : "غير متاح"}</div>
-          <div className="text-xs font-bold text-slate-500">{first?.responsible || "مسؤول غير محدد"}</div>
+          <div className="mt-2 text-2xl font-black text-slate-950">{rows.length ? formatNumber(rows.length) : "ØºÙŠØ± Ù…ØªØ§Ø­"}</div>
+          <div className="text-xs font-bold text-slate-500">{first?.responsible || "Ù…Ø³Ø¤ÙˆÙ„ ØºÙŠØ± Ù…Ø­Ø¯Ø¯"}</div>
         </div>
         <span className="rounded-2xl bg-teal-50 p-3 text-teal-700"><Icon size={20} /></span>
       </div>
       <div className="mt-4 h-2 rounded-full bg-slate-100">
         <div className="h-full rounded-full bg-teal-500" style={{ width: `${progress ?? 0}%` }} />
       </div>
-      <div className="mt-2 text-xs font-black text-blue-600">فتح التفاصيل</div>
+      <div className="mt-2 text-xs font-black text-blue-600">ÙØªØ­ Ø§Ù„ØªÙØ§ØµÙŠÙ„</div>
     </Link>
   );
 }
@@ -657,32 +657,32 @@ function DeliveryCard({ data }: { data: ExecutiveDashboardData | null }) {
     <Link to="/delivery" className="card min-h-[150px]">
       <div className="flex justify-between gap-3">
         <div>
-          <div className="text-sm font-black text-slate-950">متابعة الدليفري</div>
+          <div className="text-sm font-black text-slate-950">Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø¯Ù„ÙŠÙØ±ÙŠ</div>
           <div className="mt-2 text-2xl font-black text-slate-950">{countText(data?.deliveryTracking.totalOrders)}</div>
-          <div className="text-xs font-bold text-slate-500">{data?.deliveryTracking.topStaff || "أفضل دليفري غير محدد"}</div>
+          <div className="text-xs font-bold text-slate-500">{data?.deliveryTracking.topStaff || "Ø£ÙØ¶Ù„ Ø¯Ù„ÙŠÙØ±ÙŠ ØºÙŠØ± Ù…Ø­Ø¯Ø¯"}</div>
         </div>
         <span className="rounded-2xl bg-blue-50 p-3 text-blue-600"><Truck size={20} /></span>
       </div>
-      <div className="mt-4 text-xs font-bold text-slate-500">مبيعات التوصيل: {moneyText(data?.deliveryTracking.deliverySales)}</div>
-      <div className="mt-2 text-xs font-black text-blue-600">عرض التفاصيل</div>
+      <div className="mt-4 text-xs font-bold text-slate-500">Ù…Ø¨ÙŠØ¹Ø§Øª Ø§Ù„ØªÙˆØµÙŠÙ„: {moneyText(data?.deliveryTracking.deliverySales)}</div>
+      <div className="mt-2 text-xs font-black text-blue-600">Ø¹Ø±Ø¶ Ø§Ù„ØªÙØ§ØµÙŠÙ„</div>
     </Link>
   );
 }
 
 function AlertsCard({ data, followups }: { data: ExecutiveDashboardData | null; followups: ReturnType<typeof sumFollowupRows> }) {
-  const urgent = data?.summary.notifications.filter((row) => /urgent|high|عاجل|مرتفع/i.test(String(row.priority || ""))).length ?? null;
+  const urgent = data?.summary.notifications.filter((row) => /urgent|high|Ø¹Ø§Ø¬Ù„|Ù…Ø±ØªÙØ¹/i.test(String(row.priority || ""))).length ?? null;
   return (
     <Link to="/operations-center" className="card min-h-[150px]">
       <div className="flex justify-between gap-3">
         <div>
-          <div className="text-sm font-black text-slate-950">الشكاوى والتنبيهات</div>
+          <div className="text-sm font-black text-slate-950">Ø§Ù„Ø´ÙƒØ§ÙˆÙ‰ ÙˆØ§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª</div>
           <div className="mt-2 text-2xl font-black text-slate-950">{countText(urgent)}</div>
-          <div className="text-xs font-bold text-slate-500">يحتاج مدير: {formatNumber(followups.needsManager)}</div>
+          <div className="text-xs font-bold text-slate-500">ÙŠØ­ØªØ§Ø¬ Ù…Ø¯ÙŠØ±: {formatNumber(followups.needsManager)}</div>
         </div>
         <span className="rounded-2xl bg-red-50 p-3 text-red-600"><Bell size={20} /></span>
       </div>
       <div className="mt-4 h-2 rounded-full bg-slate-100"><div className="h-full rounded-full bg-red-400" style={{ width: `${urgent ? 60 : 8}%` }} /></div>
-      <div className="mt-2 text-xs font-black text-blue-600">عرض التفاصيل</div>
+      <div className="mt-2 text-xs font-black text-blue-600">Ø¹Ø±Ø¶ Ø§Ù„ØªÙØ§ØµÙŠÙ„</div>
     </Link>
   );
 }
@@ -690,14 +690,14 @@ function AlertsCard({ data, followups }: { data: ExecutiveDashboardData | null; 
 function buildDecisionCards(data: ExecutiveDashboardData | null, followups: ReturnType<typeof sumFollowupRows>) {
   const intel = data?.customerAnalytics;
   return [
-    { title: "عملاء قلّ الشراء لديهم هذا الشهر", text: "راجع العملاء المهمين قبل نهاية الوردية", value: countText(intel?.importantNeedFollowup), route: "/customer-service?filter=important", severity: "warning" },
-    { title: "أصناف راكدة تحتاج خطة بيع", text: "ابدأ بالأصناف الأقرب للانتهاء أو الأعلى كمية", value: data?.stagnantTracking.length ? formatNumber(data.stagnantTracking.length) : "غير متاح", route: "/stagnant-medicines", severity: "success" },
-    { title: "دكتور يحتاج متابعة أداء", text: data?.doctorPerformance.at(-1)?.sellerName || "لا يوجد مصدر كاف", value: data?.doctorPerformance.length ? "متاح" : "غير متاح", route: "/analytics", severity: "info" },
-    { title: "فرع أقل من المستهدف", text: data?.branchPerformance.at(-1)?.branch || "لم يتم ضبط هدف الفرع", value: data?.branchPerformance.length ? moneyText(data.branchPerformance.at(-1)?.netTotal) : "غير متاح", route: "/analytics", severity: "info" },
-    { title: "فواتير تحتاج ربط عميل", text: "اربط الفواتير قبل تحليل العملاء", value: countText(data?.dataHealth.invoicesWithoutCustomerCode), route: "/invoices", severity: "warning" },
-    { title: "عملاء بدون رقم صحيح", text: "ابدأ باستكمال بيانات التواصل", value: countText(intel?.customersWithoutValidPhone), route: "/customers?phoneStatus=invalid", severity: "danger" },
-    { title: "متابعات متأخرة لعملاء مهمين", text: "راجع الحالات المتأخرة فورًا", value: countText(followups.overdue), route: "/customer-service?filter=overdue", severity: "danger" },
-    { title: "شكاوى تحتاج مدير", text: "تصعيد ومتابعة مدير مطلوبة", value: countText(followups.needsManager), route: "/customer-service?filter=needs_manager", severity: "danger" },
+    { title: "Ø¹Ù…Ù„Ø§Ø¡ Ù‚Ù„Ù‘ Ø§Ù„Ø´Ø±Ø§Ø¡ Ù„Ø¯ÙŠÙ‡Ù… Ù‡Ø°Ø§ Ø§Ù„Ø´Ù‡Ø±", text: "Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø§Ù„Ù…Ù‡Ù…ÙŠÙ† Ù‚Ø¨Ù„ Ù†Ù‡Ø§ÙŠØ© Ø§Ù„ÙˆØ±Ø¯ÙŠØ©", value: countText(intel?.importantNeedFollowup), route: "/customer-service?filter=important", severity: "warning" },
+    { title: "Ø£ØµÙ†Ø§Ù Ø±Ø§ÙƒØ¯Ø© ØªØ­ØªØ§Ø¬ Ø®Ø·Ø© Ø¨ÙŠØ¹", text: "Ø§Ø¨Ø¯Ø£ Ø¨Ø§Ù„Ø£ØµÙ†Ø§Ù Ø§Ù„Ø£Ù‚Ø±Ø¨ Ù„Ù„Ø§Ù†ØªÙ‡Ø§Ø¡ Ø£Ùˆ Ø§Ù„Ø£Ø¹Ù„Ù‰ ÙƒÙ…ÙŠØ©", value: data?.stagnantTracking.length ? formatNumber(data.stagnantTracking.length) : "ØºÙŠØ± Ù…ØªØ§Ø­", route: "/stagnant-medicines", severity: "success" },
+    { title: "Ø¯ÙƒØªÙˆØ± ÙŠØ­ØªØ§Ø¬ Ù…ØªØ§Ø¨Ø¹Ø© Ø£Ø¯Ø§Ø¡", text: data?.doctorPerformance.at(-1)?.sellerName || "Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…ØµØ¯Ø± ÙƒØ§Ù", value: data?.doctorPerformance.length ? "Ù…ØªØ§Ø­" : "ØºÙŠØ± Ù…ØªØ§Ø­", route: "/analytics", severity: "info" },
+    { title: "ÙØ±Ø¹ Ø£Ù‚Ù„ Ù…Ù† Ø§Ù„Ù…Ø³ØªÙ‡Ø¯Ù", text: data?.branchPerformance.at(-1)?.branch || "Ù„Ù… ÙŠØªÙ… Ø¶Ø¨Ø· Ù‡Ø¯Ù Ø§Ù„ÙØ±Ø¹", value: data?.branchPerformance.length ? moneyText(data.branchPerformance.at(-1)?.netTotal) : "ØºÙŠØ± Ù…ØªØ§Ø­", route: "/analytics", severity: "info" },
+    { title: "ÙÙˆØ§ØªÙŠØ± ØªØ­ØªØ§Ø¬ Ø±Ø¨Ø· Ø¹Ù…ÙŠÙ„", text: "Ø§Ø±Ø¨Ø· Ø§Ù„ÙÙˆØ§ØªÙŠØ± Ù‚Ø¨Ù„ ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡", value: countText(data?.dataHealth.invoicesWithoutCustomerCode), route: "/invoices", severity: "warning" },
+    { title: "Ø¹Ù…Ù„Ø§Ø¡ Ø¨Ø¯ÙˆÙ† Ø±Ù‚Ù… ØµØ­ÙŠØ­", text: "Ø§Ø¨Ø¯Ø£ Ø¨Ø§Ø³ØªÙƒÙ…Ø§Ù„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªÙˆØ§ØµÙ„", value: countText(intel?.customersWithoutValidPhone), route: "/customers?phoneStatus=invalid", severity: "danger" },
+    { title: "Ù…ØªØ§Ø¨Ø¹Ø§Øª Ù…ØªØ£Ø®Ø±Ø© Ù„Ø¹Ù…Ù„Ø§Ø¡ Ù…Ù‡Ù…ÙŠÙ†", text: "Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø­Ø§Ù„Ø§Øª Ø§Ù„Ù…ØªØ£Ø®Ø±Ø© ÙÙˆØ±Ù‹Ø§", value: countText(followups.overdue), route: "/customer-service?filter=overdue", severity: "danger" },
+    { title: "Ø´ÙƒØ§ÙˆÙ‰ ØªØ­ØªØ§Ø¬ Ù…Ø¯ÙŠØ±", text: "ØªØµØ¹ÙŠØ¯ ÙˆÙ…ØªØ§Ø¨Ø¹Ø© Ù…Ø¯ÙŠØ± Ù…Ø·Ù„ÙˆØ¨Ø©", value: countText(followups.needsManager), route: "/customer-service?filter=needs_manager", severity: "danger" },
   ];
 }
 
@@ -709,7 +709,7 @@ function DecisionGrid({ rows }: { rows: ReturnType<typeof buildDecisionCards> })
           <div className="text-sm font-black">{row.title}</div>
           <div className="mt-2 text-lg font-black">{row.value}</div>
           <div className="mt-1 min-h-[34px] text-xs font-bold opacity-80">{row.text}</div>
-          <div className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-center text-xs font-black">فتح الإجراء</div>
+          <div className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-center text-xs font-black">ÙØªØ­ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡</div>
         </Link>
       ))}
     </div>
@@ -724,19 +724,19 @@ function decisionTone(severity: string) {
 }
 
 function CustomerPreview({ preview }: { preview: ExecutiveDashboardData["customerPreview"] }) {
-  if (!preview || preview.error) return <EmptyState text="لا توجد معاينة عميل متاحة" />;
+  if (!preview || preview.error) return <EmptyState text="Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ø¹Ø§ÙŠÙ†Ø© Ø¹Ù…ÙŠÙ„ Ù…ØªØ§Ø­Ø©" />;
   return (
     <div className="space-y-3 text-center">
       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-teal-50 text-teal-700"><UserRound size={28} /></div>
       <div>
-        <div className="text-lg font-black text-slate-950">{preview.name || "عميل غير محدد"}</div>
-        <div className="text-xs font-bold text-slate-500">كود {preview.code || "غير محدد"} · {preview.branch || "غير محدد"}</div>
+        <div className="text-lg font-black text-slate-950">{preview.name || "Ø¹Ù…ÙŠÙ„ ØºÙŠØ± Ù…Ø­Ø¯Ø¯"}</div>
+        <div className="text-xs font-bold text-slate-500">ÙƒÙˆØ¯ {preview.code || "ØºÙŠØ± Ù…Ø­Ø¯Ø¯"} Â· {preview.branch || "ØºÙŠØ± Ù…Ø­Ø¯Ø¯"}</div>
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs">
-        <MiniLine label="الهاتف" value={preview.phone || "بدون رقم"} />
-        <MiniLine label="التصنيف" value={preview.segment || "غير محدد"} />
-        <MiniLine label="الحالة" value={preview.status || "غير محدد"} />
-        <MiniLine label="آخر شراء" value={dateText(preview.lastPurchase)} />
+        <MiniLine label="Ø§Ù„Ù‡Ø§ØªÙ" value={preview.phone || "Ø¨Ø¯ÙˆÙ† Ø±Ù‚Ù…"} />
+        <MiniLine label="Ø§Ù„ØªØµÙ†ÙŠÙ" value={preview.segment || "ØºÙŠØ± Ù…Ø­Ø¯Ø¯"} />
+        <MiniLine label="Ø§Ù„Ø­Ø§Ù„Ø©" value={preview.status || "ØºÙŠØ± Ù…Ø­Ø¯Ø¯"} />
+        <MiniLine label="Ø¢Ø®Ø± Ø´Ø±Ø§Ø¡" value={dateText(preview.lastPurchase)} />
       </div>
       <div className="rounded-2xl bg-teal-50 p-3 text-sm font-black text-teal-800">{moneyText(preview.totalSpent)}</div>
     </div>
@@ -744,19 +744,19 @@ function CustomerPreview({ preview }: { preview: ExecutiveDashboardData["custome
 }
 
 function InvoicePreview({ rows }: { rows: ExecutiveDashboardData["latestInvoicesPreview"] }) {
-  if (!rows.length) return <EmptyState text="لا توجد فواتير حديثة" />;
+  if (!rows.length) return <EmptyState text="Ù„Ø§ ØªÙˆØ¬Ø¯ ÙÙˆØ§ØªÙŠØ± Ø­Ø¯ÙŠØ«Ø©" />;
   return (
     <div className="space-y-2">
       {rows.map((row) => (
         <div key={row.id} className="grid grid-cols-[1fr_auto] gap-2 rounded-xl bg-slate-50 p-2 text-xs">
           <div>
-            <div className="font-black text-slate-950">{row.invoiceNumber || "فاتورة"}</div>
-            <div className="font-bold text-slate-500">{dateText(row.invoiceDate)} · {row.branch || "غير محدد"}</div>
+            <div className="font-black text-slate-950">{row.invoiceNumber || "ÙØ§ØªÙˆØ±Ø©"}</div>
+            <div className="font-bold text-slate-500">{dateText(row.invoiceDate)} Â· {row.branch || "ØºÙŠØ± Ù…Ø­Ø¯Ø¯"}</div>
           </div>
           <div className="font-black text-teal-700">{formatMoney(row.amount)}</div>
         </div>
       ))}
-      <Link to="/invoices" className="block pt-1 text-xs font-black text-blue-600">عرض جميع الفواتير</Link>
+      <Link to="/invoices" className="block pt-1 text-xs font-black text-blue-600">Ø¹Ø±Ø¶ Ø¬Ù…ÙŠØ¹ Ø§Ù„ÙÙˆØ§ØªÙŠØ±</Link>
     </div>
   );
 }
@@ -764,30 +764,30 @@ function InvoicePreview({ rows }: { rows: ExecutiveDashboardData["latestInvoices
 function DataHealthDebug({ data, startDate, endDate, branch, mode, salesDiff }: { data: ExecutiveDashboardData | null; startDate: string; endDate: string; branch: string; mode: ExecutiveDashboardMode; salesDiff: number }) {
   return (
     <details className="card">
-      <summary className="cursor-pointer text-sm font-black text-slate-900">فحص مصادر البيانات وصحة الأرقام</summary>
+      <summary className="cursor-pointer text-sm font-black text-slate-900">ÙØ­Øµ Ù…ØµØ§Ø¯Ø± Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙˆØµØ­Ø© Ø§Ù„Ø£Ø±Ù‚Ø§Ù…</summary>
       <div className="mt-4 grid gap-3 lg:grid-cols-3">
-        <DebugBox title="الفترة">
-          <MiniLine label="البداية" value={startDate} />
-          <MiniLine label="النهاية" value={endDate} />
-          <MiniLine label="الفرع" value={branch === ALL_BRANCHES ? ALL_BRANCHES_LABEL : branch} />
-          <MiniLine label="الوضع" value={mode === "custom" ? "تحليل فترة مخصصة" : mode === "current" ? "الدورة الحالية" : "الدورة السابقة"} />
+        <DebugBox title="Ø§Ù„ÙØªØ±Ø©">
+          <MiniLine label="Ø§Ù„Ø¨Ø¯Ø§ÙŠØ©" value={startDate} />
+          <MiniLine label="Ø§Ù„Ù†Ù‡Ø§ÙŠØ©" value={endDate} />
+          <MiniLine label="Ø§Ù„ÙØ±Ø¹" value={branch === ALL_BRANCHES ? ALL_BRANCHES_LABEL : branch} />
+          <MiniLine label="Ø§Ù„ÙˆØ¶Ø¹" value={mode === "custom" ? "ØªØ­Ù„ÙŠÙ„ ÙØªØ±Ø© Ù…Ø®ØµØµØ©" : mode === "current" ? "Ø§Ù„Ø¯ÙˆØ±Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ©" : "Ø§Ù„Ø¯ÙˆØ±Ø© Ø§Ù„Ø³Ø§Ø¨Ù‚Ø©"} />
         </DebugBox>
-        <DebugBox title="المبيعات">
-          <MiniLine label="المصدر المعروض" value={data?.salesAccuracy.netSalesSource || "غير متاح"} />
+        <DebugBox title="Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª">
+          <MiniLine label="Ø§Ù„Ù…ØµØ¯Ø± Ø§Ù„Ù…Ø¹Ø±ÙˆØ¶" value={data?.salesAccuracy.netSalesSource || "ØºÙŠØ± Ù…ØªØ§Ø­"} />
           <MiniLine label="RPC net" value={moneyText(data?.salesAccuracy.rpcNetSales)} />
           <MiniLine label="Summary net" value={moneyText(data?.salesAccuracy.summaryNetSales)} />
-          <MiniLine label="الفرق" value={moneyText(salesDiff)} />
+          <MiniLine label="Ø§Ù„ÙØ±Ù‚" value={moneyText(salesDiff)} />
         </DebugBox>
-        <DebugBox title="صحة البيانات">
-          <MiniLine label="فواتير بدون عميل" value={countText(data?.dataHealth.invoicesWithoutCustomerCode)} />
-          <MiniLine label="فواتير بدون دكتور" value={countText(data?.dataHealth.invoicesWithoutSellerName)} />
-          <MiniLine label="فواتير بدون فرع" value={countText(data?.dataHealth.invoicesWithoutBranch)} />
-          <MiniLine label="عملاء رقم غير صالح" value={countText(data?.customerAnalytics.customersWithoutValidPhone)} />
+        <DebugBox title="ØµØ­Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª">
+          <MiniLine label="ÙÙˆØ§ØªÙŠØ± Ø¨Ø¯ÙˆÙ† Ø¹Ù…ÙŠÙ„" value={countText(data?.dataHealth.invoicesWithoutCustomerCode)} />
+          <MiniLine label="ÙÙˆØ§ØªÙŠØ± Ø¨Ø¯ÙˆÙ† Ø¯ÙƒØªÙˆØ±" value={countText(data?.dataHealth.invoicesWithoutSellerName)} />
+          <MiniLine label="ÙÙˆØ§ØªÙŠØ± Ø¨Ø¯ÙˆÙ† ÙØ±Ø¹" value={countText(data?.dataHealth.invoicesWithoutBranch)} />
+          <MiniLine label="Ø¹Ù…Ù„Ø§Ø¡ Ø±Ù‚Ù… ØºÙŠØ± ØµØ§Ù„Ø­" value={countText(data?.customerAnalytics.customersWithoutValidPhone)} />
         </DebugBox>
       </div>
       {(data?.salesAccuracy.mismatchPercent ?? 0) > 1 && (
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
-          يوجد فرق أكبر من 1% بين RPC و sales_daily_summary. الرقم المعروض يستخدم المصدر المحدد في بطاقة المبيعات، ويجب إصلاح SQL إذا كان RPC يتأخر أو يختلف.
+          ÙŠÙˆØ¬Ø¯ ÙØ±Ù‚ Ø£ÙƒØ¨Ø± Ù…Ù† 1% Ø¨ÙŠÙ† RPC Ùˆ sales_daily_summary. Ø§Ù„Ø±Ù‚Ù… Ø§Ù„Ù…Ø¹Ø±ÙˆØ¶ ÙŠØ³ØªØ®Ø¯Ù… Ø§Ù„Ù…ØµØ¯Ø± Ø§Ù„Ù…Ø­Ø¯Ø¯ ÙÙŠ Ø¨Ø·Ø§Ù‚Ø© Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§ØªØŒ ÙˆÙŠØ¬Ø¨ Ø¥ØµÙ„Ø§Ø­ SQL Ø¥Ø°Ø§ ÙƒØ§Ù† RPC ÙŠØªØ£Ø®Ø± Ø£Ùˆ ÙŠØ®ØªÙ„Ù.
         </div>
       )}
       {data?.errorsBySection.salesSummaryGap && (
@@ -812,9 +812,11 @@ function EmptyState({ text }: { text: string }) {
 }
 
 function LoadingStrip() {
-  return <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-black text-teal-800">جاري تحميل لوحة القيادة من مصادر الملخصات...</div>;
+  return <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-black text-teal-800">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ù„ÙˆØ­Ø© Ø§Ù„Ù‚ÙŠØ§Ø¯Ø© Ù…Ù† Ù…ØµØ§Ø¯Ø± Ø§Ù„Ù…Ù„Ø®ØµØ§Øª...</div>;
 }
 
 function ErrorStrip({ text }: { text: string }) {
   return <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-700">{text}</div>;
 }
+
+

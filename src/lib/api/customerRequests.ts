@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { matchesOrderedSegments } from "@/lib/utils";
 import { logActivity } from "@/lib/activityLog";
 
 export type CustomerRequestStatus =
@@ -220,12 +221,12 @@ export async function getCustomerRequests(options: { status?: string; branch?: s
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as CustomerRequest[];
-  const q = (options.search || "").trim().toLowerCase();
+  const q = (options.search || "").trim();
   if (!q) return rows;
   return rows.filter((row) =>
     [row.customer_name, row.customer_code, row.customer_phone, row.medicine_name, row.doctor_name, row.supplier_hint]
       .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(q)),
+      .some((value) => matchesOrderedSegments(String(value), q)),
   );
 }
 

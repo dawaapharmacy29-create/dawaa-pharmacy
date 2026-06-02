@@ -427,8 +427,8 @@ export default function CustomerService() {
       <section className="dawaa-panel">
         <div className="grid gap-3 lg:grid-cols-[1fr_170px_170px_210px]">
           <div className="relative">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input className="dawaa-input w-full pr-10" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم العميل، الكود، الهاتف، المسؤول..." />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input className="dawaa-input w-full pl-10" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم العميل، الكود، الهاتف، المسؤول... مثال: *ا*س*لا*م" />
           </div>
           <select className="dawaa-input w-full" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}>
             <option value={ALL_FILTER}>كل الفروع</option>
@@ -1454,8 +1454,8 @@ function ExceptionalFollowupModal({ branch, staffNames, userName, userId, onClos
       <div className="space-y-4">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div className="relative">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input className="dawaa-input w-full pr-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث في customer_metrics_summary: احمد* أو *احمد* أو 010*" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input className="dawaa-input w-full pl-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث في customer_metrics_summary: احمد* أو *ا*س*لا*م أو 010*" />
           </div>
           {loadingSearch && <div className="mt-2 text-sm font-bold text-slate-500">جاري البحث...</div>}
           {results.length > 0 && (
@@ -1606,8 +1606,8 @@ function DoctorFollowupRequestModal({ branch, staffNames, userName, userId, onCl
       <div className="space-y-4">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div className="relative">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input className="dawaa-input w-full pr-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم أو الكود أو الهاتف، مثال: *ا*س*لا*م" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input className="dawaa-input w-full pl-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم أو الكود أو الهاتف، مثال: *ا*س*لا*م" />
           </div>
           {loadingSearch && <div className="mt-2 text-sm font-bold text-slate-500">جاري البحث...</div>}
           {results.length > 0 && (

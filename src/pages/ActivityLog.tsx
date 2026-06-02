@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { Activity, Database, Search, ExternalLink, X } from "lucide-react";
 import { BRANCHES } from "@/lib/constants";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, matchesOrderedSegments } from "@/lib/utils";
 import { formatActivityDetails } from "@/lib/activityLog";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -30,21 +30,21 @@ interface ActivityLogEntry {
   created_at: string;
 }
 
-const ALL = "الكل";
+const ALL = "Ø§Ù„ÙƒÙ„";
 
 const MODULE_COLORS: Record<string, string> = {
-  النظام: "badge-info",
-  النقاط: "badge-success",
-  العملاء: "badge-purple",
-  "خدمة العملاء": "badge-info",
-  الفواتير: "badge-warning",
-  التوصيل: "bg-amber-500/15 border-amber-500/25 text-amber-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
-  الفريق: "bg-purple-500/15 border-purple-500/25 text-purple-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
-  "تقييم المحادثات": "badge-info",
-  "تقييم الشيفتات": "badge-warning",
-  "أدوية الحوافز": "bg-teal-500/15 border-teal-500/25 text-teal-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
-  "الأدوية الرواكد": "bg-red-500/15 border-red-500/25 text-red-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
-  "حسابات وصلاحيات الفريق": "bg-blue-500/15 border-blue-500/25 text-blue-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+  Ø§Ù„Ù†Ø¸Ø§Ù…: "badge-info",
+  Ø§Ù„Ù†Ù‚Ø§Ø·: "badge-success",
+  Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡: "badge-purple",
+  "Ø®Ø¯Ù…Ø© Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡": "badge-info",
+  Ø§Ù„ÙÙˆØ§ØªÙŠØ±: "badge-warning",
+  Ø§Ù„ØªÙˆØµÙŠÙ„: "bg-amber-500/15 border-amber-500/25 text-amber-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+  Ø§Ù„ÙØ±ÙŠÙ‚: "bg-purple-500/15 border-purple-500/25 text-purple-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+  "ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø§Øª": "badge-info",
+  "ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø´ÙŠÙØªØ§Øª": "badge-warning",
+  "Ø£Ø¯ÙˆÙŠØ© Ø§Ù„Ø­ÙˆØ§ÙØ²": "bg-teal-500/15 border-teal-500/25 text-teal-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+  "Ø§Ù„Ø£Ø¯ÙˆÙŠØ© Ø§Ù„Ø±ÙˆØ§ÙƒØ¯": "bg-red-500/15 border-red-500/25 text-red-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+  "Ø­Ø³Ø§Ø¨Ø§Øª ÙˆØµÙ„Ø§Ø­ÙŠØ§Øª Ø§Ù„ÙØ±ÙŠÙ‚": "bg-blue-500/15 border-blue-500/25 text-blue-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
 };
 
 function moduleBadge(moduleName: string) {
@@ -52,11 +52,11 @@ function moduleBadge(moduleName: string) {
 }
 
 function normalizeSearch(value: string) {
-  return value.replace(/\*/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function logBranch(log: ActivityLogEntry) {
-  return log.branch_name || log.branch || "غير محدد";
+  return log.branch_name || log.branch || "ØºÙŠØ± Ù…Ø­Ø¯Ø¯";
 }
 
 export default function ActivityLog() {
@@ -115,20 +115,20 @@ export default function ActivityLog() {
     const fromTime = dateFrom ? new Date(dateFrom).getTime() : 0;
 
     return logs.filter((log) => {
-      const details = formatActivityDetails(log.details).toLowerCase();
+      const details = formatActivityDetails(log.details);
       const operation = log.operation || log.action || "";
       const module = log.module || log.entity_type || "";
       const matchSearch =
         !query ||
-        String(log.user_name || "").toLowerCase().includes(query) ||
-        String(log.user_role || "").toLowerCase().includes(query) ||
-        operation.toLowerCase().includes(query) ||
-        module.toLowerCase().includes(query) ||
-        String(log.target_type || "").toLowerCase().includes(query) ||
-        String(log.target_id || "").toLowerCase().includes(query) ||
-        String(log.entity_type || "").toLowerCase().includes(query) ||
-        String(log.entity_id || "").toLowerCase().includes(query) ||
-        details.includes(query);
+        matchesOrderedSegments(String(log.user_name || ""), query) ||
+        matchesOrderedSegments(String(log.user_role || ""), query) ||
+        matchesOrderedSegments(operation, query) ||
+        matchesOrderedSegments(module, query) ||
+        matchesOrderedSegments(String(log.target_type || ""), query) ||
+        matchesOrderedSegments(String(log.target_id || ""), query) ||
+        matchesOrderedSegments(String(log.entity_type || ""), query) ||
+        matchesOrderedSegments(String(log.entity_id || ""), query) ||
+        matchesOrderedSegments(details, query);
       const matchBranch = branchFilter === ALL || logBranch(log) === branchFilter;
       const matchModule = moduleFilter === ALL || module === moduleFilter;
       const matchUser = userFilter === ALL || log.user_name === userFilter;
@@ -145,7 +145,7 @@ export default function ActivityLog() {
   if (!isSupabaseConfigured) {
     return (
       <div className="stat-card text-center text-slate-400 py-16">
-        فعّل Supabase لمشاهدة سجل الأنشطة الحقيقي.
+        ÙØ¹Ù‘Ù„ Supabase Ù„Ù…Ø´Ø§Ù‡Ø¯Ø© Ø³Ø¬Ù„ Ø§Ù„Ø£Ù†Ø´Ø·Ø© Ø§Ù„Ø­Ù‚ÙŠÙ‚ÙŠ.
       </div>
     );
   }
@@ -165,17 +165,17 @@ export default function ActivityLog() {
       <div className="stat-card border border-teal-500/15 flex gap-3 items-start">
         <Database className="text-teal-400 flex-shrink-0 mt-1" size={20} />
         <div className="text-sm text-slate-300 leading-relaxed">
-          هذا السجل يعرض العمليات المهمة داخل النظام: النقاط، التقييمات، المتابعات، الفواتير، والإجراءات الإدارية.
-          مصدر البيانات الحالي: <span className="text-teal-300 font-mono">{sourceTable}</span>.
+          Ù‡Ø°Ø§ Ø§Ù„Ø³Ø¬Ù„ ÙŠØ¹Ø±Ø¶ Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ù…Ù‡Ù…Ø© Ø¯Ø§Ø®Ù„ Ø§Ù„Ù†Ø¸Ø§Ù…: Ø§Ù„Ù†Ù‚Ø§Ø·ØŒ Ø§Ù„ØªÙ‚ÙŠÙŠÙ…Ø§ØªØŒ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø§ØªØŒ Ø§Ù„ÙÙˆØ§ØªÙŠØ±ØŒ ÙˆØ§Ù„Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª Ø§Ù„Ø¥Ø¯Ø§Ø±ÙŠØ©.
+          Ù…ØµØ¯Ø± Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø­Ø§Ù„ÙŠ: <span className="text-teal-300 font-mono">{sourceTable}</span>.
         </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: "إجمالي السجلات", value: logs.length, color: "text-white" },
-          { label: "اليوم", value: logs.filter((log) => new Date(log.created_at).toDateString() === today).length, color: "text-teal-400" },
-          { label: "هذا الأسبوع", value: logs.filter((log) => Date.now() - new Date(log.created_at).getTime() < 7 * 86400000).length, color: "text-blue-400" },
-          { label: "مستخدمون", value: new Set(logs.map((log) => log.user_id || log.user_name).filter(Boolean)).size, color: "text-purple-400" },
+          { label: "Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø³Ø¬Ù„Ø§Øª", value: logs.length, color: "text-white" },
+          { label: "Ø§Ù„ÙŠÙˆÙ…", value: logs.filter((log) => new Date(log.created_at).toDateString() === today).length, color: "text-teal-400" },
+          { label: "Ù‡Ø°Ø§ Ø§Ù„Ø£Ø³Ø¨ÙˆØ¹", value: logs.filter((log) => Date.now() - new Date(log.created_at).getTime() < 7 * 86400000).length, color: "text-blue-400" },
+          { label: "Ù…Ø³ØªØ®Ø¯Ù…ÙˆÙ†", value: new Set(logs.map((log) => log.user_id || log.user_name).filter(Boolean)).size, color: "text-purple-400" },
         ].map((stat) => (
           <div key={stat.label} className="stat-card text-center">
             <div className={`text-2xl font-bold ${stat.color} num`}>{stat.value}</div>
@@ -186,12 +186,12 @@ export default function ActivityLog() {
 
       <div className="flex flex-col gap-3">
         <div className="relative flex-1">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث في المستخدم أو العملية أو التفاصيل..." className="input-dark pr-10 w-full" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ø¨Ø­Ø« ÙÙŠ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø£Ùˆ Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ø£Ùˆ Ø§Ù„ØªÙØ§ØµÙŠÙ„..." className="input-dark pl-10 w-full" />
         </div>
         <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-2">
           <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)} className="input-dark">
-            <option value={ALL}>كل الفروع</option>
+            <option value={ALL}>ÙƒÙ„ Ø§Ù„ÙØ±ÙˆØ¹</option>
             {BRANCHES.map((branch) => (
               <option key={branch}>{branch}</option>
             ))}
@@ -212,7 +212,7 @@ export default function ActivityLog() {
             ))}
           </select>
           <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="input-dark" />
-          <button onClick={loadLogs} className="btn-secondary">تحديث</button>
+          <button onClick={loadLogs} className="btn-secondary">ØªØ­Ø¯ÙŠØ«</button>
         </div>
       </div>
 
@@ -220,12 +220,12 @@ export default function ActivityLog() {
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-slate-400">
             <Activity size={40} className="mx-auto mb-3 opacity-20" />
-            <div>لا توجد سجلات مطابقة</div>
+            <div>Ù„Ø§ ØªÙˆØ¬Ø¯ Ø³Ø¬Ù„Ø§Øª Ù…Ø·Ø§Ø¨Ù‚Ø©</div>
           </div>
         ) : (
           filtered.map((log) => {
-            const action = log.operation || log.action || "عملية";
-            const moduleName = log.module || log.entity_type || "النظام";
+            const action = log.operation || log.action || "Ø¹Ù…Ù„ÙŠØ©";
+            const moduleName = log.module || log.entity_type || "Ø§Ù„Ù†Ø¸Ø§Ù…";
             return (
               <div 
                 key={log.id} 
@@ -248,9 +248,9 @@ export default function ActivityLog() {
                   )}
                 </div>
                 <div className="text-slate-500 text-xs mt-2 flex flex-wrap gap-2 items-center">
-                  <span>{log.user_name || "النظام"}</span>
-                  {log.user_role && <span>• {log.user_role}</span>}
-                  {(log.target_type || log.entity_type) && <span>• الهدف: {log.target_type || log.entity_type}{(log.target_id || log.entity_id) ? ` #${log.target_id || log.entity_id}` : ""}</span>}
+                  <span>{log.user_name || "Ø§Ù„Ù†Ø¸Ø§Ù…"}</span>
+                  {log.user_role && <span>â€¢ {log.user_role}</span>}
+                  {(log.target_type || log.entity_type) && <span>â€¢ Ø§Ù„Ù‡Ø¯Ù: {log.target_type || log.entity_type}{(log.target_id || log.entity_id) ? ` #${log.target_id || log.entity_id}` : ""}</span>}
                 </div>
               </div>
             );
@@ -263,8 +263,8 @@ export default function ActivityLog() {
           <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-[#2d4063] flex justify-between items-start">
               <div>
-                <h3 className="text-white text-xl font-bold mb-2">تفاصيل السجل</h3>
-                <p className="text-slate-400 text-sm">{selectedLog.operation || selectedLog.action || "عملية"}</p>
+                <h3 className="text-white text-xl font-bold mb-2">ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø³Ø¬Ù„</h3>
+                <p className="text-slate-400 text-sm">{selectedLog.operation || selectedLog.action || "Ø¹Ù…Ù„ÙŠØ©"}</p>
               </div>
               <button onClick={() => setSelectedLog(null)} className="text-slate-400 hover:text-white transition-colors">
                 <X size={24} />
@@ -273,41 +273,41 @@ export default function ActivityLog() {
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">المستخدم</label>
-                  <div className="text-white">{selectedLog.user_name || "النظام"}</div>
+                  <label className="text-slate-400 text-xs block mb-1">Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…</label>
+                  <div className="text-white">{selectedLog.user_name || "Ø§Ù„Ù†Ø¸Ø§Ù…"}</div>
                 </div>
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">الدور</label>
+                  <label className="text-slate-400 text-xs block mb-1">Ø§Ù„Ø¯ÙˆØ±</label>
                   <div className="text-white">{selectedLog.user_role || "-"}</div>
                 </div>
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">الفرع</label>
+                  <label className="text-slate-400 text-xs block mb-1">Ø§Ù„ÙØ±Ø¹</label>
                   <div className="text-white">{logBranch(selectedLog)}</div>
                 </div>
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">التاريخ</label>
+                  <label className="text-slate-400 text-xs block mb-1">Ø§Ù„ØªØ§Ø±ÙŠØ®</label>
                   <div className="text-white">{formatDateTime(selectedLog.created_at)}</div>
                 </div>
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">نوع الكيان</label>
+                  <label className="text-slate-400 text-xs block mb-1">Ù†ÙˆØ¹ Ø§Ù„ÙƒÙŠØ§Ù†</label>
                   <div className="text-white">{selectedLog.entity_type || selectedLog.target_type || "-"}</div>
                 </div>
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">معرف الكيان</label>
+                  <label className="text-slate-400 text-xs block mb-1">Ù…Ø¹Ø±Ù Ø§Ù„ÙƒÙŠØ§Ù†</label>
                   <div className="text-white font-mono">{selectedLog.entity_id || selectedLog.target_id || "-"}</div>
                 </div>
               </div>
 
               {selectedLog.entity_title && (
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">عنوان الكيان</label>
+                  <label className="text-slate-400 text-xs block mb-1">Ø¹Ù†ÙˆØ§Ù† Ø§Ù„ÙƒÙŠØ§Ù†</label>
                   <div className="text-white">{selectedLog.entity_title}</div>
                 </div>
               )}
 
               {selectedLog.details && (
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">التفاصيل</label>
+                  <label className="text-slate-400 text-xs block mb-1">Ø§Ù„ØªÙØ§ØµÙŠÙ„</label>
                   <div className="text-white bg-[#0d1b2a] p-3 rounded-lg text-sm">
                     {formatActivityDetails(selectedLog.details)}
                   </div>
@@ -316,7 +316,7 @@ export default function ActivityLog() {
 
               {selectedLog.old_value && Object.keys(selectedLog.old_value).length > 0 && (
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">القيمة القديمة</label>
+                  <label className="text-slate-400 text-xs block mb-1">Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ù‚Ø¯ÙŠÙ…Ø©</label>
                   <div className="text-white bg-[#0d1b2a] p-3 rounded-lg text-sm font-mono overflow-x-auto">
                     <pre>{JSON.stringify(selectedLog.old_value, null, 2)}</pre>
                   </div>
@@ -325,7 +325,7 @@ export default function ActivityLog() {
 
               {selectedLog.new_value && Object.keys(selectedLog.new_value).length > 0 && (
                 <div>
-                  <label className="text-slate-400 text-xs block mb-1">القيمة الجديدة</label>
+                  <label className="text-slate-400 text-xs block mb-1">Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©</label>
                   <div className="text-white bg-[#0d1b2a] p-3 rounded-lg text-sm font-mono overflow-x-auto">
                     <pre>{JSON.stringify(selectedLog.new_value, null, 2)}</pre>
                   </div>
@@ -334,7 +334,7 @@ export default function ActivityLog() {
 
               {selectedLog.route_path && (
                 <div className="pt-4 border-t border-[#2d4063]">
-                  <label className="text-slate-400 text-xs block mb-2">الصفحة المرتبطة</label>
+                  <label className="text-slate-400 text-xs block mb-2">Ø§Ù„ØµÙØ­Ø© Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø©</label>
                   <button
                     onClick={() => {
                       navigate(selectedLog.route_path || "/");
@@ -343,14 +343,14 @@ export default function ActivityLog() {
                     className="btn-secondary flex items-center gap-2"
                   >
                     <ExternalLink size={16} />
-                    فتح الصفحة المرتبطة
+                    ÙØªØ­ Ø§Ù„ØµÙØ­Ø© Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø©
                   </button>
                 </div>
               )}
 
               {(selectedLog.entity_type && selectedLog.entity_id) && (
                 <div className="pt-4 border-t border-[#2d4063]">
-                  <label className="text-slate-400 text-xs block mb-2">الانتقال للكيان</label>
+                  <label className="text-slate-400 text-xs block mb-2">Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„ Ù„Ù„ÙƒÙŠØ§Ù†</label>
                   <button
                     onClick={() => {
                       const routeMap: Record<string, string> = {
@@ -370,7 +370,7 @@ export default function ActivityLog() {
                     className="btn-secondary flex items-center gap-2"
                   >
                     <ExternalLink size={16} />
-                    فتح {selectedLog.entity_type}
+                    ÙØªØ­ {selectedLog.entity_type}
                   </button>
                 </div>
               )}
@@ -381,3 +381,4 @@ export default function ActivityLog() {
     </div>
   );
 }
+

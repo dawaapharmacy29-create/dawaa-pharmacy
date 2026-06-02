@@ -61,9 +61,9 @@ export function normalizeName(value: unknown): string {
  * بدون `*` يُستخدم تطابق جزئي بسيط (يحتوي النص).
  */
 export function matchesOrderedSegments(haystack: string, needleRaw: string): boolean {
-  const raw = needleRaw.trim();
+  const raw = normalizeName(needleRaw).toLowerCase().trim();
   if (!raw) return true;
-  const h = haystack || "";
+  const h = normalizeName(haystack).toLowerCase();
   if (!raw.includes("*")) {
     const q = raw.replace(/\s+/g, " ");
     return h.includes(q);

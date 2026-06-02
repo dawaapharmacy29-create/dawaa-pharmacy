@@ -306,8 +306,8 @@ export default function CustomerRequests() {
 
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
         <div className="relative lg:col-span-2">
-          <Search size={16} className="absolute right-3 top-3 text-slate-400" />
-          <input className="input-dark pr-9" placeholder="بحث باسم العميل أو الكود أو الصنف أو الدكتور..." value={search} onChange={(event) => setSearch(event.target.value)} />
+          <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+          <input className="input-dark pl-9" placeholder="بحث باسم العميل أو الكود أو الصنف أو الدكتور... مثال: *ا*س*لا*م" value={search} onChange={(event) => setSearch(event.target.value)} />
         </div>
         <select className="input-dark" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
           {statusGroups.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}

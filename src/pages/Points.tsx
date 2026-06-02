@@ -13,7 +13,7 @@ import { type PointsTxnStatus } from "@/lib/pointsWorkflow";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { calculateStaffCycleIncentiveFromRows, getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
 import { mergeStaffChoices } from "@/lib/staffFallback";
-import { formatCurrency, formatDateTime, percent, toNumber } from "@/lib/utils";
+import { formatCurrency, formatDateTime, matchesOrderedSegments, percent, toNumber } from "@/lib/utils";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
 import { logActivity, useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
@@ -180,12 +180,12 @@ export default function Points() {
   const approvedCycleRecords = useMemo(() => {
     return cycleRecords.filter((row) => isApprovedPointRecord(row));
   }, [cycleRecords]);
-  const normalizedSearch = search.replace(/\*/g, " ").replace(/\s+/g, " ").trim();
+  const normalizedSearch = search.replace(/\s+/g, " ").trim();
 
   const filteredStaff = staffChoices.filter((staff) => {
     const branchMatches = branchFilter === "الكل" || staff.branch === branchFilter;
     const searchText = `${staff.name || ""} ${staff.role || ""} ${staff.branch || ""} ${staff.phone || ""}`.replace(/\s+/g, " ");
-    const searchMatches = normalizedSearch === "" || searchText.includes(normalizedSearch);
+    const searchMatches = normalizedSearch === "" || matchesOrderedSegments(searchText, normalizedSearch);
     return branchMatches && searchMatches;
   });
 

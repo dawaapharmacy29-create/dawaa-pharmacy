@@ -242,13 +242,13 @@ export default function Customers() {
       <section className="dawaa-panel">
         <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px_190px]">
           <div className="relative">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="بحث بالكود، الاسم، الهاتف... مثال: احمد* أو *احمد* أو 010*"
-              className="dawaa-input w-full pr-10"
+              placeholder="بحث بالكود، الاسم، الهاتف... مثال: احمد* أو *ا*س*لا*م أو 010*"
+              className="dawaa-input w-full pl-10"
             />
             {refreshing && <Loader2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-teal-600" />}
           </div>
