@@ -157,7 +157,7 @@ export default function Invoices() {
       [...groups.values()]
         .filter((group) => group.count > 1)
         .sort((a, b) => String(b.latest_created_at || "").localeCompare(String(a.latest_created_at || "")))
-        .slice(0, 20),
+        .slice(0, 30),
     );
     setDuplicateAuditLoading(false);
   }, [isAdmin]);
@@ -550,7 +550,7 @@ export default function Invoices() {
             </div>
             {duplicateAudit.length > 0 && (
               <div className="mt-4 rounded-xl border border-amber-200/30 bg-slate-950/25 p-3">
-                <div className="mb-2 text-sm font-bold text-amber-100">يوجد فواتير مكررة تحتاج مراجعة</div>
+                <div className="mb-2 text-sm font-bold text-amber-100">يوجد فواتير مكررة قديمة تحتاج مراجعة</div>
                 <div className="max-h-56 space-y-2 overflow-auto">
                   {duplicateAudit.map((group) => (
                     <div key={`${group.invoice_number}-${group.branch}-${group.sale_date}`} className="grid grid-cols-4 gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-100">
@@ -844,8 +844,8 @@ export default function Invoices() {
                 <ResultTile value={importSummary.invoicesWithoutCustomer || 0} label="بدون عميل" />
                 <ResultTile value={importSummary.invoicesWithoutDoctor || 0} label="بدون دكتور" />
                 <ResultTile value={importSummary.invoicesWithoutBranch || 0} label="بدون فرع" />
-                <ResultTile value={Math.round(importSummary.fileNetSales || 0)} label="صافي الملف" />
-                <ResultTile value={Math.round(importSummary.importedNetSales || 0)} label="صافي المستورد" />
+                <ResultTile value={importSummary.fileNetSales} label="صافي الملف" isCurrency />
+                <ResultTile value={importSummary.importedNetSales} label="صافي المستورد" isCurrency />
               </>
             )}
           </div>
@@ -1039,10 +1039,14 @@ function EditField({ label, value, onChange, type = "text" }: { label: string; v
   );
 }
 
-function ResultTile({ value, label }: { value: number; label: string }) {
+function ResultTile({ value, label, isCurrency = false }: { value: number | null | undefined; label: string; isCurrency?: boolean }) {
+  const safeValue = Number(value);
+  const displayValue = Number.isFinite(safeValue) ? safeValue : 0;
   return (
     <div className="bg-teal-500/10 border border-white/5 rounded-2xl p-4">
-      <div className="text-xl font-bold text-teal-400 num">{value.toLocaleString("ar-EG")}</div>
+      <div className="text-xl font-bold text-teal-400 num">
+        {isCurrency ? formatCurrency(displayValue) : displayValue.toLocaleString("ar-EG")}
+      </div>
       <div className="text-slate-400 text-xs mt-1">{label}</div>
     </div>
   );

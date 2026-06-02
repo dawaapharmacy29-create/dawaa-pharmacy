@@ -1054,6 +1054,13 @@ async function refreshCustomerAnalysisForImportedRows(
   fallbackBranch: string,
   summary: ImportSummary,
 ) {
+  void rows;
+  void fallbackBranch;
+  summary.summaryRefreshStatus = summary.summaryRefreshStatus || "unavailable";
+  summary.summaryRefreshMessage =
+    summary.summaryRefreshMessage || "تم الاستيراد، ويلزم تحديث الملخصات قبل الاعتماد على الداشبورد";
+  return;
+
   const affectedCodes = Array.from(new Set(rows.map((row) => row.customerCode).filter(Boolean)));
   const affectedPhones = Array.from(new Set(rows.map((row) => row.phone).filter(Boolean)));
   if (affectedCodes.length === 0 && affectedPhones.length === 0) return;
@@ -1255,7 +1262,7 @@ async function refreshImportSummaries(summary: ImportSummary) {
   }
 
   summary.summaryRefreshStatus = "unavailable";
-  summary.summaryRefreshMessage = "تم الاستيراد، لكن يلزم تحديث الملخصات من لوحة الإدارة";
+  summary.summaryRefreshMessage = "تم الاستيراد، ويلزم تحديث الملخصات قبل الاعتماد على الداشبورد";
 }
 
 export async function importInvoicesToDB(
