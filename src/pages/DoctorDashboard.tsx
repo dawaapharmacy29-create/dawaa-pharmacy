@@ -9,7 +9,7 @@ import { formatCurrency, toNumber } from "@/lib/utils";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { pointRecordDelta } from "@/lib/pointsLedger";
 import { calculateIncentive, POINT_VALUE_EGP, STARTING_POINTS, MAX_BASE_INCENTIVE } from "@/lib/points";
-import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
+import { calculateStaffCycleIncentiveFromRows, getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
 import { toast } from "sonner";
 
 interface DoctorMetrics {
@@ -180,6 +180,8 @@ export default function DoctorDashboard() {
     realtimeEnabled: true,
   });
 
+  // استخدام calculateStaffCycleIncentiveFromRows مع البيانات المحلية للتوافق مع useSupabaseQuery
+  // في المستقبل يمكن استخدام getStaffCycleIncentive لجمع من جميع المصادر
   const incentiveSummary = useMemo(() => calculateStaffCycleIncentiveFromRows({
     staff: selectedStaff || { id: effectiveId, name: effectiveName, points: null, max_points: STARTING_POINTS },
     records: pointRecords || [],

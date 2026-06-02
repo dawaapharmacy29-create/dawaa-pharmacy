@@ -11,7 +11,7 @@ import { formatMoney, formatNumber } from "@/lib/dawaa2027";
 import { monthCycleFromDate, type ReviewItemSummary } from "@/lib/conversationReviews";
 import { canonicalMaxPoints, effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff } from "@/lib/pointsLedger";
 import { TABLES } from "@/lib/supabaseTables";
-import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
+import { getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
 
 interface StaffRow {
   id: string;
@@ -159,6 +159,7 @@ export default function StaffDetail() {
   const [searchParams] = useSearchParams();
   const [staff, setStaff] = useState<StaffRow | null>(null);
   const [pointsRows, setPointsRows] = useState<PointRecord[]>([]);
+  const [incentiveData, setIncentiveData] = useState<StaffCycleIncentive | null>(null);
   const [reviews, setReviews] = useState<ReviewRow[]>([]);
   const [assignedIncentives, setAssignedIncentives] = useState<AssignedIncentiveMedicine[]>([]);
   const [assignedStagnants, setAssignedStagnants] = useState<AssignedStagnantMedicine[]>([]);
@@ -194,9 +195,6 @@ export default function StaffDetail() {
       }
       setStaff(row);
 
-      const pointByIdReq = supabase.from(TABLES.employeeTransactions).select("*").eq("staff_id", id).order("created_at", { ascending: false }).limit(150);
-      const pointByEmployeeIdReq = supabase.from(TABLES.employeeTransactions).select("*").eq("employee_id", id).order("created_at", { ascending: false }).limit(150);
-      const pointByNameReq = supabase.from(TABLES.employeeTransactions).select("*").eq("employee_name", row.name).order("created_at", { ascending: false }).limit(150);
       const cycleStart = cycle.start.toISOString().slice(0, 10);
       const cycleEndExclusive = dayAfter(cycle.end);
       const invoiceReq = supabase
@@ -234,10 +232,7 @@ export default function StaffDetail() {
         .lt("created_at", cycleEndExclusive)
         .limit(300);
 
-      const [prById, prByEmployeeId, prByName, invRes, incentiveById, incentiveByName, stagnantById, stagnantByName, scheduleRes, timeOffRes, followupsRes, stagnantDispensesRes, listSalesRes] = await Promise.all([
-        pointByIdReq,
-        pointByEmployeeIdReq,
-        pointByNameReq,
+      const [invRes, incentiveById, incentiveByName, stagnantById, stagnantByName, scheduleRes, timeOffRes, followupsRes, stagnantDispensesRes, listSalesRes] = await Promise.all([
         invoiceReq,
         incentiveByIdReq,
         incentiveByNameReq,
@@ -249,20 +244,26 @@ export default function StaffDetail() {
         stagnantDispensesReq,
         listSalesReq,
       ]);
+
+      // استخدام getStaffCycleIncentive لجمع البيانات من جميع المصادر
+      const incentiveResult = await getStaffCycleIncentive({ staffId: id, staffName: row.name, branch: row.branch });
+      setIncentiveData(incentiveResult);
+
+      // تحويل incentiveData إلى pointRows للعرض فقط
       const pointRowsByKey = new Map<string, PointRecord>();
-      for (const record of ([...(prById.data || []), ...(prByEmployeeId.data || []), ...(prByName.data || [])] as PointRecord[])) {
-        const signedPoints = pointRecordDelta(record);
+      for (const record of incentiveResult.rewardTransactions.concat(incentiveResult.deductionTransactions).concat(incentiveResult.pendingTransactions)) {
+        const signedPoints = record.normalizedDelta;
         const rawPoints = Math.abs(signedPoints);
-        pointRowsByKey.set(record.id, {
+        pointRowsByKey.set(record.id || `${record.source_type}:${record.source_id}`, {
           ...record,
           employee_id: record.employee_id || record.staff_id || id,
           employee_name: record.employee_name || row.name,
-          type: record.type === "reward" ? "bonus" : record.type === "penalty" ? "deduction" : record.type,
+          type: signedPoints > 0 ? "bonus" : signedPoints < 0 ? "deduction" : record.type,
           points: rawPoints,
           points_delta: signedPoints,
           manager_note: record.manager_note || record.description || null,
-          status: record.status === "active" ? "approved" : record.status === "cancelled" ? "rejected" : record.status,
-        });
+          status: record.status || "approved",
+        } as PointRecord);
       }
       const pointRows = Array.from(pointRowsByKey.values())
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -338,17 +339,16 @@ export default function StaffDetail() {
   }, [activeMonthCycle, cycle, reviews]);
 
   const grouped = useMemo(() => {
-    if (!staff) return { bonuses: [] as PointRecord[], deductions: [] as PointRecord[], bonusPts: 0, deductionPts: 0 };
-    const incentive = calculateStaffCycleIncentiveFromRows({ staff, records: pointsRows, cycle });
-    const bonuses = incentive.rewardTransactions as PointRecord[];
-    const deductions = incentive.deductionTransactions as PointRecord[];
+    if (!staff || !incentiveData) return { bonuses: [] as PointRecord[], deductions: [] as PointRecord[], bonusPts: 0, deductionPts: 0 };
+    const bonuses = incentiveData.rewardTransactions as PointRecord[];
+    const deductions = incentiveData.deductionTransactions as PointRecord[];
     return {
       bonuses,
       deductions,
-      bonusPts: incentive.approvedRewardPoints,
-      deductionPts: incentive.approvedDeductionPoints,
+      bonusPts: incentiveData.approvedRewardPoints,
+      deductionPts: incentiveData.approvedDeductionPoints,
     };
-  }, [cycle, pointsRows, staff]);
+  }, [cycle, incentiveData, staff]);
 
   const reviewStats = useMemo(() => {
     const count = cycleReviews.length;
@@ -436,7 +436,7 @@ export default function StaffDetail() {
     );
   }
 
-  const staffIncentive = calculateStaffCycleIncentiveFromRows({ staff, records: pointsRows, cycle });
+  const staffIncentive = incentiveData || { finalPoints: 500, incentiveValue: 1500, approvedRewardPoints: 0, approvedDeductionPoints: 0, pendingRewardPoints: 0, pendingDeductionPoints: 0, rewardTransactions: [], deductionTransactions: [], pendingTransactions: [], excludedTransactions: [], sourceBreakdown: [], warnings: [] };
   const pts = staffIncentive.finalPoints;
   const max = canonicalMaxPoints(staff);
 

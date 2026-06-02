@@ -12,6 +12,7 @@ import { getShiftFromDateTime } from "@/lib/analyticsFromInvoices";
 import { rebuildCustomerStats } from "@/lib/customerAnalyticsService";
 import { invalidateInvoiceCache } from "@/lib/salesInvoiceSource";
 import { getSalesValue } from "@/lib/analyticsService";
+import { normalizeName } from "@/lib/utils";
 
 export interface RawInvoiceRow {
   rowIndex: number;
@@ -1171,6 +1172,39 @@ async function refreshCustomerAnalysisForImportedRows(
   }
 }
 
+async function linkSellerToStaffId(sellerName: string, branch: string): Promise<string | null> {
+  if (!sellerName) return null;
+  
+  const normalizedSeller = normalizeName(sellerName);
+  
+  // محاولة العثور على الموظف بالاسم المباشر
+  const { data: staffByName } = await supabase
+    .from("staff")
+    .select("id")
+    .eq("name", sellerName)
+    .maybeSingle();
+  
+  if (staffByName?.id) return staffByName.id;
+  
+  // محاولة العثور على الموظف بالاسم المُطابق
+  const { data: allStaff } = await supabase
+    .from("staff")
+    .select("id, name")
+    .eq("branch", branch)
+    .limit(500);
+  
+  if (allStaff) {
+    for (const staff of allStaff) {
+      const normalizedStaffName = normalizeName(staff.name);
+      if (normalizedStaffName === normalizedSeller) {
+        return staff.id;
+      }
+    }
+  }
+  
+  return null;
+}
+
 export async function importInvoicesToDB(
   rows: RawInvoiceRow[],
   branch: string,
@@ -1190,6 +1224,15 @@ export async function importInvoicesToDB(
     unlinkedCustomersEstimate: 0,
   };
   if (rows.length === 0) return summary;
+
+  // ربط seller_name بـ staff_id
+  const staffIdMap = new Map<string, string | null>();
+  const uniqueSellers = new Set(rows.map(r => r.seller).filter(Boolean));
+  
+  for (const seller of uniqueSellers) {
+    const staffId = await linkSellerToStaffId(seller, branch);
+    staffIdMap.set(seller, staffId);
+  }
 
   const invoiceKeys = rows.map((row) => ({
     branch: row.branch || branch,
@@ -1280,6 +1323,7 @@ export async function importInvoicesToDB(
     extra_fees: row.extraFees,
     line_items_count: row.lineItemsCount,
     seller_name: row.seller,
+    staff_id: staffIdMap.get(row.seller) || null,
     close_time: row.closeTime || null,
     shift_name: getShiftFromDateTime(row.analysisDateTime),
     delivery_staff: row.deliveryStaff,

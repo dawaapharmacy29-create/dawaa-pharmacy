@@ -48,6 +48,14 @@ export function getInitials(name: string): string {
   return (name || "").trim().split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("") || "؟";
 }
 
+export function normalizeName(value: unknown): string {
+  return String(value || "")
+    .replace(/[\u0623\u0625\u0622]/g, "ا")
+    .replace(/\u0629/g, "ه")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * بحث مرن بالنجوم: `ا*س*ل*ا*م` يطابق "إسلام" لأن الأجزاء تظهر بالترتيب.
  * بدون `*` يُستخدم تطابق جزئي بسيط (يحتوي النص).

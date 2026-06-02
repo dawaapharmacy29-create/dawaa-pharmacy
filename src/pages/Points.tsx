@@ -11,7 +11,7 @@ import { approverHintFromRule, applyStaffDelta } from "@/lib/pointsPersistence";
 import { canonicalMaxPoints, effectiveCyclePoints, formatTransactionExecutor, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus } from "@/lib/pointsLedger";
 import { type PointsTxnStatus } from "@/lib/pointsWorkflow";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
+import { calculateStaffCycleIncentiveFromRows, getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
 import { mergeStaffChoices } from "@/lib/staffFallback";
 import { formatCurrency, formatDateTime, percent, toNumber } from "@/lib/utils";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
@@ -209,14 +209,31 @@ export default function Points() {
   };
 
   const staffIncentiveSummary = (staff: StaffMember) => {
+    // استخدام calculateStaffCycleIncentiveFromRows مع البيانات المحلية للتوافق مع SalaryCalculator
+    // في المستقبل يمكن استخدام getStaffCycleIncentive لجمع من جميع المصادر
     const incentive = calculateStaffCycleIncentiveFromRows({
       staff,
       records: validRecords,
       cycle,
     });
+    // تحويل StaffIncentiveTransaction[] إلى IncentiveTransaction[] للتوافق مع SalaryCalculator
+    const records = [...incentive.rewardTransactions, ...incentive.deductionTransactions].map(tx => ({
+      id: tx.id || `${tx.source_type}:${tx.source_id}`,
+      type: tx.type,
+      reason: tx.reason,
+      manager_note: tx.manager_note,
+      description: tx.description,
+      source: tx.source,
+      source_type: tx.source_type,
+      created_by: tx.created_by,
+      created_at: tx.created_at,
+      points: typeof tx.points === 'number' ? tx.points : Number(tx.points || 0),
+      points_delta: typeof tx.points_delta === 'number' ? tx.points_delta : Number(tx.points_delta || 0),
+      status: tx.status,
+    }));
     return {
       staff,
-      records: [...incentive.rewardTransactions, ...incentive.deductionTransactions],
+      records,
       currentPoints: incentive.finalPoints,
       maxPoints: canonicalMaxPoints(staff),
       rewardPoints: incentive.approvedRewardPoints,
