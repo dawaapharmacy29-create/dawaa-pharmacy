@@ -3,7 +3,6 @@ import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw, ShieldAlert, Trash2, Pencil, Save, BarChart3 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { BRANCHES } from "@/lib/constants";
-import { getSalesValue } from "@/lib/analyticsService";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
 import { logActivity } from "@/hooks/useSupabaseQuery";
@@ -35,14 +34,28 @@ interface ManagedInvoiceRow {
   customer_phone: string | null;
   amount: number | null;
   net_amount: number | null;
+  discounted_amount?: number | null;
   gross_amount: number | null;
   seller_name: string | null;
 }
 
+interface DuplicateInvoiceGroup {
+  invoice_number: string;
+  branch: string;
+  sale_date: string;
+  count: number;
+  latest_created_at: string | null;
+}
+
 const INVOICE_PAGE_SIZE = 200;
 
-function invoiceSalesValue(invoice: Pick<ManagedInvoiceRow, "net_amount" | "amount" | "gross_amount">) {
-  return getSalesValue(invoice as unknown as Record<string, unknown>);
+function invoiceSalesValue(invoice: Pick<ManagedInvoiceRow, "net_amount" | "discounted_amount" | "amount" | "gross_amount">) {
+  const candidates = [invoice.net_amount, invoice.discounted_amount, invoice.amount, invoice.gross_amount];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value)) return value;
+  }
+  return 0;
 }
 
 interface InvoiceEditForm {
@@ -76,6 +89,8 @@ export default function Invoices() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [editInvoice, setEditInvoice] = useState<ManagedInvoiceRow | null>(null);
   const [editForm, setEditForm] = useState<InvoiceEditForm | null>(null);
+  const [duplicateAudit, setDuplicateAudit] = useState<DuplicateInvoiceGroup[]>([]);
+  const [duplicateAuditLoading, setDuplicateAuditLoading] = useState(false);
   useEscapeKey(() => {
     setEditInvoice(null);
     setEditForm(null);
@@ -86,7 +101,7 @@ export default function Invoices() {
     setManagedLoading(true);
     const { data, error } = await supabase
       .from("sales_invoices")
-      .select("id,import_batch,branch,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,gross_amount,seller_name")
+      .select("id,import_batch,branch,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,discounted_amount,gross_amount,seller_name")
       .order("invoice_date", { ascending: false })
       .limit(INVOICE_PAGE_SIZE);
 
@@ -97,6 +112,54 @@ export default function Invoices() {
       setManagedInvoices((data || []) as ManagedInvoiceRow[]);
     }
     setManagedLoading(false);
+  }, [isAdmin]);
+
+  const loadDuplicateAudit = useCallback(async () => {
+    if (!isAdmin) return;
+    setDuplicateAuditLoading(true);
+    const { data, error } = await supabase
+      .from("sales_invoices")
+      .select("invoice_number,branch,invoice_date,created_at")
+      .not("invoice_number", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(3000);
+
+    if (error) {
+      toast.error(`تعذر فحص التكرارات: ${error.message}`);
+      setDuplicateAudit([]);
+      setDuplicateAuditLoading(false);
+      return;
+    }
+
+    const groups = new Map<string, DuplicateInvoiceGroup>();
+    for (const row of data || []) {
+      const invoiceNumber = String(row.invoice_number || "").trim();
+      const branchName = String(row.branch || "غير محدد").trim() || "غير محدد";
+      const saleDate = String(row.invoice_date || "").slice(0, 10);
+      if (!invoiceNumber || !saleDate) continue;
+      const key = `${invoiceNumber}|${branchName}|${saleDate}`;
+      const current = groups.get(key) || {
+        invoice_number: invoiceNumber,
+        branch: branchName,
+        sale_date: saleDate,
+        count: 0,
+        latest_created_at: null,
+      };
+      current.count += 1;
+      const createdAt = String(row.created_at || "");
+      if (createdAt && (!current.latest_created_at || createdAt > current.latest_created_at)) {
+        current.latest_created_at = createdAt;
+      }
+      groups.set(key, current);
+    }
+
+    setDuplicateAudit(
+      [...groups.values()]
+        .filter((group) => group.count > 1)
+        .sort((a, b) => String(b.latest_created_at || "").localeCompare(String(a.latest_created_at || "")))
+        .slice(0, 20),
+    );
+    setDuplicateAuditLoading(false);
   }, [isAdmin]);
 
   useEffect(() => {
@@ -441,6 +504,43 @@ export default function Invoices() {
             <StatTile value={new Set(managedInvoices.map((row) => row.customer_code || row.customer_phone || row.customer_name).filter(Boolean)).size} label="عملاء ظاهرين" color="text-purple-300" />
           </div>
 
+          <div className="rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="font-bold text-amber-100">فحص الفواتير المكررة</div>
+                <div className="mt-1 text-xs text-amber-50/80">
+                  فحص محدود وآمن لأحدث الفواتير حسب رقم الفاتورة + الفرع + التاريخ، بدون تحميل كل جدول المبيعات.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={loadDuplicateAudit}
+                disabled={duplicateAuditLoading}
+                className="rounded-xl border border-amber-200/40 bg-amber-300/15 px-4 py-2 text-sm font-bold text-amber-50 hover:bg-amber-300/25 disabled:opacity-50"
+              >
+                {duplicateAuditLoading ? "جاري الفحص..." : "عرض الفواتير المكررة"}
+              </button>
+            </div>
+            {duplicateAudit.length > 0 && (
+              <div className="mt-4 rounded-xl border border-amber-200/30 bg-slate-950/25 p-3">
+                <div className="mb-2 text-sm font-bold text-amber-100">يوجد فواتير مكررة تحتاج مراجعة</div>
+                <div className="max-h-56 space-y-2 overflow-auto">
+                  {duplicateAudit.map((group) => (
+                    <div key={`${group.invoice_number}-${group.branch}-${group.sale_date}`} className="grid grid-cols-4 gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-100">
+                      <span className="font-bold">#{group.invoice_number}</span>
+                      <span>{group.branch}</span>
+                      <span>{group.sale_date}</span>
+                      <span className="text-amber-100">{group.count.toLocaleString("ar-EG")} مرات</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!duplicateAuditLoading && duplicateAudit.length === 0 && (
+              <div className="mt-3 text-xs text-amber-50/70">اضغط زر الفحص لعرض أحدث مجموعات التكرار إن وجدت.</div>
+            )}
+          </div>
+
           <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">آخر دفعات الرفع</div>
             <div className="overflow-x-auto">
@@ -627,11 +727,11 @@ export default function Invoices() {
           </div>
 
           {errorCount > 0 && (
-            <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-4">
-              <div className="text-red-400 font-semibold text-sm flex items-center gap-2 mb-3"><AlertCircle size={16} /> أخطاء القراءة</div>
+            <div className="rounded-2xl border border-red-300/35 bg-red-500/15 p-4">
+              <div className="text-red-100 font-semibold text-sm flex items-center gap-2 mb-3"><AlertCircle size={16} /> أخطاء القراءة</div>
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {parseResult.errors.slice(0, 80).map((error, index) => (
-                  <div key={index} className="text-red-200/80 text-xs bg-red-500/5 rounded-lg px-3 py-2">{error.message}</div>
+                  <div key={index} className="text-red-50 text-xs bg-slate-950/25 rounded-lg px-3 py-2">{error.message}</div>
                 ))}
               </div>
             </div>
@@ -712,11 +812,33 @@ export default function Invoices() {
                 <ResultTile value={importSummary.unlinkedCustomersEstimate} label="ربط عميل ضعيف" />
                 <ResultTile value={importSummary.unmatchedCustomerRows || 0} label="عميل غير مسجل" />
                 <ResultTile value={importSummary.zeroAmountRows || 0} label="فواتير صفرية" />
+                <ResultTile value={importSummary.distinctInvoicesInFile || 0} label="فواتير مميزة بالملف" />
+                <ResultTile value={importSummary.invoicesWithoutCustomer || 0} label="بدون عميل" />
+                <ResultTile value={importSummary.invoicesWithoutDoctor || 0} label="بدون دكتور" />
+                <ResultTile value={importSummary.invoicesWithoutBranch || 0} label="بدون فرع" />
                 <ResultTile value={Math.round(importSummary.fileNetSales || 0)} label="صافي الملف" />
                 <ResultTile value={Math.round(importSummary.importedNetSales || 0)} label="صافي المستورد" />
               </>
             )}
           </div>
+          {importKind === "sales" && (
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-teal-300/25 bg-teal-400/10 p-4">
+                <div className="font-bold text-teal-100">حالة تحديث الملخصات</div>
+                <div className="mt-2 text-sm text-teal-50/85">
+                  {importSummary.summaryRefreshMessage || "لم يتم طلب تحديث ملخصات إضافي."}
+                </div>
+              </div>
+              <div className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-4">
+                <div className="font-bold text-sky-100">ربط الدكاترة</div>
+                <div className="mt-2 text-sm text-sky-50/85">
+                  {importSummary.staffLinkingMode === "staff_id"
+                    ? "تم الربط عبر staff_id عندما كان متاحًا، مع الاحتفاظ باسم الدكتور."
+                    : "staff_id غير متاح أو غير مطابق، يتم الربط مؤقتًا بالاسم بعد التطبيع والفرع."}
+                </div>
+              </div>
+            </div>
+          )}
           {importKind === "sales" && (
             <div className="grid gap-3 lg:grid-cols-2">
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -759,9 +881,20 @@ export default function Invoices() {
               )}
             </div>
           )}
+          {(importSummary.schemaWarnings?.length || 0) > 0 && (
+            <div className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-4">
+              <div className="mb-3 font-bold text-amber-100">تحذيرات الربط و Supabase schema cache</div>
+              <div className="space-y-2">
+                {(importSummary.schemaWarnings || []).map((warning, index) => (
+                  <div key={index} className="rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-amber-50">{warning}</div>
+                ))}
+              </div>
+            </div>
+          )}
           {importSummary.errors.length > 0 && (
-            <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 space-y-2">
-              {importSummary.errors.slice(0, 20).map((error, index) => <div key={index} className="text-red-200/80 text-xs">{error.message}</div>)}
+            <div className="rounded-xl border border-red-300/35 bg-red-500/15 p-4 space-y-2">
+              <div className="font-bold text-red-100">تحذيرات تحتاج مراجعة</div>
+              {importSummary.errors.slice(0, 20).map((error, index) => <div key={index} className="rounded-lg bg-slate-950/25 px-3 py-2 text-sm text-red-50">{error.message}</div>)}
             </div>
           )}
           <button onClick={handleReset} className="btn-primary flex items-center gap-2"><RefreshCw size={16} /> استيراد ملف آخر</button>

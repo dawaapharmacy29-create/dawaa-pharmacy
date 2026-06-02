@@ -9,9 +9,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { getCycleForDate } from "@/lib/pharmacy-cycle";
 import { getShiftFromDateTime } from "@/lib/analyticsFromInvoices";
-import { rebuildCustomerStats } from "@/lib/customerAnalyticsService";
 import { invalidateInvoiceCache } from "@/lib/salesInvoiceSource";
-import { getSalesValue } from "@/lib/analyticsService";
 import { normalizeName } from "@/lib/utils";
 
 export interface RawInvoiceRow {
@@ -89,6 +87,14 @@ export interface ImportSummary {
   dailyCounts?: Array<{ date: string; count: number; total: number }>;
   branchCounts?: Array<{ branch: string; count: number; total: number }>;
   skippedDuplicateInvoices?: Array<{ invoiceNumber: string; branch: string; date: string }>;
+  distinctInvoicesInFile?: number;
+  invoicesWithoutCustomer?: number;
+  invoicesWithoutDoctor?: number;
+  invoicesWithoutBranch?: number;
+  schemaWarnings?: string[];
+  staffLinkingMode?: "staff_id" | "name_fallback";
+  summaryRefreshStatus?: "refreshed" | "unavailable";
+  summaryRefreshMessage?: string;
 }
 
 export interface ParseResult {
@@ -518,6 +524,32 @@ function schemaCacheMissingColumn(message?: string | null) {
     message.match(/'([^']+)' column/)?.[1] ||
     ""
   );
+}
+
+function invoiceNetValue(row: Record<string, unknown>) {
+  const candidates = [row.net_amount, row.discounted_amount, row.amount];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value)) return value;
+  }
+  return 0;
+}
+
+function invoiceDuplicateKey(invoiceNumber: string, branch: string, saleDate: string) {
+  return [branch || "غير محدد", invoiceNumber || "", String(saleDate || "").slice(0, 10)].join("|");
+}
+
+function friendlyImportError(message: string) {
+  if (message.includes("statement timeout") || message.includes("canceling statement")) {
+    return "المصدر استغرق وقتًا طويلًا. تم إيقاف أي تحديث ثقيل، ويفضل تحديث الملخصات من لوحة الإدارة أو RPC مخصص.";
+  }
+  if (message.includes("schema cache")) {
+    return "أحد الأعمدة لم يظهر بعد في Supabase schema cache. تم الاستيراد بالحقول المتاحة، ويُفضّل تحديث schema cache بعد الترقية.";
+  }
+  if (message.includes("unique constraint") || message.includes("duplicate key")) {
+    return "تم اكتشاف فاتورة مكررة أثناء الحفظ. سيتم تخطيها بدل تعطيل الاستيراد.";
+  }
+  return message;
 }
 
 async function insertRowsWithOptionalColumns(
@@ -1206,6 +1238,26 @@ async function linkSellerToStaffId(sellerName: string, branch: string): Promise<
   return null;
 }
 
+async function refreshImportSummaries(summary: ImportSummary) {
+  const rpcCandidates = [
+    "refresh_dashboard_summaries",
+    "refresh_sales_daily_summary",
+    "refresh_customer_metrics_summary",
+  ];
+
+  for (const rpcName of rpcCandidates) {
+    const { error } = await supabase.rpc(rpcName);
+    if (!error) {
+      summary.summaryRefreshStatus = "refreshed";
+      summary.summaryRefreshMessage = "تم تحديث ملخصات التحليلات بعد الاستيراد.";
+      return;
+    }
+  }
+
+  summary.summaryRefreshStatus = "unavailable";
+  summary.summaryRefreshMessage = "تم الاستيراد، لكن يلزم تحديث الملخصات من لوحة الإدارة";
+}
+
 export async function importInvoicesToDB(
   rows: RawInvoiceRow[],
   branch: string,
@@ -1224,8 +1276,20 @@ export async function importInvoicesToDB(
     needsReviewRows: 0,
     unlinkedCustomersEstimate: 0,
     skippedDuplicateInvoices: [],
+    schemaWarnings: [],
+    staffLinkingMode: "name_fallback",
   };
   if (rows.length === 0) return summary;
+
+  const distinctInvoiceKeys = new Set(
+    rows
+      .filter((row) => row.invoiceNumber && row.date)
+      .map((row) => invoiceDuplicateKey(row.invoiceNumber, row.branch || branch, row.date)),
+  );
+  summary.distinctInvoicesInFile = distinctInvoiceKeys.size;
+  summary.invoicesWithoutCustomer = rows.filter((row) => !row.customerCode && !row.phone).length;
+  summary.invoicesWithoutDoctor = rows.filter((row) => !row.seller).length;
+  summary.invoicesWithoutBranch = rows.filter((row) => !(row.branch || branch)).length;
 
   // ربط seller_name بـ staff_id
   const staffIdMap = new Map<string, string | null>();
@@ -1234,6 +1298,9 @@ export async function importInvoicesToDB(
   for (const seller of uniqueSellers) {
     const staffId = await linkSellerToStaffId(seller, branch);
     staffIdMap.set(seller, staffId);
+  }
+  if ([...staffIdMap.values()].some(Boolean)) {
+    summary.staffLinkingMode = "staff_id";
   }
 
   const invoiceKeys = rows.map((row) => ({
@@ -1281,15 +1348,30 @@ export async function importInvoicesToDB(
   const existingSet = new Set(
     existingInvoices.map(
       (invoice) =>
-        `${invoice.branch}-${invoice.invoice_number}-${String(invoice.invoice_date).slice(0, 10)}`,
+        invoiceDuplicateKey(
+          invoice.invoice_number,
+          invoice.branch,
+          String(invoice.invoice_date).slice(0, 10),
+        ),
     ),
   );
 
   let needsReviewRows = 0;
   let unlinkedCustomersEstimate = 0;
+  const seenImportKeys = new Set<string>();
 
   const newRows = rows.filter((row) => {
-    const dedupeKey = `${row.branch || branch}-${row.invoiceNumber}-${row.date}`;
+    const dedupeKey = invoiceDuplicateKey(row.invoiceNumber, row.branch || branch, row.date);
+    if (seenImportKeys.has(dedupeKey)) {
+      summary.skippedDuplicates++;
+      summary.skippedDuplicateInvoices?.push({
+        invoiceNumber: row.invoiceNumber,
+        branch: row.branch || branch,
+        date: row.date,
+      });
+      return false;
+    }
+    seenImportKeys.add(dedupeKey);
     if (row.invoiceNumber && existingSet.has(dedupeKey)) {
       summary.skippedDuplicates++;
       summary.skippedDuplicateInvoices?.push({
@@ -1355,13 +1437,52 @@ export async function importInvoicesToDB(
     const { error, removedColumns } = await insertRowsWithOptionalColumns("sales_invoices", chunk);
     removedColumns.forEach((column) => optionalColumnsRemoved.add(column));
     if (error) {
+      const isDuplicateError =
+        error.message.includes("unique constraint") ||
+        error.message.includes("duplicate key") ||
+        error.message.includes("ON CONFLICT");
+      if (isDuplicateError && chunk.length > 1) {
+        for (const record of chunk) {
+          const single = await insertRowsWithOptionalColumns("sales_invoices", [record]);
+          single.removedColumns.forEach((column) => optionalColumnsRemoved.add(column));
+          if (single.error) {
+            const singleDuplicate =
+              single.error.message.includes("unique constraint") ||
+              single.error.message.includes("duplicate key") ||
+              single.error.message.includes("ON CONFLICT");
+            if (singleDuplicate) {
+              summary.skippedDuplicates++;
+              summary.skippedDuplicateInvoices?.push({
+                invoiceNumber: String(record.invoice_number || ""),
+                branch: String(record.branch || branch),
+                date: String(record.invoice_date || "").slice(0, 10),
+              });
+            } else {
+              summary.errors.push({
+                row: Number(record.source_row_number || 0),
+                field: "sales_invoices",
+                message: friendlyImportError(single.error.message),
+              });
+            }
+          } else {
+            summary.insertedRows += 1;
+            summary.importedNetSales = (summary.importedNetSales || 0) + invoiceNetValue(record);
+          }
+        }
+        reportProgress(
+          onProgress,
+          Math.min(i + chunkSize, invoiceRecords.length),
+          totalWork,
+        );
+        continue;
+      }
       // Provide user-friendly error message
       const errorMsg = error.message.includes("out of range")
         ? "خطأ في التاريخ أو الوقت في بعض الصفوف. تأكد من صحة التواريخ في ملف Excel."
         : error.message.includes("unique constraint") ||
             error.message.includes("ON CONFLICT")
           ? "يوجد فواتير مكررة في قاعدة البيانات."
-          : error.message;
+          : friendlyImportError(error.message);
       summary.errors.push({
         row: i + 1,
         field: "sales_invoices",
@@ -1369,13 +1490,27 @@ export async function importInvoicesToDB(
       });
     } else {
       summary.insertedRows += chunk.length;
-      summary.importedNetSales = (summary.importedNetSales || 0) + chunk.reduce((sum, row) => sum + getSalesValue(row), 0);
+      summary.importedNetSales = (summary.importedNetSales || 0) + chunk.reduce((sum, row) => sum + invoiceNetValue(row), 0);
     }
     reportProgress(
       onProgress,
       Math.min(i + chunkSize, invoiceRecords.length),
       totalWork,
     );
+  }
+
+  if (optionalColumnsRemoved.size > 0) {
+    if (optionalColumnsRemoved.has("staff_id")) {
+      summary.staffLinkingMode = "name_fallback";
+      summary.schemaWarnings?.push("staff_id غير متاح، يتم الربط مؤقتًا بالاسم بعد التطبيع");
+    }
+    const otherColumns = [...optionalColumnsRemoved].filter((column) => column !== "staff_id");
+    if (otherColumns.length > 0) {
+      summary.schemaWarnings?.push(
+        `تم الاستيراد بالحقول المتاحة، لكن أعمدة لم تظهر بعد في Supabase schema cache: ${otherColumns.join(", ")}. يفضّل تحديث schema cache بعد الترقية.`,
+      );
+    }
+    optionalColumnsRemoved.clear();
   }
 
   if (optionalColumnsRemoved.size > 0) {
@@ -1622,10 +1757,12 @@ export async function importInvoicesToDB(
     reportProgress(onProgress, invoiceRecords.length + analysed, totalWork);
   }
 
-  await refreshCustomerAnalysisForImportedRows(rows, branch, summary);
+  // Customer metrics are refreshed through backend summaries/RPCs below.
+  // Avoid post-import sales_invoices aggregation from React to prevent timeouts.
   invalidateInvoiceCache();
   try {
-    const rebuilt = await rebuildCustomerStats();
+    await refreshImportSummaries(summary);
+    const rebuilt = { customers: summary.updatedCustomers };
     summary.updatedCustomers = Math.max(summary.updatedCustomers, rebuilt.customers);
   } catch (error) {
     summary.errors.push({
