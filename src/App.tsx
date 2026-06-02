@@ -10,6 +10,7 @@ import EvaluationRules2027 from "@/pages/EvaluationRules2027";
 import QuarterlyIncentives2027 from "@/pages/QuarterlyIncentives2027";
 import OperationsCenter2027 from "@/pages/OperationsCenter2027";
 import Customers from "@/pages/Customers";
+import CustomerImport from "@/pages/CustomerImport";
 import CustomerService from "@/pages/CustomerService";
 import CustomerRequests from "@/pages/CustomerRequests";
 import Team from "@/pages/Team";
@@ -195,6 +196,16 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Customers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customers/import"
+          element={
+            <ProtectedRoute>
+              <AdminRoute>
+                <CustomerImport />
+              </AdminRoute>
             </ProtectedRoute>
           }
         />
