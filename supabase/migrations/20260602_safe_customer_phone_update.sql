@@ -99,7 +99,7 @@ begin
      and n.final_customer_code is not null
      and by_final_code.customer_code = n.final_customer_code
     left join lateral (
-      select min(c.id) as unique_id, count(*) as matches_count
+      select (array_agg(c.id order by c.id::text))[1] as unique_id, count(*) as matches_count
       from public.customers c
       where by_id.id is null and by_code.id is null and by_final_code.id is null
         and n.customer_name is not null
