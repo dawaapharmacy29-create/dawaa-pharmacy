@@ -319,7 +319,7 @@ export default function StaffDetail() {
     return () => {
       cancelled = true;
     };
-  }, [id, searchParams]);
+  }, [id, searchParams, cycle.end, cycle.start]);
 
   const cyclePointsRows = useMemo(() => {
     if (!staff) return [];
@@ -348,7 +348,7 @@ export default function StaffDetail() {
       bonusPts: incentiveData.approvedRewardPoints,
       deductionPts: incentiveData.approvedDeductionPoints,
     };
-  }, [cycle, incentiveData, staff]);
+  }, [incentiveData, staff]);
 
   const reviewStats = useMemo(() => {
     const count = cycleReviews.length;
