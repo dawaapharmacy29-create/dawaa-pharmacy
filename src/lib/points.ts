@@ -1,5 +1,6 @@
 import { getEvaluationCycle } from "@/lib/evaluationCycle";
 import { INCENTIVE_CONFIG } from "@/lib/incentiveConfig";
+import { calculateMonthlyIncentive } from "@/lib/incentives/incentiveRulesEngine";
 
 export const STARTING_POINTS = INCENTIVE_CONFIG.defaultTargetPoints;
 export const POINT_VALUE_EGP = INCENTIVE_CONFIG.pointValueEgp;
@@ -8,11 +9,19 @@ export const DEDUCTION_RATE = INCENTIVE_CONFIG.deductionRate;
 export const BONUS_RATE = INCENTIVE_CONFIG.rewardRate;
 
 export function calculateFinalPoints(start = STARTING_POINTS, additions = 0, deductions = 0) {
-  return Math.max(0, Math.min(STARTING_POINTS, start + additions - deductions));
+  return calculateMonthlyIncentive({
+    startingPoints: start,
+    approvedExceptionalRewardPoints: additions,
+    approvedDeductionPoints: deductions,
+  }).finalPoints;
 }
 
 export function calculateIncentive(finalPoints: number) {
-  return Math.min(MAX_BASE_INCENTIVE, Math.max(0, finalPoints) * POINT_VALUE_EGP);
+  return calculateMonthlyIncentive({
+    startingPoints: Math.max(0, finalPoints),
+    approvedDeductionPoints: 0,
+    approvedExceptionalRewardPoints: 0,
+  }).monthlyIncentiveValue;
 }
 
 export function calculateSalaryDeduction(pointsDeducted: number) {
@@ -55,7 +64,7 @@ export interface SalaryCalculation {
 
 export function calculateSalaryDetails(baseSalary: number, currentPoints: number, maxPoints: number = STARTING_POINTS): SalaryCalculation {
   const pointsDifference = currentPoints - maxPoints;
-  const incentive = pointsDifference > 0 ? calculateSalaryBonus(pointsDifference) : 0;
+  const incentive = calculateIncentive(currentPoints);
   const deduction = pointsDifference < 0 ? calculateSalaryDeduction(Math.abs(pointsDifference)) : 0;
   const netSalary = calculateNetSalary(baseSalary, currentPoints, maxPoints);
   const performanceLevel = getPerformanceLevel(currentPoints);

@@ -38,6 +38,7 @@ import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
 import { isValidEgyptPhone, getBestCustomerPhone } from "@/lib/customerAnalyticsService";
 import { getCustomerFullProfile, type CustomerFullProfile } from "@/lib/customerProfileService";
 import { normalizeBranchName } from "@/lib/branch";
+import { calculateMonthlyIncentive } from "@/lib/incentives/incentiveRulesEngine";
 import { BRANCHES } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
 import { notifyCustomerServiceResponsible } from "@/lib/notificationService";
@@ -668,7 +669,11 @@ function calculateCareScore(rows: FollowupRow[]) {
     improved,
     avgQuality,
     points: safePoints,
-    incentive: Math.min(safePoints / 500, 1) * 1500,
+    incentive: calculateMonthlyIncentive({
+      startingPoints: safePoints,
+      approvedDeductionPoints: 0,
+      approvedExceptionalRewardPoints: 0,
+    }).monthlyIncentiveValue,
   };
 }
 

@@ -9,6 +9,7 @@ import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveServic
 import { formatDateTime, percent } from "@/lib/utils";
 import { TABLES } from "@/lib/supabaseTables";
 import { normalizeNotification } from "@/lib/notificationService";
+import StaffOperatingPolicy from "@/components/incentives/StaffOperatingPolicy";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -234,6 +235,8 @@ export default function StaffDashboard() {
           <div className="text-slate-300 text-xs mt-1">{performanceLevel}</div>
         </div>
       </div>
+
+      <StaffOperatingPolicy />
 
       {/* Points progress bar */}
       <div className="stat-card">

@@ -1,5 +1,4 @@
 import { supabase } from "@/lib/supabase";
-import { fetchAllSalesInvoices, type SalesInvoiceFilters } from "@/lib/salesInvoiceRepository";
 
 export type SalesAnalyticsFilters = {
   from?: string;
@@ -28,17 +27,14 @@ const ALL_FILTERS = new Set(["", "الكل", "كل الفروع", "كل الدك
 export function parseNumericValue(value: unknown): number {
   if (value === null || value === undefined || value === "") return 0;
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  let text = String(value).trim();
-  if (!text) return 0;
-  text = text
+  let text = String(value)
+    .trim()
     .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
     .replace(/[٬،]/g, "")
-    .replace(/جنيه|ج\.م|egp|EGP/gi, "")
+    .replace(/جنيه|ج\.م|egp/gi, "")
     .replace(/[^0-9.\-]/g, "");
   const parts = text.split(".");
-  if (parts.length > 2) {
-    text = parts.slice(0, -1).join("") + "." + parts.at(-1);
-  }
+  if (parts.length > 2) text = parts.slice(0, -1).join("") + "." + parts.at(-1);
   const numberValue = Number.parseFloat(text);
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
@@ -54,16 +50,12 @@ export function firstNumericValue(row: SalesInvoiceLike, keys: string[]): number
   return 0;
 }
 
-export function getSalesValue(row: SalesInvoiceLike | any) {
-  // صافي المبيعات الصحيح في sales_invoices: net_amount ثم amount ثم gross_amount فقط.
-  // لا تستخدم total_amount لأنه غير موجود في جدول Supabase الحالي.
-  // لا تستخدم courier_cash أو extra_fees أو discount_amount أو line_items_count.
-  return firstNumericValue(row, ["net_amount", "amount", "gross_amount"]);
+export function getSalesValue(row: SalesInvoiceLike) {
+  return firstNumericValue(row, ["net_amount", "discounted_amount", "amount"]);
 }
 
 export function getGrossSalesValue(row: SalesInvoiceLike) {
-  // إجمالي قبل الخصم: gross_amount > amount > net_amount
-  return firstNumericValue(row, ["gross_amount", "amount", "net_amount"]);
+  return firstNumericValue(row, ["gross_amount", "original_amount", "net_amount", "discounted_amount", "amount"]);
 }
 
 export function getDiscountValue(row: SalesInvoiceLike) {
@@ -84,7 +76,6 @@ export function filterSalesInvoices(rows: SalesInvoiceLike[], filters: SalesAnal
   return rows.filter((row) => {
     const date = invoiceDate(row);
     if (filters.from && date && date < filters.from) return false;
-    // End date is inclusive (includes full selected day)
     if (filters.to && date && date > filters.to) return false;
     if (!matchesFilter(row.branch, filters.branch)) return false;
     if (!matchesFilter(row.seller_name ?? row.doctor_name ?? row.staff_name, filters.doctor)) return false;
@@ -119,45 +110,63 @@ export function getSalesTotalsFromRows(rows: SalesInvoiceLike[], filters: SalesA
 }
 
 export async function fetchSalesInvoicesForAnalytics(maxRows = 100000) {
-  // Use the new centralized function with pagination
-  const result = await fetchAllSalesInvoices({});
-  if (result.error) {
-    throw new Error(result.error);
-  }
-  return result.invoices as SalesInvoiceLike[];
+  console.warn("Raw invoice loading is disabled for analytics. Use summary services instead.", { maxRows });
+  return [] as SalesInvoiceLike[];
 }
 
-export async function getSalesTotals(filters: SalesAnalyticsFilters = {}) {
-  const rows = await fetchSalesInvoicesForAnalytics();
-  return getSalesTotalsFromRows(rows, filters);
-}
+export async function getSalesTotals(filters: SalesAnalyticsFilters = {}): Promise<SalesTotals> {
+  let query = supabase
+    .from("sales_daily_summary")
+    .select("sale_date, branch, shift_name, seller_name, invoice_type, invoices_count, net_total, gross_total, discount_total, unique_customers")
+    .order("sale_date", { ascending: true })
+    .limit(5000);
 
-export function getSalesOverview(filters: SalesAnalyticsFilters = {}) {
+  if (filters.from) query = query.gte("sale_date", filters.from);
+  if (filters.to) query = query.lte("sale_date", filters.to);
+  if (filters.branch && !ALL_FILTERS.has(filters.branch)) query = query.eq("branch", filters.branch);
+  if (filters.doctor && !ALL_FILTERS.has(filters.doctor)) query = query.eq("seller_name", filters.doctor);
+  if (filters.shift && !ALL_FILTERS.has(filters.shift)) query = query.eq("shift_name", filters.shift);
+  if (filters.invoiceType && !ALL_FILTERS.has(filters.invoiceType)) query = query.eq("invoice_type", filters.invoiceType);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const rows = (data || []) as SalesInvoiceLike[];
+  const netSales = rows.reduce((sum, row) => sum + firstNumericValue(row, ["net_total"]), 0);
+  const grossSales = rows.reduce((sum, row) => sum + firstNumericValue(row, ["gross_total", "net_total"]), 0);
+  const discounts = rows.reduce((sum, row) => sum + firstNumericValue(row, ["discount_total"]), 0);
+  const invoiceCount = rows.reduce((sum, row) => sum + firstNumericValue(row, ["invoices_count"]), 0);
+  const customerCount = rows.reduce((sum, row) => sum + firstNumericValue(row, ["unique_customers"]), 0);
+  const dates = rows.map((row) => String(row.sale_date || "")).filter(Boolean).sort();
+
   return {
-    // يمكن إضافة منطق إضافي هنا
+    invoiceCount,
+    grossSales,
+    discounts,
+    netSales,
+    averageInvoice: invoiceCount ? netSales / invoiceCount : 0,
+    customerCount,
+    firstInvoiceDate: dates[0] ?? null,
+    lastInvoiceDate: dates[dates.length - 1] ?? null,
   };
 }
 
-export function getShiftAnalysis(filters: SalesAnalyticsFilters = {}) {
-  return {
-    // يمكن إضافة منطق إضافي هنا
-  };
+export function getSalesOverview(_filters: SalesAnalyticsFilters = {}) {
+  return {};
 }
 
-export function getDoctorAnalysis(filters: SalesAnalyticsFilters = {}) {
-  return {
-    // يمكن إضافة منطق إضافي هنا
-  };
+export function getShiftAnalysis(_filters: SalesAnalyticsFilters = {}) {
+  return {};
 }
 
-export function getCustomerAnalysis(filters: SalesAnalyticsFilters = {}) {
-  return {
-    // يمكن إضافة منطق إضافي هنا
-  };
+export function getDoctorAnalysis(_filters: SalesAnalyticsFilters = {}) {
+  return {};
 }
 
-export function getDashboardSummary(filters: SalesAnalyticsFilters = {}) {
-  return {
-    // يمكن إضافة منطق إضافي هنا
-  };
+export function getCustomerAnalysis(_filters: SalesAnalyticsFilters = {}) {
+  return {};
+}
+
+export function getDashboardSummary(_filters: SalesAnalyticsFilters = {}) {
+  return {};
 }

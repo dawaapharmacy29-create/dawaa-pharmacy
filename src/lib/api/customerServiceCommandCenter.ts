@@ -2,6 +2,7 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { ALL_FILTER, getCustomers, normalizeCustomerMetric, type CustomerMetric } from "@/lib/api/customers";
 import { normalizeBranchName } from "@/lib/branch";
 import { getBestCustomerPhone, isValidEgyptPhone } from "@/lib/customerAnalyticsService";
+import { calculateMonthlyIncentive } from "@/lib/incentives/incentiveRulesEngine";
 import {
   buildCustomerSearchPattern,
   buildPhoneSearchVariants,
@@ -557,7 +558,11 @@ export function calculateTeamPerformance(rows: FollowupRow[]): FollowupPerforman
       (rating >= 5 ? 3 : 0) +
       (excellentSatisfaction ? 3 : 0) -
       current.overdue * 3;
-    current.incentiveValueEstimate = Math.min(Math.max(current.totalPoints, 0) / 500, 1) * 1500;
+    current.incentiveValueEstimate = calculateMonthlyIncentive({
+      startingPoints: Math.max(0, current.totalPoints),
+      approvedDeductionPoints: 0,
+      approvedExceptionalRewardPoints: 0,
+    }).monthlyIncentiveValue;
     map.set(responsible, current);
   }
   return [...map.values()]

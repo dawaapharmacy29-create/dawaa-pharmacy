@@ -10,6 +10,7 @@ import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { pointRecordDelta } from "@/lib/pointsLedger";
 import { calculateIncentive, POINT_VALUE_EGP, STARTING_POINTS, MAX_BASE_INCENTIVE } from "@/lib/points";
 import { calculateStaffCycleIncentiveFromRows, getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
+import StaffOperatingPolicy from "@/components/incentives/StaffOperatingPolicy";
 import { toast } from "sonner";
 
 interface DoctorMetrics {
@@ -238,6 +239,8 @@ export default function DoctorDashboard() {
         </button>
         </div>
       </div>
+
+      <StaffOperatingPolicy />
 
       {/* Points, Rewards, and Discounts Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

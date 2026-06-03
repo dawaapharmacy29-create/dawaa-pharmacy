@@ -1,5 +1,6 @@
 import { getCurrentCycle, getPointsCycle } from "@/lib/pharmacy-cycle";
 import { POINT_VALUE_EGP, STARTING_POINTS } from "@/lib/points";
+import { calculateMonthlyIncentive, calculateQuarterlyIncentive, calculateRepeatDeduction } from "@/lib/incentives/incentiveRulesEngine";
 
 export const DAWAA_2027_NAME = "Dawaa Pharmacy 2027";
 export const MONTHLY_START_POINTS_2027 = 500;
@@ -80,8 +81,8 @@ export function pickFirst(row: Record<string, unknown>, keys: string[], fallback
 }
 
 export function getInvoiceAmount(row: Record<string, unknown>) {
-  // sales_invoices is the source of truth; use net_amount ?? amount ?? gross_amount only.
-  return toNumber(pickFirst(row, ["net_amount", "amount", "gross_amount"], 0));
+  // Trusted net formula: net_amount -> discounted_amount -> amount.
+  return toNumber(pickFirst(row, ["net_amount", "discounted_amount", "amount"], 0));
 }
 
 export function getInvoiceDate(row: Record<string, unknown>) {
@@ -113,17 +114,26 @@ export function currentCycleRange() {
 }
 
 export function monthlyIncentiveFromPoints(finalPoints: number) {
-  const bounded = Math.max(0, Math.min(STARTING_POINTS, finalPoints));
-  return Math.round(bounded * POINT_VALUE_EGP);
+  return Math.round(
+    calculateMonthlyIncentive({
+      startingPoints: Math.max(0, finalPoints),
+      approvedDeductionPoints: 0,
+      approvedExceptionalRewardPoints: 0,
+    }).monthlyIncentiveValue,
+  );
 }
 
 export function quarterlyIncentiveFromScore(score: number) {
   const bounded = Math.max(0, Math.min(QUARTERLY_SCORE_MAX_2027, score));
-  return Math.round((bounded / QUARTERLY_SCORE_MAX_2027) * QUARTERLY_INCENTIVE_EGP_2027);
+  const deduction = QUARTERLY_INCENTIVE_EGP_2027 * (1 - bounded / QUARTERLY_SCORE_MAX_2027);
+  return Math.round(calculateQuarterlyIncentive({ approvedQuarterlyDeductions: deduction }).quarterlyFinalValue);
 }
 
 export function repeatPenaltyPoints(basePoints: number, previousCount: number) {
-  return Math.max(1, previousCount + 1) * basePoints;
+  return calculateRepeatDeduction({
+    basePoints,
+    occurrenceCount: Math.max(1, previousCount + 1),
+  }).finalPoints;
 }
 
 export function formatMoney(value: number) {

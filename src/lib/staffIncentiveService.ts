@@ -1,5 +1,6 @@
 import { getCurrentCycle, type PharmacyCycle } from "@/lib/pharmacy-cycle";
-import { calculateIncentive, STARTING_POINTS, MAX_BASE_INCENTIVE } from "@/lib/points";
+import { STARTING_POINTS, MAX_BASE_INCENTIVE } from "@/lib/points";
+import { calculateMonthlyIncentive } from "@/lib/incentives/incentiveRulesEngine";
 import {
   canonicalMaxPoints,
   canonicalSnapshotPoints,
@@ -37,6 +38,7 @@ export type StaffCycleIncentive = {
   pendingDeductionPoints: number;
   finalPoints: number;
   expectedFinalPoints?: number;
+  distinctionPointsAbove500: number;
   incentiveValue: number;
   maxIncentiveValue: number;
   progressPercent: number;
@@ -127,7 +129,6 @@ export function calculateStaffCycleIncentiveFromRows(args: {
   const cycle = args.cycle || getCurrentCycle();
   const staff = args.staff;
   const startingPoints = STARTING_POINTS; // دائماً 500 نقطة بداية الدورة
-  const maxPoints = STARTING_POINTS;
   const warnings: string[] = [];
 
   // منع التكرار
@@ -155,9 +156,15 @@ export function calculateStaffCycleIncentiveFromRows(args: {
   const approvedDeductionPoints = deductionTransactions.reduce((sum, row) => sum + row.absPoints, 0);
   const pendingRewardPoints = pending.filter((row) => row.normalizedDelta > 0).reduce((sum, row) => sum + row.absPoints, 0);
   const pendingDeductionPoints = pending.filter((row) => row.normalizedDelta < 0).reduce((sum, row) => sum + row.absPoints, 0);
-  const finalPoints = Math.max(0, startingPoints + approvedRewardPoints - approvedDeductionPoints);
-  const cappedPoints = Math.min(finalPoints, STARTING_POINTS);
-  if (finalPoints > STARTING_POINTS) warnings.push("النقاط النهائية أعلى من 500؛ الحافز النقدي الحالي مضبوط بسقف 1500 جنيه.");
+  const monthly = calculateMonthlyIncentive({
+    startingPoints,
+    approvedDeductionPoints,
+    approvedExceptionalRewardPoints: approvedRewardPoints,
+    pendingDeductionPoints,
+    pendingRewardPoints,
+  });
+  const finalPoints = monthly.finalPoints;
+  if (monthly.distinctionPointsAbove500 > 0) warnings.push("النقاط النهائية أعلى من 500؛ الحافز النقدي الشهري مقفول عند 1500 جنيه، والزيادة تظهر كنقاط تميز فقط.");
 
   const sourceMap = new Map<string, { source: string; points: number; count: number }>();
   for (const row of approved) {
@@ -185,9 +192,10 @@ export function calculateStaffCycleIncentiveFromRows(args: {
     pendingDeductionPoints,
     finalPoints,
     expectedFinalPoints,
-    incentiveValue: calculateIncentive(cappedPoints),
+    distinctionPointsAbove500: monthly.distinctionPointsAbove500,
+    incentiveValue: monthly.monthlyIncentiveValue,
     maxIncentiveValue: MAX_BASE_INCENTIVE,
-    progressPercent: maxPoints ? Math.min(100, (finalPoints / maxPoints) * 100) : 0,
+    progressPercent: monthly.progressPercent,
     rewardTransactions,
     deductionTransactions,
     pendingTransactions,

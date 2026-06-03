@@ -4,7 +4,6 @@ import { Toaster } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import Layout from "@/components/layout/Layout";
 import Login from "@/pages/Login";
-import Dashboard from "@/pages/Dashboard";
 import ExecutiveDashboard2027 from "@/pages/ExecutiveDashboard2027";
 import EvaluationRules2027 from "@/pages/EvaluationRules2027";
 import QuarterlyIncentives2027 from "@/pages/QuarterlyIncentives2027";
@@ -152,7 +151,7 @@ export default function App() {
           path="/dashboard-classic"
           element={
             <ProtectedRoute>
-              <Dashboard />
+              <Navigate to="/executive-2027" replace />
             </ProtectedRoute>
           }
         />
