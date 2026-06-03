@@ -78,6 +78,7 @@ function customerImportStatusLabel(status: string) {
     invalid_row: "صف غير صالح",
     duplicate_in_file: "مكرر في الملف",
     needs_review_existing_phone: "مراجعة: هاتف مختلف",
+    needs_review_phone_used_by_other: "مراجعة: الرقم مستخدم لعميل آخر",
     needs_review_existing_whatsapp: "مراجعة: واتساب مختلف",
     needs_review_existing_address: "مراجعة: عنوان مختلف",
     needs_review_multiple_matches: "مراجعة: أكثر من تطابق",

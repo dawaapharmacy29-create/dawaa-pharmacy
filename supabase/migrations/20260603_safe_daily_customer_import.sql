@@ -138,7 +138,14 @@ begin
           and nullif(trim(coalesce(m.address, '')), '') is not null
           and trim(c.address) <> trim(m.address)
         then true else false
-      end as address_conflict
+      end as address_conflict,
+      exists (
+        select 1
+        from public.customers phone_owner
+        where m.new_phone is not null
+          and nullif(trim(coalesce(phone_owner.phone, '')), '') = m.new_phone
+          and (c.id is null or phone_owner.id <> c.id)
+      ) as phone_used_by_other
     from matched m
     left join public.customers c on c.id = m.matched_customer_id
   ), final_decision as (
@@ -147,6 +154,7 @@ begin
       case
         when duplicate_key_count > 1 and coalesce(customer_code, final_customer_key) is not null then 'duplicate_in_file'
         when match_count > 1 then 'needs_review_multiple_matches'
+        when phone_used_by_other then 'needs_review_phone_used_by_other'
         when target_id is null and (customer_code is not null or final_customer_code is not null or customer_name is not null) then 'new_customer'
         when target_id is null then 'unmatched'
         when phone_conflict then 'needs_review_existing_phone'
@@ -271,6 +279,7 @@ begin
       'phone_alt', phone_alt,
       'existing_phone', existing_phone_raw,
       'existing_whatsapp_phone', existing_whatsapp_phone_raw,
+      'phone_used_by_other', phone_used_by_other,
       'would_update_phone', would_update_phone,
       'would_update_whatsapp', would_update_whatsapp,
       'would_update_phone_alt', would_update_phone_alt,
