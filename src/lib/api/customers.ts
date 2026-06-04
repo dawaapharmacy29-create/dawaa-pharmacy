@@ -8,6 +8,7 @@ import {
   customerFlagLabels,
 } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
+import { CUSTOMER_SEGMENT_THRESHOLDS, CUSTOMER_RETENTION_DAYS } from "@/lib/constants";
 import { getCustomerFullProfile } from "@/lib/customerProfileService";
 
 const DEFAULT_LIMIT = 30;
@@ -257,18 +258,18 @@ function normalizeSegmentLabel(value?: string | null) {
 function applySegmentFilter<T>(query: T, segment?: string): T {
   if (isAll(segment)) return query;
   const normalized = normalizeSegmentLabel(segment);
-  if (normalized === "مهم جدًا") return (query as any).gt("avg_monthly", 8000);
-  if (normalized === "مهم") return (query as any).gt("avg_monthly", 4000).lte("avg_monthly", 8000);
-  if (normalized === "متوسط") return (query as any).gt("avg_monthly", 1500).lte("avg_monthly", 4000);
-  return (query as any).lte("avg_monthly", 1500);
+  if (normalized === "مهم جدًا") return (query as any).gt("avg_monthly", CUSTOMER_SEGMENT_THRESHOLDS.VERY_IMPORTANT);
+  if (normalized === "مهم") return (query as any).gt("avg_monthly", CUSTOMER_SEGMENT_THRESHOLDS.IMPORTANT).lte("avg_monthly", CUSTOMER_SEGMENT_THRESHOLDS.VERY_IMPORTANT);
+  if (normalized === "متوسط") return (query as any).gt("avg_monthly", CUSTOMER_SEGMENT_THRESHOLDS.MEDIUM).lte("avg_monthly", CUSTOMER_SEGMENT_THRESHOLDS.IMPORTANT);
+  return (query as any).lte("avg_monthly", CUSTOMER_SEGMENT_THRESHOLDS.MEDIUM);
 }
 
 function applyStatusFilter<T>(query: T, status?: string): T {
   if (isAll(status)) return query;
   const normalized = normalizeCustomerStatus(status, null, null);
-  const activeCutoff = isoDateDaysAgo(45);
-  const riskCutoff = isoDateDaysAgo(90);
-  const newCutoff = isoDateDaysAgo(30);
+  const activeCutoff = isoDateDaysAgo(CUSTOMER_RETENTION_DAYS.ACTIVE);
+  const riskCutoff = isoDateDaysAgo(CUSTOMER_RETENTION_DAYS.AT_RISK);
+  const newCutoff = isoDateDaysAgo(CUSTOMER_RETENTION_DAYS.NEW);
 
   if (normalized === "بدون شراء") {
     return (query as any).or("invoices_count.lte.0,last_purchase.is.null");

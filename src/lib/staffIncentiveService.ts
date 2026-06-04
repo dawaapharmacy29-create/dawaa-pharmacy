@@ -1,3 +1,4 @@
+import { RECORD_STATUS } from "@/lib/constants";
 import { getCurrentCycle, type PharmacyCycle } from "@/lib/pharmacy-cycle";
 import { STARTING_POINTS, MAX_BASE_INCENTIVE } from "@/lib/points";
 import { calculateMonthlyIncentive } from "@/lib/performance/performanceRulesEngine";
@@ -273,7 +274,7 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(row.points || 0),
       reason: row.reason || row.description || "",
       created_at: row.created_at,
-      status: row.status || "active",
+      status: row.status || RECORD_STATUS.APPROVED,
     } as PointLedgerRecord);
   }
   
@@ -290,7 +291,7 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(row.points_delta || row.points || 0),
       reason: row.reason || "",
       created_at: row.created_at,
-      status: row.status || "active",
+      status: row.status || RECORD_STATUS.APPROVED,
     } as PointLedgerRecord);
   }
   
@@ -307,7 +308,7 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(row.points_delta || row.points || 0),
       reason: row.reason || "",
       created_at: row.created_at,
-      status: row.status || "active",
+      status: row.status || RECORD_STATUS.APPROVED,
     } as PointLedgerRecord);
   }
   
@@ -326,7 +327,7 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(delta),
       reason: `تقييم محادثة: ${row.customer_name || ""}`,
       created_at: row.conversation_date || row.created_at,
-      status: row.status || "active",
+      status: row.status || RECORD_STATUS.APPROVED,
     } as PointLedgerRecord);
   }
   
@@ -344,7 +345,7 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(points),
       reason: `صنف راكد: ${row.medicine_name || ""}`,
       created_at: row.created_at,
-      status: row.status || "active",
+      status: row.status || RECORD_STATUS.APPROVED,
     } as PointLedgerRecord);
   }
   
@@ -362,7 +363,7 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(points),
       reason: `صنف حافز: ${row.medicine_name || ""}`,
       created_at: row.created_at,
-      status: row.status || "active",
+      status: row.status || RECORD_STATUS.APPROVED,
     } as PointLedgerRecord);
   }
   
@@ -404,7 +405,7 @@ export async function getStaffIncentiveSummaryForCycle(args: {
       points: Math.abs(row.points || 0),
       reason: row.reason || row.description || "",
       created_at: row.created_at,
-      status: row.status || "active",
+      status: row.status || RECORD_STATUS.APPROVED,
     } as PointLedgerRecord);
   }
   
@@ -421,7 +422,7 @@ export async function getStaffIncentiveSummaryForCycle(args: {
       points: Math.abs(row.points_delta || row.points || 0),
       reason: row.reason || "",
       created_at: row.created_at,
-      status: row.status || "active",
+      status: row.status || RECORD_STATUS.APPROVED,
     } as PointLedgerRecord);
   }
   
@@ -438,7 +439,7 @@ export async function getStaffIncentiveSummaryForCycle(args: {
       points: Math.abs(row.points_delta || row.points || 0),
       reason: row.reason || "",
       created_at: row.created_at,
-      status: row.status || "active",
+      status: row.status || RECORD_STATUS.APPROVED,
     } as PointLedgerRecord);
   }
   

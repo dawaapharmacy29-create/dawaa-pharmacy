@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { CUSTOMER_SEGMENT_THRESHOLDS } from "@/lib/constants";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -79,11 +80,18 @@ export function matchesOrderedSegments(haystack: string, needleRaw: string): boo
   return true;
 }
 
+/**
+ * تصنيف العميل بناءً على متوسطه الشهري.
+ * يستخدم CUSTOMER_SEGMENT_THRESHOLDS من constants.ts — لا ترقام صلبة هنا.
+ */
 export function classifyCustomer(avgMonthly: number): { label: string; color: string; bg: string } {
   avgMonthly = toNumber(avgMonthly);
-  if (avgMonthly >= 8000) return { label: "مهم جدًا", color: "text-purple-400", bg: "bg-purple-500/15 border-purple-500/25" };
-  if (avgMonthly >= 4000) return { label: "مهم", color: "text-amber-400", bg: "bg-amber-500/15 border-amber-500/25" };
-  if (avgMonthly >= 1500) return { label: "متوسط", color: "text-blue-400", bg: "bg-blue-500/15 border-blue-500/25" };
+  if (avgMonthly >= CUSTOMER_SEGMENT_THRESHOLDS.VERY_IMPORTANT)
+    return { label: "مهم جدًا", color: "text-purple-400", bg: "bg-purple-500/15 border-purple-500/25" };
+  if (avgMonthly >= CUSTOMER_SEGMENT_THRESHOLDS.IMPORTANT)
+    return { label: "مهم", color: "text-amber-400", bg: "bg-amber-500/15 border-amber-500/25" };
+  if (avgMonthly >= CUSTOMER_SEGMENT_THRESHOLDS.MEDIUM)
+    return { label: "متوسط", color: "text-blue-400", bg: "bg-blue-500/15 border-blue-500/25" };
   return { label: "عادي", color: "text-slate-400", bg: "bg-slate-500/15 border-slate-500/25" };
 }
 
@@ -99,16 +107,70 @@ export function isCurrentlyOnShift(startTime: string, endTime: string): boolean 
   if (endMinutes > startMinutes) {
     return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
   }
+  // overnight shift
   return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
 }
 
-export function toNumber(value: unknown, fallback = 0): number {
-  const numberValue = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(numberValue) ? numberValue : fallback;
+export function toNumber(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
 }
 
-export function percent(value: unknown, total: unknown): number {
-  const safeTotal = toNumber(total);
-  if (safeTotal <= 0) return 0;
-  return Math.max(0, Math.min(100, (toNumber(value) / safeTotal) * 100));
+export function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+export function groupBy<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {
+  return arr.reduce<Record<string, T[]>>((acc, item) => {
+    const k = key(item);
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(item);
+    return acc;
+  }, {});
+}
+
+export function unique<T>(arr: T[]): T[] {
+  return [...new Set(arr)];
+}
+
+export function uniqueBy<T>(arr: T[], key: (item: T) => unknown): T[] {
+  const seen = new Set();
+  return arr.filter((item) => {
+    const k = key(item);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+export function sumBy<T>(arr: T[], key: (item: T) => number): number {
+  return arr.reduce((sum, item) => sum + toNumber(key(item)), 0);
+}
+
+export function sortBy<T>(arr: T[], key: (item: T) => number | string, direction: "asc" | "desc" = "asc"): T[] {
+  return [...arr].sort((a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    const cmp = ka < kb ? -1 : ka > kb ? 1 : 0;
+    return direction === "asc" ? cmp : -cmp;
+  });
+}
+
+export function truncate(str: string, maxLength: number): string {
+  if (!str) return "";
+  if (str.length <= maxLength) return str;
+  return str.slice(0, maxLength - 1) + "…";
+}
+
+export function isArabic(str: string): boolean {
+  return /[\u0600-\u06FF]/.test(str);
+}
+
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function percent(value: number, total: number, decimals = 1): number {
+  if (!total) return 0;
+  return parseFloat(((value / total) * 100).toFixed(decimals));
 }

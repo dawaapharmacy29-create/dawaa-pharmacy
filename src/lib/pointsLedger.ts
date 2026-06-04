@@ -1,7 +1,7 @@
 import type { PharmacyCycle } from "@/lib/pharmacy-cycle";
 import { isDateInCycle } from "@/lib/pharmacy-cycle";
 import { monthCycleFromDate } from "@/lib/conversationReviews";
-import { INITIAL_POINTS } from "@/lib/constants";
+import { INITIAL_POINTS, RECORD_STATUS } from "@/lib/constants";
 
 export interface PointLedgerRecord {
   id?: string | null;
@@ -88,7 +88,7 @@ export function pointRecordStatus(row: PointLedgerRecord) {
     .replace("مرفوض", "rejected")
     .replace("ملغي", "cancelled")
     .replace("ملغى", "cancelled");
-  if (status === "active") return "approved";
+  if (status === RECORD_STATUS.APPROVED || status === "active") return RECORD_STATUS.APPROVED;
   if (status === "cancelled") return "rejected";
   return status;
 }

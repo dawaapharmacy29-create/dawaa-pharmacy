@@ -1,3 +1,4 @@
+import { RECORD_STATUS } from "@/lib/constants";
 import { getCurrentCycle, getCycleForDate } from "@/lib/pharmacy-cycle";
 import {
   formatMoney,
@@ -154,7 +155,7 @@ export function computeStaffPerformance2027(args: {
   const monthlyTransactions = (args.transactions || []).filter((row) => {
     const status = String(row.status || "approved");
     const date = row.transaction_date || row.created_at;
-    return (status === "approved" || status === "active" || status === "") && String(row.staff_id || row.employee_id || "") === staffId && isDateInsideCurrentCycle(String(date || ""));
+    return (status === RECORD_STATUS.APPROVED || status === "active" || status === "") && String(row.staff_id || row.employee_id || "") === staffId && isDateInsideCurrentCycle(String(date || ""));
   });
   const signed = monthlyTransactions.map(getTransactionSignedPoints);
   const rewardPoints = signed.filter((n) => n > 0).reduce((a, b) => a + b, 0);

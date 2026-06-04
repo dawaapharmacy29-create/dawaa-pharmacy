@@ -22,15 +22,38 @@ export default defineConfig(({ mode }) => ({
         drop_debugger: true,
       },
     },
-    // تقسيم الـ chunks لتحسين التحميل
+    // تقسيم الـ chunks لتحسين التحميل الأول
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ["react", "react-dom", "react-router-dom"],
-          supabase: ["@supabase/supabase-js"],
-          ui: ["sonner", "lucide-react"],
+        manualChunks(id) {
+          // مكتبات React الأساسية — دايماً محتاجينها
+          if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/") || id.includes("node_modules/react-router-dom/")) {
+            return "vendor-react";
+          }
+          // Supabase — كبير وما بيتغيرش كثير
+          if (id.includes("node_modules/@supabase/")) {
+            return "vendor-supabase";
+          }
+          // Recharts — مكتبة الرسوم البيانية ضخمة
+          if (id.includes("node_modules/recharts") || id.includes("node_modules/d3-")) {
+            return "vendor-charts";
+          }
+          // XLSX — مكتبة الإكسل ضخمة جداً
+          if (id.includes("node_modules/xlsx")) {
+            return "vendor-xlsx";
+          }
+          // UI — مكتبات الواجهة الصغيرة
+          if (id.includes("node_modules/sonner") || id.includes("node_modules/lucide-react")) {
+            return "vendor-ui";
+          }
+          // clsx / tailwind-merge / class-variance-authority
+          if (id.includes("node_modules/clsx") || id.includes("node_modules/tailwind-merge") || id.includes("node_modules/class-variance-authority")) {
+            return "vendor-utils";
+          }
         },
       },
     },
+    // تحذير عند حجم chunk كبير
+    chunkSizeWarningLimit: 600,
   },
 }));

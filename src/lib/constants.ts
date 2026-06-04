@@ -40,3 +40,37 @@ export const ARABIC_MONTHS = [
 
 export const APP_2027_NAME = "Dawaa Pharmacy 2027";
 export const APP_2027_TAGLINE = "نظام تشغيل الصيدلية الذكي";
+
+// ─── ثوابت تصنيف العملاء ────────────────────────────────────────────────────
+// استخدم هذه القيم في كل مكان بدلاً من الأرقام الصلبة (hardcoded)
+export const CUSTOMER_SEGMENT_THRESHOLDS = {
+  /** حد "مهم جدًا" — متوسط شهري أعلى من هذا الرقم */
+  VERY_IMPORTANT: 8000,
+  /** حد "مهم" — بين IMPORTANT و VERY_IMPORTANT */
+  IMPORTANT: 4000,
+  /** حد "متوسط" — بين MEDIUM و IMPORTANT */
+  MEDIUM: 1500,
+} as const;
+
+export const CUSTOMER_RETENTION_DAYS = {
+  /** عدد أيام عدم الشراء لاعتبار العميل "نشط" */
+  ACTIVE: 45,
+  /** عدد أيام عدم الشراء لاعتبار العميل "مهدد بالتوقف" */
+  AT_RISK: 90,
+  /** عدد أيام من أول شراء لاعتبار العميل "جديد" */
+  NEW: 30,
+} as const;
+
+// ─── ثوابت حالات السجلات ─────────────────────────────────────────────────────
+/** حالات سجلات النقاط والجزاءات والحوافز — استخدم دائماً هذه القيم */
+export const RECORD_STATUS = {
+  APPROVED: "approved",
+  PENDING: "pending",
+  REJECTED: "rejected",
+} as const;
+export type RecordStatus = typeof RECORD_STATUS[keyof typeof RECORD_STATUS];
+
+// ─── ثوابت البحث ─────────────────────────────────────────────────────────────
+export const SEARCH_DEBOUNCE_MS = 750;
+export const DEFAULT_PAGE_SIZE = 30;
+export const MAX_PAGE_SIZE = 100;

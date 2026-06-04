@@ -11,6 +11,7 @@ import { getCycleForDate } from "@/lib/pharmacy-cycle";
 import { getShiftFromDateTime } from "@/lib/analyticsFromInvoices";
 import { invalidateInvoiceCache } from "@/lib/salesInvoiceSource";
 import { normalizeName } from "@/lib/utils";
+import { CUSTOMER_SEGMENT_THRESHOLDS } from "@/lib/constants";
 import { clearExecutiveDashboardCache } from "@/lib/executiveDashboardDataService";
 import { clearSalesAnalyticsSummaryCache } from "@/lib/salesAnalyticsSummaryService";
 import { clearCustomerProfileCache } from "@/lib/customerProfileService";
@@ -502,9 +503,9 @@ function normalizeBranch(rawBranch: string, fallback: string) {
 }
 
 function classifyByAvg(avg: number): string {
-  if (avg >= 8000) return "مهم جدًا";
-  if (avg >= 4000) return "مهم";
-  if (avg >= 1500) return "متوسط";
+  if (avg >= CUSTOMER_SEGMENT_THRESHOLDS.VERY_IMPORTANT) return "مهم جدًا";
+  if (avg >= CUSTOMER_SEGMENT_THRESHOLDS.IMPORTANT) return "مهم";
+  if (avg >= CUSTOMER_SEGMENT_THRESHOLDS.MEDIUM) return "متوسط";
   return "عادي";
 }
 
