@@ -1,7 +1,7 @@
 {
   "framework": "vite",
-  "installCommand": "npm install -g npm@10.9.2 && npm install --legacy-peer-deps --no-audit --no-fund",
-  "buildCommand": "npm run build",
+  "installCommand": "corepack enable && corepack prepare pnpm@10.14.0 --activate && pnpm install --no-frozen-lockfile",
+  "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
   "rewrites": [
     {
