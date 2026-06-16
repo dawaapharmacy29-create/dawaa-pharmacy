@@ -1,7 +1,7 @@
 {
   "framework": "vite",
-  "installCommand": "rm -rf node_modules && corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --no-frozen-lockfile",
-  "buildCommand": "pnpm run build",
+  "installCommand": "rm -rf node_modules && npm install -g yarn@1.22.22 && yarn install --ignore-engines --non-interactive --network-timeout 600000",
+  "buildCommand": "yarn build",
   "outputDirectory": "dist",
   "rewrites": [
     {
