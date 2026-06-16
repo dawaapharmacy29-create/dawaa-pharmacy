@@ -1,7 +1,8 @@
 {
+  "framework": "vite",
+  "installCommand": "npm install --legacy-peer-deps --no-audit --no-fund",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": "vite",
   "rewrites": [
     {
       "source": "/(.*)",
@@ -18,6 +19,5 @@
         }
       ]
     }
-  ],
-  "installCommand": "npm ci --legacy-peer-deps --no-audit --no-fund"
+  ]
 }
