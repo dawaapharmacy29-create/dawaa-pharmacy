@@ -23,6 +23,7 @@ import { friendlySupabaseError, logSupabaseError } from "@/lib/supabaseError";
 import { TABLES } from "@/lib/supabaseTables";
 import { createStaff, updateStaff, createStaffAccount } from "@/services/staffService";
 import { replaceStaffShiftSchedules } from "@/services/shiftScheduleService";
+import { fetchCurrentShiftPresence, type ShiftPresencePerson } from "@/lib/attendance/currentShiftPresenceService";
 
 interface Employee {
   id: string;
@@ -74,6 +75,28 @@ interface EmployeeTransaction {
   status?: string | null;
 }
 
+type LiveShiftRow = {
+  id: string;
+  name: string;
+  role: string;
+  branch: string;
+  shift_start?: string | null;
+  shift_end?: string | null;
+  attendance_status?: string | null;
+};
+
+function fromPresence(person: ShiftPresencePerson): LiveShiftRow {
+  return {
+    id: person.id,
+    name: person.name,
+    role: person.role,
+    branch: person.branch,
+    shift_start: person.shift_start,
+    shift_end: person.shift_end,
+    attendance_status: person.attendance_status,
+  };
+}
+
 function transactionPoints(row: Pick<EmployeeTransaction, "points" | "points_delta">) {
   return Math.abs(pointRecordDelta(row));
 }
@@ -112,6 +135,22 @@ export default function Team() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [viewing, setViewing] = useState<Employee | null>(null);
+  const [livePresence, setLivePresence] = useState<{ doctors: LiveShiftRow[]; assistants: LiveShiftRow[]; delivery: LiveShiftRow[]; total: number; debug?: string } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchCurrentShiftPresence().then((presence) => {
+      if (!mounted) return;
+      setLivePresence({
+        doctors: presence.doctors.map(fromPresence),
+        assistants: presence.assistants.map(fromPresence),
+        delivery: presence.delivery.map(fromPresence),
+        total: presence.total,
+        debug: presence.debug ? `${presence.debug.todayArabic} — ${presence.debug.fetchedShiftCount} شيفت / ${presence.debug.attendanceCount} حضور — ${presence.debug.source}` : undefined,
+      });
+    }).catch(() => { if (mounted) setLivePresence(null); });
+    return () => { mounted = false; };
+  }, []);
 
   const { data: staffRows, loading, refetch } = useStaff<Employee>();
   const employees = useMemo(() => mergeStaffChoices(filterActiveStaffRows(staffRows)), [staffRows]);
@@ -151,6 +190,16 @@ export default function Team() {
   const assistants = onShiftNow.filter(e => e.role === "مساعد");
   const deliveryNow = onShiftNow.filter(e => e.role === "توصيل");
 
+  const liveCards = livePresence?.total ? [
+    { title: "صيادلة على الشيفت", list: livePresence.doctors, color: "teal" },
+    { title: "مساعدون على الشيفت", list: livePresence.assistants, color: "blue" },
+    { title: "توصيل على الشيفت", list: livePresence.delivery, color: "amber" },
+  ] : [
+    { title: "صيادلة على الشيفت", list: doctors as LiveShiftRow[], color: "teal" },
+    { title: "مساعدون على الشيفت", list: assistants as LiveShiftRow[], color: "blue" },
+    { title: "توصيل على الشيفت", list: deliveryNow as LiveShiftRow[], color: "amber" },
+  ];
+
   const roles = [...new Set(employees.map(e => e.role))];
   const branchRankings = useMemo(() => {
     const uniqueEmployees = uniqueEmployeesByIdentity(employees);
@@ -173,11 +222,7 @@ export default function Team() {
     <div className="space-y-5">
       {/* Live Status */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { title: "صيادلة على الشيفت", list: doctors, color: "teal" },
-          { title: "مساعدون على الشيفت", list: assistants, color: "blue" },
-          { title: "توصيل على الشيفت", list: deliveryNow, color: "amber" },
-        ].map(({ title, list, color }) => (
+        {liveCards.map(({ title, list, color }) => (
           <div key={title} className="stat-card">
             <div className="flex items-center justify-between mb-3">
               <div className="section-title text-sm">{title}</div>
@@ -190,13 +235,18 @@ export default function Team() {
                 <div key={e.id} className="flex items-center gap-2.5">
                   <div className={`w-2 h-2 rounded-full ${color === "teal" ? "bg-teal-400" : color === "blue" ? "bg-blue-400" : "bg-amber-400"} animate-pulse-soft`} />
                   <span className="text-white text-xs font-medium">{e.name}</span>
-                  <span className="text-slate-400 text-xs mr-auto">{todayShift(e)?.shift_start || "-"}–{todayShift(e)?.shift_end || "-"}</span>
+                  <span className="text-slate-400 text-xs mr-auto">{e.shift_start || "-"}–{e.shift_end || "-"}</span><span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-slate-300">{e.attendance_status || "مجدول"}</span>
                 </div>
               ))}
             </div>
           </div>
         ))}
       </div>
+      {livePresence?.debug && (
+        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-xs font-bold text-cyan-100">
+          مصدر جدول الشيفت: {livePresence.debug}. يتم عرض المجدولين حتى لو لم يبصموا.
+        </div>
+      )}
 
       <div className="stat-card space-y-4">
         <div className="section-title text-sm">ترتيب الفريق حسب الفروع</div>

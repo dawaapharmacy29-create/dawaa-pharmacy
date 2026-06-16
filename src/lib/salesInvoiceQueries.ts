@@ -19,31 +19,31 @@ import { cacheGet, cacheSet, invoiceCacheKey } from "@/lib/invoiceCache";
 
 /** Minimal fields for dashboard KPIs */
 export const INVOICE_SELECT_KPI =
-  "invoice_date, net_amount, discounted_amount, amount, branch, seller_name, customer_code";
+  "invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, branch, seller_name, customer_code";
 
 /** Fields needed for staff performance matching */
 export const INVOICE_SELECT_STAFF =
-  "id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, " +
+  "id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, " +
   "branch, seller_name, customer_code, customer_phone, customer_name, " +
   "invoice_type, shift";
 
 /** Full fields including optional columns */
 export const INVOICE_SELECT_FULL =
-  "id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, " +
+  "id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, " +
   "branch, seller_name, customer_code, customer_phone, customer_name, " +
   "customer_address, customer_segment, customer_type, invoice_type, invoice_category, shift, " +
   "customer_id";
 
 /** Fields for customer-specific queries */
 export const INVOICE_SELECT_CUSTOMER =
-  "id, invoice_number, invoice_date, net_amount, discounted_amount, amount, " +
+  "id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, " +
   "customer_name, customer_code, customer_phone, branch, seller_name, invoice_type";
 
 export const INVOICE_SELECT_TRUTH_OPTIONS = [
-  "id,invoice_no,invoice_number,invoice_date,branch,net_amount,discounted_amount,amount,gross_amount,customer_code,customer_name,seller_name",
-  "id,invoice_no,invoice_number,invoice_date,branch,discounted_amount,amount,gross_amount,customer_code,customer_name,seller_name",
-  "id,invoice_no,invoice_number,invoice_date,branch,amount,gross_amount,customer_code,customer_name,seller_name",
-  "id,invoice_date,branch,amount,customer_code,customer_name,seller_name",
+  "id,invoice_no,invoice_number,invoice_date,branch,net_amount,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_name,seller_name",
+  "id,invoice_no,invoice_number,invoice_date,branch,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_name,seller_name",
+  "id,invoice_no,invoice_number,invoice_date,branch,amount,gross_amount,total_amount,customer_code,customer_name,seller_name",
+  "id,invoice_date,branch,amount,total_amount,customer_code,customer_name,seller_name",
 ];
 
 export type SalesInvoiceQueryRow = Record<string, unknown>;

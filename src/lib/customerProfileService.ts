@@ -240,7 +240,7 @@ function mapInvoice(row: Row): CustomerInvoiceSummary {
   return {
     invoice_number: getInvoiceKey(row) || null,
     invoice_date: readFirst(row, ["invoice_date", "invoice_datetime", "created_at"], null) as string | null,
-    amount: safeNumber(readFirst(row, ["net_amount", "discounted_amount", "amount", "gross_amount"], 0)),
+    amount: safeNumber(readFirst(row, ["net_amount", "discounted_amount", "amount", "gross_amount", "total_amount"], 0)),
     seller_name: readFirst(row, ["seller_name"], null) as string | null,
     branch: normalizeBranchName(readFirst(row, ["branch"], null)),
   };
@@ -267,7 +267,7 @@ function buildTrend(rows: Row[]): MonthlyPurchaseTrendRow[] {
     if (!month) continue;
     const current = byMonth.get(month) || { invoicesCount: 0, netTotal: 0 };
     current.invoicesCount += 1;
-    current.netTotal += safeNumber(readFirst(row, ["net_amount", "discounted_amount", "amount", "gross_amount"], 0));
+    current.netTotal += safeNumber(readFirst(row, ["net_amount", "discounted_amount", "amount", "gross_amount", "total_amount"], 0));
     byMonth.set(month, current);
   }
   return [...byMonth.entries()]
@@ -425,7 +425,7 @@ export async function getCustomerFullProfile(params: CustomerFullProfileParams):
       const query = withAbort(
         supabase
           .from("sales_invoices")
-          .select("id,invoice_no,invoice_number,invoice_date,net_amount,discounted_amount,amount,gross_amount,seller_name,branch,customer_code,customer_phone,customer_name")
+          .select("id,invoice_no,invoice_number,invoice_date,net_amount,discounted_amount,amount,gross_amount,total_amount,seller_name,branch,customer_code,customer_phone,customer_name")
           .or(invoiceClauses)
           .order("invoice_date", { ascending: false })
           .limit(10),
@@ -455,7 +455,7 @@ export async function getCustomerFullProfile(params: CustomerFullProfileParams):
       const query = withAbort(
         supabase
           .from("sales_invoices")
-          .select("invoice_date,net_amount,discounted_amount,amount,gross_amount,customer_code,customer_phone,customer_name")
+          .select("invoice_date,net_amount,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_phone,customer_name")
           .or(invoiceClauses)
           .order("invoice_date", { ascending: false })
           .limit(180),

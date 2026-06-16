@@ -15,6 +15,8 @@ import {
   Star,
   Trash2,
   User,
+  Users,
+  Wallet,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { isSupabaseConfigured } from "@/lib/supabase";
@@ -35,9 +37,17 @@ interface RatingSection {
 
 interface StaffEval {
   id: string;
+  staff_id?: string | null;
   name: string;
+  role?: string | null;
+  branch?: string | null;
+  shift_start?: string | null;
+  shift_end?: string | null;
   rating: "ممتاز" | "جيد" | "مقبول" | "ضعيف";
   note: string;
+  action_type?: "none" | "notice" | "deduction" | "reward";
+  points_delta?: number;
+  money_amount?: number;
 }
 
 interface ActionItem {
@@ -96,7 +106,21 @@ function newActionItem(): ActionItem {
 }
 
 function newStaffEval(): StaffEval {
-  return { id: crypto.randomUUID(), name: "", rating: "جيد", note: "" };
+  return { id: crypto.randomUUID(), name: "", rating: "جيد", note: "", action_type: "none", points_delta: 0, money_amount: 0 };
+}
+
+function arabicDayName(dateText: string) {
+  const names = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+  const date = new Date(`${dateText}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return names[new Date().getDay()];
+  return names[date.getDay()];
+}
+
+function actionImpact(action?: StaffEval["action_type"]) {
+  if (action === "deduction") return { points: -10, money: 0, label: "خصم نقاط" };
+  if (action === "reward") return { points: 10, money: 0, label: "مكافأة نقاط" };
+  if (action === "notice") return { points: -3, money: 0, label: "لفت نظر" };
+  return { points: 0, money: 0, label: "بدون إجراء" };
 }
 
 // ─── Star Rating ──────────────────────────────────────────────────────────────
@@ -192,6 +216,44 @@ export default function BranchInspection() {
       });
   }, [showHistory, form.branch]);
 
+  // Load scheduled staff for selected branch/date from weekly shift_schedules
+  useEffect(() => {
+    if (!isSupabaseConfigured || !form.branch || !form.date) return;
+    const dayName = arabicDayName(form.date);
+    supabase
+      .from("shift_schedules")
+      .select("id,staff_id,staff_name,role,branch,day_name,shift_start,shift_end,start_time,end_time,is_off,status")
+      .eq("branch", form.branch)
+      .eq("day_name", dayName)
+      .limit(120)
+      .then(({ data }) => {
+        const rows = (data || []) as Array<Record<string, any>>;
+        const active = rows.filter((row) => !row.is_off && !String(row.status || "").includes("إجاز"));
+        if (!active.length) return;
+        setForm((prev) => {
+          const typed = prev.staff_evals.filter((row) => row.name && !row.staff_id);
+          const mapped = active.map((row) => {
+            const existing = prev.staff_evals.find((x) => (x.staff_id && x.staff_id === row.staff_id) || (!x.staff_id && x.name === row.staff_name));
+            return {
+              id: existing?.id || String(row.id || crypto.randomUUID()),
+              staff_id: row.staff_id || null,
+              name: row.staff_name || row.name || "موظف غير محدد",
+              role: row.role || null,
+              branch: row.branch || form.branch,
+              shift_start: row.shift_start || row.start_time || null,
+              shift_end: row.shift_end || row.end_time || null,
+              rating: existing?.rating || "جيد",
+              note: existing?.note || "",
+              action_type: existing?.action_type || "none",
+              points_delta: existing?.points_delta ?? actionImpact(existing?.action_type || "none").points,
+              money_amount: existing?.money_amount ?? 0,
+            } as StaffEval;
+          });
+          return { ...prev, staff_evals: [...mapped, ...typed] };
+        });
+      });
+  }, [form.branch, form.date]);
+
   // Section update helpers
   const updateSection = useCallback((key: string, field: keyof RatingSection, value: unknown) => {
     setForm((prev) => ({
@@ -202,8 +264,17 @@ export default function BranchInspection() {
 
   const addStaffEval = () => setForm((prev) => ({ ...prev, staff_evals: [...prev.staff_evals, newStaffEval()] }));
   const removeStaffEval = (id: string) => setForm((prev) => ({ ...prev, staff_evals: prev.staff_evals.filter((e) => e.id !== id) }));
-  const updateStaffEval = (id: string, field: keyof StaffEval, value: string) => {
-    setForm((prev) => ({ ...prev, staff_evals: prev.staff_evals.map((e) => e.id === id ? { ...e, [field]: value } : e) }));
+  const updateStaffEval = (id: string, field: keyof StaffEval, value: string | number) => {
+    setForm((prev) => ({ ...prev, staff_evals: prev.staff_evals.map((e) => {
+      if (e.id !== id) return e;
+      const next = { ...e, [field]: value } as StaffEval;
+      if (field === "action_type") {
+        const impact = actionImpact(value as StaffEval["action_type"]);
+        next.points_delta = impact.points;
+        next.money_amount = impact.money;
+      }
+      return next;
+    }) }));
   };
 
   const addAction = () => setForm((prev) => ({ ...prev, action_items: [...prev.action_items, newActionItem()] }));
@@ -235,8 +306,47 @@ export default function BranchInspection() {
         created_at: new Date().toISOString(),
       };
       if (isSupabaseConfigured) {
-        const { error } = await supabase.from("branch_inspections").insert(payload);
+        const { data: reportRows, error } = await supabase.from("branch_inspections").insert(payload).select("id").limit(1);
         if (error) throw error;
+        const reportId = (reportRows?.[0] as any)?.id || null;
+
+        if (reportId && form.staff_evals.length) {
+          await supabase.from("branch_visit_staff_reviews").insert(form.staff_evals.map((ev) => ({
+            report_id: reportId,
+            staff_id: ev.staff_id || null,
+            staff_name: ev.name,
+            role: ev.role || null,
+            branch: ev.branch || form.branch,
+            shift_start: ev.shift_start || null,
+            shift_end: ev.shift_end || null,
+            rating: ev.rating,
+            note: ev.note || null,
+            action_type: ev.action_type || "none",
+            points_delta: ev.points_delta || 0,
+            money_amount: ev.money_amount || 0,
+            created_by_name: form.inspector_name || user?.name || null,
+          }))).then(() => undefined);
+
+          const pointRows = form.staff_evals
+            .filter((ev) => ev.staff_id && Number(ev.points_delta || 0) !== 0)
+            .map((ev) => ({
+              staff_id: ev.staff_id,
+              staff_name: ev.name,
+              branch: ev.branch || form.branch,
+              points_delta: ev.points_delta || 0,
+              points: ev.points_delta || 0,
+              type: Number(ev.points_delta || 0) > 0 ? "reward" : "deduction",
+              reason: `مرور مدير الفروع - ${actionImpact(ev.action_type).label}`,
+              description: ev.note || form.overall_notes || "تقييم مرور مدير الفروع",
+              source: "branch_visit",
+              source_id: reportId,
+              status: "approved",
+              created_by_name: form.inspector_name || user?.name || null,
+            }));
+          if (pointRows.length) {
+            await supabase.from("points_transactions").insert(pointRows).then(() => undefined);
+          }
+        }
       }
       setSaved(true);
       toast.success("تم حفظ نموذج المرور بنجاح ✅");
@@ -447,18 +557,22 @@ export default function BranchInspection() {
         </div>
 
         {form.staff_evals.length === 0 && (
-          <p className="text-sm text-slate-500 italic text-center py-4">لم يتم إضافة تقييمات موظفين بعد — اضغط "إضافة موظف"</p>
+          <p className="text-sm text-slate-500 italic text-center py-4">يتم تحميل موظفي الشيفت تلقائيًا من جدول الشيفتات حسب الفرع واليوم. يمكن إضافة موظف يدويًا عند الحاجة.</p>
         )}
 
         {form.staff_evals.map((ev) => (
           <div key={ev.id} className="rounded-2xl border border-slate-700/40 bg-slate-900/50 p-4 space-y-3">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 lg:grid-cols-6">
               <input
                 value={ev.name}
                 onChange={(e) => updateStaffEval(ev.id, "name", e.target.value)}
                 placeholder="اسم الموظف"
-                className="rounded-xl border border-slate-600 bg-slate-800/70 px-3 py-2 text-sm font-bold text-white placeholder:text-slate-600 focus:border-cyan-400 focus:outline-none"
+                className="rounded-xl border border-slate-600 bg-slate-800/70 px-3 py-2 text-sm font-bold text-white placeholder:text-slate-600 focus:border-cyan-400 focus:outline-none lg:col-span-2"
               />
+              <div className="rounded-xl border border-slate-700 bg-slate-950/30 px-3 py-2 text-xs font-bold text-slate-300">
+                <Users className="inline h-3 w-3 ml-1 text-cyan-300" />{ev.role || "دور غير محدد"}<br />
+                <span className="text-slate-500">{ev.shift_start || "-"} → {ev.shift_end || "-"}</span>
+              </div>
               <select
                 value={ev.rating}
                 onChange={(e) => updateStaffEval(ev.id, "rating", e.target.value)}
@@ -466,18 +580,37 @@ export default function BranchInspection() {
               >
                 {(["ممتاز", "جيد", "مقبول", "ضعيف"] as const).map((r) => <option key={r}>{r}</option>)}
               </select>
+              <select
+                value={ev.action_type || "none"}
+                onChange={(e) => updateStaffEval(ev.id, "action_type", e.target.value)}
+                className="rounded-xl border border-slate-600 bg-slate-800/70 px-3 py-2 text-sm font-bold text-white focus:border-cyan-400 focus:outline-none"
+              >
+                <option value="none">بدون إجراء</option>
+                <option value="notice">لفت نظر</option>
+                <option value="deduction">خصم نقاط</option>
+                <option value="reward">مكافأة نقاط</option>
+              </select>
               <button onClick={() => removeStaffEval(ev.id)} className="flex items-center justify-center gap-1 rounded-xl border border-red-400/20 bg-red-500/10 py-2 text-sm text-red-300 hover:bg-red-500/20">
                 <Trash2 className="h-4 w-4" />
                 حذف
               </button>
             </div>
-            <textarea
-              value={ev.note}
-              onChange={(e) => updateStaffEval(ev.id, "note", e.target.value)}
-              placeholder="ملاحظة عن هذا الموظف (اختياري)"
-              rows={2}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800/70 px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-cyan-400 focus:outline-none resize-none"
-            />
+            <div className="grid gap-3 md:grid-cols-[1fr_120px_120px]">
+              <textarea
+                value={ev.note}
+                onChange={(e) => updateStaffEval(ev.id, "note", e.target.value)}
+                placeholder="ملاحظة عن هذا الموظف أو سبب الإجراء"
+                rows={2}
+                className="w-full rounded-xl border border-slate-600 bg-slate-800/70 px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-cyan-400 focus:outline-none resize-none"
+              />
+              <label className="text-xs font-bold text-slate-400">نقاط
+                <input type="number" value={ev.points_delta || 0} onChange={(e) => updateStaffEval(ev.id, "points_delta", Number(e.target.value))} className="mt-1 w-full rounded-xl border border-slate-600 bg-slate-800/70 px-3 py-2 text-sm text-white" />
+              </label>
+              <label className="text-xs font-bold text-slate-400">قيمة مالية
+                <input type="number" value={ev.money_amount || 0} onChange={(e) => updateStaffEval(ev.id, "money_amount", Number(e.target.value))} className="mt-1 w-full rounded-xl border border-slate-600 bg-slate-800/70 px-3 py-2 text-sm text-white" />
+              </label>
+            </div>
+            {Number(ev.points_delta || 0) !== 0 && <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-100"><Wallet className="inline h-3 w-3 ml-1" />سيتم تسجيل أثر نقاط مرتبط بتقرير المرور عند الحفظ.</div>}
           </div>
         ))}
       </div>

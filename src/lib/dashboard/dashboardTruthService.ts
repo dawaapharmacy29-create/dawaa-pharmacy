@@ -14,6 +14,7 @@ export type DashboardInvoiceRow = {
   net_amount?: number | string | null;
   discounted_amount?: number | string | null;
   gross_amount?: number | string | null;
+  total_amount?: number | string | null;
   customer_code?: string | number | null;
   customer_name?: string | null;
   seller_name?: string | null;
@@ -75,7 +76,7 @@ export function dashboardNumber(value: unknown) {
 }
 
 export function dashboardInvoiceAmount(row: DashboardInvoiceRow) {
-  return dashboardNumber(row.net_amount ?? row.discounted_amount ?? row.amount ?? row.gross_amount);
+  return dashboardNumber(row.net_amount ?? row.discounted_amount ?? row.amount ?? row.gross_amount ?? row.total_amount);
 }
 
 function invoiceDate(row: DashboardInvoiceRow) {

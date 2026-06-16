@@ -7,6 +7,7 @@ import {
   formatDateArabic,
 } from "@/lib/customerProfileService";
 import { buildCustomerTimeline } from "@/lib/customerTimeline";
+import { addCustomerSpecialItem, deleteCustomerSpecialItem, fetchCustomerSpecialItems, type CustomerSpecialItem } from "@/lib/customers/customerSpecialItemsService";
 import { normalizeBranchName } from "@/lib/branch";
 import {
   ArrowRight,
@@ -159,7 +160,9 @@ export default function Customer360() {
   const [activeTab, setActiveTab] = useState<"timeline" | "invoices" | "followups">("timeline");
   const [specialItemName, setSpecialItemName] = useState("");
   const [specialItemNotes, setSpecialItemNotes] = useState("");
-  const [specialItems, setSpecialItems] = useState<Array<{ id: string; name: string; notes: string; createdAt: string }>>([]);
+  const [specialItems, setSpecialItems] = useState<CustomerSpecialItem[]>([]);
+  const [specialItemsSource, setSpecialItemsSource] = useState<"supabase" | "local">("local");
+  const [specialItemsWarning, setSpecialItemsWarning] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -219,28 +222,42 @@ export default function Customer360() {
   const allInvoices = profile?.latestInvoices ?? [];
   const allFollowups = profile?.latestFollowups ?? [];
 
+  const specialIdentity = useMemo(() => ({
+    customer_id: customerId || (p?.id as string | undefined) || null,
+    customer_code: displayCode || null,
+    customer_phone: displayPhone2 || null,
+    customer_name: displayName || null,
+  }), [customerId, displayCode, displayPhone2, displayName, p]);
+
+  const loadSpecialItems = useCallback(async () => {
+    const result = await fetchCustomerSpecialItems(specialIdentity);
+    setSpecialItems(result.rows);
+    setSpecialItemsSource(result.source);
+    setSpecialItemsWarning(result.warning || null);
+  }, [specialIdentity]);
+
   useEffect(() => {
-    const key = displayCode || displayPhone2 || customerId || customerName || "unknown";
-    try {
-      const raw = window.localStorage.getItem(`dawaa_customer_special_items_${key}`);
-      setSpecialItems(raw ? JSON.parse(raw) : []);
-    } catch {
-      setSpecialItems([]);
-    }
-  }, [displayCode, displayPhone2, customerId, customerName]);
+    void loadSpecialItems();
+  }, [loadSpecialItems]);
 
-  function saveSpecialItems(next: Array<{ id: string; name: string; notes: string; createdAt: string }>) {
-    const key = displayCode || displayPhone2 || customerId || customerName || "unknown";
-    setSpecialItems(next);
-    window.localStorage.setItem(`dawaa_customer_special_items_${key}`, JSON.stringify(next));
-  }
-
-  function addSpecialItem() {
+  async function addSpecialItem() {
     const name = specialItemName.trim();
     if (!name) return;
-    saveSpecialItems([{ id: crypto.randomUUID(), name, notes: specialItemNotes.trim(), createdAt: new Date().toISOString() }, ...specialItems]);
+    const result = await addCustomerSpecialItem(specialIdentity, {
+      item_name: name,
+      notes: specialItemNotes.trim() || null,
+      importance_reason: specialItemNotes.trim() || null,
+      repeats_monthly: false,
+    });
+    setSpecialItems((current) => [result.row, ...current.filter((row) => row.id !== result.row.id)]);
+    setSpecialItemsSource(result.source);
     setSpecialItemName("");
     setSpecialItemNotes("");
+  }
+
+  async function removeSpecialItem(id: string) {
+    await deleteCustomerSpecialItem(specialIdentity, id);
+    setSpecialItems((current) => current.filter((row) => row.id !== id));
   }
 
   // ── loading & error states ──
@@ -582,15 +599,15 @@ export default function Customer360() {
             {specialItems.map((item) => (
               <div key={item.id} className="flex items-start justify-between gap-3 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-4">
                 <div>
-                  <div className="font-black text-[var(--theme-heading)]">{item.name}</div>
-                  {item.notes && <div className="mt-1 text-sm text-[var(--theme-muted)]">{item.notes}</div>}
-                  <div className="mt-1 text-[11px] font-bold text-[var(--theme-muted)]">تمت الإضافة: {formatDateArabic(item.createdAt)}</div>
+                  <div className="font-black text-[var(--theme-heading)]">{item.item_name}</div>
+                  {(item.importance_reason || item.notes) && <div className="mt-1 text-sm text-[var(--theme-muted)]">{item.importance_reason || item.notes}</div>}
+                  <div className="mt-1 text-[11px] font-bold text-[var(--theme-muted)]">تمت الإضافة: {formatDateArabic(item.created_at)}</div>
                 </div>
-                <button type="button" onClick={() => saveSpecialItems(specialItems.filter((x) => x.id !== item.id))} className="rounded-xl border border-red-500/30 p-2 text-red-300"><Trash2 size={15} /></button>
+                <button type="button" onClick={() => void removeSpecialItem(item.id)} className="rounded-xl border border-red-500/30 p-2 text-red-300"><Trash2 size={15} /></button>
               </div>
             ))}
           </div>
-          <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs font-bold text-amber-200">هذه النسخة تحفظ الأصناف المميزة محليًا لحين تشغيل جدول customer_special_items في Supabase. يمكن ترحيلها لاحقًا لقاعدة البيانات.</div>
+          <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs font-bold text-amber-200">مصدر الأصناف المميزة: {specialItemsSource === "supabase" ? "Supabase" : "تخزين محلي مؤقت"}{specialItemsWarning ? ` — ${specialItemsWarning}` : ""}</div>
         </Section>
 
         {/* ── recommendations ── */}
