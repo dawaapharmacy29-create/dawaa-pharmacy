@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { ALL_FILTER, type CustomerMetric } from "@/lib/api/customers";
@@ -33,13 +34,15 @@ import {
   type FollowupResultPayload,
   type FollowupRow,
 } from "@/lib/api/customerServiceCommandCenter";
-import { buildCustomerCareScript, chooseCustomerCareScriptType } from "@/lib/whatsappTemplates";
+import { buildCustomerCareScript, chooseCustomerCareScriptType, type CustomerCareScriptType } from "@/lib/whatsappTemplates";
 import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
 import { isValidEgyptPhone, getBestCustomerPhone } from "@/lib/customerAnalyticsService";
 import { getCustomerFullProfile, type CustomerFullProfile } from "@/lib/customerProfileService";
 import { normalizeBranchName } from "@/lib/branch";
+import { canSeeAllBranches, effectiveBranchFilter, scopeDescription } from "@/lib/security/permissionScopes";
 import { calculateMonthlyIncentive } from "@/lib/performance/performanceRulesEngine";
 import { BRANCHES } from "@/lib/constants";
+import { normalizeRole } from "@/lib/permissionMatrix";
 import { logActivity } from "@/lib/activityLog";
 import { notifyCustomerServiceResponsible } from "@/lib/notificationService";
 import {
@@ -57,6 +60,7 @@ const PAGE_TABS = [
   { id: "history", label: "سجل المتابعات" },
   { id: "performance", label: "أداء خدمة العملاء" },
   { id: "alerts", label: "تنبيهات العملاء" },
+  { id: "welcome", label: "الرسائل الترحيبية" },
   { id: "scripts", label: "سكريبتات التواصل" },
   { id: "evaluation", label: "تقييم التعاملات" },
 ] as const;
@@ -119,6 +123,16 @@ function phoneOf(row: FollowupRow) {
   return bestPhone || "";
 }
 
+
+function customerServiceDirectMessage(row: FollowupRow) {
+  const name = row.customer_name || row.name || "حضرتك";
+  const reason = row.request_details || row.followup_reason || row.suggested_action || "";
+  return `السلام عليكم ${name}
+مع حضرتك صيدليات دواء 🌿
+كنا بنتابع مع حضرتك بخصوص ${reason || "خدمة العملاء والاطمئنان على طلبات حضرتك"}.
+هل في أي حاجة نقدر نساعد حضرتك فيها؟`;
+}
+
 function phoneDisplay(phone: string | null | undefined, customerCode?: string | null) {
   return phone && isValidEgyptPhone(phone, customerCode) ? phone : "بدون رقم صحيح";
 }
@@ -144,8 +158,12 @@ function lastPurchaseOf(row: FollowupRow) {
 }
 
 function isManagerUser(user: ReturnType<typeof useAuth>["user"], canManage?: boolean) {
-  const role = String(user?.role || "").toLowerCase();
-  return Boolean(canManage || ["admin", "manager", "general_manager", "owner"].includes(role) || user?.permissions?.view_full_team_analytics);
+  const role = normalizeRole(user?.role);
+  return Boolean(
+    canManage ||
+    ["admin", "manager", "general_manager", "executive_manager", "branches_manager", "branch_manager", "customer_service_manager", "owner"].includes(role) ||
+    user?.permissions?.view_full_team_analytics
+  );
 }
 
 function isOverdueFollowup(row: FollowupRow) {
@@ -172,7 +190,10 @@ function compareFollowupPriority(a: FollowupRow, b: FollowupRow) {
 
 export default function CustomerService() {
   const { user, canManage } = useAuth();
+  const [searchParams] = useSearchParams();
   const manager = isManagerUser(user, canManage);
+  const canUseAllBranches = canSeeAllBranches(user);
+  const userScopeLabel = scopeDescription(user);
   const [followups, setFollowups] = useState<FollowupRow[]>([]);
   const [branchFilter, setBranchFilter] = useState(ALL_FILTER);
   const [statusFilter, setStatusFilter] = useState(ALL_FILTER);
@@ -189,12 +210,34 @@ export default function CustomerService() {
   const [selectedFollowup, setSelectedFollowup] = useState<FollowupRow | null>(null);
   const [selectedResponsible, setSelectedResponsible] = useState<string>(ALL_FILTER);
   const [staffNames, setStaffNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!canUseAllBranches && user?.branch && branchFilter !== normalizeBranchName(user.branch)) {
+      setBranchFilter(normalizeBranchName(user.branch));
+    }
+  }, [branchFilter, canUseAllBranches, user?.branch]);
+
+  useEffect(() => {
+    const urlSearch = searchParams.get("search");
+    const urlResponsible = searchParams.get("responsible");
+    if (urlSearch) setSearch(urlSearch);
+    if (urlResponsible) {
+      setResponsibleFilter(urlResponsible);
+      setSelectedResponsible(urlResponsible);
+    }
+  }, [searchParams]);
   const [activeTab, setActiveTab] = useState<PageTab>("today");
   const [quickFilter, setQuickFilter] = useState<string | null>(null);
+  const [dailyListTick, setDailyListTick] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
   const [showDoctorRequest, setShowDoctorRequest] = useState(false);
   const [interactionReviews, setInteractionReviews] = useState<Record<string, unknown>[]>([]);
   const [reviewsAvailable, setReviewsAvailable] = useState(true);
+
+  useEffect(() => {
+    const urlTab = searchParams.get("tab") as PageTab | null;
+    if (urlTab && PAGE_TABS.some((tab) => tab.id === urlTab)) setActiveTab(urlTab);
+  }, [searchParams]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 400);
@@ -228,8 +271,9 @@ export default function CustomerService() {
     setLoading(true);
     setError(null);
     try {
+      const scopedBranch = effectiveBranchFilter(user, branchFilter, ALL_FILTER);
       const rows = await fetchCustomerServiceFollowups({
-        branch: branchFilter,
+        branch: scopedBranch,
         status: statusFilter,
         responsible: CUSTOMER_CARE_RESPONSIBLES.some((item) => item.name === responsibleFilter) ? ALL_FILTER : responsibleFilter,
         search: debouncedSearch,
@@ -248,11 +292,35 @@ export default function CustomerService() {
     } finally {
       setLoading(false);
     }
-  }, [branchFilter, debouncedSearch, manager, responsibleFilter, statusFilter, user?.name]);
+  }, [branchFilter, debouncedSearch, manager, responsibleFilter, statusFilter, user, user?.name]);
 
   useEffect(() => {
     loadFollowups();
   }, [loadFollowups]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setDailyListTick((tick) => tick + 1), 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (!manager || loading) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const scopedBranch = effectiveBranchFilter(user, branchFilter, ALL_FILTER);
+    const key = `dawaa_auto_daily_followups_${today}_${scopedBranch}`;
+    if (window.localStorage.getItem(key)) return;
+    generateTodayFollowupsFromCustomerMetrics(scopedBranch, user?.name)
+      .then((rows) => {
+        window.localStorage.setItem(key, "1");
+        if (rows.length) {
+          toast.success(`تم إنشاء قائمة متابعة اليوم تلقائيا: ${rows.length} عميل`);
+          loadFollowups();
+        }
+      })
+      .catch((error) => {
+        console.warn("auto daily followups failed", error);
+      });
+  }, [branchFilter, dailyListTick, loadFollowups, loading, manager, user, user?.name]);
 
   const stats = useMemo(() => calculateFollowupStats(followups), [followups]);
   const recoveredCount = useMemo(
@@ -382,7 +450,7 @@ export default function CustomerService() {
   };
 
   return (
-    <div className="space-y-5" dir="rtl">
+    <div className="customer-service-page space-y-5" dir="rtl">
       <section className="dawaa-hero">
         <div>
           <span className="dawaa-brand-chip">Customer Service Command Center</span>
@@ -432,8 +500,8 @@ export default function CustomerService() {
             <input className="dawaa-input w-full pl-10" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم العميل، الكود، الهاتف، المسؤول... مثال: *ا*س*لا*م" />
           </div>
           <select className="dawaa-input w-full" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}>
-            <option value={ALL_FILTER}>كل الفروع</option>
-            {BRANCHES.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+            {canUseAllBranches ? <option value={ALL_FILTER}>كل الفروع</option> : null}
+            {(canUseAllBranches ? BRANCHES : BRANCHES.filter((branch) => normalizeBranchName(branch) === normalizeBranchName(user?.branch))).map((branch) => <option key={branch} value={branch}>{branch}</option>)}
           </select>
           <select className="dawaa-input w-full" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status === ALL_FILTER ? "كل الحالات" : status}</option>)}
@@ -468,7 +536,7 @@ export default function CustomerService() {
 
       {activeTab === "today" && <section ref={listRef} className="grid gap-4 xl:grid-cols-[1.45fr_.85fr]">
         <div className="space-y-4">
-          <SectionTitle icon={HeadphonesIcon} title="قائمة المتابعات الذكية" subtitle="مجمعة حسب الأولوية والحالة من daily_followups و customer_metrics_summary" />
+          <SectionTitle icon={HeadphonesIcon} title="قائمة المتابعات الذكية" subtitle="مجمعة من dawaa_customer_service_current_queue_v166 ثم v14 مع fallback آمن للمتابعات اليومية" />
           {quickFilter && (
             <div className="flex items-center justify-between rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-black text-teal-800">
               <span>فلتر نشط: {quickFilterLabel(quickFilter)} · {quickFilteredFollowups.length} نتيجة</span>
@@ -516,6 +584,8 @@ export default function CustomerService() {
         <CustomerAlertsPanel followups={followups} />
         <CustomerDecisionPanel row={selectedFollowup} />
       </section>}
+
+      {activeTab === "welcome" && <CustomerWelcomeTasksPanel />}
 
       {activeTab === "scripts" && <section className="grid gap-4 xl:grid-cols-2">
         <ScriptPreviewPanel row={selectedFollowup} onLog={(action, details) => safeLog(action, details)} />
@@ -952,6 +1022,32 @@ function CustomerDecisionPanel({ row }: { row: FollowupRow | null }) {
           <Info label="درجة الخطورة" value={riskLevel(customer)} />
           <Info label="الهاتف" value={phoneDisplay(phoneOf(row), row.customer_code)} />
           <Info label="مسؤول خدمة العملاء" value={responsibleOf(row)} />
+          <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-3">
+            {isValidEgyptPhone(phoneOf(row), row.customer_code) ? (
+              <>
+                <a
+                  className="dawaa-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs"
+                  href={generateWhatsAppLink(cleanEgyptianPhone(phoneOf(row)), customerServiceDirectMessage(row))}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MessageSquare size={14} /> تواصل واتساب
+                </a>
+                <a className="btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs" href={`tel:${cleanEgyptianPhone(phoneOf(row))}`}>
+                  <PhoneCall size={14} /> اتصال مباشر
+                </a>
+              </>
+            ) : (
+              <span className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700">لا يوجد رقم صالح للتواصل</span>
+            )}
+            <button
+              type="button"
+              className="btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs"
+              onClick={() => navigator.clipboard.writeText(customerServiceDirectMessage(row)).then(() => toast.success("تم نسخ سكريبت التواصل"))}
+            >
+              <Clipboard size={14} /> نسخ سكريبت
+            </button>
+          </div>
           <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-bold leading-6 text-teal-800">
             {recommendedAction(customer)}
           </div>
@@ -1064,6 +1160,11 @@ function DoctorRequestedFollowupsPanel({ followups, onCreate }: { followups: Fol
                 <StatusBadge status={followupStatus(row)} />
               </div>
               <div className="mt-2 text-sm font-semibold text-slate-600">{row.request_details || row.followup_reason || row.suggested_action || "طلب متابعة خدمة عملاء"}</div>
+              {row.followup_notes || row.notes ? (
+                <div className="mt-2 rounded-xl bg-slate-50 p-2 text-xs font-semibold leading-5 text-slate-600">
+                  {row.followup_notes || row.notes}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -1171,6 +1272,7 @@ function CustomerProfileModal({ customer, onClose }: { customer: CustomerMetric 
       final_customer_key: metric.final_customer_key,
       customer_phone: metric.customer_phone || metric.phone,
       customer_name: metric.customer_name || metric.name,
+      forceRefresh: true,
       signal: controller.signal,
     })
       .then((result) => {
@@ -1190,6 +1292,7 @@ function CustomerProfileModal({ customer, onClose }: { customer: CustomerMetric 
 
   const profile = details?.profile || {};
   const profileMetric = details?.metrics || metric;
+  const purchaseAnalysis = details?.purchaseAnalysis;
   const displayPhone = details?.displayPhone || getBestCustomerPhone(
     { customer_code: metric.customer_code, customer_phone: metric.customer_phone, phone: metric.phone } as FollowupRow,
     profileMetric,
@@ -1237,12 +1340,26 @@ function CustomerProfileModal({ customer, onClose }: { customer: CustomerMetric 
             <SmallMetric label="عدد الفواتير" value={metric.invoices_count} />
             <SmallMetric label="أول شراء" value={formatDate(metric.first_purchase)} />
             <SmallMetric label="آخر شراء" value={formatDate(metric.last_purchase)} />
-            <SmallMetric label="شراء الشهر الحالي" value={"purchase_count_current_month" in customer ? customer.purchase_count_current_month ?? "غير متاح" : "غير متاح"} />
-            <SmallMetric label="متوسط مرات الشراء" value={"average_monthly_purchase_count" in customer ? customer.average_monthly_purchase_count ?? "غير متاح" : "غير متاح"} />
-            <SmallMetric label="تكرار الشراء" value={"purchase_frequency_status" in customer ? customer.purchase_frequency_status || "غير متاح" : "غير متاح"} />
+            <SmallMetric label="شراء الشهر الحالي" value={purchaseAnalysis?.purchaseCountCurrentMonth ?? ("purchase_count_current_month" in customer ? customer.purchase_count_current_month ?? "غير متاح" : "غير متاح")} />
+            <SmallMetric label="متوسط مرات الشراء" value={purchaseAnalysis?.averageMonthlyPurchaseCount ?? ("average_monthly_purchase_count" in customer ? customer.average_monthly_purchase_count ?? "غير متاح" : "غير متاح")} />
+            <SmallMetric label="تكرار الشراء" value={purchaseAnalysis?.purchaseFrequencyStatus || ("purchase_frequency_status" in customer ? customer.purchase_frequency_status || "غير متاح" : "غير متاح")} />
             <SmallMetric label="أشهر النشاط" value={metric.active_months} />
           </div>
         </section>
+        {purchaseAnalysis ? (
+          <section className="rounded-2xl border border-teal-400/40 bg-teal-500/10 p-4">
+            <h4 className="mb-3 font-black text-slate-950">تحليل تكرار الشراء</h4>
+            <div className="grid gap-2 md:grid-cols-4">
+              <SmallMetric label="الشهر الحالي" value={purchaseAnalysis.purchaseCountCurrentMonth} />
+              <SmallMetric label="الشهر السابق" value={purchaseAnalysis.purchaseCountPreviousMonth} />
+              <SmallMetric label="متوسط شهري" value={purchaseAnalysis.averageMonthlyPurchaseCount} />
+              <SmallMetric label="الحالة" value={purchaseAnalysis.purchaseFrequencyStatus} />
+            </div>
+            <div className="mt-3 rounded-xl border border-teal-300/40 bg-teal-400/10 p-3 text-sm font-bold leading-6 text-slate-700">
+              {purchaseAnalysis.recommendation}
+            </div>
+          </section>
+        ) : null}
         <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <h4 className="mb-2 font-black text-slate-950">العلامات والملاحظات</h4>
           <CustomerFlagsBadges customerFlags={(profile.customer_flags as Record<string, boolean> | null) || ("customer_flags" in customer ? customer.customer_flags : null)} limit={20} />
@@ -1293,7 +1410,7 @@ function CustomerProfileModal({ customer, onClose }: { customer: CustomerMetric 
 }
 
 function ScriptPreviewPanel({ row, onLog = noopLog }: { row: FollowupRow | null; onLog?: (action: string, details: Record<string, unknown>) => void }) {
-  const [scriptType, setScriptType] = useState<string>("");
+  const [scriptType, setScriptType] = useState<CustomerCareScriptType | "">("");
   if (!row) return <section className="dawaa-panel"><Empty text="اختر متابعة لعرض سكريبت التواصل" /></section>;
   const phone = phoneOf(row);
   const hasValidPhone = Boolean(phone && isValidEgyptPhone(phone, row.customer_code));
@@ -1314,7 +1431,7 @@ function ScriptPreviewPanel({ row, onLog = noopLog }: { row: FollowupRow | null;
     suggestedAction: row.suggested_action,
     branch: row.branch,
     responsibleName: responsibleOf(row),
-    scriptType: selectedType as any,
+    scriptType: selectedType,
     hasValidPhone,
   });
   const copy = async () => {
@@ -1325,7 +1442,7 @@ function ScriptPreviewPanel({ row, onLog = noopLog }: { row: FollowupRow | null;
   return (
     <section className="dawaa-panel">
       <h3 className="mb-3 text-base font-black text-slate-950">سكريبتات التواصل</h3>
-      <select className="dawaa-input mb-3 w-full" value={selectedType} onChange={(event) => setScriptType(event.target.value)}>
+      <select className="dawaa-input mb-3 w-full" value={selectedType} onChange={(event) => setScriptType(event.target.value as CustomerCareScriptType)}>
         <option value="friendly_general">متابعة ودية عامة</option>
         <option value="vip">عميل مهم جدًا / VIP</option>
         <option value="stopped">عميل متوقف</option>
@@ -1634,7 +1751,26 @@ function DoctorFollowupRequestModal({ branch, staffNames, userName, userId, onCl
               ))}
             </div>
           )}
-          {selected && <div className="mt-2 rounded-xl bg-teal-50 p-2 text-xs font-black text-teal-800">تم اختيار: {selected.customer_name} · المسؤول: {customerCareResponsibleForBranch(form.branch) || "غير محدد"}</div>}
+          {selected && (
+            <div className="mt-3 rounded-2xl border border-teal-200 bg-teal-50 p-3">
+              <div className="font-black text-teal-900">تم اختيار: {selected.customer_name} · المسؤول: {customerCareResponsibleForBranch(form.branch) || "غير محدد"}</div>
+              <div className="mt-1 flex flex-wrap gap-2 text-xs font-bold text-teal-800">
+                <span>كود: {selected.customer_code || "بدون"}</span>
+                <span>هاتف: {phoneDisplay(selected.displayPhone || selected.customer_phone, selected.customer_code)}</span>
+                <span>{selected.segment} · {selected.customer_status}</span>
+                <span>متوسط شهري: {formatMoney(selected.avg_monthly)}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selected.displayPhone || selected.customer_phone ? (
+                  <>
+                    <a className="dawaa-button-primary px-3 py-2 text-xs" href={generateWhatsAppLink(cleanEgyptianPhone(selected.displayPhone || selected.customer_phone || ""), `السلام عليكم ${selected.customer_name || "حضرتك"}، مع حضرتك صيدليات دواء 🌿`)} target="_blank" rel="noreferrer">واتساب مباشر</a>
+                    <a className="btn-secondary px-3 py-2 text-xs" href={`tel:${cleanEgyptianPhone(selected.displayPhone || selected.customer_phone || "")}`}>اتصال مباشر</a>
+                  </>
+                ) : null}
+                <button type="button" className="btn-secondary px-3 py-2 text-xs" onClick={() => onProfile(selected)}>عرض ملف العميل</button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="الفرع"><select className="dawaa-input w-full" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })}>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></Field>
@@ -1835,6 +1971,125 @@ function PostponeModal({ row, userId, onClose, onSaved }: { row: FollowupRow; us
         </div>
       </div>
     </Modal>
+  );
+}
+
+function CustomerWelcomeTasksPanel() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("open");
+  const [branchFilter, setBranchFilter] = useState(ALL_FILTER);
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      let query = supabase
+        .from("customer_welcome_tasks")
+        .select("id,customer_code,customer_name,customer_phone,whatsapp_phone,branch,assigned_to_name,status,coding_status,welcome_message_status,customer_reply_status,coded_on_phone_at,welcome_message_sent_at,customer_replied_at,welcome_message_text,notes,created_at,task_date")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (filter === "open") query = query.in("status", ["pending", "coded", "message_sent"]);
+      if (filter === "pending") query = query.eq("status", "pending");
+      if (filter === "done") query = query.eq("status", "completed");
+      if (branchFilter !== ALL_FILTER) query = query.eq("branch", branchFilter);
+      if (search.trim()) query = query.or(`customer_name.ilike.%${search.trim()}%,customer_code.ilike.%${search.trim()}%,customer_phone.ilike.%${search.trim()}%`);
+      const { data, error } = await query;
+      if (error) throw error;
+      setRows(data || []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تحميل الرسائل الترحيبية");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [branchFilter, filter, search]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const mark = async (row: any, action: "coded" | "sent" | "replied" | "done") => {
+    const now = new Date().toISOString();
+    const updates: Record<string, unknown> = { updated_at: now };
+    if (action === "coded") { updates.coded_on_phone_at = now; updates.coding_status = "completed"; updates.status = "coded"; }
+    if (action === "sent") { updates.welcome_message_sent_at = now; updates.welcome_message_status = "sent"; updates.status = "message_sent"; }
+    if (action === "replied") { updates.customer_replied_at = now; updates.customer_reply_status = "replied"; updates.status = "replied"; }
+    if (action === "done") { updates.status = "completed"; }
+    const { error } = await supabase.from("customer_welcome_tasks").update(updates).eq("id", row.id);
+    if (error) return toast.error(error.message);
+    toast.success("تم تحديث مهمة الترحيب");
+    load();
+  };
+
+  const copyMessage = async (message: string) => {
+    await navigator.clipboard.writeText(message);
+    toast.success("تم نسخ الرسالة");
+  };
+
+  const addNote = async (row: any) => {
+    const note = window.prompt("أضف ملاحظة للمهمة", row.notes || "");
+    if (note === null) return;
+    const { error } = await supabase.from("customer_welcome_tasks").update({ notes: note, updated_at: new Date().toISOString() }).eq("id", row.id);
+    if (error) return toast.error(error.message);
+    toast.success("تم حفظ الملاحظة");
+    load();
+  };
+
+  return (
+    <section className="dawaa-panel space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SectionTitle icon={MessageSquare} title="الرسائل الترحيبية وتكويد العملاء الجدد" subtitle="مهام العملاء الجدد الموزعة على خدمة العملاء حسب الفرع" />
+        <div className="flex flex-wrap gap-2">
+          <input className="dawaa-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث بالاسم / الكود / الهاتف" />
+          <select className="dawaa-input" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+            <option value={ALL_FILTER}>كل الفروع</option>
+            {BRANCHES.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+          </select>
+          <select className="dawaa-input" value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="open">المفتوحة</option>
+            <option value="pending">لم تبدأ</option>
+            <option value="done">مكتملة</option>
+            <option value="all">الكل</option>
+          </select>
+          <button className="btn-secondary" onClick={load} disabled={loading}>تحديث</button>
+        </div>
+      </div>
+      {loading ? <LoadingPanel /> : rows.length ? (
+        <div className="grid gap-3 xl:grid-cols-2">
+          {rows.map((row) => {
+            const phone = String(row.whatsapp_phone || row.customer_phone || "");
+            const message = row.welcome_message_text || `أهلاً بحضرتك أ/ ${row.customer_name || "حضرتك"} 🌷\nصيدليات دواء ${row.branch ? `فرع ${row.branch}` : ""} بتتشرف بانضمام حضرتك لعملائنا.\nخدمة العملاء تحت أمر حضرتك في أي وقت.\nصيدليات دواء 🌿`;
+            const wa = phone ? generateWhatsAppLink(cleanEgyptianPhone(phone), message) : "";
+            return (
+              <div key={row.id} className="rounded-2xl border border-sky-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-black text-slate-950">{row.customer_name || "عميل بدون اسم"}</div>
+                    <div className="mt-1 text-xs font-bold text-slate-500">كود {row.customer_code || "-"} · {row.branch || "-"} · المسؤول {row.assigned_to_name || "غير محدد"}</div>
+                  </div>
+                  <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">{row.status || "pending"}</span>
+                </div>
+                <div className="mt-3 grid gap-2 text-xs font-bold text-slate-600 sm:grid-cols-3">
+                  <div className="rounded-xl bg-slate-50 p-2">الهاتف/واتساب: {phone || "بدون رقم"}</div>
+                  <div className="rounded-xl bg-slate-50 p-2">تكويد الهاتف: {row.coded_on_phone_at || row.coding_status === "completed" ? "تم" : "لم يتم"}</div>
+                  <div className="rounded-xl bg-slate-50 p-2">رسالة الترحيب: {row.welcome_message_sent_at || row.welcome_message_status === "sent" ? "تم" : "لم يتم"}</div>
+                  <div className="rounded-xl bg-slate-50 p-2">رد العميل: {row.customer_replied_at || row.customer_reply_status === "replied" ? "نعم" : "لا"}</div>
+                </div>
+                <div className="mt-3 rounded-xl bg-sky-50 p-3 text-xs font-bold text-slate-700 whitespace-pre-line">{message}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="btn-secondary px-3 py-2" onClick={() => copyMessage(message)}>نسخ الرسالة</button>
+                  {wa ? <a className="btn-secondary px-3 py-2" href={wa} target="_blank" rel="noreferrer">فتح واتساب</a> : null}
+                  <button className="btn-secondary px-3 py-2" onClick={() => mark(row, "coded")}>تم التكويد</button>
+                  <button className="btn-secondary px-3 py-2" onClick={() => mark(row, "sent")}>تم إرسال الترحيب</button>
+                  <button className="btn-secondary px-3 py-2" onClick={() => mark(row, "replied")}>رد العميل</button>
+                  <button className="btn-secondary px-3 py-2" onClick={() => addNote(row)}>إضافة ملاحظة</button>
+                  <button className="dawaa-button-primary px-3 py-2" onClick={() => mark(row, "done")}>إغلاق المهمة</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : <Empty text="لا توجد مهام ترحيب مطابقة" />}
+    </section>
   );
 }
 

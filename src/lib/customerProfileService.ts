@@ -8,7 +8,8 @@ import {
   normalizeCustomerStatus,
 } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
-import type { CustomerMetric, CustomerFollowupSummary, CustomerInvoiceSummary } from "@/lib/api/customers";
+import { getInvoiceKey } from "@/lib/dawaa2027";
+import type { CustomerMetric, CustomerFollowupSummary, CustomerInvoiceSummary, PurchaseAnalysis } from "@/lib/api/customers";
 
 type Row = Record<string, unknown>;
 
@@ -59,6 +60,7 @@ export type CustomerFullProfile = {
   latestInvoices: CustomerInvoiceSummary[];
   latestFollowups: CustomerFollowupSummary[];
   monthlyPurchaseTrend: MonthlyPurchaseTrendRow[];
+  purchaseAnalysis: PurchaseAnalysis | null;
   recommendations: string[];
   dataHealth: CustomerProfileDataHealth;
   errorsBySection: Record<string, string>;
@@ -80,7 +82,12 @@ export function normalizeCustomerKey(value: unknown) {
 export function normalizePhone(value: unknown) {
   const raw = String(value ?? "").trim();
   if (!raw || raw.toLowerCase().startsWith("code:")) return "";
-  return raw.replace(/[^\d+]/g, "");
+  const digits = raw
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[^\d]/g, "")
+    .replace(/^0020/, "0")
+    .replace(/^20(?=1\d{9}$)/, "0");
+  return digits;
 }
 
 export function safeNumber(value: unknown, fallback = 0) {
@@ -174,6 +181,19 @@ function activityOrClauses(params: CustomerFullProfileParams, metrics?: Customer
   ].filter(Boolean).join(",");
 }
 
+function invoiceActivityOrClauses(params: CustomerFullProfileParams, metrics?: CustomerMetric | null, profile?: Row | null) {
+  const code = normalizeCustomerCode(params.customer_code || metrics?.customer_code || profile?.customer_code);
+  const phone = normalizePhone(params.customer_phone || metrics?.customer_phone || profile?.phone || profile?.whatsapp_phone || profile?.phone_alt);
+  const name = normalizeCustomerKey(params.customer_name || metrics?.customer_name || profile?.name).replace(/,/g, " ");
+  const phoneTail = phone.length >= 10 ? phone.slice(-10) : "";
+  return [
+    code ? `customer_code.eq.${code}` : "",
+    phone ? `customer_phone.eq.${phone}` : "",
+    phoneTail ? `customer_phone.ilike.%${phoneTail}%` : "",
+    name ? `customer_name.eq.${name}` : "",
+  ].filter(Boolean).join(",");
+}
+
 function normalizeMetric(row: Row | null): CustomerMetric | null {
   if (!row) return null;
   const totalSpent = safeNumber(readFirst(row, ["total_spent"], 0));
@@ -218,7 +238,7 @@ function normalizeMetric(row: Row | null): CustomerMetric | null {
 
 function mapInvoice(row: Row): CustomerInvoiceSummary {
   return {
-    invoice_number: readFirst(row, ["invoice_number", "invoice_no"], null) as string | null,
+    invoice_number: getInvoiceKey(row) || null,
     invoice_date: readFirst(row, ["invoice_date", "invoice_datetime", "created_at"], null) as string | null,
     amount: safeNumber(readFirst(row, ["net_amount", "discounted_amount", "amount", "gross_amount"], 0)),
     seller_name: readFirst(row, ["seller_name"], null) as string | null,
@@ -258,6 +278,42 @@ function buildTrend(rows: Row[]): MonthlyPurchaseTrendRow[] {
       avgInvoice: value.invoicesCount ? value.netTotal / value.invoicesCount : 0,
     }))
     .sort((a, b) => a.month.localeCompare(b.month));
+}
+
+function buildPurchaseAnalysis(rows: MonthlyPurchaseTrendRow[], today = new Date()): PurchaseAnalysis | null {
+  const currentKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const previousDate = new Date(today);
+  previousDate.setMonth(previousDate.getMonth() - 1);
+  const previousKey = `${previousDate.getFullYear()}-${String(previousDate.getMonth() + 1).padStart(2, "0")}`;
+  const current = rows.find((row) => row.month === currentKey)?.invoicesCount || 0;
+  const previous = rows.find((row) => row.month === previousKey)?.invoicesCount || 0;
+  const activeRows = rows.filter((row) => row.invoicesCount > 0);
+  const average = activeRows.length
+    ? Math.round(activeRows.reduce((sum, row) => sum + row.invoicesCount, 0) / activeRows.length)
+    : 0;
+
+  let status = "طبيعي";
+  if (current === 0 && previous >= 2) status = "توقف عن الشراء";
+  else if (previous >= 2 && current * 2 <= previous) status = "انخفض الشراء";
+  else if (current === 0 && previous === 1) status = "يحتاج متابعة";
+  else if (current === 0) status = "بدون مشتريات هذا الشهر";
+
+  const recommendation =
+    status === "توقف عن الشراء"
+      ? "تابع العميل فورًا لاستعادة الشراء، وراجع آخر صنف أو خدمة كان يطلبها."
+      : status === "انخفض الشراء"
+        ? "راجع سبب انخفاض الشراء وحدد متابعة قريبة مع عرض مناسب للعميل."
+        : status === "يحتاج متابعة"
+          ? "اتصل بالعميل لتأكيد احتياجاته وتشجيعه على الشراء القادم."
+          : "استمر في المتابعة الهادئة مع تسجيل نتيجة واضحة لكل تواصل.";
+
+  return {
+    purchaseCountCurrentMonth: current,
+    purchaseCountPreviousMonth: previous,
+    averageMonthlyPurchaseCount: average,
+    purchaseFrequencyStatus: status,
+    recommendation,
+  };
 }
 
 function buildNotes(profile: Row | null): CustomerProfileNotes {
@@ -361,15 +417,16 @@ export async function getCustomerFullProfile(params: CustomerFullProfileParams):
   );
 
   const activityClauses = activityOrClauses(params, metrics, profile);
+  const invoiceClauses = invoiceActivityOrClauses(params, metrics, profile);
 
   const [latestInvoices, latestFollowups, trendRows] = await Promise.all([
     safeSection("latestInvoices", async () => {
-      if (!activityClauses) return [];
+      if (!invoiceClauses) return [];
       const query = withAbort(
         supabase
           .from("sales_invoices")
-          .select("invoice_number,invoice_no,invoice_date,invoice_datetime,created_at,net_amount,discounted_amount,amount,gross_amount,seller_name,branch")
-          .or(activityClauses)
+          .select("id,invoice_no,invoice_number,invoice_date,net_amount,discounted_amount,amount,gross_amount,seller_name,branch,customer_code,customer_phone,customer_name")
+          .or(invoiceClauses)
           .order("invoice_date", { ascending: false })
           .limit(10),
         params.signal,
@@ -394,12 +451,12 @@ export async function getCustomerFullProfile(params: CustomerFullProfileParams):
       return ((data ?? []) as Row[]).map(mapFollowup);
     }, errorsBySection, [] as CustomerFollowupSummary[]),
     safeSection("monthlyPurchaseTrend", async () => {
-      if (!activityClauses) return [];
+      if (!invoiceClauses) return [];
       const query = withAbort(
         supabase
           .from("sales_invoices")
-          .select("invoice_date,invoice_datetime,created_at,net_amount,discounted_amount,amount,gross_amount")
-          .or(activityClauses)
+          .select("invoice_date,net_amount,discounted_amount,amount,gross_amount,customer_code,customer_phone,customer_name")
+          .or(invoiceClauses)
           .order("invoice_date", { ascending: false })
           .limit(180),
         params.signal,
@@ -412,6 +469,7 @@ export async function getCustomerFullProfile(params: CustomerFullProfileParams):
 
   const notes = buildNotes(profile);
   const flags = (readFirst(profile, ["customer_flags"], null) || null) as Record<string, boolean> | null;
+  const purchaseAnalysis = buildPurchaseAnalysis(trendRows);
   const result: CustomerFullProfile = {
     profile,
     metrics,
@@ -420,6 +478,7 @@ export async function getCustomerFullProfile(params: CustomerFullProfileParams):
     latestInvoices,
     latestFollowups,
     monthlyPurchaseTrend: trendRows,
+    purchaseAnalysis,
     recommendations: buildRecommendations(metrics, profile, displayPhone),
     dataHealth: {
       hasMetrics: Boolean(metrics),

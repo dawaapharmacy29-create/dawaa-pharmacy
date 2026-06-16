@@ -1,0 +1,618 @@
+/*
+ * dawaa-design-system.css
+ * Reusable utility classes for the Dawaa Pharmacy 2027 Management System.
+ * These classes compose Tailwind with CSS variable tokens for consistent theming.
+ */
+
+/* ─────────────────────────────────────────────
+   PAGE & SHELL LAYOUT
+───────────────────────────────────────────── */
+
+.dawaa-page {
+  min-height: 100vh;
+  background: var(--dawaa-theme-bg);
+  color: var(--dawaa-theme-text);
+  font-family: "Cairo", "Tajawal", sans-serif;
+  direction: rtl;
+}
+
+.dawaa-shell {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 1.25rem 1rem;
+}
+
+@media (min-width: 768px) {
+  .dawaa-shell {
+    padding: 1.5rem 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .dawaa-shell {
+    padding: 2rem 2rem;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   CARDS & PANELS
+───────────────────────────────────────────── */
+
+.dawaa-card {
+  background: var(--dawaa-theme-surface);
+  border: 1px solid var(--dawaa-theme-border);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  transition: border-color 0.2s ease;
+}
+
+.dawaa-card:hover {
+  border-color: var(--dawaa-theme-border-strong);
+}
+
+.dawaa-panel {
+  background: var(--dawaa-theme-surface);
+  border: 1px solid var(--dawaa-theme-border);
+  border-radius: 1.25rem;
+  overflow: hidden;
+}
+
+.dawaa-section {
+  margin-bottom: 1.5rem;
+}
+
+.dawaa-section + .dawaa-section {
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--dawaa-theme-border);
+}
+
+/* ─────────────────────────────────────────────
+   STAT CARDS
+───────────────────────────────────────────── */
+
+.dawaa-stat-card {
+  background: var(--dawaa-theme-surface);
+  border: 1px solid var(--dawaa-theme-border);
+  border-radius: 1rem;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: transform 0.15s ease, border-color 0.2s ease;
+}
+
+.dawaa-stat-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--dawaa-theme-border-strong);
+}
+
+.dawaa-stat-value {
+  font-size: 1.875rem;
+  font-weight: 800;
+  color: var(--dawaa-theme-heading);
+  line-height: 1;
+  direction: ltr;
+  text-align: right;
+}
+
+.dawaa-stat-label {
+  font-size: 0.8125rem;
+  color: var(--dawaa-theme-muted);
+  font-weight: 500;
+}
+
+.dawaa-stat-change {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.dawaa-stat-change.positive {
+  color: #34d399;
+}
+
+.dawaa-stat-change.negative {
+  color: #f87171;
+}
+
+/* ─────────────────────────────────────────────
+   TYPOGRAPHY
+───────────────────────────────────────────── */
+
+.dawaa-title {
+  font-size: 1.375rem;
+  font-weight: 800;
+  color: var(--dawaa-theme-heading);
+  direction: rtl;
+}
+
+.dawaa-subtitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--dawaa-theme-heading);
+  direction: rtl;
+}
+
+.dawaa-text-main {
+  font-size: 0.9375rem;
+  color: var(--dawaa-theme-text);
+}
+
+.dawaa-text-muted {
+  font-size: 0.875rem;
+  color: var(--dawaa-theme-muted);
+}
+
+/* ─────────────────────────────────────────────
+   PAGE HEADER
+───────────────────────────────────────────── */
+
+.dawaa-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  direction: rtl;
+}
+
+@media (min-width: 640px) {
+  .dawaa-page-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.dawaa-page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ─────────────────────────────────────────────
+   TABLES
+───────────────────────────────────────────── */
+
+.dawaa-table-wrapper {
+  overflow-x: auto;
+  border-radius: 1rem;
+  border: 1px solid var(--dawaa-theme-border);
+}
+
+.dawaa-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  direction: rtl;
+  text-align: right;
+}
+
+.dawaa-table thead tr {
+  background: var(--dawaa-theme-table-head);
+  border-bottom: 1px solid var(--dawaa-theme-border);
+}
+
+.dawaa-table thead th {
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  color: var(--dawaa-theme-muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.dawaa-table tbody tr {
+  background: var(--dawaa-theme-table-row);
+  border-bottom: 1px solid var(--dawaa-theme-border);
+  transition: background 0.15s ease;
+}
+
+.dawaa-table tbody tr:hover {
+  background: var(--dawaa-theme-table-hover);
+}
+
+.dawaa-table tbody td {
+  padding: 0.75rem 1rem;
+  color: var(--dawaa-theme-text);
+}
+
+/* ─────────────────────────────────────────────
+   BADGES
+───────────────────────────────────────────── */
+
+.dawaa-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  direction: rtl;
+  white-space: nowrap;
+}
+
+.dawaa-badge-success {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.dawaa-badge-warning {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.dawaa-badge-danger {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.dawaa-badge-primary {
+  background: var(--dawaa-theme-soft);
+  color: var(--dawaa-theme-primary);
+  border: 1px solid var(--dawaa-theme-border-strong);
+}
+
+.dawaa-badge-muted {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--dawaa-theme-muted);
+  border: 1px solid var(--dawaa-theme-border);
+}
+
+/* ─────────────────────────────────────────────
+   BUTTONS
+───────────────────────────────────────────── */
+
+.dawaa-button-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: var(--dawaa-theme-primary);
+  color: var(--dawaa-theme-primary-text);
+  border: none;
+  white-space: nowrap;
+}
+
+.dawaa-button-primary:hover {
+  background: var(--dawaa-theme-primary-strong);
+  transform: translateY(-1px);
+}
+
+.dawaa-button-primary:active {
+  transform: translateY(0);
+}
+
+.dawaa-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  color: var(--dawaa-theme-text);
+  border: 1px solid var(--dawaa-theme-border);
+  white-space: nowrap;
+}
+
+.dawaa-button-secondary:hover {
+  border-color: var(--dawaa-theme-border-strong);
+  background: var(--dawaa-theme-soft);
+}
+
+/* ─────────────────────────────────────────────
+   FORM ELEMENTS
+───────────────────────────────────────────── */
+
+.dawaa-input {
+  width: 100%;
+  padding: 0.5rem 0.875rem;
+  background: var(--dawaa-theme-input);
+  border: 1px solid var(--dawaa-theme-border);
+  border-radius: 0.625rem;
+  color: var(--dawaa-theme-text);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  direction: rtl;
+  transition: border-color 0.15s ease;
+  outline: none;
+}
+
+.dawaa-input:focus {
+  border-color: var(--dawaa-theme-primary);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+}
+
+.dawaa-input::placeholder {
+  color: var(--dawaa-theme-muted);
+}
+
+.dawaa-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--dawaa-theme-muted);
+  margin-bottom: 0.375rem;
+  direction: rtl;
+}
+
+/* ─────────────────────────────────────────────
+   FILTER BAR
+───────────────────────────────────────────── */
+
+.dawaa-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  direction: rtl;
+}
+
+/* ─────────────────────────────────────────────
+   MOBILE CARD (replaces table rows on small screens)
+───────────────────────────────────────────── */
+
+.dawaa-mobile-card {
+  background: var(--dawaa-theme-surface);
+  border: 1px solid var(--dawaa-theme-border);
+  border-radius: 0.875rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  direction: rtl;
+}
+
+.dawaa-mobile-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875rem;
+}
+
+.dawaa-mobile-card-label {
+  color: var(--dawaa-theme-muted);
+  font-size: 0.8125rem;
+}
+
+.dawaa-mobile-card-value {
+  color: var(--dawaa-theme-text);
+  font-weight: 600;
+}
+
+/* ─────────────────────────────────────────────
+   BOTTOM NAVIGATION (mobile)
+───────────────────────────────────────────── */
+
+.dawaa-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--dawaa-theme-surface);
+  border-top: 1px solid var(--dawaa-theme-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0.5rem 0;
+  padding-bottom: env(safe-area-inset-bottom, 0.5rem);
+}
+
+.dawaa-bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.6875rem;
+  color: var(--dawaa-theme-muted);
+  text-decoration: none;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.5rem;
+  transition: color 0.15s ease;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-family: inherit;
+}
+
+.dawaa-bottom-nav-item.active,
+.dawaa-bottom-nav-item:hover {
+  color: var(--dawaa-theme-primary);
+}
+
+/* ─────────────────────────────────────────────
+   EMPTY STATE
+───────────────────────────────────────────── */
+
+.dawaa-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 3rem 1rem;
+  text-align: center;
+  direction: rtl;
+  color: var(--dawaa-theme-muted);
+}
+
+.dawaa-empty-icon {
+  font-size: 2.5rem;
+  opacity: 0.4;
+}
+
+.dawaa-empty-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--dawaa-theme-heading);
+}
+
+.dawaa-empty-desc {
+  font-size: 0.875rem;
+  max-width: 320px;
+}
+
+/* ─────────────────────────────────────────────
+   ERROR STATE
+───────────────────────────────────────────── */
+
+.dawaa-error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: rgba(248, 113, 113, 0.06);
+  text-align: center;
+  direction: rtl;
+}
+
+/* ─────────────────────────────────────────────
+   RESPONSIVE UTILITIES
+───────────────────────────────────────────── */
+
+/* Show only on mobile */
+.dawaa-mobile-only {
+  display: block;
+}
+
+@media (min-width: 768px) {
+  .dawaa-mobile-only {
+    display: none !important;
+  }
+}
+
+/* Hide on mobile */
+.dawaa-desktop-only {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .dawaa-desktop-only {
+    display: block;
+  }
+}
+
+/* Table: hide on mobile, show mobile cards instead */
+.dawaa-table-desktop {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .dawaa-table-desktop {
+    display: block;
+  }
+}
+
+.dawaa-table-mobile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .dawaa-table-mobile {
+    display: none;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   STAT GRID
+───────────────────────────────────────────── */
+
+.dawaa-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.875rem;
+}
+
+@media (min-width: 640px) {
+  .dawaa-stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .dawaa-stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1280px) {
+  .dawaa-stats-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+/* ─────────────────────────────────────────────
+   RECONCILIATION PANEL (Phase 6 — admin only)
+───────────────────────────────────────────── */
+
+.dawaa-reconcile-panel {
+  background: rgba(45, 212, 191, 0.04);
+  border: 1px solid var(--dawaa-theme-border);
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  direction: rtl;
+}
+
+.dawaa-reconcile-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--dawaa-theme-muted);
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dawaa-reconcile-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.375rem 0;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid var(--dawaa-theme-border);
+}
+
+.dawaa-reconcile-row:last-child {
+  border-bottom: none;
+}
+
+/* ─────────────────────────────────────────────
+   LIGHT MODE OVERRIDES
+   Ensures readable UI in html.light-mode
+───────────────────────────────────────────── */
+
+html.light-mode .dawaa-card,
+html.light-mode .dawaa-panel,
+html.light-mode .dawaa-stat-card,
+html.light-mode .dawaa-mobile-card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+html.light-mode .dawaa-badge-muted {
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.2);
+}
+
+html.light-mode .dawaa-table tbody tr:hover {
+  background: #e9fbf7;
+}

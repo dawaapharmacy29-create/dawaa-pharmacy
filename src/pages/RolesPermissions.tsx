@@ -4,8 +4,10 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
 import { useAuth, getCurrentUserProfile, getSafeCurrentUserId } from "@/hooks/useAuth";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { TABLES } from "@/lib/supabaseTables";
 import { upsertUserPermission } from "@/services/permissionService";
+import { PERMISSION_PRESETS, getPresetForRole, mergePermissionsWithPreset } from "@/lib/rolePermissionPresets";
 
 interface Role {
   id: string;
@@ -316,6 +318,8 @@ export default function RolesPermissions() {
     "حسابات وصلاحيات",
   );
   const [saving, setSaving] = useState(false);
+  const [savingUserPermission, setSavingUserPermission] = useState<string | null>(null);
+  const [localUserPermissionCache, setLocalUserPermissionCache] = useState<Record<string, Record<string, boolean>>>({});
   const responsibilityTemplates = ["مسؤول خدمة العملاء", "مسؤول المخزون والتشغيل", "مسؤول المشتريات", "مسؤول النظافة", "مسؤول الاستوريز والعروض", "مراجع الجرد", "مراجع تنظيم الرفوف"];
 
   const {
@@ -351,6 +355,7 @@ export default function RolesPermissions() {
   const { data: staffMembers, loading: staffMembersLoading } =
     useSupabaseQuery<StaffMember>({
       table: TABLES.staff,
+      filters: isActiveStaffFilter(),
       orderBy: { column: "name", ascending: true },
     });
 
@@ -419,6 +424,17 @@ export default function RolesPermissions() {
     return staffAccounts.find((account) => account.id === selectedUser) || null;
   }, [selectedUser, staffAccounts]);
 
+  const selectedUserAccountEffective = useMemo(() => {
+    if (!selectedUserAccount || !selectedUser) return selectedUserAccount;
+    return {
+      ...selectedUserAccount,
+      permissions: {
+        ...(selectedUserAccount.permissions || {}),
+        ...(localUserPermissionCache[selectedUser] || {}),
+      },
+    };
+  }, [selectedUser, selectedUserAccount, localUserPermissionCache]);
+
   const selectedUserOverrides = useMemo(() => {
     const map = new Map<string, UserPermission>();
     if (!selectedUser) return map;
@@ -428,6 +444,8 @@ export default function RolesPermissions() {
     }
     return map;
   }, [selectedUser, userPermissions]);
+
+  const recommendedPresetForUser = useMemo(() => getPresetForRole(selectedUserData?.role), [selectedUserData?.role]);
 
   const selectedRoleForUser = useMemo(() => {
     if (!selectedUserData) return null;
@@ -457,10 +475,10 @@ export default function RolesPermissions() {
 
     // Finally check staff_account.permissions (legacy field)
     if (
-      selectedUserAccount?.permissions &&
-      permissionKey in selectedUserAccount.permissions
+      selectedUserAccountEffective?.permissions &&
+      permissionKey in selectedUserAccountEffective.permissions
     ) {
-      return selectedUserAccount.permissions[permissionKey] === true;
+      return selectedUserAccountEffective.permissions[permissionKey] === true;
     }
 
     return false;
@@ -561,28 +579,27 @@ export default function RolesPermissions() {
       return;
     }
 
+    const cacheKey = `${userId}:${permissionKey}`;
+    const account = staffAccounts.find((item) => item.id === userId);
+    const previousPermissions = { ...(account?.permissions || {}), ...(localUserPermissionCache[userId] || {}) };
+    const nextPermissions = { ...previousPermissions, [permissionKey]: allowed };
+
+    setLocalUserPermissionCache((current) => ({
+      ...current,
+      [userId]: nextPermissions,
+    }));
+
     try {
       const currentUserProfile = getCurrentUserProfile();
-      setSaving(true);
+      setSavingUserPermission(cacheKey);
 
-      // احفظ الصلاحية داخل staff_accounts.permissions أولًا لضمان ظهورها فورًا في التطبيق
-      const account = staffAccounts.find((item) => item.id === userId);
-      const nextPermissions = { ...(account?.permissions || {}), [permissionKey]: allowed };
       const accountUpdate = await supabase
         .from(TABLES.staffAccounts)
         .update({ permissions: nextPermissions, updated_at: new Date().toISOString() })
         .eq("id", userId);
       if (accountUpdate.error) throw accountUpdate.error;
 
-      // ثم حاول مزامنة جدول user_permissions إن كان موجودًا ومهيأً
-      const { error } = await upsertUserPermission(
-        userId,
-        permissionKey,
-        allowed,
-        safeActorId(),
-      );
-
-      // user_permissions sync skipped silently
+      await upsertUserPermission(userId, permissionKey, allowed, safeActorId());
 
       toast.success(allowed ? "تم تفعيل الصلاحية" : "تم إيقاف الصلاحية");
       await logActivity(
@@ -593,11 +610,49 @@ export default function RolesPermissions() {
         `${selectedUserData?.name || userId} - ${permissionKey}: ${allowed ? "on" : "off"}`,
         selectedUserData?.branch || user?.branch || "",
       );
-      refetchUserPermissions();
+      // لا نعمل refetch فوريًا حتى لا تقفز الصفحة أو تعيد ترتيب الاختيارات أثناء العمل اليدوي.
+    } catch (error) {
+      setLocalUserPermissionCache((current) => ({
+        ...current,
+        [userId]: previousPermissions,
+      }));
+      toast.error(friendlyError(error));
+    } finally {
+      setSavingUserPermission(null);
+    }
+  };
+
+  const applyPresetToSelectedUser = async (mode: "replace" | "merge" = "merge") => {
+    if (!selectedUser || !selectedUserData || !user) return;
+    const account = staffAccounts.find((item) => item.id === selectedUser);
+    const preset = getPresetForRole(selectedUserData.role);
+    const nextPermissions = mergePermissionsWithPreset(
+      { ...(account?.permissions || {}), ...(localUserPermissionCache[selectedUser] || {}) },
+      preset,
+      mode,
+    );
+
+    setLocalUserPermissionCache((current) => ({ ...current, [selectedUser]: nextPermissions }));
+    try {
+      setSavingUserPermission(`${selectedUser}:preset`);
+      const { error } = await supabase
+        .from(TABLES.staffAccounts)
+        .update({ permissions: nextPermissions, updated_at: new Date().toISOString() })
+        .eq("id", selectedUser);
+      if (error) throw error;
+      toast.success(`تم تطبيق صلاحيات ${preset.label}`);
+      await logActivity(
+        safeActorId(),
+        user.name || "",
+        "تطبيق قالب صلاحيات",
+        "الأدوار والصلاحيات",
+        `${selectedUserData.name} - ${preset.label}`,
+        selectedUserData.branch || user.branch || "",
+      );
     } catch (error) {
       toast.error(friendlyError(error));
     } finally {
-      setSaving(false);
+      setSavingUserPermission(null);
     }
   };
 
@@ -942,6 +997,61 @@ export default function RolesPermissions() {
                 </div>
               </div>
 
+              <div className="mb-4 rounded-xl border border-teal-500/20 bg-teal-500/10 p-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-teal-200">القالب المقترح: {recommendedPresetForUser.label}</div>
+                    <div className="text-xs text-slate-400 mt-1">{recommendedPresetForUser.description}</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={Boolean(savingUserPermission)}
+                      onClick={() => applyPresetToSelectedUser("merge")}
+                      className="btn-primary text-xs"
+                    >
+                      تطبيق فوق الحالي
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(savingUserPermission)}
+                      onClick={() => applyPresetToSelectedUser("replace")}
+                      className="btn-secondary text-xs"
+                    >
+                      استبدال بالقالب
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {PERMISSION_PRESETS.map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      disabled={Boolean(savingUserPermission)}
+                      onClick={() => {
+                        const nextPermissions = mergePermissionsWithPreset(
+                          selectedUserAccountEffective?.permissions || {},
+                          preset,
+                          "merge",
+                        );
+                        setLocalUserPermissionCache((current) => ({ ...current, [selectedUser]: nextPermissions }));
+                        supabase
+                          .from(TABLES.staffAccounts)
+                          .update({ permissions: nextPermissions, updated_at: new Date().toISOString() })
+                          .eq("id", selectedUser)
+                          .then(({ error }) => {
+                            if (error) toast.error(friendlyError(error));
+                            else toast.success(`تم تطبيق ${preset.label}`);
+                          });
+                      }}
+                      className="rounded-full border border-[#2d4063] bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:border-teal-500/40"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="space-y-5 max-h-[620px] overflow-y-auto pr-1">
                 {permissionCategories.map((category) => (
                   <div
@@ -958,7 +1068,7 @@ export default function RolesPermissions() {
                         return (
                           <button
                             key={perm.key}
-                            disabled={saving}
+                            disabled={savingUserPermission === `${selectedUser}:${perm.key}`}
                             onClick={() =>
                               setUserPermission(
                                 selectedUser,

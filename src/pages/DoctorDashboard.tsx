@@ -6,6 +6,7 @@ import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { TABLES } from "@/lib/supabaseTables";
 import { formatCurrency, toNumber } from "@/lib/utils";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { pointRecordDelta } from "@/lib/pointsLedger";
 import { calculateIncentive, POINT_VALUE_EGP, STARTING_POINTS, MAX_BASE_INCENTIVE } from "@/lib/points";
@@ -123,6 +124,7 @@ export default function DoctorDashboard() {
 
   const { data: staffOptions } = useSupabaseQuery<StaffOption>({
     table: "staff",
+    filters: isActiveStaffFilter(),
     orderBy: { column: "name", ascending: true },
     realtimeEnabled: true,
   });

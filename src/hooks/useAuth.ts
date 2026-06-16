@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import type { User } from "@/types";
+import { getDefaultPermissionsForRole, isAdminRole, isBranchManagerRole, mergePermissionMaps, normalizeRole, userHasPermission } from "@/lib/permissionMatrix";
 
 interface StaffAccountLoginRow {
   id: string;
@@ -111,18 +112,19 @@ async function loginWithStaffAccount(
     // نكمل حتى لو فشل ضبط السياق
   }
 
-  // جيب الصلاحيات الفعلية من الأدوار والتخصيصات
-  let effectivePermissions = row.permissions || {};
+  // جيب الصلاحيات الفعلية من الأدوار والتخصيصات، مع fallback قوي حسب الدور
+  const roleDefaultPermissions = getDefaultPermissionsForRole(row.role);
+  let effectivePermissions = mergePermissionMaps(roleDefaultPermissions, row.permissions || {});
   try {
     const { data: permsData, error: permsError } = await supabase.rpc(
       "get_user_permissions",
       { p_user_id: row.id },
     );
     if (!permsError && permsData) {
-      effectivePermissions = permsData as Record<string, boolean>;
+      effectivePermissions = mergePermissionMaps(roleDefaultPermissions, permsData as Record<string, boolean>);
     }
   } catch {
-    // استخدم الصلاحيات المخزنة في السطر كـ fallback
+    // استخدم صلاحيات الدور المخزنة في الواجهة كـ fallback آمن
   }
 
   return {
@@ -151,6 +153,26 @@ export function useAuth() {
       listeners.delete(listener);
     };
   }, []);
+
+  // طبقة أمان: إنهاء الجلسة بعد خمول طويل لتقليل مخاطر ترك الحساب مفتوحًا.
+  useEffect(() => {
+    if (!user) return;
+    const timeoutMs = 12 * 60 * 60 * 1000; // 12 ساعة بدل ساعة واحدة — أنسب للموبايل
+    let timerId: number | undefined;
+    const resetTimer = () => {
+      if (timerId) window.clearTimeout(timerId);
+      timerId = window.setTimeout(() => {
+        setCurrentUser(null);
+      }, timeoutMs);
+    };
+    const events: Array<keyof WindowEventMap> = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    events.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
+    resetTimer();
+    return () => {
+      if (timerId) window.clearTimeout(timerId);
+      events.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
+    };
+  }, [user]);
 
   const login = useCallback(
     async (username: string, password: string): Promise<boolean> => {
@@ -185,19 +207,15 @@ export function useAuth() {
     }
   }, []);
 
-  const normalizedRole = user?.role?.trim();
-  const isAdmin =
-    normalizedRole === "مدير عام" ||
-    normalizedRole === "المدير العام" ||
-    normalizedRole === "admin" ||
-    normalizedRole === "أدمن";
-  const isBranchManager = normalizedRole === "مدير فرع";
-  const canManage = isAdmin || isBranchManager;
+  const normalizedRole = normalizeRole(user?.role);
+  const isAdmin = isAdminRole(normalizedRole);
+  const isBranchManager = isBranchManagerRole(normalizedRole);
+  const canManage = isAdmin || isBranchManager || normalizedRole === "executive_manager" || normalizedRole === "branches_manager";
 
   const checkPermission = useCallback(
     (permission?: string): boolean => {
       if (!permission) return true;
-      if (isAdmin) return true;
+      if (userHasPermission(user, permission)) return true;
       const permissions = user?.permissions;
       if (!permissions || Object.keys(permissions).length === 0) return false;
       if (permissions[permission] === true) return true;
@@ -209,7 +227,7 @@ export function useAuth() {
   const hasPermission = useCallback(
     async (permission?: string): Promise<boolean> => {
       if (!permission) return true;
-      if (isAdmin) return true;
+      if (userHasPermission(user, permission)) return true;
 
       const permissions = user?.permissions;
       if (permissions && Object.keys(permissions).length > 0) {

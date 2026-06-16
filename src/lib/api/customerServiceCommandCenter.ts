@@ -190,6 +190,15 @@ function todayRange() {
   return { start: start.toISOString(), end: end.toISOString(), day: start.toISOString().slice(0, 10) };
 }
 
+function relativeDayRange(offsetDays: number) {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() + offsetDays);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start: start.toISOString(), end: end.toISOString(), day: start.toISOString().slice(0, 10) };
+}
+
 function toNumber(value: unknown) {
   const numeric = Number(value ?? 0);
   return Number.isFinite(numeric) ? numeric : 0;
@@ -243,6 +252,52 @@ function isOverdue(row: FollowupRow) {
   const due = row.followup_datetime || row.followup_date || row.date;
   if (!due) return false;
   return new Date(due).getTime() < Date.now();
+}
+
+function latestFollowupTimestamp(row: FollowupRow) {
+  const value = row.followup_date || row.followup_datetime || row.date || row.created_at || row.updated_at || "";
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function compareFollowupPriority(a: FollowupRow, b: FollowupRow) {
+  const rank = (row: FollowupRow) => {
+    const value = String(row.priority || row.followup_reason || row.request_type || "").trim().toLowerCase();
+    if (value.includes("urgent") || value.includes("critical") || value.includes("عاجل") || value.includes("حرج")) return 0;
+    if (value.includes("high") || value.includes("important") || value.includes("مهم") || value.includes("مرتفع")) return 1;
+    if (row.needs_manager || value.includes("manager") || value.includes("مدير")) return 2;
+    if (value.includes("medium") || value.includes("متوسط")) return 3;
+    if (value.includes("low") || value.includes("منخفض")) return 5;
+    return 4;
+  };
+  const priorityDiff = rank(a) - rank(b);
+  if (priorityDiff) return priorityDiff;
+  if (isOverdue(a) !== isOverdue(b)) return isOverdue(a) ? -1 : 1;
+  return latestFollowupTimestamp(b) - latestFollowupTimestamp(a);
+}
+
+function dedupeLatestFollowupPerCustomer(rows: FollowupRow[]) {
+  const byCustomer = new Map<string, FollowupRow>();
+  const withoutCustomerKey: FollowupRow[] = [];
+
+  for (const row of rows) {
+    const key = String(row.customer_code || row.customer_id || row.customer_phone || row.phone || "").trim();
+    if (!key) {
+      withoutCustomerKey.push(row);
+      continue;
+    }
+
+    const current = byCustomer.get(key);
+    if (!current || latestFollowupTimestamp(row) >= latestFollowupTimestamp(current)) {
+      byCustomer.set(key, row);
+    }
+  }
+
+  return [...byCustomer.values(), ...withoutCustomerKey].sort((a, b) => {
+    const priorityDiff = compareFollowupPriority(a, b);
+    if (priorityDiff) return priorityDiff;
+    return latestFollowupTimestamp(b) - latestFollowupTimestamp(a);
+  });
 }
 
 function missingColumn(message: string) {
@@ -341,7 +396,7 @@ export async function searchCustomerMetrics(search: string, branch?: string): Pr
       .select("id,customer_code,name,phone,whatsapp_phone,phone_alt,branch,address,customer_flags,customer_notes,service_notes,team_notes,handling_notes,whatsapp_notes")
       .or(profileClauses.join(","))
       .limit(30)
-    : Promise.resolve({ data: [], error: null } as any);
+    : Promise.resolve<{ data: Row[]; error: null }>({ data: [], error: null });
 
   const profileResult = await profileQuery;
   const profileRows = ((profileResult.data ?? []) as Row[]).filter((row) => !branchFilter || normalizeBranchName(row.branch) === normalizeBranchName(branchFilter));
@@ -422,46 +477,128 @@ export async function searchCustomerMetrics(search: string, branch?: string): Pr
 
 export async function fetchCustomerServiceFollowups(filters: FollowupFilters = {}) {
   requireSupabaseConfig();
-  const { start, end } = todayRange();
-  let query = supabase
-    .from("daily_followups")
-    .select("*")
-    .gte("created_at", start)
-    .lt("created_at", end)
-    .order("followup_datetime", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .limit(filters.limit || 160);
 
-  if (filters.branch && filters.branch !== ALL_FILTER) query = query.eq("branch", filters.branch);
-  if (filters.status && filters.status !== ALL_FILTER) {
-    if (filters.status === "متأخرة") {
-      query = query.is("completed_at", null).is("postponed_until", null);
-    } else if (filters.status === "يحتاج مدير") {
-      query = query.eq("needs_manager", true);
+  const fetchFrom = async (source: "dawaa_customer_service_current_queue_v166" | "dawaa_customer_service_current_queue_v14" | "daily_followups") => {
+    const { start, end } = todayRange();
+    let query = supabase
+      .from(source)
+      .select("*")
+      .order("followup_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .limit(filters.limit || 160);
+
+    // The queue views already return the latest open followup per customer.
+    // Fallback daily_followups keeps the old same-day filter if the view is not installed yet.
+    if (source === "daily_followups") {
+      query = query.gte("created_at", start).lt("created_at", end);
+    }
+
+    if (filters.branch && filters.branch !== ALL_FILTER) query = query.eq("branch", filters.branch);
+    if (filters.status && filters.status !== ALL_FILTER) {
+      if (filters.status === "متأخرة") {
+        query = query.is("completed_at", null).is("postponed_until", null);
+      } else if (filters.status === "يحتاج مدير") {
+        query = query.eq("needs_manager", true);
+      } else {
+        query = query.or(`status.eq.${filters.status},followup_status.eq.${filters.status},contact_status.eq.${filters.status}`);
+      }
+    }
+    if (filters.responsible && filters.responsible !== ALL_FILTER) {
+      query = query.or(`responsible_name.eq.${filters.responsible},assigned_to.eq.${filters.responsible},assigned_doctor.eq.${filters.responsible}`);
+    }
+
+    const pattern = normalizeSearchPattern(filters.search || "");
+    if (pattern) {
+      query = query.or([
+        `customer_name.ilike.${pattern}`,
+        `name.ilike.${pattern}`,
+        `customer_code.ilike.${pattern}`,
+        `customer_phone.ilike.${pattern}`,
+        `phone.ilike.${pattern}`,
+        `responsible_name.ilike.${pattern}`,
+        `assigned_to.ilike.${pattern}`,
+      ].join(","));
+    }
+
+    return query;
+  };
+
+  let data: FollowupRow[] = [];
+  const queueV166Result = await fetchFrom("dawaa_customer_service_current_queue_v166");
+  if (!queueV166Result.error) {
+    data = (queueV166Result.data ?? []) as FollowupRow[];
+  } else {
+    console.warn("dawaa_customer_service_current_queue_v166 failed, falling back to v14", queueV166Result.error);
+    const queueV14Result = await fetchFrom("dawaa_customer_service_current_queue_v14");
+    if (!queueV14Result.error) {
+      data = (queueV14Result.data ?? []) as FollowupRow[];
     } else {
-      query = query.or(`status.eq.${filters.status},followup_status.eq.${filters.status},contact_status.eq.${filters.status}`);
+      console.warn("dawaa_customer_service_current_queue_v14 failed, falling back to daily_followups", queueV14Result.error);
+      const fallbackResult = await fetchFrom("daily_followups");
+      if (fallbackResult.error) throw new Error(`daily_followups: ${fallbackResult.error.message}`);
+      data = (fallbackResult.data ?? []) as FollowupRow[];
     }
   }
-  if (filters.responsible && filters.responsible !== ALL_FILTER) {
-    query = query.or(`responsible_name.eq.${filters.responsible},assigned_to.eq.${filters.responsible},assigned_doctor.eq.${filters.responsible}`);
+
+  let doctorRequestRows: FollowupRow[] = [];
+  try {
+    let requestQuery = supabase
+      .from("daily_followups")
+      .select("*")
+      .eq("request_type", "doctor_requested_followup")
+      .is("completed_at", null)
+      .is("cancelled_at", null)
+      .order("created_at", { ascending: false })
+      .limit(120);
+
+    if (filters.branch && filters.branch !== ALL_FILTER) requestQuery = requestQuery.eq("branch", filters.branch);
+    const { data: requestData } = await requestQuery;
+    doctorRequestRows = ((requestData ?? []) as FollowupRow[]).filter((row) => {
+      if (filters.responsible && filters.responsible !== ALL_FILTER) {
+        const responsible = row.responsible_name || row.assigned_to || row.assigned_doctor || "";
+        if (responsible !== filters.responsible) return false;
+      }
+      if (filters.status && filters.status !== ALL_FILTER) {
+        const statuses = [row.status, row.followup_status, row.contact_status].filter(Boolean);
+        if (filters.status === "متأخرة") {
+          if (!isOverdue(row)) return false;
+        } else if (filters.status === "يحتاج مدير") {
+          if (!row.needs_manager) return false;
+        } else if (!statuses.includes(filters.status)) {
+          return false;
+        }
+      }
+      const search = String(filters.search || "").trim().toLowerCase();
+      if (search) {
+        const haystack = [
+          row.customer_name,
+          row.name,
+          row.customer_code,
+          row.customer_phone,
+          row.phone,
+          row.responsible_name,
+          row.assigned_to,
+          row.assigned_doctor,
+          row.created_by_name,
+          row.request_details,
+          row.followup_reason,
+          row.notes,
+          row.followup_notes,
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+      return true;
+    });
+  } catch (requestError) {
+    console.warn("doctor requested followups query failed", requestError);
   }
 
-  const pattern = normalizeSearchPattern(filters.search || "");
-  if (pattern) {
-    query = query.or([
-      `customer_name.ilike.${pattern}`,
-      `name.ilike.${pattern}`,
-      `customer_code.ilike.${pattern}`,
-      `customer_phone.ilike.${pattern}`,
-      `phone.ilike.${pattern}`,
-      `responsible_name.ilike.${pattern}`,
-      `assigned_to.ilike.${pattern}`,
-    ].join(","));
+  const byId = new Map<string, FollowupRow>();
+  for (const row of [...(data ?? []), ...doctorRequestRows]) {
+    byId.set(row.id, row);
   }
-
-  const { data, error } = await query;
-  if (error) throw new Error(`daily_followups: ${error.message}`);
-  const rows = await loadMetricsForFollowups((data ?? []) as FollowupRow[]);
+  const dedupedRows = dedupeLatestFollowupPerCustomer([...byId.values()]);
+  const rows = await loadMetricsForFollowups(dedupedRows);
   return filters.status === "متأخرة" ? rows.filter(isOverdue) : rows;
 }
 
@@ -623,24 +760,27 @@ export async function updateFollowupResult(id: string, payload: FollowupResultPa
 export async function generateTodayFollowupsFromCustomerMetrics(branch?: string, createdByName?: string) {
   requireSupabaseConfig();
   const { start, end, day } = todayRange();
+  const yesterday = relativeDayRange(-1);
   const { data: existingRows, error: existingError } = await supabase
     .from("daily_followups")
     .select("id,customer_code,customer_phone,phone,customer_name")
     .gte("created_at", start)
     .lt("created_at", end)
-    .limit(400);
+    .limit(600);
   if (existingError) throw new Error(existingError.message);
 
   const existingKeys = new Set((existingRows ?? []).flatMap((row: Row) => [row.customer_code, row.customer_phone, row.phone, row.customer_name].filter(Boolean).map(String)));
+  const requestedBranch = branch && branch !== ALL_FILTER ? normalizeBranchName(branch) : "";
   const buckets = [
-    { label: "مهم جدًا", type: "مهم جدًا", limit: 12 },
-    { label: "مهم", type: "مهم", limit: 12 },
-    { label: "متوسط", type: "متوسط", limit: 10 },
-    { label: "مهدد بالتوقف", status: "مهدد بالتوقف", limit: 12 },
-    { label: "متوقف", status: "متوقف", limit: 10 },
+    { label: "أولوية قصوى", type: "مهم جدًا", status: "مهدد بالتوقف", limit: 10, reason: "عميل مهم جدًا ومهدد بالتوقف؛ يحتاج تواصل عالي الجودة." },
+    { label: "عملاء مهمون", type: "مهم", limit: 10, reason: "حماية عميل مهم من الانخفاض وتحسين العلاقة." },
+    { label: "مهددون بالتوقف", status: "مهدد بالتوقف", limit: 12, reason: "منع توقف العميل وتحليل سبب انخفاض الشراء." },
+    { label: "متوقفون", status: "متوقف", limit: 8, reason: "محاولة استرجاع العميل بعرض مناسب وتسجيل سبب التوقف." },
+    { label: "متوسطون قابلون للنمو", type: "متوسط", limit: 8, reason: "رفع العميل من متوسط إلى مهم بمتابعة احتياجاته." },
+    { label: "بدون شراء", status: "بدون شراء", limit: 8, reason: "تأكيد بيانات العميل وفهم سبب عدم الشراء." },
   ];
 
-  const selected: Array<{ bucket: string; customer: CustomerMetric }> = [];
+  const selected: Array<{ bucket: string; customer: CustomerMetric; reason?: string }> = [];
   for (const bucket of buckets) {
     const result = await getCustomers({
       branch: branch && branch !== ALL_FILTER ? branch : ALL_FILTER,
@@ -653,13 +793,131 @@ export async function generateTodayFollowupsFromCustomerMetrics(branch?: string,
       const key = customer.customer_code || customer.customer_phone || customer.customer_name || customer.id;
       if (!key || existingKeys.has(key)) continue;
       existingKeys.add(key);
-      selected.push({ bucket: bucket.label, customer });
+      selected.push({ bucket: bucket.label, customer, reason: bucket.reason });
     }
+  }
+
+  const { data: carryRows } = await supabase
+    .from("daily_followups")
+    .select("*")
+    .gte("created_at", yesterday.start)
+    .lt("created_at", yesterday.end)
+    .is("completed_at", null)
+    .limit(60);
+
+  for (const row of (carryRows ?? []) as FollowupRow[]) {
+    if (row.cancelled_at || row.postponed_until) continue;
+    if (requestedBranch && normalizeBranchName(row.branch) !== requestedBranch) continue;
+    const key = row.customer_code || row.customer_phone || row.phone || row.customer_name || row.id;
+    if (!key || existingKeys.has(String(key))) continue;
+    existingKeys.add(String(key));
+    selected.push({
+      bucket: "مرحّل من أمس",
+      reason: "متابعة غير مكتملة من قائمة أمس ويجب إغلاق نتيجتها اليوم.",
+      customer: normalizeCustomerMetric({
+        final_customer_key: row.customer_id || row.customer_code || row.customer_phone || row.id,
+        customer_id: row.customer_id || row.customer_code || null,
+        customer_code: row.customer_code,
+        customer_name: row.customer_name || row.name,
+        customer_phone: row.customer_phone || row.phone,
+        branch: row.branch,
+        invoices_count: 0,
+        total_spent: row.total_spent || 0,
+        avg_invoice: 0,
+        first_purchase: null,
+        last_purchase: row.last_purchase_date,
+        active_months: 0,
+        avg_monthly: row.customer_metrics?.avg_monthly || 0,
+        segment: row.segment || row.classification,
+        customer_status: row.customer_status,
+      }),
+    });
+  }
+
+  const { data: teamRequestRows } = await supabase
+    .from("daily_followups")
+    .select("*")
+    .is("completed_at", null)
+    .or("request_status.eq.open,request_status.is.null,followup_type.eq.exceptional,followup_type.eq.doctor_request")
+    .limit(120);
+
+  for (const row of (teamRequestRows ?? []) as FollowupRow[]) {
+    if (row.cancelled_at || row.postponed_until) continue;
+    if (requestedBranch && normalizeBranchName(row.branch) !== requestedBranch) continue;
+    const dueDate = String(row.followup_date || row.date || row.next_followup_date || "").slice(0, 10);
+    if (dueDate && dueDate > day) continue;
+    const hasTeamRequest = Boolean(row.request_details || row.request_type || row.created_by_name || row.assigned_doctor || row.assigned_to);
+    if (!hasTeamRequest) continue;
+    const key = row.customer_code || row.customer_phone || row.phone || row.customer_name || row.id;
+    if (!key || existingKeys.has(String(key))) continue;
+    existingKeys.add(String(key));
+    selected.push({
+      bucket: "طلب متابعة من الفريق",
+      reason: [
+        row.request_type || row.followup_reason || "طلب متابعة مسجل",
+        row.request_details || row.notes || row.followup_notes || "",
+        row.created_by_name ? `بواسطة: ${row.created_by_name}` : "",
+      ].filter(Boolean).join(" - "),
+      customer: normalizeCustomerMetric({
+        final_customer_key: row.customer_id || row.customer_code || row.customer_phone || row.id,
+        customer_id: row.customer_id || row.customer_code || null,
+        customer_code: row.customer_code,
+        customer_name: row.customer_name || row.name,
+        customer_phone: row.customer_phone || row.phone,
+        branch: row.branch,
+        invoices_count: 0,
+        total_spent: row.total_spent || 0,
+        avg_invoice: 0,
+        first_purchase: null,
+        last_purchase: row.last_purchase_date,
+        active_months: 0,
+        avg_monthly: row.customer_metrics?.avg_monthly || 0,
+        segment: row.segment || row.classification,
+        customer_status: row.customer_status,
+      }),
+    });
+  }
+
+  const { data: newCustomerRows } = await supabase
+    .from("customers")
+    .select("id,customer_code,name,phone,whatsapp_phone,phone_alt,branch,created_at")
+    .gte("created_at", start)
+    .lt("created_at", end)
+    .limit(60);
+
+  for (const row of (newCustomerRows ?? []) as Row[]) {
+    if (requestedBranch && normalizeBranchName(row.branch) !== requestedBranch) continue;
+    const code = String(row.customer_code || "").trim();
+    const phone = getBestCustomerPhone({ customer_code: code, customer_phone: String(row.phone || "") } as FollowupRow, null, row);
+    const key = code || phone || String(row.name || row.id || "");
+    if (!key || existingKeys.has(key)) continue;
+    existingKeys.add(key);
+    selected.push({
+      bucket: "ترحيب العملاء الجدد",
+      reason: "رسالة ترحيب وتعريف بخدمات الصيدليات وتأكيد بيانات التواصل.",
+      customer: normalizeCustomerMetric({
+        final_customer_key: row.id,
+        customer_id: row.id,
+        customer_code: code,
+        customer_name: row.name,
+        customer_phone: phone,
+        branch: row.branch,
+        invoices_count: 0,
+        total_spent: 0,
+        avg_invoice: 0,
+        first_purchase: null,
+        last_purchase: null,
+        active_months: 0,
+        avg_monthly: 0,
+        segment: "عادي",
+        customer_status: "جديد",
+      }),
+    });
   }
 
   if (!selected.length) return [];
 
-  const records = selected.map(({ bucket, customer }) => ({
+  const records = selected.map(({ bucket, customer, reason }) => ({
     date: day,
     followup_date: day,
     followup_datetime: new Date().toISOString(),
@@ -677,15 +935,15 @@ export async function generateTodayFollowupsFromCustomerMetrics(branch?: string,
     last_purchase_date: customer.last_purchase,
     category: bucket,
     followup_type: "smart_daily",
-    priority: bucket === "مهم جدًا" || bucket === "متوقف" ? "عاجل" : "مهم",
-    followup_reason: recommendedAction(customer),
-    suggested_action: recommendedAction(customer),
+    priority: ["أولوية قصوى", "متوقفون", "مرحّل من أمس"].includes(bucket) ? "عاجل" : "مهم",
+    followup_reason: reason || recommendedAction(customer),
+    suggested_action: reason || recommendedAction(customer),
     status: "معلق",
     followup_status: "معلق",
     contact_status: "معلق",
     assigned_to: createdByName || "خدمة العملاء",
     responsible_name: createdByName || "خدمة العملاء",
-    notes: "قائمة يومية من customer_metrics_summary",
+    notes: `قائمة يومية ذكية ${day} - ${bucket}`,
     created_by_name: createdByName || null,
   }));
 
@@ -695,7 +953,6 @@ export async function generateTodayFollowupsFromCustomerMetrics(branch?: string,
   }
   return inserted;
 }
-
 export function recommendedAction(customer?: CustomerMetric | null) {
   if (!customer) return "تأكيد بيانات العميل وتحديد سبب المتابعة.";
   if (customer.segment === "مهم جدًا" && customer.customer_status === "مهدد بالتوقف") return "تواصل عاجل من مدير أو أفضل دكتور.";

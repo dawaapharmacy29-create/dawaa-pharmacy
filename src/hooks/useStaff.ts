@@ -1,10 +1,5 @@
-import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { TABLES } from "@/lib/supabaseTables";
+import { useActiveStaff } from "@/hooks/useActiveStaff";
 
-export function useStaff<T>() {
-  return useSupabaseQuery<T>({
-    table: TABLES.staff,
-    orderBy: { column: "name", ascending: true },
-    realtimeEnabled: true,
-  });
+export function useStaff<T>(options?: { includeInactive?: boolean }) {
+  return useActiveStaff<T>({ includeInactive: options?.includeInactive, realtimeEnabled: true });
 }

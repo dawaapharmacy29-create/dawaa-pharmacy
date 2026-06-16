@@ -6,6 +6,7 @@ import { logActivity, useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { BRANCHES } from "@/lib/constants";
 import { normalizeBranchName, branchMatches } from "@/lib/branch";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
 import { matchesOrderedSegments } from "@/lib/utils";
 import ImageUploadBox from "@/components/ImageUploadBox";
@@ -384,6 +385,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   const [inventoryFile, setInventoryFile] = useState<File | null>(null);
   const { data: staffRows } = useSupabaseQuery<StaffChoice>({
     table: "staff",
+    filters: isActiveStaffFilter(),
     orderBy: { column: "name", ascending: true },
     realtimeEnabled: false,
   });

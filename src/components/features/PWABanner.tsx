@@ -1,10 +1,35 @@
 import { usePWA } from "@/hooks/usePWA";
 import { RefreshCw, Download, WifiOff, X } from "lucide-react";
 import { useState } from "react";
+import { useOfflineQueueStatus } from "@/hooks/useOfflineQueueStatus";
 
 export default function PWABanner() {
   const { isInstallable, isOffline, hasUpdate, installApp, applyUpdate } = usePWA();
+  const { pendingCount, syncing, syncNow } = useOfflineQueueStatus();
   const [dismissed, setDismissed] = useState(false);
+
+
+  if (!isOffline && pendingCount > 0 && !dismissed) {
+    return (
+      <div className="fixed bottom-4 right-4 left-4 md:left-auto md:w-96 z-50 animate-fade-in" dir="rtl">
+        <div className="bg-amber-900/90 backdrop-blur border border-amber-400/40 rounded-2xl p-4 flex items-center gap-3 shadow-2xl">
+          <div className="w-9 h-9 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+            <RefreshCw size={18} className={syncing ? "text-amber-200 animate-spin" : "text-amber-200"} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-white font-semibold text-sm">عمليات محفوظة بدون مزامنة</div>
+            <div className="text-amber-100/80 text-xs mt-0.5">{pendingCount} عملية في انتظار إرسالها عند توفر النت.</div>
+          </div>
+          <button onClick={syncNow} disabled={syncing} className="rounded-xl bg-white/15 px-3 py-2 text-xs font-black text-white hover:bg-white/20 disabled:opacity-50">
+            مزامنة
+          </button>
+          <button onClick={() => setDismissed(true)} className="text-amber-100/70 hover:text-white">
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isOffline) {
     return (

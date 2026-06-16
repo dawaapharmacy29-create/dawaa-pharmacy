@@ -1,13 +1,21 @@
 ﻿import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw, ShieldAlert, Trash2, Pencil, Save, BarChart3 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw, ShieldAlert, Trash2, Pencil, Save, BarChart3, X } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { BRANCHES } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
 import { logActivity } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import { getInvoiceKey } from "@/lib/dawaa2027";
+import { clearCustomersCache } from "@/lib/api/customers";
+import { clearCustomerServiceCommandCenterCache } from "@/lib/api/customerServiceCommandCenter";
+import { clearCustomerProfileCache } from "@/lib/customerProfileService";
+import { clearExecutiveDashboardCache } from "@/lib/executiveDashboardDataService";
+import { clearSalesAnalyticsSummaryCache } from "@/lib/salesAnalyticsSummaryService";
+import { clearStaffPerformanceProfileCache } from "@/lib/staff/staffPerformanceProfileService";
+import { invalidateInvoiceCache } from "@/lib/salesInvoiceSource";
 import {
   generateTemplateFile,
   importCustomersToDB,
@@ -35,6 +43,7 @@ interface ManagedInvoiceRow {
   id: string;
   import_batch: string | null;
   branch: string | null;
+  invoice_no: string | null;
   invoice_number: string | null;
   invoice_date: string | null;
   invoice_type: string | null;
@@ -57,6 +66,27 @@ interface DuplicateInvoiceGroup {
 }
 
 const INVOICE_PAGE_SIZE = 200;
+
+function dayAfter(date: string) {
+  const next = new Date(`${date}T12:00:00`);
+  next.setDate(next.getDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+
+function clearInvoiceLinkedViews() {
+  invalidateInvoiceCache();
+  clearExecutiveDashboardCache();
+  clearSalesAnalyticsSummaryCache();
+  clearCustomersCache();
+  clearCustomerServiceCommandCenterCache();
+  clearCustomerProfileCache();
+  clearStaffPerformanceProfileCache();
+  try {
+    window.localStorage.setItem("dawaa_invoice_import_refresh", String(Date.now()));
+  } catch {
+    // Local storage can be blocked in private/restricted browser contexts.
+  }
+}
 
 function invoiceSalesValue(invoice: Pick<ManagedInvoiceRow, "net_amount" | "discounted_amount" | "amount" | "gross_amount">) {
   const candidates = [invoice.net_amount, invoice.discounted_amount, invoice.amount, invoice.gross_amount];
@@ -102,6 +132,10 @@ interface InvoiceEditForm {
 
 export default function Invoices() {
   const { user, isAdmin } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sellerNameFilter = searchParams.get("seller_name") || "";
+  const fromDateFilter = searchParams.get("from") || "";
+  const toDateFilter = searchParams.get("to") || "";
   const [step, setStep] = useState<Step>("idle");
   const [importKind, setImportKind] = useState<ImportKind>("sales");
   const [branch, setBranch] = useState<string>(BRANCHES[0]);
@@ -135,11 +169,23 @@ export default function Invoices() {
   const loadManagedInvoices = useCallback(async () => {
     if (!isAdmin) return;
     setManagedLoading(true);
-    const { data, error } = await supabase
+    let query = supabase
       .from("sales_invoices")
-      .select("id,import_batch,branch,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,discounted_amount,gross_amount,seller_name")
+      .select("id,import_batch,branch,invoice_no,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,discounted_amount,gross_amount,seller_name")
       .order("invoice_date", { ascending: false })
       .limit(INVOICE_PAGE_SIZE);
+
+    if (sellerNameFilter) {
+      query = query.ilike("seller_name", `%${sellerNameFilter}%`);
+    }
+    if (fromDateFilter) {
+      query = query.gte("invoice_date", fromDateFilter);
+    }
+    if (toDateFilter) {
+      query = query.lt("invoice_date", dayAfter(toDateFilter));
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       toast.error(`تعذر تحميل أحدث الفواتير: ${error.message}`);
@@ -148,15 +194,14 @@ export default function Invoices() {
       setManagedInvoices((data || []) as ManagedInvoiceRow[]);
     }
     setManagedLoading(false);
-  }, [isAdmin]);
+  }, [isAdmin, sellerNameFilter, fromDateFilter, toDateFilter]);
 
   const loadDuplicateAudit = useCallback(async () => {
     if (!isAdmin) return;
     setDuplicateAuditLoading(true);
     const { data, error } = await supabase
       .from("sales_invoices")
-      .select("invoice_number,branch,invoice_date,created_at")
-      .not("invoice_number", "is", null)
+      .select("id,invoice_no,invoice_number,branch,invoice_date,created_at")
       .order("created_at", { ascending: false })
       .limit(3000);
 
@@ -169,11 +214,11 @@ export default function Invoices() {
 
     const groups = new Map<string, DuplicateInvoiceGroup>();
     for (const row of data || []) {
-      const invoiceNumber = String(row.invoice_number || "").trim();
+      const invoiceNumber = getInvoiceKey(row as Record<string, unknown>);
       const branchName = String(row.branch || "غير محدد").trim() || "غير محدد";
       const saleDate = String(row.invoice_date || "").slice(0, 10);
       if (!invoiceNumber || !saleDate) continue;
-      const key = `${invoiceNumber}|${branchName}|${saleDate}`;
+      const key = `${branchName}|${saleDate}|${invoiceNumber}`;
       const current = groups.get(key) || {
         invoice_number: invoiceNumber,
         branch: branchName,
@@ -313,13 +358,14 @@ export default function Invoices() {
       p_start_date: startDate,
       p_end_date: endDate,
     });
+    clearInvoiceLinkedViews();
     setSummaryRefreshBusy(false);
 
     if (error) {
-      toast.error(`تعذر تحديث ملخصات المبيعات: ${error.message}`);
+      toast.warning("تعذر تحديث الملخص الثقيل، لكن تم تحديث كاش الداشبورد والتحليلات وسيتم الاعتماد على الفواتير مباشرة.");
       return;
     }
-    toast.success(`تم تحديث ملخصات المبيعات من ${startDate} إلى ${endDate}`);
+    toast.success(`تم تحديث ملخصات المبيعات وتفريغ كاش الصفحات من ${startDate} إلى ${endDate}`);
   };
 
   const handlePhoneUpdateFile = async (file: File) => {
@@ -394,7 +440,7 @@ export default function Invoices() {
     const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const lines = [
       headers.join(","),
-      ...filteredRows.map((row) => headers.map((key) => escapeCsv((row as any)[key])).join(",")),
+      ...filteredRows.map((row) => headers.map((key) => escapeCsv((row as Record<string, unknown>)[key])).join(",")),
     ];
     const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -522,7 +568,7 @@ export default function Invoices() {
     setEditInvoice(invoice);
     setEditForm({
       branch: invoice.branch || branch,
-      invoice_number: invoice.invoice_number || "",
+      invoice_number: getInvoiceKey(invoice as unknown as Record<string, unknown>),
       invoice_date: String(invoice.invoice_date || "").slice(0, 10),
       invoice_type: invoice.invoice_type || "",
       customer_code: invoice.customer_code || "",
@@ -548,6 +594,7 @@ export default function Invoices() {
     setAdminBusy(true);
     const payload = {
       branch: editForm.branch,
+      invoice_no: editForm.invoice_number,
       invoice_number: editForm.invoice_number,
       invoice_date: editForm.invoice_date,
       invoice_type: editForm.invoice_type,
@@ -564,7 +611,7 @@ export default function Invoices() {
       toast.error(`تعذر تعديل الفاتورة: ${error.message}`);
     } else {
       toast.success("تم حفظ تعديل الفاتورة");
-      await logInvoiceAdminAction("تعديل فاتورة", `تعديل فاتورة ${editForm.invoice_number || editInvoice.id}`, {
+      await logInvoiceAdminAction("تعديل فاتورة", `تعديل فاتورة ${editForm.invoice_number || getInvoiceKey(editInvoice as unknown as Record<string, unknown>) || editInvoice.id}`, {
         invoice_id: editInvoice.id,
         new_value: payload,
       });
@@ -591,8 +638,8 @@ export default function Invoices() {
         !message.includes("staff_id"),
     );
     const dataWarnings = [
-      ...(importSummary && importSummary.skippedDuplicates > 0
-        ? ["يوجد فواتير مكررة تحتاج مراجعة، وتم تخطيها أثناء الاستيراد."]
+      ...(importSummary && (importSummary.conflictReviewRows || 0) > 0
+        ? ["يوجد أرقام فواتير موجودة سابقًا بتاريخ أو فرع مختلف وتحتاج مراجعة يدوية، وتم منع إدخالها لتجنب التكرار."]
         : []),
       ...messages.filter((message) => message.includes("مكررة")),
     ];
@@ -612,6 +659,25 @@ export default function Invoices() {
 
   return (
     <div className="space-y-5 max-w-5xl">
+      {sellerNameFilter && (
+        <div className="bg-teal-500/10 border border-teal-500/30 rounded-xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="text-teal-300">
+              عرض فواتير: <span className="font-bold text-white">{sellerNameFilter}</span>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setSearchParams({});
+            }}
+            className="rounded-lg border border-teal-400/30 bg-teal-500/10 px-3 py-1.5 text-teal-200 hover:bg-teal-500/20 flex items-center gap-2 text-sm"
+          >
+            <X size={14} />
+            مسح التصفية
+          </button>
+        </div>
+      )}
+
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
         <div className="section-title mb-3">استيراد يومي ثابت</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
@@ -966,7 +1032,7 @@ export default function Invoices() {
                 <tbody>
                   {managedInvoices.slice(0, 120).map((invoice) => (
                     <tr key={invoice.id}>
-                      <td className="num">{invoice.invoice_number || "-"}</td>
+                      <td className="num">{getInvoiceKey(invoice as unknown as Record<string, unknown>) || "-"}</td>
                       <td>{invoice.invoice_date ? formatDate(invoice.invoice_date) : "-"}</td>
                       <td>{invoice.branch || "-"}</td>
                       <td>{invoice.customer_name || invoice.customer_code || "-"}</td>
@@ -1156,12 +1222,15 @@ export default function Invoices() {
           </div>
           <div className={`grid gap-3 ${importKind === "sales" ? "grid-cols-2 md:grid-cols-6" : "grid-cols-2 md:grid-cols-4"}`}>
             <ResultTile value={importSummary.insertedRows} label="صفوف أضيفت" />
+            {importKind === "sales" && <ResultTile value={importSummary.updatedInvoices || 0} label="فواتير اتحدثت" />}
+            {importKind === "sales" && <ResultTile value={importSummary.valueChangedUpdates || 0} label="قيم اتعدلت" />}
             <ResultTile value={importSummary.skippedDuplicates} label="مكرر تخطى" />
             <ResultTile value={importSummary.updatedCustomers} label="عميل محدث" />
             <ResultTile value={importSummary.newCustomers} label="عميل جديد" />
             {importKind === "sales" && (
               <>
                 <ResultTile value={importSummary.needsReviewRows} label="تحتاج مراجعة" />
+                <ResultTile value={importSummary.conflictReviewRows || 0} label="تعارض رقم فاتورة" />
                 <ResultTile value={importSummary.unlinkedCustomersEstimate} label="ربط عميل ضعيف" />
                 <ResultTile value={importSummary.unmatchedCustomerRows || 0} label="عميل غير مسجل" />
                 <ResultTile value={importSummary.zeroAmountRows || 0} label="فواتير صفرية" />

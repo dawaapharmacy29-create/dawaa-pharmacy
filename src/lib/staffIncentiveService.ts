@@ -1,4 +1,3 @@
-import { RECORD_STATUS } from "@/lib/constants";
 import { getCurrentCycle, type PharmacyCycle } from "@/lib/pharmacy-cycle";
 import { STARTING_POINTS, MAX_BASE_INCENTIVE } from "@/lib/points";
 import { calculateMonthlyIncentive } from "@/lib/performance/performanceRulesEngine";
@@ -16,6 +15,7 @@ import {
   type StaffLedgerTarget,
 } from "@/lib/pointsLedger";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { filterActiveStaffRows } from "@/lib/staffActiveFilter";
 import { TABLES } from "@/lib/supabaseTables";
 
 export type StaffIncentiveTransaction = PointLedgerRecord & {
@@ -26,6 +26,8 @@ export type StaffIncentiveTransaction = PointLedgerRecord & {
   includedInFinalPoints: boolean;
   exclusionReason?: string;
   duplicateWarning?: string;
+  moneyAmount?: number;
+  isQuarterlyCashReward?: boolean;
 };
 
 export type StaffCycleIncentive = {
@@ -47,6 +49,8 @@ export type StaffCycleIncentive = {
   deductionTransactions: StaffIncentiveTransaction[];
   pendingTransactions: StaffIncentiveTransaction[];
   excludedTransactions: StaffIncentiveTransaction[];
+  cashRewardTransactions: StaffIncentiveTransaction[];
+  quarterlyCashRewards: number;
   sourceBreakdown: Array<{ source: string; points: number; count: number }>;
   warnings: string[];
 };
@@ -63,6 +67,69 @@ function normalizeName(value: unknown) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+function numberOrZero(value: unknown) {
+  const next = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(next) ? next : 0;
+}
+
+function getRowMetadata(row: PointLedgerRecord) {
+  return row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : {};
+}
+
+function rowText(row: PointLedgerRecord) {
+  const meta = getRowMetadata(row);
+  return [
+    row.source_type,
+    row.source,
+    row.source_module,
+    row.reason,
+    row.description,
+    row.title,
+    row.manager_note,
+    meta.source_type,
+    meta.source,
+    meta.source_module,
+    meta.rule_code,
+    meta.impact_type,
+    meta.category,
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+}
+
+export function isQuarterlyCashRewardRecord(row: PointLedgerRecord) {
+  const delta = pointRecordDelta(row);
+  if (delta <= 0) return false;
+  const text = rowText(row);
+  const isStagnantOrList = /(stagnant|stagnant_medicine|incentive_medicine|list_item|list_items|medicine_sales|راكد|رواكد|لسته|لستة|اصناف اللسته|أصناف اللستة|صنف حافز|صرف لست)/i.test(text);
+  if (!isStagnantOrList) return false;
+  const isExplicitMonthly = /(monthly_exceptional_reward|monthly_points|نقاط شهريه|نقاط شهرية)/i.test(text);
+  return !isExplicitMonthly;
+}
+
+export function getQuarterlyCashAmount(row: PointLedgerRecord) {
+  const meta = getRowMetadata(row);
+  const candidates = [
+    (row as any).total_incentive,
+    (row as any).incentive_total,
+    (row as any).money_amount,
+    (row as any).money_delta,
+    (row as any).reward_amount,
+    (row as any).amount,
+    meta.total_incentive,
+    meta.incentive_total,
+    meta.money_amount,
+    meta.money_delta,
+    meta.reward_amount,
+    meta.amount,
+  ];
+  for (const candidate of candidates) {
+    const n = numberOrZero(candidate);
+    if (n > 0) return n;
+  }
+  return Math.abs(pointRecordDelta(row));
 }
 
 // منع التكرار باستخدام مفتاح مركب من source_type, source_id, staff_id, date, points_delta, reason
@@ -110,15 +177,18 @@ function uniqById(rows: PointLedgerRecord[]) {
 
 function normalizeTxn(row: PointLedgerRecord, includedInFinalPoints: boolean = true, exclusionReason?: string, duplicateWarning?: string): StaffIncentiveTransaction {
   const delta = pointRecordDelta(row);
+  const isCash = isQuarterlyCashRewardRecord(row);
   return {
     ...row,
-    normalizedDelta: delta,
-    absPoints: Math.abs(delta),
+    normalizedDelta: isCash ? 0 : delta,
+    absPoints: isCash ? 0 : Math.abs(delta),
     sourceLabel: formatTransactionSource(row),
     shortReason: getTransactionShortReason(row),
-    includedInFinalPoints,
-    exclusionReason,
+    includedInFinalPoints: includedInFinalPoints && !isCash,
+    exclusionReason: isCash ? "مكافأة مالية للرواكد/اللستة تُحسب في الحافز الربع سنوي ولا تدخل نقاط الشهر" : exclusionReason,
     duplicateWarning,
+    moneyAmount: isCash ? getQuarterlyCashAmount(row) : 0,
+    isQuarterlyCashReward: isCash,
   };
 }
 
@@ -148,15 +218,26 @@ export function calculateStaffCycleIncentiveFromRows(args: {
   const rejected = staffRows.filter((row) => ["rejected", "cancelled"].includes(pointRecordStatus(row)));
   if (rejected.length) warnings.push(`${rejected.length} سجل مرفوض/ملغي لا يدخل في الحافز.`);
 
-  const rewardTransactions = approved.filter((row) => row.normalizedDelta > 0);
-  const deductionTransactions = approved.filter((row) => row.normalizedDelta < 0);
-  const pendingTransactions = pending;
-  const excludedTransactions = rejected.map((row) => normalizeTxn(row, false, "مرفوض/ملغي"));
+  const cashRewardTransactions = approved.filter((row) => row.isQuarterlyCashReward);
+  const monthlyApproved = approved.filter((row) => !row.isQuarterlyCashReward);
+  const monthlyPending = pending.filter((row) => !row.isQuarterlyCashReward);
+  const rewardTransactions = monthlyApproved.filter((row) => row.normalizedDelta > 0);
+  const deductionTransactions = monthlyApproved.filter((row) => row.normalizedDelta < 0);
+  const pendingTransactions = monthlyPending;
+  const excludedTransactions = [
+    ...rejected.map((row) => normalizeTxn(row, false, "مرفوض/ملغي")),
+    ...approved.filter((row) => row.isQuarterlyCashReward).map((row) => ({ ...row, includedInFinalPoints: false })),
+    ...pending.filter((row) => row.isQuarterlyCashReward).map((row) => ({ ...row, includedInFinalPoints: false })),
+  ];
+  const quarterlyCashRewards = cashRewardTransactions.reduce((sum, row) => sum + (row.moneyAmount || 0), 0);
+  if (quarterlyCashRewards > 0) {
+    warnings.push(`تم فصل ${quarterlyCashRewards.toLocaleString("ar-EG")} جنيه مكافآت رواكد/لستة عن نقاط الشهر وإضافتها للحافز الربع سنوي.`);
+  }
   
   const approvedRewardPoints = rewardTransactions.reduce((sum, row) => sum + row.absPoints, 0);
   const approvedDeductionPoints = deductionTransactions.reduce((sum, row) => sum + row.absPoints, 0);
-  const pendingRewardPoints = pending.filter((row) => row.normalizedDelta > 0).reduce((sum, row) => sum + row.absPoints, 0);
-  const pendingDeductionPoints = pending.filter((row) => row.normalizedDelta < 0).reduce((sum, row) => sum + row.absPoints, 0);
+  const pendingRewardPoints = monthlyPending.filter((row) => row.normalizedDelta > 0).reduce((sum, row) => sum + row.absPoints, 0);
+  const pendingDeductionPoints = monthlyPending.filter((row) => row.normalizedDelta < 0).reduce((sum, row) => sum + row.absPoints, 0);
   const monthly = calculateMonthlyIncentive({
     startingPoints,
     approvedDeductionPoints,
@@ -168,7 +249,7 @@ export function calculateStaffCycleIncentiveFromRows(args: {
   if (monthly.distinctionPointsAbove500 > 0) warnings.push("النقاط النهائية أعلى من 500؛ الحافز النقدي الشهري مقفول عند 1500 جنيه، والزيادة تظهر كنقاط تميز فقط.");
 
   const sourceMap = new Map<string, { source: string; points: number; count: number }>();
-  for (const row of approved) {
+  for (const row of monthlyApproved) {
     const source = row.sourceLabel || "سجل نقاط";
     const current = sourceMap.get(source) || { source, points: 0, count: 0 };
     current.points += row.normalizedDelta;
@@ -201,6 +282,8 @@ export function calculateStaffCycleIncentiveFromRows(args: {
     deductionTransactions,
     pendingTransactions,
     excludedTransactions,
+    cashRewardTransactions,
+    quarterlyCashRewards,
     sourceBreakdown: [...sourceMap.values()],
     warnings,
   };
@@ -219,7 +302,9 @@ export async function getStaffCycleIncentive(args: {
     ? supabase.from("staff").select("id,name,points,max_points,branch").eq("id", args.staffId).maybeSingle()
     : supabase.from("staff").select("id,name,points,max_points,branch").eq("name", args.staffName || "").maybeSingle();
   const { data: staffData, error: staffError } = await staffQuery;
-  if (staffError) throw new Error(staffError.message);
+  if (staffError) {
+    console.warn("[getStaffCycleIncentive] staff lookup failed:", staffError.message);
+  }
   const staff = (staffData || {
     id: args.staffId || null,
     name: args.staffName || "غير محدد",
@@ -274,7 +359,7 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(row.points || 0),
       reason: row.reason || row.description || "",
       created_at: row.created_at,
-      status: row.status || RECORD_STATUS.APPROVED,
+      status: row.status || "active",
     } as PointLedgerRecord);
   }
   
@@ -291,7 +376,7 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(row.points_delta || row.points || 0),
       reason: row.reason || "",
       created_at: row.created_at,
-      status: row.status || RECORD_STATUS.APPROVED,
+      status: row.status || "active",
     } as PointLedgerRecord);
   }
   
@@ -308,7 +393,7 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(row.points_delta || row.points || 0),
       reason: row.reason || "",
       created_at: row.created_at,
-      status: row.status || RECORD_STATUS.APPROVED,
+      status: row.status || "active",
     } as PointLedgerRecord);
   }
   
@@ -327,43 +412,43 @@ export async function getStaffCycleIncentive(args: {
       points: Math.abs(delta),
       reason: `تقييم محادثة: ${row.customer_name || ""}`,
       created_at: row.conversation_date || row.created_at,
-      status: row.status || RECORD_STATUS.APPROVED,
+      status: row.status || "active",
     } as PointLedgerRecord);
   }
   
-  // stagnant_medicine_dispenses
+  // stagnant_medicine_dispenses: cash rewards go to quarterly incentive, not monthly points
   for (const row of stagnantMedicines.data || []) {
-    const points = row.points_impact || 0;
+    const cash = row.total_incentive || row.incentive_total || row.money_amount || row.reward_amount || row.points_awarded || row.points_impact || 0;
     allRows.push({
       ...row,
       source_type: "stagnant_medicine_dispenses",
       source_id: row.id,
-      staff_id: row.staff_id,
-      employee_id: row.staff_id,
-      employee_name: row.staff_name || name,
-      points_delta: points,
-      points: Math.abs(points),
-      reason: `صنف راكد: ${row.medicine_name || ""}`,
-      created_at: row.created_at,
-      status: row.status || RECORD_STATUS.APPROVED,
+      staff_id: row.staff_id || row.doctor_id,
+      employee_id: row.staff_id || row.doctor_id,
+      employee_name: row.staff_name || row.doctor_name || name,
+      points_delta: cash,
+      points: Math.abs(cash),
+      reason: `مكافأة مالية رواكد: ${row.medicine_name || row.product_name || ""}`,
+      created_at: row.created_at || row.dispensed_at || row.transaction_date,
+      status: row.status || "active",
     } as PointLedgerRecord);
   }
   
-  // incentive_medicine_sales
+  // incentive_medicine_sales: cash rewards go to quarterly incentive, not monthly points
   for (const row of incentiveMedicines.data || []) {
-    const points = row.points_impact || 0;
+    const cash = row.incentive_total || row.total_incentive || row.money_amount || row.reward_amount || row.points_awarded || row.points_impact || 0;
     allRows.push({
       ...row,
       source_type: "incentive_medicine_sales",
       source_id: row.id,
-      staff_id: row.staff_id,
-      employee_id: row.staff_id,
-      employee_name: row.staff_name || name,
-      points_delta: points,
-      points: Math.abs(points),
-      reason: `صنف حافز: ${row.medicine_name || ""}`,
-      created_at: row.created_at,
-      status: row.status || RECORD_STATUS.APPROVED,
+      staff_id: row.staff_id || row.doctor_id,
+      employee_id: row.staff_id || row.doctor_id,
+      employee_name: row.staff_name || row.doctor_name || name,
+      points_delta: cash,
+      points: Math.abs(cash),
+      reason: `مكافأة مالية لستة: ${row.medicine_name || row.product_name || ""}`,
+      created_at: row.created_at || row.sale_date,
+      status: row.status || "active",
     } as PointLedgerRecord);
   }
   
@@ -377,7 +462,7 @@ export async function getStaffIncentiveSummaryForCycle(args: {
   branch?: string | null;
 }) {
   const cycle = args.cycle || getCurrentCycle();
-  let staffQuery = supabase.from("staff").select("id,name,points,max_points,branch").limit(500);
+  let staffQuery = supabase.from("staff").select("id,name,points,max_points,branch,active,is_active,status").eq("active", true).limit(500);
   if (args.branch && args.branch !== "الكل") staffQuery = staffQuery.eq("branch", args.branch);
   
   const [staffResult, employeeTxnsResult, pointsTxnsResult, pointRecordsResult] = await Promise.all([
@@ -388,7 +473,8 @@ export async function getStaffIncentiveSummaryForCycle(args: {
   ]);
   
   if (staffResult.error) throw new Error(staffResult.error.message);
-  
+  const activeStaff = filterActiveStaffRows((staffResult.data || []) as StaffLedgerTarget[]);
+
   // جمع جميع السجلات من المصادر المختلفة
   const allRecords: PointLedgerRecord[] = [];
   
@@ -405,7 +491,7 @@ export async function getStaffIncentiveSummaryForCycle(args: {
       points: Math.abs(row.points || 0),
       reason: row.reason || row.description || "",
       created_at: row.created_at,
-      status: row.status || RECORD_STATUS.APPROVED,
+      status: row.status || "active",
     } as PointLedgerRecord);
   }
   
@@ -422,7 +508,7 @@ export async function getStaffIncentiveSummaryForCycle(args: {
       points: Math.abs(row.points_delta || row.points || 0),
       reason: row.reason || "",
       created_at: row.created_at,
-      status: row.status || RECORD_STATUS.APPROVED,
+      status: row.status || "active",
     } as PointLedgerRecord);
   }
   
@@ -439,11 +525,11 @@ export async function getStaffIncentiveSummaryForCycle(args: {
       points: Math.abs(row.points_delta || row.points || 0),
       reason: row.reason || "",
       created_at: row.created_at,
-      status: row.status || RECORD_STATUS.APPROVED,
+      status: row.status || "active",
     } as PointLedgerRecord);
   }
   
-  return ((staffResult.data || []) as StaffLedgerTarget[]).map((staff) =>
+  return activeStaff.map((staff) =>
     calculateStaffCycleIncentiveFromRows({
       staff,
       records: allRecords,

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import type { EvaluationRuleDef } from "@/lib/evaluationRulesCatalog";
 import { rulesForStaffRole } from "@/lib/evaluationRulesCatalog";
@@ -85,6 +85,8 @@ export function AddPointsModal({
   const [ruleCode, setRuleCode] = useState("");
   const [note, setNote] = useState("");
   const [adminDelta, setAdminDelta] = useState("0");
+  const [ruleSearch, setRuleSearch] = useState("");
+  const [ruleCategory, setRuleCategory] = useState("الكل");
 
   useEscapeKey(onClose, true);
 
@@ -112,9 +114,21 @@ export function AddPointsModal({
     return { prev, ...calc, showWarn: prev > 0 };
   }, [selectedRule, operation, records, staffId, cycle]);
 
-  const filteredRulesForOp = scopedRules.filter((r) =>
-    operation === "bonus" ? r.type === "bonus" : operation === "deduction" ? r.type === "deduction" : true
-  );
+  const ruleCategories = useMemo(() => {
+    const cats = scopedRules
+      .filter((r) => operation === "bonus" ? r.type === "bonus" : operation === "deduction" ? r.type === "deduction" : true)
+      .map((r) => r.category || "عام");
+    return ["الكل", ...Array.from(new Set(cats))];
+  }, [scopedRules, operation]);
+
+  const normalizedRuleSearch = ruleSearch.replace(/\s+/g, " ").trim().toLowerCase();
+  const filteredRulesForOp = scopedRules.filter((r) => {
+    const matchesOp = operation === "bonus" ? r.type === "bonus" : operation === "deduction" ? r.type === "deduction" : true;
+    const matchesCategory = ruleCategory === "الكل" || (r.category || "عام") === ruleCategory;
+    const text = `${r.title} ${r.category} ${r.description} ${r.code}`.toLowerCase();
+    const matchesSearch = !normalizedRuleSearch || text.includes(normalizedRuleSearch);
+    return matchesOp && matchesCategory && matchesSearch;
+  });
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -299,15 +313,33 @@ export function AddPointsModal({
 
           {operation !== "admin_adjustment" ? (
             <>
+              <div className="grid gap-2 md:grid-cols-[1fr_180px]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <input
+                    value={ruleSearch}
+                    onChange={(e) => setRuleSearch(e.target.value)}
+                    className="input-dark pr-10"
+                    placeholder="ابحث في بنود الخصم والمكافأة: خدمة العملاء، تكويد العميل، واتساب..."
+                  />
+                </div>
+                <select value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)} className="input-dark">
+                  {ruleCategories.map((category) => <option key={category}>{category}</option>)}
+                </select>
+              </div>
               <select value={ruleCode} onChange={(e) => setRuleCode(e.target.value)} className="input-dark" required>
-                <option value="">سبب القاعدة</option>
+                <option value="">سبب القاعدة ({filteredRulesForOp.length} بند ظاهر)</option>
                 {filteredRulesForOp.map((r) => (
                   <option key={r.code} value={r.code}>
-                    {r.title} ({r.type === "bonus" ? "+" : "-"}
-                    {r.default_points})
+                    {r.title} · {r.category} ({r.type === "bonus" ? "+" : "-"}{r.default_points})
                   </option>
                 ))}
               </select>
+              {filteredRulesForOp.length === 0 && (
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs font-bold text-amber-100">
+                  لا توجد بنود مطابقة. غيّر التصنيف أو امسح البحث.
+                </div>
+              )}
               <div className="text-sm text-slate-300 space-y-1">
                 <div>
                   النقاط المقترحة:{" "}

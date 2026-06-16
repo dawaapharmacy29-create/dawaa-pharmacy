@@ -72,11 +72,12 @@ const CUSTOMER_FLAG_LABELS: Record<string, string> = {
   blacklisted: "محظور",
 };
 
-export function customerFlagLabels(flags?: Record<string, boolean> | null) {
+export function customerFlagLabels(flags?: Record<string, boolean> | { important_tags?: string[] } | null) {
   if (!flags || typeof flags !== "object") return [];
-  return Object.entries(flags)
-    .filter(([, value]) => Boolean(value))
-    .map(([key]) => CUSTOMER_FLAG_LABELS[key] || key);
+  const activeKeys = Array.isArray((flags as any).important_tags)
+    ? (flags as any).important_tags.map((key: unknown) => String(key))
+    : Object.entries(flags as Record<string, boolean>).filter(([, value]) => Boolean(value)).map(([key]) => key);
+  return activeKeys.map((key) => CUSTOMER_FLAG_LABELS[key] || key);
 }
 
 export function isValidEgyptPhone(phone?: string | null, customerCode?: string | null) {

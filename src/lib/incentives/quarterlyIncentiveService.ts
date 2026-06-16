@@ -1,8 +1,10 @@
 import { supabase } from "@/lib/supabase";
+import { filterActiveStaffRows } from "@/lib/staffActiveFilter";
 import { formatMoney, getInvoiceAmount, getInvoiceDoctor, normalizeArabicName, quarterlyPillars2027 } from "@/lib/dawaa2027";
 import { matchStaffInvoice, matchStaffName } from "@/lib/dawaa2027Data";
 import { isApprovedPointRecord, pointRecordDelta, recordBelongsToStaff } from "@/lib/pointsLedger";
 import { calculateQuarterlyIncentive, getQuarterRange, QUARTERLY_BASE_BONUS_EGP } from "@/lib/incentives/incentiveRulesEngine";
+import { fetchSalesInvoicesPagedSafe } from "@/lib/salesInvoiceQueries";
 
 type Row = Record<string, unknown>;
 
@@ -27,6 +29,8 @@ export type QuarterlyStaffIncentiveRow = {
   scoreQuality: number;
   score: number;
   quarterlyFinalValue: number;
+  quarterlyMoneyRewards: number;
+  quarterlyMoneyDeductions: number;
   topCustomer?: [string, number];
 };
 
@@ -43,20 +47,27 @@ export async function loadQuarterlyIncentiveSummary(date = new Date()): Promise<
   const quarter = getQuarterRange(date);
   const start = quarter.start.toISOString();
   const end = quarter.end.toISOString();
-  const [staffRes, invoicesRes, targetsRes, listSalesRes, stagnantRes, txRes] = await Promise.all([
-    supabase.from("staff").select("id,name,role,branch").limit(500),
-    supabase.from("sales_invoices").select("*").gte("invoice_date", start).lte("invoice_date", end).limit(10000),
+  const invoiceWarnings: string[] = [];
+  const [staffRes, invoices, targetsRes, listSalesRes, stagnantRes, txRes] = await Promise.all([
+    supabase.from("staff").select("id,name,role,branch,active,is_active,status").eq("active", true).limit(500),
+    fetchSalesInvoicesPagedSafe({
+      startDate: start.slice(0, 10),
+      endDate: end.slice(0, 10),
+      branch: "كل الفروع",
+      errors: invoiceWarnings,
+    }),
     supabase.from("doctor_incentive_targets").select("*").limit(5000),
     supabase.from("doctor_incentive_sales").select("*").gte("created_at", start).lte("created_at", end).limit(5000),
     supabase.from("stagnant_medicine_dispenses").select("*").gte("created_at", start).lte("created_at", end).limit(5000),
     supabase.from("employee_transactions").select("*").gte("created_at", start).lte("created_at", end).limit(5000),
   ]);
 
-  const warnings = [staffRes, invoicesRes, targetsRes, listSalesRes, stagnantRes, txRes]
+  const warnings = [staffRes, targetsRes, listSalesRes, stagnantRes, txRes]
     .filter((res) => res.error)
     .map((res) => res.error?.message || "تعذر تحميل مصدر بيانات");
-  const staff = (staffRes.data || []) as Row[];
-  const invoices = (invoicesRes.data || []) as Row[];
+  const staff = filterActiveStaffRows((staffRes.data || []) as Row[]) as Row[];
+  warnings.push(...invoiceWarnings);
+  const invoiceRows = (invoices || []) as Row[];
   const targets = (targetsRes.data || []) as Row[];
   const listSales = (listSalesRes.data || []) as Row[];
   const stagnantDispenses = (stagnantRes.data || []) as Row[];
@@ -66,7 +77,7 @@ export async function loadQuarterlyIncentiveSummary(date = new Date()): Promise<
   const doctors = staffDoctors.length ? staffDoctors : staff;
 
   const rawRows = doctors.map((doctor) => {
-    const doctorInvoices = invoices.filter((invoice) => matchStaffInvoice(invoice, doctor));
+    const doctorInvoices = invoiceRows.filter((invoice) => matchStaffInvoice(invoice, doctor));
     const sales = doctorInvoices.reduce((sum, invoice) => sum + getInvoiceAmount(invoice), 0);
     const invoiceCount = doctorInvoices.length;
     const customerValues = new Map<string, number>();
@@ -111,8 +122,59 @@ export async function loadQuarterlyIncentiveSummary(date = new Date()): Promise<
     const scoreStock = Math.min(10, r.stagnantCount * 2);
     const scoreQuality = Math.max(0, Math.round(r.dataQuality * 10) - Math.min(5, r.deductionsCount));
     const score = scoreSales + scoreAvg + scoreCustomers + scoreList + scoreStock + scoreQuality;
-    const quarterlyFinalValue = Math.round(calculateQuarterlyIncentive({ approvedQuarterlyDeductions: Math.max(0, 100 - score) * 10 }).quarterlyFinalValue);
-    return { ...r, scoreSales, scoreAvg, scoreCustomers, scoreList, scoreStock, scoreQuality, score, quarterlyFinalValue };
+    
+    // Calculate quarterly money rewards from stagnant/list items
+    const doctorTransactions = transactions.filter((t) => isApprovedPointRecord(t) && recordBelongsToStaff(t, r));
+    const quarterlyMoneyRewards = doctorTransactions
+      .filter((t) => pointRecordDelta(t) > 0)
+      .reduce((sum, t) => {
+        const meta = t.metadata as Record<string, unknown> || {};
+        const moneyAmount = Number(meta.money_amount || meta.reward_amount || meta.total_incentive || 0);
+        // Check if this is a stagnant/list cash reward
+        const text = [
+          t.source_type, t.source, t.source_module, t.reason, t.description, t.title, t.manager_note,
+          meta.source_type, meta.source, meta.source_module, meta.rule_code, meta.impact_type, meta.category
+        ].map((v) => String(v || "").toLowerCase()).join(" ");
+        const isStagnantOrList = /(stagnant|stagnant_medicine|incentive_medicine|list_item|list_items|medicine_sales|راكد|رواكد|لسته|لستة|اصناف اللسته|أصناف اللستة|صنف حافز|صرف لست)/i.test(text);
+        const isExplicitMonthly = /(monthly_exceptional_reward|monthly_points|نقاط شهريه|نقاط شهرية)/i.test(text);
+        return sum + (isStagnantOrList && !isExplicitMonthly ? (moneyAmount > 0 ? moneyAmount : Math.abs(pointRecordDelta(t))) : 0);
+      }, 0);
+    
+    // Calculate quarterly money deductions
+    const quarterlyMoneyDeductions = doctorTransactions
+      .filter((t) => pointRecordDelta(t) < 0)
+      .reduce((sum, t) => {
+        const meta = t.metadata as Record<string, unknown> || {};
+        const moneyAmount = Number(meta.money_amount || meta.money_delta || 0);
+        // Check if this is a quarterly money deduction
+        const text = [
+          t.source_type, t.source, t.source_module, t.reason, t.description, t.title, t.manager_note,
+          meta.source_type, meta.source, meta.source_module, meta.rule_code, meta.impact_type, meta.category
+        ].map((v) => String(v || "").toLowerCase()).join(" ");
+        const isQuarterlyDeduction = /(quarterly_money_deduction|quarterly_deduction|خصم ربع سنوي)/i.test(text);
+        return sum + (isQuarterlyDeduction ? (moneyAmount > 0 ? moneyAmount : Math.abs(pointRecordDelta(t))) : 0);
+      }, 0);
+    
+    // Calculate quarterly final value: base 2000 + money rewards - money deductions
+    const quarterlyFinalValue = Math.round(calculateQuarterlyIncentive({
+      approvedQuarterlyRewards: quarterlyMoneyRewards,
+      approvedQuarterlyDeductions: quarterlyMoneyDeductions,
+      baseValue: QUARTERLY_BASE_BONUS_EGP,
+    }).quarterlyFinalValue);
+    
+    return { 
+      ...r, 
+      scoreSales, 
+      scoreAvg, 
+      scoreCustomers, 
+      scoreList, 
+      scoreStock, 
+      scoreQuality, 
+      score, 
+      quarterlyFinalValue,
+      quarterlyMoneyRewards,
+      quarterlyMoneyDeductions,
+    };
   }).sort((a, b) => b.score - a.score);
 
   return {

@@ -218,6 +218,8 @@ export default function Analytics() {
 
       {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div>}
 
+      <OperationsV13Panel />
+
       {loading ? (
         <div className="grid gap-3 md:grid-cols-4">
           {[1, 2, 3, 4].map((item) => <div key={item} className="h-28 animate-pulse rounded-2xl bg-white shadow-sm" />)}
@@ -386,4 +388,145 @@ function Mini({ label, value }: { label: string; value: string }) {
 
 function Empty({ text }: { text: string }) {
   return <div className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500">{text}</div>;
+}
+
+
+type V13CustomerCards = {
+  total_customers_with_purchase?: number | null;
+  important_customers?: number | null;
+  very_important_customers?: number | null;
+  customers_need_attention?: number | null;
+  stopped_customers?: number | null;
+  normal_customers?: number | null;
+};
+
+type V13ShiftRow = {
+  branch?: string | null;
+  shift_name?: string | null;
+  active_days?: number | null;
+  avg_daily_invoices?: number | null;
+  avg_daily_sales?: number | null;
+  total_invoices?: number | null;
+  total_sales?: number | null;
+};
+
+type V13TargetRow = {
+  branch?: string | null;
+  target_amount?: number | null;
+  sales_total?: number | null;
+  achievement_percent?: number | null;
+  avg_daily_sales?: number | null;
+  remaining_amount?: number | null;
+  required_daily_remaining?: number | null;
+  projected_achievement_percent?: number | null;
+  target_status?: string | null;
+  manager_advice?: string | null;
+};
+
+function OperationsV13Panel() {
+  const [cards, setCards] = useState<V13CustomerCards | null>(null);
+  const [shifts, setShifts] = useState<V13ShiftRow[]>([]);
+  const [targets, setTargets] = useState<V13TargetRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadV13 = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [cardsResult, shiftsResult, targetsResult] = await Promise.all([
+        supabase.from("dawaa_dashboard_customer_cards_v13").select("*").limit(1),
+        supabase.from("dawaa_branch_shift_daily_avg_v13").select("*").order("branch"),
+        supabase.from("dawaa_branch_target_progress_v13").select("*").order("branch"),
+      ]);
+      if (cardsResult.error) throw cardsResult.error;
+      if (shiftsResult.error) throw shiftsResult.error;
+      if (targetsResult.error) throw targetsResult.error;
+      setCards((cardsResult.data?.[0] || null) as V13CustomerCards | null);
+      setShifts((shiftsResult.data || []) as V13ShiftRow[]);
+      setTargets((targetsResult.data || []) as V13TargetRow[]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر تحميل مؤشرات V13");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadV13();
+  }, [loadV13]);
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-black text-emerald-950">مؤشرات الإدارة V13</h2>
+          <p className="text-sm font-bold text-emerald-700">الداشبورد، العملاء المهمين، متوسط الفرع اليومي، والتارجت من الـ Views الجديدة.</p>
+        </div>
+        <button type="button" onClick={() => void loadV13()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-700">
+          <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> تحديث V13
+        </button>
+      </div>
+
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
+
+      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <MiniV13Card title="عملاء مشترين" value={cards?.total_customers_with_purchase} />
+        <MiniV13Card title="مهمين" value={cards?.important_customers} />
+        <MiniV13Card title="مهمين جدًا" value={cards?.very_important_customers} />
+        <MiniV13Card title="يحتاجون متابعة" value={cards?.customers_need_attention} />
+        <MiniV13Card title="متوقفين" value={cards?.stopped_customers} />
+        <MiniV13Card title="طبيعيين" value={cards?.normal_customers} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-white bg-white p-4">
+          <h3 className="mb-3 text-base font-black text-slate-900">متوسط الفرع اليومي / الشيفت</h3>
+          <div className="space-y-2">
+            {shifts.map((row, index) => (
+              <div key={`${row.branch}-${row.shift_name}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
+                <div className="flex items-center justify-between gap-3 font-black text-slate-900">
+                  <span>{row.branch || "غير محدد"} - {row.shift_name || "غير محدد"}</span>
+                  <span>{formatMoney(Number(row.avg_daily_sales || 0))}</span>
+                </div>
+                <div className="mt-1 text-xs font-bold text-slate-500">متوسط فواتير يومي: {formatNumber(Number(row.avg_daily_invoices || 0))} / أيام نشطة: {formatNumber(Number(row.active_days || 0))}</div>
+                {row.shift_name === "غير محدد" && <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs font-bold text-amber-700">تقسيم الشيفتات يحتاج وقت الفاتورة داخل الاستيراد.</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white bg-white p-4">
+          <h3 className="mb-3 text-base font-black text-slate-900">تارجت الفروع ونصيحة المدير</h3>
+          <div className="space-y-2">
+            {targets.map((row, index) => (
+              <div key={`${row.branch}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
+                <div className="flex items-center justify-between gap-3 font-black text-slate-900">
+                  <span>{row.branch || "غير محدد"}</span>
+                  <span>{Number(row.achievement_percent || 0).toLocaleString("ar-EG", { maximumFractionDigits: 2 })}%</span>
+                </div>
+                <div className="mt-1 grid gap-1 text-xs font-bold text-slate-600 md:grid-cols-2">
+                  <span>المبيعات: {formatMoney(Number(row.sales_total || 0))}</span>
+                  <span>التارجت: {formatMoney(Number(row.target_amount || 0))}</span>
+                  <span>المتبقي: {formatMoney(Number(row.remaining_amount || 0))}</span>
+                  <span>المطلوب يوميًا: {formatMoney(Number(row.required_daily_remaining || 0))}</span>
+                </div>
+                <div className="mt-2 rounded-lg bg-blue-50 p-2 text-xs font-black text-blue-700">{row.target_status || "غير محدد"}</div>
+                <div className="mt-2 text-xs font-bold leading-6 text-slate-600">{row.manager_advice || "لا توجد نصيحة"}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniV13Card({ title, value }: { title: string; value?: number | null }) {
+  return (
+    <div className="rounded-2xl border border-white bg-white p-4 shadow-sm">
+      <div className="text-xs font-bold text-slate-500">{title}</div>
+      <div className="mt-2 text-2xl font-black text-slate-950">{value === null || value === undefined ? "-" : formatNumber(Number(value))}</div>
+    </div>
+  );
 }

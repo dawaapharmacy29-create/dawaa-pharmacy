@@ -1,4 +1,4 @@
-import { getInvoiceAmount, getInvoiceDate, getInvoiceDoctor } from "@/lib/dawaa2027";
+import { getInvoiceAmount, getInvoiceDate, getInvoiceDoctor, getInvoiceKey } from "@/lib/dawaa2027";
 import { getInvoicesForCustomer, type InvoiceLike } from "@/lib/salesInvoiceSource";
 
 type Row = Record<string, unknown>;
@@ -15,7 +15,7 @@ export function buildCustomerTimeline(customer: Row, args: { invoices?: InvoiceL
   const invoices = getInvoicesForCustomer(customer, args.invoices || []).map((invoice, index) => ({
     id: `invoice-${String(invoice.id || index)}`,
     type: "invoice" as const,
-    title: `فاتورة ${String(invoice.invoice_number || "") || ""}`.trim(),
+    title: `فاتورة ${getInvoiceKey(invoice) || ""}`.trim(),
     date: String(getInvoiceDate(invoice) || "") || null,
     description: `${getInvoiceAmount(invoice).toLocaleString("ar-EG")} ج.م - ${getInvoiceDoctor(invoice) || "غير محدد"}`,
   }));

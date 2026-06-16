@@ -5,6 +5,7 @@ import ImageUploadBox from "@/components/ImageUploadBox";
 import { supabase } from "@/lib/supabase";
 import { BRANCHES } from "@/lib/constants";
 import { useAuth } from "@/hooks/useAuth";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { formatCurrency } from "@/lib/utils";
 
@@ -51,7 +52,7 @@ async function insertResilient(table: string, payload: Record<string, unknown>) 
 
 export default function Stories() {
   const { user } = useAuth();
-  const { data: staffRows } = useSupabaseQuery<StaffOption>({ table: "staff", realtimeEnabled: false });
+  const { data: staffRows } = useSupabaseQuery<StaffOption>({ table: "staff", filters: isActiveStaffFilter(), realtimeEnabled: false });
   const [stories, setStories] = useState<Row[]>([]);
   const [reports, setReports] = useState<Row[]>([]);
   const [sales, setSales] = useState<Row[]>([]);

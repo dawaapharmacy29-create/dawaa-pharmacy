@@ -3,6 +3,7 @@ import { BarChart3, MessageCircle, Star, TrendingUp, Users } from "lucide-react"
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { formatCycleDate, getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { formatCurrency } from "@/lib/utils";
+import { getInvoiceKey } from "@/lib/dawaa2027";
 
 type Row = Record<string, unknown>;
 
@@ -69,7 +70,7 @@ export default function WhatsappAnalytics() {
 
   const linkedInvoiceSales = useMemo(() => {
     const invoiceNumbers = new Set(filtered.map((row) => text(row, ["invoice_number", "linked_invoice_number"])).filter(Boolean));
-    return invoices.filter((invoice) => invoiceNumbers.has(text(invoice, ["invoice_number"]))).reduce((sum, invoice) => sum + num(invoice, ["net_amount", "amount", "total"], 0), 0);
+    return invoices.filter((invoice) => invoiceNumbers.has(getInvoiceKey(invoice))).reduce((sum, invoice) => sum + num(invoice, ["net_amount", "amount", "total"], 0), 0);
   }, [filtered, invoices]);
 
   const relatedPoints = useMemo(() => {

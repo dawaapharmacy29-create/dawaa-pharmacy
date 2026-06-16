@@ -40,3 +40,439 @@
 .read-the-docs {
   color: #888;
 }
+
+
+
+/* Dawaa UI Layout & Badges Fix V1 - 2026-06-08
+   الهدف: منع ضغط الصفحات والجداول، توضيح العلامات في الثيم الغامق، وتحسين العرض على الشاشات المختلفة.
+*/
+:root {
+  --dawaa-sidebar-width: 280px;
+  --dawaa-content-safe-gap: 1rem;
+}
+
+/* منع الصفحة من التمدد خارج الشاشة */
+html,
+body,
+#root {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* أي محتوى رئيسي لازم يقبل الانكماش بدل ما يدفع الصفحة يمين/شمال */
+main,
+.dawaa-main,
+.dawaa-page,
+.dawaa-page-shell,
+.dawaa-content,
+[class*="page"],
+[class*="Page"] {
+  min-width: 0;
+}
+
+/* اللوحات والجداول الكبيرة */
+.dawaa-panel,
+.dawaa-card,
+.card,
+.panel,
+.table-card,
+.data-card,
+[class*="panel"],
+[class*="Panel"] {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* أي جدول داخل لوحة يبقى له سكرول أفقي محترم بدل ضغط العلامات */
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.dawaa-table-wrapper,
+.table-wrapper,
+.overflow-x-auto,
+.table-container,
+[class*="Table"] {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+/* عند وجود جدول عريض جدًا */
+table th,
+table td {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* عمود الإجراءات والبادجات يسمح بالالتفاف بدل التزاحم */
+td:has(.dawaa-action-stack),
+td:has(.dawaa-badge-wrap),
+.dawaa-actions-cell,
+.dawaa-tags-cell,
+.dawaa-action-stack,
+.dawaa-badge-wrap {
+  white-space: normal !important;
+}
+
+.dawaa-action-stack,
+.dawaa-badge-wrap,
+.badge-list,
+.tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 190px;
+  max-width: 360px;
+}
+
+/* توحيد شكل الأزرار الصغيرة داخل الجداول */
+.dawaa-action-stack button,
+.dawaa-action-stack a,
+.dawaa-badge-wrap button,
+.dawaa-badge-wrap a,
+td button,
+td a.btn-secondary,
+td .btn-secondary {
+  min-height: 30px;
+  line-height: 1.15;
+}
+
+/* تحسين العلامات في الثيم الغامق والفاتح */
+.dawaa-badge,
+.customer-tag,
+.customer-flag,
+.flag-badge,
+.status-badge,
+[class*="badge"],
+[class*="Badge"],
+[class*="chip"],
+[class*="Chip"] {
+  border-width: 1px;
+  font-weight: 800;
+  line-height: 1.15;
+  box-shadow: none;
+}
+
+/* منع الألوان الفاتحة جدًا على خلفية فاتحة أو غامقة */
+.dark .dawaa-badge,
+.dark .customer-tag,
+.dark .customer-flag,
+.dark .flag-badge,
+.dark .status-badge,
+.dark [class*="badge"],
+.dark [class*="Badge"],
+.dark [class*="chip"],
+.dark [class*="Chip"],
+[data-theme="dark"] .dawaa-badge,
+[data-theme="dark"] .customer-tag,
+[data-theme="dark"] .customer-flag,
+[data-theme="dark"] .flag-badge,
+[data-theme="dark"] .status-badge,
+[data-theme="dark"] [class*="badge"],
+[data-theme="dark"] [class*="Badge"],
+[data-theme="dark"] [class*="chip"],
+[data-theme="dark"] [class*="Chip"] {
+  background-color: rgba(20, 184, 166, 0.16) !important;
+  color: #dffdf8 !important;
+  border-color: rgba(94, 234, 212, 0.45) !important;
+}
+
+/* تحذيرات/ألوان فاتحة كانت شبه مختفية */
+.dark .bg-yellow-50,
+.dark .bg-amber-50,
+.dark .bg-lime-50,
+.dark .bg-green-50,
+.dark .bg-emerald-50,
+.dark .bg-teal-50,
+[data-theme="dark"] .bg-yellow-50,
+[data-theme="dark"] .bg-amber-50,
+[data-theme="dark"] .bg-lime-50,
+[data-theme="dark"] .bg-green-50,
+[data-theme="dark"] .bg-emerald-50,
+[data-theme="dark"] .bg-teal-50 {
+  background-color: rgba(20, 184, 166, 0.17) !important;
+  color: #ecfeff !important;
+  border-color: rgba(94, 234, 212, 0.5) !important;
+}
+
+/* أزرار غير فعالة داخل الجداول تكون واضحة أنها معطلة بدون اختفاء النص */
+button:disabled,
+a[aria-disabled="true"],
+.disabled {
+  opacity: 0.62 !important;
+  cursor: not-allowed !important;
+}
+
+.dark button:disabled,
+.dark a[aria-disabled="true"],
+.dark .disabled,
+[data-theme="dark"] button:disabled,
+[data-theme="dark"] a[aria-disabled="true"],
+[data-theme="dark"] .disabled {
+  color: rgba(255,255,255,0.72) !important;
+}
+
+/* إصلاح تداخل الهيدر مع المحتوى في الشاشات الصغيرة */
+@media (max-width: 1280px) {
+  .dawaa-page,
+  .dawaa-page-shell,
+  main {
+    padding-inline: 0.75rem !important;
+  }
+
+  .dawaa-panel,
+  .dawaa-card,
+  .card,
+  .panel {
+    padding-inline: 0.75rem;
+  }
+}
+
+/* على الشاشات المتوسطة: الجدول يأخذ سكرول أفقي بدل تصغير الصفحة */
+@media (max-width: 1536px) {
+  .dawaa-cashback-table,
+  .customer-cashback-table,
+  .customers-table,
+  .data-table {
+    min-width: 1180px;
+  }
+}
+
+/* على الموبايل/التابلت */
+@media (max-width: 900px) {
+  table th,
+  table td {
+    font-size: 0.78rem;
+  }
+
+  .dawaa-action-stack,
+  .dawaa-badge-wrap,
+  .badge-list,
+  .tags-list {
+    min-width: 150px;
+    max-width: 260px;
+  }
+
+  .dawaa-page,
+  main {
+    padding-inline: 0.5rem !important;
+  }
+}
+
+/* شريط سكرول أوضح في الجداول */
+.dawaa-table-wrapper::-webkit-scrollbar,
+.table-wrapper::-webkit-scrollbar,
+.overflow-x-auto::-webkit-scrollbar,
+.table-container::-webkit-scrollbar {
+  height: 9px;
+}
+
+.dawaa-table-wrapper::-webkit-scrollbar-thumb,
+.table-wrapper::-webkit-scrollbar-thumb,
+.overflow-x-auto::-webkit-scrollbar-thumb,
+.table-container::-webkit-scrollbar-thumb {
+  background: rgba(20, 184, 166, 0.45);
+  border-radius: 999px;
+}
+
+.dawaa-table-wrapper::-webkit-scrollbar-track,
+.table-wrapper::-webkit-scrollbar-track,
+.overflow-x-auto::-webkit-scrollbar-track,
+.table-container::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+/* تحسين خاص بصفحة الكاش باك: خلية الإجراءات والعلامات */
+.customer-cashback-actions,
+.cashback-actions,
+.cashback-tags,
+.customer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 220px;
+  max-width: 380px;
+  white-space: normal;
+}
+
+.customer-cashback-actions > *,
+.cashback-actions > *,
+.cashback-tags > *,
+.customer-tags > * {
+  flex: 0 0 auto;
+}
+
+/* جعل الصفحة لا تحتاج Zoom Out بسبب السايدبار */
+@media (min-width: 1024px) {
+  .layout-with-sidebar,
+  .app-layout,
+  .dashboard-layout {
+    min-width: 0;
+  }
+}
+
+
+
+/* Dawaa Cashback Responsive Cards Fix V2 */
+.cashback-mobile-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.cashback-desktop-table {
+  display: none;
+}
+
+.cashback-responsive-card {
+  border: 1px solid var(--theme-border);
+  background: color-mix(in srgb, var(--theme-surface) 92%, transparent);
+  border-radius: 1.25rem;
+  padding: 0.95rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+}
+
+.cashback-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.cashback-action-grid > * {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+@media (min-width: 1560px) {
+  .cashback-mobile-list {
+    display: none;
+  }
+  .cashback-desktop-table {
+    display: block;
+  }
+}
+
+/* على الشاشات أقل من 1560px لا نعرض الجدول العريض نهائيًا */
+@media (max-width: 1559px) {
+  .customer-service-page,
+  .customer-service-page .dawaa-panel {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+}
+
+/* حماية من تداخل السايدبار مع المحتوى */
+@media (min-width: 1024px) {
+  .customer-service-page {
+    padding-inline-end: 0.5rem;
+  }
+}
+
+/* تحسين الأزرار داخل صفحة الكاش باك تحديدًا */
+.customer-service-page .cashback-action-grid button,
+.customer-service-page .cashback-action-grid a {
+  min-height: 34px;
+  border-radius: 0.75rem;
+  text-decoration: none;
+}
+
+/* في الثيم الغامق: ممنوع أزرار بيضاء باهتة داخل الكاش باك */
+.dark .cashback-action-grid .bg-white,
+.dark .cashback-action-grid .bg-slate-100,
+[data-theme="dark"] .cashback-action-grid .bg-white,
+[data-theme="dark"] .cashback-action-grid .bg-slate-100 {
+  background: rgba(30, 41, 59, 0.9) !important;
+  color: #fff !important;
+  border-color: rgba(148, 163, 184, 0.45) !important;
+}
+
+/* تقليل ارتفاع الصفحات مع الحفاظ على القراءة */
+.customer-service-page .dawaa-panel {
+  padding: clamp(0.75rem, 1vw, 1.25rem);
+}
+
+@media (max-width: 900px) {
+  .cashback-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+
+
+/* Dawaa Customers Responsive Cards Fix V1 */
+.customers-mobile-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.customers-desktop-table {
+  display: none;
+}
+
+.customer-responsive-card {
+  cursor: pointer;
+  border: 1px solid var(--theme-border);
+  background: color-mix(in srgb, var(--theme-surface) 92%, transparent);
+  border-radius: 1.25rem;
+  padding: 0.95rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.07);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.customer-responsive-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(45, 212, 191, 0.55);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.12);
+}
+
+@media (min-width: 1560px) {
+  .customers-mobile-list {
+    display: none;
+  }
+  .customers-desktop-table {
+    display: block;
+  }
+}
+
+@media (max-width: 1559px) {
+  .customers-desktop-table {
+    display: none;
+  }
+
+  .customers-mobile-list {
+    padding: 0.75rem;
+  }
+
+  .customers-mobile-list .customer-responsive-card {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  .customers-mobile-list {
+    padding: 0.5rem;
+  }
+
+  .customer-responsive-card {
+    padding: 0.75rem;
+    border-radius: 1rem;
+  }
+}
+
+/* إصلاح ألوان badges في صفحة العملاء */
+.customer-responsive-card .rounded-full,
+.customers-desktop-table .rounded-full {
+  white-space: nowrap;
+}
+
+/* حماية صفحة العملاء من التمدد */
+.customer-service-page,
+.customer-service-page .dawaa-panel {
+  max-width: 100%;
+}
+

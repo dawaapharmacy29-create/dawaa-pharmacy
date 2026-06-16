@@ -276,3 +276,105 @@ html.light-mode [class*="bg-violet-500/"] {
 .recharts-cartesian-grid line {
   stroke: var(--dawaa-theme-border) !important;
 }
+
+/* روابط ونصوص كانت مخفية على الخلفية الداكنة */
+.text-blue-600,
+.text-blue-700,
+.text-blue-800,
+.dash-link {
+  color: var(--dawaa-theme-primary) !important;
+}
+
+html.light-mode .text-blue-600,
+html.light-mode .text-blue-700,
+html.light-mode .text-blue-800,
+html.light-mode .dash-link {
+  color: var(--dawaa-theme-primary-strong) !important;
+}
+
+/* لوحة القيادة 2027 — نفس طبقة الثيم بدل ألوان ثابتة */
+.executive-dashboard-page {
+  background: var(--dawaa-theme-bg-soft) !important;
+  color: var(--dawaa-theme-text) !important;
+}
+
+.executive-dashboard-page .card,
+.executive-dashboard-page header {
+  background: var(--dawaa-theme-surface) !important;
+  border-color: var(--dawaa-theme-border) !important;
+  color: var(--dawaa-theme-text) !important;
+}
+
+.executive-dashboard-page .text-slate-950,
+.executive-dashboard-page .text-slate-900,
+.executive-dashboard-page .text-slate-700,
+.executive-dashboard-page .text-slate-600,
+.executive-dashboard-page .text-slate-500 {
+  color: var(--dawaa-theme-text) !important;
+}
+
+.executive-dashboard-page .text-slate-950,
+.executive-dashboard-page h1,
+.executive-dashboard-page h2,
+.executive-dashboard-page h3 {
+  color: var(--dawaa-theme-heading) !important;
+}
+
+.executive-dashboard-page .bg-slate-50,
+.executive-dashboard-page .bg-white,
+.executive-dashboard-page .bg-\[\#F7F9FB\],
+.executive-dashboard-page .bg-\[\#E6F7F6\] {
+  background: var(--dawaa-theme-surface-2) !important;
+}
+
+.executive-dashboard-page .border-\[\#E5EAF0\],
+.executive-dashboard-page .border-slate-200 {
+  border-color: var(--dawaa-theme-border) !important;
+}
+
+.executive-dashboard-page .bg-teal-50 {
+  background: var(--dawaa-theme-soft) !important;
+}
+
+.executive-dashboard-page .text-teal-700,
+.executive-dashboard-page .text-teal-800 {
+  color: var(--dawaa-theme-primary) !important;
+}
+
+.executive-dashboard-page .decision-tone-danger,
+.executive-dashboard-page [class*="bg-red-50"] {
+  background: rgba(248, 113, 113, 0.12) !important;
+  color: #fca5a5 !important;
+}
+
+html.light-mode .executive-dashboard-page .decision-tone-danger,
+html.light-mode .executive-dashboard-page [class*="bg-red-50"] {
+  color: #b91c1c !important;
+}
+
+.executive-dashboard-page .decision-tone-warning,
+.executive-dashboard-page [class*="bg-amber-50"] {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #fbbf24 !important;
+}
+
+.executive-dashboard-page .decision-tone-success,
+.executive-dashboard-page [class*="bg-teal-50"] {
+  background: var(--dawaa-theme-soft) !important;
+}
+
+.executive-dashboard-page .decision-tone-info,
+.executive-dashboard-page [class*="bg-blue-50"] {
+  background: rgba(96, 165, 250, 0.12) !important;
+  color: #93c5fd !important;
+}
+
+/* إلغاء طبقة index القديمة التي تعيد #1B2B4B */
+[class*="bg-[#1B2B4B]"],
+[class*="bg-[#151f34]"],
+[class*="bg-[#16253f]"],
+[class*="border-[#2d4063]"] {
+  background: var(--dawaa-theme-surface) !important;
+  border-color: var(--dawaa-theme-border) !important;
+  color: var(--dawaa-theme-text) !important;
+}

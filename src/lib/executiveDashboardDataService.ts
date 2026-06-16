@@ -10,8 +10,11 @@ import {
 import {
   fetchStaffIdentityRows,
   groupStaffSalesPerformance,
+  normalizeStaffName,
   type GroupedStaffSalesPerformance,
 } from "@/lib/staffIdentityService";
+import { getInvoiceKey } from "@/lib/dawaa2027";
+import { loadSalesAnalyticsSummary } from "@/lib/salesAnalyticsSummaryService";
 
 type Row = Record<string, unknown>;
 
@@ -150,6 +153,16 @@ function readFirst(row: Row | null | undefined, keys: string[], fallback: unknow
   return fallback;
 }
 
+function readyMetric(value: number | null, source = "sales_invoices_live") {
+  return {
+    value,
+    status: value === 0 ? "empty" as const : "ready" as const,
+    source,
+    message: null,
+    error: null,
+  };
+}
+
 function dayLabel(value: string) {
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value || "غير محدد";
@@ -264,6 +277,46 @@ function buildLastFiveDaysByBranch(rows: SalesDailySummary[]): LastFiveDaysBranc
     row.changePercent = previous.netTotal ? ((row.netTotal - previous.netTotal) / previous.netTotal) * 100 : null;
   }
   return values;
+}
+
+function buildSalesTrendFromAnalytics(rows: Array<{ date: string; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number }>): TrendPoint[] {
+  return rows.map((row) => ({
+    key: row.date,
+    label: dayLabel(row.date),
+    netTotal: row.netSales,
+    invoicesCount: row.invoicesCount,
+    avgInvoice: row.avgInvoice,
+    activeDays: row.netSales > 0 || row.invoicesCount > 0 ? 1 : 0,
+    uniqueCustomers: row.uniqueCustomers,
+  }));
+}
+
+function buildBranchPerformanceFromAnalytics(rows: Array<{ branch: string; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number; share: number }>): BranchPerformancePoint[] {
+  return rows.map((row) => ({
+    branch: row.branch,
+    netTotal: row.netSales,
+    invoicesCount: row.invoicesCount,
+    avgInvoice: row.avgInvoice,
+    uniqueCustomers: row.uniqueCustomers,
+    share: row.share,
+    bestPeriod: null,
+  }));
+}
+
+function buildDoctorPerformanceFromAnalytics(rows: Array<{ staffId: string | null; doctor: string; branch: string | null; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number; duplicateWarning: string | null }>): GroupedStaffSalesPerformance[] {
+  return rows.map((row) => ({
+    staffId: row.staffId,
+    sellerName: row.doctor,
+    displayName: row.doctor,
+    normalizedName: normalizeStaffName(row.doctor),
+    branch: row.branch,
+    netTotal: row.netSales,
+    invoicesCount: row.invoicesCount,
+    avgInvoice: row.avgInvoice,
+    uniqueCustomers: row.uniqueCustomers,
+    sourceRows: 1,
+    duplicateWarning: row.duplicateWarning,
+  }));
 }
 
 async function fetchTrackingTable(args: {
@@ -453,7 +506,7 @@ async function fetchLatestInvoices(startDate: string, endDate: string, branch: s
   return {
     rows: ((data ?? []) as Row[]).map((row) => ({
       id: String(readFirst(row, ["id"], crypto.randomUUID())),
-      invoiceNumber: readFirst(row, ["invoice_number", "invoice_no"], null) as string | null,
+      invoiceNumber: getInvoiceKey(row) || null,
       invoiceDate: readFirst(row, ["invoice_date"], null) as string | null,
       amount: toNumber(readFirst(row, ["net_amount", "discounted_amount", "amount"], 0)),
       branch: readFirst(row, ["branch"], null) as string | null,
@@ -494,8 +547,13 @@ export async function loadExecutiveDashboardData(params: {
   if (!params.forceRefresh && dashboardCache.has(key)) return dashboardCache.get(key)!;
 
   const errorsBySection: Record<string, string> = {};
-  const [summaryResult, trackingResult, staffIdentityResult, salesGapResult] = await Promise.allSettled([
+  const [summaryResult, liveAnalyticsResult, trackingResult, staffIdentityResult, salesGapResult] = await Promise.allSettled([
     fetchExecutiveDashboardSummary(params),
+    loadSalesAnalyticsSummary({
+      startDate: params.startDate,
+      endDate: params.endDate,
+      branch: params.branch,
+    }, params.forceRefresh),
     loadOperationalTracking(errorsBySection),
     fetchStaffIdentityRows(),
     checkSalesSummaryGaps(params.startDate, params.endDate),
@@ -506,22 +564,44 @@ export async function loadExecutiveDashboardData(params: {
   }
 
   const summary = summaryResult.value;
+  const liveAnalytics = liveAnalyticsResult.status === "fulfilled" ? liveAnalyticsResult.value : null;
+  const liveSourceReady = !!liveAnalytics?.sourceHealth.some((source) => source.source === "sales_invoices_live" && source.status === "ready");
+  if (liveAnalyticsResult.status === "rejected") errorsBySection.liveAnalytics = "تعذر تحميل قراءة الفواتير الحية للداشبورد";
   const tracking = trackingResult.status === "fulfilled" ? trackingResult.value : { stagnantItems: [], listItems: [] };
   if (trackingResult.status === "rejected") errorsBySection.operationalTracking = "تعذر تحميل متابعة الرواكد واللستة";
   const staffIdentities = staffIdentityResult.status === "fulfilled" ? staffIdentityResult.value : [];
   if (staffIdentityResult.status === "rejected") errorsBySection.staffIdentity = "تعذر تحميل ربط الدكاترة بملفات الفريق";
 
-  if (salesGapResult.status === "fulfilled" && salesGapResult.value.count > 0) {
+  if (!liveSourceReady && salesGapResult.status === "fulfilled" && salesGapResult.value.count > 0) {
     errorsBySection.salesSummaryGap = `sales_daily_summary ناقص أو غير مطابق لبيانات sales_invoices في ${salesGapResult.value.count} يوم. يلزم تحديث ملخصات المبيعات.`;
   }
 
+  const liveKpis = liveSourceReady && liveAnalytics ? {
+    ...summary.normalizedKpis,
+    netSales: readyMetric(liveAnalytics.kpis.netSales),
+    invoicesCount: readyMetric(liveAnalytics.kpis.invoicesCount),
+    avgInvoice: readyMetric(liveAnalytics.kpis.avgInvoice),
+    uniqueCustomers: readyMetric(liveAnalytics.kpis.uniqueCustomers),
+  } : summary.normalizedKpis;
+  const liveSalesTrend = liveSourceReady && liveAnalytics ? buildSalesTrendFromAnalytics(liveAnalytics.dailyTrend) : null;
+  const liveLastFiveDaysByBranch = liveSourceReady && liveAnalytics.last5DaysByBranch.length ? liveAnalytics.last5DaysByBranch : null;
+  const liveBranchPerformance = liveSourceReady && liveAnalytics ? buildBranchPerformanceFromAnalytics(liveAnalytics.branchRows) : null;
+  const liveDoctorPerformance = liveSourceReady && liveAnalytics ? buildDoctorPerformanceFromAnalytics(liveAnalytics.doctorRows).slice(0, 12) : null;
+  const salesAccuracy = liveSourceReady && liveAnalytics ? {
+    netSalesSource: "sales_invoices_live",
+    rpcNetSales: summary.kpis?.netSales ?? null,
+    summaryNetSales: liveAnalytics.kpis.netSales,
+    invoicesCount: liveAnalytics.kpis.invoicesCount,
+    mismatchPercent: null,
+  } : buildSalesAccuracy(summary);
+
   const data: ExecutiveDashboardData = {
     summary,
-    kpis: summary.normalizedKpis,
-    salesTrend: buildSalesTrend(summary.dailySales, params.mode, params.startDate, params.endDate),
-    last5DaysByBranch: buildLastFiveDaysByBranch(summary.dailySales),
-    branchPerformance: buildBranchPerformance(summary.dailySales),
-    doctorPerformance: groupStaffSalesPerformance(summary.staffSales, staffIdentities).slice(0, 12),
+    kpis: liveKpis,
+    salesTrend: liveSalesTrend || buildSalesTrend(summary.dailySales, params.mode, params.startDate, params.endDate),
+    last5DaysByBranch: liveLastFiveDaysByBranch || buildLastFiveDaysByBranch(summary.dailySales),
+    branchPerformance: liveBranchPerformance || buildBranchPerformance(summary.dailySales),
+    doctorPerformance: liveDoctorPerformance || groupStaffSalesPerformance(summary.staffSales, staffIdentities).slice(0, 12),
     followupFunnel: buildFollowupFunnel(summary.followupPerformance),
     followupResults: buildFollowupResults(summary.followupPerformance),
     customerServiceImpact: summary.followupPerformance,
@@ -539,7 +619,7 @@ export async function loadExecutiveDashboardData(params: {
     sourceHealth: summary.sourceHealth,
     lastUpdated: new Date().toISOString(),
     errorsBySection,
-    salesAccuracy: buildSalesAccuracy(summary),
+    salesAccuracy,
   };
 
   dashboardCache.set(key, data);

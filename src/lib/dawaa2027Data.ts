@@ -1,4 +1,3 @@
-import { RECORD_STATUS } from "@/lib/constants";
 import { getCurrentCycle, getCycleForDate } from "@/lib/pharmacy-cycle";
 import {
   formatMoney,
@@ -6,6 +5,7 @@ import {
   getInvoiceCustomer,
   getInvoiceDate,
   getInvoiceDoctor,
+  getInvoiceKey,
   normalizeArabicName,
   pickFirst,
   toNumber,
@@ -58,7 +58,7 @@ export function rowText(row: AnyRow, keys: string[], fallback = "") {
 }
 
 export function invoiceNumber(row: AnyRow) {
-  return rowText(row, ["invoice_number", "invoice_no", "invoice_id", "number", "id"], "-");
+  return getInvoiceKey(row) || rowText(row, ["invoice_id", "number"], "-");
 }
 
 export function invoiceBranch(row: AnyRow) {
@@ -155,7 +155,7 @@ export function computeStaffPerformance2027(args: {
   const monthlyTransactions = (args.transactions || []).filter((row) => {
     const status = String(row.status || "approved");
     const date = row.transaction_date || row.created_at;
-    return (status === RECORD_STATUS.APPROVED || status === "active" || status === "") && String(row.staff_id || row.employee_id || "") === staffId && isDateInsideCurrentCycle(String(date || ""));
+    return (status === "approved" || status === "active" || status === "") && String(row.staff_id || row.employee_id || "") === staffId && isDateInsideCurrentCycle(String(date || ""));
   });
   const signed = monthlyTransactions.map(getTransactionSignedPoints);
   const rewardPoints = signed.filter((n) => n > 0).reduce((a, b) => a + b, 0);

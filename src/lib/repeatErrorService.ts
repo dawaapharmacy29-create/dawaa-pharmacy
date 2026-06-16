@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
-import { calculateRepeatDeduction } from './incentives/incentiveRulesEngine';
+import { filterActiveStaffRows } from './staffActiveFilter';
+import { calculateRepeatDeduction, type IncentiveRuleDefinition } from './incentives/incentiveRulesEngine';
+import { findIncentiveRule } from '@/lib/incentives/ruleDefinitions';
 
 export interface RepeatErrorRecord {
   id: string;
@@ -28,6 +30,19 @@ export interface RepeatErrorSummary {
 /**
  * خدمة تتبع الأخطاء المتكررة وحساب الخصومات المتضاعفة
  */
+const SEVERE_RULE_CODES = new Set(["DISC-006", "CUST-003", "CUST-018", "SALE-003", "SALE-004"]);
+
+function ruleCodeFromRecord(record: Record<string, unknown>): string {
+  const meta = record.metadata && typeof record.metadata === "object" ? (record.metadata as Record<string, unknown>) : {};
+  return String(record.rule_id || record.rule_code || meta.rule_code || meta.rule_id || "");
+}
+
+function isSevereRule(ruleCode: string, rule?: IncentiveRuleDefinition | null) {
+  if (!ruleCode) return false;
+  if (SEVERE_RULE_CODES.has(ruleCode)) return true;
+  return rule?.repeat_policy === "manager_review_only" || rule?.approval_required === true && Math.abs(rule.points_delta) >= 50;
+}
+
 export class RepeatErrorService {
   /**
    * حساب الخصم المتضاعف لخطأ متكرر
@@ -83,20 +98,23 @@ export class RepeatErrorService {
     // حساب الخصومات المتضاعفة لكل مجموعة
     const repeatErrors: RepeatErrorRecord[] = [];
     for (const [ruleId, records] of ruleGroups.entries()) {
-      if (records.length <= 1) continue; // تجاهل الأخطاء غير المتكررة
+      if (records.length <= 1) continue;
 
-      const firstRecord = records[0];
-      const basePoints = Math.abs(firstRecord.points_delta || firstRecord.points || 0);
+      const firstRecord = records[0] as Record<string, unknown>;
+      const ruleCode = ruleCodeFromRecord(firstRecord) || ruleId;
+      const ruleDef = findIncentiveRule(ruleCode);
+      const basePoints = Math.abs(Number(firstRecord.points_delta || firstRecord.points || ruleDef?.points_delta || 0));
       const occurrenceCount = records.length;
-      
-      const deduction = this.calculateRepeatDeduction(basePoints, occurrenceCount);
+      const severe = isSevereRule(ruleCode, ruleDef);
+
+      const deduction = this.calculateRepeatDeduction(basePoints, occurrenceCount, severe);
       
       repeatErrors.push({
         id: firstRecord.id,
         staff_id: staffId,
         staff_name: firstRecord.staff_name || 'غير محدد',
         rule_id: ruleId,
-        rule_title: firstRecord.rule_title || 'غير محدد',
+        rule_title: String(firstRecord.rule_title || ruleDef?.title_ar || 'غير محدد'),
         base_points: basePoints,
         occurrence_count: occurrenceCount,
         total_deduction: deduction.finalPoints,
@@ -117,14 +135,14 @@ export class RepeatErrorService {
     // الحصول على جميع الموظفين النشطين
     const { data: staff, error: staffError } = await supabase
       .from('staff')
-      .select('id, name')
-      .eq('active', true);
+      .select('id, name, active, is_active, status')
+      .limit(500);
 
     if (staffError) throw new Error(staffError.message);
 
     const summaries: RepeatErrorSummary[] = [];
 
-    for (const employee of staff || []) {
+    for (const employee of filterActiveStaffRows(staff || [])) {
       const repeatErrors = await this.getRepeatErrorsForStaff(employee.id, cycleStart, cycleEnd);
       
       if (repeatErrors.length === 0) continue;

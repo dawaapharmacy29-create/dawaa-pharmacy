@@ -13,6 +13,7 @@ import {
   normalizeNotification,
   type AppNotification,
 } from "@/lib/notificationService";
+import { useSmartNotifications } from "@/hooks/useSmartNotifications";
 
 interface NotifItem {
   id: string;
@@ -145,15 +146,28 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
     realtimeEnabled: true,
   });
 
+  const smartNotifs = useSmartNotifications({
+    branch: user?.branch,
+    role: user?.role,
+    enabled: isSupabaseConfigured,
+  });
+
   const merged = useMemo(() => {
-    return notifications
+    const dbNotifs = notifications
       .map((row) => {
         const item = normalizeNotification(row as unknown as Record<string, unknown>);
         return { ...item, route: inferNotificationRoute(item) };
       })
-      .filter((item) => canSeeNotification(item, user))
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [notifications, user]);
+      .filter((item) => canSeeNotification(item, user));
+
+    const smartIds = new Set(smartNotifs.map((n) => n.id));
+    const combined = [
+      ...smartNotifs,
+      ...dbNotifs.filter((n) => !smartIds.has(n.id)),
+    ];
+
+    return combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [notifications, user, smartNotifs]);
 
   const unreadCount = useMemo(() => merged.filter((n) => !n.read && !n.is_read).length, [merged]);
 

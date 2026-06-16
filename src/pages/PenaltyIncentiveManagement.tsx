@@ -10,6 +10,7 @@ import {
   Clock,
   Trash2,
   XCircle,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
@@ -21,6 +22,7 @@ import { TABLES } from "@/lib/supabaseTables";
 import { formatDateTime, toNumber } from "@/lib/utils";
 import { BRANCHES, POINT_REASONS } from "@/lib/constants";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { mergeStaffChoices } from "@/lib/staffFallback";
 import {
   persistPointsTransaction,
@@ -87,6 +89,60 @@ interface PointRecord {
 
 type RecordStatus = "approved" | "pending" | "rejected";
 
+
+
+type RuleCategoryKey =
+  | "الكل"
+  | "خدمة العملاء"
+  | "الالتزام والانضباط"
+  | "المبيعات والتسويق"
+  | "المخزون والرواكد"
+  | "التوصيل"
+  | "المحادثات والواتساب"
+  | "أخرى";
+
+const RULE_CATEGORY_KEYWORDS: Record<Exclude<RuleCategoryKey, "الكل">, string[]> = {
+  "خدمة العملاء": ["عميل", "خدمة", "متابعة", "شكوى", "طلب", "VIP", "استرجاع", "تواصل"],
+  "الالتزام والانضباط": ["التزام", "زي", "حضور", "غياب", "تأخير", "إذن", "مواعيد", "هاتف", "نظافة", "سلوك"],
+  "المبيعات والتسويق": ["بيع", "فاتورة", "أصناف", "عرض", "تارجت", "متوسط", "تسويق", "إضافة", "زيادة"],
+  "المخزون والرواكد": ["رواكد", "لستة", "مخزون", "جرد", "رف", "أدوية", "صلاحية", "تنظيم"],
+  "التوصيل": ["دليفري", "مندوب", "أوردر", "مشوار", "توصيل", "مرتجع", "فاتورة مكررة"],
+  "المحادثات والواتساب": ["محادثة", "واتساب", "رد", "رسالة", "ترحيب", "اسم العميل", "سرعة الرد"],
+  "أخرى": [],
+};
+
+const RULE_CATEGORIES: RuleCategoryKey[] = [
+  "الكل",
+  "خدمة العملاء",
+  "الالتزام والانضباط",
+  "المبيعات والتسويق",
+  "المخزون والرواكد",
+  "التوصيل",
+  "المحادثات والواتساب",
+  "أخرى",
+];
+
+function normalizeSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/[\u064B-\u065F]/g, "")
+    .trim();
+}
+
+function inferRuleCategory(reason: string): RuleCategoryKey {
+  const normalized = normalizeSearchText(reason);
+  for (const [category, keywords] of Object.entries(RULE_CATEGORY_KEYWORDS) as Array<[Exclude<RuleCategoryKey, "الكل">, string[]]>) {
+    if (category === "أخرى") continue;
+    if (keywords.some((keyword) => normalized.includes(normalizeSearchText(keyword)))) {
+      return category;
+    }
+  }
+  return "أخرى";
+}
+
 const EMPTY_FORM = {
   employeeId: "",
   type: "مكافأة" as "مكافأة" | "خصم",
@@ -143,6 +199,8 @@ export default function PenaltyIncentiveManagement() {
   const [typeFilter, setTypeFilter] = useState("كل");
   const [statusFilter, setStatusFilter] = useState("كل");
   const [search, setSearch] = useState("");
+  const [reasonSearch, setReasonSearch] = useState("");
+  const [reasonCategory, setReasonCategory] = useState<RuleCategoryKey>("الكل");
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [selectedRecord, setSelectedRecord] = useState<PointRecord | null>(null);
 
@@ -150,6 +208,7 @@ export default function PenaltyIncentiveManagement() {
   const { data: staffList, refetch: refetchStaff } =
     useSupabaseQuery<StaffMember>({
       table: TABLES.staff,
+      filters: isActiveStaffFilter(),
       orderBy: { column: "name", ascending: true },
       realtimeEnabled: false,
     });
@@ -215,6 +274,25 @@ export default function PenaltyIncentiveManagement() {
   }, [cycleRecords, branchFilter, typeFilter, statusFilter, search]);
 
   const selectedStaff = staffChoices.find((s) => s.id === form.employeeId);
+
+
+  const reasonOptions = useMemo(() => {
+    const q = normalizeSearchText(reasonSearch);
+    return POINT_REASONS.filter((reason) => {
+      if (reasonCategory !== "الكل" && inferRuleCategory(reason) !== reasonCategory) return false;
+      if (q && !normalizeSearchText(reason).includes(q)) return false;
+      return true;
+    });
+  }, [reasonCategory, reasonSearch]);
+
+  const selectReasonSafely = (reason: string) => {
+    const inferredPoints = reason.match(/(?:-|خصم|\+)\s*(\d+)/)?.[1];
+    setForm((current) => ({
+      ...current,
+      reason,
+      points: inferredPoints ? Math.max(1, Number(inferredPoints) || current.points) : current.points,
+    }));
+  };
 
   // ── Save handler ──
   const handleSave = async () => {
@@ -826,17 +904,64 @@ export default function PenaltyIncentiveManagement() {
             </div>
 
             {/* Reason */}
-            <div>
-              <label className="text-slate-400 text-xs mb-1 block">السبب</label>
-              <select
-                value={form.reason}
-                onChange={(e) => setForm({ ...form, reason: e.target.value })}
-                className="input-dark w-full"
-              >
-                {POINT_REASONS.map((r) => (
-                  <option key={r}>{r}</option>
-                ))}
-              </select>
+            <div className="space-y-3">
+              <label className="text-slate-400 text-xs block">سبب الخصم / المكافأة</label>
+              <div className="rounded-xl border border-[#2d4063] bg-white/5 p-3 space-y-3">
+                <div className="flex items-center gap-2 rounded-lg border border-[#2d4063] bg-[#101d33] px-3 py-2">
+                  <Search size={15} className="text-slate-400" />
+                  <input
+                    value={reasonSearch}
+                    onChange={(e) => setReasonSearch(e.target.value)}
+                    placeholder="ابحث داخل البنود... مثال: عميل، تأخير، محادثة"
+                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {RULE_CATEGORIES.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => setReasonCategory(category)}
+                      className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                        reasonCategory === category
+                          ? "border-teal-400 bg-teal-500/20 text-teal-200"
+                          : "border-[#2d4063] bg-white/5 text-slate-300 hover:border-teal-500/40"
+                      }`}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+                <select
+                  value={reasonOptions.includes(form.reason) ? form.reason : ""}
+                  onChange={(e) => selectReasonSafely(e.target.value)}
+                  className="input-dark w-full"
+                >
+                  <option value="" disabled>
+                    {reasonOptions.length ? "اختر بندًا من النتائج" : "لا توجد بنود مطابقة"}
+                  </option>
+                  {reasonOptions.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+                <div className="max-h-40 overflow-y-auto grid gap-2">
+                  {reasonOptions.slice(0, 12).map((reason) => (
+                    <button
+                      key={reason}
+                      type="button"
+                      onClick={() => selectReasonSafely(reason)}
+                      className={`rounded-lg border px-3 py-2 text-right text-xs transition-colors ${
+                        form.reason === reason
+                          ? "border-teal-400 bg-teal-500/15 text-teal-100"
+                          : "border-[#2d4063] bg-[#16253f] text-slate-300 hover:border-teal-500/40"
+                      }`}
+                    >
+                      <span className="block font-semibold">{reason}</span>
+                      <span className="mt-1 block text-[11px] text-slate-500">{inferRuleCategory(reason)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Notes */}

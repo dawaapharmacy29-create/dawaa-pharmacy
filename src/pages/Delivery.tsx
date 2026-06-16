@@ -11,6 +11,7 @@ import { isDeliveryInvoice } from "@/lib/analyticsFromInvoices";
 import { logActivity } from "@/hooks/useSupabaseQuery";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { effectiveCyclePoints, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff } from "@/lib/pointsLedger";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { TABLES } from "@/lib/supabaseTables";
 
 interface SalesInv {
@@ -67,7 +68,7 @@ export default function Delivery() {
     realtimeEnabled: false,
   });
 
-  const { data: staff } = useSupabaseQuery<StaffDel>({ table: "staff", realtimeEnabled: false });
+  const { data: staff } = useSupabaseQuery<StaffDel>({ table: "staff", filters: isActiveStaffFilter(), realtimeEnabled: false });
   const { data: pointRows } = useSupabaseQuery<PointRecord>({ table: TABLES.employeeTransactions, limit: 800, realtimeEnabled: false });
 
   const deliveryStaffList = useMemo(() => staff.filter((s) => s.role === "توصيل"), [staff]);

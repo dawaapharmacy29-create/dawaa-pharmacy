@@ -2,7 +2,7 @@ import html2canvas from "html2canvas";
 import { Calculator, FileText, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { formatCurrency } from "@/lib/utils";
-import { calculateIncentive, POINT_VALUE_EGP, STARTING_POINTS } from "@/lib/points";
+import { calculateIncentive, MAX_BASE_INCENTIVE, POINT_VALUE_EGP, STARTING_POINTS } from "@/lib/points";
 import { cleanTechnicalText, formatTransactionExecutor, formatTransactionSource, getTransactionShortReason } from "@/lib/pointsLedger";
 
 export interface IncentiveTransaction {
@@ -20,6 +20,12 @@ export interface IncentiveTransaction {
   status?: string | null;
 }
 
+export interface RepeatErrorLine {
+  rule_title: string;
+  count: number;
+  total_deduction: number;
+}
+
 interface SalaryCalculatorProps {
   staffName: string;
   role?: string | null;
@@ -27,8 +33,15 @@ interface SalaryCalculatorProps {
   cycleLabel: string;
   currentPoints: number;
   maxPoints?: number;
+  startingPoints?: number;
   rewardPoints: number;
   penaltyPoints: number;
+  quarterlyCashRewards?: number;
+  distinctionPointsAbove500?: number;
+  permissionsUsed?: number;
+  permissionsRemaining?: number;
+  permissionDeduction?: number;
+  repeatErrors?: RepeatErrorLine[];
   records: IncentiveTransaction[];
 }
 
@@ -104,13 +117,26 @@ function buildTransactionRows(rows: IncentiveTransaction[]) {
 }
 
 function buildReportHtml(props: SalaryCalculatorProps) {
+  const startingPoints = props.startingPoints ?? STARTING_POINTS;
   const targetPoints = props.maxPoints || STARTING_POINTS;
   const finalIncentive = calculateIncentive(props.currentPoints);
   const rewardMoney = props.rewardPoints * POINT_VALUE_EGP;
   const penaltyMoney = props.penaltyPoints * POINT_VALUE_EGP;
+  const quarterlyCash = props.quarterlyCashRewards ?? 0;
   const uniqueRecords = uniqueTransactions(props.records);
   const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === "reward");
   const penaltyRows = uniqueRecords.filter((row) => transactionKind(row) === "penalty");
+  const repeatRows = (props.repeatErrors || [])
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row.rule_title)}</td>
+          <td>${escapeHtml(row.count)}</td>
+          <td>${escapeHtml(row.total_deduction)}</td>
+        </tr>
+      `,
+    )
+    .join("");
 
   return `
     <div class="report">
@@ -134,14 +160,30 @@ function buildReportHtml(props: SalaryCalculatorProps) {
       </section>
 
       <section class="section">
-        <h3>ملخص الحافز</h3>
+        <h3>ملخص الحافز الشهري (دورة 26 → 25)</h3>
         <div class="summary-grid">
-          <div><span>النقاط</span><strong>${escapeHtml(props.currentPoints)} / ${escapeHtml(targetPoints)}</strong></div>
-          <div><span>المكافآت</span><strong>${escapeHtml(props.rewardPoints)}</strong></div>
-          <div><span>الخصومات</span><strong>${escapeHtml(props.penaltyPoints)}</strong></div>
-          <div><span>الحافز النهائي</span><strong>${escapeHtml(formatCurrency(finalIncentive))}</strong></div>
+          <div><span>نقاط البداية</span><strong>${escapeHtml(startingPoints)}</strong></div>
+          <div><span>النقاط النهائية</span><strong>${escapeHtml(props.currentPoints)} / ${escapeHtml(targetPoints)}</strong></div>
+          <div><span>مكافآت استثنائية</span><strong>+${escapeHtml(props.rewardPoints)}</strong></div>
+          <div><span>خصومات الدورة</span><strong>-${escapeHtml(props.penaltyPoints)}</strong></div>
+          <div><span>الحافز الشهري</span><strong>${escapeHtml(formatCurrency(finalIncentive))}</strong></div>
+          <div><span>الحد الأقصى</span><strong>${escapeHtml(formatCurrency(MAX_BASE_INCENTIVE))}</strong></div>
+          <div><span>نقاط تميز فوق 500</span><strong>${escapeHtml(props.distinctionPointsAbove500 ?? Math.max(0, props.currentPoints - STARTING_POINTS))}</strong></div>
+          <div><span>مكافآت رواكد/لستة (ربع سنوي)</span><strong>${escapeHtml(formatCurrency(quarterlyCash))}</strong></div>
+        </div>
+        ${quarterlyCash > 0 ? `<p class="note">مكافآت مالية للرواكد واللستة تضاف للحافز الربع سنوي ولا تزيد نقاط الشهر.</p>` : ""}
+      </section>
+
+      <section class="section">
+        <h3>الإذنات (3 مجانية لكل دورة)</h3>
+        <div class="info-grid">
+          <div><span>المستخدم</span><strong>${escapeHtml(props.permissionsUsed ?? 0)}</strong></div>
+          <div><span>المتبقي مجاني</span><strong>${escapeHtml(props.permissionsRemaining ?? 3)}</strong></div>
+          <div><span>خصم الإذنات</span><strong>-${escapeHtml(props.permissionDeduction ?? 0)} نقطة</strong></div>
         </div>
       </section>
+
+      ${repeatRows ? `<section class="section"><h3>أخطاء متكررة</h3><table><thead><tr><th>البند</th><th>التكرار</th><th>إجمالي الخصم</th></tr></thead><tbody>${repeatRows}</tbody></table></section>` : ""}
 
       <section class="section">
         <h3>المكافآت</h3>
@@ -313,10 +355,20 @@ function buildReportStyles() {
       break-inside: avoid;
     }
     thead th {
-      background: #0f172a;
+      background: #0f766e;
       color: #ffffff;
       font-size: 11px;
       font-weight: 800;
+      border-color: #d8e1ea;
+    }
+    .note {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #ecfdf5;
+      border: 1px solid #99f6e4;
+      color: #0f766e;
+      font-size: 11px;
     }
     tbody td {
       color: #1f2937;
@@ -400,12 +452,13 @@ export default function SalaryCalculator(props: SalaryCalculatorProps) {
   const finalIncentive = calculateIncentive(props.currentPoints);
   const rewardMoney = props.rewardPoints * POINT_VALUE_EGP;
   const penaltyMoney = props.penaltyPoints * POINT_VALUE_EGP;
+  const quarterlyCash = props.quarterlyCashRewards ?? 0;
   const uniqueRecords = uniqueTransactions(props.records);
   const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === "reward");
   const penaltyRows = uniqueRecords.filter((row) => transactionKind(row) === "penalty");
 
   return (
-    <div className="stat-card space-y-4">
+    <div className="stat-card space-y-4" dir="rtl">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Calculator className="text-teal-400" size={20} />
@@ -420,8 +473,13 @@ export default function SalaryCalculator(props: SalaryCalculatorProps) {
         <Metric label="الموظف" value={props.staffName} />
         <Metric label="الدورة" value={props.cycleLabel} />
         <Metric label="النقاط" value={`${props.currentPoints} / ${targetPoints}`} />
-        <Metric label="الحافز النهائي" value={formatCurrency(finalIncentive)} />
+        <Metric label="الحافز الشهري" value={formatCurrency(finalIncentive)} />
       </div>
+      {quarterlyCash > 0 && (
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-100">
+          مكافآت مالية للرواكد واللستة ({formatCurrency(quarterlyCash)}) تُحسب في الحافز الربع سنوي ولا ترفع نقاط الشهر.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="rounded-lg p-3 bg-teal-500/10 border border-teal-500/20">

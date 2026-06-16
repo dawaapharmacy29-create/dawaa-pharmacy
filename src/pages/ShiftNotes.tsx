@@ -24,6 +24,7 @@ import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
 import { matchesOrderedSegments } from "@/lib/utils";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { selectableStaffChoices } from "@/lib/staffFallback";
 import type { Staff } from "@/types/database";
 
@@ -220,7 +221,7 @@ function statusClass(note: ShiftNote) {
 
 export default function ShiftNotes() {
   const { user, isAdmin } = useAuth();
-  const { data: staffRows } = useSupabaseQuery<Staff>({ table: "staff", realtimeEnabled: false });
+  const { data: staffRows } = useSupabaseQuery<Staff>({ table: "staff", filters: isActiveStaffFilter(), realtimeEnabled: false });
   const { data: customerRows } = useSupabaseQuery<Record<string, unknown>>({ table: "customers", realtimeEnabled: false, limit: 5000 });
   const staffChoices = useMemo(() => selectableStaffChoices(staffRows as unknown as Record<string, unknown>[]), [staffRows]);
   const [notes, setNotes] = useState<ShiftNote[]>([]);

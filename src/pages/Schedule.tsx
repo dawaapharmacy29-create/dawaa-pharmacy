@@ -3,6 +3,7 @@ import { Stethoscope, Truck } from "lucide-react";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { DAYS_AR, BRANCHES } from "@/lib/constants";
 import { replaceStaffShiftSchedules } from "@/services/shiftScheduleService";
+import { isActiveStaffFilter, staffRowIsActive } from "@/lib/staffActiveFilter";
 import { isCurrentlyOnShift } from "@/lib/utils";
 import { parseScheduleImport, type ParsedScheduleImport } from "@/lib/shiftParser";
 import { saveScheduleImport, type StaffingSaveReport } from "@/lib/api/staffing";
@@ -65,6 +66,7 @@ export default function Schedule() {
 
   const { data: employees, loading } = useSupabaseQuery<Employee>({
     table: "staff",
+    filters: isActiveStaffFilter(),
     orderBy: { column: "name", ascending: true },
     realtimeEnabled: true,
   });
@@ -79,6 +81,7 @@ export default function Schedule() {
   });
 
   const filtered = employees.filter(e =>
+    staffRowIsActive(e) &&
     e.status === "نشط" &&
     (branchFilter === "الكل" || normalizeBranch(e.branch) === branchFilter) &&
     (roleFilter === "الكل" || e.role === roleFilter)

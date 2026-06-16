@@ -23,6 +23,23 @@ export interface PermissionPolicyStatus {
   current_cycle_permissions: PermissionRecord[];
 }
 
+function emptyPermissionPolicyStatus(staffId: string, staffName = 'غير محدد'): PermissionPolicyStatus {
+  return {
+    staff_id: staffId,
+    staff_name: staffName,
+    free_allowance_used: 0,
+    remaining_free_permissions: FREE_PERMISSIONS_PER_CYCLE,
+    penalized_permission_number: 0,
+    deduction_points: 0,
+    requires_manager_review: false,
+    current_cycle_permissions: [],
+  };
+}
+
+function isMissingTimeOffTable(message?: string | null) {
+  return /Could not find the table 'public\.time_off' in the schema cache/i.test(String(message || ""));
+}
+
 /**
  * خدمة إدارة سياسة الإذنات (3 إذنات مجانية لكل دورة)
  */
@@ -40,7 +57,10 @@ export class PermissionPolicyService {
       .gte('created_at', cycleStart)
       .lte('created_at', cycleEnd);
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (isMissingTimeOffTable(error.message)) return emptyPermissionPolicyStatus(staffId);
+      throw new Error(error.message);
+    }
 
     const approvedPermissions = (permissions || []).filter(p => p.approved_by);
     const approvedCount = approvedPermissions.length;

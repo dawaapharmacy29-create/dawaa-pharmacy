@@ -1,179 +1,277 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ArrowRight, Eye, Loader2, X } from "lucide-react";
-import SalaryCalculator from "@/components/points/SalaryCalculator";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-import { formatCurrency, toNumber } from "@/lib/utils";
-import { calculateIncentive, getPerformanceLevel } from "@/lib/points";
-import { getCurrentCycle, isDateInCycle } from "@/lib/pharmacy-cycle";
-import { computeStaffPerformance2027, performanceRecommendation } from "@/lib/dawaa2027Data";
+import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "react";
+import { Link, useParams } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  CheckCircle2,
+  FileText,
+  Loader2,
+  Package,
+  ReceiptText,
+  Sparkles,
+  TrendingUp,
+  Users,
+  Wallet,
+  X,
+} from "lucide-react";
 import { formatMoney, formatNumber } from "@/lib/dawaa2027";
-import { monthCycleFromDate, type ReviewItemSummary } from "@/lib/conversationReviews";
-import { canonicalMaxPoints, effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff } from "@/lib/pointsLedger";
-import { TABLES } from "@/lib/supabaseTables";
-import { getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
+import { formatCurrency } from "@/lib/utils";
+import { formatCycleDate, getCurrentCycle } from "@/lib/pharmacy-cycle";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import {
+  clearStaffPerformanceProfileCache,
+  loadStaffPerformanceProfile,
+  type StaffPerformanceProfile,
+} from "@/lib/staff/staffPerformanceProfileService";
+import { STAFF_OPERATING_POLICY_SECTIONS } from "@/lib/performance/ruleDefinitions";
+import { getTransactionDetails } from "@/lib/pointsLedger";
 
-interface StaffRow {
-  id: string;
-  name: string;
-  role: string;
-  branch: string;
-  points: number | null;
-  max_points: number | null;
+type DrilldownKey =
+  | "sales"
+  | "invoices"
+  | "avgInvoice"
+  | "customers"
+  | "followups"
+  | "stagnant"
+  | "list"
+  | "cashRewards"
+  | "deductions"
+  | "payout"
+  | "quarterly"
+  | "attendance"
+  | "dataHealth"
+  | "invoiceDebug";
+
+const sourceLabels: Record<string, string> = {
+  staff_id: "مصدر البيانات: sales_invoices مباشر",
+  seller_name: "مصدر البيانات: sales_invoices مباشر عبر seller aliases",
+  invoices_fallback: "مصدر البيانات: sales_invoices مباشر",
+  none: "مصدر البيانات: غير متاح",
+};
+
+function dateText(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toLocaleDateString("ar-EG", { day: "numeric", month: "short", year: "numeric" });
 }
 
-interface ScheduleRow {
-  id?: string;
-  day?: string | null;
-  weekday?: string | null;
-  day_name?: string | null;
-  start_time?: string | null;
-  end_time?: string | null;
-  is_day_off?: boolean | null;
-  status?: string | null;
+function timeText(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+  return date.toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" });
 }
 
-interface TimeOffRow {
-  id?: string;
-  date?: string | null;
-  start_date?: string | null;
-  end_date?: string | null;
-  type?: string | null;
-  reason?: string | null;
-  notes?: string | null;
-  status?: string | null;
+function percentText(value?: number | null) {
+  if (!Number.isFinite(Number(value))) return "0%";
+  return `${Math.round(Number(value))}%`;
 }
 
-interface PointRecord {
-  id: string;
-  staff_id?: string | null;
-  employee_id?: string | null;
-  employee_name?: string | null;
-  type: string;
-  points: number;
-  points_delta?: number | null;
-  reason: string;
-  manager_note?: string | null;
-  description?: string | null;
-  created_by?: string | null;
-  created_at: string;
-  source_type?: string | null;
-  source?: string | null;
-  source_id?: string | null;
-  month_cycle?: string | null;
-  status?: string | null;
+function sourceText(profile: StaffPerformanceProfile) {
+  const diag = profile.sales?.invoiceDiagnostics as (typeof profile.sales.invoiceDiagnostics & {
+    salesTableAvailable?: boolean;
+    errors?: string[];
+    invoiceRowsScanned?: number;
+  }) | undefined;
+  
+  if (!profile.sales) return "مصدر البيانات: جاري التحميل...";
+  
+  const source = profile.sales.sourceUsed || "invoices_fallback";
+  const label = sourceLabels[source] || "مصدر البيانات: sales_invoices";
+  
+  if (diag?.salesTableAvailable === false) {
+    return "مصدر البيانات: ❌ جدول الفواتير غير متاح — تحقق من الإعدادات";
+  }
+  if (diag && diag.invoicesMatchedCount === 0 && (diag.invoiceRowsScanned ?? 0) > 0) {
+    return `${label} — لم تُطابق فواتير (${diag.invoiceRowsScanned} صف مفحوص)`;
+  }
+  if (diag && diag.invoicesMatchedCount !== undefined && diag.invoicesMatchedCount > 0) {
+    return `${label} — ${diag.invoicesMatchedCount} فاتورة مطابقة`;
+  }
+  return label;
 }
 
-interface ReviewRow {
-  id: string;
-  staff_id?: string | null;
-  doctor_id?: string | null;
-  staff_name?: string | null;
-  branch?: string | null;
-  customer_name?: string | null;
-  customer_phone?: string | null;
-  customer_code?: string | null;
-  invoice_number?: string | null;
-  conversation_type?: string | null;
-  evaluation_kind?: string | null;
-  conversation_date?: string | null;
-  reviewed_at?: string | null;
-  created_at?: string | null;
-  reviewer_name?: string | null;
-  final_score?: number | null;
-  level?: string | null;
-  conversation_level?: string | null;
-  doctor_points_impact?: number | null;
-  base_points_impact?: number | null;
-  extra_penalty_points?: number | null;
-  total_applicable_items?: number | null;
-  total_not_applicable_items?: number | null;
-  total_applicable_points?: number | null;
-  earned_points?: number | null;
-  main_positive_reason?: string | null;
-  main_negative_reason?: string | null;
-  top_positive_reason?: string | null;
-  top_deduction_reason?: string | null;
-  training_recommendation?: string | null;
-  has_medical_error?: boolean | null;
-  has_invoice_error?: boolean | null;
-  has_delivery_issue?: boolean | null;
-  has_complaint?: boolean | null;
-  forgotten_customer?: boolean | null;
-  missed_sales_opportunity?: boolean | null;
-  missed_sale_opportunity?: boolean | null;
-  successful_cross_sell?: boolean | null;
-  handled_angry_customer_well?: boolean | null;
-  excellent_case?: boolean | null;
-  reviewer_notes?: string | null;
-  month_cycle?: string | null;
-  review_items?: ReviewItemSummary[] | null;
-  raw_scores?: { result?: { reviewItems?: ReviewItemSummary[] } } | null;
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-interface AssignedIncentiveMedicine {
-  id: string;
-  product_name: string;
-  product_type?: string | null;
-  doctor_id?: string | null;
-  responsible_doctor?: string | null;
-  current_quantity?: number | null;
-  sold_quantity?: number | null;
-  target_min_percent?: number | null;
-  incentive_value?: number | null;
-  incentive_type?: string | null;
-  incentive_percent?: number | null;
-  product_price?: number | null;
-  branch?: string | null;
-  expiry_date?: string | null;
-  active?: boolean | null;
+
+async function downloadStaffPdfReport(profile: StaffPerformanceProfile, finalPayout: number) {
+  const latest = (profile.sales?.latestInvoices || []).slice(0, 12);
+  const topCustomers = (profile.customers?.topCustomers || []).slice(0, 10);
+  const recommendations = (profile.recommendations || []).slice(0, 8);
+  const sales = profile.sales;
+  const attendance = profile.attendance;
+  const monthly = profile.monthlyIncentive;
+  const quarterly = profile.quarterlyIncentive;
+  const cashDeductions = (monthly?.cashDeductionTransactions || []).reduce((sum, row) => sum + Math.abs(Number(row.moneyAmount || 0)), 0);
+  const branchAvg = sales?.branchComparison?.branchAvg || 0;
+  const avgDiff = sales?.branchComparison?.difference || 0;
+  const avgDiffPct = sales?.branchComparison?.percentDifference || 0;
+  const branchMessage = branchAvg
+    ? `متوسط فاتورة الموظف ${formatMoney(sales?.avgInvoice || 0)} مقابل متوسط الفرع ${formatMoney(branchAvg)}، الفرق ${formatMoney(avgDiff)} (${formatNumber(avgDiffPct)}%).`
+    : "لا توجد بيانات كافية لمقارنة متوسط الفاتورة بمتوسط الفرع.";
+  const mainAdvice = [
+    (sales?.avgInvoice || 0) < branchAvg ? "رفع متوسط الفاتورة عن طريق البيع الإضافي المناسب لكل روشتة." : "متوسط الفاتورة جيد مقارنة بالفرع، حافظ على نفس جودة البيع.",
+    (profile.customers?.repeatCustomers?.length || 0) < 5 ? "زيادة إعادة الشراء عبر تسجيل ملاحظات متابعة للعميل بعد الفاتورة." : "يوجد عملاء متكررون؛ ركّز على تحويلهم لعملاء دائمين بعروض ومتابعات.",
+    (attendance?.attendanceCompliance || 0) < 90 ? "مراجعة الالتزام بالحضور والتأخيرات لأن الالتزام يؤثر مباشرة على التقييم." : "الالتزام جيد حسب البيانات المتاحة.",
+  ];
+
+  const row = (label: string, value: unknown) => `<div class="card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>`;
+  const rowsHtml = latest.map((invoice) => `<tr><td>${escapeHtml(invoice.date || "-")}</td><td>${escapeHtml(invoice.invoiceNumber || "-")}</td><td>${escapeHtml(formatMoney(invoice.amount || 0))}</td><td>${escapeHtml(invoice.customer || "-")}</td><td>${escapeHtml(invoice.customerCode || "-")}</td><td>${escapeHtml(invoice.customerSegment || "غير مصنف")}</td></tr>`).join("") || `<tr><td colspan="6">لا توجد فواتير في الدورة الحالية</td></tr>`;
+  const customerRows = topCustomers.map((customer) => `<tr><td>${escapeHtml(customer.name || "-")}</td><td>${escapeHtml(customer.code || "-")}</td><td>${escapeHtml(customer.phone || "-")}</td><td>${escapeHtml(customer.segment || "غير مصنف")}</td><td>${escapeHtml(customer.invoicesCount)}</td><td>${escapeHtml(formatMoney(customer.totalSpent || 0))}</td></tr>`).join("") || `<tr><td colspan="6">لا توجد بيانات عملاء مرتبطة</td></tr>`;
+  const recRows = recommendations.map((rec, i) => `<li><strong>${i + 1}.</strong> ${escapeHtml((rec as any).title || (rec as any).message || (rec as any).reason || "توصية تحسين")} <span>${escapeHtml((rec as any).suggestedAction || (rec as any).action || "")}</span></li>`).join("") || mainAdvice.map((text, i) => `<li><strong>${i + 1}.</strong> ${escapeHtml(text)}</li>`).join("");
+  const transactionDetailsHtml = (record: any) => {
+    const tx = getTransactionDetails(record);
+    const meta = record?.metadata && typeof record.metadata === "object" ? record.metadata as Record<string, unknown> : {};
+    const date = tx.approvedAt !== "غير محدد" ? tx.approvedAt : tx.createdAt;
+    const reference = String(record?.source_id || meta.source_id || meta.invoice_no || meta.invoice_id || record?.id || "").trim();
+    const createdBy = String(record?.created_by_name || record?.created_by || record?.manager_name || record?.executor_name || "غير محدد").trim();
+    const approvedBy = String(record?.approved_by_name || record?.approved_by || record?.manager_name || "غير محدد").trim();
+    const status = String(record?.status || "approved").trim();
+    const details = [
+      tx.fullDescription,
+      meta.customer_name ? `العميل: ${meta.customer_name}` : "",
+      meta.invoice_no ? `فاتورة: ${meta.invoice_no}` : "",
+      meta.rule_title ? `البند: ${meta.rule_title}` : "",
+      meta.violation_date ? `تاريخ الواقعة: ${meta.violation_date}` : "",
+      reference ? `مرجع: ${reference}` : "",
+      createdBy ? `أُضيف بواسطة: ${createdBy}` : "",
+      approvedBy ? `اعتمد بواسطة: ${approvedBy}` : "",
+      status ? `الحالة: ${status}` : "",
+    ].map((x) => String(x || "").trim()).filter(Boolean);
+    return { tx, date, reference, createdBy, approvedBy, status, details: Array.from(new Set(details)).join(" | ") };
+  };
+
+  const rewardRows = (monthly?.cashRewardTransactions || []).slice(0, 12).map((r) => {
+    const detail = transactionDetailsHtml(r);
+    return `<tr><td>${escapeHtml(r.shortReason || r.reason || "مكافأة مالية")}</td><td>${escapeHtml(detail.date)}</td><td>${escapeHtml(r.sourceLabel || r.source_type || detail.tx.source || "-")}</td><td>${escapeHtml(formatMoney(r.moneyAmount || 0))}</td><td>${escapeHtml(detail.details || "-")}</td></tr>`;
+  }).join("") || `<tr><td colspan="5">لا توجد مكافآت مالية مسجلة</td></tr>`;
+
+  const pointRewardRows = (monthly?.rewardTransactions || []).slice(0, 12).map((r) => {
+    const detail = transactionDetailsHtml(r);
+    return `<tr><td>${escapeHtml(r.shortReason || r.reason || "مكافأة نقاط")}</td><td>${escapeHtml(detail.date)}</td><td>${escapeHtml(r.sourceLabel || r.source_type || detail.tx.source || "-")}</td><td>+${escapeHtml(formatNumber(r.absPoints || 0))} نقطة</td><td>${escapeHtml(detail.details || "-")}</td></tr>`;
+  }).join("") || `<tr><td colspan="5">لا توجد مكافآت نقاط مسجلة</td></tr>`;
+
+  const deductionRows = (monthly?.deductionTransactions || []).slice(0, 20).map((r) => {
+    const detail = transactionDetailsHtml(r);
+    return `<tr><td>${escapeHtml(r.shortReason || r.reason || "خصم")}</td><td>${escapeHtml(detail.date)}</td><td>${escapeHtml(r.sourceLabel || r.source_type || detail.tx.source || "-")}</td><td>-${escapeHtml(formatNumber(r.absPoints || 0))} نقطة</td><td>${escapeHtml(detail.details || "-")}</td></tr>`;
+  }).join("") || `<tr><td colspan="5">لا توجد خصومات مسجلة</td></tr>`;
+
+  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" />
+  <style>
+    *{box-sizing:border-box} body{font-family:Tahoma,Arial,sans-serif;direction:rtl;color:#0f172a;background:#fff;margin:0;padding:24px;line-height:1.65;width:1120px}.header{border-bottom:4px solid #0f766e;padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-start}.brand{color:#0f766e;font-weight:900}.muted{color:#64748b;font-size:12px}h1{font-size:28px;margin:0 0 4px}h2{font-size:18px;margin:22px 0 10px;color:#0f766e}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{border:1px solid #cbd5e1;border-radius:14px;padding:10px;background:#f8fafc}.label{font-size:12px;color:#64748b;font-weight:800}.value{font-size:19px;font-weight:900;margin-top:4px}.note{border:1px solid #99f6e4;background:#ecfdf5;border-radius:14px;padding:12px;margin:12px 0}.warn{border:1px solid #fde68a;background:#fffbeb;border-radius:14px;padding:12px;margin:12px 0}table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}th,td{border:1px solid #d8e0ea;padding:7px;text-align:right;vertical-align:top}th{background:#ecfeff;color:#0f766e;font-weight:900}ul{margin:0;padding:0 20px}li{margin:5px 0}.footer{margin-top:22px;border-top:1px solid #cbd5e1;padding-top:8px;color:#64748b;font-size:11px}
+  </style></head><body>
+  <div class="header"><div><h1>تقرير الأداء الشهري للموظف</h1><div class="brand">صيدليات دواء - Dawaa Pharmacy 2027</div></div><div class="muted">تم الإنشاء: ${escapeHtml(new Date().toLocaleString("ar-EG"))}<br/>الدورة: ${escapeHtml(formatCycleDate(getCurrentCycle().start))} إلى ${escapeHtml(formatCycleDate(getCurrentCycle().end))}</div></div>
+  <h2>بيانات الموظف</h2><div class="grid">${row("الموظف", profile.staff.name)}${row("الدور", profile.staff.role || "-")}${row("الفرع", profile.staff.branch || "-")}</div>
+  <h2>ملخص الدورة</h2><div class="grid4">${row("مبيعات الدورة", formatMoney(sales?.cycleNetSales || 0))}${row("عدد الفواتير", formatNumber(sales?.cycleInvoicesCount || 0))}${row("متوسط الفاتورة", formatMoney(sales?.avgInvoice || 0))}${row("عملاء مختلفون", formatNumber(sales?.uniqueCustomers || 0))}${row("أكبر فاتورة", sales?.topInvoice ? `${sales.topInvoice.invoiceNumber} - ${formatMoney(sales.topInvoice.amount)}` : "غير متاح")}${row("الحافز الأساسي", formatMoney(monthly?.incentiveValue || 0))}${row("المكافآت المالية", formatMoney(profile.cashRewards || 0))}${row("صافي المستحق", formatMoney(finalPayout))}</div>
+  <div class="note"><strong>قراءة الأداء:</strong> ${escapeHtml(branchMessage)}</div>
+  <h2>ماذا يحتاج الموظف في الفترة القادمة؟</h2><ul>${recRows}</ul>
+  <h2>آخر الفواتير</h2><table><thead><tr><th>التاريخ</th><th>رقم الفاتورة</th><th>القيمة</th><th>العميل</th><th>الكود</th><th>التصنيف</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+  <h2>أفضل العملاء المرتبطين بالموظف</h2><table><thead><tr><th>العميل</th><th>الكود</th><th>الهاتف</th><th>التصنيف</th><th>عدد الفواتير</th><th>الإجمالي</th></tr></thead><tbody>${customerRows}</tbody></table>
+  <h2>الحوافز والخصومات</h2><div class="grid">${row("نقاط البداية", formatNumber(monthly?.startingPoints || 500))}${row("النقاط النهائية", formatNumber(monthly?.finalPoints || 0))}${row("خصومات مالية", formatMoney(cashDeductions))}${row("درجة الربع", `${formatNumber(quarterly?.quarterlyScore || 0)}/100`)}${row("قيمة الربع النهائية", formatMoney(quarterly?.quarterlyFinalValue || 0))}${row("التزام الحضور", `${formatNumber(attendance?.attendanceCompliance || 0)}%`)}</div>
+  <h2>مكافآت النقاط بالتفصيل</h2><table><thead><tr><th>البند</th><th>التاريخ</th><th>المصدر</th><th>النقاط</th><th>التفاصيل / المرجع / الاعتماد</th></tr></thead><tbody>${pointRewardRows}</tbody></table>
+  <h2>المكافآت المالية بالتفصيل</h2><table><thead><tr><th>البند</th><th>التاريخ</th><th>المصدر</th><th>القيمة</th><th>التفاصيل / المرجع / الاعتماد</th></tr></thead><tbody>${rewardRows}</tbody></table>
+  <h2>الخصومات بالتفصيل</h2><table><thead><tr><th>البند</th><th>التاريخ</th><th>المصدر</th><th>النقاط</th><th>التفاصيل / المرجع / الاعتماد</th></tr></thead><tbody>${deductionRows}</tbody></table>
+  <h2>الرواكد واللستة والحضور</h2><div class="grid4">${row("رواكد مسندة", formatNumber(profile.stagnantMedicines?.assignedStagnantItems || 0))}${row("إنجاز الرواكد", percentText(profile.stagnantMedicines?.stagnantCompletionPercent))}${row("أصناف لستة", formatNumber(profile.listItems?.assignedListItems || 0))}${row("إنجاز اللستة", percentText(profile.listItems?.listCompletionPercent))}${row("أيام مجدولة", formatNumber(attendance?.scheduledDays || 0))}${row("حضور", formatNumber(attendance?.attendedDays || 0))}${row("غياب", formatNumber(attendance?.absences || 0))}${row("إذونات", formatNumber(attendance?.permissionsUsed || 0))}</div>
+  <div class="footer">تم إنشاء هذا التقرير من بيانات التطبيق الحية. راجع صفحة الموظف للتفاصيل القابلة للضغط.</div>
+  </body></html>`;
+
+  try {
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "fixed";
+    wrapper.style.left = "-20000px";
+    wrapper.style.top = "0";
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper);
+    const reportNode = wrapper.firstElementChild as HTMLElement;
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
+    const canvas = await html2canvas(reportNode, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    let heightLeft = imgHeight;
+    let position = 0;
+    const imgData = canvas.toDataURL("image/png");
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+    pdf.save(`تقرير-${(profile.staff.name || "staff").replace(/[\\/:*?"<>|]+/g, "-")}.pdf`);
+    document.body.removeChild(wrapper);
+  } catch (error) {
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `staff-report-${(profile.staff.name || "staff").replace(/[\\/:*?"<>|]+/g, "-")}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 }
 
-interface AssignedStagnantMedicine {
-  id: string;
-  product_name?: string | null;
-  medicine_name?: string | null;
-  category?: string | null;
-  responsible_doctor_id?: string | null;
-  responsible_doctor_name?: string | null;
-  responsible_doctor?: string | null;
-  total_quantity?: number | null;
-  dispensed_quantity?: number | null;
-  remaining_quantity?: number | null;
-  nearest_expiry_date?: string | null;
-  expiry_date?: string | null;
-  incentive_per_unit?: number | null;
-  branch_name?: string | null;
-  branch?: string | null;
-  status?: string | null;
+function isOptionalSchemaWarning(value: string) {
+  return /Could not find the table 'public\.(time_off|staff_attendance|staff_permissions)' in the schema cache/i.test(value);
 }
 
-function dayAfter(date: Date) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + 1);
-  return next.toISOString().slice(0, 10);
+function visibleDataWarnings(profile: StaffPerformanceProfile) {
+  return profile.dataHealth.warnings
+    .concat(Object.values(profile.errorsBySection))
+    .filter(Boolean)
+    .filter((warning) => !isOptionalSchemaWarning(String(warning)));
+}
+
+function drilldownRoute(profile: StaffPerformanceProfile, target: "invoices" | "customers" | "points" | "customer-service" | "quarterly") {
+  const cycle = getCurrentCycle();
+  const from = formatCycleDate(cycle.start);
+  const to = formatCycleDate(cycle.end);
+  const sellerNames = profile.sales?.rawSellerNamesMatched?.length
+    ? profile.sales.rawSellerNamesMatched
+    : profile.identity.rawSellerNames;
+  const seller = sellerNames?.[0] || profile.identity.displayName;
+  const params = new URLSearchParams({
+    staffId: profile.staff.id,
+    from,
+    to,
+    branch: profile.staff.branch,
+  });
+  if (seller) params.set("seller_name", seller);
+
+  if (target === "points") {
+    return `/points?staffId=${encodeURIComponent(profile.staff.id)}&cycle=${encodeURIComponent(from)}`;
+  }
+  if (target === "customer-service") {
+    return `/customer-service?staffId=${encodeURIComponent(profile.staff.id)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  }
+  if (target === "quarterly") {
+    return `/quarterly-incentives?staffId=${encodeURIComponent(profile.staff.id)}&quarter=${encodeURIComponent(from)}`;
+  }
+  return `/${target}?${params.toString()}`;
 }
 
 export default function StaffDetail() {
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
-  const [staff, setStaff] = useState<StaffRow | null>(null);
-  const [pointsRows, setPointsRows] = useState<PointRecord[]>([]);
-  const [incentiveData, setIncentiveData] = useState<StaffCycleIncentive | null>(null);
-  const [reviews, setReviews] = useState<ReviewRow[]>([]);
-  const [assignedIncentives, setAssignedIncentives] = useState<AssignedIncentiveMedicine[]>([]);
-  const [assignedStagnants, setAssignedStagnants] = useState<AssignedStagnantMedicine[]>([]);
-  const [invoiceStats, setInvoiceStats] = useState({ count: 0, total: 0 });
-  const [salesRows, setSalesRows] = useState<Record<string, unknown>[]>([]);
-  const [followupRows, setFollowupRows] = useState<Record<string, unknown>[]>([]);
-  const [stagnantDispenseRows, setStagnantDispenseRows] = useState<Record<string, unknown>[]>([]);
-  const [listSaleRows, setListSaleRows] = useState<Record<string, unknown>[]>([]);
-  const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
-  const [timeOffRows, setTimeOffRows] = useState<TimeOffRow[]>([]);
+  const [profile, setProfile] = useState<StaffPerformanceProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedReview, setSelectedReview] = useState<ReviewRow | null>(null);
-  const cycle = getCurrentCycle();
-  const activeMonthCycle = monthCycleFromDate(cycle.end);
+  const [error, setError] = useState<string | null>(null);
+  const [drilldown, setDrilldown] = useState<DrilldownKey | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  const cycle = useMemo(() => getCurrentCycle(), []);
+  const cycleStart = formatCycleDate(cycle.start);
+  const cycleEnd = formatCycleDate(cycle.end);
 
   useEffect(() => {
     if (!id || !isSupabaseConfigured) {
@@ -181,254 +279,51 @@ export default function StaffDetail() {
       return;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
 
-    async function load() {
-      setLoading(true);
-      const { data: s } = await supabase.from("staff").select("*").eq("id", id).maybeSingle();
-      if (cancelled) return;
-      const row = (s || null) as StaffRow | null;
-      if (!row) {
-        setStaff(null);
-        setLoading(false);
-        return;
-      }
-      setStaff(row);
+    loadStaffPerformanceProfile({ staffId: id, cycleStart, cycleEnd, signal: controller.signal, forceRefresh: true })
+      .then(setProfile)
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : "تعذر تحميل ملف الموظف");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
 
-      const cycleStart = cycle.start.toISOString().slice(0, 10);
-      const cycleEndExclusive = dayAfter(cycle.end);
-      const invoiceReq = supabase
-        .from("staff_sales_summary")
-        .select("*")
-        .eq("seller_name", row.name)
-        .gte("sale_date", cycleStart)
-        .lt("sale_date", cycleEndExclusive)
-        .limit(500);
-      const incentiveByIdReq = supabase.from("incentive_medicines").select("*").eq("doctor_id", id).limit(200);
-      const incentiveByNameReq = supabase.from("incentive_medicines").select("*").eq("responsible_doctor", row.name).limit(200);
-      const stagnantByIdReq = supabase.from("stagnant_medicines").select("*").eq("responsible_doctor_id", id).limit(200);
-      const stagnantByNameReq = supabase.from("stagnant_medicines").select("*").or(`responsible_doctor_name.eq.${row.name},responsible_doctor.eq.${row.name}`).limit(200);
-      const scheduleReq = supabase.from("shift_schedules").select("*").eq("staff_id", id).limit(80);
-      const timeOffReq = supabase.from("shift_exceptions").select("*").eq("staff_id", id).order("date", { ascending: false }).limit(80);
-      const followupsReq = supabase
-        .from("daily_followups")
-        .select("*")
-        .or(`staff_id.eq.${id},assigned_staff_id.eq.${id},responsible_name.eq.${row.name},assigned_to.eq.${row.name},assigned_doctor.eq.${row.name}`)
-        .gte("created_at", cycleStart)
-        .lt("created_at", cycleEndExclusive)
-        .limit(300);
-      const stagnantDispensesReq = supabase
-        .from("stagnant_medicine_dispenses")
-        .select("*")
-        .or(`doctor_id.eq.${id},staff_id.eq.${id},doctor_name.eq.${row.name},responsible_doctor_name.eq.${row.name},staff_name.eq.${row.name}`)
-        .gte("created_at", cycleStart)
-        .lt("created_at", cycleEndExclusive)
-        .limit(300);
-      const listSalesReq = supabase
-        .from("incentive_medicine_sales")
-        .select("*")
-        .or(`doctor_id.eq.${id},staff_id.eq.${id},doctor_name.eq.${row.name},responsible_doctor.eq.${row.name},staff_name.eq.${row.name}`)
-        .gte("created_at", cycleStart)
-        .lt("created_at", cycleEndExclusive)
-        .limit(300);
+    return () => controller.abort();
+  }, [cycleEnd, cycleStart, id, refreshNonce]);
 
-      const [invRes, incentiveById, incentiveByName, stagnantById, stagnantByName, scheduleRes, timeOffRes, followupsRes, stagnantDispensesRes, listSalesRes] = await Promise.all([
-        invoiceReq,
-        incentiveByIdReq,
-        incentiveByNameReq,
-        stagnantByIdReq,
-        stagnantByNameReq,
-        scheduleReq,
-        timeOffReq,
-        followupsReq,
-        stagnantDispensesReq,
-        listSalesReq,
-      ]);
-
-      // استخدام getStaffCycleIncentive لجمع البيانات من جميع المصادر
-      const incentiveResult = await getStaffCycleIncentive({ staffId: id, staffName: row.name, branch: row.branch });
-      setIncentiveData(incentiveResult);
-
-      // تحويل incentiveData إلى pointRows للعرض فقط
-      const pointRowsByKey = new Map<string, PointRecord>();
-      for (const record of incentiveResult.rewardTransactions.concat(incentiveResult.deductionTransactions).concat(incentiveResult.pendingTransactions)) {
-        const signedPoints = record.normalizedDelta;
-        const rawPoints = Math.abs(signedPoints);
-        pointRowsByKey.set(record.id || `${record.source_type}:${record.source_id}`, {
-          ...record,
-          employee_id: record.employee_id || record.staff_id || id,
-          employee_name: record.employee_name || row.name,
-          type: signedPoints > 0 ? "bonus" : signedPoints < 0 ? "deduction" : record.type,
-          points: rawPoints,
-          points_delta: signedPoints,
-          manager_note: record.manager_note || record.description || null,
-          status: record.status || "approved",
-        } as PointRecord);
-      }
-      const pointRows = Array.from(pointRowsByKey.values())
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 150);
-      let reviewRows: ReviewRow[] = [];
-      const byId = await supabase
-        .from("conversation_sales_reviews")
-        .select("*")
-        .or(`staff_id.eq.${id},doctor_id.eq.${id}`)
-        .order("created_at", { ascending: false })
-        .limit(150);
-      if (!byId.error) {
-        reviewRows = (byId.data || []) as ReviewRow[];
-      } else {
-        const fallback = await supabase.from("conversation_sales_reviews").select("*").eq("staff_name", row.name).order("created_at", { ascending: false }).limit(150);
-        reviewRows = (fallback.data || []) as ReviewRow[];
-      }
-
-      if (cancelled) return;
-      setPointsRows(pointRows);
-      setReviews(reviewRows);
-      const incentiveMap = new Map<string, AssignedIncentiveMedicine>();
-      for (const item of ([...(incentiveById.data || []), ...(incentiveByName.data || [])] as AssignedIncentiveMedicine[])) {
-        if (item.id) incentiveMap.set(item.id, item);
-      }
-      const stagnantMap = new Map<string, AssignedStagnantMedicine>();
-      for (const item of ([...(stagnantById.data || []), ...(stagnantByName.data || [])] as AssignedStagnantMedicine[])) {
-        if (item.id) stagnantMap.set(item.id, item);
-      }
-      setAssignedIncentives(Array.from(incentiveMap.values()));
-      setAssignedStagnants(Array.from(stagnantMap.values()));
-      setScheduleRows(((scheduleRes && !scheduleRes.error ? scheduleRes.data : []) || []) as ScheduleRow[]);
-      setTimeOffRows(((timeOffRes && !timeOffRes.error ? timeOffRes.data : []) || []) as TimeOffRow[]);
-
-      const invRows = ((invRes && !invRes.error ? invRes.data : []) || []) as Record<string, unknown>[];
-      setSalesRows(invRows);
-      setFollowupRows(((followupsRes && !followupsRes.error ? followupsRes.data : []) || []) as Record<string, unknown>[]);
-      setStagnantDispenseRows(((stagnantDispensesRes && !stagnantDispensesRes.error ? stagnantDispensesRes.data : []) || []) as Record<string, unknown>[]);
-      setListSaleRows(((listSalesRes && !listSalesRes.error ? listSalesRes.data : []) || []) as Record<string, unknown>[]);
-      const invoiceCount = invRows.reduce((sum, item) => sum + toNumber(item.invoices_count || item.invoice_count), 0);
-      const salesTotal = invRows.reduce((sum, item) => sum + toNumber(item.net_total || item.net_sales || item.sales_total), 0);
-      setInvoiceStats({ count: invoiceCount, total: salesTotal });
-
-      const reviewToOpen = searchParams.get("review");
-      if (reviewToOpen) {
-        const found = reviewRows.find((row) => row.id === reviewToOpen);
-        if (found) setSelectedReview(found);
-      }
-      setLoading(false);
-    }
-
-    load();
-    return () => {
-      cancelled = true;
+  useEffect(() => {
+    const handleImportRefresh = (event: StorageEvent) => {
+      if (event.key !== "dawaa_invoice_import_refresh" || !event.newValue) return;
+      clearStaffPerformanceProfileCache();
+      setRefreshNonce((value) => value + 1);
     };
-  }, [id, searchParams, cycle.end, cycle.start]);
 
-  const cyclePointsRows = useMemo(() => {
-    if (!staff) return [];
-    return pointsRows.filter((row) => (
-      isApprovedPointRecord(row) &&
-      isRecordInCycle(row, cycle) &&
-      recordBelongsToStaff(row, staff)
-    ));
-  }, [cycle, pointsRows, staff]);
-
-  const cycleReviews = useMemo(() => {
-    return reviews.filter((row) => {
-      if (row.month_cycle) return row.month_cycle === activeMonthCycle;
-      const date = row.conversation_date || row.reviewed_at || row.created_at;
-      return date ? isDateInCycle(new Date(date), cycle) : false;
-    });
-  }, [activeMonthCycle, cycle, reviews]);
-
-  const grouped = useMemo(() => {
-    if (!staff || !incentiveData) return { bonuses: [] as PointRecord[], deductions: [] as PointRecord[], bonusPts: 0, deductionPts: 0 };
-    const bonuses = incentiveData.rewardTransactions as PointRecord[];
-    const deductions = incentiveData.deductionTransactions as PointRecord[];
-    return {
-      bonuses,
-      deductions,
-      bonusPts: incentiveData.approvedRewardPoints,
-      deductionPts: incentiveData.approvedDeductionPoints,
-    };
-  }, [incentiveData, staff]);
-
-  const reviewStats = useMemo(() => {
-    const count = cycleReviews.length;
-    const avg = count ? Math.round(cycleReviews.reduce((s, r) => s + toNumber(r.final_score), 0) / count) : 0;
-    const excellent = cycleReviews.filter((r) => toNumber(r.final_score) >= 90).length;
-    const weak = cycleReviews.filter((r) => toNumber(r.final_score) < 70).length;
-    const forgotten = cycleReviews.filter((r) => r.forgotten_customer).length;
-    const missedSales = cycleReviews.filter((r) => r.missed_sales_opportunity || r.missed_sale_opportunity).length;
-    const crossSell = cycleReviews.filter((r) => r.successful_cross_sell).length;
-    const handledComplaints = cycleReviews.filter((r) => r.handled_angry_customer_well).length;
-    const impact = cycleReviews.reduce((s, r) => s + toNumber(r.doctor_points_impact), 0);
-    const positives = cycleReviews.map((r) => r.main_positive_reason || r.top_positive_reason).filter(Boolean) as string[];
-    const negatives = cycleReviews.map((r) => r.main_negative_reason || r.top_deduction_reason).filter(Boolean) as string[];
-    const training = cycleReviews.map((r) => r.training_recommendation).filter(Boolean) as string[];
-    return {
-      count,
-      avg,
-      excellent,
-      weak,
-      forgotten,
-      missedSales,
-      crossSell,
-      handledComplaints,
-      impact,
-      topPositive: positives[0] || "لا يوجد نمط واضح بعد",
-      topNegative: negatives[0] || "لا يوجد نمط واضح بعد",
-      training: training[0] || "استمرار متابعة جودة الترحيب وسرعة الرد وإغلاق الطلبات.",
-    };
-  }, [cycleReviews]);
-
-  const performance2027 = useMemo(() => {
-    if (!staff) return null;
-    return computeStaffPerformance2027({
-      staff: staff as unknown as Record<string, unknown>,
-      invoices: salesRows,
-      transactions: pointsRows as unknown as Record<string, unknown>[],
-      followups: followupRows,
-      listSales: listSaleRows,
-      stagnantDispenses: stagnantDispenseRows,
-    });
-  }, [staff, salesRows, pointsRows, followupRows, listSaleRows, stagnantDispenseRows]);
-
-  const assignedMedicineStats = useMemo(() => {
-    const incentivePotential = assignedIncentives.reduce((sum, item) => sum + incentiveUnitValue(item) * toNumber(item.current_quantity), 0);
-    const incentiveEarned = assignedIncentives.reduce((sum, item) => sum + incentiveUnitValue(item) * toNumber(item.sold_quantity), 0);
-    const stagnantRemaining = assignedStagnants.reduce((sum, item) => sum + toNumber(item.remaining_quantity), 0);
-    const stagnantDispensed = assignedStagnants.reduce((sum, item) => sum + toNumber(item.dispensed_quantity), 0);
-    return { incentivePotential, incentiveEarned, stagnantRemaining, stagnantDispensed };
-  }, [assignedIncentives, assignedStagnants]);
-
-  const openPointDetails = async (row: PointRecord) => {
-    const source = row.source_type || row.source;
-    if ((source === "conversation_evaluation" || source === "conversation_review" || source === "conversation_sales_reviews") && row.source_id) {
-      const local = reviews.find((review) => review.id === row.source_id);
-      if (local) {
-        setSelectedReview(local);
-        return;
-      }
-      const { data } = await supabase.from("conversation_sales_reviews").select("*").eq("id", row.source_id).maybeSingle();
-      if (data) setSelectedReview(data as ReviewRow);
-    }
-  };
+    window.addEventListener("storage", handleImportRefresh);
+    return () => window.removeEventListener("storage", handleImportRefresh);
+  }, []);
 
   if (!isSupabaseConfigured) {
-    return <div className="stat-card text-slate-400 text-center py-16 text-sm">فعّل Supabase لعرض ملف الموظف.</div>;
+    return <CenteredMessage text="فعل Supabase لعرض ملف الموظف." />;
   }
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-400">
         <Loader2 className="animate-spin text-teal-400" />
-        جاري تحميل ملف الموظف...
+        جاري تحميل ملف الموظف الموحد...
       </div>
     );
   }
 
-  if (!staff) {
+  if (error || !profile) {
     return (
-      <div className="stat-card text-center py-16 space-y-4">
-        <div className="text-slate-400">لم يتم العثور على الموظف.</div>
+      <div className="stat-card space-y-4 py-16 text-center">
+        <div className="text-slate-300">{error || "لم يتم العثور على الموظف."}</div>
         <Link to="/team" className="btn-secondary inline-flex items-center gap-2">
           <ArrowRight size={14} /> العودة للفريق
         </Link>
@@ -436,428 +331,709 @@ export default function StaffDetail() {
     );
   }
 
-  const staffIncentive = incentiveData || { finalPoints: 500, incentiveValue: 1500, approvedRewardPoints: 0, approvedDeductionPoints: 0, pendingRewardPoints: 0, pendingDeductionPoints: 0, rewardTransactions: [], deductionTransactions: [], pendingTransactions: [], excludedTransactions: [], sourceBreakdown: [], warnings: [] };
-  const pts = staffIncentive.finalPoints;
-  const max = canonicalMaxPoints(staff);
+  const monthly = profile.monthlyIncentive;
+  const quarterly = profile.quarterlyIncentive;
+  const baseMonthlyIncentive = monthly?.incentiveValue || 0;
+  const cashRewards = profile.cashRewards || 0;
+  const cashDeductions = quarterly?.quarterlyCashDeductions || 0;
+  const finalPayout = Math.max(0, baseMonthlyIncentive + cashRewards - cashDeductions);
+  const warnings = visibleDataWarnings(profile);
+  const hasDataWarnings = warnings.length > 0;
 
   return (
-    <div className="space-y-5 max-w-6xl">
-      <div className="flex items-center gap-3">
-        <Link to="/team" className="text-slate-400 hover:text-teal-400 text-sm">الفريق</Link>
+    <div className="staff-detail-page mx-auto max-w-7xl space-y-5" dir="rtl">
+      <div className="flex items-center gap-3 text-sm">
+        <Link to="/team" className="text-slate-400 transition hover:text-teal-300">الفريق</Link>
         <span className="text-slate-600">/</span>
-        <span className="text-white font-bold">{staff.name}</span>
+        <span className="font-bold text-white">{profile.staff.name}</span>
       </div>
 
-      <div className="stat-card border border-teal-500/20">
-        <div className="flex flex-col md:flex-row md:items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-teal-500/15 flex items-center justify-center text-teal-400 text-2xl font-bold">{staff.name[0]}</div>
-          <div className="flex-1">
-            <div className="text-white font-bold text-xl">{staff.name}</div>
-            <div className="text-slate-400 text-sm mt-1">{staff.role} - {staff.branch}</div>
-            <div className="text-slate-500 text-xs mt-1">الدورة الحالية: {activeMonthCycle} من 26 إلى 25</div>
-          </div>
-          <div className="text-left">
-            <div className={`text-3xl font-bold num ${pts >= 450 ? "text-teal-400" : pts >= 350 ? "text-amber-400" : "text-red-400"}`}>{pts}</div>
-            <div className="text-slate-500 text-xs">/ {max} نقطة</div>
-            <div className="text-slate-400 text-xs mt-2">{getPerformanceLevel(pts)}</div>
-            <div className="text-teal-400 text-xs mt-1 num">حافز تقريبي {calculateIncentive(pts).toLocaleString("ar-EG")} ج</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MiniStat label="فواتير مسجلة" value={String(invoiceStats.count)} />
-        <MiniStat label="إجمالي مبيعات" value={formatCurrency(invoiceStats.total)} />
-        <MiniStat label="مكافآت الدورة" value={`+${grouped.bonusPts}`} />
-        <MiniStat label="خصومات الدورة" value={`-${grouped.deductionPts}`} />
-      </div>
-
-      {performance2027 && <section className="stat-card space-y-4 border border-teal-500/20">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="section-title text-sm">ملف أداء 2027 المرتبط بالفواتير والعملاء</div>
-            <div className="mt-1 text-xs text-slate-400">يقرأ المبيعات من staff_sales_summary مع متابعات ورواكد ولستة محدودة داخل دورة 26 إلى 25.</div>
-          </div>
-          <span className="badge-info">{performance2027.cycleLabel}</span>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <MiniStat label="عدد الفواتير" value={formatNumber(performance2027.invoiceCount)} />
-          <MiniStat label="مبيعات الدورة" value={formatMoney(performance2027.totalSales)} />
-          <MiniStat label="متوسط الفاتورة" value={formatMoney(performance2027.avgInvoice)} />
-          <MiniStat label="عملاء مختلفون" value={formatNumber(performance2027.uniqueCustomers)} />
-          <MiniStat label="متابعات مغلقة" value={`${performance2027.completedFollowups}/${performance2027.followupCount}`} />
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-[#2d4063] p-4">
-            <div className="text-white font-bold text-sm mb-3">أهم العملاء حسب قيمة مشترياتهم من الموظف</div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {performance2027.topCustomers.map((item) => <div key={item.name} className="flex items-center justify-between rounded-xl bg-white/5 p-3 text-sm">
-                <div><div className="font-bold text-white">{item.name}</div><div className="text-xs text-slate-500">{item.invoices} فاتورة · آخر شراء {formatDate(item.lastPurchase)}</div></div>
-                <div className="text-left"><div className="font-bold text-teal-300">{formatMoney(item.sales)}</div><div className="text-xs text-slate-500">متوسط {formatMoney(item.avg)}</div></div>
-              </div>)}
-              {!performance2027.topCustomers.length && <div className="text-slate-500 text-sm">لا توجد فواتير مرتبطة باسم الموظف داخل الدورة. راجع اسم الدكتور في ملف الفواتير.</div>}
+      <section className="staff-panel rounded-2xl border border-teal-500/20 bg-slate-900/85 p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-500/15 text-2xl font-black text-teal-300">
+              {profile.staff.name?.[0] || "د"}
+            </div>
+            <div>
+              <h1 className="text-2xl font-black text-white">{profile.staff.name}</h1>
+              <div className="mt-1 text-sm text-slate-400">{profile.staff.role || "موظف"} - {profile.staff.branch}</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <Badge tone={profile.staff.is_active ? "ready" : "warning"}>{profile.staff.is_active ? "نشط" : "غير نشط / تاريخي"}</Badge>
+                <Badge tone={hasDataWarnings ? "warning" : "ready"}>{hasDataWarnings ? "يوجد تنبيهات ربط" : "الربط مستقر"}</Badge>
+                <Badge tone="info">الدورة: {cycleStart} إلى {cycleEnd}</Badge>
+              </div>
+              <div className="mt-3 text-xs font-bold text-slate-500">{sourceText(profile)}</div>
             </div>
           </div>
-          <div className="rounded-xl border border-[#2d4063] p-4">
-            <div className="text-white font-bold text-sm mb-3">أكبر الفواتير قيمة</div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {performance2027.biggestInvoices.map((item) => <div key={`${item.invoiceNumber}-${item.amount}`} className="rounded-xl bg-white/5 p-3 text-sm">
-                <div className="flex items-center justify-between"><div className="font-bold text-white">{item.customerName || "عميل غير محدد"}</div><div className="font-bold text-teal-300">{formatMoney(item.amount)}</div></div>
-                <div className="mt-1 text-xs text-slate-500">فاتورة {item.invoiceNumber} · {formatDate(item.date)} · {item.branch}</div>
-              </div>)}
-              {!performance2027.biggestInvoices.length && <div className="text-slate-500 text-sm">لا توجد فواتير لعرضها.</div>}
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setDrilldown("invoiceDebug")} className="btn-secondary inline-flex items-center gap-2 text-sm">
+              <ReceiptText size={15} /> تشخيص ربط الفواتير
+            </button>
+            <button type="button" onClick={() => void downloadStaffPdfReport(profile, finalPayout)} className="btn-secondary inline-flex items-center gap-2 text-sm">
+              <FileText size={15} /> تصدير PDF
+            </button>
+            <Link to="/data-health" className="btn-secondary inline-flex items-center gap-2 text-sm">
+              <AlertTriangle size={15} /> صحة البيانات
+            </Link>
           </div>
         </div>
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
-          <div className="text-amber-200 font-bold text-sm mb-2">توصيات تنفيذية للمدير والموظف</div>
-          <ul className="space-y-1 text-xs leading-6 text-amber-100/90">
-            {[...performance2027.warnings, ...performanceRecommendation(performance2027)].slice(0, 6).map((line) => <li key={line}>• {line}</li>)}
-            {performance2027.warnings.length === 0 && performanceRecommendation(performance2027).length === 0 && <li>• الأداء مستقر، استمر في تحسين متوسط الفاتورة والمتابعات.</li>}
-          </ul>
-        </div>
-      </section>}
+      </section>
 
-      <section className="stat-card space-y-4">
-        <div className="section-title text-sm">ملف التشغيل والحضور</div>
-        <div className="grid md:grid-cols-3 gap-3">
-          <InfoCard label="عدد أيام الجدول المسجلة" value={`${scheduleRows.length} يوم`} />
-          <InfoCard label="إجازات/استثناءات مسجلة" value={`${timeOffRows.length} سجل`} />
-          <InfoCard label="آخر إذن أو إجازة" value={formatLatestTimeOff(timeOffRows)} />
+      <Section title="الملخص التنفيذي">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <MetricCard icon={TrendingUp} label="مبيعات الدورة" value={formatMoney(profile.sales?.cycleNetSales || 0)} onClick={() => setDrilldown("sales")} />
+          <MetricCard icon={ReceiptText} label="عدد الفواتير" value={formatNumber(profile.sales?.cycleInvoicesCount || 0)} onClick={() => setDrilldown("invoices")} />
+          <MetricCard icon={BarChart3} label="متوسط الفاتورة" value={formatCurrency(profile.sales?.avgInvoice || 0)} onClick={() => setDrilldown("avgInvoice")} />
+          <MetricCard icon={Users} label="عملاء مختلفون" value={formatNumber(profile.sales?.uniqueCustomers || 0)} onClick={() => setDrilldown("customers")} />
+          <MetricCard icon={CheckCircle2} label="متابعات مغلقة" value={`${formatNumber(profile.customerService?.followupsCompleted || 0)}/${formatNumber(profile.customerService?.followupsAssigned || 0)}`} onClick={() => setDrilldown("followups")} />
+          <MetricCard icon={Wallet} label="الحافز الأساسي" value={formatMoney(baseMonthlyIncentive)} onClick={() => setDrilldown("payout")} />
+          <MetricCard icon={Sparkles} label="المكافآت المالية" value={formatMoney(cashRewards)} onClick={() => setDrilldown("cashRewards")} />
+          <MetricCard icon={AlertTriangle} label="الخصومات المالية" value={formatMoney(cashDeductions)} onClick={() => setDrilldown("deductions")} />
+          <MetricCard icon={Wallet} label="صافي المستحق النهائي" value={formatMoney(finalPayout)} onClick={() => setDrilldown("payout")} highlight />
+          <MetricCard icon={BarChart3} label="درجة الربع الحالي" value={`${formatNumber(quarterly?.quarterlyScore || 0)}/100`} onClick={() => setDrilldown("quarterly")} />
         </div>
-        <div className="grid lg:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-[#2d4063] p-4">
-            <div className="text-white font-bold text-sm mb-3">مواعيد العمل المختصرة</div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {scheduleRows.slice(0, 8).map((item, index) => (
-                <div key={item.id || index} className="bg-white/5 rounded-xl p-3 text-xs">
-                  <div className="text-slate-400">{item.day_name || item.weekday || item.day || `يوم ${index + 1}`}</div>
-                  <div className="text-white font-bold mt-1">
-                    {item.is_day_off || item.status === "off" ? "إجازة" : `${item.start_time || "-"} — ${item.end_time || "-"}`}
-                  </div>
+      </Section>
+
+      <div className="grid gap-5 xl:grid-cols-[1.25fr_.75fr]">
+        <Section title="المبيعات والفواتير">
+          <div className="grid gap-3 md:grid-cols-3">
+            <MiniPanel label="أفضل يوم" value={profile.sales?.bestDay || "غير متاح"} />
+            <MiniPanel label="أضعف يوم" value={profile.sales?.weakestDay || "غير متاح"} />
+            <MiniPanel label="أعلى شيفت" value={profile.sales?.topShift || "غير متاح"} />
+          </div>
+          <SimpleBars rows={(profile.sales?.weeklyDistribution || []).slice(-6).map((row) => ({ label: row.week, value: row.sales }))} />
+          <TableShell empty="لا توجد فواتير تفصيلية في هذا المصدر. افتح الفواتير المفلترة من الزر بالأسفل.">
+            {(profile.sales?.latestInvoices || []).slice(0, 8).map((invoice) => (
+              <DataRow
+                key={`${invoice.invoiceNumber}-${invoice.date}`}
+                title={`فاتورة ${invoice.invoiceNumber || "-"}`}
+                subtitle={`${dateText(invoice.date)} - ${invoice.customer || "عميل غير محدد"}`}
+                value={formatMoney(invoice.amount)}
+              />
+            ))}
+          </TableShell>
+          <button type="button" className="btn-secondary inline-flex w-fit text-sm" onClick={() => setDrilldown("invoices")}>
+            عرض كل فواتير الموظف
+          </button>
+        </Section>
+
+        <Section title="الحوافز والخصومات">
+          <FormulaBox
+            rows={[
+              ["الحافز الأساسي حسب النقاط", baseMonthlyIncentive],
+              ["إجمالي المكافآت المالية", cashRewards],
+              ["إجمالي الخصومات المالية", -cashDeductions],
+              ["صافي المستحق النهائي", finalPayout],
+            ]}
+          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <MiniPanel label="نقاط البداية" value={formatNumber(monthly?.startingPoints || 500)} />
+            <MiniPanel label="النقاط النهائية" value={formatNumber(monthly?.finalPoints || 0)} />
+            <MiniPanel label="مكافآت نقاط معتمدة" value={formatNumber(monthly?.approvedRewardPoints || 0)} />
+            <MiniPanel label="خصومات نقاط معتمدة" value={formatNumber(monthly?.approvedDeductionPoints || 0)} />
+          </div>
+        </Section>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Section title="العملاء">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MiniPanel label="عملاء جدد" value={formatNumber(profile.customers?.newCustomers || 0)} />
+            <MiniPanel label="عملاء متكررون" value={formatNumber(profile.customers?.repeatCustomers.length || 0)} />
+            <MiniPanel label="يحتاجون متابعة" value={formatNumber(profile.customers?.customersNeedingFollowupCount || 0)} />
+            <MiniPanel label="بدون هاتف" value={formatNumber(profile.customers?.customersWithMissingPhone || 0)} />
+          </div>
+          <TableShell empty="لا توجد بيانات عملاء مرتبطة بهذا الموظف في الدورة.">
+            {(profile.customers?.topCustomers || []).slice(0, 8).map((customer) => (
+              <DataRow
+                key={`${customer.name}-${customer.phone}`}
+                title={customer.name || "عميل غير محدد"}
+                subtitle={`${customer.phone && customer.phone !== customer.code ? customer.phone : "بدون هاتف صالح"} - ${customer.segment || "غير مصنف"} - ${customer.invoicesCount} فواتير`}
+                value={formatMoney(customer.totalSpent)}
+              />
+            ))}
+          </TableShell>
+          <button type="button" className="btn-secondary inline-flex w-fit text-sm" onClick={() => setDrilldown("customers")}>
+            عرض العملاء المرتبطين
+          </button>
+        </Section>
+
+        <Section title="الرواكد واللستة">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <MetricCard icon={Package} label="رواكد مسندة" value={formatNumber(profile.stagnantMedicines?.assignedStagnantItems || 0)} onClick={() => setDrilldown("stagnant")} />
+            <MetricCard icon={Package} label="أصناف لستة" value={formatNumber(profile.listItems?.assignedListItems || 0)} onClick={() => setDrilldown("list")} />
+            <MiniPanel label="إنجاز الرواكد" value={percentText(profile.stagnantMedicines?.stagnantCompletionPercent)} />
+            <MiniPanel label="إنجاز اللستة" value={percentText(profile.listItems?.listCompletionPercent)} />
+          </div>
+          <TableShell empty="لا توجد أصناف متبقية مهمة للعرض.">
+            {(profile.stagnantMedicines?.topRemainingItems || profile.listItems?.topRemainingItems || []).slice(0, 6).map((item) => (
+              <DataRow
+                key={`${item.name}-${item.expiryDate}`}
+                title={item.name}
+                subtitle={`متبقي ${formatNumber(item.remaining)} - صلاحية ${dateText(item.expiryDate)}`}
+                value=""
+              />
+            ))}
+          </TableShell>
+        </Section>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Section title="الربع سنوي">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <MiniPanel label="الدرجة" value={`${formatNumber(quarterly?.quarterlyScore || 0)}/100`} />
+            <MiniPanel label="قاعدة الربع" value={formatMoney(quarterly?.baseQuarterlyIncentive || 2000)} />
+            <MiniPanel label="مكافآت الربع" value={formatMoney(quarterly?.quarterlyCashRewards || 0)} />
+            <MiniPanel label="القيمة النهائية" value={formatMoney(quarterly?.quarterlyFinalValue || 0)} />
+          </div>
+          <SimpleBars rows={Object.entries(quarterly?.scoreBreakdown || {}).map(([label, value]) => ({ label, value: Number(value) }))} />
+        </Section>
+
+        <Section title="الحضور والالتزام">
+          {profile.attendance ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <MetricCard icon={CheckCircle2} label="أيام مجدولة" value={formatNumber(profile.attendance.scheduledDays)} onClick={() => setDrilldown("attendance")} />
+              <MetricCard icon={CheckCircle2} label="أيام حضور" value={formatNumber(profile.attendance.attendedDays)} onClick={() => setDrilldown("attendance")} />
+              <MetricCard icon={AlertTriangle} label="غياب" value={formatNumber(profile.attendance.absences)} onClick={() => setDrilldown("attendance")} />
+              <MetricCard icon={AlertTriangle} label="تأخيرات" value={formatNumber(profile.attendance.delays)} onClick={() => setDrilldown("attendance")} />
+              <MetricCard icon={FileText} label="إذونات مستخدمة" value={formatNumber(profile.attendance.permissionsUsed)} onClick={() => setDrilldown("attendance")} />
+              <MetricCard icon={BarChart3} label="نسبة الالتزام" value={percentText(profile.attendance.attendanceCompliance)} onClick={() => setDrilldown("attendance")} />
+            </div>
+          ) : (
+            <Unavailable text="بيانات الإذونات والحضور غير متاحة حاليًا، ولا تؤثر على تحميل ملف الموظف." />
+          )}
+        </Section>
+      </div>
+
+      <Section title="التوصيات الذكية">
+        <div className="grid gap-3 lg:grid-cols-2">
+          {STAFF_OPERATING_POLICY_SECTIONS.length > 0 && (
+            <div className="lg:col-span-2 mb-4 grid gap-3 lg:grid-cols-2">
+              {STAFF_OPERATING_POLICY_SECTIONS.map((section) => (
+                <div key={section.title} className="rounded-2xl border border-teal-500/20 bg-teal-500/5 p-4">
+                  <h3 className="text-sm font-black text-teal-200">{section.title}</h3>
+                  <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+                    {section.items.map((item) => (
+                      <li key={item} className="flex gap-2">
+                        <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-teal-300" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ))}
-              {scheduleRows.length === 0 && <div className="text-slate-500 text-sm col-span-full">لا يوجد جدول محفوظ لهذا الموظف.</div>}
             </div>
-          </div>
-          <div className="rounded-xl border border-[#2d4063] p-4">
-            <div className="text-white font-bold text-sm mb-3">آخر الإذونات والإجازات</div>
-            <div className="space-y-2 max-h-44 overflow-y-auto">
-              {timeOffRows.slice(0, 6).map((item, index) => (
-                <div key={item.id || index} className="bg-white/5 rounded-xl p-3 text-xs">
-                  <div className="text-white font-bold">{item.type || item.reason || "إذن/إجازة"}</div>
-                  <div className="text-slate-400 mt-1">{formatDate(item.date || item.start_date)} {item.end_date ? `— ${formatDate(item.end_date)}` : ""}</div>
-                  {(item.notes || item.status) && <div className="text-slate-500 mt-1">{item.notes || item.status}</div>}
-                </div>
-              ))}
-              {timeOffRows.length === 0 && <div className="text-slate-500 text-sm">لا توجد إذونات أو إجازات مسجلة.</div>}
+          )}
+          {profile.recommendations.slice(0, 8).map((rec, index) => (
+            <div key={`${rec.category}-${index}`} className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-black text-white">{rec.category}</div>
+                <Badge tone={rec.priority === "high" ? "danger" : rec.priority === "medium" ? "warning" : "info"}>{rec.priority}</Badge>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-300">{rec.reason}</p>
+              <p className="mt-2 text-sm leading-6 text-teal-100">{rec.suggestedAction}</p>
             </div>
-          </div>
+          ))}
+          {!profile.recommendations.length && <Unavailable text="لا توجد توصيات حرجة حاليًا." />}
         </div>
-      </section>
+      </Section>
 
-      <SalaryCalculator
-        staffName={staff.name}
-        role={staff.role}
-        branch={staff.branch}
-        cycleLabel={cycle.label}
-        currentPoints={pts}
-        maxPoints={max}
-        rewardPoints={grouped.bonusPts}
-        penaltyPoints={grouped.deductionPts}
-        records={cyclePointsRows}
-      />
-
-      <section className="stat-card space-y-4">
-        <div className="section-title text-sm">الأصناف المسندة للدكتور في الدورة</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MiniStat label="أصناف الحوافز" value={String(assignedIncentives.length)} />
-          <MiniStat label="حوافز محققة" value={formatCurrency(assignedMedicineStats.incentiveEarned)} />
-          <MiniStat label="أصناف الرواكد" value={String(assignedStagnants.length)} />
-          <MiniStat label="رواكد متبقية" value={String(assignedMedicineStats.stagnantRemaining)} />
+      <Section title="صحة البيانات والربط">
+        <div className="grid gap-3 md:grid-cols-3">
+          <MiniPanel label="الأسماء البديلة المستخدمة" value={profile.identity.aliases.length ? profile.identity.aliases.join("، ") : profile.identity.displayName} />
+          <MiniPanel label="أسماء البائع المطابقة" value={profile.identity.rawSellerNames.length ? profile.identity.rawSellerNames.slice(0, 3).join("، ") : "غير متاح"} />
+          <MiniPanel label="المصدر المستخدم" value={sourceText(profile)} />
         </div>
-        <div className="grid lg:grid-cols-2 gap-4">
-          <AssignedTable
-            title="أدوية الحوافز المطلوبة"
-            emptyText="لا توجد أصناف حوافز مسندة لهذا الدكتور."
-            rows={assignedIncentives.map((item) => ({
-              id: item.id,
-              name: item.product_name,
-              meta: item.product_type || item.branch || "-",
-              quantity: `${toNumber(item.sold_quantity)} / ${toNumber(item.current_quantity)}`,
-              value: formatCurrency(incentiveUnitValue(item)),
-              date: formatDate(item.expiry_date),
-              href: "/incentive-medicines",
-            }))}
-          />
-          <AssignedTable
-            title="الأدوية الراكدة المطلوبة"
-            emptyText="لا توجد أصناف راكدة مسندة لهذا الدكتور."
-            rows={assignedStagnants.map((item) => ({
-              id: item.id,
-              name: item.product_name || item.medicine_name || "-",
-              meta: item.category || item.branch_name || item.branch || "-",
-              quantity: `${toNumber(item.dispensed_quantity)} / ${toNumber(item.total_quantity)}`,
-              value: formatCurrency(toNumber(item.incentive_per_unit)),
-              date: formatDate(item.nearest_expiry_date || item.expiry_date),
-              href: `/stagnant-medicines?id=${item.id}`,
-            }))}
-          />
+        <div className="space-y-2">
+          {warnings.slice(0, 8).map((warning, index) => (
+            <div key={`${warning}-${index}`} className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm leading-6 text-amber-100">
+              {warning}
+            </div>
+          ))}
+          {!hasDataWarnings && <Unavailable text="لا توجد تحذيرات ربط مهمة في هذا الملف." />}
         </div>
-      </section>
+      </Section>
 
-      <section className="stat-card space-y-4">
-        <div className="section-title text-sm">تقييمات المحادثات داخل الدورة</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MiniStat label="عدد المحادثات" value={String(reviewStats.count)} />
-          <MiniStat label="متوسط التقييم" value={`${reviewStats.avg}/100`} />
-          <MiniStat label="محادثات ممتازة" value={String(reviewStats.excellent)} />
-          <MiniStat label="محادثات ضعيفة" value={String(reviewStats.weak)} />
-          <MiniStat label="نسيان عميل" value={String(reviewStats.forgotten)} />
-          <MiniStat label="فرص بيع ضائعة" value={String(reviewStats.missedSales)} />
-          <MiniStat label="Cross-selling ناجح" value={String(reviewStats.crossSell)} />
-          <MiniStat label="أثر النقاط" value={String(reviewStats.impact)} />
-        </div>
-        <div className="grid md:grid-cols-3 gap-3">
-          <InfoCard label="أهم نقطة قوة" value={reviewStats.topPositive} />
-          <InfoCard label="أهم نقطة تحتاج تطوير" value={reviewStats.topNegative} />
-          <InfoCard label="توصية تدريب الشهر" value={reviewStats.training} />
-        </div>
-        <div className="overflow-x-auto rounded-xl border border-[#2d4063]">
-          <table className="w-full min-w-[840px] text-sm">
-            <thead className="bg-[#16253f] text-slate-300">
-              <tr>
-                <th className="p-3 text-right">التاريخ</th>
-                <th className="p-3 text-right">العميل</th>
-                <th className="p-3 text-right">الفاتورة</th>
-                <th className="p-3 text-right">النوع</th>
-                <th className="p-3 text-right">التقييم</th>
-                <th className="p-3 text-right">النقاط</th>
-                <th className="p-3 text-right">السبب</th>
-                <th className="p-3 text-right">المراجع</th>
-                <th className="p-3 text-right">تفاصيل</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cycleReviews.map((review) => (
-                <tr key={review.id} className="border-t border-[#2d4063]/70">
-                  <td className="p-3 text-slate-300">{formatDate(review.conversation_date || review.reviewed_at || review.created_at)}</td>
-                  <td className="p-3 text-white">{review.customer_name || "غير محدد"}</td>
-                  <td className="p-3 text-slate-300">{review.invoice_number || "-"}</td>
-                  <td className="p-3 text-slate-300">{review.conversation_type || review.evaluation_kind || "-"}</td>
-                  <td className="p-3 font-bold num">{toNumber(review.final_score)}/100</td>
-                  <td className={`p-3 font-bold num ${toNumber(review.doctor_points_impact) >= 0 ? "text-teal-400" : "text-red-400"}`}>
-                    {toNumber(review.doctor_points_impact) > 0 ? "+" : ""}{toNumber(review.doctor_points_impact)}
-                  </td>
-                  <td className="p-3 text-slate-300">{review.main_negative_reason || review.top_deduction_reason || review.main_positive_reason || "-"}</td>
-                  <td className="p-3 text-slate-300">{review.reviewer_name || "-"}</td>
-                  <td className="p-3">
-                    <button className="btn-secondary py-1 px-2 text-xs" onClick={() => setSelectedReview(review)}>
-                      <Eye size={14} /> عرض
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {cycleReviews.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="p-6 text-center text-slate-500">لا توجد تقييمات محادثات في هذه الدورة.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <div className="grid md:grid-cols-2 gap-4">
-        <RecordsBox title="المكافآت الأخيرة" rows={grouped.bonuses.slice(0, 10)} sign="+" tone="teal" onOpen={openPointDetails} />
-        <RecordsBox title="الخصومات الأخيرة" rows={grouped.deductions.slice(0, 10)} sign="-" tone="red" onOpen={openPointDetails} />
-      </div>
-
-      <div className="stat-card bg-teal-500/5 border border-teal-500/15">
-        <div className="section-title text-sm mb-2">توصيات تحسين</div>
-        <p className="text-slate-300 text-sm leading-relaxed">
-          راجع تقييمات المحادثات القابلة للفتح، وركز على البنود المتكررة داخل الدورة. أي تقييم مرتبط بسجل نقاط يمكن فتحه لمعرفة العميل والبنود والسبب والتوصية التدريبية.
-        </p>
-      </div>
-
-      {selectedReview && <ReviewDetailsModal review={selectedReview} onClose={() => setSelectedReview(null)} />}
+      {drilldown && <DrilldownDrawer profile={profile} type={drilldown} onClose={() => setDrilldown(null)} finalPayout={finalPayout} cashDeductions={cashDeductions} />}
     </div>
   );
 }
 
-function RecordsBox({ title, rows, sign, tone, onOpen }: { title: string; rows: PointRecord[]; sign: "+" | "-"; tone: "teal" | "red"; onOpen: (row: PointRecord) => void }) {
+function CenteredMessage({ text }: { text: string }) {
+  return <div className="stat-card py-16 text-center text-sm text-slate-400">{text}</div>;
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="stat-card">
-      <div className="section-title text-sm mb-3">{title}</div>
-      <ul className="space-y-2 text-sm">
-        {rows.map((r) => {
-          const source = r.source_type || r.source;
-          const isReview = source === "conversation_evaluation" || source === "conversation_review" || source === "conversation_sales_reviews";
-          const points = Math.abs(toNumber(r.points_delta) || toNumber(r.points));
-          return (
-            <li key={r.id} className="flex justify-between gap-2 border-b border-[#2d4063]/50 pb-2">
-              <button
-                type="button"
-                onClick={() => isReview && onOpen(r)}
-                className={`text-right truncate ${isReview ? "text-teal-300 hover:text-teal-200 underline underline-offset-4" : "text-slate-300"}`}
-                disabled={!isReview}
-              >
-                {getTransactionShortReason(r)}
-              </button>
-              <span className={`${tone === "teal" ? "text-teal-400" : "text-red-400"} font-bold num`}>
-                {sign}{points}
-              </span>
-            </li>
-          );
-        })}
-        {rows.length === 0 && <li className="text-slate-500 text-xs">لا توجد سجلات في هذه الدورة.</li>}
-      </ul>
-    </div>
+    <section className="staff-panel rounded-2xl border border-slate-700/80 bg-slate-900/80 p-4 shadow-xl shadow-black/10">
+      <h2 className="mb-4 text-base font-black text-white">{title}</h2>
+      <div className="space-y-4">{children}</div>
+    </section>
   );
 }
 
-function AssignedTable({
-  title,
-  emptyText,
-  rows,
-}: {
-  title: string;
-  emptyText: string;
-  rows: Array<{ id: string; name: string; meta: string; quantity: string; value: string; date: string; href: string }>;
-}) {
+function Badge({ tone, children }: { tone: "ready" | "warning" | "danger" | "info"; children: ReactNode }) {
+  const classes = {
+    ready: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+    warning: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+    danger: "border-red-400/30 bg-red-400/10 text-red-200",
+    info: "border-sky-400/30 bg-sky-400/10 text-sky-200",
+  };
+  return <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${classes[tone]}`}>{children}</span>;
+}
+
+function MetricCard({ icon: Icon, label, value, onClick, highlight = false }: { icon: ElementType; label: string; value: string; onClick?: () => void; highlight?: boolean }) {
   return (
-    <div className="rounded-xl border border-[#2d4063] overflow-hidden">
-      <div className="bg-[#16253f] px-4 py-3 text-white font-bold text-sm">{title}</div>
-      <div className="divide-y divide-[#2d4063]/70">
-        {rows.map((row) => (
-          <Link key={row.id} to={row.href} className="grid grid-cols-5 gap-2 p-3 text-sm hover:bg-white/5 transition-colors">
-            <div className="col-span-2">
-              <div className="text-white font-bold">{row.name}</div>
-              <div className="text-slate-500 text-xs mt-1">{row.meta}</div>
-            </div>
-            <div className="text-slate-300 num">{row.quantity}</div>
-            <div className="text-teal-300 num">{row.value}</div>
-            <div className="text-slate-400 text-xs">{row.date}</div>
-          </Link>
-        ))}
-        {rows.length === 0 && <div className="p-4 text-slate-500 text-sm">{emptyText}</div>}
+    <button
+      type="button"
+      onClick={onClick}
+      className={`min-h-[118px] rounded-2xl border p-4 text-right transition hover:-translate-y-0.5 hover:border-teal-400/50 ${highlight ? "border-teal-400/35 bg-teal-500/15" : "border-slate-700 bg-slate-950/35"}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold text-slate-400">{label}</div>
+          <div className="mt-3 text-xl font-black text-white">{value}</div>
+        </div>
+        <div className="rounded-xl bg-teal-500/15 p-2 text-teal-300"><Icon size={18} /></div>
       </div>
-    </div>
+      <div className="mt-3 text-xs font-bold text-teal-300">اضغط للتفاصيل</div>
+    </button>
   );
 }
 
-function ReviewDetailsModal({ review, onClose }: { review: ReviewRow; onClose: () => void }) {
-  const items = (Array.isArray(review.review_items) && review.review_items.length ? review.review_items : review.raw_scores?.result?.reviewItems || []) as ReviewItemSummary[];
-  const impact = toNumber(review.doctor_points_impact);
+function MiniPanel({ label, value }: { label: string; value: string }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-      <div className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl bg-[#1B2B4B] border border-[#2d4063] shadow-2xl">
-        <div className="sticky top-0 bg-[#1B2B4B] border-b border-[#2d4063] p-4 flex items-center gap-3">
-          <div className="flex-1">
-            <div className="text-white font-bold text-lg">تفاصيل تقييم المحادثة</div>
-            <div className="text-slate-400 text-xs mt-1">قراءة فقط - نفس الملخص المحفوظ مع سجل النقاط</div>
-          </div>
-          <button className="btn-secondary px-3" onClick={onClose}><X size={16} /></button>
-        </div>
-        <div className="p-5 space-y-4">
-          <div className="grid md:grid-cols-3 gap-3">
-            <InfoCard label="الدكتور" value={review.staff_name || "-"} />
-            <InfoCard label="العميل" value={review.customer_name || "-"} />
-            <InfoCard label="الفرع" value={review.branch || "-"} />
-            <InfoCard label="الفاتورة" value={review.invoice_number || "-"} />
-            <InfoCard label="المراجع" value={review.reviewer_name || "-"} />
-            <InfoCard label="التاريخ" value={formatDate(review.conversation_date || review.reviewed_at || review.created_at)} />
-          </div>
-          <div className="grid md:grid-cols-4 gap-3">
-            <MiniStat label="تقييم المحادثة" value={`${toNumber(review.final_score)}/100`} />
-            <MiniStat label="التأثير الأساسي" value={`${toNumber(review.base_points_impact)}`} />
-            <MiniStat label="خصومات إضافية" value={`${toNumber(review.extra_penalty_points)}`} />
-            <MiniStat label="إجمالي تأثير النقاط" value={`${impact > 0 ? "+" : ""}${impact}`} />
-          </div>
-          <div className="rounded-xl bg-[#16253f] border border-[#2d4063] p-4 text-sm text-slate-300 leading-relaxed space-y-2">
-            <div><span className="text-slate-400">سبب الخصم أو المكافأة:</span> {review.main_negative_reason || review.top_deduction_reason || review.main_positive_reason || review.top_positive_reason || "-"}</div>
-            <div><span className="text-slate-400">التوصية التدريبية:</span> {review.training_recommendation || "-"}</div>
-            <div><span className="text-slate-400">ملاحظات المراجع:</span> {review.reviewer_notes || "-"}</div>
-            <div className="flex gap-2 flex-wrap">
-              {review.has_medical_error && <span className="badge-danger text-xs">خطأ طبي</span>}
-              {review.has_invoice_error && <span className="badge-danger text-xs">خطأ فاتورة</span>}
-              {review.has_delivery_issue && <span className="badge-danger text-xs">خطأ دليفري</span>}
-              {review.forgotten_customer && <span className="badge-danger text-xs">نسيان عميل</span>}
-              {(review.missed_sales_opportunity || review.missed_sale_opportunity) && <span className="badge-warning text-xs">فرصة بيع ضائعة</span>}
-              {review.successful_cross_sell && <span className="badge-success text-xs">Cross-selling ناجح</span>}
-              {review.handled_angry_customer_well && <span className="badge-success text-xs">تعامل جيد مع شكوى</span>}
-              {review.excellent_case && <span className="badge-success text-xs">حالة ممتازة</span>}
-            </div>
-          </div>
-          <div className="overflow-x-auto rounded-xl border border-[#2d4063]">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead className="bg-[#16253f] text-slate-300">
-                <tr>
-                  <th className="p-3 text-right">البند</th>
-                  <th className="p-3 text-right">ينطبق؟</th>
-                  <th className="p-3 text-right">الاختيار</th>
-                  <th className="p-3 text-right">النقاط</th>
-                  <th className="p-3 text-right">ملاحظة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.key} className="border-t border-[#2d4063]/70">
-                    <td className="p-3 text-white">{item.label}</td>
-                    <td className="p-3">{item.applies ? "نعم" : "لا ينطبق"}</td>
-                    <td className="p-3 text-slate-300">{item.applies ? item.selectedOption : "-"}</td>
-                    <td className="p-3 text-slate-300 num">{item.applies ? `${item.pointsEarned}/${item.maxPoints}` : "-"}</td>
-                    <td className="p-3 text-slate-400">{item.notes || "-"}</td>
-                  </tr>
-                ))}
-                {items.length === 0 && (
-                  <tr>
-                    <td className="p-6 text-center text-slate-500" colSpan={5}>لا توجد تفاصيل بنود محفوظة لهذا التقييم.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+    <div className="rounded-2xl border border-slate-700 bg-slate-950/30 p-3">
+      <div className="text-xs font-bold text-slate-400">{label}</div>
+      <div className="mt-2 text-sm font-black text-white">{value}</div>
     </div>
   );
 }
 
-function incentiveUnitValue(item: Pick<AssignedIncentiveMedicine, "incentive_type" | "incentive_value" | "incentive_percent" | "product_price">) {
-  if (item.incentive_type === "percent") {
-    return (toNumber(item.product_price) * toNumber(item.incentive_percent)) / 100;
+function TableShell({ children, empty }: { children: ReactNode; empty: string }) {
+  const list = Array.isArray(children) ? children.filter(Boolean) : children;
+  if (Array.isArray(list) && list.length === 0) return <Unavailable text={empty} />;
+  return <div className="space-y-2">{list}</div>;
+}
+
+function DataRow({ title, subtitle, value }: { title: string; subtitle: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/35 p-3">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-bold text-white">{title}</div>
+        <div className="mt-1 text-xs text-slate-500">{subtitle}</div>
+      </div>
+      {value && <div className="shrink-0 text-sm font-black text-teal-300">{value}</div>}
+    </div>
+  );
+}
+
+function Unavailable({ text }: { text: string }) {
+  return <div className="rounded-2xl border border-slate-700 bg-slate-950/25 p-4 text-sm leading-6 text-slate-400">{text}</div>;
+}
+
+function SimpleBars({ rows }: { rows: Array<{ label: string; value: number }> }) {
+  const valid = rows.filter((row) => Number.isFinite(row.value));
+  const max = Math.max(1, ...valid.map((row) => row.value));
+  if (!valid.length) return <Unavailable text="لا توجد بيانات كافية للرسم المختصر." />;
+
+  return (
+    <div className="space-y-2">
+      {valid.map((row) => (
+        <div key={row.label} className="grid grid-cols-[110px_1fr_90px] items-center gap-3 text-xs">
+          <div className="truncate text-slate-400">{row.label}</div>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+            <div className="h-full rounded-full bg-teal-400" style={{ width: `${Math.max(4, (row.value / max) * 100)}%` }} />
+          </div>
+          <div className="text-left font-bold text-slate-300">{formatNumber(row.value)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FormulaBox({ rows }: { rows: Array<[string, number]> }) {
+  return (
+    <div className="rounded-2xl border border-teal-500/20 bg-teal-500/10 p-4">
+      {rows.map(([label, value], index) => (
+        <div key={label} className={`flex items-center justify-between gap-3 py-2 ${index === rows.length - 1 ? "border-t border-teal-300/20 pt-3 font-black text-white" : "text-slate-200"}`}>
+          <span>{label}</span>
+          <span className={value < 0 ? "text-red-300" : "text-teal-200"}>{formatMoney(value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DrilldownDrawer({ profile, type, onClose, finalPayout, cashDeductions }: { profile: StaffPerformanceProfile; type: DrilldownKey; onClose: () => void; finalPayout: number; cashDeductions: number }) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  const title = {
+    sales: "تفاصيل مبيعات الدورة",
+    invoices: "آخر فواتير الموظف",
+    avgInvoice: "تحليل متوسط الفاتورة",
+    customers: "العملاء المرتبطون بالموظف",
+    followups: "متابعات الموظف",
+    stagnant: "تفاصيل الرواكد",
+    list: "تفاصيل اللستة",
+    cashRewards: "المكافآت المالية",
+    deductions: "الخصومات",
+    payout: "معادلة صافي المستحق",
+    quarterly: "تفاصيل الربع سنوي",
+    attendance: "الحضور والالتزام",
+    dataHealth: "صحة البيانات",
+    invoiceDebug: "تشخيص ربط الفواتير",
+  }[type];
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/65" dir="rtl">
+      <aside className="h-full w-full max-w-3xl overflow-y-auto border-r border-slate-700 bg-slate-950 p-5 shadow-2xl">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <h2 className="text-xl font-black text-white">{title}</h2>
+          <button type="button" onClick={onClose} className="rounded-xl bg-white/10 p-2 text-slate-300 transition hover:bg-white/15 hover:text-white">
+            <X size={18} />
+          </button>
+        </div>
+        <DrilldownContent profile={profile} type={type} finalPayout={finalPayout} cashDeductions={cashDeductions} />
+      </aside>
+    </div>
+  );
+}
+
+function DrilldownContent({ profile, type, finalPayout, cashDeductions }: { profile: StaffPerformanceProfile; type: DrilldownKey; finalPayout: number; cashDeductions: number }) {
+  if (type === "invoices") {
+    const diagnostics = profile.sales?.invoiceDiagnostics;
+    return (
+      <div className="space-y-3">
+        <TableShell empty={profile.sales?.cycleInvoicesCount ? "يوجد عدد فواتير في الملخص لكن تفاصيل الفواتير لم تصل، افتح تشخيص ربط الفواتير." : "لا توجد فواتير مرتبطة بهذا الموظف في الدورة الحالية. افتح تشخيص ربط الفواتير لمعرفة أسماء البائعين الموجودة في نفس الفرع والفترة."}>
+          {(profile.sales?.latestInvoices || []).slice(0, 30).map((invoice) => (
+            <DataRow
+              key={`${invoice.invoiceNumber}-${invoice.date}-${invoice.customerCode || invoice.customerPhone}`}
+              title={`فاتورة ${invoice.invoiceNumber || "-"}`}
+              subtitle={[
+                dateText(invoice.date),
+                invoice.customer || "عميل غير محدد",
+                invoice.customerCode ? `كود ${invoice.customerCode}` : "",
+                invoice.customerPhone || "",
+                invoice.customerAddress || "",
+                invoice.branch || "",
+                invoice.sellerName ? `البائع: ${invoice.sellerName}` : "",
+              ].filter(Boolean).join(" - ")}
+              value={formatMoney(invoice.amount)}
+            />
+          ))}
+        </TableShell>
+        {!profile.sales?.latestInvoices?.length && diagnostics ? <InvoiceDiagnostics diagnostics={diagnostics} profile={profile} /> : null}
+      </div>
+    );
   }
-  return toNumber(item.incentive_value);
-}
 
-function formatLatestTimeOff(rows: TimeOffRow[]) {
-  const latest = rows[0];
-  if (!latest) return "لا يوجد";
-  return `${latest.type || latest.reason || "إجازة/إذن"} — ${formatDate(latest.date || latest.start_date)}`;
-}
+  if (type === "customers") {
+    return (
+      <div className="space-y-3">
+        <TableShell empty="لا توجد بيانات عملاء تفصيلية لهذا الموظف في الدورة الحالية.">
+          {(profile.customers?.topCustomers || []).slice(0, 30).map((customer) => (
+            <DataRow
+              key={`${customer.name}-${customer.phone}-${customer.code || ""}`}
+              title={customer.name || "عميل غير محدد"}
+              subtitle={[
+                customer.code ? `كود ${customer.code}` : "",
+                customer.phone && customer.phone !== customer.code ? customer.phone : "بدون هاتف صالح",
+                customer.address || "",
+                customer.segment || "غير مصنف",
+                `${customer.invoicesCount} فواتير`,
+                `متوسط ${formatMoney(customer.avgInvoice || 0)}`,
+                `آخر شراء ${dateText(customer.lastPurchase)}`,
+              ].filter(Boolean).join(" - ")}
+              value={`إجمالي من الموظف: ${formatMoney(customer.totalSpent)}`}
+            />
+          ))}
+        </TableShell>
+      </div>
+    );
+  }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+  if (type === "payout") {
+    return <FormulaBox rows={[["الحافز الأساسي حسب النقاط", profile.monthlyIncentive?.incentiveValue || 0], ["المكافآت المالية", profile.cashRewards || 0], ["الخصومات المالية", -cashDeductions], ["صافي المستحق النهائي", finalPayout]]} />;
+  }
+
+  if (type === "cashRewards") {
+    return (
+      <TableShell empty="لا توجد مكافآت مالية معتمدة في البروفايل.">
+        {(profile.monthlyIncentive?.cashRewardTransactions || []).slice(0, 20).map((row) => (
+          <DataRow key={row.id} title={row.shortReason || row.reason || "مكافأة مالية"} subtitle={`${row.sourceLabel || row.source_type || "-"} - ${dateText(row.created_at)}`} value={formatMoney(row.moneyAmount || 0)} />
+        ))}
+      </TableShell>
+    );
+  }
+
+  if (type === "deductions") {
+    return (
+      <div className="space-y-3">
+        <MiniPanel label="إجمالي الخصومات المالية" value={formatMoney(cashDeductions)} />
+        <TableShell empty="لا توجد خصومات نقاط معتمدة في الدورة.">
+          {(profile.monthlyIncentive?.deductionTransactions || []).slice(0, 20).map((row) => (
+            <DataRow key={row.id} title={row.shortReason || row.reason || "خصم نقاط"} subtitle={`${row.sourceLabel || row.source_type || "-"} - ${dateText(row.created_at)}`} value={`-${formatNumber(row.absPoints)} نقطة`} />
+          ))}
+        </TableShell>
+      </div>
+    );
+  }
+
+  if (type === "stagnant" || type === "list") {
+    const data = type === "stagnant" ? profile.stagnantMedicines : profile.listItems;
+    return (
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MiniPanel label="المسند" value={formatNumber(type === "stagnant" ? data?.assignedStagnantItems || 0 : data?.assignedListItems || 0)} />
+          <MiniPanel label="المباع" value={formatNumber(type === "stagnant" ? data?.stagnantSoldQuantity || 0 : data?.listSoldQuantity || 0)} />
+          <MiniPanel label="المتبقي" value={formatNumber(type === "stagnant" ? data?.stagnantRemainingQuantity || 0 : data?.listRemainingQuantity || 0)} />
+        </div>
+        <TableShell empty="لا توجد أصناف متبقية للعرض.">
+          {(data?.topRemainingItems || []).slice(0, 20).map((item) => (
+            <DataRow key={`${item.name}-${item.expiryDate}`} title={item.name} subtitle={`الصلاحية ${dateText(item.expiryDate)}`} value={`متبقي ${formatNumber(item.remaining)}`} />
+          ))}
+        </TableShell>
+      </div>
+    );
+  }
+
+  if (type === "quarterly") {
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <MiniPanel label="الدرجة" value={`${formatNumber(profile.quarterlyIncentive?.quarterlyScore || 0)}/100`} />
+          <MiniPanel label="القيمة النهائية" value={formatMoney(profile.quarterlyIncentive?.quarterlyFinalValue || 0)} />
+        </div>
+        <SimpleBars rows={Object.entries(profile.quarterlyIncentive?.scoreBreakdown || {}).map(([label, value]) => ({ label, value: Number(value) }))} />
+        <Link className="btn-primary inline-flex text-sm" to={drilldownRoute(profile, "quarterly")}>فتح الربع سنوي</Link>
+      </div>
+    );
+  }
+
+  if (type === "dataHealth") {
+    const warnings = visibleDataWarnings(profile);
+    return (
+      <div className="space-y-2">
+        {warnings.map((warning, index) => (
+          <div key={`${warning}-${index}`} className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm leading-6 text-amber-100">{warning}</div>
+        ))}
+        {!warnings.length && <Unavailable text="لا توجد تحذيرات ربط مهمة في هذا الملف." />}
+      </div>
+    );
+  }
+
+  if (type === "avgInvoice") {
+    return (
+      <div className="space-y-3">
+        <MiniPanel label="متوسط الفاتورة" value={formatCurrency(profile.sales?.avgInvoice || 0)} />
+        <MiniPanel label="أكبر فاتورة" value={profile.sales?.topInvoice ? `${profile.sales.topInvoice.invoiceNumber} - ${profile.sales.topInvoice.customer || "عميل غير محدد"} - ${dateText(profile.sales.topInvoice.date)} - ${formatMoney(profile.sales.topInvoice.amount)}` : "غير متاح"} />
+        <MiniPanel label="أقل فاتورة" value={profile.sales?.minInvoice ? `${profile.sales.minInvoice.invoiceNumber} - ${profile.sales.minInvoice.customer || "عميل غير محدد"} - ${dateText(profile.sales.minInvoice.date)} - ${formatMoney(profile.sales.minInvoice.amount)}` : "غير متاح"} />
+        <MiniPanel label="متوسط فاتورة الفرع" value={formatCurrency(profile.sales?.branchComparison.branchAvg || 0)} />
+        <MiniPanel label="الفرق بالجنيه" value={formatMoney(profile.sales?.branchComparison.difference || 0)} />
+        <MiniPanel label="الفرق بالنسبة" value={percentText(profile.sales?.branchComparison.percentDifference || 0)} />
+      </div>
+    );
+  }
+
+  if (type === "invoiceDebug") {
+    return <InvoiceDiagnostics diagnostics={profile.sales?.invoiceDiagnostics || null} profile={profile} />;
+  }
+
+  if (type === "followups") {
+    return (
+      <div className="space-y-3">
+        <TableShell empty="لا توجد متابعات مسندة لهذا الموظف في الدورة الحالية.">
+          {(profile.followups || []).slice(0, 30).map((row, index) => {
+            const customerName = String(row.customer_name || row.name || "عميل غير محدد");
+            const customerPhone = String(row.customer_phone || row.phone || "");
+            const status = String(row.followup_status || row.status || row.contact_status || "معلقة");
+            const date = String(row.followup_datetime || row.followup_date || row.created_at || "");
+            const reason = String(row.followup_reason || row.reason || row.notes || row.followup_notes || "");
+            const params = new URLSearchParams({
+              staffId: profile.staff.id,
+              responsible: profile.identity.displayName,
+              search: customerPhone || customerName,
+            });
+            return (
+              <Link key={String(row.id || `${customerName}-${index}`)} to={`/customer-service?${params.toString()}`} className="block">
+                <DataRow title={customerName} subtitle={`${customerPhone || "بدون هاتف"} - ${status} - ${dateText(date)}${reason ? ` - ${reason}` : ""}`} value="فتح المتابعة" />
+              </Link>
+            );
+          })}
+        </TableShell>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MiniPanel label="مسند" value={formatNumber(profile.customerService?.followupsAssigned || 0)} />
+          <MiniPanel label="مغلق" value={formatNumber(profile.customerService?.followupsCompleted || 0)} />
+          <MiniPanel label="فائت" value={formatNumber(profile.customerService?.followupsMissed || 0)} />
+        </div>
+        <Link className="btn-primary inline-flex text-sm" to={drilldownRoute(profile, "customer-service")}>فتح خدمة العملاء</Link>
+      </div>
+    );
+  }
+
+  if (type === "attendance") {
+    return profile.attendance ? (
+      <>
+        <div className="mb-3 space-y-3">
+          <TableShell empty="لا توجد جداول أو شيفتات مسجلة لهذا الموظف.">
+            {(profile.schedule || []).slice(0, 20).map((row, index) => {
+              const date = String(row.date || row.shift_date || row.work_date || row.day || "");
+              const start = String(row.shift_start || row.start_time || row.from || "");
+              const end = String(row.shift_end || row.end_time || row.to || "");
+              const status = String(row.status || (row.is_off ? "إجازة" : "شيفت"));
+              return <DataRow key={String(row.id || index)} title={date || status} subtitle={`${start || "-"} إلى ${end || "-"} - ${status}`} value="" />;
+            })}
+          </TableShell>
+          <TableShell empty="لا توجد إذونات مسجلة في الدورة.">
+            {(profile.attendance.permissionsUsage || []).slice(0, 20).map((row, index) => (
+              <DataRow key={`${row.date}-${index}`} title={dateText(row.date)} subtitle={row.reason || "إذن"} value="" />
+            ))}
+          </TableShell>
+        </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <MiniPanel label="أيام حضور" value={formatNumber(profile.attendance.attendedDays)} />
+        <MiniPanel label="غياب" value={formatNumber(profile.attendance.absences)} />
+        <MiniPanel label="تأخيرات" value={formatNumber(profile.attendance.delays)} />
+        <MiniPanel label="إذونات" value={formatNumber(profile.attendance.permissionsUsed)} />
+      </div>
+      </>
+    ) : <Unavailable text="بيانات الإذونات غير متاحة حاليًا." />;
+  }
+
   return (
-    <div className="stat-card py-3">
-      <div className="text-slate-400 text-xs">{label}</div>
-      <div className="text-white font-bold text-sm mt-1">{value}</div>
+    <div className="space-y-3">
+      <MiniPanel label="مبيعات الدورة" value={formatMoney(profile.sales?.cycleNetSales || 0)} />
+      <SimpleBars rows={(profile.sales?.weeklyDistribution || []).slice(-8).map((row) => ({ label: row.week, value: row.sales }))} />
     </div>
   );
 }
 
-function InfoCard({ label, value }: { label: string; value: string }) {
+function InvoiceDiagnostics({ diagnostics, profile }: { diagnostics: StaffPerformanceProfile["sales"] extends infer S ? S extends { invoiceDiagnostics?: infer D } ? D | null : null : null; profile: StaffPerformanceProfile }) {
+  // Always render — even if diagnostics is null, show staff info + error context
+  const diag = diagnostics as (typeof diagnostics & {
+    salesTableAvailable?: boolean;
+    errors?: string[];
+    aliasesUsed?: string[];
+    normalizedAliasesUsed?: string[];
+    branchSellerNamesSample?: string[];
+    globalSellerNamesSample?: string[];
+    roleDetected?: string;
+    roleAllowedForMatching?: boolean;
+    suggestedAliases?: string[];
+    matchedSellerNames?: string[];
+  }) | null;
+
   return (
-    <div className="rounded-xl bg-[#16253f] border border-[#2d4063] p-3">
-      <div className="text-slate-400 text-xs">{label}</div>
-      <div className="text-white font-bold text-sm mt-1 leading-relaxed">{value}</div>
+    <div className="space-y-3">
+      {/* Staff + Period header — always shown */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <MiniPanel label="الموظف" value={`${profile.staff.name} — ${profile.staff.id}`} />
+        <MiniPanel label="الفرع" value={profile.staff.branch || "غير محدد"} />
+        <MiniPanel label="مصدر البيانات" value={diag?.sourceTable ?? "sales_invoices"} />
+        <MiniPanel label="جدول الفواتير متاح؟" value={diag?.salesTableAvailable === false ? "❌ لا" : diag?.salesTableAvailable ? "✅ نعم" : "غير محدد"} />
+        <MiniPanel label="صفوف مفحوصة" value={formatNumber(diag?.invoiceRowsScanned ?? 0)} />
+        <MiniPanel label="فواتير مطابقة" value={formatNumber(diag?.invoicesMatchedCount ?? 0)} />
+        <MiniPanel label="إجمالي المبيعات المطابقة" value={formatMoney(diag?.totalMatchedSales ?? 0)} />
+        <MiniPanel label="الدور" value={diag?.roleDetected ?? profile.staff.role ?? "غير محدد"} />
+        <MiniPanel label="مسموح بالمطابقة؟" value={diag?.roleAllowedForMatching === false ? "❌ دور غير بيعي" : "✅ نعم"} />
+      </div>
+
+      {/* Aliases used */}
+      <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 p-3 space-y-1">
+        <p className="text-xs font-bold text-slate-400 mb-2">الأسماء البديلة المستخدمة في المطابقة</p>
+        <div className="flex flex-wrap gap-1">
+          {((diag?.aliasesUsed ?? profile.sales?.aliasesUsed ?? profile.identity?.aliases ?? [profile.staff.name]).filter(Boolean)).map((alias, i) => (
+            <span key={`alias-${i}`} className="rounded-full bg-blue-500/20 px-2 py-0.5 text-xs text-blue-300">{alias}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* Matched seller names */}
+      {((diag?.matchedSellerNames ?? profile.sales?.rawSellerNamesMatched ?? []).length > 0) && (
+        <div className="rounded-xl border border-emerald-700/50 bg-emerald-900/20 p-3 space-y-1">
+          <p className="text-xs font-bold text-emerald-400 mb-2">أسماء البائعين المطابقة فعلياً</p>
+          <div className="flex flex-wrap gap-1">
+            {(diag?.matchedSellerNames ?? profile.sales?.rawSellerNamesMatched ?? []).map((name, i) => (
+              <span key={`matched-${i}`} className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300">{name}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Suggested aliases when no match */}
+      {(diag?.invoicesMatchedCount ?? 0) === 0 && (diag?.suggestedAliases ?? []).length > 0 && (
+        <div className="rounded-xl border border-purple-700/50 bg-purple-900/20 p-3 space-y-1">
+          <p className="text-xs font-bold text-purple-300 mb-2">⚡ أسماء بائعين مقترحة للربط (تشابه قوي)</p>
+          <div className="flex flex-wrap gap-1">
+            {(diag?.suggestedAliases ?? []).map((name, i) => (
+              <span key={`sug-${i}`} className="rounded-full bg-purple-500/20 px-2 py-0.5 text-xs text-purple-200">{name}</span>
+            ))}
+          </div>
+          <p className="text-xs text-purple-400 mt-1">أضف هذه الأسماء كـ aliases في جدول staff_identity_aliases لتفعيل الربط التلقائي.</p>
+        </div>
+      )}
+
+      {/* Top seller names in branch */}
+      <TableShell empty="لا توجد أسماء بائعين في نفس الفرع والفترة — تحقق من فلتر الفرع أو الفترة.">
+        {(diag?.topSellerNamesInBranch ?? []).slice(0, 20).map((seller) => (
+          <DataRow
+            key={seller.sellerName}
+            title={seller.sellerName || "غير محدد"}
+            subtitle={`${formatNumber(seller.invoices)} فواتير في نفس الفرع والفترة`}
+            value={formatMoney(seller.sales)}
+          />
+        ))}
+      </TableShell>
+
+      {/* Global seller sample when branch sample is empty */}
+      {(diag?.topSellerNamesInBranch ?? []).length === 0 && (diag?.globalSellerNamesSample ?? []).length > 0 && (
+        <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-3">
+          <p className="text-xs font-bold text-slate-400 mb-2">أسماء بائعين في كل الفروع (عينة عامة)</p>
+          <div className="flex flex-wrap gap-1">
+            {(diag?.globalSellerNamesSample ?? []).map((name, i) => (
+              <span key={`global-${i}`} className="rounded-full bg-slate-600/40 px-2 py-0.5 text-xs text-slate-300">{name}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* No diagnostics available at all */}
+      {!diag && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-900/20 p-4 text-sm text-rose-300">
+          <p className="font-bold mb-1">⚠️ لم يتم تحميل بيانات التشخيص بعد</p>
+          <p>قد يكون بسبب: خطأ في الاتصال بـ Supabase، أو الموظف غير موجود، أو Supabase غير مُهيأ.</p>
+          <p className="mt-1 text-xs opacity-70">الموظف: {profile.staff.name} — {profile.staff.id} | الفرع: {profile.staff.branch || "غير محدد"}</p>
+        </div>
+      )}
+
+      {/* Warnings */}
+      {(diag?.warnings ?? []).length > 0 && (
+        <div className="space-y-2">
+          {(diag?.warnings ?? []).map((warning, index) => (
+            <div key={`warn-${index}`} className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm leading-6 text-amber-100">
+              ⚠️ {warning}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Errors */}
+      {(diag?.errors ?? []).length > 0 && (
+        <div className="space-y-2">
+          {(diag?.errors ?? []).map((err, index) => (
+            <div key={`err-${index}`} className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-3 text-sm leading-6 text-rose-200">
+              ❌ {err}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("ar-EG", { year: "numeric", month: "short", day: "numeric" });
 }

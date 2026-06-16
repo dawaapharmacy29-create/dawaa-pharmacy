@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import {
   AlertTriangle,
+  CalendarClock,
   ChevronLeft,
   ChevronRight,
+  Download,
+  ExternalLink,
   Eye,
   Loader2,
   MessageSquare,
@@ -11,6 +15,7 @@ import {
   Search,
   Users,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import {
   Bar,
   BarChart,
@@ -31,12 +36,15 @@ import {
   getCustomers,
   getCustomerStats,
   saveCustomerProfileNotes,
+  createCustomerManualFollowup,
+  createCustomerPersonalOffer,
   type CustomerDetails,
   type CustomerMetric,
   type CustomerMonthlyAnalytics,
   type CustomerStats,
 } from "@/lib/api/customers";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { cashbackStatusLabel, cashbackSummaryLine } from "@/lib/api/customerLoyalty";
 import { whatsappLink } from "@/lib/whatsapp";
 import { BRANCHES } from "@/lib/constants";
 import { normalizeBranchName } from "@/lib/branch";
@@ -47,7 +55,9 @@ import {
   toggleCustomerFlag,
   mergeCustomerFlags,
   parseCustomerFlags,
+  getFlagBadgeStyle,
   getSeverityBadgeStyle,
+  getInactiveFlagButtonStyle,
   sortFlagsByPriority,
 } from "@/lib/customerFlags";
 import { CustomerFlagsBadges } from "@/components/CustomerFlagsBadges";
@@ -70,6 +80,7 @@ const EMPTY_STATS: CustomerStats = {
   stopped: 0,
   noPurchase: 0,
   vip: 0,
+  loyal: 0,
 };
 
 const SEGMENT_OPTIONS = ["مهم جدًا", "مهم", "متوسط", "عادي"];
@@ -88,6 +99,11 @@ function bestCustomerPhone(customer: CustomerMetric, details?: CustomerDetails |
         }
       : null,
   );
+}
+
+
+function customerFlagLabelsForDetails(flags: Record<string, boolean> | null | undefined) {
+  return getActiveCustomerFlags(flags || {}).map((flag) => flag.label);
 }
 
 function CustomerPhoneCell({ customer }: { customer: CustomerMetric }) {
@@ -121,6 +137,7 @@ export default function Customers() {
   const [monthlyLoading, setMonthlyLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<CustomerMetric | null>(null);
+  const [exporting, setExporting] = useState(false);
   const requestIdRef = useRef(0);
 
   useEffect(() => {
@@ -243,6 +260,7 @@ export default function Customers() {
     { label: "مهدد بالتوقف", value: stats.atRisk, type: ALL_FILTER, status: "مهدد بالتوقف", tone: "amber" as const },
     { label: "متوقف", value: stats.stopped, type: ALL_FILTER, status: "متوقف", tone: "red" as const },
     { label: "بدون شراء", value: stats.noPurchase, type: ALL_FILTER, status: "بدون شراء", tone: "blue" as const },
+    { label: "عملاء دائمين 6+ شهور", value: stats.loyal, type: ALL_FILTER, status: ALL_FILTER, tone: "emerald" as const },
   ], [stats]);
 
   const applyCardFilter = (type: string, status: string) => {
@@ -250,14 +268,128 @@ export default function Customers() {
     setStatusFilter(status);
   };
 
+  const exportFilteredCustomers = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const exportLimit = 500;
+      const pageSize = 100;
+      const allCustomers: CustomerMetric[] = [];
+
+      for (let offset = 0; offset < exportLimit; offset += pageSize) {
+        const result = await getCustomers({
+          search: debouncedSearch,
+          branch: branchFilter,
+          type: segmentFilter,
+          status: statusFilter,
+          limit: pageSize,
+          offset,
+        });
+        allCustomers.push(...result.customers);
+        if (result.customers.length < pageSize || allCustomers.length >= result.count) break;
+      }
+
+      const rows = await Promise.all(
+        allCustomers.slice(0, exportLimit).map(async (customer) => {
+          try {
+            const details = await getCustomerDetails(customer, 20);
+            return { customer, details, error: "" };
+          } catch (error) {
+            return { customer, details: null, error: error instanceof Error ? error.message : String(error) };
+          }
+        }),
+      );
+
+      const customersSheet = rows.map(({ customer, details, error }) => ({
+        "كود العميل": customer.customer_code || "",
+        "اسم العميل": customer.customer_name || "",
+        "الهاتف": bestCustomerPhone(customer, details) || "",
+        "الفرع": normalizeBranchName(customer.branch) || "",
+        "التصنيف": customer.segment || "",
+        "الحالة": customer.customer_status || "",
+        "إجمالي المشتريات": customer.total_spent || 0,
+        "متوسط الفاتورة": customer.avg_invoice || 0,
+        "متوسط شهري": customer.avg_monthly || 0,
+        "عدد الفواتير": customer.invoices_count || 0,
+        "أول شراء": customer.first_purchase || "",
+        "آخر شراء": customer.last_purchase || "",
+        "أشهر النشاط": customer.active_months || 0,
+        "ملاحظات العميل": details?.customerNotes || "",
+        "ملاحظات واتساب": details?.whatsappNotes || "",
+        "ملاحظات الخدمة": details?.serviceNotes || "",
+        "ملاحظات الفريق": details?.teamNotes || "",
+        "طريقة التعامل": details?.handlingNotes || "",
+        "العنوان": details?.address || "",
+        "هاتف إضافي": details?.phoneAlt || "",
+        "واتساب": details?.whatsappPhone || "",
+        "علامات العميل": details?.customerFlags?.join(", ") || "",
+        "حالة تكرار الشراء": details?.purchaseFrequencyStatus || "",
+        "توصية المتابعة": details?.purchaseFrequencyRecommendation || details?.purchaseAnalysis?.recommendation || "",
+        "آخر تقرير متابعة": details?.lastFollowupReport || "",
+        "خطأ تحميل التفاصيل": error,
+      }));
+
+      const followupsSheet = rows.flatMap(({ customer, details }) =>
+        (details?.followups || []).map((followup) => ({
+          "كود العميل": customer.customer_code || "",
+          "اسم العميل": customer.customer_name || "",
+          "الهاتف": bestCustomerPhone(customer, details) || "",
+          "تاريخ المتابعة": followup.followup_date || followup.created_at || "",
+          "الحالة": followup.status || "",
+          "المسؤول": followup.responsible_name || followup.assigned_to || "",
+          "النتيجة": followup.followup_result || "",
+          "الملاحظات": followup.notes || "",
+          "تاريخ الإغلاق": followup.completed_at || "",
+        })),
+      );
+
+      const invoicesSheet = rows.flatMap(({ customer, details }) =>
+        (details?.invoices || []).map((invoice) => ({
+          "كود العميل": customer.customer_code || "",
+          "اسم العميل": customer.customer_name || "",
+          "الهاتف": bestCustomerPhone(customer, details) || "",
+          "رقم الفاتورة": invoice.invoice_number || "",
+          "تاريخ الفاتورة": invoice.invoice_date || "",
+          "القيمة": invoice.amount || 0,
+          "الدكتور": invoice.seller_name || "",
+          "الفرع": invoice.branch || "",
+        })),
+      );
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(customersSheet), "customers");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(followupsSheet), "followups");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(invoicesSheet), "invoices");
+
+      const labelParts = [segmentFilter, statusFilter, branchFilter].filter((value) => value && value !== ALL_FILTER);
+      const fileLabel = labelParts.length ? labelParts.join("-") : "all-customers";
+      XLSX.writeFile(workbook, `dawaa-customers-${fileLabel}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success(`تم تصدير ${customersSheet.length.toLocaleString("ar-EG")} عميل`);
+    } catch (error) {
+      toast.error(`تعذر تصدير العملاء: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
-    <div className="space-y-5" dir="rtl">
+    <div className="customers-page space-y-5" dir="rtl">
       <section className="dawaa-hero">
         <div>
           <span className="dawaa-brand-chip">customer_metrics_summary</span>
           <h1 className="mt-3 text-2xl font-black text-slate-950">العملاء</h1>
           <p className="mt-1 text-sm font-semibold text-slate-600">تصنيف سريع ودقيق من ملخصات العملاء بدون تحميل كل الفواتير</p>
         </div>
+        <button
+          type="button"
+          onClick={exportFilteredCustomers}
+          disabled={exporting || loading}
+          className="inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-white px-4 py-3 text-sm font-black text-teal-800 shadow-sm transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-60"
+          title="تصدير العملاء حسب الفلاتر الحالية"
+        >
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          تصدير Excel
+        </button>
         <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-black text-teal-800">
           {refreshing ? "جاري تحديث النتائج..." : `${showingFrom}-${showingTo} من ${totalCount} في ملخص المشترين`}
         </div>
@@ -269,7 +401,7 @@ export default function Customers() {
           <div className="num mt-2 text-3xl font-black text-slate-950">{statsLoading ? "..." : stats.total.toLocaleString("ar-EG")}</div>
           <div className="mt-1 text-xs font-semibold text-slate-500">كل العملاء الموجودين في جدول العملاء.</div>
         </div>
-        <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 shadow-sm">
+        <div className="rounded-2xl border-2 border-teal-300 bg-white p-4 shadow-sm shadow-sm">
           <div className="text-sm font-black text-teal-700">عملاء لهم مشتريات في الملخص</div>
           <div className="num mt-2 text-3xl font-black text-teal-900">{statsLoading ? "..." : stats.summaryTotal.toLocaleString("ar-EG")}</div>
           <div className="mt-1 text-xs font-semibold text-teal-700/80">هذا الرقم مصدره customer_metrics_summary، لذلك قد يكون أقل من إجمالي المسجلين.</div>
@@ -337,8 +469,14 @@ export default function Customers() {
           <LoadingRows />
         ) : customers.length ? (
           <>
-            <div className="overflow-x-auto">
-              <table className="dawaa-table min-w-[1180px]">
+            <div className="customers-mobile-list p-3">
+              {customers.map((customer) => (
+                <CustomerResponsiveCard key={customer.id} customer={customer} onOpen={() => setSelected(customer)} />
+              ))}
+            </div>
+
+            <div className="customers-desktop-table overflow-x-auto">
+              <table className="dawaa-table min-w-[1120px]">
                 <thead>
                   <tr>
                     <th>كود العميل</th>
@@ -347,46 +485,41 @@ export default function Customers() {
                     <th>الفرع</th>
                     <th>التصنيف</th>
                     <th>الحالة</th>
-                    <th>علامات</th>
                     <th>إجمالي المشتريات</th>
                     <th>متوسط شهري</th>
                     <th>متوسط الفاتورة</th>
                     <th>عدد الفواتير</th>
                     <th>أول شراء</th>
                     <th>آخر شراء</th>
-                    <th>عدد أشهر النشاط</th>
+                    <th>أشهر النشاط</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {customers.map((customer) => (
                     <tr key={customer.id} className="cursor-pointer" onClick={() => setSelected(customer)}>
-                      <td className="font-bold text-slate-700">{customer.customer_code || "بدون كود"}</td>
+                      <td className="font-bold text-[var(--theme-muted)]">{customer.customer_code || "بدون كود"}</td>
                       <td>
                         <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-50 text-sm font-black text-teal-700">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-500/15 text-sm font-black text-teal-100">
                             {(customer.customer_name || "ع")[0]}
                           </div>
-                          <span className="font-black text-slate-950">{customer.customer_name || "عميل بدون اسم"}</span>
+                          <span className="font-black text-[var(--theme-heading)]">{customer.customer_name || "عميل بدون اسم"}</span>
                         </div>
                       </td>
                       <td><CustomerPhoneCell customer={customer} /></td>
                       <td>{normalizeBranchName(customer.branch)}</td>
                       <td><SegmentBadge segment={customer.segment} /></td>
                       <td><StatusBadge status={customer.customer_status} /></td>
-                      <td>
-                        {/* Flags will be shown in details modal to avoid loading all customer profiles */}
-                        <span className="text-xs text-slate-400">عرض في التفاصيل</span>
-                      </td>
-                      <td className="font-black text-teal-700 num">{formatCurrency(customer.total_spent)}</td>
-                      <td className="font-bold text-slate-900 num">{formatCurrency(customer.avg_monthly)}</td>
+                      <td className="font-black text-teal-500 num">{formatCurrency(customer.total_spent)}</td>
+                      <td className="font-bold text-[var(--theme-heading)] num">{formatCurrency(customer.avg_monthly)}</td>
                       <td className="num">{formatCurrency(customer.avg_invoice)}</td>
                       <td className="num">{customer.invoices_count}</td>
                       <td>{customer.first_purchase ? formatDate(customer.first_purchase) : "غير محدد"}</td>
                       <td>{customer.last_purchase ? formatDate(customer.last_purchase) : "غير محدد"}</td>
                       <td className="num">{customer.active_months}</td>
                       <td>
-                        <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-teal-50 hover:text-teal-700" title="عرض التفاصيل">
+                        <button type="button" className="rounded-xl p-2 text-[var(--theme-muted)] hover:bg-teal-500/15 hover:text-teal-300" title="عرض التفاصيل">
                           <Eye size={17} />
                         </button>
                       </td>
@@ -400,8 +533,8 @@ export default function Customers() {
         ) : (
           <div className="py-14 text-center">
             <Users className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-            <div className="font-black text-slate-700">لا توجد نتائج مطابقة</div>
-            <div className="mt-1 text-sm text-slate-500">جرّب تغيير البحث أو الفلاتر</div>
+            <div className="font-black text-[var(--theme-heading)]">لا توجد نتائج مطابقة</div>
+            <div className="mt-1 text-sm text-[var(--theme-muted)]">جرّب تغيير البحث أو الفلاتر</div>
           </div>
         )}
       </section>
@@ -410,6 +543,64 @@ export default function Customers() {
     </div>
   );
 }
+
+
+function CustomerResponsiveCard({ customer, onOpen }: { customer: CustomerMetric; onOpen: () => void }) {
+  const displayPhone = customer.customer_phone || customer.phone || "";
+  return (
+    <article className="customer-responsive-card" onClick={onOpen}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-500/15 text-lg font-black text-teal-200">
+            {(customer.customer_name || "ع")[0]}
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-lg font-black text-[var(--theme-heading)]">{customer.customer_name || "عميل بدون اسم"}</div>
+            <div className="mt-1 flex flex-wrap gap-2 text-xs font-bold text-[var(--theme-muted)]">
+              <span>كود: {customer.customer_code || "بدون كود"}</span>
+              <span>{normalizeBranchName(customer.branch)}</span>
+              <span>{displayPhone || "بدون رقم"}</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" className="rounded-xl border border-teal-300/50 bg-teal-500/15 p-2 text-teal-100" title="عرض التفاصيل" onClick={(event) => { event.stopPropagation(); onOpen(); }}>
+          <Eye size={17} />
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <SegmentBadge segment={customer.segment} />
+        <StatusBadge status={customer.customer_status} />
+        <span className="rounded-full border border-[var(--theme-border)] bg-[var(--theme-surface)] px-3 py-1 text-xs font-black text-[var(--theme-muted)]">
+          العلامات داخل التفاصيل
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+        <CustomerMiniStat label="إجمالي المشتريات" value={formatCurrency(customer.total_spent)} />
+        <CustomerMiniStat label="متوسط شهري" value={formatCurrency(customer.avg_monthly)} />
+        <CustomerMiniStat label="متوسط الفاتورة" value={formatCurrency(customer.avg_invoice)} />
+        <CustomerMiniStat label="عدد الفواتير" value={String(customer.invoices_count || 0)} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-[var(--theme-muted)] md:grid-cols-3">
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-2">أول شراء: <span className="text-[var(--theme-heading)]">{customer.first_purchase ? formatDate(customer.first_purchase) : "غير محدد"}</span></div>
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-2">آخر شراء: <span className="text-[var(--theme-heading)]">{customer.last_purchase ? formatDate(customer.last_purchase) : "غير محدد"}</span></div>
+        <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-2">أشهر النشاط: <span className="text-[var(--theme-heading)]">{customer.active_months || 0}</span></div>
+      </div>
+    </article>
+  );
+}
+
+function CustomerMiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-2">
+      <div className="text-[11px] font-bold text-[var(--theme-muted)]">{label}</div>
+      <div className="mt-1 text-sm font-black text-[var(--theme-heading)]">{value}</div>
+    </div>
+  );
+}
+
 
 function CustomerStatCard({
   label,
@@ -590,6 +781,7 @@ function LoadingRows() {
 }
 
 function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerMetric; user: any; onClose: () => void }) {
+  const navigate = useNavigate();
   const [details, setDetails] = useState<CustomerDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -607,10 +799,39 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
     whatsappPhone: "",
   });
   const [customerFlags, setCustomerFlags] = useState<Record<string, boolean>>({});
+  const [reminderForm, setReminderForm] = useState({
+    title: "طلب متابعة عميل",
+    note: "",
+    dueDate: "",
+    followupDatetime: "",
+    invoiceNumber: "",
+    priority: "مهم",
+    reason: "تقدير عميل مهم",
+    preferredContactMethod: "أي طريقة",
+    personalityNote: "",
+    requestedBy: user?.name || user?.email || "",
+  });
+  const [offerForm, setOfferForm] = useState({ title: "عرض خاص للعميل", description: "", offerValue: "", endDate: "" });
+  const [showFollowupRequest, setShowFollowupRequest] = useState(false);
+  const [alertSaving, setAlertSaving] = useState(false);
   const displayPhone = bestCustomerPhone(customer, details);
   const wa = displayPhone ? whatsappLink(displayPhone, `السلام عليكم ${customer.customer_name || ""}`.trim()) : null;
 
   useEffect(() => {
+    const nextFollowup = new Date();
+    nextFollowup.setDate(nextFollowup.getDate() + 1);
+    nextFollowup.setHours(12, 0, 0, 0);
+    const localIso = new Date(nextFollowup.getTime() - nextFollowup.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    setReminderForm((current) => ({
+      ...current,
+      title: `طلب متابعة ${customer.customer_name || "عميل"}`,
+      dueDate: localIso.slice(0, 10),
+      followupDatetime: localIso,
+      priority: "مهم",
+      reason: customer.segment === "مهم جدًا" ? "تقدير عميل مهم" : "عميل محتاج متابعة",
+      requestedBy: user?.name || user?.email || current.requestedBy,
+    }));
+    setShowFollowupRequest(false);
     let active = true;
     setLoading(true);
     setError(null);
@@ -674,7 +895,7 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
         address: updated.address || null,
         phoneAlt: updated.phone_alt || null,
         whatsappPhone: updated.whatsapp_phone || null,
-        customerFlags: getActiveCustomerFlags(updated.customer_flags as any).map(f => f.label),
+        customerFlags: parseCustomerFlags(updated.customer_flags as any),
       } : current);
       setEditing(false);
       toast.success("تم حفظ ملاحظات العميل");
@@ -720,6 +941,86 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
     setCustomerFlags((current) => toggleCustomerFlag(current, key));
   };
 
+  const saveManualReminder = async () => {
+    if ((!reminderForm.dueDate && !reminderForm.followupDatetime) || !reminderForm.title.trim()) {
+      toast.error("اكتب عنوان المتابعة وتاريخها");
+      return;
+    }
+    setAlertSaving(true);
+    try {
+      await createCustomerManualFollowup(customer, {
+        title: reminderForm.title.trim(),
+        note: reminderForm.note.trim() || null,
+        due_date: reminderForm.followupDatetime ? reminderForm.followupDatetime.slice(0, 10) : reminderForm.dueDate,
+        followup_datetime: reminderForm.followupDatetime ? new Date(reminderForm.followupDatetime).toISOString() : null,
+        priority: reminderForm.priority,
+        source_invoice_number: reminderForm.invoiceNumber.trim() || null,
+        assigned_to: customer.branch?.includes("شامي") ? "د ضحى" : customer.branch?.includes("شكري") ? "د دنيا" : user?.name || user?.email || null,
+        responsible_name: customer.branch?.includes("شامي") ? "د ضحى" : customer.branch?.includes("شكري") ? "د دنيا" : user?.name || user?.email || null,
+        branch: customer.branch || null,
+        request_type: "doctor_requested_followup",
+        requested_by: reminderForm.requestedBy || user?.name || user?.email || null,
+        preferred_contact_method: reminderForm.preferredContactMethod,
+        personality_note: reminderForm.personalityNote.trim() || null,
+        reason: reminderForm.reason,
+        request_details: [
+          `سبب المتابعة: ${reminderForm.reason}`,
+          `طريقة التواصل المفضلة: ${reminderForm.preferredContactMethod}`,
+          reminderForm.personalityNote.trim() ? `ملاحظة شخصية: ${reminderForm.personalityNote.trim()}` : "",
+          reminderForm.note.trim() ? `ملاحظات: ${reminderForm.note.trim()}` : "",
+        ].filter(Boolean).join(" | "),
+        created_by: user?.id || null,
+        created_by_name: reminderForm.requestedBy || user?.name || user?.email || null,
+      });
+      const refreshed = await getCustomerDetails(customer);
+      setDetails(refreshed);
+      setShowFollowupRequest(false);
+      setReminderForm({
+        title: "طلب متابعة عميل",
+        note: "",
+        dueDate: "",
+        followupDatetime: "",
+        invoiceNumber: "",
+        priority: "مهم",
+        reason: "تقدير عميل مهم",
+        preferredContactMethod: "أي طريقة",
+        personalityNote: "",
+        requestedBy: user?.name || user?.email || "",
+      });
+      toast.success("تم إرسال طلب المتابعة لخدمة العملاء");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر حفظ التنبيه");
+    } finally {
+      setAlertSaving(false);
+    }
+  };
+
+  const savePersonalOffer = async () => {
+    if (!offerForm.title.trim()) {
+      toast.error("اكتب عنوان العرض");
+      return;
+    }
+    setAlertSaving(true);
+    try {
+      await createCustomerPersonalOffer(customer, {
+        title: offerForm.title.trim(),
+        description: offerForm.description.trim() || null,
+        offer_value: offerForm.offerValue.trim() || null,
+        end_date: offerForm.endDate || null,
+        created_by: user?.id || null,
+        created_by_name: user?.name || user?.email || null,
+      });
+      const refreshed = await getCustomerDetails(customer);
+      setDetails(refreshed);
+      setOfferForm({ title: "عرض خاص للعميل", description: "", offerValue: "", endDate: "" });
+      toast.success("تم حفظ العرض الخاص للعميل");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر حفظ العرض");
+    } finally {
+      setAlertSaving(false);
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel max-w-6xl" onClick={(event) => event.stopPropagation()}>
@@ -740,7 +1041,31 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
               ) : null}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="dawaa-action-stack flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const p = new URLSearchParams();
+                if (customer.customer_code) p.set("code", customer.customer_code);
+                if (customer.customer_id) p.set("id", customer.customer_id);
+                if (customer.customer_phone || customer.phone) p.set("phone", customer.customer_phone || customer.phone || "");
+                if (customer.customer_name || customer.name) p.set("name", customer.customer_name || customer.name || "");
+                onClose();
+                navigate(`/customer-360?${p.toString()}`);
+              }}
+              className="btn-secondary inline-flex items-center gap-2 border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100"
+              title="فتح الملف الشامل 360° للعميل"
+            >
+              <ExternalLink size={16} /> ملف 360°
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowFollowupRequest((current) => !current)}
+              className="btn-secondary inline-flex items-center gap-2 border-teal-300 bg-teal-50 text-teal-800 hover:bg-teal-100"
+              title="إرسال طلب متابعة لهذا العميل إلى صفحة خدمة العملاء"
+            >
+              <CalendarClock size={16} /> إضافة طلب متابعة
+            </button>
             {wa && (
               <a href={wa} target="_blank" rel="noopener noreferrer" className="btn-primary inline-flex items-center gap-2">
                 <MessageSquare size={16} /> واتساب
@@ -749,6 +1074,94 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
             <button type="button" onClick={onClose} className="btn-secondary">إغلاق</button>
           </div>
         </div>
+
+        {showFollowupRequest && (
+          <div className="mx-5 mt-5 rounded-3xl border-2 border-teal-300 bg-teal-950/5 p-4 shadow-sm" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-base font-black text-slate-950">طلب متابعة خدمة عملاء</div>
+                <div className="mt-1 text-xs font-bold text-slate-500">نفس تفاصيل صفحة خدمة العملاء والمتابعات، لكن جاهزة لهذا العميل مباشرة.</div>
+              </div>
+              <div className="dawaa-action-stack flex flex-wrap gap-2">
+                <span className="rounded-full border border-teal-200 bg-white px-3 py-1 text-xs font-black text-teal-700">{customer.customer_code ? `كود ${customer.customer_code}` : "بدون كود"}</span>
+                <span className="rounded-full border border-teal-200 bg-white px-3 py-1 text-xs font-black text-teal-700">{normalizeBranchName(customer.branch)}</span>
+                <span className="rounded-full border border-teal-200 bg-white px-3 py-1 text-xs font-black text-teal-700">
+                  المسؤول: {customer.branch?.includes("شامي") ? "د ضحى" : customer.branch?.includes("شكري") ? "د دنيا" : "خدمة العملاء"}
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-3">
+              <div className="font-black text-slate-950">{customer.customer_name || "عميل بدون اسم"}</div>
+              <div className="mt-1 flex flex-wrap gap-2 text-xs font-bold text-slate-500">
+                <span>هاتف: {displayPhone || "بدون رقم صحيح"}</span>
+                <span>التصنيف: {customer.segment}</span>
+                <span>الحالة: {customer.customer_status}</span>
+                <span>متوسط شهري: {formatCurrency(customer.avg_monthly)}</span>
+              </div>
+              <div className="dawaa-action-stack mt-2 flex flex-wrap gap-2">
+                {wa ? <a href={wa} target="_blank" rel="noopener noreferrer" className="btn-secondary px-3 py-2 text-xs">واتساب مباشر</a> : null}
+                {displayPhone ? <a href={`tel:${displayPhone}`} className="btn-secondary px-3 py-2 text-xs">اتصال مباشر</a> : null}
+              </div>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div>
+                <label className="text-xs font-black text-slate-600">عنوان الطلب</label>
+                <input className="dawaa-input mt-2 w-full" value={reminderForm.title} onChange={(event) => setReminderForm({ ...reminderForm, title: event.target.value })} placeholder="مثال: متابعة عميل مهم بخصوص انخفاض الشراء" />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-600">الطبيب/الموظف الطالب</label>
+                <input className="dawaa-input mt-2 w-full" value={reminderForm.requestedBy} onChange={(event) => setReminderForm({ ...reminderForm, requestedBy: event.target.value })} placeholder="اسم الطالب" />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-600">الأولوية</label>
+                <select className="dawaa-input mt-2 w-full" value={reminderForm.priority} onChange={(event) => setReminderForm({ ...reminderForm, priority: event.target.value })}>
+                  <option value="عادي">عادي</option>
+                  <option value="مهم">مهم</option>
+                  <option value="عاجل">عاجل</option>
+                  <option value="مهم جدًا">مهم جدًا</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-600">سبب المتابعة</label>
+                <select className="dawaa-input mt-2 w-full" value={reminderForm.reason} onChange={(event) => setReminderForm({ ...reminderForm, reason: event.target.value })}>
+                  {["تقدير عميل مهم", "عميل محتاج متابعة", "شكوى", "صنف ناقص", "طلب خاص", "استكمال بيانات", "متابعة بعد زيارة الفرع", "أخرى"].map((item) => <option key={item}>{item}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-600">طريقة التواصل المفضلة</label>
+                <select className="dawaa-input mt-2 w-full" value={reminderForm.preferredContactMethod} onChange={(event) => setReminderForm({ ...reminderForm, preferredContactMethod: event.target.value })}>
+                  {["واتساب", "اتصال", "أي طريقة"].map((item) => <option key={item}>{item}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-600">موعد المتابعة</label>
+                <input type="datetime-local" className="dawaa-input mt-2 w-full" value={reminderForm.followupDatetime} onChange={(event) => setReminderForm({ ...reminderForm, followupDatetime: event.target.value, dueDate: event.target.value.slice(0, 10) })} />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-600">ملاحظة شخصية</label>
+                <input className="dawaa-input mt-2 w-full" value={reminderForm.personalityNote} onChange={(event) => setReminderForm({ ...reminderForm, personalityNote: event.target.value })} placeholder="حساس للسعر، لا يحب البدائل..." />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-600">رقم فاتورة إن وجد</label>
+                <input className="dawaa-input mt-2 w-full" value={reminderForm.invoiceNumber} onChange={(event) => setReminderForm({ ...reminderForm, invoiceNumber: event.target.value })} placeholder="اختياري" />
+              </div>
+              <div className="lg:col-span-2">
+                <label className="text-xs font-black text-slate-600">ملاحظات</label>
+                <textarea rows={4} className="dawaa-input mt-2 w-full" value={reminderForm.note} onChange={(event) => setReminderForm({ ...reminderForm, note: event.target.value })} placeholder="اكتب المطلوب بوضوح: سبب المتابعة، آخر مشكلة، العرض المناسب، طريقة التواصل المفضلة..." />
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" className="dawaa-button-primary px-4 py-2" onClick={saveManualReminder} disabled={alertSaving}>
+                {alertSaving ? "جاري الإرسال..." : "إرسال طلب المتابعة"}
+              </button>
+              <button type="button" className="btn-secondary px-4 py-2" onClick={() => setShowFollowupRequest(false)} disabled={alertSaving}>
+                إلغاء
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="إجمالي المشتريات" value={formatCurrency(customer.total_spent)} />
@@ -800,8 +1213,8 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
                       onClick={() => toggleFlag(flag.key)}
                       className={`rounded-xl border px-3 py-2 text-xs font-black transition ${
                         customerFlags[flag.key]
-                          ? getSeverityBadgeStyle(flag.severity)
-                          : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
+                          ? getFlagBadgeStyle(flag)
+                          : getInactiveFlagButtonStyle()
                       }`}
                     >
                       {flag.label}
@@ -809,9 +1222,9 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div className="dawaa-action-stack flex flex-wrap gap-2">
                   {sortFlagsByPriority(getActiveCustomerFlags(customerFlags)).map((flag) => (
-                    <span key={flag.key} className={`rounded-full border px-3 py-1 text-xs font-black ${getSeverityBadgeStyle(flag.severity)}`}>
+                    <span key={flag.key} className={`rounded-full border px-3 py-1 text-xs font-black ${getFlagBadgeStyle(flag)}`}>
                       {flag.label}
                     </span>
                   ))}
@@ -823,8 +1236,11 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
             </div>
 
             {/* Subsection B: الملاحظات اليدوية */}
-            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
-              <div className="mb-3 text-xs font-bold text-slate-500">الملاحظات اليدوية</div>
+            <div className="mt-3 rounded-2xl border-2 border-teal-300 bg-white p-4 shadow-sm ring-1 ring-teal-100">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="text-xs font-black text-teal-800">الملاحظات اليدوية الثابتة</div>
+                <span className="rounded-full border border-teal-200 bg-white px-2 py-1 text-[11px] font-black text-teal-700">محفوظة على ملف العميل</span>
+              </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 <div>
                   <div className="text-xs font-bold text-slate-500">ملاحظات عامة</div>
@@ -894,6 +1310,93 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
                     <div className="mt-2 text-slate-700">{details.whatsappPhone || "غير محدد"}</div>
                   )}
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-2xl border-2 border-emerald-300 bg-white p-4 shadow-sm">
+                <div className="mb-2 font-black text-emerald-900">نقاط العميل / الكاش باك الربع سنوي</div>
+                <div className="rounded-xl bg-white p-3 text-sm font-bold text-slate-700">{cashbackSummaryLine(details.cashback)}</div>
+                {details.cashback ? (
+                  <div className="mt-3 grid gap-2 text-xs font-bold text-slate-700 sm:grid-cols-2">
+                    <div className="rounded-xl bg-white p-2">مسحوبات الدورة: {formatCurrency(details.cashback.total_spent)}</div>
+                    <div className="rounded-xl bg-white p-2">النسبة: {details.cashback.cashback_rate}%</div>
+                    <div className="rounded-xl bg-white p-2">المستخدم: {formatCurrency(details.cashback.redeemed_value)}</div>
+                    <div className="rounded-xl bg-white p-2">القادم: {details.cashback.next_calculation_date || "غير محدد"}</div>
+                    <div className="rounded-xl bg-white p-2">الحالة: {cashbackStatusLabel(details.cashback.status)}</div>
+                    <div className="rounded-xl bg-white p-2">تحديث بي كونكت: {details.cashback.bconnect_updated_at ? formatDate(details.cashback.bconnect_updated_at) : "لم يتم"}</div>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs font-bold text-emerald-700">سيتم إنشاء دورة كاش باك تلقائيًا عند تشغيل SQL واحتساب الدورة.</div>
+                )}
+              </div>
+              <div className="rounded-2xl border-2 border-sky-300 bg-white p-4 shadow-sm">
+                <div className="mb-2 font-black text-sky-900">الرسالة الترحيبية وتكويد العميل</div>
+                {details.welcomeStatus ? (
+                  <div className="grid gap-2 text-xs font-bold text-slate-700 sm:grid-cols-2">
+                    <div className="rounded-xl bg-white p-2">المسؤول: {details.welcomeStatus.assigned_to_name || "غير محدد"}</div>
+                    <div className="rounded-xl bg-white p-2">الحالة: {details.welcomeStatus.status}</div>
+                    <div className="rounded-xl bg-white p-2">تم تكويده على الهاتف: {details.welcomeStatus.coded_on_phone_at ? "نعم" : "لم يتم"}</div>
+                    <div className="rounded-xl bg-white p-2">تم إرسال الترحيب: {details.welcomeStatus.welcome_message_sent_at ? "نعم" : "لم يتم"}</div>
+                    <div className="rounded-xl bg-white p-2">رد العميل: {details.welcomeStatus.customer_replied_at ? "نعم" : "لم يرد"}</div>
+                    <div className="rounded-xl bg-white p-2">ملاحظات: {details.welcomeStatus.notes || "-"}</div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-white p-3 text-sm font-bold text-slate-700">لا توجد مهمة ترحيب مفتوحة لهذا العميل.</div>
+                )}
+              </div>
+            </div>
+
+            {details.invoiceClassifications?.length ? (
+              <div className="mt-4 rounded-2xl border border-purple-200 bg-purple-50 p-4">
+                <div className="mb-3 font-black text-purple-900">سجل تصنيف الفواتير والعميل</div>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {details.invoiceClassifications.map((item, index) => (
+                    <div key={`${item.invoice_number}-${index}`} className="rounded-xl border border-purple-100 bg-white p-3 text-xs font-bold text-slate-700">
+                      <div className="text-sm font-black text-slate-900">فاتورة {item.invoice_number || "-"}</div>
+                      <div>التصنيف: {item.category || "غير مصنف"}</div>
+                      <div>تصنيف العميل: {item.customer_segment || "غير محدد"}</div>
+                      <div>الدكتور: {item.seller_name || "-"}</div>
+                      <div>{item.invoice_date ? formatDate(item.invoice_date) : "بدون تاريخ"}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-4 rounded-2xl border-2 border-teal-300 bg-white p-4 shadow-sm">
+              <div className="mb-3 font-black text-teal-900">تنبيهات علاجية وعروض خاصة للعميل</div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-2xl border border-white bg-white/80 p-3">
+                  <div className="text-sm font-black text-slate-900">تنبيه متابعة يدوي</div>
+                  <div className="mt-2 grid gap-2">
+                    <input className="dawaa-input" value={reminderForm.title} onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })} placeholder="مثال: علاج شهري يوم 25" />
+                    <input className="dawaa-input" type="date" value={reminderForm.dueDate} onChange={(e) => setReminderForm({ ...reminderForm, dueDate: e.target.value })} />
+                    <input className="dawaa-input" value={reminderForm.invoiceNumber} onChange={(e) => setReminderForm({ ...reminderForm, invoiceNumber: e.target.value })} placeholder="رقم الفاتورة المرتبط إن وجد" />
+                    <textarea className="dawaa-input" rows={2} value={reminderForm.note} onChange={(e) => setReminderForm({ ...reminderForm, note: e.target.value })} placeholder="ملاحظة المتابعة: العلاج هيخلص يوم 10 / يتابع يوم 25..." />
+                    <button type="button" className="dawaa-button-primary px-4 py-2" onClick={saveManualReminder} disabled={alertSaving}>حفظ تنبيه المتابعة</button>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white bg-white/80 p-3">
+                  <div className="text-sm font-black text-slate-900">عرض خاص يظهر للفريق</div>
+                  <div className="mt-2 grid gap-2">
+                    <input className="dawaa-input" value={offerForm.title} onChange={(e) => setOfferForm({ ...offerForm, title: e.target.value })} placeholder="مثال: خصم خاص لعميل مهم" />
+                    <input className="dawaa-input" value={offerForm.offerValue} onChange={(e) => setOfferForm({ ...offerForm, offerValue: e.target.value })} placeholder="قيمة العرض أو تفاصيله المختصرة" />
+                    <input className="dawaa-input" type="date" value={offerForm.endDate} onChange={(e) => setOfferForm({ ...offerForm, endDate: e.target.value })} />
+                    <textarea className="dawaa-input" rows={2} value={offerForm.description} onChange={(e) => setOfferForm({ ...offerForm, description: e.target.value })} placeholder="وصف العرض أو سبب ظهوره للدكتور وخدمة العملاء" />
+                    <button type="button" className="dawaa-button-primary px-4 py-2" onClick={savePersonalOffer} disabled={alertSaving}>حفظ العرض الخاص</button>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                {(details.activeAlerts || []).map((alert) => (
+                  <div key={`${alert.alert_type}-${alert.id}`} className="rounded-xl border border-teal-300 bg-white p-3 text-sm">
+                    <div className="font-black text-teal-900">{alert.alert_type === "offer" ? "عرض خاص" : "تنبيه متابعة"}: {alert.title}</div>
+                    <div className="text-slate-600">{alert.description || "بدون تفاصيل"}</div>
+                    <div className="mt-1 text-xs font-bold text-slate-500">الاستحقاق: {alert.due_date || "-"} {alert.end_date ? `حتى ${alert.end_date}` : ""}</div>
+                  </div>
+                ))}
+                {!(details.activeAlerts || []).length && <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-500">لا توجد تنبيهات أو عروض نشطة لهذا العميل.</div>}
               </div>
             </div>
 

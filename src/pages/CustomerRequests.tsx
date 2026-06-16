@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { formatDate } from "@/lib/utils";
 import { displayEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
@@ -100,7 +102,7 @@ export default function CustomerRequests() {
   const [newStatus, setNewStatus] = useState("");
 
   const { data: customers } = useSupabaseQuery<CustomerRow>({ table: "customers", realtimeEnabled: false });
-  const { data: staff } = useSupabaseQuery<StaffOption>({ table: "staff", realtimeEnabled: false });
+  const { data: staff } = useSupabaseQuery<StaffOption>({ table: "staff", filters: isActiveStaffFilter(), realtimeEnabled: false });
 
   const doctors = useMemo(
     () =>

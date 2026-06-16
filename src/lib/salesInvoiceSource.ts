@@ -9,7 +9,7 @@ import {
   type CustomerLike,
   type InvoiceLike,
 } from "@/lib/customerMetrics";
-import { getInvoiceAmount, getInvoiceDate, getInvoiceDoctor, pickFirst } from "@/lib/dawaa2027";
+import { getInvoiceAmount, getInvoiceDate, getInvoiceDoctor, getInvoiceKey, pickFirst } from "@/lib/dawaa2027";
 
 export interface NormalizedInvoice {
   raw: InvoiceLike;
@@ -67,7 +67,7 @@ export function normalizeInvoice(invoice: InvoiceLike): NormalizedInvoice {
   return {
     raw: invoice,
     id: String(pickFirst(invoice, ["id"], "")),
-    invoiceNumber: String(pickFirst(invoice, ["invoice_number", "number", "receipt_number"], "")),
+    invoiceNumber: getInvoiceKey(invoice) || String(pickFirst(invoice, ["number", "receipt_number"], "")),
     invoiceDate: String(getInvoiceDate(invoice) || "") || null,
     amount: getInvoiceAmount(invoice),
     doctor: getInvoiceDoctor(invoice) || "غير محدد",

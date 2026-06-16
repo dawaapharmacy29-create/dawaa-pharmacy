@@ -1,7 +1,9 @@
 import { calculateStaffCycleIncentiveFromRows } from './staffIncentiveService';
 import { type PointLedgerRecord, type StaffLedgerTarget } from './pointsLedger';
 import { getCurrentCycle } from './pharmacy-cycle';
-import { OPERATING_POLICY_2027 } from './operatingPolicy';
+import { STAFF_OPERATING_POLICY_SECTIONS } from './performance/ruleDefinitions';
+import { PermissionPolicyService } from './permissionPolicyService';
+import { RepeatErrorService } from './repeatErrorService';
 
 export interface MonthlyPDFReportData {
   staff_id: string;
@@ -20,16 +22,38 @@ export interface MonthlyPDFReportData {
     points: number;
     date: string;
     source: string;
+    details?: string;
+    reference?: string;
+    created_by?: string;
+    approved_by?: string;
+    status?: string;
   }>;
   deduction_transactions: Array<{
     title: string;
     points: number;
     date: string;
     source: string;
+    details?: string;
+    reference?: string;
+    created_by?: string;
+    approved_by?: string;
+    status?: string;
   }>;
   pending_transactions: Array<{
     title: string;
     points: number;
+    date: string;
+    source: string;
+    details?: string;
+    reference?: string;
+    created_by?: string;
+    approved_by?: string;
+    status?: string;
+  }>;
+  quarterly_cash_rewards: number;
+  cash_reward_transactions: Array<{
+    title: string;
+    amount: number;
     date: string;
     source: string;
   }>;
@@ -52,6 +76,32 @@ export interface MonthlyPDFReportData {
   operating_policy_summary: string;
 }
 
+function transactionDetails(row: PointLedgerRecord): string {
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
+  const parts = [
+    row.description,
+    row.manager_note,
+    meta.details,
+    meta.note,
+    meta.reason,
+    meta.customer_name ? `العميل: ${meta.customer_name}` : '',
+    meta.invoice_no ? `فاتورة: ${meta.invoice_no}` : '',
+    meta.rule_title ? `البند: ${meta.rule_title}` : '',
+    meta.violation_date ? `تاريخ المخالفة: ${meta.violation_date}` : '',
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+  return Array.from(new Set(parts)).join(' | ');
+}
+
+function transactionReference(row: PointLedgerRecord): string {
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
+  return String(row.source_id || meta.source_id || meta.invoice_id || meta.invoice_no || row.id || '').trim();
+}
+
+function transactionDate(row: PointLedgerRecord): string {
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
+  return String(row.approved_at || meta.violation_date || meta.event_date || row.created_at || '').slice(0, 10) || 'غير محدد';
+}
+
 /**
  * خدمة إنشاء تقرير PDF الشهري
  */
@@ -67,22 +117,44 @@ export class MonthlyPDFReportService {
     const rewardTransactions = incentiveData.rewardTransactions.map(t => ({
       title: t.shortReason || t.reason || 'مكافأة',
       points: t.absPoints,
-      date: (t.created_at || '').slice(0, 10),
+      date: transactionDate(t),
       source: t.sourceLabel || 'غير محدد',
+      details: transactionDetails(t),
+      reference: transactionReference(t),
+      created_by: t.created_by_name || t.created_by || 'غير محدد',
+      approved_by: t.approved_by_name || t.manager_name || 'غير محدد',
+      status: t.status || 'approved',
     }));
 
     const deductionTransactions = incentiveData.deductionTransactions.map(t => ({
       title: t.shortReason || t.reason || 'خصم',
       points: t.absPoints,
-      date: (t.created_at || '').slice(0, 10),
+      date: transactionDate(t),
       source: t.sourceLabel || 'غير محدد',
+      details: transactionDetails(t),
+      reference: transactionReference(t),
+      created_by: t.created_by_name || t.created_by || 'غير محدد',
+      approved_by: t.approved_by_name || t.manager_name || 'غير محدد',
+      status: t.status || 'approved',
     }));
 
     const pendingTransactions = incentiveData.pendingTransactions.map(t => ({
       title: t.shortReason || t.reason || 'معلق',
       points: t.absPoints,
-      date: (t.created_at || '').slice(0, 10),
+      date: transactionDate(t),
       source: t.sourceLabel || 'غير محدد',
+      details: transactionDetails(t),
+      reference: transactionReference(t),
+      created_by: t.created_by_name || t.created_by || 'غير محدد',
+      approved_by: t.approved_by_name || t.manager_name || 'غير محدد',
+      status: t.status || 'pending',
+    }));
+
+    const cashRewardTransactions = incentiveData.cashRewardTransactions.map(t => ({
+      title: t.shortReason || t.reason || 'مكافأة مالية رواكد/لستة',
+      amount: t.moneyAmount || 0,
+      date: (t.created_at || '').slice(0, 10),
+      source: t.sourceLabel || 'مكافأة مالية ربع سنوية',
     }));
 
     // حساب درجات الأعمدة (محاكاة - يمكن تحسينها بالبيانات الفعلية)
@@ -119,29 +191,49 @@ export class MonthlyPDFReportService {
       },
     ];
 
-    // حساب الإذنات (محاكاة - يمكن تحسينها بالبيانات الفعلية)
-    const permissions_used = 2; // مثال
-    const permissions_remaining = 3 - permissions_used;
-    const permission_deduction = permissions_used > 3 ? (permissions_used - 3) * 10 : 0;
+    let permissions_used = 0;
+    let permissions_remaining = 3;
+    let permission_deduction = 0;
+    try {
+      const permissionStatus = await PermissionPolicyService.getPermissionPolicyStatus(
+        String(staff.id),
+        incentiveData.cycleStart,
+        incentiveData.cycleEnd,
+      );
+      permissions_used = permissionStatus.free_allowance_used + permissionStatus.penalized_permission_number;
+      permissions_remaining = permissionStatus.remaining_free_permissions;
+      permission_deduction = permissionStatus.deduction_points;
+    } catch {
+      permissions_used = 0;
+      permissions_remaining = 3;
+      permission_deduction = 0;
+    }
 
-    // حساب الأخطاء المتكررة (محاكاة - يمكن تحسينها بالبيانات الفعلية)
-    const repeatErrors = [
-      {
-        rule_title: 'تأخير عن الشيفت',
-        count: 2,
-        total_deduction: 40,
-      },
-    ];
+    let repeatErrors: MonthlyPDFReportData['repeat_errors'] = [];
+    try {
+      const repeats = await RepeatErrorService.getRepeatErrorsForStaff(
+        String(staff.id),
+        incentiveData.cycleStart,
+        incentiveData.cycleEnd,
+      );
+      repeatErrors = repeats.map((row) => ({
+        rule_title: row.rule_title,
+        count: row.occurrence_count,
+        total_deduction: row.total_deduction,
+      }));
+    } catch {
+      repeatErrors = [];
+    }
+    const classification_violations = deductionTransactions.filter((t) =>
+      /تصنيف|classification/i.test(`${t.title} ${t.source}`),
+    ).length;
+    const classification_deduction = deductionTransactions
+      .filter((t) => /تصنيف|classification/i.test(`${t.title} ${t.source}`))
+      .reduce((sum, t) => sum + t.points, 0);
 
-    // حساب انتهاكات التصنيف (محاكاة - يمكن تحسينها بالبيانات الفعلية)
-    const classification_violations = 1;
-    const classification_deduction = 15;
-
-    // ملخص لائحة التشغيل
-    const operating_policy_summary = OPERATING_POLICY_2027.sections
-      .slice(0, 3)
-      .map(s => `**${s.title}**\n${s.content.slice(0, 200)}...`)
-      .join('\n\n');
+    const operating_policy_summary = STAFF_OPERATING_POLICY_SECTIONS.map(
+      (section) => `**${section.title}**\n${section.items.map((item) => `• ${item}`).join('\n')}`,
+    ).join('\n\n');
 
     return {
       staff_id: staff.id,
@@ -158,6 +250,8 @@ export class MonthlyPDFReportService {
       reward_transactions: rewardTransactions,
       deduction_transactions: deductionTransactions,
       pending_transactions: pendingTransactions,
+      quarterly_cash_rewards: incentiveData.quarterlyCashRewards,
+      cash_reward_transactions: cashRewardTransactions,
       pillar_scores: pillarScores,
       permissions_used: permissions_used,
       permissions_remaining: permissions_remaining,
@@ -182,10 +276,12 @@ export class MonthlyPDFReportService {
 
 ## ملخص الأداء
 
-- **النقاط البداية:** ${data.starting_points}
+- **نقاط البداية:** ${data.starting_points} (دورة 26 → 25)
+- **الحافز الشهري الكامل:** ${data.max_incentive_value} جنيه عند 500 نقطة
 - **النقاط النهائية:** ${data.final_points}
-- **نقاط التميز:** ${data.distinction_points}
-- **الحافز الشهري:** ${data.incentive_value} جنيه (من أقصى ${data.max_incentive_value} جنيه)
+- **نقاط التميز فوق 500:** ${data.distinction_points}
+- **الحافز الشهري المحسوب:** ${data.incentive_value} جنيه
+- **مكافآت مالية للرواكد واللستة (حافز ربع سنوي — لا تزيد نقاط الشهر):** ${data.quarterly_cash_rewards} جنيه
 - **نسبة الإنجاز:** ${data.progress_percent.toFixed(1)}%
 
 ---
@@ -203,15 +299,33 @@ ${data.pillar_scores.map(p => `
 ## المكافآت
 
 ${data.reward_transactions.length > 0 ? data.reward_transactions.map(t => `
-- **${t.title}**: +${t.points} نقطة (${t.date}) - ${t.source}
+- **${t.title}**: +${t.points} نقطة (${t.date}) - ${t.source}${t.details ? `
+  - التفاصيل: ${t.details}` : ''}${t.reference ? `
+  - المرجع: ${t.reference}` : ''}${t.created_by ? `
+  - أُضيف بواسطة: ${t.created_by}` : ''}${t.approved_by ? `
+  - اعتمد بواسطة: ${t.approved_by}` : ''}
 `).join('\n') : 'لا توجد مكافآت في هذه الدورة'}
+
+---
+
+## مكافآت مالية منفصلة للربع سنوي
+
+${data.cash_reward_transactions.length > 0 ? data.cash_reward_transactions.map(t => `
+- **${t.title}**: ${t.amount} جنيه (${t.date}) - ${t.source}
+`).join('\n') : 'لا توجد مكافآت مالية للرواكد أو اللستة في هذه الدورة'}
+
+ملاحظة: هذه المكافآت لا تزيد نقاط الشهر، لكنها تُرحّل لقسم الحافز الربع سنوي.
 
 ---
 
 ## الخصومات
 
 ${data.deduction_transactions.length > 0 ? data.deduction_transactions.map(t => `
-- **${t.title}**: -${t.points} نقطة (${t.date}) - ${t.source}
+- **${t.title}**: -${t.points} نقطة (${t.date}) - ${t.source}${t.details ? `
+  - التفاصيل: ${t.details}` : ''}${t.reference ? `
+  - المرجع: ${t.reference}` : ''}${t.created_by ? `
+  - أُضيف بواسطة: ${t.created_by}` : ''}${t.approved_by ? `
+  - اعتمد بواسطة: ${t.approved_by}` : ''}
 `).join('\n') : 'لا توجد خصومات في هذه الدورة'}
 
 ---
@@ -219,7 +333,10 @@ ${data.deduction_transactions.length > 0 ? data.deduction_transactions.map(t => 
 ## المعاملات المعلقة
 
 ${data.pending_transactions.length > 0 ? data.pending_transactions.map(t => `
-- **${t.title}**: ${t.points} نقطة (${t.date}) - ${t.source}
+- **${t.title}**: ${t.points} نقطة (${t.date}) - ${t.source}${t.details ? `
+  - التفاصيل: ${t.details}` : ''}${t.reference ? `
+  - المرجع: ${t.reference}` : ''}${t.created_by ? `
+  - أُضيف بواسطة: ${t.created_by}` : ''}
 `).join('\n') : 'لا توجد معاملات معلقة'}
 
 ---
@@ -280,6 +397,7 @@ ${data.operating_policy_summary}
       'Rewards Count',
       'Deductions Count',
       'Pending Count',
+      'Quarterly Cash Rewards',
       'Permissions Used',
       'Classification Violations',
     ];
@@ -296,6 +414,7 @@ ${data.operating_policy_summary}
       data.reward_transactions.length,
       data.deduction_transactions.length,
       data.pending_transactions.length,
+      data.quarterly_cash_rewards,
       data.permissions_used,
       data.classification_violations,
     ];

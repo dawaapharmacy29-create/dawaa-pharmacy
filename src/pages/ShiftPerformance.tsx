@@ -17,6 +17,7 @@ import {
   saveShiftPerformanceReview,
 } from "@/lib/api/shiftPerformance";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
 import {
   SHIFT_CONFIGS,
@@ -98,6 +99,7 @@ export default function ShiftPerformance() {
   const { user } = useAuth();
   const { data: staffRows = [] } = useSupabaseQuery<Staff>({
     table: "staff",
+    filters: isActiveStaffFilter(),
     realtimeEnabled: false,
   });
   const staffChoices = useMemo(() => mergeStaffChoices(staffRows), [staffRows]);

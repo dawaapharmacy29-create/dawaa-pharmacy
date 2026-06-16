@@ -11,12 +11,14 @@ import { getCycleForDate } from "@/lib/pharmacy-cycle";
 import { getShiftFromDateTime } from "@/lib/analyticsFromInvoices";
 import { invalidateInvoiceCache } from "@/lib/salesInvoiceSource";
 import { normalizeName } from "@/lib/utils";
-import { CUSTOMER_SEGMENT_THRESHOLDS } from "@/lib/constants";
 import { clearExecutiveDashboardCache } from "@/lib/executiveDashboardDataService";
 import { clearSalesAnalyticsSummaryCache } from "@/lib/salesAnalyticsSummaryService";
 import { clearCustomerProfileCache } from "@/lib/customerProfileService";
 import { clearCustomersCache } from "@/lib/api/customers";
 import { clearCustomerServiceCommandCenterCache } from "@/lib/api/customerServiceCommandCenter";
+import { clearStaffPerformanceProfileCache } from "@/lib/staff/staffPerformanceProfileService";
+import { resolveStaffNameToStaffId } from "@/lib/staffIdentityMapping";
+import { getInvoiceDuplicateKey, getInvoiceKey } from "@/lib/dawaa2027";
 
 export interface RawInvoiceRow {
   rowIndex: number;
@@ -74,7 +76,10 @@ export interface ImportSummary {
   totalRows: number;
   validRows: number;
   insertedRows: number;
+  updatedInvoices?: number;
   skippedDuplicates: number;
+  conflictReviewRows?: number;
+  valueChangedUpdates?: number;
   errors: ValidationError[];
   updatedCustomers: number;
   newCustomers: number;
@@ -503,9 +508,9 @@ function normalizeBranch(rawBranch: string, fallback: string) {
 }
 
 function classifyByAvg(avg: number): string {
-  if (avg >= CUSTOMER_SEGMENT_THRESHOLDS.VERY_IMPORTANT) return "مهم جدًا";
-  if (avg >= CUSTOMER_SEGMENT_THRESHOLDS.IMPORTANT) return "مهم";
-  if (avg >= CUSTOMER_SEGMENT_THRESHOLDS.MEDIUM) return "متوسط";
+  if (avg >= 8000) return "مهم جدًا";
+  if (avg >= 4000) return "مهم";
+  if (avg >= 1500) return "متوسط";
   return "عادي";
 }
 
@@ -550,7 +555,12 @@ function invoiceNetValue(row: Record<string, unknown>) {
 }
 
 function invoiceDuplicateKey(invoiceNumber: string, branch: string, saleDate: string) {
-  return [branch || "غير محدد", invoiceNumber || "", String(saleDate || "").slice(0, 10)].join("|");
+  return getInvoiceDuplicateKey({
+    invoice_no: invoiceNumber,
+    invoice_number: invoiceNumber,
+    branch,
+    invoice_date: saleDate,
+  });
 }
 
 function friendlyImportError(message: string) {
@@ -564,6 +574,15 @@ function friendlyImportError(message: string) {
     return "تم اكتشاف فاتورة مكررة أثناء الحفظ. سيتم تخطيها بدل تعطيل الاستيراد.";
   }
   return message;
+}
+
+function broadcastInvoiceImportRefresh() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem("dawaa_invoice_import_refresh", String(Date.now()));
+  } catch {
+    // Local storage may be unavailable in private/restricted contexts.
+  }
 }
 
 async function insertRowsWithOptionalColumns(
@@ -594,6 +613,78 @@ async function insertRowsWithOptionalColumns(
     error: { message: "تعذر الحفظ بعد إزالة الأعمدة الاختيارية غير الموجودة في قاعدة البيانات." },
     removedColumns: [...removedColumns],
   };
+}
+
+async function updateRowWithOptionalColumns(
+  table: string,
+  id: string,
+  row: Record<string, unknown>,
+) {
+  let nextRow = { ...row };
+  const removedColumns = new Set<string>();
+  delete nextRow.id;
+  delete nextRow.created_at;
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const { error } = await supabase.from(table).update(nextRow).eq("id", id);
+    if (!error) return { error: null, removedColumns: [...removedColumns] };
+
+    const missingColumn = schemaCacheMissingColumn(error.message);
+    if (!missingColumn || removedColumns.has(missingColumn)) {
+      return { error, removedColumns: [...removedColumns] };
+    }
+
+    removedColumns.add(missingColumn);
+    const copy = { ...nextRow };
+    delete copy[missingColumn];
+    nextRow = copy;
+  }
+
+  return {
+    error: { message: "تعذر تحديث الفاتورة بعد إزالة الأعمدة الاختيارية غير الموجودة في قاعدة البيانات." },
+    removedColumns: [...removedColumns],
+  };
+}
+
+function sameDateOnly(left: unknown, right: unknown) {
+  return String(left || "").slice(0, 10) === String(right || "").slice(0, 10);
+}
+
+function normalizeComparableBranch(raw: unknown, fallback: string) {
+  return normalizeBranch(String(raw || ""), fallback || "غير محدد");
+}
+
+function existingInvoiceValue(row: Record<string, unknown>) {
+  const candidates = [row.net_amount, row.discounted_amount, row.amount, row.gross_amount];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value)) return value;
+  }
+  return 0;
+}
+
+function invoiceNeedsRepair(existing: Record<string, unknown>, incoming: Record<string, unknown>, fallbackBranch: string) {
+  const existingValue = existingInvoiceValue(existing);
+  const incomingValue = invoiceNetValue(incoming);
+  const sameValue = Math.abs(existingValue - incomingValue) < 0.01;
+  const checks: Array<[unknown, unknown]> = [
+    [existing.customer_code, incoming.customer_code],
+    [existing.customer_name, incoming.customer_name],
+    [existing.customer_phone, incoming.customer_phone],
+    [existing.seller_name, incoming.seller_name],
+    [existing.save_status, incoming.save_status],
+    [existing.invoice_type, incoming.invoice_type],
+  ];
+
+  if (!sameDateOnly(existing.invoice_date, incoming.invoice_date)) return false;
+  if (normalizeComparableBranch(existing.branch, fallbackBranch) !== normalizeComparableBranch(incoming.branch, fallbackBranch)) return false;
+  if (!sameValue) return true;
+
+  return checks.some(([oldValue, newValue]) => {
+    const oldText = String(oldValue || "").trim();
+    const newText = String(newValue || "").trim();
+    return Boolean(newText) && oldText !== newText;
+  });
 }
 
 function reportProgress(
@@ -887,16 +978,96 @@ export async function importCustomersToDB(
     importBatch,
     needsReviewRows: 0,
     unlinkedCustomersEstimate: 0,
-    unmatchedCustomerRows: rows.filter((row) => row.customerLinkStatus === "unmatched_customer").length,
-    zeroAmountRows: rows.filter((row) => row.importValidationStatus === "zero_amount").length,
     rejectedRows: 0,
-    firstInvoiceDate: rows.map((row) => row.date).filter(Boolean).sort()[0] || null,
-    lastInvoiceDate: rows.map((row) => row.date).filter(Boolean).sort().pop() || null,
-    fileNetSales: rows.reduce((sum, row) => sum + (Number(row.netAmount ?? row.amount ?? row.grossAmount ?? 0) || 0), 0),
-    importedNetSales: 0,
-    dailyCounts: [],
-    branchCounts: [],
+    summaryRefreshStatus: "unavailable",
+    summaryRefreshMessage: "لم يبدأ تحديث العملاء بعد.",
   };
+
+  const safeImportRows = rows.map((row) => ({
+    final_customer_key: row.code || row.phone || row.mobile || row.telephone,
+    customer_code: row.code || null,
+    customer_name: row.name || null,
+    new_phone: row.telephone || row.phone || row.mobile || null,
+    new_whatsapp_phone: row.mobile || row.phone || row.telephone || null,
+    phone_alt: row.phone || row.mobile || row.telephone || null,
+    address: row.address || null,
+    source_row: row.rowIndex,
+    import_batch: importBatch,
+  }));
+
+  const uniqueCustomerCodes = Array.from(new Set(rows.map((row) => String(row.code || "").trim()).filter(Boolean)));
+
+  if (safeImportRows.length) {
+    for (const chunk of chunkArray(safeImportRows, 500)) {
+      const { data, error } = await supabase.rpc("safe_daily_customer_import_from_json", {
+        p_rows: chunk,
+        p_apply: true,
+      });
+
+      if (error) {
+        summary.errors.push({
+          row: Number(chunk[0]?.source_row || 0),
+          field: "استيراد العملاء الآمن",
+          message: friendlyImportError(error.message || "تعذر تشغيل الاستيراد الآمن للعملاء."),
+        });
+        summary.needsReviewRows += chunk.length;
+        continue;
+      }
+
+      const result = (data || {}) as Record<string, unknown>;
+      const inserted = Number(result.insertedCustomers || result.inserted_customers || 0);
+      const updated = Number(result.customersUpdated || result.customers_updated || 0);
+      const unchanged = Number(result.unchangedCustomers || result.unchanged_customers || 0);
+      summary.insertedRows += inserted;
+      summary.newCustomers += inserted;
+      summary.updatedCustomers += updated;
+      summary.skippedDuplicates += Math.max(0, unchanged);
+      summary.needsReviewRows += Number(result.needsReviewRows || result.needs_review_rows || 0);
+      summary.rejectedRows = Number(summary.rejectedRows || 0) + Number(result.invalidPhones || result.invalid_phones || 0);
+    }
+
+    if (uniqueCustomerCodes.length) {
+      try {
+        let generatedTasks = 0;
+        for (const codeChunk of chunkArray(uniqueCustomerCodes, 500)) {
+          const { data, error } = await supabase.rpc("generate_customer_welcome_tasks_for_codes", {
+            p_customer_codes: codeChunk,
+          });
+          if (error) {
+            const fallback = await supabase.rpc("generate_customer_welcome_tasks_v6", { p_target_date: new Date().toISOString().slice(0, 10) });
+            if (fallback.error) throw error;
+            generatedTasks += Number(fallback.data || 0);
+          } else {
+            generatedTasks += Number(data || 0);
+          }
+        }
+        summary.summaryRefreshMessage = `تم تحديث العملاء بأمان، وتم إنشاء ${generatedTasks.toLocaleString("ar-EG")} مهمة ترحيب جديدة للعملاء الجدد/المحدثين.`;
+      } catch (error) {
+        summary.schemaWarnings = [...(summary.schemaWarnings || []), "تعذر إنشاء مهام الرسائل الترحيبية تلقائيًا. تأكد من تشغيل migration generate_customer_welcome_tasks_for_codes."];
+        summary.summaryRefreshMessage = "تم تحديث العملاء، وتعذر إنشاء بعض مهام الرسائل الترحيبية تلقائيًا.";
+      }
+    }
+
+    const refresh = await supabase.rpc("rebuild_customer_metrics_summary");
+    summary.summaryRefreshStatus = refresh.error ? "unavailable" : "refreshed";
+    if (refresh.error && !summary.summaryRefreshMessage) {
+      summary.summaryRefreshMessage = "تم تحديث العملاء، وتعذر تحديث ملخص العملاء الآن.";
+    }
+
+    clearCustomersCache();
+    clearCustomerServiceCommandCenterCache();
+    clearCustomerProfileCache();
+    clearExecutiveDashboardCache();
+    clearSalesAnalyticsSummaryCache();
+    clearStaffPerformanceProfileCache();
+    try {
+      window.localStorage.setItem("dawaa_invoice_import_refresh", String(Date.now()));
+    } catch {
+      // Ignore non-browser contexts.
+    }
+
+    if (summary.errors.length === 0) return summary;
+  }
 
   const analysisPayloads = rows.map((row) => {
     const identifier = row.phone || `code:${row.code}`;
@@ -1229,6 +1400,11 @@ async function refreshCustomerAnalysisForImportedRows(
 async function linkSellerToStaffId(sellerName: string, branch: string): Promise<string | null> {
   if (!sellerName) return null;
   
+  // استخدام staffIdentityMapping لربط اسم البائع بـ staff_id
+  const staffId = await resolveStaffNameToStaffId(sellerName);
+  if (staffId) return staffId;
+  
+  // الرجوع للطريقة القديمة إذا لم يتم العثور على الربط
   const normalizedSeller = normalizeName(sellerName);
   
   // محاولة العثور على الموظف بالاسم المباشر
@@ -1265,94 +1441,44 @@ async function refreshImportSummaries(summary: ImportSummary) {
   const dateRangeReady = Boolean(summary.firstInvoiceDate && summary.lastInvoiceDate);
 
   if (dateRangeReady) {
-    const { error } = await supabase.rpc("rebuild_sales_daily_summary", {
+    const { data, error } = await supabase.rpc("dawaa_invoice_post_import_refresh_v1", {
       p_start_date: summary.firstInvoiceDate,
       p_end_date: summary.lastInvoiceDate,
     });
+
     if (!error) {
       addStep({
-        key: "sales_daily_summary",
-        label: "تحديث ملخص المبيعات اليومية",
+        key: "permanent_invoice_refresh",
+        label: "تحديث دائم وسريع بعد الاستيراد",
         status: "success",
-        message: `تم تحديث sales_daily_summary للفترة ${summary.firstInvoiceDate} إلى ${summary.lastInvoiceDate}.`,
-      });
-    } else if (import.meta.env.DEV) {
-      console.warn("[invoiceImporter] rebuild_sales_daily_summary failed", error);
-      addStep({
-        key: "sales_daily_summary",
-        label: "تحديث ملخص المبيعات اليومية",
-        status: "failed",
-        message: friendlyError(error.message),
+        message: typeof data === "string"
+          ? data
+          : `تم تحديث مؤشرات الفواتير وربط الدكاترة والعملاء للفترة ${summary.firstInvoiceDate} إلى ${summary.lastInvoiceDate}.`,
       });
     } else {
+      if (import.meta.env.DEV) console.warn("[invoiceImporter] dawaa_invoice_post_import_refresh_v1 failed", error);
       addStep({
-        key: "sales_daily_summary",
-        label: "تحديث ملخص المبيعات اليومية",
-        status: "failed",
-        message: "تعذر تحديث ملخص المبيعات اليومية.",
+        key: "permanent_invoice_refresh",
+        label: "تحديث دائم وسريع بعد الاستيراد",
+        status: "skipped",
+        message: friendlyImportError(error.message),
       });
     }
+
+    // ملخصات الداشبورد القديمة أصبحت اختيارية حتى لا توقف الاستيراد أو تسبب timeout.
+    // الداشبورد والملفات تعتمد على sales_invoices مباشرة أو على RPC السريع أعلاه.
+    addStep({
+      key: "legacy_summaries",
+      label: "ملخصات قديمة اختيارية",
+      status: "skipped",
+      message: "تم تخطي الملخصات القديمة البطيئة. استخدم زر تحديث الملخصات يدويًا عند الحاجة فقط.",
+    });
   } else {
     addStep({
-      key: "sales_daily_summary",
-      label: "تحديث ملخص المبيعات اليومية",
+      key: "permanent_invoice_refresh",
+      label: "تحديث دائم وسريع بعد الاستيراد",
       status: "skipped",
       message: "لم يتم العثور على مدى تاريخ واضح داخل ملف الاستيراد.",
-    });
-  }
-
-  if (dateRangeReady) {
-    const { error } = await supabase.rpc("rebuild_staff_sales_summary", {
-      p_start_date: summary.firstInvoiceDate,
-      p_end_date: summary.lastInvoiceDate,
-    });
-    if (!error) {
-      addStep({
-        key: "staff_sales_summary",
-        label: "تحديث ملخص أداء الدكاترة",
-        status: "success",
-        message: `تم تحديث staff_sales_summary للفترة ${summary.firstInvoiceDate} إلى ${summary.lastInvoiceDate}.`,
-      });
-    } else {
-      if (import.meta.env.DEV) console.warn("[invoiceImporter] rebuild_staff_sales_summary failed", error);
-      addStep({
-        key: "staff_sales_summary",
-        label: "تحديث ملخص أداء الدكاترة",
-        status: "failed",
-        message: friendlyError(error.message),
-      });
-    }
-  } else {
-    addStep({
-      key: "staff_sales_summary",
-      label: "تحديث ملخص أداء الدكاترة",
-      status: "skipped",
-      message: "لم يتم العثور على مدى تاريخ واضح داخل ملف الاستيراد.",
-    });
-  }
-
-  const { error: customerMetricsError } = await supabase.rpc("rebuild_customer_metrics_summary");
-  if (!customerMetricsError) {
-    addStep({
-      key: "customer_metrics_summary",
-      label: "تحديث ملخص العملاء",
-      status: "success",
-      message: "تم تحديث customer_metrics_summary بعد الاستيراد.",
-    });
-  } else if (import.meta.env.DEV) {
-    console.warn("[invoiceImporter] rebuild_customer_metrics_summary failed", customerMetricsError);
-    addStep({
-      key: "customer_metrics_summary",
-      label: "تحديث ملخص العملاء",
-      status: "failed",
-      message: friendlyError(customerMetricsError.message),
-    });
-  } else {
-    addStep({
-      key: "customer_metrics_summary",
-      label: "تحديث ملخص العملاء",
-      status: "failed",
-      message: "تعذر تحديث ملخص العملاء.",
     });
   }
 
@@ -1363,6 +1489,8 @@ async function refreshImportSummaries(summary: ImportSummary) {
     clearCustomersCache();
     clearCustomerServiceCommandCenterCache();
     clearCustomerProfileCache();
+    clearStaffPerformanceProfileCache();
+    broadcastInvoiceImportRefresh();
     addStep({
       key: "frontend_caches",
       label: "تفريغ كاش الشاشات",
@@ -1374,7 +1502,7 @@ async function refreshImportSummaries(summary: ImportSummary) {
       key: "frontend_caches",
       label: "تفريغ كاش الشاشات",
       status: "failed",
-      message: friendlyError(error instanceof Error ? error.message : String(error)),
+      message: friendlyImportError(error instanceof Error ? error.message : String(error)),
     });
   }
 
@@ -1405,6 +1533,7 @@ export async function importInvoicesToDB(
     unlinkedCustomersEstimate: 0,
     skippedDuplicateInvoices: [],
     schemaWarnings: [],
+    valueChangedUpdates: 0,
     staffLinkingMode: "name_fallback",
     firstInvoiceDate: rows.map((row) => row.date).filter(Boolean).sort()[0] || null,
     lastInvoiceDate: rows.map((row) => row.date).filter(Boolean).sort().pop() || null,
@@ -1435,87 +1564,162 @@ export async function importInvoicesToDB(
     summary.staffLinkingMode = "staff_id";
   }
 
-  const invoiceKeys = rows.map((row) => ({
-    branch: row.branch || branch,
-    invoice_number: row.invoiceNumber,
-    invoice_date: row.date,
-  }));
+  const invoiceNumbers = Array.from(new Set(rows.map((row) => String(row.invoiceNumber || "").trim()).filter(Boolean)));
 
-  const existingInvoices: Array<{
-    branch: string;
-    invoice_number: string;
-    invoice_date: string;
-  }> = [];
+  const existingInvoices: Array<Record<string, unknown>> = [];
+  const existingSelect =
+    "id, branch, invoice_no, invoice_number, invoice_date, amount, net_amount, discounted_amount, gross_amount, customer_code, customer_name, customer_phone, seller_name, save_status, invoice_type";
 
-  const invoiceDates = [...new Set(invoiceKeys.map((row) => row.invoice_date).filter(Boolean))];
-  for (const dateChunk of chunkArray(invoiceDates, 20)) {
-    const dateScopedKeys = invoiceKeys.filter((row) => dateChunk.includes(row.invoice_date));
-    const branchValues = [...new Set(dateScopedKeys.map((row) => row.branch).filter(Boolean))];
-    const invoiceNumbers = [...new Set(dateScopedKeys.map((row) => row.invoice_number).filter(Boolean))];
-    if (branchValues.length === 0 || invoiceNumbers.length === 0) continue;
+  for (const numberChunk of chunkArray(invoiceNumbers, 500)) {
+    const seenExistingIds = new Set(existingInvoices.map((row) => String(row.id || "")).filter(Boolean));
 
-    const { data, error } = await supabase
+    const byInvoiceNumber = await supabase
       .from("sales_invoices")
-      .select("branch, invoice_number, invoice_date")
-      .in("invoice_date", dateChunk)
-      .in("branch", branchValues)
-      .in("invoice_number", invoiceNumbers)
-      .limit(5000);
+      .select(existingSelect)
+      .in("invoice_number", numberChunk)
+      .limit(50000);
 
-    if (error) {
+    if (!byInvoiceNumber.error) {
+      for (const row of (byInvoiceNumber.data || []) as Record<string, unknown>[]) {
+        const id = String(row.id || "");
+        if (id && seenExistingIds.has(id)) continue;
+        if (id) seenExistingIds.add(id);
+        existingInvoices.push(row);
+      }
+    } else if (import.meta.env.DEV) {
+      console.warn("[invoiceImporter] invoice_number lookup failed", byInvoiceNumber.error);
+    }
+
+    const byInvoiceNo = await supabase
+      .from("sales_invoices")
+      .select(existingSelect)
+      .in("invoice_no", numberChunk)
+      .limit(50000);
+
+    if (!byInvoiceNo.error) {
+      for (const row of (byInvoiceNo.data || []) as Record<string, unknown>[]) {
+        const id = String(row.id || "");
+        if (id && seenExistingIds.has(id)) continue;
+        if (id) seenExistingIds.add(id);
+        existingInvoices.push(row);
+      }
+    } else if (byInvoiceNumber.error) {
       summary.errors.push({
         row: 0,
         field: "فحص التكرار",
-        message: friendlyImportError(error.message),
+        message: friendlyImportError(byInvoiceNo.error.message || byInvoiceNumber.error.message),
       });
       break;
     }
-
-    existingInvoices.push(
-      ...((data || []) as Array<{
-        branch: string;
-        invoice_number: string;
-        invoice_date: string;
-      }>),
-    );
   }
 
-  const existingSet = new Set(
-    existingInvoices.map(
-      (invoice) =>
-        invoiceDuplicateKey(
-          invoice.invoice_number,
-          invoice.branch,
-          String(invoice.invoice_date).slice(0, 10),
-        ),
-    ),
-  );
+  const existingByInvoiceNumber = new Map<string, Array<Record<string, unknown>>>();
+  for (const invoice of existingInvoices) {
+    const number = getInvoiceKey(invoice as Record<string, unknown>);
+    if (!number) continue;
+    const key = String(number).trim();
+    const list = existingByInvoiceNumber.get(key) || [];
+    list.push(invoice);
+    existingByInvoiceNumber.set(key, list);
+  }
 
+  const existingUpdateRecords: Array<{ id: string; record: Record<string, unknown>; rowNumber: number }> = [];
   let needsReviewRows = 0;
   let unlinkedCustomersEstimate = 0;
   const seenImportKeys = new Set<string>();
 
   const newRows = rows.filter((row) => {
-    const dedupeKey = invoiceDuplicateKey(row.invoiceNumber, row.branch || branch, row.date);
+    const rowBranch = row.branch || branch;
+    const dedupeKey = invoiceDuplicateKey(row.invoiceNumber, rowBranch, row.date);
     if (seenImportKeys.has(dedupeKey)) {
       summary.skippedDuplicates++;
       summary.skippedDuplicateInvoices?.push({
         invoiceNumber: row.invoiceNumber,
-        branch: row.branch || branch,
+        branch: rowBranch,
         date: row.date,
       });
       return false;
     }
     seenImportKeys.add(dedupeKey);
-    if (row.invoiceNumber && existingSet.has(dedupeKey)) {
+
+    const matches = row.invoiceNumber
+      ? existingByInvoiceNumber.get(String(row.invoiceNumber).trim()) || []
+      : [];
+
+    if (matches.length > 0) {
+      const sameBranchAndDate = matches.find((existing) => {
+        const existingBranch = normalizeComparableBranch(existing.branch, branch);
+        const incomingBranch = normalizeComparableBranch(rowBranch, branch);
+        return sameDateOnly(existing.invoice_date, row.date) && existingBranch === incomingBranch;
+      });
+
+      if (sameBranchAndDate) {
+        const recordForUpdate: Record<string, unknown> = {
+          import_batch: importBatch,
+          branch: rowBranch,
+          invoice_no: row.invoiceNumber,
+          invoice_number: row.invoiceNumber,
+          invoice_type: row.invoiceType,
+          customer_code: row.customerLinkStatus === "unmatched_customer" ? null : row.customerCode || null,
+          customer_name: row.name,
+          customer_phone: row.customerLinkStatus === "unmatched_customer" ? null : row.phone || null,
+          invoice_date: row.date,
+          invoice_datetime: row.invoiceDateTime,
+          close_datetime: row.closeDateTime,
+          analysis_datetime: row.analysisDateTime,
+          amount: row.amount,
+          gross_amount: row.grossAmount,
+          discounted_amount: row.discountedAmount,
+          net_amount: row.netAmount,
+          discount_amount: row.discountAmount,
+          courier_cash: row.courierCash,
+          extra_fees: row.extraFees,
+          line_items_count: row.lineItemsCount,
+          seller_name: row.seller,
+          staff_id: staffIdMap.get(row.seller) || null,
+          close_time: row.closeTime || null,
+          shift_name: getShiftFromDateTime(row.analysisDateTime),
+          delivery_staff: row.deliveryStaff,
+          specialty: row.specialty,
+          clinic: row.clinic,
+          delivery_address: row.deliveryAddress,
+          notes: row.notes,
+          save_status: row.saveStatus,
+          device_name: row.deviceName,
+          customer_link_status: row.customerLinkStatus,
+          import_validation_status: row.importValidationStatus,
+          import_warning: row.importWarning,
+          source_row_number: row.rowIndex,
+          raw_data: row.raw,
+        };
+
+        const existingValue = existingInvoiceValue(sameBranchAndDate);
+        const incomingValue = invoiceNetValue(recordForUpdate);
+        if (Math.abs(existingValue - incomingValue) >= 0.01) {
+          summary.valueChangedUpdates = (summary.valueChangedUpdates || 0) + 1;
+        }
+
+        const existingId = String(sameBranchAndDate.id || "");
+        if (existingId && invoiceNeedsRepair(sameBranchAndDate, recordForUpdate, branch)) {
+          existingUpdateRecords.push({ id: existingId, record: recordForUpdate, rowNumber: row.rowIndex });
+        } else {
+          summary.skippedDuplicates++;
+        }
+        return false;
+      }
+
+      needsReviewRows++;
+      summary.conflictReviewRows = (summary.conflictReviewRows || 0) + 1;
+      summary.schemaWarnings?.push(`الفاتورة ${row.invoiceNumber} موجودة سابقًا برقم مطابق لكن بتاريخ أو فرع مختلف؛ لم يتم إدخالها لتجنب التكرار وتحتاج مراجعة.`);
       summary.skippedDuplicates++;
       summary.skippedDuplicateInvoices?.push({
         invoiceNumber: row.invoiceNumber,
-        branch: row.branch || branch,
+        branch: rowBranch,
         date: row.date,
       });
       return false;
     }
+
     if (!row.customerCode && !row.phone) {
       needsReviewRows++;
       unlinkedCustomersEstimate++;
@@ -1529,6 +1733,7 @@ export async function importInvoicesToDB(
   const invoiceRecords = newRows.map((row) => ({
     import_batch: importBatch,
     branch: row.branch || branch,
+    invoice_no: row.invoiceNumber,
     invoice_number: row.invoiceNumber,
     invoice_type: row.invoiceType,
     customer_code: row.customerLinkStatus === "unmatched_customer" ? null : row.customerCode || null,
@@ -1565,7 +1770,7 @@ export async function importInvoicesToDB(
   }));
 
   const chunkSize = 500;
-  const totalWork = invoiceRecords.length + newRows.length;
+  const totalWork = invoiceRecords.length + existingUpdateRecords.length + newRows.length;
   const optionalColumnsRemoved = new Set<string>();
   for (let i = 0; i < invoiceRecords.length; i += chunkSize) {
     const chunk = invoiceRecords.slice(i, i + chunkSize) as Array<Record<string, unknown>>;
@@ -1669,6 +1874,24 @@ export async function importInvoicesToDB(
       field: "sales_invoices",
       message: `تم الاستيراد، لكن أعمدة المتابعة التالية غير موجودة أو لم تظهر بعد في Supabase schema cache: ${[...optionalColumnsRemoved].join(", ")}. شغّل ملف الترقية ثم أعد تحميل الصفحة للاحتفاظ بهذه التفاصيل في الاستيرادات القادمة.`,
     });
+  }
+
+  let updatedInvoiceProgress = 0;
+  for (const item of existingUpdateRecords) {
+    const { error, removedColumns } = await updateRowWithOptionalColumns("sales_invoices", item.id, item.record);
+    removedColumns.forEach((column) => optionalColumnsRemoved.add(column));
+    if (error) {
+      summary.errors.push({
+        row: item.rowNumber,
+        field: "تحديث فاتورة موجودة",
+        message: friendlyImportError(error.message),
+      });
+    } else {
+      summary.updatedInvoices = (summary.updatedInvoices || 0) + 1;
+      summary.importedNetSales = (summary.importedNetSales || 0) + invoiceNetValue(item.record);
+    }
+    updatedInvoiceProgress += 1;
+    reportProgress(onProgress, invoiceRecords.length + updatedInvoiceProgress, totalWork);
   }
 
   const grouped = new Map<
@@ -1910,6 +2133,12 @@ export async function importInvoicesToDB(
   // Customer metrics are refreshed through backend summaries/RPCs below.
   // Avoid post-import sales_invoices aggregation from React to prevent timeouts.
   invalidateInvoiceCache();
+  clearExecutiveDashboardCache();
+  clearSalesAnalyticsSummaryCache();
+  clearCustomersCache();
+  clearCustomerServiceCommandCenterCache();
+  clearCustomerProfileCache();
+  clearStaffPerformanceProfileCache();
   try {
     await refreshImportSummaries(summary);
     const rebuilt = { customers: summary.updatedCustomers };

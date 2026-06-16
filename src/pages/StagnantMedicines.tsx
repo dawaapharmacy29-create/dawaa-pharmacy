@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useDebounce } from "@/hooks/useDebounce";
 import {
   Plus,
   Package,
@@ -20,6 +21,7 @@ import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { toast } from "sonner";
 import { getCustomers } from "@/lib/api/customers";
 import { phoneSearchTokens } from "@/lib/phone";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import {
   groupDoctorTotals,
@@ -362,6 +364,7 @@ export default function StagnantMedicines() {
   const [filterPriority, setFilterPriority] = useState("");
   const [filterExpiry, setFilterExpiry] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerSearchSubmitted, setCustomerSearchSubmitted] = useState("");
   const [remoteCustomerOptions, setRemoteCustomerOptions] = useState<CustomerOption[]>([]);
@@ -389,6 +392,7 @@ export default function StagnantMedicines() {
   });
   const { data: staffFallback } = useSupabaseQuery<StaffMember>({
     table: "staff",
+    filters: isActiveStaffFilter(),
     orderBy: { column: "name", ascending: true },
     realtimeEnabled: false,
   });
@@ -657,8 +661,8 @@ export default function StagnantMedicines() {
         return true;
       });
     }
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
+    if (debouncedSearchQuery) {
+      const query = debouncedSearchQuery.toLowerCase();
       filtered = filtered.filter(
         (m) =>
           (getMedicineName(m) || "").toLowerCase().includes(query) ||
@@ -675,7 +679,7 @@ export default function StagnantMedicines() {
     filterStatus,
     filterPriority,
     filterExpiry,
-    searchQuery,
+    debouncedSearchQuery,
   ]);
 
   const stats = useMemo(() => {

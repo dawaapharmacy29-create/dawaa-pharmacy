@@ -73,8 +73,8 @@ export function usePWA() {
 
       // Detect controller change (new SW took over)
       navigator.serviceWorker.addEventListener("controllerchange", () => {
-        console.log("[PWA] New SW controller — reloading");
-        window.location.reload();
+        console.log("[PWA] New SW controller activated without forced reload");
+        setState((current) => ({ ...current, hasUpdate: true }));
       });
     }
 

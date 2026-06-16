@@ -23,6 +23,8 @@ import {
   getCurrentUserProfile,
   getSafeCurrentUserId,
 } from "@/hooks/useAuth";
+import { PERMISSION_PRESETS, getPresetForRole, mergePermissionsWithPreset } from "@/lib/rolePermissionPresets";
+import { normalizeRole } from "@/lib/permissionMatrix";
 
 interface StaffRow {
   id: string;
@@ -54,6 +56,10 @@ interface StaffAccountRow {
   visible_in_admin?: boolean | null;
   permissions?: Record<string, boolean> | null;
   auth_user_id?: string | null;
+  allowed_pages?: string[] | null;
+  permissions_count?: number | null;
+  display_name?: string | null;
+  account_status?: string | null;
   last_login_at?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
@@ -202,7 +208,21 @@ const PERMISSION_GROUPS = [
 const PERMISSION_LABELS = new Map(FULL_PERMISSIONS.map((permission) => [permission.key, permission.label]));
 
 function accountName(account: StaffAccountRow) {
-  return (account.staff_name || account.name || "").trim();
+  return (account.display_name || account.staff_name || account.name || account.username || "").trim();
+}
+
+function normalizeAccountKey(value?: string | null) {
+  return String(value || "")
+    .trim()
+    .replace(/^د\/?\s*/i, "")
+    .replace(/^دكتور\s*/i, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[\u064B-\u065F]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 }
 
 function formatDateTime(value?: string | null) {
@@ -304,12 +324,14 @@ function friendlyError(error: unknown): string {
 export default function StaffAccounts() {
   const { user, canManage } = useAuth();
   const currentUserId = getSafeCurrentUserId();
+  const currentRole = normalizeRole(user?.role);
+  const canRevealPasswords = currentRole === "general_manager";
   const canCreateAccount =
     canManage || user?.permissions?.create_staff_account === true;
   const canEditAccount =
     canManage || user?.permissions?.edit_staff_account === true;
   const canResetPassword =
-    canManage || user?.permissions?.reset_staff_password === true;
+    canRevealPasswords && (canManage || user?.permissions?.reset_staff_password === true);
   const canDisableAccount =
     canManage || user?.permissions?.disable_staff_account === true;
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -320,6 +342,7 @@ export default function StaffAccounts() {
   const [newPassword, setNewPassword] = useState("");
   const [accountSearch, setAccountSearch] = useState("");
   const [showManualAccount, setShowManualAccount] = useState(false);
+  const [localAccountPermissions, setLocalAccountPermissions] = useState<Record<string, Record<string, boolean>>>({});
   const [manualAccount, setManualAccount] = useState({
     staff_id: "",
     name: "",
@@ -346,7 +369,7 @@ export default function StaffAccounts() {
     refetch: refetchAccounts,
   } = useSupabaseQuery<StaffAccountRow>({
     table: TABLES.staffAccounts,
-    select: "id,staff_id,username,temporary_password,password_status,name,staff_name,role,staff_role,branch,branch_id,active,can_login,visible_in_admin,permissions,auth_user_id,last_login_at,updated_at,created_at",
+    select: "*",
     orderBy: { column: "username", ascending: true },
     realtimeEnabled: true,
   });
@@ -358,20 +381,44 @@ export default function StaffAccounts() {
       if (account.visible_in_admin === false) continue;
       if (account.staff_id) map.set(account.staff_id, account);
       const name = accountName(account);
-      if (name) map.set(`name:${name}`, account);
+      const staffName = account.staff_name || account.name;
+      if (name) {
+        map.set(`name:${name}`, account);
+        map.set(`norm:${normalizeAccountKey(name)}`, account);
+      }
+      if (staffName) map.set(`norm:${normalizeAccountKey(staffName)}`, account);
+      if (account.username) map.set(`username:${account.username}`, account);
     }
     return map;
   }, [accountRows]);
 
   const rows = useMemo(() => {
-    return staff.map((item) => ({
-      staff: item,
-      account:
+    const usedAccounts = new Set<string>();
+    const linkedRows = staff.map((item) => {
+      const account =
         accountsByStaff.get(item.id) ||
         accountsByStaff.get(`name:${item.name}`) ||
-        null,
-    }));
-  }, [staff, accountsByStaff]);
+        accountsByStaff.get(`norm:${normalizeAccountKey(item.name)}`) ||
+        null;
+      if (account?.id) usedAccounts.add(account.id);
+      return { staff: item, account };
+    });
+
+    const accountOnlyRows = accountRows
+      .filter((account) => account.visible_in_admin !== false && account.id && !usedAccounts.has(account.id))
+      .map((account) => ({
+        staff: {
+          id: `account:${account.id}`,
+          name: accountName(account),
+          role: account.staff_role || account.role || "غير محدد",
+          branch: account.branch || "غير محدد",
+          active: account.active,
+        } as StaffRow,
+        account,
+      }));
+
+    return [...linkedRows, ...accountOnlyRows];
+  }, [staff, accountsByStaff, accountRows]);
 
   const filteredRows = useMemo(() => {
     const q = accountSearch.trim().toLowerCase();
@@ -384,7 +431,6 @@ export default function StaffAccounts() {
         account?.username,
         account?.staff_name,
         account?.name,
-        account?.temporary_password,
       ]
         .filter(Boolean)
         .join(" ")
@@ -406,7 +452,7 @@ export default function StaffAccounts() {
     const selectedStaff = staff.find((item) => item.id === manualAccount.staff_id);
     const name = (selectedStaff?.name || manualAccount.name).trim();
     const username = (manualAccount.username || generateUsername(name)).trim();
-    const password = (manualAccount.password || generateDefaultPassword(name)).trim();
+    const password = (manualAccount.password || generateDefaultPassword()).trim();
     if (!name || !username || !password) {
       toast.error("أكمل الاسم واسم المستخدم وكلمة المرور");
       return;
@@ -416,6 +462,7 @@ export default function StaffAccounts() {
       staff_id: selectedStaff?.id || null,
       username,
       temporary_password: password,
+      must_change_password: true,
       password_status: "مؤقتة",
       name,
       staff_name: name,
@@ -426,7 +473,7 @@ export default function StaffAccounts() {
       active: true,
       can_login: true,
       visible_in_admin: true,
-      permissions: {},
+      permissions: mergePermissionsWithPreset({}, getPresetForRole(selectedStaff?.role || manualAccount.role), "replace"),
     };
     if (currentUserId) {
       payload.created_by = currentUserId;
@@ -473,13 +520,16 @@ export default function StaffAccounts() {
     return username;
   };
 
-  // Function to generate default password
-  const generateDefaultPassword = (name?: string): string => {
-    if (name) {
-      const shortName = name.split(" ")[0].replace(/[^\w]/g, "").toLowerCase();
-      return `Dawaa@${shortName}123`;
-    }
-    return `Dawaa@123`;
+  // Function to generate a one-time temporary password
+  const generateDefaultPassword = (): string => {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+    const values = new Uint32Array(14);
+    window.crypto?.getRandomValues?.(values);
+    const suffix = Array.from(values, (value, index) => {
+      const fallback = Math.floor(Math.random() * alphabet.length);
+      return alphabet[(value || fallback + index) % alphabet.length];
+    }).join("");
+    return `Dawaa@${suffix}`;
   };
 
   // Create account for staff member
@@ -491,12 +541,13 @@ export default function StaffAccounts() {
 
     try {
       const username = generateUsername(staffMember.name);
-      const temporaryPassword = generateDefaultPassword(staffMember.name);
+      const temporaryPassword = generateDefaultPassword();
 
       const accountData: Record<string, unknown> = {
         staff_id: staffMember.id,
         username,
         temporary_password: temporaryPassword,
+        must_change_password: true,
         password_status: "مؤقتة",
         name: staffMember.name,
         staff_name: staffMember.name,
@@ -507,7 +558,7 @@ export default function StaffAccounts() {
         active: true,
         can_login: true,
         visible_in_admin: true,
-        permissions: {},
+        permissions: mergePermissionsWithPreset({}, getPresetForRole(staffMember.role), "replace"),
       };
 
       // Only include audit columns if they exist in the database
@@ -582,6 +633,8 @@ export default function StaffAccounts() {
     try {
       const updatePayload: Record<string, unknown> = {
         temporary_password: newPassword.trim(),
+        password_hash: newPassword.trim(),
+        must_change_password: true,
         password_status: "مؤقتة",
         updated_at: new Date().toISOString(),
       };
@@ -636,12 +689,13 @@ export default function StaffAccounts() {
 
       for (const { staff: member } of staffWithoutAccounts) {
         const username = generateUsername(member.name);
-        const temporaryPassword = generateDefaultPassword(member.name);
+        const temporaryPassword = generateDefaultPassword();
 
         const accountData: Record<string, unknown> = {
           staff_id: member.id,
           username,
           temporary_password: temporaryPassword,
+          must_change_password: true,
           password_status: "مؤقتة",
           name: member.name,
           staff_name: member.name,
@@ -652,7 +706,7 @@ export default function StaffAccounts() {
           active: true,
           can_login: true,
           visible_in_admin: true,
-          permissions: {},
+          permissions: mergePermissionsWithPreset({}, getPresetForRole(member.role), "replace"),
         };
 
         // Only include audit columns if they exist in the database
@@ -704,6 +758,30 @@ export default function StaffAccounts() {
     }
   };
 
+  const effectiveAccountPermissions = (account: StaffAccountRow) => ({
+    ...(account.permissions || {}),
+    ...(localAccountPermissions[account.id] || {}),
+  });
+
+  const persistAccountPermissions = async (
+    account: StaffAccountRow,
+    permissions: Record<string, boolean>,
+    successMessage = "تم حفظ الصلاحيات",
+  ) => {
+    if (!account.id) return;
+    setLocalAccountPermissions((current) => ({ ...current, [account.id]: permissions }));
+    setSavingId(account.id);
+    const updatePayload: Record<string, unknown> = {
+      permissions,
+      updated_at: new Date().toISOString(),
+    };
+    if (currentUserId) updatePayload.updated_by = currentUserId;
+    const { error } = await updateAccountFlexible(account.id, updatePayload);
+    setSavingId(null);
+    if (error) throw error;
+    toast.success(successMessage);
+  };
+
   const togglePermission = async (account: StaffAccountRow, key: string) => {
     if (!account.id) return;
     if (!user) {
@@ -711,28 +789,10 @@ export default function StaffAccounts() {
       return;
     }
 
+    const previous = effectiveAccountPermissions(account);
+    const permissions = { ...previous, [key]: !previous[key] };
     try {
-      setSavingId(account.id);
-      const permissions = {
-        ...(account.permissions || {}),
-        [key]: !(account.permissions || {})[key],
-      };
-      const updatePayload: Record<string, unknown> = {
-        permissions,
-        updated_at: new Date().toISOString(),
-      };
-      if (currentUserId) updatePayload.updated_by = currentUserId;
-      const { error } = await updateAccountFlexible(account.id, updatePayload);
-      setSavingId(null);
-
-      if (error) {
-        toast.error(
-          "تعذر حفظ الصلاحيات. تأكد من تشغيل SQL الخاص بحسابات الموظفين.",
-        );
-        return;
-      }
-
-      toast.success("تم حفظ الصلاحيات");
+      await persistAccountPermissions(account, permissions);
       await logActivity(
         getSafeCurrentUserId() ?? null,
         user.name || "",
@@ -741,9 +801,31 @@ export default function StaffAccounts() {
         `${key} - ${accountName(account)}`,
         account.branch || "",
       );
-      refetchAccounts();
+      // لا نعمل refetch فوريًا حتى لا تقفز الصفحة أثناء تحديد أكثر من صلاحية يدويًا.
     } catch (error) {
+      setLocalAccountPermissions((current) => ({ ...current, [account.id]: previous }));
       setSavingId(null);
+      toast.error(friendlyError(error));
+    }
+  };
+
+  const applyPresetToAccount = async (account: StaffAccountRow, presetKey?: string) => {
+    if (!account.id || !user) return;
+    const preset = presetKey
+      ? PERMISSION_PRESETS.find((item) => item.key === presetKey) || getPresetForRole(account.role || account.staff_role)
+      : getPresetForRole(account.role || account.staff_role);
+    const permissions = mergePermissionsWithPreset(effectiveAccountPermissions(account), preset, "merge");
+    try {
+      await persistAccountPermissions(account, permissions, `تم تطبيق صلاحيات ${preset.label}`);
+      await logActivity(
+        getSafeCurrentUserId() ?? null,
+        user.name || "",
+        "تطبيق قالب صلاحيات حساب",
+        "حسابات وصلاحيات الفريق",
+        `${accountName(account)} - ${preset.label}`,
+        account.branch || "",
+      );
+    } catch (error) {
       toast.error(friendlyError(error));
     }
   };
@@ -757,7 +839,7 @@ export default function StaffAccounts() {
 
     const nextPassword = window.prompt(
       "اكتب كلمة المرور الجديدة لهذا الحساب",
-      account.temporary_password || "123456",
+      "",
     );
     if (!nextPassword) return;
 
@@ -767,6 +849,7 @@ export default function StaffAccounts() {
       const updatePayload: Record<string, unknown> = {
         temporary_password: nextPassword,
         password_hash: nextPassword,
+        must_change_password: true,
         password_status: "مؤقتة",
         updated_at: new Date().toISOString(),
       };
@@ -888,6 +971,10 @@ export default function StaffAccounts() {
         </div>
       )}
 
+      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm font-bold leading-relaxed text-emerald-100">
+        تم تفعيل ربط V13: الصفحة تعرض الحسابات الموجودة في staff_accounts حتى لو لم تتطابق مع جدول الموظفين بالـ ID. لا تستخدم إنشاء حسابات للجميع إلا بعد المراجعة.
+      </div>
+
 
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-3 flex items-center gap-3">
         <Search size={18} className="text-slate-400" />
@@ -997,7 +1084,7 @@ export default function StaffAccounts() {
 
                     <div className="rounded-xl border border-[#2d4063] bg-[#101d33] p-3">
                       <div className="text-xs text-slate-400 mb-1">كلمة المرور</div>
-                      {account ? (
+                      {account && canRevealPasswords ? (
                         editingPassword === account.id ? (
                           <div className="flex gap-2">
                             <input
@@ -1049,7 +1136,7 @@ export default function StaffAccounts() {
                             <button
                               onClick={() => {
                                 setEditingPassword(account.id);
-                                setNewPassword(account.temporary_password || "");
+                                setNewPassword("");
                               }}
                               className="text-slate-400 hover:text-white transition-colors"
                               title="تعديل كلمة المرور"
@@ -1058,6 +1145,8 @@ export default function StaffAccounts() {
                             </button>
                           </div>
                         )
+                      ) : account ? (
+                        <span className="text-slate-500 text-sm">محجوبة أمنيا</span>
                       ) : (
                         <span className="text-slate-500 text-sm">غير محفوظة</span>
                       )}
@@ -1157,13 +1246,43 @@ export default function StaffAccounts() {
                     </span>
                   </div>
                   {account ? (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+                    <>
+                      <div className="mb-3 rounded-xl border border-teal-500/20 bg-teal-500/10 p-3">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <div className="text-sm font-bold text-teal-200">القالب المقترح: {getPresetForRole(account.role || account.staff_role).label}</div>
+                            <div className="text-xs text-slate-400 mt-1">طبّق صلاحيات المسؤولية بضغطة واحدة ثم عدّل يدويًا بدون إعادة تحميل الصفحة.</div>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={savingId === account.id}
+                            onClick={() => applyPresetToAccount(account)}
+                            className="btn-primary text-xs"
+                          >
+                            تطبيق القالب المناسب
+                          </button>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {PERMISSION_PRESETS.map((preset) => (
+                            <button
+                              key={preset.key}
+                              type="button"
+                              disabled={savingId === account.id}
+                              onClick={() => applyPresetToAccount(account, preset.key)}
+                              className="rounded-full border border-[#2d4063] bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:border-teal-500/40"
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
                       {PERMISSION_GROUPS.map((group) => (
                         <div key={group.title} className="rounded-xl border border-[#2d4063] bg-white/5 p-3">
                           <div className="text-teal-300 font-bold text-xs mb-2">{group.title}</div>
                           <div className="grid grid-cols-1 gap-2">
                             {group.keys.map((key) => {
-                              const enabled = Boolean(account.permissions?.[key]);
+                              const enabled = Boolean(effectiveAccountPermissions(account)[key]);
                               return (
                                 <button
                                   key={key}
@@ -1183,6 +1302,7 @@ export default function StaffAccounts() {
                         </div>
                       ))}
                     </div>
+                    </>
                   ) : (
                     <div className="text-slate-500 text-sm">
                       أنشئ حسابًا للموظف أولًا حتى تظهر صلاحياته.
@@ -1214,7 +1334,7 @@ export default function StaffAccounts() {
                     role: selected?.role || current.role,
                     branch: selected?.branch || current.branch,
                     username: selected ? generateUsername(selected.name) : current.username,
-                    password: selected ? generateDefaultPassword(selected.name) : current.password,
+                    password: selected ? generateDefaultPassword() : current.password,
                   }));
                 }}>
                   <option value="">بدون ربط مباشر</option>
@@ -1224,7 +1344,12 @@ export default function StaffAccounts() {
               <EditField label="اسم صاحب الحساب" value={manualAccount.name} onChange={(value) => setManualAccount((current) => ({ ...current, name: value }))} />
               <EditField label="اسم المستخدم" value={manualAccount.username} onChange={(value) => setManualAccount((current) => ({ ...current, username: value }))} />
               <EditField label="كلمة المرور المؤقتة" value={manualAccount.password} onChange={(value) => setManualAccount((current) => ({ ...current, password: value }))} />
-              <EditField label="المسؤولية/الدور" value={manualAccount.role} onChange={(value) => setManualAccount((current) => ({ ...current, role: value }))} />
+              <label className="text-xs text-slate-300 space-y-1">
+                <span>المسؤولية/الدور</span>
+                <select className="input-dark" value={manualAccount.role} onChange={(event) => setManualAccount((current) => ({ ...current, role: event.target.value }))}>
+                  {["صيدلاني", "مدير فرع", "مسؤول خدمة العملاء", "مدير عام", "دليفري", "مسؤول مخزون وتشغيل"].map((role) => <option key={role}>{role}</option>)}
+                </select>
+              </label>
               <label className="text-xs text-slate-300 space-y-1">
                 <span>الفرع</span>
                 <select className="input-dark" value={manualAccount.branch} onChange={(event) => setManualAccount((current) => ({ ...current, branch: event.target.value }))}>

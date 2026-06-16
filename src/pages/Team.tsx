@@ -1,4 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useDebounce } from "@/hooks/useDebounce";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { Search, Plus, Phone, Edit2, UserCheck, Loader2, Eye, ClipboardList } from "lucide-react";
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
@@ -13,6 +15,8 @@ import { toast } from "sonner";
 import type { User } from "@/types";
 import { Link } from "react-router-dom";
 import { useStaff } from "@/hooks/useStaff";
+import { filterActiveStaffRows } from "@/lib/staffActiveFilter";
+import { mergeStaffChoices } from "@/lib/staffFallback";
 import { useShiftSchedules } from "@/hooks/useShiftSchedules";
 import { useEmployeeTransactions } from "@/hooks/useEmployeeTransactions";
 import { friendlySupabaseError, logSupabaseError } from "@/lib/supabaseError";
@@ -95,14 +99,22 @@ export default function Team() {
   const { user, canManage } = useAuth();
   const canCreateTeam = canManage || user?.permissions?.create_team_member === true;
   const canEditTeam = canManage || user?.permissions?.edit_team_member === true;
-  const [search, setSearch] = useState("");
+  const [searchParams] = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams.get("search") || "");
+  const debouncedSearch = useDebounce(search, 300);
+
+  useEffect(() => {
+    const q = searchParams.get("search") || "";
+    setSearch(q);
+  }, [searchParams]);
   const [branchFilter, setBranchFilter] = useState("الكل");
   const [roleFilter, setRoleFilter] = useState("الكل");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [viewing, setViewing] = useState<Employee | null>(null);
 
-  const { data: employees, loading, refetch } = useStaff<Employee>();
+  const { data: staffRows, loading, refetch } = useStaff<Employee>();
+  const employees = useMemo(() => mergeStaffChoices(filterActiveStaffRows(staffRows)), [staffRows]);
   const { data: schedules, loading: schedulesLoading } = useShiftSchedules<ShiftSchedule>();
   const { data: employeeTransactions } = useEmployeeTransactions<EmployeeTransaction>();
   const pointRecords = employeeTransactions as PointLedgerRecord[];
@@ -122,13 +134,13 @@ export default function Team() {
   };
 
   const filtered = useMemo(() => employees.filter(e => {
-    const raw = search.trim();
+    const raw = debouncedSearch.trim();
     const haystack = `${e.name} ${e.phone || ""} ${e.role || ""}`;
     const matchSearch = !raw || matchesOrderedSegments(haystack, raw);
     const matchBranch = branchFilter === "الكل" || e.branch === branchFilter;
     const matchRole = roleFilter === "الكل" || e.role === roleFilter;
     return matchSearch && matchBranch && matchRole;
-  }), [employees, search, branchFilter, roleFilter]);
+  }), [employees, debouncedSearch, branchFilter, roleFilter]);
   const displayEmployees = useMemo(() => uniqueEmployeesByIdentity(filtered), [filtered]);
 
   const onShiftNow = employees.filter(e => {
@@ -292,15 +304,23 @@ export default function Team() {
                 </div>
                 <div className="flex items-center gap-3">
                   {penalties > 0 && (
-                    <span className="text-red-400 text-xs font-bold">جزاء: {penalties} / {penaltyPoints} نقطة</span>
+                    <Link to={`/points?staff_id=${emp.id}`} className="text-red-400 text-xs font-bold hover:underline">جزاء: {penalties} / {penaltyPoints} نقطة</Link>
                   )}
                   {bonuses > 0 && (
-                    <span className="text-green-400 text-xs font-bold">مكافأة: {bonuses} / {bonusPoints} نقطة</span>
+                    <Link to={`/points?staff_id=${emp.id}`} className="text-green-400 text-xs font-bold hover:underline">مكافأة: {bonuses} / {bonusPoints} نقطة</Link>
                   )}
                   <span className={`text-xs font-medium ${onShift ? "text-teal-400" : "text-slate-500"}`}>
                     {onShift ? "● على الشيفت" : "○ خارج الشيفت"}
                   </span>
                 </div>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <Link to={`/invoices?seller_name=${encodeURIComponent(emp.name)}`} className="flex-1 text-center btn-secondary py-2 text-xs">
+                  الفواتير
+                </Link>
+                <Link to={`/points?staff_id=${emp.id}`} className="flex-1 text-center btn-secondary py-2 text-xs">
+                  النقاط
+                </Link>
               </div>
             </div>
           );

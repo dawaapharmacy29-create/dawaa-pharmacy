@@ -19,6 +19,7 @@ import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
 import { persistPointsTransaction } from "@/lib/pointsPersistence";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import {
   groupDoctorTotals,
@@ -175,6 +176,7 @@ export default function IncentiveMedicines() {
     });
   const { data: staffOptions } = useSupabaseQuery<DoctorOption>({
     table: "staff",
+    filters: isActiveStaffFilter(),
     orderBy: { column: "name", ascending: true },
     realtimeEnabled: false,
   });

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   ActivitySquare,
+  AlertTriangle,
   BarChart3,
   BellRing,
   BookOpenCheck,
@@ -33,6 +34,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { LOGO_URL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { getVisibleSectionsForPath } from "@/lib/permissionMatrix";
 
 type NavItem = {
   path: string;
@@ -62,11 +64,19 @@ const T = {
 
 const GROUPS: NavGroup[] = [
   {
+    title: "صحة النظام",
+    icon: ShieldCheck,
+    items: [
+      { path: "/data-health", icon: ShieldCheck, label: "صحة البيانات والربط", permission: "view_dashboard" },
+    ],
+  },
+  {
     title: "القيادة اليومية",
     icon: Crown,
     items: [
       { path: "/shift-notes", icon: ClipboardList, label: "ملاحظات الشيفتات", permission: "view_dashboard" },
       { path: "/", icon: Crown, label: "لوحة القيادة 2027", permission: "view_dashboard" },
+      { path: "/branch-inspection", icon: ClipboardList, label: "نموذج مرور وتقييم الفروع", permission: "view_dashboard" },
       { path: "/operations-center", icon: BellRing, label: "المهام والتنبيهات", permission: "view_dashboard" },
       { path: "/activity-log", icon: ActivitySquare, label: "سجل الأنشطة", adminOnly: true, permission: "view_activity_logs" },
     ],
@@ -80,6 +90,7 @@ const GROUPS: NavGroup[] = [
       { path: "/time-off", icon: Calendar, label: "الإذونات والإجازات الاستثنائية", permission: "view_schedule" },
       { path: "/staff-accounts", icon: ShieldCheck, label: "حسابات وصلاحيات", adminOnly: true, permission: "view_staff_accounts" },
       { path: "/shift-performance", icon: ClipboardList, label: "تقييم الشيفتات", permission: "view_shift_performance" },
+      { path: "/attendance-report", icon: ClipboardCheck, label: "تقرير الحضور الشهري", permission: "view_team" },
       { path: "/training", icon: BookOpenCheck, label: "التدريب والاختبارات", permission: "view_dashboard" },
     ],
   },
@@ -89,6 +100,13 @@ const GROUPS: NavGroup[] = [
     items: [
       { path: "/customers", icon: Users, label: "العملاء", permission: "view_customers" },
       { path: "/customer-service", icon: HeadphonesIcon, label: "خدمة العملاء والمتابعات", permission: "view_customer_service" },
+      { path: "/customer-data-review", icon: ClipboardCheck, label: "مراجعة بيانات العملاء", permission: "page.customer_data_review.view" },
+      { path: "/crm", icon: ClipboardList, label: "CRM والمتابعة الآمنة", permission: "page.crm.view" },
+      { path: "/incubation", icon: Sparkles, label: "مرحلة الدلع", permission: "page.incubation.view" },
+      { path: "/customer-welcome", icon: ClipboardCheck, label: "الرسائل الترحيبية", permission: "view_customer_service" },
+      { path: "/customer-cashback", icon: Wallet, label: "نقاط العملاء / الكاش باك", permission: "view_customer_service" },
+      { path: "/loyalty-tiers", icon: Crown, label: "مستويات ولاء العملاء", permission: "view_customer_service" },
+      { path: "/customer-service-credit", icon: ShieldCheck, label: "كريديت خدمة العملاء", permission: "view_customer_service" },
       { path: "/customer-requests", icon: PackageSearch, label: "طلبات العملاء", permission: "view_customer_service" },
       { path: "/reviews", icon: ClipboardCheck, label: "تقييم المحادثات", permission: "view_conversation_reviews" },
       { path: "/whatsapp-analytics", icon: BarChart3, label: "تحليل الواتساب", permission: "view_conversation_reviews" },
@@ -99,6 +117,7 @@ const GROUPS: NavGroup[] = [
     icon: BarChart3,
     items: [
       { path: "/analytics", icon: BarChart3, label: "التحليلات والمبيعات", permission: "view_analytics_sales" },
+      { path: "/branch-comparison", icon: BarChart3, label: "مقارنة الفروع", permission: "view_analytics_sales" },
       { path: "/invoices", icon: FileSpreadsheet, label: "استيراد الفواتير", permission: "view_invoice_import" },
       { path: "/offers", icon: Sparkles, label: "العروض", permission: "view_dashboard" },
       { path: "/stories", icon: Sparkles, label: "الاستوريز وتحليلها", permission: "view_dashboard" },
@@ -109,12 +128,14 @@ const GROUPS: NavGroup[] = [
     icon: Store,
     items: [
       { path: "/shortages", icon: PackageSearch, label: "النواقص", permission: "view_dashboard" },
+      { path: "/purchases", icon: FileSpreadsheet, label: "المشتريات والموردين", permission: "view_dashboard" },
       { path: "/supplies", icon: Syringe, label: "المستلزمات", permission: "view_dashboard" },
       { path: "/accessories", icon: PackageCheck, label: "الإكسسوار", permission: "view_dashboard" },
       { path: "/shelf-organization", icon: Store, label: "تنظيم الأدوية والرفوف", permission: "view_dashboard" },
       { path: "/inventory-counts", icon: ClipboardList, label: "الجرد", permission: "view_dashboard" },
       { path: "/branch-cleaning", icon: Trash2, label: "نظافة الفروع", permission: "view_dashboard" },
       { path: "/stagnant-medicines", icon: Package, label: "الأدوية الراكدة", role: T.pharmacist, permission: "view_stagnant_medicines" },
+      { path: "/medicine-expiry", icon: AlertTriangle, label: "متابعة صلاحية الأدوية", permission: "view_stagnant_medicines" },
       { path: "/incentive-medicines", icon: PackageCheck, label: "أدوية اللستة", role: T.pharmacist, permission: "view_incentive_medicines" },
     ],
   },
@@ -123,6 +144,7 @@ const GROUPS: NavGroup[] = [
     icon: Star,
     items: [
       { path: "/points", icon: Star, label: "النقاط والمكافآت", permission: "view_points_rewards" },
+      { path: "/staff-payroll", icon: Wallet, label: "قبض الموظفين", permission: "view_points_rewards" },
       { path: "/penalty-incentive", icon: ShieldCheck, label: "إدارة الجزاءات والحوافز", adminOnly: true, permission: "manage_roles" },
       { path: "/evaluation-rules", icon: ClipboardCheck, label: "قواعد التقييم المرنة", adminOnly: true, permission: "manage_roles" },
       { path: "/quarterly-incentives", icon: Crown, label: "الحافز الربع سنوي", permission: "view_points_rewards" },
@@ -169,7 +191,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const navRef = useRef<HTMLDivElement>(null);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
-  const privilegedRoles = useMemo(() => new Set([T.admin, T.branchManager, "مدير عام", "المدير العام"]), []);
+  const privilegedRoles = useMemo(() => new Set([T.admin, T.branchManager, "مدير عام", "المدير العام", "general_manager", "executive_manager", "branches_manager", "branch_manager"]), []);
 
   const groups = useMemo(() => {
     return GROUPS.map((group) => ({
@@ -211,12 +233,21 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
       if (navRef.current) navRef.current.scrollTop = Number(savedScroll) || 0;
     };
     const frameId = window.requestAnimationFrame(restore);
-    const timerId = window.setTimeout(restore, 80);
+    const timerId = window.setTimeout(restore, 120);
     return () => {
       window.cancelAnimationFrame(frameId);
       window.clearTimeout(timerId);
     };
-  }, [location.pathname, groups.length, openGroups]);
+  }, [location.pathname, groups.length]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onMobileClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileOpen, onMobileClose]);
 
   const handleLogout = () => {
     logout();
@@ -264,7 +295,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
               {!collapsed && (
                 <button
                   type="button"
-                  onClick={() => setOpenGroups((current) => ({ ...current, [group.title]: !current[group.title] }))}
+                  onClick={() => {
+                    if (navRef.current) sessionStorage.setItem("sidebarScroll", navRef.current.scrollTop.toString());
+                    setOpenGroups((current) => ({ ...current, [group.title]: !current[group.title] }));
+                  }}
                   className={cn("flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition", active ? "bg-teal-500/10 text-teal-200" : "text-slate-400 hover:bg-white/5 hover:text-white")}
                 >
                   <GroupIcon size={15} />
@@ -274,22 +308,36 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
               )}
               {open && (
                 <div className={cn("space-y-0.5", collapsed ? "" : "pr-2")}>
-                  {group.items.map((item) => (
-                    <NavLink
-                      key={item.path}
-                      to={item.path}
-                      end={item.path === "/"}
-                      onClick={() => {
-                        if (navRef.current) sessionStorage.setItem("sidebarScroll", navRef.current.scrollTop.toString());
-                        onMobileClose();
-                      }}
-                      className={() => cn("nav-item", isRouteActive(item.path, location.pathname) ? "nav-item-active" : "nav-item-inactive", collapsed ? "justify-center px-2" : "")}
-                      title={collapsed ? item.label : undefined}
-                    >
-                      <item.icon className="h-4.5 w-4.5 flex-shrink-0" size={18} />
-                      {!collapsed && <span>{item.label}</span>}
-                    </NavLink>
-                  ))}
+                  {group.items.map((item) => {
+                    const itemActive = isRouteActive(item.path, location.pathname);
+                    const visibleSections = getVisibleSectionsForPath(item.path, checkPermission);
+                    return (
+                      <div key={item.path} className="space-y-1">
+                        <NavLink
+                          to={item.path}
+                          end={item.path === "/"}
+                          onClick={() => {
+                            if (navRef.current) sessionStorage.setItem("sidebarScroll", navRef.current.scrollTop.toString());
+                            onMobileClose();
+                          }}
+                          className={() => cn("nav-item", itemActive ? "nav-item-active" : "nav-item-inactive", collapsed ? "justify-center px-2" : "")}
+                          title={collapsed ? item.label : undefined}
+                        >
+                          <item.icon className="h-4.5 w-4.5 flex-shrink-0" size={18} />
+                          {!collapsed && <span>{item.label}</span>}
+                        </NavLink>
+                        {!collapsed && itemActive && visibleSections.length > 0 && (
+                          <div className="mr-8 space-y-1 border-r border-teal-500/20 pr-3">
+                            {visibleSections.map((section) => (
+                              <div key={section.key} className="rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-300">
+                                {section.label}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

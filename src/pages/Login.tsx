@@ -115,11 +115,7 @@ export default function Login() {
 
           {showDemoCredentials && (
             <div className="mt-6 p-4 bg-white/3 rounded-xl border border-white/5">
-              <p className="text-slate-400 text-xs text-center mb-2 font-medium">بيانات تجريبية</p>
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                <div><span className="text-slate-300">أدمن:</span> admin / admin123</div>
-                <div><span className="text-slate-300">مدير فرع:</span> yasmine.farouk / pass123</div>
-              </div>
+              <p className="text-slate-400 text-xs text-center font-medium">بيانات الدخول التجريبية لا تظهر في نسخة التشغيل. راجع مسؤول النظام.</p>
             </div>
           )}
         </div>

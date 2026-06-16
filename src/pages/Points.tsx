@@ -1,5 +1,5 @@
 ﻿import { useMemo, useState } from "react";
-import { CheckCircle, Plus, Search, Star, TrendingDown, XCircle, Calculator } from "lucide-react";
+import { CheckCircle, Plus, Search, Star, TrendingDown, XCircle, Calculator, BarChart3, PieChart } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { AddPointsModal } from "@/components/points/AddPointsModal";
@@ -11,13 +11,22 @@ import { approverHintFromRule, applyStaffDelta } from "@/lib/pointsPersistence";
 import { formatTransactionExecutor, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus } from "@/lib/pointsLedger";
 import { type PointsTxnStatus } from "@/lib/pointsWorkflow";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { calculateStaffCycleIncentiveFromRows, getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
+import {
+  calculateStaffCycleIncentiveFromRows,
+  getQuarterlyCashAmount,
+  getStaffCycleIncentive,
+  isQuarterlyCashRewardRecord,
+  type StaffCycleIncentive,
+} from "@/lib/staffIncentiveService";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { mergeStaffChoices } from "@/lib/staffFallback";
+import { formatRuleImpact } from "@/lib/ruleDisplay";
 import { formatCurrency, formatDateTime, matchesOrderedSegments, percent, toNumber } from "@/lib/utils";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
 import { logActivity, useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { TABLES } from "@/lib/supabaseTables";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell } from "recharts";
 
 interface StaffMember {
   id: string;
@@ -34,6 +43,9 @@ interface StaffMember {
   is_deleted?: boolean | null;
   points: number | null;
   max_points: number | null;
+  duplicate_ids?: string[];
+  aliases?: string[];
+  duplicate_count?: number;
 }
 
 interface PointRecord {
@@ -116,6 +128,7 @@ export default function Points() {
 
   const { data: staffList, loading: staffLoading, refetch: refetchStaff } = useSupabaseQuery<StaffMember>({
     table: "staff",
+    filters: isActiveStaffFilter(),
     orderBy: { column: "points", ascending: false },
     realtimeEnabled: true,
   });
@@ -248,6 +261,8 @@ export default function Points() {
       pendingRewardPoints: incentive.pendingRewardPoints,
       pendingDeductionPoints: incentive.pendingDeductionPoints,
       incentive: incentive.incentiveValue,
+      quarterlyCashRewards: incentive.quarterlyCashRewards,
+      cashRewardTransactions: incentive.cashRewardTransactions,
       warnings: incentive.warnings,
     };
   };
@@ -261,6 +276,7 @@ export default function Points() {
     const totalIncentive = rows.reduce((sum, row) => sum + row.incentive, 0);
     const totalRewards = rows.reduce((sum, row) => sum + row.rewardPoints, 0);
     const totalPenalties = rows.reduce((sum, row) => sum + row.penaltyPoints, 0);
+    const totalQuarterlyCashRewards = rows.reduce((sum, row) => sum + (row.quarterlyCashRewards || 0), 0);
     const reportRows = rows
       .map((row) => `<tr>
         <td>${row.staff.display_name || row.staff.name}</td>
@@ -270,6 +286,7 @@ export default function Points() {
         <td>${row.rewardPoints}</td>
         <td>${row.penaltyPoints}</td>
         <td>${formatCurrency(row.incentive)}</td>
+        <td>${formatCurrency(row.quarterlyCashRewards || 0)}</td>
         <td>${row.records.length}</td>
       </tr>`)
       .join("");
@@ -293,11 +310,12 @@ export default function Points() {
       <div class="summary">
         <div><span class="muted">عدد الموظفين</span><br><span class="num">${rows.length}</span></div>
         <div><span class="muted">إجمالي الحوافز</span><br><span class="num">${formatCurrency(totalIncentive)}</span></div>
-        <div><span class="muted">نقاط المكافآت</span><br><span class="num">${totalRewards}</span></div>
+        <div><span class="muted">نقاط المكافآت الشهرية</span><br><span class="num">${totalRewards}</span></div>
         <div><span class="muted">نقاط الخصومات</span><br><span class="num">${totalPenalties}</span></div>
+        <div><span class="muted">مكافآت مالية ربع سنوية</span><br><span class="num">${formatCurrency(totalQuarterlyCashRewards)}</span></div>
       </div>
       <div class="box"><h2>تفاصيل الموظفين</h2><table>
-        <thead><tr><th>الموظف</th><th>الدور</th><th>الفرع</th><th>النقاط</th><th>مكافآت</th><th>خصومات</th><th>الحافز النهائي</th><th>عمليات الدورة</th></tr></thead>
+        <thead><tr><th>الموظف</th><th>الدور</th><th>الفرع</th><th>النقاط</th><th>مكافآت شهرية</th><th>خصومات</th><th>الحافز الشهري</th><th>مكافآت ربع سنوية</th><th>عمليات الدورة</th></tr></thead>
         <tbody>${reportRows || `<tr><td colspan="8">لا توجد بيانات موظفين</td></tr>`}</tbody>
       </table></div>
       <div class="box"><h2>طريقة الحساب</h2><table>
@@ -370,7 +388,10 @@ export default function Points() {
     );
   }
 
-  const cycleBonusPoints = approvedCycleRecords.filter(isBonusRecord).reduce((sum, row) => sum + recordPoints(row), 0);
+  const cycleBonusPoints = approvedCycleRecords.filter((row) => isBonusRecord(row) && !isQuarterlyCashRewardRecord(row)).reduce((sum, row) => sum + recordPoints(row), 0);
+  const cycleQuarterlyCashRewards = approvedCycleRecords
+    .filter(isQuarterlyCashRewardRecord)
+    .reduce((sum, row) => sum + getQuarterlyCashAmount(row), 0);
   const cycleDeductionPoints = approvedCycleRecords.filter(isDeductionRecord).reduce((sum, row) => sum + recordPoints(row), 0);
 
   // Calculate salary for selected staff
@@ -394,7 +415,9 @@ export default function Points() {
           </div>
         </div>
         <div className="flex gap-4 flex-wrap">
-          <StatChip label="مكافآت الدورة" value={cycleBonusPoints} tone="teal" />
+          <StatChip label="مكافآت شهرية" value={cycleBonusPoints} tone="teal" />
+          <div className="w-px bg-[#2d4063]" />
+          <StatChip label="مكافآت مالية ربع سنوية" value={cycleQuarterlyCashRewards} tone="teal" />
           <div className="w-px bg-[#2d4063]" />
           <StatChip label="خصومات الدورة" value={cycleDeductionPoints} tone="red" />
           <div className="w-px bg-[#2d4063]" />
@@ -442,6 +465,12 @@ export default function Points() {
               <div className="progress-fill" style={{ width: `${percent(employeePoints, employeeSummary.maxPoints)}%` }} />
             </div>
             <div className="text-slate-400 text-xs mt-2">{employee.branch}</div>
+            {(employeeSummary.quarterlyCashRewards || 0) > 0 && (
+              <div className="text-teal-300 text-xs mt-1">مكافآت مالية ربع سنوية: {formatCurrency(employeeSummary.quarterlyCashRewards || 0)}</div>
+            )}
+            {(employee.duplicate_count || 0) > 1 && (
+              <div className="text-amber-300 text-xs mt-1">تم دمج {employee.duplicate_count} حسابات مكررة في العرض</div>
+            )}
             <button
               onClick={() => handleCalculateSalary(employee)}
               className="mt-3 w-full btn-secondary text-xs py-1.5"
@@ -453,6 +482,123 @@ export default function Points() {
         })}
       </div>
 
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="stat-card">
+          <div className="text-slate-400 text-xs mb-1">إجمالي الحافز الشهري المتوقع</div>
+          <div className="text-2xl font-bold text-white">{formatCurrency(staffChoices.reduce((sum, staff) => sum + staffIncentiveSummary(staff).incentive, 0))}</div>
+        </div>
+        <div className="stat-card">
+          <div className="text-slate-400 text-xs mb-1">موظفين على 500 نقطة</div>
+          <div className="text-2xl font-bold text-teal-400">{staffChoices.filter(staff => staffIncentiveSummary(staff).currentPoints >= 500).length}</div>
+        </div>
+        <div className="stat-card">
+          <div className="text-slate-400 text-xs mb-1">موظفين أقل من 450 نقطة</div>
+          <div className="text-2xl font-bold text-red-400">{staffChoices.filter(staff => staffIncentiveSummary(staff).currentPoints < 450).length}</div>
+        </div>
+        <div className="stat-card">
+          <div className="text-slate-400 text-xs mb-1">خصومات تحتاج اعتماد</div>
+          <div className="text-2xl font-bold text-amber-400">{pendingApprovals.length}</div>
+        </div>
+        <div className="stat-card">
+          <div className="text-slate-400 text-xs mb-1">مكافآت شهرية استثنائية</div>
+          <div className="text-2xl font-bold text-green-400">{approvedCycleRecords.filter(row => isBonusRecord(row) && !isQuarterlyCashRewardRecord(row)).length}</div>
+        </div>
+        <div className="stat-card">
+          <div className="text-slate-400 text-xs mb-1">مكافآت مالية ربع سنوية</div>
+          <div className="text-2xl font-bold text-purple-400">{formatCurrency(cycleQuarterlyCashRewards)}</div>
+        </div>
+      </div>
+
+      {/* Points Ranking Chart */}
+      <div className="stat-card">
+        <div className="flex items-center gap-2 mb-4">
+          <BarChart3 className="text-teal-400" size={20} />
+          <h3 className="text-white font-bold text-sm">ترتيب النقاط الشهرية</h3>
+        </div>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={staffChoices.slice(0, 10).map(staff => ({
+              name: staff.display_name || staff.name,
+              points: staffIncentiveSummary(staff).currentPoints,
+              maxPoints: staffIncentiveSummary(staff).maxPoints,
+            }))} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
+              <XAxis type="number" stroke="#64748b" />
+              <YAxis dataKey="name" type="category" width={100} stroke="#64748b" tick={{ fontSize: 11 }} />
+              <Tooltip 
+                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }}
+                labelStyle={{ color: "#e2e8f0" }}
+              />
+              <Bar dataKey="points" fill="#14b8a6" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Deductions by Type Chart */}
+      <div className="stat-card">
+        <div className="flex items-center gap-2 mb-4">
+          <PieChart className="text-teal-400" size={20} />
+          <h3 className="text-white font-bold text-sm">الخصومات حسب النوع</h3>
+        </div>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <RechartsPieChart>
+              <Pie
+                data={(() => {
+                  const deductionTypes = new Map<string, number>();
+                  approvedCycleRecords.filter(isDeductionRecord).forEach(row => {
+                    const type = row.type || row.reason || "أخرى";
+                    deductionTypes.set(type, (deductionTypes.get(type) || 0) + recordPoints(row));
+                  });
+                  return Array.from(deductionTypes.entries()).map(([name, value]) => ({ name, value }));
+                })()}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {["#14b8a6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#10b981"].map((color, index) => (
+                  <Cell key={`cell-${index}`} fill={color} />
+                ))}
+              </Pie>
+              <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }} />
+            </RechartsPieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Quarterly Cash Rewards Chart */}
+      <div className="stat-card">
+        <div className="flex items-center gap-2 mb-4">
+          <Star className="text-purple-400" size={20} />
+          <h3 className="text-white font-bold text-sm">المكافآت المالية للربع سنوي</h3>
+        </div>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={staffChoices
+              .filter(staff => staffIncentiveSummary(staff).quarterlyCashRewards > 0)
+              .map(staff => ({
+                name: staff.display_name || staff.name,
+                rewards: staffIncentiveSummary(staff).quarterlyCashRewards || 0,
+              }))}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
+              <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#64748b" />
+              <Tooltip 
+                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }}
+                formatter={(value: number) => formatCurrency(value)}
+              />
+              <Bar dataKey="rewards" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
       {tab === "salary" && selectedStaffForSalary && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <SalaryCalculator
@@ -462,8 +608,10 @@ export default function Points() {
             cycleLabel={cycle.label}
             currentPoints={staffIncentiveSummary(selectedStaffForSalary).currentPoints}
             maxPoints={staffIncentiveSummary(selectedStaffForSalary).maxPoints}
+            startingPoints={staffIncentiveSummary(selectedStaffForSalary).maxPoints}
             rewardPoints={staffIncentiveSummary(selectedStaffForSalary).rewardPoints}
             penaltyPoints={staffIncentiveSummary(selectedStaffForSalary).penaltyPoints}
+            quarterlyCashRewards={staffIncentiveSummary(selectedStaffForSalary).quarterlyCashRewards}
             records={staffIncentiveSummary(selectedStaffForSalary).records}
           />
           <div className="stat-card">
@@ -496,7 +644,7 @@ export default function Points() {
         </div>
       )}
 
-      <div className="bg-[#1B2B4B]/80 border border-[#2d4063] rounded-xl p-4 text-sm text-slate-300">
+      <div className="dawaa-panel rounded-xl p-4 text-sm">
         <div className="text-teal-300 font-semibold text-xs mb-2">اقتراحات لتطوير الأداء والفريق</div>
         <ul className="list-disc list-inside space-y-1.5 text-slate-400 text-xs leading-relaxed">
           <li>راجع أسباب الخصومات مع الموظف في جلسة قصيرة وحدد هدف تحسين واحد للأسبوع القادم.</li>
@@ -506,7 +654,7 @@ export default function Points() {
         </ul>
       </div>
 
-      <div className="flex gap-2 bg-[#1B2B4B] border border-[#2d4063] p-1.5 rounded-xl flex-wrap w-fit">
+      <div className="flex gap-2 dawaa-panel p-1.5 rounded-xl flex-wrap w-fit">
         {[
           ["overview", "نظرة عامة"],
           ["records", "السجلات"],
@@ -573,8 +721,10 @@ export default function Points() {
                     />
                   </div>
                   <div className="flex gap-2 flex-wrap">
-                    <span className="badge-success text-xs">+{rewards} مكافآت</span>
+                    <span className="badge-success text-xs">+{rewards} مكافآت شهرية</span>
+                    {(summary.quarterlyCashRewards || 0) > 0 && <span className="badge-info text-xs">{formatCurrency(summary.quarterlyCashRewards || 0)} ربع سنوي</span>}
                     <span className="badge-danger text-xs">-{deductions} خصومات</span>
+                    {(employee.duplicate_count || 0) > 1 && <span className="badge-warning text-xs">مدمج من {employee.duplicate_count} حساب</span>}
                     <span className="text-slate-400 text-xs mr-auto">{employeeRecords.length} عملية</span>
                   </div>
                 </Link>
@@ -585,7 +735,24 @@ export default function Points() {
       )}
 
       {tab === "records" && <RecordsTable records={validRecords} staffIdByName={staffIdByName} validStaffIds={validStaffIds} />}
-      {tab === "rules" && <RulesBoard rules={mergedRules} />}
+      {tab === "rules" && (
+        <div className="space-y-5">
+          <div className="stat-card border border-teal-500/20 space-y-3">
+            <h2 className="text-lg font-black text-white">نظام إدارة الأداء والحوافز التشغيلية</h2>
+            <p className="text-sm leading-7 text-slate-400">
+              الحافز الشهري: 500 نقطة = 1500 جنيه (دورة 26→25) · الحافز الربع سنوي: 2000 جنيه منفصل · لائحة التشغيل والسلوك المهني.
+            </p>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Link to="/evaluation-rules" className="badge-info">لائحة الخصومات والمكافآت</Link>
+              <Link to="/quarterly-incentives" className="badge-purple">الحافز الربع سنوي</Link>
+            </div>
+            <p className="text-xs text-teal-200">
+              تم فصل مكافآت الرواكد واللستة المالية عن نقاط الشهر وإضافتها للحافز الربع سنوي.
+            </p>
+          </div>
+          <RulesBoard rules={mergedRules} />
+        </div>
+      )}
       {tab === "approvals" && (canManage || user?.permissions?.approve_points_changes === true) && <ApprovalsBoard pending={pendingApprovals} onApprove={approveRecord} />}
       {tab === "mine" && <MineBoard rows={myCycleRecords} />}
 
@@ -627,7 +794,7 @@ function RecordsTable({
   validStaffIds: Set<string>;
 }) {
   return (
-    <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl overflow-hidden">
+    <div className="dawaa-panel rounded-2xl overflow-hidden p-0">
       <div className="overflow-x-auto">
         <table className="data-table">
           <thead>
@@ -711,8 +878,11 @@ function RulesBoard({ rules }: { rules: EvaluationRuleDef[] }) {
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-white font-bold text-sm">{rule.title}</span>
                         <span className={`text-lg font-bold num whitespace-nowrap ${rule.type === "bonus" ? "text-teal-400" : "text-red-400"}`}>
-                          {rule.type === "bonus" ? "+" : "-"}
-                          {rule.default_points}
+                          {formatRuleImpact({
+                            impact_type: rule.impact_type,
+                            points_delta: rule.type === "bonus" ? rule.default_points : -Math.abs(rule.default_points || 0),
+                            money_delta: (rule as { money_delta?: number }).money_delta,
+                          })}
                         </span>
                       </div>
                       <div className="text-slate-500 text-[10px] mt-0.5 font-mono">{rule.code}</div>

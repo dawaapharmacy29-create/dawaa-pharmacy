@@ -1,7 +1,7 @@
 import type { PharmacyCycle } from "@/lib/pharmacy-cycle";
 import { isDateInCycle } from "@/lib/pharmacy-cycle";
 import { monthCycleFromDate } from "@/lib/conversationReviews";
-import { INITIAL_POINTS, RECORD_STATUS } from "@/lib/constants";
+import { INITIAL_POINTS } from "@/lib/constants";
 
 export interface PointLedgerRecord {
   id?: string | null;
@@ -43,6 +43,8 @@ export interface StaffLedgerTarget {
   name?: string | null;
   points?: number | string | null;
   max_points?: number | string | null;
+  duplicate_ids?: string[] | null;
+  aliases?: string[] | null;
 }
 
 function numeric(value: unknown): number | null {
@@ -88,7 +90,7 @@ export function pointRecordStatus(row: PointLedgerRecord) {
     .replace("مرفوض", "rejected")
     .replace("ملغي", "cancelled")
     .replace("ملغى", "cancelled");
-  if (status === RECORD_STATUS.APPROVED || status === "active") return RECORD_STATUS.APPROVED;
+  if (status === "active") return "approved";
   if (status === "cancelled") return "rejected";
   return status;
 }
@@ -258,15 +260,18 @@ export function isRecordInCycle(row: PointLedgerRecord, cycle: PharmacyCycle) {
 
 export function recordBelongsToStaff(row: PointLedgerRecord, staff: StaffLedgerTarget) {
   const staffId = String(staff.id || "").trim();
+  const duplicateIds = new Set([staffId, ...((staff.duplicate_ids || []) as string[])].filter(Boolean).map((value) => String(value).trim()));
   const rowCanonicalStaffId = String(row.staff_id || "").trim();
-  if (staffId && rowCanonicalStaffId && staffId === rowCanonicalStaffId) return true;
+  if (rowCanonicalStaffId && duplicateIds.has(rowCanonicalStaffId)) return true;
 
   const rowStaffId = String(row.employee_id || "").trim();
-  if (staffId && rowStaffId && staffId === rowStaffId) return true;
+  if (rowStaffId && duplicateIds.has(rowStaffId)) return true;
 
-  const staffName = normalizeStaffLedgerKey(staff.name);
+  const staffNames = new Set([staff.name, ...((staff.aliases || []) as string[])]
+    .map(normalizeStaffLedgerKey)
+    .filter(Boolean));
   const rowName = normalizeStaffLedgerKey(row.employee_name);
-  return Boolean(staffName && rowName && staffName === rowName);
+  return Boolean(rowName && staffNames.has(rowName));
 }
 
 export function effectiveCyclePoints(

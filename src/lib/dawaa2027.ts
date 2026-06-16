@@ -82,15 +82,25 @@ export function pickFirst(row: Record<string, unknown>, keys: string[], fallback
 
 export function getInvoiceAmount(row: Record<string, unknown>) {
   // Trusted net formula: net_amount -> discounted_amount -> amount.
-  return toNumber(pickFirst(row, ["net_amount", "discounted_amount", "amount"], 0));
+  return toNumber(pickFirst(row, ["net_amount", "discounted_amount", "amount", "gross_amount", "net_total", "net_sales", "sales_total"], 0));
+}
+
+export function getInvoiceKey(row: Record<string, unknown>) {
+  return String(pickFirst(row, ["invoice_no", "invoice_number", "id"], "")).trim();
+}
+
+export function getInvoiceDuplicateKey(row: Record<string, unknown>) {
+  const branch = String(pickFirst(row, ["branch", "branch_name"], "غير محدد") || "غير محدد").trim() || "غير محدد";
+  const invoiceDate = String(pickFirst(row, ["invoice_date", "sale_date", "date"], "")).slice(0, 10);
+  return [branch, invoiceDate, getInvoiceKey(row)].join("|");
 }
 
 export function getInvoiceDate(row: Record<string, unknown>) {
-  return String(pickFirst(row, ["invoice_date", "date", "created_at", "transaction_date"], ""));
+  return String(pickFirst(row, ["invoice_date", "sale_date", "date", "created_at", "transaction_date"], ""));
 }
 
 export function getInvoiceDoctor(row: Record<string, unknown>) {
-  return String(pickFirst(row, ["doctor_name", "doctor", "staff_name", "employee_name", "salesperson", "pharmacist", "created_by"], "غير محدد"));
+  return String(pickFirst(row, ["seller_name", "doctor_name", "doctor", "staff_name", "employee_name", "salesperson", "pharmacist", "created_by"], "غير محدد"));
 }
 
 export function getInvoiceCustomer(row: Record<string, unknown>) {

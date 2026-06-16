@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { fetchSalesInvoicesPagedSafe } from "@/lib/salesInvoiceQueries";
 
 export const ALL_BRANCHES = "all";
 export const ALL_BRANCHES_LABEL = "كل الفروع";
@@ -346,6 +347,106 @@ async function fetchKpis(startDate: string, endDate: string, branch: string, err
   return normalizeRpcKpis(data);
 }
 
+async function fetchLiveInvoiceRows(startDate: string, endDate: string, branch: string, errors: SourceError[]) {
+  const invoiceErrors: string[] = [];
+  const rows = await fetchSalesInvoicesPagedSafe({
+    startDate,
+    endDate,
+    branch: isAllBranches(branch) ? "كل الفروع" : branch,
+    errors: invoiceErrors,
+  });
+
+  invoiceErrors.forEach((message) => addError(errors, "sales_invoices_live", message));
+  return rows as Row[];
+}
+
+function invoiceAmount(row: Row) {
+  return toNumber(readFirst(row, ["net_amount", "discounted_amount", "amount", "gross_amount"], 0));
+}
+
+function buildLiveDailySales(rows: Row[]): SalesDailySummary[] {
+  const map = new Map<string, { netTotal: number; invoicesCount: number; customers: Set<string> }>();
+  for (const row of rows) {
+    const saleDate = String(readFirst(row, ["invoice_date"], "") || "").slice(0, 10);
+    if (!saleDate) continue;
+    const branch = String(readFirst(row, ["branch"], "") || "");
+    const key = `${saleDate}|${branch}`;
+    const current = map.get(key) || { netTotal: 0, invoicesCount: 0, customers: new Set<string>() };
+    current.netTotal += invoiceAmount(row);
+    current.invoicesCount += 1;
+    const customerKey = String(readFirst(row, ["customer_code", "customer_phone", "customer_name"], "") || "").trim();
+    if (customerKey) current.customers.add(customerKey);
+    map.set(key, current);
+  }
+  return [...map.entries()].map(([key, value]) => {
+    const [saleDate, branch] = key.split("|");
+    return {
+      saleDate,
+      branch: branch || null,
+      shift: null,
+      netTotal: value.netTotal,
+      invoicesCount: value.invoicesCount,
+      avgInvoice: value.invoicesCount > 0 ? value.netTotal / value.invoicesCount : 0,
+      uniqueCustomers: value.customers.size,
+    };
+  }).sort((a, b) => a.saleDate.localeCompare(b.saleDate));
+}
+
+function buildLiveStaffSales(rows: Row[]): StaffSalesSummary[] {
+  const map = new Map<string, { netTotal: number; invoicesCount: number; customers: Set<string> }>();
+  for (const row of rows) {
+    const saleDate = String(readFirst(row, ["invoice_date"], "") || "").slice(0, 10);
+    const sellerName = String(readFirst(row, ["seller_name"], "") || "").trim();
+    if (!saleDate || !sellerName) continue;
+    const branch = String(readFirst(row, ["branch"], "") || "");
+    const key = `${saleDate}|${sellerName}|${branch}`;
+    const current = map.get(key) || { netTotal: 0, invoicesCount: 0, customers: new Set<string>() };
+    current.netTotal += invoiceAmount(row);
+    current.invoicesCount += 1;
+    const customerKey = String(readFirst(row, ["customer_code", "customer_phone", "customer_name"], "") || "").trim();
+    if (customerKey) current.customers.add(customerKey);
+    map.set(key, current);
+  }
+  return [...map.entries()].map(([key, value]) => {
+    const [saleDate, sellerName, branch] = key.split("|");
+    return {
+      saleDate,
+      sellerName,
+      branch: branch || null,
+      netTotal: value.netTotal,
+      invoicesCount: value.invoicesCount,
+      avgInvoice: value.invoicesCount > 0 ? value.netTotal / value.invoicesCount : 0,
+      uniqueCustomers: value.customers.size,
+    };
+  }).sort((a, b) => a.saleDate.localeCompare(b.saleDate));
+}
+
+function buildLiveKpis(rows: Row[]): DashboardKpis {
+  const netSales = rows.reduce((sum, row) => sum + invoiceAmount(row), 0);
+  const customers = new Set<string>();
+  const sellers = new Set<string>();
+  for (const row of rows) {
+    const customerKey = String(readFirst(row, ["customer_code", "customer_phone", "customer_name"], "") || "").trim();
+    if (customerKey) customers.add(customerKey);
+    const seller = String(readFirst(row, ["seller_name"], "") || "").trim();
+    if (seller) sellers.add(seller);
+  }
+  return {
+    netSales,
+    invoicesCount: rows.length,
+    avgInvoice: rows.length ? netSales / rows.length : 0,
+    uniqueCustomers: customers.size,
+    activeDoctors: sellers.size,
+    activeDelivery: null,
+    dueFollowups: null,
+    overdueFollowups: null,
+    tasksDueToday: null,
+    invoicesWithoutCustomerCode: null,
+    invoicesWithoutSellerName: null,
+    invoicesWithoutBranch: null,
+  };
+}
+
 async function fetchSummaryRows(args: {
   table: string;
   dateColumn: string;
@@ -503,6 +604,36 @@ function startOfTomorrowIso() {
 
 async function fetchCustomerIntelligence(branch: string, errors: SourceError[], health: SourceHealth): Promise<CustomerIntelligence> {
   try {
+    // V13: استخدم مصدر العملاء الجديد إذا كان موجودًا، لأنه مبني على dawaa_customer_purchase_frequency_v2
+    // ويحل مشكلة ظهور العملاء المهمين والمتوقفين بصفر في الداشبورد.
+    if (isAllBranches(branch)) {
+      const { data: v13Rows, error: v13Error } = await supabase
+        .from("dawaa_dashboard_customer_cards_v13")
+        .select("important_customers,very_important_customers,customers_need_attention,stopped_customers")
+        .limit(1);
+
+      if (!v13Error && v13Rows && v13Rows.length > 0) {
+        const row = v13Rows[0] as Row;
+        const important = toNumber(readFirst(row, ["important_customers"]));
+        const veryImportant = toNumber(readFirst(row, ["very_important_customers"]));
+        const needAttention = toNumber(readFirst(row, ["customers_need_attention"]));
+        const stopped = toNumber(readFirst(row, ["stopped_customers"]));
+        health.customerSummaryAvailable = true;
+        return {
+          importantNeedFollowup: important + veryImportant + needAttention,
+          stoppedCustomers: stopped,
+          atRiskCustomers: needAttention,
+          customersWithoutValidPhone: null,
+          incompleteCustomers: null,
+          unlinkedCustomers: null,
+          dueTodayFollowups: null,
+          overdueFollowups: null,
+          needsManagerFollowups: null,
+          error: null,
+        };
+      }
+    }
+
     const today = startOfTodayIso();
     const tomorrow = startOfTomorrowIso();
     const applyBranch = (query: any) => (!isAllBranches(branch) ? query.eq("branch", branch) : query);
@@ -668,12 +799,14 @@ function sumFollowupRows(rows: FollowupPerformanceSummary[]) {
 function buildNormalizedKpis(args: {
   kpis: DashboardKpis | null;
   dailySales: SalesDailySummary[];
+  salesSource?: string;
   followupPerformance: FollowupPerformanceSummary[];
   notifications: DashboardNotification[];
   customerIntelligence: CustomerIntelligence;
   errors: SourceError[];
 }): DashboardKpiMetrics {
   const { kpis, dailySales, followupPerformance, notifications, customerIntelligence, errors } = args;
+  const salesSource = args.salesSource || "sales_daily_summary";
   const rpcError = sourceError(errors, "get_dashboard_kpis");
   const salesSummaryError = sourceError(errors, "sales_daily_summary");
   const followupError = sourceError(errors, "followup_performance_summary");
@@ -681,16 +814,16 @@ function buildNormalizedKpis(args: {
   const salesSummaryHasRows = dailySales.length > 0;
   const salesNetFromSummary = salesSummaryHasRows ? sumNumbers(dailySales, (row) => row.netTotal) : null;
   const invoicesFromSummary = salesSummaryHasRows ? sumNumbers(dailySales, (row) => row.invoicesCount) : null;
-  const netSales = hasNumber(kpis?.netSales)
-    ? metric(kpis.netSales, "get_dashboard_kpis")
-    : hasNumber(salesNetFromSummary)
-      ? metric(salesNetFromSummary, "sales_daily_summary")
+  const netSales = hasNumber(salesNetFromSummary)
+    ? metric(salesNetFromSummary, salesSource)
+    : hasNumber(kpis?.netSales)
+      ? metric(kpis.netSales, "get_dashboard_kpis")
       : metric(null, "sales_daily_summary", { error: salesSummaryError, unavailableMessage: rpcError ? "تعذر تحميل صافي المبيعات من الدالة والملخص اليومي" : "غير متاح حاليًا" });
 
-  const invoicesCount = hasNumber(kpis?.invoicesCount)
-    ? metric(kpis.invoicesCount, "get_dashboard_kpis", { empty: kpis.invoicesCount === 0 })
-    : hasNumber(invoicesFromSummary)
-      ? metric(invoicesFromSummary, "sales_daily_summary", { empty: invoicesFromSummary === 0 })
+  const invoicesCount = hasNumber(invoicesFromSummary)
+    ? metric(invoicesFromSummary, salesSource, { empty: invoicesFromSummary === 0 })
+    : hasNumber(kpis?.invoicesCount)
+      ? metric(kpis.invoicesCount, "get_dashboard_kpis", { empty: kpis.invoicesCount === 0 })
       : metric(null, "get_dashboard_kpis", { error: rpcError });
 
   const avgFromNet = hasNumber(netSales.value) && hasNumber(invoicesCount.value) && invoicesCount.value > 0
@@ -879,8 +1012,9 @@ export async function fetchExecutiveDashboardSummary(params: {
   const sourceHealth: SourceHealth = { ...SOURCE_HEALTH_EMPTY };
   const { startDate, endDate, branch } = params;
 
-  const [kpis, dailyRows, staffRows, deliveryRows, followupRows, notificationsRows, activityRows, dataHealth, customerIntelligence] = await Promise.all([
+  const [kpis, liveInvoiceRows, dailyRows, staffRows, deliveryRows, followupRows, notificationsRows, activityRows, dataHealth, customerIntelligence] = await Promise.all([
     fetchKpis(startDate, endDate, branch, errors, sourceHealth),
+    fetchLiveInvoiceRows(startDate, endDate, branch, errors),
     fetchSummaryRows({
       table: "sales_daily_summary",
       dateColumn: "sale_date",
@@ -931,15 +1065,20 @@ export async function fetchExecutiveDashboardSummary(params: {
     fetchCustomerIntelligence(branch, errors, sourceHealth),
   ]);
 
-  const dailySales = dailyRows.map(mapDaily).filter((row) => row.saleDate);
-  const staffSales = staffRows.map(mapStaff).filter((row) => row.sellerName);
+  const liveDailySales = buildLiveDailySales(liveInvoiceRows);
+  const liveStaffSales = buildLiveStaffSales(liveInvoiceRows);
+  const dailySales = liveDailySales.length ? liveDailySales : dailyRows.map(mapDaily).filter((row) => row.saleDate);
+  const staffSales = liveStaffSales.length ? liveStaffSales : staffRows.map(mapStaff).filter((row) => row.sellerName);
+  const effectiveKpis = liveInvoiceRows.length ? buildLiveKpis(liveInvoiceRows) : kpis;
+  if (liveInvoiceRows.length) sourceHealth.salesSummaryAvailable = true;
   const deliveryPerformance = deliveryRows.map(mapDelivery).filter((row) => row.deliveryStaff);
   const followupPerformance = followupRows.map(mapFollowup).filter((row) => row.followupDate);
   const notifications = notificationsRows.map(mapNotification);
   const activity = activityRows.map(mapActivity);
   const normalizedKpis = buildNormalizedKpis({
-    kpis,
+    kpis: effectiveKpis,
     dailySales,
+    salesSource: liveInvoiceRows.length ? "sales_invoices_live" : "sales_daily_summary",
     followupPerformance,
     notifications,
     customerIntelligence,
@@ -948,7 +1087,7 @@ export async function fetchExecutiveDashboardSummary(params: {
   const actionCenter = buildActionCenter({ normalizedKpis, customerIntelligence, dataHealth, errors });
 
   return {
-    kpis,
+    kpis: effectiveKpis,
     dailySales,
     staffSales,
     deliveryPerformance,

@@ -1,0 +1,11 @@
+{
+  "version": "2026.06.08-customers-responsive-cards-fix",
+  "date": "2026-06-08",
+  "features": [
+    "customers page uses responsive cards on normal screens",
+    "desktop customers table only on very large screens",
+    "clear customer metrics in cards",
+    "no zoom-out needed for customers page",
+    "preserved cashback responsive cards fix"
+  ]
+}

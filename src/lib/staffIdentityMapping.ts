@@ -181,7 +181,7 @@ export async function getUnlinkedSellerNames(): Promise<string[]> {
     .from('sales_invoices')
     .select('seller_name')
     .not('seller_name', 'is', null)
-    .not('staff_id', 'is', null);
+    .is('staff_id', null);
   
   if (invoiceError) {
     console.error('Error fetching invoices:', invoiceError);
@@ -201,7 +201,7 @@ export async function getUnlinkedSellerNames(): Promise<string[]> {
     .from('conversation_sales_reviews')
     .select('staff_name')
     .not('staff_name', 'is', null)
-    .not('staff_id', 'is', null);
+    .is('staff_id', null);
   
   if (!reviewError && reviews) {
     for (const review of reviews) {

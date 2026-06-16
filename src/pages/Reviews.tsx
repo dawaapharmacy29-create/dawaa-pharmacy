@@ -21,6 +21,7 @@ import { getCycleForDate } from "@/lib/pharmacy-cycle";
 import type { Customer } from "@/types/database";
 import { getCustomers } from "@/lib/api/customers";
 import { toNumber } from "@/lib/utils";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { mergeStaffChoices, reviewerChoices } from "@/lib/staffFallback";
 import { TABLES } from "@/lib/supabaseTables";
 import { canonicalMaxPoints, canonicalSnapshotPoints } from "@/lib/pointsLedger";
@@ -129,7 +130,7 @@ export default function Reviews() {
     trainingRecommendationManual: "",
   });
 
-  const { data: staff } = useSupabaseQuery<StaffOpt>({ table: "staff", realtimeEnabled: false });
+  const { data: staff } = useSupabaseQuery<StaffOpt>({ table: "staff", filters: isActiveStaffFilter(), realtimeEnabled: false });
   const staffOptions = useMemo(() => mergeStaffChoices(staff), [staff]);
   const reviewers = useMemo(() => {
     const choices = reviewerChoices(staff);

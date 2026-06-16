@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { TABLES } from "@/lib/supabaseTables";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { applyStaffDelta, persistPointsTransaction } from "@/lib/pointsPersistence";
+import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
 import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
 import type { EvaluationRuleDef } from "@/lib/evaluationRulesCatalog";
 import { getSafeCurrentUserId } from "@/hooks/useAuth";
@@ -76,7 +77,7 @@ function timeOffRule(type: string, points: number): EvaluationRuleDef {
 }
 
 export default function TimeOff() {
-  const { data: staff = [] } = useSupabaseQuery<Staff>({ table: TABLES.staff, realtimeEnabled: false });
+  const { data: staff = [] } = useSupabaseQuery<Staff>({ table: TABLES.staff, filters: isActiveStaffFilter(), realtimeEnabled: false });
   const { data: exceptions = [], loading, refetch } = useSupabaseQuery<ShiftException>({
     table: TABLES.shiftExceptions,
     orderBy: { column: "created_at", ascending: false },

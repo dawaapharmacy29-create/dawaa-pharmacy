@@ -1,4 +1,5 @@
 import { normalizeBranchName } from "@/lib/branch";
+import { normalizeRole } from "@/lib/permissionMatrix";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import type { StaffSalesSummary } from "@/lib/dashboardSummaryService";
 
@@ -71,16 +72,22 @@ export function findStaffIdentityForSalesRow(row: StaffSalesSummary, staffRows: 
   const branch = normalizeBranchName(row.branch);
   if (!normalized) return null;
 
-  const sameBranch = staffRows.filter((staff) => normalizeStaffName(staff.name) === normalized && (!branch || !staff.branch || staff.branch === branch));
+  const salesStaffRows = staffRows.filter(isSalesIdentityRole);
+  const sameBranch = salesStaffRows.filter((staff) => normalizeStaffName(staff.name) === normalized && (!branch || !staff.branch || staff.branch === branch));
   if (sameBranch.length === 1) return sameBranch[0];
   if (sameBranch.length > 1) {
     const pharmacist = sameBranch.find((staff) => /صيد|دكتور|doctor|pharmacist/i.test(staff.role || ""));
     return pharmacist || sameBranch[0];
   }
 
-  const anyBranch = staffRows.filter((staff) => normalizeStaffName(staff.name) === normalized);
+  const anyBranch = salesStaffRows.filter((staff) => normalizeStaffName(staff.name) === normalized);
   if (anyBranch.length === 1) return anyBranch[0];
   return null;
+}
+
+function isSalesIdentityRole(staff: StaffIdentityRow) {
+  const role = normalizeRole(staff.role);
+  return !["delivery", "cleaning_supervisor", "inventory_assistant", "assistant"].includes(role);
 }
 
 export function groupStaffSalesPerformance(rows: StaffSalesSummary[], staffRows: StaffIdentityRow[] = []): GroupedStaffSalesPerformance[] {

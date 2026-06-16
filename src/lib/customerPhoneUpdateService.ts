@@ -395,43 +395,147 @@ function emptyParseResult(): CustomerPhoneParseResult {
   };
 }
 
+
+function buildLocalCustomerImportPreview(rows: CustomerPhoneCsvRow[], apply = false): CustomerPhoneUpdateResult {
+  const validPhones = rows.filter((row) => row.new_phone).length;
+  const validWhatsappPhones = rows.filter((row) => row.new_whatsapp_phone).length;
+  const invalidPhones = rows.filter((row) => !row.new_phone && !row.new_whatsapp_phone && !row.phone_alt).length;
+  const uniqueKeys = new Set(rows.map((row) => row.customer_code || row.final_customer_key || row.customer_id || row.new_phone || row.customer_name || "").filter(Boolean));
+  return {
+    apply,
+    rowsInFile: rows.length,
+    matchedCustomers: 0,
+    validPhones,
+    validWhatsappPhones,
+    invalidPhones,
+    wouldUpdatePhone: validPhones,
+    wouldUpdateWhatsapp: validWhatsappPhones,
+    customersUpdated: 0,
+    insertedCustomers: 0,
+    repairedAddresses: rows.filter((row) => row.address).length,
+    repairedNames: rows.filter((row) => row.customer_name).length,
+    repairedBranches: rows.filter((row) => row.branch).length,
+    repairedPhoneAlt: rows.filter((row) => row.phone_alt).length,
+    skippedExistingValid: 0,
+    unmatchedRows: Math.max(0, rows.length - uniqueKeys.size),
+    needsReviewRows: invalidPhones,
+    rows: rows.slice(0, 200).map((row, index) => ({
+      row_no: index + 1,
+      customer_code: row.customer_code || row.final_customer_key || null,
+      customer_name: row.customer_name || null,
+      branch: row.branch || null,
+      match_method: "local_preview",
+      status: "preview_ready",
+      new_phone: row.new_phone || null,
+      new_whatsapp_phone: row.new_whatsapp_phone || null,
+      phone_alt: row.phone_alt || null,
+      address: row.address || null,
+      existing_phone: null,
+      existing_whatsapp_phone: null,
+      would_update_phone: Boolean(row.new_phone),
+      would_update_whatsapp: Boolean(row.new_whatsapp_phone),
+      would_update_phone_alt: Boolean(row.phone_alt),
+      would_update_address: Boolean(row.address),
+      would_update_name: Boolean(row.customer_name),
+      would_update_branch: Boolean(row.branch),
+    })),
+    metricsRefreshed: false,
+    cacheInvalidated: false,
+    invalidSummaryPhoneCountBefore: null,
+    invalidSummaryPhoneCountAfter: null,
+  };
+}
+
+function mergeImportResults(results: CustomerPhoneUpdateResult[], rowsInFile: number): CustomerPhoneUpdateResult {
+  const base = buildLocalCustomerImportPreview([], true);
+  return {
+    ...base,
+    apply: true,
+    rowsInFile,
+    matchedCustomers: results.reduce((s, r) => s + Number(r.matchedCustomers || 0), 0),
+    validPhones: results.reduce((s, r) => s + Number(r.validPhones || 0), 0),
+    validWhatsappPhones: results.reduce((s, r) => s + Number(r.validWhatsappPhones || 0), 0),
+    invalidPhones: results.reduce((s, r) => s + Number(r.invalidPhones || 0), 0),
+    wouldUpdatePhone: results.reduce((s, r) => s + Number(r.wouldUpdatePhone || 0), 0),
+    wouldUpdateWhatsapp: results.reduce((s, r) => s + Number(r.wouldUpdateWhatsapp || 0), 0),
+    customersUpdated: results.reduce((s, r) => s + Number(r.customersUpdated || 0), 0),
+    insertedCustomers: results.reduce((s, r) => s + Number(r.insertedCustomers || 0), 0),
+    repairedAddresses: results.reduce((s, r) => s + Number(r.repairedAddresses || 0), 0),
+    repairedNames: results.reduce((s, r) => s + Number(r.repairedNames || 0), 0),
+    repairedBranches: results.reduce((s, r) => s + Number(r.repairedBranches || 0), 0),
+    repairedPhoneAlt: results.reduce((s, r) => s + Number(r.repairedPhoneAlt || 0), 0),
+    skippedExistingValid: results.reduce((s, r) => s + Number(r.skippedExistingValid || 0), 0),
+    unmatchedRows: results.reduce((s, r) => s + Number(r.unmatchedRows || 0), 0),
+    needsReviewRows: results.reduce((s, r) => s + Number(r.needsReviewRows || 0), 0),
+    rows: results.flatMap((r) => r.rows || []).slice(0, 500),
+  };
+}
+
 export async function previewCustomerPhoneUpdate(rows: CustomerPhoneCsvRow[]): Promise<CustomerPhoneUpdateResult> {
-  const invalidBefore = await countInvalidCustomerSummaryPhones();
-  const { data, error } = await supabase.rpc("safe_daily_customer_import_from_json", {
-    p_rows: rows,
-    p_apply: false,
-  });
-  if (error) {
-    throw new Error(
-      error.message.includes("function")
-        ? "دالة الاستيراد اليومي غير مفعلة في قاعدة البيانات. شغّل SQL الخاص بـ safe_daily_customer_import_from_json أولًا."
-        : error.message,
-    );
-  }
-  return { ...(data as CustomerPhoneUpdateResult), invalidSummaryPhoneCountBefore: invalidBefore };
+  // معاينة محلية سريعة: لا نستدعي RPC على 15 ألف عميل حتى لا يحدث statement timeout.
+  const preview = buildLocalCustomerImportPreview(rows, false);
+  preview.invalidSummaryPhoneCountBefore = await countInvalidCustomerSummaryPhones().catch(() => null);
+  return preview;
 }
 
 export async function applyCustomerPhoneUpdate(
   rows: CustomerPhoneCsvRow[],
   actor: { id?: string | null; name?: string | null; role?: string | null } = {},
 ): Promise<CustomerPhoneUpdateResult> {
-  const { data, error } = await supabase.rpc("safe_daily_customer_import_from_json", {
-    p_rows: rows,
-    p_apply: true,
-  });
-  if (error) {
-    throw new Error(
-      error.message.includes("statement timeout")
-        ? "انتهى وقت عملية تحديث العملاء. تم فصل تحديث الملخصات عن العملية، تأكد أن SQL الجديد مطبق ثم أعد المحاولة."
+  const chunks: CustomerPhoneCsvRow[][] = [];
+  for (let index = 0; index < rows.length; index += 150) chunks.push(rows.slice(index, index + 150));
+  const partialResults: CustomerPhoneUpdateResult[] = [];
+  for (const chunk of chunks) {
+    const { data, error } = await supabase.rpc("safe_daily_customer_import_from_json", {
+      p_rows: chunk,
+      p_apply: true,
+    });
+    if (error) {
+      // لا نوقف استيراد الملف كله بسبب دفعة واحدة. نسجل الدفعة كمراجعة ونكمل الباقي.
+      const message = error.message.includes("statement timeout")
+        ? "انتهى وقت دفعة صغيرة من تحديث العملاء. تم تخطي هذه الدفعة مؤقتًا؛ يمكن إعادة رفع نفس الجزء بعد تشغيل SQL V2."
         : error.message.includes("function")
-          ? "دالة الاستيراد اليومي غير مفعلة في قاعدة البيانات. شغّل SQL الخاص بـ safe_daily_customer_import_from_json أولًا."
-          : error.message,
-    );
+          ? "دالة الاستيراد اليومي غير مفعلة في قاعدة البيانات. شغّل SQL V2 الخاص باستيراد العملاء والصلاحيات."
+          : error.message;
+
+      partialResults.push({
+        totalRows: chunk.length,
+        rows: chunk.slice(0, 50).map((item, localIndex) => ({
+          row_no: Number((item as any).source_row || localIndex + 1),
+          customer_code: item.customer_code || null,
+          customer_name: item.customer_name || null,
+          branch: item.branch || null,
+          match_method: null,
+          status: "needs_review",
+          new_phone: item.new_phone || null,
+          new_whatsapp_phone: item.new_whatsapp_phone || null,
+          existing_phone: null,
+          existing_whatsapp_phone: null,
+          would_update_phone: false,
+          would_update_whatsapp: false,
+          reason: message,
+        } as any)),
+        updatedPhoneCount: 0,
+        updatedWhatsappCount: 0,
+        updatedPhoneAltCount: 0,
+        updatedAddressCount: 0,
+        updatedNameCount: 0,
+        updatedBranchCount: 0,
+        insertedCustomers: 0,
+        customersUpdated: 0,
+        unchangedCustomers: 0,
+        invalidPhoneRows: 0,
+        unmatchedRows: chunk.length,
+        needsReviewRows: chunk.length,
+      } as any);
+      continue;
+    }
+    partialResults.push(data as CustomerPhoneUpdateResult);
   }
 
-  const result = data as CustomerPhoneUpdateResult;
+  const result = mergeImportResults(partialResults, rows.length);
 
-  const refresh = await supabase.rpc("rebuild_customer_metrics_summary");
+  const refresh = await supabase.rpc("dawaa_customer_import_post_refresh_v1");
   result.metricsRefreshed = !refresh.error;
 
   clearCustomersCache();

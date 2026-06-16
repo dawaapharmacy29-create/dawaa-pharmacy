@@ -26,6 +26,32 @@ export interface CustomerFlagsObject {
   [key: string]: boolean;
 }
 
+export interface CustomerFlagsDbObject {
+  important_tags?: string[];
+  updated_at?: string;
+  updated_by?: string | null;
+  [key: string]: unknown;
+}
+
+export function flagsToImportantTags(flags: any): string[] {
+  const parsed = parseCustomerFlags(flags);
+  return CUSTOMER_FLAGS.filter((flag) => parsed[flag.key] === true).map((flag) => flag.key);
+}
+
+export function buildCustomerFlagsForDb(existingFlags: any, newFlags: CustomerFlagsObject, updatedBy?: string | null): CustomerFlagsDbObject {
+  const current = existingFlags && typeof existingFlags === 'object' && !Array.isArray(existingFlags) ? { ...existingFlags } : {};
+  const important_tags = CUSTOMER_FLAGS.filter((flag) => newFlags[flag.key] === true).map((flag) => flag.key);
+  for (const flag of CUSTOMER_FLAGS) {
+    delete current[flag.key];
+  }
+  return {
+    ...current,
+    important_tags,
+    updated_at: new Date().toISOString(),
+    updated_by: updatedBy || null,
+  };
+}
+
 // ============================================================================
 // 20 Customer Flags Definition
 // ============================================================================
@@ -190,17 +216,13 @@ export const FLAG_PRIORITY: string[] = [
 export function parseCustomerFlags(value: any): CustomerFlagsObject {
   if (!value) return {};
   
-  // If it's already an object, validate and return
+  // If it's already an object, support both legacy boolean flags and the durable important_tags array.
   if (typeof value === 'object' && !Array.isArray(value)) {
-    if (isValidCustomerFlagsObject(value)) {
-      return value;
-    }
-    // If invalid, try to extract boolean values
     const result: CustomerFlagsObject = {};
+    const tags = Array.isArray(value.important_tags) ? value.important_tags.map((tag: unknown) => String(tag)) : [];
     for (const flag of CUSTOMER_FLAGS) {
-      if (typeof value[flag.key] === 'boolean') {
-        result[flag.key] = value[flag.key];
-      }
+      if (typeof value[flag.key] === 'boolean') result[flag.key] = value[flag.key];
+      if (tags.includes(flag.key)) result[flag.key] = true;
     }
     return result;
   }
@@ -338,17 +360,33 @@ export function getSeverityColorClass(severity: CustomerFlagSeverity): string {
 /**
  * Get severity badge style for UI
  */
+export function getFlagBadgeStyle(flagOrSeverity: CustomerFlagSeverity | CustomerFlag): string {
+  const key = typeof flagOrSeverity === 'object' ? flagOrSeverity.key : '';
+  if (key === 'vip') return 'text-amber-900 bg-amber-100 border-amber-400 dark:text-amber-100 dark:bg-amber-500/25 dark:border-amber-300';
+  if (key === 'needs_manager') return 'text-red-900 bg-red-100 border-red-400 dark:text-red-100 dark:bg-red-500/25 dark:border-red-300';
+  if (key === 'price_sensitive') return 'text-yellow-900 bg-yellow-100 border-yellow-400 dark:text-yellow-100 dark:bg-yellow-500/25 dark:border-yellow-300';
+  if (key === 'prefers_whatsapp') return 'text-emerald-900 bg-emerald-100 border-emerald-400 dark:text-emerald-100 dark:bg-emerald-500/25 dark:border-emerald-300';
+  if (key === 'confirm_before_delivery') return 'text-orange-900 bg-orange-100 border-orange-400 dark:text-orange-100 dark:bg-orange-500/25 dark:border-orange-300';
+  if (key === 'needs_periodic_reminder') return 'text-blue-900 bg-blue-100 border-blue-400 dark:text-blue-100 dark:bg-blue-500/25 dark:border-blue-300';
+  const severity = typeof flagOrSeverity === 'object' ? flagOrSeverity.severity : flagOrSeverity;
+  return getSeverityBadgeStyle(severity);
+}
+
 export function getSeverityBadgeStyle(severity: CustomerFlagSeverity): string {
   switch (severity) {
     case 'danger':
-      return 'text-red-700 bg-red-50 border-red-200';
+      return 'text-red-900 bg-red-100 border-red-300 dark:text-red-100 dark:bg-red-500/25 dark:border-red-300';
     case 'warning':
-      return 'text-yellow-700 bg-yellow-50 border-yellow-200';
+      return 'text-yellow-900 bg-yellow-100 border-yellow-300 dark:text-yellow-100 dark:bg-yellow-500/25 dark:border-yellow-300';
     case 'info':
-      return 'text-blue-700 bg-blue-50 border-blue-200';
+      return 'text-blue-900 bg-blue-100 border-blue-300 dark:text-blue-100 dark:bg-blue-500/25 dark:border-blue-300';
     case 'success':
-      return 'text-green-700 bg-green-50 border-green-200';
+      return 'text-green-900 bg-green-100 border-green-300 dark:text-green-100 dark:bg-green-500/25 dark:border-green-300';
     default:
-      return 'text-gray-700 bg-gray-50 border-gray-200';
+      return 'text-gray-900 bg-gray-100 border-gray-300 dark:text-gray-100 dark:bg-slate-600 dark:border-slate-400';
   }
+}
+
+export function getInactiveFlagButtonStyle(): string {
+  return 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700';
 }

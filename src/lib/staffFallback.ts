@@ -18,6 +18,9 @@ export interface StaffChoice {
   username?: string | null;
   temporary_password?: string | null;
   permissions?: Record<string, boolean> | null;
+  duplicate_ids?: string[];
+  aliases?: string[];
+  duplicate_count?: number;
 }
 
 const UNKNOWN_BRANCH = "غير محدد";
@@ -91,6 +94,10 @@ function normalizeDuplicateNameKey(value: string) {
     .toLowerCase();
 }
 
+export function normalizeStaffDuplicateKey(value: string) {
+  return normalizeDuplicateNameKey(value);
+}
+
 function withDuplicateDisplayNames(rows: StaffChoice[]) {
   const groups = new Map<string, StaffChoice[]>();
   rows.forEach((row) => {
@@ -114,6 +121,47 @@ function withDuplicateDisplayNames(rows: StaffChoice[]) {
   });
 }
 
+function mergeDuplicateStaffRows(rows: StaffChoice[]) {
+  const groups = new Map<string, StaffChoice[]>();
+  for (const row of rows) {
+    const key = [normalizeDuplicateNameKey(row.original_name || row.name), row.branch || UNKNOWN_BRANCH, row.role || ""].join("|");
+    if (!key.trim()) continue;
+    const group = groups.get(key) || [];
+    group.push(row);
+    groups.set(key, group);
+  }
+
+  const merged: StaffChoice[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      merged.push(group[0]);
+      continue;
+    }
+
+    const sorted = [...group].sort((a, b) => {
+      const score = (row: StaffChoice) =>
+        (row.active !== false ? 100 : 0) +
+        (row.username ? 20 : 0) +
+        (row.phone ? 10 : 0) +
+        (Number(row.points || 0) >= INITIAL_POINTS ? 5 : 0) -
+        (row.deleted_at || row.is_deleted ? 1000 : 0);
+      return score(b) - score(a) || String(a.id).localeCompare(String(b.id));
+    });
+
+    const primary = sorted[0];
+    const aliases = Array.from(new Set(group.flatMap((row) => [row.name, row.original_name, row.display_name].filter(Boolean) as string[])));
+    merged.push({
+      ...primary,
+      aliases,
+      duplicate_ids: Array.from(new Set(group.map((row) => row.id).filter(Boolean))),
+      duplicate_count: group.length,
+      display_name: `${primary.original_name || primary.name} (${primary.branch}${primary.role ? ` - ${primary.role}` : ""})`,
+    });
+  }
+
+  return merged.sort(sortStaff);
+}
+
 function isActiveRealStaff(row: unknown): row is Record<string, unknown> {
   if (!row || typeof row !== "object") return false;
   const next = row as Record<string, unknown>;
@@ -125,7 +173,7 @@ function isActiveRealStaff(row: unknown): row is Record<string, unknown> {
 }
 
 export function realStaffChoices(rows: unknown[] | null | undefined): StaffChoice[] {
-  return withDuplicateDisplayNames((rows || []).filter(isActiveRealStaff).map(normalizeStaff).sort(sortStaff));
+  return withDuplicateDisplayNames(mergeDuplicateStaffRows((rows || []).filter(isActiveRealStaff).map(normalizeStaff).sort(sortStaff)));
 }
 
 export function selectableStaffChoices(rows: unknown[] | null | undefined): StaffChoice[] {

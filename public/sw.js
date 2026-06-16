@@ -3,7 +3,7 @@
  * Versioned cache + offline fallback + auto-update
  */
 
-const APP_VERSION = "dawaa-v1.4.1-no-live-data-cache";
+const APP_VERSION = "dawaa-v18.2-single-payload-dashboard-20260614";
 const CACHE_STATIC = `${APP_VERSION}-static`;
 const CACHE_DYNAMIC = `${APP_VERSION}-dynamic`;
 const CACHE_IMAGES = `${APP_VERSION}-images`;
@@ -13,6 +13,7 @@ const PRECACHE_URLS = [
   "/",
   "/offline.html",
   "/manifest.json",
+  "/login",
   "/icon-192.png",
   "/icon-512.png",
 ];

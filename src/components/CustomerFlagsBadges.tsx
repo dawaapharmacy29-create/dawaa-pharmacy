@@ -33,7 +33,7 @@ export function CustomerFlagsBadges({
       {flagsToShow.map((flag) => (
         <span
           key={flag.key}
-          className={`rounded-full border px-2 py-0.5 text-xs font-black ${
+          className={`dawaa-badge customer-flag rounded-full border px-2 py-0.5 text-xs font-black ${
             compact ? "text-[10px] px-1.5 py-0" : ""
           } ${getSeverityBadgeStyle(flag.severity)}`}
         >
