@@ -42,37 +42,6 @@ type RawInvoice = Record<string, unknown>;
 
 const PAGE_SIZE = 1000;
 
-async function tryRpcLoyaltyTiers(): Promise<LoyaltyCustomer[] | null> {
-  try {
-    const { data, error } = await supabase.rpc("get_loyalty_tiers_v2");
-    if (error) return null;
-    return ((data || []) as RawCustomer[])
-      .map((row) => {
-        const total = dashboardNumber(row.total_purchases);
-        const tier = classifyLoyalty(total);
-        if (!tier) return null;
-        const invoices = dashboardNumber(row.total_invoices);
-        return {
-          id: String(row.customer_id || row.customer_key || row.customer_code || row.customer_phone || row.customer_name || crypto.randomUUID()),
-          name: text(row.customer_name) || "عميل بدون اسم",
-          phone: text(row.customer_phone),
-          branch: text(row.branch),
-          customer_code: text(row.customer_code),
-          total_purchases: total,
-          total_invoices: invoices,
-          avg_invoice: dashboardNumber(row.avg_invoice ?? (invoices ? total / invoices : 0)),
-          avg_monthly: 0,
-          first_purchase: text(row.first_purchase),
-          last_purchase: text(row.last_purchase),
-          tier,
-        } satisfies LoyaltyCustomer;
-      })
-      .filter(Boolean) as LoyaltyCustomer[];
-  } catch {
-    return null;
-  }
-}
-
 export const LOYALTY_TIERS: Record<LoyaltyTier, { min: number; max: number | null; label: string }> = {
   بلاتيني: { min: 8000.000001, max: null, label: "أكثر من 8,000 جنيه" },
   ذهبي: { min: 4000, max: 8000, label: "4,000 إلى 8,000 جنيه" },
@@ -194,20 +163,6 @@ export async function fetchLoyaltyTiers(): Promise<LoyaltyTiersResult> {
   }
 
   const warnings: string[] = [];
-
-  const rpcCustomers = await tryRpcLoyaltyTiers();
-  if (rpcCustomers && rpcCustomers.length) {
-    const customers = rpcCustomers.sort((a, b) => b.total_purchases - a.total_purchases);
-    return {
-      customers,
-      summaries: buildSummaries(customers),
-      source: "rpc:get_loyalty_tiers_v2",
-      warnings,
-      loadedAt: new Date().toISOString(),
-    };
-  }
-
-  warnings.push("لم يتم العثور على RPC get_loyalty_tiers_v2؛ تم استخدام fallback من customers/sales_invoices.");
   let source = "customers";
   let rawCustomers: RawCustomer[] = [];
 

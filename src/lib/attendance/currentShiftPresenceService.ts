@@ -122,36 +122,10 @@ function scheduleKey(row: ShiftScheduleRow) {
 }
 
 function statusFor(schedule: ShiftScheduleRow, attendance?: AttendanceRow): ShiftPresencePerson["attendance_status"] {
-  const scheduleStatus = String(schedule.status || "").trim();
-  if (["موجود الآن", "خرج", "متأخر", "لم يبصم"].includes(scheduleStatus)) {
-    return scheduleStatus as ShiftPresencePerson["attendance_status"];
-  }
   if (!attendance) return hasShiftStarted(schedule.shift_start || schedule.start_time) ? "لم يبصم" : "لم يبصم";
   if (attendance.check_out || attendance.last_out) return "خرج";
   if (attendance.check_in || attendance.first_in) return "موجود الآن";
   return hasShiftStarted(schedule.shift_start || schedule.start_time) ? "متأخر" : "لم يبصم";
-}
-
-
-async function tryRpcPresence(todayStr: string): Promise<ShiftScheduleRow[] | null> {
-  try {
-    const { data, error } = await supabase.rpc("get_today_shift_presence_v2", { p_today: todayStr });
-    if (error) return null;
-    return ((data || []) as Record<string, unknown>[]).map((row) => ({
-      id: String(row.staff_id || row.staff_name || Math.random()),
-      staff_id: String(row.staff_id || "") || null,
-      staff_name: String(row.staff_name || "") || null,
-      role: String(row.role || "") || null,
-      branch: String(row.branch || "") || null,
-      day_name: String(row.day_name || "") || null,
-      shift_name: String(row.shift_name || "") || null,
-      shift_start: String(row.shift_start || "") || null,
-      shift_end: String(row.shift_end || "") || null,
-      status: String(row.attendance_status || "") || null,
-    })) as ShiftScheduleRow[];
-  } catch {
-    return null;
-  }
 }
 
 async function safeSelect<T>(table: string, select: string, apply: (query: any) => any) {
@@ -178,15 +152,13 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
   const todayArabic = todayName();
   const todayStr = todayDate();
 
-  const rpcSchedules = await tryRpcPresence(todayStr);
-
-  const byDate = rpcSchedules ? [] : await safeSelect<ShiftScheduleRow>(
+  const byDate = await safeSelect<ShiftScheduleRow>(
     "shift_schedules",
     "id,staff_id,staff_name,name,role,branch,day_name,shift_date,date,shift_name,start_time,end_time,shift_start,shift_end,is_off,status",
     (query) => query.or(`shift_date.eq.${todayStr},date.eq.${todayStr}`).limit(700),
   );
 
-  const byDay = rpcSchedules || await safeSelect<ShiftScheduleRow>(
+  const byDay = await safeSelect<ShiftScheduleRow>(
     "shift_schedules",
     "id,staff_id,staff_name,name,role,branch,day_name,shift_date,date,shift_name,start_time,end_time,shift_start,shift_end,is_off,status",
     (query) => query.eq("day_name", todayArabic).limit(700),
@@ -224,7 +196,7 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
       todayDate: todayStr,
       fetchedShiftCount: schedules.length,
       attendanceCount: attendanceRows.length,
-      source: rpcSchedules ? "mixed" : byDate.length && byDay.length ? "mixed" : byDate.length ? "shift_date" : byDay.length ? "day_name" : "fallback",
+      source: byDate.length && byDay.length ? "mixed" : byDate.length ? "shift_date" : byDay.length ? "day_name" : "fallback",
     },
   };
 

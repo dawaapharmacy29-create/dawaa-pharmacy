@@ -3,18 +3,67 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, BarChart3, DollarSign, FileText, RefreshCw, ShieldCheck, TrendingUp, Users, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from "recharts";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { getBranchComparisonTruth, type BranchTruthStats } from "@/lib/sales/salesTruthService";
+import { clearInvoiceCache } from "@/lib/invoiceCache";
+import { dashboardInvoiceAmount, dashboardNumber, type DashboardInvoiceRow } from "@/lib/dashboard/dashboardTruthService";
+import { fetchSalesInvoicesPagedSafe } from "@/lib/salesInvoiceQueries";
+import { normalizeBranchName } from "@/lib/branch";
 import { cn } from "@/lib/utils";
 
 const ALL = "كل الفروع";
 const CHART_COLORS = ["#22d3ee", "#a78bfa", "#34d399", "#f59e0b"];
 
-type BranchStats = BranchTruthStats;
+type BranchStats = {
+  branch: string;
+  sales_total: number;
+  invoices_count: number;
+  avg_invoice: number;
+  linked_customers: number;
+  daily_avg: number;
+  link_rate: number;
+  best_day: string | null;
+  best_day_sales: number;
+};
 
 function money(v: number) {
   return new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 0 }).format(v || 0);
 }
 function pct(v: number) { return `${(v || 0).toFixed(1)}%`; }
+function day(row: DashboardInvoiceRow) { return String(row.invoice_date || "").slice(0, 10); }
+function invoiceKey(row: DashboardInvoiceRow) { return String(row.invoice_no ?? row.invoice_number ?? row.id ?? "").trim(); }
+function customerKey(row: DashboardInvoiceRow) { return String(row.customer_code ?? row.customer_name ?? "").trim(); }
+
+function buildStats(rows: DashboardInvoiceRow[]) {
+  const branches = new Map<string, { total: number; keys: Set<string>; customers: Set<string>; days: Map<string, number> }>();
+  for (const row of rows) {
+    const branch = normalizeBranchName(row.branch || "") || "غير محدد";
+    const current = branches.get(branch) || { total: 0, keys: new Set<string>(), customers: new Set<string>(), days: new Map<string, number>() };
+    const amount = dashboardInvoiceAmount(row);
+    const k = invoiceKey(row);
+    const c = customerKey(row);
+    const d = day(row);
+    current.total += amount;
+    if (k) current.keys.add(k);
+    if (c) current.customers.add(c);
+    if (d) current.days.set(d, (current.days.get(d) || 0) + amount);
+    branches.set(branch, current);
+  }
+  const grand = [...branches.values()].reduce((sum, row) => sum + row.total, 0) || 1;
+  return [...branches.entries()].map(([branch, row]) => {
+    const dayRows = [...row.days.entries()].sort((a, b) => b[1] - a[1]);
+    return {
+      branch,
+      sales_total: row.total,
+      invoices_count: row.keys.size,
+      avg_invoice: row.keys.size ? row.total / row.keys.size : 0,
+      linked_customers: row.customers.size,
+      daily_avg: row.days.size ? row.total / row.days.size : row.total,
+      link_rate: (row.total / grand) * 100,
+      best_day: dayRows[0]?.[0] || null,
+      best_day_sales: dayRows[0]?.[1] || 0,
+    } satisfies BranchStats;
+  }).sort((a, b) => b.sales_total - a.sales_total);
+}
+
 function Kpi({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return <div className="rounded-2xl bg-slate-950/30 p-3"><div className="mb-1 flex items-center gap-2 text-xs font-bold text-slate-400">{icon}{label}</div><div className="font-black text-white">{value}</div></div>;
 }
@@ -34,11 +83,13 @@ export default function BranchComparison() {
     setLoading(true);
     setErrors([]);
     try {
-      const result = await getBranchComparisonTruth({ startDate, endDate, forceRefresh: noCache });
-      setRowsRead(result.rowsRead);
-      setStats(result.rows);
-      setErrors(result.warnings);
-      setLoadedAt(`${new Date().toLocaleTimeString("ar-EG")} • ${result.source === "rpc" ? "RPC سريع" : "fallback"}`);
+      if (noCache) clearInvoiceCache();
+      const errs: string[] = [];
+      const rows = await fetchSalesInvoicesPagedSafe({ startDate, endDate, branch: ALL, errors: errs, noCache, pageSize: 1000, maxPages: 80 }) as DashboardInvoiceRow[];
+      setRowsRead(rows.length);
+      setStats(buildStats(rows));
+      setErrors(errs);
+      setLoadedAt(new Date().toLocaleTimeString("ar-EG"));
     } catch (err) {
       setErrors([err instanceof Error ? err.message : "تعذر تحميل مقارنة الفروع"]);
       setStats([]);

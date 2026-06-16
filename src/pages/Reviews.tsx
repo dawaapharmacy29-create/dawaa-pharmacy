@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock, Save, Search, Star } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, BarChart3, CheckCircle2, Clock, ListChecks, RefreshCw, Save, Search, Star, Trash2 } from "lucide-react";
 import {
   defaultReviewState,
   defaultSevereErrors,
@@ -41,8 +41,67 @@ interface StaffOpt {
   max_points?: number | null;
 }
 
+interface ConversationReviewHistoryRow {
+  id?: string;
+  created_at?: string | null;
+  reviewer_name?: string | null;
+  reviewer_role?: string | null;
+  staff_name?: string | null;
+  staff_role?: string | null;
+  doctor_name?: string | null;
+  branch?: string | null;
+  customer_name?: string | null;
+  customer_code?: string | null;
+  customer_phone?: string | null;
+  invoice_number?: string | null;
+  evaluation_kind?: string | null;
+  conversation_type?: string | null;
+  evaluation_reason?: string | null;
+  total_score?: number | string | null;
+  final_score?: number | string | null;
+  level?: string | null;
+  point_impact?: number | string | null;
+  doctor_points_impact?: number | string | null;
+  main_positive_reason?: string | null;
+  main_negative_reason?: string | null;
+  reviewer_notes?: string | null;
+  training_recommendation?: string | null;
+  month_cycle?: string | null;
+}
+
+interface ReviewDraftPayload {
+  form: typeof emptyReviewForm;
+  reviewState: ConversationReviewState;
+  severeErrors: SevereErrorsState;
+  custSearch: string;
+  savedAt: string;
+}
+
 const EVAL_KINDS = ["واتساب", "مكالمة", "داخل الفرع", "متابعة عميل", "شكوى", "عملية بيع", "مراجعة فاتورة"];
 const EVAL_REASONS = ["مراجعة عشوائية", "شكوى عميل", "متابعة جودة", "عملية بيع مهمة", "عميل VIP", "خطأ فاتورة", "تقييم تدريب", "مراجعة أداء شهرية"];
+
+const REVIEW_DRAFT_KEY = "dawaa_conversation_review_draft_v2";
+
+const emptyReviewForm = {
+  reviewerId: "",
+  staffId: "",
+  customerId: "",
+  customerCode: "",
+  customerName: "",
+  customerPhone: "",
+  evaluationKind: "واتساب",
+  evaluationReason: "مراجعة عشوائية",
+  invoiceNo: "",
+  conversationDate: "",
+  firstCustomerMessageAt: "",
+  firstStaffReplyAt: "",
+  followUpPromised: false,
+  followUpPromisedAt: "",
+  followUpReturnedAt: "",
+  notes: "",
+  reviewerNotes: "",
+  trainingRecommendationManual: "",
+};
 
 function asUuid(value?: string | null) {
   if (!value) return null;
@@ -101,6 +160,53 @@ function boolFromChoice(key: ReviewCriterionKey, choice: string, yesValues: stri
   return yesValues.includes(choiceLabel(key, choice)) || yesValues.includes(choice);
 }
 
+function scoreOf(row: ConversationReviewHistoryRow) {
+  return toNumber(row.final_score ?? row.total_score ?? 0);
+}
+
+function impactOf(row: ConversationReviewHistoryRow) {
+  return toNumber(row.doctor_points_impact ?? row.point_impact ?? 0);
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value.slice(0, 16);
+  return d.toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" });
+}
+
+function missingColumnName(message?: string) {
+  if (!message) return null;
+  const patterns = [
+    /column\s+"?([a-zA-Z0-9_]+)"?\s+of relation/i,
+    /column\s+"?([a-zA-Z0-9_]+)"?\s+does not exist/i,
+    /Could not find the '([^']+)' column/i,
+    /Could not find the column '([^']+)'/i,
+  ];
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+async function insertConversationReviewSafe(payload: Record<string, unknown>) {
+  let currentPayload = { ...payload };
+  const removedColumns: string[] = [];
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const ins = await supabase.from("conversation_sales_reviews").insert(currentPayload).select("id").single();
+    if (!ins.error) return { id: ins.data?.id as string | undefined, removedColumns };
+    const missing = missingColumnName(ins.error.message);
+    if (missing && Object.prototype.hasOwnProperty.call(currentPayload, missing)) {
+      delete currentPayload[missing];
+      removedColumns.push(missing);
+      continue;
+    }
+    throw new Error(`failed insert conversation_sales_reviews: ${ins.error.message}`);
+  }
+  throw new Error("failed insert conversation_sales_reviews: schema mismatch too large");
+}
+
 export default function Reviews() {
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
@@ -109,26 +215,16 @@ export default function Reviews() {
   const [custSearch, setCustSearch] = useState("");
   const [custHits, setCustHits] = useState<Customer[]>([]);
   const [repeatInfo, setRepeatInfo] = useState<{ count: number; multiplier: number } | null>(null);
-  const [form, setForm] = useState({
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [reviewHistory, setReviewHistory] = useState<ConversationReviewHistoryRow[]>([]);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [form, setForm] = useState(() => ({
+    ...emptyReviewForm,
     reviewerId: user?.id || "",
-    staffId: "",
-    customerId: "",
-    customerCode: "",
-    customerName: "",
-    customerPhone: "",
-    evaluationKind: "واتساب",
-    evaluationReason: "مراجعة عشوائية",
-    invoiceNo: "",
     conversationDate: isoInputNow(),
-    firstCustomerMessageAt: "",
-    firstStaffReplyAt: "",
-    followUpPromised: false,
-    followUpPromisedAt: "",
-    followUpReturnedAt: "",
-    notes: "",
-    reviewerNotes: "",
-    trainingRecommendationManual: "",
-  });
+  }));
 
   const { data: staff } = useSupabaseQuery<StaffOpt>({ table: "staff", filters: isActiveStaffFilter(), realtimeEnabled: false });
   const staffOptions = useMemo(() => mergeStaffChoices(staff), [staff]);
@@ -141,6 +237,71 @@ export default function Reviews() {
   }, [staff, user]);
 
   const selectedStaff = staffOptions.find((s) => s.id === form.staffId) || null;
+
+  const loadReviewHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const { data, error } = await supabase
+        .from("conversation_sales_reviews")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(80);
+      if (error) throw error;
+      setReviewHistory((data || []) as ConversationReviewHistoryRow[]);
+    } catch (error) {
+      setHistoryError((error as Error).message);
+      setReviewHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadReviewHistory();
+  }, [loadReviewHistory]);
+
+  useEffect(() => {
+    if (draftRestored) return;
+    try {
+      const raw = window.localStorage.getItem(REVIEW_DRAFT_KEY);
+      if (!raw) {
+        setDraftRestored(true);
+        return;
+      }
+      const draft = JSON.parse(raw) as Partial<ReviewDraftPayload>;
+      if (draft.form) setForm((current) => ({ ...current, ...draft.form, reviewerId: draft.form?.reviewerId || current.reviewerId || user?.id || "" }));
+      if (draft.reviewState) setReviewState(draft.reviewState);
+      if (draft.severeErrors) setSevereErrors(draft.severeErrors);
+      if (typeof draft.custSearch === "string") setCustSearch(draft.custSearch);
+      if (draft.savedAt) setDraftSavedAt(draft.savedAt);
+    } catch {
+      // تجاهل أي مسودة تالفة وعدم تعطيل الصفحة
+    } finally {
+      setDraftRestored(true);
+    }
+  }, [draftRestored, user?.id]);
+
+  useEffect(() => {
+    if (!draftRestored) return;
+    const timer = window.setTimeout(() => {
+      const savedAt = new Date().toISOString();
+      const draft: ReviewDraftPayload = { form, reviewState, severeErrors, custSearch, savedAt };
+      window.localStorage.setItem(REVIEW_DRAFT_KEY, JSON.stringify(draft));
+      setDraftSavedAt(savedAt);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [custSearch, draftRestored, form, reviewState, severeErrors]);
+
+  useEffect(() => {
+    const handler = (event: BeforeUnloadEvent) => {
+      if (!form.staffId && !form.customerName && !form.invoiceNo && !form.notes && !form.reviewerNotes) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [form]);
   const selectedReviewer = reviewers.find((s) => s.id === form.reviewerId) || reviewers[0] || null;
   const responseMinutes = useMemo(() => minutesBetween(form.firstCustomerMessageAt, form.firstStaffReplyAt), [form.firstCustomerMessageAt, form.firstStaffReplyAt]);
   const followupDelayMinutes = useMemo(() => minutesBetween(form.followUpPromisedAt, form.followUpReturnedAt), [form.followUpPromisedAt, form.followUpReturnedAt]);
@@ -149,6 +310,24 @@ export default function Reviews() {
   const conversationDate = form.conversationDate || isoInputNow();
   const reviewCycle = useMemo(() => getCycleForDate(new Date(conversationDate)), [conversationDate]);
   const monthCycle = useMemo(() => monthCycleFromDate(conversationDate), [conversationDate]);
+  const historyStats = useMemo(() => {
+    const byBranch = new Map<string, { branch: string; count: number; total: number; low: number; positive: number; negative: number }>();
+    for (const row of reviewHistory) {
+      const branch = row.branch || "غير محدد";
+      const score = scoreOf(row);
+      const impact = impactOf(row);
+      const entry = byBranch.get(branch) || { branch, count: 0, total: 0, low: 0, positive: 0, negative: 0 };
+      entry.count += 1;
+      entry.total += score;
+      if (score < 70) entry.low += 1;
+      if (impact > 0) entry.positive += impact;
+      if (impact < 0) entry.negative += Math.abs(impact);
+      byBranch.set(branch, entry);
+    }
+    return Array.from(byBranch.values())
+      .map((row) => ({ ...row, avg: row.count ? Math.round(row.total / row.count) : 0 }))
+      .sort((a, b) => b.count - a.count);
+  }, [reviewHistory]);
 
   const setCriterionApplies = (key: ReviewCriterionKey, applies: boolean) => {
     setReviewState((current) => ({ ...current, [key]: { ...current[key], applies } }));
@@ -347,9 +526,11 @@ export default function Reviews() {
         training_recommendation: finalTraining,
       };
 
-      const ins = await supabase.from("conversation_sales_reviews").insert(payload).select("id").single();
-      if (ins.error) throw new Error(`failed insert conversation_sales_reviews: ${ins.error.message}`);
-      const reviewRowId = ins.data?.id as string | undefined;
+      const ins = await insertConversationReviewSafe(payload);
+      const reviewRowId = ins.id;
+      if (ins.removedColumns.length) {
+        toast.warning(`تم حفظ التقييم، لكن قاعدة البيانات ينقصها أعمدة اختيارية: ${ins.removedColumns.slice(0, 4).join(", ")}`);
+      }
 
       if (repeatedDoctorImpact !== 0) {
         const pointsResult = await persistPointsTransaction({
@@ -446,12 +627,27 @@ export default function Reviews() {
         },
       });
 
-      toast.success("تم حفظ تقييم المحادثة وتحديث نقاط الدكتور بنجاح");
+      await loadReviewHistory();
+      window.localStorage.removeItem(REVIEW_DRAFT_KEY);
+      setDraftSavedAt(null);
+      toast.success("تم حفظ تقييم المحادثة وتحديث سجل التقييمات بنجاح");
     } catch (error) {
       toast.error(`تعذر الحفظ الكامل: ${(error as Error).message}`);
     } finally {
       setSaving(false);
     }
+  };
+
+  const startNewReview = () => {
+    setForm({ ...emptyReviewForm, reviewerId: user?.id || "", conversationDate: isoInputNow() });
+    setReviewState(defaultReviewState());
+    setSevereErrors(defaultSevereErrors());
+    setCustSearch("");
+    setCustHits([]);
+    setRepeatInfo(null);
+    setDraftSavedAt(null);
+    window.localStorage.removeItem(REVIEW_DRAFT_KEY);
+    toast.success("تم فتح تقييم جديد");
   };
 
   return (
@@ -465,6 +661,120 @@ export default function Reviews() {
           <p className="text-slate-400 text-sm">تقييم ديناميكي يحسب البنود المطبقة فقط ويربط النتيجة بنقاط الدكتور.</p>
         </div>
       </div>
+
+      <section className="stat-card border border-teal-500/20 bg-teal-500/5 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ListChecks className="text-teal-400" size={20} />
+            <div>
+              <h2 className="text-white font-bold text-lg">سجل تقييم المحادثات</h2>
+              <p className="text-slate-400 text-sm">آخر التقييمات المحفوظة: المراجع، الدكتور، العميل، الفرع، الفاتورة، النتيجة، وتأثير النقاط.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {draftSavedAt && <span className="badge-info text-xs">تم حفظ مسودة تلقائيًا {formatDateTime(draftSavedAt)}</span>}
+            <button type="button" onClick={loadReviewHistory} disabled={historyLoading} className="btn-secondary flex items-center gap-2">
+              <RefreshCw size={16} className={historyLoading ? "animate-spin" : ""} />
+              تحديث السجل
+            </button>
+            <button type="button" onClick={startNewReview} className="btn-secondary flex items-center gap-2">
+              <Trash2 size={16} />
+              تقييم جديد
+            </button>
+          </div>
+        </div>
+
+        {historyError && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100 text-sm">
+            تعذر تحميل سجل التقييمات. تأكد من تشغيل ملف <b>CONVERSATION_REVIEWS_HISTORY_FIX.sql</b>. تفاصيل الخطأ: {historyError}
+          </div>
+        )}
+
+        <div className="grid md:grid-cols-4 gap-3">
+          <Metric label="عدد التقييمات المسجلة" value={`${reviewHistory.length}`} tone="teal" />
+          <Metric label="متوسط آخر تقييمات" value={`${reviewHistory.length ? Math.round(reviewHistory.reduce((sum, row) => sum + scoreOf(row), 0) / reviewHistory.length) : 0}/100`} tone="blue" />
+          <Metric label="تقييمات أقل من 70" value={`${reviewHistory.filter((row) => scoreOf(row) < 70).length}`} tone="red" />
+          <Metric label="فروع تم تقييمها" value={`${historyStats.length}`} tone="slate" />
+        </div>
+
+        {historyStats.length > 0 && (
+          <div className="rounded-xl border border-[#2d4063] bg-[#16253f] p-3">
+            <div className="flex items-center gap-2 text-slate-200 font-bold mb-3">
+              <BarChart3 size={17} className="text-teal-400" />
+              تقييم المحادثات حسب الفرع
+            </div>
+            <div className="grid md:grid-cols-3 gap-2">
+              {historyStats.slice(0, 6).map((row) => (
+                <div key={row.branch} className="rounded-xl border border-[#2d4063] bg-[#0f1b2e] p-3">
+                  <div className="text-white font-bold">{row.branch}</div>
+                  <div className="grid grid-cols-2 gap-2 mt-2 text-xs text-slate-300">
+                    <span>العدد: <b className="num text-white">{row.count}</b></span>
+                    <span>المتوسط: <b className="num text-white">{row.avg}/100</b></span>
+                    <span>أقل من 70: <b className="num text-red-300">{row.low}</b></span>
+                    <span>خصومات: <b className="num text-red-300">{row.negative}</b></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-xl border border-[#2d4063]">
+          <table className="w-full min-w-[1100px] text-sm">
+            <thead className="bg-[#16253f] text-slate-300">
+              <tr>
+                <th className="p-3 text-right">التاريخ</th>
+                <th className="p-3 text-right">المراجع</th>
+                <th className="p-3 text-right">الدكتور المقيم</th>
+                <th className="p-3 text-right">الفرع</th>
+                <th className="p-3 text-right">العميل</th>
+                <th className="p-3 text-right">الفاتورة</th>
+                <th className="p-3 text-right">نوع المحادثة</th>
+                <th className="p-3 text-right">التقييم</th>
+                <th className="p-3 text-right">النقاط</th>
+                <th className="p-3 text-right">أهم ملاحظة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reviewHistory.slice(0, 12).map((row, index) => {
+                const score = scoreOf(row);
+                const impact = impactOf(row);
+                return (
+                  <tr key={row.id || index} className="border-t border-[#2d4063]/70">
+                    <td className="p-3 text-slate-300 whitespace-nowrap">{formatDateTime(row.created_at)}</td>
+                    <td className="p-3 text-white">{row.reviewer_name || "غير محدد"}</td>
+                    <td className="p-3 text-white">{row.staff_name || row.doctor_name || "غير محدد"}</td>
+                    <td className="p-3 text-slate-300">{row.branch || "-"}</td>
+                    <td className="p-3 text-slate-300">
+                      <div>{row.customer_name || "غير محدد"}</div>
+                      {(row.customer_code || row.customer_phone) && <div className="text-xs text-slate-500">{row.customer_code || row.customer_phone}</div>}
+                    </td>
+                    <td className="p-3 text-slate-300 num">{row.invoice_number || "-"}</td>
+                    <td className="p-3 text-slate-300">{row.evaluation_kind || row.conversation_type || "-"}</td>
+                    <td className="p-3">
+                      <span className={score >= 90 ? "badge-success text-xs" : score >= 70 ? "badge-warning text-xs" : "badge-danger text-xs"}>{score}/100</span>
+                    </td>
+                    <td className={`p-3 num font-bold ${impact >= 0 ? "text-teal-300" : "text-red-300"}`}>{impact > 0 ? `+${impact}` : impact}</td>
+                    <td className="p-3 text-slate-400 max-w-[260px] truncate" title={row.main_negative_reason || row.main_positive_reason || row.reviewer_notes || ""}>
+                      {row.main_negative_reason || row.main_positive_reason || row.reviewer_notes || "-"}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!historyLoading && reviewHistory.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="p-6 text-center text-slate-400">لا يوجد تقييمات محفوظة حتى الآن.</td>
+                </tr>
+              )}
+              {historyLoading && (
+                <tr>
+                  <td colSpan={10} className="p-6 text-center text-slate-400">جاري تحميل سجل التقييمات...</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Metric label="تقييم المحادثة" value={`${result.finalScore}/100`} tone={result.finalScore >= 90 ? "teal" : result.finalScore >= 70 ? "amber" : "red"} />

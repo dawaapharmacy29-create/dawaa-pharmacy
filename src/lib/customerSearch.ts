@@ -72,11 +72,11 @@ export async function searchCustomers(query: string, limit = 30): Promise<Custom
   ];
 
   for (const filter of attempts) {
-    const { data, error } = await supabase.from("customers").select("id, customer_id, customer_name, name, full_name, customer_code, code, customer_phone, phone, mobile, branch, branch_name, category, customer_category, status").or(filter).limit(limit);
+    const { data, error } = await supabase.from("customers").select("*").or(filter).limit(limit);
     if (!error) return (data || []).map((row) => normalizeCustomerRow(row as Record<string, unknown>));
   }
 
-  const { data } = await supabase.from("customers").select("id, customer_id, customer_name, name, full_name, customer_code, code, customer_phone, phone, mobile, branch, branch_name, category, customer_category, status").limit(500);
+  const { data } = await supabase.from("customers").select("*").limit(500);
   const normalizedQuery = normalizeArabicText(raw.replace(/\*/g, ""));
   return ((data || []) as Record<string, unknown>[])
     .map(normalizeCustomerRow)
@@ -102,7 +102,7 @@ export async function createCustomerFromSearch(input: { name: string; phone: str
 
   let next: Record<string, unknown> = payload;
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const { data, error } = await supabase.from("customers").insert(next).select("id, customer_id, customer_name, name, customer_code, code, customer_phone, phone, branch, status").single();
+    const { data, error } = await supabase.from("customers").insert(next).select("*").single();
     if (!error && data) return normalizeCustomerRow(data as Record<string, unknown>);
     const column = error?.message.match(/column "([^"]+)"/)?.[1] || error?.message.match(/'([^']+)' column/)?.[1];
     if (!column || !(column in next)) throw new Error(error?.message || "تعذر إضافة العميل");
