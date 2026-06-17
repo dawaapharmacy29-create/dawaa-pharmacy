@@ -5,7 +5,9 @@ import "./styles/dawaa-theme.css";
 import "./styles/dawaa-design-system.css";
 import App from "./App.tsx";
 import { initOfflineQueueAutoSync } from "@/lib/offlineQueue";
+import { installRuntimeSafetyGuards } from "@/lib/runtimeSafety";
 
+installRuntimeSafetyGuards();
 initOfflineQueueAutoSync();
 
 createRoot(document.getElementById("root")!).render(
