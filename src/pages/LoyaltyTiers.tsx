@@ -11,16 +11,7 @@ import {
   AlertTriangle,
   ExternalLink,
 } from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from 'recharts';
+/* recharts will be dynamically imported inside the component to reduce initial bundle size */
 import { exportLoyaltyToExcel } from '@/lib/exportExcel';
 import { cn } from '@/lib/utils';
 import {
@@ -110,6 +101,26 @@ export default function LoyaltyTiers() {
     void load();
   }, []);
 
+  const [R, setR] = useState<any>(null);
+  useEffect(() => {
+    let mounted = true;
+    import('recharts').then((m) => {
+      if (mounted) setR(m);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const BarChart = R?.BarChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const Bar = R?.Bar ?? ((props: any) => null);
+  const XAxis = R?.XAxis ?? ((props: any) => null);
+  const YAxis = R?.YAxis ?? ((props: any) => null);
+  const CartesianGrid = R?.CartesianGrid ?? ((props: any) => null);
+  const Tooltip = R?.Tooltip ?? ((props: any) => null);
+  const ResponsiveContainer = R?.ResponsiveContainer ?? (({ children }: any) => <div>{children}</div>);
+  const Cell = R?.Cell ?? ((props: any) => null);
+
   useEffect(() => {
     const tier = params.get('tier') as LoyaltyTier | null;
     if (tier && TIER_ORDER.includes(tier)) setActiveTier(tier);
@@ -197,7 +208,7 @@ export default function LoyaltyTiers() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() =>
-                exportLoyaltyToExcel(visibleCustomers.map((c) => ({ ...c, tier: c.tier })))
+                void exportLoyaltyToExcel(visibleCustomers.map((c) => ({ ...c, tier: c.tier })))
               }
               disabled={!visibleCustomers.length}
               className="inline-flex items-center gap-2 rounded-2xl border border-teal-400/30 bg-teal-500/15 px-4 py-2 text-sm font-black text-teal-100 disabled:opacity-50"

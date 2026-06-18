@@ -34,17 +34,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-} from 'recharts';
+/* recharts will be dynamically imported inside the component to reduce initial bundle size */
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -244,6 +234,27 @@ export default function Customer360() {
     void load();
     return () => abortRef.current?.abort();
   }, [load]);
+
+  const [R, setR] = useState<any>(null);
+  useEffect(() => {
+    let mounted = true;
+    import('recharts').then((m) => {
+      if (mounted) setR(m);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const AreaChart = R?.AreaChart ?? ((props: any) => <div className="h-40 rounded-2xl bg-slate-100 animate-pulse" />);
+  const Area = R?.Area ?? ((props: any) => null);
+  const XAxis = R?.XAxis ?? ((props: any) => null);
+  const YAxis = R?.YAxis ?? ((props: any) => null);
+  const CartesianGrid = R?.CartesianGrid ?? ((props: any) => null);
+  const Tooltip = R?.Tooltip ?? ((props: any) => null);
+  const ResponsiveContainer = R?.ResponsiveContainer ?? (({ children }: any) => <div>{children}</div>);
+  const BarChart = R?.BarChart ?? AreaChart;
+  const Bar = R?.Bar ?? ((props: any) => null);
 
   // ── derived display values ──
   const m = profile?.metrics;

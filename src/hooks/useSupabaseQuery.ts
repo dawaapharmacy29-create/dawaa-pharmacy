@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { logActivity as writeActivityLog } from '@/lib/activityLog';
 import { logSupabaseError } from '@/lib/supabaseError';
 import { TABLES } from '@/lib/supabaseTables';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface QueryOptions {
   table: string;
@@ -31,32 +32,10 @@ function friendlySupabaseError(message: string): string {
 }
 
 export function useSupabaseQuery<T>(options: QueryOptions) {
-  const [data, setData] = useState<T[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
-  const mountedRef = useRef(true);
+  const queryClient = useQueryClient();
 
-  // Stable serialised keys used as useCallback deps (avoids complex-expression lint warning)
-  const filtersKey = JSON.stringify(options.filters ?? null);
-  const selectKey = options.select ?? '';
-  const limitKey = options.limit ?? 0;
-  const orderColumn = options.orderBy?.column ?? '';
-  const orderAsc = options.orderBy?.ascending ?? false;
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    if (!isSupabaseConfigured) {
-      if (mountedRef.current) {
-        setData([]);
-        setLoading(false);
-        setError('إعدادات Supabase غير موجودة. أضف ملف .env لتفعيل البيانات الحقيقية.');
-      }
-      return;
-    }
-
+  const buildQuery = () => {
     let query: QueryBuilder = supabase.from(options.table).select(options.select || '*');
 
     if (options.filters) {
@@ -78,50 +57,59 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
       query = query.limit(options.limit);
     }
 
-    const { data: result, error: err } = await query;
+    return query;
+  };
 
-    if (!mountedRef.current) return;
+  const queryKey = [
+    'supabase',
+    options.table,
+    options.select ?? '*',
+    options.filters ?? null,
+    options.orderBy ?? null,
+    options.limit ?? null,
+  ];
 
-    if (err) {
-      setError(friendlySupabaseError(err.message));
-      if (options.table === TABLES.employeeTransactions) {
-        console.error('Employee transactions error:', {
-          message: err.message,
-          details: err.details,
-          hint: err.hint,
-          code: err.code,
-        });
-      }
-      logSupabaseError(`${options.table} fetch`, err);
-    } else {
-      setData((result as T[]) || []);
+  const fetcher = async () => {
+    if (!isSupabaseConfigured) {
+      throw new Error('إعدادات Supabase غير موجودة. أضف ملف .env لتفعيل البيانات الحقيقية.');
     }
-    setLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options.table, filtersKey, selectKey, limitKey, orderColumn, orderAsc]);
+    const query = buildQuery();
+    const { data: result, error: err } = await query;
+    if (err) {
+      logSupabaseError(`${options.table} fetch`, err);
+      throw new Error(friendlySupabaseError(err.message));
+    }
+    return (result as T[]) || [];
+  };
+
+  const { data = [], isLoading: loading, error } = useQuery<T[], Error>(queryKey, fetcher, {
+    staleTime: 60_000, // 1 minute
+    cacheTime: 5 * 60_000, // 5 minutes
+    refetchOnWindowFocus: true,
+    retry: 2,
+    retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 30000),
+  });
 
   useEffect(() => {
-    mountedRef.current = true;
-    fetchData();
+    if (!isSupabaseConfigured || options.realtimeEnabled !== true) return;
 
-    if (isSupabaseConfigured && options.realtimeEnabled === true) {
-      channelRef.current = supabase
-        .channel(`realtime:${options.table}:${Math.random()}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: options.table }, () => {
-          fetchData();
-        })
-        .subscribe();
-    }
+    // Single channel per hook instance; on any change invalidate the query key
+    channelRef.current = supabase
+      .channel(`realtime:${options.table}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: options.table }, () => {
+        queryClient.invalidateQueries(queryKey);
+      })
+      .subscribe();
 
     return () => {
-      mountedRef.current = false;
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
       }
     };
-  }, [fetchData, options.realtimeEnabled, options.table]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.table, options.realtimeEnabled]);
 
-  return { data, loading, error, refetch: fetchData };
+  return { data, loading, error: error ? (error.message as string) : null, refetch: () => queryClient.invalidateQueries(queryKey) };
 }
 
 export async function supabaseInsert<T>(

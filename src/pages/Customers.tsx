@@ -15,19 +15,11 @@ import {
   Search,
   Users,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+/* xlsx will be dynamically imported when needed for export */
+import { lazy, Suspense } from 'react';
+
+const MonthlyRegistrationsChart = lazy(() => import('@/components/charts/MonthlyRegistrationsChart'));
+const CustomerSegmentBars = lazy(() => import('@/components/charts/CustomerSegmentBars'));
 import { toast } from 'sonner';
 import {
   ALL_FILTER,
@@ -482,6 +474,7 @@ export default function Customers() {
         }))
       );
 
+      const XLSX = await import('xlsx');
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(customersSheet), 'customers');
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(followupsSheet), 'followups');
@@ -955,24 +948,9 @@ function CustomerMonthlyAnalyticsPanel({
             {loading ? (
               <div className="h-full animate-pulse rounded-2xl bg-slate-100" />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={rows}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                  <Tooltip
-                    formatter={(value) => [Number(value).toLocaleString('ar-EG'), 'عملاء مسجلين']}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="registeredCustomers"
-                    name="عملاء مسجلين"
-                    stroke="#0f766e"
-                    strokeWidth={3}
-                    dot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <Suspense fallback={<div className="h-full flex items-center justify-center">جاري تحميل الرسم...</div>}>
+                <MonthlyRegistrationsChart rows={rows} />
+              </Suspense>
             )}
           </div>
         </div>
@@ -983,27 +961,9 @@ function CustomerMonthlyAnalyticsPanel({
             {loading ? (
               <div className="h-full animate-pulse rounded-2xl bg-slate-100" />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={rows}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                  <Tooltip
-                    formatter={(value, name) => [Number(value).toLocaleString('ar-EG'), name]}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="veryImportant" name="مهم جدًا" stackId="segments" fill="#8b5cf6" />
-                  <Bar dataKey="important" name="مهم" stackId="segments" fill="#f59e0b" />
-                  <Bar dataKey="medium" name="متوسط" stackId="segments" fill="#3b82f6" />
-                  <Bar
-                    dataKey="normal"
-                    name="عادي"
-                    stackId="segments"
-                    fill="#64748b"
-                    radius={[6, 6, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <Suspense fallback={<div className="h-full flex items-center justify-center">جاري تحميل الرسم...</div>}>
+                <CustomerSegmentBars rows={rows} />
+              </Suspense>
             )}
           </div>
         </div>

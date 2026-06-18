@@ -1,4 +1,4 @@
-﻿import * as XLSX from 'xlsx';
+﻿/* xlsx will be dynamically imported when needed for parsing */
 import { supabase } from '@/lib/supabase';
 import { clearCustomersCache } from '@/lib/api/customers';
 import { clearCustomerServiceCommandCenterCache } from '@/lib/api/customerServiceCommandCenter';
@@ -377,6 +377,7 @@ export async function parseCustomerPhoneFile(
     const text = await file.text();
     rawRows = parseCsvText(text);
   } else {
+    const XLSX = await import('xlsx');
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, {
       type: 'array',
@@ -388,7 +389,7 @@ export async function parseCustomerPhoneFile(
     const firstSheet = workbook.SheetNames[0];
     if (!firstSheet) return emptyParseResult();
     const sheet = workbook.Sheets[firstSheet];
-    rawRows = worksheetToRecords(sheet);
+    rawRows = worksheetToRecords(sheet, XLSX);
   }
 
   const headers = Object.keys(rawRows[0] || {});
@@ -440,7 +441,7 @@ export async function parseCustomerPhoneFile(
   return { rows, mapping, stats };
 }
 
-function worksheetToRecords(sheet: XLSX.WorkSheet): Record<string, unknown>[] {
+function worksheetToRecords(sheet: any, XLSX: any): Record<string, unknown>[] {
   const ref = sheet['!ref'];
   if (!ref) return [];
   const range = XLSX.utils.decode_range(ref);

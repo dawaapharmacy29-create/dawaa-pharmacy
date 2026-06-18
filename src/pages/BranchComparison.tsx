@@ -11,18 +11,7 @@ import {
   Users,
   AlertTriangle,
 } from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-  PieChart,
-  Pie,
-} from 'recharts';
+/* recharts will be dynamically imported inside the component to reduce initial bundle size */
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { clearInvoiceCache } from '@/lib/invoiceCache';
 import {
@@ -163,6 +152,28 @@ export default function BranchComparison() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const [R, setR] = useState<any>(null);
+  useEffect(() => {
+    let mounted = true;
+    import('recharts').then((m) => {
+      if (mounted) setR(m);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const BarChart = R?.BarChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const Bar = R?.Bar ?? ((props: any) => null);
+  const XAxis = R?.XAxis ?? ((props: any) => null);
+  const YAxis = R?.YAxis ?? ((props: any) => null);
+  const CartesianGrid = R?.CartesianGrid ?? ((props: any) => null);
+  const Tooltip = R?.Tooltip ?? ((props: any) => null);
+  const ResponsiveContainer = R?.ResponsiveContainer ?? (({ children }: any) => <div>{children}</div>);
+  const Cell = R?.Cell ?? ((props: any) => null);
+  const PieChart = R?.PieChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const Pie = R?.Pie ?? ((props: any) => null);
 
   const total = stats.reduce((sum, row) => sum + row.sales_total, 0);
   const winner = stats[0] || null;

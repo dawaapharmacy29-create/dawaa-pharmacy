@@ -1,18 +1,4 @@
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Cell,
-} from 'recharts';
+import React from 'react';
 import type { StaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
 
 const COLORS = ['#00C49F', '#0088FE', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
@@ -22,6 +8,24 @@ interface StaffPerformanceChartsProps {
 }
 
 export default function StaffPerformanceCharts({ profile }: StaffPerformanceChartsProps) {
+  const [R, setR] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    let mounted = true;
+    import('recharts').then((m) => {
+      if (mounted) setR(m);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (!R) {
+    return <div className="space-y-6">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />)}</div>;
+  }
+
+  const { LineChart, Line, BarChart, Bar, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } = R;
+
   return (
     <div className="space-y-6">
       {/* Sales Monthly Trend */}

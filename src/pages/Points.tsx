@@ -54,19 +54,7 @@ import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { logActivity, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart as RechartsPieChart,
-  Pie,
-  Cell,
-} from 'recharts';
+/* recharts will be dynamically imported inside the component to reduce initial bundle size */
 
 interface StaffMember {
   id: string;
@@ -267,6 +255,29 @@ export default function Points() {
       }),
     [records, staffChoices]
   );
+
+  const [R, setR] = useState<any>(null);
+  useEffect(() => {
+    let mounted = true;
+    import('recharts').then((m) => {
+      if (mounted) setR(m);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const BarChart = R?.BarChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const Bar = R?.Bar ?? ((props: any) => null);
+  const XAxis = R?.XAxis ?? ((props: any) => null);
+  const YAxis = R?.YAxis ?? ((props: any) => null);
+  const CartesianGrid = R?.CartesianGrid ?? ((props: any) => null);
+  const Tooltip = R?.Tooltip ?? ((props: any) => null);
+  const Legend = R?.Legend ?? ((props: any) => null);
+  const ResponsiveContainer = R?.ResponsiveContainer ?? (({ children }: any) => <div>{children}</div>);
+  const PieChart = R?.PieChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const Pie = R?.Pie ?? ((props: any) => null);
+  const Cell = R?.Cell ?? ((props: any) => null);
 
   const validRecords = useMemo(
     () =>

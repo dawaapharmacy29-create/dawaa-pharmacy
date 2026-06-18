@@ -193,7 +193,7 @@ export default function AttendanceReport() {
   );
 
   function handleExport() {
-    exportAttendanceToExcel(summaries, month);
+    void exportAttendanceToExcel(summaries, month);
   }
 
   return (

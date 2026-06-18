@@ -22,24 +22,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Funnel,
-  FunnelChart,
-  LabelList,
-  Legend,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+/* recharts will be dynamically imported inside the component to reduce initial bundle size */
 import { supabase } from '@/lib/supabase';
 import { formatCycleDate, getCurrentCycle, getPreviousCycle } from '@/lib/pharmacy-cycle';
 import { normalizeBranchName } from '@/lib/branch';
@@ -842,6 +825,34 @@ export default function ExecutiveDashboard2027() {
 
   const canAllBranches = canSeeAllBranches(user?.role);
   const scopedBranch = effectiveBranchFilter(user, branch, ALL_BRANCHES) || ALL_BRANCHES;
+
+  const [R, setR] = useState<any>(null);
+  useEffect(() => {
+    let mounted = true;
+    import('recharts').then((m) => {
+      if (mounted) setR(m);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const BarChart = R?.BarChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const LineChart = R?.LineChart ?? BarChart;
+  const PieChart = R?.PieChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const ResponsiveContainer = R?.ResponsiveContainer ?? (({ children }: any) => <div>{children}</div>);
+  const XAxis = R?.XAxis ?? ((props: any) => null);
+  const YAxis = R?.YAxis ?? ((props: any) => null);
+  const Tooltip = R?.Tooltip ?? ((props: any) => null);
+  const CartesianGrid = R?.CartesianGrid ?? ((props: any) => null);
+  const Bar = R?.Bar ?? ((props: any) => null);
+  const Cell = R?.Cell ?? ((props: any) => null);
+  const Legend = R?.Legend ?? ((props: any) => null);
+  const Line = R?.Line ?? ((props: any) => null);
+  const FunnelChart = R?.FunnelChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const Funnel = R?.Funnel ?? ((props: any) => null);
+  const Pie = R?.Pie ?? ((props: any) => null);
+  const LabelList = R?.LabelList ?? ((props: any) => null);
 
   useEffect(() => {
     const next = effectiveBranchFilter(user, branch, ALL_BRANCHES);

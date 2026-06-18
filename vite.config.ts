@@ -29,8 +29,8 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     target: 'es2020',
-    // Tree-shake unused exports
     minify: 'esbuild',
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         // More granular chunks = better caching + smaller initial load
@@ -41,11 +41,11 @@ export default defineConfig({
               return 'react-core';
             // Router
             if (id.includes('react-router')) return 'router';
-            // Supabase
+            // Supabase — separate to avoid blocking initial load
             if (id.includes('@supabase')) return 'supabase';
             // Data fetching cache
             if (id.includes('@tanstack/react-query')) return 'query';
-            // Charts (recharts only — chart.js removed)
+            // Charts — lazy-loaded on component mount
             if (id.includes('recharts') || id.includes('d3-')) return 'charts';
             // Forms
             if (id.includes('react-hook-form') || id.includes('@hookform') || id.includes('zod'))
@@ -60,7 +60,7 @@ export default defineConfig({
             if (id.includes('framer-motion')) return 'motion';
             // Map libs (load only when needed)
             if (id.includes('leaflet')) return 'maps';
-            // Excel export
+            // Excel export — lazy-loaded on export action
             if (id.includes('xlsx') || id.includes('exceljs')) return 'excel';
             // Everything else vendor
             return 'vendor';

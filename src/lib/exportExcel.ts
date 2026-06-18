@@ -3,7 +3,8 @@ import * as XLSX from 'xlsx';
 type CellValue = string | number | boolean | null | undefined;
 type Row = Record<string, CellValue>;
 
-export function exportToExcel(rows: Row[], filename: string, sheetName = 'بيانات') {
+export async function exportToExcel(rows: Row[], filename: string, sheetName = 'بيانات') {
+  const XLSX = await import('xlsx');
   const ws = XLSX.utils.json_to_sheet(rows);
 
   const colWidths = Object.keys(rows[0] ?? {}).map((key) => {
@@ -20,7 +21,7 @@ export function exportToExcel(rows: Row[], filename: string, sheetName = 'بيا
   XLSX.writeFile(wb, `${filename}.xlsx`);
 }
 
-export function exportAttendanceToExcel(
+export async function exportAttendanceToExcel(
   summaries: {
     staff_name: string;
     branch: string;
@@ -43,10 +44,10 @@ export function exportAttendanceToExcel(
     'متوسط الدخول': s.avg_checkin ?? '-',
     'معدل الانتظام %': s.attendance_rate,
   }));
-  exportToExcel(rows, `تقرير_الحضور_${month}`, 'الحضور');
+  await exportToExcel(rows, `تقرير_الحضور_${month}`, 'الحضور');
 }
 
-export function exportMedicineExpiryToExcel(
+export async function exportMedicineExpiryToExcel(
   medicines: {
     medicine_name?: string | null;
     product_name?: string | null;
@@ -79,10 +80,10 @@ export function exportMedicineExpiryToExcel(
     التصنيف: LABELS[m.bucket ?? ''] ?? '-',
   }));
   const today = new Date().toISOString().slice(0, 10);
-  exportToExcel(rows, `متابعة_صلاحية_الأدوية_${today}`, 'الصلاحية');
+  await exportToExcel(rows, `متابعة_صلاحية_الأدوية_${today}`, 'الصلاحية');
 }
 
-export function exportLoyaltyToExcel(
+export async function exportLoyaltyToExcel(
   customers: {
     name: string;
     phone?: string | null;
@@ -105,5 +106,5 @@ export function exportLoyaltyToExcel(
     'مستوى الولاء': c.tier ?? '-',
   }));
   const today = new Date().toISOString().slice(0, 10);
-  exportToExcel(rows, `مستويات_ولاء_العملاء_${today}`, 'الولاء');
+  await exportToExcel(rows, `مستويات_ولاء_العملاء_${today}`, 'الولاء');
 }

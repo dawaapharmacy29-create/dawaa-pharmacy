@@ -1,15 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+/* recharts will be dynamically imported inside the component to reduce initial bundle size */
 import {
   AlertTriangle,
   CalendarDays,
@@ -165,6 +155,27 @@ export default function Analytics() {
       };
     });
   }, [branchTargets, data?.branchRows]);
+
+  const [R, setR] = useState<any>(null);
+  useEffect(() => {
+    let mounted = true;
+    import('recharts').then((m) => {
+      if (mounted) setR(m);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const BarChart = R?.BarChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const LineChart = R?.LineChart ?? BarChart;
+  const BarC = R?.Bar ?? ((props: any) => null);
+  const LineC = R?.Line ?? ((props: any) => null);
+  const ResponsiveContainer = R?.ResponsiveContainer ?? (({ children }: any) => <div>{children}</div>);
+  const XAxis = R?.XAxis ?? ((props: any) => null);
+  const YAxis = R?.YAxis ?? ((props: any) => null);
+  const Tooltip = R?.Tooltip ?? ((props: any) => null);
+  const CartesianGrid = R?.CartesianGrid ?? ((props: any) => null);
 
   const saveBranchTarget = async (row: {
     branch: string;

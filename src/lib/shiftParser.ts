@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+/* xlsx will be dynamically imported when needed for parsing */
 
 export interface ParsedShift {
   isOff: boolean;
@@ -131,6 +131,7 @@ export function parseExcelShifts(rows: unknown[][], branch = 'غير محدد'):
 }
 
 export async function parseShiftWorkbook(file: File) {
+  const XLSX = await import('xlsx');
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   return workbook.SheetNames.flatMap((sheetName) => {

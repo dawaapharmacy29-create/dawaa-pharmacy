@@ -1,16 +1,5 @@
-import { useMemo, memo } from 'react';
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
+import React, { useMemo, memo, useState, useEffect } from 'react';
+/* recharts will be dynamically imported inside the component to reduce initial bundle size */
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { formatCurrency } from '@/lib/utils';
 
@@ -99,6 +88,29 @@ const DoctorPerformanceCharts = ({
       })
       .slice(-6); // Last 6 months
   }, [salesRows, pointsRows]);
+
+  const [R, setR] = useState<any>(null);
+  useEffect(() => {
+    let mounted = true;
+    import('recharts').then((m) => {
+      if (mounted) setR(m);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (!R) {
+    return (
+      <div className="space-y-6">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  const { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = R;
 
   if (monthlyData.length === 0) {
     return (

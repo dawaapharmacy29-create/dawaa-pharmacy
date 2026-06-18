@@ -249,7 +249,7 @@ export default function MedicineExpiryTracker() {
   }
 
   function handleExport() {
-    exportMedicineExpiryToExcel(filtered);
+    void exportMedicineExpiryToExcel(filtered);
   }
 
   return (
