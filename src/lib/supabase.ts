@@ -22,8 +22,8 @@ function readStoredUserId(): string | null {
   }
 }
 
-const supabaseFetch: typeof fetch = (input, init = {}) => {
-  const headers = new Headers(init.headers);
+const supabaseFetch: typeof fetch = (input, init?: RequestInit) => {
+  const headers = new Headers(init?.headers as HeadersInit | undefined);
   const userId = readStoredUserId();
   if (userId) headers.set("x-dawaa-user-id", userId);
   return fetch(input, { ...init, headers });

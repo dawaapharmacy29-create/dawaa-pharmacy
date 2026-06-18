@@ -9,6 +9,8 @@ import {
   type CustomerLike,
   type InvoiceLike,
 } from "@/lib/customerMetrics";
+
+export type { InvoiceLike } from "@/lib/customerMetrics";
 import { getInvoiceAmount, getInvoiceDate, getInvoiceDoctor, getInvoiceKey, pickFirst } from "@/lib/dawaa2027";
 
 export interface NormalizedInvoice {

@@ -140,6 +140,22 @@ const selector = memoizeSelector((data) => data.filter(...));
 
 ---
 
+## 🛠️ إضافات متقدمة تم تنفيذها
+
+- ✅ إبطال كاش ذكي لنداءات الـ RPC عند تغيّر الجداول ذات الصلة (`dataChanged` listener) في `src/lib/dashboard/dashboardRpcClient.ts`
+- ✅ Web Worker هيكلي للمهام الثقيلة في `src/workers/reconcile.worker.ts` مع غلاف في `src/lib/reconcileWorker.ts`
+- ✅ مكوّن قائمة افتراضية `VirtualList` باستخدام `react-window` في `src/components/common/VirtualList.tsx`
+- ✅ إشعارات فورية (toast) تُرسل كأحداث نافذة بعد عمليات الإنشاء السريعة من المودالات
+
+ملاحظات للنشر:
+- شغّل ملف SQL `SUPABASE_GET_DASHBOARD_AGGREGATES.sql` في لوحة Supabase لنشر دالة `get_dashboard_aggregates`.
+- ثبّت حزمة `react-window` قبل استخدام `VirtualList`:
+
+```bash
+npm install react-window
+```
+
+
 ## 📞 التواصل
 
 إذا كان لديك أي أسئلة أو استفسارات:

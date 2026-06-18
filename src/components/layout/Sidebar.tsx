@@ -34,6 +34,9 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import QuickFollowupModal from "@/components/common/QuickFollowupModal";
+import QuickCustomerCodingModal from "@/components/common/QuickCustomerCodingModal";
+import { supabase } from "@/lib/supabase";
 import { LOGO_URL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { getVisibleSectionsForPath } from "@/lib/permissionMatrix";
@@ -65,6 +68,15 @@ const T = {
 };
 
 const GROUPS: NavGroup[] = [
+  {
+    title: "المهام اليومية",
+    icon: ClipboardList,
+    items: [
+      { path: "/shift-notes", icon: ClipboardList, label: "ملاحظات الشيفت", permission: "view_dashboard" },
+      { path: "/customer-requests", icon: BellRing, label: "طلب متابعة", permission: "view_customer_service" },
+      { path: "/customer-coding", icon: UserPlus, label: "تكويد العملاء", permission: "view_customer_service" },
+    ],
+  },
   {
     title: "لوحة القيادة",
     icon: Crown,
@@ -159,6 +171,9 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const { user, logout, isAdmin, checkPermission } = useAuth();
+  const [openFollowup, setOpenFollowup] = useState(false);
+  const [openCoding, setOpenCoding] = useState(false);
+  const [badges, setBadges] = useState<{ shift: number; followups: number; coding: number }>({ shift: 0, followups: 0, coding: 0 });
   const navigate = useNavigate();
   const location = useLocation();
   const navRef = useRef<HTMLDivElement>(null);
@@ -177,6 +192,44 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
       }),
     })).filter((group) => group.items.length > 0);
   }, [checkPermission, isAdmin, privilegedRoles, user?.role]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadCounts() {
+      try {
+        // followups count (not completed)
+        const f = await supabase.from("followups").select("id", { head: true, count: "exact" }).neq("followup_status", "completed");
+        const followupsCount = f.count || 0;
+        // shift notes count (open)
+        const s = await supabase.from("shift_notes").select("id", { head: true, count: "exact" }).neq("status", "done");
+        const shiftCount = s.count || 0;
+        // customers without code
+        const c = await supabase.from("customers").select("id", { head: true, count: "exact" }).is("customer_code", null);
+        const codingCount = c.count || 0;
+        if (mounted) setBadges({ shift: shiftCount, followups: followupsCount, coding: codingCount });
+      } catch (e) {
+        console.warn("Failed to load sidebar counts", e);
+      }
+    }
+    loadCounts();
+    const interval = setInterval(loadCounts, 60 * 1000);
+
+    // refresh counts when other parts of the app dispatch a dataChanged event
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as { table?: string } | undefined;
+      // reload counts on any relevant change
+      if (!detail || ["followups", "shift_notes", "customers"].includes(detail.table || "")) {
+        loadCounts();
+      }
+    };
+    window.addEventListener("dataChanged", handler as EventListener);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      window.removeEventListener("dataChanged", handler as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     setOpenGroups((current) => {
@@ -258,6 +311,18 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
         )}
       </div>
 
+      {!collapsed && (
+        <div className="px-3 py-2">
+          <div className="flex gap-2">
+            <button onClick={() => setOpenFollowup(true)} className="flex-1 rounded-lg bg-teal-500/10 px-3 py-2 text-xs font-bold text-teal-200">متابعة سريعة</button>
+            <button onClick={() => setOpenCoding(true)} className="flex-1 rounded-lg bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-200">تكويد عميل</button>
+          </div>
+        </div>
+      )}
+
+      <QuickFollowupModal open={openFollowup} onClose={() => setOpenFollowup(false)} />
+      <QuickCustomerCodingModal open={openCoding} onClose={() => setOpenCoding(false)} />
+
       <nav ref={navRef} className="flex-1 space-y-2 overflow-y-auto p-3" id="sidebar-nav">
         {groups.map((group) => {
           const GroupIcon = group.icon;
@@ -284,6 +349,11 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                   {group.items.map((item) => {
                     const itemActive = isRouteActive(item.path, location.pathname);
                     const visibleSections = getVisibleSectionsForPath(item.path, checkPermission);
+                    // Determine badge value for special items
+                    let badgeValue: number | undefined = item.badge;
+                    if (item.path === "/shift-notes") badgeValue = badges.shift;
+                    if (item.path === "/customer-requests") badgeValue = badges.followups;
+                    if (item.path === "/customer-coding") badgeValue = badges.coding;
                     return (
                       <div key={item.path} className="space-y-1">
                         <NavLink
@@ -297,7 +367,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                           title={collapsed ? item.label : undefined}
                         >
                           <item.icon className="h-4.5 w-4.5 flex-shrink-0" size={18} />
-                          {!collapsed && <span>{item.label}</span>}
+                          {!collapsed && <span className="flex items-center justify-between w-full">{item.label}{badgeValue ? <span className="ml-2 inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">{badgeValue}</span> : null}</span>}
                         </NavLink>
                         {!collapsed && itemActive && visibleSections.length > 0 && (
                           <div className="mr-8 space-y-1 border-r border-teal-500/20 pr-3">

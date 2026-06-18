@@ -7,6 +7,7 @@ export interface User {
   branch: string;
   avatar?: string;
   phone?: string;
+  email?: string;
   active: boolean;
   permissions?: Record<string, boolean>;
 }
@@ -34,19 +35,28 @@ export interface Customer {
   phone: string;
   branch: string;
   type: string;
-  notes?: string;
-  lastPurchase: string;
-  firstPurchase: string;
-  totalPurchases: number;
-  totalInvoices: number;
-  avgInvoice: number;
-  avgMonthly: number;
-  clv: number;
-  riskScore: number;
-  retentionStatus: "محتفظ" | "معرض للفقدان" | "مفقود" | "جديد";
-  followups: Followup[];
-  whatsappNotes: string;
-  createdAt: string;
+  notes?: string | null;
+  lastPurchase: string | null;
+  firstPurchase: string | null;
+  totalPurchases: number | null;
+  totalInvoices?: number | null;
+  avgInvoice?: number | null;
+  avgMonthly?: number | null;
+  clv?: number | null;
+  riskScore?: number | null;
+  retentionStatus?: "محتفظ" | "معرض للفقدان" | "مفقود" | "جديد" | string | null;
+  followups?: Followup[];
+  whatsappNotes?: string | null;
+  customer_code?: string | null;
+  customer_phone?: string | null;
+  final_customer_key?: string | null;
+  invoices_count?: number | null;
+  total_spent?: number | null;
+  customer_notes?: string | null;
+  displayPhone?: string;
+  createdAt?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface Followup {
@@ -139,4 +149,5 @@ export interface ScheduleShift {
   startTime: string;
   endTime: string;
   isHoliday: boolean;
+  is_day_off?: boolean;
 }

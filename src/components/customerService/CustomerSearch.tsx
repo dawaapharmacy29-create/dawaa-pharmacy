@@ -4,7 +4,7 @@ import { getCustomers, type GetCustomersOptions } from "@/lib/api/customers";
 import { cleanEgyptianPhone, displayEgyptianPhone } from "@/lib/whatsapp";
 import { normalizeBranchName } from "@/lib/branch";
 import { normalizePhone, normalizeArabicText } from "@/lib/customerSearch";
-import type { Customer } from "@/types/database";
+import type { CustomerMetric as Customer } from "@/lib/api/customers";
 import { toast } from "sonner";
 
 interface CustomerSearchProps {
@@ -49,7 +49,7 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
           const normalizedQuery = normalizeArabicText(query.replace(/\*/g, ""));
           const code = normalizeArabicText(String(customer.customer_code || ""));
           const name = normalizeArabicText(String(customer.name || ""));
-          const phone = normalizePhone(customer.phone);
+          const phone = normalizePhone(customer.phone || customer.customer_phone || "");
           const whatsapp = normalizePhone((customer as any).whatsapp_phone || "");
           const phoneQuery = normalizePhone(query);
 
@@ -59,6 +59,7 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
           else if (phone.includes(phoneQuery) || phone.startsWith(phoneQuery)) matchType = "phone";
           else if (whatsapp.includes(phoneQuery) || whatsapp.startsWith(phoneQuery)) matchType = "whatsapp";
 
+          (customer as any).displayPhone = displayEgyptianPhone(phone || whatsapp || "");
           return { customer, matchType };
         });
 

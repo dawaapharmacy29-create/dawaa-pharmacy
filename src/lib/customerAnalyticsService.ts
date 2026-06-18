@@ -2,7 +2,7 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { getSalesValue } from "@/lib/analyticsService";
 import { cleanEgyptianPhone } from "@/lib/whatsapp";
 
-type AnyRow = Record<string, unknown>;
+type AnyRow = Record<string, any>;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

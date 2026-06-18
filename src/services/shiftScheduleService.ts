@@ -30,14 +30,17 @@ function missingColumn(message: string) {
 async function insertSchedulesFlexible(records: ShiftSchedulePayload[]) {
   let next = records.map((record) => ({ ...record }));
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const inserted = await supabase.from(TABLES.shiftSchedules).insert(next);
+    const inserted = await supabase.from(TABLES.shiftSchedules).insert(next as unknown as Record<string, unknown>[]);
     if (!inserted.error) return inserted;
     logSupabaseError("insert staff shift schedules", inserted.error);
     const column = missingColumn(inserted.error.message);
-    if (!column || !next.some((record) => column in record)) return inserted;
-    next = next.map(({ [column]: _removed, ...record }) => record as ShiftSchedulePayload);
+    if (!column || !next.some((record) => (record as Record<string, unknown>)[column] !== undefined)) return inserted;
+    next = next.map((record) => {
+      const { [column]: _removed, ...rest } = record as Record<string, unknown>;
+      return rest as unknown as ShiftSchedulePayload;
+    });
   }
-  const inserted = await supabase.from(TABLES.shiftSchedules).insert(next);
+  const inserted = await supabase.from(TABLES.shiftSchedules).insert(next as unknown as Record<string, unknown>[]);
   if (inserted.error) logSupabaseError("insert staff shift schedules", inserted.error);
   return inserted;
 }

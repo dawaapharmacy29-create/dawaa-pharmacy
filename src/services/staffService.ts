@@ -82,17 +82,17 @@ async function updateFlexible<T extends Record<string, unknown>>(table: string, 
 }
 
 export async function createStaff(payload: StaffPayload) {
-  const result = await insertFlexible(TABLES.staff, payload);
+  const result = await insertFlexible(TABLES.staff, payload as unknown as Record<string, unknown>);
   if (result.error) logSupabaseError("create staff", result.error);
   return result;
 }
 
 export async function updateStaff(id: string, payload: StaffPayload) {
-  const result = await updateFlexible(TABLES.staff, id, payload);
+  const result = await updateFlexible(TABLES.staff, id, payload as unknown as Record<string, unknown>);
   if (result.error) logSupabaseError("update staff", result.error);
   return result;
 }
 
 export async function createStaffAccount(payload: StaffAccountPayload) {
-  return insertFlexible(TABLES.staffAccounts, payload);
+  return insertFlexible(TABLES.staffAccounts, payload as unknown as Record<string, unknown>);
 }

@@ -81,7 +81,7 @@ async function fetchOnePage(
     .order("id", { ascending: true })
     .range(from, to);
   return {
-    data: (result.data || []) as SalesInvoiceQueryRow[],
+    data: (result.data || []) as unknown as SalesInvoiceQueryRow[],
     error: result.error as Error | null,
   };
 }

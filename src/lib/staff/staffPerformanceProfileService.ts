@@ -11,6 +11,14 @@ import { generateStaffRecommendations as generateRecommendations, type StaffReco
 
 type Row = Record<string, unknown>;
 
+function isCompletedFollowup(row: Row) {
+  return Boolean(row.status === "completed" || row.followup_status === "completed" || row.completed || row.is_completed);
+}
+
+function isMissedFollowup(row: Row) {
+  return Boolean(row.status === "missed" || row.followup_status === "missed" || row.missed || row.is_missed || row.overdue);
+}
+
 export interface StaffPerformanceProfileParams {
   staffId: string;
   cycleStart?: string;

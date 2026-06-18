@@ -43,6 +43,7 @@ export function saveShiftBounds(bounds: ShiftBounds): void {
 }
 
 export interface SalesInvoiceRow {
+  [key: string]: any;
   id?: string;
   branch?: string | null;
   invoice_number?: string | null;

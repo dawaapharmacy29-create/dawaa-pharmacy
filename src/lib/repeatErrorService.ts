@@ -110,18 +110,18 @@ export class RepeatErrorService {
       const deduction = this.calculateRepeatDeduction(basePoints, occurrenceCount, severe);
       
       repeatErrors.push({
-        id: firstRecord.id,
+        id: String(firstRecord.id || ""),
         staff_id: staffId,
-        staff_name: firstRecord.staff_name || 'غير محدد',
+        staff_name: String(firstRecord.staff_name || 'غير محدد'),
         rule_id: ruleId,
         rule_title: String(firstRecord.rule_title || ruleDef?.title_ar || 'غير محدد'),
         base_points: basePoints,
         occurrence_count: occurrenceCount,
         total_deduction: deduction.finalPoints,
-        requires_manager_review: deduction.requiresManagerReview,
+        requires_manager_review: Boolean(deduction.requiresManagerReview),
         cycle_start: cycleStart,
         cycle_end: cycleEnd,
-        created_at: firstRecord.created_at,
+        created_at: String(firstRecord.created_at || ""),
       });
     }
 

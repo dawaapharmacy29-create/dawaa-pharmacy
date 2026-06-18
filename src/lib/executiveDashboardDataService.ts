@@ -333,7 +333,7 @@ async function fetchTrackingTable(args: {
   if (!isSupabaseConfigured) return { rows: [], error: "Supabase غير متاح" };
   const { data, error } = await supabase.from(args.table).select(args.select).limit(60);
   if (error) return { rows: [], error: error.message };
-  const rows = ((data ?? []) as Row[]).slice(0, 8).map((row, index) => {
+  const rows = ((data ?? []) as unknown as Row[]).slice(0, 8).map((row, index) => {
     const sold = toNumber(readFirst(row, args.soldKeys, 0));
     const target = toNumber(readFirst(row, args.targetKeys, 0));
     const value = toNumber(readFirst(row, args.valueKeys, sold));

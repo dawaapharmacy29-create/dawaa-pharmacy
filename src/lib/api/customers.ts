@@ -9,6 +9,7 @@ import {
 } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
 import { getCustomerFullProfile, clearCustomerProfileCache } from "@/lib/customerProfileService";
+import type { Customer as CustomerDbType } from "@/types/database";
 import { getInvoiceKey } from "@/lib/dawaa2027";
 import { buildCustomerFlagsForDb, parseCustomerFlags } from "@/lib/customerFlags";
 import { getCustomerCashbackSummary, getCustomerWelcomeStatus, getCustomerInvoiceClassifications, type CustomerCashbackSummary, type CustomerWelcomeStatus, type CustomerInvoiceClassificationRow } from "@/lib/api/customerLoyalty";
@@ -22,32 +23,11 @@ export function clearCustomersCache() {
   // Customers list reads customer_metrics_summary directly; this hook keeps import invalidation explicit.
 }
 
+import type { CustomerMetric as CustomerMetricType, CustomerLike } from "@/types/domain";
+
 type Row = Record<string, unknown>;
 
-export type CustomerMetric = {
-  id: string;
-  final_customer_key: string | null;
-  customer_id: string | null;
-  customer_code: string | null;
-  customer_name: string | null;
-  customer_phone: string | null;
-  phone: string | null;
-  name: string | null;
-  branch: string | null;
-  invoices_count: number;
-  total_spent: number;
-  total_purchases: number;
-  avg_invoice: number;
-  first_purchase: string | null;
-  last_purchase: string | null;
-  active_months: number;
-  avg_monthly: number;
-  segment: string;
-  type: string;
-  customer_status: string;
-  status: string;
-  retention_status: string;
-};
+export type CustomerMetric = CustomerMetricType;
 
 export interface GetCustomersOptions {
   search?: string;

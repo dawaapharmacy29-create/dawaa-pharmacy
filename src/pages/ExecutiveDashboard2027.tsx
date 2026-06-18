@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearInvoiceCache } from "@/lib/invoiceCache";
 import { useNavigate } from "react-router-dom";
 import {
@@ -44,6 +44,8 @@ import { supabase } from "@/lib/supabase";
 import { formatCycleDate, getCurrentCycle, getPreviousCycle } from "@/lib/pharmacy-cycle";
 import { normalizeBranchName } from "@/lib/branch";
 import { useAuth } from "@/hooks/useAuth";
+import DailySalesChart from "@/components/dashboard/DailySalesChart";
+import MonthlySalesChart from "@/components/dashboard/MonthlySalesChart";
 import { canSeeAllBranches, effectiveBranchFilter } from "@/lib/security/permissionScopes";
 import { DAYS_AR } from "@/lib/constants";
 import { isCurrentlyOnShift } from "@/lib/utils";
@@ -341,24 +343,23 @@ function rows<T>(data: unknown): T[] {
 
 async function rpcRows<T>(names: string[], params: Record<string, unknown> | undefined, label: string, errors: string[]): Promise<T[]> {
   for (const name of names) {
-    try {
-      const result = params === undefined ? await supabase.rpc(name) : await supabase.rpc(name, params);
-      if (!result.error) return rows<T>(result.data);
-      console.error("[Dashboard RPC failed]", name, params, result.error);
-      errors.push(`${label}: ${result.error.message}`);
-    } catch (error) {
-      console.error("[Dashboard RPC failed]", name, params, error);
-      errors.push(`${label}: ${error instanceof Error ? error.message : "خطأ غير معروف"}`);
+    const { data, error } = await supabase.rpc(name, params);
+    if (error) {
+      errors.push(`${label}: ${error.message}`);
+      continue;
     }
+    const rowsData = rows<T>(data);
+    if (rowsData.length) return rowsData;
   }
   return [];
 }
 
-async function fetchFollowupsForDashboard(startDate: string, endDate: string, branch: string, errors: string[]) {
+async function fetchFollowupsForDashboard(startDate: string, endDate: string, branch: string, errors: string[]): Promise<FollowupDashboardRow[]> {
   const allRows: FollowupDashboardRow[] = [];
   const pageSize = 1000;
+  const maxPages = 20;
 
-  for (let page = 0; page < 20; page += 1) {
+  for (let page = 0; page < maxPages; page += 1) {
     const from = page * pageSize;
     const to = from + pageSize - 1;
     let query = supabase
@@ -366,17 +367,18 @@ async function fetchFollowupsForDashboard(startDate: string, endDate: string, br
       .select("*")
       .gte("followup_date", startDate)
       .lte("followup_date", endDate)
+      .order("followup_date", { ascending: true })
       .range(from, to);
 
     if (branch !== ALL_BRANCHES) query = query.eq("branch", branch);
 
-    const result = await query;
-    if (result.error) {
-      errors.push(`daily_followups: ${result.error.message}`);
+    const { data, error } = await query;
+    if (error) {
+      errors.push(`daily_followups: ${error.message}`);
       break;
     }
 
-    const batch = (result.data || []) as FollowupDashboardRow[];
+    const batch = (data || []) as FollowupDashboardRow[];
     allRows.push(...batch);
     if (batch.length < pageSize) break;
   }
@@ -1038,7 +1040,7 @@ export default function ExecutiveDashboard2027() {
                 <Sparkles className="h-4 w-4" />
                 Dawaa Pharmacy 2027
               </div>
-              <h1 className="text-4xl font-black leading-tight tracking-tight text-white md:text-5xl">مركز العمليات والإدارة العامة</h1>
+              <h1 className="text-4xl font-black leading-tight tracking-tight text-white md:text-5xl">مركز القيادة التشغيلي</h1>
               <p className="mt-2 text-sm font-semibold text-slate-300">لوحة قيادة تنفيذية شاملة للمبيعات، الفروع، الموظفين، خدمة العملاء، والتشغيل.</p>
               <div className="mt-5 flex flex-wrap justify-start gap-2 xl:justify-end">
                 {["المبيعات", "الموظفين", "خدمة العملاء", "الفروع", "التشغيل"].map((tab, index) => (
@@ -1154,46 +1156,22 @@ export default function ExecutiveDashboard2027() {
 
         <Panel className="p-5">
           <SectionTitle title="اتجاه المبيعات اليومية خلال الدورة" subtitle="رسم كامل بعرض الصفحة لمتابعة كل أيام الشهر" icon={<TrendingUp className="h-5 w-5" />} />
-          <div className="h-[360px]">
-            {dailyChart.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={dailyChart} margin={{ top: 10, right: 12, left: 12, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.14)" />
-                  <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={55} />
-                  <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}K`} />
-                  <Tooltip formatter={(value) => `${money(value)} جنيه`} contentStyle={{ background: "#0f172a", border: "1px solid rgba(45,212,191,0.25)", borderRadius: 16, color: "#fff" }} />
-                  <Legend />
-                  <Line type="monotone" dataKey="total" stroke="#2dd4bf" strokeWidth={3} dot={{ r: 3, fill: "#2dd4bf" }} activeDot={{ r: 7 }} name="إجمالي اليوم" />
-                  {scopedBranch === ALL_BRANCHES && <Line type="monotone" dataKey="فرع شكري" stroke="#38bdf8" strokeWidth={2} dot={false} name="فرع شكري" />}
-                  {scopedBranch === ALL_BRANCHES && <Line type="monotone" dataKey="فرع الشامي" stroke="#8b5cf6" strokeWidth={2} dot={false} name="فرع الشامي" />}
-                </LineChart>
-              </ResponsiveContainer>
-            ) : <EmptyState label="لا توجد بيانات مبيعات يومية بعد" />}
-          </div>
+            <div className="h-[360px]">
+              {dailyChart.length ? (
+                <Suspense fallback={<div className="flex h-full items-center justify-center text-slate-400">جارٍ تحميل الرسم...</div>}>
+                  <DailySalesChart data={dailyChart} />
+                </Suspense>
+              ) : <EmptyState label="لا توجد بيانات مبيعات يومية بعد" />}
+            </div>
         </Panel>
 
         <Panel className="p-5">
           <SectionTitle title="تحليل آخر 5 شهور" subtitle="مقارنة شهرية واسعة للمبيعات وعدد الفواتير" icon={<BarChart3 className="h-5 w-5" />} />
           <div className="h-[320px]">
             {monthlyChart.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={monthlyChart} margin={{ top: 10, right: 12, left: 12, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="monthSales" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.45} />
-                      <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.14)" />
-                  <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}K`} />
-                  <Tooltip formatter={(value) => `${money(value)} جنيه`} contentStyle={{ background: "#0f172a", border: "1px solid rgba(45,212,191,0.25)", borderRadius: 16, color: "#fff" }} />
-                  <Legend />
-                  <Line type="monotone" dataKey="sales_total" stroke="#2dd4bf" strokeWidth={4} dot={{ r: 4 }} name="إجمالي الشهر" />
-                  <Line type="monotone" dataKey="فرع شكري" stroke="#38bdf8" strokeWidth={3} dot={{ r: 3 }} name="فرع شكري" />
-                  <Line type="monotone" dataKey="فرع الشامي" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 3 }} name="فرع الشامي" />
-                </LineChart>
-              </ResponsiveContainer>
+              <Suspense fallback={<div className="flex h-full items-center justify-center text-slate-400">جارٍ تحميل الرسم...</div>}>
+                <MonthlySalesChart data={monthlyChart} />
+              </Suspense>
             ) : <EmptyState label="لا توجد بيانات كافية لآخر 5 شهور" />}
           </div>
         </Panel>

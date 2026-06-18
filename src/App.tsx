@@ -136,7 +136,7 @@ function AppLoading() {
   return (
     <div className="min-h-screen bg-navy-900 flex items-center justify-center" dir="rtl">
       <div className="flex flex-col items-center gap-4">
-        <img src={LOGO_URL} alt="Dawaa" className="w-16 h-16 rounded-2xl object-contain animate-pulse-soft" />
+        <img src={LOGO_URL} alt="Dawaa" loading="lazy" className="w-16 h-16 rounded-2xl object-contain animate-pulse-soft" />
         <div className="w-8 h-8 border-3 border-teal-500/30 border-t-teal-500 rounded-full animate-spin" />
         <div className="text-slate-400 text-sm">جاري التحميل...</div>
       </div>

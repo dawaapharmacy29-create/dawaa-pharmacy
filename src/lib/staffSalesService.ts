@@ -307,14 +307,14 @@ function convertInvoicesToSummary(invoices: Row[]): Row[] {
     const customerKey = String(invoice.customer_code || invoice.customer_phone || invoice.customer_name || "");
 
     if (existing) {
-      existing.net_total = (existing.net_total as number || 0) + (invoice.net_amount || invoice.discounted_amount || invoice.amount || 0);
-      existing.invoices_count = (existing.invoices_count as number || 0) + 1;
+      existing.net_total = numberValue(existing.net_total || 0) + numberValue(invoice.net_amount || invoice.discounted_amount || invoice.amount || 0);
+      existing.invoices_count = numberValue(existing.invoices_count || 0) + 1;
     } else {
       grouped.set(date, {
         sale_date: date,
         seller_name: invoice.seller_name,
         branch: invoice.branch,
-        net_total: invoice.net_amount || invoice.discounted_amount || invoice.amount || 0,
+        net_total: numberValue(invoice.net_amount || invoice.discounted_amount || invoice.amount || 0),
         invoices_count: 1,
         unique_customers: customerKey ? 1 : 0,
       });
@@ -349,9 +349,9 @@ function calculateSalesMetrics(
   warnings: string[],
   branch: string
 ): StaffCycleSales {
-  const totalSales = summaryData.reduce((sum, row) => sum + (row.net_total as number || 0), 0);
-  const invoicesCount = summaryData.reduce((sum, row) => sum + (row.invoices_count as number || 0), 0);
-  const uniqueCustomersCount = summaryData.reduce((sum, row) => sum + (row.unique_customers as number || 0), 0);
+  const totalSales = summaryData.reduce((sum, row) => sum + numberValue(row.net_total || row.net_amount || row.discounted_amount || row.amount || 0), 0);
+  const invoicesCount = summaryData.reduce((sum, row) => sum + numberValue(row.invoices_count || 0), 0);
+  const uniqueCustomersCount = summaryData.reduce((sum, row) => sum + numberValue(row.unique_customers || 0), 0);
   const avgInvoice = invoicesCount > 0 ? totalSales / invoicesCount : 0;
 
   // Find max invoice

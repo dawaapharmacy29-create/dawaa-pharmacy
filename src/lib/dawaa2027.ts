@@ -142,7 +142,7 @@ export function quarterlyIncentiveFromScore(score: number) {
 export function repeatPenaltyPoints(basePoints: number, previousCount: number) {
   return calculateRepeatDeduction({
     basePoints,
-    occurrenceCount: Math.max(1, previousCount + 1),
+    previousOccurrences: Math.max(0, previousCount),
   }).finalPoints;
 }
 

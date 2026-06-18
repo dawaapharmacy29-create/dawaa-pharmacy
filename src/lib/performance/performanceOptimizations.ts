@@ -1,3 +1,14 @@
+export function debounce<T extends (...args: any[]) => any>(fn: T, wait = 200) {
+  let t: any;
+  return (...args: Parameters<T>) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
+// NOTE: The file previously contained a second, duplicate `PerformanceCache` class
+// definition which caused a TypeScript `Duplicate identifier` error. The duplicate
+// was removed above and a single `PerformanceCache` implementation is retained
+// below (further in the file) to preserve existing usage across the codebase.
 /**
  * تحسينات الأداء العامة للتطبيق
  * 2026 - Dawaa Pharmacy Performance Optimization
