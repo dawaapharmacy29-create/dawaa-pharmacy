@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from 'react';
 
 interface PWAState {
   isInstallable: boolean;
@@ -10,7 +10,7 @@ interface PWAState {
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
 interface NavigatorWithStandalone extends Navigator {
@@ -30,11 +30,11 @@ export function usePWA() {
 
   useEffect(() => {
     // ── Register Service Worker ────────────────────────────────────────────
-    if ("serviceWorker" in navigator) {
+    if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register("/sw.js", { scope: "/" })
+        .register('/sw.js', { scope: '/' })
         .then((reg) => {
-          console.log("[PWA] SW registered:", reg.scope);
+          console.log('[PWA] SW registered:', reg.scope);
 
           // Check for waiting SW (pending update)
           if (reg.waiting) {
@@ -42,14 +42,11 @@ export function usePWA() {
           }
 
           // Listen for new SW installing
-          reg.addEventListener("updatefound", () => {
+          reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;
             if (!newWorker) return;
-            newWorker.addEventListener("statechange", () => {
-              if (
-                newWorker.state === "installed" &&
-                navigator.serviceWorker.controller
-              ) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
                 setState((s) => ({ ...s, hasUpdate: true }));
               }
             });
@@ -58,11 +55,11 @@ export function usePWA() {
           // Poll for updates every 30 minutes
           setInterval(() => reg.update(), 30 * 60 * 1000);
         })
-        .catch((err) => console.warn("[PWA] SW registration failed:", err));
+        .catch((err) => console.warn('[PWA] SW registration failed:', err));
 
       // Listen for SW messages (e.g., SW_UPDATED)
-      navigator.serviceWorker.addEventListener("message", (event) => {
-        if (event.data?.type === "SW_UPDATED") {
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'SW_UPDATED') {
           setState((s) => ({
             ...s,
             swVersion: event.data.version,
@@ -72,8 +69,8 @@ export function usePWA() {
       });
 
       // Detect controller change (new SW took over)
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        console.log("[PWA] New SW controller activated without forced reload");
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        console.log('[PWA] New SW controller activated without forced reload');
         setState((current) => ({ ...current, hasUpdate: true }));
       });
     }
@@ -81,8 +78,8 @@ export function usePWA() {
     // ── Online / Offline ───────────────────────────────────────────────────
     const handleOnline = () => setState((s) => ({ ...s, isOffline: false }));
     const handleOffline = () => setState((s) => ({ ...s, isOffline: true }));
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
     // ── Install Prompt ─────────────────────────────────────────────────────
     const handleBeforeInstall = (e: Event) => {
@@ -96,22 +93,22 @@ export function usePWA() {
       setState((s) => ({ ...s, isInstallable: false, isInstalled: true }));
     };
 
-    window.addEventListener("beforeinstallprompt", handleBeforeInstall);
-    window.addEventListener("appinstalled", handleAppInstalled);
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
 
     // Detect if already installed (standalone mode)
     if (
-      window.matchMedia("(display-mode: standalone)").matches ||
+      window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as NavigatorWithStandalone).standalone === true
     ) {
       setState((s) => ({ ...s, isInstalled: true }));
     }
 
     return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
-      window.removeEventListener("appinstalled", handleAppInstalled);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -122,14 +119,14 @@ export function usePWA() {
     const { outcome } = await deferredPrompt.userChoice;
     deferredPrompt = null;
     setState((s) => ({ ...s, isInstallable: false }));
-    return outcome === "accepted";
+    return outcome === 'accepted';
   }, []);
 
   /** Tell waiting SW to activate (triggers reload via controllerchange) */
   const applyUpdate = useCallback(async () => {
     const reg = await navigator.serviceWorker?.getRegistration();
     if (reg?.waiting) {
-      reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      reg.waiting.postMessage({ type: 'SKIP_WAITING' });
     }
     setState((s) => ({ ...s, hasUpdate: false }));
   }, []);

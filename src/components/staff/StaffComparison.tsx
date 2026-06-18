@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { X, Plus, TrendingUp, Users, DollarSign, Award, Calendar } from "lucide-react";
-import { loadStaffPerformanceProfile } from "@/lib/staff/staffPerformanceProfileService";
-import { formatCurrency, formatNumber } from "@/lib/utils";
-import { formatMoney } from "@/lib/dawaa2027";
-import type { StaffPerformanceProfile } from "@/lib/staff/staffPerformanceProfileService";
+import { useState } from 'react';
+import { X, Plus, TrendingUp, Users, DollarSign, Award, Calendar } from 'lucide-react';
+import { loadStaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
+import { formatCurrency, formatNumber } from '@/lib/utils';
+import { formatMoney } from '@/lib/dawaa2027';
+import type { StaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
 
 interface StaffComparisonProps {
   initialStaffIds?: string[];
@@ -14,17 +14,17 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
   const [staffIds, setStaffIds] = useState<string[]>(initialStaffIds);
   const [profiles, setProfiles] = useState<Map<string, StaffPerformanceProfile>>(new Map());
   const [loading, setLoading] = useState(false);
-  const [newStaffId, setNewStaffId] = useState("");
+  const [newStaffId, setNewStaffId] = useState('');
 
   const loadProfile = async (staffId: string) => {
     if (profiles.has(staffId)) return;
-    
+
     setLoading(true);
     try {
       const profile = await loadStaffPerformanceProfile({ staffId, forceRefresh: true });
       setProfiles((prev) => new Map(prev).set(staffId, profile));
     } catch (error) {
-      console.error("Error loading staff profile:", error);
+      console.error('Error loading staff profile:', error);
     } finally {
       setLoading(false);
     }
@@ -34,7 +34,7 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
     if (newStaffId && !staffIds.includes(newStaffId)) {
       setStaffIds([...staffIds, newStaffId]);
       loadProfile(newStaffId);
-      setNewStaffId("");
+      setNewStaffId('');
     }
   };
 
@@ -52,7 +52,9 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
     initialStaffIds.forEach((id) => loadProfile(id));
   });
 
-  const staffProfiles = staffIds.map((id) => profiles.get(id)).filter((p): p is StaffPerformanceProfile => p !== undefined);
+  const staffProfiles = staffIds
+    .map((id) => profiles.get(id))
+    .filter((p): p is StaffPerformanceProfile => p !== undefined);
 
   if (staffProfiles.length === 0) {
     return (
@@ -130,7 +132,7 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               </td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.sales ? formatMoney(profile.sales.cycleNetSales) : "-"}
+                  {profile.sales ? formatMoney(profile.sales.cycleNetSales) : '-'}
                 </td>
               ))}
             </tr>
@@ -138,7 +140,7 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               <td className="p-3 text-slate-300">عدد الفواتير</td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.sales ? formatNumber(profile.sales.cycleInvoicesCount) : "-"}
+                  {profile.sales ? formatNumber(profile.sales.cycleInvoicesCount) : '-'}
                 </td>
               ))}
             </tr>
@@ -146,7 +148,7 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               <td className="p-3 text-slate-300">متوسط الفاتورة</td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.sales ? formatCurrency(profile.sales.avgInvoice) : "-"}
+                  {profile.sales ? formatCurrency(profile.sales.avgInvoice) : '-'}
                 </td>
               ))}
             </tr>
@@ -159,7 +161,7 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               </td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.sales ? formatNumber(profile.sales.uniqueCustomers) : "-"}
+                  {profile.sales ? formatNumber(profile.sales.uniqueCustomers) : '-'}
                 </td>
               ))}
             </tr>
@@ -167,7 +169,7 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               <td className="p-3 text-slate-300">عملاء جدد</td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.customers ? formatNumber(profile.customers.newCustomers) : "-"}
+                  {profile.customers ? formatNumber(profile.customers.newCustomers) : '-'}
                 </td>
               ))}
             </tr>
@@ -180,7 +182,9 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               </td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.monthlyIncentive ? formatNumber(profile.monthlyIncentive.finalPoints) : "-"}
+                  {profile.monthlyIncentive
+                    ? formatNumber(profile.monthlyIncentive.finalPoints)
+                    : '-'}
                 </td>
               ))}
             </tr>
@@ -188,7 +192,9 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               <td className="p-3 text-slate-300">قيمة الحافز</td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.monthlyIncentive ? formatCurrency(profile.monthlyIncentive.incentiveValue) : "-"}
+                  {profile.monthlyIncentive
+                    ? formatCurrency(profile.monthlyIncentive.incentiveValue)
+                    : '-'}
                 </td>
               ))}
             </tr>
@@ -201,7 +207,9 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               </td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.quarterlyIncentive ? `${profile.quarterlyIncentive.quarterlyScore}/100` : "-"}
+                  {profile.quarterlyIncentive
+                    ? `${profile.quarterlyIncentive.quarterlyScore}/100`
+                    : '-'}
                 </td>
               ))}
             </tr>
@@ -209,7 +217,9 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               <td className="p-3 text-slate-300">القيمة الربع سنوية</td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.quarterlyIncentive ? formatCurrency(profile.quarterlyIncentive.quarterlyFinalValue) : "-"}
+                  {profile.quarterlyIncentive
+                    ? formatCurrency(profile.quarterlyIncentive.quarterlyFinalValue)
+                    : '-'}
                 </td>
               ))}
             </tr>
@@ -222,7 +232,9 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               </td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.attendance ? `${profile.attendance.attendanceCompliance.toFixed(0)}%` : "-"}
+                  {profile.attendance
+                    ? `${profile.attendance.attendanceCompliance.toFixed(0)}%`
+                    : '-'}
                 </td>
               ))}
             </tr>
@@ -230,7 +242,7 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               <td className="p-3 text-slate-300">التأخيرات</td>
               {staffProfiles.map((profile) => (
                 <td key={profile.staff.id} className="p-3 text-center num">
-                  {profile.attendance ? formatNumber(profile.attendance.delays) : "-"}
+                  {profile.attendance ? formatNumber(profile.attendance.delays) : '-'}
                 </td>
               ))}
             </tr>
@@ -247,25 +259,29 @@ export default function StaffComparison({ initialStaffIds = [], onClose }: Staff
               <div className="flex justify-between">
                 <span className="text-slate-400">النقاط</span>
                 <span className="text-white num">
-                  {profile.monthlyIncentive ? formatNumber(profile.monthlyIncentive.finalPoints) : "-"}
+                  {profile.monthlyIncentive
+                    ? formatNumber(profile.monthlyIncentive.finalPoints)
+                    : '-'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">المبيعات</span>
                 <span className="text-white num">
-                  {profile.sales ? formatMoney(profile.sales.cycleNetSales) : "-"}
+                  {profile.sales ? formatMoney(profile.sales.cycleNetSales) : '-'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">العملاء</span>
                 <span className="text-white num">
-                  {profile.sales ? formatNumber(profile.sales.uniqueCustomers) : "-"}
+                  {profile.sales ? formatNumber(profile.sales.uniqueCustomers) : '-'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">ربع سنوي</span>
                 <span className="text-white num">
-                  {profile.quarterlyIncentive ? formatCurrency(profile.quarterlyIncentive.quarterlyFinalValue) : "-"}
+                  {profile.quarterlyIncentive
+                    ? formatCurrency(profile.quarterlyIncentive.quarterlyFinalValue)
+                    : '-'}
                 </span>
               </div>
             </div>

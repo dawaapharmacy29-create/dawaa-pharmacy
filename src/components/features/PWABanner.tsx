@@ -1,26 +1,37 @@
-import { usePWA } from "@/hooks/usePWA";
-import { RefreshCw, Download, WifiOff, X } from "lucide-react";
-import { useState } from "react";
-import { useOfflineQueueStatus } from "@/hooks/useOfflineQueueStatus";
+import { usePWA } from '@/hooks/usePWA';
+import { RefreshCw, Download, WifiOff, X } from 'lucide-react';
+import { useState } from 'react';
+import { useOfflineQueueStatus } from '@/hooks/useOfflineQueueStatus';
 
 export default function PWABanner() {
   const { isInstallable, isOffline, hasUpdate, installApp, applyUpdate } = usePWA();
   const { pendingCount, syncing, syncNow } = useOfflineQueueStatus();
   const [dismissed, setDismissed] = useState(false);
 
-
   if (!isOffline && pendingCount > 0 && !dismissed) {
     return (
-      <div className="fixed bottom-4 right-4 left-4 md:left-auto md:w-96 z-50 animate-fade-in" dir="rtl">
+      <div
+        className="fixed bottom-4 right-4 left-4 md:left-auto md:w-96 z-50 animate-fade-in"
+        dir="rtl"
+      >
         <div className="bg-amber-900/90 backdrop-blur border border-amber-400/40 rounded-2xl p-4 flex items-center gap-3 shadow-2xl">
           <div className="w-9 h-9 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-            <RefreshCw size={18} className={syncing ? "text-amber-200 animate-spin" : "text-amber-200"} />
+            <RefreshCw
+              size={18}
+              className={syncing ? 'text-amber-200 animate-spin' : 'text-amber-200'}
+            />
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-white font-semibold text-sm">عمليات محفوظة بدون مزامنة</div>
-            <div className="text-amber-100/80 text-xs mt-0.5">{pendingCount} عملية في انتظار إرسالها عند توفر النت.</div>
+            <div className="text-amber-100/80 text-xs mt-0.5">
+              {pendingCount} عملية في انتظار إرسالها عند توفر النت.
+            </div>
           </div>
-          <button onClick={syncNow} disabled={syncing} className="rounded-xl bg-white/15 px-3 py-2 text-xs font-black text-white hover:bg-white/20 disabled:opacity-50">
+          <button
+            onClick={syncNow}
+            disabled={syncing}
+            className="rounded-xl bg-white/15 px-3 py-2 text-xs font-black text-white hover:bg-white/20 disabled:opacity-50"
+          >
             مزامنة
           </button>
           <button onClick={() => setDismissed(true)} className="text-amber-100/70 hover:text-white">
@@ -58,7 +69,9 @@ export default function PWABanner() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-white font-semibold text-sm">تحديث متاح</div>
-              <div className="text-slate-400 text-xs mt-0.5 leading-relaxed">نسخة جديدة من النظام جاهزة للتثبيت</div>
+              <div className="text-slate-400 text-xs mt-0.5 leading-relaxed">
+                نسخة جديدة من النظام جاهزة للتثبيت
+              </div>
             </div>
             <button
               onClick={() => setDismissed(true)}
@@ -91,10 +104,16 @@ export default function PWABanner() {
       <div className="fixed bottom-4 right-4 left-4 md:left-auto md:w-80 z-50 animate-fade-in">
         <div className="bg-[#1B2B4B] backdrop-blur border border-[#2d4063] rounded-2xl p-4 shadow-2xl shadow-black/40">
           <div className="flex items-start gap-3">
-            <img src="/icon-192.png" alt="دواء" className="w-9 h-9 rounded-xl object-contain flex-shrink-0" />
+            <img
+              src="/icon-192.png"
+              alt="دواء"
+              className="w-9 h-9 rounded-xl object-contain flex-shrink-0"
+            />
             <div className="flex-1 min-w-0">
               <div className="text-white font-semibold text-sm">ثبّت التطبيق</div>
-              <div className="text-slate-400 text-xs mt-0.5 leading-relaxed">وصول سريع من الجوال والكمبيوتر</div>
+              <div className="text-slate-400 text-xs mt-0.5 leading-relaxed">
+                وصول سريع من الجوال والكمبيوتر
+              </div>
             </div>
             <button
               onClick={() => setDismissed(true)}

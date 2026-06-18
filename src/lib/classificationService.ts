@@ -77,7 +77,10 @@ export class ClassificationService {
   /**
    * تحديث قاعدة تصنيف
    */
-  static async updateClassificationRule(ruleId: string, updates: Partial<ClassificationRule>): Promise<ClassificationRule> {
+  static async updateClassificationRule(
+    ruleId: string,
+    updates: Partial<ClassificationRule>
+  ): Promise<ClassificationRule> {
     const { data, error } = await supabase
       .from('classification_rules')
       .update(updates)
@@ -104,10 +107,15 @@ export class ClassificationService {
   /**
    * فحص عميل للتأكد من الامتثال لقواعد التصنيف
    */
-  static async checkCustomerCompliance(customerId: string, staffId: string, cycleStart: string, cycleEnd: string): Promise<ClassificationViolation[]> {
+  static async checkCustomerCompliance(
+    customerId: string,
+    staffId: string,
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<ClassificationViolation[]> {
     const violations: ClassificationViolation[] = [];
     const rules = await this.getActiveClassificationRules();
-    const customerRules = rules.filter(r => r.rule_type === 'customer');
+    const customerRules = rules.filter((r) => r.rule_type === 'customer');
 
     // الحصول على بيانات العميل
     const { data: customer, error: customerError } = await supabase
@@ -127,7 +135,14 @@ export class ClassificationService {
 
     // فحص كل قاعدة
     for (const rule of customerRules) {
-      const violation = await this.evaluateCustomerRule(customer, rule, staffId, staff?.name || 'غير محدد', cycleStart, cycleEnd);
+      const violation = await this.evaluateCustomerRule(
+        customer,
+        rule,
+        staffId,
+        staff?.name || 'غير محدد',
+        cycleStart,
+        cycleEnd
+      );
       if (violation) {
         violations.push(violation);
       }
@@ -139,10 +154,15 @@ export class ClassificationService {
   /**
    * فحص فاتورة للتأكد من الامتثال لقواعد التصنيف
    */
-  static async checkInvoiceCompliance(invoiceId: string, staffId: string, cycleStart: string, cycleEnd: string): Promise<ClassificationViolation[]> {
+  static async checkInvoiceCompliance(
+    invoiceId: string,
+    staffId: string,
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<ClassificationViolation[]> {
     const violations: ClassificationViolation[] = [];
     const rules = await this.getActiveClassificationRules();
-    const invoiceRules = rules.filter(r => r.rule_type === 'invoice');
+    const invoiceRules = rules.filter((r) => r.rule_type === 'invoice');
 
     // الحصول على بيانات الفاتورة
     const { data: invoice, error: invoiceError } = await supabase
@@ -162,7 +182,14 @@ export class ClassificationService {
 
     // فحص كل قاعدة
     for (const rule of invoiceRules) {
-      const violation = await this.evaluateInvoiceRule(invoice, rule, staffId, staff?.name || 'غير محدد', cycleStart, cycleEnd);
+      const violation = await this.evaluateInvoiceRule(
+        invoice,
+        rule,
+        staffId,
+        staff?.name || 'غير محدد',
+        cycleStart,
+        cycleEnd
+      );
       if (violation) {
         violations.push(violation);
       }
@@ -186,11 +213,14 @@ export class ClassificationService {
     // - customer_phone is null or empty
     // - customer_code is null or empty
     // - customer_classification is null or empty
-    
+
     const condition = rule.condition.toLowerCase();
     let violated = false;
 
-    if (condition.includes('phone') && (condition.includes('null') || condition.includes('empty'))) {
+    if (
+      condition.includes('phone') &&
+      (condition.includes('null') || condition.includes('empty'))
+    ) {
       if (!customer.phone || customer.phone.trim() === '') {
         violated = true;
       }
@@ -202,7 +232,10 @@ export class ClassificationService {
       }
     }
 
-    if (condition.includes('classification') && (condition.includes('null') || condition.includes('empty'))) {
+    if (
+      condition.includes('classification') &&
+      (condition.includes('null') || condition.includes('empty'))
+    ) {
       if (!customer.segment || customer.segment.trim() === '') {
         violated = true;
       }
@@ -242,17 +275,23 @@ export class ClassificationService {
     // - customer_code is null or empty
     // - customer_phone is null or empty
     // - invoice_amount is zero
-    
+
     const condition = rule.condition.toLowerCase();
     let violated = false;
 
-    if (condition.includes('customer_code') && (condition.includes('null') || condition.includes('empty'))) {
+    if (
+      condition.includes('customer_code') &&
+      (condition.includes('null') || condition.includes('empty'))
+    ) {
       if (!invoice.customer_code || invoice.customer_code.trim() === '') {
         violated = true;
       }
     }
 
-    if (condition.includes('customer_phone') && (condition.includes('null') || condition.includes('empty'))) {
+    if (
+      condition.includes('customer_phone') &&
+      (condition.includes('null') || condition.includes('empty'))
+    ) {
       if (!invoice.customer_phone || invoice.customer_phone.trim() === '') {
         violated = true;
       }
@@ -286,7 +325,10 @@ export class ClassificationService {
   /**
    * الحصول على ملخص الانتهاكات في دورة معينة
    */
-  static async getClassificationSummary(cycleStart: string, cycleEnd: string): Promise<ClassificationSummary> {
+  static async getClassificationSummary(
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<ClassificationSummary> {
     const { data: violations, error } = await supabase
       .from('classification_violations')
       .select('*')
@@ -306,10 +348,17 @@ export class ClassificationService {
     }
 
     // تجميع حسب الموظف
-    const violationsByStaff = new Map<string, { staff_name: string; violations: number; deduction: number }>();
+    const violationsByStaff = new Map<
+      string,
+      { staff_name: string; violations: number; deduction: number }
+    >();
     for (const v of violations || []) {
       const key = v.staff_id;
-      const existing = violationsByStaff.get(key) || { staff_name: v.staff_name || 'غير محدد', violations: 0, deduction: 0 };
+      const existing = violationsByStaff.get(key) || {
+        staff_name: v.staff_name || 'غير محدد',
+        violations: 0,
+        deduction: 0,
+      };
       existing.violations += 1;
       existing.deduction += v.deduction_points || 0;
       violationsByStaff.set(key, existing);
@@ -331,7 +380,9 @@ export class ClassificationService {
       total_violations: totalViolations,
       total_deduction: totalDeduction,
       violations_by_type: violationsByType,
-      violations_by_staff: Array.from(violationsByStaff.values()).sort((a, b) => b.deduction - a.deduction),
+      violations_by_staff: Array.from(violationsByStaff.values()).sort(
+        (a, b) => b.deduction - a.deduction
+      ),
       most_common_violations: mostCommonViolations,
     };
   }

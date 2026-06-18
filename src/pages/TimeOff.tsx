@@ -1,19 +1,19 @@
-import { useMemo, useState } from "react";
-import { Loader2, Plus } from "lucide-react";
-import { toast } from "sonner";
-import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { supabase } from "@/lib/supabase";
-import { TABLES } from "@/lib/supabaseTables";
-import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { applyStaffDelta, persistPointsTransaction } from "@/lib/pointsPersistence";
-import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
-import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
-import type { EvaluationRuleDef } from "@/lib/evaluationRulesCatalog";
-import { getSafeCurrentUserId } from "@/hooks/useAuth";
-import { canonicalMaxPoints, canonicalSnapshotPoints } from "@/lib/pointsLedger";
+import { useMemo, useState } from 'react';
+import { Loader2, Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { supabase } from '@/lib/supabase';
+import { TABLES } from '@/lib/supabaseTables';
+import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { applyStaffDelta, persistPointsTransaction } from '@/lib/pointsPersistence';
+import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
+import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
+import type { EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
+import { getSafeCurrentUserId } from '@/hooks/useAuth';
+import { canonicalMaxPoints, canonicalSnapshotPoints } from '@/lib/pointsLedger';
 
-const TYPES = ["إذن تأخير", "إذن انصراف مبكر", "إجازة مرضية", "إجازة عارضة", "غياب", "تبديل شيفت"];
-const STATUSES = ["pending", "approved", "rejected"];
+const TYPES = ['إذن تأخير', 'إذن انصراف مبكر', 'إجازة مرضية', 'إجازة عارضة', 'غياب', 'تبديل شيفت'];
+const STATUSES = ['pending', 'approved', 'rejected'];
 
 interface Staff extends StaffChoice {
   phone?: string | null;
@@ -35,11 +35,11 @@ interface ShiftException {
 }
 
 function dayName(date: string) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString("ar-EG", { weekday: "long" });
+  return new Date(`${date}T12:00:00`).toLocaleDateString('ar-EG', { weekday: 'long' });
 }
 
 function missingColumn(message: string) {
-  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || "";
+  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || '';
 }
 
 async function insertShiftException(payload: Record<string, unknown>) {
@@ -55,60 +55,68 @@ async function insertShiftException(payload: Record<string, unknown>) {
     delete next[column];
   }
 
-  return "تعذر حفظ الإذن بسبب اختلاف أعمدة جدول shift_exceptions.";
+  return 'تعذر حفظ الإذن بسبب اختلاف أعمدة جدول shift_exceptions.';
 }
 
 function timeOffRule(type: string, points: number): EvaluationRuleDef {
   return {
-    code: `TIME_OFF_${type.replace(/\s+/g, "_")}`,
-    category: "الإذونات والإجازات",
+    code: `TIME_OFF_${type.replace(/\s+/g, '_')}`,
+    category: 'الإذونات والإجازات',
     title: `خصم ${type}`,
-    description: "خصم يدوي يحدده المدير العام عند تسجيل إذن أو إجازة.",
+    description: 'خصم يدوي يحدده المدير العام عند تسجيل إذن أو إجازة.',
     default_points: points,
-    type: "deduction",
-    severity: points >= 30 ? "high" : points >= 10 ? "medium" : "low",
-    role_scope: "all",
+    type: 'deduction',
+    severity: points >= 30 ? 'high' : points >= 10 ? 'medium' : 'low',
+    role_scope: 'all',
     requires_approval: false,
     evidence_required: false,
-    allowed_approver_roles: ["general_manager"],
-    repeat_policy: "none",
+    allowed_approver_roles: ['general_manager'],
+    repeat_policy: 'none',
     active: true,
   };
 }
 
 export default function TimeOff() {
-  const { data: staff = [] } = useSupabaseQuery<Staff>({ table: TABLES.staff, filters: isActiveStaffFilter(), realtimeEnabled: false });
-  const { data: exceptions = [], loading, refetch } = useSupabaseQuery<ShiftException>({
+  const { data: staff = [] } = useSupabaseQuery<Staff>({
+    table: TABLES.staff,
+    filters: isActiveStaffFilter(),
+    realtimeEnabled: false,
+  });
+  const {
+    data: exceptions = [],
+    loading,
+    refetch,
+  } = useSupabaseQuery<ShiftException>({
     table: TABLES.shiftExceptions,
-    orderBy: { column: "created_at", ascending: false },
+    orderBy: { column: 'created_at', ascending: false },
     realtimeEnabled: true,
   });
   const staffChoices = useMemo(() => mergeStaffChoices(staff), [staff]);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
-    staff_id: "",
-    type: "إذن تأخير",
-    status: "approved",
+    staff_id: '',
+    type: 'إذن تأخير',
+    status: 'approved',
     date: new Date().toISOString().slice(0, 10),
     date_end: new Date().toISOString().slice(0, 10),
-    reason: "",
+    reason: '',
     deduct_points: false,
-    deduction_points: "",
+    deduction_points: '',
   });
 
-  const isLeaveType = form.type.includes("إجازة");
+  const isLeaveType = form.type.includes('إجازة');
   const selectedStaff = staffChoices.find((item) => item.id === form.staff_id);
   const deductionPoints = Math.max(0, Number(form.deduction_points) || 0);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedStaff) {
-      toast.error("اختار الموظف الأول.");
+      toast.error('اختار الموظف الأول.');
       return;
     }
     if (form.deduct_points && deductionPoints <= 0) {
-      toast.error("اكتب قيمة الخصم بالنقاط أو اقفل اختيار الخصم.");
+      toast.error('اكتب قيمة الخصم بالنقاط أو اقفل اختيار الخصم.');
       return;
     }
 
@@ -116,13 +124,15 @@ export default function TimeOff() {
     const rangeNote =
       isLeaveType && form.date_end && form.date_end !== form.date
         ? `[من ${form.date} إلى ${form.date_end}] `
-        : "";
-    const deductionNote = form.deduct_points ? `[خصم نقاط: ${deductionPoints}] ` : "[بدون خصم نقاط] ";
+        : '';
+    const deductionNote = form.deduct_points
+      ? `[خصم نقاط: ${deductionPoints}] `
+      : '[بدون خصم نقاط] ';
     const finalReason = `${rangeNote}${deductionNote}${form.reason}`.trim();
 
     const payload = {
       staff_name: selectedStaff.name,
-      staff_id: selectedStaff.id.startsWith("fallback-") ? null : selectedStaff.id,
+      staff_id: selectedStaff.id.startsWith('fallback-') ? null : selectedStaff.id,
       employee_name: selectedStaff.name,
       type: form.type,
       status: form.status,
@@ -133,84 +143,93 @@ export default function TimeOff() {
       reason: finalReason,
       deduct_points: form.deduct_points,
       deduction_points: deductionPoints,
-      deduction_status: form.deduct_points ? form.status : "none",
-      source: "manual",
+      deduction_status: form.deduct_points ? form.status : 'none',
+      source: 'manual',
       updated_at: new Date().toISOString(),
     };
 
     const error = editingId
-      ? (await supabase.from(TABLES.shiftExceptions).update(payload).eq("id", editingId)).error?.message || null
+      ? (await supabase.from(TABLES.shiftExceptions).update(payload).eq('id', editingId)).error
+          ?.message || null
       : await insertShiftException(payload);
 
     if (error) {
       setSaving(false);
-      toast.error("تعذر حفظ الإذن: " + error);
+      toast.error('تعذر حفظ الإذن: ' + error);
       return;
     }
 
     if (form.deduct_points && deductionPoints > 0) {
-      const status = form.status === "approved" ? "approved" : "pending";
+      const status = form.status === 'approved' ? 'approved' : 'pending';
       const result = await persistPointsTransaction({
         employeeId: selectedStaff.id,
         employeeName: selectedStaff.name,
         branch: selectedStaff.branch,
-        operation: "deduction",
+        operation: 'deduction',
         rule: timeOffRule(form.type, deductionPoints),
         pointsToStore: deductionPoints,
         basePoints: deductionPoints,
         finalPoints: deductionPoints,
         userNote: finalReason,
-        createdByName: "المدير العام",
+        createdByName: 'المدير العام',
         createdById: getSafeCurrentUserId() ?? null,
-        createdByRole: "مدير عام",
+        createdByRole: 'مدير عام',
         status,
         cycle: getCurrentCycle(),
-        sourceModule: "time_off",
+        sourceModule: 'time_off',
         reasonLabel: `${form.type} - خصم محدد من المدير`,
       });
 
       if (result.error) {
-        toast.warning("تم حفظ الإذن، لكن لم يتم تسجيل الخصم في النقاط: " + result.error);
-      } else if (status === "approved" && !selectedStaff.id.startsWith("fallback-")) {
+        toast.warning('تم حفظ الإذن، لكن لم يتم تسجيل الخصم في النقاط: ' + result.error);
+      } else if (status === 'approved' && !selectedStaff.id.startsWith('fallback-')) {
         await applyStaffDelta(
           selectedStaff.id,
           canonicalSnapshotPoints(selectedStaff),
           canonicalMaxPoints(selectedStaff),
           -deductionPoints,
           selectedStaff.name,
-          selectedStaff.branch,
+          selectedStaff.branch
         );
       }
     }
 
     setSaving(false);
-    toast.success(form.deduct_points ? "تم حفظ الإذن وتسجيل خصم النقاط." : "تم حفظ الإذن/الإجازة بدون خصم نقاط.");
+    toast.success(
+      form.deduct_points ? 'تم حفظ الإذن وتسجيل خصم النقاط.' : 'تم حفظ الإذن/الإجازة بدون خصم نقاط.'
+    );
     setEditingId(null);
-    setForm((current) => ({ ...current, reason: "", deduction_points: current.deduct_points ? current.deduction_points : "" }));
+    setForm((current) => ({
+      ...current,
+      reason: '',
+      deduction_points: current.deduct_points ? current.deduction_points : '',
+    }));
     refetch();
   };
 
   const editItem = (item: ShiftException, forceDeduction = false) => {
-    const staffItem = staffChoices.find((choice) => choice.id === item.staff_id || choice.name === item.staff_name);
+    const staffItem = staffChoices.find(
+      (choice) => choice.id === item.staff_id || choice.name === item.staff_name
+    );
     setEditingId(item.id);
     setForm({
-      staff_id: staffItem?.id || "",
+      staff_id: staffItem?.id || '',
       type: item.type || TYPES[0],
-      status: item.status || "pending",
+      status: item.status || 'pending',
       date: item.date || new Date().toISOString().slice(0, 10),
       date_end: item.date_end || item.date || new Date().toISOString().slice(0, 10),
-      reason: item.reason || "",
+      reason: item.reason || '',
       deduct_points: forceDeduction || Boolean(item.deduct_points),
-      deduction_points: String(item.deduction_points || (forceDeduction ? 10 : "")),
+      deduction_points: String(item.deduction_points || (forceDeduction ? 10 : '')),
     });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const deleteItem = async (item: ShiftException) => {
     if (!window.confirm(`هل تريد حذف سجل ${item.type} لـ ${item.staff_name}؟`)) return;
-    const { error } = await supabase.from(TABLES.shiftExceptions).delete().eq("id", item.id);
+    const { error } = await supabase.from(TABLES.shiftExceptions).delete().eq('id', item.id);
     if (error) return toast.error(`تعذر حذف السجل: ${error.message}`);
-    toast.success("تم حذف سجل الإذن/الإجازة");
+    toast.success('تم حذف سجل الإذن/الإجازة');
     refetch();
   };
 
@@ -219,25 +238,56 @@ export default function TimeOff() {
       <div>
         <div className="section-title">الإذونات والإجازات</div>
         <div className="text-slate-400 text-sm mt-1">
-          سجل الإذن أو الإجازة، وحدد هل عليه خصم نقاط أم لا. قيمة الخصم يحددها المدير العام وقت التسجيل.
+          سجل الإذن أو الإجازة، وحدد هل عليه خصم نقاط أم لا. قيمة الخصم يحددها المدير العام وقت
+          التسجيل.
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 md:grid-cols-6 gap-3">
-        <select value={form.staff_id} onChange={(event) => setForm((f) => ({ ...f, staff_id: event.target.value }))} className="input-dark" required>
+      <form
+        onSubmit={handleSubmit}
+        className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 md:grid-cols-6 gap-3"
+      >
+        <select
+          value={form.staff_id}
+          onChange={(event) => setForm((f) => ({ ...f, staff_id: event.target.value }))}
+          className="input-dark"
+          required
+        >
           <option value="">اختار الموظف</option>
-          {staffChoices.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.role} - {item.branch}</option>)}
+          {staffChoices.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name} - {item.role} - {item.branch}
+            </option>
+          ))}
         </select>
-        <select value={form.type} onChange={(event) => setForm((f) => ({ ...f, type: event.target.value }))} className="input-dark">
-          {TYPES.map((type) => <option key={type}>{type}</option>)}
+        <select
+          value={form.type}
+          onChange={(event) => setForm((f) => ({ ...f, type: event.target.value }))}
+          className="input-dark"
+        >
+          {TYPES.map((type) => (
+            <option key={type}>{type}</option>
+          ))}
         </select>
-        <select value={form.status} onChange={(event) => setForm((f) => ({ ...f, status: event.target.value }))} className="input-dark">
-          {STATUSES.map((status) => <option key={status}>{status}</option>)}
+        <select
+          value={form.status}
+          onChange={(event) => setForm((f) => ({ ...f, status: event.target.value }))}
+          className="input-dark"
+        >
+          {STATUSES.map((status) => (
+            <option key={status}>{status}</option>
+          ))}
         </select>
         <input
           type="date"
           value={form.date}
-          onChange={(event) => setForm((f) => ({ ...f, date: event.target.value, date_end: f.date_end < event.target.value ? event.target.value : f.date_end }))}
+          onChange={(event) =>
+            setForm((f) => ({
+              ...f,
+              date: event.target.value,
+              date_end: f.date_end < event.target.value ? event.target.value : f.date_end,
+            }))
+          }
           className="input-dark"
         />
         {isLeaveType && (
@@ -271,13 +321,27 @@ export default function TimeOff() {
             required
           />
         )}
-        <textarea value={form.reason} onChange={(event) => setForm((f) => ({ ...f, reason: event.target.value }))} placeholder="سبب الإذن أو ملاحظات" className="input-dark md:col-span-4 resize-none" rows={2} />
-        <button type="submit" disabled={saving || !form.staff_id} className="btn-primary flex items-center justify-center gap-2 md:col-span-6">
+        <textarea
+          value={form.reason}
+          onChange={(event) => setForm((f) => ({ ...f, reason: event.target.value }))}
+          placeholder="سبب الإذن أو ملاحظات"
+          className="input-dark md:col-span-4 resize-none"
+          rows={2}
+        />
+        <button
+          type="submit"
+          disabled={saving || !form.staff_id}
+          className="btn-primary flex items-center justify-center gap-2 md:col-span-6"
+        >
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-          {editingId ? "تحديث السجل" : "حفظ"}
+          {editingId ? 'تحديث السجل' : 'حفظ'}
         </button>
         {editingId && (
-          <button type="button" onClick={() => setEditingId(null)} className="btn-secondary md:col-span-6">
+          <button
+            type="button"
+            onClick={() => setEditingId(null)}
+            className="btn-secondary md:col-span-6"
+          >
             إلغاء التعديل
           </button>
         )}
@@ -287,16 +351,19 @@ export default function TimeOff() {
         {TYPES.map((type) => (
           <div key={type} className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4">
             <div className="text-white font-bold">{type}</div>
-            <div className="text-slate-400 text-sm mt-2">الحالات: {STATUSES.join(" / ")}</div>
+            <div className="text-slate-400 text-sm mt-2">الحالات: {STATUSES.join(' / ')}</div>
             <div className="text-slate-400 text-xs mt-3 leading-relaxed">
-              يمكن تسجيله بدون خصم، أو بخصم نقاط يحدده المدير العام. لو الحالة approved يتم احتساب الخصم مباشرة، ولو pending يبقى معلق للمراجعة.
+              يمكن تسجيله بدون خصم، أو بخصم نقاط يحدده المدير العام. لو الحالة approved يتم احتساب
+              الخصم مباشرة، ولو pending يبقى معلق للمراجعة.
             </div>
           </div>
         ))}
       </div>
 
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-[#2d4063] text-white font-bold">آخر الإذونات والإجازات</div>
+        <div className="px-4 py-3 border-b border-[#2d4063] text-white font-bold">
+          آخر الإذونات والإجازات
+        </div>
         {loading ? (
           <div className="p-6 text-slate-400">جاري التحميل...</div>
         ) : exceptions.length === 0 ? (
@@ -304,22 +371,65 @@ export default function TimeOff() {
         ) : (
           <div className="overflow-x-auto">
             <table className="data-table">
-              <thead><tr><th>الموظف</th><th>النوع</th><th>الحالة</th><th>الفرع</th><th>اليوم/التاريخ</th><th>خصم النقاط</th><th>السبب</th><th>إجراءات</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>الموظف</th>
+                  <th>النوع</th>
+                  <th>الحالة</th>
+                  <th>الفرع</th>
+                  <th>اليوم/التاريخ</th>
+                  <th>خصم النقاط</th>
+                  <th>السبب</th>
+                  <th>إجراءات</th>
+                </tr>
+              </thead>
               <tbody>
                 {exceptions.map((item) => (
                   <tr key={item.id}>
                     <td>{item.staff_name}</td>
                     <td>{item.type}</td>
-                    <td><span className={item.status === "approved" ? "badge-success" : item.status === "rejected" ? "badge-danger" : "badge-info"}>{item.status}</span></td>
-                    <td>{item.branch || "-"}</td>
-                    <td>{item.date || item.day_name || "-"}</td>
-                    <td>{item.deduct_points ? `${item.deduction_points || 0} نقطة` : "بدون خصم"}</td>
-                    <td>{item.reason || "-"}</td>
+                    <td>
+                      <span
+                        className={
+                          item.status === 'approved'
+                            ? 'badge-success'
+                            : item.status === 'rejected'
+                              ? 'badge-danger'
+                              : 'badge-info'
+                        }
+                      >
+                        {item.status}
+                      </span>
+                    </td>
+                    <td>{item.branch || '-'}</td>
+                    <td>{item.date || item.day_name || '-'}</td>
+                    <td>
+                      {item.deduct_points ? `${item.deduction_points || 0} نقطة` : 'بدون خصم'}
+                    </td>
+                    <td>{item.reason || '-'}</td>
                     <td>
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" onClick={() => editItem(item)} className="rounded-lg bg-teal-500/15 px-2 py-1 text-xs font-bold text-teal-200">تعديل</button>
-                        <button type="button" onClick={() => editItem(item, true)} className="rounded-lg bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-200">جعله بخصم</button>
-                        <button type="button" onClick={() => deleteItem(item)} className="rounded-lg bg-red-500/15 px-2 py-1 text-xs font-bold text-red-200">حذف</button>
+                        <button
+                          type="button"
+                          onClick={() => editItem(item)}
+                          className="rounded-lg bg-teal-500/15 px-2 py-1 text-xs font-bold text-teal-200"
+                        >
+                          تعديل
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => editItem(item, true)}
+                          className="rounded-lg bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-200"
+                        >
+                          جعله بخصم
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteItem(item)}
+                          className="rounded-lg bg-red-500/15 px-2 py-1 text-xs font-bold text-red-200"
+                        >
+                          حذف
+                        </button>
                       </div>
                     </td>
                   </tr>

@@ -1,4 +1,4 @@
-import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 export interface ActivityLogInput {
   action: string;
@@ -17,33 +17,33 @@ export interface ActivityLogInput {
 }
 
 const DETAIL_LABELS: Record<string, string> = {
-  summary: "الملخص",
-  staff_id: "رقم الموظف",
-  staff_name: "الموظف",
-  staffName: "الموظف",
-  staff_role: "الدور",
-  customer_id: "رقم العميل",
-  customer_name: "العميل",
-  customerName: "العميل",
-  customer_code: "كود العميل",
-  customer_phone: "هاتف العميل",
-  phone: "الهاتف",
-  points: "النقاط",
-  points_delta: "تأثير النقاط",
-  score: "التقييم",
-  final_score: "التقييم النهائي",
-  reason: "السبب",
-  status: "الحالة",
-  branch: "الفرع",
-  branch_name: "الفرع",
-  source: "المصدر",
-  source_id: "رقم المصدر",
-  route: "الرابط",
+  summary: 'الملخص',
+  staff_id: 'رقم الموظف',
+  staff_name: 'الموظف',
+  staffName: 'الموظف',
+  staff_role: 'الدور',
+  customer_id: 'رقم العميل',
+  customer_name: 'العميل',
+  customerName: 'العميل',
+  customer_code: 'كود العميل',
+  customer_phone: 'هاتف العميل',
+  phone: 'الهاتف',
+  points: 'النقاط',
+  points_delta: 'تأثير النقاط',
+  score: 'التقييم',
+  final_score: 'التقييم النهائي',
+  reason: 'السبب',
+  status: 'الحالة',
+  branch: 'الفرع',
+  branch_name: 'الفرع',
+  source: 'المصدر',
+  source_id: 'رقم المصدر',
+  route: 'الرابط',
 };
 
 function renderDetailValue(value: unknown) {
-  if (value === undefined || value === null || value === "") return "";
-  if (typeof value === "object") {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'object') {
     try {
       return JSON.stringify(value);
     } catch {
@@ -53,25 +53,25 @@ function renderDetailValue(value: unknown) {
   return String(value);
 }
 
-function compactDetails(details: ActivityLogInput["details"]) {
-  if (!details) return "";
-  if (typeof details === "string") return details;
+function compactDetails(details: ActivityLogInput['details']) {
+  if (!details) return '';
+  if (typeof details === 'string') return details;
 
   return Object.entries(details)
     .map(([key, value]) => {
       const rendered = renderDetailValue(value);
-      if (!rendered) return "";
+      if (!rendered) return '';
       return `${DETAIL_LABELS[key] || key}: ${rendered}`;
     })
     .filter(Boolean)
-    .join(" | ");
+    .join(' | ');
 }
 
 export function formatActivityDetails(details: unknown) {
-  if (!details) return "لا توجد تفاصيل إضافية";
+  if (!details) return 'لا توجد تفاصيل إضافية';
 
-  if (typeof details === "string") {
-    if (!details.trim()) return "لا توجد تفاصيل إضافية";
+  if (typeof details === 'string') {
+    if (!details.trim()) return 'لا توجد تفاصيل إضافية';
     try {
       return formatActivityDetails(JSON.parse(details));
     } catch {
@@ -79,16 +79,16 @@ export function formatActivityDetails(details: unknown) {
     }
   }
 
-  if (typeof details === "object") {
+  if (typeof details === 'object') {
     const text = compactDetails(details as Record<string, unknown>);
-    return text || "لا توجد تفاصيل إضافية";
+    return text || 'لا توجد تفاصيل إضافية';
   }
 
   return String(details);
 }
 
 function missingColumn(message: string) {
-  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || "";
+  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || '';
 }
 
 // يكتب في جدول activity_log الرسمي الوحيد مع fallback تلقائي للأعمدة الناقصة
@@ -97,7 +97,7 @@ async function insertWithColumnFallback(payload: Record<string, unknown>) {
   const removed = new Set<string>();
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const { error } = await supabase.from("activity_log").insert(next);
+    const { error } = await supabase.from('activity_log').insert(next);
     if (!error) return true;
 
     const column = missingColumn(error.message);
@@ -116,7 +116,7 @@ export async function logActivity(input: ActivityLogInput) {
   if (!isSupabaseConfigured) return;
 
   const details = input.details ?? {};
-  const branchName = input.branch_name || "";
+  const branchName = input.branch_name || '';
   const createdAt = new Date().toISOString();
 
   // جدول واحد رسمي فقط: activity_log
@@ -126,7 +126,7 @@ export async function logActivity(input: ActivityLogInput) {
     target_type: input.target_type || null,
     target_id: input.target_id || null,
     user_id: input.user_id || null,
-    user_name: input.user_name || "النظام",
+    user_name: input.user_name || 'النظام',
     user_role: input.user_role || null,
     branch_id: input.branch_id || null,
     branch_name: branchName || null,

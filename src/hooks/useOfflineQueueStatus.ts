@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { getOfflineQueueCount, syncOfflineQueue } from "@/lib/offlineQueue";
+import { useEffect, useState } from 'react';
+import { getOfflineQueueCount, syncOfflineQueue } from '@/lib/offlineQueue';
 
 export function useOfflineQueueStatus() {
   const [pendingCount, setPendingCount] = useState(getOfflineQueueCount());
@@ -7,15 +7,15 @@ export function useOfflineQueueStatus() {
 
   useEffect(() => {
     const update = () => setPendingCount(getOfflineQueueCount());
-    window.addEventListener("dawaa-offline-queue-changed", update as EventListener);
-    window.addEventListener("storage", update);
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
+    window.addEventListener('dawaa-offline-queue-changed', update as EventListener);
+    window.addEventListener('storage', update);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
     return () => {
-      window.removeEventListener("dawaa-offline-queue-changed", update as EventListener);
-      window.removeEventListener("storage", update);
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
+      window.removeEventListener('dawaa-offline-queue-changed', update as EventListener);
+      window.removeEventListener('storage', update);
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
     };
   }, []);
 

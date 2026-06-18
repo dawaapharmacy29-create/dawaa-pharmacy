@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
-import { ImagePlus, Loader2, RefreshCw, Trash2 } from "lucide-react";
-import { toast } from "sonner";
-import { uploadImageToStorage, type ImageBucket } from "@/lib/storageUpload";
+import { useRef, useState } from 'react';
+import { ImagePlus, Loader2, RefreshCw, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { uploadImageToStorage, type ImageBucket } from '@/lib/storageUpload';
 
 export default function ImageUploadBox({
   bucket,
@@ -33,7 +33,7 @@ export default function ImageUploadBox({
       toast.error((error as Error).message);
     } finally {
       setUploading(false);
-      if (inputRef.current) inputRef.current.value = "";
+      if (inputRef.current) inputRef.current.value = '';
     }
   };
 
@@ -43,7 +43,7 @@ export default function ImageUploadBox({
       tabIndex={0}
       onClick={() => inputRef.current?.click()}
       onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") inputRef.current?.click();
+        if (event.key === 'Enter' || event.key === ' ') inputRef.current?.click();
       }}
       onDragOver={(event) => {
         event.preventDefault();
@@ -56,8 +56,10 @@ export default function ImageUploadBox({
         void upload(event.dataTransfer.files?.[0]);
       }}
       className={`min-h-44 cursor-pointer rounded-2xl border-2 border-dashed p-4 transition ${
-        dragging ? "border-teal-300 bg-teal-500/15" : "border-teal-400/35 bg-teal-500/5 hover:bg-teal-500/10"
-      } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+        dragging
+          ? 'border-teal-300 bg-teal-500/15'
+          : 'border-teal-400/35 bg-teal-500/5 hover:bg-teal-500/10'
+      } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
       dir="rtl"
     >
       <input
@@ -71,9 +73,17 @@ export default function ImageUploadBox({
 
       {valueUrl ? (
         <div className="space-y-3">
-          <img src={valueUrl} alt="" className="h-40 w-full rounded-xl object-cover ring-1 ring-white/10" />
+          <img
+            src={valueUrl}
+            alt=""
+            className="h-40 w-full rounded-xl object-cover ring-1 ring-white/10"
+          />
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-secondary flex items-center gap-2 px-3 py-2 text-xs" disabled={uploading || disabled}>
+            <button
+              type="button"
+              className="btn-secondary flex items-center gap-2 px-3 py-2 text-xs"
+              disabled={uploading || disabled}
+            >
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
               استبدال الصورة
             </button>
@@ -82,7 +92,7 @@ export default function ImageUploadBox({
               className="rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-200"
               onClick={(event) => {
                 event.stopPropagation();
-                onUploaded({ publicUrl: "", path: "" });
+                onUploaded({ publicUrl: '', path: '' });
               }}
               disabled={uploading || disabled}
             >
@@ -96,7 +106,9 @@ export default function ImageUploadBox({
             {uploading ? <Loader2 size={30} className="animate-spin" /> : <ImagePlus size={34} />}
           </div>
           <div className="text-lg font-black text-teal-100">+ {label}</div>
-          <div className="text-xs text-slate-400">اسحب الصورة هنا أو اضغط للاختيار. الحد الأقصى 5 ميجا.</div>
+          <div className="text-xs text-slate-400">
+            اسحب الصورة هنا أو اضغط للاختيار. الحد الأقصى 5 ميجا.
+          </div>
         </div>
       )}
     </div>

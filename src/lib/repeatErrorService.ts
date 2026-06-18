@@ -1,6 +1,9 @@
 import { supabase } from './supabase';
 import { filterActiveStaffRows } from './staffActiveFilter';
-import { calculateRepeatDeduction, type IncentiveRuleDefinition } from './incentives/incentiveRulesEngine';
+import {
+  calculateRepeatDeduction,
+  type IncentiveRuleDefinition,
+} from './incentives/incentiveRulesEngine';
 import { findIncentiveRule } from '@/lib/incentives/ruleDefinitions';
 
 export interface RepeatErrorRecord {
@@ -30,17 +33,23 @@ export interface RepeatErrorSummary {
 /**
  * خدمة تتبع الأخطاء المتكررة وحساب الخصومات المتضاعفة
  */
-const SEVERE_RULE_CODES = new Set(["DISC-006", "CUST-003", "CUST-018", "SALE-003", "SALE-004"]);
+const SEVERE_RULE_CODES = new Set(['DISC-006', 'CUST-003', 'CUST-018', 'SALE-003', 'SALE-004']);
 
 function ruleCodeFromRecord(record: Record<string, unknown>): string {
-  const meta = record.metadata && typeof record.metadata === "object" ? (record.metadata as Record<string, unknown>) : {};
-  return String(record.rule_id || record.rule_code || meta.rule_code || meta.rule_id || "");
+  const meta =
+    record.metadata && typeof record.metadata === 'object'
+      ? (record.metadata as Record<string, unknown>)
+      : {};
+  return String(record.rule_id || record.rule_code || meta.rule_code || meta.rule_id || '');
 }
 
 function isSevereRule(ruleCode: string, rule?: IncentiveRuleDefinition | null) {
   if (!ruleCode) return false;
   if (SEVERE_RULE_CODES.has(ruleCode)) return true;
-  return rule?.repeat_policy === "manager_review_only" || rule?.approval_required === true && Math.abs(rule.points_delta) >= 50;
+  return (
+    rule?.repeat_policy === 'manager_review_only' ||
+    (rule?.approval_required === true && Math.abs(rule.points_delta) >= 50)
+  );
 }
 
 export class RepeatErrorService {
@@ -58,7 +67,12 @@ export class RepeatErrorService {
   /**
    * الحصول على عدد مرات تكرار خطأ معين لموظف في دورة معينة
    */
-  static async getErrorOccurrenceCount(staffId: string, ruleId: string, cycleStart: string, cycleEnd: string): Promise<number> {
+  static async getErrorOccurrenceCount(
+    staffId: string,
+    ruleId: string,
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<number> {
     const { data, error } = await supabase
       .from('point_records')
       .select('id')
@@ -74,7 +88,11 @@ export class RepeatErrorService {
   /**
    * الحصول على جميع الأخطاء المتكررة لموظف في دورة معينة
    */
-  static async getRepeatErrorsForStaff(staffId: string, cycleStart: string, cycleEnd: string): Promise<RepeatErrorRecord[]> {
+  static async getRepeatErrorsForStaff(
+    staffId: string,
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<RepeatErrorRecord[]> {
     // أولاً، الحصول على جميع سجلات النقاط للموظف في الدورة
     const { data: pointRecords, error } = await supabase
       .from('point_records')
@@ -86,7 +104,7 @@ export class RepeatErrorService {
     if (error) throw new Error(error.message);
 
     // تجميع الأخطاء حسب rule_id
-    const ruleGroups = new Map<string, Array<typeof pointRecords[number]>>();
+    const ruleGroups = new Map<string, Array<(typeof pointRecords)[number]>>();
     for (const record of pointRecords || []) {
       const ruleId = record.rule_id || 'unknown';
       if (!ruleGroups.has(ruleId)) {
@@ -103,14 +121,16 @@ export class RepeatErrorService {
       const firstRecord = records[0] as Record<string, unknown>;
       const ruleCode = ruleCodeFromRecord(firstRecord) || ruleId;
       const ruleDef = findIncentiveRule(ruleCode);
-      const basePoints = Math.abs(Number(firstRecord.points_delta || firstRecord.points || ruleDef?.points_delta || 0));
+      const basePoints = Math.abs(
+        Number(firstRecord.points_delta || firstRecord.points || ruleDef?.points_delta || 0)
+      );
       const occurrenceCount = records.length;
       const severe = isSevereRule(ruleCode, ruleDef);
 
       const deduction = this.calculateRepeatDeduction(basePoints, occurrenceCount, severe);
-      
+
       repeatErrors.push({
-        id: String(firstRecord.id || ""),
+        id: String(firstRecord.id || ''),
         staff_id: staffId,
         staff_name: String(firstRecord.staff_name || 'غير محدد'),
         rule_id: ruleId,
@@ -121,7 +141,7 @@ export class RepeatErrorService {
         requires_manager_review: Boolean(deduction.requiresManagerReview),
         cycle_start: cycleStart,
         cycle_end: cycleEnd,
-        created_at: String(firstRecord.created_at || ""),
+        created_at: String(firstRecord.created_at || ''),
       });
     }
 
@@ -131,7 +151,10 @@ export class RepeatErrorService {
   /**
    * الحصول على ملخص الأخطاء المتكررة لجميع الموظفين في دورة معينة
    */
-  static async getRepeatErrorSummary(cycleStart: string, cycleEnd: string): Promise<RepeatErrorSummary[]> {
+  static async getRepeatErrorSummary(
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<RepeatErrorSummary[]> {
     // الحصول على جميع الموظفين النشطين
     const { data: staff, error: staffError } = await supabase
       .from('staff')
@@ -144,11 +167,13 @@ export class RepeatErrorService {
 
     for (const employee of filterActiveStaffRows(staff || [])) {
       const repeatErrors = await this.getRepeatErrorsForStaff(employee.id, cycleStart, cycleEnd);
-      
+
       if (repeatErrors.length === 0) continue;
 
       const totalDeduction = repeatErrors.reduce((sum, error) => sum + error.total_deduction, 0);
-      const errorsRequiringReview = repeatErrors.filter(error => error.requires_manager_review).length;
+      const errorsRequiringReview = repeatErrors.filter(
+        (error) => error.requires_manager_review
+      ).length;
 
       // تجميع الأخطاء الأكثر تكراراً
       const errorCounts = new Map<string, { count: number; totalDeduction: number }>();
@@ -184,7 +209,11 @@ export class RepeatErrorService {
   /**
    * التحقق من ما إذا كان الخطأ يتطلب مراجعة المدير
    */
-  static requiresManagerReview(basePoints: number, occurrenceCount: number, severe = false): boolean {
+  static requiresManagerReview(
+    basePoints: number,
+    occurrenceCount: number,
+    severe = false
+  ): boolean {
     const deduction = this.calculateRepeatDeduction(basePoints, occurrenceCount, severe);
     return deduction.requiresManagerReview;
   }

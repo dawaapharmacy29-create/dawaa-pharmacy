@@ -1,6 +1,6 @@
-import { getEvaluationCycle } from "@/lib/evaluationCycle";
-import { INCENTIVE_CONFIG } from "@/lib/incentiveConfig";
-import { calculateMonthlyIncentive } from "@/lib/performance/performanceRulesEngine";
+import { getEvaluationCycle } from '@/lib/evaluationCycle';
+import { INCENTIVE_CONFIG } from '@/lib/incentiveConfig';
+import { calculateMonthlyIncentive } from '@/lib/performance/performanceRulesEngine';
 
 export const STARTING_POINTS = INCENTIVE_CONFIG.defaultTargetPoints;
 export const POINT_VALUE_EGP = INCENTIVE_CONFIG.pointValueEgp;
@@ -32,7 +32,11 @@ export function calculateSalaryBonus(pointsAdded: number) {
   return pointsAdded * POINT_VALUE_EGP * BONUS_RATE;
 }
 
-export function calculateNetSalary(baseSalary: number, points: number, maxPoints: number = STARTING_POINTS) {
+export function calculateNetSalary(
+  baseSalary: number,
+  points: number,
+  maxPoints: number = STARTING_POINTS
+) {
   const pointsDiff = points - maxPoints;
   if (pointsDiff >= 0) {
     const bonus = calculateSalaryBonus(pointsDiff);
@@ -43,12 +47,12 @@ export function calculateNetSalary(baseSalary: number, points: number, maxPoints
 }
 
 export function getPerformanceLevel(points: number) {
-  if (points >= 480) return "ممتاز جدا";
-  if (points >= 450) return "ممتاز";
-  if (points >= 400) return "جيد";
-  if (points >= 350) return "يحتاج متابعة";
-  if (points >= 300) return "ضعيف";
-  return "خطر ويحتاج مراجعة إدارية";
+  if (points >= 480) return 'ممتاز جدا';
+  if (points >= 450) return 'ممتاز';
+  if (points >= 400) return 'جيد';
+  if (points >= 350) return 'يحتاج متابعة';
+  if (points >= 300) return 'ضعيف';
+  return 'خطر ويحتاج مراجعة إدارية';
 }
 
 export interface SalaryCalculation {
@@ -62,7 +66,11 @@ export interface SalaryCalculation {
   performanceLevel: string;
 }
 
-export function calculateSalaryDetails(baseSalary: number, currentPoints: number, maxPoints: number = STARTING_POINTS): SalaryCalculation {
+export function calculateSalaryDetails(
+  baseSalary: number,
+  currentPoints: number,
+  maxPoints: number = STARTING_POINTS
+): SalaryCalculation {
   const pointsDifference = currentPoints - maxPoints;
   const incentive = calculateIncentive(currentPoints);
   const deduction = pointsDifference < 0 ? calculateSalaryDeduction(Math.abs(pointsDifference)) : 0;

@@ -1,9 +1,5 @@
-import { MAX_BASE_INCENTIVE, STARTING_POINTS, calculateIncentive } from "@/lib/points";
-import {
-  pointRecordDelta,
-  pointRecordStatus,
-  type PointLedgerRecord,
-} from "@/lib/pointsLedger";
+import { MAX_BASE_INCENTIVE, STARTING_POINTS, calculateIncentive } from '@/lib/points';
+import { pointRecordDelta, pointRecordStatus, type PointLedgerRecord } from '@/lib/pointsLedger';
 
 type Row = Record<string, unknown>;
 
@@ -22,25 +18,25 @@ function moneyValue(row: Row) {
 
 function isCashReward(row: Row) {
   const text = String(
-    row.type || row.transaction_type || row.kind || row.reward_type || row.value_type || "",
+    row.type || row.transaction_type || row.kind || row.reward_type || row.value_type || ''
   ).toLowerCase();
   return (
-    text.includes("cash_reward") ||
-    text.includes("money_reward") ||
-    text.includes("cash") ||
-    String(row.reason || row.description || "").includes("مكافأة مالية")
+    text.includes('cash_reward') ||
+    text.includes('money_reward') ||
+    text.includes('cash') ||
+    String(row.reason || row.description || '').includes('مكافأة مالية')
   );
 }
 
 function isCashDeduction(row: Row) {
   const text = String(
-    row.type || row.transaction_type || row.kind || row.deduction_type || row.value_type || "",
+    row.type || row.transaction_type || row.kind || row.deduction_type || row.value_type || ''
   ).toLowerCase();
   return (
-    text.includes("cash_deduction") ||
-    text.includes("money_deduction") ||
-    text.includes("cash") ||
-    String(row.reason || row.description || "").includes("خصم مالي")
+    text.includes('cash_deduction') ||
+    text.includes('money_deduction') ||
+    text.includes('cash') ||
+    String(row.reason || row.description || '').includes('خصم مالي')
   );
 }
 
@@ -49,22 +45,21 @@ export function calculateMonthlyPayout(args: {
   cashRecords?: Row[];
 }) {
   const approvedPointRecords = args.pointRecords.filter((row) =>
-    ["approved", "active", ""].includes(pointRecordStatus(row)),
+    ['approved', 'active', ''].includes(pointRecordStatus(row))
   );
   const pointDeltas = approvedPointRecords.map(pointRecordDelta);
   const approvedExceptionalPointRewards = pointDeltas
     .filter((value) => value > 0)
     .reduce((sum, value) => sum + value, 0);
   const approvedPointDeductions = Math.abs(
-    pointDeltas.filter((value) => value < 0).reduce((sum, value) => sum + value, 0),
+    pointDeltas.filter((value) => value < 0).reduce((sum, value) => sum + value, 0)
   );
-  const finalPoints =
-    STARTING_POINTS - approvedPointDeductions + approvedExceptionalPointRewards;
+  const finalPoints = STARTING_POINTS - approvedPointDeductions + approvedExceptionalPointRewards;
   const cappedPoints = Math.min(Math.max(finalPoints, 0), STARTING_POINTS);
   const baseMonthlyIncentive = calculateIncentive(cappedPoints);
 
   const approvedCashRows = (args.cashRecords || []).filter((row) =>
-    ["approved", "active", ""].includes(String(row.status || "approved").toLowerCase()),
+    ['approved', 'active', ''].includes(String(row.status || 'approved').toLowerCase())
   );
   const totalApprovedCashRewards = approvedCashRows
     .filter(isCashReward)
@@ -83,8 +78,7 @@ export function calculateMonthlyPayout(args: {
     maxBaseMonthlyIncentive: MAX_BASE_INCENTIVE,
     totalApprovedCashRewards,
     totalApprovedCashDeductions,
-    finalPayout:
-      baseMonthlyIncentive + totalApprovedCashRewards - totalApprovedCashDeductions,
+    finalPayout: baseMonthlyIncentive + totalApprovedCashRewards - totalApprovedCashDeductions,
   };
 }
 

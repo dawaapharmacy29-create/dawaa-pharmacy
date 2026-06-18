@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { supabase } from '@/lib/supabase';
 
 export type PagedSelectOptions = {
   table: string;
@@ -12,13 +12,18 @@ export type PagedSelectOptions = {
 
 export async function selectAllPaged<T = Record<string, unknown>>({
   table,
-  select = "*",
+  select = '*',
   chunkSize = 1000,
   maxRows = 50000,
   orderBy,
   ascending = true,
   filters,
-}: PagedSelectOptions): Promise<{ data: T[]; error: any | null; rowsScanned: number; truncated: boolean }> {
+}: PagedSelectOptions): Promise<{
+  data: T[];
+  error: any | null;
+  rowsScanned: number;
+  truncated: boolean;
+}> {
   const rows: T[] = [];
   let from = 0;
   let error: any | null = null;

@@ -17,8 +17,8 @@ export interface PointsCycleRange {
 
 function isoDateOnly(date: Date): string {
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
@@ -27,7 +27,7 @@ export function formatCycleDate(date: Date): string {
 }
 
 export function getPointsCycle(date: Date | string = new Date()): PointsCycleRange {
-  const baseDate = typeof date === "string" ? new Date(`${date.slice(0, 10)}T12:00:00`) : date;
+  const baseDate = typeof date === 'string' ? new Date(`${date.slice(0, 10)}T12:00:00`) : date;
   const cycle = getCycleForDate(baseDate);
   return {
     cycle_start: isoDateOnly(cycle.start),
@@ -152,20 +152,50 @@ function getNextCycleFrom(cycle: PharmacyCycle): PharmacyCycle {
 }
 
 const ARABIC_MONTHS = [
-  "يناير", "فبراير", "مارس", "إبريل", "مايو", "يونيو",
-  "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+  'يناير',
+  'فبراير',
+  'مارس',
+  'إبريل',
+  'مايو',
+  'يونيو',
+  'يوليو',
+  'أغسطس',
+  'سبتمبر',
+  'أكتوبر',
+  'نوفمبر',
+  'ديسمبر',
 ];
 
 function formatCycleLabel(start: Date, end: Date): string {
   const startDay = start.getDate();
   const startMonth = [
-    "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
-    "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+    'يناير',
+    'فبراير',
+    'مارس',
+    'أبريل',
+    'مايو',
+    'يونيو',
+    'يوليو',
+    'أغسطس',
+    'سبتمبر',
+    'أكتوبر',
+    'نوفمبر',
+    'ديسمبر',
   ][start.getMonth()];
   const endDay = end.getDate();
   const endMonth = [
-    "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
-    "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+    'يناير',
+    'فبراير',
+    'مارس',
+    'أبريل',
+    'مايو',
+    'يونيو',
+    'يوليو',
+    'أغسطس',
+    'سبتمبر',
+    'أكتوبر',
+    'نوفمبر',
+    'ديسمبر',
   ][end.getMonth()];
   const year = end.getFullYear();
   return `${startDay} ${startMonth} — ${endDay} ${endMonth} ${year}`;
@@ -173,12 +203,32 @@ function formatCycleLabel(start: Date, end: Date): string {
 
 function formatShortCycleLabel(start: Date, end: Date): string {
   const startMonth = [
-    "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
-    "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+    'يناير',
+    'فبراير',
+    'مارس',
+    'أبريل',
+    'مايو',
+    'يونيو',
+    'يوليو',
+    'أغسطس',
+    'سبتمبر',
+    'أكتوبر',
+    'نوفمبر',
+    'ديسمبر',
   ][start.getMonth()];
   const endMonth = [
-    "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
-    "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+    'يناير',
+    'فبراير',
+    'مارس',
+    'أبريل',
+    'مايو',
+    'يونيو',
+    'يوليو',
+    'أغسطس',
+    'سبتمبر',
+    'أكتوبر',
+    'نوفمبر',
+    'ديسمبر',
   ][end.getMonth()];
   if (start.getMonth() === end.getMonth()) {
     return `${startMonth} ${end.getFullYear()}`;
@@ -207,11 +257,11 @@ export function filterByCycle<T extends Record<string, unknown>>(
  * Format date in Arabic
  */
 export function formatArabicDate(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleDateString("ar-EG", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString('ar-EG', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
   });
 }
 
@@ -219,9 +269,9 @@ export function formatArabicDate(date: Date | string): string {
  * Format time in Arabic
  */
 export function formatArabicTime(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleTimeString("ar-EG", {
-    hour: "2-digit",
-    minute: "2-digit",
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleTimeString('ar-EG', {
+    hour: '2-digit',
+    minute: '2-digit',
   });
 }

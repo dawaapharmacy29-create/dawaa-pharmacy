@@ -15,4 +15,4 @@ export {
   type IncentiveSeverity,
   type MonthlyIncentiveCalculation,
   type QuarterlyIncentiveCalculation,
-} from "@/lib/incentives/incentiveRulesEngine";
+} from '@/lib/incentives/incentiveRulesEngine';

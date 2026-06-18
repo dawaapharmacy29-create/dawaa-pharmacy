@@ -3,9 +3,10 @@
 ### 1. في الداشبورد
 
 #### ✅ افعل هذا
+
 ```typescript
 // استخدم ensureValidDashboardData للتحقق من البيانات
-import { ensureValidDashboardData, hasSalesData } from "@/lib/dashboard/dashboardOptimizations";
+import { ensureValidDashboardData, hasSalesData } from '@/lib/dashboard/dashboardOptimizations';
 
 const validData = ensureValidDashboardData(rawData);
 if (hasSalesData(validData.summary)) {
@@ -16,6 +17,7 @@ if (hasSalesData(validData.summary)) {
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تستخدم البيانات مباشرة بدون تحقق
 const summary = rawData.summary;
@@ -27,19 +29,21 @@ const sales = summary.sales_total; // قد يكون undefined!
 ### 2. في الأداء
 
 #### ✅ افعل هذا
+
 ```typescript
 // استخدم الـ Memoization للبيانات المتكررة
 const selector = memoizeSelector((data) => {
-  return data.items.filter(item => item.active);
+  return data.items.filter((item) => item.active);
 });
 
 const filtered = selector(data); // سريع في المرات التالية
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تحسب نفس الشيء مراراً
-const filtered = data.items.filter(item => item.active); // في كل render!
+const filtered = data.items.filter((item) => item.active); // في كل render!
 ```
 
 ---
@@ -47,13 +51,14 @@ const filtered = data.items.filter(item => item.active); // في كل render!
 ### 3. في التخزين المؤقت
 
 #### ✅ افعل هذا
+
 ```typescript
 const cache = new PerformanceCache(5 * 60 * 1000); // 5 دقائق
 
 const fetchUser = async (id: string) => {
   const cached = cache.get(`user_${id}`);
   if (cached) return cached;
-  
+
   const user = await api.getUser(id);
   cache.set(`user_${id}`, user);
   return user;
@@ -61,6 +66,7 @@ const fetchUser = async (id: string) => {
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تخزن البيانات بدون انتهاء صلاحية
 const cache: Record<string, any> = {};
@@ -72,6 +78,7 @@ const cache: Record<string, any> = {};
 ### 4. في معالجة الأخطاء
 
 #### ✅ افعل هذا
+
 ```typescript
 // استخدم ErrorBoundary أو createRetryStrategy
 const safeFetch = ErrorBoundary.wrapAsync(
@@ -83,6 +90,7 @@ const result = await safeFetch();
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تترك الأخطاء بدون معالجة
 const result = await fetchData(); // قد يرمي error!
@@ -93,9 +101,10 @@ const result = await fetchData(); // قد يرمي error!
 ### 5. في البيانات الكبيرة
 
 #### ✅ افعل هذا
+
 ```typescript
 // استخدم chunkArray للبيانات الكبيرة
-import { chunkArray } from "@/lib/performance/performanceOptimizations";
+import { chunkArray } from '@/lib/performance/performanceOptimizations';
 
 const largeData = await fetchMillionsOfRecords();
 const chunks = chunkArray(largeData, 100);
@@ -106,6 +115,7 @@ for (const chunk of chunks) {
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تعالج كل البيانات دفعة واحدة
 const largeData = await fetchMillionsOfRecords();
@@ -117,18 +127,20 @@ processAllAtOnce(largeData); // يمكن يعطل التطبيق!
 ### 6. في البحث والفلترة
 
 #### ✅ افعل هذا
+
 ```typescript
 // استخدم createIndex للبحث السريع
-import { createIndex } from "@/lib/performance/performanceOptimizations";
+import { createIndex } from '@/lib/performance/performanceOptimizations';
 
-const index = createIndex(users, user => `${user.id}_${user.email}`);
+const index = createIndex(users, (user) => `${user.id}_${user.email}`);
 const user = index.get('123_user@example.com'); // O(1)
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تبحث بشكل خطي كل مرة
-const user = users.find(u => u.id === '123'); // O(n)!
+const user = users.find((u) => u.id === '123'); // O(n)!
 ```
 
 ---
@@ -136,6 +148,7 @@ const user = users.find(u => u.id === '123'); // O(n)!
 ### 7. في الـ Rate Limiting
 
 #### ✅ افعل هذا
+
 ```typescript
 // استخدم rateLimit لتقليل التنديد
 const saveUser = rateLimit(async () => {
@@ -149,6 +162,7 @@ saveUser();
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تترسل requests عديدة بدون تحكم
 input.addEventListener('input', async (e) => {
@@ -161,6 +175,7 @@ input.addEventListener('input', async (e) => {
 ### 8. في الـ Debouncing
 
 #### ✅ افعل هذا
+
 ```typescript
 // استخدم debounceOperation للعمليات الثقيلة
 const searchUsers = debounceOperation(
@@ -178,6 +193,7 @@ input.addEventListener('input', (e) => {
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تنفذ الدالة لكل keystroke
 input.addEventListener('input', (e) => {
@@ -190,6 +206,7 @@ input.addEventListener('input', (e) => {
 ### 9. قياس الأداء
 
 #### ✅ افعل هذا
+
 ```typescript
 // استخدم measurePerformance لفهم السرعة
 const buildReports = () => {
@@ -202,6 +219,7 @@ const buildReports = () => {
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تخمن السرعة
 console.log('Building reports...');
@@ -214,6 +232,7 @@ console.log('Done!'); // كم استغرق؟ لا تعرف!
 ### 10. في الـ Sidebar
 
 #### ✅ افعل هذا
+
 ```typescript
 // استخدم المجموعات الجديدة المبسطة
 // - لوحة القيادة
@@ -226,6 +245,7 @@ console.log('Done!'); // كم استغرق؟ لا تعرف!
 ```
 
 #### ❌ تجنب هذا
+
 ```typescript
 // لا تضيف عناصر عشوائية للـ Sidebar
 // يجب تنظيم العناصر في مجموعات منطقية
@@ -236,24 +256,28 @@ console.log('Done!'); // كم استغرق؟ لا تعرف!
 ## نصائح عامة
 
 ### الأداء
+
 - استخدم React.memo() لتقليل re-renders
 - استخدم useCallback() للدوال في dependencies
 - تجنب inline functions في JSX
 - استخدم التخزين المؤقت للبيانات الثابتة
 
 ### الأمان
+
 - تحقق من البيانات قبل الاستخدام
 - استخدم try-catch للعمليات الخطيرة
 - تجنب eval() و inline scripts
 - استخدم HTTPS فقط
 
 ### الاختبار
+
 - اختبر الحالات الحدية (empty data, null, undefined)
 - اختبر الأداء مع بيانات حقيقية
 - اختبر معالجة الأخطاء
 - اختبر على أجهزة بطيئة
 
 ### التوثيق
+
 - وثق الدوال الجديدة
 - أضف أمثلة للاستخدام
 - أشرح السبب وراء القرارات

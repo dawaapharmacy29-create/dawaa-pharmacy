@@ -1,9 +1,19 @@
-import html2canvas from "html2canvas";
-import { Calculator, FileText, TrendingDown, TrendingUp, Wallet } from "lucide-react";
-import { jsPDF } from "jspdf";
-import { formatCurrency } from "@/lib/utils";
-import { calculateIncentive, MAX_BASE_INCENTIVE, POINT_VALUE_EGP, STARTING_POINTS } from "@/lib/points";
-import { cleanTechnicalText, formatTransactionExecutor, formatTransactionSource, getTransactionShortReason } from "@/lib/pointsLedger";
+import html2canvas from 'html2canvas';
+import { Calculator, FileText, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import { formatCurrency } from '@/lib/utils';
+import {
+  calculateIncentive,
+  MAX_BASE_INCENTIVE,
+  POINT_VALUE_EGP,
+  STARTING_POINTS,
+} from '@/lib/points';
+import {
+  cleanTechnicalText,
+  formatTransactionExecutor,
+  formatTransactionSource,
+  getTransactionShortReason,
+} from '@/lib/pointsLedger';
 
 export interface IncentiveTransaction {
   id: string;
@@ -50,11 +60,16 @@ function transactionPoints(row: IncentiveTransaction) {
 }
 
 function transactionKind(row: IncentiveTransaction) {
-  return row.type === "reward" || row.type === "bonus" || row.type === "مكافأة" ? "reward" : "penalty";
+  return row.type === 'reward' || row.type === 'bonus' || row.type === 'مكافأة'
+    ? 'reward'
+    : 'penalty';
 }
 
 function transactionKey(row: IncentiveTransaction) {
-  return String(row.id || `${row.source_type || row.source || "unknown"}:${row.created_at || ""}:${row.points_delta ?? row.points ?? ""}:${row.reason || row.description || ""}`);
+  return String(
+    row.id ||
+      `${row.source_type || row.source || 'unknown'}:${row.created_at || ''}:${row.points_delta ?? row.points ?? ''}:${row.reason || row.description || ''}`
+  );
 }
 
 function uniqueTransactions(rows: IncentiveTransaction[]) {
@@ -68,26 +83,26 @@ function uniqueTransactions(rows: IncentiveTransaction[]) {
 
 function cleanFileName(value: string) {
   return value
-    .replace(/[\\/:*?"<>|]/g, "-")
-    .replace(/\s+/g, " ")
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
 function escapeHtml(value: unknown) {
-  return String(value ?? "-")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return String(value ?? '-')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function rowDate(row: IncentiveTransaction) {
-  return row.created_at ? new Date(row.created_at).toLocaleDateString("ar-EG") : "-";
+  return row.created_at ? new Date(row.created_at).toLocaleDateString('ar-EG') : '-';
 }
 
 function rowDetails(row: IncentiveTransaction) {
-  const details = cleanTechnicalText(row.manager_note || row.description || "");
-  return details || getTransactionShortReason(row as unknown as Record<string, unknown>) || "-";
+  const details = cleanTechnicalText(row.manager_note || row.description || '');
+  return details || getTransactionShortReason(row as unknown as Record<string, unknown>) || '-';
 }
 
 function buildTransactionRows(rows: IncentiveTransaction[]) {
@@ -109,11 +124,11 @@ function buildTransactionRows(rows: IncentiveTransaction[]) {
           <td>${escapeHtml(rowDetails(row))}</td>
           <td>${escapeHtml(formatTransactionSource(row as unknown as Record<string, unknown>))}</td>
           <td>${escapeHtml(formatTransactionExecutor(row as unknown as Record<string, unknown>))}</td>
-          <td>${escapeHtml(row.status === "pending" ? "قيد المراجعة" : row.status === "rejected" ? "مرفوض" : "معتمد")}</td>
+          <td>${escapeHtml(row.status === 'pending' ? 'قيد المراجعة' : row.status === 'rejected' ? 'مرفوض' : 'معتمد')}</td>
         </tr>
-      `,
+      `
     )
-    .join("");
+    .join('');
 }
 
 function buildReportHtml(props: SalaryCalculatorProps) {
@@ -124,8 +139,8 @@ function buildReportHtml(props: SalaryCalculatorProps) {
   const penaltyMoney = props.penaltyPoints * POINT_VALUE_EGP;
   const quarterlyCash = props.quarterlyCashRewards ?? 0;
   const uniqueRecords = uniqueTransactions(props.records);
-  const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === "reward");
-  const penaltyRows = uniqueRecords.filter((row) => transactionKind(row) === "penalty");
+  const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === 'reward');
+  const penaltyRows = uniqueRecords.filter((row) => transactionKind(row) === 'penalty');
   const repeatRows = (props.repeatErrors || [])
     .map(
       (row) => `
@@ -134,9 +149,9 @@ function buildReportHtml(props: SalaryCalculatorProps) {
           <td>${escapeHtml(row.count)}</td>
           <td>${escapeHtml(row.total_deduction)}</td>
         </tr>
-      `,
+      `
     )
-    .join("");
+    .join('');
 
   return `
     <div class="report">
@@ -145,7 +160,7 @@ function buildReportHtml(props: SalaryCalculatorProps) {
         <div>
           <h1>صيدليات دواء</h1>
           <h2>تقرير حساب الحوافز</h2>
-          <p>تاريخ الإصدار: ${escapeHtml(new Date().toLocaleString("ar-EG"))}</p>
+          <p>تاريخ الإصدار: ${escapeHtml(new Date().toLocaleString('ar-EG'))}</p>
         </div>
       </header>
 
@@ -153,8 +168,8 @@ function buildReportHtml(props: SalaryCalculatorProps) {
         <h3>بيانات الموظف</h3>
         <div class="info-grid">
           <div><span>الموظف</span><strong>${escapeHtml(props.staffName)}</strong></div>
-          <div><span>الدور</span><strong>${escapeHtml(props.role || "-")}</strong></div>
-          <div><span>الفرع</span><strong>${escapeHtml(props.branch || "-")}</strong></div>
+          <div><span>الدور</span><strong>${escapeHtml(props.role || '-')}</strong></div>
+          <div><span>الفرع</span><strong>${escapeHtml(props.branch || '-')}</strong></div>
           <div><span>الدورة</span><strong>${escapeHtml(props.cycleLabel)}</strong></div>
         </div>
       </section>
@@ -171,7 +186,7 @@ function buildReportHtml(props: SalaryCalculatorProps) {
           <div><span>نقاط تميز فوق 500</span><strong>${escapeHtml(props.distinctionPointsAbove500 ?? Math.max(0, props.currentPoints - STARTING_POINTS))}</strong></div>
           <div><span>مكافآت رواكد/لستة (ربع سنوي)</span><strong>${escapeHtml(formatCurrency(quarterlyCash))}</strong></div>
         </div>
-        ${quarterlyCash > 0 ? `<p class="note">مكافآت مالية للرواكد واللستة تضاف للحافز الربع سنوي ولا تزيد نقاط الشهر.</p>` : ""}
+        ${quarterlyCash > 0 ? `<p class="note">مكافآت مالية للرواكد واللستة تضاف للحافز الربع سنوي ولا تزيد نقاط الشهر.</p>` : ''}
       </section>
 
       <section class="section">
@@ -183,7 +198,7 @@ function buildReportHtml(props: SalaryCalculatorProps) {
         </div>
       </section>
 
-      ${repeatRows ? `<section class="section"><h3>أخطاء متكررة</h3><table><thead><tr><th>البند</th><th>التكرار</th><th>إجمالي الخصم</th></tr></thead><tbody>${repeatRows}</tbody></table></section>` : ""}
+      ${repeatRows ? `<section class="section"><h3>أخطاء متكررة</h3><table><thead><tr><th>البند</th><th>التكرار</th><th>إجمالي الخصم</th></tr></thead><tbody>${repeatRows}</tbody></table></section>` : ''}
 
       <section class="section">
         <h3>المكافآت</h3>
@@ -399,49 +414,49 @@ function buildReportStyles() {
 }
 
 async function exportIncentiveReport(props: SalaryCalculatorProps) {
-  const container = document.createElement("div");
-  container.style.position = "fixed";
-  container.style.left = "-10000px";
-  container.style.top = "0";
-  container.style.background = "#ffffff";
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-10000px';
+  container.style.top = '0';
+  container.style.background = '#ffffff';
   container.innerHTML = `<style>${buildReportStyles()}</style>${buildReportHtml(props)}`;
   document.body.appendChild(container);
 
   try {
-    const report = container.querySelector(".report") as HTMLElement;
+    const report = container.querySelector('.report') as HTMLElement;
     const canvas = await html2canvas(report, {
       scale: 2.5,
-      backgroundColor: "#ffffff",
+      backgroundColor: '#ffffff',
       useCORS: true,
       logging: false,
       windowWidth: report.scrollWidth,
       windowHeight: report.scrollHeight,
     });
 
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const imageWidth = pageWidth;
     const imageHeight = (canvas.height * imageWidth) / canvas.width;
-    const imageData = canvas.toDataURL("image/png");
+    const imageData = canvas.toDataURL('image/png');
 
     let heightLeft = imageHeight;
     let y = 0;
     doc.setFillColor(255, 255, 255);
-    doc.rect(0, 0, pageWidth, pageHeight, "F");
-    doc.addImage(imageData, "PNG", 0, y, imageWidth, imageHeight);
+    doc.rect(0, 0, pageWidth, pageHeight, 'F');
+    doc.addImage(imageData, 'PNG', 0, y, imageWidth, imageHeight);
     heightLeft -= pageHeight;
 
     while (heightLeft > 0) {
       doc.addPage();
       doc.setFillColor(255, 255, 255);
-      doc.rect(0, 0, pageWidth, pageHeight, "F");
+      doc.rect(0, 0, pageWidth, pageHeight, 'F');
       y = heightLeft - imageHeight;
-      doc.addImage(imageData, "PNG", 0, y, imageWidth, imageHeight);
+      doc.addImage(imageData, 'PNG', 0, y, imageWidth, imageHeight);
       heightLeft -= pageHeight;
     }
 
-    doc.save(cleanFileName(`صيدليات دواء - حوافز ${props.staffName}`) + ".pdf");
+    doc.save(cleanFileName(`صيدليات دواء - حوافز ${props.staffName}`) + '.pdf');
   } finally {
     document.body.removeChild(container);
   }
@@ -454,8 +469,8 @@ export default function SalaryCalculator(props: SalaryCalculatorProps) {
   const penaltyMoney = props.penaltyPoints * POINT_VALUE_EGP;
   const quarterlyCash = props.quarterlyCashRewards ?? 0;
   const uniqueRecords = uniqueTransactions(props.records);
-  const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === "reward");
-  const penaltyRows = uniqueRecords.filter((row) => transactionKind(row) === "penalty");
+  const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === 'reward');
+  const penaltyRows = uniqueRecords.filter((row) => transactionKind(row) === 'penalty');
 
   return (
     <div className="stat-card space-y-4" dir="rtl">
@@ -464,7 +479,11 @@ export default function SalaryCalculator(props: SalaryCalculatorProps) {
           <Calculator className="text-teal-400" size={20} />
           <h3 className="text-white font-bold">حساب الحوافز</h3>
         </div>
-        <button type="button" className="btn-secondary flex items-center gap-2 py-2" onClick={() => void exportIncentiveReport(props)}>
+        <button
+          type="button"
+          className="btn-secondary flex items-center gap-2 py-2"
+          onClick={() => void exportIncentiveReport(props)}
+        >
           <FileText size={16} /> تصدير PDF وحفظه
         </button>
       </div>
@@ -477,7 +496,8 @@ export default function SalaryCalculator(props: SalaryCalculatorProps) {
       </div>
       {quarterlyCash > 0 && (
         <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-100">
-          مكافآت مالية للرواكد واللستة ({formatCurrency(quarterlyCash)}) تُحسب في الحافز الربع سنوي ولا ترفع نقاط الشهر.
+          مكافآت مالية للرواكد واللستة ({formatCurrency(quarterlyCash)}) تُحسب في الحافز الربع سنوي
+          ولا ترفع نقاط الشهر.
         </div>
       )}
 
@@ -498,7 +518,9 @@ export default function SalaryCalculator(props: SalaryCalculatorProps) {
           <Wallet className="text-teal-400 mb-2" size={16} />
           <div className="text-slate-300 text-sm">الحافز النهائي</div>
           <div className="text-2xl font-bold num text-white">{formatCurrency(finalIncentive)}</div>
-          <div className="text-xs text-slate-400 mt-1">النقاط النهائية × قيمة النقطة، بدون حساب مزدوج</div>
+          <div className="text-xs text-slate-400 mt-1">
+            النقاط النهائية × قيمة النقطة، بدون حساب مزدوج
+          </div>
         </div>
       </div>
 
@@ -517,7 +539,15 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TransactionsList({ title, rows, tone }: { title: string; rows: IncentiveTransaction[]; tone: "teal" | "red" }) {
+function TransactionsList({
+  title,
+  rows,
+  tone,
+}: {
+  title: string;
+  rows: IncentiveTransaction[];
+  tone: 'teal' | 'red';
+}) {
   return (
     <div className="rounded-xl border border-[#2d4063] overflow-hidden">
       <div className="bg-[#16253f] px-3 py-2 text-white font-bold text-sm">{title}</div>
@@ -527,11 +557,18 @@ function TransactionsList({ title, rows, tone }: { title: string; rows: Incentiv
         <div className="divide-y divide-[#2d4063]/70">
           {rows.map((row) => (
             <div key={row.id} className="grid grid-cols-4 gap-2 p-3 text-xs">
-              <div className="text-slate-300">{row.created_at ? new Date(row.created_at).toLocaleDateString("ar-EG") : "-"}</div>
-              <div className="col-span-2 text-white">{row.reason || row.description || "-"}</div>
-              <div className={`font-bold num ${tone === "teal" ? "text-teal-400" : "text-red-400"}`}>{transactionPoints(row)} نقطة</div>
+              <div className="text-slate-300">
+                {row.created_at ? new Date(row.created_at).toLocaleDateString('ar-EG') : '-'}
+              </div>
+              <div className="col-span-2 text-white">{row.reason || row.description || '-'}</div>
+              <div
+                className={`font-bold num ${tone === 'teal' ? 'text-teal-400' : 'text-red-400'}`}
+              >
+                {transactionPoints(row)} نقطة
+              </div>
               <div className="col-span-4 text-slate-500">
-                المصدر: {row.source || row.source_type || "-"} - بواسطة: {row.created_by || "-"} - الحالة: {row.status || "approved"}
+                المصدر: {row.source || row.source_type || '-'} - بواسطة: {row.created_by || '-'} -
+                الحالة: {row.status || 'approved'}
               </div>
               {(row.manager_note || row.description) && (
                 <div className="col-span-4 text-slate-400 leading-5">

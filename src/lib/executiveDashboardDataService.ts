@@ -1,4 +1,4 @@
-import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import {
   fetchExecutiveDashboardSummary,
   type DashboardActionItem,
@@ -6,19 +6,19 @@ import {
   type DeliveryPerformanceSummary,
   type FollowupPerformanceSummary,
   type SalesDailySummary,
-} from "@/lib/dashboardSummaryService";
+} from '@/lib/dashboardSummaryService';
 import {
   fetchStaffIdentityRows,
   groupStaffSalesPerformance,
   normalizeStaffName,
   type GroupedStaffSalesPerformance,
-} from "@/lib/staffIdentityService";
-import { getInvoiceKey } from "@/lib/dawaa2027";
-import { loadSalesAnalyticsSummary } from "@/lib/salesAnalyticsSummaryService";
+} from '@/lib/staffIdentityService';
+import { getInvoiceKey } from '@/lib/dawaa2027';
+import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 
 type Row = Record<string, unknown>;
 
-export type ExecutiveDashboardMode = "current" | "previous" | "custom";
+export type ExecutiveDashboardMode = 'current' | 'previous' | 'custom';
 
 export type TrendPoint = {
   key: string;
@@ -58,7 +58,7 @@ export type OperationalTrackingItem = {
   progress: number | null;
   responsible: string | null;
   route: string;
-  status: "ready" | "empty" | "unavailable";
+  status: 'ready' | 'empty' | 'unavailable';
   source: string;
   error?: string | null;
 };
@@ -101,7 +101,7 @@ export type DashboardInvoicePreview = {
 
 export type ExecutiveDashboardData = {
   summary: DashboardSummary;
-  kpis: DashboardSummary["normalizedKpis"];
+  kpis: DashboardSummary['normalizedKpis'];
   salesTrend: TrendPoint[];
   last5DaysByBranch: LastFiveDaysBranchPoint[];
   branchPerformance: BranchPerformancePoint[];
@@ -109,7 +109,7 @@ export type ExecutiveDashboardData = {
   followupFunnel: DashboardFunnelStep[];
   followupResults: DashboardResultSlice[];
   customerServiceImpact: FollowupPerformanceSummary[];
-  customerAnalytics: DashboardSummary["customerIntelligence"];
+  customerAnalytics: DashboardSummary['customerIntelligence'];
   stagnantItems: OperationalTrackingItem[];
   listItems: OperationalTrackingItem[];
   stagnantTracking: OperationalTrackingItem[];
@@ -123,9 +123,9 @@ export type ExecutiveDashboardData = {
   };
   customerPreview: DashboardCustomerPreview | null;
   latestInvoicesPreview: DashboardInvoicePreview[];
-  dataHealth: DashboardSummary["dataHealth"];
+  dataHealth: DashboardSummary['dataHealth'];
   quickDecisionItems: DashboardActionItem[];
-  sourceHealth: DashboardSummary["sourceHealth"];
+  sourceHealth: DashboardSummary['sourceHealth'];
   lastUpdated: string;
   errorsBySection: Record<string, string>;
   salesAccuracy: {
@@ -148,15 +148,15 @@ function readFirst(row: Row | null | undefined, keys: string[], fallback: unknow
   if (!row) return fallback;
   for (const key of keys) {
     const value = row[key];
-    if (value !== undefined && value !== null && value !== "") return value;
+    if (value !== undefined && value !== null && value !== '') return value;
   }
   return fallback;
 }
 
-function readyMetric(value: number | null, source = "sales_invoices_live") {
+function readyMetric(value: number | null, source = 'sales_invoices_live') {
   return {
     value,
-    status: value === 0 ? "empty" as const : "ready" as const,
+    status: value === 0 ? ('empty' as const) : ('ready' as const),
     source,
     message: null,
     error: null,
@@ -165,14 +165,14 @@ function readyMetric(value: number | null, source = "sales_invoices_live") {
 
 function dayLabel(value: string) {
   const date = new Date(`${value}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return value || "غير محدد";
-  return date.toLocaleDateString("ar-EG", { day: "numeric", month: "short" });
+  if (Number.isNaN(date.getTime())) return value || 'غير محدد';
+  return date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
 }
 
 function monthLabel(value: string) {
   const date = new Date(`${value}-01T12:00:00`);
-  if (Number.isNaN(date.getTime())) return value || "غير محدد";
-  return date.toLocaleDateString("ar-EG", { month: "long", year: "numeric" });
+  if (Number.isNaN(date.getTime())) return value || 'غير محدد';
+  return date.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
 }
 
 function monthDiff(startDate: string, endDate: string) {
@@ -182,12 +182,17 @@ function monthDiff(startDate: string, endDate: string) {
   return (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1;
 }
 
-function buildSalesTrend(rows: SalesDailySummary[], mode: ExecutiveDashboardMode, startDate: string, endDate: string): TrendPoint[] {
-  const groupByMonth = mode === "custom" && monthDiff(startDate, endDate) > 1;
+function buildSalesTrend(
+  rows: SalesDailySummary[],
+  mode: ExecutiveDashboardMode,
+  startDate: string,
+  endDate: string
+): TrendPoint[] {
+  const groupByMonth = mode === 'custom' && monthDiff(startDate, endDate) > 1;
   const byKey = new Map<string, TrendPoint>();
 
   for (const row of rows) {
-    const key = groupByMonth ? String(row.saleDate || "").slice(0, 7) : row.saleDate;
+    const key = groupByMonth ? String(row.saleDate || '').slice(0, 7) : row.saleDate;
     if (!key) continue;
     const current = byKey.get(key) || {
       key,
@@ -206,14 +211,17 @@ function buildSalesTrend(rows: SalesDailySummary[], mode: ExecutiveDashboardMode
   }
 
   return [...byKey.values()]
-    .map((row) => ({ ...row, avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0 }))
+    .map((row) => ({
+      ...row,
+      avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0,
+    }))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
 function buildBranchPerformance(rows: SalesDailySummary[]): BranchPerformancePoint[] {
   const byBranch = new Map<string, BranchPerformancePoint & { bestValue: number }>();
   for (const row of rows) {
-    const branch = row.branch || "غير محدد";
+    const branch = row.branch || 'غير محدد';
     const current = byBranch.get(branch) || {
       branch,
       netTotal: 0,
@@ -248,7 +256,7 @@ function buildLastFiveDaysByBranch(rows: SalesDailySummary[]): LastFiveDaysBranc
   const dates = [...new Set(rows.map((row) => row.saleDate).filter(Boolean))].sort().slice(-5);
   const byKey = new Map<string, LastFiveDaysBranchPoint>();
   for (const row of rows.filter((item) => dates.includes(item.saleDate))) {
-    const branch = row.branch || "غير محدد";
+    const branch = row.branch || 'غير محدد';
     const key = `${row.saleDate}__${branch}`;
     const current = byKey.get(key) || {
       date: row.saleDate,
@@ -263,23 +271,37 @@ function buildLastFiveDaysByBranch(rows: SalesDailySummary[]): LastFiveDaysBranc
     current.invoicesCount += row.invoicesCount;
     byKey.set(key, current);
   }
-  const values = [...byKey.values()].map((row) => ({
-    ...row,
-    avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0,
-  })).sort((a, b) => a.date.localeCompare(b.date) || a.branch.localeCompare(b.branch));
+  const values = [...byKey.values()]
+    .map((row) => ({
+      ...row,
+      avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.branch.localeCompare(b.branch));
 
   for (const row of values) {
     const previousDate = dates[dates.indexOf(row.date) - 1];
     if (!previousDate) continue;
-    const previous = values.find((candidate) => candidate.date === previousDate && candidate.branch === row.branch);
+    const previous = values.find(
+      (candidate) => candidate.date === previousDate && candidate.branch === row.branch
+    );
     if (!previous) continue;
     row.previousDayNetTotal = previous.netTotal;
-    row.changePercent = previous.netTotal ? ((row.netTotal - previous.netTotal) / previous.netTotal) * 100 : null;
+    row.changePercent = previous.netTotal
+      ? ((row.netTotal - previous.netTotal) / previous.netTotal) * 100
+      : null;
   }
   return values;
 }
 
-function buildSalesTrendFromAnalytics(rows: Array<{ date: string; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number }>): TrendPoint[] {
+function buildSalesTrendFromAnalytics(
+  rows: Array<{
+    date: string;
+    netSales: number;
+    invoicesCount: number;
+    avgInvoice: number;
+    uniqueCustomers: number;
+  }>
+): TrendPoint[] {
   return rows.map((row) => ({
     key: row.date,
     label: dayLabel(row.date),
@@ -291,7 +313,16 @@ function buildSalesTrendFromAnalytics(rows: Array<{ date: string; netSales: numb
   }));
 }
 
-function buildBranchPerformanceFromAnalytics(rows: Array<{ branch: string; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number; share: number }>): BranchPerformancePoint[] {
+function buildBranchPerformanceFromAnalytics(
+  rows: Array<{
+    branch: string;
+    netSales: number;
+    invoicesCount: number;
+    avgInvoice: number;
+    uniqueCustomers: number;
+    share: number;
+  }>
+): BranchPerformancePoint[] {
   return rows.map((row) => ({
     branch: row.branch,
     netTotal: row.netSales,
@@ -303,7 +334,18 @@ function buildBranchPerformanceFromAnalytics(rows: Array<{ branch: string; netSa
   }));
 }
 
-function buildDoctorPerformanceFromAnalytics(rows: Array<{ staffId: string | null; doctor: string; branch: string | null; netSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number; duplicateWarning: string | null }>): GroupedStaffSalesPerformance[] {
+function buildDoctorPerformanceFromAnalytics(
+  rows: Array<{
+    staffId: string | null;
+    doctor: string;
+    branch: string | null;
+    netSales: number;
+    invoicesCount: number;
+    avgInvoice: number;
+    uniqueCustomers: number;
+    duplicateWarning: string | null;
+  }>
+): GroupedStaffSalesPerformance[] {
   return rows.map((row) => ({
     staffId: row.staffId,
     sellerName: row.doctor,
@@ -330,7 +372,7 @@ async function fetchTrackingTable(args: {
   route: string;
   source: string;
 }): Promise<{ rows: OperationalTrackingItem[]; error: string | null }> {
-  if (!isSupabaseConfigured) return { rows: [], error: "Supabase غير متاح" };
+  if (!isSupabaseConfigured) return { rows: [], error: 'Supabase غير متاح' };
   const { data, error } = await supabase.from(args.table).select(args.select).limit(60);
   if (error) return { rows: [], error: error.message };
   const rows = ((data ?? []) as unknown as Row[]).slice(0, 8).map((row, index) => {
@@ -338,14 +380,16 @@ async function fetchTrackingTable(args: {
     const target = toNumber(readFirst(row, args.targetKeys, 0));
     const value = toNumber(readFirst(row, args.valueKeys, sold));
     return {
-      id: String(readFirst(row, ["id"], `${args.table}-${index}`)),
-      title: String(readFirst(row, args.titleKeys, "غير محدد")),
-      metric: target ? `${sold.toLocaleString("ar-EG")} / ${target.toLocaleString("ar-EG")}` : value.toLocaleString("ar-EG"),
+      id: String(readFirst(row, ['id'], `${args.table}-${index}`)),
+      title: String(readFirst(row, args.titleKeys, 'غير محدد')),
+      metric: target
+        ? `${sold.toLocaleString('ar-EG')} / ${target.toLocaleString('ar-EG')}`
+        : value.toLocaleString('ar-EG'),
       value,
       progress: target > 0 ? Math.min(100, (sold / target) * 100) : null,
       responsible: readFirst(row, args.responsibleKeys, null) as string | null,
       route: args.route,
-      status: "ready" as const,
+      status: 'ready' as const,
       source: args.source,
     };
   });
@@ -355,33 +399,41 @@ async function fetchTrackingTable(args: {
 async function loadOperationalTracking(errorsBySection: Record<string, string>) {
   const [stagnantResult, listResult] = await Promise.allSettled([
     fetchTrackingTable({
-      table: "stagnant_medicines",
-      select: "id,product_name,medicine_name,quantity_available,total_quantity,remaining_quantity,sold_quantity,dispensed_quantity,target_min_quantity,target_min_percent,responsible_doctor,responsible_doctor_name,status",
-      titleKeys: ["product_name", "medicine_name"],
-      valueKeys: ["remaining_quantity", "quantity_available", "total_quantity"],
-      targetKeys: ["target_min_quantity", "quantity_available", "total_quantity"],
-      soldKeys: ["sold_quantity", "dispensed_quantity"],
-      responsibleKeys: ["responsible_doctor_name", "responsible_doctor"],
-      route: "/stagnant-medicines",
-      source: "stagnant_medicines",
+      table: 'stagnant_medicines',
+      select:
+        'id,product_name,medicine_name,quantity_available,total_quantity,remaining_quantity,sold_quantity,dispensed_quantity,target_min_quantity,target_min_percent,responsible_doctor,responsible_doctor_name,status',
+      titleKeys: ['product_name', 'medicine_name'],
+      valueKeys: ['remaining_quantity', 'quantity_available', 'total_quantity'],
+      targetKeys: ['target_min_quantity', 'quantity_available', 'total_quantity'],
+      soldKeys: ['sold_quantity', 'dispensed_quantity'],
+      responsibleKeys: ['responsible_doctor_name', 'responsible_doctor'],
+      route: '/stagnant-medicines',
+      source: 'stagnant_medicines',
     }),
     fetchTrackingTable({
-      table: "incentive_medicines",
-      select: "id,product_name,current_quantity,sold_quantity,target_min_quantity,target_min_percent,doctor_id,responsible_doctor,branch,active",
-      titleKeys: ["product_name"],
-      valueKeys: ["current_quantity", "sold_quantity"],
-      targetKeys: ["target_min_quantity", "current_quantity"],
-      soldKeys: ["sold_quantity"],
-      responsibleKeys: ["responsible_doctor", "doctor_id"],
-      route: "/incentive-medicines",
-      source: "incentive_medicines",
+      table: 'incentive_medicines',
+      select:
+        'id,product_name,current_quantity,sold_quantity,target_min_quantity,target_min_percent,doctor_id,responsible_doctor,branch,active',
+      titleKeys: ['product_name'],
+      valueKeys: ['current_quantity', 'sold_quantity'],
+      targetKeys: ['target_min_quantity', 'current_quantity'],
+      soldKeys: ['sold_quantity'],
+      responsibleKeys: ['responsible_doctor', 'doctor_id'],
+      route: '/incentive-medicines',
+      source: 'incentive_medicines',
     }),
   ]);
 
-  const stagnant = stagnantResult.status === "fulfilled" ? stagnantResult.value : { rows: [], error: String(stagnantResult.reason) };
-  const list = listResult.status === "fulfilled" ? listResult.value : { rows: [], error: String(listResult.reason) };
-  if (stagnant.error) errorsBySection.stagnantItems = "مصدر متابعة الرواكد غير متاح حاليًا";
-  if (list.error) errorsBySection.listItems = "مصدر متابعة أصناف اللستة غير متاح حاليًا";
+  const stagnant =
+    stagnantResult.status === 'fulfilled'
+      ? stagnantResult.value
+      : { rows: [], error: String(stagnantResult.reason) };
+  const list =
+    listResult.status === 'fulfilled'
+      ? listResult.value
+      : { rows: [], error: String(listResult.reason) };
+  if (stagnant.error) errorsBySection.stagnantItems = 'مصدر متابعة الرواكد غير متاح حاليًا';
+  if (list.error) errorsBySection.listItems = 'مصدر متابعة أصناف اللستة غير متاح حاليًا';
   return {
     stagnantItems: stagnant.rows,
     listItems: list.rows,
@@ -392,9 +444,10 @@ function buildSalesAccuracy(summary: DashboardSummary) {
   const summaryNetSales = summary.dailySales.reduce((sum, row) => sum + row.netTotal, 0);
   const summaryInvoices = summary.dailySales.reduce((sum, row) => sum + row.invoicesCount, 0);
   const kpiNet = summary.kpis?.netSales ?? null;
-  const mismatchPercent = kpiNet && summaryNetSales
-    ? (Math.abs(kpiNet - summaryNetSales) / Math.max(Math.abs(summaryNetSales), 1)) * 100
-    : null;
+  const mismatchPercent =
+    kpiNet && summaryNetSales
+      ? (Math.abs(kpiNet - summaryNetSales) / Math.max(Math.abs(summaryNetSales), 1)) * 100
+      : null;
   return {
     netSalesSource: summary.normalizedKpis.netSales.source,
     rpcNetSales: kpiNet,
@@ -413,7 +466,8 @@ function sumFollowups(rows: FollowupPerformanceSummary[]) {
       noAnswerCount: acc.noAnswerCount + row.noAnswerCount,
       postponedCount: acc.postponedCount + row.postponedCount,
       needsManagerCount: acc.needsManagerCount + row.needsManagerCount,
-      purchaseAfterFollowupAmount: acc.purchaseAfterFollowupAmount + row.purchaseAfterFollowupAmount,
+      purchaseAfterFollowupAmount:
+        acc.purchaseAfterFollowupAmount + row.purchaseAfterFollowupAmount,
     }),
     {
       assignedCount: 0,
@@ -423,7 +477,7 @@ function sumFollowups(rows: FollowupPerformanceSummary[]) {
       postponedCount: 0,
       needsManagerCount: 0,
       purchaseAfterFollowupAmount: 0,
-    },
+    }
   );
 }
 
@@ -432,32 +486,49 @@ function buildFollowupFunnel(rows: FollowupPerformanceSummary[]): DashboardFunne
   const base = totals.assignedCount || null;
   const rate = (value: number) => (base ? (value / base) * 100 : null);
   return [
-    { key: "prepared", label: "تجهيز المتابعة", value: totals.assignedCount, rate: rate(totals.assignedCount) },
-    { key: "contacted", label: "تم التواصل", value: totals.completedCount, rate: rate(totals.completedCount) },
-    { key: "interested", label: "مهتم", value: null, rate: null },
-    { key: "purchased", label: "شراء بعد المتابعة", value: null, rate: null },
+    {
+      key: 'prepared',
+      label: 'تجهيز المتابعة',
+      value: totals.assignedCount,
+      rate: rate(totals.assignedCount),
+    },
+    {
+      key: 'contacted',
+      label: 'تم التواصل',
+      value: totals.completedCount,
+      rate: rate(totals.completedCount),
+    },
+    { key: 'interested', label: 'مهتم', value: null, rate: null },
+    { key: 'purchased', label: 'شراء بعد المتابعة', value: null, rate: null },
   ];
 }
 
 function buildFollowupResults(rows: FollowupPerformanceSummary[]): DashboardResultSlice[] {
   const totals = sumFollowups(rows);
   return [
-    { key: "completed", label: "تم التواصل", value: totals.completedCount, color: "#00AFA5" },
-    { key: "no_answer", label: "لم يرد", value: totals.noAnswerCount, color: "#EF4444" },
-    { key: "postponed", label: "مؤجل", value: totals.postponedCount, color: "#F59E0B" },
-    { key: "needs_manager", label: "يحتاج مدير", value: totals.needsManagerCount, color: "#8B5CF6" },
+    { key: 'completed', label: 'تم التواصل', value: totals.completedCount, color: '#00AFA5' },
+    { key: 'no_answer', label: 'لم يرد', value: totals.noAnswerCount, color: '#EF4444' },
+    { key: 'postponed', label: 'مؤجل', value: totals.postponedCount, color: '#F59E0B' },
+    {
+      key: 'needs_manager',
+      label: 'يحتاج مدير',
+      value: totals.needsManagerCount,
+      color: '#8B5CF6',
+    },
   ];
 }
 
 async function fetchCustomerPreview(branch: string): Promise<DashboardCustomerPreview> {
   let query = supabase
-    .from("customer_metrics_summary")
-    .select("customer_code,customer_name,customer_phone,branch,segment,customer_status,total_spent,avg_monthly,last_purchase")
-    .not("customer_name", "is", null)
-    .order("avg_monthly", { ascending: false })
+    .from('customer_metrics_summary')
+    .select(
+      'customer_code,customer_name,customer_phone,branch,segment,customer_status,total_spent,avg_monthly,last_purchase'
+    )
+    .not('customer_name', 'is', null)
+    .order('avg_monthly', { ascending: false })
     .limit(1);
 
-  if (branch && branch !== "all") query = query.eq("branch", branch);
+  if (branch && branch !== 'all') query = query.eq('branch', branch);
 
   const { data, error } = await query;
   if (error) {
@@ -471,45 +542,49 @@ async function fetchCustomerPreview(branch: string): Promise<DashboardCustomerPr
       totalSpent: null,
       avgMonthly: null,
       lastPurchase: null,
-      source: "customer_metrics_summary",
+      source: 'customer_metrics_summary',
       error: error.message,
     };
   }
   const row = (data?.[0] ?? null) as Row | null;
   return {
-    name: readFirst(row, ["customer_name"], null) as string | null,
-    code: readFirst(row, ["customer_code"], null) as string | null,
-    phone: readFirst(row, ["customer_phone"], null) as string | null,
-    branch: readFirst(row, ["branch"], null) as string | null,
-    segment: readFirst(row, ["segment"], null) as string | null,
-    status: readFirst(row, ["customer_status"], null) as string | null,
-    totalSpent: row ? toNumber(readFirst(row, ["total_spent"], 0)) : null,
-    avgMonthly: row ? toNumber(readFirst(row, ["avg_monthly"], 0)) : null,
-    lastPurchase: readFirst(row, ["last_purchase"], null) as string | null,
-    source: "customer_metrics_summary",
+    name: readFirst(row, ['customer_name'], null) as string | null,
+    code: readFirst(row, ['customer_code'], null) as string | null,
+    phone: readFirst(row, ['customer_phone'], null) as string | null,
+    branch: readFirst(row, ['branch'], null) as string | null,
+    segment: readFirst(row, ['segment'], null) as string | null,
+    status: readFirst(row, ['customer_status'], null) as string | null,
+    totalSpent: row ? toNumber(readFirst(row, ['total_spent'], 0)) : null,
+    avgMonthly: row ? toNumber(readFirst(row, ['avg_monthly'], 0)) : null,
+    lastPurchase: readFirst(row, ['last_purchase'], null) as string | null,
+    source: 'customer_metrics_summary',
     error: null,
   };
 }
 
-async function fetchLatestInvoices(startDate: string, endDate: string, branch: string): Promise<{ rows: DashboardInvoicePreview[]; error: string | null }> {
+async function fetchLatestInvoices(
+  startDate: string,
+  endDate: string,
+  branch: string
+): Promise<{ rows: DashboardInvoicePreview[]; error: string | null }> {
   let query = supabase
-    .from("sales_invoices")
-    .select("id,invoice_number,invoice_no,invoice_date,net_amount,discounted_amount,amount,branch")
-    .gte("invoice_date", startDate)
-    .lt("invoice_date", `${endDate}T23:59:59`)
-    .order("invoice_date", { ascending: false })
+    .from('sales_invoices')
+    .select('id,invoice_number,invoice_no,invoice_date,net_amount,discounted_amount,amount,branch')
+    .gte('invoice_date', startDate)
+    .lt('invoice_date', `${endDate}T23:59:59`)
+    .order('invoice_date', { ascending: false })
     .limit(5);
 
-  if (branch && branch !== "all") query = query.eq("branch", branch);
+  if (branch && branch !== 'all') query = query.eq('branch', branch);
   const { data, error } = await query;
   if (error) return { rows: [], error: error.message };
   return {
     rows: ((data ?? []) as Row[]).map((row) => ({
-      id: String(readFirst(row, ["id"], crypto.randomUUID())),
+      id: String(readFirst(row, ['id'], crypto.randomUUID())),
       invoiceNumber: getInvoiceKey(row) || null,
-      invoiceDate: readFirst(row, ["invoice_date"], null) as string | null,
-      amount: toNumber(readFirst(row, ["net_amount", "discounted_amount", "amount"], 0)),
-      branch: readFirst(row, ["branch"], null) as string | null,
+      invoiceDate: readFirst(row, ['invoice_date'], null) as string | null,
+      amount: toNumber(readFirst(row, ['net_amount', 'discounted_amount', 'amount'], 0)),
+      branch: readFirst(row, ['branch'], null) as string | null,
     })),
     error: null,
   };
@@ -518,17 +593,18 @@ async function fetchLatestInvoices(startDate: string, endDate: string, branch: s
 function buildDeliveryTracking(rows: DeliveryPerformanceSummary[]) {
   const totalOrders = rows.reduce((sum, row) => sum + row.deliveriesCount, 0);
   const deliverySales = rows.reduce((sum, row) => sum + row.deliverySalesTotal, 0);
-  const topStaff = [...rows].sort((a, b) => b.deliveriesCount - a.deliveriesCount)[0]?.deliveryStaff || null;
+  const topStaff =
+    [...rows].sort((a, b) => b.deliveriesCount - a.deliveriesCount)[0]?.deliveryStaff || null;
   return {
     totalOrders,
     deliverySales,
     topStaff,
-    source: "delivery_performance_summary",
+    source: 'delivery_performance_summary',
   };
 }
 
 async function checkSalesSummaryGaps(startDate: string, endDate: string) {
-  const { data, error } = await supabase.rpc("check_sales_daily_summary_gaps", {
+  const { data, error } = await supabase.rpc('check_sales_daily_summary_gaps', {
     p_start_date: startDate,
     p_end_date: endDate,
   });
@@ -547,61 +623,97 @@ export async function loadExecutiveDashboardData(params: {
   if (!params.forceRefresh && dashboardCache.has(key)) return dashboardCache.get(key)!;
 
   const errorsBySection: Record<string, string> = {};
-  const [summaryResult, liveAnalyticsResult, trackingResult, staffIdentityResult, salesGapResult] = await Promise.allSettled([
-    fetchExecutiveDashboardSummary(params),
-    loadSalesAnalyticsSummary({
-      startDate: params.startDate,
-      endDate: params.endDate,
-      branch: params.branch,
-    }, params.forceRefresh),
-    loadOperationalTracking(errorsBySection),
-    fetchStaffIdentityRows(),
-    checkSalesSummaryGaps(params.startDate, params.endDate),
-  ]);
+  const [summaryResult, liveAnalyticsResult, trackingResult, staffIdentityResult, salesGapResult] =
+    await Promise.allSettled([
+      fetchExecutiveDashboardSummary(params),
+      loadSalesAnalyticsSummary(
+        {
+          startDate: params.startDate,
+          endDate: params.endDate,
+          branch: params.branch,
+        },
+        params.forceRefresh
+      ),
+      loadOperationalTracking(errorsBySection),
+      fetchStaffIdentityRows(),
+      checkSalesSummaryGaps(params.startDate, params.endDate),
+    ]);
 
-  if (summaryResult.status === "rejected") {
+  if (summaryResult.status === 'rejected') {
     throw summaryResult.reason;
   }
 
   const summary = summaryResult.value;
-  const liveAnalytics = liveAnalyticsResult.status === "fulfilled" ? liveAnalyticsResult.value : null;
-  const liveSourceReady = !!liveAnalytics?.sourceHealth.some((source) => source.source === "sales_invoices_live" && source.status === "ready");
-  if (liveAnalyticsResult.status === "rejected") errorsBySection.liveAnalytics = "تعذر تحميل قراءة الفواتير الحية للداشبورد";
-  const tracking = trackingResult.status === "fulfilled" ? trackingResult.value : { stagnantItems: [], listItems: [] };
-  if (trackingResult.status === "rejected") errorsBySection.operationalTracking = "تعذر تحميل متابعة الرواكد واللستة";
-  const staffIdentities = staffIdentityResult.status === "fulfilled" ? staffIdentityResult.value : [];
-  if (staffIdentityResult.status === "rejected") errorsBySection.staffIdentity = "تعذر تحميل ربط الدكاترة بملفات الفريق";
+  const liveAnalytics =
+    liveAnalyticsResult.status === 'fulfilled' ? liveAnalyticsResult.value : null;
+  const liveSourceReady = !!liveAnalytics?.sourceHealth.some(
+    (source) => source.source === 'sales_invoices_live' && source.status === 'ready'
+  );
+  if (liveAnalyticsResult.status === 'rejected')
+    errorsBySection.liveAnalytics = 'تعذر تحميل قراءة الفواتير الحية للداشبورد';
+  const tracking =
+    trackingResult.status === 'fulfilled'
+      ? trackingResult.value
+      : { stagnantItems: [], listItems: [] };
+  if (trackingResult.status === 'rejected')
+    errorsBySection.operationalTracking = 'تعذر تحميل متابعة الرواكد واللستة';
+  const staffIdentities =
+    staffIdentityResult.status === 'fulfilled' ? staffIdentityResult.value : [];
+  if (staffIdentityResult.status === 'rejected')
+    errorsBySection.staffIdentity = 'تعذر تحميل ربط الدكاترة بملفات الفريق';
 
-  if (!liveSourceReady && salesGapResult.status === "fulfilled" && salesGapResult.value.count > 0) {
+  if (!liveSourceReady && salesGapResult.status === 'fulfilled' && salesGapResult.value.count > 0) {
     errorsBySection.salesSummaryGap = `sales_daily_summary ناقص أو غير مطابق لبيانات sales_invoices في ${salesGapResult.value.count} يوم. يلزم تحديث ملخصات المبيعات.`;
   }
 
-  const liveKpis = liveSourceReady && liveAnalytics ? {
-    ...summary.normalizedKpis,
-    netSales: readyMetric(liveAnalytics.kpis.netSales),
-    invoicesCount: readyMetric(liveAnalytics.kpis.invoicesCount),
-    avgInvoice: readyMetric(liveAnalytics.kpis.avgInvoice),
-    uniqueCustomers: readyMetric(liveAnalytics.kpis.uniqueCustomers),
-  } : summary.normalizedKpis;
-  const liveSalesTrend = liveSourceReady && liveAnalytics ? buildSalesTrendFromAnalytics(liveAnalytics.dailyTrend) : null;
-  const liveLastFiveDaysByBranch = liveSourceReady && liveAnalytics.last5DaysByBranch.length ? liveAnalytics.last5DaysByBranch : null;
-  const liveBranchPerformance = liveSourceReady && liveAnalytics ? buildBranchPerformanceFromAnalytics(liveAnalytics.branchRows) : null;
-  const liveDoctorPerformance = liveSourceReady && liveAnalytics ? buildDoctorPerformanceFromAnalytics(liveAnalytics.doctorRows).slice(0, 12) : null;
-  const salesAccuracy = liveSourceReady && liveAnalytics ? {
-    netSalesSource: "sales_invoices_live",
-    rpcNetSales: summary.kpis?.netSales ?? null,
-    summaryNetSales: liveAnalytics.kpis.netSales,
-    invoicesCount: liveAnalytics.kpis.invoicesCount,
-    mismatchPercent: null,
-  } : buildSalesAccuracy(summary);
+  const liveKpis =
+    liveSourceReady && liveAnalytics
+      ? {
+          ...summary.normalizedKpis,
+          netSales: readyMetric(liveAnalytics.kpis.netSales),
+          invoicesCount: readyMetric(liveAnalytics.kpis.invoicesCount),
+          avgInvoice: readyMetric(liveAnalytics.kpis.avgInvoice),
+          uniqueCustomers: readyMetric(liveAnalytics.kpis.uniqueCustomers),
+        }
+      : summary.normalizedKpis;
+  const liveSalesTrend =
+    liveSourceReady && liveAnalytics
+      ? buildSalesTrendFromAnalytics(liveAnalytics.dailyTrend)
+      : null;
+  const liveLastFiveDaysByBranch =
+    liveSourceReady && liveAnalytics.last5DaysByBranch.length
+      ? liveAnalytics.last5DaysByBranch
+      : null;
+  const liveBranchPerformance =
+    liveSourceReady && liveAnalytics
+      ? buildBranchPerformanceFromAnalytics(liveAnalytics.branchRows)
+      : null;
+  const liveDoctorPerformance =
+    liveSourceReady && liveAnalytics
+      ? buildDoctorPerformanceFromAnalytics(liveAnalytics.doctorRows).slice(0, 12)
+      : null;
+  const salesAccuracy =
+    liveSourceReady && liveAnalytics
+      ? {
+          netSalesSource: 'sales_invoices_live',
+          rpcNetSales: summary.kpis?.netSales ?? null,
+          summaryNetSales: liveAnalytics.kpis.netSales,
+          invoicesCount: liveAnalytics.kpis.invoicesCount,
+          mismatchPercent: null,
+        }
+      : buildSalesAccuracy(summary);
 
   const data: ExecutiveDashboardData = {
     summary,
     kpis: liveKpis,
-    salesTrend: liveSalesTrend || buildSalesTrend(summary.dailySales, params.mode, params.startDate, params.endDate),
+    salesTrend:
+      liveSalesTrend ||
+      buildSalesTrend(summary.dailySales, params.mode, params.startDate, params.endDate),
     last5DaysByBranch: liveLastFiveDaysByBranch || buildLastFiveDaysByBranch(summary.dailySales),
     branchPerformance: liveBranchPerformance || buildBranchPerformance(summary.dailySales),
-    doctorPerformance: liveDoctorPerformance || groupStaffSalesPerformance(summary.staffSales, staffIdentities).slice(0, 12),
+    doctorPerformance:
+      liveDoctorPerformance ||
+      groupStaffSalesPerformance(summary.staffSales, staffIdentities).slice(0, 12),
     followupFunnel: buildFollowupFunnel(summary.followupPerformance),
     followupResults: buildFollowupResults(summary.followupPerformance),
     customerServiceImpact: summary.followupPerformance,

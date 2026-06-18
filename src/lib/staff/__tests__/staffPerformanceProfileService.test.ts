@@ -1,14 +1,14 @@
 /**
  * Validation Tests for Staff Performance Profile Service
- * 
+ *
  * This file contains validation tests to ensure the staff performance profile service
  * works correctly with real data from the database.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { loadStaffPerformanceProfile } from "../staffPerformanceProfileService";
-import { checkStaffDataHealth } from "../staffDataHealthService";
-import { supabase } from "@/lib/supabase";
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { loadStaffPerformanceProfile } from '../staffPerformanceProfileService';
+import { checkStaffDataHealth } from '../staffDataHealthService';
+import { supabase } from '@/lib/supabase';
 
 // Mock Supabase for testing if not configured
 const isSupabaseConfigured = () => {
@@ -19,7 +19,7 @@ const isSupabaseConfigured = () => {
   }
 };
 
-describe("Staff Performance Profile Service - Validation", () => {
+describe('Staff Performance Profile Service - Validation', () => {
   let testStaffId: string | null = null;
   let testStaffName: string | null = null;
 
@@ -30,14 +30,14 @@ describe("Staff Performance Profile Service - Validation", () => {
 
     // Get a test staff member (first active staff)
     const { data: staff } = await supabase
-      .from("staff")
-      .select("id,name")
-      .eq("is_active", true)
+      .from('staff')
+      .select('id,name')
+      .eq('is_active', true)
       .limit(1);
 
     if (staff && staff.length > 0) {
       testStaffId = String(staff[0].id);
-      testStaffName = String(staff[0].name || "");
+      testStaffName = String(staff[0].name || '');
     }
   });
 
@@ -45,14 +45,14 @@ describe("Staff Performance Profile Service - Validation", () => {
     // Cleanup if needed
   });
 
-  it("should load staff performance profile successfully", async () => {
+  it('should load staff performance profile successfully', async () => {
     if (!isSupabaseConfigured()) {
-      console.warn("Supabase not configured, skipping test");
+      console.warn('Supabase not configured, skipping test');
       return;
     }
 
     if (!testStaffId) {
-      console.warn("No test staff found, skipping test");
+      console.warn('No test staff found, skipping test');
       return;
     }
 
@@ -67,7 +67,7 @@ describe("Staff Performance Profile Service - Validation", () => {
     expect(profile.dataHealth).toBeDefined();
   });
 
-  it("should resolve staff identity correctly", async () => {
+  it('should resolve staff identity correctly', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -83,7 +83,7 @@ describe("Staff Performance Profile Service - Validation", () => {
     expect(profile.identity.normalizedNames.length).toBeGreaterThan(0);
   });
 
-  it("should load monthly incentives", async () => {
+  it('should load monthly incentives', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -95,13 +95,13 @@ describe("Staff Performance Profile Service - Validation", () => {
     expect(profile.monthlyIncentive).toBeDefined();
     if (profile.monthlyIncentive) {
       expect(profile.monthlyIncentive.finalPoints).toBeDefined();
-      expect(typeof profile.monthlyIncentive.finalPoints).toBe("number");
+      expect(typeof profile.monthlyIncentive.finalPoints).toBe('number');
       expect(profile.monthlyIncentive.incentiveValue).toBeDefined();
-      expect(typeof profile.monthlyIncentive.incentiveValue).toBe("number");
+      expect(typeof profile.monthlyIncentive.incentiveValue).toBe('number');
     }
   });
 
-  it("should load sales metrics", async () => {
+  it('should load sales metrics', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -113,15 +113,15 @@ describe("Staff Performance Profile Service - Validation", () => {
     expect(profile.sales).toBeDefined();
     if (profile.sales) {
       expect(profile.sales.cycleNetSales).toBeDefined();
-      expect(typeof profile.sales.cycleNetSales).toBe("number");
+      expect(typeof profile.sales.cycleNetSales).toBe('number');
       expect(profile.sales.cycleInvoicesCount).toBeDefined();
-      expect(typeof profile.sales.cycleInvoicesCount).toBe("number");
+      expect(typeof profile.sales.cycleInvoicesCount).toBe('number');
       expect(profile.sales.avgInvoice).toBeDefined();
-      expect(typeof profile.sales.avgInvoice).toBe("number");
+      expect(typeof profile.sales.avgInvoice).toBe('number');
     }
   });
 
-  it("should load customer metrics", async () => {
+  it('should load customer metrics', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -134,11 +134,11 @@ describe("Staff Performance Profile Service - Validation", () => {
     if (profile.customers) {
       expect(Array.isArray(profile.customers.topCustomers)).toBe(true);
       expect(Array.isArray(profile.customers.repeatCustomers)).toBe(true);
-      expect(typeof profile.customers.newCustomers).toBe("number");
+      expect(typeof profile.customers.newCustomers).toBe('number');
     }
   });
 
-  it("should load stagnant/list metrics", async () => {
+  it('should load stagnant/list metrics', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -150,16 +150,16 @@ describe("Staff Performance Profile Service - Validation", () => {
     expect(profile.stagnantMedicines).toBeDefined();
     expect(profile.listItems).toBeDefined();
     if (profile.stagnantMedicines) {
-      expect(typeof profile.stagnantMedicines.assignedStagnantItems).toBe("number");
-      expect(typeof profile.stagnantMedicines.stagnantCompletionPercent).toBe("number");
+      expect(typeof profile.stagnantMedicines.assignedStagnantItems).toBe('number');
+      expect(typeof profile.stagnantMedicines.stagnantCompletionPercent).toBe('number');
     }
     if (profile.listItems) {
-      expect(typeof profile.listItems.assignedListItems).toBe("number");
-      expect(typeof profile.listItems.listCompletionPercent).toBe("number");
+      expect(typeof profile.listItems.assignedListItems).toBe('number');
+      expect(typeof profile.listItems.listCompletionPercent).toBe('number');
     }
   });
 
-  it("should load quarterly metrics", async () => {
+  it('should load quarterly metrics', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -171,13 +171,13 @@ describe("Staff Performance Profile Service - Validation", () => {
     expect(profile.quarterlyIncentive).toBeDefined();
     if (profile.quarterlyIncentive) {
       expect(profile.quarterlyIncentive.quarterlyScore).toBeDefined();
-      expect(typeof profile.quarterlyIncentive.quarterlyScore).toBe("number");
+      expect(typeof profile.quarterlyIncentive.quarterlyScore).toBe('number');
       expect(profile.quarterlyIncentive.baseQuarterlyIncentive).toBeDefined();
-      expect(typeof profile.quarterlyIncentive.baseQuarterlyIncentive).toBe("number");
+      expect(typeof profile.quarterlyIncentive.baseQuarterlyIncentive).toBe('number');
     }
   });
 
-  it("should generate recommendations", async () => {
+  it('should generate recommendations', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -188,18 +188,18 @@ describe("Staff Performance Profile Service - Validation", () => {
 
     expect(profile.recommendations).toBeDefined();
     expect(Array.isArray(profile.recommendations)).toBe(true);
-    
+
     // Check recommendation structure
     profile.recommendations.forEach((rec) => {
-      expect(rec).toHaveProperty("priority");
-      expect(rec).toHaveProperty("category");
-      expect(rec).toHaveProperty("reason");
-      expect(rec).toHaveProperty("suggestedAction");
-      expect(["high", "medium", "low"]).toContain(rec.priority);
+      expect(rec).toHaveProperty('priority');
+      expect(rec).toHaveProperty('category');
+      expect(rec).toHaveProperty('reason');
+      expect(rec).toHaveProperty('suggestedAction');
+      expect(['high', 'medium', 'low']).toContain(rec.priority);
     });
   });
 
-  it("should calculate data health correctly", async () => {
+  it('should calculate data health correctly', async () => {
     if (!isSupabaseConfigured() || !testStaffId || !testStaffName) {
       return;
     }
@@ -210,7 +210,7 @@ describe("Staff Performance Profile Service - Validation", () => {
     expect(healthReport.staffId).toBe(testStaffId);
     expect(healthReport.staffName).toBe(testStaffName);
     expect(healthReport.overallHealthScore).toBeDefined();
-    expect(typeof healthReport.overallHealthScore).toBe("number");
+    expect(typeof healthReport.overallHealthScore).toBe('number');
     expect(healthReport.overallHealthScore).toBeGreaterThanOrEqual(0);
     expect(healthReport.overallHealthScore).toBeLessThanOrEqual(100);
     expect(Array.isArray(healthReport.criticalIssues)).toBe(true);
@@ -218,20 +218,20 @@ describe("Staff Performance Profile Service - Validation", () => {
     expect(Array.isArray(healthReport.info)).toBe(true);
   });
 
-  it("should handle invalid staff ID gracefully", async () => {
+  it('should handle invalid staff ID gracefully', async () => {
     if (!isSupabaseConfigured()) {
       return;
     }
 
     const profile = await loadStaffPerformanceProfile({
-      staffId: "invalid-staff-id-12345",
+      staffId: 'invalid-staff-id-12345',
     });
 
     // Should return null or handle error gracefully
     expect(profile).toBeDefined();
   });
 
-  it("should include charts data", async () => {
+  it('should include charts data', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -246,7 +246,7 @@ describe("Staff Performance Profile Service - Validation", () => {
     expect(Array.isArray(profile.charts.quarterlyScoreComponents)).toBe(true);
   });
 
-  it("should handle caching correctly", async () => {
+  it('should handle caching correctly', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -266,13 +266,13 @@ describe("Staff Performance Profile Service - Validation", () => {
     const time2 = Date.now() - start2;
 
     expect(profile1).toEqual(profile2);
-    
+
     // Second load should be faster due to caching
     // (This is a soft check, caching might not always be faster due to overhead)
     console.log(`First load: ${time1}ms, Second load: ${time2}ms`);
   });
 
-  it("should separate monthly points from quarterly cash rewards", async () => {
+  it('should separate monthly points from quarterly cash rewards', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -284,30 +284,30 @@ describe("Staff Performance Profile Service - Validation", () => {
     if (profile.monthlyIncentive) {
       // Monthly incentives should be in points
       expect(profile.monthlyIncentive.finalPoints).toBeDefined();
-      expect(typeof profile.monthlyIncentive.finalPoints).toBe("number");
-      
+      expect(typeof profile.monthlyIncentive.finalPoints).toBe('number');
+
       // Quarterly cash rewards should be separate
       if (profile.quarterlyIncentive) {
         expect(profile.quarterlyIncentive.quarterlyCashRewards).toBeDefined();
-        expect(typeof profile.quarterlyIncentive.quarterlyCashRewards).toBe("number");
+        expect(typeof profile.quarterlyIncentive.quarterlyCashRewards).toBe('number');
       }
     }
   });
 
-  it("should handle inactive staff correctly", async () => {
+  it('should handle inactive staff correctly', async () => {
     if (!isSupabaseConfigured()) {
       return;
     }
 
     // Get an inactive staff member
     const { data: inactiveStaff } = await supabase
-      .from("staff")
-      .select("id,name")
-      .eq("is_active", false)
+      .from('staff')
+      .select('id,name')
+      .eq('is_active', false)
       .limit(1);
 
     if (!inactiveStaff || inactiveStaff.length === 0) {
-      console.warn("No inactive staff found, skipping test");
+      console.warn('No inactive staff found, skipping test');
       return;
     }
 
@@ -317,12 +317,12 @@ describe("Staff Performance Profile Service - Validation", () => {
 
     expect(profile).toBeDefined();
     expect(profile.staff.is_active).toBe(false);
-    
+
     // Should have identity warnings about inactive status
     expect(profile.identity.inactiveDuplicateIds.length).toBeGreaterThanOrEqual(0);
   });
 
-  it("should include error information for failed sections", async () => {
+  it('should include error information for failed sections', async () => {
     if (!isSupabaseConfigured() || !testStaffId) {
       return;
     }
@@ -332,27 +332,27 @@ describe("Staff Performance Profile Service - Validation", () => {
     });
 
     expect(profile.errorsBySection).toBeDefined();
-    expect(typeof profile.errorsBySection).toBe("object");
+    expect(typeof profile.errorsBySection).toBe('object');
   });
 });
 
 /**
  * Integration Test: Load multiple staff profiles
  */
-describe("Staff Performance Profile Service - Integration", () => {
-  it("should load multiple staff profiles without errors", async () => {
+describe('Staff Performance Profile Service - Integration', () => {
+  it('should load multiple staff profiles without errors', async () => {
     if (!isSupabaseConfigured()) {
       return;
     }
 
     const { data: staff } = await supabase
-      .from("staff")
-      .select("id")
-      .eq("is_active", true)
+      .from('staff')
+      .select('id')
+      .eq('is_active', true)
       .limit(5);
 
     if (!staff || staff.length === 0) {
-      console.warn("No staff found for integration test");
+      console.warn('No staff found for integration test');
       return;
     }
 
@@ -369,15 +369,15 @@ describe("Staff Performance Profile Service - Integration", () => {
     });
   });
 
-  it("should handle concurrent requests safely", async () => {
+  it('should handle concurrent requests safely', async () => {
     if (!isSupabaseConfigured()) {
       return;
     }
 
     const { data: staff } = await supabase
-      .from("staff")
-      .select("id")
-      .eq("is_active", true)
+      .from('staff')
+      .select('id')
+      .eq('is_active', true)
       .limit(3);
 
     if (!staff || staff.length === 0) {
@@ -386,9 +386,9 @@ describe("Staff Performance Profile Service - Integration", () => {
 
     // Load the same staff multiple times concurrently
     const staffId = String(staff[0].id);
-    const concurrentRequests = Array(10).fill(null).map(() =>
-      loadStaffPerformanceProfile({ staffId })
-    );
+    const concurrentRequests = Array(10)
+      .fill(null)
+      .map(() => loadStaffPerformanceProfile({ staffId }));
 
     const results = await Promise.all(concurrentRequests);
 
@@ -402,24 +402,24 @@ describe("Staff Performance Profile Service - Integration", () => {
 /**
  * Build Validation
  */
-describe("Build Validation", () => {
-  it("should have no TypeScript compilation errors", () => {
+describe('Build Validation', () => {
+  it('should have no TypeScript compilation errors', () => {
     // This test validates that the service compiles correctly
     // If this file compiles, the TypeScript types are valid
     expect(true).toBe(true);
   });
 
-  it("should export all required functions", () => {
+  it('should export all required functions', () => {
     // Validate that the service exports the main function
-    const service = require("../staffPerformanceProfileService");
+    const service = require('../staffPerformanceProfileService');
     expect(service.loadStaffPerformanceProfile).toBeDefined();
-    expect(typeof service.loadStaffPerformanceProfile).toBe("function");
+    expect(typeof service.loadStaffPerformanceProfile).toBe('function');
   });
 
-  it("should have proper TypeScript interfaces", () => {
+  it('should have proper TypeScript interfaces', () => {
     // Validate that interfaces are properly defined
-    const service = require("../staffPerformanceProfileService");
-    
+    const service = require('../staffPerformanceProfileService');
+
     // Check that key interfaces exist
     expect(service.StaffPerformanceProfile).toBeDefined();
     expect(service.StaffIdentity).toBeDefined();

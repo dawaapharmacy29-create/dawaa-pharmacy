@@ -20,6 +20,6 @@ export function createReconcileWorker() {
     },
     terminate() {
       worker.terminate();
-    }
+    },
   };
 }

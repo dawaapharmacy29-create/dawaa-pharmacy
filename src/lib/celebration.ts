@@ -1,14 +1,14 @@
-import { toast } from "sonner";
+import { toast } from 'sonner';
 
-const COLORS = ["#18d8c4", "#6ff7e8", "#22c55e", "#facc15", "#fb7185", "#60a5fa", "#c084fc"];
+const COLORS = ['#18d8c4', '#6ff7e8', '#22c55e', '#facc15', '#fb7185', '#60a5fa', '#c084fc'];
 
 type AudioWindow = Window & {
   webkitAudioContext?: typeof AudioContext;
 };
 
 function playBeep() {
-  if (typeof window === "undefined") return;
-  if (localStorage.getItem("dawaa_celebration_sound") === "off") return;
+  if (typeof window === 'undefined') return;
+  if (localStorage.getItem('dawaa_celebration_sound') === 'off') return;
   try {
     const Ctx = window.AudioContext || (window as AudioWindow).webkitAudioContext;
     if (!Ctx) return;
@@ -16,7 +16,7 @@ function playBeep() {
     [523.25, 659.25, 783.99].forEach((freq, i) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "triangle";
+      osc.type = 'triangle';
       osc.frequency.value = freq;
       gain.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.08);
       gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + i * 0.08 + 0.02);
@@ -32,13 +32,13 @@ function playBeep() {
   }
 }
 
-export function triggerCelebration(message = "ممتاز! تم تحقيق إنجاز جديد") {
-  if (typeof document === "undefined") return;
-  if (localStorage.getItem("dawaa_celebration_effects") !== "off") {
+export function triggerCelebration(message = 'ممتاز! تم تحقيق إنجاز جديد') {
+  if (typeof document === 'undefined') return;
+  if (localStorage.getItem('dawaa_celebration_effects') !== 'off') {
     const count = 46;
     for (let i = 0; i < count; i += 1) {
-      const piece = document.createElement("span");
-      piece.className = "dawaa-confetti-piece";
+      const piece = document.createElement('span');
+      piece.className = 'dawaa-confetti-piece';
       piece.style.left = `${Math.random() * 100}vw`;
       piece.style.background = COLORS[i % COLORS.length];
       piece.style.animationDelay = `${Math.random() * 350}ms`;

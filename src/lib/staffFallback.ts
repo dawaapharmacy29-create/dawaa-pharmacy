@@ -1,4 +1,4 @@
-import { INITIAL_POINTS } from "@/lib/constants";
+import { INITIAL_POINTS } from '@/lib/constants';
 
 export interface StaffChoice {
   id: string;
@@ -23,7 +23,7 @@ export interface StaffChoice {
   duplicate_count?: number;
 }
 
-const UNKNOWN_BRANCH = "غير محدد";
+const UNKNOWN_BRANCH = 'غير محدد';
 
 export const DEFAULT_STAFF_PERMISSIONS: Record<string, boolean> = {
   view_dashboard: true,
@@ -49,20 +49,20 @@ export const DEFAULT_STAFF_PERMISSIONS: Record<string, boolean> = {
 };
 
 function toNumber(value: unknown, fallback: number | null = null) {
-  const next = typeof value === "number" ? value : Number(value);
+  const next = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(next) ? next : fallback;
 }
 
 function normalizeStaff(row: Record<string, unknown>): StaffChoice {
-  const name = String(row.name || row.staff_name || row.employee_name || "").trim();
-  const id = String(row.id || row.staff_id || "").trim();
+  const name = String(row.name || row.staff_name || row.employee_name || '').trim();
+  const id = String(row.id || row.staff_id || '').trim();
   const branch = String(row.branch || row.branch_name || UNKNOWN_BRANCH).trim() || UNKNOWN_BRANCH;
   return {
     id,
     name,
     original_name: name,
     display_name: name,
-    role: String(row.role || row.staff_role || "").trim(),
+    role: String(row.role || row.staff_role || '').trim(),
     branch,
     branch_id: (row.branch_id as string | null | undefined) || null,
     phone: (row.phone as string | null | undefined) || null,
@@ -79,17 +79,17 @@ function normalizeStaff(row: Record<string, unknown>): StaffChoice {
 }
 
 function sortStaff(a: StaffChoice, b: StaffChoice) {
-  return `${a.branch}-${a.role}-${a.name}`.localeCompare(`${b.branch}-${b.role}-${b.name}`, "ar");
+  return `${a.branch}-${a.role}-${a.name}`.localeCompare(`${b.branch}-${b.role}-${b.name}`, 'ar');
 }
 
 function normalizeDuplicateNameKey(value: string) {
   return value
-    .replace(/[\u0623\u0625\u0622]/g, "\u0627")
-    .replace(/\u0649/g, "\u064a")
-    .replace(/\u0629/g, "\u0647")
-    .replace(/^(\u062f|dr|doctor|d)\.?\s*\/?\s*/i, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
+    .replace(/[\u0623\u0625\u0622]/g, '\u0627')
+    .replace(/\u0649/g, '\u064a')
+    .replace(/\u0629/g, '\u0647')
+    .replace(/^(\u062f|dr|doctor|d)\.?\s*\/?\s*/i, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 }
@@ -111,9 +111,9 @@ function withDuplicateDisplayNames(rows: StaffChoice[]) {
   return rows.map((row) => {
     const group = groups.get(normalizeDuplicateNameKey(row.original_name || row.name)) || [];
     if (group.length <= 1) return row;
-    const branch = row.branch && row.branch !== UNKNOWN_BRANCH ? row.branch : "";
-    const role = row.role || "";
-    const suffix = [branch, role].filter(Boolean).join(" - ") || row.id.slice(0, 8);
+    const branch = row.branch && row.branch !== UNKNOWN_BRANCH ? row.branch : '';
+    const role = row.role || '';
+    const suffix = [branch, role].filter(Boolean).join(' - ') || row.id.slice(0, 8);
     return {
       ...row,
       display_name: `${row.original_name || row.name} (${suffix})`,
@@ -124,7 +124,11 @@ function withDuplicateDisplayNames(rows: StaffChoice[]) {
 function mergeDuplicateStaffRows(rows: StaffChoice[]) {
   const groups = new Map<string, StaffChoice[]>();
   for (const row of rows) {
-    const key = [normalizeDuplicateNameKey(row.original_name || row.name), row.branch || UNKNOWN_BRANCH, row.role || ""].join("|");
+    const key = [
+      normalizeDuplicateNameKey(row.original_name || row.name),
+      row.branch || UNKNOWN_BRANCH,
+      row.role || '',
+    ].join('|');
     if (!key.trim()) continue;
     const group = groups.get(key) || [];
     group.push(row);
@@ -149,13 +153,19 @@ function mergeDuplicateStaffRows(rows: StaffChoice[]) {
     });
 
     const primary = sorted[0];
-    const aliases = Array.from(new Set(group.flatMap((row) => [row.name, row.original_name, row.display_name].filter(Boolean) as string[])));
+    const aliases = Array.from(
+      new Set(
+        group.flatMap(
+          (row) => [row.name, row.original_name, row.display_name].filter(Boolean) as string[]
+        )
+      )
+    );
     merged.push({
       ...primary,
       aliases,
       duplicate_ids: Array.from(new Set(group.map((row) => row.id).filter(Boolean))),
       duplicate_count: group.length,
-      display_name: `${primary.original_name || primary.name} (${primary.branch}${primary.role ? ` - ${primary.role}` : ""})`,
+      display_name: `${primary.original_name || primary.name} (${primary.branch}${primary.role ? ` - ${primary.role}` : ''})`,
     });
   }
 
@@ -163,17 +173,21 @@ function mergeDuplicateStaffRows(rows: StaffChoice[]) {
 }
 
 function isActiveRealStaff(row: unknown): row is Record<string, unknown> {
-  if (!row || typeof row !== "object") return false;
+  if (!row || typeof row !== 'object') return false;
   const next = row as Record<string, unknown>;
-  const id = String(next.id || next.staff_id || "").trim();
-  const name = String(next.name || next.staff_name || next.employee_name || "").trim();
-  if (!id || !name || id.startsWith("fallback-")) return false;
+  const id = String(next.id || next.staff_id || '').trim();
+  const name = String(next.name || next.staff_name || next.employee_name || '').trim();
+  if (!id || !name || id.startsWith('fallback-')) return false;
   if (next.deleted_at || next.is_deleted === true || next.active === false) return false;
   return true;
 }
 
 export function realStaffChoices(rows: unknown[] | null | undefined): StaffChoice[] {
-  return withDuplicateDisplayNames(mergeDuplicateStaffRows((rows || []).filter(isActiveRealStaff).map(normalizeStaff).sort(sortStaff)));
+  return withDuplicateDisplayNames(
+    mergeDuplicateStaffRows(
+      (rows || []).filter(isActiveRealStaff).map(normalizeStaff).sort(sortStaff)
+    )
+  );
 }
 
 export function selectableStaffChoices(rows: unknown[] | null | undefined): StaffChoice[] {
@@ -186,7 +200,7 @@ export function mergeStaffChoices(rows: unknown[] | null | undefined): StaffChoi
 
 export function reviewerChoices(rows: unknown[] | null | undefined): StaffChoice[] {
   return realStaffChoices(rows).filter((row) =>
-    /(صيدلي|مدير|جودة|خدمة)|admin|manager|quality|pharmacist/i.test(row.role),
+    /(صيدلي|مدير|جودة|خدمة)|admin|manager|quality|pharmacist/i.test(row.role)
   );
 }
 

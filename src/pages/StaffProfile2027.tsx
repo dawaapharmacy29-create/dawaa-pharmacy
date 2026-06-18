@@ -1,24 +1,49 @@
-import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { ArrowRight, Loader2, AlertTriangle, TrendingUp, Users, Package, DollarSign, Calendar, Award, AlertCircle, BarChart3 } from "lucide-react";
-import { loadStaffPerformanceProfile, type StaffPerformanceProfile } from "@/lib/staff/staffPerformanceProfileService";
-import { formatCurrency, formatNumber } from "@/lib/utils";
-import { formatMoney } from "@/lib/dawaa2027";
-import StaffPerformanceCharts from "@/components/staff/StaffPerformanceCharts";
+import { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import {
+  ArrowRight,
+  Loader2,
+  AlertTriangle,
+  TrendingUp,
+  Users,
+  Package,
+  DollarSign,
+  Calendar,
+  Award,
+  AlertCircle,
+  BarChart3,
+} from 'lucide-react';
+import {
+  loadStaffPerformanceProfile,
+  type StaffPerformanceProfile,
+} from '@/lib/staff/staffPerformanceProfileService';
+import { formatCurrency, formatNumber } from '@/lib/utils';
+import { formatMoney } from '@/lib/dawaa2027';
+import StaffPerformanceCharts from '@/components/staff/StaffPerformanceCharts';
 
-type TabKey = "overview" | "sales" | "customers" | "stagnant" | "incentives" | "quarterly" | "attendance" | "service" | "recommendations" | "charts";
+type TabKey =
+  | 'overview'
+  | 'sales'
+  | 'customers'
+  | 'stagnant'
+  | 'incentives'
+  | 'quarterly'
+  | 'attendance'
+  | 'service'
+  | 'recommendations'
+  | 'charts';
 
 const TABS: Array<{ key: TabKey; label: string; icon: any }> = [
-  { key: "overview", label: "ملخص تنفيذي", icon: TrendingUp },
-  { key: "sales", label: "المبيعات", icon: DollarSign },
-  { key: "customers", label: "العملاء", icon: Users },
-  { key: "stagnant", label: "الرواكد واللستة", icon: Package },
-  { key: "incentives", label: "الحوافز الشهرية", icon: Award },
-  { key: "quarterly", label: "الأداء الربع سنوي", icon: Calendar },
-  { key: "attendance", label: "الحضور", icon: Calendar },
-  { key: "service", label: "خدمة العملاء", icon: Users },
-  { key: "recommendations", label: "التوصيات", icon: AlertCircle },
-  { key: "charts", label: "الرسوم البيانية", icon: BarChart3 },
+  { key: 'overview', label: 'ملخص تنفيذي', icon: TrendingUp },
+  { key: 'sales', label: 'المبيعات', icon: DollarSign },
+  { key: 'customers', label: 'العملاء', icon: Users },
+  { key: 'stagnant', label: 'الرواكد واللستة', icon: Package },
+  { key: 'incentives', label: 'الحوافز الشهرية', icon: Award },
+  { key: 'quarterly', label: 'الأداء الربع سنوي', icon: Calendar },
+  { key: 'attendance', label: 'الحضور', icon: Calendar },
+  { key: 'service', label: 'خدمة العملاء', icon: Users },
+  { key: 'recommendations', label: 'التوصيات', icon: AlertCircle },
+  { key: 'charts', label: 'الرسوم البيانية', icon: BarChart3 },
 ];
 
 export default function StaffProfile2027() {
@@ -26,7 +51,7 @@ export default function StaffProfile2027() {
   const [profile, setProfile] = useState<StaffPerformanceProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
   useEffect(() => {
     if (!id) return;
@@ -59,7 +84,7 @@ export default function StaffProfile2027() {
   if (error || !profile) {
     return (
       <div className="stat-card text-center py-16 space-y-4">
-        <div className="text-red-400">{error || "لم يتم العثور على الموظف"}</div>
+        <div className="text-red-400">{error || 'لم يتم العثور على الموظف'}</div>
         <Link to="/team" className="btn-secondary inline-flex items-center gap-2">
           <ArrowRight size={14} /> العودة للفريق
         </Link>
@@ -71,7 +96,9 @@ export default function StaffProfile2027() {
     <div className="space-y-6 max-w-7xl">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Link to="/team" className="text-slate-400 hover:text-teal-400 text-sm">الفريق</Link>
+        <Link to="/team" className="text-slate-400 hover:text-teal-400 text-sm">
+          الفريق
+        </Link>
         <span className="text-slate-600">/</span>
         <span className="text-white font-bold">{profile.staff.name}</span>
       </div>
@@ -84,7 +111,9 @@ export default function StaffProfile2027() {
           </div>
           <div className="flex-1">
             <div className="text-white font-bold text-xl">{profile.staff.name}</div>
-            <div className="text-slate-400 text-sm mt-1">{profile.staff.role} - {profile.staff.branch}</div>
+            <div className="text-slate-400 text-sm mt-1">
+              {profile.staff.role} - {profile.staff.branch}
+            </div>
             <div className="flex gap-4 mt-2 text-xs">
               <span className="text-slate-500">ID: {profile.staff.id}</span>
               {!profile.staff.is_active && (
@@ -139,8 +168,8 @@ export default function StaffProfile2027() {
               </ul>
               {profile.identity.rawSellerNames.length > 0 && (
                 <div className="mt-2 text-xs text-blue-200">
-                  الأسماء في الفواتير: {profile.identity.rawSellerNames.slice(0, 3).join(", ")}
-                  {profile.identity.rawSellerNames.length > 3 && "..."}
+                  الأسماء في الفواتير: {profile.identity.rawSellerNames.slice(0, 3).join(', ')}
+                  {profile.identity.rawSellerNames.length > 3 && '...'}
                 </div>
               )}
             </div>
@@ -159,8 +188,8 @@ export default function StaffProfile2027() {
                 onClick={() => setActiveTab(tab.key)}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab.key
-                    ? "border-teal-400 text-teal-400 bg-teal-500/10"
-                    : "border-transparent text-slate-400 hover:text-slate-300 hover:bg-white/5"
+                    ? 'border-teal-400 text-teal-400 bg-teal-500/10'
+                    : 'border-transparent text-slate-400 hover:text-slate-300 hover:bg-white/5'
                 }`}
               >
                 <Icon size={16} />
@@ -173,16 +202,16 @@ export default function StaffProfile2027() {
 
       {/* Tab Content */}
       <div className="min-h-[400px]">
-        {activeTab === "overview" && <OverviewTab profile={profile} />}
-        {activeTab === "sales" && <SalesTab profile={profile} />}
-        {activeTab === "customers" && <CustomersTab profile={profile} />}
-        {activeTab === "stagnant" && <StagnantTab profile={profile} />}
-        {activeTab === "incentives" && <IncentivesTab profile={profile} />}
-        {activeTab === "quarterly" && <QuarterlyTab profile={profile} />}
-        {activeTab === "attendance" && <AttendanceTab profile={profile} />}
-        {activeTab === "service" && <ServiceTab profile={profile} />}
-        {activeTab === "recommendations" && <RecommendationsTab profile={profile} />}
-        {activeTab === "charts" && <ChartsTab profile={profile} />}
+        {activeTab === 'overview' && <OverviewTab profile={profile} />}
+        {activeTab === 'sales' && <SalesTab profile={profile} />}
+        {activeTab === 'customers' && <CustomersTab profile={profile} />}
+        {activeTab === 'stagnant' && <StagnantTab profile={profile} />}
+        {activeTab === 'incentives' && <IncentivesTab profile={profile} />}
+        {activeTab === 'quarterly' && <QuarterlyTab profile={profile} />}
+        {activeTab === 'attendance' && <AttendanceTab profile={profile} />}
+        {activeTab === 'service' && <ServiceTab profile={profile} />}
+        {activeTab === 'recommendations' && <RecommendationsTab profile={profile} />}
+        {activeTab === 'charts' && <ChartsTab profile={profile} />}
       </div>
     </div>
   );
@@ -195,25 +224,25 @@ function OverviewTab({ profile }: { profile: StaffPerformanceProfile }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KPICard
           label="مبيعات الدورة"
-          value={profile.sales ? formatMoney(profile.sales.cycleNetSales) : "-"}
+          value={profile.sales ? formatMoney(profile.sales.cycleNetSales) : '-'}
           icon={DollarSign}
           color="teal"
         />
         <KPICard
           label="عدد الفواتير"
-          value={profile.sales ? formatNumber(profile.sales.cycleInvoicesCount) : "-"}
+          value={profile.sales ? formatNumber(profile.sales.cycleInvoicesCount) : '-'}
           icon={Package}
           color="blue"
         />
         <KPICard
           label="عملاء مختلفون"
-          value={profile.sales ? formatNumber(profile.sales.uniqueCustomers) : "-"}
+          value={profile.sales ? formatNumber(profile.sales.uniqueCustomers) : '-'}
           icon={Users}
           color="purple"
         />
         <KPICard
           label="متوسط الفاتورة"
-          value={profile.sales ? formatCurrency(profile.sales.avgInvoice) : "-"}
+          value={profile.sales ? formatCurrency(profile.sales.avgInvoice) : '-'}
           icon={TrendingUp}
           color="amber"
         />
@@ -224,10 +253,22 @@ function OverviewTab({ profile }: { profile: StaffPerformanceProfile }) {
         <section className="stat-card space-y-4 border border-teal-500/20">
           <h3 className="section-title text-sm">ملخص الحوافز الشهرية</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <MiniStat label="النقاط النهائية" value={String(profile.monthlyIncentive.finalPoints)} />
-            <MiniStat label="المكافآت" value={`+${profile.monthlyIncentive.approvedRewardPoints}`} />
-            <MiniStat label="الخصومات" value={`-${profile.monthlyIncentive.approvedDeductionPoints}`} />
-            <MiniStat label="الحافز النهائي" value={formatCurrency(profile.monthlyIncentive.incentiveValue)} />
+            <MiniStat
+              label="النقاط النهائية"
+              value={String(profile.monthlyIncentive.finalPoints)}
+            />
+            <MiniStat
+              label="المكافآت"
+              value={`+${profile.monthlyIncentive.approvedRewardPoints}`}
+            />
+            <MiniStat
+              label="الخصومات"
+              value={`-${profile.monthlyIncentive.approvedDeductionPoints}`}
+            />
+            <MiniStat
+              label="الحافز النهائي"
+              value={formatCurrency(profile.monthlyIncentive.incentiveValue)}
+            />
           </div>
           {profile.monthlyIncentive.pendingDeductionPoints > 0 && (
             <div className="text-amber-300 text-xs">
@@ -244,14 +285,23 @@ function OverviewTab({ profile }: { profile: StaffPerformanceProfile }) {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {profile.stagnantMedicines && (
               <>
-                <MiniStat label="أصناف راكدة" value={String(profile.stagnantMedicines.assignedStagnantItems)} />
-                <MiniStat label="مكتمل" value={`${profile.stagnantMedicines.stagnantCompletionPercent.toFixed(0)}%`} />
+                <MiniStat
+                  label="أصناف راكدة"
+                  value={String(profile.stagnantMedicines.assignedStagnantItems)}
+                />
+                <MiniStat
+                  label="مكتمل"
+                  value={`${profile.stagnantMedicines.stagnantCompletionPercent.toFixed(0)}%`}
+                />
               </>
             )}
             {profile.listItems && (
               <>
                 <MiniStat label="أصناف لستة" value={String(profile.listItems.assignedListItems)} />
-                <MiniStat label="مكتمل" value={`${profile.listItems.listCompletionPercent.toFixed(0)}%`} />
+                <MiniStat
+                  label="مكتمل"
+                  value={`${profile.listItems.listCompletionPercent.toFixed(0)}%`}
+                />
               </>
             )}
           </div>
@@ -264,9 +314,18 @@ function OverviewTab({ profile }: { profile: StaffPerformanceProfile }) {
           <h3 className="section-title text-sm">ملخص العملاء</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <MiniStat label="عملاء جدد" value={String(profile.customers.newCustomers)} />
-            <MiniStat label="عملاء متكررين" value={String(profile.customers.repeatCustomers.length)} />
-            <MiniStat label="يحتاجون متابعة" value={String(profile.customers.customersNeedingFollowupCount)} />
-            <MiniStat label="بدون هاتف" value={String(profile.customers.customersWithMissingPhone)} />
+            <MiniStat
+              label="عملاء متكررين"
+              value={String(profile.customers.repeatCustomers.length)}
+            />
+            <MiniStat
+              label="يحتاجون متابعة"
+              value={String(profile.customers.customersNeedingFollowupCount)}
+            />
+            <MiniStat
+              label="بدون هاتف"
+              value={String(profile.customers.customersWithMissingPhone)}
+            />
           </div>
         </section>
       )}
@@ -282,18 +341,38 @@ function SalesTab({ profile }: { profile: StaffPerformanceProfile }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard label="مبيعات الدورة" value={formatMoney(profile.sales.cycleNetSales)} icon={DollarSign} color="teal" />
-        <KPICard label="عدد الفواتير" value={formatNumber(profile.sales.cycleInvoicesCount)} icon={Package} color="blue" />
-        <KPICard label="متوسط الفاتورة" value={formatCurrency(profile.sales.avgInvoice)} icon={TrendingUp} color="amber" />
-        <KPICard label="عملاء مختلفون" value={formatNumber(profile.sales.uniqueCustomers)} icon={Users} color="purple" />
+        <KPICard
+          label="مبيعات الدورة"
+          value={formatMoney(profile.sales.cycleNetSales)}
+          icon={DollarSign}
+          color="teal"
+        />
+        <KPICard
+          label="عدد الفواتير"
+          value={formatNumber(profile.sales.cycleInvoicesCount)}
+          icon={Package}
+          color="blue"
+        />
+        <KPICard
+          label="متوسط الفاتورة"
+          value={formatCurrency(profile.sales.avgInvoice)}
+          icon={TrendingUp}
+          color="amber"
+        />
+        <KPICard
+          label="عملاء مختلفون"
+          value={formatNumber(profile.sales.uniqueCustomers)}
+          icon={Users}
+          color="purple"
+        />
       </div>
 
       <section className="stat-card space-y-4">
         <h3 className="section-title text-sm">تفاصيل المبيعات</h3>
         <div className="grid md:grid-cols-2 gap-4">
-          <InfoCard label="أفضل يوم" value={profile.sales.bestDay || "-"} />
-          <InfoCard label="أضعف يوم" value={profile.sales.weakestDay || "-"} />
-          <InfoCard label="أفضل شيفت" value={profile.sales.topShift || "-"} />
+          <InfoCard label="أفضل يوم" value={profile.sales.bestDay || '-'} />
+          <InfoCard label="أضعف يوم" value={profile.sales.weakestDay || '-'} />
+          <InfoCard label="أفضل شيفت" value={profile.sales.topShift || '-'} />
           <InfoCard label="فواتير توصيل" value={String(profile.sales.deliveryInvoices)} />
         </div>
       </section>
@@ -337,10 +416,30 @@ function CustomersTab({ profile }: { profile: StaffPerformanceProfile }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard label="عملاء جدد" value={String(profile.customers.newCustomers)} icon={Users} color="teal" />
-        <KPICard label="عملاء متكررين" value={String(profile.customers.repeatCustomers.length)} icon={Users} color="blue" />
-        <KPICard label="يحتاجون متابعة" value={String(profile.customers.customersNeedingFollowupCount)} icon={AlertCircle} color="amber" />
-        <KPICard label="بدون هاتف" value={String(profile.customers.customersWithMissingPhone)} icon={AlertTriangle} color="red" />
+        <KPICard
+          label="عملاء جدد"
+          value={String(profile.customers.newCustomers)}
+          icon={Users}
+          color="teal"
+        />
+        <KPICard
+          label="عملاء متكررين"
+          value={String(profile.customers.repeatCustomers.length)}
+          icon={Users}
+          color="blue"
+        />
+        <KPICard
+          label="يحتاجون متابعة"
+          value={String(profile.customers.customersNeedingFollowupCount)}
+          icon={AlertCircle}
+          color="amber"
+        />
+        <KPICard
+          label="بدون هاتف"
+          value={String(profile.customers.customersWithMissingPhone)}
+          icon={AlertTriangle}
+          color="red"
+        />
       </div>
 
       {profile.customers.topCustomers.length > 0 && (
@@ -348,10 +447,15 @@ function CustomersTab({ profile }: { profile: StaffPerformanceProfile }) {
           <h3 className="section-title text-sm">أهم العملاء</h3>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {profile.customers.topCustomers.slice(0, 20).map((customer, idx) => (
-              <div key={idx} className="flex items-center justify-between rounded-xl bg-white/5 p-3">
+              <div
+                key={idx}
+                className="flex items-center justify-between rounded-xl bg-white/5 p-3"
+              >
                 <div>
                   <div className="font-bold text-white">{customer.name}</div>
-                  <div className="text-xs text-slate-500">{customer.segment} · {customer.invoicesCount} فاتورة</div>
+                  <div className="text-xs text-slate-500">
+                    {customer.segment} · {customer.invoicesCount} فاتورة
+                  </div>
                 </div>
                 <div className="text-left">
                   <div className="font-bold text-teal-300">{formatMoney(customer.totalSpent)}</div>
@@ -368,7 +472,10 @@ function CustomersTab({ profile }: { profile: StaffPerformanceProfile }) {
           <h3 className="section-title text-sm">عملاء يحتاجون متابعة</h3>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {profile.customers.customersNeedingFollowup.slice(0, 20).map((customer, idx) => (
-              <div key={idx} className="flex items-center justify-between rounded-xl bg-amber-500/10 p-3">
+              <div
+                key={idx}
+                className="flex items-center justify-between rounded-xl bg-amber-500/10 p-3"
+              >
                 <div>
                   <div className="font-bold text-amber-200">{customer.name}</div>
                   <div className="text-xs text-amber-100/70">{customer.reason}</div>
@@ -388,7 +495,9 @@ function StagnantTab({ profile }: { profile: StaffPerformanceProfile }) {
   const list = profile.listItems;
 
   if (!stagnant && !list) {
-    return <div className="stat-card text-center py-8 text-slate-400">لا توجد بيانات رواكد أو لستة</div>;
+    return (
+      <div className="stat-card text-center py-8 text-slate-400">لا توجد بيانات رواكد أو لستة</div>
+    );
   }
 
   return (
@@ -403,7 +512,10 @@ function StagnantTab({ profile }: { profile: StaffPerformanceProfile }) {
             <MiniStat label="المتبقي" value={String(stagnant.stagnantRemainingQuantity)} />
           </div>
           <div className="grid md:grid-cols-2 gap-4">
-            <InfoCard label="نسبة الإنجاز" value={`${stagnant.stagnantCompletionPercent.toFixed(1)}%`} />
+            <InfoCard
+              label="نسبة الإنجاز"
+              value={`${stagnant.stagnantCompletionPercent.toFixed(1)}%`}
+            />
             <InfoCard label="مكافآت محققة" value={formatCurrency(stagnant.stagnantCashRewards)} />
           </div>
           {stagnant.stagnantWarnings.length > 0 && (
@@ -471,16 +583,39 @@ function IncentivesTab({ profile }: { profile: StaffPerformanceProfile }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard label="النقاط النهائية" value={String(incentive.finalPoints)} icon={Award} color="teal" />
-        <KPICard label="نقاط البداية" value={String(incentive.startingPoints)} icon={TrendingUp} color="blue" />
-        <KPICard label="المكافآت" value={`+${incentive.approvedRewardPoints}`} icon={Award} color="green" />
-        <KPICard label="الخصومات" value={`-${incentive.approvedDeductionPoints}`} icon={AlertTriangle} color="red" />
+        <KPICard
+          label="النقاط النهائية"
+          value={String(incentive.finalPoints)}
+          icon={Award}
+          color="teal"
+        />
+        <KPICard
+          label="نقاط البداية"
+          value={String(incentive.startingPoints)}
+          icon={TrendingUp}
+          color="blue"
+        />
+        <KPICard
+          label="المكافآت"
+          value={`+${incentive.approvedRewardPoints}`}
+          icon={Award}
+          color="green"
+        />
+        <KPICard
+          label="الخصومات"
+          value={`-${incentive.approvedDeductionPoints}`}
+          icon={AlertTriangle}
+          color="red"
+        />
       </div>
 
       <section className="stat-card space-y-4">
         <h3 className="section-title text-sm">تفاصيل الحوافز</h3>
         <div className="grid md:grid-cols-2 gap-4">
-          <InfoCard label="نقاط التميز فوق 500" value={String(incentive.distinctionPointsAbove500)} />
+          <InfoCard
+            label="نقاط التميز فوق 500"
+            value={String(incentive.distinctionPointsAbove500)}
+          />
           <InfoCard label="قيمة الحافز النهائي" value={formatCurrency(incentive.incentiveValue)} />
         </div>
       </section>
@@ -511,7 +646,9 @@ function IncentivesTab({ profile }: { profile: StaffPerformanceProfile }) {
 
 function QuarterlyTab({ profile }: { profile: StaffPerformanceProfile }) {
   if (!profile.quarterlyIncentive) {
-    return <div className="stat-card text-center py-8 text-slate-400">لا توجد بيانات ربع سنوية</div>;
+    return (
+      <div className="stat-card text-center py-8 text-slate-400">لا توجد بيانات ربع سنوية</div>
+    );
   }
 
   const quarterly = profile.quarterlyIncentive;
@@ -519,15 +656,37 @@ function QuarterlyTab({ profile }: { profile: StaffPerformanceProfile }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard label="النتيجة الربع سنوية" value={`${quarterly.quarterlyScore}/100`} icon={Award} color="teal" />
-        <KPICard label="القاعدة" value={formatCurrency(quarterly.baseQuarterlyIncentive)} icon={DollarSign} color="blue" />
-        <KPICard label="مكافآت نقدية" value={formatCurrency(quarterly.quarterlyCashRewards)} icon={Award} color="green" />
-        <KPICard label="خصومات نقدية" value={formatCurrency(quarterly.quarterlyCashDeductions)} icon={AlertTriangle} color="red" />
+        <KPICard
+          label="النتيجة الربع سنوية"
+          value={`${quarterly.quarterlyScore}/100`}
+          icon={Award}
+          color="teal"
+        />
+        <KPICard
+          label="القاعدة"
+          value={formatCurrency(quarterly.baseQuarterlyIncentive)}
+          icon={DollarSign}
+          color="blue"
+        />
+        <KPICard
+          label="مكافآت نقدية"
+          value={formatCurrency(quarterly.quarterlyCashRewards)}
+          icon={Award}
+          color="green"
+        />
+        <KPICard
+          label="خصومات نقدية"
+          value={formatCurrency(quarterly.quarterlyCashDeductions)}
+          icon={AlertTriangle}
+          color="red"
+        />
       </div>
 
       <section className="stat-card space-y-4">
         <h3 className="section-title text-sm">القيمة النهائية</h3>
-        <div className="text-4xl font-bold text-teal-400 num">{formatCurrency(quarterly.quarterlyFinalValue)}</div>
+        <div className="text-4xl font-bold text-teal-400 num">
+          {formatCurrency(quarterly.quarterlyFinalValue)}
+        </div>
       </section>
 
       <section className="stat-card space-y-4">
@@ -538,7 +697,10 @@ function QuarterlyTab({ profile }: { profile: StaffPerformanceProfile }) {
           <InfoCard label="العملاء" value={`${quarterly.scoreBreakdown.customers}/20`} />
           <InfoCard label="أصناف اللستة" value={`${quarterly.scoreBreakdown.listItems}/15`} />
           <InfoCard label="الرواكد" value={`${quarterly.scoreBreakdown.stagnantInventory}/10`} />
-          <InfoCard label="جودة التسجيل" value={`${quarterly.scoreBreakdown.registrationQuality}/10`} />
+          <InfoCard
+            label="جودة التسجيل"
+            value={`${quarterly.scoreBreakdown.registrationQuality}/10`}
+          />
         </div>
       </section>
 
@@ -569,19 +731,45 @@ function AttendanceTab({ profile }: { profile: StaffPerformanceProfile }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard label="أيام الحضور" value={String(attendance.attendedDays)} icon={Calendar} color="teal" />
-        <KPICard label="الغياب" value={String(attendance.absences)} icon={AlertTriangle} color="red" />
-        <KPICard label="التأخير" value={String(attendance.delays)} icon={AlertCircle} color="amber" />
-        <KPICard label="الإذنات المستخدمة" value={String(attendance.permissionsUsed)} icon={Calendar} color="blue" />
+        <KPICard
+          label="أيام الحضور"
+          value={String(attendance.attendedDays)}
+          icon={Calendar}
+          color="teal"
+        />
+        <KPICard
+          label="الغياب"
+          value={String(attendance.absences)}
+          icon={AlertTriangle}
+          color="red"
+        />
+        <KPICard
+          label="التأخير"
+          value={String(attendance.delays)}
+          icon={AlertCircle}
+          color="amber"
+        />
+        <KPICard
+          label="الإذنات المستخدمة"
+          value={String(attendance.permissionsUsed)}
+          icon={Calendar}
+          color="blue"
+        />
       </div>
 
       <section className="stat-card space-y-4">
         <h3 className="section-title text-sm">تفاصيل الحضور</h3>
         <div className="grid md:grid-cols-2 gap-4">
           <InfoCard label="أيام مجدولة" value={String(attendance.scheduledDays)} />
-          <InfoCard label="نسبة الالتزام" value={`${attendance.attendanceCompliance.toFixed(1)}%`} />
+          <InfoCard
+            label="نسبة الالتزام"
+            value={`${attendance.attendanceCompliance.toFixed(1)}%`}
+          />
           <InfoCard label="تأخير > 20 دقيقة" value={String(attendance.delaysOver20Minutes)} />
-          <InfoCard label="إذنات مجانية متبقية" value={String(attendance.freePermissionsRemaining)} />
+          <InfoCard
+            label="إذنات مجانية متبقية"
+            value={String(attendance.freePermissionsRemaining)}
+          />
         </div>
       </section>
 
@@ -604,7 +792,9 @@ function AttendanceTab({ profile }: { profile: StaffPerformanceProfile }) {
 
 function ServiceTab({ profile }: { profile: StaffPerformanceProfile }) {
   if (!profile.customerService) {
-    return <div className="stat-card text-center py-8 text-slate-400">لا توجد بيانات خدمة عملاء</div>;
+    return (
+      <div className="stat-card text-center py-8 text-slate-400">لا توجد بيانات خدمة عملاء</div>
+    );
   }
 
   const service = profile.customerService;
@@ -612,17 +802,43 @@ function ServiceTab({ profile }: { profile: StaffPerformanceProfile }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard label="متابعات مخصصة" value={String(service.followupsAssigned)} icon={Users} color="teal" />
-        <KPICard label="متابعات مكتملة" value={String(service.followupsCompleted)} icon={Award} color="green" />
-        <KPICard label="متابعات مفقودة" value={String(service.followupsMissed)} icon={AlertTriangle} color="red" />
-        <KPICard label="شكاوى" value={String(service.complaintCount)} icon={AlertCircle} color="amber" />
+        <KPICard
+          label="متابعات مخصصة"
+          value={String(service.followupsAssigned)}
+          icon={Users}
+          color="teal"
+        />
+        <KPICard
+          label="متابعات مكتملة"
+          value={String(service.followupsCompleted)}
+          icon={Award}
+          color="green"
+        />
+        <KPICard
+          label="متابعات مفقودة"
+          value={String(service.followupsMissed)}
+          icon={AlertTriangle}
+          color="red"
+        />
+        <KPICard
+          label="شكاوى"
+          value={String(service.complaintCount)}
+          icon={AlertCircle}
+          color="amber"
+        />
       </div>
 
       <section className="stat-card space-y-4">
         <h3 className="section-title text-sm">جودة التصنيف</h3>
         <div className="grid md:grid-cols-2 gap-4">
-          <InfoCard label="تصنيف عميل مفقود" value={String(service.missingCustomerClassification)} />
-          <InfoCard label="تصنيف فاتورة مفقود" value={String(service.missingInvoiceClassification)} />
+          <InfoCard
+            label="تصنيف عميل مفقود"
+            value={String(service.missingCustomerClassification)}
+          />
+          <InfoCard
+            label="تصنيف فاتورة مفقود"
+            value={String(service.missingInvoiceClassification)}
+          />
           <InfoCard label="كلاهما مفقود" value={String(service.bothClassificationsMissing)} />
           <InfoCard label="متوسط التقييم" value={`${service.conversationEvaluationAverage}/100`} />
         </div>
@@ -649,9 +865,9 @@ function RecommendationsTab({ profile }: { profile: StaffPerformanceProfile }) {
     return <div className="stat-card text-center py-8 text-slate-400">لا توجد توصيات</div>;
   }
 
-  const highPriority = recommendations.filter((r) => r.priority === "high");
-  const mediumPriority = recommendations.filter((r) => r.priority === "medium");
-  const lowPriority = recommendations.filter((r) => r.priority === "low");
+  const highPriority = recommendations.filter((r) => r.priority === 'high');
+  const mediumPriority = recommendations.filter((r) => r.priority === 'medium');
+  const lowPriority = recommendations.filter((r) => r.priority === 'low');
 
   return (
     <div className="space-y-6">
@@ -701,9 +917,9 @@ function ChartsTab({ profile }: { profile: StaffPerformanceProfile }) {
 
 function RecommendationCard({ recommendation }: { recommendation: any }) {
   const priorityColors = {
-    high: "border-red-500/30 bg-red-500/10",
-    medium: "border-amber-500/30 bg-amber-500/10",
-    low: "border-blue-500/30 bg-blue-500/10",
+    high: 'border-red-500/30 bg-red-500/10',
+    medium: 'border-amber-500/30 bg-amber-500/10',
+    low: 'border-blue-500/30 bg-blue-500/10',
   };
 
   return (
@@ -714,11 +930,15 @@ function RecommendationCard({ recommendation }: { recommendation: any }) {
           <div className="text-slate-300 text-xs mb-2">{recommendation.reason}</div>
           <div className="text-slate-200 text-xs">{recommendation.suggestedAction}</div>
         </div>
-        <span className={`text-xs font-bold px-2 py-1 rounded ${
-          recommendation.priority === "high" ? "bg-red-500/20 text-red-300" :
-          recommendation.priority === "medium" ? "bg-amber-500/20 text-amber-300" :
-          "bg-blue-500/20 text-blue-300"
-        }`}>
+        <span
+          className={`text-xs font-bold px-2 py-1 rounded ${
+            recommendation.priority === 'high'
+              ? 'bg-red-500/20 text-red-300'
+              : recommendation.priority === 'medium'
+                ? 'bg-amber-500/20 text-amber-300'
+                : 'bg-blue-500/20 text-blue-300'
+          }`}
+        >
           {recommendation.priority}
         </span>
       </div>
@@ -726,20 +946,32 @@ function RecommendationCard({ recommendation }: { recommendation: any }) {
   );
 }
 
-function KPICard({ label, value, icon: Icon, color }: { label: string; value: string; icon: any; color: "teal" | "blue" | "amber" | "red" | "green" | "purple" }) {
+function KPICard({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: string;
+  icon: any;
+  color: 'teal' | 'blue' | 'amber' | 'red' | 'green' | 'purple';
+}) {
   const colorClasses = {
-    teal: "bg-teal-500/15 text-teal-400",
-    blue: "bg-blue-500/15 text-blue-400",
-    amber: "bg-amber-500/15 text-amber-400",
-    red: "bg-red-500/15 text-red-400",
-    green: "bg-green-500/15 text-green-400",
-    purple: "bg-purple-500/15 text-purple-400",
+    teal: 'bg-teal-500/15 text-teal-400',
+    blue: 'bg-blue-500/15 text-blue-400',
+    amber: 'bg-amber-500/15 text-amber-400',
+    red: 'bg-red-500/15 text-red-400',
+    green: 'bg-green-500/15 text-green-400',
+    purple: 'bg-purple-500/15 text-purple-400',
   };
 
   return (
     <div className="stat-card">
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-xl ${colorClasses[color]} flex items-center justify-center`}>
+        <div
+          className={`w-10 h-10 rounded-xl ${colorClasses[color]} flex items-center justify-center`}
+        >
           <Icon size={20} />
         </div>
         <div className="flex-1">

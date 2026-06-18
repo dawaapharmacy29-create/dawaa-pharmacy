@@ -1,7 +1,21 @@
-import { LineChart, Line, BarChart, Bar, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
-import type { StaffPerformanceProfile } from "@/lib/staff/staffPerformanceProfileService";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  Cell,
+} from 'recharts';
+import type { StaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
 
-const COLORS = ["#00C49F", "#0088FE", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D"];
+const COLORS = ['#00C49F', '#0088FE', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 
 interface StaffPerformanceChartsProps {
   profile: StaffPerformanceProfile;
@@ -19,12 +33,22 @@ export default function StaffPerformanceCharts({ profile }: StaffPerformanceChar
               <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
               <XAxis dataKey="month" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
-              <Tooltip 
-                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }}
-                itemStyle={{ color: "#e2e8f0" }}
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #2d4063',
+                  borderRadius: '8px',
+                }}
+                itemStyle={{ color: '#e2e8f0' }}
               />
               <Legend />
-              <Line type="monotone" dataKey="sales" stroke="#00C49F" strokeWidth={2} name="المبيعات" />
+              <Line
+                type="monotone"
+                dataKey="sales"
+                stroke="#00C49F"
+                strokeWidth={2}
+                name="المبيعات"
+              />
             </LineChart>
           </ResponsiveContainer>
         </section>
@@ -39,12 +63,22 @@ export default function StaffPerformanceCharts({ profile }: StaffPerformanceChar
               <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
               <XAxis dataKey="cycle" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
-              <Tooltip 
-                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }}
-                itemStyle={{ color: "#e2e8f0" }}
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #2d4063',
+                  borderRadius: '8px',
+                }}
+                itemStyle={{ color: '#e2e8f0' }}
               />
               <Legend />
-              <Line type="monotone" dataKey="points" stroke="#0088FE" strokeWidth={2} name="النقاط" />
+              <Line
+                type="monotone"
+                dataKey="points"
+                stroke="#0088FE"
+                strokeWidth={2}
+                name="النقاط"
+              />
             </LineChart>
           </ResponsiveContainer>
         </section>
@@ -59,9 +93,13 @@ export default function StaffPerformanceCharts({ profile }: StaffPerformanceChar
               <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
               <XAxis dataKey="component" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
-              <Tooltip 
-                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }}
-                itemStyle={{ color: "#e2e8f0" }}
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #2d4063',
+                  borderRadius: '8px',
+                }}
+                itemStyle={{ color: '#e2e8f0' }}
               />
               <Legend />
               <Bar dataKey="score" fill="#FFBB28" name="النتيجة" />
@@ -90,9 +128,13 @@ export default function StaffPerformanceCharts({ profile }: StaffPerformanceChar
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip 
-                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }}
-                itemStyle={{ color: "#e2e8f0" }}
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #2d4063',
+                  borderRadius: '8px',
+                }}
+                itemStyle={{ color: '#e2e8f0' }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -108,12 +150,22 @@ export default function StaffPerformanceCharts({ profile }: StaffPerformanceChar
               <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
               <XAxis dataKey="date" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
-              <Tooltip 
-                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }}
-                itemStyle={{ color: "#e2e8f0" }}
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #2d4063',
+                  borderRadius: '8px',
+                }}
+                itemStyle={{ color: '#e2e8f0' }}
               />
               <Legend />
-              <Line type="monotone" dataKey="compliance" stroke="#FF8042" strokeWidth={2} name="نسبة الالتزام %" />
+              <Line
+                type="monotone"
+                dataKey="compliance"
+                stroke="#FF8042"
+                strokeWidth={2}
+                name="نسبة الالتزام %"
+              />
             </LineChart>
           </ResponsiveContainer>
         </section>
@@ -128,9 +180,13 @@ export default function StaffPerformanceCharts({ profile }: StaffPerformanceChar
               <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
               <XAxis dataKey="date" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
-              <Tooltip 
-                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }}
-                itemStyle={{ color: "#e2e8f0" }}
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #2d4063',
+                  borderRadius: '8px',
+                }}
+                itemStyle={{ color: '#e2e8f0' }}
               />
               <Legend />
               <Bar dataKey="delayMinutes" fill="#8884D8" name="دقائق التأخير" />
@@ -148,12 +204,22 @@ export default function StaffPerformanceCharts({ profile }: StaffPerformanceChar
               <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
               <XAxis dataKey="week" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
-              <Tooltip 
-                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #2d4063", borderRadius: "8px" }}
-                itemStyle={{ color: "#e2e8f0" }}
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #2d4063',
+                  borderRadius: '8px',
+                }}
+                itemStyle={{ color: '#e2e8f0' }}
               />
               <Legend />
-              <Line type="monotone" dataKey="sales" stroke="#82CA9D" strokeWidth={2} name="المبيعات" />
+              <Line
+                type="monotone"
+                dataKey="sales"
+                stroke="#82CA9D"
+                strokeWidth={2}
+                name="المبيعات"
+              />
             </LineChart>
           </ResponsiveContainer>
         </section>

@@ -1,13 +1,25 @@
-import { useMemo } from "react";
-import { TrendingUp, Calendar, DollarSign, Users, CheckCircle2, AlertTriangle, PhoneCall, MessageSquare } from "lucide-react";
-import type { DailyFollowup } from "@/types/database";
+import { useMemo } from 'react';
+import {
+  TrendingUp,
+  Calendar,
+  DollarSign,
+  Users,
+  CheckCircle2,
+  AlertTriangle,
+  PhoneCall,
+  MessageSquare,
+} from 'lucide-react';
+import type { DailyFollowup } from '@/types/database';
 
 interface DoctorPerformanceAnalysisProps {
   followups: DailyFollowup[];
   doctorName: string;
 }
 
-export default function DoctorPerformanceAnalysis({ followups, doctorName }: DoctorPerformanceAnalysisProps) {
+export default function DoctorPerformanceAnalysis({
+  followups,
+  doctorName,
+}: DoctorPerformanceAnalysisProps) {
   const doctorFollowups = useMemo(() => {
     return followups.filter(
       (f) => f.assigned_to === doctorName || f.responsible_name === doctorName
@@ -16,43 +28,48 @@ export default function DoctorPerformanceAnalysis({ followups, doctorName }: Doc
 
   const metrics = useMemo(() => {
     const total = doctorFollowups.length;
-    const completed = doctorFollowups.filter((f) => 
-      f.status && !["معلق", "pending", "لم يرد"].includes(f.status)
+    const completed = doctorFollowups.filter(
+      (f) => f.status && !['معلق', 'pending', 'لم يرد'].includes(f.status)
     ).length;
     const pending = total - completed;
-    const noAnswer = doctorFollowups.filter((f) => f.status === "لم يرد").length;
-    const deferred = doctorFollowups.filter((f) => f.status === "مؤجل").length;
-    const withOrders = doctorFollowups.filter((f) => 
-      f.request_type || f.request_details || /أوردر|طلب/.test(f.notes || "")
+    const noAnswer = doctorFollowups.filter((f) => f.status === 'لم يرد').length;
+    const deferred = doctorFollowups.filter((f) => f.status === 'مؤجل').length;
+    const withOrders = doctorFollowups.filter(
+      (f) => f.request_type || f.request_details || /أوردر|طلب/.test(f.notes || '')
     ).length;
-    const totalPurchase = doctorFollowups.reduce((sum, f) => sum + Number(f.purchase_amount || 0), 0);
+    const totalPurchase = doctorFollowups.reduce(
+      (sum, f) => sum + Number(f.purchase_amount || 0),
+      0
+    );
     const avgPurchasePerFollowup = completed > 0 ? totalPurchase / completed : 0;
-    
+
     // Calculate completion rate over time (last 7 days vs previous 7 days)
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-    
+
     const recentCompleted = doctorFollowups.filter((f) => {
       const date = new Date(f.closed_at || f.updated_at || f.created_at);
-      return date >= sevenDaysAgo && 
-             f.status && !["معلق", "pending", "لم يرد"].includes(f.status);
+      return date >= sevenDaysAgo && f.status && !['معلق', 'pending', 'لم يرد'].includes(f.status);
     }).length;
-    
+
     const previousCompleted = doctorFollowups.filter((f) => {
       const date = new Date(f.closed_at || f.updated_at || f.created_at);
-      return date >= fourteenDaysAgo && date < sevenDaysAgo &&
-             f.status && !["معلق", "pending", "لم يرد"].includes(f.status);
+      return (
+        date >= fourteenDaysAgo &&
+        date < sevenDaysAgo &&
+        f.status &&
+        !['معلق', 'pending', 'لم يرد'].includes(f.status)
+      );
     }).length;
-    
-    const trend = previousCompleted > 0 
-      ? ((recentCompleted - previousCompleted) / previousCompleted) * 100 
-      : 0;
+
+    const trend =
+      previousCompleted > 0 ? ((recentCompleted - previousCompleted) / previousCompleted) * 100 : 0;
 
     // Contact method breakdown
-    const phoneCalls = doctorFollowups.filter((f) => f.contact_method === "phone").length;
-    const whatsapp = doctorFollowups.filter((f) => f.contact_method === "whatsapp").length;
-    const inPerson = doctorFollowups.filter((f) => f.contact_method === "in_person").length;
+    const phoneCalls = doctorFollowups.filter((f) => f.contact_method === 'phone').length;
+    const whatsapp = doctorFollowups.filter((f) => f.contact_method === 'whatsapp').length;
+    const inPerson = doctorFollowups.filter((f) => f.contact_method === 'in_person').length;
 
     return {
       total,
@@ -74,16 +91,16 @@ export default function DoctorPerformanceAnalysis({ followups, doctorName }: Doc
   }, [doctorFollowups]);
 
   const getTrendColor = (trend: number) => {
-    if (trend > 10) return "text-green-400";
-    if (trend > 0) return "text-teal-400";
-    if (trend > -10) return "text-amber-400";
-    return "text-red-400";
+    if (trend > 10) return 'text-green-400';
+    if (trend > 0) return 'text-teal-400';
+    if (trend > -10) return 'text-amber-400';
+    return 'text-red-400';
   };
 
   const getTrendIcon = (trend: number) => {
-    if (trend > 0) return "↑";
-    if (trend < 0) return "↓";
-    return "→";
+    if (trend > 0) return '↑';
+    if (trend < 0) return '↓';
+    return '→';
   };
 
   if (metrics.total === 0) {
@@ -92,9 +109,7 @@ export default function DoctorPerformanceAnalysis({ followups, doctorName }: Doc
         <div className="section-title flex items-center gap-2 mb-4">
           <TrendingUp size={20} className="text-teal-300" /> تحليل أداء الدكتور: {doctorName}
         </div>
-        <div className="text-center text-slate-400 py-8">
-          لا توجد بيانات متابعة لهذا الدكتور
-        </div>
+        <div className="text-center text-slate-400 py-8">لا توجد بيانات متابعة لهذا الدكتور</div>
       </div>
     );
   }
@@ -112,17 +127,19 @@ export default function DoctorPerformanceAnalysis({ followups, doctorName }: Doc
             <CheckCircle2 size={14} /> معدل الإنجاز
           </div>
           <div className="text-2xl font-bold text-white">{metrics.completionRate.toFixed(1)}%</div>
-          <div className="text-xs text-slate-400 mt-1">{metrics.completed}/{metrics.total}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {metrics.completed}/{metrics.total}
+          </div>
         </div>
         <div className="bg-white/5 rounded-xl p-4">
           <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
             <DollarSign size={14} /> إجمالي المبيعات
           </div>
           <div className="text-2xl font-bold text-teal-300">
-            {Math.round(metrics.totalPurchase).toLocaleString("ar-EG")} ج
+            {Math.round(metrics.totalPurchase).toLocaleString('ar-EG')} ج
           </div>
           <div className="text-xs text-slate-400 mt-1">
-            متوسط: {Math.round(metrics.avgPurchasePerFollowup).toLocaleString("ar-EG")} ج/متابعة
+            متوسط: {Math.round(metrics.avgPurchasePerFollowup).toLocaleString('ar-EG')} ج/متابعة
           </div>
         </div>
         <div className="bg-white/5 rounded-xl p-4">
@@ -142,7 +159,8 @@ export default function DoctorPerformanceAnalysis({ followups, doctorName }: Doc
           </div>
           <div className="text-2xl font-bold text-cyan-300">{metrics.withOrders}</div>
           <div className="text-xs text-slate-400 mt-1">
-            {metrics.total > 0 ? ((metrics.withOrders / metrics.total) * 100).toFixed(1) : 0}% من المتابعات
+            {metrics.total > 0 ? ((metrics.withOrders / metrics.total) * 100).toFixed(1) : 0}% من
+            المتابعات
           </div>
         </div>
       </div>
@@ -200,26 +218,22 @@ export default function DoctorPerformanceAnalysis({ followups, doctorName }: Doc
       <div className="bg-teal-500/10 border border-teal-400/20 rounded-xl p-4">
         <div className="text-teal-300 font-medium text-sm mb-2">رؤى الأداء</div>
         <div className="text-sm text-slate-300 space-y-1">
-          {metrics.completionRate >= 80 && (
-            <div>✓ أداء ممتاز - معدل إنجاز عالي</div>
-          )}
+          {metrics.completionRate >= 80 && <div>✓ أداء ممتاز - معدل إنجاز عالي</div>}
           {metrics.completionRate >= 60 && metrics.completionRate < 80 && (
             <div>✓ أداء جيد - يمكن تحسين معدل الإنجاز</div>
           )}
           {metrics.completionRate < 60 && (
             <div className="text-amber-300">⚠ يحتاج تحسين - معدل إنجاز منخفض</div>
           )}
-          {metrics.trend > 10 && (
-            <div>✓ تحسن ملحوظ في الأداء خلال الأسبوع الماضي</div>
-          )}
+          {metrics.trend > 10 && <div>✓ تحسن ملحوظ في الأداء خلال الأسبوع الماضي</div>}
           {metrics.trend < -10 && (
             <div className="text-amber-300">⚠ انخفاض في الأداء خلال الأسبوع الماضي</div>
           )}
-          {metrics.withOrders / metrics.total > 0.3 && (
-            <div>✓ معدل تحويل جيد إلى طلبات</div>
-          )}
+          {metrics.withOrders / metrics.total > 0.3 && <div>✓ معدل تحويل جيد إلى طلبات</div>}
           {metrics.noAnswer / metrics.total > 0.3 && (
-            <div className="text-amber-300">⚠ معدل "لم يرد" مرتفع - قد تحتاج لتحسين أوقات الاتصال</div>
+            <div className="text-amber-300">
+              ⚠ معدل "لم يرد" مرتفع - قد تحتاج لتحسين أوقات الاتصال
+            </div>
           )}
         </div>
       </div>

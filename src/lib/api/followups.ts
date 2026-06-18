@@ -6,4 +6,4 @@ export {
   getFollowupHistory,
   getCustomerFollowupHistory,
   updateFollowupStatus,
-} from "@/lib/api/dailyFollowups";
+} from '@/lib/api/dailyFollowups';

@@ -3,14 +3,11 @@ import {
   loadSalesAnalyticsSummary,
   type SalesAnalyticsFilters,
   type SalesAnalyticsSummary,
-} from "@/lib/salesAnalyticsSummaryService";
+} from '@/lib/salesAnalyticsSummaryService';
 
 export type SharedSalesSummary = SalesAnalyticsSummary;
 
-export async function getSharedSalesSummary(
-  filters: SalesAnalyticsFilters,
-  forceRefresh = false,
-) {
+export async function getSharedSalesSummary(filters: SalesAnalyticsFilters, forceRefresh = false) {
   return loadSalesAnalyticsSummary(filters, forceRefresh);
 }
 

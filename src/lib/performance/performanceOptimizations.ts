@@ -20,7 +20,7 @@ export function debounce<T extends (...args: any[]) => any>(fn: T, wait = 200) {
 export const memoizeSelector = <T, R>(selector: (data: T) => R): ((data: T) => R) => {
   let lastInput: T;
   let lastOutput: R;
-  
+
   return (data: T) => {
     if (data !== lastInput) {
       lastInput = data;
@@ -51,9 +51,13 @@ export const createSearchIndex = <T extends Record<string, unknown>>(
   const index = new Map<string, T>();
   items.forEach((item, idx) => {
     const key = fields
-      .map((field) => String(item[field] || "").toLowerCase().trim())
+      .map((field) =>
+        String(item[field] || '')
+          .toLowerCase()
+          .trim()
+      )
       .filter(Boolean)
-      .join("|");
+      .join('|');
     if (key) index.set(key, item);
   });
   return index;
@@ -67,7 +71,7 @@ export const debounceOperation = <T extends unknown[], R>(
   delay: number = 300
 ): ((...args: T) => void) => {
   let timeoutId: NodeJS.Timeout;
-  
+
   return (...args: T) => {
     clearTimeout(timeoutId);
     timeoutId = setTimeout(() => {
@@ -90,12 +94,12 @@ export class PerformanceCache<T> {
   get(key: string): T | null {
     const item = this.cache.get(key);
     if (!item) return null;
-    
+
     if (Date.now() - item.timestamp > this.ttl) {
       this.cache.delete(key);
       return null;
     }
-    
+
     return item.value;
   }
 
@@ -116,7 +120,7 @@ export class PerformanceCache<T> {
  * تحسين تحميل الصور
  */
 export const lazyLoadImages = (): void => {
-  if ("IntersectionObserver" in window) {
+  if ('IntersectionObserver' in window) {
     const imageObserver = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
@@ -129,7 +133,7 @@ export const lazyLoadImages = (): void => {
       });
     });
 
-    document.querySelectorAll("img[data-src]").forEach((img) => {
+    document.querySelectorAll('img[data-src]').forEach((img) => {
       imageObserver.observe(img);
     });
   }
@@ -166,21 +170,18 @@ export class ErrorBoundary {
       try {
         return await fn(...args);
       } catch (error) {
-        console.error("Error in wrapped function:", error);
+        console.error('Error in wrapped function:', error);
         return fallback;
       }
     };
   }
 
-  static wrap<T extends unknown[], R>(
-    fn: (...args: T) => R,
-    fallback: R
-  ): (...args: T) => R {
+  static wrap<T extends unknown[], R>(fn: (...args: T) => R, fallback: R): (...args: T) => R {
     return (...args: T) => {
       try {
         return fn(...args);
       } catch (error) {
-        console.error("Error in wrapped function:", error);
+        console.error('Error in wrapped function:', error);
         return fallback;
       }
     };

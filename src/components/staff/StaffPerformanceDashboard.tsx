@@ -1,11 +1,20 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { TrendingUp, Users, DollarSign, Package, AlertTriangle, Award, Calendar, ArrowRight } from "lucide-react";
-import { supabase } from "@/lib/supabase";
-import { formatCurrency, formatNumber } from "@/lib/utils";
-import { formatMoney } from "@/lib/dawaa2027";
-import { loadStaffPerformanceProfile } from "@/lib/staff/staffPerformanceProfileService";
-import type { StaffPerformanceProfile } from "@/lib/staff/staffPerformanceProfileService";
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  TrendingUp,
+  Users,
+  DollarSign,
+  Package,
+  AlertTriangle,
+  Award,
+  Calendar,
+  ArrowRight,
+} from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { formatCurrency, formatNumber } from '@/lib/utils';
+import { formatMoney } from '@/lib/dawaa2027';
+import { loadStaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
+import type { StaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
 
 interface StaffSummary {
   id: string;
@@ -23,8 +32,8 @@ interface StaffSummary {
 export default function StaffPerformanceDashboard() {
   const [staffSummaries, setStaffSummaries] = useState<StaffSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedBranch, setSelectedBranch] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"points" | "sales" | "customers" | "health">("points");
+  const [selectedBranch, setSelectedBranch] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'points' | 'sales' | 'customers' | 'health'>('points');
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -32,9 +41,9 @@ export default function StaffPerformanceDashboard() {
       try {
         // Get all active staff
         const { data: staff } = await supabase
-          .from("staff")
-          .select("id,name,role,branch")
-          .eq("is_active", true)
+          .from('staff')
+          .select('id,name,role,branch')
+          .eq('is_active', true)
           .limit(50);
 
         if (!staff || staff.length === 0) {
@@ -47,25 +56,31 @@ export default function StaffPerformanceDashboard() {
         const profiles = await Promise.all(
           staff.map(async (s) => {
             try {
-              const profile = await loadStaffPerformanceProfile({ staffId: String(s.id), forceRefresh: true });
+              const profile = await loadStaffPerformanceProfile({
+                staffId: String(s.id),
+                forceRefresh: true,
+              });
               return {
                 id: String(s.id),
-                name: String(s.name || ""),
-                role: String(s.role || ""),
-                branch: String(s.branch || ""),
+                name: String(s.name || ''),
+                role: String(s.role || ''),
+                branch: String(s.branch || ''),
                 finalPoints: profile.monthlyIncentive?.finalPoints || 0,
                 incentiveValue: profile.monthlyIncentive?.incentiveValue || 0,
                 cycleNetSales: profile.sales?.cycleNetSales || 0,
                 cycleInvoicesCount: profile.sales?.cycleInvoicesCount || 0,
                 uniqueCustomers: profile.sales?.uniqueCustomers || 0,
-                dataHealthScore: profile.dataHealth.warnings.length > 0 ? Math.max(0, 100 - profile.dataHealth.warnings.length * 10) : 100,
+                dataHealthScore:
+                  profile.dataHealth.warnings.length > 0
+                    ? Math.max(0, 100 - profile.dataHealth.warnings.length * 10)
+                    : 100,
               };
             } catch (error) {
               return {
                 id: String(s.id),
-                name: String(s.name || ""),
-                role: String(s.role || ""),
-                branch: String(s.branch || ""),
+                name: String(s.name || ''),
+                role: String(s.role || ''),
+                branch: String(s.branch || ''),
                 finalPoints: 0,
                 incentiveValue: 0,
                 cycleNetSales: 0,
@@ -79,7 +94,7 @@ export default function StaffPerformanceDashboard() {
 
         setStaffSummaries(profiles);
       } catch (error) {
-        console.error("Error loading dashboard data:", error);
+        console.error('Error loading dashboard data:', error);
       } finally {
         setLoading(false);
       }
@@ -89,20 +104,21 @@ export default function StaffPerformanceDashboard() {
   }, []);
 
   // Filter by branch
-  const filteredSummaries = selectedBranch === "all"
-    ? staffSummaries
-    : staffSummaries.filter((s) => s.branch === selectedBranch);
+  const filteredSummaries =
+    selectedBranch === 'all'
+      ? staffSummaries
+      : staffSummaries.filter((s) => s.branch === selectedBranch);
 
   // Sort
   const sortedSummaries = [...filteredSummaries].sort((a, b) => {
     switch (sortBy) {
-      case "points":
+      case 'points':
         return b.finalPoints - a.finalPoints;
-      case "sales":
+      case 'sales':
         return b.cycleNetSales - a.cycleNetSales;
-      case "customers":
+      case 'customers':
         return b.uniqueCustomers - a.uniqueCustomers;
-      case "health":
+      case 'health':
         return b.dataHealthScore - a.dataHealthScore;
       default:
         return 0;
@@ -116,7 +132,8 @@ export default function StaffPerformanceDashboard() {
   const totalStaff = staffSummaries.length;
   const totalSales = staffSummaries.reduce((sum, s) => sum + s.cycleNetSales, 0);
   const totalInvoices = staffSummaries.reduce((sum, s) => sum + s.cycleInvoicesCount, 0);
-  const avgPoints = totalStaff > 0 ? staffSummaries.reduce((sum, s) => sum + s.finalPoints, 0) / totalStaff : 0;
+  const avgPoints =
+    totalStaff > 0 ? staffSummaries.reduce((sum, s) => sum + s.finalPoints, 0) / totalStaff : 0;
   const lowHealthCount = staffSummaries.filter((s) => s.dataHealthScore < 70).length;
 
   if (loading) {
@@ -138,10 +155,30 @@ export default function StaffPerformanceDashboard() {
       {/* Dashboard Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <DashboardCard label="عدد الموظفين" value={String(totalStaff)} icon={Users} color="teal" />
-        <DashboardCard label="إجمالي المبيعات" value={formatMoney(totalSales)} icon={DollarSign} color="green" />
-        <DashboardCard label="إجمالي الفواتير" value={formatNumber(totalInvoices)} icon={Package} color="blue" />
-        <DashboardCard label="متوسط النقاط" value={formatNumber(avgPoints)} icon={Award} color="amber" />
-        <DashboardCard label="تحذيرات البيانات" value={String(lowHealthCount)} icon={AlertTriangle} color="red" />
+        <DashboardCard
+          label="إجمالي المبيعات"
+          value={formatMoney(totalSales)}
+          icon={DollarSign}
+          color="green"
+        />
+        <DashboardCard
+          label="إجمالي الفواتير"
+          value={formatNumber(totalInvoices)}
+          icon={Package}
+          color="blue"
+        />
+        <DashboardCard
+          label="متوسط النقاط"
+          value={formatNumber(avgPoints)}
+          icon={Award}
+          color="amber"
+        />
+        <DashboardCard
+          label="تحذيرات البيانات"
+          value={String(lowHealthCount)}
+          icon={AlertTriangle}
+          color="red"
+        />
       </div>
 
       {/* Filters */}
@@ -155,7 +192,9 @@ export default function StaffPerformanceDashboard() {
           >
             <option value="all">جميع الفروع</option>
             {branches.map((branch) => (
-              <option key={branch} value={branch}>{branch}</option>
+              <option key={branch} value={branch}>
+                {branch}
+              </option>
             ))}
           </select>
         </div>
@@ -193,31 +232,44 @@ export default function StaffPerformanceDashboard() {
             </thead>
             <tbody>
               {sortedSummaries.map((staff) => (
-                <tr key={staff.id} className="border-t border-[#2d4063]/70 hover:bg-white/5 transition-colors">
+                <tr
+                  key={staff.id}
+                  className="border-t border-[#2d4063]/70 hover:bg-white/5 transition-colors"
+                >
                   <td className="p-3">
                     <div className="text-white font-bold">{staff.name}</div>
                     <div className="text-slate-500 text-xs">{staff.role}</div>
                   </td>
                   <td className="p-3 text-slate-300">{staff.branch}</td>
                   <td className="p-3">
-                    <span className={`font-bold num ${
-                      staff.finalPoints >= 450 ? "text-teal-400" :
-                      staff.finalPoints >= 350 ? "text-amber-400" :
-                      "text-red-400"
-                    }`}>
+                    <span
+                      className={`font-bold num ${
+                        staff.finalPoints >= 450
+                          ? 'text-teal-400'
+                          : staff.finalPoints >= 350
+                            ? 'text-amber-400'
+                            : 'text-red-400'
+                      }`}
+                    >
                       {staff.finalPoints}
                     </span>
                   </td>
                   <td className="p-3 text-teal-300 num">{formatCurrency(staff.incentiveValue)}</td>
                   <td className="p-3 text-slate-300 num">{formatMoney(staff.cycleNetSales)}</td>
-                  <td className="p-3 text-slate-300 num">{formatNumber(staff.cycleInvoicesCount)}</td>
+                  <td className="p-3 text-slate-300 num">
+                    {formatNumber(staff.cycleInvoicesCount)}
+                  </td>
                   <td className="p-3 text-slate-300 num">{formatNumber(staff.uniqueCustomers)}</td>
                   <td className="p-3">
-                    <span className={`font-bold num ${
-                      staff.dataHealthScore >= 80 ? "text-teal-400" :
-                      staff.dataHealthScore >= 60 ? "text-amber-400" :
-                      "text-red-400"
-                    }`}>
+                    <span
+                      className={`font-bold num ${
+                        staff.dataHealthScore >= 80
+                          ? 'text-teal-400'
+                          : staff.dataHealthScore >= 60
+                            ? 'text-amber-400'
+                            : 'text-red-400'
+                      }`}
+                    >
                       {staff.dataHealthScore.toFixed(0)}%
                     </span>
                   </td>
@@ -233,7 +285,9 @@ export default function StaffPerformanceDashboard() {
               ))}
               {sortedSummaries.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="p-6 text-center text-slate-500">لا توجد بيانات</td>
+                  <td colSpan={9} className="p-6 text-center text-slate-500">
+                    لا توجد بيانات
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -249,7 +303,8 @@ export default function StaffPerformanceDashboard() {
             <div>
               <div className="text-amber-200 font-bold text-sm mb-1">تحذير صحة البيانات</div>
               <p className="text-amber-100/90 text-xs">
-                يوجد {lowHealthCount} موظف لديهم مشاكل في جودة البيانات. راجع ملفاتهم للحصول على التفاصيل.
+                يوجد {lowHealthCount} موظف لديهم مشاكل في جودة البيانات. راجع ملفاتهم للحصول على
+                التفاصيل.
               </p>
             </div>
           </div>
@@ -259,19 +314,31 @@ export default function StaffPerformanceDashboard() {
   );
 }
 
-function DashboardCard({ label, value, icon: Icon, color }: { label: string; value: string; icon: any; color: "teal" | "blue" | "amber" | "red" | "green" }) {
+function DashboardCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: string;
+  icon: any;
+  color: 'teal' | 'blue' | 'amber' | 'red' | 'green';
+}) {
   const colorClasses = {
-    teal: "bg-teal-500/15 text-teal-400",
-    blue: "bg-blue-500/15 text-blue-400",
-    amber: "bg-amber-500/15 text-amber-400",
-    red: "bg-red-500/15 text-red-400",
-    green: "bg-green-500/15 text-green-400",
+    teal: 'bg-teal-500/15 text-teal-400',
+    blue: 'bg-blue-500/15 text-blue-400',
+    amber: 'bg-amber-500/15 text-amber-400',
+    red: 'bg-red-500/15 text-red-400',
+    green: 'bg-green-500/15 text-green-400',
   };
 
   return (
     <div className="stat-card">
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-xl ${colorClasses[color]} flex items-center justify-center`}>
+        <div
+          className={`w-10 h-10 rounded-xl ${colorClasses[color]} flex items-center justify-center`}
+        >
           <Icon size={20} />
         </div>
         <div className="flex-1">

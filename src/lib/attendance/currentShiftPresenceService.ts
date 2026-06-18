@@ -1,5 +1,5 @@
-import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { DAYS_AR } from "@/lib/constants";
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { DAYS_AR } from '@/lib/constants';
 
 export type ShiftPresencePerson = {
   id: string;
@@ -10,8 +10,8 @@ export type ShiftPresencePerson = {
   day_name?: string | null;
   shift_start: string | null;
   shift_end: string | null;
-  attendance_status: "موجود الآن" | "خرج" | "متأخر" | "لم يبصم" | "غير مجدول";
-  source: "day_name" | "shift_date" | "date" | "fallback";
+  attendance_status: 'موجود الآن' | 'خرج' | 'متأخر' | 'لم يبصم' | 'غير مجدول';
+  source: 'day_name' | 'shift_date' | 'date' | 'fallback';
 };
 
 export type CurrentShiftPresence = {
@@ -26,7 +26,7 @@ export type CurrentShiftPresence = {
     fetchedShiftCount: number;
     activeShiftCount: number;
     attendanceCount: number;
-    source: "day_name" | "shift_date" | "date" | "mixed" | "fallback";
+    source: 'day_name' | 'shift_date' | 'date' | 'mixed' | 'fallback';
   };
 };
 
@@ -60,12 +60,12 @@ type AttendanceRow = {
 };
 
 function egyptNow() {
-  return new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
 }
 
 function todayName(): string {
   // getDay(): الأحد = 0، والجدول العربي في constants بنفس الترتيب
-  return DAYS_AR[egyptNow().getDay()] || "";
+  return DAYS_AR[egyptNow().getDay()] || '';
 }
 
 function todayDate(): string {
@@ -73,28 +73,28 @@ function todayDate(): string {
 }
 
 function normalizeText(value: unknown) {
-  return String(value ?? "")
-    .replace(/[\u064B-\u065F\u0640]/g, "")
-    .replace(/[إأآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/\s+/g, " ")
+  return String(value ?? '')
+    .replace(/[\u064B-\u065F\u0640]/g, '')
+    .replace(/[إأآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 }
 
 function normalizeTime(value?: string | null) {
-  const raw = String(value || "").trim();
+  const raw = String(value || '').trim();
   if (!raw) return null;
   const match = raw.match(/(\d{1,2}):(\d{2})/);
   if (!match) return null;
-  return `${match[1].padStart(2, "0")}:${match[2]}`;
+  return `${match[1].padStart(2, '0')}:${match[2]}`;
 }
 
 function minutesFromTime(value?: string | null) {
   const time = normalizeTime(value);
   if (!time) return null;
-  const [h, m] = time.split(":").map(Number);
+  const [h, m] = time.split(':').map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return h * 60 + m;
 }
@@ -114,28 +114,32 @@ function isShiftActive(start?: string | null, end?: string | null) {
   return current >= startMin || current < endMin;
 }
 
-function categorize(role?: string | null, name?: string | null): "doctors" | "assistants" | "delivery" {
+function categorize(
+  role?: string | null,
+  name?: string | null
+): 'doctors' | 'assistants' | 'delivery' {
   const r = normalizeText(role);
   const n = normalizeText(name);
-  if (/صيد|دكتور|pharmacist|doctor/.test(r) || /^د\s*\/?/.test(n) || n.startsWith("د ")) return "doctors";
-  if (/توصيل|دليفري|delivery|rider/.test(r)) return "delivery";
-  if (/مساعد|assistant/.test(r)) return "assistants";
-  return "delivery";
+  if (/صيد|دكتور|pharmacist|doctor/.test(r) || /^د\s*\/?/.test(n) || n.startsWith('د '))
+    return 'doctors';
+  if (/توصيل|دليفري|delivery|rider/.test(r)) return 'delivery';
+  if (/مساعد|assistant/.test(r)) return 'assistants';
+  return 'delivery';
 }
 
-function attendanceKey(row: Pick<AttendanceRow, "staff_id" | "staff_name">) {
-  return String(row.staff_id || "").trim() || normalizeText(row.staff_name);
+function attendanceKey(row: Pick<AttendanceRow, 'staff_id' | 'staff_name'>) {
+  return String(row.staff_id || '').trim() || normalizeText(row.staff_name);
 }
 
 function scheduleKey(row: ShiftScheduleRow) {
-  return String(row.staff_id || "").trim() || normalizeText(row.staff_name);
+  return String(row.staff_id || '').trim() || normalizeText(row.staff_name);
 }
 
-function statusFor(attendance?: AttendanceRow): ShiftPresencePerson["attendance_status"] {
-  if (!attendance) return "لم يبصم";
-  if (attendance.check_out || attendance.last_out) return "خرج";
-  if (attendance.check_in || attendance.first_in) return "موجود الآن";
-  return "لم يبصم";
+function statusFor(attendance?: AttendanceRow): ShiftPresencePerson['attendance_status'] {
+  if (!attendance) return 'لم يبصم';
+  if (attendance.check_out || attendance.last_out) return 'خرج';
+  if (attendance.check_in || attendance.first_in) return 'موجود الآن';
+  return 'لم يبصم';
 }
 
 async function safeSelect<T>(table: string, select: string, apply: (query: any) => any) {
@@ -152,10 +156,13 @@ async function safeSelect<T>(table: string, select: string, apply: (query: any) 
   }
 }
 
-const BASIC_SHIFT_SELECT = "id,staff_id,staff_name,role,branch,day_name,shift_start,shift_end,is_off";
-const DATED_SHIFT_SELECT = "id,staff_id,staff_name,role,branch,day_name,shift_date,date,shift_name,start_time,end_time,shift_start,shift_end,is_off,status";
-const BASIC_ATTENDANCE_SELECT = "staff_id,staff_name,check_in,check_out";
-const DATED_ATTENDANCE_SELECT = "staff_id,staff_name,date,attendance_date,check_in,check_out,first_in,last_out";
+const BASIC_SHIFT_SELECT =
+  'id,staff_id,staff_name,role,branch,day_name,shift_start,shift_end,is_off';
+const DATED_SHIFT_SELECT =
+  'id,staff_id,staff_name,role,branch,day_name,shift_date,date,shift_name,start_time,end_time,shift_start,shift_end,is_off,status';
+const BASIC_ATTENDANCE_SELECT = 'staff_id,staff_name,check_in,check_out';
+const DATED_ATTENDANCE_SELECT =
+  'staff_id,staff_name,date,attendance_date,check_in,check_out,first_in,last_out';
 
 export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence> {
   const empty: CurrentShiftPresence = {
@@ -173,32 +180,30 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
 
   // أغلب قاعدة بيانات الصيدلية الحالية لا تحتوي shift_date/date/start_time/end_time.
   // لذلك نقرأ أعمدة الجدول الأسبوعي الأساسية أولًا حتى لا يفشل الاستعلام كله بسبب عمود غير موجود.
-  const byDay = await safeSelect<ShiftScheduleRow>(
-    "shift_schedules",
-    BASIC_SHIFT_SELECT,
-    (query) => query.eq("day_name", todayArabic).limit(1000),
+  const byDay = await safeSelect<ShiftScheduleRow>('shift_schedules', BASIC_SHIFT_SELECT, (query) =>
+    query.eq('day_name', todayArabic).limit(1000)
   );
 
   // دعم اختياري للجداول المستقبلية التي تحتوي تاريخ محدد لكل شيفت.
   const byDate = await safeSelect<ShiftScheduleRow>(
-    "shift_schedules",
+    'shift_schedules',
     DATED_SHIFT_SELECT,
-    (query) => query.or(`shift_date.eq.${todayStr},date.eq.${todayStr}`).limit(1000),
+    (query) => query.or(`shift_date.eq.${todayStr},date.eq.${todayStr}`).limit(1000)
   );
 
   const rawSchedules = [...byDate, ...byDay].filter((row) => {
-    if (row.is_off || normalizeText(row.status).includes("اجازه")) return false;
+    if (row.is_off || normalizeText(row.status).includes('اجازه')) return false;
     if (normalizeText(row.day_name) && normalizeText(row.day_name) !== normalizeText(todayArabic)) {
-      if (String(row.shift_date || row.date || "").slice(0, 10) !== todayStr) return false;
+      if (String(row.shift_date || row.date || '').slice(0, 10) !== todayStr) return false;
     }
     return isShiftActive(row.shift_start || row.start_time, row.shift_end || row.end_time);
   });
 
   const scheduleMap = new Map<string, ShiftScheduleRow>();
   rawSchedules.forEach((row) => {
-    const name = String(row.staff_name || "").trim();
+    const name = String(row.staff_name || '').trim();
     if (!name) return;
-    const key = `${normalizeText(name)}|${normalizeText(row.branch)}|${normalizeTime(row.shift_start || row.start_time) || ""}|${normalizeTime(row.shift_end || row.end_time) || ""}`;
+    const key = `${normalizeText(name)}|${normalizeText(row.branch)}|${normalizeTime(row.shift_start || row.start_time) || ''}|${normalizeTime(row.shift_end || row.end_time) || ''}`;
     const existing = scheduleMap.get(key);
     if (!existing) {
       scheduleMap.set(key, row);
@@ -212,17 +217,15 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
   const schedules = [...scheduleMap.values()];
 
   const attendanceRowsByDate = await safeSelect<AttendanceRow>(
-    "attendance",
+    'attendance',
     DATED_ATTENDANCE_SELECT,
-    (query) => query.or(`date.eq.${todayStr},attendance_date.eq.${todayStr}`).limit(1000),
+    (query) => query.or(`date.eq.${todayStr},attendance_date.eq.${todayStr}`).limit(1000)
   );
 
   const attendanceRows = attendanceRowsByDate.length
     ? attendanceRowsByDate
-    : await safeSelect<AttendanceRow>(
-        "attendance",
-        BASIC_ATTENDANCE_SELECT,
-        (query) => query.limit(1000),
+    : await safeSelect<AttendanceRow>('attendance', BASIC_ATTENDANCE_SELECT, (query) =>
+        query.limit(1000)
       );
 
   const attendanceMap = new Map<string, AttendanceRow>();
@@ -243,12 +246,19 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
       fetchedShiftCount: [...byDate, ...byDay].length,
       activeShiftCount: schedules.length,
       attendanceCount: attendanceRows.length,
-      source: byDate.length && byDay.length ? "mixed" : byDate.length ? "shift_date" : byDay.length ? "day_name" : "fallback",
+      source:
+        byDate.length && byDay.length
+          ? 'mixed'
+          : byDate.length
+            ? 'shift_date'
+            : byDay.length
+              ? 'day_name'
+              : 'fallback',
     },
   };
 
   for (const row of schedules) {
-    const name = String(row.staff_name || "").trim();
+    const name = String(row.staff_name || '').trim();
     if (!name) continue;
     const start = normalizeTime(row.shift_start || row.start_time);
     const end = normalizeTime(row.shift_end || row.end_time);
@@ -258,19 +268,32 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
     const person: ShiftPresencePerson = {
       id: String(row.staff_id || row.id || key || name),
       name,
-      role: row.role || (category === "doctors" ? "صيدلاني" : category === "delivery" ? "توصيل" : "مساعد"),
-      branch: row.branch || "غير محدد",
+      role:
+        row.role ||
+        (category === 'doctors' ? 'صيدلاني' : category === 'delivery' ? 'توصيل' : 'مساعد'),
+      branch: row.branch || 'غير محدد',
       shift_name: row.shift_name || null,
       day_name: row.day_name || todayArabic,
       shift_start: start,
       shift_end: end,
       attendance_status: statusFor(attendance),
-      source: String(row.shift_date || "").slice(0, 10) === todayStr ? "shift_date" : String(row.date || "").slice(0, 10) === todayStr ? "date" : normalizeText(row.day_name) === normalizeText(todayArabic) ? "day_name" : "fallback",
+      source:
+        String(row.shift_date || '').slice(0, 10) === todayStr
+          ? 'shift_date'
+          : String(row.date || '').slice(0, 10) === todayStr
+            ? 'date'
+            : normalizeText(row.day_name) === normalizeText(todayArabic)
+              ? 'day_name'
+              : 'fallback',
     };
     result[category].push(person);
   }
 
-  const sortPeople = (a: ShiftPresencePerson, b: ShiftPresencePerson) => `${a.branch} ${a.shift_start || ""} ${a.name}`.localeCompare(`${b.branch} ${b.shift_start || ""} ${b.name}`, "ar");
+  const sortPeople = (a: ShiftPresencePerson, b: ShiftPresencePerson) =>
+    `${a.branch} ${a.shift_start || ''} ${a.name}`.localeCompare(
+      `${b.branch} ${b.shift_start || ''} ${b.name}`,
+      'ar'
+    );
   result.doctors.sort(sortPeople);
   result.assistants.sort(sortPeople);
   result.delivery.sort(sortPeople);

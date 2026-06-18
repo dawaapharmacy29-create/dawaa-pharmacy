@@ -1,6 +1,6 @@
-import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import type { ParsedScheduleImport, ParsedStaffShifts } from "@/lib/shiftParser";
-import { TABLES } from "@/lib/supabaseTables";
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import type { ParsedScheduleImport, ParsedStaffShifts } from '@/lib/shiftParser';
+import { TABLES } from '@/lib/supabaseTables';
 
 export interface StaffingSaveReport {
   staffTable: string | null;
@@ -14,17 +14,21 @@ const STAFF_TABLES = [TABLES.staff];
 
 function requireSupabaseConfig() {
   if (!isSupabaseConfigured) {
-    throw new Error("إعدادات Supabase غير موجودة. أضف مفاتيح Supabase في ملف .env أو في Netlify.");
+    throw new Error('إعدادات Supabase غير موجودة. أضف مفاتيح Supabase في ملف .env أو في Netlify.');
   }
 }
 
 function missingColumn(message: string) {
-  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || "";
+  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || '';
 }
 
 function isMissingTable(message: string) {
   const lower = message.toLowerCase();
-  return lower.includes("does not exist") || lower.includes("schema cache") || lower.includes("could not find the table");
+  return (
+    lower.includes('does not exist') ||
+    lower.includes('schema cache') ||
+    lower.includes('could not find the table')
+  );
 }
 
 function withoutColumn<T extends Record<string, unknown>>(records: T[], column: string) {
@@ -37,7 +41,7 @@ function withoutColumn<T extends Record<string, unknown>>(records: T[], column: 
 
 async function detectTable(candidates: string[]) {
   for (const table of candidates) {
-    const { error } = await supabase.from(table).select("*").limit(1);
+    const { error } = await supabase.from(table).select('*').limit(1);
     if (!error) return table;
     if (!isMissingTable(error.message)) return table;
   }
@@ -50,7 +54,7 @@ async function insertFlexible(table: string, rows: Array<Record<string, unknown>
   const removed = new Set<string>();
 
   for (let attempt = 0; attempt < 20; attempt++) {
-    const { data, error } = await supabase.from(table).insert(payload).select("*");
+    const { data, error } = await supabase.from(table).insert(payload).select('*');
     if (!error) return data?.length ?? payload.length;
 
     if (isMissingTable(error.message)) throw error;
@@ -68,7 +72,7 @@ async function updateFlexible(table: string, id: string, row: Record<string, unk
   const removed = new Set<string>();
 
   for (let attempt = 0; attempt < 20; attempt++) {
-    const { error } = await supabase.from(table).update(payload).eq("id", id);
+    const { error } = await supabase.from(table).update(payload).eq('id', id);
     if (!error) return true;
 
     const column = missingColumn(error.message);
@@ -80,18 +84,18 @@ async function updateFlexible(table: string, id: string, row: Record<string, unk
   return false;
 }
 
-function appRole(role: ParsedStaffShifts["role"]) {
-  if (role === "doctor") return "صيدلاني";
-  if (role === "assistant") return "مساعد";
-  if (role === "delivery") return "توصيل";
-  return "فريق";
+function appRole(role: ParsedStaffShifts['role']) {
+  if (role === 'doctor') return 'صيدلاني';
+  if (role === 'assistant') return 'مساعد';
+  if (role === 'delivery') return 'توصيل';
+  return 'فريق';
 }
 
 function usernameFromName(name: string) {
   return name
-    .replace(/^د\/\s*/, "dr ")
-    .replace(/[^\p{L}\p{N}]+/gu, ".")
-    .replace(/^\.+|\.+$/g, "")
+    .replace(/^د\/\s*/, 'dr ')
+    .replace(/[^\p{L}\p{N}]+/gu, '.')
+    .replace(/^\.+|\.+$/g, '')
     .toLowerCase();
 }
 
@@ -109,24 +113,29 @@ async function saveStaffRows(table: string, staff: ParsedStaffShifts[]) {
     return {
       name: item.name,
       username: usernameFromName(item.name),
-      phone: "",
+      phone: '',
       role: appRole(item.role),
       branch: item.branch,
-      shift_start: shift?.start || "09:00",
-      shift_end: shift?.end || "17:00",
+      shift_start: shift?.start || '09:00',
+      shift_end: shift?.end || '17:00',
       holiday_day: firstOffDay(item),
-      status: "نشط",
+      status: 'نشط',
       active: true,
       points: 500,
       max_points: 500,
       starting_points: 500,
-      notes: "تم الاستيراد من ملف الحضور والشيفتات",
+      notes: 'تم الاستيراد من ملف الحضور والشيفتات',
     };
   });
 
   let saved = 0;
   for (const row of rows) {
-    const { data: existing } = await supabase.from(table).select("id").eq("name", row.name).limit(1).maybeSingle();
+    const { data: existing } = await supabase
+      .from(table)
+      .select('id')
+      .eq('name', row.name)
+      .limit(1)
+      .maybeSingle();
     if (existing?.id) {
       const ok = await updateFlexible(table, String(existing.id), row);
       if (ok) saved += 1;
@@ -150,7 +159,7 @@ function scheduleRows(staff: ParsedStaffShifts[]) {
       hours: shift.hours,
       is_off: shift.isOff,
       raw_shift: shift.raw,
-      source: "attendance_report.xlsx",
+      source: 'attendance_report.xlsx',
     }))
   );
 }
@@ -162,17 +171,19 @@ function leaveRows(staff: ParsedStaffShifts[]) {
       .map(([day, shift]) => ({
         staff_name: item.name,
         employee_name: item.name,
-        type: "weekly_off",
-        status: "approved",
+        type: 'weekly_off',
+        status: 'approved',
         branch: item.branch,
         day_name: day,
-        reason: shift.raw || "إجازة أسبوعية من جدول الحضور",
-        source: "attendance_report.xlsx",
+        reason: shift.raw || 'إجازة أسبوعية من جدول الحضور',
+        source: 'attendance_report.xlsx',
       }))
   );
 }
 
-export async function saveScheduleImport(importData: ParsedScheduleImport): Promise<StaffingSaveReport> {
+export async function saveScheduleImport(
+  importData: ParsedScheduleImport
+): Promise<StaffingSaveReport> {
   requireSupabaseConfig();
 
   const skipped: string[] = [];
@@ -182,12 +193,12 @@ export async function saveScheduleImport(importData: ParsedScheduleImport): Prom
   let leavesSaved = 0;
 
   if (!staffTable) {
-    skipped.push("لم يتم العثور على جدول staff لحفظ بيانات الفريق.");
+    skipped.push('لم يتم العثور على جدول staff لحفظ بيانات الفريق.');
   } else {
     staffSaved = await saveStaffRows(staffTable, importData.staff);
   }
 
-  const scheduleTable = await detectTable(["shift_schedules"]);
+  const scheduleTable = await detectTable(['shift_schedules']);
   if (scheduleTable) {
     try {
       shiftsSaved = await insertFlexible(scheduleTable, scheduleRows(importData.staff));
@@ -195,10 +206,10 @@ export async function saveScheduleImport(importData: ParsedScheduleImport): Prom
       skipped.push(`تعذر حفظ الشيفتات في shift_schedules: ${(error as Error).message}`);
     }
   } else {
-    skipped.push("جدول shift_schedules غير موجود، لذلك تم حفظ بيانات الفريق فقط.");
+    skipped.push('جدول shift_schedules غير موجود، لذلك تم حفظ بيانات الفريق فقط.');
   }
 
-  const exceptionTable = await detectTable(["shift_exceptions"]);
+  const exceptionTable = await detectTable(['shift_exceptions']);
   if (exceptionTable) {
     try {
       leavesSaved = await insertFlexible(exceptionTable, leaveRows(importData.staff));
@@ -206,16 +217,16 @@ export async function saveScheduleImport(importData: ParsedScheduleImport): Prom
       skipped.push(`تعذر حفظ الإجازات في shift_exceptions: ${(error as Error).message}`);
     }
   } else {
-    skipped.push("جدول shift_exceptions غير موجود، لذلك لم يتم حفظ الإجازات كاستثناءات مستقلة.");
+    skipped.push('جدول shift_exceptions غير موجود، لذلك لم يتم حفظ الإجازات كاستثناءات مستقلة.');
   }
 
-  await supabase.from("activity_log").insert({
-    user_id: "system",
-    user_name: "النظام",
-    action: "استيراد بيانات الفريق والشيفتات",
-    module: "الفريق والجدول",
+  await supabase.from('activity_log').insert({
+    user_id: 'system',
+    user_name: 'النظام',
+    action: 'استيراد بيانات الفريق والشيفتات',
+    module: 'الفريق والجدول',
     details: `تمت قراءة ${importData.staffCount} عضو فريق، وحفظ ${staffSaved} سجل فريق.`,
-    branch: "كل الفروع",
+    branch: 'كل الفروع',
   });
 
   return { staffTable, staffSaved, shiftsSaved, leavesSaved, skipped };

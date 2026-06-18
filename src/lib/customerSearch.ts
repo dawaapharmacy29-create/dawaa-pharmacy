@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { supabase } from '@/lib/supabase';
 
 export type CustomerSearchResult = {
   id: string;
@@ -10,26 +10,26 @@ export type CustomerSearchResult = {
 };
 
 export function normalizePhone(value: unknown) {
-  const digits = String(value ?? "").replace(/[^\d+]/g, "");
-  if (digits.startsWith("+20")) return `0${digits.slice(3)}`;
-  if (digits.startsWith("20") && digits.length === 12) return `0${digits.slice(2)}`;
+  const digits = String(value ?? '').replace(/[^\d+]/g, '');
+  if (digits.startsWith('+20')) return `0${digits.slice(3)}`;
+  if (digits.startsWith('20') && digits.length === 12) return `0${digits.slice(2)}`;
   return digits;
 }
 
 export function normalizeArabicText(value: unknown) {
-  return String(value ?? "")
+  return String(value ?? '')
     .trim()
-    .replace(/[أإآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/\s+/g, " ")
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ')
     .toLowerCase();
 }
 
 export function wildcardToIlikePattern(value: string) {
   const trimmed = value.trim();
-  if (!trimmed) return "%";
-  return trimmed.includes("*") ? trimmed.replace(/\*/g, "%") : `%${trimmed}%`;
+  if (!trimmed) return '%';
+  return trimmed.includes('*') ? trimmed.replace(/\*/g, '%') : `%${trimmed}%`;
 }
 
 function pick(row: Record<string, unknown>, keys: string[]) {
@@ -37,26 +37,25 @@ function pick(row: Record<string, unknown>, keys: string[]) {
     const value = row[key];
     if (value !== null && value !== undefined && String(value).trim()) return String(value).trim();
   }
-  return "";
+  return '';
 }
 
-const UUID_LIKE_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_LIKE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function cleanCustomerCode(value: unknown) {
-  const text = String(value ?? "").trim();
-  if (!text || UUID_LIKE_RE.test(text)) return "";
+  const text = String(value ?? '').trim();
+  if (!text || UUID_LIKE_RE.test(text)) return '';
   return text;
 }
 
 export function normalizeCustomerRow(row: Record<string, unknown>): CustomerSearchResult {
   return {
-    id: pick(row, ["id", "customer_id"]),
-    name: pick(row, ["customer_name", "name", "full_name"]) || "عميل بدون اسم",
-    code: cleanCustomerCode(pick(row, ["customer_code", "code"])),
-    phone: pick(row, ["customer_phone", "phone", "mobile"]),
-    branch: pick(row, ["branch", "branch_name"]),
-    category: pick(row, ["category", "customer_category", "status"]),
+    id: pick(row, ['id', 'customer_id']),
+    name: pick(row, ['customer_name', 'name', 'full_name']) || 'عميل بدون اسم',
+    code: cleanCustomerCode(pick(row, ['customer_code', 'code'])),
+    phone: pick(row, ['customer_phone', 'phone', 'mobile']),
+    branch: pick(row, ['branch', 'branch_name']),
+    category: pick(row, ['category', 'customer_category', 'status']),
   };
 }
 
@@ -72,12 +71,13 @@ export async function searchCustomers(query: string, limit = 30): Promise<Custom
   ];
 
   for (const filter of attempts) {
-    const { data, error } = await supabase.from("customers").select("*").or(filter).limit(limit);
-    if (!error) return (data || []).map((row) => normalizeCustomerRow(row as Record<string, unknown>));
+    const { data, error } = await supabase.from('customers').select('*').or(filter).limit(limit);
+    if (!error)
+      return (data || []).map((row) => normalizeCustomerRow(row as Record<string, unknown>));
   }
 
-  const { data } = await supabase.from("customers").select("*").limit(500);
-  const normalizedQuery = normalizeArabicText(raw.replace(/\*/g, ""));
+  const { data } = await supabase.from('customers').select('*').limit(500);
+  const normalizedQuery = normalizeArabicText(raw.replace(/\*/g, ''));
   return ((data || []) as Record<string, unknown>[])
     .map(normalizeCustomerRow)
     .filter((customer) => {
@@ -87,7 +87,12 @@ export async function searchCustomers(query: string, limit = 30): Promise<Custom
     .slice(0, limit);
 }
 
-export async function createCustomerFromSearch(input: { name: string; phone: string; code?: string; branch?: string }) {
+export async function createCustomerFromSearch(input: {
+  name: string;
+  phone: string;
+  code?: string;
+  branch?: string;
+}) {
   const payload = {
     customer_name: input.name.trim(),
     name: input.name.trim(),
@@ -102,12 +107,14 @@ export async function createCustomerFromSearch(input: { name: string; phone: str
 
   let next: Record<string, unknown> = payload;
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const { data, error } = await supabase.from("customers").insert(next).select("*").single();
+    const { data, error } = await supabase.from('customers').insert(next).select('*').single();
     if (!error && data) return normalizeCustomerRow(data as Record<string, unknown>);
-    const column = error?.message.match(/column "([^"]+)"/)?.[1] || error?.message.match(/'([^']+)' column/)?.[1];
-    if (!column || !(column in next)) throw new Error(error?.message || "تعذر إضافة العميل");
+    const column =
+      error?.message.match(/column "([^"]+)"/)?.[1] ||
+      error?.message.match(/'([^']+)' column/)?.[1];
+    if (!column || !(column in next)) throw new Error(error?.message || 'تعذر إضافة العميل');
     next = { ...next };
     delete next[column];
   }
-  throw new Error("تعذر إضافة العميل");
+  throw new Error('تعذر إضافة العميل');
 }

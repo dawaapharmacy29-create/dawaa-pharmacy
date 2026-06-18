@@ -13,7 +13,11 @@ export function debounce<T extends (...args: any[]) => void>(fn: T, delay = 300)
   };
 }
 
-export async function withTimeout<T>(promise: Promise<T>, ms = 20000, message = "انتهى وقت العملية") {
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  ms = 20000,
+  message = 'انتهى وقت العملية'
+) {
   let timer: number | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = window.setTimeout(() => reject(new Error(message)), ms);

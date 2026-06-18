@@ -44,7 +44,10 @@ export async function auditPointsMoneyMixing(): Promise<{
   return { results, suspiciousRecords };
 }
 
-async function auditEmployeeTransactions(): Promise<{ result: PointsMoneyAuditResult; suspiciousRecords: SuspiciousRecord[] }> {
+async function auditEmployeeTransactions(): Promise<{
+  result: PointsMoneyAuditResult;
+  suspiciousRecords: SuspiciousRecord[];
+}> {
   const { data, error } = await supabase
     .from('employee_transactions')
     .select('id, points, points_delta, type, reason, created_at')
@@ -118,7 +121,10 @@ async function auditEmployeeTransactions(): Promise<{ result: PointsMoneyAuditRe
   };
 }
 
-async function auditPointsTransactions(): Promise<{ result: PointsMoneyAuditResult; suspiciousRecords: SuspiciousRecord[] }> {
+async function auditPointsTransactions(): Promise<{
+  result: PointsMoneyAuditResult;
+  suspiciousRecords: SuspiciousRecord[];
+}> {
   const { data, error } = await supabase
     .from('points_transactions')
     .select('id, points, points_delta, reason, created_at')
@@ -192,7 +198,10 @@ async function auditPointsTransactions(): Promise<{ result: PointsMoneyAuditResu
   };
 }
 
-async function auditPointRecords(): Promise<{ result: PointsMoneyAuditResult; suspiciousRecords: SuspiciousRecord[] }> {
+async function auditPointRecords(): Promise<{
+  result: PointsMoneyAuditResult;
+  suspiciousRecords: SuspiciousRecord[];
+}> {
   const { data, error } = await supabase
     .from('point_records')
     .select('id, points, points_delta, reason, created_at')
@@ -276,11 +285,11 @@ export async function createPointsDataHealthReport(): Promise<{
   warnings: string[];
 }> {
   const audit = await auditPointsMoneyMixing();
-  
+
   const totalRecords = audit.results.reduce((sum, r) => sum + r.totalRecords, 0);
   const suspiciousRecords = audit.suspiciousRecords.length;
-  const issues = audit.results.flatMap(r => r.issues);
-  const warnings = audit.results.flatMap(r => r.warnings);
+  const issues = audit.results.flatMap((r) => r.issues);
+  const warnings = audit.results.flatMap((r) => r.warnings);
 
   return {
     totalRecords,

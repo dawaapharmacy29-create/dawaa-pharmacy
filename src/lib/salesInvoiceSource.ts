@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { supabase } from '@/lib/supabase';
 import {
   applyCustomerSalesMetrics,
   getCustomerMetrics,
@@ -8,10 +8,16 @@ import {
   cleanCustomerCode,
   type CustomerLike,
   type InvoiceLike,
-} from "@/lib/customerMetrics";
+} from '@/lib/customerMetrics';
 
-export type { InvoiceLike } from "@/lib/customerMetrics";
-import { getInvoiceAmount, getInvoiceDate, getInvoiceDoctor, getInvoiceKey, pickFirst } from "@/lib/dawaa2027";
+export type { InvoiceLike } from '@/lib/customerMetrics';
+import {
+  getInvoiceAmount,
+  getInvoiceDate,
+  getInvoiceDoctor,
+  getInvoiceKey,
+  pickFirst,
+} from '@/lib/dawaa2027';
 
 export interface NormalizedInvoice {
   raw: InvoiceLike;
@@ -43,9 +49,9 @@ export async function fetchSalesInvoices(limit = 100000): Promise<InvoiceLike[]>
     for (let from = 0; from < limit; from += pageSize) {
       const to = Math.min(from + pageSize - 1, limit - 1);
       const { data, error } = await supabase
-        .from("sales_invoices")
-        .select("*")
-        .order("invoice_date", { ascending: false })
+        .from('sales_invoices')
+        .select('*')
+        .order('invoice_date', { ascending: false })
         .range(from, to);
 
       if (error) throw new Error(error.message);
@@ -56,7 +62,9 @@ export async function fetchSalesInvoices(limit = 100000): Promise<InvoiceLike[]>
 
     _invoiceCache = { data: rows, ts: Date.now() };
     return rows;
-  })().finally(() => { _invoiceFetchPromise = null; });
+  })().finally(() => {
+    _invoiceFetchPromise = null;
+  });
 
   return _invoiceFetchPromise;
 }
@@ -68,15 +76,18 @@ export function invalidateInvoiceCache() {
 export function normalizeInvoice(invoice: InvoiceLike): NormalizedInvoice {
   return {
     raw: invoice,
-    id: String(pickFirst(invoice, ["id"], "")),
-    invoiceNumber: getInvoiceKey(invoice) || String(pickFirst(invoice, ["number", "receipt_number"], "")),
-    invoiceDate: String(getInvoiceDate(invoice) || "") || null,
+    id: String(pickFirst(invoice, ['id'], '')),
+    invoiceNumber:
+      getInvoiceKey(invoice) || String(pickFirst(invoice, ['number', 'receipt_number'], '')),
+    invoiceDate: String(getInvoiceDate(invoice) || '') || null,
     amount: getInvoiceAmount(invoice),
-    doctor: getInvoiceDoctor(invoice) || "غير محدد",
-    branch: String(pickFirst(invoice, ["branch", "branch_name"], "غير محدد") || "غير محدد"),
-    customerCode: cleanCustomerCode(pickFirst(invoice, ["customer_code", "code"], "")),
-    customerName: String(pickFirst(invoice, ["customer_name", "name"], "") || ""),
-    customerPhone: normalizePhone(pickFirst(invoice, ["customer_phone", "phone", "phone_number", "mobile"], "")),
+    doctor: getInvoiceDoctor(invoice) || 'غير محدد',
+    branch: String(pickFirst(invoice, ['branch', 'branch_name'], 'غير محدد') || 'غير محدد'),
+    customerCode: cleanCustomerCode(pickFirst(invoice, ['customer_code', 'code'], '')),
+    customerName: String(pickFirst(invoice, ['customer_name', 'name'], '') || ''),
+    customerPhone: normalizePhone(
+      pickFirst(invoice, ['customer_phone', 'phone', 'phone_number', 'mobile'], '')
+    ),
   };
 }
 
@@ -86,8 +97,11 @@ export function computeDashboardSalesMetrics(invoices: InvoiceLike[]) {
   const customers = new Set(
     invoices
       .map((invoice) => normalizeInvoice(invoice))
-      .map((invoice) => invoice.customerCode || invoice.customerPhone || normalizeText(invoice.customerName))
-      .filter(Boolean),
+      .map(
+        (invoice) =>
+          invoice.customerCode || invoice.customerPhone || normalizeText(invoice.customerName)
+      )
+      .filter(Boolean)
   );
   return {
     totalSales,
@@ -101,13 +115,18 @@ export function computeCustomerMetrics(customer: CustomerLike, invoices: Invoice
   return getCustomerMetrics(customer, invoices);
 }
 
-export function enrichCustomersWithSalesMetrics<T extends CustomerLike>(customers: T[], invoices: InvoiceLike[]): T[] {
+export function enrichCustomersWithSalesMetrics<T extends CustomerLike>(
+  customers: T[],
+  invoices: InvoiceLike[]
+): T[] {
   return customers.map((customer) => applyCustomerSalesMetrics(customer, invoices));
 }
 
 export function computeStaffSalesMetrics(staffName: string, invoices: InvoiceLike[]) {
   const normalizedName = normalizeText(staffName);
-  const matched = invoices.filter((invoice) => normalizeText(getInvoiceDoctor(invoice)) === normalizedName);
+  const matched = invoices.filter(
+    (invoice) => normalizeText(getInvoiceDoctor(invoice)) === normalizedName
+  );
   const totalSales = matched.reduce((sum, invoice) => sum + getInvoiceAmount(invoice), 0);
   return {
     totalSales,
@@ -116,10 +135,15 @@ export function computeStaffSalesMetrics(staffName: string, invoices: InvoiceLik
     customersHandled: new Set(
       matched
         .map((invoice) => normalizeInvoice(invoice))
-        .map((invoice) => invoice.customerCode || invoice.customerPhone || normalizeText(invoice.customerName))
-        .filter(Boolean),
+        .map(
+          (invoice) =>
+            invoice.customerCode || invoice.customerPhone || normalizeText(invoice.customerName)
+        )
+        .filter(Boolean)
     ).size,
-    highestInvoices: [...matched].sort((a, b) => getInvoiceAmount(b) - getInvoiceAmount(a)).slice(0, 10),
+    highestInvoices: [...matched]
+      .sort((a, b) => getInvoiceAmount(b) - getInvoiceAmount(a))
+      .slice(0, 10),
   };
 }
 

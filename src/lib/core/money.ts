@@ -14,8 +14,8 @@ export interface InvoiceAmountSource {
  * Safely converts a value to a number, returning 0 for nulls/NaN.
  */
 export function safeNumber(value: unknown): number {
-  if (value === null || value === undefined || value === "") return 0;
-  const n = typeof value === "number" ? value : Number(value);
+  if (value === null || value === undefined || value === '') return 0;
+  const n = typeof value === 'number' ? value : Number(value);
   return isNaN(n) || !isFinite(n) ? 0 : n;
 }
 
@@ -52,7 +52,7 @@ export function formatCurrency(
   amount: number | null | undefined,
   options: { decimals?: number; symbol?: string; compact?: boolean } = {}
 ): string {
-  const { decimals = 2, symbol = "ج.م", compact = false } = options;
+  const { decimals = 2, symbol = 'ج.م', compact = false } = options;
   const n = safeNumber(amount);
 
   if (compact) {
@@ -60,7 +60,7 @@ export function formatCurrency(
     if (n >= 1_000) return `${(n / 1_000).toFixed(1)}ك ${symbol}`;
   }
 
-  return `${n.toLocaleString("ar-EG", {
+  return `${n.toLocaleString('ar-EG', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })} ${symbol}`;

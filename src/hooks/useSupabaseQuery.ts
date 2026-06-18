@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from "react";
-import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { logActivity as writeActivityLog } from "@/lib/activityLog";
-import { logSupabaseError } from "@/lib/supabaseError";
-import { TABLES } from "@/lib/supabaseTables";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { logActivity as writeActivityLog } from '@/lib/activityLog';
+import { logSupabaseError } from '@/lib/supabaseError';
+import { TABLES } from '@/lib/supabaseTables';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 interface QueryOptions {
   table: string;
@@ -14,21 +14,18 @@ interface QueryOptions {
   realtimeEnabled?: boolean; // default: false — enable only where live updates are truly needed
 }
 
-type QueryBuilder = ReturnType<ReturnType<typeof supabase.from>["select"]>;
+type QueryBuilder = ReturnType<ReturnType<typeof supabase.from>['select']>;
 
 function friendlySupabaseError(message: string): string {
   const lower = message.toLowerCase();
-  if (
-    lower.includes("row-level security") ||
-    lower.includes("permission denied")
-  ) {
-    return "صلاحيات قاعدة البيانات لا تسمح بهذه العملية. راجع إعدادات RLS في Supabase.";
+  if (lower.includes('row-level security') || lower.includes('permission denied')) {
+    return 'صلاحيات قاعدة البيانات لا تسمح بهذه العملية. راجع إعدادات RLS في Supabase.';
   }
-  if (lower.includes("does not exist") || lower.includes("schema cache")) {
-    return "جدول أو عمود غير موجود في Supabase. راجع هيكل قاعدة البيانات.";
+  if (lower.includes('does not exist') || lower.includes('schema cache')) {
+    return 'جدول أو عمود غير موجود في Supabase. راجع هيكل قاعدة البيانات.';
   }
-  if (lower.includes("failed to fetch") || lower.includes("network")) {
-    return "تعذر الاتصال بقاعدة البيانات. راجع الإنترنت وإعدادات Supabase.";
+  if (lower.includes('failed to fetch') || lower.includes('network')) {
+    return 'تعذر الاتصال بقاعدة البيانات. راجع الإنترنت وإعدادات Supabase.';
   }
   return message;
 }
@@ -42,9 +39,9 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
 
   // Stable serialised keys used as useCallback deps (avoids complex-expression lint warning)
   const filtersKey = JSON.stringify(options.filters ?? null);
-  const selectKey = options.select ?? "";
+  const selectKey = options.select ?? '';
   const limitKey = options.limit ?? 0;
-  const orderColumn = options.orderBy?.column ?? "";
+  const orderColumn = options.orderBy?.column ?? '';
   const orderAsc = options.orderBy?.ascending ?? false;
 
   const fetchData = useCallback(async () => {
@@ -55,24 +52,19 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
       if (mountedRef.current) {
         setData([]);
         setLoading(false);
-        setError(
-          "إعدادات Supabase غير موجودة. أضف ملف .env لتفعيل البيانات الحقيقية.",
-        );
+        setError('إعدادات Supabase غير موجودة. أضف ملف .env لتفعيل البيانات الحقيقية.');
       }
       return;
     }
 
-    let query: QueryBuilder = supabase
-      .from(options.table)
-      .select(options.select || "*");
+    let query: QueryBuilder = supabase.from(options.table).select(options.select || '*');
 
     if (options.filters) {
       for (const f of options.filters) {
-        if (f.operator === "eq") query = query.eq(f.column, f.value);
-        else if (f.operator === "ilike")
-          query = query.ilike(f.column, String(f.value));
-        else if (f.operator === "gte") query = query.gte(f.column, f.value);
-        else if (f.operator === "lte") query = query.lte(f.column, f.value);
+        if (f.operator === 'eq') query = query.eq(f.column, f.value);
+        else if (f.operator === 'ilike') query = query.ilike(f.column, String(f.value));
+        else if (f.operator === 'gte') query = query.gte(f.column, f.value);
+        else if (f.operator === 'lte') query = query.lte(f.column, f.value);
       }
     }
 
@@ -93,7 +85,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     if (err) {
       setError(friendlySupabaseError(err.message));
       if (options.table === TABLES.employeeTransactions) {
-        console.error("Employee transactions error:", {
+        console.error('Employee transactions error:', {
           message: err.message,
           details: err.details,
           hint: err.hint,
@@ -115,13 +107,9 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     if (isSupabaseConfigured && options.realtimeEnabled === true) {
       channelRef.current = supabase
         .channel(`realtime:${options.table}:${Math.random()}`)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: options.table },
-          () => {
-            fetchData();
-          },
-        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: options.table }, () => {
+          fetchData();
+        })
         .subscribe();
     }
 
@@ -138,10 +126,9 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
 
 export async function supabaseInsert<T>(
   table: string,
-  record: Partial<T>,
+  record: Partial<T>
 ): Promise<{ data: T | null; error: string | null }> {
-  if (!isSupabaseConfigured)
-    return { data: null, error: "إعدادات Supabase غير موجودة" };
+  if (!isSupabaseConfigured) return { data: null, error: 'إعدادات Supabase غير موجودة' };
   const { data, error } = await supabase
     .from(table)
     .insert(record as Record<string, unknown>)
@@ -157,13 +144,13 @@ export async function supabaseInsert<T>(
 export async function supabaseUpdate<T>(
   table: string,
   id: string,
-  updates: Partial<T>,
+  updates: Partial<T>
 ): Promise<{ error: string | null }> {
-  if (!isSupabaseConfigured) return { error: "إعدادات Supabase غير موجودة" };
+  if (!isSupabaseConfigured) return { error: 'إعدادات Supabase غير موجودة' };
   const { error } = await supabase
     .from(table)
     .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq('id', id);
   if (error) {
     logSupabaseError(`${table} update`, error);
     return { error: friendlySupabaseError(error.message) };
@@ -171,12 +158,9 @@ export async function supabaseUpdate<T>(
   return { error: null };
 }
 
-export async function supabaseDelete(
-  table: string,
-  id: string,
-): Promise<{ error: string | null }> {
-  if (!isSupabaseConfigured) return { error: "إعدادات Supabase غير موجودة" };
-  const { error } = await supabase.from(table).delete().eq("id", id);
+export async function supabaseDelete(table: string, id: string): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured) return { error: 'إعدادات Supabase غير موجودة' };
+  const { error } = await supabase.from(table).delete().eq('id', id);
   if (error) {
     logSupabaseError(`${table} delete`, error);
     return { error: friendlySupabaseError(error.message) };
@@ -192,7 +176,7 @@ export async function logActivity(
   details: string,
   branch: string,
   extras?: Record<string, unknown> &
-    Partial<{ user_role: string; target_type: string; target_id: string }>,
+    Partial<{ user_role: string; target_type: string; target_id: string }>
 ) {
   await writeActivityLog({
     user_id: userId,
@@ -201,11 +185,8 @@ export async function logActivity(
     module,
     details: extras ? { summary: details, ...extras } : details,
     branch_name: branch,
-    user_role:
-      typeof extras?.user_role === "string" ? extras.user_role : undefined,
-    target_type:
-      typeof extras?.target_type === "string" ? extras.target_type : undefined,
-    target_id:
-      typeof extras?.target_id === "string" ? extras.target_id : undefined,
+    user_role: typeof extras?.user_role === 'string' ? extras.user_role : undefined,
+    target_type: typeof extras?.target_type === 'string' ? extras.target_type : undefined,
+    target_id: typeof extras?.target_id === 'string' ? extras.target_id : undefined,
   });
 }

@@ -1,6 +1,6 @@
-import { supabase } from "@/lib/supabase";
-import { logSupabaseError } from "@/lib/supabaseError";
-import { TABLES } from "@/lib/supabaseTables";
+import { supabase } from '@/lib/supabase';
+import { logSupabaseError } from '@/lib/supabaseError';
+import { TABLES } from '@/lib/supabaseTables';
 
 export interface StaffPayload {
   name: string;
@@ -42,8 +42,13 @@ function missingColumn(message: string) {
   );
 }
 
-function logSaveStaffError(error: { message?: string; details?: string; hint?: string; code?: string }) {
-  console.error("Supabase save staff error:", {
+function logSaveStaffError(error: {
+  message?: string;
+  details?: string;
+  hint?: string;
+  code?: string;
+}) {
+  console.error('Supabase save staff error:', {
     message: error.message,
     details: error.details,
     hint: error.hint,
@@ -66,30 +71,38 @@ async function insertFlexible<T extends Record<string, unknown>>(table: string, 
   return result;
 }
 
-async function updateFlexible<T extends Record<string, unknown>>(table: string, id: string, payload: T) {
+async function updateFlexible<T extends Record<string, unknown>>(
+  table: string,
+  id: string,
+  payload: T
+) {
   const next: Record<string, unknown> = { ...payload };
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const result = await supabase.from(table).update(next).eq("id", id).select().single();
+    const result = await supabase.from(table).update(next).eq('id', id).select().single();
     if (!result.error) return result;
     logSaveStaffError(result.error);
     const column = missingColumn(result.error.message);
     if (!column || !(column in next)) return result;
     delete next[column];
   }
-  const result = await supabase.from(table).update(next).eq("id", id).select().single();
+  const result = await supabase.from(table).update(next).eq('id', id).select().single();
   if (result.error) logSaveStaffError(result.error);
   return result;
 }
 
 export async function createStaff(payload: StaffPayload) {
   const result = await insertFlexible(TABLES.staff, payload as unknown as Record<string, unknown>);
-  if (result.error) logSupabaseError("create staff", result.error);
+  if (result.error) logSupabaseError('create staff', result.error);
   return result;
 }
 
 export async function updateStaff(id: string, payload: StaffPayload) {
-  const result = await updateFlexible(TABLES.staff, id, payload as unknown as Record<string, unknown>);
-  if (result.error) logSupabaseError("update staff", result.error);
+  const result = await updateFlexible(
+    TABLES.staff,
+    id,
+    payload as unknown as Record<string, unknown>
+  );
+  if (result.error) logSupabaseError('update staff', result.error);
   return result;
 }
 

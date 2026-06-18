@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -7,18 +7,18 @@ import {
   RefreshCw,
   Save,
   UserPlus,
-} from "lucide-react";
-import { toast } from "sonner";
-import { useAuth } from "@/hooks/useAuth";
-import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
+import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import {
   fetchShiftPerformanceStats,
   loadShiftMembers,
   saveShiftPerformanceReview,
-} from "@/lib/api/shiftPerformance";
-import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
-import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
+} from '@/lib/api/shiftPerformance';
+import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
+import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
 import {
   SHIFT_CONFIGS,
   SHIFT_ISSUES,
@@ -33,36 +33,36 @@ import {
   type ShiftReviewStatus,
   type ShiftType,
   type WorkloadPressure,
-} from "@/lib/shiftPerformance";
+} from '@/lib/shiftPerformance';
 
-const BRANCHES = ["فرع الشامي", "فرع شكري"];
+const BRANCHES = ['فرع الشامي', 'فرع شكري'];
 const PRESSURES: Array<{ value: WorkloadPressure; label: string }> = [
-  { value: "normal", label: "عادي" },
-  { value: "medium", label: "متوسط" },
-  { value: "high", label: "عالي" },
-  { value: "very_high", label: "عالي جدًا" },
+  { value: 'normal', label: 'عادي' },
+  { value: 'medium', label: 'متوسط' },
+  { value: 'high', label: 'عالي' },
+  { value: 'very_high', label: 'عالي جدًا' },
 ];
 const NEGLIGENCE: Array<{ value: NegligenceStatus; label: string }> = [
-  { value: "yes", label: "نعم" },
-  { value: "no", label: "لا" },
-  { value: "needs_review", label: "يحتاج مراجعة" },
+  { value: 'yes', label: 'نعم' },
+  { value: 'no', label: 'لا' },
+  { value: 'needs_review', label: 'يحتاج مراجعة' },
 ];
 const ACTIONS: Array<{ value: ShiftActionMode; label: string }> = [
-  { value: "training_only", label: "تدريب فقط بدون خصم" },
-  { value: "leader_only", label: "خصم مسؤول الشيفت فقط" },
-  { value: "leader_and_team", label: "خصم مسؤول الشيفت + باقي الفريق" },
-  { value: "custom", label: "خصم مخصص يدوي" },
+  { value: 'training_only', label: 'تدريب فقط بدون خصم' },
+  { value: 'leader_only', label: 'خصم مسؤول الشيفت فقط' },
+  { value: 'leader_and_team', label: 'خصم مسؤول الشيفت + باقي الفريق' },
+  { value: 'custom', label: 'خصم مخصص يدوي' },
 ];
 const SEVERITIES = [
-  { value: "low", label: "بسيطة" },
-  { value: "medium", label: "متوسطة" },
-  { value: "high", label: "كبيرة" },
-  { value: "critical", label: "حرجة" },
+  { value: 'low', label: 'بسيطة' },
+  { value: 'medium', label: 'متوسطة' },
+  { value: 'high', label: 'كبيرة' },
+  { value: 'critical', label: 'حرجة' },
 ] as const;
 const STATUSES: Array<{ value: ShiftReviewStatus; label: string }> = [
-  { value: "pending", label: "pending - يحتاج اعتماد" },
-  { value: "approved", label: "approved - معتمد" },
-  { value: "rejected", label: "rejected - مرفوض" },
+  { value: 'pending', label: 'pending - يحتاج اعتماد' },
+  { value: 'approved', label: 'approved - معتمد' },
+  { value: 'rejected', label: 'rejected - مرفوض' },
 ];
 
 interface Staff extends StaffChoice {
@@ -98,38 +98,33 @@ function memberKey(member: ShiftMemberDraft) {
 export default function ShiftPerformance() {
   const { user } = useAuth();
   const { data: staffRows = [] } = useSupabaseQuery<Staff>({
-    table: "staff",
+    table: 'staff',
     filters: isActiveStaffFilter(),
     realtimeEnabled: false,
   });
   const staffChoices = useMemo(() => mergeStaffChoices(staffRows), [staffRows]);
 
   const [reviewDate, setReviewDate] = useState(todayISO());
-  const [branch, setBranch] = useState("فرع الشامي");
-  const [shiftType, setShiftType] = useState<ShiftType>("morning");
+  const [branch, setBranch] = useState('فرع الشامي');
+  const [shiftType, setShiftType] = useState<ShiftType>('morning');
   const [shiftStart, setShiftStart] = useState(SHIFT_CONFIGS.morning.start);
   const [shiftEnd, setShiftEnd] = useState(SHIFT_CONFIGS.morning.end);
-  const [issueCategory, setIssueCategory] = useState("warehouse_invoices");
-  const [issueDescription, setIssueDescription] = useState("");
-  const [workloadPressure, setWorkloadPressure] =
-    useState<WorkloadPressure>("normal");
-  const [workloadNotes, setWorkloadNotes] = useState("");
-  const [negligence, setNegligence] =
-    useState<NegligenceStatus>("needs_review");
-  const [severity, setSeverity] = useState<
-    "low" | "medium" | "high" | "critical"
-  >("medium");
-  const [actionMode, setActionMode] =
-    useState<ShiftActionMode>("training_only");
-  const [status, setStatus] = useState<ShiftReviewStatus>("pending");
-  const [evidence, setEvidence] = useState("");
-  const [notes, setNotes] = useState("");
+  const [issueCategory, setIssueCategory] = useState('warehouse_invoices');
+  const [issueDescription, setIssueDescription] = useState('');
+  const [workloadPressure, setWorkloadPressure] = useState<WorkloadPressure>('normal');
+  const [workloadNotes, setWorkloadNotes] = useState('');
+  const [negligence, setNegligence] = useState<NegligenceStatus>('needs_review');
+  const [severity, setSeverity] = useState<'low' | 'medium' | 'high' | 'critical'>('medium');
+  const [actionMode, setActionMode] = useState<ShiftActionMode>('training_only');
+  const [status, setStatus] = useState<ShiftReviewStatus>('pending');
+  const [evidence, setEvidence] = useState('');
+  const [notes, setNotes] = useState('');
   const [members, setMembers] = useState<ShiftMemberDraft[]>([]);
-  const [leaderId, setLeaderId] = useState("");
-  const [memberMessage, setMemberMessage] = useState("");
+  const [leaderId, setLeaderId] = useState('');
+  const [memberMessage, setMemberMessage] = useState('');
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [manualStaffId, setManualStaffId] = useState("");
+  const [manualStaffId, setManualStaffId] = useState('');
   const [reviews, setReviews] = useState<ShiftReviewRow[]>([]);
   const [reviewsError, setReviewsError] = useState<string | null>(null);
 
@@ -145,13 +140,7 @@ export default function ShiftPerformance() {
 
   useEffect(() => {
     setMembers((current) =>
-      buildShiftMembersWithPoints(
-        current,
-        leaderId,
-        actionMode,
-        workloadPressure,
-        negligence,
-      ),
+      buildShiftMembersWithPoints(current, leaderId, actionMode, workloadPressure, negligence)
     );
   }, [leaderId, actionMode, workloadPressure, negligence]);
 
@@ -182,19 +171,16 @@ export default function ShiftPerformance() {
           leaderId,
           actionMode,
           workloadPressure,
-          negligence,
-        ),
+          negligence
+        )
       );
       if (!result.members.length) {
-        toast.info(
-          "لم يتم العثور على أعضاء تلقائيًا، اخترهم يدويًا من القائمة.",
-        );
+        toast.info('لم يتم العثور على أعضاء تلقائيًا، اخترهم يدويًا من القائمة.');
       } else {
         toast.success(result.message);
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "تعذر تحديد أعضاء الشيفت.";
+      const message = error instanceof Error ? error.message : 'تعذر تحديد أعضاء الشيفت.';
       setMemberMessage(message);
       toast.error(message);
     } finally {
@@ -206,7 +192,7 @@ export default function ShiftPerformance() {
     const staff = staffChoices.find((item) => item.id === manualStaffId);
     if (!staff) return;
     if (members.some((member) => member.staff_id === staff.id)) {
-      toast.info("الموظف موجود بالفعل في قائمة الشيفت.");
+      toast.info('الموظف موجود بالفعل في قائمة الشيفت.');
       return;
     }
     const next: ShiftMemberDraft = {
@@ -231,31 +217,29 @@ export default function ShiftPerformance() {
         leaderId,
         actionMode,
         workloadPressure,
-        negligence,
-      ),
+        negligence
+      )
     );
-    setManualStaffId("");
+    setManualStaffId('');
   }
 
   function updateMember(id: string, patch: Partial<ShiftMemberDraft>) {
     setMembers((current) =>
-      current.map((member) =>
-        member.staff_id === id ? { ...member, ...patch } : member,
-      ),
+      current.map((member) => (member.staff_id === id ? { ...member, ...patch } : member))
     );
   }
 
   async function handleSave() {
     if (!issueDescription.trim()) {
-      toast.error("اكتب وصف المشكلة قبل الحفظ.");
+      toast.error('اكتب وصف المشكلة قبل الحفظ.');
       return;
     }
     if (!members.length) {
-      toast.error("اختر أعضاء الشيفت أولًا.");
+      toast.error('اختر أعضاء الشيفت أولًا.');
       return;
     }
-    if (actionMode !== "training_only" && !leaderId) {
-      toast.error("حدد مسؤول الشيفت قبل تطبيق أي خصم.");
+    if (actionMode !== 'training_only' && !leaderId) {
+      toast.error('حدد مسؤول الشيفت قبل تطبيق أي خصم.');
       return;
     }
 
@@ -266,7 +250,7 @@ export default function ShiftPerformance() {
         leaderId,
         actionMode,
         workloadPressure,
-        negligence,
+        negligence
       );
       const result = await saveShiftPerformanceReview({
         review_date: reviewDate,
@@ -283,9 +267,9 @@ export default function ShiftPerformance() {
         action_mode: actionMode,
         status,
         reviewed_by: user?.id ?? null,
-        reviewed_by_name: user?.name || "المدير",
-        approved_by: status === "approved" ? (user?.id ?? null) : null,
-        approved_by_name: status === "approved" ? user?.name || "المدير" : null,
+        reviewed_by_name: user?.name || 'المدير',
+        approved_by: status === 'approved' ? (user?.id ?? null) : null,
+        approved_by_name: status === 'approved' ? user?.name || 'المدير' : null,
         evidence: evidence.trim() || null,
         notes: notes.trim() || null,
         members: finalMembers,
@@ -297,15 +281,15 @@ export default function ShiftPerformance() {
       }
 
       toast.success(
-        status === "approved"
-          ? "تم حفظ تقييم الشيفت وتحديث سجلات النقاط."
-          : "تم حفظ تقييم الشيفت كحالة تحتاج اعتماد.",
+        status === 'approved'
+          ? 'تم حفظ تقييم الشيفت وتحديث سجلات النقاط.'
+          : 'تم حفظ تقييم الشيفت كحالة تحتاج اعتماد.'
       );
-      setIssueDescription("");
-      setEvidence("");
-      setNotes("");
+      setIssueDescription('');
+      setEvidence('');
+      setNotes('');
       setMembers([]);
-      setLeaderId("");
+      setLeaderId('');
       await loadStats();
     } finally {
       setSaving(false);
@@ -317,9 +301,7 @@ export default function ShiftPerformance() {
     const start = cycle.start.getTime();
     const end = cycle.end.getTime();
     return reviews.filter((review) => {
-      const time = new Date(
-        `${review.review_date || review.created_at}T12:00:00`,
-      ).getTime();
+      const time = new Date(`${review.review_date || review.created_at}T12:00:00`).getTime();
       return time >= start && time <= end;
     });
   }, [reviews, cycle.start, cycle.end]);
@@ -332,15 +314,9 @@ export default function ShiftPerformance() {
 
     for (const review of cycleReviews) {
       byShift.set(review.shift_type, (byShift.get(review.shift_type) || 0) + 1);
-      byIssue.set(
-        review.issue_category,
-        (byIssue.get(review.issue_category) || 0) + 1,
-      );
+      byIssue.set(review.issue_category, (byIssue.get(review.issue_category) || 0) + 1);
       totalPoints += Number(review.total_points || 0);
-      if (
-        review.workload_pressure === "high" ||
-        review.workload_pressure === "very_high"
-      )
+      if (review.workload_pressure === 'high' || review.workload_pressure === 'very_high')
         protectedCases++;
     }
 
@@ -348,8 +324,8 @@ export default function ShiftPerformance() {
     const topIssue = [...byIssue.entries()].sort((a, b) => b[1] - a[1])[0];
     return {
       count: cycleReviews.length,
-      topShift: topShift ? shiftLabel(topShift[0]) : "لا يوجد",
-      topIssue: topIssue ? issueLabel(topIssue[0]) : "لا يوجد",
+      topShift: topShift ? shiftLabel(topShift[0]) : 'لا يوجد',
+      topIssue: topIssue ? issueLabel(topIssue[0]) : 'لا يوجد',
       totalPoints,
       protectedCases,
     };
@@ -358,7 +334,7 @@ export default function ShiftPerformance() {
   const selectedMembers = members.filter((member) => member.was_present);
   const totalSuggestedPoints = selectedMembers.reduce(
     (sum, member) => sum + Math.abs(Number(member.assigned_points || 0)),
-    0,
+    0
   );
   const protectedByPressure = shouldProtectFromAutoDeduction(workloadPressure);
 
@@ -371,16 +347,15 @@ export default function ShiftPerformance() {
         <div>
           <h1 className="text-2xl font-bold text-white">تقييم أداء الشيفتات</h1>
           <p className="text-slate-400 text-sm mt-1">
-            تقييم الشيفتات هدفه تحسين توزيع المهام وتسليم الشغل بين الفريق، مع
-            مراعاة ضغط العمل الحقيقي قبل تطبيق أي خصم.
+            تقييم الشيفتات هدفه تحسين توزيع المهام وتسليم الشغل بين الفريق، مع مراعاة ضغط العمل
+            الحقيقي قبل تطبيق أي خصم.
           </p>
         </div>
       </div>
 
       {reviewsError && (
         <div className="stat-card border border-amber-500/25 text-amber-100 text-sm">
-          جدول تقييم الشيفتات غير جاهز أو يحتاج migration. ستجد ملف SQL جاهز ضمن
-          التقرير النهائي.
+          جدول تقييم الشيفتات غير جاهز أو يحتاج migration. ستجد ملف SQL جاهز ضمن التقرير النهائي.
         </div>
       )}
 
@@ -388,11 +363,7 @@ export default function ShiftPerformance() {
         <Metric title="تقييمات الدورة" value={reviewStats.count} />
         <Metric title="أكثر شيفت عليه ملاحظات" value={reviewStats.topShift} />
         <Metric title="أكثر سبب تكرارًا" value={reviewStats.topIssue} />
-        <Metric
-          title="إجمالي خصومات الشيفتات"
-          value={reviewStats.totalPoints}
-          danger
-        />
+        <Metric title="إجمالي خصومات الشيفتات" value={reviewStats.totalPoints} danger />
         <Metric title="ضغط شغل بدون خصم" value={reviewStats.protectedCases} />
       </div>
 
@@ -426,9 +397,7 @@ export default function ShiftPerformance() {
             نوع الشيفت
             <select
               value={shiftType}
-              onChange={(event) =>
-                setShiftType(event.target.value as ShiftType)
-              }
+              onChange={(event) => setShiftType(event.target.value as ShiftType)}
               className="input-dark"
             >
               {Object.values(SHIFT_CONFIGS).map((item) => (
@@ -442,9 +411,7 @@ export default function ShiftPerformance() {
             الحالة
             <select
               value={status}
-              onChange={(event) =>
-                setStatus(event.target.value as ShiftReviewStatus)
-              }
+              onChange={(event) => setStatus(event.target.value as ShiftReviewStatus)}
               className="input-dark"
             >
               {STATUSES.map((item) => (
@@ -507,9 +474,7 @@ export default function ShiftPerformance() {
             مستوى الضغط
             <select
               value={workloadPressure}
-              onChange={(event) =>
-                setWorkloadPressure(event.target.value as WorkloadPressure)
-              }
+              onChange={(event) => setWorkloadPressure(event.target.value as WorkloadPressure)}
               className="input-dark"
             >
               {PRESSURES.map((item) => (
@@ -523,9 +488,7 @@ export default function ShiftPerformance() {
             هل المشكلة بسبب تكاسل أو إهمال؟
             <select
               value={negligence}
-              onChange={(event) =>
-                setNegligence(event.target.value as NegligenceStatus)
-              }
+              onChange={(event) => setNegligence(event.target.value as NegligenceStatus)}
               className="input-dark"
             >
               {NEGLIGENCE.map((item) => (
@@ -539,9 +502,7 @@ export default function ShiftPerformance() {
             مستوى المشكلة
             <select
               value={severity}
-              onChange={(event) =>
-                setSeverity(event.target.value as typeof severity)
-              }
+              onChange={(event) => setSeverity(event.target.value as typeof severity)}
               className="input-dark"
             >
               {SEVERITIES.map((item) => (
@@ -555,9 +516,7 @@ export default function ShiftPerformance() {
             نوع الإجراء
             <select
               value={actionMode}
-              onChange={(event) =>
-                setActionMode(event.target.value as ShiftActionMode)
-              }
+              onChange={(event) => setActionMode(event.target.value as ShiftActionMode)}
               className="input-dark"
             >
               {ACTIONS.map((item) => (
@@ -573,8 +532,8 @@ export default function ShiftPerformance() {
           <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-amber-100 text-sm flex gap-3">
             <AlertTriangle size={20} className="mt-0.5 flex-shrink-0" />
             <div>
-              يوجد ضغط عمل مرتفع، يفضل مراجعة الموقف قبل تطبيق الخصم. الإجراء
-              الافتراضي هنا تدريب فقط أو انتظار اعتماد المدير العام.
+              يوجد ضغط عمل مرتفع، يفضل مراجعة الموقف قبل تطبيق الخصم. الإجراء الافتراضي هنا تدريب
+              فقط أو انتظار اعتماد المدير العام.
             </div>
           </div>
         )}
@@ -622,11 +581,7 @@ export default function ShiftPerformance() {
           >
             <option value="">إضافة موظف يدويًا عند نقص بيانات الجدول</option>
             {staffChoices
-              .filter(
-                (staff) =>
-                  normalizeBranchName(staff.branch) ===
-                  normalizeBranchName(branch),
-              )
+              .filter((staff) => normalizeBranchName(staff.branch) === normalizeBranchName(branch))
               .map((staff) => (
                 <option key={staff.id} value={staff.id}>
                   {staff.name} - {staff.role}
@@ -676,14 +631,11 @@ export default function ShiftPerformance() {
                         }
                       />
                     </td>
-                    <td className="font-bold text-white">
-                      {member.staff_name}
-                    </td>
+                    <td className="font-bold text-white">{member.staff_name}</td>
                     <td>{member.staff_role}</td>
                     <td>
                       <span className="num">
-                        {member.shift_start || shiftStart} -{" "}
-                        {member.shift_end || shiftEnd}
+                        {member.shift_start || shiftStart} - {member.shift_end || shiftEnd}
                       </span>
                     </td>
                     <td>
@@ -708,7 +660,7 @@ export default function ShiftPerformance() {
                         type="number"
                         min={0}
                         value={member.assigned_points}
-                        disabled={actionMode !== "custom"}
+                        disabled={actionMode !== 'custom'}
                         onChange={(event) =>
                           updateMember(member.staff_id, {
                             assigned_points: Number(event.target.value),
@@ -720,7 +672,7 @@ export default function ShiftPerformance() {
                     </td>
                     <td>
                       <input
-                        value={member.notes || ""}
+                        value={member.notes || ''}
                         onChange={(event) =>
                           updateMember(member.staff_id, {
                             notes: event.target.value,
@@ -744,22 +696,12 @@ export default function ShiftPerformance() {
           <Metric title="أعضاء الشيفت" value={selectedMembers.length} />
           <Metric
             title="مسؤول الشيفت"
-            value={
-              members.find((member) => member.staff_id === leaderId)
-                ?.staff_name || "غير محدد"
-            }
+            value={members.find((member) => member.staff_id === leaderId)?.staff_name || 'غير محدد'}
           />
-          <Metric
-            title="إجمالي الخصم المقترح"
-            value={totalSuggestedPoints}
-            danger
-          />
+          <Metric title="إجمالي الخصم المقترح" value={totalSuggestedPoints} danger />
           <Metric
             title="الإجراء"
-            value={
-              ACTIONS.find((item) => item.value === actionMode)?.label ||
-              actionMode
-            }
+            value={ACTIONS.find((item) => item.value === actionMode)?.label || actionMode}
           />
         </div>
 
@@ -792,7 +734,7 @@ export default function ShiftPerformance() {
         >
           {saving ? (
             <Loader2 size={18} className="animate-spin" />
-          ) : status === "approved" ? (
+          ) : status === 'approved' ? (
             <CheckCircle2 size={18} />
           ) : (
             <Save size={18} />
@@ -829,17 +771,14 @@ export default function ShiftPerformance() {
                     <td>{shiftLabel(review.shift_type)}</td>
                     <td>{issueLabel(review.issue_category)}</td>
                     <td>
-                      {PRESSURES.find(
-                        (item) => item.value === review.workload_pressure,
-                      )?.label || review.workload_pressure}
+                      {PRESSURES.find((item) => item.value === review.workload_pressure)?.label ||
+                        review.workload_pressure}
                     </td>
-                    <td className="text-red-300 font-bold">
-                      {Number(review.total_points || 0)}
-                    </td>
+                    <td className="text-red-300 font-bold">{Number(review.total_points || 0)}</td>
                     <td>
-                      {review.status === "approved" ? (
+                      {review.status === 'approved' ? (
                         <span className="badge-success">معتمد</span>
-                      ) : review.status === "rejected" ? (
+                      ) : review.status === 'rejected' ? (
                         <span className="badge-danger">مرفوض</span>
                       ) : (
                         <span className="badge-warning">يحتاج اعتماد</span>
@@ -867,9 +806,7 @@ function Metric({
 }) {
   return (
     <div className="stat-card text-center">
-      <div
-        className={`text-2xl font-bold ${danger ? "text-red-400" : "text-teal-400"}`}
-      >
+      <div className={`text-2xl font-bold ${danger ? 'text-red-400' : 'text-teal-400'}`}>
         {value}
       </div>
       <div className="text-slate-400 text-sm mt-1">{title}</div>

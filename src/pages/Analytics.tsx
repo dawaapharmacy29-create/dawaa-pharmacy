@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -9,23 +9,32 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from "recharts";
-import { AlertTriangle, CalendarDays, RefreshCw, Save, Stethoscope, Store, TrendingUp, Users } from "lucide-react";
-import { toast } from "sonner";
-import { Link } from "react-router-dom";
-import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
-import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
-import { supabase } from "@/lib/supabase";
-import { formatCurrency } from "@/lib/utils";
-import { normalizeBranchName } from "@/lib/branch";
-import { formatCycleDate, getCurrentCycle, getPreviousCycle } from "@/lib/pharmacy-cycle";
+} from 'recharts';
+import {
+  AlertTriangle,
+  CalendarDays,
+  RefreshCw,
+  Save,
+  Stethoscope,
+  Store,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
+import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
+import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
+import { supabase } from '@/lib/supabase';
+import { formatCurrency } from '@/lib/utils';
+import { normalizeBranchName } from '@/lib/branch';
+import { formatCycleDate, getCurrentCycle, getPreviousCycle } from '@/lib/pharmacy-cycle';
 import {
   clearSalesAnalyticsSummaryCache,
   loadSalesAnalyticsSummary,
   type SalesAnalyticsSummary,
-} from "@/lib/salesAnalyticsSummaryService";
+} from '@/lib/salesAnalyticsSummaryService';
 
-type PeriodType = "cycle" | "previous_cycle" | "month" | "last_30_days" | "custom";
+type PeriodType = 'cycle' | 'previous_cycle' | 'month' | 'last_30_days' | 'custom';
 
 interface BranchTargetRow {
   id?: string;
@@ -35,15 +44,15 @@ interface BranchTargetRow {
   active?: boolean;
 }
 
-const ALL_FILTER = "الكل";
+const ALL_FILTER = 'الكل';
 
 function formatNumber(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "غير متاح";
-  return Number(value).toLocaleString("ar-EG", { maximumFractionDigits: 0 });
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return 'غير متاح';
+  return Number(value).toLocaleString('ar-EG', { maximumFractionDigits: 0 });
 }
 
 function formatMoney(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "غير متاح";
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return 'غير متاح';
   return formatCurrency(Number(value));
 }
 
@@ -64,7 +73,7 @@ export default function Analytics() {
   const previousCycle = getPreviousCycle();
   const [periodStart, setPeriodStart] = useState(() => formatCycleDate(cycle.start));
   const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(cycle.end));
-  const [periodType, setPeriodType] = useState<PeriodType>("cycle");
+  const [periodType, setPeriodType] = useState<PeriodType>('cycle');
   const [selectedBranch, setSelectedBranch] = useState(ALL_FILTER);
   const [selectedDoctor, setSelectedDoctor] = useState(ALL_FILTER);
   const [data, setData] = useState<SalesAnalyticsSummary | null>(null);
@@ -73,56 +82,68 @@ export default function Analytics() {
   const requestIdRef = useRef(0);
 
   const { data: branchTargets, refetch: refetchTargets } = useSupabaseQuery<BranchTargetRow>({
-    table: "branch_sales_targets",
+    table: 'branch_sales_targets',
     limit: 100,
     realtimeEnabled: false,
   });
 
-  const load = useCallback(async (forceRefresh = false) => {
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-    setLoading(true);
-    setError(null);
-    try {
-      if (forceRefresh) clearSalesAnalyticsSummaryCache();
-      const result = await loadSalesAnalyticsSummary({
-        startDate: periodStart,
-        endDate: periodEnd,
-        branch: selectedBranch,
-        doctor: selectedDoctor,
-      }, forceRefresh);
-      if (requestIdRef.current !== requestId) return;
-      setData(result);
-    } catch (err) {
-      if (requestIdRef.current !== requestId) return;
-      setError(err instanceof Error ? err.message : "تعذر تحميل التحليلات");
-      setData(null);
-    } finally {
-      if (requestIdRef.current === requestId) setLoading(false);
-    }
-  }, [periodEnd, periodStart, selectedBranch, selectedDoctor]);
+  const load = useCallback(
+    async (forceRefresh = false) => {
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
+      setLoading(true);
+      setError(null);
+      try {
+        if (forceRefresh) clearSalesAnalyticsSummaryCache();
+        const result = await loadSalesAnalyticsSummary(
+          {
+            startDate: periodStart,
+            endDate: periodEnd,
+            branch: selectedBranch,
+            doctor: selectedDoctor,
+          },
+          forceRefresh
+        );
+        if (requestIdRef.current !== requestId) return;
+        setData(result);
+      } catch (err) {
+        if (requestIdRef.current !== requestId) return;
+        setError(err instanceof Error ? err.message : 'تعذر تحميل التحليلات');
+        setData(null);
+      } finally {
+        if (requestIdRef.current === requestId) setLoading(false);
+      }
+    },
+    [periodEnd, periodStart, selectedBranch, selectedDoctor]
+  );
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void load(false), 250);
     return () => window.clearTimeout(timeout);
   }, [load]);
 
-  const branches = useMemo(() => data?.branchRows.map((row) => row.branch).filter(Boolean) || [], [data]);
-  const doctors = useMemo(() => data?.doctorRows.map((row) => row.doctor).filter(Boolean) || [], [data]);
+  const branches = useMemo(
+    () => data?.branchRows.map((row) => row.branch).filter(Boolean) || [],
+    [data]
+  );
+  const doctors = useMemo(
+    () => data?.doctorRows.map((row) => row.doctor).filter(Boolean) || [],
+    [data]
+  );
 
   const applyPeriod = (type: PeriodType) => {
     setPeriodType(type);
-    if (type === "cycle") {
+    if (type === 'cycle') {
       setPeriodStart(formatCycleDate(cycle.start));
       setPeriodEnd(formatCycleDate(cycle.end));
-    } else if (type === "previous_cycle") {
+    } else if (type === 'previous_cycle') {
       setPeriodStart(formatCycleDate(previousCycle.start));
       setPeriodEnd(formatCycleDate(previousCycle.end));
-    } else if (type === "month") {
+    } else if (type === 'month') {
       const now = new Date();
       setPeriodStart(formatCycleDate(new Date(now.getFullYear(), now.getMonth(), 1)));
       setPeriodEnd(formatCycleDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)));
-    } else if (type === "last_30_days") {
+    } else if (type === 'last_30_days') {
       const now = new Date();
       setPeriodEnd(formatCycleDate(now));
       setPeriodStart(formatCycleDate(new Date(now.getTime() - 30 * 86400000)));
@@ -130,7 +151,9 @@ export default function Analytics() {
   };
 
   const targetRows = useMemo(() => {
-    const byBranch = new Map((branchTargets || []).map((target) => [normalizeBranchName(target.branch_name), target]));
+    const byBranch = new Map(
+      (branchTargets || []).map((target) => [normalizeBranchName(target.branch_name), target])
+    );
     return (data?.branchRows || []).map((row) => {
       const target = byBranch.get(normalizeBranchName(row.branch));
       const targetAmount = Number(target?.target_amount || 0);
@@ -143,24 +166,42 @@ export default function Analytics() {
     });
   }, [branchTargets, data?.branchRows]);
 
-  const saveBranchTarget = async (row: { branch: string; targetId?: string; targetAmount: number }) => {
-    const payload = { branch_name: row.branch, target_amount: row.targetAmount, cycle_start_day: 26, active: true, updated_at: new Date().toISOString() };
+  const saveBranchTarget = async (row: {
+    branch: string;
+    targetId?: string;
+    targetAmount: number;
+  }) => {
+    const payload = {
+      branch_name: row.branch,
+      target_amount: row.targetAmount,
+      cycle_start_day: 26,
+      active: true,
+      updated_at: new Date().toISOString(),
+    };
     const query = row.targetId
-      ? supabase.from("branch_sales_targets").update(payload).eq("id", row.targetId)
-      : supabase.from("branch_sales_targets").insert(payload);
+      ? supabase.from('branch_sales_targets').update(payload).eq('id', row.targetId)
+      : supabase.from('branch_sales_targets').insert(payload);
     const { error } = await query;
     if (error) {
-      toast.error("تعذر حفظ تارجت الفرع");
+      toast.error('تعذر حفظ تارجت الفرع');
       return;
     }
     await refetchTargets();
-    await logActivity(getSafeCurrentUserId(), user?.name || "النظام", "تحديث تارجت فرع", "التحليلات", `تحديث تارجت ${row.branch}`, row.branch, {
-      route_path: "/analytics",
-      target_type: "branch_sales_targets",
-      target_id: row.targetId,
-      new_value: payload,
-    });
-    toast.success("تم حفظ التارجت");
+    await logActivity(
+      getSafeCurrentUserId(),
+      user?.name || 'النظام',
+      'تحديث تارجت فرع',
+      'التحليلات',
+      `تحديث تارجت ${row.branch}`,
+      row.branch,
+      {
+        route_path: '/analytics',
+        target_type: 'branch_sales_targets',
+        target_id: row.targetId,
+        new_value: payload,
+      }
+    );
+    toast.success('تم حفظ التارجت');
   };
 
   return (
@@ -178,7 +219,7 @@ export default function Analytics() {
             onClick={() => void load(true)}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-bold text-teal-700 hover:bg-teal-100"
           >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             تحديث التحليلات
           </button>
         </div>
@@ -187,7 +228,11 @@ export default function Analytics() {
       <div className="rounded-2xl border border-[#E5EAF0] bg-white p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-5">
           <Filter label="نوع الفترة">
-            <select className="dawaa-input" value={periodType} onChange={(event) => applyPeriod(event.target.value as PeriodType)}>
+            <select
+              className="dawaa-input"
+              value={periodType}
+              onChange={(event) => applyPeriod(event.target.value as PeriodType)}
+            >
               <option value="cycle">الدورة الحالية</option>
               <option value="previous_cycle">الدورة السابقة</option>
               <option value="month">هذا الشهر</option>
@@ -196,45 +241,105 @@ export default function Analytics() {
             </select>
           </Filter>
           <Filter label="بداية الفترة">
-            <input className="dawaa-input" type="date" value={periodStart} onChange={(event) => { setPeriodStart(event.target.value); setPeriodType("custom"); }} />
+            <input
+              className="dawaa-input"
+              type="date"
+              value={periodStart}
+              onChange={(event) => {
+                setPeriodStart(event.target.value);
+                setPeriodType('custom');
+              }}
+            />
           </Filter>
           <Filter label="نهاية الفترة">
-            <input className="dawaa-input" type="date" value={periodEnd} onChange={(event) => { setPeriodEnd(event.target.value); setPeriodType("custom"); }} />
+            <input
+              className="dawaa-input"
+              type="date"
+              value={periodEnd}
+              onChange={(event) => {
+                setPeriodEnd(event.target.value);
+                setPeriodType('custom');
+              }}
+            />
           </Filter>
           <Filter label="الفرع">
-            <select className="dawaa-input" value={selectedBranch} onChange={(event) => setSelectedBranch(event.target.value)}>
+            <select
+              className="dawaa-input"
+              value={selectedBranch}
+              onChange={(event) => setSelectedBranch(event.target.value)}
+            >
               <option>{ALL_FILTER}</option>
-              {branches.map((branch) => <option key={branch}>{branch}</option>)}
+              {branches.map((branch) => (
+                <option key={branch}>{branch}</option>
+              ))}
             </select>
           </Filter>
           <Filter label="الدكتور">
-            <select className="dawaa-input" value={selectedDoctor} onChange={(event) => setSelectedDoctor(event.target.value)}>
+            <select
+              className="dawaa-input"
+              value={selectedDoctor}
+              onChange={(event) => setSelectedDoctor(event.target.value)}
+            >
               <option>{ALL_FILTER}</option>
-              {doctors.map((doctor) => <option key={doctor}>{doctor}</option>)}
+              {doctors.map((doctor) => (
+                <option key={doctor}>{doctor}</option>
+              ))}
             </select>
           </Filter>
         </div>
       </div>
 
-      {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div>}
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+          {error}
+        </div>
+      )}
 
       <OperationsV13Panel />
 
       {loading ? (
         <div className="grid gap-3 md:grid-cols-4">
-          {[1, 2, 3, 4].map((item) => <div key={item} className="h-28 animate-pulse rounded-2xl bg-white shadow-sm" />)}
+          {[1, 2, 3, 4].map((item) => (
+            <div key={item} className="h-28 animate-pulse rounded-2xl bg-white shadow-sm" />
+          ))}
         </div>
       ) : (
         <>
           <div className="grid gap-3 md:grid-cols-4">
-            <Kpi icon={TrendingUp} label="صافي المبيعات" value={formatMoney(data?.kpis.netSales)} hint="sales_daily_summary" />
-            <Kpi icon={CalendarDays} label="عدد الفواتير" value={formatNumber(data?.kpis.invoicesCount)} hint="sales_daily_summary" />
-            <Kpi icon={Store} label="متوسط الفاتورة" value={formatMoney(data?.kpis.avgInvoice)} hint="net / invoices" />
-            <Kpi icon={Users} label="العملاء المشترين" value={formatNumber(data?.kpis.uniqueCustomers)} hint="summary customers" />
+            <Kpi
+              icon={TrendingUp}
+              label="صافي المبيعات"
+              value={formatMoney(data?.kpis.netSales)}
+              hint="sales_daily_summary"
+            />
+            <Kpi
+              icon={CalendarDays}
+              label="عدد الفواتير"
+              value={formatNumber(data?.kpis.invoicesCount)}
+              hint="sales_daily_summary"
+            />
+            <Kpi
+              icon={Store}
+              label="متوسط الفاتورة"
+              value={formatMoney(data?.kpis.avgInvoice)}
+              hint="net / invoices"
+            />
+            <Kpi
+              icon={Users}
+              label="العملاء المشترين"
+              value={formatNumber(data?.kpis.uniqueCustomers)}
+              hint="summary customers"
+            />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">
-            <ChartCard title={periodDays(periodStart, periodEnd) > 45 ? "تطور المبيعات حسب الفترة" : "تطور المبيعات اليومي"}>
+            <ChartCard
+              title={
+                periodDays(periodStart, periodEnd) > 45
+                  ? 'تطور المبيعات حسب الفترة'
+                  : 'تطور المبيعات اليومي'
+              }
+            >
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={data?.dailyTrend || []}>
                   <CartesianGrid stroke="#E5EAF0" vertical={false} />
@@ -261,25 +366,45 @@ export default function Analytics() {
                 {(data?.doctorRows || []).slice(0, 8).map((row, index) => {
                   const body = (
                     <>
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-bold text-slate-900">{index + 1}. {row.doctor}</div>
-                        <div className="text-xs text-slate-500">{row.branch || "غير محدد"} - {formatNumber(row.invoicesCount)} فاتورة</div>
-                        {row.duplicateWarning && <div className="mt-1 text-[11px] font-bold text-amber-600">{row.duplicateWarning}</div>}
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-bold text-slate-900">
+                            {index + 1}. {row.doctor}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {row.branch || 'غير محدد'} - {formatNumber(row.invoicesCount)} فاتورة
+                          </div>
+                          {row.duplicateWarning && (
+                            <div className="mt-1 text-[11px] font-bold text-amber-600">
+                              {row.duplicateWarning}
+                            </div>
+                          )}
+                        </div>
+                        <div className="font-black text-teal-700">{formatMoney(row.netSales)}</div>
                       </div>
-                      <div className="font-black text-teal-700">{formatMoney(row.netSales)}</div>
-                    </div>
-                    <div className="mt-2 h-2 rounded-full bg-slate-100">
-                      <div className="h-2 rounded-full bg-teal-500" style={{ width: `${Math.min(100, (row.netSales / Math.max(1, data?.doctorRows?.[0]?.netSales || 1)) * 100)}%` }} />
-                    </div>
+                      <div className="mt-2 h-2 rounded-full bg-slate-100">
+                        <div
+                          className="h-2 rounded-full bg-teal-500"
+                          style={{
+                            width: `${Math.min(100, (row.netSales / Math.max(1, data?.doctorRows?.[0]?.netSales || 1)) * 100)}%`,
+                          }}
+                        />
+                      </div>
                     </>
                   );
                   return row.staffId ? (
-                    <Link key={`${row.staffId}-${row.branch}-${index}`} to={`/staff/${row.staffId}`} className="block rounded-xl border border-slate-100 p-3 transition hover:border-teal-200 hover:bg-teal-50/40">
+                    <Link
+                      key={`${row.staffId}-${row.branch}-${index}`}
+                      to={`/staff/${row.staffId}`}
+                      className="block rounded-xl border border-slate-100 p-3 transition hover:border-teal-200 hover:bg-teal-50/40"
+                    >
                       {body}
                     </Link>
                   ) : (
-                    <div key={`${row.doctor}-${row.branch}-${index}`} className="rounded-xl border border-slate-100 p-3">
+                    <div
+                      key={`${row.doctor}-${row.branch}-${index}`}
+                      className="rounded-xl border border-slate-100 p-3"
+                    >
                       {body}
                     </div>
                   );
@@ -297,8 +422,14 @@ export default function Analytics() {
               <Mini label="بدون رقم صحيح" value={formatNumber(data?.customerCards.invalidPhone)} />
             </Panel>
             <Panel title="صحة بيانات الفواتير">
-              <Mini label="بدون كود عميل" value={formatNumber(data?.dataHealth.invoicesWithoutCustomer)} />
-              <Mini label="بدون دكتور" value={formatNumber(data?.dataHealth.invoicesWithoutDoctor)} />
+              <Mini
+                label="بدون كود عميل"
+                value={formatNumber(data?.dataHealth.invoicesWithoutCustomer)}
+              />
+              <Mini
+                label="بدون دكتور"
+                value={formatNumber(data?.dataHealth.invoicesWithoutDoctor)}
+              />
               <Mini label="بدون فرع" value={formatNumber(data?.dataHealth.invoicesWithoutBranch)} />
             </Panel>
             <Panel title="تارجت الفروع">
@@ -307,11 +438,19 @@ export default function Analytics() {
                   <button
                     key={row.branch}
                     type="button"
-                    onClick={() => void saveBranchTarget({ branch: row.branch, targetId: row.targetId, targetAmount: row.targetAmount })}
+                    onClick={() =>
+                      void saveBranchTarget({
+                        branch: row.branch,
+                        targetId: row.targetId,
+                        targetAmount: row.targetAmount,
+                      })
+                    }
                     className="flex w-full items-center justify-between rounded-xl border border-slate-100 p-3 text-right hover:border-teal-200"
                   >
                     <span className="font-bold text-slate-800">{row.branch}</span>
-                    <span className="text-sm text-slate-500">{row.percent === null ? "لم يتم ضبط هدف" : `${row.percent}%`}</span>
+                    <span className="text-sm text-slate-500">
+                      {row.percent === null ? 'لم يتم ضبط هدف' : `${row.percent}%`}
+                    </span>
                   </button>
                 ))}
                 {!targetRows.length && <Empty text="لا توجد فروع في الملخص الحالي" />}
@@ -320,13 +459,23 @@ export default function Analytics() {
           </div>
 
           <details className="rounded-2xl border border-[#E5EAF0] bg-white p-4 shadow-sm">
-            <summary className="cursor-pointer text-sm font-black text-slate-900">فحص مصادر التحليلات</summary>
+            <summary className="cursor-pointer text-sm font-black text-slate-900">
+              فحص مصادر التحليلات
+            </summary>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               {(data?.sourceHealth || []).map((source) => (
                 <div key={source.source} className="rounded-xl border border-slate-100 p-3 text-sm">
                   <div className="font-bold text-slate-900">{source.source}</div>
-                  <div className="text-slate-500">{source.status === "ready" ? "متصل" : source.status === "empty" ? "لا توجد بيانات" : "خطأ في المصدر"}</div>
-                  {source.message && <div className="mt-1 text-xs text-red-600">{source.message}</div>}
+                  <div className="text-slate-500">
+                    {source.status === 'ready'
+                      ? 'متصل'
+                      : source.status === 'empty'
+                        ? 'لا توجد بيانات'
+                        : 'خطأ في المصدر'}
+                  </div>
+                  {source.message && (
+                    <div className="mt-1 text-xs text-red-600">{source.message}</div>
+                  )}
                 </div>
               ))}
             </div>
@@ -346,11 +495,23 @@ function Filter({ label, children }: { label: string; children: React.ReactNode 
   );
 }
 
-function Kpi({ icon: Icon, label, value, hint }: { icon: typeof Save; label: string; value: string; hint: string }) {
+function Kpi({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: typeof Save;
+  label: string;
+  value: string;
+  hint: string;
+}) {
   return (
     <div className="rounded-2xl border border-[#E5EAF0] bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
-        <div className="rounded-xl bg-teal-50 p-2 text-teal-600"><Icon size={18} /></div>
+        <div className="rounded-xl bg-teal-50 p-2 text-teal-600">
+          <Icon size={18} />
+        </div>
         <span className="text-xs text-slate-400">{hint}</span>
       </div>
       <div className="mt-4 text-2xl font-black text-slate-900">{value}</div>
@@ -387,9 +548,12 @@ function Mini({ label, value }: { label: string; value: string }) {
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500">{text}</div>;
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500">
+      {text}
+    </div>
+  );
 }
-
 
 type V13CustomerCards = {
   total_customers_with_purchase?: number | null;
@@ -435,9 +599,9 @@ function OperationsV13Panel() {
     setError(null);
     try {
       const [cardsResult, shiftsResult, targetsResult] = await Promise.all([
-        supabase.from("dawaa_dashboard_customer_cards_v13").select("*").limit(1),
-        supabase.from("dawaa_branch_shift_daily_avg_v13").select("*").order("branch"),
-        supabase.from("dawaa_branch_target_progress_v13").select("*").order("branch"),
+        supabase.from('dawaa_dashboard_customer_cards_v13').select('*').limit(1),
+        supabase.from('dawaa_branch_shift_daily_avg_v13').select('*').order('branch'),
+        supabase.from('dawaa_branch_target_progress_v13').select('*').order('branch'),
       ]);
       if (cardsResult.error) throw cardsResult.error;
       if (shiftsResult.error) throw shiftsResult.error;
@@ -446,7 +610,7 @@ function OperationsV13Panel() {
       setShifts((shiftsResult.data || []) as V13ShiftRow[]);
       setTargets((targetsResult.data || []) as V13TargetRow[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل مؤشرات V13");
+      setError(err instanceof Error ? err.message : 'تعذر تحميل مؤشرات V13');
     } finally {
       setLoading(false);
     }
@@ -461,14 +625,24 @@ function OperationsV13Panel() {
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-black text-emerald-950">مؤشرات الإدارة V13</h2>
-          <p className="text-sm font-bold text-emerald-700">الداشبورد، العملاء المهمين، متوسط الفرع اليومي، والتارجت من الـ Views الجديدة.</p>
+          <p className="text-sm font-bold text-emerald-700">
+            الداشبورد، العملاء المهمين، متوسط الفرع اليومي، والتارجت من الـ Views الجديدة.
+          </p>
         </div>
-        <button type="button" onClick={() => void loadV13()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-700">
-          <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> تحديث V13
+        <button
+          type="button"
+          onClick={() => void loadV13()}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-700"
+        >
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث V13
         </button>
       </div>
 
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <MiniV13Card title="عملاء مشترين" value={cards?.total_customers_with_purchase} />
@@ -484,13 +658,25 @@ function OperationsV13Panel() {
           <h3 className="mb-3 text-base font-black text-slate-900">متوسط الفرع اليومي / الشيفت</h3>
           <div className="space-y-2">
             {shifts.map((row, index) => (
-              <div key={`${row.branch}-${row.shift_name}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
+              <div
+                key={`${row.branch}-${row.shift_name}-${index}`}
+                className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm"
+              >
                 <div className="flex items-center justify-between gap-3 font-black text-slate-900">
-                  <span>{row.branch || "غير محدد"} - {row.shift_name || "غير محدد"}</span>
+                  <span>
+                    {row.branch || 'غير محدد'} - {row.shift_name || 'غير محدد'}
+                  </span>
                   <span>{formatMoney(Number(row.avg_daily_sales || 0))}</span>
                 </div>
-                <div className="mt-1 text-xs font-bold text-slate-500">متوسط فواتير يومي: {formatNumber(Number(row.avg_daily_invoices || 0))} / أيام نشطة: {formatNumber(Number(row.active_days || 0))}</div>
-                {row.shift_name === "غير محدد" && <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs font-bold text-amber-700">تقسيم الشيفتات يحتاج وقت الفاتورة داخل الاستيراد.</div>}
+                <div className="mt-1 text-xs font-bold text-slate-500">
+                  متوسط فواتير يومي: {formatNumber(Number(row.avg_daily_invoices || 0))} / أيام
+                  نشطة: {formatNumber(Number(row.active_days || 0))}
+                </div>
+                {row.shift_name === 'غير محدد' && (
+                  <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs font-bold text-amber-700">
+                    تقسيم الشيفتات يحتاج وقت الفاتورة داخل الاستيراد.
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -500,19 +686,33 @@ function OperationsV13Panel() {
           <h3 className="mb-3 text-base font-black text-slate-900">تارجت الفروع ونصيحة المدير</h3>
           <div className="space-y-2">
             {targets.map((row, index) => (
-              <div key={`${row.branch}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
+              <div
+                key={`${row.branch}-${index}`}
+                className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm"
+              >
                 <div className="flex items-center justify-between gap-3 font-black text-slate-900">
-                  <span>{row.branch || "غير محدد"}</span>
-                  <span>{Number(row.achievement_percent || 0).toLocaleString("ar-EG", { maximumFractionDigits: 2 })}%</span>
+                  <span>{row.branch || 'غير محدد'}</span>
+                  <span>
+                    {Number(row.achievement_percent || 0).toLocaleString('ar-EG', {
+                      maximumFractionDigits: 2,
+                    })}
+                    %
+                  </span>
                 </div>
                 <div className="mt-1 grid gap-1 text-xs font-bold text-slate-600 md:grid-cols-2">
                   <span>المبيعات: {formatMoney(Number(row.sales_total || 0))}</span>
                   <span>التارجت: {formatMoney(Number(row.target_amount || 0))}</span>
                   <span>المتبقي: {formatMoney(Number(row.remaining_amount || 0))}</span>
-                  <span>المطلوب يوميًا: {formatMoney(Number(row.required_daily_remaining || 0))}</span>
+                  <span>
+                    المطلوب يوميًا: {formatMoney(Number(row.required_daily_remaining || 0))}
+                  </span>
                 </div>
-                <div className="mt-2 rounded-lg bg-blue-50 p-2 text-xs font-black text-blue-700">{row.target_status || "غير محدد"}</div>
-                <div className="mt-2 text-xs font-bold leading-6 text-slate-600">{row.manager_advice || "لا توجد نصيحة"}</div>
+                <div className="mt-2 rounded-lg bg-blue-50 p-2 text-xs font-black text-blue-700">
+                  {row.target_status || 'غير محدد'}
+                </div>
+                <div className="mt-2 text-xs font-bold leading-6 text-slate-600">
+                  {row.manager_advice || 'لا توجد نصيحة'}
+                </div>
               </div>
             ))}
           </div>
@@ -526,7 +726,9 @@ function MiniV13Card({ title, value }: { title: string; value?: number | null })
   return (
     <div className="rounded-2xl border border-white bg-white p-4 shadow-sm">
       <div className="text-xs font-bold text-slate-500">{title}</div>
-      <div className="mt-2 text-2xl font-black text-slate-950">{value === null || value === undefined ? "-" : formatNumber(Number(value))}</div>
+      <div className="mt-2 text-2xl font-black text-slate-950">
+        {value === null || value === undefined ? '-' : formatNumber(Number(value))}
+      </div>
     </div>
   );
 }

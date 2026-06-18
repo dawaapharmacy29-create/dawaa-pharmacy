@@ -1,6 +1,6 @@
-import { supabase } from "@/lib/supabase";
-import { logSupabaseError } from "@/lib/supabaseError";
-import { TABLES } from "@/lib/supabaseTables";
+import { supabase } from '@/lib/supabase';
+import { logSupabaseError } from '@/lib/supabaseError';
+import { TABLES } from '@/lib/supabaseTables';
 
 export interface ShiftSchedulePayload {
   staff_id: string;
@@ -30,25 +30,33 @@ function missingColumn(message: string) {
 async function insertSchedulesFlexible(records: ShiftSchedulePayload[]) {
   let next = records.map((record) => ({ ...record }));
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const inserted = await supabase.from(TABLES.shiftSchedules).insert(next as unknown as Record<string, unknown>[]);
+    const inserted = await supabase
+      .from(TABLES.shiftSchedules)
+      .insert(next as unknown as Record<string, unknown>[]);
     if (!inserted.error) return inserted;
-    logSupabaseError("insert staff shift schedules", inserted.error);
+    logSupabaseError('insert staff shift schedules', inserted.error);
     const column = missingColumn(inserted.error.message);
-    if (!column || !next.some((record) => (record as Record<string, unknown>)[column] !== undefined)) return inserted;
+    if (
+      !column ||
+      !next.some((record) => (record as Record<string, unknown>)[column] !== undefined)
+    )
+      return inserted;
     next = next.map((record) => {
       const { [column]: _removed, ...rest } = record as Record<string, unknown>;
       return rest as unknown as ShiftSchedulePayload;
     });
   }
-  const inserted = await supabase.from(TABLES.shiftSchedules).insert(next as unknown as Record<string, unknown>[]);
-  if (inserted.error) logSupabaseError("insert staff shift schedules", inserted.error);
+  const inserted = await supabase
+    .from(TABLES.shiftSchedules)
+    .insert(next as unknown as Record<string, unknown>[]);
+  if (inserted.error) logSupabaseError('insert staff shift schedules', inserted.error);
   return inserted;
 }
 
 export async function replaceStaffShiftSchedules(staffId: string, records: ShiftSchedulePayload[]) {
-  const deleted = await supabase.from(TABLES.shiftSchedules).delete().eq("staff_id", staffId);
+  const deleted = await supabase.from(TABLES.shiftSchedules).delete().eq('staff_id', staffId);
   if (deleted.error) {
-    logSupabaseError("delete staff shift schedules", deleted.error);
+    logSupabaseError('delete staff shift schedules', deleted.error);
     return { error: deleted.error };
   }
 

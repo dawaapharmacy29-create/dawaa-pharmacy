@@ -1,9 +1,9 @@
-import type { Customer, DailyFollowup } from "@/types/database";
+import type { Customer, DailyFollowup } from '@/types/database';
 
 interface DailyFollowupGenerationOptions {
   branch?: string;
   maxFollowups?: number;
-  priority?: "high" | "medium" | "low";
+  priority?: 'high' | 'medium' | 'low';
   includeInactive?: boolean;
   excludeRecentFollowups?: boolean;
   daysSinceLastFollowup?: number;
@@ -26,7 +26,7 @@ export async function generateDailyFollowupList(
   const {
     branch,
     maxFollowups = 50,
-    priority = "medium",
+    priority = 'medium',
     includeInactive = false,
     excludeRecentFollowups = true,
     daysSinceLastFollowup = 7,
@@ -35,15 +35,15 @@ export async function generateDailyFollowupList(
   // Filter customers by branch if specified
   let filteredCustomers = customers;
   if (branch) {
-    filteredCustomers = customers.filter((c) => 
-      c.branch === branch || (c.type && c.type.includes(branch))
+    filteredCustomers = customers.filter(
+      (c) => c.branch === branch || (c.type && c.type.includes(branch))
     );
   }
 
   // Filter inactive customers unless explicitly included
   if (!includeInactive) {
-    filteredCustomers = filteredCustomers.filter((c) => 
-      c.retention_status !== "inactive" && c.retention_status !== "churned"
+    filteredCustomers = filteredCustomers.filter(
+      (c) => c.retention_status !== 'inactive' && c.retention_status !== 'churned'
     );
   }
 
@@ -85,30 +85,32 @@ export async function generateDailyFollowupList(
     const suggestedAction = determineSuggestedAction(category, customer);
 
     // Determine priority
-    const followupPriority = scored.score >= 80 ? "high" : scored.score >= 60 ? "medium" : "low";
+    const followupPriority = scored.score >= 80 ? 'high' : scored.score >= 60 ? 'medium' : 'low';
 
     return {
       id: crypto.randomUUID(),
       customer_id: customer.id,
       customer_name: customer.name,
-      customer_code: customer.customer_code || "",
-      customer_phone: customer.phone || "",
-      branch: customer.branch || "غير محدد",
+      customer_code: customer.customer_code || '',
+      customer_phone: customer.phone || '',
+      branch: customer.branch || 'غير محدد',
       category,
       priority: followupPriority,
       suggested_action: suggestedAction,
-      status: "معلق",
+      status: 'معلق',
       followup_date: new Date().toISOString(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      notes: reasons.join("; "),
-      assigned_to: "", // Will be assigned by the system
-      responsible_name: "",
-      contact_method: "phone",
-      followup_status: "pending",
+      notes: reasons.join('; '),
+      assigned_to: '', // Will be assigned by the system
+      responsible_name: '',
+      contact_method: 'phone',
+      followup_status: 'pending',
       last_purchase_date: customer.last_purchase,
       purchase_count_current_month: 0,
-      average_monthly_purchase_count: customer.total_purchases ? Math.round(customer.total_purchases / 12) : 0,
+      average_monthly_purchase_count: customer.total_purchases
+        ? Math.round(customer.total_purchases / 12)
+        : 0,
       retention_status: customer.retention_status,
       type: customer.type,
     } as DailyFollowup;
@@ -138,36 +140,38 @@ async function calculateCustomerPriorityScores(
     if (customer.avg_monthly) {
       if (customer.avg_monthly >= 5000) {
         score += 30;
-        reasons.push("قيمة عالية");
+        reasons.push('قيمة عالية');
       } else if (customer.avg_monthly >= 2000) {
         score += 20;
-        reasons.push("قيمة متوسطة");
+        reasons.push('قيمة متوسطة');
       } else if (customer.avg_monthly >= 1000) {
         score += 10;
-        reasons.push("قيمة منخفضة");
+        reasons.push('قيمة منخفضة');
       }
     }
 
     // 2. Retention status
-    if (customer.retention_status === "at_risk") {
+    if (customer.retention_status === 'at_risk') {
       score += 25;
-      reasons.push("في خطر");
-    } else if (customer.retention_status === "threatened") {
+      reasons.push('في خطر');
+    } else if (customer.retention_status === 'threatened') {
       score += 20;
-      reasons.push("مهدد");
-    } else if (customer.retention_status === "inactive") {
+      reasons.push('مهدد');
+    } else if (customer.retention_status === 'inactive') {
       score += 15;
-      reasons.push("غير نشط");
-    } else if (customer.retention_status === "loyal") {
+      reasons.push('غير نشط');
+    } else if (customer.retention_status === 'loyal') {
       score += 5;
-      reasons.push("عميل مخلص");
+      reasons.push('عميل مخلص');
     }
 
     // 3. Last purchase date
     if (customer.last_purchase) {
       const lastPurchase = new Date(customer.last_purchase);
-      const daysSincePurchase = Math.floor((now.getTime() - lastPurchase.getTime()) / (1000 * 60 * 60 * 24));
-      
+      const daysSincePurchase = Math.floor(
+        (now.getTime() - lastPurchase.getTime()) / (1000 * 60 * 60 * 24)
+      );
+
       if (daysSincePurchase > 90) {
         score += 25;
         reasons.push(`لم يشتري منذ ${daysSincePurchase} يوم`);
@@ -184,20 +188,20 @@ async function calculateCustomerPriorityScores(
     if (customer.total_purchases && customer.avg_monthly) {
       const expectedMonthlyPurchases = customer.total_purchases / 12; // Rough estimate
       const currentPurchaseRate = customer.avg_monthly / (customer.avg_invoice || 1);
-      
+
       if (currentPurchaseRate < expectedMonthlyPurchases * 0.5) {
         score += 20;
-        reasons.push("انخفاض في تكرار الشراء");
+        reasons.push('انخفاض في تكرار الشراء');
       }
     }
 
     // 5. Customer type
-    if (customer.type === "VIP") {
+    if (customer.type === 'VIP') {
       score += 15;
-      reasons.push("عميل VIP");
-    } else if (customer.type === "important") {
+      reasons.push('عميل VIP');
+    } else if (customer.type === 'important') {
       score += 10;
-      reasons.push("عميل مهم");
+      reasons.push('عميل مهم');
     }
 
     // 6. Check for recent follow-ups (to avoid duplicates)
@@ -210,18 +214,18 @@ async function calculateCustomerPriorityScores(
 
       if (recentFollowup) {
         score -= 30;
-        reasons.push("تمت متابعته مؤخراً");
+        reasons.push('تمت متابعته مؤخراً');
       }
     }
 
     // 7. Check for pending follow-ups
-    const pendingFollowup = existingFollowups.find((f) => 
-      f.customer_id === customer.id && f.status === "معلق"
+    const pendingFollowup = existingFollowups.find(
+      (f) => f.customer_id === customer.id && f.status === 'معلق'
     );
 
     if (pendingFollowup) {
       score -= 20;
-      reasons.push("متابعة معلقة موجودة");
+      reasons.push('متابعة معلقة موجودة');
     }
 
     // Ensure score doesn't go below 0
@@ -239,23 +243,23 @@ async function calculateCustomerPriorityScores(
  * Determines the follow-up category based on reasons and customer data
  */
 function determineFollowupCategory(reasons: string[], customer: Customer): string {
-  if (reasons.includes("في خطر") || reasons.includes("توقف عن الشراء")) {
-    return "حرج";
+  if (reasons.includes('في خطر') || reasons.includes('توقف عن الشراء')) {
+    return 'حرج';
   }
-  
-  if (reasons.includes("مهدد") || reasons.includes("انخفاض في تكرار الشراء")) {
-    return "تحفيز";
+
+  if (reasons.includes('مهدد') || reasons.includes('انخفاض في تكرار الشراء')) {
+    return 'تحفيز';
   }
-  
-  if (reasons.includes("قيمة عالية") || customer.type === "VIP") {
-    return "علاقة";
+
+  if (reasons.includes('قيمة عالية') || customer.type === 'VIP') {
+    return 'علاقة';
   }
-  
-  if (reasons.includes("لم يشتري منذ")) {
-    return "إعادة تفعيل";
+
+  if (reasons.includes('لم يشتري منذ')) {
+    return 'إعادة تفعيل';
   }
-  
-  return "متابعة دورية";
+
+  return 'متابعة دورية';
 }
 
 /**
@@ -263,14 +267,14 @@ function determineFollowupCategory(reasons: string[], customer: Customer): strin
  */
 function determineSuggestedAction(category: string, customer: Customer): string {
   const actions: Record<string, string> = {
-    "حرج": "اتصال عاجل لفهم سبب التوقف وتقديم حوافز",
-    "تحفيز": "اتصال لعرض عروض خاصة وتذكير بالفوائد",
-    "علاقة": "اتصال لبناء العلاقة والاستفسار عن الاحتياجات",
-    "إعادة تفعيل": "اتصال للاستفسار عن سبب الغياب وعرض منتجات جديدة",
-    "متابعة دورية": "اتصال للمتابعة والاستفسار عن الرضا",
+    حرج: 'اتصال عاجل لفهم سبب التوقف وتقديم حوافز',
+    تحفيز: 'اتصال لعرض عروض خاصة وتذكير بالفوائد',
+    علاقة: 'اتصال لبناء العلاقة والاستفسار عن الاحتياجات',
+    'إعادة تفعيل': 'اتصال للاستفسار عن سبب الغياب وعرض منتجات جديدة',
+    'متابعة دورية': 'اتصال للمتابعة والاستفسار عن الرضا',
   };
 
-  return actions[category] || "اتصال للمتابعة";
+  return actions[category] || 'اتصال للمتابعة';
 }
 
 /**

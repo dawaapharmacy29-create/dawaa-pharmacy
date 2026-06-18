@@ -11,13 +11,13 @@ export interface IncentiveDrug {
   generic_name: string;
   manufacturer: string;
   incentive_amount_per_unit: number; // الحافز بالجنيه لكل علبة
-  currency: "جنيه" | "قرش";
+  currency: 'جنيه' | 'قرش';
   current_quantity: number;
   current_stock_value: number; // القيمة الإجمالية للمخزون
   month_sales_quantity?: number;
   month_sales_value?: number;
   month_commission_earned?: number;
-  incentive_type: "ثابت" | "تدريجي"; // ثابت = نفس الحافز لكل علبة، تدريجي = يزيد مع الكمية
+  incentive_type: 'ثابت' | 'تدريجي'; // ثابت = نفس الحافز لكل علبة، تدريجي = يزيد مع الكمية
   target_monthly_quantity?: number;
   bonus_tier_2?: number; // كمية تشغل bonus إضافي
   bonus_amount_tier_2?: number; // الحافز الإضافي
@@ -31,8 +31,8 @@ export interface IncentiveDrug {
 }
 
 export const INCENTIVE_TYPES = {
-  ثابت: "حافز ثابت لكل علبة",
-  تدريجي: "حافز يزيد حسب الكمية المباعة",
+  ثابت: 'حافز ثابت لكل علبة',
+  تدريجي: 'حافز يزيد حسب الكمية المباعة',
 } as const;
 
 /**
@@ -50,34 +50,30 @@ export function calculateIncentive(
   if (today < startDate || today > endDate) {
     return {
       incentive: 0,
-      explanation: "الدواء خارج فترة الحافز الحالية",
+      explanation: 'الدواء خارج فترة الحافز الحالية',
     };
   }
 
   if (!drug.is_active) {
     return {
       incentive: 0,
-      explanation: "الدواء غير مفعل حالياً",
+      explanation: 'الدواء غير مفعل حالياً',
     };
   }
 
   let incentive = 0;
-  let explanation = "";
+  let explanation = '';
 
-  if (drug.incentive_type === "ثابت") {
+  if (drug.incentive_type === 'ثابت') {
     incentive = drug.incentive_amount_per_unit * quantitySold;
     explanation = `${quantitySold} × ${drug.incentive_amount_per_unit} ج = ${incentive} ج`;
-  } else if (drug.incentive_type === "تدريجي") {
+  } else if (drug.incentive_type === 'تدريجي') {
     // الكمية الأولى بالسعر الأساسي
     incentive = drug.incentive_amount_per_unit * quantitySold;
     explanation = `${quantitySold} × ${drug.incentive_amount_per_unit} ج = ${incentive} ج`;
 
     // bonus إضافي إذا تجاوزت الكمية
-    if (
-      drug.bonus_tier_2 &&
-      drug.bonus_amount_tier_2 &&
-      quantitySold >= drug.bonus_tier_2
-    ) {
+    if (drug.bonus_tier_2 && drug.bonus_amount_tier_2 && quantitySold >= drug.bonus_tier_2) {
       const bonusQuantity = quantitySold - (drug.bonus_tier_2 - 1);
       const bonusAmount = bonusQuantity * drug.bonus_amount_tier_2;
       incentive += bonusAmount;
@@ -93,21 +89,21 @@ export function calculateIncentive(
  */
 export function getSalesProgress(drug: IncentiveDrug): {
   percentage: number;
-  status: "ممتاز" | "جيد" | "متوسط" | "ضعيف";
+  status: 'ممتاز' | 'جيد' | 'متوسط' | 'ضعيف';
   message: string;
 } {
   if (!drug.target_monthly_quantity) {
-    return { percentage: 0, status: "متوسط", message: "لا يوجد هدف شهري محدد" };
+    return { percentage: 0, status: 'متوسط', message: 'لا يوجد هدف شهري محدد' };
   }
 
   const sold = drug.month_sales_quantity || 0;
   const percentage = (sold / drug.target_monthly_quantity) * 100;
 
-  let status: "ممتاز" | "جيد" | "متوسط" | "ضعيف";
-  if (percentage >= 100) status = "ممتاز";
-  else if (percentage >= 75) status = "جيد";
-  else if (percentage >= 50) status = "متوسط";
-  else status = "ضعيف";
+  let status: 'ممتاز' | 'جيد' | 'متوسط' | 'ضعيف';
+  if (percentage >= 100) status = 'ممتاز';
+  else if (percentage >= 75) status = 'جيد';
+  else if (percentage >= 50) status = 'متوسط';
+  else status = 'ضعيف';
 
   return {
     percentage: Math.min(percentage, 100),
@@ -121,15 +117,15 @@ export function getSalesProgress(drug: IncentiveDrug): {
  */
 export function exportToCSV(drugs: IncentiveDrug[]): string {
   const headers = [
-    "الفرع",
-    "اسم الدواء",
-    "الاسم العام",
-    "الحافز لكل علبة",
-    "الكمية المتاحة",
-    "مبيعات الشهر",
-    "الحافز المكتسب",
-    "الهدف الشهري",
-    "النسبة المتقدمة",
+    'الفرع',
+    'اسم الدواء',
+    'الاسم العام',
+    'الحافز لكل علبة',
+    'الكمية المتاحة',
+    'مبيعات الشهر',
+    'الحافز المكتسب',
+    'الهدف الشهري',
+    'النسبة المتقدمة',
   ];
 
   const rows = drugs.map((drug) => {
@@ -142,14 +138,12 @@ export function exportToCSV(drugs: IncentiveDrug[]): string {
       drug.current_quantity,
       drug.month_sales_quantity || 0,
       `${drug.month_commission_earned || 0} ج`,
-      drug.target_monthly_quantity || "—",
+      drug.target_monthly_quantity || '—',
       `${progress.percentage.toFixed(0)}%`,
     ];
   });
 
-  const csv = [headers.join(","), ...rows.map((row) => row.join(","))].join(
-    "\n"
-  );
+  const csv = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
   return csv;
 }
 
@@ -161,9 +155,7 @@ export function getActiveDrugs(drugs: IncentiveDrug[]): IncentiveDrug[] {
   return drugs.filter((drug) => {
     const startDate = new Date(drug.active_period_start);
     const endDate = new Date(drug.active_period_end);
-    return (
-      drug.is_active && today >= startDate && today <= endDate
-    );
+    return drug.is_active && today >= startDate && today <= endDate;
   });
 }
 
@@ -171,9 +163,7 @@ export function getActiveDrugs(drugs: IncentiveDrug[]): IncentiveDrug[] {
  * ترتيب الأدوية حسب الحافز الأعلى
  */
 export function sortByIncentive(drugs: IncentiveDrug[]): IncentiveDrug[] {
-  return [...drugs].sort(
-    (a, b) => b.incentive_amount_per_unit - a.incentive_amount_per_unit
-  );
+  return [...drugs].sort((a, b) => b.incentive_amount_per_unit - a.incentive_amount_per_unit);
 }
 
 /**
@@ -205,7 +195,7 @@ export interface CreateIncentiveDrugInput {
   generic_name: string;
   manufacturer: string;
   incentive_amount_per_unit: number;
-  incentive_type: "ثابت" | "تدريجي";
+  incentive_type: 'ثابت' | 'تدريجي';
   target_monthly_quantity?: number;
   bonus_tier_2?: number;
   bonus_amount_tier_2?: number;

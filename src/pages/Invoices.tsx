@@ -1,21 +1,37 @@
-﻿import { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { useEscapeKey } from "@/hooks/useEscapeKey";
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw, ShieldAlert, Trash2, Pencil, Save, BarChart3, X } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
-import { BRANCHES } from "@/lib/constants";
-import { formatCurrency, formatDate } from "@/lib/utils";
-import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
-import { logActivity } from "@/hooks/useSupabaseQuery";
-import { supabase } from "@/lib/supabase";
-import { toast } from "sonner";
-import { getInvoiceKey } from "@/lib/dawaa2027";
-import { clearCustomersCache } from "@/lib/api/customers";
-import { clearCustomerServiceCommandCenterCache } from "@/lib/api/customerServiceCommandCenter";
-import { clearCustomerProfileCache } from "@/lib/customerProfileService";
-import { clearExecutiveDashboardCache } from "@/lib/executiveDashboardDataService";
-import { clearSalesAnalyticsSummaryCache } from "@/lib/salesAnalyticsSummaryService";
-import { clearStaffPerformanceProfileCache } from "@/lib/staff/staffPerformanceProfileService";
-import { invalidateInvoiceCache } from "@/lib/salesInvoiceSource";
+﻿import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
+import {
+  Upload,
+  FileSpreadsheet,
+  AlertCircle,
+  CheckCircle,
+  Download,
+  Loader2,
+  XCircle,
+  FileCheck,
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
+  Pencil,
+  Save,
+  BarChart3,
+  X,
+} from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { BRANCHES } from '@/lib/constants';
+import { formatCurrency, formatDate } from '@/lib/utils';
+import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
+import { logActivity } from '@/hooks/useSupabaseQuery';
+import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
+import { getInvoiceKey } from '@/lib/dawaa2027';
+import { clearCustomersCache } from '@/lib/api/customers';
+import { clearCustomerServiceCommandCenterCache } from '@/lib/api/customerServiceCommandCenter';
+import { clearCustomerProfileCache } from '@/lib/customerProfileService';
+import { clearExecutiveDashboardCache } from '@/lib/executiveDashboardDataService';
+import { clearSalesAnalyticsSummaryCache } from '@/lib/salesAnalyticsSummaryService';
+import { clearStaffPerformanceProfileCache } from '@/lib/staff/staffPerformanceProfileService';
+import { invalidateInvoiceCache } from '@/lib/salesInvoiceSource';
 import {
   generateTemplateFile,
   importCustomersToDB,
@@ -25,7 +41,7 @@ import {
   type CustomerParseResult,
   type ImportSummary,
   type ParseResult,
-} from "@/lib/invoiceImporter";
+} from '@/lib/invoiceImporter';
 import {
   applyCustomerPhoneUpdate,
   CUSTOMER_PHONE_CONFIRMATION,
@@ -34,10 +50,10 @@ import {
   type CustomerPhoneParseResult,
   type CustomerPhoneCsvRow,
   type CustomerPhoneUpdateResult,
-} from "@/lib/customerPhoneUpdateService";
+} from '@/lib/customerPhoneUpdateService';
 
-type Step = "idle" | "parsing" | "preview" | "importing" | "done";
-type ImportKind = "sales" | "customers";
+type Step = 'idle' | 'parsing' | 'preview' | 'importing' | 'done';
+type ImportKind = 'sales' | 'customers';
 
 interface ManagedInvoiceRow {
   id: string;
@@ -82,14 +98,21 @@ function clearInvoiceLinkedViews() {
   clearCustomerProfileCache();
   clearStaffPerformanceProfileCache();
   try {
-    window.localStorage.setItem("dawaa_invoice_import_refresh", String(Date.now()));
+    window.localStorage.setItem('dawaa_invoice_import_refresh', String(Date.now()));
   } catch {
     // Local storage can be blocked in private/restricted browser contexts.
   }
 }
 
-function invoiceSalesValue(invoice: Pick<ManagedInvoiceRow, "net_amount" | "discounted_amount" | "amount" | "gross_amount">) {
-  const candidates = [invoice.net_amount, invoice.discounted_amount, invoice.amount, invoice.gross_amount];
+function invoiceSalesValue(
+  invoice: Pick<ManagedInvoiceRow, 'net_amount' | 'discounted_amount' | 'amount' | 'gross_amount'>
+) {
+  const candidates = [
+    invoice.net_amount,
+    invoice.discounted_amount,
+    invoice.amount,
+    invoice.gross_amount,
+  ];
   for (const candidate of candidates) {
     const value = Number(candidate);
     if (Number.isFinite(value)) return value;
@@ -99,19 +122,19 @@ function invoiceSalesValue(invoice: Pick<ManagedInvoiceRow, "net_amount" | "disc
 
 function customerImportStatusLabel(status: string) {
   const labels: Record<string, string> = {
-    existing_customer: "عميل موجود",
-    new_customer: "عميل جديد",
-    already_valid: "بيانات صالحة",
-    ready_to_update: "جاهز للتحديث",
-    unmatched: "غير مطابق",
-    invalid_phone: "رقم غير صالح",
-    invalid_row: "صف غير صالح",
-    duplicate_in_file: "مكرر في الملف",
-    needs_review_existing_phone: "مراجعة: هاتف مختلف",
-    needs_review_phone_used_by_other: "مراجعة: الرقم مستخدم لعميل آخر",
-    needs_review_existing_whatsapp: "مراجعة: واتساب مختلف",
-    needs_review_existing_address: "مراجعة: عنوان مختلف",
-    needs_review_multiple_matches: "مراجعة: أكثر من تطابق",
+    existing_customer: 'عميل موجود',
+    new_customer: 'عميل جديد',
+    already_valid: 'بيانات صالحة',
+    ready_to_update: 'جاهز للتحديث',
+    unmatched: 'غير مطابق',
+    invalid_phone: 'رقم غير صالح',
+    invalid_row: 'صف غير صالح',
+    duplicate_in_file: 'مكرر في الملف',
+    needs_review_existing_phone: 'مراجعة: هاتف مختلف',
+    needs_review_phone_used_by_other: 'مراجعة: الرقم مستخدم لعميل آخر',
+    needs_review_existing_whatsapp: 'مراجعة: واتساب مختلف',
+    needs_review_existing_address: 'مراجعة: عنوان مختلف',
+    needs_review_multiple_matches: 'مراجعة: أكثر من تطابق',
   };
   return labels[status] || status;
 }
@@ -133,14 +156,14 @@ interface InvoiceEditForm {
 export default function Invoices() {
   const { user, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const sellerNameFilter = searchParams.get("seller_name") || "";
-  const fromDateFilter = searchParams.get("from") || "";
-  const toDateFilter = searchParams.get("to") || "";
-  const [step, setStep] = useState<Step>("idle");
-  const [importKind, setImportKind] = useState<ImportKind>("sales");
+  const sellerNameFilter = searchParams.get('seller_name') || '';
+  const fromDateFilter = searchParams.get('from') || '';
+  const toDateFilter = searchParams.get('to') || '';
+  const [step, setStep] = useState<Step>('idle');
+  const [importKind, setImportKind] = useState<ImportKind>('sales');
   const [branch, setBranch] = useState<string>(BRANCHES[0]);
   const [dragging, setDragging] = useState(false);
-  const [fileName, setFileName] = useState("");
+  const [fileName, setFileName] = useState('');
   const [parseResult, setParseResult] = useState<ParseResult | CustomerParseResult | null>(null);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [progress, setProgress] = useState(0);
@@ -148,41 +171,49 @@ export default function Invoices() {
   const [managedInvoices, setManagedInvoices] = useState<ManagedInvoiceRow[]>([]);
   const [managedLoading, setManagedLoading] = useState(false);
   const [adminBusy, setAdminBusy] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [editInvoice, setEditInvoice] = useState<ManagedInvoiceRow | null>(null);
   const [editForm, setEditForm] = useState<InvoiceEditForm | null>(null);
   const [duplicateAudit, setDuplicateAudit] = useState<DuplicateInvoiceGroup[]>([]);
   const [duplicateAuditLoading, setDuplicateAuditLoading] = useState(false);
   const [summaryRefreshBusy, setSummaryRefreshBusy] = useState(false);
   const [phoneUpdateRows, setPhoneUpdateRows] = useState<CustomerPhoneCsvRow[]>([]);
-  const [phoneUpdateResult, setPhoneUpdateResult] = useState<CustomerPhoneUpdateResult | null>(null);
-  const [phoneUpdateParseResult, setPhoneUpdateParseResult] = useState<CustomerPhoneParseResult | null>(null);
+  const [phoneUpdateResult, setPhoneUpdateResult] = useState<CustomerPhoneUpdateResult | null>(
+    null
+  );
+  const [phoneUpdateParseResult, setPhoneUpdateParseResult] =
+    useState<CustomerPhoneParseResult | null>(null);
   const [phoneUpdateBusy, setPhoneUpdateBusy] = useState(false);
-  const [phoneUpdateFileName, setPhoneUpdateFileName] = useState("");
-  const [phoneUpdateConfirmText, setPhoneUpdateConfirmText] = useState("");
+  const [phoneUpdateFileName, setPhoneUpdateFileName] = useState('');
+  const [phoneUpdateConfirmText, setPhoneUpdateConfirmText] = useState('');
   const [copyPhoneToWhatsapp, setCopyPhoneToWhatsapp] = useState(false);
-  useEscapeKey(() => {
-    setEditInvoice(null);
-    setEditForm(null);
-  }, Boolean(editInvoice && editForm));
+  useEscapeKey(
+    () => {
+      setEditInvoice(null);
+      setEditForm(null);
+    },
+    Boolean(editInvoice && editForm)
+  );
 
   const loadManagedInvoices = useCallback(async () => {
     if (!isAdmin) return;
     setManagedLoading(true);
     let query = supabase
-      .from("sales_invoices")
-      .select("id,import_batch,branch,invoice_no,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,discounted_amount,gross_amount,seller_name")
-      .order("invoice_date", { ascending: false })
+      .from('sales_invoices')
+      .select(
+        'id,import_batch,branch,invoice_no,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,discounted_amount,gross_amount,seller_name'
+      )
+      .order('invoice_date', { ascending: false })
       .limit(INVOICE_PAGE_SIZE);
 
     if (sellerNameFilter) {
-      query = query.ilike("seller_name", `%${sellerNameFilter}%`);
+      query = query.ilike('seller_name', `%${sellerNameFilter}%`);
     }
     if (fromDateFilter) {
-      query = query.gte("invoice_date", fromDateFilter);
+      query = query.gte('invoice_date', fromDateFilter);
     }
     if (toDateFilter) {
-      query = query.lt("invoice_date", dayAfter(toDateFilter));
+      query = query.lt('invoice_date', dayAfter(toDateFilter));
     }
 
     const { data, error } = await query;
@@ -200,9 +231,9 @@ export default function Invoices() {
     if (!isAdmin) return;
     setDuplicateAuditLoading(true);
     const { data, error } = await supabase
-      .from("sales_invoices")
-      .select("id,invoice_no,invoice_number,branch,invoice_date,created_at")
-      .order("created_at", { ascending: false })
+      .from('sales_invoices')
+      .select('id,invoice_no,invoice_number,branch,invoice_date,created_at')
+      .order('created_at', { ascending: false })
       .limit(3000);
 
     if (error) {
@@ -215,8 +246,8 @@ export default function Invoices() {
     const groups = new Map<string, DuplicateInvoiceGroup>();
     for (const row of data || []) {
       const invoiceNumber = getInvoiceKey(row as Record<string, unknown>);
-      const branchName = String(row.branch || "غير محدد").trim() || "غير محدد";
-      const saleDate = String(row.invoice_date || "").slice(0, 10);
+      const branchName = String(row.branch || 'غير محدد').trim() || 'غير محدد';
+      const saleDate = String(row.invoice_date || '').slice(0, 10);
       if (!invoiceNumber || !saleDate) continue;
       const key = `${branchName}|${saleDate}|${invoiceNumber}`;
       const current = groups.get(key) || {
@@ -227,7 +258,7 @@ export default function Invoices() {
         latest_created_at: null,
       };
       current.count += 1;
-      const createdAt = String(row.created_at || "");
+      const createdAt = String(row.created_at || '');
       if (createdAt && (!current.latest_created_at || createdAt > current.latest_created_at)) {
         current.latest_created_at = createdAt;
       }
@@ -237,8 +268,10 @@ export default function Invoices() {
     setDuplicateAudit(
       [...groups.values()]
         .filter((group) => group.count > 1)
-        .sort((a, b) => String(b.latest_created_at || "").localeCompare(String(a.latest_created_at || "")))
-        .slice(0, 30),
+        .sort((a, b) =>
+          String(b.latest_created_at || '').localeCompare(String(a.latest_created_at || ''))
+        )
+        .slice(0, 30)
     );
     setDuplicateAuditLoading(false);
   }, [isAdmin]);
@@ -251,110 +284,121 @@ export default function Invoices() {
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (event) => resolve(event.target?.result as ArrayBuffer);
-      reader.onerror = () => reject(new Error("تعذر قراءة الملف"));
+      reader.onerror = () => reject(new Error('تعذر قراءة الملف'));
       reader.readAsArrayBuffer(file);
     });
 
-  const processFile = useCallback(async (file: File) => {
-    const ext = file.name.split(".").pop()?.toLowerCase() || "";
-    if (!["csv", "xlsx", "xls"].includes(ext)) {
-      toast.error("نوع الملف غير مدعوم. استخدم Excel أو CSV");
-      return;
-    }
+  const processFile = useCallback(
+    async (file: File) => {
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      if (!['csv', 'xlsx', 'xls'].includes(ext)) {
+        toast.error('نوع الملف غير مدعوم. استخدم Excel أو CSV');
+        return;
+      }
 
-    setFileName(file.name);
-    setStep("parsing");
-    setParseResult(null);
-    setImportSummary(null);
-    setProgress(0);
+      setFileName(file.name);
+      setStep('parsing');
+      setParseResult(null);
+      setImportSummary(null);
+      setProgress(0);
 
-    try {
-      const buffer = await readFile(file);
-      const result = importKind === "sales"
-        ? parseInvoiceFile(buffer, file.name, branch)
-        : parseCustomerFile(buffer, file.name);
+      try {
+        const buffer = await readFile(file);
+        const result =
+          importKind === 'sales'
+            ? parseInvoiceFile(buffer, file.name, branch)
+            : parseCustomerFile(buffer, file.name);
 
-      setParseResult(result);
-      setStep("preview");
+        setParseResult(result);
+        setStep('preview');
 
-      if (result.rows.length === 0) toast.error("لم يتم العثور على صفوف صالحة في الملف");
-      else toast.success(`تم تحليل الملف: ${result.rows.length.toLocaleString("ar-EG")} صف صالح`);
-    } catch (error) {
-      toast.error(`خطأ: ${(error as Error).message}`);
-      setStep("idle");
-    }
-  }, [branch, importKind]);
+        if (result.rows.length === 0) toast.error('لم يتم العثور على صفوف صالحة في الملف');
+        else toast.success(`تم تحليل الملف: ${result.rows.length.toLocaleString('ar-EG')} صف صالح`);
+      } catch (error) {
+        toast.error(`خطأ: ${(error as Error).message}`);
+        setStep('idle');
+      }
+    },
+    [branch, importKind]
+  );
 
   const handleConfirmImport = async () => {
     if (!parseResult || parseResult.rows.length === 0) return;
 
-    setStep("importing");
+    setStep('importing');
     setProgress(0);
-    const batch = `import-${importKind}-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}`;
+    const batch = `import-${importKind}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`;
 
     try {
-      const summary = importKind === "sales"
-        ? await importInvoicesToDB(
-            (parseResult as ParseResult).rows,
-            branch,
-            batch,
-            (done, total) => setProgress(total > 0 ? Math.round((done / total) * 100) : 0)
-          )
-        : await importCustomersToDB((parseResult as CustomerParseResult).rows, batch);
+      const summary =
+        importKind === 'sales'
+          ? await importInvoicesToDB(
+              (parseResult as ParseResult).rows,
+              branch,
+              batch,
+              (done, total) => setProgress(total > 0 ? Math.round((done / total) * 100) : 0)
+            )
+          : await importCustomersToDB((parseResult as CustomerParseResult).rows, batch);
 
       setImportSummary(summary);
-      setStep("done");
-      toast.success(importKind === "sales" ? "تم استيراد ملف المبيعات" : "تم استيراد بيانات العملاء");
+      setStep('done');
+      toast.success(
+        importKind === 'sales' ? 'تم استيراد ملف المبيعات' : 'تم استيراد بيانات العملاء'
+      );
 
       const currentUserProfile = getCurrentUserProfile();
       await logActivity(
         currentUserProfile.id,
         currentUserProfile.name,
-        importKind === "sales" ? "استيراد مبيعات يومية" : "استيراد بيانات عملاء",
-        importKind === "sales" ? "الفواتير" : "العملاء",
+        importKind === 'sales' ? 'استيراد مبيعات يومية' : 'استيراد بيانات عملاء',
+        importKind === 'sales' ? 'الفواتير' : 'العملاء',
         `استيراد ${summary.insertedRows} صف - تحديث ${summary.updatedCustomers} عميل - إضافة ${summary.newCustomers} عميل`,
         branch
       );
-      if (importKind === "sales") {
+      if (importKind === 'sales') {
         await loadManagedInvoices();
-        await supabase.from("notifications").insert({
-          title: "استيراد ملف فواتير جديد",
+        await supabase.from('notifications').insert({
+          title: 'استيراد ملف فواتير جديد',
           message: `تم استيراد ${summary.insertedRows} فاتورة مبيعات من ملف ${fileName}`,
-          type: "sales_import",
-          severity: summary.errors.length ? "medium" : "info",
-          entity_type: "sales_invoices",
+          type: 'sales_import',
+          severity: summary.errors.length ? 'medium' : 'info',
+          entity_type: 'sales_invoices',
           entity_id: summary.importBatch,
-          route_path: "/analytics",
+          route_path: '/analytics',
           is_read: false,
           created_at: new Date().toISOString(),
         });
       }
     } catch (error) {
       toast.error(`فشل الاستيراد: ${(error as Error).message}`);
-      setStep("preview");
+      setStep('preview');
     }
   };
 
   const handleReset = () => {
-    setStep("idle");
-    setFileName("");
+    setStep('idle');
+    setFileName('');
     setParseResult(null);
     setImportSummary(null);
     setProgress(0);
     setPhoneUpdateParseResult(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const rebuildSalesSummaries = async (range?: { startDate?: string | null; endDate?: string | null }) => {
-    const startDate = range?.startDate || importSummary?.firstInvoiceDate || invoiceBatches[0]?.firstDate;
+  const rebuildSalesSummaries = async (range?: {
+    startDate?: string | null;
+    endDate?: string | null;
+  }) => {
+    const startDate =
+      range?.startDate || importSummary?.firstInvoiceDate || invoiceBatches[0]?.firstDate;
     const endDate = range?.endDate || importSummary?.lastInvoiceDate || invoiceBatches[0]?.lastDate;
-    if (!startDate || !endDate || startDate === "-" || endDate === "-") {
-      toast.error("لا يوجد مدى تاريخ واضح لتحديث الملخصات");
+    if (!startDate || !endDate || startDate === '-' || endDate === '-') {
+      toast.error('لا يوجد مدى تاريخ واضح لتحديث الملخصات');
       return;
     }
 
     setSummaryRefreshBusy(true);
-    const { error } = await supabase.rpc("rebuild_sales_daily_summary", {
+    const { error } = await supabase.rpc('rebuild_sales_daily_summary', {
       p_start_date: startDate,
       p_end_date: endDate,
     });
@@ -362,7 +406,9 @@ export default function Invoices() {
     setSummaryRefreshBusy(false);
 
     if (error) {
-      toast.warning("تعذر تحديث الملخص الثقيل، لكن تم تحديث كاش الداشبورد والتحليلات وسيتم الاعتماد على الفواتير مباشرة.");
+      toast.warning(
+        'تعذر تحديث الملخص الثقيل، لكن تم تحديث كاش الداشبورد والتحليلات وسيتم الاعتماد على الفواتير مباشرة.'
+      );
       return;
     }
     toast.success(`تم تحديث ملخصات المبيعات وتفريغ كاش الصفحات من ${startDate} إلى ${endDate}`);
@@ -370,7 +416,7 @@ export default function Invoices() {
 
   const handlePhoneUpdateFile = async (file: File) => {
     if (!/\.(csv|xlsx|xls)$/i.test(file.name)) {
-      toast.error("ملف تحديث أرقام العملاء يجب أن يكون CSV أو Excel");
+      toast.error('ملف تحديث أرقام العملاء يجب أن يكون CSV أو Excel');
       return;
     }
 
@@ -378,7 +424,7 @@ export default function Invoices() {
     setPhoneUpdateFileName(file.name);
     setPhoneUpdateResult(null);
     setPhoneUpdateParseResult(null);
-    setPhoneUpdateConfirmText("");
+    setPhoneUpdateConfirmText('');
     try {
       const parsed = await parseCustomerPhoneFile(file, {
         copyPhoneToWhatsappWhenMissing: copyPhoneToWhatsapp,
@@ -387,12 +433,12 @@ export default function Invoices() {
       setPhoneUpdateParseResult(parsed);
       setPhoneUpdateRows(rows);
       if (rows.length === 0) {
-        toast.error("لم يتم العثور على صفوف صالحة في ملف تحديث الأرقام");
+        toast.error('لم يتم العثور على صفوف صالحة في ملف تحديث الأرقام');
         return;
       }
       const preview = await previewCustomerPhoneUpdate(rows);
       setPhoneUpdateResult(preview);
-      toast.success(`تمت معاينة ${preview.rowsInFile.toLocaleString("ar-EG")} صف بدون كتابة`);
+      toast.success(`تمت معاينة ${preview.rowsInFile.toLocaleString('ar-EG')} صف بدون كتابة`);
     } catch (error) {
       toast.error(`تعذر معاينة ملف الأرقام: ${(error as Error).message}`);
     } finally {
@@ -406,7 +452,7 @@ export default function Invoices() {
       return;
     }
     if (phoneUpdateRows.length === 0) {
-      toast.error("لا توجد صفوف جاهزة للتطبيق");
+      toast.error('لا توجد صفوف جاهزة للتطبيق');
       return;
     }
 
@@ -418,8 +464,8 @@ export default function Invoices() {
         role: user?.role,
       });
       setPhoneUpdateResult(result);
-      setPhoneUpdateConfirmText("");
-      toast.success("تم تحديث أرقام العملاء وإعادة بناء ملخص العملاء");
+      setPhoneUpdateConfirmText('');
+      toast.success('تم تحديث أرقام العملاء وإعادة بناء ملخص العملاء');
     } catch (error) {
       toast.error(`تعذر تحديث أرقام العملاء: ${(error as Error).message}`);
     } finally {
@@ -427,24 +473,55 @@ export default function Invoices() {
     }
   };
 
-  const downloadPhoneUpdatePreviewReport = (kind: "all" | "repair" | "review" | "invalid" | "unmatched" = "all") => {
+  const downloadPhoneUpdatePreviewReport = (
+    kind: 'all' | 'repair' | 'review' | 'invalid' | 'unmatched' = 'all'
+  ) => {
     if (!phoneUpdateResult) return;
-    const headers = ["row_no", "customer_code", "customer_name", "branch", "address", "new_phone", "new_whatsapp_phone", "phone_alt", "status", "match_method", "would_update_phone", "would_update_whatsapp", "would_update_phone_alt", "would_update_address", "would_update_name", "would_update_branch"];
+    const headers = [
+      'row_no',
+      'customer_code',
+      'customer_name',
+      'branch',
+      'address',
+      'new_phone',
+      'new_whatsapp_phone',
+      'phone_alt',
+      'status',
+      'match_method',
+      'would_update_phone',
+      'would_update_whatsapp',
+      'would_update_phone_alt',
+      'would_update_address',
+      'would_update_name',
+      'would_update_branch',
+    ];
     const filteredRows = phoneUpdateResult.rows.filter((row) => {
-      if (kind === "repair") return row.status === "new_customer" || row.would_update_phone || row.would_update_whatsapp || row.would_update_phone_alt || row.would_update_address || row.would_update_name || row.would_update_branch;
-      if (kind === "review") return row.status.includes("review") || row.status === "duplicate_in_file";
-      if (kind === "invalid") return row.status === "invalid_phone" || row.status === "invalid_row";
-      if (kind === "unmatched") return row.status === "unmatched";
+      if (kind === 'repair')
+        return (
+          row.status === 'new_customer' ||
+          row.would_update_phone ||
+          row.would_update_whatsapp ||
+          row.would_update_phone_alt ||
+          row.would_update_address ||
+          row.would_update_name ||
+          row.would_update_branch
+        );
+      if (kind === 'review')
+        return row.status.includes('review') || row.status === 'duplicate_in_file';
+      if (kind === 'invalid') return row.status === 'invalid_phone' || row.status === 'invalid_row';
+      if (kind === 'unmatched') return row.status === 'unmatched';
       return true;
     });
-    const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const lines = [
-      headers.join(","),
-      ...filteredRows.map((row) => headers.map((key) => escapeCsv((row as Record<string, unknown>)[key])).join(",")),
+      headers.join(','),
+      ...filteredRows.map((row) =>
+        headers.map((key) => escapeCsv((row as Record<string, unknown>)[key])).join(',')
+      ),
     ];
-    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    const link = document.createElement('a');
     link.href = url;
     link.download = `daily-customer-import-${kind}-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
@@ -454,38 +531,52 @@ export default function Invoices() {
   };
 
   const invoiceBatches = useMemo(() => {
-    const map = new Map<string, { batch: string; count: number; total: number; firstDate: string; lastDate: string; branches: Set<string> }>();
+    const map = new Map<
+      string,
+      {
+        batch: string;
+        count: number;
+        total: number;
+        firstDate: string;
+        lastDate: string;
+        branches: Set<string>;
+      }
+    >();
     for (const invoice of managedInvoices) {
-      const batch = invoice.import_batch || "بدون رقم دفعة";
-      const date = String(invoice.invoice_date || "").slice(0, 10);
+      const batch = invoice.import_batch || 'بدون رقم دفعة';
+      const date = String(invoice.invoice_date || '').slice(0, 10);
       const current = map.get(batch) || {
         batch,
         count: 0,
         total: 0,
-        firstDate: date || "-",
-        lastDate: date || "-",
+        firstDate: date || '-',
+        lastDate: date || '-',
         branches: new Set<string>(),
       };
       current.count += 1;
       current.total += invoiceSalesValue(invoice);
-      if (date && (current.firstDate === "-" || date < current.firstDate)) current.firstDate = date;
-      if (date && (current.lastDate === "-" || date > current.lastDate)) current.lastDate = date;
+      if (date && (current.firstDate === '-' || date < current.firstDate)) current.firstDate = date;
+      if (date && (current.lastDate === '-' || date > current.lastDate)) current.lastDate = date;
       if (invoice.branch) current.branches.add(invoice.branch);
       map.set(batch, current);
     }
     return [...map.values()].sort((a, b) => b.lastDate.localeCompare(a.lastDate));
   }, [managedInvoices]);
 
-  const logInvoiceAdminAction = async (action: string, description: string, details?: Record<string, unknown>) => {
+  const logInvoiceAdminAction = async (
+    action: string,
+    description: string,
+    details?: Record<string, unknown>
+  ) => {
     const currentUserProfile = getCurrentUserProfile();
     await logActivity(
       currentUserProfile.id,
       currentUserProfile.name,
       action,
-      "الفواتير",
+      'الفواتير',
       description,
-      "كل الفروع",
-      details,
+      'كل الفروع',
+      details
     );
   };
 
@@ -494,25 +585,30 @@ export default function Invoices() {
     if (!window.confirm(`تأكيد مسح دفعة الفواتير: ${batch}`)) return;
 
     setAdminBusy(true);
-    const affectedIdentifiers = Array.from(new Set(
-      managedInvoices
-        .filter((invoice) => (batch === "بدون رقم دفعة" ? !invoice.import_batch : invoice.import_batch === batch))
-        .map((invoice) => invoice.customer_code || invoice.customer_phone)
-        .filter(Boolean),
-    ));
-    const query = supabase.from("sales_invoices").delete();
-    const { error } = batch === "بدون رقم دفعة"
-      ? await query.is("import_batch", null)
-      : await query.eq("import_batch", batch);
+    const affectedIdentifiers = Array.from(
+      new Set(
+        managedInvoices
+          .filter((invoice) =>
+            batch === 'بدون رقم دفعة' ? !invoice.import_batch : invoice.import_batch === batch
+          )
+          .map((invoice) => invoice.customer_code || invoice.customer_phone)
+          .filter(Boolean)
+      )
+    );
+    const query = supabase.from('sales_invoices').delete();
+    const { error } =
+      batch === 'بدون رقم دفعة'
+        ? await query.is('import_batch', null)
+        : await query.eq('import_batch', batch);
 
     if (error) {
       toast.error(`تعذر مسح الدفعة: ${error.message}`);
     } else {
-      toast.success("تم مسح دفعة الفواتير");
+      toast.success('تم مسح دفعة الفواتير');
       if (affectedIdentifiers.length > 0) {
-        await supabase.from("customer_analysis").delete().in("customer_code", affectedIdentifiers);
+        await supabase.from('customer_analysis').delete().in('customer_code', affectedIdentifiers);
       }
-      await logInvoiceAdminAction("مسح دفعة فواتير", `مسح دفعة ${batch}`, { import_batch: batch });
+      await logInvoiceAdminAction('مسح دفعة فواتير', `مسح دفعة ${batch}`, { import_batch: batch });
       await loadManagedInvoices();
     }
     setAdminBusy(false);
@@ -521,16 +617,20 @@ export default function Invoices() {
   const deleteTableRowsInChunks = async (table: string, batchSize = 400) => {
     let deleted = 0;
     for (let round = 0; round < 1000; round += 1) {
-      const { data, error: selectError } = await supabase.from(table).select("id").limit(batchSize);
+      const { data, error: selectError } = await supabase.from(table).select('id').limit(batchSize);
       if (selectError) {
-        if (selectError.message.includes("does not exist") || selectError.message.includes("schema cache")) return deleted;
+        if (
+          selectError.message.includes('does not exist') ||
+          selectError.message.includes('schema cache')
+        )
+          return deleted;
         throw new Error(selectError.message);
       }
 
       const ids = (data || []).map((row) => row.id).filter(Boolean);
       if (ids.length === 0) return deleted;
 
-      const { error: deleteError } = await supabase.from(table).delete().in("id", ids);
+      const { error: deleteError } = await supabase.from(table).delete().in('id', ids);
       if (deleteError) throw new Error(deleteError.message);
 
       deleted += ids.length;
@@ -541,22 +641,28 @@ export default function Invoices() {
 
   const deleteAllInvoices = async () => {
     if (!isAdmin || adminBusy) return;
-    if (deleteConfirmText.trim() !== "مسح الفواتير") {
-      toast.error("اكتب عبارة التأكيد كما هي: مسح الفواتير");
+    if (deleteConfirmText.trim() !== 'مسح الفواتير') {
+      toast.error('اكتب عبارة التأكيد كما هي: مسح الفواتير');
       return;
     }
 
     setAdminBusy(true);
-    const loadingToast = toast.loading("جاري مسح الفواتير على دفعات...");
+    const loadingToast = toast.loading('جاري مسح الفواتير على دفعات...');
     try {
-      const deletedInvoices = await deleteTableRowsInChunks("sales_invoices");
-      await deleteTableRowsInChunks("customer_analysis");
-      await logInvoiceAdminAction("مسح كل الفواتير", "مسح كل فواتير التجربة وتحليل العملاء المرتبط بها", {
-        deleted_invoice_count: deletedInvoices,
-      });
-      setDeleteConfirmText("");
+      const deletedInvoices = await deleteTableRowsInChunks('sales_invoices');
+      await deleteTableRowsInChunks('customer_analysis');
+      await logInvoiceAdminAction(
+        'مسح كل الفواتير',
+        'مسح كل فواتير التجربة وتحليل العملاء المرتبط بها',
+        {
+          deleted_invoice_count: deletedInvoices,
+        }
+      );
+      setDeleteConfirmText('');
       setManagedInvoices([]);
-      toast.success("تم مسح كل الفواتير التجريبية. يمكنك رفع الفواتير من البداية الآن.", { id: loadingToast });
+      toast.success('تم مسح كل الفواتير التجريبية. يمكنك رفع الفواتير من البداية الآن.', {
+        id: loadingToast,
+      });
     } catch (error) {
       toast.error(`تعذر مسح الفواتير: ${(error as Error).message}`, { id: loadingToast });
     } finally {
@@ -569,15 +675,15 @@ export default function Invoices() {
     setEditForm({
       branch: invoice.branch || branch,
       invoice_number: getInvoiceKey(invoice as unknown as Record<string, unknown>),
-      invoice_date: String(invoice.invoice_date || "").slice(0, 10),
-      invoice_type: invoice.invoice_type || "",
-      customer_code: invoice.customer_code || "",
-      customer_name: invoice.customer_name || "",
-      customer_phone: invoice.customer_phone || "",
-      seller_name: invoice.seller_name || "",
-      amount: String(invoice.amount ?? ""),
-      net_amount: String(invoice.net_amount ?? ""),
-      gross_amount: String(invoice.gross_amount ?? ""),
+      invoice_date: String(invoice.invoice_date || '').slice(0, 10),
+      invoice_type: invoice.invoice_type || '',
+      customer_code: invoice.customer_code || '',
+      customer_name: invoice.customer_name || '',
+      customer_phone: invoice.customer_phone || '',
+      seller_name: invoice.seller_name || '',
+      amount: String(invoice.amount ?? ''),
+      net_amount: String(invoice.net_amount ?? ''),
+      gross_amount: String(invoice.gross_amount ?? ''),
     });
   };
 
@@ -587,7 +693,7 @@ export default function Invoices() {
     const netAmount = editForm.net_amount.trim() ? Number(editForm.net_amount) : amount;
     const grossAmount = editForm.gross_amount.trim() ? Number(editForm.gross_amount) : amount;
     if (!editForm.invoice_date || !Number.isFinite(amount)) {
-      toast.error("راجع التاريخ وقيمة الفاتورة قبل الحفظ");
+      toast.error('راجع التاريخ وقيمة الفاتورة قبل الحفظ');
       return;
     }
 
@@ -606,15 +712,22 @@ export default function Invoices() {
       net_amount: Number.isFinite(netAmount) ? netAmount : amount,
       gross_amount: Number.isFinite(grossAmount) ? grossAmount : amount,
     };
-    const { error } = await supabase.from("sales_invoices").update(payload).eq("id", editInvoice.id);
+    const { error } = await supabase
+      .from('sales_invoices')
+      .update(payload)
+      .eq('id', editInvoice.id);
     if (error) {
       toast.error(`تعذر تعديل الفاتورة: ${error.message}`);
     } else {
-      toast.success("تم حفظ تعديل الفاتورة");
-      await logInvoiceAdminAction("تعديل فاتورة", `تعديل فاتورة ${editForm.invoice_number || getInvoiceKey(editInvoice as unknown as Record<string, unknown>) || editInvoice.id}`, {
-        invoice_id: editInvoice.id,
-        new_value: payload,
-      });
+      toast.success('تم حفظ تعديل الفاتورة');
+      await logInvoiceAdminAction(
+        'تعديل فاتورة',
+        `تعديل فاتورة ${editForm.invoice_number || getInvoiceKey(editInvoice as unknown as Record<string, unknown>) || editInvoice.id}`,
+        {
+          invoice_id: editInvoice.id,
+          new_value: payload,
+        }
+      );
       setEditInvoice(null);
       setEditForm(null);
       await loadManagedInvoices();
@@ -624,28 +737,34 @@ export default function Invoices() {
 
   const validCount = parseResult?.rows.length ?? 0;
   const errorCount = parseResult?.errors.length ?? 0;
-  const totalAmount = importKind === "sales" && parseResult
-    ? (parseResult as ParseResult).rows.reduce((sum, row) => sum + row.amount, 0)
-    : 0;
+  const totalAmount =
+    importKind === 'sales' && parseResult
+      ? (parseResult as ParseResult).rows.reduce((sum, row) => sum + row.amount, 0)
+      : 0;
 
   const rowsForPreview = parseResult?.rows.slice(0, 120) ?? [];
   const importWarningGroups = useMemo(() => {
-    const messages = Array.from(new Set((importSummary?.errors || []).map((error) => error.message).filter(Boolean)));
+    const messages = Array.from(
+      new Set((importSummary?.errors || []).map((error) => error.message).filter(Boolean))
+    );
     const critical = messages.filter(
       (message) =>
-        !message.includes("مكررة") &&
-        !message.includes("schema cache") &&
-        !message.includes("staff_id"),
+        !message.includes('مكررة') &&
+        !message.includes('schema cache') &&
+        !message.includes('staff_id')
     );
     const dataWarnings = [
       ...(importSummary && (importSummary.conflictReviewRows || 0) > 0
-        ? ["يوجد أرقام فواتير موجودة سابقًا بتاريخ أو فرع مختلف وتحتاج مراجعة يدوية، وتم منع إدخالها لتجنب التكرار."]
+        ? [
+            'يوجد أرقام فواتير موجودة سابقًا بتاريخ أو فرع مختلف وتحتاج مراجعة يدوية، وتم منع إدخالها لتجنب التكرار.',
+          ]
         : []),
-      ...messages.filter((message) => message.includes("مكررة")),
+      ...messages.filter((message) => message.includes('مكررة')),
     ];
     const recommendations = [
       ...(importSummary?.schemaWarnings || []),
-      ...(importSummary?.summaryRefreshStatus === "unavailable" && importSummary.summaryRefreshMessage
+      ...(importSummary?.summaryRefreshStatus === 'unavailable' &&
+      importSummary.summaryRefreshMessage
         ? [importSummary.summaryRefreshMessage]
         : []),
     ];
@@ -681,11 +800,36 @@ export default function Invoices() {
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
         <div className="section-title mb-3">استيراد يومي ثابت</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-          <InfoBox title="ملف المبيعات" items={["الهيدر في الصف الثاني", "يعتمد الكود والعميل وقيمة الصافي", "يحفظ المستخدم داخل بيانات الفاتورة لتحليل الدكاترة"]} />
-          <InfoBox title="ملف العملاء" items={["الكود هو مفتاح الربط", "الموبايل/التليفون لتحديث العميل", "العنوان محفوظ مع بيانات العميل إن كان العمود موجودًا"]} />
-          <InfoBox title="تصنيف العملاء" items={["مهم جدًا: 8000+", "مهم: 4000 إلى 8000", "متوسط: 1500 إلى 4000", "عادي: أقل من 1500"]} />
+          <InfoBox
+            title="ملف المبيعات"
+            items={[
+              'الهيدر في الصف الثاني',
+              'يعتمد الكود والعميل وقيمة الصافي',
+              'يحفظ المستخدم داخل بيانات الفاتورة لتحليل الدكاترة',
+            ]}
+          />
+          <InfoBox
+            title="ملف العملاء"
+            items={[
+              'الكود هو مفتاح الربط',
+              'الموبايل/التليفون لتحديث العميل',
+              'العنوان محفوظ مع بيانات العميل إن كان العمود موجودًا',
+            ]}
+          />
+          <InfoBox
+            title="تصنيف العملاء"
+            items={[
+              'مهم جدًا: 8000+',
+              'مهم: 4000 إلى 8000',
+              'متوسط: 1500 إلى 4000',
+              'عادي: أقل من 1500',
+            ]}
+          />
         </div>
-        <button onClick={generateTemplateFile} className="btn-secondary mt-4 flex items-center gap-2">
+        <button
+          onClick={generateTemplateFile}
+          className="btn-secondary mt-4 flex items-center gap-2"
+        >
           <Download size={15} /> تحميل نموذج مبيعات
         </button>
       </div>
@@ -695,7 +839,8 @@ export default function Invoices() {
           <div>
             <div className="section-title">استيراد وتحديث العملاء من CSV / Excel</div>
             <div className="text-sm text-slate-400">
-              يضيف العملاء الجدد ويصلح بيانات العملاء الموجودين في public.customers فقط، ولا يلمس sales_invoices أو customer_metrics_summary مباشرة.
+              يضيف العملاء الجدد ويصلح بيانات العملاء الموجودين في public.customers فقط، ولا يلمس
+              sales_invoices أو customer_metrics_summary مباشرة.
             </div>
           </div>
           <div className="flex flex-col items-start gap-2">
@@ -718,7 +863,7 @@ export default function Invoices() {
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (file) void handlePhoneUpdateFile(file);
-                  event.currentTarget.value = "";
+                  event.currentTarget.value = '';
                 }}
               />
             </label>
@@ -727,33 +872,59 @@ export default function Invoices() {
 
         {phoneUpdateBusy && (
           <div className="flex items-center gap-2 rounded-xl border border-teal-300/25 bg-teal-400/10 px-4 py-3 text-sm text-teal-50">
-            <Loader2 size={16} className="animate-spin" /> جاري فحص ملف العملاء وإنشاء معاينة آمنة...
+            <Loader2 size={16} className="animate-spin" /> جاري فحص ملف العملاء وإنشاء معاينة
+            آمنة...
           </div>
         )}
 
         {phoneUpdateResult && (
           <div className="space-y-4">
             <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-              الملف: <span className="font-bold text-white">{phoneUpdateFileName || "ملف العملاء"}</span>
+              الملف:{' '}
+              <span className="font-bold text-white">{phoneUpdateFileName || 'ملف العملاء'}</span>
               <span className="mx-2 text-slate-500">|</span>
-              الحالة: <span className="font-bold text-teal-300">{phoneUpdateResult.apply ? "تم التطبيق" : "معاينة فقط بدون كتابة"}</span>
+              الحالة:{' '}
+              <span className="font-bold text-teal-300">
+                {phoneUpdateResult.apply ? 'تم التطبيق' : 'معاينة فقط بدون كتابة'}
+              </span>
             </div>
             {phoneUpdateParseResult && (
               <div className="rounded-xl border border-teal-300/20 bg-teal-400/10 px-4 py-3 text-sm text-teal-50">
                 <div className="font-black">خريطة الأعمدة المكتشفة</div>
                 <div className="mt-2 grid gap-2 md:grid-cols-3">
-                  <span>كود العميل: {phoneUpdateParseResult.mapping.customerCodeColumn || "غير موجود"}</span>
-                  <span>اسم العميل: {phoneUpdateParseResult.mapping.customerNameColumn || "غير موجود"}</span>
-                  <span>الفرع/العنوان: {phoneUpdateParseResult.mapping.branchColumn || "غير موجود"}</span>
-                  <span>الهاتف الأساسي: {phoneUpdateParseResult.mapping.phoneColumn || "غير موجود"}</span>
-                  <span>واتساب: {phoneUpdateParseResult.mapping.whatsappColumn || "غير موجود"}</span>
-                  <span>إصلاح صفر البداية: {phoneUpdateParseResult.stats.normalizedLeadingZero.toLocaleString("ar-EG")}</span>
-                  <span>تحويل من +20/0020: {phoneUpdateParseResult.stats.normalizedInternational.toLocaleString("ar-EG")}</span>
-                  <span>أرقام غير صالحة في الملف: {phoneUpdateParseResult.stats.invalidPhones.toLocaleString("ar-EG")}</span>
+                  <span>
+                    كود العميل: {phoneUpdateParseResult.mapping.customerCodeColumn || 'غير موجود'}
+                  </span>
+                  <span>
+                    اسم العميل: {phoneUpdateParseResult.mapping.customerNameColumn || 'غير موجود'}
+                  </span>
+                  <span>
+                    الفرع/العنوان: {phoneUpdateParseResult.mapping.branchColumn || 'غير موجود'}
+                  </span>
+                  <span>
+                    الهاتف الأساسي: {phoneUpdateParseResult.mapping.phoneColumn || 'غير موجود'}
+                  </span>
+                  <span>
+                    واتساب: {phoneUpdateParseResult.mapping.whatsappColumn || 'غير موجود'}
+                  </span>
+                  <span>
+                    إصلاح صفر البداية:{' '}
+                    {phoneUpdateParseResult.stats.normalizedLeadingZero.toLocaleString('ar-EG')}
+                  </span>
+                  <span>
+                    تحويل من +20/0020:{' '}
+                    {phoneUpdateParseResult.stats.normalizedInternational.toLocaleString('ar-EG')}
+                  </span>
+                  <span>
+                    أرقام غير صالحة في الملف:{' '}
+                    {phoneUpdateParseResult.stats.invalidPhones.toLocaleString('ar-EG')}
+                  </span>
                 </div>
-                {(phoneUpdateParseResult.mapping.ambiguousPhoneColumns.length > 1 || phoneUpdateParseResult.mapping.ambiguousWhatsappColumns.length > 1) && (
+                {(phoneUpdateParseResult.mapping.ambiguousPhoneColumns.length > 1 ||
+                  phoneUpdateParseResult.mapping.ambiguousWhatsappColumns.length > 1) && (
                   <div className="mt-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-amber-50">
-                    يوجد أكثر من عمود رقم. تم اختيار أول عمود للهاتف والثاني للواتساب عند توفره. راجع أول 200 صف قبل التطبيق.
+                    يوجد أكثر من عمود رقم. تم اختيار أول عمود للهاتف والثاني للواتساب عند توفره.
+                    راجع أول 200 صف قبل التطبيق.
                   </div>
                 )}
               </div>
@@ -774,15 +945,22 @@ export default function Invoices() {
               <ResultTile value={phoneUpdateResult.needsReviewRows} label="تحتاج مراجعة" />
               <ResultTile value={phoneUpdateResult.unmatchedRows} label="غير مطابق" />
               <ResultTile value={phoneUpdateResult.customersUpdated} label="عملاء تم تحديثهم" />
-              <ResultTile value={phoneUpdateResult.invalidSummaryPhoneCountBefore} label="غير صالح قبل" />
-              <ResultTile value={phoneUpdateResult.invalidSummaryPhoneCountAfter} label="غير صالح بعد" />
+              <ResultTile
+                value={phoneUpdateResult.invalidSummaryPhoneCountBefore}
+                label="غير صالح قبل"
+              />
+              <ResultTile
+                value={phoneUpdateResult.invalidSummaryPhoneCountAfter}
+                label="غير صالح بعد"
+              />
             </div>
 
             {!phoneUpdateResult.apply && (
               <div className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-4">
                 <div className="font-bold text-amber-100">تأكيد الكتابة</div>
                 <div className="mt-1 text-sm text-amber-50/85">
-                  لن يتم تحديث أي عميل إلا بعد كتابة العبارة التالية حرفيًا: {CUSTOMER_PHONE_CONFIRMATION}
+                  لن يتم تحديث أي عميل إلا بعد كتابة العبارة التالية حرفيًا:{' '}
+                  {CUSTOMER_PHONE_CONFIRMATION}
                 </div>
                 <div className="mt-3 flex flex-col gap-3 md:flex-row">
                   <input
@@ -795,7 +973,10 @@ export default function Invoices() {
                   <button
                     type="button"
                     onClick={handleApplyPhoneUpdate}
-                    disabled={phoneUpdateBusy || phoneUpdateConfirmText.trim() !== CUSTOMER_PHONE_CONFIRMATION}
+                    disabled={
+                      phoneUpdateBusy ||
+                      phoneUpdateConfirmText.trim() !== CUSTOMER_PHONE_CONFIRMATION
+                    }
                     className="btn-primary disabled:opacity-50"
                   >
                     تطبيق استيراد العملاء
@@ -807,19 +988,39 @@ export default function Invoices() {
             <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3 text-sm font-bold text-white">
                 <span>أول 200 صف من نتيجة الفحص</span>
-                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("all")} className="btn-secondary px-3 py-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => downloadPhoneUpdatePreviewReport('all')}
+                  className="btn-secondary px-3 py-1 text-xs"
+                >
                   كل المعاينة
                 </button>
-                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("repair")} className="btn-secondary px-3 py-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => downloadPhoneUpdatePreviewReport('repair')}
+                  className="btn-secondary px-3 py-1 text-xs"
+                >
                   سيتم إصلاحهم
                 </button>
-                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("review")} className="btn-secondary px-3 py-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => downloadPhoneUpdatePreviewReport('review')}
+                  className="btn-secondary px-3 py-1 text-xs"
+                >
                   تحتاج مراجعة
                 </button>
-                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("invalid")} className="btn-secondary px-3 py-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => downloadPhoneUpdatePreviewReport('invalid')}
+                  className="btn-secondary px-3 py-1 text-xs"
+                >
                   أرقام مرفوضة
                 </button>
-                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("unmatched")} className="btn-secondary px-3 py-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => downloadPhoneUpdatePreviewReport('unmatched')}
+                  className="btn-secondary px-3 py-1 text-xs"
+                >
                   غير مطابق
                 </button>
               </div>
@@ -842,23 +1043,25 @@ export default function Invoices() {
                     {phoneUpdateResult.rows.map((row) => (
                       <tr key={row.row_no}>
                         <td className="text-slate-500 text-xs">{row.row_no}</td>
-                        <td className="num">{row.customer_code || "-"}</td>
-                        <td className="text-white font-medium">{row.customer_name || "-"}</td>
-                        <td>{row.branch || "-"}</td>
-                        <td className="max-w-[220px] truncate">{row.address || "-"}</td>
-                        <td className="num text-teal-300">{row.new_phone || "-"}</td>
-                        <td className="num text-teal-300">{row.new_whatsapp_phone || "-"}</td>
-                        <td className="num text-teal-300">{row.phone_alt || "-"}</td>
+                        <td className="num">{row.customer_code || '-'}</td>
+                        <td className="text-white font-medium">{row.customer_name || '-'}</td>
+                        <td>{row.branch || '-'}</td>
+                        <td className="max-w-[220px] truncate">{row.address || '-'}</td>
+                        <td className="num text-teal-300">{row.new_phone || '-'}</td>
+                        <td className="num text-teal-300">{row.new_whatsapp_phone || '-'}</td>
+                        <td className="num text-teal-300">{row.phone_alt || '-'}</td>
                         <td>
-                          <span className={`rounded-full px-2 py-1 text-xs font-bold ${
-                            row.status === "ready_to_update"
-                              ? "bg-emerald-400/15 text-emerald-100"
-                              : row.status.includes("review")
-                                ? "bg-amber-400/15 text-amber-100"
-                                : row.status === "unmatched" || row.status === "invalid_phone"
-                                  ? "bg-rose-400/15 text-rose-100"
-                                  : "bg-slate-400/15 text-slate-100"
-                          }`}>
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs font-bold ${
+                              row.status === 'ready_to_update'
+                                ? 'bg-emerald-400/15 text-emerald-100'
+                                : row.status.includes('review')
+                                  ? 'bg-amber-400/15 text-amber-100'
+                                  : row.status === 'unmatched' || row.status === 'invalid_phone'
+                                    ? 'bg-rose-400/15 text-rose-100'
+                                    : 'bg-slate-400/15 text-slate-100'
+                            }`}
+                          >
                             {customerImportStatusLabel(row.status)}
                           </span>
                         </td>
@@ -881,7 +1084,8 @@ export default function Invoices() {
                 إدارة الفواتير المستوردة
               </div>
               <div className="text-slate-400 text-xs mt-1">
-                هذا القسم ظاهر للمدير العام فقط. استخدمه لمسح بيانات التجربة أو تعديل فاتورة قبل إعادة الرفع المنظم.
+                هذا القسم ظاهر للمدير العام فقط. استخدمه لمسح بيانات التجربة أو تعديل فاتورة قبل
+                إعادة الرفع المنظم.
               </div>
             </div>
             <button
@@ -890,7 +1094,7 @@ export default function Invoices() {
               disabled={managedLoading || adminBusy}
               className="btn-secondary px-4 py-2 text-sm flex items-center gap-2"
             >
-              <RefreshCw size={15} className={managedLoading ? "animate-spin" : ""} />
+              <RefreshCw size={15} className={managedLoading ? 'animate-spin' : ''} />
               تحديث القائمة
             </button>
           </div>
@@ -908,7 +1112,7 @@ export default function Invoices() {
             <button
               type="button"
               onClick={deleteAllInvoices}
-              disabled={adminBusy || deleteConfirmText.trim() !== "مسح الفواتير"}
+              disabled={adminBusy || deleteConfirmText.trim() !== 'مسح الفواتير'}
               className="rounded-xl bg-red-500/20 border border-red-400/30 px-4 py-2 text-sm font-bold text-red-200 hover:bg-red-500/30 disabled:opacity-50 flex items-center gap-2"
             >
               <Trash2 size={15} />
@@ -919,8 +1123,23 @@ export default function Invoices() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatTile value={managedInvoices.length} label="فواتير محملة" color="text-white" />
             <StatTile value={invoiceBatches.length} label="دفعات ظاهرة" color="text-teal-400" />
-            <StatTile value={managedInvoices.reduce((sum, row) => sum + invoiceSalesValue(row), 0)} label="إجمالي الظاهر" color="text-amber-400" isCurrency />
-            <StatTile value={new Set(managedInvoices.map((row) => row.customer_code || row.customer_phone || row.customer_name).filter(Boolean)).size} label="عملاء ظاهرين" color="text-purple-300" />
+            <StatTile
+              value={managedInvoices.reduce((sum, row) => sum + invoiceSalesValue(row), 0)}
+              label="إجمالي الظاهر"
+              color="text-amber-400"
+              isCurrency
+            />
+            <StatTile
+              value={
+                new Set(
+                  managedInvoices
+                    .map((row) => row.customer_code || row.customer_phone || row.customer_name)
+                    .filter(Boolean)
+                ).size
+              }
+              label="عملاء ظاهرين"
+              color="text-purple-300"
+            />
           </div>
 
           <div className="rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4">
@@ -928,7 +1147,8 @@ export default function Invoices() {
               <div>
                 <div className="font-bold text-amber-100">فحص الفواتير المكررة</div>
                 <div className="mt-1 text-xs text-amber-50/80">
-                  فحص محدود وآمن لأحدث الفواتير حسب رقم الفاتورة + الفرع + التاريخ، بدون تحميل كل جدول المبيعات.
+                  فحص محدود وآمن لأحدث الفواتير حسب رقم الفاتورة + الفرع + التاريخ، بدون تحميل كل
+                  جدول المبيعات.
                 </div>
               </div>
               <button
@@ -937,31 +1157,42 @@ export default function Invoices() {
                 disabled={duplicateAuditLoading}
                 className="rounded-xl border border-amber-200/40 bg-amber-300/15 px-4 py-2 text-sm font-bold text-amber-50 hover:bg-amber-300/25 disabled:opacity-50"
               >
-                {duplicateAuditLoading ? "جاري الفحص..." : "عرض الفواتير المكررة"}
+                {duplicateAuditLoading ? 'جاري الفحص...' : 'عرض الفواتير المكررة'}
               </button>
             </div>
             {duplicateAudit.length > 0 && (
               <div className="mt-4 rounded-xl border border-amber-200/30 bg-slate-950/25 p-3">
-                <div className="mb-2 text-sm font-bold text-amber-100">يوجد فواتير مكررة قديمة تحتاج مراجعة</div>
+                <div className="mb-2 text-sm font-bold text-amber-100">
+                  يوجد فواتير مكررة قديمة تحتاج مراجعة
+                </div>
                 <div className="max-h-56 space-y-2 overflow-auto">
                   {duplicateAudit.map((group) => (
-                    <div key={`${group.invoice_number}-${group.branch}-${group.sale_date}`} className="grid grid-cols-4 gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-100">
+                    <div
+                      key={`${group.invoice_number}-${group.branch}-${group.sale_date}`}
+                      className="grid grid-cols-4 gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-100"
+                    >
                       <span className="font-bold">#{group.invoice_number}</span>
                       <span>{group.branch}</span>
                       <span>{group.sale_date}</span>
-                      <span className="text-amber-100">{group.count.toLocaleString("ar-EG")} مرات</span>
+                      <span className="text-amber-100">
+                        {group.count.toLocaleString('ar-EG')} مرات
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
             {!duplicateAuditLoading && duplicateAudit.length === 0 && (
-              <div className="mt-3 text-xs text-amber-50/70">اضغط زر الفحص لعرض أحدث مجموعات التكرار إن وجدت.</div>
+              <div className="mt-3 text-xs text-amber-50/70">
+                اضغط زر الفحص لعرض أحدث مجموعات التكرار إن وجدت.
+              </div>
             )}
           </div>
 
           <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">آخر دفعات الرفع</div>
+            <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">
+              آخر دفعات الرفع
+            </div>
             <div className="overflow-x-auto">
               <table className="data-table">
                 <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
@@ -978,9 +1209,11 @@ export default function Invoices() {
                   {invoiceBatches.map((batchRow) => (
                     <tr key={batchRow.batch}>
                       <td className="text-white font-medium max-w-xs truncate">{batchRow.batch}</td>
-                      <td className="text-slate-300">{batchRow.firstDate} إلى {batchRow.lastDate}</td>
-                      <td className="text-slate-300">{[...batchRow.branches].join("، ") || "-"}</td>
-                      <td className="num">{batchRow.count.toLocaleString("ar-EG")}</td>
+                      <td className="text-slate-300">
+                        {batchRow.firstDate} إلى {batchRow.lastDate}
+                      </td>
+                      <td className="text-slate-300">{[...batchRow.branches].join('، ') || '-'}</td>
+                      <td className="num">{batchRow.count.toLocaleString('ar-EG')}</td>
                       <td className="text-amber-300 font-bold">{formatCurrency(batchRow.total)}</td>
                       <td>
                         <div className="flex gap-2">
@@ -1006,7 +1239,9 @@ export default function Invoices() {
                   ))}
                   {invoiceBatches.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="text-center text-slate-400 py-6">لا توجد فواتير مستوردة حاليا.</td>
+                      <td colSpan={6} className="text-center text-slate-400 py-6">
+                        لا توجد فواتير مستوردة حاليا.
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -1015,7 +1250,9 @@ export default function Invoices() {
           </div>
 
           <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">آخر الفواتير للتعديل السريع</div>
+            <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">
+              آخر الفواتير للتعديل السريع
+            </div>
             <div className="overflow-x-auto max-h-80 overflow-y-auto">
               <table className="data-table">
                 <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
@@ -1032,12 +1269,16 @@ export default function Invoices() {
                 <tbody>
                   {managedInvoices.slice(0, 120).map((invoice) => (
                     <tr key={invoice.id}>
-                      <td className="num">{getInvoiceKey(invoice as unknown as Record<string, unknown>) || "-"}</td>
-                      <td>{invoice.invoice_date ? formatDate(invoice.invoice_date) : "-"}</td>
-                      <td>{invoice.branch || "-"}</td>
-                      <td>{invoice.customer_name || invoice.customer_code || "-"}</td>
-                      <td>{invoice.seller_name || "-"}</td>
-                      <td className="text-teal-300 font-bold">{formatCurrency(invoiceSalesValue(invoice))}</td>
+                      <td className="num">
+                        {getInvoiceKey(invoice as unknown as Record<string, unknown>) || '-'}
+                      </td>
+                      <td>{invoice.invoice_date ? formatDate(invoice.invoice_date) : '-'}</td>
+                      <td>{invoice.branch || '-'}</td>
+                      <td>{invoice.customer_name || invoice.customer_code || '-'}</td>
+                      <td>{invoice.seller_name || '-'}</td>
+                      <td className="text-teal-300 font-bold">
+                        {formatCurrency(invoiceSalesValue(invoice))}
+                      </td>
                       <td>
                         <button
                           type="button"
@@ -1053,7 +1294,9 @@ export default function Invoices() {
                   ))}
                   {managedInvoices.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="text-center text-slate-400 py-6">لا توجد فواتير للتعديل.</td>
+                      <td colSpan={7} className="text-center text-slate-400 py-6">
+                        لا توجد فواتير للتعديل.
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -1067,21 +1310,40 @@ export default function Invoices() {
         <div className="flex flex-col md:flex-row gap-3 md:items-center">
           <span className="text-slate-300 text-sm font-medium w-24">نوع الملف</span>
           <div className="flex gap-2 bg-white/5 border border-[#2d4063] p-1 rounded-xl w-fit">
-            <button onClick={() => setImportKind("sales")} disabled={step === "importing"} className={kindButton(importKind === "sales")}>مبيعات يومية</button>
-            <button onClick={() => setImportKind("customers")} disabled={step === "importing"} className={kindButton(importKind === "customers")}>بيانات العملاء</button>
+            <button
+              onClick={() => setImportKind('sales')}
+              disabled={step === 'importing'}
+              className={kindButton(importKind === 'sales')}
+            >
+              مبيعات يومية
+            </button>
+            <button
+              onClick={() => setImportKind('customers')}
+              disabled={step === 'importing'}
+              className={kindButton(importKind === 'customers')}
+            >
+              بيانات العملاء
+            </button>
           </div>
         </div>
 
-        {importKind === "sales" && (
+        {importKind === 'sales' && (
           <div className="flex items-center gap-3">
             <label className="text-slate-300 text-sm font-medium w-24">الفرع</label>
-            <select value={branch} onChange={(event) => setBranch(event.target.value)} disabled={step === "importing"} className="input-dark max-w-xs">
-              {BRANCHES.map((item) => <option key={item}>{item}</option>)}
+            <select
+              value={branch}
+              onChange={(event) => setBranch(event.target.value)}
+              disabled={step === 'importing'}
+              className="input-dark max-w-xs"
+            >
+              {BRANCHES.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
             </select>
           </div>
         )}
 
-        {(step === "idle" || step === "parsing") && (
+        {(step === 'idle' || step === 'parsing') && (
           <div
             onDragOver={(event) => {
               event.preventDefault();
@@ -1096,7 +1358,9 @@ export default function Invoices() {
             }}
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer ${
-              dragging ? "border-teal-400 bg-teal-500/5" : "border-[#2d4063] hover:border-teal-500/50"
+              dragging
+                ? 'border-teal-400 bg-teal-500/5'
+                : 'border-[#2d4063] hover:border-teal-500/50'
             }`}
           >
             <input
@@ -1109,7 +1373,7 @@ export default function Invoices() {
                 if (file) processFile(file);
               }}
             />
-            {step === "parsing" ? (
+            {step === 'parsing' ? (
               <div className="flex flex-col items-center gap-3">
                 <Loader2 size={34} className="animate-spin text-teal-400" />
                 <div className="text-slate-300 font-medium">جاري تحليل الملف...</div>
@@ -1120,37 +1384,61 @@ export default function Invoices() {
                   <Upload size={26} className="text-teal-400" />
                 </div>
                 <div className="text-white font-bold">اسحب الملف هنا أو اضغط للاختيار</div>
-                <div className="text-slate-400 text-sm">{importKind === "sales" ? "ملف مبيعات الفرعين اليومي" : "ملف بيانات العملاء"}</div>
+                <div className="text-slate-400 text-sm">
+                  {importKind === 'sales' ? 'ملف مبيعات الفرعين اليومي' : 'ملف بيانات العملاء'}
+                </div>
               </div>
             )}
           </div>
         )}
       </div>
 
-      {(step === "preview" || step === "importing" || step === "done") && parseResult && (
+      {(step === 'preview' || step === 'importing' || step === 'done') && parseResult && (
         <div className="space-y-4">
           <div className="flex items-center gap-3 bg-[#1B2B4B] border border-[#2d4063] rounded-2xl px-5 py-3">
             <FileSpreadsheet size={20} className="text-teal-400" />
             <div className="flex-1 min-w-0">
               <div className="text-white text-sm font-medium truncate">{fileName}</div>
-              <div className="text-slate-400 text-xs">{importKind === "sales" ? "مبيعات يومية" : "بيانات العملاء"}</div>
+              <div className="text-slate-400 text-xs">
+                {importKind === 'sales' ? 'مبيعات يومية' : 'بيانات العملاء'}
+              </div>
             </div>
-            {step === "preview" && <button onClick={handleReset} className="text-slate-500 hover:text-slate-300"><XCircle size={18} /></button>}
+            {step === 'preview' && (
+              <button onClick={handleReset} className="text-slate-500 hover:text-slate-300">
+                <XCircle size={18} />
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatTile value={validCount + errorCount} label="إجمالي الصفوف" color="text-white" />
             <StatTile value={validCount} label="صفوف صالحة" color="text-teal-400" />
-            <StatTile value={errorCount} label="أخطاء" color={errorCount ? "text-red-400" : "text-slate-400"} />
-            <StatTile value={importKind === "sales" ? totalAmount : validCount} label={importKind === "sales" ? "إجمالي المبالغ" : "عملاء جاهزون"} color="text-amber-400" isCurrency={importKind === "sales"} />
+            <StatTile
+              value={errorCount}
+              label="أخطاء"
+              color={errorCount ? 'text-red-400' : 'text-slate-400'}
+            />
+            <StatTile
+              value={importKind === 'sales' ? totalAmount : validCount}
+              label={importKind === 'sales' ? 'إجمالي المبالغ' : 'عملاء جاهزون'}
+              color="text-amber-400"
+              isCurrency={importKind === 'sales'}
+            />
           </div>
 
           {errorCount > 0 && (
             <div className="rounded-2xl border border-red-300/35 bg-red-500/15 p-4">
-              <div className="text-red-100 font-semibold text-sm flex items-center gap-2 mb-3"><AlertCircle size={16} /> أخطاء القراءة</div>
+              <div className="text-red-100 font-semibold text-sm flex items-center gap-2 mb-3">
+                <AlertCircle size={16} /> أخطاء القراءة
+              </div>
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {parseResult.errors.slice(0, 80).map((error, index) => (
-                  <div key={index} className="text-red-50 text-xs bg-slate-950/25 rounded-lg px-3 py-2">{error.message}</div>
+                  <div
+                    key={index}
+                    className="text-red-50 text-xs bg-slate-950/25 rounded-lg px-3 py-2"
+                  >
+                    {error.message}
+                  </div>
                 ))}
               </div>
             </div>
@@ -1167,10 +1455,10 @@ export default function Invoices() {
                     <tr>
                       <th>#</th>
                       <th>العميل</th>
-                      <th>{importKind === "sales" ? "الكود" : "كود العميل"}</th>
-                      <th>{importKind === "sales" ? "المبلغ" : "الهاتف"}</th>
-                      <th>{importKind === "sales" ? "التاريخ" : "العنوان"}</th>
-                      {importKind === "sales" && <th>المستخدم</th>}
+                      <th>{importKind === 'sales' ? 'الكود' : 'كود العميل'}</th>
+                      <th>{importKind === 'sales' ? 'المبلغ' : 'الهاتف'}</th>
+                      <th>{importKind === 'sales' ? 'التاريخ' : 'العنوان'}</th>
+                      {importKind === 'sales' && <th>المستخدم</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -1178,10 +1466,26 @@ export default function Invoices() {
                       <tr key={index}>
                         <td className="text-slate-500 text-xs">{row.rowIndex}</td>
                         <td className="text-white font-medium">{row.name}</td>
-                        <td className="num">{importKind === "sales" ? (row as ParseResult["rows"][number]).customerCode : (row as CustomerParseResult["rows"][number]).code}</td>
-                        <td className="text-teal-400 font-bold num">{importKind === "sales" ? formatCurrency((row as ParseResult["rows"][number]).amount) : ((row as CustomerParseResult["rows"][number]).phone || "-")}</td>
-                        <td className="text-slate-400">{importKind === "sales" ? formatDate((row as ParseResult["rows"][number]).date) : ((row as CustomerParseResult["rows"][number]).address || "-")}</td>
-                        {importKind === "sales" && <td className="text-slate-300">{(row as ParseResult["rows"][number]).seller || "-"}</td>}
+                        <td className="num">
+                          {importKind === 'sales'
+                            ? (row as ParseResult['rows'][number]).customerCode
+                            : (row as CustomerParseResult['rows'][number]).code}
+                        </td>
+                        <td className="text-teal-400 font-bold num">
+                          {importKind === 'sales'
+                            ? formatCurrency((row as ParseResult['rows'][number]).amount)
+                            : (row as CustomerParseResult['rows'][number]).phone || '-'}
+                        </td>
+                        <td className="text-slate-400">
+                          {importKind === 'sales'
+                            ? formatDate((row as ParseResult['rows'][number]).date)
+                            : (row as CustomerParseResult['rows'][number]).address || '-'}
+                        </td>
+                        {importKind === 'sales' && (
+                          <td className="text-slate-300">
+                            {(row as ParseResult['rows'][number]).seller || '-'}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1190,86 +1494,116 @@ export default function Invoices() {
             </div>
           )}
 
-          {step === "importing" && (
+          {step === 'importing' && (
             <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-white font-semibold text-sm flex items-center gap-2"><Loader2 size={16} className="animate-spin text-teal-400" /> جاري الاستيراد...</div>
+                <div className="text-white font-semibold text-sm flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-teal-400" /> جاري الاستيراد...
+                </div>
                 <span className="text-teal-400 font-bold text-sm num">{progress}%</span>
               </div>
-              <div className="progress-bar"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
+              <div className="progress-bar">
+                <div className="progress-fill" style={{ width: `${progress}%` }} />
+              </div>
             </div>
           )}
 
-          {step === "preview" && validCount > 0 && (
+          {step === 'preview' && validCount > 0 && (
             <div className="flex gap-3">
               <button onClick={handleConfirmImport} className="btn-primary flex items-center gap-2">
-                <CheckCircle size={16} /> تأكيد استيراد {validCount.toLocaleString("ar-EG")} {importKind === "sales" ? "فاتورة" : "عميل"}
+                <CheckCircle size={16} /> تأكيد استيراد {validCount.toLocaleString('ar-EG')}{' '}
+                {importKind === 'sales' ? 'فاتورة' : 'عميل'}
               </button>
-              <button onClick={handleReset} className="btn-secondary flex items-center gap-2"><XCircle size={16} /> إلغاء</button>
+              <button onClick={handleReset} className="btn-secondary flex items-center gap-2">
+                <XCircle size={16} /> إلغاء
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {step === "done" && importSummary && (
+      {step === 'done' && importSummary && (
         <div className="bg-[#1B2B4B] border border-teal-500/20 rounded-2xl p-6 space-y-5">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-teal-500/15 flex items-center justify-center"><CheckCircle size={24} className="text-teal-400" /></div>
+            <div className="w-12 h-12 rounded-2xl bg-teal-500/15 flex items-center justify-center">
+              <CheckCircle size={24} className="text-teal-400" />
+            </div>
             <div>
               <div className="text-white font-bold text-lg">اكتمل الاستيراد</div>
-              <div className="text-slate-400 text-sm">{importKind === "sales" ? "تم تحديث الفواتير والعملاء" : "تم تحديث بيانات العملاء"}</div>
+              <div className="text-slate-400 text-sm">
+                {importKind === 'sales' ? 'تم تحديث الفواتير والعملاء' : 'تم تحديث بيانات العملاء'}
+              </div>
             </div>
           </div>
-          <div className={`grid gap-3 ${importKind === "sales" ? "grid-cols-2 md:grid-cols-6" : "grid-cols-2 md:grid-cols-4"}`}>
+          <div
+            className={`grid gap-3 ${importKind === 'sales' ? 'grid-cols-2 md:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'}`}
+          >
             <ResultTile value={importSummary.insertedRows} label="صفوف أضيفت" />
-            {importKind === "sales" && <ResultTile value={importSummary.updatedInvoices || 0} label="فواتير اتحدثت" />}
-            {importKind === "sales" && <ResultTile value={importSummary.valueChangedUpdates || 0} label="قيم اتعدلت" />}
+            {importKind === 'sales' && (
+              <ResultTile value={importSummary.updatedInvoices || 0} label="فواتير اتحدثت" />
+            )}
+            {importKind === 'sales' && (
+              <ResultTile value={importSummary.valueChangedUpdates || 0} label="قيم اتعدلت" />
+            )}
             <ResultTile value={importSummary.skippedDuplicates} label="مكرر تخطى" />
             <ResultTile value={importSummary.updatedCustomers} label="عميل محدث" />
             <ResultTile value={importSummary.newCustomers} label="عميل جديد" />
-            {importKind === "sales" && (
+            {importKind === 'sales' && (
               <>
                 <ResultTile value={importSummary.needsReviewRows} label="تحتاج مراجعة" />
-                <ResultTile value={importSummary.conflictReviewRows || 0} label="تعارض رقم فاتورة" />
+                <ResultTile
+                  value={importSummary.conflictReviewRows || 0}
+                  label="تعارض رقم فاتورة"
+                />
                 <ResultTile value={importSummary.unlinkedCustomersEstimate} label="ربط عميل ضعيف" />
-                <ResultTile value={importSummary.unmatchedCustomerRows || 0} label="عميل غير مسجل" />
+                <ResultTile
+                  value={importSummary.unmatchedCustomerRows || 0}
+                  label="عميل غير مسجل"
+                />
                 <ResultTile value={importSummary.zeroAmountRows || 0} label="فواتير صفرية" />
                 <ResultTile value={errorCount} label="صفوف غير صالحة" />
-                <ResultTile value={importSummary.distinctInvoicesInFile || 0} label="فواتير مميزة بالملف" />
+                <ResultTile
+                  value={importSummary.distinctInvoicesInFile || 0}
+                  label="فواتير مميزة بالملف"
+                />
                 <ResultTile value={importSummary.invoicesWithoutCustomer || 0} label="بدون عميل" />
                 <ResultTile value={importSummary.invoicesWithoutDoctor || 0} label="بدون دكتور" />
                 <ResultTile value={importSummary.invoicesWithoutBranch || 0} label="بدون فرع" />
                 <ResultTile value={importSummary.fileNetSales} label="صافي الملف" isCurrency />
-                <ResultTile value={importSummary.importedNetSales} label="صافي المستورد" isCurrency />
+                <ResultTile
+                  value={importSummary.importedNetSales}
+                  label="صافي المستورد"
+                  isCurrency
+                />
               </>
             )}
           </div>
-          {importKind === "sales" && (
+          {importKind === 'sales' && (
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-teal-300/25 bg-teal-400/10 p-4">
                 <div className="font-bold text-teal-100">حالة تحديث الملخصات</div>
                 <div className="mt-2 text-sm text-teal-50/85">
-                  {importSummary.summaryRefreshMessage || "لم يتم طلب تحديث ملخصات إضافي."}
+                  {importSummary.summaryRefreshMessage || 'لم يتم طلب تحديث ملخصات إضافي.'}
                 </div>
                 <div className="mt-4 space-y-2">
                   {(importSummary.postImportRefreshSteps || []).map((refreshStep) => {
-                    const isSuccess = refreshStep.status === "success";
-                    const isFailed = refreshStep.status === "failed";
+                    const isSuccess = refreshStep.status === 'success';
+                    const isFailed = refreshStep.status === 'failed';
                     return (
                       <div
                         key={refreshStep.key}
                         className={`rounded-xl border px-3 py-2 text-sm ${
                           isSuccess
-                            ? "border-emerald-300/35 bg-emerald-300/15 text-emerald-50"
+                            ? 'border-emerald-300/35 bg-emerald-300/15 text-emerald-50'
                             : isFailed
-                              ? "border-rose-300/35 bg-rose-300/15 text-rose-50"
-                              : "border-amber-300/35 bg-amber-300/15 text-amber-50"
+                              ? 'border-rose-300/35 bg-rose-300/15 text-rose-50'
+                              : 'border-amber-300/35 bg-amber-300/15 text-amber-50'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-bold">{refreshStep.label}</span>
                           <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs">
-                            {isSuccess ? "تم" : isFailed ? "فشل" : "تخطي"}
+                            {isSuccess ? 'تم' : isFailed ? 'فشل' : 'تخطي'}
                           </span>
                         </div>
                         <div className="mt-1 opacity-90">{refreshStep.message}</div>
@@ -1279,35 +1613,42 @@ export default function Invoices() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => rebuildSalesSummaries({
-                    startDate: importSummary.firstInvoiceDate,
-                    endDate: importSummary.lastInvoiceDate,
-                  })}
+                  onClick={() =>
+                    rebuildSalesSummaries({
+                      startDate: importSummary.firstInvoiceDate,
+                      endDate: importSummary.lastInvoiceDate,
+                    })
+                  }
                   disabled={summaryRefreshBusy}
                   className="mt-3 rounded-xl border border-teal-200/40 bg-teal-300/15 px-4 py-2 text-sm font-bold text-teal-50 hover:bg-teal-300/25 disabled:opacity-50"
                 >
-                  {summaryRefreshBusy ? "جاري تحديث الملخصات..." : "تحديث الملخصات"}
+                  {summaryRefreshBusy ? 'جاري تحديث الملخصات...' : 'تحديث الملخصات'}
                 </button>
               </div>
               <div className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-4">
                 <div className="font-bold text-sky-100">ربط الدكاترة</div>
                 <div className="mt-2 text-sm text-sky-50/85">
-                  {importSummary.staffLinkingMode === "staff_id"
-                    ? "تم الربط عبر staff_id عندما كان متاحًا، مع الاحتفاظ باسم الدكتور."
-                    : "staff_id غير متاح أو غير مطابق، يتم الربط مؤقتًا بالاسم بعد التطبيع والفرع."}
+                  {importSummary.staffLinkingMode === 'staff_id'
+                    ? 'تم الربط عبر staff_id عندما كان متاحًا، مع الاحتفاظ باسم الدكتور.'
+                    : 'staff_id غير متاح أو غير مطابق، يتم الربط مؤقتًا بالاسم بعد التطبيع والفرع.'}
                 </div>
               </div>
             </div>
           )}
-          {importKind === "sales" && (
+          {importKind === 'sales' && (
             <div className="grid gap-3 lg:grid-cols-2">
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                 <div className="mb-3 font-bold text-white">عدد الفواتير حسب اليوم</div>
                 <div className="max-h-48 space-y-2 overflow-auto">
                   {(importSummary.dailyCounts || []).map((row) => (
-                    <div key={row.date} className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200">
+                    <div
+                      key={row.date}
+                      className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
+                    >
                       <span>{row.date}</span>
-                      <span>{row.count.toLocaleString("ar-EG")} | {formatCurrency(row.total)}</span>
+                      <span>
+                        {row.count.toLocaleString('ar-EG')} | {formatCurrency(row.total)}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1316,28 +1657,40 @@ export default function Invoices() {
                 <div className="mb-3 font-bold text-white">عدد الفواتير حسب الفرع</div>
                 <div className="max-h-48 space-y-2 overflow-auto">
                   {(importSummary.branchCounts || []).map((row) => (
-                    <div key={row.branch} className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200">
+                    <div
+                      key={row.branch}
+                      className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
+                    >
                       <span>{row.branch}</span>
-                      <span>{row.count.toLocaleString("ar-EG")} | {formatCurrency(row.total)}</span>
+                      <span>
+                        {row.count.toLocaleString('ar-EG')} | {formatCurrency(row.total)}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
           )}
-          {importKind === "sales" && (importSummary.skippedDuplicateInvoices?.length || 0) > 0 && (
+          {importKind === 'sales' && (importSummary.skippedDuplicateInvoices?.length || 0) > 0 && (
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
               <div className="mb-3 font-bold text-amber-200">فواتير مكررة تم تخطيها</div>
               <div className="max-h-44 space-y-2 overflow-auto">
                 {(importSummary.skippedDuplicateInvoices || []).slice(0, 30).map((row, index) => (
-                  <div key={`${row.branch}-${row.date}-${row.invoiceNumber}-${index}`} className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200">
+                  <div
+                    key={`${row.branch}-${row.date}-${row.invoiceNumber}-${index}`}
+                    className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
+                  >
                     <span>{row.invoiceNumber}</span>
-                    <span>{row.branch} | {row.date}</span>
+                    <span>
+                      {row.branch} | {row.date}
+                    </span>
                   </div>
                 ))}
               </div>
               {(importSummary.skippedDuplicateInvoices?.length || 0) > 30 && (
-                <div className="mt-2 text-xs text-amber-100/80">تم عرض أول 30 فقط من التكرارات.</div>
+                <div className="mt-2 text-xs text-amber-100/80">
+                  تم عرض أول 30 فقط من التكرارات.
+                </div>
               )}
             </div>
           )}
@@ -1365,20 +1718,27 @@ export default function Invoices() {
               />
             </div>
           )}
-          <button onClick={handleReset} className="btn-primary flex items-center gap-2"><RefreshCw size={16} /> استيراد ملف آخر</button>
+          <button onClick={handleReset} className="btn-primary flex items-center gap-2">
+            <RefreshCw size={16} /> استيراد ملف آخر
+          </button>
         </div>
       )}
 
       {isAdmin && editInvoice && editForm && (
-        <div className="modal-backdrop" onClick={() => {
-          setEditInvoice(null);
-          setEditForm(null);
-        }}>
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            setEditInvoice(null);
+            setEditForm(null);
+          }}
+        >
           <div className="modal-panel max-w-3xl p-6" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 mb-5">
               <div>
                 <div className="section-title">تعديل فاتورة</div>
-                <div className="text-slate-400 text-xs mt-1">أي تعديل هنا ينعكس على التحليلات بعد تحديث الصفحة.</div>
+                <div className="text-slate-400 text-xs mt-1">
+                  أي تعديل هنا ينعكس على التحليلات بعد تحديث الصفحة.
+                </div>
               </div>
               <button
                 type="button"
@@ -1393,24 +1753,79 @@ export default function Invoices() {
             </div>
 
             <div className="grid md:grid-cols-3 gap-3">
-              <EditField label="الفرع" value={editForm.branch} onChange={(value) => setEditForm({ ...editForm, branch: value })} />
-              <EditField label="رقم الفاتورة" value={editForm.invoice_number} onChange={(value) => setEditForm({ ...editForm, invoice_number: value })} />
+              <EditField
+                label="الفرع"
+                value={editForm.branch}
+                onChange={(value) => setEditForm({ ...editForm, branch: value })}
+              />
+              <EditField
+                label="رقم الفاتورة"
+                value={editForm.invoice_number}
+                onChange={(value) => setEditForm({ ...editForm, invoice_number: value })}
+              />
               <label className="text-slate-300 text-xs space-y-1 block">
                 <span>تاريخ الفاتورة</span>
-                <input className="input-dark" type="date" value={editForm.invoice_date} onChange={(event) => setEditForm({ ...editForm, invoice_date: event.target.value })} />
+                <input
+                  className="input-dark"
+                  type="date"
+                  value={editForm.invoice_date}
+                  onChange={(event) =>
+                    setEditForm({ ...editForm, invoice_date: event.target.value })
+                  }
+                />
               </label>
-              <EditField label="نوع الفاتورة" value={editForm.invoice_type} onChange={(value) => setEditForm({ ...editForm, invoice_type: value })} />
-              <EditField label="كود العميل" value={editForm.customer_code} onChange={(value) => setEditForm({ ...editForm, customer_code: value })} />
-              <EditField label="اسم العميل" value={editForm.customer_name} onChange={(value) => setEditForm({ ...editForm, customer_name: value })} />
-              <EditField label="هاتف العميل" value={editForm.customer_phone} onChange={(value) => setEditForm({ ...editForm, customer_phone: value })} />
-              <EditField label="الدكتور/المستخدم" value={editForm.seller_name} onChange={(value) => setEditForm({ ...editForm, seller_name: value })} />
-              <EditField label="صافي الفاتورة" value={editForm.amount} type="number" onChange={(value) => setEditForm({ ...editForm, amount: value })} />
-              <EditField label="بعد الخصم" value={editForm.net_amount} type="number" onChange={(value) => setEditForm({ ...editForm, net_amount: value })} />
-              <EditField label="قيمة الفاتورة قبل الخصم" value={editForm.gross_amount} type="number" onChange={(value) => setEditForm({ ...editForm, gross_amount: value })} />
+              <EditField
+                label="نوع الفاتورة"
+                value={editForm.invoice_type}
+                onChange={(value) => setEditForm({ ...editForm, invoice_type: value })}
+              />
+              <EditField
+                label="كود العميل"
+                value={editForm.customer_code}
+                onChange={(value) => setEditForm({ ...editForm, customer_code: value })}
+              />
+              <EditField
+                label="اسم العميل"
+                value={editForm.customer_name}
+                onChange={(value) => setEditForm({ ...editForm, customer_name: value })}
+              />
+              <EditField
+                label="هاتف العميل"
+                value={editForm.customer_phone}
+                onChange={(value) => setEditForm({ ...editForm, customer_phone: value })}
+              />
+              <EditField
+                label="الدكتور/المستخدم"
+                value={editForm.seller_name}
+                onChange={(value) => setEditForm({ ...editForm, seller_name: value })}
+              />
+              <EditField
+                label="صافي الفاتورة"
+                value={editForm.amount}
+                type="number"
+                onChange={(value) => setEditForm({ ...editForm, amount: value })}
+              />
+              <EditField
+                label="بعد الخصم"
+                value={editForm.net_amount}
+                type="number"
+                onChange={(value) => setEditForm({ ...editForm, net_amount: value })}
+              />
+              <EditField
+                label="قيمة الفاتورة قبل الخصم"
+                value={editForm.gross_amount}
+                type="number"
+                onChange={(value) => setEditForm({ ...editForm, gross_amount: value })}
+              />
             </div>
 
             <div className="flex gap-3 mt-6">
-              <button type="button" className="btn-primary flex items-center gap-2" onClick={saveInvoiceEdit} disabled={adminBusy}>
+              <button
+                type="button"
+                className="btn-primary flex items-center gap-2"
+                onClick={saveInvoiceEdit}
+                disabled={adminBusy}
+              >
                 <Save size={16} />
                 حفظ التعديل
               </button>
@@ -1434,7 +1849,7 @@ export default function Invoices() {
 }
 
 function kindButton(active: boolean) {
-  return `px-4 py-2 rounded-lg text-sm font-semibold transition-all ${active ? "bg-teal-500 text-navy-900" : "text-slate-400 hover:text-white hover:bg-white/5"}`;
+  return `px-4 py-2 rounded-lg text-sm font-semibold transition-all ${active ? 'bg-teal-500 text-navy-900' : 'text-slate-400 hover:text-white hover:bg-white/5'}`;
 }
 
 function InfoBox({ title, items }: { title: string; items: string[] }) {
@@ -1453,31 +1868,66 @@ function InfoBox({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function StatTile({ value, label, color, isCurrency = false }: { value: number; label: string; color: string; isCurrency?: boolean }) {
+function StatTile({
+  value,
+  label,
+  color,
+  isCurrency = false,
+}: {
+  value: number;
+  label: string;
+  color: string;
+  isCurrency?: boolean;
+}) {
   return (
     <div className="stat-card text-center">
-      <div className={`text-xl font-bold ${color} num`}>{isCurrency ? formatCurrency(value) : value.toLocaleString("ar-EG")}</div>
+      <div className={`text-xl font-bold ${color} num`}>
+        {isCurrency ? formatCurrency(value) : value.toLocaleString('ar-EG')}
+      </div>
       <div className="text-slate-400 text-xs mt-1">{label}</div>
     </div>
   );
 }
 
-function EditField({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+function EditField({
+  label,
+  value,
+  onChange,
+  type = 'text',
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
   return (
     <label className="text-slate-300 text-xs space-y-1 block">
       <span>{label}</span>
-      <input className="input-dark" type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className="input-dark"
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
 
-function ResultTile({ value, label, isCurrency = false }: { value: number | null | undefined; label: string; isCurrency?: boolean }) {
+function ResultTile({
+  value,
+  label,
+  isCurrency = false,
+}: {
+  value: number | null | undefined;
+  label: string;
+  isCurrency?: boolean;
+}) {
   const safeValue = Number(value);
   const displayValue = Number.isFinite(safeValue) ? safeValue : 0;
   return (
     <div className="bg-teal-500/10 border border-white/5 rounded-2xl p-4">
       <div className="text-xl font-bold text-teal-400 num">
-        {isCurrency ? formatCurrency(displayValue) : displayValue.toLocaleString("ar-EG")}
+        {isCurrency ? formatCurrency(displayValue) : displayValue.toLocaleString('ar-EG')}
       </div>
       <div className="text-slate-400 text-xs mt-1">{label}</div>
     </div>
@@ -1493,12 +1943,12 @@ function WarningGroup({
   title: string;
   items: string[];
   emptyText: string;
-  tone: "danger" | "warning" | "info";
+  tone: 'danger' | 'warning' | 'info';
 }) {
   const styles = {
-    danger: "border-red-300/35 bg-red-500/15 text-red-50",
-    warning: "border-amber-300/35 bg-amber-400/10 text-amber-50",
-    info: "border-sky-300/35 bg-sky-400/10 text-sky-50",
+    danger: 'border-red-300/35 bg-red-500/15 text-red-50',
+    warning: 'border-amber-300/35 bg-amber-400/10 text-amber-50',
+    info: 'border-sky-300/35 bg-sky-400/10 text-sky-50',
   }[tone];
 
   return (

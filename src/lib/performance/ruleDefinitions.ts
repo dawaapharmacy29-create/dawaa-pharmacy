@@ -5,4 +5,4 @@ export {
   QUARTERLY_RULES,
   STAFF_OPERATING_POLICY_SECTIONS,
   findIncentiveRule,
-} from "@/lib/incentives/ruleDefinitions";
+} from '@/lib/incentives/ruleDefinitions';

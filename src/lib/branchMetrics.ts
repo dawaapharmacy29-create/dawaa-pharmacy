@@ -1,8 +1,15 @@
-import { computeDashboardSalesMetrics, normalizeInvoice, type InvoiceLike } from "@/lib/salesInvoiceSource";
+import {
+  computeDashboardSalesMetrics,
+  normalizeInvoice,
+  type InvoiceLike,
+} from '@/lib/salesInvoiceSource';
 
 type Row = Record<string, unknown>;
 
-export function getBranchMetrics(branch: string, args: { invoices: InvoiceLike[]; followups?: Row[]; requests?: Row[]; shortages?: Row[] }) {
+export function getBranchMetrics(
+  branch: string,
+  args: { invoices: InvoiceLike[]; followups?: Row[]; requests?: Row[]; shortages?: Row[] }
+) {
   const invoices = args.invoices.filter((invoice) => normalizeInvoice(invoice).branch === branch);
   const sales = computeDashboardSalesMetrics(invoices);
   return {

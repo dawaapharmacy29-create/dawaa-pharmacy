@@ -1,11 +1,18 @@
-import type { ApproverRoleKey } from "@/lib/approverRoles";
-import { ALL_INCENTIVE_RULES } from "@/lib/incentives/ruleDefinitions";
-import type { IncentiveRuleDefinition } from "@/lib/incentives/incentiveRulesEngine";
+import type { ApproverRoleKey } from '@/lib/approverRoles';
+import { ALL_INCENTIVE_RULES } from '@/lib/incentives/ruleDefinitions';
+import type { IncentiveRuleDefinition } from '@/lib/incentives/incentiveRulesEngine';
 
-export type RuleType = "deduction" | "bonus";
-export type Severity = "low" | "medium" | "high" | "critical";
-export type RoleScope = "doctor" | "assistant" | "delivery" | "cleaning" | "customer_service" | "manager" | "all";
-export type RepeatPolicy = "double_per_cycle" | "none";
+export type RuleType = 'deduction' | 'bonus';
+export type Severity = 'low' | 'medium' | 'high' | 'critical';
+export type RoleScope =
+  | 'doctor'
+  | 'assistant'
+  | 'delivery'
+  | 'cleaning'
+  | 'customer_service'
+  | 'manager'
+  | 'all';
+export type RepeatPolicy = 'double_per_cycle' | 'none';
 
 export interface EvaluationRuleDef {
   code: string;
@@ -25,19 +32,20 @@ export interface EvaluationRuleDef {
   impact_type?: string;
 }
 
-const BM: ApproverRoleKey[] = ["branch_manager"];
-const BM_GM: ApproverRoleKey[] = ["branch_manager", "general_manager"];
+const BM: ApproverRoleKey[] = ['branch_manager'];
+const BM_GM: ApproverRoleKey[] = ['branch_manager', 'general_manager'];
 
 function mapIncentiveRoleScope(scope: string): RoleScope {
-  if (scope === "pharmacist" || scope === "doctor") return "doctor";
-  if (scope === "assistant") return "assistant";
-  if (scope === "delivery") return "delivery";
-  if (scope === "customer_service") return "customer_service";
-  if (scope === "manager" || scope === "branch_manager" || scope === "general_manager") return "manager";
-  return "all";
+  if (scope === 'pharmacist' || scope === 'doctor') return 'doctor';
+  if (scope === 'assistant') return 'assistant';
+  if (scope === 'delivery') return 'delivery';
+  if (scope === 'customer_service') return 'customer_service';
+  if (scope === 'manager' || scope === 'branch_manager' || scope === 'general_manager')
+    return 'manager';
+  return 'all';
 }
 
-function mapIncentiveSeverity(severity: IncentiveRuleDefinition["severity"]): Severity {
+function mapIncentiveSeverity(severity: IncentiveRuleDefinition['severity']): Severity {
   return severity;
 }
 
@@ -52,13 +60,13 @@ export function incentiveRulesToEvaluationDefs(): EvaluationRuleDef[] {
       title: rule.title_ar,
       description: rule.description_ar,
       default_points: points,
-      type: isReward ? "bonus" : "deduction",
+      type: isReward ? 'bonus' : 'deduction',
       severity: mapIncentiveSeverity(rule.severity),
       role_scope: mapIncentiveRoleScope(rule.role_scope),
       requires_approval: rule.approval_required,
       evidence_required: rule.approval_required,
       allowed_approver_roles: rule.approval_required ? BM_GM : BM,
-      repeat_policy: rule.repeat_policy === "linear_multiplier" ? "double_per_cycle" : "none",
+      repeat_policy: rule.repeat_policy === 'linear_multiplier' ? 'double_per_cycle' : 'none',
       active: rule.active,
       impact_type: rule.impact_type,
     };
@@ -66,17 +74,17 @@ export function incentiveRulesToEvaluationDefs(): EvaluationRuleDef[] {
 }
 
 const ROLE_MAP: Record<RoleScope, string[]> = {
-  doctor: ["صيدلاني"],
-  assistant: ["مساعد"],
-  delivery: ["توصيل"],
-  cleaning: ["مساعد", "صيدلاني"],
-  customer_service: ["خدمة عملاء"],
-  manager: ["مدير فرع", "أدمن"],
+  doctor: ['صيدلاني'],
+  assistant: ['مساعد'],
+  delivery: ['توصيل'],
+  cleaning: ['مساعد', 'صيدلاني'],
+  customer_service: ['خدمة عملاء'],
+  manager: ['مدير فرع', 'أدمن'],
   all: [],
 };
 
 export function ruleAppliesToStaff(scope: RoleScope, staffRole: string): boolean {
-  if (scope === "all") return true;
+  if (scope === 'all') return true;
   return ROLE_MAP[scope]?.includes(staffRole) ?? false;
 }
 
@@ -89,11 +97,13 @@ export function rulesForStaffRole(staffRole: string): EvaluationRuleDef[] {
   return CANONICAL_EVALUATION_RULES.filter((r) => ruleAppliesToStaff(r.role_scope, staffRole));
 }
 
-export function mergeRulesFromSupabase(rows: Record<string, unknown>[] | null): EvaluationRuleDef[] {
+export function mergeRulesFromSupabase(
+  rows: Record<string, unknown>[] | null
+): EvaluationRuleDef[] {
   if (!rows?.length) return CANONICAL_EVALUATION_RULES;
   const merged = new Map(CANONICAL_EVALUATION_RULES.map((r) => [r.code, { ...r }]));
   for (const row of rows) {
-    const code = String(row.code ?? row.rule_code ?? "");
+    const code = String(row.code ?? row.rule_code ?? '');
     if (!code || !merged.has(code)) continue;
     const base = merged.get(code)!;
     merged.set(code, {

@@ -77,7 +77,10 @@ export interface MonthlyPDFReportData {
 }
 
 function transactionDetails(row: PointLedgerRecord): string {
-  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
+  const meta =
+    row.metadata && typeof row.metadata === 'object'
+      ? (row.metadata as Record<string, unknown>)
+      : {};
   const parts = [
     row.description,
     row.manager_note,
@@ -88,18 +91,33 @@ function transactionDetails(row: PointLedgerRecord): string {
     meta.invoice_no ? `فاتورة: ${meta.invoice_no}` : '',
     meta.rule_title ? `البند: ${meta.rule_title}` : '',
     meta.violation_date ? `تاريخ المخالفة: ${meta.violation_date}` : '',
-  ].map((value) => String(value || '').trim()).filter(Boolean);
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
   return Array.from(new Set(parts)).join(' | ');
 }
 
 function transactionReference(row: PointLedgerRecord): string {
-  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
-  return String(row.source_id || meta.source_id || meta.invoice_id || meta.invoice_no || row.id || '').trim();
+  const meta =
+    row.metadata && typeof row.metadata === 'object'
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  return String(
+    row.source_id || meta.source_id || meta.invoice_id || meta.invoice_no || row.id || ''
+  ).trim();
 }
 
 function transactionDate(row: PointLedgerRecord): string {
-  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
-  return String(row.approved_at || meta.violation_date || meta.event_date || row.created_at || '').slice(0, 10) || 'غير محدد';
+  const meta =
+    row.metadata && typeof row.metadata === 'object'
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  return (
+    String(row.approved_at || meta.violation_date || meta.event_date || row.created_at || '').slice(
+      0,
+      10
+    ) || 'غير محدد'
+  );
 }
 
 /**
@@ -109,12 +127,15 @@ export class MonthlyPDFReportService {
   /**
    * إنشاء بيانات التقرير الشهري لموظف
    */
-  static async generateMonthlyReportData(staff: StaffLedgerTarget, records: PointLedgerRecord[]): Promise<MonthlyPDFReportData> {
+  static async generateMonthlyReportData(
+    staff: StaffLedgerTarget,
+    records: PointLedgerRecord[]
+  ): Promise<MonthlyPDFReportData> {
     const cycle = getCurrentCycle();
     const incentiveData = calculateStaffCycleIncentiveFromRows({ staff, records, cycle });
 
     // تحويل المعاملات إلى تنسيق مناسب للتقرير
-    const rewardTransactions = incentiveData.rewardTransactions.map(t => ({
+    const rewardTransactions = incentiveData.rewardTransactions.map((t) => ({
       title: t.shortReason || t.reason || 'مكافأة',
       points: t.absPoints,
       date: transactionDate(t),
@@ -126,7 +147,7 @@ export class MonthlyPDFReportService {
       status: t.status || 'approved',
     }));
 
-    const deductionTransactions = incentiveData.deductionTransactions.map(t => ({
+    const deductionTransactions = incentiveData.deductionTransactions.map((t) => ({
       title: t.shortReason || t.reason || 'خصم',
       points: t.absPoints,
       date: transactionDate(t),
@@ -138,7 +159,7 @@ export class MonthlyPDFReportService {
       status: t.status || 'approved',
     }));
 
-    const pendingTransactions = incentiveData.pendingTransactions.map(t => ({
+    const pendingTransactions = incentiveData.pendingTransactions.map((t) => ({
       title: t.shortReason || t.reason || 'معلق',
       points: t.absPoints,
       date: transactionDate(t),
@@ -150,7 +171,7 @@ export class MonthlyPDFReportService {
       status: t.status || 'pending',
     }));
 
-    const cashRewardTransactions = incentiveData.cashRewardTransactions.map(t => ({
+    const cashRewardTransactions = incentiveData.cashRewardTransactions.map((t) => ({
       title: t.shortReason || t.reason || 'مكافأة مالية رواكد/لستة',
       amount: t.moneyAmount || 0,
       date: (t.created_at || '').slice(0, 10),
@@ -167,7 +188,7 @@ export class MonthlyPDFReportService {
       },
       {
         pillar: 'الالتزام والتشغيل',
-        score: Math.min(100, (incentiveData.approvedDeductionPoints < 50 ? 100 : 50)),
+        score: Math.min(100, incentiveData.approvedDeductionPoints < 50 ? 100 : 50),
         max_score: 120,
         description: 'الحضور، الشيفت، التعليمات، التعاون، وإغلاق المهام اليومية',
       },
@@ -198,9 +219,10 @@ export class MonthlyPDFReportService {
       const permissionStatus = await PermissionPolicyService.getPermissionPolicyStatus(
         String(staff.id),
         incentiveData.cycleStart,
-        incentiveData.cycleEnd,
+        incentiveData.cycleEnd
       );
-      permissions_used = permissionStatus.free_allowance_used + permissionStatus.penalized_permission_number;
+      permissions_used =
+        permissionStatus.free_allowance_used + permissionStatus.penalized_permission_number;
       permissions_remaining = permissionStatus.remaining_free_permissions;
       permission_deduction = permissionStatus.deduction_points;
     } catch {
@@ -214,7 +236,7 @@ export class MonthlyPDFReportService {
       const repeats = await RepeatErrorService.getRepeatErrorsForStaff(
         String(staff.id),
         incentiveData.cycleStart,
-        incentiveData.cycleEnd,
+        incentiveData.cycleEnd
       );
       repeatErrors = repeats.map((row) => ({
         rule_title: row.rule_title,
@@ -225,14 +247,14 @@ export class MonthlyPDFReportService {
       repeatErrors = [];
     }
     const classification_violations = deductionTransactions.filter((t) =>
-      /تصنيف|classification/i.test(`${t.title} ${t.source}`),
+      /تصنيف|classification/i.test(`${t.title} ${t.source}`)
     ).length;
     const classification_deduction = deductionTransactions
       .filter((t) => /تصنيف|classification/i.test(`${t.title} ${t.source}`))
       .reduce((sum, t) => sum + t.points, 0);
 
     const operating_policy_summary = STAFF_OPERATING_POLICY_SECTIONS.map(
-      (section) => `**${section.title}**\n${section.items.map((item) => `• ${item}`).join('\n')}`,
+      (section) => `**${section.title}**\n${section.items.map((item) => `• ${item}`).join('\n')}`
     ).join('\n\n');
 
     return {
@@ -288,31 +310,67 @@ export class MonthlyPDFReportService {
 
 ## درجات الأعمدة
 
-${data.pillar_scores.map(p => `
+${data.pillar_scores
+  .map(
+    (p) => `
 ### ${p.pillar}
 - الدرجة: ${p.score.toFixed(1)} / ${p.max_score}
 - ${p.description}
-`).join('\n')}
+`
+  )
+  .join('\n')}
 
 ---
 
 ## المكافآت
 
-${data.reward_transactions.length > 0 ? data.reward_transactions.map(t => `
-- **${t.title}**: +${t.points} نقطة (${t.date}) - ${t.source}${t.details ? `
-  - التفاصيل: ${t.details}` : ''}${t.reference ? `
-  - المرجع: ${t.reference}` : ''}${t.created_by ? `
-  - أُضيف بواسطة: ${t.created_by}` : ''}${t.approved_by ? `
-  - اعتمد بواسطة: ${t.approved_by}` : ''}
-`).join('\n') : 'لا توجد مكافآت في هذه الدورة'}
+${
+  data.reward_transactions.length > 0
+    ? data.reward_transactions
+        .map(
+          (t) => `
+- **${t.title}**: +${t.points} نقطة (${t.date}) - ${t.source}${
+            t.details
+              ? `
+  - التفاصيل: ${t.details}`
+              : ''
+          }${
+            t.reference
+              ? `
+  - المرجع: ${t.reference}`
+              : ''
+          }${
+            t.created_by
+              ? `
+  - أُضيف بواسطة: ${t.created_by}`
+              : ''
+          }${
+            t.approved_by
+              ? `
+  - اعتمد بواسطة: ${t.approved_by}`
+              : ''
+          }
+`
+        )
+        .join('\n')
+    : 'لا توجد مكافآت في هذه الدورة'
+}
 
 ---
 
 ## مكافآت مالية منفصلة للربع سنوي
 
-${data.cash_reward_transactions.length > 0 ? data.cash_reward_transactions.map(t => `
+${
+  data.cash_reward_transactions.length > 0
+    ? data.cash_reward_transactions
+        .map(
+          (t) => `
 - **${t.title}**: ${t.amount} جنيه (${t.date}) - ${t.source}
-`).join('\n') : 'لا توجد مكافآت مالية للرواكد أو اللستة في هذه الدورة'}
+`
+        )
+        .join('\n')
+    : 'لا توجد مكافآت مالية للرواكد أو اللستة في هذه الدورة'
+}
 
 ملاحظة: هذه المكافآت لا تزيد نقاط الشهر، لكنها تُرحّل لقسم الحافز الربع سنوي.
 
@@ -320,24 +378,68 @@ ${data.cash_reward_transactions.length > 0 ? data.cash_reward_transactions.map(t
 
 ## الخصومات
 
-${data.deduction_transactions.length > 0 ? data.deduction_transactions.map(t => `
-- **${t.title}**: -${t.points} نقطة (${t.date}) - ${t.source}${t.details ? `
-  - التفاصيل: ${t.details}` : ''}${t.reference ? `
-  - المرجع: ${t.reference}` : ''}${t.created_by ? `
-  - أُضيف بواسطة: ${t.created_by}` : ''}${t.approved_by ? `
-  - اعتمد بواسطة: ${t.approved_by}` : ''}
-`).join('\n') : 'لا توجد خصومات في هذه الدورة'}
+${
+  data.deduction_transactions.length > 0
+    ? data.deduction_transactions
+        .map(
+          (t) => `
+- **${t.title}**: -${t.points} نقطة (${t.date}) - ${t.source}${
+            t.details
+              ? `
+  - التفاصيل: ${t.details}`
+              : ''
+          }${
+            t.reference
+              ? `
+  - المرجع: ${t.reference}`
+              : ''
+          }${
+            t.created_by
+              ? `
+  - أُضيف بواسطة: ${t.created_by}`
+              : ''
+          }${
+            t.approved_by
+              ? `
+  - اعتمد بواسطة: ${t.approved_by}`
+              : ''
+          }
+`
+        )
+        .join('\n')
+    : 'لا توجد خصومات في هذه الدورة'
+}
 
 ---
 
 ## المعاملات المعلقة
 
-${data.pending_transactions.length > 0 ? data.pending_transactions.map(t => `
-- **${t.title}**: ${t.points} نقطة (${t.date}) - ${t.source}${t.details ? `
-  - التفاصيل: ${t.details}` : ''}${t.reference ? `
-  - المرجع: ${t.reference}` : ''}${t.created_by ? `
-  - أُضيف بواسطة: ${t.created_by}` : ''}
-`).join('\n') : 'لا توجد معاملات معلقة'}
+${
+  data.pending_transactions.length > 0
+    ? data.pending_transactions
+        .map(
+          (t) => `
+- **${t.title}**: ${t.points} نقطة (${t.date}) - ${t.source}${
+            t.details
+              ? `
+  - التفاصيل: ${t.details}`
+              : ''
+          }${
+            t.reference
+              ? `
+  - المرجع: ${t.reference}`
+              : ''
+          }${
+            t.created_by
+              ? `
+  - أُضيف بواسطة: ${t.created_by}`
+              : ''
+          }
+`
+        )
+        .join('\n')
+    : 'لا توجد معاملات معلقة'
+}
 
 ---
 
@@ -351,9 +453,17 @@ ${data.pending_transactions.length > 0 ? data.pending_transactions.map(t => `
 
 ## الأخطاء المتكررة
 
-${data.repeat_errors.length > 0 ? data.repeat_errors.map(e => `
+${
+  data.repeat_errors.length > 0
+    ? data.repeat_errors
+        .map(
+          (e) => `
 - **${e.rule_title}**: ${e.count} مرة، خصم ${e.total_deduction} نقطة
-`).join('\n') : 'لا توجد أخطاء متكررة'}
+`
+        )
+        .join('\n')
+    : 'لا توجد أخطاء متكررة'
+}
 
 ---
 

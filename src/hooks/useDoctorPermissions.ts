@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "./useAuth";
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from './useAuth';
 
 export interface DoctorPermissions {
   id: string;
@@ -33,14 +33,14 @@ export function useDoctorPermissions() {
     const fetchPermissions = async () => {
       try {
         const { data, error } = await supabase
-          .from("doctor_permissions")
-          .select("*")
-          .eq("doctor_id", user.id)
+          .from('doctor_permissions')
+          .select('*')
+          .eq('doctor_id', user.id)
           .single();
 
         if (error) {
           // If no permissions exist, create default permissions for doctors
-          if (user.role === "صيدلاني") {
+          if (user.role === 'صيدلاني') {
             const defaultPermissions = {
               doctor_id: user.id,
               doctor_name: user.name,
@@ -53,11 +53,11 @@ export function useDoctorPermissions() {
               can_add_reviews: false,
               can_view_stagnant_medicines: true,
               can_view_incentive_medicines: true,
-              branch_access: [user.branch || "الكل"],
+              branch_access: [user.branch || 'الكل'],
             };
 
             const { data: newData, error: insertError } = await supabase
-              .from("doctor_permissions")
+              .from('doctor_permissions')
               .insert(defaultPermissions)
               .select()
               .single();
@@ -68,7 +68,7 @@ export function useDoctorPermissions() {
           } else {
             // For non-doctors, give full access
             setPermissions({
-              id: "default",
+              id: 'default',
               doctor_id: user.id,
               doctor_name: user.name,
               can_view_dashboard: true,
@@ -80,14 +80,14 @@ export function useDoctorPermissions() {
               can_add_reviews: true,
               can_view_stagnant_medicines: true,
               can_view_incentive_medicines: true,
-              branch_access: ["الكل"],
+              branch_access: ['الكل'],
             });
           }
         } else {
           setPermissions(data as DoctorPermissions);
         }
       } catch (err) {
-        console.error("Error fetching doctor permissions:", err);
+        console.error('Error fetching doctor permissions:', err);
       } finally {
         setLoading(false);
       }

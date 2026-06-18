@@ -1,35 +1,45 @@
-import { useEffect, useState, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
-import { useDebounce } from "@/hooks/useDebounce";
-import { useEscapeKey } from "@/hooks/useEscapeKey";
-import { Search, Plus, Phone, Edit2, UserCheck, Loader2, Eye, ClipboardList } from "lucide-react";
-import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
-import { isCurrentlyOnShift, matchesOrderedSegments, percent } from "@/lib/utils";
-import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff, type PointLedgerRecord } from "@/lib/pointsLedger";
-import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
-import { normalizeStaffName } from "@/lib/staffIdentityService";
-import { BRANCHES, DAYS_AR, ROLES, INITIAL_POINTS } from "@/lib/constants";
-import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
-import { toast } from "sonner";
-import type { User } from "@/types";
-import { Link } from "react-router-dom";
-import { useStaff } from "@/hooks/useStaff";
-import { filterActiveStaffRows } from "@/lib/staffActiveFilter";
-import { mergeStaffChoices } from "@/lib/staffFallback";
-import { useShiftSchedules } from "@/hooks/useShiftSchedules";
-import { useEmployeeTransactions } from "@/hooks/useEmployeeTransactions";
-import { friendlySupabaseError, logSupabaseError } from "@/lib/supabaseError";
-import { TABLES } from "@/lib/supabaseTables";
-import { createStaff, updateStaff, createStaffAccount } from "@/services/staffService";
-import { replaceStaffShiftSchedules } from "@/services/shiftScheduleService";
-import { fetchCurrentShiftPresence, type ShiftPresencePerson } from "@/lib/attendance/currentShiftPresenceService";
+import { useEffect, useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useDebounce } from '@/hooks/useDebounce';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
+import { Search, Plus, Phone, Edit2, UserCheck, Loader2, Eye, ClipboardList } from 'lucide-react';
+import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
+import { isCurrentlyOnShift, matchesOrderedSegments, percent } from '@/lib/utils';
+import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import {
+  getTransactionShortReason,
+  isApprovedPointRecord,
+  isRecordInCycle,
+  pointRecordDelta,
+  recordBelongsToStaff,
+  type PointLedgerRecord,
+} from '@/lib/pointsLedger';
+import { calculateStaffCycleIncentiveFromRows } from '@/lib/staffIncentiveService';
+import { normalizeStaffName } from '@/lib/staffIdentityService';
+import { BRANCHES, DAYS_AR, ROLES, INITIAL_POINTS } from '@/lib/constants';
+import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
+import { toast } from 'sonner';
+import type { User } from '@/types';
+import { Link } from 'react-router-dom';
+import { useStaff } from '@/hooks/useStaff';
+import { filterActiveStaffRows } from '@/lib/staffActiveFilter';
+import { mergeStaffChoices } from '@/lib/staffFallback';
+import { useShiftSchedules } from '@/hooks/useShiftSchedules';
+import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
+import { friendlySupabaseError, logSupabaseError } from '@/lib/supabaseError';
+import { TABLES } from '@/lib/supabaseTables';
+import { createStaff, updateStaff, createStaffAccount } from '@/services/staffService';
+import { replaceStaffShiftSchedules } from '@/services/shiftScheduleService';
+import {
+  fetchCurrentShiftPresence,
+  type ShiftPresencePerson,
+} from '@/lib/attendance/currentShiftPresenceService';
 
 interface Employee {
   id: string;
   name: string;
   username?: string;
-  phone: string | null;
+  phone?: string | null;
   role: string;
   branch: string;
   branch_id?: string;
@@ -38,7 +48,7 @@ interface Employee {
   holiday_day?: string | null;
   points?: number | null;
   max_points: number;
-  status: string;
+  status?: string | null;
   join_date?: string | null;
   notes?: string | null;
 }
@@ -97,24 +107,27 @@ function fromPresence(person: ShiftPresencePerson): LiveShiftRow {
   };
 }
 
-function transactionPoints(row: Pick<EmployeeTransaction, "points" | "points_delta">) {
+function transactionPoints(row: Pick<EmployeeTransaction, 'points' | 'points_delta'>) {
   return Math.abs(pointRecordDelta(row));
 }
 
 function uniqueEmployeesByIdentity(rows: Employee[]) {
   const map = new Map<string, Employee>();
   for (const row of rows) {
-    const key = row.id || `${normalizeStaffName(row.name)}__${row.branch || ""}__${row.role || ""}`;
+    const key = row.id || `${normalizeStaffName(row.name)}__${row.branch || ''}__${row.role || ''}`;
     if (!map.has(key)) map.set(key, row);
   }
   return [...map.values()];
 }
 
-function staffDisplayName(employee: Pick<Employee, "name" | "branch" | "role">, allRows: Employee[]) {
+function staffDisplayName(
+  employee: Pick<Employee, 'name' | 'branch' | 'role'>,
+  allRows: Employee[]
+) {
   const key = normalizeStaffName(employee.name);
   const duplicates = allRows.filter((row) => normalizeStaffName(row.name) === key);
   if (duplicates.length <= 1) return employee.name;
-  const suffix = [employee.branch, employee.role].filter(Boolean).join(" - ");
+  const suffix = [employee.branch, employee.role].filter(Boolean).join(' - ');
   return suffix ? `${employee.name} (${suffix})` : employee.name;
 }
 
@@ -123,33 +136,47 @@ export default function Team() {
   const canCreateTeam = canManage || user?.permissions?.create_team_member === true;
   const canEditTeam = canManage || user?.permissions?.edit_team_member === true;
   const [searchParams] = useSearchParams();
-  const [search, setSearch] = useState(() => searchParams.get("search") || "");
+  const [search, setSearch] = useState(() => searchParams.get('search') || '');
   const debouncedSearch = useDebounce(search, 300);
 
   useEffect(() => {
-    const q = searchParams.get("search") || "";
+    const q = searchParams.get('search') || '';
     setSearch(q);
   }, [searchParams]);
-  const [branchFilter, setBranchFilter] = useState("الكل");
-  const [roleFilter, setRoleFilter] = useState("الكل");
+  const [branchFilter, setBranchFilter] = useState('الكل');
+  const [roleFilter, setRoleFilter] = useState('الكل');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [viewing, setViewing] = useState<Employee | null>(null);
-  const [livePresence, setLivePresence] = useState<{ doctors: LiveShiftRow[]; assistants: LiveShiftRow[]; delivery: LiveShiftRow[]; total: number; debug?: string } | null>(null);
+  const [livePresence, setLivePresence] = useState<{
+    doctors: LiveShiftRow[];
+    assistants: LiveShiftRow[];
+    delivery: LiveShiftRow[];
+    total: number;
+    debug?: string;
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    fetchCurrentShiftPresence().then((presence) => {
-      if (!mounted) return;
-      setLivePresence({
-        doctors: presence.doctors.map(fromPresence),
-        assistants: presence.assistants.map(fromPresence),
-        delivery: presence.delivery.map(fromPresence),
-        total: presence.total,
-        debug: presence.debug ? `${presence.debug.todayArabic} — ${presence.debug.fetchedShiftCount} شيفت / ${presence.debug.attendanceCount} حضور — ${presence.debug.source}` : undefined,
+    fetchCurrentShiftPresence()
+      .then((presence) => {
+        if (!mounted) return;
+        setLivePresence({
+          doctors: presence.doctors.map(fromPresence),
+          assistants: presence.assistants.map(fromPresence),
+          delivery: presence.delivery.map(fromPresence),
+          total: presence.total,
+          debug: presence.debug
+            ? `${presence.debug.todayArabic} — ${presence.debug.fetchedShiftCount} شيفت / ${presence.debug.attendanceCount} حضور — ${presence.debug.source}`
+            : undefined,
+        });
+      })
+      .catch(() => {
+        if (mounted) setLivePresence(null);
       });
-    }).catch(() => { if (mounted) setLivePresence(null); });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const { data: staffRows, loading, refetch } = useStaff<Employee>();
@@ -161,57 +188,92 @@ export default function Team() {
   const todayName = DAYS_AR[new Date().getDay()];
 
   const todayShift = (employee: Employee) =>
-    schedules.find((item) => (item.staff_id === employee.id || item.staff_name === employee.name) && item.branch === employee.branch && item.day_name === todayName);
+    schedules.find(
+      (item) =>
+        (item.staff_id === employee.id || item.staff_name === employee.name) &&
+        item.branch === employee.branch &&
+        item.day_name === todayName
+    );
 
   const holidayDay = (employee: Employee) =>
-    schedules.find((item) => (item.staff_id === employee.id || item.staff_name === employee.name) && item.branch === employee.branch && item.is_off)?.day_name || employee.holiday_day || "غير محدد";
+    schedules.find(
+      (item) =>
+        (item.staff_id === employee.id || item.staff_name === employee.name) &&
+        item.branch === employee.branch &&
+        item.is_off
+    )?.day_name ||
+    employee.holiday_day ||
+    'غير محدد';
 
   const getEmployeeTransactions = (employee: Employee) => {
     return (employeeTransactions || []).filter((transaction) =>
-      recordBelongsToStaff(transaction as PointLedgerRecord, employee),
+      recordBelongsToStaff(transaction as PointLedgerRecord, employee)
     );
   };
 
-  const filtered = useMemo(() => employees.filter(e => {
-    const raw = debouncedSearch.trim();
-    const haystack = `${e.name} ${e.phone || ""} ${e.role || ""}`;
-    const matchSearch = !raw || matchesOrderedSegments(haystack, raw);
-    const matchBranch = branchFilter === "الكل" || e.branch === branchFilter;
-    const matchRole = roleFilter === "الكل" || e.role === roleFilter;
-    return matchSearch && matchBranch && matchRole;
-  }), [employees, debouncedSearch, branchFilter, roleFilter]);
+  const filtered = useMemo(
+    () =>
+      employees.filter((e) => {
+        const raw = debouncedSearch.trim();
+        const haystack = `${e.name} ${e.phone || ''} ${e.role || ''}`;
+        const matchSearch = !raw || matchesOrderedSegments(haystack, raw);
+        const matchBranch = branchFilter === 'الكل' || e.branch === branchFilter;
+        const matchRole = roleFilter === 'الكل' || e.role === roleFilter;
+        return matchSearch && matchBranch && matchRole;
+      }),
+    [employees, debouncedSearch, branchFilter, roleFilter]
+  );
   const displayEmployees = useMemo(() => uniqueEmployeesByIdentity(filtered), [filtered]);
 
-  const onShiftNow = employees.filter(e => {
+  const onShiftNow = employees.filter((e) => {
     const shift = todayShift(e);
-    return shift?.shift_start && shift?.shift_end && !shift.is_off && isCurrentlyOnShift(shift.shift_start, shift.shift_end) && e.status === "نشط";
+    return (
+      shift?.shift_start &&
+      shift?.shift_end &&
+      !shift.is_off &&
+      isCurrentlyOnShift(shift.shift_start, shift.shift_end) &&
+      e.status === 'نشط'
+    );
   });
-  const doctors = onShiftNow.filter(e => e.role === "صيدلاني");
-  const assistants = onShiftNow.filter(e => e.role === "مساعد");
-  const deliveryNow = onShiftNow.filter(e => e.role === "توصيل");
+  const doctors = onShiftNow.filter((e) => e.role === 'صيدلاني');
+  const assistants = onShiftNow.filter((e) => e.role === 'مساعد');
+  const deliveryNow = onShiftNow.filter((e) => e.role === 'توصيل');
 
-  const liveCards = livePresence?.total ? [
-    { title: "صيادلة على الشيفت", list: livePresence.doctors, color: "teal" },
-    { title: "مساعدون على الشيفت", list: livePresence.assistants, color: "blue" },
-    { title: "توصيل على الشيفت", list: livePresence.delivery, color: "amber" },
-  ] : [
-    { title: "صيادلة على الشيفت", list: doctors as LiveShiftRow[], color: "teal" },
-    { title: "مساعدون على الشيفت", list: assistants as LiveShiftRow[], color: "blue" },
-    { title: "توصيل على الشيفت", list: deliveryNow as LiveShiftRow[], color: "amber" },
-  ];
+  const liveCards = livePresence?.total
+    ? [
+        { title: 'صيادلة على الشيفت', list: livePresence.doctors, color: 'teal' },
+        { title: 'مساعدون على الشيفت', list: livePresence.assistants, color: 'blue' },
+        { title: 'توصيل على الشيفت', list: livePresence.delivery, color: 'amber' },
+      ]
+    : [
+        { title: 'صيادلة على الشيفت', list: doctors as LiveShiftRow[], color: 'teal' },
+        { title: 'مساعدون على الشيفت', list: assistants as LiveShiftRow[], color: 'blue' },
+        { title: 'توصيل على الشيفت', list: deliveryNow as LiveShiftRow[], color: 'amber' },
+      ];
 
-  const roles = [...new Set(employees.map(e => e.role))];
+  const roles = [...new Set(employees.map((e) => e.role))];
   const branchRankings = useMemo(() => {
     const uniqueEmployees = uniqueEmployeesByIdentity(employees);
     return BRANCHES.map((branch) => {
       const branchEmployees = uniqueEmployees
         .filter((employee) => employee.branch === branch)
-        .map((employee) => ({ ...employee, cyclePoints: calculateStaffCycleIncentiveFromRows({ staff: employee, records: pointRecords || [], cycle }).finalPoints }))
+        .map((employee) => ({
+          ...employee,
+          cyclePoints: calculateStaffCycleIncentiveFromRows({
+            staff: employee,
+            records: pointRecords || [],
+            cycle,
+          }).finalPoints,
+        }))
         .sort((a, b) => b.cyclePoints - a.cyclePoints);
       return {
         branch,
-        doctors: branchEmployees.filter((employee) => /صيد|دكتور|pharmacist|doctor/i.test(employee.role || "")),
-        delivery: branchEmployees.filter((employee) => /توصيل|دليفري|delivery/i.test(employee.role || "")),
+        doctors: branchEmployees.filter((employee) =>
+          /صيد|دكتور|pharmacist|doctor/i.test(employee.role || '')
+        ),
+        delivery: branchEmployees.filter((employee) =>
+          /توصيل|دليفري|delivery/i.test(employee.role || '')
+        ),
       };
     }).filter((group) => group.doctors.length || group.delivery.length);
   }, [cycle, employees, pointRecords]);
@@ -226,18 +288,31 @@ export default function Team() {
           <div key={title} className="stat-card">
             <div className="flex items-center justify-between mb-3">
               <div className="section-title text-sm">{title}</div>
-              <span className={`text-lg font-bold num ${color === "teal" ? "text-teal-400" : color === "blue" ? "text-blue-400" : "text-amber-400"}`}>{list.length}</span>
+              <span
+                className={`text-lg font-bold num ${color === 'teal' ? 'text-teal-400' : color === 'blue' ? 'text-blue-400' : 'text-amber-400'}`}
+              >
+                {list.length}
+              </span>
             </div>
             <div className="space-y-2">
               {list.length === 0 ? (
                 <div className="text-slate-400 text-xs py-2">لا يوجد حالياً</div>
-              ) : list.map(e => (
-                <div key={e.id} className="flex items-center gap-2.5">
-                  <div className={`w-2 h-2 rounded-full ${color === "teal" ? "bg-teal-400" : color === "blue" ? "bg-blue-400" : "bg-amber-400"} animate-pulse-soft`} />
-                  <span className="text-white text-xs font-medium">{e.name}</span>
-                  <span className="text-slate-400 text-xs mr-auto">{e.shift_start || "-"}–{e.shift_end || "-"}</span><span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-slate-300">{e.attendance_status || "مجدول"}</span>
-                </div>
-              ))}
+              ) : (
+                list.map((e) => (
+                  <div key={e.id} className="flex items-center gap-2.5">
+                    <div
+                      className={`w-2 h-2 rounded-full ${color === 'teal' ? 'bg-teal-400' : color === 'blue' ? 'bg-blue-400' : 'bg-amber-400'} animate-pulse-soft`}
+                    />
+                    <span className="text-white text-xs font-medium">{e.name}</span>
+                    <span className="text-slate-400 text-xs mr-auto">
+                      {e.shift_start || '-'}–{e.shift_end || '-'}
+                    </span>
+                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-slate-300">
+                      {e.attendance_status || 'مجدول'}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         ))}
@@ -252,7 +327,10 @@ export default function Team() {
         <div className="section-title text-sm">ترتيب الفريق حسب الفروع</div>
         <div className="grid lg:grid-cols-2 gap-4">
           {branchRankings.map((group) => (
-            <div key={group.branch} className="rounded-xl border border-[#2d4063] bg-white/5 overflow-hidden">
+            <div
+              key={group.branch}
+              className="rounded-xl border border-[#2d4063] bg-white/5 overflow-hidden"
+            >
               <div className="px-4 py-3 bg-[#16253f] text-white font-bold">{group.branch}</div>
               <RankingList title="الدكاترة والصيادلة" rows={group.doctors} />
               <RankingList title="الدليفري" rows={group.delivery} />
@@ -265,18 +343,38 @@ export default function Team() {
       <div className="flex flex-col md:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث في الفريق..." className="input-dark pr-10" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="بحث في الفريق..."
+            className="input-dark pr-10"
+          />
         </div>
-        <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)} className="input-dark md:w-40">
+        <select
+          value={branchFilter}
+          onChange={(e) => setBranchFilter(e.target.value)}
+          className="input-dark md:w-40"
+        >
           <option value="الكل">كل الفروع</option>
-          {BRANCHES.map(b => <option key={b}>{b}</option>)}
+          {BRANCHES.map((b) => (
+            <option key={b}>{b}</option>
+          ))}
         </select>
-        <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="input-dark md:w-40">
+        <select
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          className="input-dark md:w-40"
+        >
           <option value="الكل">كل الأدوار</option>
-          {roles.map(r => <option key={r}>{r}</option>)}
+          {roles.map((r) => (
+            <option key={r}>{r}</option>
+          ))}
         </select>
         {canCreateTeam && (
-          <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-2">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="btn-primary flex items-center gap-2"
+          >
             <Plus size={16} />
             موظف جديد
           </button>
@@ -287,8 +385,18 @@ export default function Team() {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {displayEmployees.map((emp) => {
           const shift = todayShift(emp);
-          const onShift = Boolean(shift?.shift_start && shift?.shift_end && !shift.is_off && isCurrentlyOnShift(shift.shift_start, shift.shift_end) && emp.status === "نشط");
-          const incentive = calculateStaffCycleIncentiveFromRows({ staff: emp, records: pointRecords || [], cycle });
+          const onShift = Boolean(
+            shift?.shift_start &&
+            shift?.shift_end &&
+            !shift.is_off &&
+            isCurrentlyOnShift(shift.shift_start, shift.shift_end) &&
+            emp.status === 'نشط'
+          );
+          const incentive = calculateStaffCycleIncentiveFromRows({
+            staff: emp,
+            records: pointRecords || [],
+            cycle,
+          });
           const points = incentive.finalPoints;
           const maxPoints = incentive.startingPoints;
           const pointsPct = percent(points, maxPoints);
@@ -315,21 +423,37 @@ export default function Team() {
                   </div>
                 </div>
                 {canEditTeam && (
-                  <button onClick={() => setEditing(emp)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5">
+                  <button
+                    onClick={() => setEditing(emp)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5"
+                  >
                     <Edit2 size={14} />
                   </button>
                 )}
-                <Link to={`/staff/${emp.id}`} className="p-1.5 rounded-lg text-teal-400 hover:text-white hover:bg-teal-500/10" title="ملف الأداء الشامل">
+                <Link
+                  to={`/staff/${emp.id}`}
+                  className="p-1.5 rounded-lg text-teal-400 hover:text-white hover:bg-teal-500/10"
+                  title="ملف الأداء الشامل"
+                >
                   <ClipboardList size={14} />
                 </Link>
-                <button type="button" onClick={() => setViewing(emp)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5" title="تفاصيل الموظف">
+                <button
+                  type="button"
+                  onClick={() => setViewing(emp)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5"
+                  title="تفاصيل الموظف"
+                >
                   <Eye size={14} />
                 </button>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white/5 rounded-lg p-2.5">
                   <div className="text-slate-400">الشيفت</div>
-                  <div className="text-white font-medium mt-0.5">{shift?.is_off ? "إجازة اليوم" : `${shift?.shift_start || "-"} — ${shift?.shift_end || "-"}`}</div>
+                  <div className="text-white font-medium mt-0.5">
+                    {shift?.is_off
+                      ? 'إجازة اليوم'
+                      : `${shift?.shift_start || '-'} — ${shift?.shift_end || '-'}`}
+                  </div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-2.5">
                   <div className="text-slate-400">إجازة</div>
@@ -339,36 +463,59 @@ export default function Team() {
               <div className="mt-3">
                 <div className="flex items-center justify-between text-xs mb-1.5">
                   <span className="text-slate-400">النقاط</span>
-                  <span className={`font-bold num ${pointsPct >= 90 ? "text-teal-400" : pointsPct >= 70 ? "text-amber-400" : "text-red-400"}`}>
+                  <span
+                    className={`font-bold num ${pointsPct >= 90 ? 'text-teal-400' : pointsPct >= 70 ? 'text-amber-400' : 'text-red-400'}`}
+                  >
                     {points} / {maxPoints}
                   </span>
                 </div>
                 <div className="progress-bar">
-                  <div className={`h-full rounded-full transition-all duration-500 ${pointsPct >= 90 ? "bg-gradient-to-r from-teal-500 to-teal-400" : pointsPct >= 70 ? "bg-gradient-to-r from-amber-500 to-amber-400" : "bg-gradient-to-r from-red-500 to-red-400"}`} style={{ width: `${pointsPct}%` }} />
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${pointsPct >= 90 ? 'bg-gradient-to-r from-teal-500 to-teal-400' : pointsPct >= 70 ? 'bg-gradient-to-r from-amber-500 to-amber-400' : 'bg-gradient-to-r from-red-500 to-red-400'}`}
+                    style={{ width: `${pointsPct}%` }}
+                  />
                 </div>
               </div>
               <div className="mt-3 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
                   <Phone size={12} className="text-slate-400" />
-                  <span className="text-slate-400 text-xs">{emp.phone || "بدون رقم"}</span>
+                  <span className="text-slate-400 text-xs">{emp.phone || 'بدون رقم'}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   {penalties > 0 && (
-                    <Link to={`/points?staff_id=${emp.id}`} className="text-red-400 text-xs font-bold hover:underline">جزاء: {penalties} / {penaltyPoints} نقطة</Link>
+                    <Link
+                      to={`/points?staff_id=${emp.id}`}
+                      className="text-red-400 text-xs font-bold hover:underline"
+                    >
+                      جزاء: {penalties} / {penaltyPoints} نقطة
+                    </Link>
                   )}
                   {bonuses > 0 && (
-                    <Link to={`/points?staff_id=${emp.id}`} className="text-green-400 text-xs font-bold hover:underline">مكافأة: {bonuses} / {bonusPoints} نقطة</Link>
+                    <Link
+                      to={`/points?staff_id=${emp.id}`}
+                      className="text-green-400 text-xs font-bold hover:underline"
+                    >
+                      مكافأة: {bonuses} / {bonusPoints} نقطة
+                    </Link>
                   )}
-                  <span className={`text-xs font-medium ${onShift ? "text-teal-400" : "text-slate-500"}`}>
-                    {onShift ? "● على الشيفت" : "○ خارج الشيفت"}
+                  <span
+                    className={`text-xs font-medium ${onShift ? 'text-teal-400' : 'text-slate-500'}`}
+                  >
+                    {onShift ? '● على الشيفت' : '○ خارج الشيفت'}
                   </span>
                 </div>
               </div>
               <div className="mt-3 flex gap-2">
-                <Link to={`/invoices?seller_name=${encodeURIComponent(emp.name)}`} className="flex-1 text-center btn-secondary py-2 text-xs">
+                <Link
+                  to={`/invoices?seller_name=${encodeURIComponent(emp.name)}`}
+                  className="flex-1 text-center btn-secondary py-2 text-xs"
+                >
                   الفواتير
                 </Link>
-                <Link to={`/points?staff_id=${emp.id}`} className="flex-1 text-center btn-secondary py-2 text-xs">
+                <Link
+                  to={`/points?staff_id=${emp.id}`}
+                  className="flex-1 text-center btn-secondary py-2 text-xs"
+                >
                   النقاط
                 </Link>
               </div>
@@ -377,9 +524,29 @@ export default function Team() {
         })}
       </div>
 
-      {showAddModal && <EmployeeModal onClose={() => setShowAddModal(false)} onSaved={refetch} user={user} />}
-      {editing && <EmployeeModal employee={editing} onClose={() => setEditing(null)} onSaved={refetch} user={user} />}
-      {viewing && <EmployeeDetailsModal employee={viewing} schedules={schedules.filter((item) => (item.staff_id === viewing.id || item.staff_name === viewing.name) && item.branch === viewing.branch)} transactions={getEmployeeTransactions(viewing)} onClose={() => setViewing(null)} />}
+      {showAddModal && (
+        <EmployeeModal onClose={() => setShowAddModal(false)} onSaved={refetch} user={user} />
+      )}
+      {editing && (
+        <EmployeeModal
+          employee={editing}
+          onClose={() => setEditing(null)}
+          onSaved={refetch}
+          user={user}
+        />
+      )}
+      {viewing && (
+        <EmployeeDetailsModal
+          employee={viewing}
+          schedules={schedules.filter(
+            (item) =>
+              (item.staff_id === viewing.id || item.staff_name === viewing.name) &&
+              item.branch === viewing.branch
+          )}
+          transactions={getEmployeeTransactions(viewing)}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -392,19 +559,37 @@ interface DaySchedule {
   use_custom_schedule: boolean;
 }
 
-function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employee; onClose: () => void; onSaved: () => void; user: User | null }) {
+function EmployeeModal({
+  employee,
+  onClose,
+  onSaved,
+  user,
+}: {
+  employee?: Employee;
+  onClose: () => void;
+  onSaved: () => void;
+  user: User | null;
+}) {
   const [saving, setSaving] = useState(false);
   useEscapeKey(onClose, true);
   const [form, setForm] = useState({
-    name: "", username: "", password: "", account_status: "active", phone: "", role: "صيدلاني", branch: "فرع شكري",
-    default_shift_start: "09:00", default_shift_end: "19:00", notes: "",
+    name: '',
+    username: '',
+    password: '',
+    account_status: 'active',
+    phone: '',
+    role: 'صيدلاني',
+    branch: 'فرع شكري',
+    default_shift_start: '09:00',
+    default_shift_end: '19:00',
+    notes: '',
   });
   const [daySchedules, setDaySchedules] = useState<DaySchedule[]>(
-    DAYS_AR.map(day => ({
+    DAYS_AR.map((day) => ({
       day,
-      shift_start: "09:00",
-      shift_end: "19:00",
-      is_day_off: day === "الجمعة",
+      shift_start: '09:00',
+      shift_end: '19:00',
+      is_day_off: day === 'الجمعة',
       use_custom_schedule: false,
     }))
   );
@@ -412,16 +597,16 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
   useEffect(() => {
     if (employee) {
       setForm({
-        name: employee.name || "",
-        username: employee.username || "",
-        password: "",
-        account_status: employee.status === "inactive" ? "inactive" : "active",
-        phone: employee.phone || "",
-        role: employee.role || "صيدلاني",
-        branch: employee.branch || "فرع شكري",
-        default_shift_start: employee.shift_start || "09:00",
-        default_shift_end: employee.shift_end || "19:00",
-        notes: employee.notes || "",
+        name: employee.name || '',
+        username: employee.username || '',
+        password: '',
+        account_status: employee.status === 'inactive' ? 'inactive' : 'active',
+        phone: employee.phone || '',
+        role: employee.role || 'صيدلاني',
+        branch: employee.branch || 'فرع شكري',
+        default_shift_start: employee.shift_start || '09:00',
+        default_shift_end: employee.shift_end || '19:00',
+        notes: employee.notes || '',
       });
       // Load existing schedules if editing
       // This would need to fetch from shift_schedules table
@@ -431,7 +616,7 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    
+
     try {
       const payload = {
         name: form.name,
@@ -441,14 +626,15 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
         shift_start: form.default_shift_start,
         shift_end: form.default_shift_end,
         notes: form.notes,
-        status: "نشط",
+        status: 'نشط',
         max_points: INITIAL_POINTS,
-        type: form.role === "صيدلاني" ? "Pharmacist" : form.role === "توصيل" ? "Delivery" : form.role,
+        type:
+          form.role === 'صيدلاني' ? 'Pharmacist' : form.role === 'توصيل' ? 'Delivery' : form.role,
       };
-      
-      let staffId = "";
+
+      let staffId = '';
       let error: string | null = null;
-      
+
       if (employee) {
         const { error: updateError } = await updateStaff(employee.id, payload);
         error = updateError ? friendlySupabaseError(updateError) : null;
@@ -458,13 +644,13 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
         error = result.error ? friendlySupabaseError(result.error) : null;
         if (!error && result.data) staffId = (result.data as Employee).id;
       }
-      
+
       if (error) {
-        toast.error("خطأ في الحفظ: " + error);
+        toast.error('خطأ في الحفظ: ' + error);
         setSaving(false);
         return;
       }
-      
+
       // Create shift schedules for all 7 days
       if (!employee) {
         // TODO: replace temporary password storage with server-side hashing or Supabase Auth.
@@ -473,19 +659,19 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
           username: form.username,
           temporary_password: form.password || null,
           password_hash: form.password || null,
-          password_status: form.password ? "temporary" : null,
+          password_status: form.password ? 'temporary' : null,
           name: form.name,
           staff_name: form.name,
           role: form.role,
           staff_role: form.role,
           branch: form.branch,
-          active: form.account_status === "active",
-          can_login: form.account_status === "active",
+          active: form.account_status === 'active',
+          can_login: form.account_status === 'active',
           visible_in_admin: true,
           permissions: {},
         });
         if (accountResult.error) {
-          toast.warning("تم حفظ الموظف لكن حساب الدخول يحتاج مراجعة.");
+          toast.warning('تم حفظ الموظف لكن حساب الدخول يحتاج مراجعة.');
         }
       }
 
@@ -495,33 +681,45 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
         branch: form.branch,
         day_name: schedule.day,
         day_of_week: index,
-        shift_start: schedule.is_day_off ? null : (schedule.use_custom_schedule ? schedule.shift_start : form.default_shift_start),
-        shift_end: schedule.is_day_off ? null : (schedule.use_custom_schedule ? schedule.shift_end : form.default_shift_end),
+        shift_start: schedule.is_day_off
+          ? null
+          : schedule.use_custom_schedule
+            ? schedule.shift_start
+            : form.default_shift_start,
+        shift_end: schedule.is_day_off
+          ? null
+          : schedule.use_custom_schedule
+            ? schedule.shift_end
+            : form.default_shift_end,
         is_off: schedule.is_day_off,
         is_day_off: schedule.is_day_off,
         is_different: !schedule.is_day_off && schedule.use_custom_schedule,
         has_custom_time: !schedule.is_day_off && schedule.use_custom_schedule,
-        notes: schedule.is_day_off ? "day_off" : schedule.use_custom_schedule ? "custom_time" : null,
+        notes: schedule.is_day_off
+          ? 'day_off'
+          : schedule.use_custom_schedule
+            ? 'custom_time'
+            : null,
       }));
-      
+
       const { error: scheduleError } = await replaceStaffShiftSchedules(staffId!, scheduleRecords);
-      
+
       if (scheduleError) {
-        toast.error("تم حفظ الموظف لكن حدث خطأ في حفظ المواعيد: " + scheduleError.message);
+        toast.error('تم حفظ الموظف لكن حدث خطأ في حفظ المواعيد: ' + scheduleError.message);
       }
 
-      toast.success(employee ? "تم تعديل بيانات الموظف" : "تم إضافة الموظف بنجاح");
+      toast.success(employee ? 'تم تعديل بيانات الموظف' : 'تم إضافة الموظف بنجاح');
       // لا تجعل تسجيل النشاط سببًا في فشل حفظ الموظف؛ أحيانًا يكون الحساب الحالي محليًا أو غير مرتبط بـ UUID.
       try {
         const actorId = getSafeCurrentUserId();
         if (user && actorId) {
           await logActivity(
             actorId,
-            user.name || "النظام",
-            employee ? "تعديل موظف" : "إضافة موظف",
-            "الفريق",
-            `${employee ? "تعديل" : "إضافة"} ${form.name}`,
-            form.branch,
+            user.name || 'النظام',
+            employee ? 'تعديل موظف' : 'إضافة موظف',
+            'الفريق',
+            `${employee ? 'تعديل' : 'إضافة'} ${form.name}`,
+            form.branch
           );
         }
       } catch (logError) {
@@ -530,60 +728,118 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
       onSaved();
       onClose();
     } catch (err) {
-      toast.error("حدث خطأ غير متوقع أثناء الحفظ");
+      toast.error('حدث خطأ غير متوقع أثناء الحفظ');
     }
     setSaving(false);
   };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-panel max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal-panel max-w-2xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="p-5 border-b border-[#2d4063] sticky top-0 bg-[#1a2d4d] z-10">
-          <div className="text-white font-bold text-lg">{employee ? "تعديل بيانات الموظف" : "إضافة موظف جديد"}</div>
+          <div className="text-white font-bold text-lg">
+            {employee ? 'تعديل بيانات الموظف' : 'إضافة موظف جديد'}
+          </div>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <input placeholder="الاسم الكامل *" value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} className="input-dark col-span-2" required />
-            <input placeholder="اسم المستخدم *" value={form.username} onChange={e => setForm(f => ({...f, username: e.target.value}))} className="input-dark" required />
-            <input placeholder="كلمة المرور *" type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} className="input-dark" required={!employee} />
-            <input placeholder="رقم الهاتف" value={form.phone} onChange={e => setForm(f => ({...f, phone: e.target.value}))} className="input-dark" />
-            <select value={form.role} onChange={e => setForm(f => ({...f, role: e.target.value}))} className="input-dark">
-              {ROLES.map(r => <option key={r}>{r}</option>)}
+            <input
+              placeholder="الاسم الكامل *"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              className="input-dark col-span-2"
+              required
+            />
+            <input
+              placeholder="اسم المستخدم *"
+              value={form.username}
+              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+              className="input-dark"
+              required
+            />
+            <input
+              placeholder="كلمة المرور *"
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+              className="input-dark"
+              required={!employee}
+            />
+            <input
+              placeholder="رقم الهاتف"
+              value={form.phone}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              className="input-dark"
+            />
+            <select
+              value={form.role}
+              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+              className="input-dark"
+            >
+              {ROLES.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
             </select>
-            <select value={form.branch} onChange={e => setForm(f => ({...f, branch: e.target.value}))} className="input-dark">
-              {BRANCHES.map(b => <option key={b}>{b}</option>)}
+            <select
+              value={form.branch}
+              onChange={(e) => setForm((f) => ({ ...f, branch: e.target.value }))}
+              className="input-dark"
+            >
+              {BRANCHES.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
             </select>
-            <select value={form.account_status} onChange={e => setForm(f => ({...f, account_status: e.target.value}))} className="input-dark">
+            <select
+              value={form.account_status}
+              onChange={(e) => setForm((f) => ({ ...f, account_status: e.target.value }))}
+              className="input-dark"
+            >
               <option value="active">نشط</option>
               <option value="inactive">موقوف</option>
             </select>
           </div>
-          
+
           <div className="bg-white/5 rounded-xl p-4 border border-[#2d4063]">
             <div className="text-white font-bold text-sm mb-3">الميعاد الأساسي</div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-slate-400 text-xs mb-1 block">من</label>
-                <input type="time" value={form.default_shift_start} onChange={e => setForm(f => ({...f, default_shift_start: e.target.value}))} className="input-dark" />
+                <input
+                  type="time"
+                  value={form.default_shift_start}
+                  onChange={(e) => setForm((f) => ({ ...f, default_shift_start: e.target.value }))}
+                  className="input-dark"
+                />
               </div>
               <div>
                 <label className="text-slate-400 text-xs mb-1 block">إلى</label>
-                <input type="time" value={form.default_shift_end} onChange={e => setForm(f => ({...f, default_shift_end: e.target.value}))} className="input-dark" />
+                <input
+                  type="time"
+                  value={form.default_shift_end}
+                  onChange={(e) => setForm((f) => ({ ...f, default_shift_end: e.target.value }))}
+                  className="input-dark"
+                />
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white/5 rounded-xl p-4 border border-[#2d4063]">
             <div className="text-white font-bold text-sm mb-3">المواعيد الأسبوعية</div>
             <div className="space-y-2">
               {daySchedules.map((schedule, index) => (
-                <div key={schedule.day} className="flex items-center gap-3 p-2 rounded-lg bg-white/5">
+                <div
+                  key={schedule.day}
+                  className="flex items-center gap-3 p-2 rounded-lg bg-white/5"
+                >
                   <div className="w-20 text-slate-300 text-sm font-medium">{schedule.day}</div>
                   <label className="flex items-center gap-2 text-slate-400 text-xs">
                     <input
                       type="checkbox"
                       checked={schedule.is_day_off}
-                      onChange={e => {
+                      onChange={(e) => {
                         const newSchedules = [...daySchedules];
                         newSchedules[index].is_day_off = e.target.checked;
                         setDaySchedules(newSchedules);
@@ -598,7 +854,7 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
                         <input
                           type="checkbox"
                           checked={schedule.use_custom_schedule}
-                          onChange={e => {
+                          onChange={(e) => {
                             const newSchedules = [...daySchedules];
                             newSchedules[index].use_custom_schedule = e.target.checked;
                             setDaySchedules(newSchedules);
@@ -612,7 +868,7 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
                           <input
                             type="time"
                             value={schedule.shift_start}
-                            onChange={e => {
+                            onChange={(e) => {
                               const newSchedules = [...daySchedules];
                               newSchedules[index].shift_start = e.target.value;
                               setDaySchedules(newSchedules);
@@ -623,7 +879,7 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
                           <input
                             type="time"
                             value={schedule.shift_end}
-                            onChange={e => {
+                            onChange={(e) => {
                               const newSchedules = [...daySchedules];
                               newSchedules[index].shift_end = e.target.value;
                               setDaySchedules(newSchedules);
@@ -638,13 +894,25 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
               ))}
             </div>
           </div>
-          
-          <textarea placeholder="ملاحظات" value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} rows={2} className="input-dark resize-none" />
+
+          <textarea
+            placeholder="ملاحظات"
+            value={form.notes}
+            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+            rows={2}
+            className="input-dark resize-none"
+          />
           <div className="flex gap-3 pt-1">
-            <button type="submit" disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+            >
               {saving && <Loader2 size={16} className="animate-spin" />} حفظ
             </button>
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">إلغاء</button>
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">
+              إلغاء
+            </button>
           </div>
         </form>
       </div>
@@ -652,34 +920,70 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
   );
 }
 
-function RankingList({ title, rows }: { title: string; rows: Array<Employee & { cyclePoints: number }> }) {
+function RankingList({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<Employee & { cyclePoints: number }>;
+}) {
   return (
     <div className="p-3 border-t border-[#2d4063]">
       <div className="text-slate-300 text-xs font-bold mb-2">{title}</div>
       <div className="space-y-2">
         {rows.slice(0, 8).map((employee, index) => (
-          <Link key={employee.id} to={`/staff/${employee.id}`} className="flex items-center gap-3 rounded-lg bg-[#1B2B4B] px-3 py-2 hover:bg-white/10 transition-colors">
-            <span className="w-6 h-6 rounded-full bg-teal-500/15 text-teal-300 text-xs flex items-center justify-center num">{index + 1}</span>
-            <span className="text-white text-sm font-bold flex-1">{staffDisplayName(employee, rows)}</span>
+          <Link
+            key={employee.id}
+            to={`/staff/${employee.id}`}
+            className="flex items-center gap-3 rounded-lg bg-[#1B2B4B] px-3 py-2 hover:bg-white/10 transition-colors"
+          >
+            <span className="w-6 h-6 rounded-full bg-teal-500/15 text-teal-300 text-xs flex items-center justify-center num">
+              {index + 1}
+            </span>
+            <span className="text-white text-sm font-bold flex-1">
+              {staffDisplayName(employee, rows)}
+            </span>
             <span className="text-slate-400 text-xs">{employee.role}</span>
             <span className="text-teal-300 font-bold num">{employee.cyclePoints}</span>
           </Link>
         ))}
-        {rows.length === 0 && <div className="text-slate-500 text-xs py-2">لا توجد بيانات في هذا القسم.</div>}
+        {rows.length === 0 && (
+          <div className="text-slate-500 text-xs py-2">لا توجد بيانات في هذا القسم.</div>
+        )}
       </div>
     </div>
   );
 }
 
-function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { employee: Employee; schedules: ShiftSchedule[]; transactions: EmployeeTransaction[]; onClose: () => void }) {
+function EmployeeDetailsModal({
+  employee,
+  schedules,
+  transactions,
+  onClose,
+}: {
+  employee: Employee;
+  schedules: ShiftSchedule[];
+  transactions: EmployeeTransaction[];
+  onClose: () => void;
+}) {
   useEscapeKey(onClose, true);
   const cycle = getCurrentCycle();
   const pointRecords = transactions as PointLedgerRecord[];
-  const incentive = calculateStaffCycleIncentiveFromRows({ staff: employee, records: pointRecords, cycle });
+  const incentive = calculateStaffCycleIncentiveFromRows({
+    staff: employee,
+    records: pointRecords,
+    cycle,
+  });
   const points = incentive.finalPoints;
   const maxPoints = incentive.startingPoints;
-  const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord) && isRecordInCycle(t as PointLedgerRecord, cycle));
-  const penaltyRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) < 0);
+  const activeTransactions = transactions.filter(
+    (t) =>
+      isApprovedPointRecord(t as PointLedgerRecord) &&
+      isRecordInCycle(t as PointLedgerRecord, cycle)
+  );
+  const penaltyRows = activeTransactions.filter(
+    (t) => pointRecordDelta(t as PointLedgerRecord) < 0
+  );
   const bonusRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) > 0);
   const penalties = penaltyRows.length;
   const bonuses = bonusRows.length;
@@ -687,10 +991,14 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-panel max-w-3xl" onClick={e => e.stopPropagation()}>
+      <div className="modal-panel max-w-3xl" onClick={(e) => e.stopPropagation()}>
         <div className="p-5 border-b border-[#2d4063]">
-          <div className="text-white font-bold text-lg">{staffDisplayName(employee, [employee])}</div>
-          <div className="text-slate-400 text-sm">{employee.role} - {employee.branch}</div>
+          <div className="text-white font-bold text-lg">
+            {staffDisplayName(employee, [employee])}
+          </div>
+          <div className="text-slate-400 text-sm">
+            {employee.role} - {employee.branch}
+          </div>
         </div>
         <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3">
           <InfoBox label="التقييم الحالي" value={`${points} / ${maxPoints}`} />
@@ -705,9 +1013,16 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
             <div className="text-white font-bold text-sm mb-3">جدول الموظف</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {schedules.map((item) => (
-                <div key={item.id} className={`rounded-xl border p-3 text-center ${item.is_off ? "bg-red-500/15 border-red-400/40 text-red-200" : "bg-white/5 border-[#2d4063] text-slate-200"}`}>
+                <div
+                  key={item.id}
+                  className={`rounded-xl border p-3 text-center ${item.is_off ? 'bg-red-500/15 border-red-400/40 text-red-200' : 'bg-white/5 border-[#2d4063] text-slate-200'}`}
+                >
                   <div className="text-xs text-slate-400">{item.day_name}</div>
-                  <div className="text-sm font-bold mt-1">{item.is_off ? "إجازة" : `${item.shift_start || "-"} - ${item.shift_end || "-"}`}</div>
+                  <div className="text-sm font-bold mt-1">
+                    {item.is_off
+                      ? 'إجازة'
+                      : `${item.shift_start || '-'} - ${item.shift_end || '-'}`}
+                  </div>
                 </div>
               ))}
             </div>
@@ -717,45 +1032,64 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
           <div className="bg-white/5 rounded-xl p-4">
             <div className="text-white font-bold text-sm mb-3">الجزاءات والمكافآت</div>
             {activeTransactions.length === 0 ? (
-              <div className="text-slate-400 text-sm py-4 text-center">لا توجد جزاءات أو مكافآت مسجلة لهذا الموظف.</div>
+              <div className="text-slate-400 text-sm py-4 text-center">
+                لا توجد جزاءات أو مكافآت مسجلة لهذا الموظف.
+              </div>
             ) : (
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {activeTransactions.map((t) => {
                   const isPenalty = pointRecordDelta(t as PointLedgerRecord) < 0;
                   return (
-                  <div key={t.id} className={`rounded-lg border p-3 ${isPenalty ? 'bg-red-500/10 border-red-400/30' : 'bg-green-500/10 border-green-400/30'}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-xs font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}>
-                        {isPenalty ? 'جزاء' : 'مكافأة'}
-                      </span>
-                      <span className="text-slate-400 text-xs">{new Date(t.created_at).toLocaleDateString('ar-EG')}</span>
-                    </div>
-                    <div className="text-white text-sm font-medium">{getTransactionShortReason(t)}</div>
-                    {t.description && <div className="text-slate-400 text-xs mt-1">{t.description}</div>}
-                    <div className="flex gap-4 mt-2 text-xs">
-                      {(t.points !== null && t.points !== undefined) || (t.points_delta !== null && t.points_delta !== undefined) ? (
-                        <span className={`font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}>
-                          النقاط: {transactionPoints(t)}
+                    <div
+                      key={t.id}
+                      className={`rounded-lg border p-3 ${isPenalty ? 'bg-red-500/10 border-red-400/30' : 'bg-green-500/10 border-green-400/30'}`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span
+                          className={`text-xs font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}
+                        >
+                          {isPenalty ? 'جزاء' : 'مكافأة'}
                         </span>
-                      ) : null}
-                      {t.amount !== null && t.amount !== undefined && (
-                        <span className={`font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}>
-                          المبلغ: {t.amount} ج.م
+                        <span className="text-slate-400 text-xs">
+                          {new Date(t.created_at).toLocaleDateString('ar-EG')}
                         </span>
+                      </div>
+                      <div className="text-white text-sm font-medium">
+                        {getTransactionShortReason(t)}
+                      </div>
+                      {t.description && (
+                        <div className="text-slate-400 text-xs mt-1">{t.description}</div>
                       )}
-                      {t.source && (
-                        <span className="text-slate-400">
-                          المصدر: {t.source}
-                        </span>
-                      )}
+                      <div className="flex gap-4 mt-2 text-xs">
+                        {(t.points !== null && t.points !== undefined) ||
+                        (t.points_delta !== null && t.points_delta !== undefined) ? (
+                          <span
+                            className={`font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}
+                          >
+                            النقاط: {transactionPoints(t)}
+                          </span>
+                        ) : null}
+                        {t.amount !== null && t.amount !== undefined && (
+                          <span
+                            className={`font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}
+                          >
+                            المبلغ: {t.amount} ج.م
+                          </span>
+                        )}
+                        {t.source && <span className="text-slate-400">المصدر: {t.source}</span>}
+                      </div>
                     </div>
-                  </div>
-                )})}
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
-        <div className="px-5 pb-5"><button onClick={onClose} className="btn-secondary w-full">إغلاق</button></div>
+        <div className="px-5 pb-5">
+          <button onClick={onClose} className="btn-secondary w-full">
+            إغلاق
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -773,8 +1107,16 @@ function InfoBox({ label, value }: { label: string; value: string }) {
 function LoadingState() {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">{[1,2,3].map(i => <div key={i} className="stat-card h-32 animate-pulse bg-white/5" />)}</div>
-      <div className="grid grid-cols-3 gap-4">{[1,2,3,4,5,6].map(i => <div key={i} className="stat-card h-48 animate-pulse bg-white/5" />)}</div>
+      <div className="grid grid-cols-3 gap-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="stat-card h-32 animate-pulse bg-white/5" />
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="stat-card h-48 animate-pulse bg-white/5" />
+        ))}
+      </div>
     </div>
   );
 }

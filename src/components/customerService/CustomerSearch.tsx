@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
-import { Search, User, Phone, Building2, X } from "lucide-react";
-import { getCustomers, type GetCustomersOptions } from "@/lib/api/customers";
-import { cleanEgyptianPhone, displayEgyptianPhone } from "@/lib/whatsapp";
-import { normalizeBranchName } from "@/lib/branch";
-import { normalizePhone, normalizeArabicText } from "@/lib/customerSearch";
-import type { CustomerMetric as Customer } from "@/lib/api/customers";
-import { toast } from "sonner";
+import { useState, useEffect, useMemo } from 'react';
+import { Search, User, Phone, Building2, X } from 'lucide-react';
+import { getCustomers, type GetCustomersOptions } from '@/lib/api/customers';
+import { cleanEgyptianPhone, displayEgyptianPhone } from '@/lib/whatsapp';
+import { normalizeBranchName } from '@/lib/branch';
+import { normalizePhone, normalizeArabicText } from '@/lib/customerSearch';
+import type { CustomerMetric as Customer } from '@/lib/api/customers';
+import { toast } from 'sonner';
 
 interface CustomerSearchProps {
   onSelect: (customer: Customer) => void;
@@ -16,11 +16,16 @@ interface CustomerSearchProps {
 
 interface SearchResult {
   customer: Customer;
-  matchType: "code" | "name" | "phone" | "whatsapp";
+  matchType: 'code' | 'name' | 'phone' | 'whatsapp';
 }
 
-export default function CustomerSearch({ onSelect, onUnregistered, branch, placeholder = "ابحث باسم العميل، الكود، الهاتف..." }: CustomerSearchProps) {
-  const [query, setQuery] = useState("");
+export default function CustomerSearch({
+  onSelect,
+  onUnregistered,
+  branch,
+  placeholder = 'ابحث باسم العميل، الكود، الهاتف...',
+}: CustomerSearchProps) {
+  const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
@@ -43,31 +48,32 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
           branch,
         };
         const { customers } = await getCustomers(options);
-        
+
         // Determine match type for each result
-        const searchResults: SearchResult[] = customers.map(customer => {
-          const normalizedQuery = normalizeArabicText(query.replace(/\*/g, ""));
-          const code = normalizeArabicText(String(customer.customer_code || ""));
-          const name = normalizeArabicText(String(customer.name || ""));
-          const phone = normalizePhone(customer.phone || customer.customer_phone || "");
-          const whatsapp = normalizePhone((customer as any).whatsapp_phone || "");
+        const searchResults: SearchResult[] = customers.map((customer) => {
+          const normalizedQuery = normalizeArabicText(query.replace(/\*/g, ''));
+          const code = normalizeArabicText(String(customer.customer_code || ''));
+          const name = normalizeArabicText(String(customer.name || ''));
+          const phone = normalizePhone(customer.phone || customer.customer_phone || '');
+          const whatsapp = normalizePhone((customer as any).whatsapp_phone || '');
           const phoneQuery = normalizePhone(query);
 
-          let matchType: SearchResult["matchType"] = "name";
-          if (code === normalizedQuery || code.startsWith(normalizedQuery)) matchType = "code";
-          else if (name.includes(normalizedQuery)) matchType = "name";
-          else if (phone.includes(phoneQuery) || phone.startsWith(phoneQuery)) matchType = "phone";
-          else if (whatsapp.includes(phoneQuery) || whatsapp.startsWith(phoneQuery)) matchType = "whatsapp";
+          let matchType: SearchResult['matchType'] = 'name';
+          if (code === normalizedQuery || code.startsWith(normalizedQuery)) matchType = 'code';
+          else if (name.includes(normalizedQuery)) matchType = 'name';
+          else if (phone.includes(phoneQuery) || phone.startsWith(phoneQuery)) matchType = 'phone';
+          else if (whatsapp.includes(phoneQuery) || whatsapp.startsWith(phoneQuery))
+            matchType = 'whatsapp';
 
-          (customer as any).displayPhone = displayEgyptianPhone(phone || whatsapp || "");
+          (customer as any).displayPhone = displayEgyptianPhone(phone || whatsapp || '');
           return { customer, matchType };
         });
 
         setResults(searchResults);
         setShowResults(true);
       } catch (error) {
-        console.error("Search error:", error);
-        toast.error("حدث خطأ في البحث");
+        console.error('Search error:', error);
+        toast.error('حدث خطأ في البحث');
       } finally {
         setLoading(false);
       }
@@ -78,7 +84,7 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
 
   const handleSelect = (result: SearchResult) => {
     onSelect(result.customer);
-    setQuery("");
+    setQuery('');
     setResults([]);
     setShowResults(false);
   };
@@ -86,27 +92,27 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
   const handleUnregistered = () => {
     setIsUnregisteredMode(true);
     onUnregistered?.();
-    setQuery("");
+    setQuery('');
     setResults([]);
     setShowResults(false);
   };
 
-  const matchTypeLabel = (type: SearchResult["matchType"]) => {
+  const matchTypeLabel = (type: SearchResult['matchType']) => {
     const labels = {
-      code: "كود",
-      name: "اسم",
-      phone: "هاتف",
-      whatsapp: "واتساب",
+      code: 'كود',
+      name: 'اسم',
+      phone: 'هاتف',
+      whatsapp: 'واتساب',
     };
     return labels[type];
   };
 
-  const matchTypeColor = (type: SearchResult["matchType"]) => {
+  const matchTypeColor = (type: SearchResult['matchType']) => {
     const colors = {
-      code: "bg-purple-500/20 text-purple-300",
-      name: "bg-blue-500/20 text-blue-300",
-      phone: "bg-green-500/20 text-green-300",
-      whatsapp: "bg-teal-500/20 text-teal-300",
+      code: 'bg-purple-500/20 text-purple-300',
+      name: 'bg-blue-500/20 text-blue-300',
+      phone: 'bg-green-500/20 text-green-300',
+      whatsapp: 'bg-teal-500/20 text-teal-300',
     };
     return colors[type];
   };
@@ -149,7 +155,7 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
         {query && (
           <button
             onClick={() => {
-              setQuery("");
+              setQuery('');
               setResults([]);
               setShowResults(false);
             }}
@@ -164,14 +170,10 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
       {showResults && (query || results.length > 0) && (
         <div className="absolute z-50 w-full bg-[#1B2B4B] border border-[#2d4063] rounded-xl shadow-2xl max-h-96 overflow-y-auto">
           {loading ? (
-            <div className="p-4 text-center text-slate-400">
-              جاري البحث...
-            </div>
+            <div className="p-4 text-center text-slate-400">جاري البحث...</div>
           ) : results.length === 0 ? (
             <div className="p-4 space-y-2">
-              <div className="text-center text-slate-400 text-sm">
-                لم يتم العثور على نتائج
-              </div>
+              <div className="text-center text-slate-400 text-sm">لم يتم العثور على نتائج</div>
               <button
                 onClick={handleUnregistered}
                 className="w-full btn-secondary text-sm flex items-center justify-center gap-2"
@@ -203,7 +205,9 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
                         <span className="text-white font-medium truncate">
                           {result.customer.name}
                         </span>
-                        <span className={`text-xs px-2 py-0.5 rounded ${matchTypeColor(result.matchType)}`}>
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded ${matchTypeColor(result.matchType)}`}
+                        >
                           {matchTypeLabel(result.matchType)}
                         </span>
                       </div>
@@ -226,7 +230,7 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
                       </div>
                       <div className="flex flex-wrap gap-2 mt-1 text-xs">
                         <span className="text-purple-300">
-                          {result.customer.type || "غير محدد"}
+                          {result.customer.type || 'غير محدد'}
                         </span>
                         {result.customer.last_purchase && (
                           <span className="text-slate-400">

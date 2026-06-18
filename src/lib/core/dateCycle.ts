@@ -67,13 +67,13 @@ export function isDateInCycle(date: Date, cycle: PharmacyCycle): boolean {
  * Formats a date in Egypt locale (Arabic numerals, Arabic month names).
  */
 export function formatEgyptDate(date: Date | string | null | undefined): string {
-  if (!date) return "—";
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("ar-EG", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+  if (!date) return '—';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('ar-EG', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   });
 }
 
@@ -81,18 +81,18 @@ export function formatEgyptDate(date: Date | string | null | undefined): string 
  * Formats a date in a short format (DD/MM/YYYY).
  */
 export function formatShortDate(date: Date | string | null | undefined): string {
-  if (!date) return "—";
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("ar-EG", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+  if (!date) return '—';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('ar-EG', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   });
 }
 
 function formatCycleLabel(start: Date): string {
-  return start.toLocaleDateString("ar-EG", { month: "long", year: "numeric" });
+  return start.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
 }
 
 /**

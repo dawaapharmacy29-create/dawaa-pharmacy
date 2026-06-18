@@ -4,7 +4,7 @@
  * Supports both sync (staffDirectory) and async (Supabase) lookups.
  */
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,11 +48,11 @@ export interface StaffLinkResult {
  * Used for fuzzy name matching.
  */
 export function normalizeStaffName(name: string | null | undefined): string {
-  if (!name) return "";
+  if (!name) return '';
   return String(name)
     .trim()
-    .replace(/\s+/g, " ")
-    .replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06ED]/g, "")
+    .replace(/\s+/g, ' ')
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06ED]/g, '')
     .toLowerCase();
 }
 
@@ -63,7 +63,7 @@ function getStaffId(row: StaffDirectoryRow): string | null {
 }
 
 function getStaffNameStr(row: StaffDirectoryRow): string {
-  return String(row.name || row.staff_name || "").trim();
+  return String(row.name || row.staff_name || '').trim();
 }
 
 function matchStaffInDirectory(
@@ -86,11 +86,9 @@ function matchStaffInDirectory(
   if (sub) return sub;
 
   // 3. First-word prefix match (≥3 chars)
-  const first = norm.split(" ")[0];
+  const first = norm.split(' ')[0];
   if (first.length >= 3) {
-    return staffDirectory.find((s) =>
-      normalizeStaffName(getStaffNameStr(s)).startsWith(first)
-    );
+    return staffDirectory.find((s) => normalizeStaffName(getStaffNameStr(s)).startsWith(first));
   }
 
   return undefined;
@@ -110,7 +108,7 @@ export function resolveStaffLink(
   branchOrFallback?: unknown,
   staffDirectory?: StaffDirectoryRow[]
 ): StaffLinkResult {
-  const name = String(nameOrId || "").trim();
+  const name = String(nameOrId || '').trim();
 
   // Fast path: if staffDirectory is provided, search it synchronously
   if (staffDirectory && staffDirectory.length > 0 && name) {
@@ -133,11 +131,11 @@ export function resolveStaffLink(
       href: route,
       fallback: true,
       isFallback: true,
-      toastMessage: "لم يتم العثور على الملف الشخصي بدقة، تم فتح بحث الفريق بدلاً منه.",
+      toastMessage: 'لم يتم العثور على الملف الشخصي بدقة، تم فتح بحث الفريق بدلاً منه.',
     };
   }
 
-  return { route: "/team", href: "/team", fallback: true, isFallback: true };
+  return { route: '/team', href: '/team', fallback: true, isFallback: true };
 }
 
 // ─── Async resolver (Supabase lookup) ────────────────────────────────────────
@@ -149,9 +147,9 @@ let loaded = false;
 async function ensureLoaded(): Promise<void> {
   if (loaded) return;
   const { data } = await supabase
-    .from("staff")
-    .select("id, name, role, branch")
-    .eq("active", true)
+    .from('staff')
+    .select('id, name, role, branch')
+    .eq('active', true)
     .limit(500);
   allStaff = (data ?? []) as ResolvedStaff[];
   loaded = true;
@@ -175,13 +173,11 @@ export async function resolveStaffBySellerName(
   let match =
     allStaff.find((s) => normalizeStaffName(s.name) === norm) ??
     allStaff.find(
-      (s) =>
-        normalizeStaffName(s.name).includes(norm) ||
-        norm.includes(normalizeStaffName(s.name))
+      (s) => normalizeStaffName(s.name).includes(norm) || norm.includes(normalizeStaffName(s.name))
     );
 
   if (!match) {
-    const first = norm.split(" ")[0];
+    const first = norm.split(' ')[0];
     if (first.length >= 3) {
       match = allStaff.find((s) => normalizeStaffName(s.name).startsWith(first));
     }
@@ -208,7 +204,7 @@ export async function getStaffNavigationTarget(sellerName: string): Promise<Staf
     href: route,
     fallback: true,
     isFallback: true,
-    toastMessage: "لم يتم العثور على الملف الشخصي بدقة، تم فتح بحث الفريق بدلاً منه.",
+    toastMessage: 'لم يتم العثور على الملف الشخصي بدقة، تم فتح بحث الفريق بدلاً منه.',
   };
 }
 

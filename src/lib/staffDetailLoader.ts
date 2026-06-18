@@ -1,26 +1,29 @@
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-import { normalizeStaffName } from "@/lib/staffIdentityService";
-import { staffRowIsActive } from "@/lib/staffActiveFilter";
-import { getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
-import type { PharmacyCycle } from "@/lib/pharmacy-cycle";
-import { getStaffSalesSummaryForPeriod, type StaffSalesSummary } from "@/lib/staff/sharedStaffSalesService";
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { normalizeStaffName } from '@/lib/staffIdentityService';
+import { staffRowIsActive } from '@/lib/staffActiveFilter';
+import { getStaffCycleIncentive, type StaffCycleIncentive } from '@/lib/staffIncentiveService';
+import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
+import {
+  getStaffSalesSummaryForPeriod,
+  type StaffSalesSummary,
+} from '@/lib/staff/sharedStaffSalesService';
 
 export const STAFF_DETAIL_SECTION_TIMEOUT_MS = 8000;
 
 export type StaffDetailSectionKey =
-  | "staff_base"
-  | "incentive"
-  | "sales"
-  | "customers"
-  | "attendance"
-  | "schedule"
-  | "stagnant_list"
-  | "pdf"
-  | "reviews"
-  | "medicines"
-  | "followups";
+  | 'staff_base'
+  | 'incentive'
+  | 'sales'
+  | 'customers'
+  | 'attendance'
+  | 'schedule'
+  | 'stagnant_list'
+  | 'pdf'
+  | 'reviews'
+  | 'medicines'
+  | 'followups';
 
-export type StaffDetailSectionStatus = "idle" | "loading" | "ready" | "error" | "timeout";
+export type StaffDetailSectionStatus = 'idle' | 'loading' | 'ready' | 'error' | 'timeout';
 
 export type StaffBaseProfile = {
   id: string;
@@ -45,13 +48,20 @@ function isDev() {
   return import.meta.env.DEV;
 }
 
-export function logStaffDetailSectionFailure(section: StaffDetailSectionKey, error: unknown, timedOut?: boolean) {
+export function logStaffDetailSectionFailure(
+  section: StaffDetailSectionKey,
+  error: unknown,
+  timedOut?: boolean
+) {
   if (!isDev()) return;
-  const label = timedOut ? "timeout" : "error";
+  const label = timedOut ? 'timeout' : 'error';
   console.warn(`[StaffDetail:${section}] ${label}`, error);
 }
 
-export function withSectionTimeout<T>(promise: Promise<T>, ms = STAFF_DETAIL_SECTION_TIMEOUT_MS): Promise<T> {
+export function withSectionTimeout<T>(
+  promise: Promise<T>,
+  ms = STAFF_DETAIL_SECTION_TIMEOUT_MS
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`SECTION_TIMEOUT_${ms}`)), ms);
     promise
@@ -69,34 +79,34 @@ export function withSectionTimeout<T>(promise: Promise<T>, ms = STAFF_DETAIL_SEC
 export async function runStaffDetailSection<T>(
   section: StaffDetailSectionKey,
   fn: () => Promise<T>,
-  timeoutMs = STAFF_DETAIL_SECTION_TIMEOUT_MS,
+  timeoutMs = STAFF_DETAIL_SECTION_TIMEOUT_MS
 ): Promise<SectionLoadResult<T>> {
   try {
     const data = await withSectionTimeout(fn(), timeoutMs);
     return { ok: true, data };
   } catch (error) {
-    const timedOut = error instanceof Error && error.message.startsWith("SECTION_TIMEOUT_");
+    const timedOut = error instanceof Error && error.message.startsWith('SECTION_TIMEOUT_');
     logStaffDetailSectionFailure(section, error, timedOut);
     return { ok: false, error, timedOut };
   }
 }
 
 export async function loadStaffBaseProfile(staffId: string): Promise<StaffBaseProfile | null> {
-  const result = await runStaffDetailSection("staff_base", async () => {
+  const result = await runStaffDetailSection('staff_base', async () => {
     if (!isSupabaseConfigured) return null;
     const { data, error } = await supabase
-      .from("staff")
-      .select("id,name,branch,role,active,is_active,status,created_at,points,max_points")
-      .eq("id", staffId)
+      .from('staff')
+      .select('id,name,branch,role,active,is_active,status,created_at,points,max_points')
+      .eq('id', staffId)
       .maybeSingle();
     if (error) throw error;
     if (!data) return null;
     const row = data as Record<string, unknown>;
     return {
       id: String(row.id),
-      name: String(row.name || ""),
-      branch: String(row.branch || "غير محدد"),
-      role: String(row.role || ""),
+      name: String(row.name || ''),
+      branch: String(row.branch || 'غير محدد'),
+      role: String(row.role || ''),
       is_active: staffRowIsActive(row as StaffBaseProfile),
       created_at: (row.created_at as string) || null,
       points: row.points as number | null,
@@ -110,32 +120,34 @@ export async function loadStaffBaseProfile(staffId: string): Promise<StaffBasePr
 }
 
 /** If inactive duplicate, find active primary with same normalized name. */
-export async function resolvePrimaryStaffForInactive(profile: StaffBaseProfile): Promise<StaffBaseProfile | null> {
+export async function resolvePrimaryStaffForInactive(
+  profile: StaffBaseProfile
+): Promise<StaffBaseProfile | null> {
   if (profile.is_active) return null;
   const normalized = normalizeStaffName(profile.name);
   if (!normalized) return null;
 
   const { data, error } = await supabase
-    .from("staff")
-    .select("id,name,branch,role,active,is_active,status,created_at,points,max_points")
-    .neq("id", profile.id)
-    .eq("branch", profile.branch)
+    .from('staff')
+    .select('id,name,branch,role,active,is_active,status,created_at,points,max_points')
+    .neq('id', profile.id)
+    .eq('branch', profile.branch)
     .limit(80);
 
   if (error) {
-    logStaffDetailSectionFailure("staff_base", error);
+    logStaffDetailSectionFailure('staff_base', error);
     return null;
   }
 
   const match = (data || []).find((row) => {
     if (!staffRowIsActive(row as StaffBaseProfile)) return false;
-    return normalizeStaffName(String((row as Record<string, unknown>).name || "")) === normalized;
+    return normalizeStaffName(String((row as Record<string, unknown>).name || '')) === normalized;
   }) as Record<string, unknown> | undefined;
 
   if (!match) return null;
   return {
     id: String(match.id),
-    name: String(match.name || ""),
+    name: String(match.name || ''),
     branch: String(match.branch || profile.branch),
     role: String(match.role || profile.role),
     is_active: true,
@@ -150,8 +162,12 @@ export async function loadStaffCycleIncentiveSafe(args: {
   staffName: string;
   branch: string;
 }): Promise<StaffCycleIncentive | null> {
-  const result = await runStaffDetailSection("incentive", () =>
-    getStaffCycleIncentive({ staffId: args.staffId, staffName: args.staffName, branch: args.branch }),
+  const result = await runStaffDetailSection('incentive', () =>
+    getStaffCycleIncentive({
+      staffId: args.staffId,
+      staffName: args.staffName,
+      branch: args.branch,
+    })
   );
   if (result.ok) return result.data;
   return null;
@@ -172,17 +188,17 @@ export async function loadStaffDetailSections(args: {
   const cycleEndExclusive = dayAfter(args.cycle.end);
 
   const sections = await Promise.allSettled([
-    runStaffDetailSection("sales", async () => {
+    runStaffDetailSection('sales', async () => {
       // Use the shared staff sales service for proper identity resolution
       const salesSummary = await getStaffSalesSummaryForPeriod({
         staffId: args.staffId,
         staffName: args.staffName,
-        branch: "", // Will be determined from staff record if needed
+        branch: '', // Will be determined from staff record if needed
         cycleStart,
         cycleEnd: args.cycle.end.toISOString().slice(0, 10),
         includeAliases: true,
       });
-      
+
       // Convert StaffSalesSummary to the format expected by StaffDetail
       return {
         salesSummary,
@@ -192,41 +208,53 @@ export async function loadStaffDetailSections(args: {
         dataHealthWarnings: salesSummary.dataHealthWarnings,
       };
     }),
-    runStaffDetailSection("medicines", async () => {
+    runStaffDetailSection('medicines', async () => {
       const [byId, byName] = await Promise.all([
-        supabase.from("incentive_medicines").select("*").eq("doctor_id", args.staffId).limit(200),
-        supabase.from("incentive_medicines").select("*").eq("responsible_doctor", args.staffName).limit(200),
+        supabase.from('incentive_medicines').select('*').eq('doctor_id', args.staffId).limit(200),
+        supabase
+          .from('incentive_medicines')
+          .select('*')
+          .eq('responsible_doctor', args.staffName)
+          .limit(200),
       ]);
       const map = new Map<string, Record<string, unknown>>();
       for (const row of [...(byId.data || []), ...(byName.data || [])]) {
-        const id = String((row as Record<string, unknown>).id || "");
+        const id = String((row as Record<string, unknown>).id || '');
         if (id) map.set(id, row as Record<string, unknown>);
       }
       return [...map.values()];
     }),
-    runStaffDetailSection("stagnant_list", async () => {
+    runStaffDetailSection('stagnant_list', async () => {
       const [byId, byName] = await Promise.all([
-        supabase.from("stagnant_medicines").select("*").eq("responsible_doctor_id", args.staffId).limit(200),
-        supabase.from("stagnant_medicines").select("*").eq("responsible_doctor_name", args.staffName).limit(200),
+        supabase
+          .from('stagnant_medicines')
+          .select('*')
+          .eq('responsible_doctor_id', args.staffId)
+          .limit(200),
+        supabase
+          .from('stagnant_medicines')
+          .select('*')
+          .eq('responsible_doctor_name', args.staffName)
+          .limit(200),
       ]);
       const map = new Map<string, Record<string, unknown>>();
       for (const row of [...(byId.data || []), ...(byName.data || [])]) {
-        const id = String((row as Record<string, unknown>).id || "");
+        const id = String((row as Record<string, unknown>).id || '');
         if (id) map.set(id, row as Record<string, unknown>);
       }
       const dispenses = await supabase
-        .from("stagnant_medicine_dispenses")
-        .select("*")
-        .eq("staff_id", args.staffId)
-        .gte("created_at", cycleStart)
-        .lt("created_at", cycleEndExclusive)
+        .from('stagnant_medicine_dispenses')
+        .select('*')
+        .eq('staff_id', args.staffId)
+        .gte('created_at', cycleStart)
+        .lt('created_at', cycleEndExclusive)
         .limit(300);
       const listSales = await supabase
-        .from("incentive_medicine_sales")
-        .select("*")
-        .eq("staff_id", args.staffId)
-        .gte("created_at", cycleStart)
-        .lt("created_at", cycleEndExclusive)
+        .from('incentive_medicine_sales')
+        .select('*')
+        .eq('staff_id', args.staffId)
+        .gte('created_at', cycleStart)
+        .lt('created_at', cycleEndExclusive)
         .limit(300);
       return {
         stagnants: [...map.values()],
@@ -234,43 +262,47 @@ export async function loadStaffDetailSections(args: {
         listSales: (listSales.data || []) as Record<string, unknown>[],
       };
     }),
-    runStaffDetailSection("schedule", async () => {
-      const scheduleRes = await supabase.from("shift_schedules").select("*").eq("staff_id", args.staffId).limit(80);
+    runStaffDetailSection('schedule', async () => {
+      const scheduleRes = await supabase
+        .from('shift_schedules')
+        .select('*')
+        .eq('staff_id', args.staffId)
+        .limit(80);
       const timeOffRes = await supabase
-        .from("shift_exceptions")
-        .select("*")
-        .eq("staff_id", args.staffId)
-        .order("date", { ascending: false })
+        .from('shift_exceptions')
+        .select('*')
+        .eq('staff_id', args.staffId)
+        .order('date', { ascending: false })
         .limit(80);
       return {
         schedule: (scheduleRes.data || []) as Record<string, unknown>[],
         timeOff: (timeOffRes.data || []) as Record<string, unknown>[],
       };
     }),
-    runStaffDetailSection("followups", async () => {
+    runStaffDetailSection('followups', async () => {
       const { data, error } = await supabase
-        .from("daily_followups")
-        .select("*")
-        .eq("staff_id", args.staffId)
-        .gte("created_at", cycleStart)
-        .lt("created_at", cycleEndExclusive)
+        .from('daily_followups')
+        .select('*')
+        .eq('staff_id', args.staffId)
+        .gte('created_at', cycleStart)
+        .lt('created_at', cycleEndExclusive)
         .limit(300);
       if (error) throw error;
       return (data || []) as Record<string, unknown>[];
     }),
-    runStaffDetailSection("reviews", async () => {
+    runStaffDetailSection('reviews', async () => {
       const byId = await supabase
-        .from("conversation_sales_reviews")
-        .select("*")
+        .from('conversation_sales_reviews')
+        .select('*')
         .or(`staff_id.eq.${args.staffId},doctor_id.eq.${args.staffId}`)
-        .order("created_at", { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(150);
       if (!byId.error) return (byId.data || []) as Record<string, unknown>[];
       const fallback = await supabase
-        .from("conversation_sales_reviews")
-        .select("*")
-        .eq("staff_name", args.staffName)
-        .order("created_at", { ascending: false })
+        .from('conversation_sales_reviews')
+        .select('*')
+        .eq('staff_name', args.staffName)
+        .order('created_at', { ascending: false })
         .limit(150);
       if (fallback.error) throw fallback.error;
       return (fallback.data || []) as Record<string, unknown>[];
@@ -288,6 +320,6 @@ export async function loadStaffDetailSections(args: {
 }
 
 export function sectionUnavailableMessage(status?: StaffDetailSectionStatus) {
-  if (status === "timeout") return "غير متاح حاليًا (انتهت مهلة التحميل)";
-  return "غير متاح حاليًا";
+  if (status === 'timeout') return 'غير متاح حاليًا (انتهت مهلة التحميل)';
+  return 'غير متاح حاليًا';
 }

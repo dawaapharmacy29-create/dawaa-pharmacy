@@ -5,7 +5,7 @@
  * - fallback values
  */
 
-import type { DashboardSalesTruth } from "@/lib/dashboard/dashboardTruthService";
+import type { DashboardSalesTruth } from '@/lib/dashboard/dashboardTruthService';
 
 export function ensureValidDashboardData(data: Partial<DashboardSalesTruth>): DashboardSalesTruth {
   return {
@@ -28,14 +28,16 @@ export function ensureValidDashboardData(data: Partial<DashboardSalesTruth>): Da
     doctorSales: data.doctorSales || [],
     recentInvoices: data.recentInvoices || [],
     reconciliation: {
-      source: data.reconciliation?.source ?? "sales_invoices_live",
+      source: data.reconciliation?.source ?? 'sales_invoices_live',
       dashboardTotal: data.reconciliation?.dashboardTotal ?? 0,
       sqlEquivalentTotal: data.reconciliation?.sqlEquivalentTotal ?? 0,
       difference: data.reconciliation?.difference ?? 0,
       invoicesCount: data.reconciliation?.invoicesCount ?? 0,
       rowsRead: data.reconciliation?.rowsRead ?? 0,
-      selectedStartDate: data.reconciliation?.selectedStartDate ?? new Date().toISOString().slice(0, 10),
-      selectedEndDate: data.reconciliation?.selectedEndDate ?? new Date().toISOString().slice(0, 10),
+      selectedStartDate:
+        data.reconciliation?.selectedStartDate ?? new Date().toISOString().slice(0, 10),
+      selectedEndDate:
+        data.reconciliation?.selectedEndDate ?? new Date().toISOString().slice(0, 10),
       branchesIncluded: data.reconciliation?.branchesIncluded || [],
       firstInvoiceDate: data.reconciliation?.firstInvoiceDate || null,
       lastInvoiceDate: data.reconciliation?.lastInvoiceDate || null,
@@ -67,7 +69,7 @@ export function shouldShowEmptyState(
 export function buildSalesMap(rows: Array<{ branch?: string; sales_total?: number }>) {
   const map = new Map<string, number>();
   rows.forEach((row) => {
-    const branch = String(row.branch || "غير محدد").trim();
+    const branch = String(row.branch || 'غير محدد').trim();
     map.set(branch, (map.get(branch) || 0) + (Number(row.sales_total) || 0));
   });
   return map;
@@ -76,7 +78,7 @@ export function buildSalesMap(rows: Array<{ branch?: string; sales_total?: numbe
 export function buildInvoiceCountMap(rows: Array<{ branch?: string; invoices_count?: number }>) {
   const map = new Map<string, number>();
   rows.forEach((row) => {
-    const branch = String(row.branch || "غير محدد").trim();
+    const branch = String(row.branch || 'غير محدد').trim();
     map.set(branch, (map.get(branch) || 0) + (Number(row.invoices_count) || 0));
   });
   return map;
@@ -84,7 +86,7 @@ export function buildInvoiceCountMap(rows: Array<{ branch?: string; invoices_cou
 
 // دالة مساعدة لتنظيف البيانات
 export function sanitizeDashboardNumber(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }

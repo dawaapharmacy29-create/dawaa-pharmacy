@@ -3,7 +3,7 @@ import {
   getSeverityBadgeStyle,
   sortFlagsByPriority,
   type CustomerFlagsObject,
-} from "@/lib/customerFlags";
+} from '@/lib/customerFlags';
 
 interface CustomerFlagsBadgesProps {
   customerFlags: CustomerFlagsObject | any;
@@ -20,7 +20,7 @@ export function CustomerFlagsBadges({
 }: CustomerFlagsBadgesProps) {
   const activeFlags = getActiveCustomerFlags(customerFlags);
   const sortedFlags = sortFlagsByPriority(activeFlags);
-  
+
   if (sortedFlags.length === 0) {
     return null;
   }
@@ -34,7 +34,7 @@ export function CustomerFlagsBadges({
         <span
           key={flag.key}
           className={`dawaa-badge customer-flag rounded-full border px-2 py-0.5 text-xs font-black ${
-            compact ? "text-[10px] px-1.5 py-0" : ""
+            compact ? 'text-[10px] px-1.5 py-0' : ''
           } ${getSeverityBadgeStyle(flag.severity)}`}
         >
           {flag.label}

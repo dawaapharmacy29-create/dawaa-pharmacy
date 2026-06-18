@@ -1,4 +1,4 @@
-import type { StaffCycleIncentive } from "@/lib/performance/monthlyIncentiveService";
+import type { StaffCycleIncentive } from '@/lib/performance/monthlyIncentiveService';
 
 export function buildMonthlyPerformanceReportModel(incentive: StaffCycleIncentive) {
   return {
@@ -19,6 +19,6 @@ export function buildMonthlyPerformanceReportModel(incentive: StaffCycleIncentiv
     pending: incentive.pendingTransactions,
     warnings: incentive.warnings,
     calculationMethod:
-      "500 - approved deductions + approved exceptional rewards = final points; monthly incentive = min(finalPoints / 500, 1) * 1500",
+      '500 - approved deductions + approved exceptional rewards = final points; monthly incentive = min(finalPoints / 500, 1) * 1500',
   };
 }

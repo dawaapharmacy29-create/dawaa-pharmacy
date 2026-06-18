@@ -4,6 +4,6 @@ export {
   getStaffIncentiveSummaryForCycle,
   type StaffCycleIncentive,
   type StaffIncentiveTransaction,
-} from "@/lib/staffIncentiveService";
+} from '@/lib/staffIncentiveService';
 
-export { calculateMonthlyIncentive } from "@/lib/performance/performanceRulesEngine";
+export { calculateMonthlyIncentive } from '@/lib/performance/performanceRulesEngine';

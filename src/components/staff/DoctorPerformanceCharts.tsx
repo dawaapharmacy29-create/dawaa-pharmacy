@@ -1,7 +1,18 @@
-import { useMemo, memo } from "react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { formatCurrency } from "@/lib/utils";
+import { useMemo, memo } from 'react';
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { formatCurrency } from '@/lib/utils';
 
 interface DoctorPerformanceChartsProps {
   salesRows: Record<string, unknown>[];
@@ -23,15 +34,21 @@ interface MonthlyData {
   deductions: number;
 }
 
-const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPerformanceChartsProps) => {
+const DoctorPerformanceCharts = ({
+  salesRows,
+  pointsRows,
+  staffName,
+}: DoctorPerformanceChartsProps) => {
   const monthlyData = useMemo(() => {
     const monthlyMap = new Map<string, MonthlyData>();
 
     // Process sales data
     for (const row of salesRows) {
-      const date = new Date(row.invoice_date as string || row.created_at as string || Date.now());
+      const date = new Date(
+        (row.invoice_date as string) || (row.created_at as string) || Date.now()
+      );
       const monthKey = date.toLocaleDateString('ar-EG', { year: 'numeric', month: 'short' });
-      
+
       const current = monthlyMap.get(monthKey) || {
         month: monthKey,
         sales: 0,
@@ -55,11 +72,16 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
     for (const row of pointsRows) {
       const date = new Date(row.created_at);
       const monthKey = date.toLocaleDateString('ar-EG', { year: 'numeric', month: 'short' });
-      
+
       const current = monthlyMap.get(monthKey);
       if (!current) continue;
 
-      const delta = row.points_delta !== null && row.points_delta !== undefined ? row.points_delta : (row.type === 'deduction' ? -row.points : row.points);
+      const delta =
+        row.points_delta !== null && row.points_delta !== undefined
+          ? row.points_delta
+          : row.type === 'deduction'
+            ? -row.points
+            : row.points;
 
       if (delta > 0) {
         current.rewards += delta;
@@ -69,11 +91,13 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
     }
 
     // Convert to array and sort by date
-    return Array.from(monthlyMap.values()).sort((a, b) => {
-      const dateA = new Date(a.month);
-      const dateB = new Date(b.month);
-      return dateA.getTime() - dateB.getTime();
-    }).slice(-6); // Last 6 months
+    return Array.from(monthlyMap.values())
+      .sort((a, b) => {
+        const dateA = new Date(a.month);
+        const dateB = new Date(b.month);
+        return dateA.getTime() - dateB.getTime();
+      })
+      .slice(-6); // Last 6 months
   }, [salesRows, pointsRows]);
 
   if (monthlyData.length === 0) {
@@ -85,41 +109,38 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
   }
 
   const chartConfig = {
-    sales: { label: "المبيعات", color: "#14b8a6" },
-    invoiceCount: { label: "عدد الفواتير", color: "#3b82f6" },
-    avgInvoice: { label: "متوسط الفاتورة", color: "#8b5cf6" },
-    rewards: { label: "المكافآت", color: "#22c55e" },
-    deductions: { label: "الخصومات", color: "#ef4444" },
+    sales: { label: 'المبيعات', color: '#14b8a6' },
+    invoiceCount: { label: 'عدد الفواتير', color: '#3b82f6' },
+    avgInvoice: { label: 'متوسط الفاتورة', color: '#8b5cf6' },
+    rewards: { label: 'المكافآت', color: '#22c55e' },
+    deductions: { label: 'الخصومات', color: '#ef4444' },
   };
 
   return (
     <div className="space-y-6">
       {/* Sales and Invoice Count Chart */}
       <div className="stat-card p-5">
-        <h3 className="text-white font-bold text-sm mb-4">تطور المبيعات وعدد الفواتير (آخر 6 أشهر)</h3>
+        <h3 className="text-white font-bold text-sm mb-4">
+          تطور المبيعات وعدد الفواتير (آخر 6 أشهر)
+        </h3>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={monthlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
-              <XAxis 
-                dataKey="month" 
-                stroke="#94a3b8" 
+              <XAxis
+                dataKey="month"
+                stroke="#94a3b8"
                 fontSize={12}
                 tickFormatter={(value) => value}
               />
-              <YAxis 
+              <YAxis
                 yAxisId="sales"
-                stroke="#94a3b8" 
+                stroke="#94a3b8"
                 fontSize={12}
                 tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
               />
-              <YAxis 
-                yAxisId="count"
-                orientation="right"
-                stroke="#94a3b8" 
-                fontSize={12}
-              />
-              <Tooltip 
+              <YAxis yAxisId="count" orientation="right" stroke="#94a3b8" fontSize={12} />
+              <Tooltip
                 content={({ active, payload }) => {
                   if (!active || !payload) return null;
                   return (
@@ -127,15 +148,13 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
                       <div className="text-white font-bold mb-2">{payload[0].payload.month}</div>
                       {payload.map((entry: any) => (
                         <div key={entry.name} className="flex items-center gap-2 text-sm">
-                          <div 
+                          <div
                             className="w-3 h-3 rounded-full"
                             style={{ backgroundColor: entry.color }}
                           />
-                          <span className="text-slate-300">
-                            {entry.name}: 
-                          </span>
+                          <span className="text-slate-300">{entry.name}:</span>
                           <span className="text-white font-bold">
-                            {entry.name === 'المبيعات' || entry.name === 'متوسط الفاتورة' 
+                            {entry.name === 'المبيعات' || entry.name === 'متوسط الفاتورة'
                               ? formatCurrency(Number(entry.value))
                               : Number(entry.value)}
                           </span>
@@ -146,23 +165,23 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
                 }}
               />
               <Legend />
-              <Line 
+              <Line
                 yAxisId="sales"
-                type="monotone" 
-                dataKey="sales" 
-                stroke="#14b8a6" 
+                type="monotone"
+                dataKey="sales"
+                stroke="#14b8a6"
                 strokeWidth={2}
                 name="المبيعات"
-                dot={{ fill: "#14b8a6", strokeWidth: 2, r: 4 }}
+                dot={{ fill: '#14b8a6', strokeWidth: 2, r: 4 }}
               />
-              <Line 
+              <Line
                 yAxisId="count"
-                type="monotone" 
-                dataKey="invoiceCount" 
-                stroke="#3b82f6" 
+                type="monotone"
+                dataKey="invoiceCount"
+                stroke="#3b82f6"
                 strokeWidth={2}
                 name="عدد الفواتير"
-                dot={{ fill: "#3b82f6", strokeWidth: 2, r: 4 }}
+                dot={{ fill: '#3b82f6', strokeWidth: 2, r: 4 }}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -176,17 +195,13 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={monthlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
-              <XAxis 
-                dataKey="month" 
-                stroke="#94a3b8" 
-                fontSize={12}
-              />
-              <YAxis 
-                stroke="#94a3b8" 
+              <XAxis dataKey="month" stroke="#94a3b8" fontSize={12} />
+              <YAxis
+                stroke="#94a3b8"
                 fontSize={12}
                 tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
               />
-              <Tooltip 
+              <Tooltip
                 content={({ active, payload }) => {
                   if (!active || !payload) return null;
                   return (
@@ -202,8 +217,8 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
                   );
                 }}
               />
-              <Bar 
-                dataKey="avgInvoice" 
+              <Bar
+                dataKey="avgInvoice"
                 fill="#8b5cf6"
                 radius={[4, 4, 0, 0]}
                 name="متوسط الفاتورة"
@@ -220,16 +235,9 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={monthlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#2d4063" />
-              <XAxis 
-                dataKey="month" 
-                stroke="#94a3b8" 
-                fontSize={12}
-              />
-              <YAxis 
-                stroke="#94a3b8" 
-                fontSize={12}
-              />
-              <Tooltip 
+              <XAxis dataKey="month" stroke="#94a3b8" fontSize={12} />
+              <YAxis stroke="#94a3b8" fontSize={12} />
+              <Tooltip
                 content={({ active, payload }) => {
                   if (!active || !payload) return null;
                   return (
@@ -237,16 +245,12 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
                       <div className="text-white font-bold mb-2">{payload[0].payload.month}</div>
                       {payload.map((entry: any) => (
                         <div key={entry.name} className="flex items-center gap-2 text-sm">
-                          <div 
+                          <div
                             className="w-3 h-3 rounded-full"
                             style={{ backgroundColor: entry.color }}
                           />
-                          <span className="text-slate-300">
-                            {entry.name}: 
-                          </span>
-                          <span className="text-white font-bold">
-                            {Number(entry.value)} نقطة
-                          </span>
+                          <span className="text-slate-300">{entry.name}:</span>
+                          <span className="text-white font-bold">{Number(entry.value)} نقطة</span>
                         </div>
                       ))}
                     </div>
@@ -254,18 +258,8 @@ const DoctorPerformanceCharts = ({ salesRows, pointsRows, staffName }: DoctorPer
                 }}
               />
               <Legend />
-              <Bar 
-                dataKey="rewards" 
-                fill="#22c55e"
-                radius={[4, 4, 0, 0]}
-                name="المكافآت"
-              />
-              <Bar 
-                dataKey="deductions" 
-                fill="#ef4444"
-                radius={[4, 4, 0, 0]}
-                name="الخصومات"
-              />
+              <Bar dataKey="rewards" fill="#22c55e" radius={[4, 4, 0, 0]} name="المكافآت" />
+              <Bar dataKey="deductions" fill="#ef4444" radius={[4, 4, 0, 0]} name="الخصومات" />
             </BarChart>
           </ResponsiveContainer>
         </div>

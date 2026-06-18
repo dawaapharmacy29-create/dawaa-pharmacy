@@ -1,6 +1,7 @@
 # SQL Setup — صيدليات دواء 2027
 
 ## كيفية الاستخدام
+
 انسخ كل SQL block واذهب إلى **Supabase → SQL Editor → New Query** والصق وانقر **Run**.
 
 ---
@@ -142,6 +143,7 @@ ORDER BY s.name;
 ```
 
 > **ملاحظة:** إذا لم يكن لديك `staff_payroll_profiles_v13` أو `staff_payroll_monthly_v13`، استبدل الـ LEFT JOINs بـ:
+>
 > ```sql
 > LEFT JOIN (SELECT NULL::uuid AS staff_id, NULL::numeric AS base_salary, NULL::numeric AS hourly_rate) pp ON FALSE
 > LEFT JOIN (SELECT NULL::uuid AS staff_id, NULL::numeric AS worked_hours, NULL::numeric AS overtime_hours, NULL::numeric AS target_bonus, NULL::numeric AS quarterly_bonus) pm ON FALSE
@@ -314,4 +316,5 @@ ALTER PUBLICATION supabase_realtime ADD TABLE
 8. تفعيل Realtime
 
 ## Customer Coding V2
+
 شغّل ملف `CUSTOMER_CODING_SETUP.sql` في Supabase SQL Editor لتفعيل صفحة **تكويد العميل** وجداول الأصناف المميزة.

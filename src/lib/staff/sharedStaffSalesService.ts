@@ -1,16 +1,20 @@
 /**
  * Shared Staff Sales Service
- * 
+ *
  * This service provides a unified way to fetch staff sales data
  * that is used by both the dashboard and staff detail pages.
  * It uses the same identity resolution logic as the dashboard.
  */
 
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-import { findStaffIdentityForSalesRow, normalizeStaffName, fetchStaffIdentityRows } from "@/lib/staffIdentityService";
-import { getInvoiceAmount, getInvoiceKey } from "@/lib/dawaa2027";
-import { selectAllPaged } from "@/lib/supabasePaged";
-import type { PharmacyCycle } from "@/lib/pharmacy-cycle";
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import {
+  findStaffIdentityForSalesRow,
+  normalizeStaffName,
+  fetchStaffIdentityRows,
+} from '@/lib/staffIdentityService';
+import { getInvoiceAmount, getInvoiceKey } from '@/lib/dawaa2027';
+import { selectAllPaged } from '@/lib/supabasePaged';
+import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
 
 type Row = Record<string, unknown>;
 
@@ -35,7 +39,7 @@ export interface StaffSalesSummary {
   salesByMonth: Array<{ period: string; sales: number; invoices: number }>;
   salesByShift: Array<{ shift: string; sales: number; invoices: number }>;
   salesByInvoiceType: Array<{ type: string; sales: number; invoices: number }>;
-  sourceUsed: "staff_id" | "seller_name" | "invoices_fallback" | "none";
+  sourceUsed: 'staff_id' | 'seller_name' | 'invoices_fallback' | 'none';
   aliasesUsed: string[];
   rawSellerNamesMatched: string[];
   dataHealthWarnings: string[];
@@ -53,14 +57,14 @@ export interface GetStaffSalesSummaryParams {
 }
 
 function isSalesRole(role?: string | null) {
-  return /صيد|دكتور|doctor|pharmacist|pharmacy/i.test(String(role || ""));
+  return /صيد|دكتور|doctor|pharmacist|pharmacy/i.test(String(role || ''));
 }
 
 function invoiceAsStaffSalesRow(row: Row) {
   return {
-    saleDate: String(row.invoice_date || "").slice(0, 10),
-    sellerName: String(row.seller_name || ""),
-    branch: String(row.branch || "") || null,
+    saleDate: String(row.invoice_date || '').slice(0, 10),
+    sellerName: String(row.seller_name || ''),
+    branch: String(row.branch || '') || null,
     netTotal: getInvoiceAmount(row),
     invoicesCount: 1,
     avgInvoice: getInvoiceAmount(row),
@@ -71,19 +75,21 @@ function invoiceAsStaffSalesRow(row: Row) {
 export async function getLiveStaffInvoiceRowsForPeriod(
   params: GetStaffSalesSummaryParams
 ): Promise<{ rows: Row[]; rawSellerNamesMatched: string[]; warnings: string[] }> {
-  const aliases = params.includeAliases === false ? [params.staffName] : buildStaffAliases(params.staffName);
+  const aliases =
+    params.includeAliases === false ? [params.staffName] : buildStaffAliases(params.staffName);
   const warnings: string[] = [];
 
   const [staffRows, invoiceResult] = await Promise.all([
     fetchStaffIdentityRows(),
     selectAllPaged<Row>({
-      table: "sales_invoices",
-      select: "*",
+      table: 'sales_invoices',
+      select: '*',
       chunkSize: 1000,
       maxRows: 50000,
-      orderBy: "invoice_date",
+      orderBy: 'invoice_date',
       ascending: false,
-      filters: (query) => query.gte("invoice_date", params.cycleStart).lt("invoice_date", dayAfter(params.cycleEnd)),
+      filters: (query) =>
+        query.gte('invoice_date', params.cycleStart).lt('invoice_date', dayAfter(params.cycleEnd)),
     }),
   ]);
 
@@ -91,10 +97,13 @@ export async function getLiveStaffInvoiceRowsForPeriod(
     return {
       rows: [],
       rawSellerNamesMatched: [],
-      warnings: invoiceResult.error ? [`live invoices query failed: ${invoiceResult.error.message}`] : warnings,
+      warnings: invoiceResult.error
+        ? [`live invoices query failed: ${invoiceResult.error.message}`]
+        : warnings,
     };
   }
-  if (invoiceResult.truncated) warnings.push("تم الوصول للحد الأقصى لقراءة الفواتير 50000 صف في خدمة مبيعات الموظف.");
+  if (invoiceResult.truncated)
+    warnings.push('تم الوصول للحد الأقصى لقراءة الفواتير 50000 صف في خدمة مبيعات الموظف.');
 
   const allowAliasFallback = isSalesRole(params.role);
   const filtered = (invoiceResult.data as Row[]).filter((row) => {
@@ -104,9 +113,13 @@ export async function getLiveStaffInvoiceRowsForPeriod(
     return staffNameMatchesSeller(row.seller_name, aliases);
   });
 
-  const rawSellerNamesMatched = [...new Set(filtered.map((row) => String(row.seller_name || "")).filter(Boolean))];
+  const rawSellerNamesMatched = [
+    ...new Set(filtered.map((row) => String(row.seller_name || '')).filter(Boolean)),
+  ];
   if (!allowAliasFallback) {
-    warnings.push("تم منع مطابقة الاسم فقط لهذا الدور حتى لا تختلط مبيعات الصيدلي مع موظف توصيل أو دور غير بيعي.");
+    warnings.push(
+      'تم منع مطابقة الاسم فقط لهذا الدور حتى لا تختلط مبيعات الصيدلي مع موظف توصيل أو دور غير بيعي.'
+    );
   }
 
   return { rows: filtered, rawSellerNamesMatched, warnings };
@@ -131,13 +144,13 @@ export async function getStaffSalesSummaryForPeriod(
   } = params;
 
   if (!isSupabaseConfigured) {
-    return createEmptySummary("none", [], [], ["Supabase not configured"]);
+    return createEmptySummary('none', [], [], ['Supabase not configured']);
   }
 
   const warnings: string[] = [];
   const aliasesUsed: string[] = [];
   const rawSellerNamesMatched: string[] = [];
-  let sourceUsed: "staff_id" | "seller_name" | "invoices_fallback" | "none" = "none";
+  let sourceUsed: 'staff_id' | 'seller_name' | 'invoices_fallback' | 'none' = 'none';
   let summaryData: Row[] | null = null;
 
   // Step 1: Build aliases for matching
@@ -151,32 +164,38 @@ export async function getStaffSalesSummaryForPeriod(
 
     if (liveInvoices.rows.length > 0) {
       summaryData = liveInvoices.rows;
-      sourceUsed = "invoices_fallback";
+      sourceUsed = 'invoices_fallback';
       rawSellerNamesMatched.push(...liveInvoices.rawSellerNamesMatched);
-      warnings.push(`Sales matched from live invoices: ${liveInvoices.rawSellerNamesMatched.slice(0, 3).join(", ")}`);
+      warnings.push(
+        `Sales matched from live invoices: ${liveInvoices.rawSellerNamesMatched.slice(0, 3).join(', ')}`
+      );
     }
   } catch (error) {
-    warnings.push(`live invoices query failed: ${error instanceof Error ? error.message : String(error)}`);
+    warnings.push(
+      `live invoices query failed: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   // Step 3: Fallback to staff_sales_summary by staff_id
   if (!summaryData || summaryData.length === 0) {
     try {
       const { data: summaryById, error: summaryByIdError } = await supabase
-        .from("staff_sales_summary")
-        .select("*")
-        .eq("staff_id", staffId)
-        .gte("sale_date", cycleStart)
-        .lt("sale_date", dayAfter(cycleEnd))
+        .from('staff_sales_summary')
+        .select('*')
+        .eq('staff_id', staffId)
+        .gte('sale_date', cycleStart)
+        .lt('sale_date', dayAfter(cycleEnd))
         .limit(500);
 
       if (!summaryByIdError && summaryById && summaryById.length > 0) {
         summaryData = summaryById as Row[];
-        sourceUsed = "staff_id";
-        rawSellerNamesMatched.push(...new Set(summaryById.map((r) => String(r.seller_name || ""))));
+        sourceUsed = 'staff_id';
+        rawSellerNamesMatched.push(...new Set(summaryById.map((r) => String(r.seller_name || ''))));
       }
     } catch (error) {
-      warnings.push(`staff_id query failed: ${error instanceof Error ? error.message : String(error)}`);
+      warnings.push(
+        `staff_id query failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -184,10 +203,10 @@ export async function getStaffSalesSummaryForPeriod(
   if (!summaryData || summaryData.length === 0) {
     try {
       const { data: summaryByName, error: summaryByNameError } = await supabase
-        .from("staff_sales_summary")
-        .select("*")
-        .gte("sale_date", cycleStart)
-        .lt("sale_date", dayAfter(cycleEnd))
+        .from('staff_sales_summary')
+        .select('*')
+        .gte('sale_date', cycleStart)
+        .lt('sale_date', dayAfter(cycleEnd))
         .limit(500);
 
       if (!summaryByNameError && summaryByName) {
@@ -198,13 +217,17 @@ export async function getStaffSalesSummaryForPeriod(
 
         if (filtered.length > 0) {
           summaryData = filtered;
-          sourceUsed = "seller_name";
-          rawSellerNamesMatched.push(...new Set(filtered.map((r) => String(r.seller_name || ""))));
-          warnings.push(`Sales matched by seller_name aliases: ${rawSellerNamesMatched.slice(0, 3).join(", ")}`);
+          sourceUsed = 'seller_name';
+          rawSellerNamesMatched.push(...new Set(filtered.map((r) => String(r.seller_name || ''))));
+          warnings.push(
+            `Sales matched by seller_name aliases: ${rawSellerNamesMatched.slice(0, 3).join(', ')}`
+          );
         }
       }
     } catch (error) {
-      warnings.push(`seller_name query failed: ${error instanceof Error ? error.message : String(error)}`);
+      warnings.push(
+        `seller_name query failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -212,14 +235,20 @@ export async function getStaffSalesSummaryForPeriod(
   if (!summaryData || summaryData.length === 0) {
     warnings.push(
       `No sales data found for staff "${staffName}" (ID: ${staffId}) in period ${cycleStart} to ${cycleEnd}. ` +
-      `Searched aliases: ${aliases.join(", ")}. ` +
-      `Checked sources: staff_sales_summary (by staff_id), staff_sales_summary (by seller_name), sales_invoices.`
+        `Searched aliases: ${aliases.join(', ')}. ` +
+        `Checked sources: staff_sales_summary (by staff_id), staff_sales_summary (by seller_name), sales_invoices.`
     );
-    return createEmptySummary("none", aliases, rawSellerNamesMatched, warnings);
+    return createEmptySummary('none', aliases, rawSellerNamesMatched, warnings);
   }
 
   // Step 6: Calculate metrics from summary data
-  return calculateSalesMetrics(summaryData, sourceUsed, aliasesUsed, rawSellerNamesMatched, warnings);
+  return calculateSalesMetrics(
+    summaryData,
+    sourceUsed,
+    aliasesUsed,
+    rawSellerNamesMatched,
+    warnings
+  );
 }
 
 /**
@@ -231,14 +260,14 @@ function buildStaffAliases(staffName: string): string[] {
   if (!name) return [];
 
   const addAlias = (value: string) => {
-    const cleaned = value.replace(/\s+/g, " ").trim();
+    const cleaned = value.replace(/\s+/g, ' ').trim();
     if (cleaned) aliases.push(cleaned);
   };
 
   addAlias(name);
 
   const withoutPrefix = name
-    .replace(/^(?:د\.?|د\/|دكتور|دكتورة|دكتوره|dr\.?|doctor)\s*/i, "")
+    .replace(/^(?:د\.?|د\/|دكتور|دكتورة|دكتوره|dr\.?|doctor)\s*/i, '')
     .trim();
   addAlias(withoutPrefix);
 
@@ -258,13 +287,13 @@ function buildStaffAliases(staffName: string): string[] {
 }
 
 function canonicalStaffName(value: unknown): string {
-  return normalizeStaffName(String(value || ""))
-    .replace(/[إأآا]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/^(?:د\.?|د\/|دكتور|دكتوره|dr\.?|doctor)\s*/i, "")
-    .replace(/[./\\_-]+/g, " ")
-    .replace(/\s+/g, " ")
+  return normalizeStaffName(String(value || ''))
+    .replace(/[إأآا]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/^(?:د\.?|د\/|دكتور|دكتوره|dr\.?|doctor)\s*/i, '')
+    .replace(/[./\\_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 }
@@ -275,7 +304,10 @@ function staffNameMatchesSeller(sellerName: unknown, aliases: string[]): boolean
 
   return aliases.some((alias) => {
     const candidate = canonicalStaffName(alias);
-    return Boolean(candidate && (seller === candidate || seller.includes(candidate) || candidate.includes(seller)));
+    return Boolean(
+      candidate &&
+      (seller === candidate || seller.includes(candidate) || candidate.includes(seller))
+    );
   });
 }
 
@@ -287,16 +319,16 @@ function convertInvoicesToSummary(invoices: Row[]): Row[] {
   const grouped = new Map<string, Row>();
 
   for (const invoice of invoices) {
-    const date = String(invoice.invoice_date || "").slice(0, 10);
+    const date = String(invoice.invoice_date || '').slice(0, 10);
     const amount = getInvoiceAmount(invoice);
     const existing = grouped.get(date);
 
     if (existing) {
-      existing.net_total = (existing.net_total as number || 0) + amount;
-      existing.invoices_count = (existing.invoices_count as number || 0) + 1;
+      existing.net_total = ((existing.net_total as number) || 0) + amount;
+      existing.invoices_count = ((existing.invoices_count as number) || 0) + 1;
       existing.unique_customers = new Set([
-        ...(existing.unique_customers as Set<string> || []),
-        String(invoice.customer_name || "")
+        ...((existing.unique_customers as Set<string>) || []),
+        String(invoice.customer_name || ''),
       ]).size;
     } else {
       grouped.set(date, {
@@ -318,24 +350,31 @@ function convertInvoicesToSummary(invoices: Row[]): Row[] {
  */
 function calculateSalesMetrics(
   summaryData: Row[],
-  sourceUsed: "staff_id" | "seller_name" | "invoices_fallback" | "none",
+  sourceUsed: 'staff_id' | 'seller_name' | 'invoices_fallback' | 'none',
   aliasesUsed: string[],
   rawSellerNamesMatched: string[],
   warnings: string[]
 ): StaffSalesSummary {
   const rowAmount = (row: Row) => Number(row.net_total ?? 0) || getInvoiceAmount(row);
-  const rowInvoiceCount = (row: Row) => Number(row.invoices_count ?? 0) || (row.invoice_date || row.invoice_no || row.invoice_number ? 1 : 0);
-  const rowDate = (row: Row) => String(row.sale_date || row.invoice_date || "").slice(0, 10);
-  const rowCustomerKey = (row: Row) => String(row.customer_code || row.customer_phone || row.customer_name || "").trim();
+  const rowInvoiceCount = (row: Row) =>
+    Number(row.invoices_count ?? 0) ||
+    (row.invoice_date || row.invoice_no || row.invoice_number ? 1 : 0);
+  const rowDate = (row: Row) => String(row.sale_date || row.invoice_date || '').slice(0, 10);
+  const rowCustomerKey = (row: Row) =>
+    String(row.customer_code || row.customer_phone || row.customer_name || '').trim();
   const netSales = summaryData.reduce((sum, row) => sum + rowAmount(row), 0);
   const invoicesCount = summaryData.reduce((sum, row) => sum + rowInvoiceCount(row), 0);
   const uniqueCustomerKeys = new Set(summaryData.map(rowCustomerKey).filter(Boolean));
-  const uniqueCustomers = uniqueCustomerKeys.size || summaryData.reduce((sum, row) => sum + (Number(row.unique_customers) || 0), 0);
+  const uniqueCustomers =
+    uniqueCustomerKeys.size ||
+    summaryData.reduce((sum, row) => sum + (Number(row.unique_customers) || 0), 0);
   const avgInvoice = invoicesCount > 0 ? netSales / invoicesCount : 0;
 
   // Calculate delivery invoices (if available)
   const deliveryInvoicesCount = summaryData.reduce((sum, row) => {
-    const isDelivery = String(row.invoice_type || "").toLowerCase().includes("delivery");
+    const isDelivery = String(row.invoice_type || '')
+      .toLowerCase()
+      .includes('delivery');
     return sum + (isDelivery ? rowInvoiceCount(row) : 0);
   }, 0);
 
@@ -343,24 +382,31 @@ function calculateSalesMetrics(
   const branchContribution = 0; // Would need total branch sales for this
 
   // Get latest invoices
-  const invoiceLikeRows = summaryData.filter((row) => row.invoice_date || row.invoice_no || row.invoice_number);
+  const invoiceLikeRows = summaryData.filter(
+    (row) => row.invoice_date || row.invoice_no || row.invoice_number
+  );
   const invoiceCards = invoiceLikeRows.map((row) => ({
-    invoiceNumber: getInvoiceKey(row) || String(row.id || "-"),
+    invoiceNumber: getInvoiceKey(row) || String(row.id || '-'),
     date: rowDate(row),
     amount: rowAmount(row),
-    customer: String(row.customer_name || row.customer_code || "غير محدد"),
+    customer: String(row.customer_name || row.customer_code || 'غير محدد'),
   }));
-  const latestInvoices = [...invoiceCards].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
+  const latestInvoices = [...invoiceCards]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 30);
   const topInvoices = [...invoiceCards].sort((a, b) => b.amount - a.amount).slice(0, 30);
 
   // Get top customers
-  const customerMap = new Map<string, { name: string; phone: string; totalSpent: number; invoicesCount: number }>();
+  const customerMap = new Map<
+    string,
+    { name: string; phone: string; totalSpent: number; invoicesCount: number }
+  >();
   summaryData.forEach((row) => {
     const key = rowCustomerKey(row);
     if (!key) return;
     const current = customerMap.get(key) || {
-      name: String(row.customer_name || row.customer_code || "غير محدد"),
-      phone: String(row.customer_phone || ""),
+      name: String(row.customer_name || row.customer_code || 'غير محدد'),
+      phone: String(row.customer_phone || ''),
       totalSpent: 0,
       invoicesCount: 0,
     };
@@ -368,7 +414,9 @@ function calculateSalesMetrics(
     current.invoicesCount += rowInvoiceCount(row);
     customerMap.set(key, current);
   });
-  const topCustomers = [...customerMap.values()].sort((a, b) => b.totalSpent - a.totalSpent).slice(0, 12);
+  const topCustomers = [...customerMap.values()]
+    .sort((a, b) => b.totalSpent - a.totalSpent)
+    .slice(0, 12);
 
   // Sales by day
   const dayMap = new Map<string, { date: string; sales: number; invoices: number }>();
@@ -383,15 +431,15 @@ function calculateSalesMetrics(
   const salesByDay = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date));
 
   // Sales by week
-  const salesByWeek = groupByPeriod(salesByDay, "week");
+  const salesByWeek = groupByPeriod(salesByDay, 'week');
 
   // Sales by month
-  const salesByMonth = groupByPeriod(salesByDay, "month");
+  const salesByMonth = groupByPeriod(salesByDay, 'month');
 
   // Sales by shift (if available)
   const shiftMap = new Map<string, { shift: string; sales: number; invoices: number }>();
   summaryData.forEach((row) => {
-    const shift = String(row.shift || "غير محدد");
+    const shift = String(row.shift || 'غير محدد');
     const current = shiftMap.get(shift) || { shift, sales: 0, invoices: 0 };
     current.sales += rowAmount(row);
     current.invoices += rowInvoiceCount(row);
@@ -402,7 +450,7 @@ function calculateSalesMetrics(
   // Sales by invoice type (if available)
   const typeMap = new Map<string, { type: string; sales: number; invoices: number }>();
   summaryData.forEach((row) => {
-    const type = String(row.invoice_type || "غير محدد");
+    const type = String(row.invoice_type || 'غير محدد');
     const current = typeMap.get(type) || { type, sales: 0, invoices: 0 };
     current.sales += rowAmount(row);
     current.invoices += rowInvoiceCount(row);
@@ -437,7 +485,7 @@ function calculateSalesMetrics(
  */
 function groupByPeriod(
   salesByDay: Array<{ date: string; sales: number; invoices: number }>,
-  period: "week" | "month"
+  period: 'week' | 'month'
 ): Array<{ period: string; sales: number; invoices: number }> {
   const grouped = new Map<string, { sales: number; invoices: number }>();
 
@@ -445,12 +493,12 @@ function groupByPeriod(
     const date = new Date(item.date);
     let key: string;
 
-    if (period === "week") {
+    if (period === 'week') {
       const weekStart = new Date(date);
       weekStart.setDate(date.getDate() - date.getDay());
       key = weekStart.toISOString().slice(0, 10);
     } else {
-      key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     }
 
     const existing = grouped.get(key) || { sales: 0, invoices: 0 };
@@ -468,7 +516,7 @@ function groupByPeriod(
  * Create empty summary with warnings
  */
 function createEmptySummary(
-  sourceUsed: "staff_id" | "seller_name" | "invoices_fallback" | "none",
+  sourceUsed: 'staff_id' | 'seller_name' | 'invoices_fallback' | 'none',
   aliasesUsed: string[],
   rawSellerNamesMatched: string[],
   warnings: string[]

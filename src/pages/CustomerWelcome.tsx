@@ -1,4 +1,4 @@
-import CustomerWelcomeTasksPanel from "@/components/customer-service/CustomerWelcomeTasksPanel";
+import CustomerWelcomeTasksPanel from '@/components/customer-service/CustomerWelcomeTasksPanel';
 
 export default function CustomerWelcome() {
   return <CustomerWelcomeTasksPanel />;

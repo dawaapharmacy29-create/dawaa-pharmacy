@@ -1,13 +1,27 @@
-import { useEffect, useState, type ElementType, type ReactNode } from "react";
-import { Award, Crown, FileText, TrendingUp, Users, AlertTriangle, CheckCircle, Filter, Database } from "lucide-react";
-import { formatMoney, formatNumber } from "@/lib/dawaa2027";
+import { useEffect, useState, type ElementType, type ReactNode } from 'react';
+import {
+  Award,
+  Crown,
+  FileText,
+  TrendingUp,
+  Users,
+  AlertTriangle,
+  CheckCircle,
+  Filter,
+  Database,
+} from 'lucide-react';
+import { formatMoney, formatNumber } from '@/lib/dawaa2027';
 import {
   loadQuarterlyIncentiveSummary,
   type QuarterlyIncentiveSummary,
-} from "@/lib/performance/quarterlyIncentiveService";
-import { QUARTERLY_RULES } from "@/lib/performance/ruleDefinitions";
-import { formatRuleImpact } from "@/lib/ruleDisplay";
-import { checkDataHealth, getHealthSeverityColor, type DataHealthIssue } from "@/lib/dataIntegrityService";
+} from '@/lib/performance/quarterlyIncentiveService';
+import { QUARTERLY_RULES } from '@/lib/performance/ruleDefinitions';
+import { formatRuleImpact } from '@/lib/ruleDisplay';
+import {
+  checkDataHealth,
+  getHealthSeverityColor,
+  type DataHealthIssue,
+} from '@/lib/dataIntegrityService';
 
 export default function QuarterlyIncentives2027() {
   const [summary, setSummary] = useState<QuarterlyIncentiveSummary | null>(null);
@@ -18,10 +32,7 @@ export default function QuarterlyIncentives2027() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([
-      loadQuarterlyIncentiveSummary(),
-      checkDataHealth(),
-    ])
+    Promise.all([loadQuarterlyIncentiveSummary(), checkDataHealth()])
       .then(([incentiveResult, healthResult]) => {
         if (!cancelled) {
           setSummary(incentiveResult);
@@ -30,7 +41,7 @@ export default function QuarterlyIncentives2027() {
         }
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message || "تعذر تحميل الحافز الربع سنوي");
+        if (!cancelled) setError(err?.message || 'تعذر تحميل الحافز الربع سنوي');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -47,9 +58,10 @@ export default function QuarterlyIncentives2027() {
     const totalRewards = rows.reduce((sum, r) => sum + r.quarterlyMoneyRewards, 0);
     const totalDeductions = rows.reduce((sum, r) => sum + r.quarterlyMoneyDeductions, 0);
     const reportRows = rows
-      .map((row) => `<tr>
+      .map(
+        (row) => `<tr>
         <td>${row.name}</td>
-        <td>${row.branch || "-"}</td>
+        <td>${row.branch || '-'}</td>
         <td>${formatMoney(row.sales)}</td>
         <td>${row.invoices}</td>
         <td>${formatMoney(row.avgInvoice)}</td>
@@ -57,11 +69,12 @@ export default function QuarterlyIncentives2027() {
         <td>${formatMoney(row.quarterlyMoneyRewards)}</td>
         <td>${formatMoney(row.quarterlyMoneyDeductions)}</td>
         <td>${formatMoney(row.quarterlyFinalValue)}</td>
-      </tr>`)
-      .join("");
-    const win = window.open("", "_blank", "width=1100,height=780");
+      </tr>`
+      )
+      .join('');
+    const win = window.open('', '_blank', 'width=1100,height=780');
     if (!win) {
-      alert("المتصفح منع فتح نافذة التقرير. اسمح بالنوافذ المنبثقة للتصدير.");
+      alert('المتصفح منع فتح نافذة التقرير. اسمح بالنوافذ المنبثقة للتصدير.');
       return;
     }
     win.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" />
@@ -75,7 +88,7 @@ export default function QuarterlyIncentives2027() {
       </style></head><body>
       <button onclick="window.print()">تصدير PDF</button>
       <h1>صيدليات دواء - تقرير الحافز الربع سنوي</h1>
-      <div class="muted">الربع: ${summary?.quarter.label || "الربع الحالي"} - تاريخ الإصدار: ${new Date().toLocaleString("ar-EG")}</div>
+      <div class="muted">الربع: ${summary?.quarter.label || 'الربع الحالي'} - تاريخ الإصدار: ${new Date().toLocaleString('ar-EG')}</div>
       <div class="summary">
         <div><span class="muted">عدد الدكاترة</span><br><span class="num">${rows.length}</span></div>
         <div><span class="muted">إجمالي الحافز الربع سنوي</span><br><span class="num">${formatMoney(totalIncentive)}</span></div>
@@ -107,7 +120,7 @@ export default function QuarterlyIncentives2027() {
           </p>
         </div>
         <div className="rounded-2xl border border-teal-500/20 bg-teal-500/10 px-4 py-3 text-teal-200">
-          {summary?.quarter.label || "الربع الحالي"}
+          {summary?.quarter.label || 'الربع الحالي'}
         </div>
       </div>
 
@@ -115,17 +128,61 @@ export default function QuarterlyIncentives2027() {
       {error && <div className="stat-card text-red-200">{error}</div>}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Kpi icon={Crown} label="قيمة الحافز الكامل" value="2000 جنيه" hint="منفصل عن الحافز الشهري" />
-        <Kpi icon={TrendingUp} label="دكاترة لهم نشاط" value={formatNumber(rows.length)} hint="حسب مصادر الربع" />
-        <Kpi icon={Award} label="أعلى حافز متوقع" value={formatMoney(Math.max(0, ...rows.map((r) => r.quarterlyFinalValue)))} hint="قبل اعتماد المدير" />
-        <Kpi icon={Users} label="أعلى عميل بالقيمة" value={rows[0]?.topCustomer?.[0] || "-"} hint={rows[0] ? formatMoney(rows[0].topCustomer?.[1] || 0) : ""} />
+        <Kpi
+          icon={Crown}
+          label="قيمة الحافز الكامل"
+          value="2000 جنيه"
+          hint="منفصل عن الحافز الشهري"
+        />
+        <Kpi
+          icon={TrendingUp}
+          label="دكاترة لهم نشاط"
+          value={formatNumber(rows.length)}
+          hint="حسب مصادر الربع"
+        />
+        <Kpi
+          icon={Award}
+          label="أعلى حافز متوقع"
+          value={formatMoney(Math.max(0, ...rows.map((r) => r.quarterlyFinalValue)))}
+          hint="قبل اعتماد المدير"
+        />
+        <Kpi
+          icon={Users}
+          label="أعلى عميل بالقيمة"
+          value={rows[0]?.topCustomer?.[0] || '-'}
+          hint={rows[0] ? formatMoney(rows[0].topCustomer?.[1] || 0) : ''}
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Kpi icon={CheckCircle} label="إجمالي الحافز المتوقع" value={formatMoney(rows.reduce((sum, r) => sum + r.quarterlyFinalValue, 0))} hint="مجموع الحوافز للدكاترة" />
-        <Kpi icon={Award} label="مكافآت الرواكد واللستة" value={formatMoney(rows.reduce((sum, r) => sum + r.quarterlyMoneyRewards, 0))} hint="مكافآت مالية للربع" />
-        <Kpi icon={AlertTriangle} label="خصومات ربع سنوية" value={formatMoney(rows.reduce((sum, r) => sum + r.quarterlyMoneyDeductions, 0))} hint="خصومات معتمدة" />
-        <Kpi icon={TrendingUp} label="متوسط الدرجة" value={rows.length ? `${Math.round(rows.reduce((sum, r) => sum + r.score, 0) / rows.length)}/100` : "-"} hint="متوسط درجة الفريق" />
+        <Kpi
+          icon={CheckCircle}
+          label="إجمالي الحافز المتوقع"
+          value={formatMoney(rows.reduce((sum, r) => sum + r.quarterlyFinalValue, 0))}
+          hint="مجموع الحوافز للدكاترة"
+        />
+        <Kpi
+          icon={Award}
+          label="مكافآت الرواكد واللستة"
+          value={formatMoney(rows.reduce((sum, r) => sum + r.quarterlyMoneyRewards, 0))}
+          hint="مكافآت مالية للربع"
+        />
+        <Kpi
+          icon={AlertTriangle}
+          label="خصومات ربع سنوية"
+          value={formatMoney(rows.reduce((sum, r) => sum + r.quarterlyMoneyDeductions, 0))}
+          hint="خصومات معتمدة"
+        />
+        <Kpi
+          icon={TrendingUp}
+          label="متوسط الدرجة"
+          value={
+            rows.length
+              ? `${Math.round(rows.reduce((sum, r) => sum + r.score, 0) / rows.length)}/100`
+              : '-'
+          }
+          hint="متوسط درجة الفريق"
+        />
       </div>
 
       {/* Data Health Section */}
@@ -137,7 +194,10 @@ export default function QuarterlyIncentives2027() {
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             {dataHealth.issues.map((issue: DataHealthIssue) => (
-              <div key={issue.type} className={`rounded-xl border p-4 ${getHealthSeverityColor(issue.severity)}`}>
+              <div
+                key={issue.type}
+                className={`rounded-xl border p-4 ${getHealthSeverityColor(issue.severity)}`}
+              >
                 <div className="flex items-center justify-between">
                   <div className="font-bold text-sm">{issue.description}</div>
                   <span className="badge-info">{issue.count}</span>
@@ -166,7 +226,10 @@ export default function QuarterlyIncentives2027() {
       <div className="stat-card overflow-x-auto">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="section-title">ترتيب الدكاترة في الربع الحالي</h2>
-          <button onClick={exportQuarterlyReport} className="btn-secondary inline-flex items-center gap-2">
+          <button
+            onClick={exportQuarterlyReport}
+            className="btn-secondary inline-flex items-center gap-2"
+          >
             <FileText className="h-4 w-4" /> تصدير PDF
           </button>
         </div>
@@ -197,11 +260,11 @@ export default function QuarterlyIncentives2027() {
             {rows.map((row) => (
               <tr key={row.id}>
                 <td className="font-bold text-white">{row.name}</td>
-                <td>{row.branch || "-"}</td>
+                <td>{row.branch || '-'}</td>
                 <td>{formatMoney(row.sales)}</td>
                 <td>{row.invoices}</td>
                 <td>{formatMoney(row.avgInvoice)}</td>
-                <td>{row.topCustomer?.[0] || "-"}</td>
+                <td>{row.topCustomer?.[0] || '-'}</td>
                 <td>{row.customersCount}</td>
                 <td>{row.scoreSales}/25</td>
                 <td>{row.scoreAvg}/20</td>
@@ -213,12 +276,18 @@ export default function QuarterlyIncentives2027() {
                 <td className="text-green-300">{formatMoney(row.quarterlyMoneyRewards)}</td>
                 <td className="text-red-300">{formatMoney(row.quarterlyMoneyDeductions)}</td>
                 <td className="font-black text-white">{formatMoney(row.quarterlyFinalValue)}</td>
-                <td className="text-xs text-slate-400">{row.dataQuality > 0.8 ? "جيد" : row.dataQuality > 0.5 ? "متوسط" : "ضعيف"}</td>
+                <td className="text-xs text-slate-400">
+                  {row.dataQuality > 0.8 ? 'جيد' : row.dataQuality > 0.5 ? 'متوسط' : 'ضعيف'}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {!rows.length && !loading && <div className="p-8 text-center text-slate-400">لا توجد بيانات ربع سنوية كافية في الفترة الحالية.</div>}
+        {!rows.length && !loading && (
+          <div className="p-8 text-center text-slate-400">
+            لا توجد بيانات ربع سنوية كافية في الفترة الحالية.
+          </div>
+        )}
       </div>
 
       <div className="stat-card space-y-4">
@@ -227,20 +296,25 @@ export default function QuarterlyIncentives2027() {
           <div className="rounded-2xl border border-teal-500/20 bg-teal-500/10 p-4">
             <div className="font-bold text-teal-200 text-sm mb-2">الحافز الشهري</div>
             <p className="text-xs leading-6 text-teal-100/90">
-              كل دكتور يبدأ الدورة بـ 500 نقطة = 1500 جنيه. الخصومات تقلل النقاط. المكافآت الاستثنائية الشهرية تعوض النقاط فقط. الحافز الشهري لا يتجاوز 1500 جنيه.
+              كل دكتور يبدأ الدورة بـ 500 نقطة = 1500 جنيه. الخصومات تقلل النقاط. المكافآت
+              الاستثنائية الشهرية تعوض النقاط فقط. الحافز الشهري لا يتجاوز 1500 جنيه.
             </p>
           </div>
           <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4">
             <div className="font-bold text-purple-200 text-sm mb-2">الحافز الربع سنوي</div>
             <p className="text-xs leading-6 text-purple-100/90">
-              حافز مستقل بقيمة أساس 2000 جنيه كل 3 شهور. مكافآت الرواكد واللستة المالية تضاف هنا ولا تضاف لنقاط الشهر. الخصومات الربع سنوية تُخصم من هذا الحافز.
+              حافز مستقل بقيمة أساس 2000 جنيه كل 3 شهور. مكافآت الرواكد واللستة المالية تضاف هنا ولا
+              تضاف لنقاط الشهر. الخصومات الربع سنوية تُخصم من هذا الحافز.
             </p>
           </div>
         </div>
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
-          <div className="font-bold text-amber-200 text-sm mb-2">الصيغة النهائية للحافز الربع سنوي</div>
+          <div className="font-bold text-amber-200 text-sm mb-2">
+            الصيغة النهائية للحافز الربع سنوي
+          </div>
           <p className="text-xs leading-6 text-amber-100/90">
-            الحافز الربع سنوي = 2000 جنيه (أساس) + مكافآت مالية للرواكد واللستة - خصومات ربع سنوية معتمدة
+            الحافز الربع سنوي = 2000 جنيه (أساس) + مكافآت مالية للرواكد واللستة - خصومات ربع سنوية
+            معتمدة
           </p>
         </div>
       </div>
@@ -275,15 +349,31 @@ export default function QuarterlyIncentives2027() {
       <details className="stat-card">
         <summary className="cursor-pointer text-sm font-black">مصادر الحافز الربع سنوي</summary>
         <div className="mt-3 grid gap-2 text-sm text-slate-400">
-          {(summary?.sourceBreakdown || []).map((source) => <div key={source}>{source}</div>)}
-          {(summary?.warnings || []).map((warning) => <div key={warning} className="text-amber-300">{warning}</div>)}
+          {(summary?.sourceBreakdown || []).map((source) => (
+            <div key={source}>{source}</div>
+          ))}
+          {(summary?.warnings || []).map((warning) => (
+            <div key={warning} className="text-amber-300">
+              {warning}
+            </div>
+          ))}
         </div>
       </details>
     </div>
   );
 }
 
-function Kpi({ icon: Icon, label, value, hint }: { icon: ElementType; label: string; value: ReactNode; hint: string }) {
+function Kpi({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: ElementType;
+  label: string;
+  value: ReactNode;
+  hint: string;
+}) {
   return (
     <div className="stat-card">
       <div className="flex items-center justify-between">

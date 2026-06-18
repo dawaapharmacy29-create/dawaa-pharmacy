@@ -1,8 +1,17 @@
-import { useState } from "react";
-import { useEscapeKey } from "@/hooks/useEscapeKey";
-import { X, Star, CheckCircle2, AlertTriangle, PhoneCall, MessageSquare, ShoppingBag, UserCheck } from "lucide-react";
-import { toast } from "sonner";
-import type { DailyFollowup } from "@/types/database";
+import { useState } from 'react';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
+import {
+  X,
+  Star,
+  CheckCircle2,
+  AlertTriangle,
+  PhoneCall,
+  MessageSquare,
+  ShoppingBag,
+  UserCheck,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import type { DailyFollowup } from '@/types/database';
 
 interface FollowupResultModalProps {
   followup: DailyFollowup;
@@ -23,34 +32,68 @@ export interface FollowupResultData {
 }
 
 const RESULT_OPTIONS = [
-  { value: "تم الرد والعميل راضي", label: "تم الرد والعميل راضي", icon: CheckCircle2, color: "text-green-400" },
-  { value: "تم الرد ولا يحتاج الآن", label: "تم الرد ولا يحتاج الآن", icon: CheckCircle2, color: "text-teal-400" },
-  { value: "تم الرد ويحتاج طلب", label: "تم الرد ويحتاج طلب", icon: ShoppingBag, color: "text-cyan-400" },
-  { value: "تم الرد ويوجد شكوى", label: "تم الرد ويوجد شكوى", icon: AlertTriangle, color: "text-red-400" },
-  { value: "لم يرد", label: "لم يرد", icon: PhoneCall, color: "text-amber-400" },
-  { value: "الرقم غير صحيح", label: "الرقم غير صحيح", icon: AlertTriangle, color: "text-red-300" },
-  { value: "طلب صنف", label: "طلب صنف", icon: ShoppingBag, color: "text-purple-400" },
-  { value: "طلب توصيل", label: "طلب توصيل", icon: ShoppingBag, color: "text-blue-400" },
-  { value: "يحتاج متابعة مدير", label: "يحتاج متابعة مدير", icon: UserCheck, color: "text-orange-400" },
-  { value: "تم الشراء بعد المتابعة", label: "تم الشراء بعد المتابعة", icon: CheckCircle2, color: "text-green-300" },
+  {
+    value: 'تم الرد والعميل راضي',
+    label: 'تم الرد والعميل راضي',
+    icon: CheckCircle2,
+    color: 'text-green-400',
+  },
+  {
+    value: 'تم الرد ولا يحتاج الآن',
+    label: 'تم الرد ولا يحتاج الآن',
+    icon: CheckCircle2,
+    color: 'text-teal-400',
+  },
+  {
+    value: 'تم الرد ويحتاج طلب',
+    label: 'تم الرد ويحتاج طلب',
+    icon: ShoppingBag,
+    color: 'text-cyan-400',
+  },
+  {
+    value: 'تم الرد ويوجد شكوى',
+    label: 'تم الرد ويوجد شكوى',
+    icon: AlertTriangle,
+    color: 'text-red-400',
+  },
+  { value: 'لم يرد', label: 'لم يرد', icon: PhoneCall, color: 'text-amber-400' },
+  { value: 'الرقم غير صحيح', label: 'الرقم غير صحيح', icon: AlertTriangle, color: 'text-red-300' },
+  { value: 'طلب صنف', label: 'طلب صنف', icon: ShoppingBag, color: 'text-purple-400' },
+  { value: 'طلب توصيل', label: 'طلب توصيل', icon: ShoppingBag, color: 'text-blue-400' },
+  {
+    value: 'يحتاج متابعة مدير',
+    label: 'يحتاج متابعة مدير',
+    icon: UserCheck,
+    color: 'text-orange-400',
+  },
+  {
+    value: 'تم الشراء بعد المتابعة',
+    label: 'تم الشراء بعد المتابعة',
+    icon: CheckCircle2,
+    color: 'text-green-300',
+  },
 ];
 
-export default function FollowupResultModal({ followup, onClose, onSave }: FollowupResultModalProps) {
+export default function FollowupResultModal({
+  followup,
+  onClose,
+  onSave,
+}: FollowupResultModalProps) {
   useEscapeKey(onClose, true);
-  const [result, setResult] = useState("");
-  const [notes, setNotes] = useState("");
+  const [result, setResult] = useState('');
+  const [notes, setNotes] = useState('');
   const [qualityRating, setQualityRating] = useState(5);
   const [needsNextFollowup, setNeedsNextFollowup] = useState(false);
-  const [nextFollowupDate, setNextFollowupDate] = useState("");
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [purchaseAmount, setPurchaseAmount] = useState("");
+  const [nextFollowupDate, setNextFollowupDate] = useState('');
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [purchaseAmount, setPurchaseAmount] = useState('');
   const [problemSolved, setProblemSolved] = useState(false);
   const [customerSatisfied, setCustomerSatisfied] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async () => {
     if (!result) {
-      toast.error("اختر نتيجة المتابعة");
+      toast.error('اختر نتيجة المتابعة');
       return;
     }
 
@@ -67,7 +110,7 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
         problemSolved,
         customerSatisfied,
       });
-      toast.success("تم تسجيل نتيجة المتابعة بنجاح");
+      toast.success('تم تسجيل نتيجة المتابعة بنجاح');
       onClose();
     } catch (error) {
       toast.error(`تعذر حفظ النتيجة: ${(error as Error).message}`);
@@ -118,7 +161,9 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">ملاحظات المتابعة</label>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              ملاحظات المتابعة
+            </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -130,7 +175,9 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
 
           {/* Quality Rating */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">تقييم جودة المتابعة</label>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              تقييم جودة المتابعة
+            </label>
             <div className="flex items-center gap-2">
               {[1, 2, 3, 4, 5].map((rating) => (
                 <button
@@ -140,7 +187,7 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
                     qualityRating >= rating ? 'text-yellow-400' : 'text-slate-600'
                   }`}
                 >
-                  <Star size={24} fill={qualityRating >= rating ? "currentColor" : "none"} />
+                  <Star size={24} fill={qualityRating >= rating ? 'currentColor' : 'none'} />
                 </button>
               ))}
               <span className="text-slate-400 text-sm mr-2">{qualityRating} / 5</span>
@@ -171,7 +218,9 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
           {/* Purchase After Followup */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">رقم الفاتورة (اختياري)</label>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                رقم الفاتورة (اختياري)
+              </label>
               <input
                 type="text"
                 value={invoiceNumber}
@@ -181,7 +230,9 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">قيمة الشراء بعد المتابعة (اختياري)</label>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                قيمة الشراء بعد المتابعة (اختياري)
+              </label>
               <input
                 type="number"
                 value={purchaseAmount}
@@ -221,13 +272,9 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
               disabled={saving}
               className="btn-primary flex-1 flex items-center justify-center gap-2"
             >
-              {saving ? "جاري الحفظ..." : "حفظ النتيجة"}
+              {saving ? 'جاري الحفظ...' : 'حفظ النتيجة'}
             </button>
-            <button
-              onClick={onClose}
-              disabled={saving}
-              className="btn-secondary flex-1"
-            >
+            <button onClick={onClose} disabled={saving} className="btn-secondary flex-1">
               إلغاء
             </button>
           </div>

@@ -1,5 +1,5 @@
-import type { PharmacyCycle } from "@/lib/pharmacy-cycle";
-import { isDateInCycle } from "@/lib/pharmacy-cycle";
+import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
+import { isDateInCycle } from '@/lib/pharmacy-cycle';
 
 export interface MedicineTarget {
   id: string;
@@ -24,7 +24,7 @@ export interface MedicineMovement {
 }
 
 function numeric(value: unknown) {
-  const next = typeof value === "number" ? value : Number(value);
+  const next = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(next) ? next : 0;
 }
 
@@ -41,15 +41,25 @@ export function isMovementInCycle(row: MedicineMovement, cycle: PharmacyCycle) {
   return date ? isDateInCycle(new Date(`${date.slice(0, 10)}T12:00:00`), cycle) : true;
 }
 
-export function movementTotalForMedicine(rows: MedicineMovement[], medicineId: string, cycle: PharmacyCycle, doctorName?: string | null) {
+export function movementTotalForMedicine(
+  rows: MedicineMovement[],
+  medicineId: string,
+  cycle: PharmacyCycle,
+  doctorName?: string | null
+) {
   return rows
-    .filter((row) => (row.stagnant_medicine_id || row.incentive_medicine_id || row.medicine_id) === medicineId)
+    .filter(
+      (row) =>
+        (row.stagnant_medicine_id || row.incentive_medicine_id || row.medicine_id) === medicineId
+    )
     .filter((row) => !doctorName || row.doctor_name === doctorName)
     .filter((row) => isMovementInCycle(row, cycle))
     .reduce((sum, row) => sum + movementQuantity(row), 0);
 }
 
-export function requiredQuantity(target: Pick<MedicineTarget, "totalQuantity" | "targetMinPercent">) {
+export function requiredQuantity(
+  target: Pick<MedicineTarget, 'totalQuantity' | 'targetMinPercent'>
+) {
   const pct = numeric(target.targetMinPercent);
   if (pct <= 0) return 0;
   return Math.ceil((numeric(target.totalQuantity) * pct) / 100);
@@ -67,7 +77,7 @@ export function remainingQuantity(total: number, moved: number) {
 export function groupDoctorTotals<T extends MedicineMovement>(rows: T[], cycle: PharmacyCycle) {
   const map = new Map<string, { doctor: string; quantity: number; count: number }>();
   for (const row of rows.filter((item) => isMovementInCycle(item, cycle))) {
-    const doctor = row.doctor_name || "غير محدد";
+    const doctor = row.doctor_name || 'غير محدد';
     const current = map.get(doctor) || { doctor, quantity: 0, count: 0 };
     current.quantity += movementQuantity(row);
     current.count += 1;

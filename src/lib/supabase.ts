@@ -1,22 +1,19 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
-const AUTH_STORAGE_KEY = "dawaa_auth_user_v2";
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function readStoredUserId(): string | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === 'undefined') return null;
 
   try {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { id?: unknown };
-    return typeof parsed.id === "string" && UUID_PATTERN.test(parsed.id)
-      ? parsed.id
-      : null;
+    return typeof parsed.id === 'string' && UUID_PATTERN.test(parsed.id) ? parsed.id : null;
   } catch {
     return null;
   }
@@ -25,26 +22,27 @@ function readStoredUserId(): string | null {
 const supabaseFetch: typeof fetch = (input, init?: RequestInit) => {
   const headers = new Headers(init?.headers as HeadersInit | undefined);
   const userId = readStoredUserId();
-  if (userId) headers.set("x-dawaa-user-id", userId);
+  if (userId) headers.set('x-dawaa-user-id', userId);
   return fetch(input, { ...init, headers });
 };
 
 export const supabase = createClient(
-  hasSupabaseConfig ? supabaseUrl : "https://placeholder.supabase.co",
-  hasSupabaseConfig ? supabaseAnonKey : "placeholder-anon-key",
+  hasSupabaseConfig ? supabaseUrl : 'https://placeholder.supabase.co',
+  hasSupabaseConfig ? supabaseAnonKey : 'placeholder-anon-key',
   {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  },
-  realtime: {
-    params: { eventsPerSecond: 10 },
-  },
-  global: {
-    fetch: supabaseFetch,
-  },
-});
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+    realtime: {
+      params: { eventsPerSecond: 10 },
+    },
+    global: {
+      fetch: supabaseFetch,
+    },
+  }
+);
 
 export const isSupabaseConfigured = hasSupabaseConfig;
 

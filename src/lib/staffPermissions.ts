@@ -4,89 +4,91 @@
  */
 
 export const STAFF_ROLES = [
-  "أدمن",
-  "مدير عام",
-  "مدير فرع",
-  "مدير الفروع",
-  "مدير جودة",
-  "مدير خدمة عملاء",
-  "مدير خدمة العملاء",
-  "صيدلاني",
-  "مساعد صيدلاني",
-  "مندوب توصيل",
-  "موظف خدمة عملاء",
+  'أدمن',
+  'مدير عام',
+  'مدير فرع',
+  'مدير الفروع',
+  'مدير جودة',
+  'مدير خدمة عملاء',
+  'مدير خدمة العملاء',
+  'صيدلاني',
+  'مساعد صيدلاني',
+  'مندوب توصيل',
+  'موظف خدمة عملاء',
 ] as const;
 
-export type StaffRole = typeof STAFF_ROLES[number];
+export type StaffRole = (typeof STAFF_ROLES)[number];
 
 /**
  * الصلاحيات المتاحة في النظام
  */
 export const PERMISSIONS = {
   // لوحة التحكم والعرض
-  VIEW_DASHBOARD: "view_dashboard",
-  VIEW_PERSONAL_DASHBOARD: "view_personal_dashboard",
+  VIEW_DASHBOARD: 'view_dashboard',
+  VIEW_PERSONAL_DASHBOARD: 'view_personal_dashboard',
 
   // إدارة النقاط والخصومات
-  VIEW_POINTS: "view_points",
-  MANAGE_POINTS: "manage_points",
-  APPROVE_POINTS: "approve_points",
-  VIEW_POINT_RULES: "view_point_rules",
-  MANAGE_POINT_RULES: "manage_point_rules",
+  VIEW_POINTS: 'view_points',
+  MANAGE_POINTS: 'manage_points',
+  APPROVE_POINTS: 'approve_points',
+  VIEW_POINT_RULES: 'view_point_rules',
+  MANAGE_POINT_RULES: 'manage_point_rules',
 
   // تقييم المحادثات
-  VIEW_REVIEWS: "view_reviews",
-  CREATE_REVIEW: "create_review",
-  APPROVE_REVIEW: "approve_review",
+  VIEW_REVIEWS: 'view_reviews',
+  CREATE_REVIEW: 'create_review',
+  APPROVE_REVIEW: 'approve_review',
 
   // العملاء والمتابعة
-  VIEW_CUSTOMERS: "view_customers",
-  MANAGE_CUSTOMERS: "manage_customers",
-  VIEW_CUSTOMER_NOTES: "view_customer_notes",
-  ADD_CUSTOMER_NOTES: "add_customer_notes",
+  VIEW_CUSTOMERS: 'view_customers',
+  MANAGE_CUSTOMERS: 'manage_customers',
+  VIEW_CUSTOMER_NOTES: 'view_customer_notes',
+  ADD_CUSTOMER_NOTES: 'add_customer_notes',
 
   // الأدوية والمخزون
-  VIEW_STOCK: "view_stock",
-  VIEW_SLOW_MOVING_DRUGS: "view_slow_moving_drugs",
-  MANAGE_SLOW_MOVING_DRUGS: "manage_slow_moving_drugs",
-  VIEW_INCENTIVE_DRUGS: "view_incentive_drugs",
-  MANAGE_INCENTIVE_DRUGS: "manage_incentive_drugs",
+  VIEW_STOCK: 'view_stock',
+  VIEW_SLOW_MOVING_DRUGS: 'view_slow_moving_drugs',
+  MANAGE_SLOW_MOVING_DRUGS: 'manage_slow_moving_drugs',
+  VIEW_INCENTIVE_DRUGS: 'view_incentive_drugs',
+  MANAGE_INCENTIVE_DRUGS: 'manage_incentive_drugs',
 
   // المبيعات والفواتير
-  VIEW_SALES: "view_sales",
-  VIEW_ANALYTICS: "view_analytics",
-  IMPORT_INVOICES: "import_invoices",
+  VIEW_SALES: 'view_sales',
+  VIEW_ANALYTICS: 'view_analytics',
+  IMPORT_INVOICES: 'import_invoices',
 
   // التوصيل
-  VIEW_DELIVERY: "view_delivery",
-  MANAGE_DELIVERY: "manage_delivery",
-  RATE_DELIVERY: "rate_delivery",
+  VIEW_DELIVERY: 'view_delivery',
+  MANAGE_DELIVERY: 'manage_delivery',
+  RATE_DELIVERY: 'rate_delivery',
 
   // سجل الأنشطة
-  VIEW_ACTIVITY_LOG: "view_activity_log",
+  VIEW_ACTIVITY_LOG: 'view_activity_log',
 
   // إدارة الموظفين
-  VIEW_TEAM: "view_team",
-  MANAGE_TEAM: "manage_team",
-  VIEW_TEAM_DETAILS: "view_team_details",
+  VIEW_TEAM: 'view_team',
+  MANAGE_TEAM: 'manage_team',
+  VIEW_TEAM_DETAILS: 'view_team_details',
 
   // الإجازات والحضور
-  VIEW_SCHEDULE: "view_schedule",
-  MANAGE_SCHEDULE: "manage_schedule",
-  REQUEST_TIME_OFF: "request_time_off",
-  APPROVE_TIME_OFF: "approve_time_off",
+  VIEW_SCHEDULE: 'view_schedule',
+  MANAGE_SCHEDULE: 'manage_schedule',
+  REQUEST_TIME_OFF: 'request_time_off',
+  APPROVE_TIME_OFF: 'approve_time_off',
 } as const;
 
 /**
  * تعريف الصلاحيات لكل دور
  */
 export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
-  أدمن: new Set([
-    // عرض كل شيء
-    Object.values(PERMISSIONS),
-  ].flat()),
+  أدمن: new Set(
+    [
+      // عرض كل شيء
+      Object.values(PERMISSIONS),
+    ].flat()
+  ),
 
-  "مدير عام": new Set([
+  'مدير عام': new Set([
     PERMISSIONS.VIEW_DASHBOARD,
     PERMISSIONS.VIEW_POINTS,
     PERMISSIONS.MANAGE_POINTS,
@@ -119,7 +121,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
     PERMISSIONS.APPROVE_TIME_OFF,
   ]),
 
-  "مدير فرع": new Set([
+  'مدير فرع': new Set([
     PERMISSIONS.VIEW_PERSONAL_DASHBOARD,
     PERMISSIONS.VIEW_POINTS,
     PERMISSIONS.MANAGE_POINTS,
@@ -147,7 +149,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
     PERMISSIONS.MANAGE_SCHEDULE,
   ]),
 
-  "مدير الفروع": new Set([
+  'مدير الفروع': new Set([
     PERMISSIONS.VIEW_DASHBOARD,
     PERMISSIONS.VIEW_POINTS,
     PERMISSIONS.MANAGE_POINTS,
@@ -177,7 +179,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
     PERMISSIONS.APPROVE_TIME_OFF,
   ]),
 
-  "مدير جودة": new Set([
+  'مدير جودة': new Set([
     PERMISSIONS.VIEW_PERSONAL_DASHBOARD,
     PERMISSIONS.VIEW_POINTS,
     PERMISSIONS.VIEW_REVIEWS,
@@ -193,7 +195,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
     PERMISSIONS.VIEW_TEAM_DETAILS,
   ]),
 
-  "مدير خدمة عملاء": new Set([
+  'مدير خدمة عملاء': new Set([
     PERMISSIONS.VIEW_PERSONAL_DASHBOARD,
     PERMISSIONS.VIEW_POINTS,
     PERMISSIONS.VIEW_REVIEWS,
@@ -207,7 +209,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
     PERMISSIONS.VIEW_ANALYTICS,
   ]),
 
-  "مدير خدمة العملاء": new Set([
+  'مدير خدمة العملاء': new Set([
     PERMISSIONS.VIEW_PERSONAL_DASHBOARD,
     PERMISSIONS.VIEW_POINTS,
     PERMISSIONS.VIEW_REVIEWS,
@@ -235,7 +237,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
     PERMISSIONS.REQUEST_TIME_OFF,
   ]),
 
-  "مساعد صيدلاني": new Set([
+  'مساعد صيدلاني': new Set([
     PERMISSIONS.VIEW_PERSONAL_DASHBOARD,
     PERMISSIONS.VIEW_CUSTOMERS,
     PERMISSIONS.VIEW_CUSTOMER_NOTES,
@@ -245,7 +247,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
     PERMISSIONS.REQUEST_TIME_OFF,
   ]),
 
-  "مندوب توصيل": new Set([
+  'مندوب توصيل': new Set([
     PERMISSIONS.VIEW_PERSONAL_DASHBOARD,
     PERMISSIONS.VIEW_CUSTOMERS,
     PERMISSIONS.VIEW_CUSTOMER_NOTES,
@@ -254,7 +256,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
     PERMISSIONS.REQUEST_TIME_OFF,
   ]),
 
-  "موظف خدمة عملاء": new Set([
+  'موظف خدمة عملاء': new Set([
     PERMISSIONS.VIEW_PERSONAL_DASHBOARD,
     PERMISSIONS.VIEW_CUSTOMERS,
     PERMISSIONS.VIEW_CUSTOMER_NOTES,
@@ -269,143 +271,120 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Set<string>> = {
  */
 export const ROLE_SCREENS: Record<StaffRole, string[]> = {
   أدمن: [
-    "/",
-    "/customers",
-    "/customer-service",
-    "/team",
-    "/schedule",
-    "/points",
-    "/reviews",
-    "/delivery",
-    "/analytics",
-    "/invoices",
-    "/activity-log",
-    "/time-off",
-    "/staff-dashboard",
-    "/slow-moving-drugs",
-    "/incentive-drugs",
-    "/customer-notes",
+    '/',
+    '/customers',
+    '/customer-service',
+    '/team',
+    '/schedule',
+    '/points',
+    '/reviews',
+    '/delivery',
+    '/analytics',
+    '/invoices',
+    '/activity-log',
+    '/time-off',
+    '/staff-dashboard',
+    '/slow-moving-drugs',
+    '/incentive-drugs',
+    '/customer-notes',
   ],
 
-  "مدير عام": [
-    "/",
-    "/customers",
-    "/customer-service",
-    "/team",
-    "/schedule",
-    "/points",
-    "/reviews",
-    "/delivery",
-    "/analytics",
-    "/invoices",
-    "/activity-log",
-    "/time-off",
-    "/slow-moving-drugs",
-    "/customer-notes",
+  'مدير عام': [
+    '/',
+    '/customers',
+    '/customer-service',
+    '/team',
+    '/schedule',
+    '/points',
+    '/reviews',
+    '/delivery',
+    '/analytics',
+    '/invoices',
+    '/activity-log',
+    '/time-off',
+    '/slow-moving-drugs',
+    '/customer-notes',
   ],
 
-  "مدير فرع": [
-    "/",
-    "/customers",
-    "/customer-service",
-    "/schedule",
-    "/points",
-    "/reviews",
-    "/delivery",
-    "/analytics",
-    "/team",
-    "/slow-moving-drugs",
-    "/customer-notes",
+  'مدير فرع': [
+    '/',
+    '/customers',
+    '/customer-service',
+    '/schedule',
+    '/points',
+    '/reviews',
+    '/delivery',
+    '/analytics',
+    '/team',
+    '/slow-moving-drugs',
+    '/customer-notes',
   ],
 
-  "مدير الفروع": [
-    "/",
-    "/customers",
-    "/customer-service",
-    "/schedule",
-    "/points",
-    "/reviews",
-    "/delivery",
-    "/analytics",
-    "/invoices",
-    "/activity-log",
-    "/team",
-    "/time-off",
-    "/slow-moving-drugs",
-    "/customer-notes",
+  'مدير الفروع': [
+    '/',
+    '/customers',
+    '/customer-service',
+    '/schedule',
+    '/points',
+    '/reviews',
+    '/delivery',
+    '/analytics',
+    '/invoices',
+    '/activity-log',
+    '/team',
+    '/time-off',
+    '/slow-moving-drugs',
+    '/customer-notes',
   ],
 
-  "مدير جودة": [
-    "/",
-    "/customers",
-    "/reviews",
-    "/analytics",
-    "/customer-notes",
+  'مدير جودة': ['/', '/customers', '/reviews', '/analytics', '/customer-notes'],
+
+  'مدير خدمة عملاء': [
+    '/',
+    '/customers',
+    '/customer-service',
+    '/reviews',
+    '/analytics',
+    '/customer-notes',
   ],
 
-  "مدير خدمة عملاء": [
-    "/",
-    "/customers",
-    "/customer-service",
-    "/reviews",
-    "/analytics",
-    "/customer-notes",
-  ],
-
-  "مدير خدمة العملاء": [
-    "/",
-    "/customers",
-    "/customer-service",
-    "/reviews",
-    "/analytics",
-    "/activity-log",
-    "/customer-notes",
+  'مدير خدمة العملاء': [
+    '/',
+    '/customers',
+    '/customer-service',
+    '/reviews',
+    '/analytics',
+    '/activity-log',
+    '/customer-notes',
   ],
 
   صيدلاني: [
-    "/",
-    "/customers",
-    "/customer-service",
-    "/analytics",
-    "/time-off",
-    "/slow-moving-drugs",
-    "/incentive-drugs",
-    "/customer-notes",
+    '/',
+    '/customers',
+    '/customer-service',
+    '/analytics',
+    '/time-off',
+    '/slow-moving-drugs',
+    '/incentive-drugs',
+    '/customer-notes',
   ],
 
-  "مساعد صيدلاني": [
-    "/",
-    "/customers",
-    "/customer-service",
-    "/time-off",
-    "/slow-moving-drugs",
-  ],
+  'مساعد صيدلاني': ['/', '/customers', '/customer-service', '/time-off', '/slow-moving-drugs'],
 
-  "مندوب توصيل": [
-    "/",
-    "/delivery",
-    "/customers",
-    "/time-off",
-  ],
+  'مندوب توصيل': ['/', '/delivery', '/customers', '/time-off'],
 
-  "موظف خدمة عملاء": [
-    "/",
-    "/customers",
-    "/customer-service",
-    "/time-off",
-    "/customer-notes",
-  ],
+  'موظف خدمة عملاء': ['/', '/customers', '/customer-service', '/time-off', '/customer-notes'],
 };
 
 /**
  * تحديد من يستطيع اعتماد الخصومات والمكافآت
  */
 export const APPROVER_ROLES: Record<string, StaffRole[]> = {
-  simple_deduction: ["مدير فرع", "مدير عام"],
-  medication_error: ["مدير جودة", "مدير عام"],
-  customer_service_issue: ["مدير خدمة عملاء", "مدير عام"],
-  delivery_issue: ["مدير فرع", "مدير عام"],
-  critical: ["مدير عام"],
+  simple_deduction: ['مدير فرع', 'مدير عام'],
+  medication_error: ['مدير جودة', 'مدير عام'],
+  customer_service_issue: ['مدير خدمة عملاء', 'مدير عام'],
+  delivery_issue: ['مدير فرع', 'مدير عام'],
+  critical: ['مدير عام'],
 };
 
 /**

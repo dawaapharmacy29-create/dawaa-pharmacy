@@ -1,4 +1,9 @@
-import { parseCustomerFile, importCustomersToDB, type CustomerParseResult, type ImportSummary } from './invoiceImporter';
+import {
+  parseCustomerFile,
+  importCustomersToDB,
+  type CustomerParseResult,
+  type ImportSummary,
+} from './invoiceImporter';
 import { supabase } from './supabase';
 
 export interface CustomerBulkImportResult {
@@ -22,7 +27,7 @@ export async function importCustomersFromArrayBuffer(
 
     if (parseResult.errors.length > 0) {
       errors.push(`تم العثور على ${parseResult.errors.length} أخطاء في تحليل الملف`);
-      parseResult.errors.forEach(err => {
+      parseResult.errors.forEach((err) => {
         errors.push(`صف ${err.row}: ${err.field} - ${err.message}`);
       });
     }
@@ -37,7 +42,7 @@ export async function importCustomersFromArrayBuffer(
 
     if (importSummary.errors.length > 0) {
       errors.push(`تم العثور على ${importSummary.errors.length} أخطاء أثناء الاستيراد`);
-      importSummary.errors.forEach(err => {
+      importSummary.errors.forEach((err) => {
         errors.push(`صف ${err.row}: ${err.field} - ${err.message}`);
       });
     }
@@ -56,10 +61,14 @@ export async function importCustomersFromArrayBuffer(
     }
 
     return { parseResult, importSummary, errors, warnings };
-
   } catch (error) {
     errors.push(`خطأ عام: ${(error as Error).message}`);
-    return { parseResult: { rows: [], errors: [], headers: [] }, importSummary: {} as ImportSummary, errors, warnings };
+    return {
+      parseResult: { rows: [], errors: [], headers: [] },
+      importSummary: {} as ImportSummary,
+      errors,
+      warnings,
+    };
   }
 }
 
@@ -77,9 +86,7 @@ export async function getExistingCustomersCount(): Promise<number> {
 }
 
 export async function getExistingCustomerCodes(): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('customers')
-    .select('customer_code');
+  const { data, error } = await supabase.from('customers').select('customer_code');
 
   if (error) {
     console.error('خطأ في جلب أكواد العملاء:', error);

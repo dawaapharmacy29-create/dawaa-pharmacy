@@ -10,11 +10,7 @@
   "background_color": "#0f172a",
   "lang": "ar",
   "dir": "rtl",
-  "categories": [
-    "business",
-    "medical",
-    "productivity"
-  ],
+  "categories": ["business", "medical", "productivity"],
   "icons": [
     {
       "src": "/icon-192.png",

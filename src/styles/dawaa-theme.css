@@ -55,13 +55,13 @@ body,
 main,
 .min-h-screen,
 .bg-navy-900,
-[class*="bg-navy-900"],
-[class*="bg-slate-950"],
-[class*="bg-slate-900"],
-[class*="bg-[#071522]"],
-[class*="bg-[#0A1628]"],
-[class*="bg-[#0b1220]"],
-[class*="bg-[#10213a]"] {
+[class*='bg-navy-900'],
+[class*='bg-slate-950'],
+[class*='bg-slate-900'],
+[class*='bg-[#071522]'],
+[class*='bg-[#0A1628]'],
+[class*='bg-[#0b1220]'],
+[class*='bg-[#10213a]'] {
   background: var(--dawaa-theme-bg) !important;
   color: var(--dawaa-theme-text) !important;
 }
@@ -86,12 +86,12 @@ aside {
 .chart-card,
 .section-card,
 .dashboard-card,
-[class*="bg-white"],
-[class*="bg-[#1B2B4B]"],
-[class*="bg-[#16253f]"],
-[class*="bg-[#151f34]"],
-[class*="bg-[#10213a]"],
-[class*="bg-slate-800"] {
+[class*='bg-white'],
+[class*='bg-[#1B2B4B]'],
+[class*='bg-[#16253f]'],
+[class*='bg-[#151f34]'],
+[class*='bg-[#10213a]'],
+[class*='bg-slate-800'] {
   background: var(--dawaa-theme-surface) !important;
   color: var(--dawaa-theme-text) !important;
   border-color: var(--dawaa-theme-border) !important;
@@ -105,13 +105,13 @@ html.light-mode .crm-card,
 html.light-mode .chart-card,
 html.light-mode .section-card,
 html.light-mode .dashboard-card,
-html.light-mode [class*="bg-white"],
-html.light-mode [class*="bg-slate-800"],
-html.light-mode [class*="bg-slate-900"],
-html.light-mode [class*="bg-[#1B2B4B]"],
-html.light-mode [class*="bg-[#16253f]"],
-html.light-mode [class*="bg-[#151f34]"],
-html.light-mode [class*="bg-[#10213a]"] {
+html.light-mode [class*='bg-white'],
+html.light-mode [class*='bg-slate-800'],
+html.light-mode [class*='bg-slate-900'],
+html.light-mode [class*='bg-[#1B2B4B]'],
+html.light-mode [class*='bg-[#16253f]'],
+html.light-mode [class*='bg-[#151f34]'],
+html.light-mode [class*='bg-[#10213a]'] {
   background: var(--dawaa-theme-surface) !important;
   color: var(--dawaa-theme-text) !important;
 }
@@ -162,7 +162,11 @@ textarea::placeholder,
 .dawaa-button-primary,
 .nav-item-active,
 .theme-option-active {
-  background: linear-gradient(135deg, var(--dawaa-theme-primary), var(--dawaa-theme-primary-strong)) !important;
+  background: linear-gradient(
+    135deg,
+    var(--dawaa-theme-primary),
+    var(--dawaa-theme-primary-strong)
+  ) !important;
   color: var(--dawaa-theme-primary-text) !important;
   border-color: transparent !important;
 }
@@ -209,60 +213,60 @@ tbody tr:hover td {
 }
 
 .badge-success,
-[class*="bg-green-500/"],
-[class*="bg-emerald-500/"] {
+[class*='bg-green-500/'],
+[class*='bg-emerald-500/'] {
   background: rgba(16, 185, 129, 0.16) !important;
   color: #34d399 !important;
   border-color: rgba(52, 211, 153, 0.35) !important;
 }
 
 .badge-warning,
-[class*="bg-amber-500/"],
-[class*="bg-yellow-500/"] {
+[class*='bg-amber-500/'],
+[class*='bg-yellow-500/'] {
   background: rgba(245, 158, 11, 0.16) !important;
   color: #fbbf24 !important;
   border-color: rgba(251, 191, 36, 0.35) !important;
 }
 
 .badge-danger,
-[class*="bg-red-500/"],
-[class*="bg-rose-500/"] {
+[class*='bg-red-500/'],
+[class*='bg-rose-500/'] {
   background: rgba(248, 113, 113, 0.16) !important;
   color: #fca5a5 !important;
   border-color: rgba(252, 165, 165, 0.35) !important;
 }
 
 .badge-info,
-[class*="bg-blue-500/"],
-[class*="bg-purple-500/"],
-[class*="bg-violet-500/"] {
+[class*='bg-blue-500/'],
+[class*='bg-purple-500/'],
+[class*='bg-violet-500/'] {
   background: rgba(96, 165, 250, 0.16) !important;
   color: #93c5fd !important;
   border-color: rgba(147, 197, 253, 0.35) !important;
 }
 
 html.light-mode .badge-success,
-html.light-mode [class*="bg-green-500/"],
-html.light-mode [class*="bg-emerald-500/"] {
+html.light-mode [class*='bg-green-500/'],
+html.light-mode [class*='bg-emerald-500/'] {
   color: #047857 !important;
 }
 
 html.light-mode .badge-warning,
-html.light-mode [class*="bg-amber-500/"],
-html.light-mode [class*="bg-yellow-500/"] {
+html.light-mode [class*='bg-amber-500/'],
+html.light-mode [class*='bg-yellow-500/'] {
   color: #92400e !important;
 }
 
 html.light-mode .badge-danger,
-html.light-mode [class*="bg-red-500/"],
-html.light-mode [class*="bg-rose-500/"] {
+html.light-mode [class*='bg-red-500/'],
+html.light-mode [class*='bg-rose-500/'] {
   color: #b91c1c !important;
 }
 
 html.light-mode .badge-info,
-html.light-mode [class*="bg-blue-500/"],
-html.light-mode [class*="bg-purple-500/"],
-html.light-mode [class*="bg-violet-500/"] {
+html.light-mode [class*='bg-blue-500/'],
+html.light-mode [class*='bg-purple-500/'],
+html.light-mode [class*='bg-violet-500/'] {
   color: #1d4ed8 !important;
 }
 
@@ -342,38 +346,38 @@ html.light-mode .dash-link {
 }
 
 .executive-dashboard-page .decision-tone-danger,
-.executive-dashboard-page [class*="bg-red-50"] {
+.executive-dashboard-page [class*='bg-red-50'] {
   background: rgba(248, 113, 113, 0.12) !important;
   color: #fca5a5 !important;
 }
 
 html.light-mode .executive-dashboard-page .decision-tone-danger,
-html.light-mode .executive-dashboard-page [class*="bg-red-50"] {
+html.light-mode .executive-dashboard-page [class*='bg-red-50'] {
   color: #b91c1c !important;
 }
 
 .executive-dashboard-page .decision-tone-warning,
-.executive-dashboard-page [class*="bg-amber-50"] {
+.executive-dashboard-page [class*='bg-amber-50'] {
   background: rgba(245, 158, 11, 0.12) !important;
   color: #fbbf24 !important;
 }
 
 .executive-dashboard-page .decision-tone-success,
-.executive-dashboard-page [class*="bg-teal-50"] {
+.executive-dashboard-page [class*='bg-teal-50'] {
   background: var(--dawaa-theme-soft) !important;
 }
 
 .executive-dashboard-page .decision-tone-info,
-.executive-dashboard-page [class*="bg-blue-50"] {
+.executive-dashboard-page [class*='bg-blue-50'] {
   background: rgba(96, 165, 250, 0.12) !important;
   color: #93c5fd !important;
 }
 
 /* إلغاء طبقة index القديمة التي تعيد #1B2B4B */
-[class*="bg-[#1B2B4B]"],
-[class*="bg-[#151f34]"],
-[class*="bg-[#16253f]"],
-[class*="border-[#2d4063]"] {
+[class*='bg-[#1B2B4B]'],
+[class*='bg-[#151f34]'],
+[class*='bg-[#16253f]'],
+[class*='border-[#2d4063]'] {
   background: var(--dawaa-theme-surface) !important;
   border-color: var(--dawaa-theme-border) !important;
   color: var(--dawaa-theme-text) !important;

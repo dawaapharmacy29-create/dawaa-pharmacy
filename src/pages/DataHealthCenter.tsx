@@ -1,27 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, DatabaseZap, RefreshCw, ShieldAlert } from "lucide-react";
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, CheckCircle2, DatabaseZap, RefreshCw, ShieldAlert } from 'lucide-react';
 import {
   loadAppDataHealthSummary,
   summarizeDataHealth,
   type DataHealthIssue,
-} from "@/lib/dataHealth/appDataHealthService";
-import { formatNumber } from "@/lib/dawaa2027";
+} from '@/lib/dataHealth/appDataHealthService';
+import { formatNumber } from '@/lib/dawaa2027';
 
 const severityText = {
-  danger: "حرج",
-  warning: "يحتاج مراجعة",
-  info: "معلومة",
+  danger: 'حرج',
+  warning: 'يحتاج مراجعة',
+  info: 'معلومة',
 };
 
 const severityClass = {
-  danger: "border-red-500/30 bg-red-500/10 text-red-200",
-  warning: "border-amber-500/30 bg-amber-500/10 text-amber-100",
-  info: "border-sky-500/25 bg-sky-500/10 text-sky-100",
+  danger: 'border-red-500/30 bg-red-500/10 text-red-200',
+  warning: 'border-amber-500/30 bg-amber-500/10 text-amber-100',
+  info: 'border-sky-500/25 bg-sky-500/10 text-sky-100',
 };
 
 function issueValue(issue: DataHealthIssue) {
-  if (issue.count === null) return "غير متاح";
+  if (issue.count === null) return 'غير متاح';
   return formatNumber(issue.count);
 }
 
@@ -37,10 +37,10 @@ export default function DataHealthCenter() {
     loadAppDataHealthSummary()
       .then((result) => {
         setIssues(result);
-        setLastUpdated(new Date().toLocaleString("ar-EG"));
+        setLastUpdated(new Date().toLocaleString('ar-EG'));
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "تعذر تحميل صحة البيانات");
+        setError(err instanceof Error ? err.message : 'تعذر تحميل صحة البيانات');
       })
       .finally(() => setLoading(false));
   };
@@ -70,9 +70,12 @@ export default function DataHealthCenter() {
             <div>
               <h1 className="text-2xl font-black text-white">مركز صحة البيانات والربط</h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">
-                متابعة فورية لمشاكل الربط التي تؤثر على الفواتير، العملاء، الموظفين، النقاط، وصفحات الأداء.
+                متابعة فورية لمشاكل الربط التي تؤثر على الفواتير، العملاء، الموظفين، النقاط، وصفحات
+                الأداء.
               </p>
-              {lastUpdated && <div className="mt-2 text-xs text-slate-500">آخر تحديث: {lastUpdated}</div>}
+              {lastUpdated && (
+                <div className="mt-2 text-xs text-slate-500">آخر تحديث: {lastUpdated}</div>
+              )}
             </div>
           </div>
           <button
@@ -81,17 +84,25 @@ export default function DataHealthCenter() {
             disabled={loading}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             تحديث المؤشرات
           </button>
         </div>
       </section>
 
       <section className="grid gap-3 md:grid-cols-4">
-        <SummaryCard label="مشاكل مهمة" value={formatNumber(summary.actionableCount)} tone={summary.status} />
+        <SummaryCard
+          label="مشاكل مهمة"
+          value={formatNumber(summary.actionableCount)}
+          tone={summary.status}
+        />
         <SummaryCard label="مستوى حرج" value={formatNumber(summary.dangerCount)} tone="danger" />
         <SummaryCard label="تحذيرات" value={formatNumber(summary.warningCount)} tone="warning" />
-        <SummaryCard label="سجلات تحتاج مراجعة" value={formatNumber(summary.totalRecords)} tone={summary.status} />
+        <SummaryCard
+          label="سجلات تحتاج مراجعة"
+          value={formatNumber(summary.totalRecords)}
+          tone={summary.status}
+        />
       </section>
 
       {error && (
@@ -107,11 +118,18 @@ export default function DataHealthCenter() {
       ) : (
         <section className="grid gap-4 xl:grid-cols-2">
           {orderedIssues.map((issue) => (
-            <article key={issue.key} className={`rounded-2xl border p-4 ${severityClass[issue.severity]}`}>
+            <article
+              key={issue.key}
+              className={`rounded-2xl border p-4 ${severityClass[issue.severity]}`}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <div className="mt-1">
-                    {issue.severity === "info" ? <CheckCircle2 size={20} /> : <ShieldAlert size={20} />}
+                    {issue.severity === 'info' ? (
+                      <CheckCircle2 size={20} />
+                    ) : (
+                      <ShieldAlert size={20} />
+                    )}
                   </div>
                   <div>
                     <h2 className="text-base font-black text-white">{issue.label}</h2>
@@ -138,7 +156,7 @@ export default function DataHealthCenter() {
                 {issue.affectedPages.map((page) => (
                   <Link
                     key={page}
-                    to={page.replace(":id", "")}
+                    to={page.replace(':id', '')}
                     className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-200 transition hover:bg-white/10"
                   >
                     {page}
@@ -154,7 +172,8 @@ export default function DataHealthCenter() {
         <div className="flex items-start gap-2">
           <AlertTriangle size={18} className="mt-1 flex-shrink-0" />
           <p>
-            هذه الصفحة للقراءة والتحليل فقط. لا تحذف ولا تعدل أي بيانات، لكنها تحدد الأماكن التي تسبب اختلاف الأرقام بين الصفحات.
+            هذه الصفحة للقراءة والتحليل فقط. لا تحذف ولا تعدل أي بيانات، لكنها تحدد الأماكن التي
+            تسبب اختلاف الأرقام بين الصفحات.
           </p>
         </div>
       </section>
@@ -162,12 +181,20 @@ export default function DataHealthCenter() {
   );
 }
 
-function SummaryCard({ label, value, tone }: { label: string; value: string; tone: "ready" | "warning" | "danger" | "info" }) {
+function SummaryCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: 'ready' | 'warning' | 'danger' | 'info';
+}) {
   const toneClass = {
-    ready: "border-emerald-500/25 bg-emerald-500/10 text-emerald-200",
-    warning: "border-amber-500/25 bg-amber-500/10 text-amber-200",
-    danger: "border-red-500/25 bg-red-500/10 text-red-200",
-    info: "border-sky-500/25 bg-sky-500/10 text-sky-200",
+    ready: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200',
+    warning: 'border-amber-500/25 bg-amber-500/10 text-amber-200',
+    danger: 'border-red-500/25 bg-red-500/10 text-red-200',
+    info: 'border-sky-500/25 bg-sky-500/10 text-sky-200',
   };
 
   return (

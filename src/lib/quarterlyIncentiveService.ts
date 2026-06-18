@@ -1,5 +1,9 @@
 import { supabase } from './supabase';
-import { calculateQuarterlyIncentive, getQuarterRange, QUARTERLY_BASE_BONUS_EGP } from './incentives/incentiveRulesEngine';
+import {
+  calculateQuarterlyIncentive,
+  getQuarterRange,
+  QUARTERLY_BASE_BONUS_EGP,
+} from './incentives/incentiveRulesEngine';
 import { QUARTERLY_SCORE_MAX_2027 } from './dawaa2027';
 
 export interface QuarterlyIncentiveCalculation {
@@ -43,7 +47,10 @@ export class QuarterlyIncentiveService {
   /**
    * حساب الحافز الربع سنوي لموظف
    */
-  static async calculateQuarterlyIncentiveForStaff(staffId: string, date?: Date): Promise<QuarterlyIncentiveCalculation> {
+  static async calculateQuarterlyIncentiveForStaff(
+    staffId: string,
+    date?: Date
+  ): Promise<QuarterlyIncentiveCalculation> {
     const quarterRange = getQuarterRange(date);
     const { data: staff } = await supabase
       .from('staff')
@@ -53,10 +60,15 @@ export class QuarterlyIncentiveService {
 
     // الحصول على بيانات المبيعات للموظف في الربع
     const salesData = await this.getStaffSalesData(staffId, quarterRange.start, quarterRange.end);
-    
+
     // حساب درجات الأعمدة الستة
-    const pillars = await this.calculatePillarScores(staffId, quarterRange.start, quarterRange.end, salesData);
-    
+    const pillars = await this.calculatePillarScores(
+      staffId,
+      quarterRange.start,
+      quarterRange.end,
+      salesData
+    );
+
     // حساب الدرجة الإجمالية
     const totalScore = pillars.reduce((sum, p) => sum + p.score, 0);
     const maxScore = pillars.reduce((sum, p) => sum + p.max_weighted_score, 0);
@@ -64,9 +76,17 @@ export class QuarterlyIncentiveService {
 
     // حساب الحوافز
     const baseBonus = QUARTERLY_BASE_BONUS_EGP;
-    const deductions = await this.calculateQuarterlyDeductions(staffId, quarterRange.start, quarterRange.end);
-    const rewards = await this.calculateQuarterlyRewards(staffId, quarterRange.start, quarterRange.end);
-    
+    const deductions = await this.calculateQuarterlyDeductions(
+      staffId,
+      quarterRange.start,
+      quarterRange.end
+    );
+    const rewards = await this.calculateQuarterlyRewards(
+      staffId,
+      quarterRange.start,
+      quarterRange.end
+    );
+
     const incentiveCalc = calculateQuarterlyIncentive({
       approvedQuarterlyDeductions: deductions,
       approvedQuarterlyRewards: rewards,
@@ -80,17 +100,17 @@ export class QuarterlyIncentiveService {
       quarter_start: quarterRange.start.toISOString(),
       quarter_end: quarterRange.end.toISOString(),
       sales_growth: salesData.sales_growth || 0,
-      sales_growth_score: pillars.find(p => p.key === 'sales_growth')?.score || 0,
+      sales_growth_score: pillars.find((p) => p.key === 'sales_growth')?.score || 0,
       avg_invoice: salesData.avg_invoice || 0,
-      avg_invoice_score: pillars.find(p => p.key === 'avg_invoice')?.score || 0,
+      avg_invoice_score: pillars.find((p) => p.key === 'avg_invoice')?.score || 0,
       customer_retention: salesData.customer_retention || 0,
-      customer_retention_score: pillars.find(p => p.key === 'customer_value')?.score || 0,
+      customer_retention_score: pillars.find((p) => p.key === 'customer_value')?.score || 0,
       list_targets: salesData.list_targets || 0,
-      list_targets_score: pillars.find(p => p.key === 'list_targets')?.score || 0,
+      list_targets_score: pillars.find((p) => p.key === 'list_targets')?.score || 0,
       stagnant_moved: salesData.stagnant_moved || 0,
-      stagnant_moved_score: pillars.find(p => p.key === 'stagnant_stock')?.score || 0,
+      stagnant_moved_score: pillars.find((p) => p.key === 'stagnant_stock')?.score || 0,
       data_quality: salesData.data_quality || 0,
-      data_quality_score: pillars.find(p => p.key === 'data_quality')?.score || 0,
+      data_quality_score: pillars.find((p) => p.key === 'data_quality')?.score || 0,
       total_score: normalizedScore,
       base_bonus: baseBonus,
       deductions: deductions,
@@ -102,7 +122,11 @@ export class QuarterlyIncentiveService {
   /**
    * الحصول على بيانات المبيعات للموظف
    */
-  private static async getStaffSalesData(staffId: string, startDate: Date, endDate: Date): Promise<any> {
+  private static async getStaffSalesData(
+    staffId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<any> {
     const { data: salesSummary } = await supabase
       .from('staff_sales_summary')
       .select('*')
@@ -139,7 +163,12 @@ export class QuarterlyIncentiveService {
   /**
    * حساب درجات الأعمدة الستة
    */
-  private static async calculatePillarScores(staffId: string, startDate: Date, endDate: Date, salesData: any): Promise<QuarterlyPillarScore[]> {
+  private static async calculatePillarScores(
+    staffId: string,
+    startDate: Date,
+    endDate: Date,
+    salesData: any
+  ): Promise<QuarterlyPillarScore[]> {
     const pillars = [
       { key: 'sales_growth', label: 'إجمالي المبيعات ونموها', weight: 25 },
       { key: 'avg_invoice', label: 'متوسط الفاتورة', weight: 20 },
@@ -149,9 +178,9 @@ export class QuarterlyIncentiveService {
       { key: 'data_quality', label: 'جودة التسجيل وخدمة العميل', weight: 10 },
     ];
 
-    return pillars.map(pillar => {
+    return pillars.map((pillar) => {
       let score = 0;
-      
+
       switch (pillar.key) {
         case 'sales_growth':
           score = this.calculateSalesGrowthScore(salesData.sales_growth);
@@ -263,7 +292,11 @@ export class QuarterlyIncentiveService {
   /**
    * حساب الخصومات الربع سنوية
    */
-  private static async calculateQuarterlyDeductions(staffId: string, startDate: Date, endDate: Date): Promise<number> {
+  private static async calculateQuarterlyDeductions(
+    staffId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<number> {
     const { data: deductions } = await supabase
       .from('quarterly_deductions')
       .select('amount')
@@ -277,7 +310,11 @@ export class QuarterlyIncentiveService {
   /**
    * حساب المكافآت الربع سنوية
    */
-  private static async calculateQuarterlyRewards(staffId: string, startDate: Date, endDate: Date): Promise<number> {
+  private static async calculateQuarterlyRewards(
+    staffId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<number> {
     const { data: rewards } = await supabase
       .from('quarterly_rewards')
       .select('amount')
@@ -292,10 +329,7 @@ export class QuarterlyIncentiveService {
    * الحصول على ملخص الحوافز الربع سنوية لجميع الموظفين
    */
   static async getQuarterlyIncentiveSummary(date?: Date): Promise<QuarterlyIncentiveCalculation[]> {
-    const { data: staff } = await supabase
-      .from('staff')
-      .select('id')
-      .eq('active', true);
+    const { data: staff } = await supabase.from('staff').select('id').eq('active', true);
 
     const summaries: QuarterlyIncentiveCalculation[] = [];
 

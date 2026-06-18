@@ -1,6 +1,19 @@
 import { useState, useEffect } from 'react';
-import { AlertCircle, Users, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
-import { findStaffDuplicates, getDuplicateStatistics, type StaffDuplicateGroup, type StaffDuplicateRecord } from '@/lib/staffDuplicateAudit';
+import {
+  AlertCircle,
+  Users,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
+import {
+  findStaffDuplicates,
+  getDuplicateStatistics,
+  type StaffDuplicateGroup,
+  type StaffDuplicateRecord,
+} from '@/lib/staffDuplicateAudit';
 import { toast } from 'sonner';
 
 export default function StaffDuplicateAudit() {
@@ -54,7 +67,9 @@ export default function StaffDuplicateAudit() {
         </div>
         <div className="bg-white rounded-lg shadow p-6">
           <div className="text-sm text-gray-600">أسماء مكررة فريدة</div>
-          <div className="text-3xl font-bold text-orange-600">{statistics?.uniqueDuplicateNames || 0}</div>
+          <div className="text-3xl font-bold text-orange-600">
+            {statistics?.uniqueDuplicateNames || 0}
+          </div>
         </div>
       </div>
 
@@ -94,7 +109,7 @@ export default function StaffDuplicateAudit() {
                       <StaffRecordCard key={staff.staff_id} staff={staff} />
                     ))}
                   </div>
-                  
+
                   <div className="mt-4 pt-4 border-t flex gap-2">
                     <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
                       دمج السجلات
@@ -188,7 +203,9 @@ function StaffRecordCard({ staff }: { staff: StaffDuplicateRecord }) {
         </div>
         <div>
           <div className="text-gray-600">تاريخ الإنشاء</div>
-          <div className="font-semibold">{new Date(staff.created_at).toLocaleDateString('ar-EG')}</div>
+          <div className="font-semibold">
+            {new Date(staff.created_at).toLocaleDateString('ar-EG')}
+          </div>
         </div>
       </div>
     </div>

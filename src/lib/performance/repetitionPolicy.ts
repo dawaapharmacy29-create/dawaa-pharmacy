@@ -1,4 +1,4 @@
-import { calculateRepeatDeduction } from "@/lib/performance/performanceRulesEngine";
+import { calculateRepeatDeduction } from '@/lib/performance/performanceRulesEngine';
 
 export function getRepeatedErrorImpact(args: {
   basePoints: number;

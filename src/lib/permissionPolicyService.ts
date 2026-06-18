@@ -1,5 +1,8 @@
 import { supabase } from './supabase';
-import { calculatePermissionPolicy, FREE_PERMISSIONS_PER_CYCLE } from './incentives/incentiveRulesEngine';
+import {
+  calculatePermissionPolicy,
+  FREE_PERMISSIONS_PER_CYCLE,
+} from './incentives/incentiveRulesEngine';
 
 export interface PermissionRecord {
   id: string;
@@ -23,7 +26,10 @@ export interface PermissionPolicyStatus {
   current_cycle_permissions: PermissionRecord[];
 }
 
-function emptyPermissionPolicyStatus(staffId: string, staffName = 'غير محدد'): PermissionPolicyStatus {
+function emptyPermissionPolicyStatus(
+  staffId: string,
+  staffName = 'غير محدد'
+): PermissionPolicyStatus {
   return {
     staff_id: staffId,
     staff_name: staffName,
@@ -37,7 +43,9 @@ function emptyPermissionPolicyStatus(staffId: string, staffName = 'غير محد
 }
 
 function isMissingTimeOffTable(message?: string | null) {
-  return /Could not find the table 'public\.time_off' in the schema cache/i.test(String(message || ""));
+  return /Could not find the table 'public\.time_off' in the schema cache/i.test(
+    String(message || '')
+  );
 }
 
 /**
@@ -47,7 +55,11 @@ export class PermissionPolicyService {
   /**
    * حساب حالة سياسة الإذنات لموظف
    */
-  static async getPermissionPolicyStatus(staffId: string, cycleStart: string, cycleEnd: string): Promise<PermissionPolicyStatus> {
+  static async getPermissionPolicyStatus(
+    staffId: string,
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<PermissionPolicyStatus> {
     // الحصول على جميع الإذنات للموظف في الدورة الحالية
     const { data: permissions, error } = await supabase
       .from('time_off')
@@ -62,14 +74,14 @@ export class PermissionPolicyService {
       throw new Error(error.message);
     }
 
-    const approvedPermissions = (permissions || []).filter(p => p.approved_by);
+    const approvedPermissions = (permissions || []).filter((p) => p.approved_by);
     const approvedCount = approvedPermissions.length;
 
     // استخدام دالة calculatePermissionPolicy من incentiveRulesEngine
     const policy = calculatePermissionPolicy(approvedCount);
 
     // تحويل الإذنات إلى تنسيق PermissionRecord
-    const currentCyclePermissions: PermissionRecord[] = approvedPermissions.map(p => ({
+    const currentCyclePermissions: PermissionRecord[] = approvedPermissions.map((p) => ({
       id: p.id,
       staff_id: p.staff_id,
       staff_name: p.staff_name || 'غير محدد',
@@ -102,7 +114,10 @@ export class PermissionPolicyService {
   /**
    * الحصول على ملخص سياسة الإذنات لجميع الموظفين في دورة معينة
    */
-  static async getPermissionPolicySummary(cycleStart: string, cycleEnd: string): Promise<PermissionPolicyStatus[]> {
+  static async getPermissionPolicySummary(
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<PermissionPolicyStatus[]> {
     // الحصول على جميع الموظفين النشطين
     const { data: staff, error: staffError } = await supabase
       .from('staff')
@@ -125,7 +140,11 @@ export class PermissionPolicyService {
   /**
    * التحقق من ما إذا كان الموظف يستطيع أخذ إذن بدون عقوبة
    */
-  static async canTakeFreePermission(staffId: string, cycleStart: string, cycleEnd: string): Promise<{
+  static async canTakeFreePermission(
+    staffId: string,
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<{
     canTake: boolean;
     remainingFree: number;
     message: string;
@@ -158,16 +177,22 @@ export class PermissionPolicyService {
   /**
    * الحصول على الموظفين الذين تجاوزوا حد الإذنات المجانية
    */
-  static async getStaffExceedingFreeAllowance(cycleStart: string, cycleEnd: string): Promise<PermissionPolicyStatus[]> {
+  static async getStaffExceedingFreeAllowance(
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<PermissionPolicyStatus[]> {
     const summary = await this.getPermissionPolicySummary(cycleStart, cycleEnd);
-    return summary.filter(s => s.penalized_permission_number > 0);
+    return summary.filter((s) => s.penalized_permission_number > 0);
   }
 
   /**
    * الحصول على الموظفين الذين يحتاجون مراجعة المدير
    */
-  static async getStaffRequiringManagerReview(cycleStart: string, cycleEnd: string): Promise<PermissionPolicyStatus[]> {
+  static async getStaffRequiringManagerReview(
+    cycleStart: string,
+    cycleEnd: string
+  ): Promise<PermissionPolicyStatus[]> {
     const summary = await this.getPermissionPolicySummary(cycleStart, cycleEnd);
-    return summary.filter(s => s.requires_manager_review);
+    return summary.filter((s) => s.requires_manager_review);
   }
 }

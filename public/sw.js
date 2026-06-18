@@ -3,19 +3,19 @@
  * Versioned cache + offline fallback + auto-update
  */
 
-const APP_VERSION = "dawaa-v18.2-single-payload-dashboard-20260614";
+const APP_VERSION = 'dawaa-v18.2-single-payload-dashboard-20260614';
 const CACHE_STATIC = `${APP_VERSION}-static`;
 const CACHE_DYNAMIC = `${APP_VERSION}-dynamic`;
 const CACHE_IMAGES = `${APP_VERSION}-images`;
 
 // Assets to pre-cache on install
 const PRECACHE_URLS = [
-  "/",
-  "/offline.html",
-  "/manifest.json",
-  "/login",
-  "/icon-192.png",
-  "/icon-512.png",
+  '/',
+  '/offline.html',
+  '/manifest.json',
+  '/login',
+  '/icon-192.png',
+  '/icon-512.png',
 ];
 
 // Max entries for dynamic cache
@@ -23,24 +23,20 @@ const DYNAMIC_CACHE_MAX = 60;
 const IMAGE_CACHE_MAX = 40;
 
 // Live data routes must never be cached. Supabase data is the source of truth.
-const NO_STORE_PATTERNS = [
-  /supabase\.co/,
-  /backend\.onspace\.ai/,
-  /api\./,
-];
+const NO_STORE_PATTERNS = [/supabase\.co/, /backend\.onspace\.ai/, /api\./];
 
 const NO_STORE_ROUTE_PREFIXES = [
-  "/customers",
-  "/customer-service",
-  "/activity-log",
-  "/points",
-  "/team",
-  "/staff",
-  "/analytics",
-  "/dashboard",
-  "/import-invoices",
-  "/invoices",
-  "/shift-notes",
+  '/customers',
+  '/customer-service',
+  '/activity-log',
+  '/points',
+  '/team',
+  '/staff',
+  '/analytics',
+  '/dashboard',
+  '/import-invoices',
+  '/invoices',
+  '/shift-notes',
 ];
 
 // Cache-first routes (serve from cache, update in background)
@@ -51,7 +47,7 @@ const CACHE_FIRST_PATTERNS = [
 ];
 
 // ─── Install ──────────────────────────────────────────────────────────────────
-self.addEventListener("install", (event) => {
+self.addEventListener('install', (event) => {
   console.log(`[SW] Installing ${APP_VERSION}`);
   event.waitUntil(
     caches
@@ -62,12 +58,12 @@ self.addEventListener("install", (event) => {
         // Force activate immediately (skip waiting for old SW)
         return self.skipWaiting();
       })
-      .catch((err) => console.warn("[SW] Pre-cache error:", err))
+      .catch((err) => console.warn('[SW] Pre-cache error:', err))
   );
 });
 
 // ─── Activate ─────────────────────────────────────────────────────────────────
-self.addEventListener("activate", (event) => {
+self.addEventListener('activate', (event) => {
   console.log(`[SW] Activating ${APP_VERSION}`);
   event.waitUntil(
     caches
@@ -90,9 +86,9 @@ self.addEventListener("activate", (event) => {
       })
       .then(() => {
         // Notify all clients that a new version is active
-        return self.clients.matchAll({ type: "window" }).then((clients) => {
+        return self.clients.matchAll({ type: 'window' }).then((clients) => {
           clients.forEach((client) =>
-            client.postMessage({ type: "SW_UPDATED", version: APP_VERSION })
+            client.postMessage({ type: 'SW_UPDATED', version: APP_VERSION })
           );
         });
       })
@@ -100,13 +96,13 @@ self.addEventListener("activate", (event) => {
 });
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
-self.addEventListener("fetch", (event) => {
+self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
   // Skip non-GET and chrome-extension requests
-  if (request.method !== "GET") return;
-  if (url.protocol === "chrome-extension:") return;
+  if (request.method !== 'GET') return;
+  if (url.protocol === 'chrome-extension:') return;
 
   // Supabase/API calls: always network, never cache dynamic operational data.
   if (NO_STORE_PATTERNS.some((p) => p.test(request.url))) {
@@ -114,8 +110,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (request.mode === "navigate" && url.origin === self.location.origin && NO_STORE_ROUTE_PREFIXES.some((path) => url.pathname.startsWith(path))) {
-    event.respondWith(fetch(request.clone(), { cache: "no-store" }).catch(async () => (await caches.match("/offline.html")) || new Response("", { status: 503 })));
+  if (
+    request.mode === 'navigate' &&
+    url.origin === self.location.origin &&
+    NO_STORE_ROUTE_PREFIXES.some((path) => url.pathname.startsWith(path))
+  ) {
+    event.respondWith(
+      fetch(request.clone(), { cache: 'no-store' }).catch(
+        async () => (await caches.match('/offline.html')) || new Response('', { status: 503 })
+      )
+    );
     return;
   }
 
@@ -126,7 +130,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Navigation requests: serve app shell, fallback to offline
-  if (request.mode === "navigate") {
+  if (request.mode === 'navigate') {
     event.respondWith(navigationHandler(request));
     return;
   }
@@ -140,13 +144,13 @@ self.addEventListener("fetch", (event) => {
 /** Network only for live Supabase/API data */
 async function networkOnly(request) {
   try {
-    return await fetch(request.clone(), { cache: "no-store" });
+    return await fetch(request.clone(), { cache: 'no-store' });
   } catch {
-    return new Response(JSON.stringify({ error: "offline" }), {
+    return new Response(JSON.stringify({ error: 'offline' }), {
       status: 503,
       headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
       },
     });
   }
@@ -161,16 +165,19 @@ async function networkFirst(request) {
       try {
         await cache.put(request, networkRes.clone());
       } catch (error) {
-        console.warn("SW cache put failed", error);
+        console.warn('SW cache put failed', error);
       }
     }
     return networkRes;
   } catch {
     const cached = await caches.match(request);
-    return cached || new Response(JSON.stringify({ error: "offline" }), {
-      status: 503,
-      headers: { "Content-Type": "application/json" },
-    });
+    return (
+      cached ||
+      new Response(JSON.stringify({ error: 'offline' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
   }
 }
 
@@ -187,12 +194,12 @@ async function cacheFirst(request, cacheName = CACHE_IMAGES, maxEntries = 40) {
       try {
         await cache.put(request, networkRes.clone());
       } catch (error) {
-        console.warn("SW cache put failed", error);
+        console.warn('SW cache put failed', error);
       }
     }
     return networkRes;
   } catch {
-    return new Response("", { status: 408 });
+    return new Response('', { status: 408 });
   }
 }
 
@@ -210,14 +217,14 @@ async function staleWhileRevalidate(request) {
             await cache.put(request, res.clone());
           }
         } catch (error) {
-          console.warn("SW stale cache put failed", error);
+          console.warn('SW stale cache put failed', error);
         }
       }
       return res;
     })
     .catch(() => null);
 
-  return cached || (await networkPromise) || new Response("", { status: 408 });
+  return cached || (await networkPromise) || new Response('', { status: 408 });
 }
 
 /** Navigation: try network, fallback to static cache, then offline.html */
@@ -229,21 +236,20 @@ async function navigationHandler(request) {
       try {
         await cache.put(request, networkRes.clone());
       } catch (error) {
-        console.warn("SW navigation cache put failed", error);
+        console.warn('SW navigation cache put failed', error);
       }
     }
     return networkRes;
   } catch {
     // Try cached version of root
-    const cached =
-      (await caches.match(request)) || (await caches.match("/"));
+    const cached = (await caches.match(request)) || (await caches.match('/'));
     if (cached) return cached;
     // Last resort: offline page
-    const offlinePage = await caches.match("/offline.html");
+    const offlinePage = await caches.match('/offline.html');
     return (
       offlinePage ||
-      new Response("<h1>أنت غير متصل بالإنترنت</h1>", {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+      new Response('<h1>أنت غير متصل بالإنترنت</h1>', {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
       })
     );
   }
@@ -259,44 +265,42 @@ async function limitCacheSize(cache, maxEntries) {
 }
 
 // ─── Push Notifications ───────────────────────────────────────────────────────
-self.addEventListener("push", (event) => {
+self.addEventListener('push', (event) => {
   if (!event.data) return;
   const data = event.data.json();
   event.waitUntil(
-    self.registration.showNotification(data.title || "صيدليات دواء", {
-      body: data.body || "",
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
-      dir: "rtl",
-      lang: "ar",
-      tag: data.tag || "dawaa-notif",
+    self.registration.showNotification(data.title || 'صيدليات دواء', {
+      body: data.body || '',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      dir: 'rtl',
+      lang: 'ar',
+      tag: data.tag || 'dawaa-notif',
       renotify: true,
-      data: { url: data.url || "/" },
+      data: { url: data.url || '/' },
     })
   );
 });
 
-self.addEventListener("notificationclick", (event) => {
+self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || "/";
+  const targetUrl = event.notification.data?.url || '/';
   event.waitUntil(
-    self.clients
-      .matchAll({ type: "window", includeUncontrolled: true })
-      .then((clients) => {
-        const existing = clients.find((c) => c.url.includes(targetUrl));
-        if (existing) return existing.focus();
-        return self.clients.openWindow(targetUrl);
-      })
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      const existing = clients.find((c) => c.url.includes(targetUrl));
+      if (existing) return existing.focus();
+      return self.clients.openWindow(targetUrl);
+    })
   );
 });
 
 // ─── Skip Waiting message ────────────────────────────────────────────────────
-self.addEventListener("message", (event) => {
-  if (event.data?.type === "SKIP_WAITING") {
-    console.log("[SW] Skip waiting — activating new SW");
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    console.log('[SW] Skip waiting — activating new SW');
     self.skipWaiting();
   }
-  if (event.data?.type === "CLEAR_CACHE") {
+  if (event.data?.type === 'CLEAR_CACHE') {
     event.waitUntil(
       caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
     );
@@ -304,9 +308,9 @@ self.addEventListener("message", (event) => {
 });
 
 // ─── Background Sync ──────────────────────────────────────────────────────────
-self.addEventListener("sync", (event) => {
-  if (event.tag === "sync-activity") {
-    console.log("[SW] Background sync: sync-activity");
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-activity') {
+    console.log('[SW] Background sync: sync-activity');
   }
 });
 

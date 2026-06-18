@@ -1,4 +1,4 @@
-import { getCurrentCycle, type PharmacyCycle } from "@/lib/pharmacy-cycle";
+import { getCurrentCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
 
 export const MONTHLY_STARTING_POINTS = 500;
 export const MONTHLY_MAX_INCENTIVE_EGP = 1500;
@@ -6,15 +6,15 @@ export const QUARTERLY_BASE_BONUS_EGP = 2000;
 export const FREE_PERMISSIONS_PER_CYCLE = 3;
 
 export type IncentiveImpactType =
-  | "monthly_points_deduction"
-  | "monthly_exceptional_reward"
-  | "quarterly_money_deduction"
-  | "quarterly_money_reward"
-  | "warning_only"
-  | "operational_task";
+  | 'monthly_points_deduction'
+  | 'monthly_exceptional_reward'
+  | 'quarterly_money_deduction'
+  | 'quarterly_money_reward'
+  | 'warning_only'
+  | 'operational_task';
 
-export type IncentiveSeverity = "low" | "medium" | "high" | "critical";
-export type IncentiveRepeatPolicy = "linear_multiplier" | "manager_review_only" | "none";
+export type IncentiveSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type IncentiveRepeatPolicy = 'linear_multiplier' | 'manager_review_only' | 'none';
 
 export type IncentiveRuleDefinition = {
   rule_code: string;
@@ -65,9 +65,15 @@ export function calculateMonthlyIncentive(args: {
   const approvedExceptionalRewardPoints = Math.max(0, args.approvedExceptionalRewardPoints ?? 0);
   const pendingDeductionPoints = Math.max(0, args.pendingDeductionPoints ?? 0);
   const pendingRewardPoints = Math.max(0, args.pendingRewardPoints ?? 0);
-  const finalPoints = Math.max(0, startingPoints - approvedDeductionPoints + approvedExceptionalRewardPoints);
+  const finalPoints = Math.max(
+    0,
+    startingPoints - approvedDeductionPoints + approvedExceptionalRewardPoints
+  );
   const paidPoints = Math.min(finalPoints, MONTHLY_STARTING_POINTS);
-  const monthlyIncentiveValue = Math.min(MONTHLY_MAX_INCENTIVE_EGP, (paidPoints / MONTHLY_STARTING_POINTS) * MONTHLY_MAX_INCENTIVE_EGP);
+  const monthlyIncentiveValue = Math.min(
+    MONTHLY_MAX_INCENTIVE_EGP,
+    (paidPoints / MONTHLY_STARTING_POINTS) * MONTHLY_MAX_INCENTIVE_EGP
+  );
   const distinctionPointsAbove500 = Math.max(0, finalPoints - MONTHLY_STARTING_POINTS);
   return {
     startingPoints,
@@ -94,7 +100,10 @@ export function calculateQuarterlyIncentive(args: {
     quarterlyBaseValue,
     approvedQuarterlyDeductions,
     approvedQuarterlyRewards,
-    quarterlyFinalValue: Math.max(0, quarterlyBaseValue - approvedQuarterlyDeductions + approvedQuarterlyRewards),
+    quarterlyFinalValue: Math.max(
+      0,
+      quarterlyBaseValue - approvedQuarterlyDeductions + approvedQuarterlyRewards
+    ),
   };
 }
 
@@ -125,7 +134,8 @@ export function calculatePermissionPolicy(approvedPermissionsInCycle: number) {
     };
   }
   const penalizedPermissionNumber = count - FREE_PERMISSIONS_PER_CYCLE;
-  const deductionPoints = penalizedPermissionNumber === 1 ? 10 : penalizedPermissionNumber === 2 ? 20 : 30;
+  const deductionPoints =
+    penalizedPermissionNumber === 1 ? 10 : penalizedPermissionNumber === 2 ? 20 : 30;
   return {
     freeAllowanceUsed: FREE_PERMISSIONS_PER_CYCLE,
     remainingFreePermissions: 0,

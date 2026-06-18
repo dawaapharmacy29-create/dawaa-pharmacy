@@ -2,47 +2,47 @@ export type UUID = string;
 export type ISODateString = string;
 
 export type CRMRequestStatus =
-  | "new"
-  | "open"
-  | "in_progress"
-  | "waiting_customer"
-  | "waiting_internal"
-  | "resolved"
-  | "closed"
-  | "cancelled";
+  | 'new'
+  | 'open'
+  | 'in_progress'
+  | 'waiting_customer'
+  | 'waiting_internal'
+  | 'resolved'
+  | 'closed'
+  | 'cancelled';
 
-export type CRMRequestPriority = "low" | "normal" | "high" | "urgent";
+export type CRMRequestPriority = 'low' | 'normal' | 'high' | 'urgent';
 
 export type CRMRequestType =
-  | "follow_up"
-  | "complaint"
-  | "inquiry"
-  | "cashback"
-  | "delivery"
-  | "sales"
-  | "medical"
-  | "other";
+  | 'follow_up'
+  | 'complaint'
+  | 'inquiry'
+  | 'cashback'
+  | 'delivery'
+  | 'sales'
+  | 'medical'
+  | 'other';
 
 export type CRMRequestSource =
-  | "manual"
-  | "phone"
-  | "whatsapp"
-  | "facebook"
-  | "branch"
-  | "delivery"
-  | "system";
+  | 'manual'
+  | 'phone'
+  | 'whatsapp'
+  | 'facebook'
+  | 'branch'
+  | 'delivery'
+  | 'system';
 
 export type CRMTimelineEventType =
-  | "created"
-  | "note"
-  | "status_changed"
-  | "assigned"
-  | "whatsapp"
-  | "call"
-  | "follow_up"
-  | "completed"
-  | "reopened"
-  | "system";
+  | 'created'
+  | 'note'
+  | 'status_changed'
+  | 'assigned'
+  | 'whatsapp'
+  | 'call'
+  | 'follow_up'
+  | 'completed'
+  | 'reopened'
+  | 'system';
 
 export type CRMMetadataValue = string | number | boolean | null | string[] | number[];
 export type CRMMetadata = Record<string, CRMMetadataValue>;
@@ -112,31 +112,45 @@ export interface CRMUserContext {
 
 export interface CRMFilters {
   search: string;
-  status: CRMRequestStatus | "all";
-  priority: CRMRequestPriority | "all";
-  requestType: CRMRequestType | "all";
+  status: CRMRequestStatus | 'all';
+  priority: CRMRequestPriority | 'all';
+  requestType: CRMRequestType | 'all';
 }
 
 export const CRM_REQUEST_STATUSES: readonly CRMRequestStatus[] = [
-  "new",
-  "open",
-  "in_progress",
-  "waiting_customer",
-  "waiting_internal",
-  "resolved",
-  "closed",
-  "cancelled",
+  'new',
+  'open',
+  'in_progress',
+  'waiting_customer',
+  'waiting_internal',
+  'resolved',
+  'closed',
+  'cancelled',
 ] as const;
 
-export const CRM_REQUEST_PRIORITIES: readonly CRMRequestPriority[] = ["low", "normal", "high", "urgent"] as const;
-export const CRM_REQUEST_TYPES: readonly CRMRequestType[] = ["follow_up", "complaint", "inquiry", "cashback", "delivery", "sales", "medical", "other"] as const;
+export const CRM_REQUEST_PRIORITIES: readonly CRMRequestPriority[] = [
+  'low',
+  'normal',
+  'high',
+  'urgent',
+] as const;
+export const CRM_REQUEST_TYPES: readonly CRMRequestType[] = [
+  'follow_up',
+  'complaint',
+  'inquiry',
+  'cashback',
+  'delivery',
+  'sales',
+  'medical',
+  'other',
+] as const;
 
 export function isCRMRequestStatus(value: unknown): value is CRMRequestStatus {
-  return typeof value === "string" && CRM_REQUEST_STATUSES.includes(value as CRMRequestStatus);
+  return typeof value === 'string' && CRM_REQUEST_STATUSES.includes(value as CRMRequestStatus);
 }
 export function isCRMRequestPriority(value: unknown): value is CRMRequestPriority {
-  return typeof value === "string" && CRM_REQUEST_PRIORITIES.includes(value as CRMRequestPriority);
+  return typeof value === 'string' && CRM_REQUEST_PRIORITIES.includes(value as CRMRequestPriority);
 }
 export function isCRMRequestType(value: unknown): value is CRMRequestType {
-  return typeof value === "string" && CRM_REQUEST_TYPES.includes(value as CRMRequestType);
+  return typeof value === 'string' && CRM_REQUEST_TYPES.includes(value as CRMRequestType);
 }

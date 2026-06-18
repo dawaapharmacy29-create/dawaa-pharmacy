@@ -5,7 +5,7 @@
 
 export type CustomerFlagSeverity = 'danger' | 'warning' | 'info' | 'success';
 
-export type CustomerFlagCategory = 
+export type CustomerFlagCategory =
   | 'pricing'
   | 'delivery'
   | 'sales'
@@ -38,9 +38,18 @@ export function flagsToImportantTags(flags: any): string[] {
   return CUSTOMER_FLAGS.filter((flag) => parsed[flag.key] === true).map((flag) => flag.key);
 }
 
-export function buildCustomerFlagsForDb(existingFlags: any, newFlags: CustomerFlagsObject, updatedBy?: string | null): CustomerFlagsDbObject {
-  const current = existingFlags && typeof existingFlags === 'object' && !Array.isArray(existingFlags) ? { ...existingFlags } : {};
-  const important_tags = CUSTOMER_FLAGS.filter((flag) => newFlags[flag.key] === true).map((flag) => flag.key);
+export function buildCustomerFlagsForDb(
+  existingFlags: any,
+  newFlags: CustomerFlagsObject,
+  updatedBy?: string | null
+): CustomerFlagsDbObject {
+  const current =
+    existingFlags && typeof existingFlags === 'object' && !Array.isArray(existingFlags)
+      ? { ...existingFlags }
+      : {};
+  const important_tags = CUSTOMER_FLAGS.filter((flag) => newFlags[flag.key] === true).map(
+    (flag) => flag.key
+  );
   for (const flag of CUSTOMER_FLAGS) {
     delete current[flag.key];
   }
@@ -61,122 +70,122 @@ export const CUSTOMER_FLAGS: CustomerFlag[] = [
     key: 'price_sensitive',
     label: 'حساس للسعر',
     category: 'pricing',
-    severity: 'warning'
+    severity: 'warning',
   },
   {
     key: 'no_delivery',
     label: 'لا يضاف له توصيل',
     category: 'delivery',
-    severity: 'danger'
+    severity: 'danger',
   },
   {
     key: 'no_substitutes',
     label: 'لا يفضل البدائل',
     category: 'sales',
-    severity: 'warning'
+    severity: 'warning',
   },
   {
     key: 'needs_special_handling',
     label: 'يحتاج تعامل خاص',
     category: 'service',
-    severity: 'danger'
+    severity: 'danger',
   },
   {
     key: 'complains_often',
     label: 'كثير الشكاوى',
     category: 'service',
-    severity: 'danger'
+    severity: 'danger',
   },
   {
     key: 'prefers_whatsapp',
     label: 'يفضل التواصل واتساب',
     category: 'communication',
-    severity: 'info'
+    severity: 'info',
   },
   {
     key: 'prefers_call',
     label: 'يفضل الاتصال الهاتفي',
     category: 'communication',
-    severity: 'info'
+    severity: 'info',
   },
   {
     key: 'vip',
     label: 'عميل VIP',
     category: 'importance',
-    severity: 'success'
+    severity: 'success',
   },
   {
     key: 'needs_manager',
     label: 'يحتاج متابعة مدير',
     category: 'service',
-    severity: 'danger'
+    severity: 'danger',
   },
   {
     key: 'slow_response',
     label: 'يتأخر في الرد',
     category: 'communication',
-    severity: 'warning'
+    severity: 'warning',
   },
   {
     key: 'repeats_same_items',
     label: 'يطلب نفس الأصناف غالبًا',
     category: 'behavior',
-    severity: 'info'
+    severity: 'info',
   },
   {
     key: 'delivery_speed_sensitive',
     label: 'يهتم بسرعة التوصيل',
     category: 'delivery',
-    severity: 'warning'
+    severity: 'warning',
   },
   {
     key: 'needs_price_explanation',
     label: 'يرفض زيادة السعر بدون توضيح',
     category: 'pricing',
-    severity: 'warning'
+    severity: 'warning',
   },
   {
     key: 'needs_usage_explanation',
     label: 'يحتاج شرح طريقة الاستخدام',
     category: 'service',
-    severity: 'info'
+    severity: 'info',
   },
   {
     key: 'family_buyer',
     label: 'يشتري لأكثر من شخص في البيت',
     category: 'behavior',
-    severity: 'info'
+    severity: 'info',
   },
   {
     key: 'needs_periodic_reminder',
     label: 'يحتاج تذكير دوري',
     category: 'followup',
-    severity: 'info'
+    severity: 'info',
   },
   {
     key: 'dislikes_pressure',
     label: 'لا يحب الإلحاح',
     category: 'communication',
-    severity: 'warning'
+    severity: 'warning',
   },
   {
     key: 'offers_sensitive',
     label: 'يهتم بالعروض',
     category: 'pricing',
-    severity: 'success'
+    severity: 'success',
   },
   {
     key: 'confirm_before_delivery',
     label: 'يحتاج تأكيد قبل إرسال الطلب',
     category: 'delivery',
-    severity: 'warning'
+    severity: 'warning',
   },
   {
     key: 'address_needs_review',
     label: 'عنوانه يحتاج مراجعة قبل التوصيل',
     category: 'delivery',
-    severity: 'danger'
-  }
+    severity: 'danger',
+  },
 ];
 
 // ============================================================================
@@ -203,7 +212,7 @@ export const FLAG_PRIORITY: string[] = [
   'needs_usage_explanation',
   'repeats_same_items',
   'family_buyer',
-  'needs_periodic_reminder'
+  'needs_periodic_reminder',
 ];
 
 // ============================================================================
@@ -215,18 +224,20 @@ export const FLAG_PRIORITY: string[] = [
  */
 export function parseCustomerFlags(value: any): CustomerFlagsObject {
   if (!value) return {};
-  
+
   // If it's already an object, support both legacy boolean flags and the durable important_tags array.
   if (typeof value === 'object' && !Array.isArray(value)) {
     const result: CustomerFlagsObject = {};
-    const tags = Array.isArray(value.important_tags) ? value.important_tags.map((tag: unknown) => String(tag)) : [];
+    const tags = Array.isArray(value.important_tags)
+      ? value.important_tags.map((tag: unknown) => String(tag))
+      : [];
     for (const flag of CUSTOMER_FLAGS) {
       if (typeof value[flag.key] === 'boolean') result[flag.key] = value[flag.key];
       if (tags.includes(flag.key)) result[flag.key] = true;
     }
     return result;
   }
-  
+
   // If it's a string, try to parse as JSON
   if (typeof value === 'string') {
     try {
@@ -238,7 +249,7 @@ export function parseCustomerFlags(value: any): CustomerFlagsObject {
       // Not valid JSON, return empty object
     }
   }
-  
+
   return {};
 }
 
@@ -247,7 +258,7 @@ export function parseCustomerFlags(value: any): CustomerFlagsObject {
  */
 export function getActiveCustomerFlags(customer_flags: any): CustomerFlag[] {
   const parsed = parseCustomerFlags(customer_flags);
-  return CUSTOMER_FLAGS.filter(flag => parsed[flag.key] === true);
+  return CUSTOMER_FLAGS.filter((flag) => parsed[flag.key] === true);
 }
 
 /**
@@ -261,25 +272,32 @@ export function hasCustomerFlag(customer_flags: any, key: string): boolean {
 /**
  * Toggle a specific flag
  */
-export function toggleCustomerFlag(existingFlags: any, key: string, value?: boolean): CustomerFlagsObject {
+export function toggleCustomerFlag(
+  existingFlags: any,
+  key: string,
+  value?: boolean
+): CustomerFlagsObject {
   const parsed = parseCustomerFlags(existingFlags);
   const newValue = value !== undefined ? value : !parsed[key];
-  
+
   return {
     ...parsed,
-    [key]: newValue
+    [key]: newValue,
   };
 }
 
 /**
  * Merge new flags into existing flags without removing unknown keys
  */
-export function mergeCustomerFlags(existingFlags: any, newFlags: Partial<CustomerFlagsObject>): CustomerFlagsObject {
+export function mergeCustomerFlags(
+  existingFlags: any,
+  newFlags: Partial<CustomerFlagsObject>
+): CustomerFlagsObject {
   const parsed = parseCustomerFlags(existingFlags);
-  
+
   return {
     ...parsed,
-    ...newFlags
+    ...newFlags,
   };
 }
 
@@ -290,12 +308,12 @@ export function isValidCustomerFlagsObject(value: any): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
-  
+
   // Check if at least one key matches a known flag
-  const hasKnownKey = Object.keys(value).some(key => 
-    CUSTOMER_FLAGS.some(flag => flag.key === key)
+  const hasKnownKey = Object.keys(value).some((key) =>
+    CUSTOMER_FLAGS.some((flag) => flag.key === key)
   );
-  
+
   return hasKnownKey;
 }
 
@@ -303,21 +321,21 @@ export function isValidCustomerFlagsObject(value: any): boolean {
  * Get flag by key
  */
 export function getFlagByKey(key: string): CustomerFlag | undefined {
-  return CUSTOMER_FLAGS.find(flag => flag.key === key);
+  return CUSTOMER_FLAGS.find((flag) => flag.key === key);
 }
 
 /**
  * Get flags by category
  */
 export function getFlagsByCategory(category: CustomerFlagCategory): CustomerFlag[] {
-  return CUSTOMER_FLAGS.filter(flag => flag.category === category);
+  return CUSTOMER_FLAGS.filter((flag) => flag.category === category);
 }
 
 /**
  * Get flags by severity
  */
 export function getFlagsBySeverity(severity: CustomerFlagSeverity): CustomerFlag[] {
-  return CUSTOMER_FLAGS.filter(flag => flag.severity === severity);
+  return CUSTOMER_FLAGS.filter((flag) => flag.severity === severity);
 }
 
 /**
@@ -362,12 +380,18 @@ export function getSeverityColorClass(severity: CustomerFlagSeverity): string {
  */
 export function getFlagBadgeStyle(flagOrSeverity: CustomerFlagSeverity | CustomerFlag): string {
   const key = typeof flagOrSeverity === 'object' ? flagOrSeverity.key : '';
-  if (key === 'vip') return 'text-amber-900 bg-amber-100 border-amber-400 dark:text-amber-100 dark:bg-amber-500/25 dark:border-amber-300';
-  if (key === 'needs_manager') return 'text-red-900 bg-red-100 border-red-400 dark:text-red-100 dark:bg-red-500/25 dark:border-red-300';
-  if (key === 'price_sensitive') return 'text-yellow-900 bg-yellow-100 border-yellow-400 dark:text-yellow-100 dark:bg-yellow-500/25 dark:border-yellow-300';
-  if (key === 'prefers_whatsapp') return 'text-emerald-900 bg-emerald-100 border-emerald-400 dark:text-emerald-100 dark:bg-emerald-500/25 dark:border-emerald-300';
-  if (key === 'confirm_before_delivery') return 'text-orange-900 bg-orange-100 border-orange-400 dark:text-orange-100 dark:bg-orange-500/25 dark:border-orange-300';
-  if (key === 'needs_periodic_reminder') return 'text-blue-900 bg-blue-100 border-blue-400 dark:text-blue-100 dark:bg-blue-500/25 dark:border-blue-300';
+  if (key === 'vip')
+    return 'text-amber-900 bg-amber-100 border-amber-400 dark:text-amber-100 dark:bg-amber-500/25 dark:border-amber-300';
+  if (key === 'needs_manager')
+    return 'text-red-900 bg-red-100 border-red-400 dark:text-red-100 dark:bg-red-500/25 dark:border-red-300';
+  if (key === 'price_sensitive')
+    return 'text-yellow-900 bg-yellow-100 border-yellow-400 dark:text-yellow-100 dark:bg-yellow-500/25 dark:border-yellow-300';
+  if (key === 'prefers_whatsapp')
+    return 'text-emerald-900 bg-emerald-100 border-emerald-400 dark:text-emerald-100 dark:bg-emerald-500/25 dark:border-emerald-300';
+  if (key === 'confirm_before_delivery')
+    return 'text-orange-900 bg-orange-100 border-orange-400 dark:text-orange-100 dark:bg-orange-500/25 dark:border-orange-300';
+  if (key === 'needs_periodic_reminder')
+    return 'text-blue-900 bg-blue-100 border-blue-400 dark:text-blue-100 dark:bg-blue-500/25 dark:border-blue-300';
   const severity = typeof flagOrSeverity === 'object' ? flagOrSeverity.severity : flagOrSeverity;
   return getSeverityBadgeStyle(severity);
 }

@@ -25,7 +25,7 @@ export interface Employee {
   notes?: string;
   points: number;
   maxPoints: number;
-  status: "نشط" | "إجازة" | "معطل";
+  status: 'نشط' | 'إجازة' | 'معطل';
   joinDate: string;
 }
 
@@ -44,7 +44,7 @@ export interface Customer {
   avgMonthly?: number | null;
   clv?: number | null;
   riskScore?: number | null;
-  retentionStatus?: "محتفظ" | "معرض للفقدان" | "مفقود" | "جديد" | string | null;
+  retentionStatus?: 'محتفظ' | 'معرض للفقدان' | 'مفقود' | 'جديد' | string | null;
   followups?: Followup[];
   whatsappNotes?: string | null;
   customer_code?: string | null;
@@ -73,7 +73,7 @@ export interface PointRecord {
   id: string;
   employeeId: string;
   employeeName: string;
-  type: "مكافأة" | "خصم";
+  type: 'مكافأة' | 'خصم';
   points: number;
   reason: string;
   managerNote?: string;
@@ -85,7 +85,7 @@ export interface PointRecord {
 export interface PointRule {
   id: string;
   name: string;
-  type: "مكافأة" | "خصم";
+  type: 'مكافأة' | 'خصم';
   points: number;
   description?: string;
   active: boolean;
@@ -112,7 +112,7 @@ export interface Notification {
   userId: string;
   title: string;
   body: string;
-  type: "مكافأة" | "خصم" | "مهمة" | "شكوى" | "تذكير" | "عام";
+  type: 'مكافأة' | 'خصم' | 'مهمة' | 'شكوى' | 'تذكير' | 'عام';
   read: boolean;
   createdAt: string;
 }

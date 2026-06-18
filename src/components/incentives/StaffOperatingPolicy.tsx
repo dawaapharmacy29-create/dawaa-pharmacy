@@ -1,5 +1,5 @@
-import { BookOpenCheck } from "lucide-react";
-import { STAFF_OPERATING_POLICY_SECTIONS } from "@/lib/performance/ruleDefinitions";
+import { BookOpenCheck } from 'lucide-react';
+import { STAFF_OPERATING_POLICY_SECTIONS } from '@/lib/performance/ruleDefinitions';
 
 export default function StaffOperatingPolicy() {
   return (

@@ -1,17 +1,17 @@
-import { cleanPhone, cleanPhoneForWhatsapp } from "@/lib/phone";
+import { cleanPhone, cleanPhoneForWhatsapp } from '@/lib/phone';
 
 export function cleanEgyptianPhone(phone?: string | number | null) {
   return cleanPhoneForWhatsapp(phone);
 }
 
 export function displayEgyptianPhone(phone?: string | number | null) {
-  return cleanPhone(phone) || "بدون رقم";
+  return cleanPhone(phone) || 'بدون رقم';
 }
 
-export function generateWhatsAppLink(phone?: string | number | null, message = "") {
+export function generateWhatsAppLink(phone?: string | number | null, message = '') {
   const clean = cleanPhoneForWhatsapp(phone);
-  if (!clean) return "";
-  return `https://wa.me/${clean}${message ? `?text=${encodeURIComponent(message)}` : ""}`;
+  if (!clean) return '';
+  return `https://wa.me/${clean}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
 }
 
 export function generateFollowupMessage(
@@ -21,11 +21,11 @@ export function generateFollowupMessage(
     category?: string | null;
     customer_status?: string | null;
   },
-  staff?: { name?: string | null } | string | null,
+  staff?: { name?: string | null } | string | null
 ) {
-  const customerName = customer.customer_name || customer.name || "حضرتك";
-  const staffName = typeof staff === "string" ? staff : staff?.name || "فريق صيدليات دواء";
-  const category = `${customer.category || ""} ${customer.customer_status || ""}`;
+  const customerName = customer.customer_name || customer.name || 'حضرتك';
+  const staffName = typeof staff === 'string' ? staff : staff?.name || 'فريق صيدليات دواء';
+  const category = `${customer.category || ''} ${customer.customer_status || ''}`;
   const isVip = /vip|مهم جدًا|مهم جدا/i.test(category);
 
   if (isVip) {
@@ -41,7 +41,7 @@ export function generateFollowupMessage(
 تحت أمرك يا فندم.`;
 }
 
-export function whatsappLink(phone?: string | number | null, message = "") {
+export function whatsappLink(phone?: string | number | null, message = '') {
   return generateWhatsAppLink(phone, message);
 }
 

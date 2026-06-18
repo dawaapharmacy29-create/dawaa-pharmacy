@@ -7,7 +7,7 @@ export const OPERATING_POLICY_2027 = {
   title: 'لائحة التشغيل - صيدليات دواء 2027',
   version: '1.0',
   effectiveDate: '2027-01-01',
-  
+
   sections: [
     {
       id: 'overview',
@@ -20,7 +20,7 @@ export const OPERATING_POLICY_2027 = {
         - زيادة الكفاءة التشغيلية
         - تحفيز الموظفين على الأداء المتميز
         - ضمان الامتثال للمعايير المهنية
-      `
+      `,
     },
     {
       id: 'monthly_incentive',
@@ -40,7 +40,7 @@ export const OPERATING_POLICY_2027 = {
         - الحافز الأقصى: 1500 جنيه
         - يحسب بناءً على النقاط النهائية (الحد الأقصى 500 نقطة)
         - النقاط فوق 500 تظهر كنقاط تميز فقط
-      `
+      `,
     },
     {
       id: 'quarterly_incentive',
@@ -59,7 +59,7 @@ export const OPERATING_POLICY_2027 = {
         - جودة التسجيل وخدمة العميل: 10 درجات
         
         **الدرجة القصوى:** 100 درجة
-      `
+      `,
     },
     {
       id: 'repeat_errors',
@@ -74,7 +74,7 @@ export const OPERATING_POLICY_2027 = {
         **الأخطاء الشديدة:**
         - الأخطاء الشديدة (مثل الأخطاء الدوائية المؤثرة) تتطلب مراجعة المدير فوراً
         - يمكن للمدير مضاعفة الخصم أو اتخاذ إجراءات إضافية
-      `
+      `,
     },
     {
       id: 'permissions',
@@ -89,7 +89,7 @@ export const OPERATING_POLICY_2027 = {
         - الإذن الخامس: خصم 20 نقطة
         - الإذن السادس وما فوق: خصم 30 نقطة لكل إذن
         - 3 إذنات معاقبة أو أكثر تتطلب مراجعة المدير
-      `
+      `,
     },
     {
       id: 'classification',
@@ -104,7 +104,7 @@ export const OPERATING_POLICY_2027 = {
         - يجب تسجيل بيانات الفاتورة بشكل كامل
         - عدم تسجيل رقم العميل أو الهاتف يؤدي إلى خصم نقاط
         - الفواتير بقيمة صفر تتطلب مراجعة
-      `
+      `,
     },
     {
       id: 'customer_service',
@@ -120,7 +120,7 @@ export const OPERATING_POLICY_2027 = {
         - عدم متابعة عميل VIP: خصم 25 نقطة
         - شكوى عميل بسبب أسلوب التعامل: خصم 40 نقطة
         - فقد عميل مهم بسبب عدم المتابعة: خصم 60 نقطة
-      `
+      `,
     },
     {
       id: 'operations',
@@ -135,7 +135,7 @@ export const OPERATING_POLICY_2027 = {
         **المخالفات:**
         - تأخير عن الشيفت بدون إذن: خصم 20 نقطة
         - غياب بدون إذن: خصم 80 نقطة
-      `
+      `,
     },
     {
       id: 'inventory',
@@ -150,7 +150,7 @@ export const OPERATING_POLICY_2027 = {
         **المخالفات:**
         - صرف راكد بدون تسجيل عميل وفاتورة: خصم 20 نقطة
         - تسجيل صنف لستة بدون بيانات العميل: خصم 15 نقطة
-      `
+      `,
     },
     {
       id: 'safety',
@@ -165,7 +165,7 @@ export const OPERATING_POLICY_2027 = {
         **المخالفات الشديدة:**
         - خطأ دوائي مؤثر أو ترشيح غير مناسب: خصم 100 نقطة
         - يتطلب مراجعة فورية من المدير
-      `
+      `,
     },
     {
       id: 'rewards',
@@ -181,7 +181,7 @@ export const OPERATING_POLICY_2027 = {
         - تحتاج إلى اعتماد المدير
         - يجب توثيق السبب بوضوح
         - تُمنح مرة واحدة لكل إنجاز
-      `
+      `,
     },
     {
       id: 'appeals',
@@ -196,16 +196,16 @@ export const OPERATING_POLICY_2027 = {
         - كتابة التظلم بشكل واضح
         - إرفاق الأدلة والوثائق
         - حضور جلسة الاستماع إذا طُلب ذلك
-      `
-    }
-  ]
+      `,
+    },
+  ],
 };
 
 /**
  * الحصول على قسم معين من اللائحة
  */
 export function getOperatingPolicySection(sectionId: string): string {
-  const section = OPERATING_POLICY_2027.sections.find(s => s.id === sectionId);
+  const section = OPERATING_POLICY_2027.sections.find((s) => s.id === sectionId);
   return section?.content || '';
 }
 
@@ -213,18 +213,23 @@ export function getOperatingPolicySection(sectionId: string): string {
  * الحصول على جميع عناوين الأقسام
  */
 export function getOperatingPolicySectionTitles(): Array<{ id: string; title: string }> {
-  return OPERATING_POLICY_2027.sections.map(s => ({ id: s.id, title: s.title }));
+  return OPERATING_POLICY_2027.sections.map((s) => ({ id: s.id, title: s.title }));
 }
 
 /**
  * البحث في اللائحة
  */
-export function searchOperatingPolicy(query: string): Array<{ id: string; title: string; content: string }> {
+export function searchOperatingPolicy(
+  query: string
+): Array<{ id: string; title: string; content: string }> {
   const results: Array<{ id: string; title: string; content: string }> = [];
   const lowerQuery = query.toLowerCase();
 
   for (const section of OPERATING_POLICY_2027.sections) {
-    if (section.title.toLowerCase().includes(lowerQuery) || section.content.toLowerCase().includes(lowerQuery)) {
+    if (
+      section.title.toLowerCase().includes(lowerQuery) ||
+      section.content.toLowerCase().includes(lowerQuery)
+    ) {
       results.push({
         id: section.id,
         title: section.title,

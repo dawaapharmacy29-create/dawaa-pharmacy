@@ -4,21 +4,21 @@
  */
 
 const BRANCH_ALIASES: Record<string, string> = {
-  "شكري": "فرع شكري",
-  "فرع شكري": "فرع شكري",
-  "الشامي": "فرع الشامي",
-  "فرع الشامي": "فرع الشامي",
-  "shokry": "فرع شكري",
-  "el shamy": "فرع الشامي",
-  "elshamy": "فرع الشامي",
-  "shamy": "فرع الشامي",
+  شكري: 'فرع شكري',
+  'فرع شكري': 'فرع شكري',
+  الشامي: 'فرع الشامي',
+  'فرع الشامي': 'فرع الشامي',
+  shokry: 'فرع شكري',
+  'el shamy': 'فرع الشامي',
+  elshamy: 'فرع الشامي',
+  shamy: 'فرع الشامي',
 };
 
 /**
  * Normalizes a branch name to one of the canonical values.
  */
 export function normalizeBranchName(name: string | null | undefined): string {
-  if (!name) return "غير محدد";
+  if (!name) return 'غير محدد';
   const lower = name.trim().toLowerCase();
   return BRANCH_ALIASES[lower] ?? BRANCH_ALIASES[name.trim()] ?? name.trim();
 }
@@ -28,11 +28,11 @@ export function normalizeBranchName(name: string | null | undefined): string {
  * Strips extra spaces, Arabic diacritics, and lowercases.
  */
 export function normalizeSellerName(name: string | null | undefined): string {
-  if (!name) return "";
+  if (!name) return '';
   return name
     .trim()
-    .replace(/\s+/g, " ")
-    .replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06ED]/g, "")
+    .replace(/\s+/g, ' ')
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06ED]/g, '')
     .toLowerCase();
 }
 
@@ -41,11 +41,11 @@ export function normalizeSellerName(name: string | null | undefined): string {
  * Handles +20, 20, and local formats.
  */
 export function normalizePhone(phone: string | null | undefined): string {
-  if (!phone) return "";
-  let p = phone.replace(/\D/g, "");
-  if (p.startsWith("20") && p.length === 12) p = "0" + p.slice(2);
-  if (p.startsWith("0") && p.length === 11) return p;
-  if (p.length === 10 && !p.startsWith("0")) return "0" + p;
+  if (!phone) return '';
+  let p = phone.replace(/\D/g, '');
+  if (p.startsWith('20') && p.length === 12) p = '0' + p.slice(2);
+  if (p.startsWith('0') && p.length === 11) return p;
+  if (p.length === 10 && !p.startsWith('0')) return '0' + p;
   return p;
 }
 
@@ -61,8 +61,8 @@ export function isValidEgyptPhone(phone: string | null | undefined): boolean {
  * Normalizes a customer code to uppercase, trimmed string.
  */
 export function normalizeCustomerCode(code: string | null | undefined): string {
-  if (!code) return "";
-  return code.trim().toUpperCase().replace(/\s+/g, "");
+  if (!code) return '';
+  return code.trim().toUpperCase().replace(/\s+/g, '');
 }
 
 /**
@@ -72,8 +72,16 @@ export function isTestCustomer(name: string | null | undefined): boolean {
   if (!name) return false;
   const lower = name.toLowerCase();
   const testPatterns = [
-    "test", "تجربة", "تجريبي", "dummy", "demo", "sample",
-    "عميل وهمي", "xxxxx", "00000", "اختبار",
+    'test',
+    'تجربة',
+    'تجريبي',
+    'dummy',
+    'demo',
+    'sample',
+    'عميل وهمي',
+    'xxxxx',
+    '00000',
+    'اختبار',
   ];
   return testPatterns.some((p) => lower.includes(p));
 }
@@ -82,7 +90,7 @@ export function isTestCustomer(name: string | null | undefined): boolean {
  * Strips Arabic diacritics from a string for search/comparison.
  */
 export function stripDiacritics(text: string): string {
-  return text.replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06ED]/g, "");
+  return text.replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06ED]/g, '');
 }
 
 /**

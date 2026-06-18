@@ -11,39 +11,39 @@
  *  - Built-in date range helpers
  */
 
-import { supabase } from "@/lib/supabase";
-import { branchMatches } from "@/lib/branch";
-import { cacheGet, cacheSet, invoiceCacheKey } from "@/lib/invoiceCache";
+import { supabase } from '@/lib/supabase';
+import { branchMatches } from '@/lib/branch';
+import { cacheGet, cacheSet, invoiceCacheKey } from '@/lib/invoiceCache';
 
 // ─── Field sets for different use cases ──────────────────────────────────────
 
 /** Minimal fields for dashboard KPIs */
 export const INVOICE_SELECT_KPI =
-  "invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, branch, seller_name, customer_code";
+  'invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, branch, seller_name, customer_code';
 
 /** Fields needed for staff performance matching */
 export const INVOICE_SELECT_STAFF =
-  "id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, " +
-  "branch, seller_name, customer_code, customer_phone, customer_name, " +
-  "invoice_type, shift";
+  'id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, ' +
+  'branch, seller_name, customer_code, customer_phone, customer_name, ' +
+  'invoice_type, shift';
 
 /** Full fields including optional columns */
 export const INVOICE_SELECT_FULL =
-  "id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, " +
-  "branch, seller_name, customer_code, customer_phone, customer_name, " +
-  "customer_address, customer_segment, customer_type, invoice_type, invoice_category, shift, " +
-  "customer_id";
+  'id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, ' +
+  'branch, seller_name, customer_code, customer_phone, customer_name, ' +
+  'customer_address, customer_segment, customer_type, invoice_type, invoice_category, shift, ' +
+  'customer_id';
 
 /** Fields for customer-specific queries */
 export const INVOICE_SELECT_CUSTOMER =
-  "id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, " +
-  "customer_name, customer_code, customer_phone, branch, seller_name, invoice_type";
+  'id, invoice_number, invoice_no, invoice_date, net_amount, discounted_amount, amount, gross_amount, total_amount, ' +
+  'customer_name, customer_code, customer_phone, branch, seller_name, invoice_type';
 
 export const INVOICE_SELECT_TRUTH_OPTIONS = [
-  "id,invoice_no,invoice_number,invoice_date,branch,net_amount,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_name,seller_name",
-  "id,invoice_no,invoice_number,invoice_date,branch,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_name,seller_name",
-  "id,invoice_no,invoice_number,invoice_date,branch,amount,gross_amount,total_amount,customer_code,customer_name,seller_name",
-  "id,invoice_date,branch,amount,total_amount,customer_code,customer_name,seller_name",
+  'id,invoice_no,invoice_number,invoice_date,branch,net_amount,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_name,seller_name',
+  'id,invoice_no,invoice_number,invoice_date,branch,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_name,seller_name',
+  'id,invoice_no,invoice_number,invoice_date,branch,amount,gross_amount,total_amount,customer_code,customer_name,seller_name',
+  'id,invoice_date,branch,amount,total_amount,customer_code,customer_name,seller_name',
 ];
 
 export type SalesInvoiceQueryRow = Record<string, unknown>;
@@ -56,8 +56,10 @@ function nextDay(dateText: string) {
 }
 
 function isAllBranchesSelection(branch?: string) {
-  const raw = String(branch || "").trim().toLowerCase();
-  return !raw || raw === "all" || raw.includes("كل");
+  const raw = String(branch || '')
+    .trim()
+    .toLowerCase();
+  return !raw || raw === 'all' || raw.includes('كل');
 }
 
 // ─── Single-page fetcher (shared across serial and parallel paths) ───────────
@@ -73,12 +75,12 @@ async function fetchOnePage(
   const to = from + pageSize - 1;
   const endExclusive = nextDay(endDate);
   const result = await supabase
-    .from("sales_invoices")
+    .from('sales_invoices')
     .select(selectField)
-    .gte("invoice_date", startDate)
-    .lt("invoice_date", endExclusive)
-    .order("invoice_date", { ascending: true })
-    .order("id", { ascending: true })
+    .gte('invoice_date', startDate)
+    .lt('invoice_date', endExclusive)
+    .order('invoice_date', { ascending: true })
+    .order('id', { ascending: true })
     .range(from, to);
   return {
     data: (result.data || []) as unknown as SalesInvoiceQueryRow[],
@@ -109,12 +111,14 @@ export async function fetchSalesInvoicesPagedSafe(options: {
   const errors = options.errors || [];
   const pageSize = options.pageSize || 1000;
   const maxPages = options.maxPages || 500;
-  const selects = options.selectOptions?.length ? options.selectOptions : INVOICE_SELECT_TRUTH_OPTIONS;
+  const selects = options.selectOptions?.length
+    ? options.selectOptions
+    : INVOICE_SELECT_TRUTH_OPTIONS;
   const allBranches = isAllBranchesSelection(options.branch);
   const PARALLEL_BATCH = 4;
 
   // ── Cache check ────────────────────────────────────────────────────────────
-  const cacheKey = invoiceCacheKey(options.startDate, options.endDate, options.branch || "");
+  const cacheKey = invoiceCacheKey(options.startDate, options.endDate, options.branch || '');
   if (!options.noCache) {
     const cached = cacheGet<SalesInvoiceQueryRow[]>(cacheKey);
     if (cached) {
@@ -126,11 +130,23 @@ export async function fetchSalesInvoicesPagedSafe(options: {
 
   // ── Determine working selectIndex from page 0 ─────────────────────────────
   let selectIndex = 0;
-  let page0result = await fetchOnePage(0, selects[selectIndex], options.startDate, options.endDate, pageSize);
+  let page0result = await fetchOnePage(
+    0,
+    selects[selectIndex],
+    options.startDate,
+    options.endDate,
+    pageSize
+  );
 
   while (page0result.error && selectIndex < selects.length - 1) {
     selectIndex += 1;
-    page0result = await fetchOnePage(0, selects[selectIndex], options.startDate, options.endDate, pageSize);
+    page0result = await fetchOnePage(
+      0,
+      selects[selectIndex],
+      options.startDate,
+      options.endDate,
+      pageSize
+    );
   }
 
   if (page0result.error) {
@@ -138,7 +154,8 @@ export async function fetchSalesInvoicesPagedSafe(options: {
     return rows;
   }
 
-  const filterRow = (row: SalesInvoiceQueryRow) => allBranches || branchMatches(options.branch || "", row.branch);
+  const filterRow = (row: SalesInvoiceQueryRow) =>
+    allBranches || branchMatches(options.branch || '', row.branch);
   rows.push(...page0result.data.filter(filterRow));
 
   // ── If page 0 wasn't full, we have everything ─────────────────────────────
@@ -156,7 +173,9 @@ export async function fetchSalesInvoicesPagedSafe(options: {
     const pagePromises: Promise<{ data: SalesInvoiceQueryRow[]; error: Error | null }>[] = [];
 
     for (let p = batchStart; p < batchEnd; p++) {
-      pagePromises.push(fetchOnePage(p, workingSelect, options.startDate, options.endDate, pageSize));
+      pagePromises.push(
+        fetchOnePage(p, workingSelect, options.startDate, options.endDate, pageSize)
+      );
     }
 
     const batchResults = await Promise.all(pagePromises);
@@ -193,10 +212,10 @@ export async function fetchSalesInvoicesPagedSafe(options: {
  */
 export function invoicesByDateRange(start: string, end: string, fields = INVOICE_SELECT_KPI) {
   return supabase
-    .from("sales_invoices")
+    .from('sales_invoices')
     .select(fields)
-    .gte("invoice_date", start)
-    .lte("invoice_date", end);
+    .gte('invoice_date', start)
+    .lte('invoice_date', end);
 }
 
 /**
@@ -209,7 +228,7 @@ export function invoicesByBranchAndDate(
   fields = INVOICE_SELECT_KPI
 ) {
   const q = invoicesByDateRange(start, end, fields);
-  return branch && branch !== "all" ? q.eq("branch", branch) : q;
+  return branch && branch !== 'all' ? q.eq('branch', branch) : q;
 }
 
 /**
@@ -223,14 +242,14 @@ export function invoicesBySellerNames(
   limit = 5000
 ) {
   if (sellerNames.length === 0) {
-    return supabase.from("sales_invoices").select(fields).limit(0);
+    return supabase.from('sales_invoices').select(fields).limit(0);
   }
   return supabase
-    .from("sales_invoices")
+    .from('sales_invoices')
     .select(fields)
-    .in("seller_name", sellerNames)
-    .gte("invoice_date", start)
-    .lte("invoice_date", end)
+    .in('seller_name', sellerNames)
+    .gte('invoice_date', start)
+    .lte('invoice_date', end)
     .limit(limit);
 }
 
@@ -243,11 +262,11 @@ export async function countInvoicesBySeller(
   end: string
 ): Promise<number> {
   const { count, error } = await supabase
-    .from("sales_invoices")
-    .select("id", { count: "exact", head: true })
-    .eq("seller_name", sellerName)
-    .gte("invoice_date", start)
-    .lte("invoice_date", end);
+    .from('sales_invoices')
+    .select('id', { count: 'exact', head: true })
+    .eq('seller_name', sellerName)
+    .gte('invoice_date', start)
+    .lte('invoice_date', end);
 
   if (error) return 0;
   return count ?? 0;

@@ -1,8 +1,11 @@
-import { supabase } from "@/lib/supabase";
-import { normalizeBranchName } from "@/lib/branch";
-import { clearInvoiceCache } from "@/lib/invoiceCache";
-import { dashboardInvoiceAmount, type DashboardInvoiceRow } from "@/lib/dashboard/dashboardTruthService";
-import { fetchSalesInvoicesPagedSafe } from "@/lib/salesInvoiceQueries";
+import { supabase } from '@/lib/supabase';
+import { normalizeBranchName } from '@/lib/branch';
+import { clearInvoiceCache } from '@/lib/invoiceCache';
+import {
+  dashboardInvoiceAmount,
+  type DashboardInvoiceRow,
+} from '@/lib/dashboard/dashboardTruthService';
+import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 
 export type BranchTruthStats = {
   branch: string;
@@ -18,7 +21,7 @@ export type BranchTruthStats = {
 
 export type SalesTruthLoadResult<T> = {
   rows: T[];
-  source: "rpc" | "client_fallback";
+  source: 'rpc' | 'client_fallback';
   rowsRead: number;
   warnings: string[];
 };
@@ -29,28 +32,36 @@ function numberValue(value: unknown) {
 }
 
 function text(value: unknown) {
-  const raw = String(value ?? "").trim();
+  const raw = String(value ?? '').trim();
   return raw || null;
 }
 
 function day(row: DashboardInvoiceRow) {
-  return String(row.invoice_date || "").slice(0, 10);
+  return String(row.invoice_date || '').slice(0, 10);
 }
 
 function invoiceKey(row: DashboardInvoiceRow) {
-  return String(row.invoice_no ?? row.invoice_number ?? row.id ?? "").trim();
+  return String(row.invoice_no ?? row.invoice_number ?? row.id ?? '').trim();
 }
 
 function customerKey(row: DashboardInvoiceRow) {
-  return String(row.customer_code ?? row.customer_name ?? "").trim();
+  return String(row.customer_code ?? row.customer_name ?? '').trim();
 }
 
 function buildBranchStatsFallback(rows: DashboardInvoiceRow[]): BranchTruthStats[] {
-  const branches = new Map<string, { total: number; keys: Set<string>; customers: Set<string>; days: Map<string, number> }>();
+  const branches = new Map<
+    string,
+    { total: number; keys: Set<string>; customers: Set<string>; days: Map<string, number> }
+  >();
 
   for (const row of rows) {
-    const branch = normalizeBranchName(row.branch || "") || "غير محدد";
-    const current = branches.get(branch) || { total: 0, keys: new Set<string>(), customers: new Set<string>(), days: new Map<string, number>() };
+    const branch = normalizeBranchName(row.branch || '') || 'غير محدد';
+    const current = branches.get(branch) || {
+      total: 0,
+      keys: new Set<string>(),
+      customers: new Set<string>(),
+      days: new Map<string, number>(),
+    };
     const amount = dashboardInvoiceAmount(row);
     const k = invoiceKey(row);
     const c = customerKey(row);
@@ -63,26 +74,28 @@ function buildBranchStatsFallback(rows: DashboardInvoiceRow[]): BranchTruthStats
   }
 
   const grand = [...branches.values()].reduce((sum, row) => sum + row.total, 0) || 1;
-  return [...branches.entries()].map(([branch, row]) => {
-    const dayRows = [...row.days.entries()].sort((a, b) => b[1] - a[1]);
-    const invoiceCount = row.keys.size;
-    return {
-      branch,
-      sales_total: row.total,
-      invoices_count: invoiceCount,
-      avg_invoice: invoiceCount ? row.total / invoiceCount : 0,
-      linked_customers: row.customers.size,
-      daily_avg: row.days.size ? row.total / row.days.size : row.total,
-      link_rate: (row.total / grand) * 100,
-      best_day: dayRows[0]?.[0] || null,
-      best_day_sales: dayRows[0]?.[1] || 0,
-    } satisfies BranchTruthStats;
-  }).sort((a, b) => b.sales_total - a.sales_total);
+  return [...branches.entries()]
+    .map(([branch, row]) => {
+      const dayRows = [...row.days.entries()].sort((a, b) => b[1] - a[1]);
+      const invoiceCount = row.keys.size;
+      return {
+        branch,
+        sales_total: row.total,
+        invoices_count: invoiceCount,
+        avg_invoice: invoiceCount ? row.total / invoiceCount : 0,
+        linked_customers: row.customers.size,
+        daily_avg: row.days.size ? row.total / row.days.size : row.total,
+        link_rate: (row.total / grand) * 100,
+        best_day: dayRows[0]?.[0] || null,
+        best_day_sales: dayRows[0]?.[1] || 0,
+      } satisfies BranchTruthStats;
+    })
+    .sort((a, b) => b.sales_total - a.sales_total);
 }
 
 function mapRpcBranchRow(row: Record<string, unknown>): BranchTruthStats {
   return {
-    branch: text(row.branch) || "غير محدد",
+    branch: text(row.branch) || 'غير محدد',
     sales_total: numberValue(row.sales_total),
     invoices_count: numberValue(row.invoices_count),
     avg_invoice: numberValue(row.avg_invoice),
@@ -94,14 +107,19 @@ function mapRpcBranchRow(row: Record<string, unknown>): BranchTruthStats {
   };
 }
 
-async function tryBranchRpc(startDate: string, endDate: string): Promise<BranchTruthStats[] | null> {
+async function tryBranchRpc(
+  startDate: string,
+  endDate: string
+): Promise<BranchTruthStats[] | null> {
   try {
-    const { data, error } = await supabase.rpc("get_branch_comparison_v2", {
+    const { data, error } = await supabase.rpc('get_branch_comparison_v2', {
       p_start_date: startDate,
       p_end_date: endDate,
     });
     if (error) return null;
-    return ((data || []) as Record<string, unknown>[]).map(mapRpcBranchRow).sort((a, b) => b.sales_total - a.sales_total);
+    return ((data || []) as Record<string, unknown>[])
+      .map(mapRpcBranchRow)
+      .sort((a, b) => b.sales_total - a.sales_total);
   } catch {
     return null;
   }
@@ -117,27 +135,29 @@ export async function getBranchComparisonTruth(options: {
   if (!options.forceRefresh) {
     const rpcRows = await tryBranchRpc(options.startDate, options.endDate);
     if (rpcRows && rpcRows.length) {
-      return { rows: rpcRows, source: "rpc", rowsRead: rpcRows.length, warnings };
+      return { rows: rpcRows, source: 'rpc', rowsRead: rpcRows.length, warnings };
     }
-    warnings.push("لم يتم العثور على RPC get_branch_comparison_v2 أو لم يرجع بيانات؛ تم استخدام fallback من الفواتير.");
+    warnings.push(
+      'لم يتم العثور على RPC get_branch_comparison_v2 أو لم يرجع بيانات؛ تم استخدام fallback من الفواتير.'
+    );
   }
 
   if (options.forceRefresh) clearInvoiceCache();
   const errors: string[] = [];
-  const invoiceRows = await fetchSalesInvoicesPagedSafe({
+  const invoiceRows = (await fetchSalesInvoicesPagedSafe({
     startDate: options.startDate,
     endDate: options.endDate,
-    branch: "كل الفروع",
+    branch: 'كل الفروع',
     errors,
     noCache: options.forceRefresh,
     pageSize: 1000,
     maxPages: 80,
-  }) as DashboardInvoiceRow[];
+  })) as DashboardInvoiceRow[];
 
   warnings.push(...errors);
   return {
     rows: buildBranchStatsFallback(invoiceRows),
-    source: "client_fallback",
+    source: 'client_fallback',
     rowsRead: invoiceRows.length,
     warnings,
   };

@@ -1,14 +1,10 @@
-import type { Customer } from "@/types/database";
-import {
-  hasCustomerFlag,
-  parseCustomerFlags,
-  type CustomerFlagsObject,
-} from "@/lib/customerFlags";
+import type { Customer } from '@/types/database';
+import { hasCustomerFlag, parseCustomerFlags, type CustomerFlagsObject } from '@/lib/customerFlags';
 
 export interface WhatsAppTemplate {
   id: string;
   name: string;
-  category: "followup" | "promotion" | "reminder" | "thank_you" | "re_engagement";
+  category: 'followup' | 'promotion' | 'reminder' | 'thank_you' | 're_engagement';
   template: string;
   variables: string[];
   description: string;
@@ -19,85 +15,95 @@ export interface WhatsAppTemplate {
  */
 export const whatsappTemplates: WhatsAppTemplate[] = [
   {
-    id: "followup_initial",
-    name: "متابعة أولية",
-    category: "followup",
-    template: "مرحباً {customer_name}،\n\nأنا {staff_name} من صيدلية {branch}. أردت التحقق من حالتك والاستفسار إذا كنت تحتاج أي شيء.\n\nهل هناك أي طلبات أو استفسارات يمكنني مساعدتك بها؟",
-    variables: ["customer_name", "staff_name", "branch"],
-    description: "رسالة متابعة أولية للعميل"
+    id: 'followup_initial',
+    name: 'متابعة أولية',
+    category: 'followup',
+    template:
+      'مرحباً {customer_name}،\n\nأنا {staff_name} من صيدلية {branch}. أردت التحقق من حالتك والاستفسار إذا كنت تحتاج أي شيء.\n\nهل هناك أي طلبات أو استفسارات يمكنني مساعدتك بها؟',
+    variables: ['customer_name', 'staff_name', 'branch'],
+    description: 'رسالة متابعة أولية للعميل',
   },
   {
-    id: "followup_reminder",
-    name: "تذكير بمتابعة",
-    category: "reminder",
-    template: "مرحباً {customer_name}،\n\nتذكير بموعد متابعتنا المجددة. هل تريد تأجيلها أو إعادة جدولتها؟\n\nنحن هنا لمساعدتك بأي وقت.",
-    variables: ["customer_name"],
-    description: "تذكير بموعد متابعة"
+    id: 'followup_reminder',
+    name: 'تذكير بمتابعة',
+    category: 'reminder',
+    template:
+      'مرحباً {customer_name}،\n\nتذكير بموعد متابعتنا المجددة. هل تريد تأجيلها أو إعادة جدولتها؟\n\nنحن هنا لمساعدتك بأي وقت.',
+    variables: ['customer_name'],
+    description: 'تذكير بموعد متابعة',
   },
   {
-    id: "promotion_offer",
-    name: "عرض خاص",
-    category: "promotion",
-    template: "مرحباً {customer_name}،\n\nلدينا عرض خاص لك! خصم {discount}% على جميع المنتجات.\n\nالعرض ساري حتى {expiry_date}.\n\nاتصل بنا للحجز: {phone}",
-    variables: ["customer_name", "discount", "expiry_date", "phone"],
-    description: "عرض ترويجي خاص"
+    id: 'promotion_offer',
+    name: 'عرض خاص',
+    category: 'promotion',
+    template:
+      'مرحباً {customer_name}،\n\nلدينا عرض خاص لك! خصم {discount}% على جميع المنتجات.\n\nالعرض ساري حتى {expiry_date}.\n\nاتصل بنا للحجز: {phone}',
+    variables: ['customer_name', 'discount', 'expiry_date', 'phone'],
+    description: 'عرض ترويجي خاص',
   },
   {
-    id: "thank_you_purchase",
-    name: "شكر على الشراء",
-    category: "thank_you",
-    template: "شكراً {customer_name} على ثقتك بنا!\n\nنأمل أن تكون راضياً عن طلبك. إذا كان لديك أي استفسارات، لا تتردد في الاتصال بنا.\n\nمع أطيب التحيات،\n{staff_name}",
-    variables: ["customer_name", "staff_name"],
-    description: "شكر العميل على الشراء"
+    id: 'thank_you_purchase',
+    name: 'شكر على الشراء',
+    category: 'thank_you',
+    template:
+      'شكراً {customer_name} على ثقتك بنا!\n\nنأمل أن تكون راضياً عن طلبك. إذا كان لديك أي استفسارات، لا تتردد في الاتصال بنا.\n\nمع أطيب التحيات،\n{staff_name}',
+    variables: ['customer_name', 'staff_name'],
+    description: 'شكر العميل على الشراء',
   },
   {
-    id: "re_engagement_inactive",
-    name: "إعادة تفعيل",
-    category: "re_engagement",
-    template: "مرحباً {customer_name}،\n\nلقد فاتنا! نفتقدك في صيدلية {branch}.\n\nهل هناك أي سبب لعدم زيارتنا مؤخراً؟ نود سماع رأيك وتحسين خدماتنا.\n\nمع أطيب التحيات،\n{staff_name}",
-    variables: ["customer_name", "branch", "staff_name"],
-    description: "إعادة تفعيل عميل غير نشط"
+    id: 're_engagement_inactive',
+    name: 'إعادة تفعيل',
+    category: 're_engagement',
+    template:
+      'مرحباً {customer_name}،\n\nلقد فاتنا! نفتقدك في صيدلية {branch}.\n\nهل هناك أي سبب لعدم زيارتنا مؤخراً؟ نود سماع رأيك وتحسين خدماتنا.\n\nمع أطيب التحيات،\n{staff_name}',
+    variables: ['customer_name', 'branch', 'staff_name'],
+    description: 'إعادة تفعيل عميل غير نشط',
   },
   {
-    id: "followup_result_positive",
-    name: "نتيجة إيجابية",
-    category: "followup",
-    template: "مرحباً {customer_name}،\n\nسعيد جداً بنتيجة متابعتنا الأخيرة. شكراً لتواصلك معنا.\n\nنحن دائماً هنا لمساعدتك. لا تتردد في الاتصال بنا عند الحاجة.\n\nمع أطيب التحيات،\n{staff_name}",
-    variables: ["customer_name", "staff_name"],
-    description: "متابعة بعد نتيجة إيجابية"
+    id: 'followup_result_positive',
+    name: 'نتيجة إيجابية',
+    category: 'followup',
+    template:
+      'مرحباً {customer_name}،\n\nسعيد جداً بنتيجة متابعتنا الأخيرة. شكراً لتواصلك معنا.\n\nنحن دائماً هنا لمساعدتك. لا تتردد في الاتصال بنا عند الحاجة.\n\nمع أطيب التحيات،\n{staff_name}',
+    variables: ['customer_name', 'staff_name'],
+    description: 'متابعة بعد نتيجة إيجابية',
   },
   {
-    id: "followup_result_negative",
-    name: "نتيجة سلبية",
-    category: "followup",
-    template: "مرحباً {customer_name}،\n\nأسف أن نتيجة متابعتنا الأخيرة لم تكن كما تتوقع.\n\nنود فهم المزيد لتحسين خدماتنا. هل يمكنك إخبارنا بما يمكننا تحسينه؟\n\nمع أطيب التحيات،\n{staff_name}",
-    variables: ["customer_name", "staff_name"],
-    description: "متابعة بعد نتيجة سلبية"
+    id: 'followup_result_negative',
+    name: 'نتيجة سلبية',
+    category: 'followup',
+    template:
+      'مرحباً {customer_name}،\n\nأسف أن نتيجة متابعتنا الأخيرة لم تكن كما تتوقع.\n\nنود فهم المزيد لتحسين خدماتنا. هل يمكنك إخبارنا بما يمكننا تحسينه؟\n\nمع أطيب التحيات،\n{staff_name}',
+    variables: ['customer_name', 'staff_name'],
+    description: 'متابعة بعد نتيجة سلبية',
   },
   {
-    id: "new_product_announcement",
-    name: "إعلان منتج جديد",
-    category: "promotion",
-    template: "مرحباً {customer_name}،\n\nيسعدنا إبلاغك بوصول منتجات جديدة إلى صيدلية {branch}!\n\n{product_description}\n\nالسعر: {price} ج\n\nاتصل بنا للحجز: {phone}",
-    variables: ["customer_name", "branch", "product_description", "price", "phone"],
-    description: "إعلان عن منتجات جديدة"
+    id: 'new_product_announcement',
+    name: 'إعلان منتج جديد',
+    category: 'promotion',
+    template:
+      'مرحباً {customer_name}،\n\nيسعدنا إبلاغك بوصول منتجات جديدة إلى صيدلية {branch}!\n\n{product_description}\n\nالسعر: {price} ج\n\nاتصل بنا للحجز: {phone}',
+    variables: ['customer_name', 'branch', 'product_description', 'price', 'phone'],
+    description: 'إعلان عن منتجات جديدة',
   },
   {
-    id: "birthday_greeting",
-    name: "تهنئة عيد ميلاد",
-    category: "thank_you",
-    template: "عيد ميلاد سعيد {customer_name}! 🎂\n\nنتمنى لك عاماً سعيداً مليئاً بالصحة والسعادة.\n\nمن صيدلية {branch}، نتمنى لك كل التوفيق.\n\nمع أطيب التحيات،\nفريق الصيدلية",
-    variables: ["customer_name", "branch"],
-    description: "تهنئة عيد ميلاد"
+    id: 'birthday_greeting',
+    name: 'تهنئة عيد ميلاد',
+    category: 'thank_you',
+    template:
+      'عيد ميلاد سعيد {customer_name}! 🎂\n\nنتمنى لك عاماً سعيداً مليئاً بالصحة والسعادة.\n\nمن صيدلية {branch}، نتمنى لك كل التوفيق.\n\nمع أطيب التحيات،\nفريق الصيدلية',
+    variables: ['customer_name', 'branch'],
+    description: 'تهنئة عيد ميلاد',
   },
   {
-    id: "appointment_confirmation",
-    name: "تأكيد موعد",
-    category: "reminder",
-    template: "مرحباً {customer_name}،\n\nتم تأكيد موعدك في {date} الساعة {time}.\n\nالموقع: {location}\n\nننتظرك هناك!",
-    variables: ["customer_name", "date", "time", "location"],
-    description: "تأكيد موعد"
-  }
+    id: 'appointment_confirmation',
+    name: 'تأكيد موعد',
+    category: 'reminder',
+    template:
+      'مرحباً {customer_name}،\n\nتم تأكيد موعدك في {date} الساعة {time}.\n\nالموقع: {location}\n\nننتظرك هناك!',
+    variables: ['customer_name', 'date', 'time', 'location'],
+    description: 'تأكيد موعد',
+  },
 ];
 
 /**
@@ -108,15 +114,15 @@ export function generateWhatsAppMessage(
   variables: Record<string, string>
 ): string {
   const template = whatsappTemplates.find((t) => t.id === templateId);
-  
+
   if (!template) {
     throw new Error(`Template with id ${templateId} not found`);
   }
 
   let message = template.template;
-  
+
   for (const [key, value] of Object.entries(variables)) {
-    message = message.replace(new RegExp(`{${key}}`, "g"), value);
+    message = message.replace(new RegExp(`{${key}}`, 'g'), value);
   }
 
   return message;
@@ -127,38 +133,38 @@ export function generateWhatsAppMessage(
  */
 export function getRecommendedTemplate(
   customer: Customer,
-  context: "initial" | "followup" | "inactive" | "purchase" | "promotion"
+  context: 'initial' | 'followup' | 'inactive' | 'purchase' | 'promotion'
 ): WhatsAppTemplate {
   switch (context) {
-    case "initial":
-      return whatsappTemplates.find((t) => t.id === "followup_initial")!;
-    case "followup":
-      if (customer.retention_status === "at_risk" || customer.retention_status === "threatened") {
-        return whatsappTemplates.find((t) => t.id === "re_engagement_inactive")!;
+    case 'initial':
+      return whatsappTemplates.find((t) => t.id === 'followup_initial')!;
+    case 'followup':
+      if (customer.retention_status === 'at_risk' || customer.retention_status === 'threatened') {
+        return whatsappTemplates.find((t) => t.id === 're_engagement_inactive')!;
       }
-      return whatsappTemplates.find((t) => t.id === "followup_reminder")!;
-    case "inactive":
-      return whatsappTemplates.find((t) => t.id === "re_engagement_inactive")!;
-    case "purchase":
-      return whatsappTemplates.find((t) => t.id === "thank_you_purchase")!;
-    case "promotion":
-      return whatsappTemplates.find((t) => t.id === "promotion_offer")!;
+      return whatsappTemplates.find((t) => t.id === 'followup_reminder')!;
+    case 'inactive':
+      return whatsappTemplates.find((t) => t.id === 're_engagement_inactive')!;
+    case 'purchase':
+      return whatsappTemplates.find((t) => t.id === 'thank_you_purchase')!;
+    case 'promotion':
+      return whatsappTemplates.find((t) => t.id === 'promotion_offer')!;
     default:
-      return whatsappTemplates.find((t) => t.id === "followup_initial")!;
+      return whatsappTemplates.find((t) => t.id === 'followup_initial')!;
   }
 }
 
 /**
  * Get templates by category
  */
-export function getTemplatesByCategory(category: WhatsAppTemplate["category"]): WhatsAppTemplate[] {
+export function getTemplatesByCategory(category: WhatsAppTemplate['category']): WhatsAppTemplate[] {
   return whatsappTemplates.filter((t) => t.category === category);
 }
 
 /**
  * Get all template categories
  */
-export function getTemplateCategories(): WhatsAppTemplate["category"][] {
+export function getTemplateCategories(): WhatsAppTemplate['category'][] {
   return Array.from(new Set(whatsappTemplates.map((t) => t.category)));
 }
 
@@ -170,12 +176,12 @@ export function buildCustomerServiceWhatsAppMessage(input: {
   flags?: CustomerFlagsObject | any;
   purchaseFrequencyStatus?: string | null;
 }) {
-  const customerName = input.customerName || "حضرتك";
-  const staffName = input.staffName || "فريق خدمة العملاء";
-  const branch = input.branch || "دواaa Pharmacy";
-  const reason = input.reason || "الاطمئنان عليك ومتابعة احتياجاتك";
+  const customerName = input.customerName || 'حضرتك';
+  const staffName = input.staffName || 'فريق خدمة العملاء';
+  const branch = input.branch || 'دواaa Pharmacy';
+  const reason = input.reason || 'الاطمئنان عليك ومتابعة احتياجاتك';
   const flags = parseCustomerFlags(input.flags);
-  const frequencyStatus = input.purchaseFrequencyStatus || "";
+  const frequencyStatus = input.purchaseFrequencyStatus || '';
 
   const lines = [
     `مرحبًا ${customerName}`,
@@ -183,50 +189,50 @@ export function buildCustomerServiceWhatsAppMessage(input: {
     `نتواصل معك بخصوص ${reason}.`,
   ];
 
-  if (frequencyStatus === "توقف عن الشراء") {
-    lines.push("لاحظنا توقفًا في مشترياتك مؤخراً، نود التأكد من توافر احتياجاتك في أسرع وقت.");
-  } else if (frequencyStatus === "انخفض الشراء") {
-    lines.push("لاحظنا انخفاضًا في زياراتك، هل هناك أي خدمات أو عروض خاصة نقدر نساعدك بها؟");
+  if (frequencyStatus === 'توقف عن الشراء') {
+    lines.push('لاحظنا توقفًا في مشترياتك مؤخراً، نود التأكد من توافر احتياجاتك في أسرع وقت.');
+  } else if (frequencyStatus === 'انخفض الشراء') {
+    lines.push('لاحظنا انخفاضًا في زياراتك، هل هناك أي خدمات أو عروض خاصة نقدر نساعدك بها؟');
   }
 
   // Price sensitive: Use softer price-aware language
-  if (hasCustomerFlag(flags, "price_sensitive")) {
-    lines.push("نقدر نرشح لحضرتك أنسب اختيار من حيث الجودة والسعر.");
+  if (hasCustomerFlag(flags, 'price_sensitive')) {
+    lines.push('نقدر نرشح لحضرتك أنسب اختيار من حيث الجودة والسعر.');
   }
 
   // No delivery: Do not mention adding delivery cost
-  if (hasCustomerFlag(flags, "no_delivery")) {
-    lines.push("نقدر تجهيز طلبك للاستلام من الصيدلية.");
+  if (hasCustomerFlag(flags, 'no_delivery')) {
+    lines.push('نقدر تجهيز طلبك للاستلام من الصيدلية.');
   }
 
   // No substitutes: Do not suggest alternatives directly
-  if (hasCustomerFlag(flags, "no_substitutes")) {
-    lines.push("لو الصنف المطلوب غير متوفر نبلغ حضرتك قبل أي بديل.");
+  if (hasCustomerFlag(flags, 'no_substitutes')) {
+    lines.push('لو الصنف المطلوب غير متوفر نبلغ حضرتك قبل أي بديل.');
   }
 
   // Needs special handling: Use extra polite careful tone
-  if (hasCustomerFlag(flags, "needs_special_handling")) {
-    lines.push("نحن هنا لتقديم خدمة مميزة تناسب احتياجاتك الخاصة.");
+  if (hasCustomerFlag(flags, 'needs_special_handling')) {
+    lines.push('نحن هنا لتقديم خدمة مميزة تناسب احتياجاتك الخاصة.');
   }
 
   // Prefers call: Note for the staff (not included in WhatsApp message)
   // This is handled in the UI component
 
-  lines.push("هل يوجد أي طلب أو استفسار نقدر نساعدك فيه؟");
-  return lines.join("\n");
+  lines.push('هل يوجد أي طلب أو استفسار نقدر نساعدك فيه؟');
+  return lines.join('\n');
 }
 
 export type CustomerCareScriptType =
-  | "friendly_general"
-  | "vip"
-  | "stopped"
-  | "reduced"
-  | "price_sensitive"
-  | "no_substitutes"
-  | "complaint_manager"
-  | "periodic_reminder"
-  | "usage_explanation"
-  | "data_completion";
+  | 'friendly_general'
+  | 'vip'
+  | 'stopped'
+  | 'reduced'
+  | 'price_sensitive'
+  | 'no_substitutes'
+  | 'complaint_manager'
+  | 'periodic_reminder'
+  | 'usage_explanation'
+  | 'data_completion';
 
 export function chooseCustomerCareScriptType(input: {
   segment?: string | null;
@@ -236,16 +242,20 @@ export function chooseCustomerCareScriptType(input: {
   hasValidPhone?: boolean;
 }): CustomerCareScriptType {
   const flags = parseCustomerFlags(input.flags);
-  if (!input.hasValidPhone) return "data_completion";
-  if (hasCustomerFlag(flags, "needs_manager") || hasCustomerFlag(flags, "complains_often")) return "complaint_manager";
-  if (hasCustomerFlag(flags, "no_substitutes")) return "no_substitutes";
-  if (hasCustomerFlag(flags, "price_sensitive")) return "price_sensitive";
-  if (hasCustomerFlag(flags, "needs_usage_explanation")) return "usage_explanation";
-  if (hasCustomerFlag(flags, "needs_periodic_reminder")) return "periodic_reminder";
-  if (input.customerStatus === "متوقف") return "stopped";
-  if (["decreased", "انخفض الشراء", "قلل شراءه"].includes(String(input.purchaseFrequencyStatus || ""))) return "reduced";
-  if (input.segment === "مهم جدًا" || hasCustomerFlag(flags, "vip")) return "vip";
-  return "friendly_general";
+  if (!input.hasValidPhone) return 'data_completion';
+  if (hasCustomerFlag(flags, 'needs_manager') || hasCustomerFlag(flags, 'complains_often'))
+    return 'complaint_manager';
+  if (hasCustomerFlag(flags, 'no_substitutes')) return 'no_substitutes';
+  if (hasCustomerFlag(flags, 'price_sensitive')) return 'price_sensitive';
+  if (hasCustomerFlag(flags, 'needs_usage_explanation')) return 'usage_explanation';
+  if (hasCustomerFlag(flags, 'needs_periodic_reminder')) return 'periodic_reminder';
+  if (input.customerStatus === 'متوقف') return 'stopped';
+  if (
+    ['decreased', 'انخفض الشراء', 'قلل شراءه'].includes(String(input.purchaseFrequencyStatus || ''))
+  )
+    return 'reduced';
+  if (input.segment === 'مهم جدًا' || hasCustomerFlag(flags, 'vip')) return 'vip';
+  return 'friendly_general';
 }
 
 export function buildCustomerCareScript(input: {
@@ -263,74 +273,74 @@ export function buildCustomerCareScript(input: {
   hasValidPhone?: boolean;
 }) {
   const flags = parseCustomerFlags(input.flags);
-  const name = input.customerName || "حضرتك";
+  const name = input.customerName || 'حضرتك';
   const scriptType = input.scriptType || chooseCustomerCareScriptType(input);
   const intro = `أهلاً بحضرتك يا أستاذ/ة ${name} 🌿`;
   const scripts: Record<CustomerCareScriptType, string[]> = {
     friendly_general: [
       intro,
-      "مع حضرتك صيدليات دواء، كنا بنطمن على حضرتك ونشوف لو فيه أي صنف محتاجه أو أي خدمة نقدر نساعدك فيها.",
-      "وجود حضرتك يهمنا، ودايمًا بنحاول نوفر لحضرتك أفضل خدمة.",
+      'مع حضرتك صيدليات دواء، كنا بنطمن على حضرتك ونشوف لو فيه أي صنف محتاجه أو أي خدمة نقدر نساعدك فيها.',
+      'وجود حضرتك يهمنا، ودايمًا بنحاول نوفر لحضرتك أفضل خدمة.',
     ],
     vip: [
       intro,
-      "مع حضرتك صيدليات دواء، بنطمن على حضرتك لأنك من عملائنا المميزين، ولو فيه أي احتياج أو ملاحظة نقدر نساعدك فيها فورًا إن شاء الله.",
-      "رضا حضرتك مهم جدًا لينا.",
+      'مع حضرتك صيدليات دواء، بنطمن على حضرتك لأنك من عملائنا المميزين، ولو فيه أي احتياج أو ملاحظة نقدر نساعدك فيها فورًا إن شاء الله.',
+      'رضا حضرتك مهم جدًا لينا.',
     ],
     stopped: [
       intro,
-      "مع حضرتك صيدليات دواء، لاحظنا إن حضرتك بقالك فترة ما طلبتش مننا، فحبينا نطمن عليك ونعرف لو كان فيه أي مشكلة أو أي صنف محتاجه.",
-      "لو فيه أي ملاحظة على آخر تعامل معانا، يهمنا نعرفها ونحلها لحضرتك.",
+      'مع حضرتك صيدليات دواء، لاحظنا إن حضرتك بقالك فترة ما طلبتش مننا، فحبينا نطمن عليك ونعرف لو كان فيه أي مشكلة أو أي صنف محتاجه.',
+      'لو فيه أي ملاحظة على آخر تعامل معانا، يهمنا نعرفها ونحلها لحضرتك.',
     ],
     reduced: [
       intro,
-      "مع حضرتك صيدليات دواء، كنا بنطمن على حضرتك ونشوف لو فيه أي سبب خلى طلبات حضرتك تقل الفترة دي.",
-      "لو فيه صنف ناقص أو تجربة مش مريحة حصلت، يهمنا نساعدك ونحسنها فورًا.",
+      'مع حضرتك صيدليات دواء، كنا بنطمن على حضرتك ونشوف لو فيه أي سبب خلى طلبات حضرتك تقل الفترة دي.',
+      'لو فيه صنف ناقص أو تجربة مش مريحة حصلت، يهمنا نساعدك ونحسنها فورًا.',
     ],
     price_sensitive: [
       intro,
-      "مع حضرتك صيدليات دواء، نقدر نرشح لحضرتك أنسب اختيار من حيث الجودة والسعر، ونوضح كل التفاصيل قبل أي طلب عشان حضرتك تختار براحتك.",
+      'مع حضرتك صيدليات دواء، نقدر نرشح لحضرتك أنسب اختيار من حيث الجودة والسعر، ونوضح كل التفاصيل قبل أي طلب عشان حضرتك تختار براحتك.',
     ],
     no_substitutes: [
       intro,
-      "مع حضرتك صيدليات دواء، لو حضرتك محتاج صنف معين هنراجع توفره الأول، ولو مش متوفر مش هنقترح أي بديل إلا بعد الرجوع لحضرتك والتأكيد عليك.",
+      'مع حضرتك صيدليات دواء، لو حضرتك محتاج صنف معين هنراجع توفره الأول، ولو مش متوفر مش هنقترح أي بديل إلا بعد الرجوع لحضرتك والتأكيد عليك.',
     ],
     complaint_manager: [
       intro,
-      "مع حضرتك صيدليات دواء، بنعتذر لحضرتك لو كان فيه أي تقصير قبل كده.",
-      "يهمنا نتابع مع حضرتك بنفسنا ونحل أي ملاحظة، لأن رضا حضرتك وثقتك فينا مهمين جدًا.",
+      'مع حضرتك صيدليات دواء، بنعتذر لحضرتك لو كان فيه أي تقصير قبل كده.',
+      'يهمنا نتابع مع حضرتك بنفسنا ونحل أي ملاحظة، لأن رضا حضرتك وثقتك فينا مهمين جدًا.',
     ],
     periodic_reminder: [
       intro,
-      "مع حضرتك صيدليات دواء، بنفكّر حضرتك لو فيه أي صنف بتحتاجه بشكل دوري أو أي طلب تحب نجهزه لحضرتك.",
-      "إحنا في خدمتك في أي وقت.",
+      'مع حضرتك صيدليات دواء، بنفكّر حضرتك لو فيه أي صنف بتحتاجه بشكل دوري أو أي طلب تحب نجهزه لحضرتك.',
+      'إحنا في خدمتك في أي وقت.',
     ],
     usage_explanation: [
       intro,
-      "مع حضرتك صيدليات دواء، لو حضرتك محتاج توضيح لطريقة استخدام أي صنف أو الجرعة المناسبة، إحنا جاهزين نساعدك بكل التفاصيل.",
+      'مع حضرتك صيدليات دواء، لو حضرتك محتاج توضيح لطريقة استخدام أي صنف أو الجرعة المناسبة، إحنا جاهزين نساعدك بكل التفاصيل.',
     ],
     data_completion: [
       intro,
-      "مع حضرتك صيدليات دواء، بنحدث بيانات العملاء عشان نقدر نقدم خدمة أسرع وأدق.",
-      "ممكن حضرتك تأكد لنا رقم التواصل والعنوان المناسب لو احتجنا نوصل لحضرتك؟",
+      'مع حضرتك صيدليات دواء، بنحدث بيانات العملاء عشان نقدر نقدم خدمة أسرع وأدق.',
+      'ممكن حضرتك تأكد لنا رقم التواصل والعنوان المناسب لو احتجنا نوصل لحضرتك؟',
     ],
   };
 
   const lines = [...scripts[scriptType]];
-  if (input.followupReason && scriptType === "friendly_general") {
+  if (input.followupReason && scriptType === 'friendly_general') {
     lines.push(`سبب تواصلنا مع حضرتك: ${input.followupReason}.`);
   }
-  if (hasCustomerFlag(flags, "needs_special_handling")) {
-    lines.push("هنخلي التعامل هادي وواضح وبالطريقة اللي تريح حضرتك.");
+  if (hasCustomerFlag(flags, 'needs_special_handling')) {
+    lines.push('هنخلي التعامل هادي وواضح وبالطريقة اللي تريح حضرتك.');
   }
-  if (hasCustomerFlag(flags, "no_delivery")) {
-    lines.push("ونقدر نجهز طلب حضرتك للاستلام من الصيدلية لو ده أنسب لحضرتك.");
+  if (hasCustomerFlag(flags, 'no_delivery')) {
+    lines.push('ونقدر نجهز طلب حضرتك للاستلام من الصيدلية لو ده أنسب لحضرتك.');
   }
-  if (hasCustomerFlag(flags, "prefers_call")) {
-    lines.push("ولو تحب نكلم حضرتك تليفونيًا، نقدر نرتب ده في الوقت المناسب.");
+  if (hasCustomerFlag(flags, 'prefers_call')) {
+    lines.push('ولو تحب نكلم حضرتك تليفونيًا، نقدر نرتب ده في الوقت المناسب.');
   }
-  lines.push("صيدليات دواء دايمًا في خدمتك 🌿");
-  return lines.join("\n");
+  lines.push('صيدليات دواء دايمًا في خدمتك 🌿');
+  return lines.join('\n');
 }
 
 /**
@@ -338,5 +348,5 @@ export function buildCustomerCareScript(input: {
  */
 export function customerPrefersCall(flags?: CustomerFlagsObject | any): boolean {
   const parsedFlags = parseCustomerFlags(flags);
-  return hasCustomerFlag(parsedFlags, "prefers_call");
+  return hasCustomerFlag(parsedFlags, 'prefers_call');
 }

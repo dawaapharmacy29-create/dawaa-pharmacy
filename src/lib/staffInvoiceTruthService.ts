@@ -1,8 +1,8 @@
-import { normalizeBranchName } from "@/lib/branch";
-import { getInvoiceAmount, getInvoiceKey, pickFirst, toNumber } from "@/lib/dawaa2027";
-import { normalizeRole } from "@/lib/permissionMatrix";
-import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { selectAllPaged } from "@/lib/supabasePaged";
+import { normalizeBranchName } from '@/lib/branch';
+import { getInvoiceAmount, getInvoiceKey, pickFirst, toNumber } from '@/lib/dawaa2027';
+import { normalizeRole } from '@/lib/permissionMatrix';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { selectAllPaged } from '@/lib/supabasePaged';
 
 type Row = Record<string, unknown>;
 
@@ -79,7 +79,7 @@ export type StaffInvoiceTruth = {
     percentDifference: number;
   };
   diagnostics: {
-    sourceTable: "sales_invoices";
+    sourceTable: 'sales_invoices';
     salesTableAvailable: boolean;
     warnings: string[];
     errors: string[];
@@ -116,7 +116,7 @@ function emptyInvoiceTruth(
 ): StaffInvoiceTruth {
   const sellerDiag = buildSellerDiagnostics(invoiceRows.map(invoiceFromRow), staffBranch);
   const globalSample = invoiceRows
-    .map((r) => String(pickFirst(r, ["seller_name"], "") || ""))
+    .map((r) => String(pickFirst(r, ['seller_name'], '') || ''))
     .filter(Boolean);
   const uniqueGlobal = [...new Set(globalSample)].slice(0, 30);
 
@@ -153,7 +153,7 @@ function emptyInvoiceTruth(
     },
     branchComparison: { staffAvg: 0, branchAvg: 0, difference: 0, percentDifference: 0 },
     diagnostics: {
-      sourceTable: "sales_invoices",
+      sourceTable: 'sales_invoices',
       salesTableAvailable,
       warnings,
       errors,
@@ -167,7 +167,7 @@ function emptyInvoiceTruth(
       globalSellerNamesSample: uniqueGlobal,
       distinctSellerNamesInBranch: sellerDiag.distinctSellerNamesInBranch,
       topSellerNamesInBranch: sellerDiag.topSellerNamesInBranch,
-      roleDetected: staffRole || "غير محدد",
+      roleDetected: staffRole || 'غير محدد',
       roleAllowedForMatching,
       suggestedAliases: buildSuggestedAliases(staffName, sellerDiag.distinctSellerNamesInBranch),
     },
@@ -184,7 +184,8 @@ function buildSuggestedAliases(staffName: string, branchSellerNames: string[]): 
       normSeller === normName ||
       normSeller.includes(normName) ||
       normName.includes(normSeller) ||
-      (normName.length > 3 && normSeller.includes(normName.slice(0, Math.floor(normName.length * 0.7))))
+      (normName.length > 3 &&
+        normSeller.includes(normName.slice(0, Math.floor(normName.length * 0.7))))
     ) {
       suggestions.push(sellerName);
     }
@@ -199,24 +200,31 @@ function dayAfter(date: string) {
 }
 
 export function normalizeArabicName(value: unknown) {
-  return String(value || "")
-    .replace(/[\u064b-\u065f]/g, "")
-    .replace(/[\u0623\u0625\u0622]/g, "\u0627")
-    .replace(/\u0649/g, "\u064a")
-    .replace(/\u0629/g, "\u0647")
-    .replace(/^(?:\u0627\u0644)?(?:\u062f\u0643\u062a\u0648\u0631|\u062f\u0643\u062a\u0648\u0631\u0647|\u062f\.?|\u062f\/|dr\.?|doctor)\s*/i, "")
-    .replace(/[./\\_-]+/g, " ")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
+  return String(value || '')
+    .replace(/[\u064b-\u065f]/g, '')
+    .replace(/[\u0623\u0625\u0622]/g, '\u0627')
+    .replace(/\u0649/g, '\u064a')
+    .replace(/\u0629/g, '\u0647')
+    .replace(
+      /^(?:\u0627\u0644)?(?:\u062f\u0643\u062a\u0648\u0631|\u062f\u0643\u062a\u0648\u0631\u0647|\u062f\.?|\u062f\/|dr\.?|doctor)\s*/i,
+      ''
+    )
+    .replace(/[./\\_-]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 }
 
 function isNonSalesRole(role?: string | null): boolean {
-  const rawRole = String(role || "").trim().toLowerCase();
+  const rawRole = String(role || '')
+    .trim()
+    .toLowerCase();
   const normalized = normalizeRole(role);
-  if (normalized === "delivery" || normalized === "cleaning_supervisor") return true;
-  return /(?:توصيل|مندوب|دليفري|delivery|driver|rider|سائق|عامل|نظافة|cleaning|security|حارس|admin_only|it\b)/i.test(rawRole);
+  if (normalized === 'delivery' || normalized === 'cleaning_supervisor') return true;
+  return /(?:توصيل|مندوب|دليفري|delivery|driver|rider|سائق|عامل|نظافة|cleaning|security|حارس|admin_only|it\b)/i.test(
+    rawRole
+  );
 }
 
 function unique(values: string[]) {
@@ -224,9 +232,11 @@ function unique(values: string[]) {
 }
 
 function buildAutomaticAliases(staffName: string) {
-  const name = String(staffName || "").replace(/\s+/g, " ").trim();
+  const name = String(staffName || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   const withoutPrefix = name
-    .replace(/^(?:ال)?(?:دكتور|دكتوره|د\.?|د\/|dr\.?|doctor)\s*/i, "")
+    .replace(/^(?:ال)?(?:دكتور|دكتوره|د\.?|د\/|dr\.?|doctor)\s*/i, '')
     .trim();
   const base = withoutPrefix || name;
   return unique([
@@ -241,79 +251,88 @@ function buildAutomaticAliases(staffName: string) {
   ]);
 }
 
-async function loadStaff(staffId: string): Promise<{ id: string; name: string; branch: string; role: string }> {
+async function loadStaff(
+  staffId: string
+): Promise<{ id: string; name: string; branch: string; role: string }> {
   const { data, error } = await supabase
-    .from("staff")
-    .select("id,name,branch,role")
-    .eq("id", staffId)
+    .from('staff')
+    .select('id,name,branch,role')
+    .eq('id', staffId)
     .maybeSingle();
   if (error) throw new Error(`staff query failed: ${error.message}`);
   if (!data) throw new Error(`Staff not found: ${staffId}`);
   return {
     id: String(data.id || staffId),
-    name: String(data.name || ""),
-    branch: normalizeBranchName(data.branch) || String(data.branch || ""),
-    role: String(data.role || ""),
+    name: String(data.name || ''),
+    branch: normalizeBranchName(data.branch) || String(data.branch || ''),
+    role: String(data.role || ''),
   };
 }
 
 async function loadDbAliases(staffId: string): Promise<string[]> {
   try {
     const { data, error } = await supabase
-      .from("staff_identity_aliases")
-      .select("alias_name")
-      .eq("staff_id", staffId)
-      .eq("active", true)
+      .from('staff_identity_aliases')
+      .select('alias_name')
+      .eq('staff_id', staffId)
+      .eq('active', true)
       .limit(80);
     if (error) return [];
-    return ((data || []) as Row[]).map((row) => String(row.alias_name || "")).filter(Boolean);
+    return ((data || []) as Row[]).map((row) => String(row.alias_name || '')).filter(Boolean);
   } catch {
     return [];
   }
 }
 
-
 function normalizeCustomerPhone(value: unknown, customerCode?: string) {
-  let digits = String(value ?? "")
-    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
-    .replace(/[^0-9+]/g, "");
-  if (digits.startsWith("+20")) digits = `0${digits.slice(3)}`;
-  else if (digits.startsWith("0020")) digits = `0${digits.slice(4)}`;
-  else if (digits.startsWith("20") && digits.length === 12) digits = `0${digits.slice(2)}`;
-  else digits = digits.replace(/\D/g, "");
+  let digits = String(value ?? '')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[^0-9+]/g, '');
+  if (digits.startsWith('+20')) digits = `0${digits.slice(3)}`;
+  else if (digits.startsWith('0020')) digits = `0${digits.slice(4)}`;
+  else if (digits.startsWith('20') && digits.length === 12) digits = `0${digits.slice(2)}`;
+  else digits = digits.replace(/\D/g, '');
   if (digits.length === 10 && /^1[0125]\d{8}$/.test(digits)) digits = `0${digits}`;
-  const codeDigits = String(customerCode || "").replace(/\D/g, "");
-  if (codeDigits && digits === codeDigits) return "";
-  return /^01[0125]\d{8}$/.test(digits) ? digits : "";
+  const codeDigits = String(customerCode || '').replace(/\D/g, '');
+  if (codeDigits && digits === codeDigits) return '';
+  return /^01[0125]\d{8}$/.test(digits) ? digits : '';
 }
 
 function normalizeCustomerCode(value: unknown) {
-  const text = String(value ?? "").replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).trim();
-  return /^code:/i.test(text) ? text.replace(/^code:/i, "") : text;
+  const text = String(value ?? '')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .trim();
+  return /^code:/i.test(text) ? text.replace(/^code:/i, '') : text;
 }
 
 function cleanCustomerSegment(value: unknown) {
-  const text = String(value ?? "").trim();
-  return text && !/^[-.]$/.test(text) ? text : "غير مصنف";
+  const text = String(value ?? '').trim();
+  return text && !/^[-.]$/.test(text) ? text : 'غير مصنف';
 }
 
 function invoiceFromRow(row: Row): StaffInvoiceTruthInvoice {
   return {
-    id: String(pickFirst(row, ["id"], "")),
+    id: String(pickFirst(row, ['id'], '')),
     invoiceNumber: getInvoiceKey(row),
-    invoiceDate: String(pickFirst(row, ["invoice_date", "sale_date", "date"], "")).slice(0, 10),
+    invoiceDate: String(pickFirst(row, ['invoice_date', 'sale_date', 'date'], '')).slice(0, 10),
     amount: getInvoiceAmount(row),
-    customerName: String(pickFirst(row, ["customer_name", "name"], "")),
-    customerCode: normalizeCustomerCode(pickFirst(row, ["customer_code", "code"], "")),
-    customerPhone: normalizeCustomerPhone(pickFirst(row, ["customer_phone", "phone", "mobile"], ""), String(pickFirst(row, ["customer_code", "code"], ""))),
-    customerAddress: String(pickFirst(row, ["customer_address", "address", "customer_addr"], "")),
-    customerSegment: cleanCustomerSegment(pickFirst(row, ["customer_segment", "segment", "classification", "customer_type"], "")),
-    branch: normalizeBranchName(pickFirst(row, ["branch", "branch_name"], "")) ||
-      String(pickFirst(row, ["branch", "branch_name"], "")),
-    sellerName: String(pickFirst(row, ["seller_name", "doctor_name", "staff_name"], "")),
-    invoiceType: String(pickFirst(row, ["invoice_type"], "")),
-    invoiceCategory: String(pickFirst(row, ["invoice_category"], "")),
-    shift: String(pickFirst(row, ["shift"], "")),
+    customerName: String(pickFirst(row, ['customer_name', 'name'], '')),
+    customerCode: normalizeCustomerCode(pickFirst(row, ['customer_code', 'code'], '')),
+    customerPhone: normalizeCustomerPhone(
+      pickFirst(row, ['customer_phone', 'phone', 'mobile'], ''),
+      String(pickFirst(row, ['customer_code', 'code'], ''))
+    ),
+    customerAddress: String(pickFirst(row, ['customer_address', 'address', 'customer_addr'], '')),
+    customerSegment: cleanCustomerSegment(
+      pickFirst(row, ['customer_segment', 'segment', 'classification', 'customer_type'], '')
+    ),
+    branch:
+      normalizeBranchName(pickFirst(row, ['branch', 'branch_name'], '')) ||
+      String(pickFirst(row, ['branch', 'branch_name'], '')),
+    sellerName: String(pickFirst(row, ['seller_name', 'doctor_name', 'staff_name'], '')),
+    invoiceType: String(pickFirst(row, ['invoice_type'], '')),
+    invoiceCategory: String(pickFirst(row, ['invoice_category'], '')),
+    shift: String(pickFirst(row, ['shift'], '')),
   };
 }
 
@@ -324,13 +343,15 @@ function sellerMatches(row: Row, staffId: string, normalizedAliases: Set<string>
     row.doctor_id,
     row.seller_id,
     row.pharmacist_id,
-  ].map((value) => String(value || "").trim()).filter(Boolean);
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
   if (staffId && idCandidates.includes(staffId)) return true;
 
-  const rawSeller = String(pickFirst(row, ["seller_name"], ""));
+  const rawSeller = String(pickFirst(row, ['seller_name'], ''));
   if (!rawSeller) return false;
   const normalizedSeller = normalizeArabicName(
-    pickFirst(row, ["normalized_seller_name"], rawSeller)
+    pickFirst(row, ['normalized_seller_name'], rawSeller)
   );
   if (!normalizedSeller) return false;
   if (normalizedAliases.has(normalizedSeller)) return true;
@@ -338,9 +359,9 @@ function sellerMatches(row: Row, staffId: string, normalizedAliases: Set<string>
   // Allow fuzzy matching only for clear multi-word names. Short one-word names
   // like "اسلام" must match exactly or through an explicit alias to avoid mixing
   // doctors with delivery staff sharing the same first name.
-  const sellerParts = normalizedSeller.split(" ").filter(Boolean);
+  const sellerParts = normalizedSeller.split(' ').filter(Boolean);
   for (const alias of normalizedAliases) {
-    const aliasParts = alias.split(" ").filter(Boolean);
+    const aliasParts = alias.split(' ').filter(Boolean);
     if (!alias || alias.length < 6 || aliasParts.length < 2 || sellerParts.length < 2) continue;
     if (normalizedSeller === alias) return true;
     if (normalizedSeller.includes(alias) || alias.includes(normalizedSeller)) return true;
@@ -350,15 +371,15 @@ function sellerMatches(row: Row, staffId: string, normalizedAliases: Set<string>
 
 function groupByPeriod(
   rows: Array<{ date: string; sales: number; invoices: number }>,
-  period: "week" | "month"
+  period: 'week' | 'month'
 ) {
   const grouped = new Map<string, { sales: number; invoices: number }>();
   for (const row of rows) {
     const date = new Date(`${row.date}T12:00:00`);
     if (Number.isNaN(date.getTime())) continue;
     const key =
-      period === "month"
-        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+      period === 'month'
+        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
         : (() => {
             const start = new Date(date);
             start.setDate(date.getDate() - date.getDay());
@@ -386,7 +407,7 @@ function buildSellerDiagnostics(invoices: StaffInvoiceTruthInvoice[], staffBranc
     ) {
       continue;
     }
-    const sellerName = invoice.sellerName || "غير محدد";
+    const sellerName = invoice.sellerName || 'غير محدد';
     const current = sellerMap.get(sellerName) || { sellerName, sales: 0, invoices: 0 };
     current.sales += invoice.amount;
     current.invoices += 1;
@@ -405,9 +426,7 @@ function buildSummary(invoices: StaffInvoiceTruthInvoice[]) {
   const avgInvoice = invoicesCount ? totalSales / invoicesCount : 0;
   const byAmount = [...invoices].sort((a, b) => b.amount - a.amount);
   const customerKeys = new Set(
-    invoices
-      .map((inv) => inv.customerCode || inv.customerPhone || inv.customerName)
-      .filter(Boolean)
+    invoices.map((inv) => inv.customerCode || inv.customerPhone || inv.customerName).filter(Boolean)
   );
 
   const dayMap = new Map<string, { date: string; sales: number; invoices: number }>();
@@ -425,13 +444,13 @@ function buildSummary(invoices: StaffInvoiceTruthInvoice[]) {
       current.invoices += 1;
       dayMap.set(inv.invoiceDate, current);
     }
-    const shift = inv.shift || "غير محدد";
+    const shift = inv.shift || 'غير محدد';
     const sc = shiftMap.get(shift) || { shift, sales: 0, invoices: 0 };
     sc.sales += inv.amount;
     sc.invoices += 1;
     shiftMap.set(shift, sc);
 
-    const type = inv.invoiceType || inv.invoiceCategory || "غير محدد";
+    const type = inv.invoiceType || inv.invoiceCategory || 'غير محدد';
     const tc = typeMap.get(type) || { type, sales: 0, invoices: 0 };
     tc.sales += inv.amount;
     tc.invoices += 1;
@@ -447,12 +466,10 @@ function buildSummary(invoices: StaffInvoiceTruthInvoice[]) {
     maxInvoice: byAmount[0] || null,
     minInvoice: byAmount.length ? byAmount.at(-1) || null : null,
     uniqueCustomersCount: customerKeys.size,
-    deliveryInvoicesCount: invoices.filter((inv) =>
-      /delivery|توصيل/i.test(inv.invoiceType)
-    ).length,
+    deliveryInvoicesCount: invoices.filter((inv) => /delivery|توصيل/i.test(inv.invoiceType)).length,
     salesByDay,
-    salesByWeek: groupByPeriod(salesByDay, "week"),
-    salesByMonth: groupByPeriod(salesByDay, "month"),
+    salesByWeek: groupByPeriod(salesByDay, 'week'),
+    salesByMonth: groupByPeriod(salesByDay, 'month'),
     salesByShift: [...shiftMap.values()].sort((a, b) => b.sales - a.sales),
     salesByInvoiceType: [...typeMap.values()].sort((a, b) => b.sales - a.sales),
   };
@@ -465,15 +482,15 @@ function buildLinkedCustomers(invoices: StaffInvoiceTruthInvoice[]): StaffInvoic
     if (!key) continue;
     const current = map.get(key) || {
       key,
-      name: inv.customerName || "عميل غير محدد",
+      name: inv.customerName || 'عميل غير محدد',
       code: inv.customerCode,
       phone: inv.customerPhone,
       address: inv.customerAddress,
-      segment: inv.customerSegment || "غير مصنف",
+      segment: inv.customerSegment || 'غير مصنف',
       invoicesCount: 0,
       totalSpent: 0,
       avgInvoice: 0,
-      lastPurchase: "",
+      lastPurchase: '',
     };
     current.invoicesCount += 1;
     current.totalSpent += inv.amount;
@@ -482,7 +499,8 @@ function buildLinkedCustomers(invoices: StaffInvoiceTruthInvoice[]): StaffInvoic
     if (!current.phone && inv.customerPhone) current.phone = inv.customerPhone;
     if (!current.code && inv.customerCode) current.code = inv.customerCode;
     if (!current.address && inv.customerAddress) current.address = inv.customerAddress;
-    if ((!current.segment || current.segment === "غير مصنف") && inv.customerSegment) current.segment = inv.customerSegment;
+    if ((!current.segment || current.segment === 'غير مصنف') && inv.customerSegment)
+      current.segment = inv.customerSegment;
     map.set(key, current);
   }
   return [...map.values()]
@@ -497,31 +515,30 @@ async function getBranchAverageFromInvoices(rows: Row[], staffBranch: string) {
   const branchNorm = normalizeBranchName(staffBranch);
   const amounts = rows
     .map(invoiceFromRow)
-    .filter(
-      (inv) =>
-        !branchNorm || !inv.branch || normalizeBranchName(inv.branch) === branchNorm
-    )
+    .filter((inv) => !branchNorm || !inv.branch || normalizeBranchName(inv.branch) === branchNorm)
     .map((inv) => inv.amount)
     .filter((a) => a > 0);
-  return amounts.length
-    ? amounts.reduce((sum, a) => sum + a, 0) / amounts.length
-    : 0;
+  return amounts.length ? amounts.reduce((sum, a) => sum + a, 0) / amounts.length : 0;
 }
 
-async function loadInvoicesByKnownStaffIdColumns(staffId: string, periodStart: string, periodEnd: string): Promise<Row[]> {
+async function loadInvoicesByKnownStaffIdColumns(
+  staffId: string,
+  periodStart: string,
+  periodEnd: string
+): Promise<Row[]> {
   if (!staffId) return [];
-  const candidateColumns = ["staff_id", "employee_id", "doctor_id", "seller_id", "pharmacist_id"];
+  const candidateColumns = ['staff_id', 'employee_id', 'doctor_id', 'seller_id', 'pharmacist_id'];
   const rows: Row[] = [];
 
   for (const column of candidateColumns) {
     try {
       const { data, error } = await supabase
-        .from("sales_invoices")
-        .select("*")
-        .gte("invoice_date", periodStart)
-        .lt("invoice_date", dayAfter(periodEnd))
+        .from('sales_invoices')
+        .select('*')
+        .gte('invoice_date', periodStart)
+        .lt('invoice_date', dayAfter(periodEnd))
         .eq(column, staffId)
-        .order("invoice_date", { ascending: false })
+        .order('invoice_date', { ascending: false })
         .limit(12000);
       if (!error && data?.length) rows.push(...((data || []) as Row[]));
     } catch {
@@ -535,12 +552,15 @@ async function loadInvoicesByKnownStaffIdColumns(staffId: string, periodStart: s
 function mergeRowsByInvoiceIdentity(rows: Row[]) {
   const map = new Map<string, Row>();
   rows.forEach((row, index) => {
-    const key = [
-      String(pickFirst(row, ["id"], "")),
-      String(pickFirst(row, ["invoice_no", "invoice_number", "invoice_key"], "")),
-      String(pickFirst(row, ["invoice_date", "sale_date", "date"], "")),
-      String(pickFirst(row, ["branch", "branch_name"], "")),
-    ].filter(Boolean).join("|") || `row-${index}`;
+    const key =
+      [
+        String(pickFirst(row, ['id'], '')),
+        String(pickFirst(row, ['invoice_no', 'invoice_number', 'invoice_key'], '')),
+        String(pickFirst(row, ['invoice_date', 'sale_date', 'date'], '')),
+        String(pickFirst(row, ['branch', 'branch_name'], '')),
+      ]
+        .filter(Boolean)
+        .join('|') || `row-${index}`;
     map.set(key, row);
   });
   return [...map.values()];
@@ -556,7 +576,7 @@ export async function getStaffInvoiceTruth(
   const warnings: string[] = [];
 
   // ── 1. Load staff ──────────────────────────────────────────────────────────
-  let staff = { id: staffId, name: "", branch: "", role: "" };
+  let staff = { id: staffId, name: '', branch: '', role: '' };
   try {
     staff = await loadStaff(staffId);
   } catch (err) {
@@ -564,7 +584,19 @@ export async function getStaffInvoiceTruth(
     errors.push(`تعذر جلب بيانات الموظف: ${msg}`);
     // return early with minimal diagnostics
     return emptyInvoiceTruth(
-      staffId, "", "", "", periodStart, periodEnd, [], [], errors, warnings, false, [], false
+      staffId,
+      '',
+      '',
+      '',
+      periodStart,
+      periodEnd,
+      [],
+      [],
+      errors,
+      warnings,
+      false,
+      [],
+      false
     );
   }
 
@@ -584,11 +616,21 @@ export async function getStaffInvoiceTruth(
 
   // ── 4. Query sales_invoices ────────────────────────────────────────────────
   if (!isSupabaseConfigured) {
-    errors.push("Supabase غير مُهيأ في هذه البيئة.");
+    errors.push('Supabase غير مُهيأ في هذه البيئة.');
     return emptyInvoiceTruth(
-      staffId, staff.name, staff.branch, staff.role,
-      periodStart, periodEnd, aliases, normalizedAliases,
-      errors, warnings, false, [], roleAllowedForMatching
+      staffId,
+      staff.name,
+      staff.branch,
+      staff.role,
+      periodStart,
+      periodEnd,
+      aliases,
+      normalizedAliases,
+      errors,
+      warnings,
+      false,
+      [],
+      roleAllowedForMatching
     );
   }
 
@@ -600,23 +642,30 @@ export async function getStaffInvoiceTruth(
     // Fast path: fetch only invoices whose seller_name resembles one of the staff aliases.
     // This makes the staff profile much faster and fixes cases where the old full scan timed out.
     const ilikeAliases = unique(
-      aliases.flatMap((alias) => {
-        const raw = String(alias || "").replace(/[%,()]/g, " ").replace(/\s+/g, " ").trim();
-        const normalizedWords = normalizeArabicName(alias).split(" ").filter((part) => part.length >= 3);
-        const lastWord = normalizedWords.at(-1) || "";
-        return [raw, ...normalizedWords, lastWord].filter((part) => part.length >= 3);
-      }).slice(0, 16)
+      aliases
+        .flatMap((alias) => {
+          const raw = String(alias || '')
+            .replace(/[%,()]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const normalizedWords = normalizeArabicName(alias)
+            .split(' ')
+            .filter((part) => part.length >= 3);
+          const lastWord = normalizedWords.at(-1) || '';
+          return [raw, ...normalizedWords, lastWord].filter((part) => part.length >= 3);
+        })
+        .slice(0, 16)
     );
-    const aliasOr = ilikeAliases.map((alias) => `seller_name.ilike.%${alias}%`).join(",");
+    const aliasOr = ilikeAliases.map((alias) => `seller_name.ilike.%${alias}%`).join(',');
 
     if (aliasOr) {
       const { data, error } = await supabase
-        .from("sales_invoices")
-        .select("*")
-        .gte("invoice_date", periodStart)
-        .lt("invoice_date", dayAfter(periodEnd))
+        .from('sales_invoices')
+        .select('*')
+        .gte('invoice_date', periodStart)
+        .lt('invoice_date', dayAfter(periodEnd))
         .or(aliasOr)
-        .order("invoice_date", { ascending: false })
+        .order('invoice_date', { ascending: false })
         .limit(12000);
       if (error) throw error;
       rows = (data || []) as Row[];
@@ -634,11 +683,11 @@ export async function getStaffInvoiceTruth(
     // If no matching rows were found, fetch a small period sample for diagnostics only.
     if (!rows.length) {
       const { data, error } = await supabase
-        .from("sales_invoices")
-        .select("*")
-        .gte("invoice_date", periodStart)
-        .lt("invoice_date", dayAfter(periodEnd))
-        .order("invoice_date", { ascending: false })
+        .from('sales_invoices')
+        .select('*')
+        .gte('invoice_date', periodStart)
+        .lt('invoice_date', dayAfter(periodEnd))
+        .order('invoice_date', { ascending: false })
         .limit(5000);
       if (error) throw error;
       diagnosticRows = (data || []) as Row[];
@@ -650,13 +699,14 @@ export async function getStaffInvoiceTruth(
     warnings.push(`المسار السريع للفواتير فشل، سيتم استخدام المسح الكامل: ${msg}`);
     try {
       const result = await selectAllPaged<Row>({
-        table: "sales_invoices",
-        select: "*",
+        table: 'sales_invoices',
+        select: '*',
         chunkSize: 1000,
         maxRows: 50000,
-        orderBy: "invoice_date",
+        orderBy: 'invoice_date',
         ascending: false,
-        filters: (query) => query.gte("invoice_date", periodStart).lt("invoice_date", dayAfter(periodEnd)),
+        filters: (query) =>
+          query.gte('invoice_date', periodStart).lt('invoice_date', dayAfter(periodEnd)),
       });
 
       if (result.error) {
@@ -666,7 +716,9 @@ export async function getStaffInvoiceTruth(
         diagnosticRows = rows;
         salesTableAvailable = true;
         if (result.truncated) {
-          warnings.push("تم الوصول للحد الأقصى لقراءة الفواتير 50000 صف. راجع الفترة أو زد الحد لو احتجت.");
+          warnings.push(
+            'تم الوصول للحد الأقصى لقراءة الفواتير 50000 صف. راجع الفترة أو زد الحد لو احتجت.'
+          );
         }
       }
     } catch (fullErr) {
@@ -678,9 +730,19 @@ export async function getStaffInvoiceTruth(
   // Even if rows=[], build diagnostics with seller names sample
   if (!salesTableAvailable) {
     return emptyInvoiceTruth(
-      staffId, staff.name, staff.branch, staff.role,
-      periodStart, periodEnd, aliases, normalizedAliases,
-      errors, warnings, false, [], roleAllowedForMatching
+      staffId,
+      staff.name,
+      staff.branch,
+      staff.role,
+      periodStart,
+      periodEnd,
+      aliases,
+      normalizedAliases,
+      errors,
+      warnings,
+      false,
+      [],
+      roleAllowedForMatching
     );
   }
 
@@ -692,7 +754,7 @@ export async function getStaffInvoiceTruth(
   if (roleAllowedForMatching && matchedRows.length === 0 && rows.length > 0) {
     warnings.push(
       `لم يتم العثور على فواتير مطابقة للموظف "${staff.name}" خلال الفترة ${periodStart} إلى ${periodEnd}. ` +
-      `تم فحص ${rows.length} فاتورة. تحقق من أسماء البائعين أدناه.`
+        `تم فحص ${rows.length} فاتورة. تحقق من أسماء البائعين أدناه.`
     );
   }
 
@@ -700,8 +762,7 @@ export async function getStaffInvoiceTruth(
     .map(invoiceFromRow)
     .sort(
       (a, b) =>
-        b.invoiceDate.localeCompare(a.invoiceDate) ||
-        b.invoiceNumber.localeCompare(a.invoiceNumber)
+        b.invoiceDate.localeCompare(a.invoiceDate) || b.invoiceNumber.localeCompare(a.invoiceNumber)
     );
 
   // ── 6. Build analytics ────────────────────────────────────────────────────
@@ -713,14 +774,12 @@ export async function getStaffInvoiceTruth(
 
   // Global sample (up to 30 distinct seller names across all branches)
   const globalSample = [
-    ...new Set(rows.map((r) => String(pickFirst(r, ["seller_name"], "") || "")).filter(Boolean)),
+    ...new Set(rows.map((r) => String(pickFirst(r, ['seller_name'], '') || '')).filter(Boolean)),
   ].slice(0, 30);
 
   // Branch-level warning
   if (staff.branch && sellerDiag.distinctSellerNamesInBranch.length === 0 && rows.length > 0) {
-    warnings.push(
-      `فلتر الفرع "${staff.branch}" قد يمنع ظهور أسماء البائعين — جرب عرض كل الفروع.`
-    );
+    warnings.push(`فلتر الفرع "${staff.branch}" قد يمنع ظهور أسماء البائعين — جرب عرض كل الفروع.`);
   }
 
   return {
@@ -750,12 +809,10 @@ export async function getStaffInvoiceTruth(
       branchAvg: branchAverage,
       difference: branchAverage > 0 ? summary.avgInvoice - branchAverage : 0,
       percentDifference:
-        branchAverage > 0
-          ? ((summary.avgInvoice - branchAverage) / branchAverage) * 100
-          : 0,
+        branchAverage > 0 ? ((summary.avgInvoice - branchAverage) / branchAverage) * 100 : 0,
     },
     diagnostics: {
-      sourceTable: "sales_invoices",
+      sourceTable: 'sales_invoices',
       salesTableAvailable,
       warnings,
       errors,
@@ -769,12 +826,9 @@ export async function getStaffInvoiceTruth(
       globalSellerNamesSample: globalSample,
       distinctSellerNamesInBranch: sellerDiag.distinctSellerNamesInBranch,
       topSellerNamesInBranch: sellerDiag.topSellerNamesInBranch,
-      roleDetected: staff.role || "غير محدد",
+      roleDetected: staff.role || 'غير محدد',
       roleAllowedForMatching,
-      suggestedAliases: buildSuggestedAliases(
-        staff.name,
-        sellerDiag.distinctSellerNamesInBranch
-      ),
+      suggestedAliases: buildSuggestedAliases(staff.name, sellerDiag.distinctSellerNamesInBranch),
     },
   };
 }

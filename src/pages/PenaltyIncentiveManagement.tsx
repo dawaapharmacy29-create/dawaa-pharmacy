@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
-import { useEscapeKey } from "@/hooks/useEscapeKey";
-import { useNavigate } from "react-router-dom";
+import { useMemo, useState } from 'react';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
+import { useNavigate } from 'react-router-dom';
 import {
   Plus,
   TrendingDown,
@@ -11,23 +11,20 @@ import {
   Trash2,
   XCircle,
   Search,
-} from "lucide-react";
-import { toast } from "sonner";
-import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
-import { logActivity } from "@/lib/activityLog";
-import { notifyEmployee } from "@/lib/notificationService";
-import { supabase } from "@/lib/supabase";
-import { TABLES } from "@/lib/supabaseTables";
-import { formatDateTime, toNumber } from "@/lib/utils";
-import { BRANCHES, POINT_REASONS } from "@/lib/constants";
-import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { isActiveStaffFilter } from "@/lib/staffActiveFilter";
-import { mergeStaffChoices } from "@/lib/staffFallback";
-import {
-  persistPointsTransaction,
-  applyStaffDelta,
-} from "@/lib/pointsPersistence";
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
+import { logActivity } from '@/lib/activityLog';
+import { notifyEmployee } from '@/lib/notificationService';
+import { supabase } from '@/lib/supabase';
+import { TABLES } from '@/lib/supabaseTables';
+import { formatDateTime, toNumber } from '@/lib/utils';
+import { BRANCHES, POINT_REASONS } from '@/lib/constants';
+import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
+import { mergeStaffChoices } from '@/lib/staffFallback';
+import { persistPointsTransaction, applyStaffDelta } from '@/lib/pointsPersistence';
 import {
   formatTransactionExecutor,
   formatTransactionSource,
@@ -39,8 +36,8 @@ import {
   pointRecordDelta,
   pointRecordStatus,
   type PointLedgerRecord,
-} from "@/lib/pointsLedger";
-import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
+} from '@/lib/pointsLedger';
+import { calculateStaffCycleIncentiveFromRows } from '@/lib/staffIncentiveService';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -87,78 +84,99 @@ interface PointRecord {
   metadata?: unknown;
 }
 
-type RecordStatus = "approved" | "pending" | "rejected";
-
-
+type RecordStatus = 'approved' | 'pending' | 'rejected';
 
 type RuleCategoryKey =
-  | "الكل"
-  | "خدمة العملاء"
-  | "الالتزام والانضباط"
-  | "المبيعات والتسويق"
-  | "المخزون والرواكد"
-  | "التوصيل"
-  | "المحادثات والواتساب"
-  | "أخرى";
+  | 'الكل'
+  | 'خدمة العملاء'
+  | 'الالتزام والانضباط'
+  | 'المبيعات والتسويق'
+  | 'المخزون والرواكد'
+  | 'التوصيل'
+  | 'المحادثات والواتساب'
+  | 'أخرى';
 
-const RULE_CATEGORY_KEYWORDS: Record<Exclude<RuleCategoryKey, "الكل">, string[]> = {
-  "خدمة العملاء": ["عميل", "خدمة", "متابعة", "شكوى", "طلب", "VIP", "استرجاع", "تواصل"],
-  "الالتزام والانضباط": ["التزام", "زي", "حضور", "غياب", "تأخير", "إذن", "مواعيد", "هاتف", "نظافة", "سلوك"],
-  "المبيعات والتسويق": ["بيع", "فاتورة", "أصناف", "عرض", "تارجت", "متوسط", "تسويق", "إضافة", "زيادة"],
-  "المخزون والرواكد": ["رواكد", "لستة", "مخزون", "جرد", "رف", "أدوية", "صلاحية", "تنظيم"],
-  "التوصيل": ["دليفري", "مندوب", "أوردر", "مشوار", "توصيل", "مرتجع", "فاتورة مكررة"],
-  "المحادثات والواتساب": ["محادثة", "واتساب", "رد", "رسالة", "ترحيب", "اسم العميل", "سرعة الرد"],
-  "أخرى": [],
+const RULE_CATEGORY_KEYWORDS: Record<Exclude<RuleCategoryKey, 'الكل'>, string[]> = {
+  'خدمة العملاء': ['عميل', 'خدمة', 'متابعة', 'شكوى', 'طلب', 'VIP', 'استرجاع', 'تواصل'],
+  'الالتزام والانضباط': [
+    'التزام',
+    'زي',
+    'حضور',
+    'غياب',
+    'تأخير',
+    'إذن',
+    'مواعيد',
+    'هاتف',
+    'نظافة',
+    'سلوك',
+  ],
+  'المبيعات والتسويق': [
+    'بيع',
+    'فاتورة',
+    'أصناف',
+    'عرض',
+    'تارجت',
+    'متوسط',
+    'تسويق',
+    'إضافة',
+    'زيادة',
+  ],
+  'المخزون والرواكد': ['رواكد', 'لستة', 'مخزون', 'جرد', 'رف', 'أدوية', 'صلاحية', 'تنظيم'],
+  التوصيل: ['دليفري', 'مندوب', 'أوردر', 'مشوار', 'توصيل', 'مرتجع', 'فاتورة مكررة'],
+  'المحادثات والواتساب': ['محادثة', 'واتساب', 'رد', 'رسالة', 'ترحيب', 'اسم العميل', 'سرعة الرد'],
+  أخرى: [],
 };
 
 const RULE_CATEGORIES: RuleCategoryKey[] = [
-  "الكل",
-  "خدمة العملاء",
-  "الالتزام والانضباط",
-  "المبيعات والتسويق",
-  "المخزون والرواكد",
-  "التوصيل",
-  "المحادثات والواتساب",
-  "أخرى",
+  'الكل',
+  'خدمة العملاء',
+  'الالتزام والانضباط',
+  'المبيعات والتسويق',
+  'المخزون والرواكد',
+  'التوصيل',
+  'المحادثات والواتساب',
+  'أخرى',
 ];
 
 function normalizeSearchText(value: string) {
   return value
     .toLowerCase()
-    .replace(/[أإآ]/g, "ا")
-    .replace(/ة/g, "ه")
-    .replace(/ى/g, "ي")
-    .replace(/[\u064B-\u065F]/g, "")
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/[\u064B-\u065F]/g, '')
     .trim();
 }
 
 function inferRuleCategory(reason: string): RuleCategoryKey {
   const normalized = normalizeSearchText(reason);
-  for (const [category, keywords] of Object.entries(RULE_CATEGORY_KEYWORDS) as Array<[Exclude<RuleCategoryKey, "الكل">, string[]]>) {
-    if (category === "أخرى") continue;
+  for (const [category, keywords] of Object.entries(RULE_CATEGORY_KEYWORDS) as Array<
+    [Exclude<RuleCategoryKey, 'الكل'>, string[]]
+  >) {
+    if (category === 'أخرى') continue;
     if (keywords.some((keyword) => normalized.includes(normalizeSearchText(keyword)))) {
       return category;
     }
   }
-  return "أخرى";
+  return 'أخرى';
 }
 
 const EMPTY_FORM = {
-  employeeId: "",
-  type: "مكافأة" as "مكافأة" | "خصم",
+  employeeId: '',
+  type: 'مكافأة' as 'مكافأة' | 'خصم',
   points: 5,
   reason: POINT_REASONS[0] as string,
-  notes: "",
-  status: "approved" as RecordStatus,
+  notes: '',
+  status: 'approved' as RecordStatus,
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function recordStatus(r: PointRecord): RecordStatus {
   const status = pointRecordStatus(r);
-  if (status === "pending") return "pending";
-  if (status === "rejected" || status === "cancelled") return "rejected";
-  return "approved";
+  if (status === 'pending') return 'pending';
+  if (status === 'rejected' || status === 'cancelled') return 'rejected';
+  return 'approved';
 }
 
 function pointRecordNote(row: PointRecord) {
@@ -167,11 +185,11 @@ function pointRecordNote(row: PointRecord) {
 
 function pointRecordMeta(row: PointRecord) {
   const date = row.transaction_date || row.created_at;
-  return `المنفذ: ${formatTransactionExecutor(row)} — المصدر: ${formatTransactionSource(row)} — التاريخ: ${date ? formatDateTime(date) : "غير محدد"}`;
+  return `المنفذ: ${formatTransactionExecutor(row)} — المصدر: ${formatTransactionSource(row)} — التاريخ: ${date ? formatDateTime(date) : 'غير محدد'}`;
 }
 
 function isBonus(r: PointRecord) {
-  return normalizeTransactionType(r) === "reward";
+  return normalizeTransactionType(r) === 'reward';
 }
 
 function absPoints(r: PointRecord) {
@@ -180,9 +198,9 @@ function absPoints(r: PointRecord) {
 }
 
 function statusMeta(s: RecordStatus): { label: string; cls: string } {
-  if (s === "approved") return { label: "معتمد", cls: "badge-success" };
-  if (s === "pending") return { label: "قيد المراجعة", cls: "badge-warning" };
-  return { label: "مرفوض", cls: "badge-danger" };
+  if (s === 'approved') return { label: 'معتمد', cls: 'badge-success' };
+  if (s === 'pending') return { label: 'قيد المراجعة', cls: 'badge-warning' };
+  return { label: 'مرفوض', cls: 'badge-danger' };
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
@@ -195,23 +213,22 @@ export default function PenaltyIncentiveManagement() {
   // ── UI state ──
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [branchFilter, setBranchFilter] = useState("الكل");
-  const [typeFilter, setTypeFilter] = useState("كل");
-  const [statusFilter, setStatusFilter] = useState("كل");
-  const [search, setSearch] = useState("");
-  const [reasonSearch, setReasonSearch] = useState("");
-  const [reasonCategory, setReasonCategory] = useState<RuleCategoryKey>("الكل");
+  const [branchFilter, setBranchFilter] = useState('الكل');
+  const [typeFilter, setTypeFilter] = useState('كل');
+  const [statusFilter, setStatusFilter] = useState('كل');
+  const [search, setSearch] = useState('');
+  const [reasonSearch, setReasonSearch] = useState('');
+  const [reasonCategory, setReasonCategory] = useState<RuleCategoryKey>('الكل');
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [selectedRecord, setSelectedRecord] = useState<PointRecord | null>(null);
 
   // ── Data queries ──
-  const { data: staffList, refetch: refetchStaff } =
-    useSupabaseQuery<StaffMember>({
-      table: TABLES.staff,
-      filters: isActiveStaffFilter(),
-      orderBy: { column: "name", ascending: true },
-      realtimeEnabled: false,
-    });
+  const { data: staffList, refetch: refetchStaff } = useSupabaseQuery<StaffMember>({
+    table: TABLES.staff,
+    filters: isActiveStaffFilter(),
+    orderBy: { column: 'name', ascending: true },
+    realtimeEnabled: false,
+  });
 
   const {
     data: records,
@@ -219,7 +236,7 @@ export default function PenaltyIncentiveManagement() {
     refetch: refetchRecords,
   } = useSupabaseQuery<PointRecord>({
     table: TABLES.employeeTransactions,
-    orderBy: { column: "created_at", ascending: false },
+    orderBy: { column: 'created_at', ascending: false },
     limit: 100,
     realtimeEnabled: true,
   });
@@ -227,42 +244,49 @@ export default function PenaltyIncentiveManagement() {
   // ── Derived data ──
   const staffChoices = useMemo(() => mergeStaffChoices(staffList), [staffList]);
 
-  const canonicalRecords = useMemo(() => records.map((row) => {
-    const staff = staffChoices.find((item) => item.id === (row.staff_id || row.employee_id));
-    const rawPoints = Math.abs(toNumber(row.points_delta) || toNumber(row.points));
-    const signedPoints = toNumber(row.points_delta) || (row.type === "penalty" ? -rawPoints : rawPoints);
-    return {
-      ...row,
-      employee_id: row.employee_id || row.staff_id || "",
-      employee_name: row.employee_name || staff?.name || "",
-      type: row.type === "reward" ? "bonus" : row.type === "penalty" ? "deduction" : row.type,
-      points: rawPoints,
-      points_delta: signedPoints,
-      manager_note: row.manager_note || row.description || null,
-      branch: row.branch || staff?.branch || "",
-      status: row.status === "active" ? "approved" : row.status === "cancelled" ? "rejected" : row.status,
-    };
-  }), [records, staffChoices]);
+  const canonicalRecords = useMemo(
+    () =>
+      records.map((row) => {
+        const staff = staffChoices.find((item) => item.id === (row.staff_id || row.employee_id));
+        const rawPoints = Math.abs(toNumber(row.points_delta) || toNumber(row.points));
+        const signedPoints =
+          toNumber(row.points_delta) || (row.type === 'penalty' ? -rawPoints : rawPoints);
+        return {
+          ...row,
+          employee_id: row.employee_id || row.staff_id || '',
+          employee_name: row.employee_name || staff?.name || '',
+          type: row.type === 'reward' ? 'bonus' : row.type === 'penalty' ? 'deduction' : row.type,
+          points: rawPoints,
+          points_delta: signedPoints,
+          manager_note: row.manager_note || row.description || null,
+          branch: row.branch || staff?.branch || '',
+          status:
+            row.status === 'active'
+              ? 'approved'
+              : row.status === 'cancelled'
+                ? 'rejected'
+                : row.status,
+        };
+      }),
+    [records, staffChoices]
+  );
 
   const cycleRecords = useMemo(
     () => canonicalRecords.filter((row) => isRecordInCycle(row, cycle)) as PointRecord[],
-    [canonicalRecords, cycle],
+    [canonicalRecords, cycle]
   );
 
   const bonusCount = cycleRecords.filter(isBonus).length;
   const deductionCount = cycleRecords.filter((r) => !isBonus(r)).length;
   const approvedCount = cycleRecords.filter(isApprovedPointRecord).length;
-  const pendingCount = cycleRecords.filter(
-    (r) => recordStatus(r) === "pending",
-  ).length;
+  const pendingCount = cycleRecords.filter((r) => recordStatus(r) === 'pending').length;
 
   const filteredRecords = useMemo(() => {
     return cycleRecords.filter((r) => {
-      if (branchFilter !== "الكل" && r.branch !== branchFilter) return false;
-      if (typeFilter === "مكافأة" && !isBonus(r)) return false;
-      if (typeFilter === "خصم" && isBonus(r)) return false;
-      if (statusFilter !== "كل" && recordStatus(r) !== statusFilter)
-        return false;
+      if (branchFilter !== 'الكل' && r.branch !== branchFilter) return false;
+      if (typeFilter === 'مكافأة' && !isBonus(r)) return false;
+      if (typeFilter === 'خصم' && isBonus(r)) return false;
+      if (statusFilter !== 'كل' && recordStatus(r) !== statusFilter) return false;
       if (search) {
         const q = search.toLowerCase();
         const text =
@@ -275,11 +299,10 @@ export default function PenaltyIncentiveManagement() {
 
   const selectedStaff = staffChoices.find((s) => s.id === form.employeeId);
 
-
-  const reasonOptions = useMemo(() => {
+  const reasonOptions = useMemo<string[]>(() => {
     const q = normalizeSearchText(reasonSearch);
     return POINT_REASONS.filter((reason) => {
-      if (reasonCategory !== "الكل" && inferRuleCategory(reason) !== reasonCategory) return false;
+      if (reasonCategory !== 'الكل' && inferRuleCategory(reason) !== reasonCategory) return false;
       if (q && !normalizeSearchText(reason).includes(q)) return false;
       return true;
     });
@@ -290,18 +313,20 @@ export default function PenaltyIncentiveManagement() {
     setForm((current) => ({
       ...current,
       reason,
-      points: inferredPoints ? Math.max(1, Number(inferredPoints) || current.points) : current.points,
+      points: inferredPoints
+        ? Math.max(1, Number(inferredPoints) || current.points)
+        : current.points,
     }));
   };
 
   // ── Save handler ──
   const handleSave = async () => {
     if (!form.employeeId || !selectedStaff) {
-      toast.error("اختر موظفاً أولًا");
+      toast.error('اختر موظفاً أولًا');
       return;
     }
     if (form.points < 1) {
-      toast.error("يجب أن تكون القيمة بالنقاط 1 على الأقل");
+      toast.error('يجب أن تكون القيمة بالنقاط 1 على الأقل');
       return;
     }
 
@@ -311,68 +336,71 @@ export default function PenaltyIncentiveManagement() {
       try {
         createdById = getCurrentUserProfile().id;
       } catch {
-        toast.error("يجب تسجيل الدخول أولًا");
+        toast.error('يجب تسجيل الدخول أولًا');
         return;
       }
 
-      const finalStatus: RecordStatus = canManage ? form.status : "pending";
+      const finalStatus: RecordStatus = canManage ? form.status : 'pending';
 
-      const { error: txnError, id: newRecordId } =
-        await persistPointsTransaction({
-          employeeId: selectedStaff.id,
-          employeeName: selectedStaff.name,
-          branch: selectedStaff.branch,
-          operation: form.type === "مكافأة" ? "bonus" : "deduction",
-          rule: {
-            code: `MANUAL_${form.type === "مكافأة" ? "BONUS" : "DEDUCTION"}`,
-            category: "يدوي",
-            title: form.reason,
-            description: form.notes,
-            default_points: form.points,
-            type: form.type === "مكافأة" ? "bonus" : "deduction",
-            severity: "medium",
-            role_scope: "all",
-            requires_approval: !canManage,
-            evidence_required: false,
-            allowed_approver_roles: ["general_manager"],
-            repeat_policy: "none",
-            active: true,
-          },
-          pointsToStore: form.points,
-          basePoints: form.points,
-          finalPoints: form.points,
-          userNote: form.notes,
-          createdByName: user?.name || "",
-          createdById,
-          createdByRole: user?.role || "",
-          status: finalStatus,
-          cycle: getCurrentCycle(),
-          sourceModule: "penalty_incentive",
-          reasonLabel: form.reason,
-        });
+      const { error: txnError, id: newRecordId } = await persistPointsTransaction({
+        employeeId: selectedStaff.id,
+        employeeName: selectedStaff.name,
+        branch: selectedStaff.branch,
+        operation: form.type === 'مكافأة' ? 'bonus' : 'deduction',
+        rule: {
+          code: `MANUAL_${form.type === 'مكافأة' ? 'BONUS' : 'DEDUCTION'}`,
+          category: 'يدوي',
+          title: form.reason,
+          description: form.notes,
+          default_points: form.points,
+          type: form.type === 'مكافأة' ? 'bonus' : 'deduction',
+          severity: 'medium',
+          role_scope: 'all',
+          requires_approval: !canManage,
+          evidence_required: false,
+          allowed_approver_roles: ['general_manager'],
+          repeat_policy: 'none',
+          active: true,
+        },
+        pointsToStore: form.points,
+        basePoints: form.points,
+        finalPoints: form.points,
+        userNote: form.notes,
+        createdByName: user?.name || '',
+        createdById,
+        createdByRole: user?.role || '',
+        status: finalStatus,
+        cycle: getCurrentCycle(),
+        sourceModule: 'penalty_incentive',
+        reasonLabel: form.reason,
+      });
 
       if (txnError) {
         toast.error(txnError);
         return;
       }
 
-      if (finalStatus === "approved") {
+      if (finalStatus === 'approved') {
         const approvedRows = cycleRecords.filter(isApprovedPointRecord) as PointLedgerRecord[];
-        const currentIncentive = calculateStaffCycleIncentiveFromRows({ staff: selectedStaff, records: approvedRows, cycle });
+        const currentIncentive = calculateStaffCycleIncentiveFromRows({
+          staff: selectedStaff,
+          records: approvedRows,
+          cycle,
+        });
         await applyStaffDelta(
           selectedStaff.id,
           currentIncentive.finalPoints,
           currentIncentive.startingPoints,
-          form.type === "مكافأة" ? form.points : -form.points,
+          form.type === 'مكافأة' ? form.points : -form.points,
           selectedStaff.name,
-          selectedStaff.branch,
+          selectedStaff.branch
         );
       }
 
       await logActivity({
-        action: form.type === "مكافأة" ? "إضافة مكافأة" : "إضافة خصم",
-        module: "الجزاءات والحوافز",
-        target_type: "point_record",
+        action: form.type === 'مكافأة' ? 'إضافة مكافأة' : 'إضافة خصم',
+        module: 'الجزاءات والحوافز',
+        target_type: 'point_record',
         target_id: newRecordId,
         user_id: createdById,
         user_name: user?.name,
@@ -388,16 +416,16 @@ export default function PenaltyIncentiveManagement() {
       });
 
       await notifyEmployee({
-        title: form.type === "مكافأة" ? "تم تسجيل مكافأة جديدة" : "تم تسجيل خصم جديد",
-        message: `${form.reason} - ${form.points} نقطة - الحالة: ${finalStatus === "approved" ? "معتمد" : "قيد المراجعة"}`,
-        type: form.type === "مكافأة" ? "reward" : "deduction",
-        priority: form.type === "مكافأة" ? "normal" : "high",
+        title: form.type === 'مكافأة' ? 'تم تسجيل مكافأة جديدة' : 'تم تسجيل خصم جديد',
+        message: `${form.reason} - ${form.points} نقطة - الحالة: ${finalStatus === 'approved' ? 'معتمد' : 'قيد المراجعة'}`,
+        type: form.type === 'مكافأة' ? 'reward' : 'deduction',
+        priority: form.type === 'مكافأة' ? 'normal' : 'high',
         recipient_staff_id: selectedStaff.id,
         branch: selectedStaff.branch,
-        target_type: "point_record",
+        target_type: 'point_record',
         target_id: newRecordId,
-        target_route: "/staff-dashboard",
-        requires_action: form.type !== "مكافأة",
+        target_route: '/staff-dashboard',
+        requires_action: form.type !== 'مكافأة',
         created_by: createdById,
         created_by_name: user?.name,
         metadata: {
@@ -409,9 +437,7 @@ export default function PenaltyIncentiveManagement() {
       });
 
       toast.success(
-        finalStatus === "approved"
-          ? "تم الحفظ والاعتماد بنجاح"
-          : "تم الحفظ وإرسال للمراجعة",
+        finalStatus === 'approved' ? 'تم الحفظ والاعتماد بنجاح' : 'تم الحفظ وإرسال للمراجعة'
       );
       setShowModal(false);
       setForm({ ...EMPTY_FORM });
@@ -425,11 +451,11 @@ export default function PenaltyIncentiveManagement() {
   // ── Approve / reject ──
   const handleApprove = async (row: PointRecord, approve: boolean) => {
     if (!canManage) return;
-    const nextStatus: RecordStatus = approve ? "approved" : "rejected";
+    const nextStatus: RecordStatus = approve ? 'approved' : 'rejected';
     const { error } = await supabase
       .from(TABLES.employeeTransactions)
       .update({ status: nextStatus })
-      .eq("id", row.id);
+      .eq('id', row.id);
     if (error) {
       toast.error(error.message);
       return;
@@ -437,19 +463,23 @@ export default function PenaltyIncentiveManagement() {
 
     if (approve) {
       const staff = staffChoices.find(
-        (s) => s.id === row.employee_id || s.name === row.employee_name,
+        (s) => s.id === row.employee_id || s.name === row.employee_name
       );
       if (staff) {
         const delta = isBonus(row) ? absPoints(row) : -absPoints(row);
         const approvedRows = cycleRecords.filter(isApprovedPointRecord) as PointLedgerRecord[];
-        const currentIncentive = calculateStaffCycleIncentiveFromRows({ staff, records: approvedRows, cycle });
+        const currentIncentive = calculateStaffCycleIncentiveFromRows({
+          staff,
+          records: approvedRows,
+          cycle,
+        });
         await applyStaffDelta(
           staff.id,
           currentIncentive.finalPoints,
           currentIncentive.startingPoints,
           delta,
           staff.name,
-          staff.branch,
+          staff.branch
         );
       }
     }
@@ -457,9 +487,9 @@ export default function PenaltyIncentiveManagement() {
     try {
       const profile = getCurrentUserProfile();
       await logActivity({
-        action: approve ? "اعتماد سجل نقاط" : "رفض سجل نقاط",
-        module: "الجزاءات والحوافز",
-        target_type: "point_record",
+        action: approve ? 'اعتماد سجل نقاط' : 'رفض سجل نقاط',
+        module: 'الجزاءات والحوافز',
+        target_type: 'point_record',
         target_id: row.id,
         user_id: profile.id,
         user_name: user?.name,
@@ -472,15 +502,15 @@ export default function PenaltyIncentiveManagement() {
         },
       });
       await notifyEmployee({
-        title: approve ? "تم اعتماد سجل النقاط" : "تم رفض سجل النقاط",
-        message: `${row.reason || row.display_reason || "سجل نقاط"} - ${row.employee_name}`,
-        type: isBonus(row) ? "reward" : "deduction",
-        priority: approve ? "normal" : "high",
+        title: approve ? 'تم اعتماد سجل النقاط' : 'تم رفض سجل النقاط',
+        message: `${row.reason || row.display_reason || 'سجل نقاط'} - ${row.employee_name}`,
+        type: isBonus(row) ? 'reward' : 'deduction',
+        priority: approve ? 'normal' : 'high',
         recipient_staff_id: row.employee_id || row.staff_id || null,
         branch: row.branch,
-        target_type: "point_record",
+        target_type: 'point_record',
         target_id: row.id,
-        target_route: "/staff-dashboard",
+        target_route: '/staff-dashboard',
         requires_action: !approve,
         created_by: profile.id,
         created_by_name: user?.name,
@@ -494,7 +524,7 @@ export default function PenaltyIncentiveManagement() {
       // log failure is non-critical
     }
 
-    toast.success(approve ? "تم الاعتماد" : "تم الرفض");
+    toast.success(approve ? 'تم الاعتماد' : 'تم الرفض');
     refetchRecords();
     refetchStaff();
   };
@@ -503,8 +533,8 @@ export default function PenaltyIncentiveManagement() {
     if (!canManage) return;
     const { error } = await supabase
       .from(TABLES.employeeTransactions)
-      .update({ status: "pending" })
-      .eq("id", row.id);
+      .update({ status: 'pending' })
+      .eq('id', row.id);
 
     if (error) {
       toast.error(error.message);
@@ -514,9 +544,9 @@ export default function PenaltyIncentiveManagement() {
     try {
       const profile = getCurrentUserProfile();
       await logActivity({
-        action: "إرجاع سجل نقاط للمراجعة",
-        module: "الجزاءات والحوافز",
-        target_type: "point_record",
+        action: 'إرجاع سجل نقاط للمراجعة',
+        module: 'الجزاءات والحوافز',
+        target_type: 'point_record',
         target_id: row.id,
         user_id: profile.id,
         user_name: user?.name,
@@ -525,14 +555,14 @@ export default function PenaltyIncentiveManagement() {
         details: {
           staffName: row.employee_name,
           reason: pointRecordNote(row),
-          status: "pending",
+          status: 'pending',
         },
       });
     } catch {
       // log failure is non-critical
     }
 
-    toast.success("تم تحويل السجل إلى قيد المراجعة");
+    toast.success('تم تحويل السجل إلى قيد المراجعة');
     refetchRecords();
   };
 
@@ -541,10 +571,7 @@ export default function PenaltyIncentiveManagement() {
     const ok = window.confirm(`هل تريد مسح سجل "${pointRecordNote(row)}"؟`);
     if (!ok) return;
 
-    const { error } = await supabase
-      .from(TABLES.employeeTransactions)
-      .delete()
-      .eq("id", row.id);
+    const { error } = await supabase.from(TABLES.employeeTransactions).delete().eq('id', row.id);
 
     if (error) {
       toast.error(error.message);
@@ -554,9 +581,9 @@ export default function PenaltyIncentiveManagement() {
     try {
       const profile = getCurrentUserProfile();
       await logActivity({
-        action: "مسح سجل نقاط",
-        module: "الجزاءات والحوافز",
-        target_type: "point_record",
+        action: 'مسح سجل نقاط',
+        module: 'الجزاءات والحوافز',
+        target_type: 'point_record',
         target_id: row.id,
         user_id: profile.id,
         user_name: user?.name,
@@ -571,7 +598,7 @@ export default function PenaltyIncentiveManagement() {
       // log failure is non-critical
     }
 
-    toast.success("تم مسح السجل");
+    toast.success('تم مسح السجل');
     refetchRecords();
     refetchStaff();
   };
@@ -585,8 +612,7 @@ export default function PenaltyIncentiveManagement() {
         <div className="flex-1">
           <h1 className="section-title text-xl">إدارة الجزاءات والحوافز</h1>
           <p className="text-slate-400 text-sm mt-0.5">
-            إضافة ومتابعة المكافآت والخصومات لكل موظف — الدورة:{" "}
-            {cycle.shortLabel}
+            إضافة ومتابعة المكافآت والخصومات لكل موظف — الدورة: {cycle.shortLabel}
           </p>
         </div>
         {(canManage ||
@@ -609,30 +635,22 @@ export default function PenaltyIncentiveManagement() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="stat-card text-center">
           <TrendingUp className="mx-auto text-teal-400 mb-1" size={22} />
-          <div className="text-2xl font-bold num text-teal-400">
-            {bonusCount}
-          </div>
+          <div className="text-2xl font-bold num text-teal-400">{bonusCount}</div>
           <div className="text-slate-400 text-xs mt-0.5">مكافآت الدورة</div>
         </div>
         <div className="stat-card text-center">
           <TrendingDown className="mx-auto text-red-400 mb-1" size={22} />
-          <div className="text-2xl font-bold num text-red-400">
-            {deductionCount}
-          </div>
+          <div className="text-2xl font-bold num text-red-400">{deductionCount}</div>
           <div className="text-slate-400 text-xs mt-0.5">خصومات الدورة</div>
         </div>
         <div className="stat-card text-center">
           <CheckCircle className="mx-auto text-green-400 mb-1" size={22} />
-          <div className="text-2xl font-bold num text-green-400">
-            {approvedCount}
-          </div>
+          <div className="text-2xl font-bold num text-green-400">{approvedCount}</div>
           <div className="text-slate-400 text-xs mt-0.5">معتمدة</div>
         </div>
         <div className="stat-card text-center">
           <Clock className="mx-auto text-amber-400 mb-1" size={22} />
-          <div className="text-2xl font-bold num text-amber-400">
-            {pendingCount}
-          </div>
+          <div className="text-2xl font-bold num text-amber-400">{pendingCount}</div>
           <div className="text-slate-400 text-xs mt-0.5">قيد الاعتماد</div>
         </div>
       </div>
@@ -690,12 +708,8 @@ export default function PenaltyIncentiveManagement() {
       ) : filteredRecords.length === 0 ? (
         <div className="stat-card text-center py-14">
           <Users className="mx-auto text-slate-600 mb-3" size={40} />
-          <div className="text-slate-400 text-sm">
-            لا توجد سجلات بالفلاتر الحالية
-          </div>
-          <div className="text-slate-600 text-xs mt-1">
-            جرب تغيير الفلاتر أو إضافة سجل جديد
-          </div>
+          <div className="text-slate-400 text-sm">لا توجد سجلات بالفلاتر الحالية</div>
+          <div className="text-slate-600 text-xs mt-1">جرب تغيير الفلاتر أو إضافة سجل جديد</div>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[#2d4063]">
@@ -719,32 +733,42 @@ export default function PenaltyIncentiveManagement() {
                 const { label: stLabel, cls: stCls } = statusMeta(st);
                 const pts = absPoints(row);
                 return (
-                  <tr key={row.id} className="cursor-pointer hover:bg-white/[0.03]" onClick={() => setSelectedRecord(row)}>
+                  <tr
+                    key={row.id}
+                    className="cursor-pointer hover:bg-white/[0.03]"
+                    onClick={() => setSelectedRecord(row)}
+                  >
                     <td className="font-medium text-white">
-                      <button type="button" onClick={(event) => { event.stopPropagation(); navigate(`/staff/${row.staff_id || row.employee_id}`); }} className="text-teal-300 hover:text-teal-200 underline underline-offset-4">
-                        {row.employee_name || "غير محدد"}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          navigate(`/staff/${row.staff_id || row.employee_id}`);
+                        }}
+                        className="text-teal-300 hover:text-teal-200 underline underline-offset-4"
+                      >
+                        {row.employee_name || 'غير محدد'}
                       </button>
                     </td>
                     <td className="text-slate-400 text-xs">{row.branch}</td>
                     <td>
-                      <span
-                        className={
-                          isBonus(row) ? "badge-success" : "badge-danger"
-                        }
-                      >
-                        {isBonus(row) ? "مكافأة" : "خصم"}
+                      <span className={isBonus(row) ? 'badge-success' : 'badge-danger'}>
+                        {isBonus(row) ? 'مكافأة' : 'خصم'}
                       </span>
                     </td>
                     <td>
                       <span
-                        className={`num font-bold ${isBonus(row) ? "text-teal-400" : "text-red-400"}`}
+                        className={`num font-bold ${isBonus(row) ? 'text-teal-400' : 'text-red-400'}`}
                       >
-                        {isBonus(row) ? "+" : "-"}
+                        {isBonus(row) ? '+' : '-'}
                         {pts}
                       </span>
                     </td>
                     <td className="text-slate-300 text-sm min-w-[260px] max-w-[420px]">
-                      <div className="font-medium text-slate-100 leading-relaxed line-clamp-2" title={pointRecordNote(row)}>
+                      <div
+                        className="font-medium text-slate-100 leading-relaxed line-clamp-2"
+                        title={pointRecordNote(row)}
+                      >
                         {pointRecordNote(row)}
                       </div>
                       <div className="text-[11px] text-slate-500 mt-1" title={pointRecordMeta(row)}>
@@ -763,28 +787,37 @@ export default function PenaltyIncentiveManagement() {
                     {canManage && (
                       <td>
                         <div className="flex flex-wrap gap-1">
-                          {st !== "approved" && (
+                          {st !== 'approved' && (
                             <button
                               type="button"
-                              onClick={(event) => { event.stopPropagation(); handleApprove(row, true); }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleApprove(row, true);
+                              }}
                               className="px-2 py-1 rounded text-xs bg-teal-500/15 text-teal-400 hover:bg-teal-500/25 transition-colors"
                             >
                               اعتماد
                             </button>
                           )}
-                          {st !== "rejected" && (
+                          {st !== 'rejected' && (
                             <button
                               type="button"
-                              onClick={(event) => { event.stopPropagation(); handleApprove(row, false); }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleApprove(row, false);
+                              }}
                               className="px-2 py-1 rounded text-xs bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors"
                             >
                               رفض
                             </button>
                           )}
-                          {st !== "pending" && (
+                          {st !== 'pending' && (
                             <button
                               type="button"
-                              onClick={(event) => { event.stopPropagation(); handleSetPending(row); }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleSetPending(row);
+                              }}
                               className="px-2 py-1 rounded text-xs bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 transition-colors"
                             >
                               قيد المراجعة
@@ -792,7 +825,10 @@ export default function PenaltyIncentiveManagement() {
                           )}
                           <button
                             type="button"
-                            onClick={(event) => { event.stopPropagation(); handleDeleteRecord(row); }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteRecord(row);
+                            }}
                             className="inline-flex items-center gap-1 rounded bg-slate-500/10 px-2 py-1 text-xs text-slate-300 transition-colors hover:bg-red-500/15 hover:text-red-300"
                             title="مسح السجل"
                           >
@@ -817,19 +853,25 @@ export default function PenaltyIncentiveManagement() {
         <TransactionDetailsModal
           record={selectedRecord}
           onClose={() => setSelectedRecord(null)}
-          onStaff={() => navigate(`/staff/${selectedRecord.staff_id || selectedRecord.employee_id}`)}
+          onStaff={() =>
+            navigate(`/staff/${selectedRecord.staff_id || selectedRecord.employee_id}`)
+          }
         />
       )}
 
       {/* Add Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Modal header */}
             <div className="flex items-center justify-between">
-              <h2 className="text-white font-bold text-lg">
-                إضافة جزاء أو حافز
-              </h2>
+              <h2 className="text-white font-bold text-lg">إضافة جزاء أو حافز</h2>
               <button
                 type="button"
                 onClick={() => setShowModal(false)}
@@ -841,14 +883,10 @@ export default function PenaltyIncentiveManagement() {
 
             {/* Employee */}
             <div>
-              <label className="text-slate-400 text-xs mb-1 block">
-                اختر الموظف
-              </label>
+              <label className="text-slate-400 text-xs mb-1 block">اختر الموظف</label>
               <select
                 value={form.employeeId}
-                onChange={(e) =>
-                  setForm({ ...form, employeeId: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
                 className="input-dark w-full"
               >
                 <option value="">-- اختر موظفاً --</option>
@@ -864,20 +902,20 @@ export default function PenaltyIncentiveManagement() {
             <div>
               <label className="text-slate-400 text-xs mb-1 block">النوع</label>
               <div className="flex gap-2">
-                {(["مكافأة", "خصم"] as const).map((t) => (
+                {(['مكافأة', 'خصم'] as const).map((t) => (
                   <button
                     key={t}
                     type="button"
                     onClick={() => setForm({ ...form, type: t })}
                     className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
                       form.type === t
-                        ? t === "مكافأة"
-                          ? "bg-teal-500/20 text-teal-400 border-teal-500/40"
-                          : "bg-red-500/20 text-red-400 border-red-500/40"
-                        : "text-slate-400 border-[#2d4063] hover:border-slate-500"
+                        ? t === 'مكافأة'
+                          ? 'bg-teal-500/20 text-teal-400 border-teal-500/40'
+                          : 'bg-red-500/20 text-red-400 border-red-500/40'
+                        : 'text-slate-400 border-[#2d4063] hover:border-slate-500'
                     }`}
                   >
-                    {t === "مكافأة" ? "⬆ مكافأة" : "⬇ خصم"}
+                    {t === 'مكافأة' ? '⬆ مكافأة' : '⬇ خصم'}
                   </button>
                 ))}
               </div>
@@ -885,9 +923,7 @@ export default function PenaltyIncentiveManagement() {
 
             {/* Points */}
             <div>
-              <label className="text-slate-400 text-xs mb-1 block">
-                القيمة بالنقاط
-              </label>
+              <label className="text-slate-400 text-xs mb-1 block">القيمة بالنقاط</label>
               <input
                 type="number"
                 min={1}
@@ -924,8 +960,8 @@ export default function PenaltyIncentiveManagement() {
                       onClick={() => setReasonCategory(category)}
                       className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
                         reasonCategory === category
-                          ? "border-teal-400 bg-teal-500/20 text-teal-200"
-                          : "border-[#2d4063] bg-white/5 text-slate-300 hover:border-teal-500/40"
+                          ? 'border-teal-400 bg-teal-500/20 text-teal-200'
+                          : 'border-[#2d4063] bg-white/5 text-slate-300 hover:border-teal-500/40'
                       }`}
                     >
                       {category}
@@ -933,15 +969,17 @@ export default function PenaltyIncentiveManagement() {
                   ))}
                 </div>
                 <select
-                  value={reasonOptions.includes(form.reason) ? form.reason : ""}
+                  value={reasonOptions.includes(form.reason) ? form.reason : ''}
                   onChange={(e) => selectReasonSafely(e.target.value)}
                   className="input-dark w-full"
                 >
                   <option value="" disabled>
-                    {reasonOptions.length ? "اختر بندًا من النتائج" : "لا توجد بنود مطابقة"}
+                    {reasonOptions.length ? 'اختر بندًا من النتائج' : 'لا توجد بنود مطابقة'}
                   </option>
                   {reasonOptions.map((r) => (
-                    <option key={r} value={r}>{r}</option>
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
                   ))}
                 </select>
                 <div className="max-h-40 overflow-y-auto grid gap-2">
@@ -952,12 +990,14 @@ export default function PenaltyIncentiveManagement() {
                       onClick={() => selectReasonSafely(reason)}
                       className={`rounded-lg border px-3 py-2 text-right text-xs transition-colors ${
                         form.reason === reason
-                          ? "border-teal-400 bg-teal-500/15 text-teal-100"
-                          : "border-[#2d4063] bg-[#16253f] text-slate-300 hover:border-teal-500/40"
+                          ? 'border-teal-400 bg-teal-500/15 text-teal-100'
+                          : 'border-[#2d4063] bg-[#16253f] text-slate-300 hover:border-teal-500/40'
                       }`}
                     >
                       <span className="block font-semibold">{reason}</span>
-                      <span className="mt-1 block text-[11px] text-slate-500">{inferRuleCategory(reason)}</span>
+                      <span className="mt-1 block text-[11px] text-slate-500">
+                        {inferRuleCategory(reason)}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -966,9 +1006,7 @@ export default function PenaltyIncentiveManagement() {
 
             {/* Notes */}
             <div>
-              <label className="text-slate-400 text-xs mb-1 block">
-                ملاحظات (اختياري)
-              </label>
+              <label className="text-slate-400 text-xs mb-1 block">ملاحظات (اختياري)</label>
               <textarea
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
@@ -981,14 +1019,10 @@ export default function PenaltyIncentiveManagement() {
             {/* Status — managers only */}
             {canManage && (
               <div>
-                <label className="text-slate-400 text-xs mb-1 block">
-                  الحالة
-                </label>
+                <label className="text-slate-400 text-xs mb-1 block">الحالة</label>
                 <select
                   value={form.status}
-                  onChange={(e) =>
-                    setForm({ ...form, status: e.target.value as RecordStatus })
-                  }
+                  onChange={(e) => setForm({ ...form, status: e.target.value as RecordStatus })}
                   className="input-dark w-full"
                 >
                   <option value="approved">معتمد مباشرة</option>
@@ -1011,7 +1045,7 @@ export default function PenaltyIncentiveManagement() {
                 disabled={saving}
                 className="btn-primary flex-1 disabled:opacity-60"
               >
-                {saving ? "جاري الحفظ..." : "حفظ"}
+                {saving ? 'جاري الحفظ...' : 'حفظ'}
               </button>
               <button
                 type="button"
@@ -1028,41 +1062,61 @@ export default function PenaltyIncentiveManagement() {
   );
 }
 
-function TransactionDetailsModal({ record, onClose, onStaff }: { record: PointRecord; onClose: () => void; onStaff: () => void }) {
+function TransactionDetailsModal({
+  record,
+  onClose,
+  onStaff,
+}: {
+  record: PointRecord;
+  onClose: () => void;
+  onStaff: () => void;
+}) {
   useEscapeKey(onClose, true);
   const details = getTransactionDetails(record);
   const fields = [
-    ["الموظف", details.employee],
-    ["النوع", details.type],
-    ["النقاط", details.points],
-    ["السبب المختصر", details.reason],
-    ["الوصف", details.fullDescription],
-    ["المصدر", details.source],
-    ["المنفذ", details.executor],
-    ["تاريخ الإنشاء", details.createdAt],
-    ["تاريخ الاعتماد", details.approvedAt],
-    ["الفرع", details.branch],
-    ["الدورة", details.cycle],
+    ['الموظف', details.employee],
+    ['النوع', details.type],
+    ['النقاط', details.points],
+    ['السبب المختصر', details.reason],
+    ['الوصف', details.fullDescription],
+    ['المصدر', details.source],
+    ['المنفذ', details.executor],
+    ['تاريخ الإنشاء', details.createdAt],
+    ['تاريخ الاعتماد', details.approvedAt],
+    ['الفرع', details.branch],
+    ['الدورة', details.cycle],
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-2xl rounded-2xl border border-[#2d4063] bg-[#10213a] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-2xl border border-[#2d4063] bg-[#10213a] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-white/10 p-5">
           <div>
             <h2 className="text-lg font-black text-white">تفاصيل سجل النقاط</h2>
             <p className="mt-1 text-xs text-slate-400">عرض إداري نظيف بدون أكواد أو بيانات تقنية</p>
           </div>
-          <button type="button" onClick={onClose} className="btn-secondary px-3 py-2">إغلاق</button>
+          <button type="button" onClick={onClose} className="btn-secondary px-3 py-2">
+            إغلاق
+          </button>
         </div>
         <div className="max-h-[70vh] space-y-3 overflow-y-auto p-5">
           {fields.map(([label, value]) => (
             <div key={label} className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
               <div className="text-xs text-slate-400">{label}</div>
-              <div className="mt-1 whitespace-pre-line text-sm font-semibold text-white">{value || "غير محدد"}</div>
+              <div className="mt-1 whitespace-pre-line text-sm font-semibold text-white">
+                {value || 'غير محدد'}
+              </div>
             </div>
           ))}
-          <button type="button" onClick={onStaff} className="btn-primary w-full">فتح ملف الموظف</button>
+          <button type="button" onClick={onStaff} className="btn-primary w-full">
+            فتح ملف الموظف
+          </button>
         </div>
       </div>
     </div>

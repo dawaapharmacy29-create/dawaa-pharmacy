@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
-import { importCustomersFromArrayBuffer, getExistingCustomersCount, getExistingCustomerCodes } from '@/lib/customerBulkImport';
+import {
+  importCustomersFromArrayBuffer,
+  getExistingCustomersCount,
+  getExistingCustomerCodes,
+} from '@/lib/customerBulkImport';
 import { toast } from 'sonner';
 
 export default function CustomerImport() {
@@ -19,7 +23,7 @@ export default function CustomerImport() {
     try {
       // قراءة الملف كـ ArrayBuffer
       const arrayBuffer = await file.arrayBuffer();
-      
+
       // استخدام دالة الاستيراد
       const importResult = await importCustomersFromArrayBuffer(
         arrayBuffer,
@@ -38,7 +42,6 @@ export default function CustomerImport() {
       // تحديث عدد العملاء الموجودين
       const count = await getExistingCustomersCount();
       setExistingCount(count);
-
     } catch (error) {
       toast.error(`خطأ: ${(error as Error).message}`);
     } finally {
@@ -83,7 +86,7 @@ export default function CustomerImport() {
 
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-semibold mb-4">استيراد ملف Excel</h2>
-        
+
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
           <input
             type="file"
@@ -93,10 +96,7 @@ export default function CustomerImport() {
             className="hidden"
             id="file-upload"
           />
-          <label
-            htmlFor="file-upload"
-            className="cursor-pointer flex flex-col items-center"
-          >
+          <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
             {loading ? (
               <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
             ) : (
@@ -114,7 +114,7 @@ export default function CustomerImport() {
         {result && (
           <div className="mt-6 space-y-4">
             <h3 className="text-lg font-semibold">نتائج الاستيراد</h3>
-            
+
             {result.warnings.length > 0 && (
               <div className="bg-yellow-50 border border-yellow-200 rounded p-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -123,7 +123,9 @@ export default function CustomerImport() {
                 </div>
                 <ul className="space-y-1">
                   {result.warnings.map((warning: string, i: number) => (
-                    <li key={i} className="text-sm text-yellow-700">{warning}</li>
+                    <li key={i} className="text-sm text-yellow-700">
+                      {warning}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -137,7 +139,9 @@ export default function CustomerImport() {
                 </div>
                 <ul className="space-y-1">
                   {result.errors.map((error: string, i: number) => (
-                    <li key={i} className="text-sm text-red-700">{error}</li>
+                    <li key={i} className="text-sm text-red-700">
+                      {error}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -147,9 +151,7 @@ export default function CustomerImport() {
               <div className="bg-green-50 border border-green-200 rounded p-4">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="w-5 h-5 text-green-600" />
-                  <span className="font-semibold text-green-800">
-                    تم الاستيراد بنجاح
-                  </span>
+                  <span className="font-semibold text-green-800">تم الاستيراد بنجاح</span>
                 </div>
               </div>
             )}
@@ -163,15 +165,21 @@ export default function CustomerImport() {
                 </div>
                 <div>
                   <span className="text-gray-600">عملاء جدد:</span>
-                  <span className="font-semibold ml-2">{result.importSummary.newCustomers || 0}</span>
+                  <span className="font-semibold ml-2">
+                    {result.importSummary.newCustomers || 0}
+                  </span>
                 </div>
                 <div>
                   <span className="text-gray-600">عملاء محدثين:</span>
-                  <span className="font-semibold ml-2">{result.importSummary.updatedCustomers || 0}</span>
+                  <span className="font-semibold ml-2">
+                    {result.importSummary.updatedCustomers || 0}
+                  </span>
                 </div>
                 <div>
                   <span className="text-gray-600">سجلات مكررة:</span>
-                  <span className="font-semibold ml-2">{result.importSummary.skippedDuplicates || 0}</span>
+                  <span className="font-semibold ml-2">
+                    {result.importSummary.skippedDuplicates || 0}
+                  </span>
                 </div>
               </div>
             </div>

@@ -1,17 +1,17 @@
 /**
  * PDF Report Generation Service for Staff Performance Profile
- * 
+ *
  * This service generates comprehensive PDF reports for staff performance profiles.
  * It uses the staff performance profile data to create detailed reports.
  */
 
-import type { StaffPerformanceProfile } from "./staffPerformanceProfileService";
+import type { StaffPerformanceProfile } from './staffPerformanceProfileService';
 
 export interface StaffPdfReportOptions {
   includeCharts: boolean;
   includeRecommendations: boolean;
   includeDetailedTables: boolean;
-  language: "ar" | "en";
+  language: 'ar' | 'en';
 }
 
 export interface StaffPdfReportData {
@@ -28,7 +28,7 @@ export function generateStaffPdfReport(
     includeCharts: true,
     includeRecommendations: true,
     includeDetailedTables: true,
-    language: "ar",
+    language: 'ar',
     ...options,
   };
 
@@ -44,7 +44,7 @@ export function generateStaffPdfReport(
 function getCurrentCycleLabel(): string {
   // This should match the cycle label from the pharmacy cycle service
   const now = new Date();
-  const month = now.toLocaleDateString("ar-EG", { month: "long" });
+  const month = now.toLocaleDateString('ar-EG', { month: 'long' });
   const year = now.getFullYear();
   return `${month} ${year}`;
 }
@@ -60,21 +60,21 @@ export function getPdfReportStructure(
 
   // 1. Header Section
   sections.push({
-    title: "ملف الأداء الموظف",
-    type: "header",
+    title: 'ملف الأداء الموظف',
+    type: 'header',
     data: {
       staffName: reportData.profile.staff.name,
       staffRole: reportData.profile.staff.role,
       staffBranch: reportData.profile.staff.branch,
-      reportDate: new Date(reportData.generatedAt).toLocaleDateString("ar-EG"),
+      reportDate: new Date(reportData.generatedAt).toLocaleDateString('ar-EG'),
       reportPeriod: reportData.reportPeriod,
     },
   });
 
   // 2. Executive Summary
   sections.push({
-    title: "الملخص التنفيذي",
-    type: "summary",
+    title: 'الملخص التنفيذي',
+    type: 'summary',
     data: {
       finalPoints: reportData.profile.monthlyIncentive?.finalPoints || 0,
       incentiveValue: reportData.profile.monthlyIncentive?.incentiveValue || 0,
@@ -89,8 +89,8 @@ export function getPdfReportStructure(
   // 3. Sales Performance
   if (reportData.profile.sales) {
     sections.push({
-      title: "أداء المبيعات",
-      type: "sales",
+      title: 'أداء المبيعات',
+      type: 'sales',
       data: {
         cycleNetSales: reportData.profile.sales.cycleNetSales,
         cycleInvoicesCount: reportData.profile.sales.cycleInvoicesCount,
@@ -108,8 +108,8 @@ export function getPdfReportStructure(
   // 4. Customer Intelligence
   if (reportData.profile.customers) {
     sections.push({
-      title: "ذكاء العملاء",
-      type: "customers",
+      title: 'ذكاء العملاء',
+      type: 'customers',
       data: {
         newCustomers: reportData.profile.customers.newCustomers,
         repeatCustomers: reportData.profile.customers.repeatCustomers.length,
@@ -124,8 +124,8 @@ export function getPdfReportStructure(
   // 5. Stagnant and List Items
   if (reportData.profile.stagnantMedicines || reportData.profile.listItems) {
     sections.push({
-      title: "الرواكد وأصناف اللستة",
-      type: "stagnant_list",
+      title: 'الرواكد وأصناف اللستة',
+      type: 'stagnant_list',
       data: {
         stagnantMedicines: reportData.profile.stagnantMedicines,
         listItems: reportData.profile.listItems,
@@ -136,8 +136,8 @@ export function getPdfReportStructure(
   // 6. Monthly Incentives
   if (reportData.profile.monthlyIncentive) {
     sections.push({
-      title: "الحوافز الشهرية",
-      type: "incentives",
+      title: 'الحوافز الشهرية',
+      type: 'incentives',
       data: {
         finalPoints: reportData.profile.monthlyIncentive.finalPoints,
         startingPoints: reportData.profile.monthlyIncentive.startingPoints,
@@ -154,8 +154,8 @@ export function getPdfReportStructure(
   // 7. Quarterly Performance
   if (reportData.profile.quarterlyIncentive) {
     sections.push({
-      title: "الأداء الربع سنوي",
-      type: "quarterly",
+      title: 'الأداء الربع سنوي',
+      type: 'quarterly',
       data: {
         quarterlyScore: reportData.profile.quarterlyIncentive.quarterlyScore,
         baseQuarterlyIncentive: reportData.profile.quarterlyIncentive.baseQuarterlyIncentive,
@@ -171,8 +171,8 @@ export function getPdfReportStructure(
   // 8. Attendance
   if (reportData.profile.attendance) {
     sections.push({
-      title: "الحضور",
-      type: "attendance",
+      title: 'الحضور',
+      type: 'attendance',
       data: {
         scheduledDays: reportData.profile.attendance.scheduledDays,
         attendedDays: reportData.profile.attendance.attendedDays,
@@ -189,17 +189,20 @@ export function getPdfReportStructure(
   // 9. Customer Service
   if (reportData.profile.customerService) {
     sections.push({
-      title: "خدمة العملاء",
-      type: "customer_service",
+      title: 'خدمة العملاء',
+      type: 'customer_service',
       data: {
         followupsAssigned: reportData.profile.customerService.followupsAssigned,
         followupsCompleted: reportData.profile.customerService.followupsCompleted,
         followupsMissed: reportData.profile.customerService.followupsMissed,
         complaintCount: reportData.profile.customerService.complaintCount,
         resolvedComplaints: reportData.profile.customerService.resolvedComplaints,
-        conversationEvaluationAverage: reportData.profile.customerService.conversationEvaluationAverage,
-        missingCustomerClassification: reportData.profile.customerService.missingCustomerClassification,
-        missingInvoiceClassification: reportData.profile.customerService.missingInvoiceClassification,
+        conversationEvaluationAverage:
+          reportData.profile.customerService.conversationEvaluationAverage,
+        missingCustomerClassification:
+          reportData.profile.customerService.missingCustomerClassification,
+        missingInvoiceClassification:
+          reportData.profile.customerService.missingInvoiceClassification,
       },
     });
   }
@@ -207,8 +210,8 @@ export function getPdfReportStructure(
   // 10. Recommendations
   if (options.includeRecommendations && reportData.profile.recommendations.length > 0) {
     sections.push({
-      title: "التوصيات",
-      type: "recommendations",
+      title: 'التوصيات',
+      type: 'recommendations',
       data: {
         recommendations: reportData.profile.recommendations,
       },
@@ -217,8 +220,8 @@ export function getPdfReportStructure(
 
   // 11. Data Health
   sections.push({
-    title: "صحة البيانات",
-    type: "data_health",
+    title: 'صحة البيانات',
+    type: 'data_health',
     data: {
       warnings: reportData.profile.dataHealth.warnings,
       unresolvedSellerNames: reportData.profile.dataHealth.unresolvedSellerNames,
@@ -233,7 +236,18 @@ export function getPdfReportStructure(
 
 export interface PdfReportSection {
   title: string;
-  type: "header" | "summary" | "sales" | "customers" | "stagnant_list" | "incentives" | "quarterly" | "attendance" | "customer_service" | "recommendations" | "data_health";
+  type:
+    | 'header'
+    | 'summary'
+    | 'sales'
+    | 'customers'
+    | 'stagnant_list'
+    | 'incentives'
+    | 'quarterly'
+    | 'attendance'
+    | 'customer_service'
+    | 'recommendations'
+    | 'data_health';
   data: any;
 }
 
@@ -249,39 +263,46 @@ export function exportReportAsJson(reportData: StaffPdfReportData): string {
  */
 export function exportReportAsCsv(reportData: StaffPdfReportData): string {
   const lines: string[] = [];
-  
+
   // Header
-  lines.push("Section,Metric,Value");
-  
+  lines.push('Section,Metric,Value');
+
   // Executive Summary
-  lines.push("Summary,Staff Name," + reportData.profile.staff.name);
-  lines.push("Summary,Role," + reportData.profile.staff.role);
-  lines.push("Summary,Branch," + reportData.profile.staff.branch);
-  lines.push("Summary,Final Points," + (reportData.profile.monthlyIncentive?.finalPoints || 0));
-  lines.push("Summary,Incentive Value," + (reportData.profile.monthlyIncentive?.incentiveValue || 0));
-  
+  lines.push('Summary,Staff Name,' + reportData.profile.staff.name);
+  lines.push('Summary,Role,' + reportData.profile.staff.role);
+  lines.push('Summary,Branch,' + reportData.profile.staff.branch);
+  lines.push('Summary,Final Points,' + (reportData.profile.monthlyIncentive?.finalPoints || 0));
+  lines.push(
+    'Summary,Incentive Value,' + (reportData.profile.monthlyIncentive?.incentiveValue || 0)
+  );
+
   // Sales
   if (reportData.profile.sales) {
-    lines.push("Sales,Cycle Net Sales," + reportData.profile.sales.cycleNetSales);
-    lines.push("Sales,Cycle Invoices," + reportData.profile.sales.cycleInvoicesCount);
-    lines.push("Sales,Average Invoice," + reportData.profile.sales.avgInvoice);
-    lines.push("Sales,Unique Customers," + reportData.profile.sales.uniqueCustomers);
+    lines.push('Sales,Cycle Net Sales,' + reportData.profile.sales.cycleNetSales);
+    lines.push('Sales,Cycle Invoices,' + reportData.profile.sales.cycleInvoicesCount);
+    lines.push('Sales,Average Invoice,' + reportData.profile.sales.avgInvoice);
+    lines.push('Sales,Unique Customers,' + reportData.profile.sales.uniqueCustomers);
   }
-  
+
   // Customers
   if (reportData.profile.customers) {
-    lines.push("Customers,New Customers," + reportData.profile.customers.newCustomers);
-    lines.push("Customers,Repeat Customers," + reportData.profile.customers.repeatCustomers.length);
-    lines.push("Customers,Customers Needing Followup," + reportData.profile.customers.customersNeedingFollowupCount);
+    lines.push('Customers,New Customers,' + reportData.profile.customers.newCustomers);
+    lines.push('Customers,Repeat Customers,' + reportData.profile.customers.repeatCustomers.length);
+    lines.push(
+      'Customers,Customers Needing Followup,' +
+        reportData.profile.customers.customersNeedingFollowupCount
+    );
   }
-  
+
   // Quarterly
   if (reportData.profile.quarterlyIncentive) {
-    lines.push("Quarterly,Quarterly Score," + reportData.profile.quarterlyIncentive.quarterlyScore);
-    lines.push("Quarterly,Quarterly Final Value," + reportData.profile.quarterlyIncentive.quarterlyFinalValue);
+    lines.push('Quarterly,Quarterly Score,' + reportData.profile.quarterlyIncentive.quarterlyScore);
+    lines.push(
+      'Quarterly,Quarterly Final Value,' + reportData.profile.quarterlyIncentive.quarterlyFinalValue
+    );
   }
-  
-  return lines.join("\n");
+
+  return lines.join('\n');
 }
 
 /**
@@ -292,7 +313,7 @@ export function generatePrintableHtml(reportData: StaffPdfReportData): string {
     includeCharts: true,
     includeRecommendations: true,
     includeDetailedTables: true,
-    language: "ar",
+    language: 'ar',
   });
 
   let html = `
@@ -328,7 +349,7 @@ export function generatePrintableHtml(reportData: StaffPdfReportData): string {
     <p><strong>الاسم:</strong> ${reportData.profile.staff.name}</p>
     <p><strong>الوظيفة:</strong> ${reportData.profile.staff.role}</p>
     <p><strong>الفرع:</strong> ${reportData.profile.staff.branch}</p>
-    <p><strong>تاريخ التقرير:</strong> ${new Date(reportData.generatedAt).toLocaleDateString("ar-EG")}</p>
+    <p><strong>تاريخ التقرير:</strong> ${new Date(reportData.generatedAt).toLocaleDateString('ar-EG')}</p>
     <p><strong>فترة التقرير:</strong> ${reportData.reportPeriod}</p>
   </div>
 `;
@@ -338,7 +359,7 @@ export function generatePrintableHtml(reportData: StaffPdfReportData): string {
     html += `<div class="section">`;
     html += `<div class="section-title">${section.title}</div>`;
 
-    if (section.type === "summary") {
+    if (section.type === 'summary') {
       html += `
         <div class="grid">
           <div class="metric">
@@ -367,7 +388,7 @@ export function generatePrintableHtml(reportData: StaffPdfReportData): string {
           </div>
         </div>
       `;
-    } else if (section.type === "recommendations") {
+    } else if (section.type === 'recommendations') {
       section.data.recommendations.forEach((rec: any) => {
         html += `
           <div class="recommendation">
@@ -377,7 +398,7 @@ export function generatePrintableHtml(reportData: StaffPdfReportData): string {
           </div>
         `;
       });
-    } else if (section.type === "data_health") {
+    } else if (section.type === 'data_health') {
       if (section.data.warnings.length > 0) {
         section.data.warnings.forEach((warning: string) => {
           html += `<div class="warning">${warning}</div>`;

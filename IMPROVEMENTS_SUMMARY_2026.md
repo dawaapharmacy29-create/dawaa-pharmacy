@@ -1,6 +1,7 @@
 ## تحسينات التطبيق الشاملة - 2026
 
 ### الملخص
+
 تم القيام بتحسينات شاملة على تطبيق صيدليات دواء لتحسين الأداء والواجهة والتجربة العامة.
 
 ---
@@ -8,10 +9,12 @@
 ## 1️⃣ تحسينات القائمة الجانبية (Sidebar)
 
 ### المشكلة الأصلية
+
 - القائمة الجانبية كانت تحتوي على **9+ مجموعات** بها عناصر كثيرة جداً
 - صعوبة التنقل والعثور على الخيارات المطلوبة
 
 ### الحل المطبق
+
 - تقليل المجموعات إلى **7 مجموعات فقط**
 - دمج العناصر ذات الصلة معاً:
   - دمج "الحوافز والتقييم" + "التوصيل" → "الحوافز والتوصيل"
@@ -20,6 +23,7 @@
   - تبسيط أسماء العناصر لتكون أقصر وأوضح
 
 ### النتائج المتوقعة
+
 ✅ أسهل في التنقل
 ✅ تجربة مستخدم أفضل
 ✅ واجهة أنظف وأبسط
@@ -30,20 +34,24 @@
 ## 2️⃣ تحسينات الداشبورد
 
 ### المشكلة المؤقتة
+
 - عدم ظهور أرقام المبيعات في بعض الحالات
 
 ### الحل المطبق
+
 - إنشاء ملف جديد: `dashboardOptimizations.ts`
 - إضافة دوال للتعامل مع البيانات الفارغة
 - إضافة Fallback values للبيانات المفقودة
 - تحسين معالجة الأخطاء
 
 ### الملفات الجديدة
+
 ```
 src/lib/dashboard/dashboardOptimizations.ts
 ```
 
 ### الدوال المضافة
+
 - `ensureValidDashboardData()` - التأكد من صحة البيانات
 - `hasSalesData()` - التحقق من وجود بيانات مبيعات
 - `hasInvoiceData()` - التحقق من وجود بيانات الفواتير
@@ -56,6 +64,7 @@ src/lib/dashboard/dashboardOptimizations.ts
 ## 3️⃣ تحسينات الأداء العامة
 
 ### الملف الجديد
+
 ```
 src/lib/performance/performanceOptimizations.ts
 ```
@@ -63,39 +72,51 @@ src/lib/performance/performanceOptimizations.ts
 ### التحسينات المضافة
 
 #### أ. Memoization
+
 ```typescript
 const memoizeSelector = (selector) => { ... }
 ```
+
 يقلل من إعادة الحساب غير الضرورية
 
 #### ب. معالجة البيانات الكبيرة
+
 ```typescript
 const chunkArray = (array, size) => { ... }
 ```
+
 تقسيم البيانات الكبيرة لأجزاء أصغر
 
 #### ج. التخزين المؤقت المحسّن
+
 ```typescript
 class PerformanceCache<T> { ... }
 ```
+
 نظام تخزين مؤقت مع انتهاء الصلاحية
 
 #### د. إعادة الاتصال الذكية
+
 ```typescript
 const createRetryStrategy = (fn, maxRetries) => { ... }
 ```
+
 محاولة متعددة مع تأخير متزايد
 
 #### هـ. معالجة الأخطاء
+
 ```typescript
 class ErrorBoundary { ... }
 ```
+
 التعامل الآمن مع الأخطاء
 
 #### و. تحسين البحث
+
 ```typescript
 const createSearchIndex = (items, fields) => { ... }
 ```
+
 فهرسة سريعة للبحث
 
 ---
@@ -112,17 +133,23 @@ src/lib/performance/performanceOptimizations.ts
 ## 5️⃣ إرشادات الاستخدام
 
 ### استيراد التحسينات
+
 ```typescript
 // للداشبورد
-import { ensureValidDashboardData, hasSalesData } from "@/lib/dashboard/dashboardOptimizations";
+import { ensureValidDashboardData, hasSalesData } from '@/lib/dashboard/dashboardOptimizations';
 
 // للأداء
-import { PerformanceCache, memoizeSelector, createRetryStrategy } from "@/lib/performance/performanceOptimizations";
+import {
+  PerformanceCache,
+  memoizeSelector,
+  createRetryStrategy,
+} from '@/lib/performance/performanceOptimizations';
 ```
 
 ### أمثلة الاستخدام
 
 #### مثال 1: التحقق من صحة البيانات
+
 ```typescript
 const validData = ensureValidDashboardData(fetchedData);
 if (hasSalesData(validData.summary)) {
@@ -131,13 +158,14 @@ if (hasSalesData(validData.summary)) {
 ```
 
 #### مثال 2: استخدام التخزين المؤقت
+
 ```typescript
 const cache = new PerformanceCache(10 * 60 * 1000); // 10 دقائق
 
 const getData = () => {
   const cached = cache.get('salesData');
   if (cached) return cached;
-  
+
   const data = fetchData();
   cache.set('salesData', data);
   return data;
@@ -145,6 +173,7 @@ const getData = () => {
 ```
 
 #### مثال 3: إعادة الاتصال
+
 ```typescript
 const result = await createRetryStrategy(
   () => fetchFromDatabase(),
@@ -176,11 +205,13 @@ const result = await createRetryStrategy(
 ## 8️⃣ ملاحظات تقنية
 
 ### للمطورين
+
 - استخدم `memoizeSelector` لتحسين الأداء في الـ React Components
 - استخدم `PerformanceCache` للبيانات التي تتغير بسرعة بطيئة
 - استخدم `createRetryStrategy` للعمليات الحرجة
 
 ### للقيام بالصيانة
+
 - تفقد `src/lib/performance/performanceOptimizations.ts` بانتظام
 - تحديث رسائل الأخطاء في الداشبورد
 - مراقبة استخدام الذاكرة للـ PerformanceCache
@@ -188,6 +219,7 @@ const result = await createRetryStrategy(
 ---
 
 ## 📅 التاريخ
+
 - **التحديث**: 2026-06-18
 - **النسخة**: v2.1.0
 - **الحالة**: ✅ مكتمل
@@ -195,4 +227,5 @@ const result = await createRetryStrategy(
 ---
 
 ## 📧 التواصل
+
 لأي استفسارات أو مشاكل، يرجى التواصل مع فريق الدعم الفني.

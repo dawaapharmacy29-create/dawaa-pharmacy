@@ -1,35 +1,38 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
-import { FULL_LOGO_URL } from "@/lib/constants";
-import { Eye, EyeOff, Lock, User } from "lucide-react";
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
+import { FULL_LOGO_URL } from '@/lib/constants';
+import { Eye, EyeOff, Lock, User } from 'lucide-react';
 
 export default function Login() {
-  const showDemoCredentials = import.meta.env.VITE_SHOW_DEMO_CREDENTIALS === "true";
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const showDemoCredentials = import.meta.env.VITE_SHOW_DEMO_CREDENTIALS === 'true';
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
+    setError('');
     setLoading(true);
     await new Promise((r) => setTimeout(r, 600));
     const ok = await login(username.trim(), password);
     if (ok) {
-      navigate("/");
+      navigate('/');
     } else {
-      setError("اسم المستخدم أو كلمة المرور غير صحيحة");
+      setError('اسم المستخدم أو كلمة المرور غير صحيحة');
     }
     setLoading(false);
   };
 
   return (
-    <div className="login-page min-h-screen bg-navy-900 flex items-center justify-center p-4" dir="rtl">
+    <div
+      className="login-page min-h-screen bg-navy-900 flex items-center justify-center p-4"
+      dir="rtl"
+    >
       {/* Background */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,#123042_0%,#0F1923_42%,#091018_100%)]" />
@@ -73,7 +76,7 @@ export default function Login() {
               <div className="relative">
                 <Lock className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                 <input
-                  type={showPass ? "text" : "password"}
+                  type={showPass ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="أدخل كلمة المرور"
@@ -108,14 +111,16 @@ export default function Login() {
                   جارٍ التحقق...
                 </>
               ) : (
-                "دخول"
+                'دخول'
               )}
             </button>
           </form>
 
           {showDemoCredentials && (
             <div className="mt-6 p-4 bg-white/3 rounded-xl border border-white/5">
-              <p className="text-slate-400 text-xs text-center font-medium">بيانات الدخول التجريبية لا تظهر في نسخة التشغيل. راجع مسؤول النظام.</p>
+              <p className="text-slate-400 text-xs text-center font-medium">
+                بيانات الدخول التجريبية لا تظهر في نسخة التشغيل. راجع مسؤول النظام.
+              </p>
             </div>
           )}
         </div>

@@ -41,8 +41,6 @@
   color: #888;
 }
 
-
-
 /* Dawaa UI Layout & Badges Fix V1 - 2026-06-08
    الهدف: منع ضغط الصفحات والجداول، توضيح العلامات في الثيم الغامق، وتحسين العرض على الشاشات المختلفة.
 */
@@ -65,8 +63,8 @@ main,
 .dawaa-page,
 .dawaa-page-shell,
 .dawaa-content,
-[class*="page"],
-[class*="Page"] {
+[class*='page'],
+[class*='Page'] {
   min-width: 0;
 }
 
@@ -77,8 +75,8 @@ main,
 .panel,
 .table-card,
 .data-card,
-[class*="panel"],
-[class*="Panel"] {
+[class*='panel'],
+[class*='Panel'] {
   min-width: 0;
   max-width: 100%;
 }
@@ -94,7 +92,7 @@ table {
 .table-wrapper,
 .overflow-x-auto,
 .table-container,
-[class*="Table"] {
+[class*='Table'] {
   max-width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
@@ -148,10 +146,10 @@ td .btn-secondary {
 .customer-flag,
 .flag-badge,
 .status-badge,
-[class*="badge"],
-[class*="Badge"],
-[class*="chip"],
-[class*="Chip"] {
+[class*='badge'],
+[class*='Badge'],
+[class*='chip'],
+[class*='Chip'] {
   border-width: 1px;
   font-weight: 800;
   line-height: 1.15;
@@ -164,19 +162,19 @@ td .btn-secondary {
 .dark .customer-flag,
 .dark .flag-badge,
 .dark .status-badge,
-.dark [class*="badge"],
-.dark [class*="Badge"],
-.dark [class*="chip"],
-.dark [class*="Chip"],
-[data-theme="dark"] .dawaa-badge,
-[data-theme="dark"] .customer-tag,
-[data-theme="dark"] .customer-flag,
-[data-theme="dark"] .flag-badge,
-[data-theme="dark"] .status-badge,
-[data-theme="dark"] [class*="badge"],
-[data-theme="dark"] [class*="Badge"],
-[data-theme="dark"] [class*="chip"],
-[data-theme="dark"] [class*="Chip"] {
+.dark [class*='badge'],
+.dark [class*='Badge'],
+.dark [class*='chip'],
+.dark [class*='Chip'],
+[data-theme='dark'] .dawaa-badge,
+[data-theme='dark'] .customer-tag,
+[data-theme='dark'] .customer-flag,
+[data-theme='dark'] .flag-badge,
+[data-theme='dark'] .status-badge,
+[data-theme='dark'] [class*='badge'],
+[data-theme='dark'] [class*='Badge'],
+[data-theme='dark'] [class*='chip'],
+[data-theme='dark'] [class*='Chip'] {
   background-color: rgba(20, 184, 166, 0.16) !important;
   color: #dffdf8 !important;
   border-color: rgba(94, 234, 212, 0.45) !important;
@@ -189,12 +187,12 @@ td .btn-secondary {
 .dark .bg-green-50,
 .dark .bg-emerald-50,
 .dark .bg-teal-50,
-[data-theme="dark"] .bg-yellow-50,
-[data-theme="dark"] .bg-amber-50,
-[data-theme="dark"] .bg-lime-50,
-[data-theme="dark"] .bg-green-50,
-[data-theme="dark"] .bg-emerald-50,
-[data-theme="dark"] .bg-teal-50 {
+[data-theme='dark'] .bg-yellow-50,
+[data-theme='dark'] .bg-amber-50,
+[data-theme='dark'] .bg-lime-50,
+[data-theme='dark'] .bg-green-50,
+[data-theme='dark'] .bg-emerald-50,
+[data-theme='dark'] .bg-teal-50 {
   background-color: rgba(20, 184, 166, 0.17) !important;
   color: #ecfeff !important;
   border-color: rgba(94, 234, 212, 0.5) !important;
@@ -202,19 +200,19 @@ td .btn-secondary {
 
 /* أزرار غير فعالة داخل الجداول تكون واضحة أنها معطلة بدون اختفاء النص */
 button:disabled,
-a[aria-disabled="true"],
+a[aria-disabled='true'],
 .disabled {
   opacity: 0.62 !important;
   cursor: not-allowed !important;
 }
 
 .dark button:disabled,
-.dark a[aria-disabled="true"],
+.dark a[aria-disabled='true'],
 .dark .disabled,
-[data-theme="dark"] button:disabled,
-[data-theme="dark"] a[aria-disabled="true"],
-[data-theme="dark"] .disabled {
-  color: rgba(255,255,255,0.72) !important;
+[data-theme='dark'] button:disabled,
+[data-theme='dark'] a[aria-disabled='true'],
+[data-theme='dark'] .disabled {
+  color: rgba(255, 255, 255, 0.72) !important;
 }
 
 /* إصلاح تداخل الهيدر مع المحتوى في الشاشات الصغيرة */
@@ -316,8 +314,6 @@ a[aria-disabled="true"],
   }
 }
 
-
-
 /* Dawaa Cashback Responsive Cards Fix V2 */
 .cashback-mobile-list {
   display: grid;
@@ -333,7 +329,7 @@ a[aria-disabled="true"],
   background: color-mix(in srgb, var(--theme-surface) 92%, transparent);
   border-radius: 1.25rem;
   padding: 0.95rem;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 }
 
 .cashback-action-grid {
@@ -384,8 +380,8 @@ a[aria-disabled="true"],
 /* في الثيم الغامق: ممنوع أزرار بيضاء باهتة داخل الكاش باك */
 .dark .cashback-action-grid .bg-white,
 .dark .cashback-action-grid .bg-slate-100,
-[data-theme="dark"] .cashback-action-grid .bg-white,
-[data-theme="dark"] .cashback-action-grid .bg-slate-100 {
+[data-theme='dark'] .cashback-action-grid .bg-white,
+[data-theme='dark'] .cashback-action-grid .bg-slate-100 {
   background: rgba(30, 41, 59, 0.9) !important;
   color: #fff !important;
   border-color: rgba(148, 163, 184, 0.45) !important;
@@ -401,8 +397,6 @@ a[aria-disabled="true"],
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-
-
 
 /* Dawaa Customers Responsive Cards Fix V1 */
 .customers-mobile-list {
@@ -420,14 +414,17 @@ a[aria-disabled="true"],
   background: color-mix(in srgb, var(--theme-surface) 92%, transparent);
   border-radius: 1.25rem;
   padding: 0.95rem;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.07);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.07);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .customer-responsive-card:hover {
   transform: translateY(-1px);
   border-color: rgba(45, 212, 191, 0.55);
-  box-shadow: 0 14px 36px rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.12);
 }
 
 @media (min-width: 1560px) {
@@ -475,4 +472,3 @@ a[aria-disabled="true"],
 .customer-service-page .dawaa-panel {
   max-width: 100%;
 }
-

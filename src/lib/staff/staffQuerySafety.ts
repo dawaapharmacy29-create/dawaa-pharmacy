@@ -1,6 +1,6 @@
 /**
  * Query Safety and Performance Utilities
- * 
+ *
  * This module provides utilities to ensure safe and performant database queries
  * for the staff performance profile system.
  */
@@ -39,10 +39,10 @@ export function enforceQuerySafety(
 ): { query: any; limit: number } {
   const safetyConfig = { ...DEFAULT_QUERY_SAFETY, ...config };
   const limit = Math.min(safetyConfig.maxRows, query.options?.limit || safetyConfig.maxRows);
-  
+
   // Apply limit to query
   const safeQuery = query.limit(limit);
-  
+
   return { query: safeQuery, limit };
 }
 
@@ -81,7 +81,7 @@ export async function safeQuery<T>(
   const metrics: QueryMetrics = {
     queryName,
     executionTime,
-    rowsReturned: Array.isArray(data) ? data.length : (data ? 1 : 0),
+    rowsReturned: Array.isArray(data) ? data.length : data ? 1 : 0,
     cacheHit: false, // Cache hit tracking would be implemented separately
     timedOut,
     error,
@@ -173,7 +173,7 @@ export const staffProfileCache = new SimpleCache<any>(300000); // 5 minutes TTL
 export class CircuitBreaker {
   private failures = 0;
   private lastFailureTime = 0;
-  private state: "closed" | "open" | "half-open" = "closed";
+  private state: 'closed' | 'open' | 'half-open' = 'closed';
   private threshold: number;
   private resetTimeout: number;
 
@@ -183,31 +183,31 @@ export class CircuitBreaker {
   }
 
   async execute<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.state === "open") {
+    if (this.state === 'open') {
       if (Date.now() - this.lastFailureTime > this.resetTimeout) {
-        this.state = "half-open";
+        this.state = 'half-open';
       } else {
-        throw new Error("Circuit breaker is OPEN");
+        throw new Error('Circuit breaker is OPEN');
       }
     }
 
     try {
       const result = await fn();
-      
-      if (this.state === "half-open") {
-        this.state = "closed";
+
+      if (this.state === 'half-open') {
+        this.state = 'closed';
         this.failures = 0;
       }
-      
+
       return result;
     } catch (error) {
       this.failures++;
       this.lastFailureTime = Date.now();
-      
+
       if (this.failures >= this.threshold) {
-        this.state = "open";
+        this.state = 'open';
       }
-      
+
       throw error;
     }
   }
@@ -218,7 +218,7 @@ export class CircuitBreaker {
 
   reset(): void {
     this.failures = 0;
-    this.state = "closed";
+    this.state = 'closed';
   }
 }
 
@@ -231,7 +231,7 @@ export class QueryMetricsCollector {
 
   add(metric: QueryMetrics): void {
     this.metrics.push(metric);
-    
+
     // Keep only the most recent metrics
     if (this.metrics.length > this.maxMetrics) {
       this.metrics = this.metrics.slice(-this.maxMetrics);
@@ -258,12 +258,12 @@ export class QueryMetricsCollector {
   }
 
   getAverageExecutionTime(queryName?: string): number {
-    const relevantMetrics = queryName 
+    const relevantMetrics = queryName
       ? this.metrics.filter((m) => m.queryName === queryName)
       : this.metrics;
-    
+
     if (relevantMetrics.length === 0) return 0;
-    
+
     const total = relevantMetrics.reduce((sum, m) => sum + m.executionTime, 0);
     return total / relevantMetrics.length;
   }
@@ -306,7 +306,7 @@ export function paginate<T>(
   const currentPage = Math.max(1, Math.min(page, totalPages));
   const startIndex = (currentPage - 1) * pageSize;
   const endIndex = startIndex + pageSize;
-  
+
   return {
     data: data.slice(startIndex, endIndex),
     totalPages,
@@ -323,13 +323,13 @@ export async function batchProcess<T, R>(
   processor: (batch: T[]) => Promise<R[]>
 ): Promise<R[]> {
   const results: R[] = [];
-  
+
   for (let i = 0; i < items.length; i += batchSize) {
     const batch = items.slice(i, i + batchSize);
     const batchResults = await processor(batch);
     results.push(...batchResults);
   }
-  
+
   return results;
 }
 
@@ -341,17 +341,17 @@ export function debounce<T extends (...args: any[]) => any>(
   wait: number
 ): (...args: Parameters<T>) => void {
   let timeout: NodeJS.Timeout | null = null;
-  
+
   return function executedFunction(...args: Parameters<T>) {
     const later = () => {
       timeout = null;
       func(...args);
     };
-    
+
     if (timeout) {
       clearTimeout(timeout);
     }
-    
+
     timeout = setTimeout(later, wait);
   };
 }
@@ -364,7 +364,7 @@ export function throttle<T extends (...args: any[]) => any>(
   limit: number
 ): (...args: Parameters<T>) => void {
   let inThrottle: boolean;
-  
+
   return function executedFunction(...args: Parameters<T>) {
     if (!inThrottle) {
       func(...args);
@@ -392,10 +392,10 @@ export function validateQueryParams(params: Record<string, any>): boolean {
   ];
 
   const paramString = JSON.stringify(params);
-  
+
   for (const pattern of dangerousPatterns) {
     if (pattern.test(paramString)) {
-      console.warn("Potentially dangerous query pattern detected");
+      console.warn('Potentially dangerous query pattern detected');
       return false;
     }
   }
@@ -415,7 +415,7 @@ export function getMemoryUsage(): {
   const used = process.memoryUsage?.()?.heapUsed || 0;
   // @ts-ignore - Node.js specific
   const total = process.memoryUsage?.()?.heapTotal || 0;
-  
+
   return {
     used,
     total,
@@ -447,24 +447,22 @@ export class StaffProfilePerformanceMonitor {
   }
 
   getElapsedTime(checkpoint?: string): number {
-    const endTime = checkpoint 
-      ? (this.checkpoints.get(checkpoint) || Date.now())
-      : Date.now();
+    const endTime = checkpoint ? this.checkpoints.get(checkpoint) || Date.now() : Date.now();
     return endTime - this.startTime;
   }
 
   getCheckpointDuration(checkpoint: string): number | null {
     const checkpointTime = this.checkpoints.get(checkpoint);
     if (!checkpointTime) return null;
-    
+
     // Find previous checkpoint
     const times = Array.from(this.checkpoints.values()).sort((a, b) => a - b);
     const idx = times.indexOf(checkpointTime);
-    
+
     if (idx === 0) {
       return checkpointTime - this.startTime;
     }
-    
+
     return checkpointTime - times[idx - 1];
   }
 

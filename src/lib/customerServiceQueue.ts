@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 export interface CustomerServiceQueueItem {
   id: string;
@@ -15,9 +15,9 @@ export interface CustomerServiceQueueItem {
   assignedStaffId: string | null;
   assignedStaffName: string | null;
   assignedBranch: string | null;
-  priorityLevel: "urgent" | "high" | "medium" | "low";
+  priorityLevel: 'urgent' | 'high' | 'medium' | 'low';
   priorityReason: string;
-  followupStatus: "pending" | "in_progress" | "completed" | "skipped";
+  followupStatus: 'pending' | 'in_progress' | 'completed' | 'skipped';
   followupDate: string | null;
   daysSinceLastPurchase: number | null;
   daysSinceLastFollowup: number | null;
@@ -57,12 +57,12 @@ export async function generateDailyCustomerServiceQueue(
       queueDate: targetDate,
       itemCount: 0,
       summary: null,
-      error: "Supabase not configured",
+      error: 'Supabase not configured',
     };
   }
 
   try {
-    const { data, error } = await supabase.rpc("generate_customer_service_daily_queue", {
+    const { data, error } = await supabase.rpc('generate_customer_service_daily_queue', {
       target_date: targetDate,
     });
 
@@ -81,7 +81,7 @@ export async function generateDailyCustomerServiceQueue(
       error: null,
     };
   } catch (error) {
-    console.error("Error generating customer service queue:", error);
+    console.error('Error generating customer service queue:', error);
     return {
       success: false,
       queueDate: targetDate,
@@ -98,8 +98,8 @@ export async function generateDailyCustomerServiceQueue(
 export async function getCustomerServiceQueue(
   queueDate: string = new Date().toISOString().slice(0, 10),
   options: {
-    priorityLevel?: "urgent" | "high" | "medium" | "low";
-    followupStatus?: "pending" | "in_progress" | "completed" | "skipped";
+    priorityLevel?: 'urgent' | 'high' | 'medium' | 'low';
+    followupStatus?: 'pending' | 'in_progress' | 'completed' | 'skipped';
     assignedStaffId?: string;
     limit?: number;
   } = {}
@@ -108,22 +108,22 @@ export async function getCustomerServiceQueue(
 
   try {
     let query = supabase
-      .from("customer_service_daily_queue")
-      .select("*")
-      .eq("queue_date", queueDate)
-      .order("priority_level", { ascending: false })
-      .order("created_at", { ascending: false });
+      .from('customer_service_daily_queue')
+      .select('*')
+      .eq('queue_date', queueDate)
+      .order('priority_level', { ascending: false })
+      .order('created_at', { ascending: false });
 
     if (options.priorityLevel) {
-      query = query.eq("priority_level", options.priorityLevel);
+      query = query.eq('priority_level', options.priorityLevel);
     }
 
     if (options.followupStatus) {
-      query = query.eq("followup_status", options.followupStatus);
+      query = query.eq('followup_status', options.followupStatus);
     }
 
     if (options.assignedStaffId) {
-      query = query.eq("assigned_staff_id", options.assignedStaffId);
+      query = query.eq('assigned_staff_id', options.assignedStaffId);
     }
 
     if (options.limit) {
@@ -139,7 +139,7 @@ export async function getCustomerServiceQueue(
       queueDate: String(row.queue_date),
       customerId: row.customer_id ? String(row.customer_id) : null,
       customerCode: row.customer_code ? String(row.customer_code) : null,
-      customerName: String(row.customer_name || ""),
+      customerName: String(row.customer_name || ''),
       customerPhone: row.customer_phone ? String(row.customer_phone) : null,
       customerSegment: row.customer_segment ? String(row.customer_segment) : null,
       lastPurchaseDate: row.last_purchase_date ? String(row.last_purchase_date) : null,
@@ -149,18 +149,22 @@ export async function getCustomerServiceQueue(
       assignedStaffId: row.assigned_staff_id ? String(row.assigned_staff_id) : null,
       assignedStaffName: row.assigned_staff_name ? String(row.assigned_staff_name) : null,
       assignedBranch: row.assigned_branch ? String(row.assigned_branch) : null,
-      priorityLevel: row.priority_level as "urgent" | "high" | "medium" | "low",
-      priorityReason: String(row.priority_reason || ""),
-      followupStatus: row.followup_status as "pending" | "in_progress" | "completed" | "skipped",
+      priorityLevel: row.priority_level as 'urgent' | 'high' | 'medium' | 'low',
+      priorityReason: String(row.priority_reason || ''),
+      followupStatus: row.followup_status as 'pending' | 'in_progress' | 'completed' | 'skipped',
       followupDate: row.followup_date ? String(row.followup_date) : null,
-      daysSinceLastPurchase: row.days_since_last_purchase ? Number(row.days_since_last_purchase) : null,
-      daysSinceLastFollowup: row.days_since_last_followup ? Number(row.days_since_last_followup) : null,
+      daysSinceLastPurchase: row.days_since_last_purchase
+        ? Number(row.days_since_last_purchase)
+        : null,
+      daysSinceLastFollowup: row.days_since_last_followup
+        ? Number(row.days_since_last_followup)
+        : null,
       notes: row.notes ? String(row.notes) : null,
-      createdAt: String(row.created_at || ""),
-      updatedAt: String(row.updated_at || ""),
+      createdAt: String(row.created_at || ''),
+      updatedAt: String(row.updated_at || ''),
     }));
   } catch (error) {
-    console.error("Error fetching customer service queue:", error);
+    console.error('Error fetching customer service queue:', error);
     return [];
   }
 }
@@ -174,7 +178,7 @@ export async function getCustomerServiceQueueSummary(
   if (!isSupabaseConfigured) return null;
 
   try {
-    const { data, error } = await supabase.rpc("get_customer_service_queue_summary", {
+    const { data, error } = await supabase.rpc('get_customer_service_queue_summary', {
       queue_date: queueDate,
     });
 
@@ -194,7 +198,7 @@ export async function getCustomerServiceQueueSummary(
       pendingCount: Number(row.pending_count || 0),
     };
   } catch (error) {
-    console.error("Error fetching customer service queue summary:", error);
+    console.error('Error fetching customer service queue summary:', error);
     return null;
   }
 }
@@ -205,7 +209,7 @@ export async function getCustomerServiceQueueSummary(
 export async function updateCustomerServiceQueueItem(
   itemId: string,
   updates: {
-    followupStatus?: "pending" | "in_progress" | "completed" | "skipped";
+    followupStatus?: 'pending' | 'in_progress' | 'completed' | 'skipped';
     followupDate?: string;
     notes?: string;
   }
@@ -214,20 +218,20 @@ export async function updateCustomerServiceQueueItem(
 
   try {
     const { error } = await supabase
-      .from("customer_service_daily_queue")
+      .from('customer_service_daily_queue')
       .update({
         followup_status: updates.followupStatus,
         followup_date: updates.followupDate,
         notes: updates.notes,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", itemId);
+      .eq('id', itemId);
 
     if (error) throw error;
 
     return true;
   } catch (error) {
-    console.error("Error updating customer service queue item:", error);
+    console.error('Error updating customer service queue item:', error);
     return false;
   }
 }
@@ -241,7 +245,7 @@ export async function getStaffCustomerServiceQueue(
 ): Promise<CustomerServiceQueueItem[]> {
   return getCustomerServiceQueue(queueDate, {
     assignedStaffId: staffId,
-    followupStatus: "pending",
+    followupStatus: 'pending',
   });
 }
 
@@ -256,13 +260,13 @@ export async function getHighPriorityCustomerServiceQueue(
 
   try {
     const { data, error } = await supabase
-      .from("customer_service_daily_queue")
-      .select("*")
-      .eq("queue_date", queueDate)
-      .in("priority_level", ["urgent", "high"])
-      .eq("followup_status", "pending")
-      .order("priority_level", { ascending: false })
-      .order("created_at", { ascending: false })
+      .from('customer_service_daily_queue')
+      .select('*')
+      .eq('queue_date', queueDate)
+      .in('priority_level', ['urgent', 'high'])
+      .eq('followup_status', 'pending')
+      .order('priority_level', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(limit);
 
     if (error) throw error;
@@ -272,7 +276,7 @@ export async function getHighPriorityCustomerServiceQueue(
       queueDate: String(row.queue_date),
       customerId: row.customer_id ? String(row.customer_id) : null,
       customerCode: row.customer_code ? String(row.customer_code) : null,
-      customerName: String(row.customer_name || ""),
+      customerName: String(row.customer_name || ''),
       customerPhone: row.customer_phone ? String(row.customer_phone) : null,
       customerSegment: row.customer_segment ? String(row.customer_segment) : null,
       lastPurchaseDate: row.last_purchase_date ? String(row.last_purchase_date) : null,
@@ -282,18 +286,22 @@ export async function getHighPriorityCustomerServiceQueue(
       assignedStaffId: row.assigned_staff_id ? String(row.assigned_staff_id) : null,
       assignedStaffName: row.assigned_staff_name ? String(row.assigned_staff_name) : null,
       assignedBranch: row.assigned_branch ? String(row.assigned_branch) : null,
-      priorityLevel: row.priority_level as "urgent" | "high" | "medium" | "low",
-      priorityReason: String(row.priority_reason || ""),
-      followupStatus: row.followup_status as "pending" | "in_progress" | "completed" | "skipped",
+      priorityLevel: row.priority_level as 'urgent' | 'high' | 'medium' | 'low',
+      priorityReason: String(row.priority_reason || ''),
+      followupStatus: row.followup_status as 'pending' | 'in_progress' | 'completed' | 'skipped',
       followupDate: row.followup_date ? String(row.followup_date) : null,
-      daysSinceLastPurchase: row.days_since_last_purchase ? Number(row.days_since_last_purchase) : null,
-      daysSinceLastFollowup: row.days_since_last_followup ? Number(row.days_since_last_followup) : null,
+      daysSinceLastPurchase: row.days_since_last_purchase
+        ? Number(row.days_since_last_purchase)
+        : null,
+      daysSinceLastFollowup: row.days_since_last_followup
+        ? Number(row.days_since_last_followup)
+        : null,
       notes: row.notes ? String(row.notes) : null,
-      createdAt: String(row.created_at || ""),
-      updatedAt: String(row.updated_at || ""),
+      createdAt: String(row.created_at || ''),
+      updatedAt: String(row.updated_at || ''),
     }));
   } catch (error) {
-    console.error("Error fetching high priority customer service queue:", error);
+    console.error('Error fetching high priority customer service queue:', error);
     return [];
   }
 }

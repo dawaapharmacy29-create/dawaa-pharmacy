@@ -3,9 +3,9 @@ import {
   getCustomers,
   type CustomerMetric,
   type GetCustomersOptions,
-} from "@/lib/api/customers";
-import { isValidEgyptPhone } from "@/lib/customerAnalyticsService";
-import { getCustomerFullProfile } from "@/lib/customerProfileService";
+} from '@/lib/api/customers';
+import { isValidEgyptPhone } from '@/lib/customerAnalyticsService';
+import { getCustomerFullProfile } from '@/lib/customerProfileService';
 
 type Row = Record<string, unknown>;
 
@@ -28,18 +28,15 @@ export async function getCustomerFullMetricsProfile(customer: CustomerMetric) {
   return { details, fullProfile };
 }
 
-export async function getCustomerLatestInvoices(
-  customer: CustomerMetric,
-  limit = 20,
-) {
+export async function getCustomerLatestInvoices(customer: CustomerMetric, limit = 20) {
   return (await getCustomerDetails(customer, limit)).invoices;
 }
 
 export function getCustomersWithoutValidPhones(
-  rows: Array<Pick<CustomerMetric, "customer_phone" | "phone" | "customer_code">>,
+  rows: Array<Pick<CustomerMetric, 'customer_phone' | 'phone' | 'customer_code'>>
 ) {
   return rows.filter(
-    (row) => !isValidEgyptPhone(row.customer_phone || row.phone, row.customer_code),
+    (row) => !isValidEgyptPhone(row.customer_phone || row.phone, row.customer_code)
   );
 }
 
@@ -48,8 +45,8 @@ export function getCustomerLinkingHealth(rows: Row[]) {
   const missingPhone = rows.filter((row) => !row.customer_phone && !row.phone).length;
   const pseudoCustomers = rows.filter(
     (row) =>
-      String(row.customer_name || "").includes("عميل غير مسجل") ||
-      String(row.customer_phone || row.phone || "").startsWith("code:"),
+      String(row.customer_name || '').includes('عميل غير مسجل') ||
+      String(row.customer_phone || row.phone || '').startsWith('code:')
   ).length;
 
   return {
@@ -57,9 +54,9 @@ export function getCustomerLinkingHealth(rows: Row[]) {
     missingPhone,
     pseudoCustomers,
     warnings: [
-      missingCode ? `${missingCode} سجل بدون كود عميل واضح.` : "",
-      missingPhone ? `${missingPhone} سجل بدون رقم صالح للواتساب.` : "",
-      pseudoCustomers ? `${pseudoCustomers} سجل يستخدم عميل افتراضي أو phone=code.` : "",
+      missingCode ? `${missingCode} سجل بدون كود عميل واضح.` : '',
+      missingPhone ? `${missingPhone} سجل بدون رقم صالح للواتساب.` : '',
+      pseudoCustomers ? `${pseudoCustomers} سجل يستخدم عميل افتراضي أو phone=code.` : '',
     ].filter(Boolean),
   };
 }

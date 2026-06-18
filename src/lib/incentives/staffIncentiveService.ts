@@ -4,7 +4,7 @@ export {
   getStaffIncentiveSummaryForCycle,
   type StaffCycleIncentive,
   type StaffIncentiveTransaction,
-} from "@/lib/staffIncentiveService";
+} from '@/lib/staffIncentiveService';
 
 export {
   MONTHLY_STARTING_POINTS,
@@ -12,4 +12,4 @@ export {
   calculateMonthlyIncentive,
   calculatePermissionPolicy,
   calculateRepeatDeduction,
-} from "@/lib/incentives/incentiveRulesEngine";
+} from '@/lib/incentives/incentiveRulesEngine';
