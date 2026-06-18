@@ -6,11 +6,11 @@
  */
 
 import { type Metric } from 'web-vitals';
-import onCLS from 'web-vitals/onCLS.js';
-import onFCP from 'web-vitals/onFCP.js';
-import onINP from 'web-vitals/onINP.js';
-import onLCP from 'web-vitals/onLCP.js';
-import onTTFB from 'web-vitals/onTTFB.js';
+import { onCLS } from 'web-vitals/onCLS.js';
+import { onFCP } from 'web-vitals/onFCP.js';
+import { onINP } from 'web-vitals/onINP.js';
+import { onLCP } from 'web-vitals/onLCP.js';
+import { onTTFB } from 'web-vitals/onTTFB.js';
 import { useEffect, useRef } from 'react';
 
 /**
