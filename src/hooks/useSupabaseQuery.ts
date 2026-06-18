@@ -82,9 +82,11 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     return (result as T[]) || [];
   };
 
-  const { data = [], isLoading: loading, error } = useQuery<T[], Error>(queryKey, fetcher, {
+  const { data = [], isLoading: loading, error } = useQuery<T[], Error>({
+    queryKey,
+    queryFn: fetcher,
     staleTime: 60_000, // 1 minute
-    cacheTime: 5 * 60_000, // 5 minutes
+    gcTime: 5 * 60_000, // 5 minutes
     refetchOnWindowFocus: true,
     retry: 2,
     retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 30000),
@@ -97,7 +99,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     channelRef.current = supabase
       .channel(`realtime:${options.table}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: options.table }, () => {
-        queryClient.invalidateQueries(queryKey);
+        void queryClient.invalidateQueries({ queryKey });
       })
       .subscribe();
 
@@ -109,7 +111,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.table, options.realtimeEnabled]);
 
-  return { data, loading, error: error ? (error.message as string) : null, refetch: () => queryClient.invalidateQueries(queryKey) };
+  return { data, loading, error: error ? error.message : null, refetch: () => queryClient.invalidateQueries({ queryKey }) };
 }
 
 export async function supabaseInsert<T>(
