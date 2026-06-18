@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
+import { useLocalCache } from '@/hooks/useLocalCache';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeBranchName } from '@/lib/branch';
@@ -66,8 +67,6 @@ export default function Analytics() {
   const [periodType, setPeriodType] = useState<PeriodType>('cycle');
   const [selectedBranch, setSelectedBranch] = useState(ALL_FILTER);
   const [selectedDoctor, setSelectedDoctor] = useState(ALL_FILTER);
-  const [data, setData] = useState<SalesAnalyticsSummary | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
@@ -77,34 +76,58 @@ export default function Analytics() {
     realtimeEnabled: false,
   });
 
+  const cacheKey = useMemo(
+    () =>
+      `sales-analytics-summary:${JSON.stringify({
+        startDate: periodStart,
+        endDate: periodEnd,
+        branch: selectedBranch,
+        doctor: selectedDoctor,
+      })}`,
+    [periodEnd, periodStart, selectedBranch, selectedDoctor]
+  );
+
+  const loadSummary = useCallback(async () => {
+    return await loadSalesAnalyticsSummary(
+      {
+        startDate: periodStart,
+        endDate: periodEnd,
+        branch: selectedBranch,
+        doctor: selectedDoctor,
+      },
+      false
+    );
+  }, [periodEnd, periodStart, selectedBranch, selectedDoctor]);
+
+  const {
+    data,
+    loading,
+    error: cacheError,
+    refetch: refetchAnalytics,
+  } = useLocalCache<SalesAnalyticsSummary | null>(cacheKey, loadSummary, {
+    ttlMs: 5 * 60 * 1000,
+  });
+
+  useEffect(() => {
+    if (cacheError) {
+      setError(cacheError.message);
+    }
+  }, [cacheError]);
+
   const load = useCallback(
     async (forceRefresh = false) => {
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
-      setLoading(true);
       setError(null);
-      try {
-        if (forceRefresh) clearSalesAnalyticsSummaryCache();
-        const result = await loadSalesAnalyticsSummary(
-          {
-            startDate: periodStart,
-            endDate: periodEnd,
-            branch: selectedBranch,
-            doctor: selectedDoctor,
-          },
-          forceRefresh
-        );
-        if (requestIdRef.current !== requestId) return;
-        setData(result);
-      } catch (err) {
-        if (requestIdRef.current !== requestId) return;
-        setError(err instanceof Error ? err.message : 'تعذر تحميل التحليلات');
-        setData(null);
-      } finally {
-        if (requestIdRef.current === requestId) setLoading(false);
+      if (forceRefresh) {
+        clearSalesAnalyticsSummaryCache();
+        await refetchAnalytics();
+      } else if (!data) {
+        await refetchAnalytics();
       }
+      if (requestIdRef.current !== requestId) return;
     },
-    [periodEnd, periodStart, selectedBranch, selectedDoctor]
+    [data, refetchAnalytics]
   );
 
   useEffect(() => {

@@ -310,7 +310,7 @@ export default function StaffAccounts() {
       name: staff.name,
       staff_name: staff.name,
       username,
-      temporary_password: password,
+      password_hash: password,
       role: staff.role,
       branch: staff.branch,
       active: true,
@@ -337,7 +337,7 @@ export default function StaffAccounts() {
       name,
       staff_name: name,
       username,
-      temporary_password: password,
+      password_hash: password,
       role,
       branch,
       active: true,
@@ -366,7 +366,7 @@ export default function StaffAccounts() {
         name: s.name,
         staff_name: s.name,
         username: generateUsername(s.name),
-        temporary_password: generateDefaultPassword(),
+        password_hash: generateDefaultPassword(),
         role: s.role,
         branch: s.branch,
         active: true,
@@ -410,7 +410,6 @@ export default function StaffAccounts() {
   const updatePassword = async (account: StaffAccountRow) => {
     if (!newPassword.trim()) return toast.error('كلمة المرور لا يمكن أن تكون فارغة');
     const { error } = await updateAccountFlexible(account.id, {
-      temporary_password: newPassword.trim(),
       password_hash: newPassword.trim(),
       password_status: 'مؤقتة',
       updated_at: new Date().toISOString(),

@@ -6,6 +6,7 @@
  */
 
 import { getCLS, getFCP, getFID, getLCP, getTTFB, type Metric } from 'web-vitals';
+import { useEffect, useRef } from 'react';
 
 /**
  * Core Web Vitals to track:
@@ -271,7 +272,19 @@ export function exportMetricsToCSV() {
 /**
  * Initialize performance monitoring in main app
  */
+let isPerformanceMonitoringInitialized = false;
+
 export function initializePerformanceMonitoring() {
+  if (isPerformanceMonitoringInitialized) return;
+  isPerformanceMonitoringInitialized = true;
+
+  const monitor = PerformanceMonitor.getInstance();
+
+  if (typeof window !== 'undefined') {
+    window.__PERFORMANCE_MONITOR = monitor;
+    window.__VERCEL_WEB_VITALS_QUEUE = window.__VERCEL_WEB_VITALS_QUEUE || [];
+  }
+
   if (process.env.NODE_ENV === 'production') {
     setupWebVitalsMonitoring();
     console.debug('[PerformanceMonitoring] Web Vitals monitoring initialized');

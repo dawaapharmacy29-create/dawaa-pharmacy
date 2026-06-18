@@ -5,7 +5,8 @@
  * - Customers file: "العنوان، موبايل، تليفون، اسم العميل، الكود"
  */
 
-/* xlsx will be dynamically imported when needed for parsing */
+/* xlsx will be imported statically here because callers expect synchronous parsing */
+import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import { getShiftFromDateTime } from '@/lib/analyticsFromInvoices';
@@ -268,51 +269,47 @@ function findHeaderRow(rows: unknown[][], markers: string[]): number {
 }
 
 function rowsFromWorkbook(buffer: ArrayBuffer, markers: string[]) {
-  // xlsx is dynamically imported to reduce initial bundle
-  return (async () => {
-    const XLSX = await import('xlsx');
-    const wb = XLSX.read(buffer, { type: 'array', cellDates: false, raw: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, {
-      header: 1,
-      defval: '',
-      raw: true,
-      blankrows: false,
-    });
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: false, raw: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+    header: 1,
+    defval: '',
+    raw: true,
+    blankrows: false,
+  });
 
-    if (aoa.length === 0) {
-      throw new Error('الملف فارغ');
-    }
+  if (aoa.length === 0) {
+    throw new Error('الملف فارغ');
+  }
 
-    const headerIndex = findHeaderRow(aoa, markers);
-    const rawHeaders = (aoa[headerIndex] || []).map((cell) => cleanText(cell));
-    const counts = new Map<string, number>();
-    const headers = rawHeaders.map((header, index) => {
-      const fallback = header || `Column ${index + 1}`;
-      const seen = counts.get(fallback) || 0;
-      counts.set(fallback, seen + 1);
-      return seen === 0 ? fallback : `${fallback}__${seen + 1}`;
-    });
+  const headerIndex = findHeaderRow(aoa, markers);
+  const rawHeaders = (aoa[headerIndex] || []).map((cell) => cleanText(cell));
+  const counts = new Map<string, number>();
+  const headers = rawHeaders.map((header, index) => {
+    const fallback = header || `Column ${index + 1}`;
+    const seen = counts.get(fallback) || 0;
+    counts.set(fallback, seen + 1);
+    return seen === 0 ? fallback : `${fallback}__${seen + 1}`;
+  });
 
-    // Filter out empty headers
-    const validHeaders = headers.map((h, i) => ({ header: h, index: i })).filter((h) => h.header);
+  // Filter out empty headers
+  const validHeaders = headers.map((h, i) => ({ header: h, index: i })).filter((h) => h.header);
 
-    const rows = aoa
-      .slice(headerIndex + 1)
-      .map((row, index) => {
-        const record: Record<string, unknown> = {};
-        validHeaders.forEach(({ header, index: colIndex }) => {
-          record[header] = row[colIndex] ?? '';
-        });
-        return { rowIndex: headerIndex + index + 2, record };
-      })
-      .filter((row) => {
-        // Filter out completely empty rows
-        return Object.values(row.record).some((v) => v !== '' && v !== null && v !== undefined);
+  const rows = aoa
+    .slice(headerIndex + 1)
+    .map((row, index) => {
+      const record: Record<string, unknown> = {};
+      validHeaders.forEach(({ header, index: colIndex }) => {
+        record[header] = row[colIndex] ?? '';
       });
+      return { rowIndex: headerIndex + index + 2, record };
+    })
+    .filter((row) => {
+      // Filter out completely empty rows
+      return Object.values(row.record).some((v) => v !== '' && v !== null && v !== undefined);
+    });
 
-    return { headers: validHeaders.map((h) => h.header), rows };
-  })();
+  return { headers: validHeaders.map((h) => h.header), rows };
 }
 
 export function normalisePhone(raw: string | number): string {

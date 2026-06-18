@@ -653,11 +653,9 @@ function EmployeeModal({
 
       // Create shift schedules for all 7 days
       if (!employee) {
-        // TODO: replace temporary password storage with server-side hashing or Supabase Auth.
         const accountResult = await createStaffAccount({
           staff_id: staffId!,
           username: form.username,
-          temporary_password: form.password || null,
           password_hash: form.password || null,
           password_status: form.password ? 'temporary' : null,
           name: form.name,

@@ -17,6 +17,8 @@ interface CacheEntry<T> {
   ttlMs?: number; // 0 = no expiry
 }
 
+const inMemoryCache = new Map<string, { value: unknown; timestamp: number; ttlMs?: number }>();
+
 function getDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -49,7 +51,7 @@ async function setCacheEntry<T>(key: string, value: T, ttlMs = 0): Promise<void>
     });
   } catch (error) {
     console.warn('[useLocalCache] Failed to set cache entry:', error);
-    // Silently fail - fall back to memory cache
+    inMemoryCache.set(key, { value, timestamp: Date.now(), ttlMs });
   }
 }
 
@@ -80,11 +82,19 @@ async function getCacheEntry<T>(key: string): Promise<T | null> {
     });
   } catch (error) {
     console.warn('[useLocalCache] Failed to get cache entry:', error);
-    return null;
+    const entry = inMemoryCache.get(key);
+    if (!entry) return null;
+    const expired = entry.ttlMs && Date.now() - entry.timestamp > entry.ttlMs;
+    if (expired) {
+      inMemoryCache.delete(key);
+      return null;
+    }
+    return entry.value as T;
   }
 }
 
 async function clearCacheEntry(key: string): Promise<void> {
+  inMemoryCache.delete(key);
   try {
     const db = await getDb();
     return new Promise<void>((resolve) => {
@@ -110,10 +120,11 @@ export function useLocalCache<T>(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const ttlMs = options?.ttlMs ?? 0;
+  const skipStore = options?.skipStore ?? false;
 
   const load = useCallback(
     async (forceRefresh = false) => {
-      // Check memory cache first
       const cached = !forceRefresh && (await getCacheEntry<T>(key));
       if (cached !== null) {
         setData(cached);
@@ -131,8 +142,8 @@ export function useLocalCache<T>(
         if (abortRef.current?.signal.aborted) return;
 
         setData(result);
-        if (!options?.skipStore) {
-          await setCacheEntry(key, result, options?.ttlMs ?? 0);
+        if (!skipStore) {
+          await setCacheEntry(key, result, ttlMs);
         }
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
@@ -144,7 +155,7 @@ export function useLocalCache<T>(
         setLoading(false);
       }
     },
-    [key, fetcher, options]
+    [key, fetcher, skipStore, ttlMs]
   );
 
   useEffect(() => {
