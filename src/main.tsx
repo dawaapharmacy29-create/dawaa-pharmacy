@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import './styles/dawaa-theme.css';
 import './styles/dawaa-design-system.css';
+import './styles/v3-polish.css';
 import App from './App.tsx';
 import { installRuntimeSafetyGuards } from '@/lib/runtimeSafety';
 import { initOfflineQueueAutoSync } from '@/lib/offlineQueue';
