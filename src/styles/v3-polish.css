@@ -1,0 +1,103 @@
+/* V3 integration polish: dark header, notifications dropdown, wide tables */
+
+body:not(.light-mode) header {
+  background: rgba(11, 23, 40, 0.96) !important;
+  border-color: rgba(45, 212, 191, 0.2) !important;
+  color: #e6f6fb !important;
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.28) !important;
+}
+
+body:not(.light-mode) header h1,
+body:not(.light-mode) header .text-slate-950,
+body:not(.light-mode) header .text-slate-900 {
+  color: #f8fafc !important;
+}
+
+body:not(.light-mode) header .text-slate-500,
+body:not(.light-mode) header .text-slate-400 {
+  color: #b6c7d8 !important;
+}
+
+body:not(.light-mode) header button:hover {
+  background: rgba(45, 212, 191, 0.12) !important;
+  color: #e6fffb !important;
+}
+
+body:not(.light-mode) header .theme-switcher,
+body:not(.light-mode) header [class*='bg-slate-50'],
+body:not(.light-mode) header [class*='bg-teal-50'],
+body:not(.light-mode) header [class*='bg-white'] {
+  background: rgba(15, 36, 58, 0.92) !important;
+  border-color: rgba(148, 211, 226, 0.18) !important;
+}
+
+body:not(.light-mode) header [class*='text-teal-700'] {
+  color: #5eead4 !important;
+}
+
+body:not(.light-mode) header [class*='text-amber-700'] {
+  color: #fcd34d !important;
+}
+
+body:not(.light-mode) header [class*='border-slate-200'],
+body:not(.light-mode) header [class*='border-slate-100'] {
+  border-color: rgba(148, 211, 226, 0.18) !important;
+}
+
+body:not(.light-mode) header .absolute[class*='shadow'],
+body:not(.light-mode) header .rounded-2xl[class*='bg-white'] {
+  background: #0b1728 !important;
+  border-color: rgba(45, 212, 191, 0.22) !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45) !important;
+}
+
+body:not(.light-mode) header .absolute[class*='shadow'] button:hover {
+  background: rgba(45, 212, 191, 0.1) !important;
+}
+
+body:not(.light-mode) header .absolute[class*='shadow'] .text-slate-950,
+body:not(.light-mode) header .absolute[class*='shadow'] .text-slate-900 {
+  color: #f8fafc !important;
+}
+
+body:not(.light-mode) header .absolute[class*='shadow'] .text-slate-700,
+body:not(.light-mode) header .absolute[class*='shadow'] .text-slate-500 {
+  color: #cbd5e1 !important;
+}
+
+body:not(.light-mode) header .absolute[class*='shadow'] [class*='bg-teal-50'],
+body:not(.light-mode) header .absolute[class*='shadow'] [class*='bg-slate-50'],
+body:not(.light-mode) header .absolute[class*='shadow'] [class*='bg-red-50'],
+body:not(.light-mode) header .absolute[class*='shadow'] [class*='bg-blue-50'],
+body:not(.light-mode) header .absolute[class*='shadow'] [class*='bg-amber-50'],
+body:not(.light-mode) header .absolute[class*='shadow'] [class*='bg-purple-50'],
+body:not(.light-mode) header .absolute[class*='shadow'] [class*='bg-cyan-50'] {
+  background: rgba(20, 184, 166, 0.12) !important;
+  border-color: rgba(94, 234, 212, 0.22) !important;
+}
+
+.v3-wide-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-radius: 1rem;
+  scrollbar-width: thin;
+  scrollbar-color: #22d3ee #0f172a;
+}
+
+.v3-wide-table {
+  min-width: 1400px;
+  width: 100%;
+}
+
+.v3-wide-table thead th {
+  background: #102640 !important;
+  color: #cffafe !important;
+  border-color: rgba(148, 211, 226, 0.2) !important;
+  white-space: nowrap;
+}
+
+.v3-wide-table tbody td {
+  white-space: nowrap;
+}
