@@ -65,6 +65,7 @@ export function notificationRoute(notification: AppNotification) {
     delivery_order: () => routeWithId('/delivery', 'orderId', id),
     delivery: () => routeWithId('/delivery', 'orderId', id),
     low_stock: () => routeWithId('/shortages', 'itemId', id),
+    stock_alert: () => routeWithId('/shortages', 'itemId', id),
     inventory: () => routeWithId('/shortages', 'itemId', id),
     expiry_alert: () => routeWithId('/expiry-discounts', 'itemId', id),
     attendance: () => routeWithId('/attendance-report', 'staffId', id),

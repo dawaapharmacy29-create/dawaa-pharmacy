@@ -43,13 +43,14 @@ function rule(
 }
 
 export const MONTHLY_DEDUCTION_RULES: IncentiveRuleDefinition[] = [
-  rule('DISC-001', 'التأخير حتى 20 دقيقة', 'الالتزام والانضباط', 0, {
+  rule('DISC-001', 'تأخير خفيف داخل السماحات الشهرية — بدون خصم', 'الالتزام والانضباط', 0, {
     impact_type: 'warning_only',
+    description_ar: 'تأخير خفيف لا يخصم طالما داخل السماحات الشهرية المعتمدة.',
   }),
   rule('DISC-002', 'التأخير أكثر من 20 دقيقة وحتى 30 دقيقة', 'الالتزام والانضباط', -10),
   rule('DISC-003', 'التأخير من 30 إلى 60 دقيقة', 'الالتزام والانضباط', -20),
   rule('DISC-004', 'التأخير أكثر من ساعة', 'الالتزام والانضباط', -30, { approval_required: true }),
-  rule('DISC-005', 'تكرار التأخير أكثر من مرتين في نفس الدورة', 'الالتزام والانضباط', -30, {
+  rule('DISC-005', 'تكرار التأخير بعد استهلاك السماحات الشهرية', 'الالتزام والانضباط', -30, {
     approval_required: true,
   }),
   rule('DISC-006', 'غياب بدون إذن', 'الالتزام والانضباط', -80, {
@@ -67,6 +68,12 @@ export const MONTHLY_DEDUCTION_RULES: IncentiveRuleDefinition[] = [
   rule('DISC-015', 'تعطيل سير العمل بسبب عدم الالتزام', 'الالتزام والانضباط', -20),
   rule('DISC-016', 'رفض تعليمات مسؤول الشيفت بدون سبب مقبول', 'الالتزام والانضباط', -20),
   rule('DISC-017', 'عدم إبلاغ مسؤول الشيفت بمشكلة مؤثرة', 'الالتزام والانضباط', -15),
+  rule('DISC-018', 'تأخير كبير أدى لتعطيل الشيفت', 'الالتزام والانضباط', -50, {
+    approval_required: true,
+    severity: 'critical',
+    repeat_policy: 'manager_review_only',
+    source_module: 'attendance',
+  }),
 
   rule('CUST-001', 'أسلوب غير مناسب مع العميل', 'التعامل مع العملاء', -20),
   rule('CUST-002', 'شكوى مؤكدة من العميل بسبب الدكتور', 'التعامل مع العملاء', -30, {
@@ -78,7 +85,7 @@ export const MONTHLY_DEDUCTION_RULES: IncentiveRuleDefinition[] = [
   }),
   rule('CUST-004', 'التعامل ببرود أو عدم اهتمام مع عميل مهم جدًا', 'التعامل مع العملاء', -20),
   rule('CUST-012', 'عدم تصعيد شكوى تستحق مدير', 'التعامل مع العملاء', -20),
-  rule('CUST-018', 'فقد عميل مهم بسبب إهمال مثبت', 'التعامل مع العملاء', -50, {
+  rule('CUST-018', 'فقد عميل مهم بسبب إهمال مثبت', 'التعامل مع العملاء', -60, {
     approval_required: true,
     repeat_policy: 'manager_review_only',
   }),
@@ -125,8 +132,17 @@ export const MONTHLY_DEDUCTION_RULES: IncentiveRuleDefinition[] = [
     source_module: 'classification',
   }),
 
-  rule('SALE-002', 'صرف صنف خطأ وتم تداركه بدون ضرر', 'جودة البيع والصرف', -30, {
+  rule('SALE-002', 'صرف صنف خطأ وتم تداركه بدون ضرر — بند قديم موقوف', 'جودة البيع والصرف', -30, {
     approval_required: true,
+    active: false,
+  }),
+  rule('SALE-002A', 'خطأ صرف تم اكتشافه قبل خروج العميل وبدون ضرر', 'جودة البيع والصرف', -15, {
+    approval_required: false,
+    source_module: 'dispensing',
+  }),
+  rule('SALE-002B', 'صرف صنف خطأ وتم تداركه بعد إتمام العملية بدون ضرر', 'جودة البيع والصرف', -30, {
+    approval_required: true,
+    source_module: 'dispensing',
   }),
   rule('SALE-003', 'صرف صنف خطأ تسبب في شكوى أو ضرر محتمل', 'جودة البيع والصرف', -60, {
     approval_required: true,
@@ -203,7 +219,9 @@ export const MONTHLY_DEDUCTION_RULES: IncentiveRuleDefinition[] = [
   rule('CUST-013', 'عدم تسجيل مشكلة عميل مهمة', 'التعامل مع العميل', -15),
   rule('CUST-014', 'خطأ في رقم أو عنوان العميل تسبب في مشكلة', 'التعامل مع العميل', -10),
   rule('CUST-015', 'تعديل أو إلغاء طلب العميل بدون توضيح', 'التعامل مع العميل', -10),
-  rule('CUST-016', 'ضغط بيعي واضح على العميل', 'التعامل مع العميل', -15),
+  rule('CUST-016', 'ضغط بيعي واضح على العميل', 'التعامل مع العميل', -15, {
+    description_ar: 'يشمل الإلحاح غير المناسب، إحراج العميل، محاولة بيع صنف غير مناسب، أو دفع العميل لبديل لا يريده.',
+  }),
   rule('CUST-017', 'عدم احترام خصوصية العميل أو بياناته', 'التعامل مع العميل', -30, {
     approval_required: true,
   }),
@@ -235,8 +253,8 @@ export const MONTHLY_DEDUCTION_RULES: IncentiveRuleDefinition[] = [
   rule('SALE-009', 'عدم مراجعة جرعة أو استخدام عند الحاجة', 'جودة البيع وصرف الدواء', -15),
   rule('SALE-010', 'بيع صنف ناقص بيانات أو بدون توضيح سعره', 'جودة البيع وصرف الدواء', -10),
   rule('SALE-011', 'إلغاء صنف من طلب العميل بدون توضيح', 'جودة البيع وصرف الدواء', -10),
-  rule('SALE-012', 'عدم الاهتمام برفع جودة الفاتورة في فرصة واضحة', 'جودة البيع وصرف الدواء', -5, {
-    description_ar: 'تنبيه أول بدون خصم؛ عند التكرار في نفس الدورة يُطبَّق -5 نقطة.',
+  rule('SALE-012', 'عدم اقتراح إضافة مناسبة واضحة للعميل بدون ضغط بيعي', 'جودة البيع وصرف الدواء', -5, {
+    description_ar: 'تنبيه أول بدون خصم؛ وعند التكرار في نفس الدورة يطبق الخصم بشرط أن تكون الإضافة مناسبة لحاجة العميل وليست ضغطًا بيعيًا.',
   }),
   rule('SALE-014', 'عدم مراجعة حساسية العميل أو حالته عند صنف مهم', 'جودة البيع وصرف الدواء', -20),
   rule(
@@ -308,13 +326,33 @@ export const MONTHLY_DEDUCTION_RULES: IncentiveRuleDefinition[] = [
   rule('APP-002', 'تسجيل نتيجة غير دقيقة', 'استخدام التطبيق والتسجيل', -10),
   rule('APP-003', 'عدم تسجيل ملاحظة مهمة عن عميل', 'استخدام التطبيق والتسجيل', -10),
   rule('APP-004', 'عدم تحديث حالة مهمة بعد تنفيذها', 'استخدام التطبيق والتسجيل', -5),
-  rule('APP-006', 'تجاهل تنبيه مهم داخل التطبيق', 'استخدام التطبيق والتسجيل', -10),
-  rule('APP-007', 'تكرار تجاهل التنبيهات', 'استخدام التطبيق والتسجيل', -20),
+  rule('APP-006', 'تجاهل تنبيه عمل مطلوب داخل التطبيق بعد ظهوره', 'استخدام التطبيق والتسجيل', -10),
+  rule('APP-007', 'تكرار تجاهل تنبيهات لها إجراء مطلوب', 'استخدام التطبيق والتسجيل', -20),
   rule('APP-008', 'عدم تسجيل مشكلة حدثت في الشيفت', 'استخدام التطبيق والتسجيل', -10),
   rule('APP-009', 'عدم تسجيل طلب متابعة عميل مهم', 'استخدام التطبيق والتسجيل', -10),
   rule('APP-010', 'إدخال بيانات خاطئة تؤثر على التقرير', 'استخدام التطبيق والتسجيل', -20),
   rule('APP-012', 'عدم مراجعة بيانات عميل قبل التعامل معه', 'استخدام التطبيق والتسجيل', -10),
   rule('APP-013', 'عدم فتح ملف العميل رغم وجود ملاحظات مهمة', 'استخدام التطبيق والتسجيل', -10),
+  rule('CUST-026', 'عدم متابعة عميل VIP بعد تكليف واضح', 'التعامل مع العملاء', -20, {
+    approval_required: true,
+    source_module: 'customer_service',
+  }),
+  rule('CUST-027', 'ترك شكوى عميل بدون إغلاق أكثر من 48 ساعة', 'التعامل مع العملاء', -25, {
+    approval_required: true,
+    source_module: 'customer_service',
+  }),
+  rule('CLASS-021', 'تكرار فواتير بدون ربط عميل رغم وضوح البيانات', 'تصنيف العملاء والفواتير', -25, {
+    approval_required: true,
+    source_module: 'invoice_quality',
+  }),
+  rule('APP-014', 'عدم قراءة إشعار مهم له إجراء مطلوب خلال نفس اليوم', 'استخدام التطبيق والتسجيل', -10, {
+    approval_required: false,
+    source_module: 'notifications',
+  }),
+  rule('CHAT-016', 'محادثة بها شكوى لم تُغلق خلال 72 ساعة', 'واتساب وجودة المحادثات', -20, {
+    approval_required: true,
+    source_module: 'conversation_reviews',
+  }),
 ];
 
 export const MONTHLY_EXCEPTIONAL_REWARD_RULES: IncentiveRuleDefinition[] = [
@@ -339,6 +377,19 @@ export const MONTHLY_EXCEPTIONAL_REWARD_RULES: IncentiveRuleDefinition[] = [
   rule('REW-STOCK-004', 'منع خسارة مخزون محتملة', 'مكافآت المخزون', 20, {
     approval_required: true,
   }),
+  rule('REW-CUST-012', 'إغلاق شكوى صعبة بدون تصعيد سلبي', 'مكافآت خدمة العملاء', 20, { approval_required: true, source_module: 'customer_service' }),
+  rule('REW-TEAM-001', 'مساعدة موثقة لزميل وقت ضغط العمل', 'مكافآت الفريق', 10, { approval_required: true, source_module: 'teamwork' }),
+  rule('REW-STOCK-005', 'اكتشاف فرق مخزون قبل أن يتحول لخسارة', 'مكافآت المخزون', 15, { approval_required: true, source_module: 'inventory' }),
+  rule('REW-APP-001', 'التزام كامل بتسجيل المتابعات خلال الدورة', 'مكافآت استخدام التطبيق', 10, { approval_required: false, source_module: 'app_usage' }),
+  rule('REW-CLASS-001', 'أفضل التزام بتصنيف الفواتير في الفرع', 'مكافآت التصنيف', 15, { approval_required: true, source_module: 'classification' }),
+  rule('REW-STAG-004', 'توثيق سبب عدم بيع صنف راكد بوضوح لمدة أسبوعين', 'مكافآت الرواكد', 5, { approval_required: false, source_module: 'stagnant' }),
+  rule('AUTO-REW-001', 'دورة كاملة بدون غياب', 'مكافآت تلقائية', 20, { approval_required: false, source_module: 'attendance', description_ar: 'تمنح تلقائيًا عند انتهاء الدورة إذا لم يسجل على الموظف غياب بدون إذن.' }),
+  rule('AUTO-REW-002', 'متوسط تقييم محادثات فوق 85 خلال الدورة', 'مكافآت تلقائية', 15, { approval_required: false, source_module: 'conversation_reviews' }),
+  rule('AUTO-REW-003', 'صفر شكاوى مؤكدة خلال الدورة', 'مكافآت تلقائية', 10, { approval_required: false, source_module: 'customer_service' }),
+  rule('AUTO-REW-004', 'إنجاز كل المهام المسندة في وقتها', 'مكافآت تلقائية', 10, { approval_required: false, source_module: 'tasks' }),
+  rule('AUTO-REW-005', 'اكتمال تصنيف الفواتير المطلوبة بنسبة 100%', 'مكافآت تلقائية', 15, { approval_required: false, source_module: 'classification' }),
+  rule('AUTO-REW-006', 'دورة كاملة بدون خصومات معتمدة', 'مكافآت تلقائية', 30, { approval_required: false, source_module: 'points_ledger' }),
+  rule('AUTO-REW-007', 'تحسن أكثر من 100 نقطة عن الدورة السابقة', 'مكافآت تلقائية', 20, { approval_required: false, source_module: 'employee_kpi' }),
 ];
 
 export const QUARTERLY_RULES: IncentiveRuleDefinition[] = [

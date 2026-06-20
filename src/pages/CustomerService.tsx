@@ -68,6 +68,10 @@ const TABS = [
   ['scripts', 'قوالب واتساب'],
   ['data-review', 'مراجعة البيانات'],
   ['welcome', 'الرسائل الترحيبية'],
+  ['crm', 'CRM والمتابعة الآمنة'],
+  ['cashback', 'نقاط العملاء والكاش باك'],
+  ['credit', 'كريدت خدمة العملاء'],
+  ['customer-requests', 'طلبات العملاء'],
   ['performance', 'تحليل خدمة العملاء'],
   ['doctor', 'أداء الدكتور'],
   ['team', 'أداء الفريق'],
@@ -414,6 +418,10 @@ export default function CustomerService() {
     {activeTab === 'scripts' && <section className="grid gap-3 md:grid-cols-2">{whatsappTemplates.map((template) => <article key={template.id} className="dawaa-panel"><h3 className="font-black">{template.name}</h3><p className="mt-1 text-xs text-slate-500">{template.description}</p><pre className="mt-3 whitespace-pre-wrap rounded-xl bg-slate-950 p-3 text-xs leading-6 text-slate-200">{template.template}</pre><button onClick={() => void navigator.clipboard.writeText(template.template).then(() => toast.success('تم نسخ القالب'))} className="btn-secondary mt-3"><Clipboard className="ml-1 inline h-4 w-4" /> نسخ</button></article>)}</section>}
     {activeTab === 'welcome' && <LazyState><CustomerWelcomeTasksPanel /></LazyState>}
     {activeTab === 'data-review' && <LazyState><CustomerDataReview /></LazyState>}
+    {activeTab === 'crm' && <SimpleLink title="CRM والمتابعة الآمنة" description="فتح مركز إدارة علاقات العملاء والمتابعة الآمنة." href="/crm" />}
+    {activeTab === 'cashback' && <SimpleLink title="نقاط العملاء والكاش باك" description="فتح صفحة نقاط العملاء والكاش باك." href="/customer-cashback" />}
+    {activeTab === 'credit' && <SimpleLink title="كريدت خدمة العملاء" description="إدارة كريدت مسؤولي خدمة العملاء." href="/customer-service-credit" />}
+    {activeTab === 'customer-requests' && <SimpleLink title="طلبات العملاء" description="فتح مركز طلبات الأصناف ومتابعة دورة توفيرها." href="/customer-requests" />}
     {activeTab === 'performance' && <section className="dawaa-panel overflow-x-auto"><table className="min-w-full text-sm"><thead><tr>{['المسؤول', 'الفرع', 'المسند', 'المكتمل', 'المتأخر', 'نسبة الإنجاز', 'الشراء بعد المتابعة'].map((head) => <th key={head} className="p-3 text-right">{head}</th>)}</tr></thead><tbody>{performance.slice(0, 60).map((item) => <tr key={`${item.responsible}-${item.branch}`} className="border-t"><td className="p-3 font-bold">{item.responsible}</td><td className="p-3">{item.branch}</td><td className="p-3">{item.assigned}</td><td className="p-3">{item.completed}</td><td className="p-3">{item.overdue}</td><td className="p-3">{item.completionRate}%</td><td className="p-3">{money(item.purchaseAfterAmount)}</td></tr>)}</tbody></table></section>}
     {activeTab === 'team' && <LazyState><TeamPerformanceAnalytics followups={rows.map(asDailyFollowup)} staff={staff} /></LazyState>}
     {activeTab === 'doctor' && <section className="space-y-4"><div className="dawaa-panel"><select className="dawaa-input w-full md:w-80" value={doctorName} onChange={(e) => setDoctorName(e.target.value)}><option value="">اختر الدكتور/المسؤول</option>{doctorOptions.map((name) => <option key={name}>{name}</option>)}</select></div>{doctorName ? <LazyState><DoctorPerformanceAnalysis followups={rows.map(asDailyFollowup)} doctorName={doctorName} /></LazyState> : <div className="dawaa-panel text-center text-slate-500">اختر اسمًا لعرض الأداء</div>}</section>}

@@ -3,6 +3,8 @@ import { getCurrentCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
 export const MONTHLY_STARTING_POINTS = 500;
 export const MONTHLY_MAX_INCENTIVE_EGP = 1500;
 export const QUARTERLY_BASE_BONUS_EGP = 2000;
+export const QUARTERLY_MIN_INCENTIVE_EGP = 500;
+export const QUARTERLY_MAX_INCENTIVE_EGP = 2600;
 export const FREE_PERMISSIONS_PER_CYCLE = 3;
 
 export type IncentiveImpactType =
@@ -100,11 +102,40 @@ export function calculateQuarterlyIncentive(args: {
     quarterlyBaseValue,
     approvedQuarterlyDeductions,
     approvedQuarterlyRewards,
-    quarterlyFinalValue: Math.max(
-      0,
-      quarterlyBaseValue - approvedQuarterlyDeductions + approvedQuarterlyRewards
+    quarterlyFinalValue: Math.min(
+      QUARTERLY_MAX_INCENTIVE_EGP,
+      Math.max(
+        QUARTERLY_MIN_INCENTIVE_EGP,
+        quarterlyBaseValue - approvedQuarterlyDeductions + approvedQuarterlyRewards
+      )
     ),
   };
+}
+
+export const SAME_EVENT_DEDUCTION_GROUPS = [
+  ['CHAT-009', 'CHAT-010'],
+  ['CLASS-001', 'CLASS-002', 'CLASS-003'],
+  ['SALE-002A', 'SALE-002B', 'SALE-003', 'SALE-004'],
+  ['APP-006', 'APP-007'],
+] as const;
+
+/** Prevents overlapping deductions for the same source event unless a manager explicitly overrides it. */
+export function sameEventDeductionGuard(args: {
+  incomingRuleCode: string;
+  existingRuleCodes: string[];
+  managerOverride?: boolean;
+}) {
+  if (args.managerOverride) return { allowed: true, conflictingRuleCodes: [] as string[] };
+  const group = SAME_EVENT_DEDUCTION_GROUPS.find((codes) => codes.includes(args.incomingRuleCode as never));
+  const conflicts = group ? args.existingRuleCodes.filter((code) => group.includes(code as never)) : [];
+  return { allowed: conflicts.length === 0, conflictingRuleCodes: conflicts };
+}
+
+/** Conversation scores are mutually exclusive: below 50 uses CHAT-010; 50–69 uses CHAT-009. */
+export function conversationScoreDeductionRule(score: number) {
+  if (score < 50) return 'CHAT-010';
+  if (score < 70) return 'CHAT-009';
+  return null;
 }
 
 export function calculateRepeatDeduction(args: {

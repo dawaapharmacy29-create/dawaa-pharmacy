@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Award, ClipboardCheck, RefreshCw, Star, Users } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { CommandHeader, MetricCard, SectionState } from '@/components/command/CommandUI';
+import { calculateMonthlyIncentive, FREE_PERMISSIONS_PER_CYCLE, MONTHLY_STARTING_POINTS } from '@/lib/incentives/incentiveRulesEngine';
 
 type KpiRow = {
   staff_id: string;
@@ -17,7 +18,16 @@ type KpiRow = {
   tasks_done: number;
   tasks_open: number;
   total_score: number;
+  approved_permissions?: number;
 };
+
+function monthlyBreakdown(row: KpiRow) {
+  return calculateMonthlyIncentive({
+    startingPoints: MONTHLY_STARTING_POINTS,
+    approvedDeductionPoints: row.penalty_points,
+    approvedExceptionalRewardPoints: row.reward_points,
+  });
+}
 
 export default function EmployeeKpi() {
   const [rows, setRows] = useState<KpiRow[]>([]);
@@ -73,7 +83,7 @@ export default function EmployeeKpi() {
       <div className="flex items-center justify-between">
         <CommandHeader
           title="مؤشرات أداء الموظفين"
-          subtitle="آخر 30 يوم • بيانات محسوبة من Supabase"
+          description="آخر 30 يوم • بيانات محسوبة من Supabase"
         />
         <button
           onClick={() => void load()}
@@ -86,15 +96,27 @@ export default function EmployeeKpi() {
 
       {/* الملخص السريع */}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MetricCard label="إجمالي الموظفين" value={stats.total} icon={<Users size={18} />} tone="sky" />
-        <MetricCard label="متوسط الأداء" value={`${stats.avgScore}%`} icon={<Star size={18} />} tone="emerald" />
-        <MetricCard label="ممتاز" value={stats.excellent} icon={<Award size={18} />} tone="amber" />
+        <MetricCard label="إجمالي الموظفين" value={stats.total} icon={Users} tone="teal" />
+        <MetricCard label="متوسط الأداء" value={`${stats.avgScore}%`} icon={Star} tone="green" />
+        <MetricCard label="ممتاز" value={stats.excellent} icon={Award} tone="amber" />
         <MetricCard
           label="يحتاج متابعة"
           value={stats.needsFollow}
-          icon={<ClipboardCheck size={18} />}
-          tone="rose"
+          icon={ClipboardCheck}
+          tone="red"
         />
+      </section>
+
+      <section className="rounded-3xl border border-cyan-500/25 bg-[#102640] p-5 text-slate-100 shadow-xl">
+        <h2 className="text-lg font-black text-white">شرح الحافز الشهري</h2>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Explanation label="رصيد البداية" value={`${MONTHLY_STARTING_POINTS} نقطة`} />
+          <Explanation label="قيمة النقطة" value="3 جنيه" />
+          <Explanation label="السقف الشهري" value="1,500 جنيه" />
+          <Explanation label="السماحات الشهرية" value={`${FREE_PERMISSIONS_PER_CYCLE} سماحات`} />
+        </div>
+        <p className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-3 text-sm font-semibold leading-7 text-cyan-50">الحافز الشهري يحسب من نقاط الدورة حتى سقف 500 نقطة، وأي نقاط أعلى من 500 تظهر كنقاط تميز ولا تُصرف شهريًا.</p>
+        <div className="mt-4 border-t border-slate-700 pt-4"><h3 className="font-black text-white">مؤشر الأداء الإداري</h3><p className="mt-2 text-sm text-slate-300">الدرجة الإجمالية مؤشر إداري للمقارنة والمتابعة، ولا تساوي الحافز المالي مباشرة. الأوزان الإرشادية: نقاط الدورة 40%، تقييم المحادثات 30%، الحضور والانضباط 20%، وإنجاز المهام 10%.</p></div>
       </section>
 
       {/* الفلاتر */}
@@ -123,7 +145,7 @@ export default function EmployeeKpi() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-700 bg-slate-900/50">
               <tr>
-                {['#', 'الموظف', 'الفرع', 'التقييم', 'الحضور', 'المهام', 'النقاط', 'الدرجة'].map((h) => (
+                {['#', 'الموظف', 'الفرع', 'التقييم', 'الحضور', 'المهام', 'النقاط', 'الحافز المتوقع', 'الدرجة'].map((h) => (
                   <th key={h} className="p-3 text-right text-xs font-black text-slate-400">
                     {h}
                   </th>
@@ -143,6 +165,7 @@ export default function EmployeeKpi() {
                   <td className="p-3">
                     <span className="text-emerald-400">{row.days_present} ✓</span>
                     {row.days_absent > 0 && <span className="ml-2 text-rose-400">{row.days_absent} ✗</span>}
+                    <div className="mt-1 text-[11px] text-slate-400">السماحات المتبقية: {Math.max(0, FREE_PERMISSIONS_PER_CYCLE - Number(row.approved_permissions || 0))} / {FREE_PERMISSIONS_PER_CYCLE}</div>
                   </td>
                   <td className="p-3 text-white">
                     {row.tasks_done}/{row.tasks_done + row.tasks_open}
@@ -152,7 +175,9 @@ export default function EmployeeKpi() {
                     {row.penalty_points > 0 && (
                       <span className="ml-1 text-rose-400">-{row.penalty_points}</span>
                     )}
+                    <div className="mt-1 text-[11px] text-slate-400">النهائي: {monthlyBreakdown(row).finalPoints} · تميز: {monthlyBreakdown(row).distinctionPointsAbove500}</div>
                   </td>
+                  <td className="p-3 font-black text-emerald-300">{monthlyBreakdown(row).monthlyIncentiveValue.toLocaleString('ar-EG')} ج</td>
                   <td className="p-3">
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-black ${
@@ -179,4 +204,8 @@ export default function EmployeeKpi() {
       </div>
     </div>
   );
+}
+
+function Explanation({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-3"><div className="text-xs font-bold text-slate-400">{label}</div><div className="mt-1 text-lg font-black text-cyan-100">{value}</div></div>;
 }

@@ -8,6 +8,7 @@ import { monthCycleFromDate } from '@/lib/conversationReviews';
 import { createEmployeeTransaction } from '@/services/employeeTransactionService';
 import { TABLES } from '@/lib/supabaseTables';
 import { logSupabaseError } from '@/lib/supabaseError';
+import { sameEventDeductionGuard } from '@/lib/incentives/incentiveRulesEngine';
 
 export interface PersistPointsInput {
   employeeId: string;
@@ -158,6 +159,30 @@ export async function persistPointsTransaction(
     status:
       input.status === 'rejected' ? 'cancelled' : input.status === 'pending' ? 'pending' : 'active',
   } as const;
+
+  // New records only: prevent overlapping penalty rules for one source event without touching history.
+  if (type === 'penalty' && input.sourceRecordId && ruleCode) {
+    const { data: relatedRows, error: relatedError } = await supabase
+      .from(TABLES.employeeTransactions)
+      .select('id, description, reason')
+      .eq('staff_id', input.employeeId)
+      .eq('source_id', input.sourceRecordId)
+      .eq('month_cycle', month_cycle)
+      .eq('type', 'penalty')
+      .limit(20);
+    if (!relatedError) {
+      const existingRuleCodes = (relatedRows || []).flatMap((row) =>
+        String(row.description || row.reason || '').match(/[A-Z]+(?:-[A-Z]+)*-\d+[A-Z]?/g) || []
+      );
+      const guard = sameEventDeductionGuard({ incomingRuleCode: ruleCode, existingRuleCodes });
+      if (!guard.allowed && !existingRuleCodes.includes(ruleCode)) {
+        console.warn('[points] overlapping deduction blocked', { ruleCode, conflicts: guard.conflictingRuleCodes, sourceRecordId: input.sourceRecordId });
+        return { error: `يوجد خصم متداخل لنفس الواقعة (${guard.conflictingRuleCodes.join('، ')}). يلزم اعتماد إداري واضح قبل إضافة بند آخر.` };
+      }
+    } else if (!isIgnorableSchemaIssue(relatedError.message)) {
+      logSupabaseError('same event deduction guard', relatedError);
+    }
+  }
 
   if (isConversationSource(source, sourceType) && input.sourceRecordId) {
     const { data: existingRows, error: existingError } = await supabase
