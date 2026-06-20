@@ -1,19 +1,13 @@
-import { Bell, Menu, Sun, Moon, Volume2, VolumeX, CheckCheck, ExternalLink } from 'lucide-react';
+import { Bell, Menu, Sun, Moon, Volume2, VolumeX, CheckCheck, ExternalLink, Settings2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
+import { getSafeCurrentUserId, useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { getCurrentCycle, getRemainingDays } from '@/lib/pharmacy-cycle';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import {
-  markAllNotificationsRead,
-  markNotificationRead,
-  normalizeNotification,
-  type AppNotification,
-} from '@/lib/notificationService';
-import { useSmartNotifications } from '@/hooks/useSmartNotifications';
+import type { AppNotification } from '@/lib/notificationService';
+import { saveNotificationSettings, useNotifications } from '@/hooks/useNotifications';
 
 interface NotifItem {
   id: string;
@@ -155,6 +149,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const { user } = useAuth();
   const { theme, setTheme } = useTheme();
   const [showNotifs, setShowNotifs] = useState(false);
+  const [showNotifSettings, setShowNotifSettings] = useState(false);
   const [soundMode, setSoundMode] = useState<'off' | 'soft' | 'distinct'>(
     () => (localStorage.getItem(SOUND_KEY) as 'off' | 'soft' | 'distinct') || 'soft'
   );
@@ -162,36 +157,14 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const remaining = getRemainingDays();
   const prevUnread = useRef<number | null>(null);
 
-  const { data: notifications, refetch } = useSupabaseQuery<NotifItem>({
-    table: 'notifications',
-    orderBy: { column: 'created_at', ascending: false },
-    limit: 80,
-    realtimeEnabled: true,
-  });
-
-  const smartNotifs = useSmartNotifications({
-    branch: user?.branch,
-    role: user?.role,
-    enabled: isSupabaseConfigured,
-  });
-
-  const merged = useMemo(() => {
-    const dbNotifs = notifications
-      .map((row) => {
-        const item = normalizeNotification(row as unknown as Record<string, unknown>);
-        return { ...item, route: inferNotificationRoute(item) };
-      })
-      .filter((item) => canSeeNotification(item, user));
-
-    const smartIds = new Set(smartNotifs.map((n) => n.id));
-    const combined = [...smartNotifs, ...dbNotifs.filter((n) => !smartIds.has(n.id))];
-
-    return combined.sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-  }, [notifications, user, smartNotifs]);
-
-  const unreadCount = useMemo(() => merged.filter((n) => !n.read && !n.is_read).length, [merged]);
+  const {
+    notifications: merged,
+    unreadCount,
+    available: notificationsAvailable,
+    settings: notificationSettings,
+    markAllAsRead,
+    handleNotificationClick,
+  } = useNotifications();
 
   useEffect(() => {
     if (prevUnread.current === null) {
@@ -204,31 +177,18 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   }, [merged, unreadCount]);
 
   const markAllRead = async () => {
-    await markAllNotificationsRead({
-      userId: user?.id,
-      staffId: user?.staffId,
-      role: user?.role,
-      branch: user?.branch,
-    });
-    refetch();
+    await markAllAsRead();
   };
 
-  const markOneRead = async (n: AppNotification) => {
-    if (isSupabaseConfigured && n.id) {
-      await markNotificationRead(n.id);
-      refetch();
-    }
-  };
-
-  const openNotification = async (n: AppNotification) => {
-    await markOneRead(n);
+  const openNotification = (n: AppNotification) => {
     setShowNotifs(false);
-    navigate(n.route || inferNotificationRoute(n));
+    handleNotificationClick(n);
   };
 
   const setSound = (mode: 'off' | 'soft' | 'distinct') => {
     localStorage.setItem(SOUND_KEY, mode);
     setSoundMode(mode);
+    saveNotificationSettings({ ...notificationSettings, sound: mode });
   };
 
   return (
@@ -288,20 +248,14 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
           aria-label="الإشعارات"
         >
           <Bell size={18} />
-          {merged.length > 0 && (
+          {unreadCount > 0 && (
             <span
               className={cn(
                 'absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white px-1 text-[10px] font-black',
-                unreadCount > 0 ? 'bg-teal-500 text-white' : 'bg-slate-300 text-slate-700'
+                'bg-teal-500 text-white'
               )}
             >
-              {unreadCount > 0
-                ? unreadCount > 99
-                  ? '99+'
-                  : unreadCount
-                : merged.length > 99
-                  ? '99+'
-                  : merged.length}
+              {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
         </button>
@@ -361,12 +315,25 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                     <CheckCheck size={14} /> قراءة الكل
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setShowNotifSettings((value) => !value)}
+                  className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50"
+                  title="إعدادات الإشعارات"
+                >
+                  <Settings2 size={14} />
+                </button>
               </div>
             </div>
-            <div className="max-h-96 overflow-y-auto">
+            {showNotifSettings ? (
+              <NotificationSettingsPanel
+                settings={notificationSettings}
+                onChange={saveNotificationSettings}
+              />
+            ) : <div className="max-h-96 overflow-y-auto">
               {merged.length === 0 ? (
                 <div className="py-8 text-center text-sm font-bold text-slate-500">
-                  لا توجد إشعارات مسجلة حاليًا
+                  {notificationsAvailable ? 'لا توجد إشعارات مسجلة حاليًا' : 'نظام الإشعارات يحتاج تفعيل قاعدة البيانات'}
                 </div>
               ) : (
                 merged.slice(0, 10).map((n) => (
@@ -406,7 +373,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                   </button>
                 ))
               )}
-            </div>
+            </div>}
             <button
               type="button"
               onClick={() => {
@@ -426,4 +393,25 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
       )}
     </header>
   );
+}
+
+function NotificationSettingsPanel({ settings, onChange }: { settings: ReturnType<typeof useNotifications>['settings']; onChange: typeof saveNotificationSettings }) {
+  const options: Array<[keyof typeof settings, string]> = [
+    ['customerService', 'إشعارات خدمة العملاء'],
+    ['delivery', 'إشعارات الدليفري'],
+    ['inventory', 'إشعارات المخزون والصلاحية'],
+    ['reviews', 'إشعارات التقييمات'],
+    ['attendance', 'إشعارات الحضور والشيفت'],
+    ['targets', 'إشعارات الأهداف والمبيعات'],
+    ['highPriorityOnly', 'إظهار عالية الأهمية فقط'],
+  ];
+  return <div className="max-h-96 space-y-2 overflow-y-auto p-4">
+    <div className="mb-3 text-xs font-black text-slate-900">إعدادات الإشعارات</div>
+    {options.map(([key, label]) => <label key={key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-2 text-xs font-bold text-slate-700"><span>{label}</span><input type="checkbox" checked={Boolean(settings[key])} onChange={(event) => onChange({ ...settings, [key]: event.target.checked })} /></label>)}
+    <label className="block text-xs font-bold text-slate-700">مدة الاحتفاظ
+      <select value={settings.retentionDays} onChange={(event) => onChange({ ...settings, retentionDays: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 p-2">
+        <option value={7}>7 أيام</option><option value={30}>30 يومًا</option><option value={90}>90 يومًا</option>
+      </select>
+    </label>
+  </div>;
 }

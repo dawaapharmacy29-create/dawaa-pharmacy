@@ -125,7 +125,6 @@ const ChartTooltip: React.FC<any> = (props) => {
 
 const ChartTooltipContent = React.forwardRef<HTMLDivElement, any>(
   (
-  (
     {
       active,
       payload,
