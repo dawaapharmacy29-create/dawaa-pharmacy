@@ -925,7 +925,7 @@ export default function Reviews() {
   };
 
   return (
-    <div className="space-y-5 max-w-6xl">
+    <div className="w-full max-w-full space-y-5 overflow-hidden" dir="rtl">
       <div className="rounded-3xl border border-teal-500/30 bg-gradient-to-l from-slate-950 via-slate-900 to-teal-950/40 p-5 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -1030,21 +1030,21 @@ export default function Reviews() {
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-xl border border-[#2d4063] bg-slate-950/40">
-          <table className="w-full min-w-[1250px] text-sm">
-            <thead className="bg-slate-950 text-slate-50 border-b border-teal-500/30">
+        <div className="relative w-full max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-700 bg-[#0b1728] shadow-inner [scrollbar-color:#22d3ee_#0f172a] [scrollbar-width:thin]">
+          <table className="w-full min-w-[1650px] table-auto text-sm text-slate-100">
+            <thead className="sticky top-0 z-20 border-b border-slate-700 bg-[#102640] text-cyan-100 shadow-sm">
               <tr>
-                <th className="p-3 text-right font-black">التاريخ</th>
-                <th className="p-3 text-right font-black">المراجع</th>
-                <th className="p-3 text-right font-black">الدكتور المقيم</th>
-                <th className="p-3 text-right font-black">الفرع</th>
-                <th className="p-3 text-right font-black">العميل</th>
-                <th className="p-3 text-right font-black">الفاتورة</th>
-                <th className="p-3 text-right font-black">نوع المحادثة</th>
-                <th className="p-3 text-right font-black">التقييم</th>
-                <th className="p-3 text-right font-black">النقاط</th>
-                <th className="p-3 text-right font-black">تقييم المراجع</th>
-                <th className="p-3 text-right font-black">الإجراءات</th>
+                <th className="min-w-[150px] p-3 text-right font-black">التاريخ</th>
+                <th className="min-w-[140px] p-3 text-right font-black">المراجع</th>
+                <th className="min-w-[150px] p-3 text-right font-black">الدكتور المقيم</th>
+                <th className="min-w-[120px] p-3 text-right font-black">الفرع</th>
+                <th className="min-w-[180px] p-3 text-right font-black">العميل</th>
+                <th className="min-w-[120px] p-3 text-right font-black">الفاتورة</th>
+                <th className="min-w-[110px] p-3 text-right font-black">نوع المحادثة</th>
+                <th className="min-w-[110px] p-3 text-right font-black">التقييم</th>
+                <th className="min-w-[100px] p-3 text-right font-black">النقاط</th>
+                <th className="min-w-[120px] p-3 text-right font-black">تقييم المراجع</th>
+                <th className="sticky left-0 z-30 min-w-[190px] border-r border-slate-700 bg-[#102640] p-3 text-right font-black shadow-[8px_0_18px_rgba(2,6,23,0.45)]">الإجراءات</th>
               </tr>
             </thead>
             <tbody>
@@ -1055,17 +1055,17 @@ export default function Reviews() {
                   <tr
                     key={row.id || index}
                     onClick={() => setSelectedReview(row)}
-                    className="border-t border-[#2d4063]/70 hover:bg-teal-500/5 cursor-pointer"
+                    className="group cursor-pointer border-t border-slate-700/80 bg-[#0b1728] transition-colors hover:bg-teal-950/30"
                   >
-                    <td className="p-3 text-slate-200 whitespace-nowrap">
+                    <td className="min-w-[150px] whitespace-nowrap p-3 text-slate-300">
                       {formatDateTime(row.created_at)}
                     </td>
-                    <td className="p-3 text-white">{row.reviewer_name || 'غير محدد'}</td>
-                    <td className="p-3 text-white">
+                    <td className="min-w-[140px] p-3 font-bold text-slate-100">{row.reviewer_name || 'غير محدد'}</td>
+                    <td className="min-w-[150px] p-3 font-bold text-slate-100">
                       {row.staff_name || row.doctor_name || 'غير محدد'}
                     </td>
-                    <td className="p-3 text-slate-200">{row.branch || '-'}</td>
-                    <td className="p-3 text-slate-200">
+                    <td className="min-w-[120px] p-3 text-slate-300">{row.branch || '-'}</td>
+                    <td className="min-w-[180px] p-3 text-slate-100">
                       <div>{row.customer_name || 'غير محدد'}</div>
                       {(row.customer_code || row.customer_phone) && (
                         <div className="text-xs text-slate-400">
@@ -1073,11 +1073,11 @@ export default function Reviews() {
                         </div>
                       )}
                     </td>
-                    <td className="p-3 text-slate-200 num">{row.invoice_number || '-'}</td>
-                    <td className="p-3 text-slate-200">
+                    <td className="min-w-[120px] p-3 text-slate-300 num">{row.invoice_number || '-'}</td>
+                    <td className="min-w-[110px] p-3 text-slate-300">
                       {row.evaluation_kind || row.conversation_type || '-'}
                     </td>
-                    <td className="p-3">
+                    <td className="min-w-[110px] p-3">
                       <span
                         className={
                           score >= 90
@@ -1091,22 +1091,22 @@ export default function Reviews() {
                       </span>
                     </td>
                     <td
-                      className={`p-3 num font-bold ${impact >= 0 ? 'text-teal-300' : 'text-red-300'}`}
+                      className={`min-w-[100px] p-3 num font-black ${impact >= 0 ? 'text-teal-300' : 'text-red-300'}`}
                     >
                       {impact > 0 ? `+${impact}` : impact}
                     </td>
-                    <td className="p-3">
+                    <td className="min-w-[120px] p-3">
                       {row.manager_review_score ? (
                         <span className="badge-info text-xs">{row.manager_review_score}/100</span>
                       ) : (
-                        <span className="badge-muted text-xs">لم يقيم</span>
+                        <span className="inline-flex rounded-full border border-amber-400/40 bg-amber-500/15 px-2.5 py-1 text-xs font-black text-amber-200">لم يقيم</span>
                       )}
                     </td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                    <td className="sticky left-0 z-10 min-w-[190px] border-r border-slate-700 bg-[#0b1728] p-3 shadow-[8px_0_18px_rgba(2,6,23,0.4)] transition-colors group-hover:bg-[#0d2630]">
+                      <div className="flex flex-col gap-2 2xl:flex-row 2xl:flex-wrap" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          className="btn-secondary py-2 px-3 text-xs flex items-center gap-1"
+                          className="btn-secondary flex items-center justify-center gap-2 whitespace-nowrap px-3 py-2 text-xs"
                           onClick={() => setSelectedReview(row)}
                         >
                           <Eye size={14} />
@@ -1116,7 +1116,7 @@ export default function Reviews() {
                           <>
                             <button
                               type="button"
-                              className="btn-secondary py-2 px-3 text-xs flex items-center gap-1"
+                              className="btn-secondary flex items-center justify-center gap-2 whitespace-nowrap px-3 py-2 text-xs"
                               onClick={() => openEdit(row)}
                             >
                               <Pencil size={14} />
@@ -1124,7 +1124,7 @@ export default function Reviews() {
                             </button>
                             <button
                               type="button"
-                              className="btn-secondary py-2 px-3 text-xs flex items-center gap-1"
+                              className="btn-secondary flex items-center justify-center gap-2 whitespace-nowrap px-3 py-2 text-xs"
                               onClick={() => openManagerReview(row)}
                             >
                               <UserCheck size={14} />
