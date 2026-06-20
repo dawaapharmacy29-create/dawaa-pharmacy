@@ -1,0 +1,47 @@
+/* Customer Service V3 readability and script polish */
+.customer-service-v3 .dawaa-panel {
+  border-color: rgba(45, 212, 191, 0.14) !important;
+}
+
+.customer-service-v3 article {
+  position: relative;
+  isolation: isolate;
+}
+
+.customer-service-v3 article::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 1rem;
+  bottom: 1rem;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #22d3ee, #14b8a6);
+  opacity: 0.75;
+}
+
+.customer-service-v3 article:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 38px rgba(8, 47, 73, 0.18);
+}
+
+.customer-service-v3 [data-script-preview='true'],
+.customer-service-v3 .script-card {
+  border-color: rgba(34, 211, 238, 0.28) !important;
+  background: linear-gradient(145deg, rgba(8, 145, 178, 0.16), rgba(15, 23, 42, 0.88)) !important;
+}
+
+.customer-service-v3 [data-script-preview='true'] p,
+.customer-service-v3 .script-card p {
+  font-size: 0.94rem;
+  line-height: 1.9;
+}
+
+.customer-service-v3 .num,
+.customer-service-v3 b {
+  font-feature-settings: 'tnum';
+}
+
+.customer-service-v3 .input-dark {
+  min-height: 44px;
+}
