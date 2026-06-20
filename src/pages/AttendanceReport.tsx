@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { exportAttendanceToExcel } from '@/lib/exportExcel';
 import { Skeleton } from '@/components/ui/skeleton';
+import { createNotification } from '@/lib/notificationService';
 import {
   fetchAttendanceLocations,
   getDevicePosition,
@@ -103,7 +104,7 @@ function TableSkeleton() {
 }
 
 export default function AttendanceReport() {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [tab, setTab] = useState<Tab>('clock');
@@ -209,6 +210,28 @@ export default function AttendanceReport() {
 
   const totals = useMemo(() => ({ staff: summaries.length, present: summaries.reduce((s, r) => s + r.present, 0), absent: summaries.reduce((s, r) => s + r.absent, 0), late: summaries.reduce((s, r) => s + r.late, 0) }), [summaries]);
 
+  async function notifyManager(type: AttendanceType, finalValidation: { status: string; rejectionReason?: string | null; nearestLocation?: AttendanceLocation | null; distanceMeters?: number | null }, biometric: { verified: boolean; method: string }, pos: DevicePosition) {
+    const eventName = type === 'check_in' ? 'حضور' : 'انصراف';
+    const nowText = new Date().toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
+    const statusText = finalValidation.status === 'accepted' ? 'مقبول' : finalValidation.status === 'manual_review' ? 'مراجعة يدوية' : 'مرفوض';
+    const locationName = finalValidation.nearestLocation?.name || userBranch || 'غير محدد';
+    const message = `${userName} سجل ${eventName} الساعة ${nowText} - ${locationName} - الحالة: ${statusText} - المسافة: ${round(finalValidation.distanceMeters)} - GPS: ${round(pos.accuracy)} - التحقق: ${biometric.verified ? 'تم' : 'لم يتم'}`;
+    await createNotification({
+      title: `تنبيه ${eventName}: ${userName}`,
+      message,
+      type: 'attendance',
+      priority: finalValidation.status === 'rejected' ? 'urgent' : 'high',
+      branch: userBranch || finalValidation.nearestLocation?.branch_name || null,
+      target_type: 'attendance',
+      target_id: userId,
+      target_route: '/attendance-report?tab=logs',
+      recipient_role: 'general_manager',
+      created_by: user?.id || null,
+      created_by_name: userName,
+      metadata: { attendance_type: type, status: finalValidation.status, rejection_reason: finalValidation.rejectionReason || null },
+    }).catch((notificationError) => console.warn('[attendance] manager notification skipped', notificationError));
+  }
+
   async function handleClock(type: AttendanceType) {
     setClocking(true);
     setError(null);
@@ -227,8 +250,9 @@ export default function AttendanceReport() {
         biometric: { verified: biometric.verified, method: biometric.method },
         deviceId: getDeviceId(),
       });
+      await notifyManager(type, finalValidation, biometric, pos);
       toast[finalValidation.status === 'accepted' ? 'success' : finalValidation.status === 'manual_review' ? 'warning' : 'error'](
-        finalValidation.status === 'accepted' ? (type === 'check_in' ? 'تم تسجيل الحضور' : 'تم تسجيل الانصراف') : finalValidation.rejectionReason || 'تم تسجيل المحاولة للمراجعة'
+        finalValidation.status === 'accepted' ? (type === 'check_in' ? 'تم تسجيل الحضور وإرسال إشعار فوري للإدارة' : 'تم تسجيل الانصراف وإرسال إشعار فوري للإدارة') : finalValidation.rejectionReason || 'تم تسجيل المحاولة للمراجعة وإرسال إشعار للإدارة'
       );
       await loadClock();
     } catch (e) {
@@ -246,7 +270,7 @@ export default function AttendanceReport() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-black text-slate-900">الحضور والانصراف</h1>
-            <p className="mt-1 text-sm font-bold text-slate-500">تسجيل حضور من داخل الفرع/المخزن بالموقع + تحقق الجهاز، مع تقرير شهري للإدارة.</p>
+            <p className="mt-1 text-sm font-bold text-slate-500">تسجيل حضور من داخل الفرع/المخزن بالموقع + تحقق الجهاز، مع إرسال إشعار فوري للإدارة بوقت الحضور والانصراف.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => setTab('clock')} className={tab === 'clock' ? 'btn-primary' : 'btn-secondary'}><Fingerprint size={16} /> تسجيل حضور</button>
@@ -271,9 +295,9 @@ export default function AttendanceReport() {
                 <Info label="أقرب موقع" value={nearest.nearestLocation?.name || 'غير محدد'} />
                 <Info label="المسافة" value={round(nearest.distanceMeters)} />
                 <Info label="دقة GPS" value={round(position?.accuracy)} />
-                <div className={cn('mt-3 rounded-xl border p-3 text-sm font-black', nearest.status === 'accepted' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700')}>{nearest.status === 'accepted' ? 'داخل النطاق' : nearest.rejectionReason}</div>
+                <div className={cn('mt-3 rounded-xl border p-3 text-sm font-black', nearest.status === 'accepted' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700')}>{nearest.status === 'accepted' ? 'داخل النطاق ومتاح التسجيل' : nearest.rejectionReason}</div>
               </>
-            ) : <div className="text-sm font-bold text-slate-500">اضغط تحديث للحصول على الموقع.</div>}
+            ) : <div className="text-sm font-bold text-slate-500">اضغط تحديث للحصول على الموقع قبل التسجيل.</div>}
           </Panel>
           <Panel title="تسجيل سريع" icon={Clock}>
             <Info label="آخر حضور" value={formatDateTime(lastCheckIn?.recorded_at)} />
@@ -283,6 +307,7 @@ export default function AttendanceReport() {
               <button disabled={clocking} onClick={() => void handleClock('check_out')} className="btn-secondary"><LogOut size={16} /> انصراف</button>
             </div>
             <button onClick={() => void loadClock()} className="btn-secondary mt-2 w-full"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث الموقع</button>
+            <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs font-black text-cyan-700">أي حضور أو انصراف مقبول أو مرفوض يرسل إشعارًا فوريًا للإدارة لأن الوقت مرتبط بالمرتب.</div>
           </Panel>
         </div>
       )}
