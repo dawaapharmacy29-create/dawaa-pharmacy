@@ -35,6 +35,12 @@ export type AttendanceValidation = {
   rejectionReason: string | null;
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function safeUuid(value?: string | null) {
+  const text = String(value || '').trim();
+  return UUID_RE.test(text) ? text : null;
+}
+
 export function haversineDistanceMeters(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
   const earthRadius = 6371000;
   const toRad = (value: number) => (value * Math.PI) / 180;
@@ -132,7 +138,6 @@ export async function verifyWithAvailableBiometric(): Promise<{ verified: boolea
   }
 
   try {
-    // This is a browser capability check only. Real biometric/passkey assertion requires registered credentials.
     const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
     if (!available) return { verified: false, method: 'fallback_pin', message: 'لا توجد بصمة أو Face ID مفعّلة على هذا الجهاز.' };
     return { verified: true, method: 'webauthn', message: 'الجهاز يدعم التحقق بالبصمة/Passkey. سيتم تفعيل التسجيل الكامل بعد ربط بيانات Passkey.' };
@@ -151,10 +156,11 @@ export async function saveAttendanceAttempt(input: {
 }) {
   if (!isSupabaseConfigured) throw new Error('Supabase غير متصل.');
   const today = new Date().toISOString().slice(0, 10);
+  const staffUuid = safeUuid(input.user.id);
   const { data, error } = await supabase
     .from('staff_attendance_logs')
     .insert({
-      staff_id: input.user.id || null,
+      staff_id: staffUuid,
       staff_name: input.user.name || 'غير محدد',
       role: input.user.role || null,
       branch_name: input.user.branch || input.validation.nearestLocation?.branch_name || null,
@@ -170,7 +176,7 @@ export async function saveAttendanceAttempt(input: {
       device_id: input.deviceId || null,
       status: input.validation.status,
       rejection_reason: input.validation.rejectionReason,
-      created_by: input.user.id || null,
+      created_by: staffUuid,
     })
     .select('*')
     .single();
@@ -181,7 +187,8 @@ export async function saveAttendanceAttempt(input: {
 export async function getRecentAttendanceLogs(userId?: string | null, limit = 20) {
   if (!isSupabaseConfigured) return [];
   let query = supabase.from('staff_attendance_logs').select('*').order('recorded_at', { ascending: false }).limit(limit);
-  if (userId) query = query.eq('staff_id', userId);
+  const staffUuid = safeUuid(userId);
+  if (staffUuid) query = query.eq('staff_id', staffUuid);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   return data || [];
