@@ -19,6 +19,7 @@ const queryClient = new QueryClient({
 });
 
 const Login = lazy(() => import('@/pages/Login'));
+const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const ExecutiveDashboard2027 = lazy(() => import('@/pages/ExecutiveDashboard2027'));
 const BranchComparison = lazy(() => import('@/pages/BranchComparison'));
 const BranchInspection = lazy(() => import('@/pages/BranchInspection'));
@@ -279,7 +280,7 @@ export default function App() {
           <Suspense fallback={<AppLoading />}>
             <Routes>
               <Route path="/login" element={<Login />} />
-              <Route path="/" element={protectedElement(<ExecutiveDashboard2027 />)} />
+              <Route path="/" element={protectedElement(<Dashboard />)} />
               <Route
                 path="/dashboard-classic"
                 element={protectedElement(<Navigate to="/executive-2027" replace />)}
