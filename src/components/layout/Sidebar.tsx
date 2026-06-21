@@ -110,6 +110,18 @@ const GROUPS: NavGroup[] = [
         permission: 'view_dashboard',
       },
       {
+        path: '/today-brief',
+        icon: ClipboardCheck,
+        label: 'ملخص اليوم',
+        permission: 'view_dashboard',
+      },
+      {
+        path: '/branch-inspection',
+        icon: ClipboardList,
+        label: 'نموذج مرور المدير',
+        permission: 'view_dashboard',
+      },
+      {
         path: '/data-health',
         icon: ShieldCheck,
         label: 'صحة البيانات',
@@ -154,6 +166,12 @@ const GROUPS: NavGroup[] = [
         label: 'تقرير الحضور',
         permission: 'view_team',
       },
+      {
+        path: '/employee-kpi',
+        icon: BarChart3,
+        label: 'KPI الموظفين',
+        permission: 'view_team',
+      },
     ],
   },
   {
@@ -186,15 +204,27 @@ const GROUPS: NavGroup[] = [
         permission: 'view_customers',
       },
       {
-        path: '/customer-requests',
-        icon: PackageSearch,
-        label: 'طلبات العملاء',
-        permission: 'view_customer_service',
+        path: '/customer-health',
+        icon: ActivitySquare,
+        label: 'الملف الصحي للعميل',
+        permission: 'view_customers',
+      },
+      {
+        path: '/crm',
+        icon: Users,
+        label: 'CRM ومتابعة العملاء',
+        permission: 'page.crm.view',
       },
       {
         path: '/reviews',
         icon: ClipboardCheck,
         label: 'تقييم المحادثات',
+        permission: 'view_conversation_reviews',
+      },
+      {
+        path: '/whatsapp-analytics',
+        icon: BarChart3,
+        label: 'تحليلات واتساب',
         permission: 'view_conversation_reviews',
       },
     ],
@@ -226,6 +256,18 @@ const GROUPS: NavGroup[] = [
         icon: FileSpreadsheet,
         label: 'مركز التقارير',
         permission: 'view_analytics',
+      },
+      {
+        path: '/offers',
+        icon: Sparkles,
+        label: 'العروض',
+        permission: 'view_dashboard',
+      },
+      {
+        path: '/stories',
+        icon: BookOpenCheck,
+        label: 'الاستوريز وتحليلها',
+        permission: 'view_dashboard',
       },
     ],
   },
@@ -297,13 +339,6 @@ const GROUPS: NavGroup[] = [
     title: 'الإعدادات والإدارة',
     icon: ShieldCheck,
     items: [
-      {
-        path: '/staff-accounts',
-        icon: ShieldCheck,
-        label: 'إدارة الحسابات',
-        adminOnly: true,
-        permission: 'view_staff_accounts',
-      },
       {
         path: '/penalty-incentive',
         icon: AlertTriangle,
