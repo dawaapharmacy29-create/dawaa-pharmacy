@@ -82,6 +82,33 @@ const TABS = [
 
 type TabId = (typeof TABS)[number][0];
 
+const PRIMARY_TABS: Array<[TabId, string]> = [
+  ['today', 'متابعات اليوم'],
+  ['assigned', 'المتابعات المسندة'],
+  ['requests', 'طلبات المتابعة'],
+  ['finish', 'إنهاء متابعة'],
+  ['history', 'سجل المتابعات'],
+  ['add', 'إضافة متابعة'],
+];
+
+const ADDITIONAL_TOOLS: Array<{ id: TabId; label: string; href?: string }> = [
+  { id: 'performance', label: 'تحليل خدمة العملاء' },
+  { id: 'doctor', label: 'أداء الدكتور' },
+  { id: 'team', label: 'أداء الفريق' },
+  { id: 'decision', label: 'تحليل قرار العميل' },
+  { id: 'improvements', label: 'اقتراحات التحسين' },
+  { id: 'crm', label: 'CRM', href: '/crm' },
+  { id: 'cashback', label: 'النقاط والكاش باك', href: '/customer-cashback' },
+  { id: 'credit', label: 'كريدت خدمة العملاء', href: '/customer-service-credit' },
+  { id: 'evaluation', label: 'تقييم المحادثات', href: '/reviews' },
+  { id: 'scripts', label: 'قوالب واتساب' },
+  { id: 'welcome', label: 'الرسائل الترحيبية' },
+  { id: 'notes', label: 'ملاحظات العميل' },
+  { id: 'alerts', label: 'تنبيهات العملاء' },
+  { id: 'data-review', label: 'مراجعة البيانات', href: '/customer-data-review' },
+  { id: 'customer-requests', label: 'طلبات العملاء', href: '/customer-requests' },
+];
+
 type AddFollowupForm = {
   customerName: string;
   phone: string;
@@ -622,7 +649,7 @@ export default function CustomerService() {
         <main className="dawaa-panel min-w-0">
           <div className="mb-4 overflow-x-auto pb-2">
             <div className="flex min-w-max gap-2">
-              {TABS.map(([id, label]) => (
+              {PRIMARY_TABS.map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => setActiveTab(id)}
@@ -631,6 +658,36 @@ export default function CustomerService() {
                   {label}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div className="mb-5 rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
+            <h2 className="mb-3 text-sm font-black text-white">أدوات إضافية</h2>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {ADDITIONAL_TOOLS.map((tool) =>
+                tool.href ? (
+                  <a
+                    key={tool.id}
+                    href={tool.href}
+                    className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-center text-xs font-bold text-slate-200 transition hover:border-cyan-400/50 hover:text-cyan-200"
+                  >
+                    {tool.label}
+                  </a>
+                ) : (
+                  <button
+                    key={tool.id}
+                    type="button"
+                    onClick={() => setActiveTab(tool.id)}
+                    className={
+                      activeTab === tool.id
+                        ? 'rounded-xl border border-cyan-400 bg-cyan-500/15 px-3 py-2 text-xs font-bold text-cyan-100'
+                        : 'rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-bold text-slate-200 transition hover:border-cyan-400/50 hover:text-cyan-200'
+                    }
+                  >
+                    {tool.label}
+                  </button>
+                )
+              )}
             </div>
           </div>
 

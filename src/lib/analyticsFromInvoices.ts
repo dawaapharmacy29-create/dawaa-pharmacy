@@ -1,4 +1,5 @@
-import { getSalesValue } from '@/lib/analyticsService';
+import { getSalesValue, isCancelledInvoice, normalizeDoctorName } from '@/lib/analyticsService';
+import { normalizeBranchName } from '@/lib/branch';
 
 /**
  * تحليلات مبنية على جدول sales_invoices بعد الاستيراد اليومي.
@@ -216,6 +217,7 @@ export function aggregateInvoiceAnalytics(
   const customerDates = new Map<string, Set<string>>();
 
   for (const row of rows) {
+    if (isCancelledInvoice(row)) continue;
     const amount = getSalesValue(row) || 0;
     if (!Number.isFinite(amount) || amount <= 0) continue;
 
@@ -249,14 +251,14 @@ export function aggregateInvoiceAnalytics(
       agg.shiftNightCount++;
     }
 
-    const doctor = String(row.seller_name ?? '').trim() || 'غير محدد';
+    const doctor = normalizeDoctorName(row.seller_name) || 'غير محدد';
     const docStats = agg.perDoctor[doctor] || { sales: 0, count: 0, items: 0 };
     docStats.sales += amount;
     docStats.count += 1;
     docStats.items += Number(row.line_items_count ?? 0);
     agg.perDoctor[doctor] = docStats;
 
-    const branch = String(row.branch ?? '').trim() || 'غير محدد';
+    const branch = normalizeBranchName(row.branch) || 'غير محدد';
     const br = agg.perBranch[branch] || { sales: 0, count: 0 };
     br.sales += amount;
     br.count += 1;

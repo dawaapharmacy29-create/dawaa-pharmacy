@@ -40,6 +40,7 @@ export const INVOICE_SELECT_CUSTOMER =
   'customer_name, customer_code, customer_phone, branch, seller_name, invoice_type';
 
 export const INVOICE_SELECT_TRUTH_OPTIONS = [
+  'id,invoice_no,invoice_number,invoice_date,branch,net_amount,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_name,seller_name,status,save_status',
   'id,invoice_no,invoice_number,invoice_date,branch,net_amount,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_name,seller_name',
   'id,invoice_no,invoice_number,invoice_date,branch,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_name,seller_name',
   'id,invoice_no,invoice_number,invoice_date,branch,amount,gross_amount,total_amount,customer_code,customer_name,seller_name',

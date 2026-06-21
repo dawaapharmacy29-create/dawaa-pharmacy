@@ -26,6 +26,7 @@ export default function QuickFollowupModal({
   const [searching, setSearching] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -67,6 +68,7 @@ export default function QuickFollowupModal({
   const selectCustomer = (customer: CustomerSearchResult) => {
     setName(customer.name || '');
     setPhone(customer.phone || '');
+    setCode(customer.customer_code || '');
     setSearch('');
     setResults([]);
   };
@@ -76,6 +78,7 @@ export default function QuickFollowupModal({
     setResults([]);
     setName('');
     setPhone('');
+    setCode('');
     setNote('');
   };
 
@@ -157,6 +160,12 @@ export default function QuickFollowupModal({
           placeholder="رقم الهاتف"
           value={phone}
           onChange={(event) => setPhone(event.target.value)}
+        />
+        <input
+          className="mb-2 w-full rounded bg-slate-800 p-2 text-sm text-white"
+          placeholder="كود العميل (اختياري)"
+          value={code}
+          onChange={(event) => setCode(event.target.value)}
         />
         <textarea
           className="mb-3 w-full rounded bg-slate-800 p-2 text-sm text-white"

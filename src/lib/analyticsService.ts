@@ -50,8 +50,48 @@ export function firstNumericValue(row: SalesInvoiceLike, keys: string[]): number
   return 0;
 }
 
+export function getInvoiceNetValue(row: SalesInvoiceLike) {
+  return firstNumericValue(row, [
+    'net_amount',
+    'discounted_amount',
+    'amount',
+    'gross_amount',
+    'total_amount',
+    'invoice_total',
+    'net_total',
+    'total',
+  ]);
+}
+
 export function getSalesValue(row: SalesInvoiceLike) {
-  return firstNumericValue(row, ['net_amount', 'discounted_amount', 'amount']);
+  return getInvoiceNetValue(row);
+}
+
+function normalizeComparableText(value: unknown) {
+  return String(value ?? '')
+    .trim()
+    .replace(/[\u064B-\u065F\u0640]/g, '')
+    .replace(/[\u0623\u0625\u0622]/g, '\u0627')
+    .replace(/\u0649/g, '\u064A')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+export function normalizeDoctorName(name: unknown) {
+  const original = String(name ?? '').trim();
+  const normalized = normalizeComparableText(original).replace(
+    /^(\u062F|\u062F\u0643\u062A\u0648\u0631|\u0627\u0644\u062F\u0643\u062A\u0648\u0631)\s+/,
+    ''
+  );
+  if (normalized === '\u0627\u0633\u0644\u0627\u0645') return '\u062F \u0625\u0633\u0644\u0627\u0645';
+  return original;
+}
+
+export function isCancelledInvoice(row: SalesInvoiceLike) {
+  const status = normalizeComparableText(
+    row.status ?? row.save_status ?? row.invoice_status ?? row.state
+  );
+  return /cancel|cancelled|canceled|deleted|void/.test(status) || /\u0645\u0644\u063A|\u0645\u062D\u0630\u0648\u0641/.test(status);
 }
 
 export function getGrossSalesValue(row: SalesInvoiceLike) {
@@ -83,6 +123,7 @@ function matchesFilter(actual: unknown, expected?: string) {
 
 export function filterSalesInvoices(rows: SalesInvoiceLike[], filters: SalesAnalyticsFilters = {}) {
   return rows.filter((row) => {
+    if (isCancelledInvoice(row)) return false;
     const date = invoiceDate(row);
     if (filters.from && date && date < filters.from) return false;
     if (filters.to && date && date > filters.to) return false;

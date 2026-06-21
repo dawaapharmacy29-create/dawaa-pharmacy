@@ -262,6 +262,7 @@ export default function ShiftNotes() {
   );
   const [notes, setNotes] = useState<ShiftNote[]>([]);
   const [deletedNotes, setDeletedNotes] = useState<ShiftNote[]>([]);
+  const [showDeletedNotes, setShowDeletedNotes] = useState(false);
   const [logs, setLogs] = useState<ShiftNoteLog[]>([]);
   const [occurrences, setOccurrences] = useState<ShiftNoteOccurrence[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1073,31 +1074,15 @@ export default function ShiftNotes() {
           <div className="text-slate-400 text-xs mt-1">ملاحظات اليوم</div>
         </button>
         <button
-          onClick={() => notesSectionRef.current?.scrollIntoView({ behavior: 'smooth' })}
-          className={`stat-card cursor-pointer transition-all hover:scale-105 ${deletedNotes.length > 0 ? 'ring-2 ring-slate-400' : ''}`}
+          onClick={() => setShowDeletedNotes((visible) => !visible)}
+          className={`stat-card cursor-pointer transition-all hover:scale-105 ${showDeletedNotes ? 'ring-2 ring-slate-400' : ''}`}
         >
           <div className="text-2xl font-bold num text-slate-300">{deletedNotes.length}</div>
-          <div className="text-slate-400 text-xs mt-1">محذوفة يمكن استرجاعها</div>
+          <div className="text-slate-400 text-xs mt-1">
+            {showDeletedNotes ? 'إخفاء الملاحظات المحذوفة' : 'عرض الملاحظات المحذوفة'}
+          </div>
         </button>
       </div>
-
-      {deletedNotes.length > 0 && (
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
-          <div className="section-title mb-2">الملاحظات المحذوفة (يمكن استرجاعها)</div>
-          <div className="space-y-2">
-            {deletedNotes.slice(0, 10).map((n) => (
-              <div key={n.id} className="flex items-center justify-between gap-3 text-sm">
-                <div className="text-slate-200">
-                  {n.title} - حذفها: {n.deleted_by_name || 'غير محدد'}
-                </div>
-                <button className="btn-secondary text-xs" onClick={() => restoreNote(n)}>
-                  استرجاع
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
         <div className="flex items-center justify-between">
@@ -1393,7 +1378,7 @@ export default function ShiftNotes() {
         </Link>
       </div>
 
-      {deletedNotes.length > 0 && (
+      {showDeletedNotes && deletedNotes.length > 0 && (
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
           <div className="section-title mb-2">الملاحظات المحذوفة (يمكن استرجاعها)</div>
           <div className="space-y-2">

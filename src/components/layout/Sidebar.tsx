@@ -78,18 +78,6 @@ const GROUPS: NavGroup[] = [
         label: 'ملاحظات الشيفت',
         permission: 'view_dashboard',
       },
-      {
-        path: '/customer-requests',
-        icon: BellRing,
-        label: 'طلب متابعة',
-        permission: 'view_customer_service',
-      },
-      {
-        path: '/customer-coding',
-        icon: UserPlus,
-        label: 'تكويد العملاء',
-        permission: 'view_customer_service',
-      },
     ],
   },
   {
@@ -163,7 +151,7 @@ const GROUPS: NavGroup[] = [
       {
         path: '/attendance-report',
         icon: ClipboardCheck,
-        label: 'تقرير الحضور',
+        label: 'تسجيل/تقرير الحضور',
         permission: 'view_team',
       },
       {
@@ -188,8 +176,20 @@ const GROUPS: NavGroup[] = [
       {
         path: '/customer-data-review',
         icon: ClipboardCheck,
-        label: 'بيانات العملاء',
+        label: 'مراجعة بيانات العملاء',
         permission: 'page.customer_data_review.view',
+      },
+      {
+        path: '/customer-requests',
+        icon: BellRing,
+        label: 'طلبات المتابعة',
+        permission: 'view_customer_service',
+      },
+      {
+        path: '/customer-coding',
+        icon: UserPlus,
+        label: 'تكويد العملاء',
+        permission: 'view_customer_service',
       },
       {
         path: '/customer-cashback',
@@ -221,12 +221,6 @@ const GROUPS: NavGroup[] = [
         label: 'تقييم المحادثات',
         permission: 'view_conversation_reviews',
       },
-      {
-        path: '/whatsapp-analytics',
-        icon: BarChart3,
-        label: 'تحليلات واتساب',
-        permission: 'view_conversation_reviews',
-      },
     ],
   },
   {
@@ -250,6 +244,12 @@ const GROUPS: NavGroup[] = [
         icon: BarChart3,
         label: 'مقارنة الفروع',
         permission: 'view_analytics_sales',
+      },
+      {
+        path: '/whatsapp-analytics',
+        icon: BarChart3,
+        label: 'تحليلات واتساب',
+        permission: 'view_conversation_reviews',
       },
       {
         path: '/reports',
@@ -412,7 +412,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
     return GROUPS.map((group) => ({
       ...group,
       items: group.items.filter((item) => {
-        if (item.adminOnly && !isAdmin) return false;
+        if (item.adminOnly && !isAdmin && !privilegedRoles.has(user?.role || '')) return false;
         if (item.role && user?.role !== item.role && !privilegedRoles.has(user?.role || ''))
           return false;
         if (!checkPermission(item.permission) && !isAdmin && !privilegedRoles.has(user?.role || ''))

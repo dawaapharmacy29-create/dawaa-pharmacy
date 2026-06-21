@@ -1,5 +1,10 @@
 import { normalizeBranchName } from '@/lib/branch';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
+import {
+  getInvoiceNetValue,
+  isCancelledInvoice,
+  normalizeDoctorName,
+} from '@/lib/analyticsService';
 
 export const DASHBOARD_ALL_BRANCHES = '\u0643\u0644 \u0627\u0644\u0641\u0631\u0648\u0639';
 const UNKNOWN_LABEL = '\u063A\u064A\u0631 \u0645\u062D\u062F\u062F';
@@ -15,6 +20,11 @@ export type DashboardInvoiceRow = {
   discounted_amount?: number | string | null;
   gross_amount?: number | string | null;
   total_amount?: number | string | null;
+  invoice_total?: number | string | null;
+  net_total?: number | string | null;
+  total?: number | string | null;
+  status?: string | null;
+  save_status?: string | null;
   customer_code?: string | number | null;
   customer_name?: string | null;
   seller_name?: string | null;
@@ -102,9 +112,7 @@ export function dashboardNumber(value: unknown) {
 }
 
 export function dashboardInvoiceAmount(row: DashboardInvoiceRow) {
-  return dashboardNumber(
-    row.net_amount ?? row.discounted_amount ?? row.amount ?? row.gross_amount ?? row.total_amount
-  );
+  return getInvoiceNetValue(row as Record<string, unknown>);
 }
 
 function invoiceDate(row: DashboardInvoiceRow) {
@@ -193,7 +201,6 @@ function isDoctorName(name: unknown) {
     '\u0645\u0635\u0637\u0641\u064A',
     '\u0645\u0635\u0637\u0641\u0649',
     '\u064A\u0648\u0633\u0641 \u0639\u0635\u0627\u0645',
-    '\u0627\u0633\u0644\u0627\u0645',
     '\u062D\u0633\u064A\u0646',
     '\u064A\u0648\u0633\u0641 \u0639\u064A\u062F',
     '\u064A\u0648\u0633\u0641 \u0645\u0627\u0647\u0631',
@@ -218,7 +225,9 @@ function isLinkedInvoice(row: DashboardInvoiceRow) {
 }
 
 function buildTruth(rows: DashboardInvoiceRow[]) {
-  const invoiceRows = rows.filter((row) => invoiceDate(row));
+  const invoiceRows = rows.filter(
+    (row) => invoiceDate(row) && !isCancelledInvoice(row as Record<string, unknown>)
+  );
   const invoiceKeys = new Set(invoiceRows.map(invoiceIdentityKey).filter(Boolean));
   const linkedRows = invoiceRows.filter(isLinkedInvoice);
   const linkedInvoiceKeys = new Set(linkedRows.map(invoiceIdentityKey).filter(Boolean));
@@ -325,7 +334,7 @@ function buildTruth(rows: DashboardInvoiceRow[]) {
     }
 
     if (isDoctorName(row.seller_name)) {
-      const doctor = String(row.seller_name || '').trim();
+      const doctor = normalizeDoctorName(row.seller_name);
       const doctorKey = `${doctor}__${branch}`;
       const doctorRow = doctorMap.get(doctorKey) || {
         doctor_name: doctor,

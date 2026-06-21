@@ -32,6 +32,7 @@ import { clearExecutiveDashboardCache } from '@/lib/executiveDashboardDataServic
 import { clearSalesAnalyticsSummaryCache } from '@/lib/salesAnalyticsSummaryService';
 import { clearStaffPerformanceProfileCache } from '@/lib/staff/staffPerformanceProfileService';
 import { invalidateInvoiceCache } from '@/lib/salesInvoiceSource';
+import { getInvoiceNetValue } from '@/lib/analyticsService';
 import {
   generateTemplateFile,
   importCustomersToDB,
@@ -107,17 +108,7 @@ function clearInvoiceLinkedViews() {
 function invoiceSalesValue(
   invoice: Pick<ManagedInvoiceRow, 'net_amount' | 'discounted_amount' | 'amount' | 'gross_amount'>
 ) {
-  const candidates = [
-    invoice.net_amount,
-    invoice.discounted_amount,
-    invoice.amount,
-    invoice.gross_amount,
-  ];
-  for (const candidate of candidates) {
-    const value = Number(candidate);
-    if (Number.isFinite(value)) return value;
-  }
-  return 0;
+  return getInvoiceNetValue(invoice as Record<string, unknown>);
 }
 
 function customerImportStatusLabel(status: string) {

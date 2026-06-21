@@ -392,15 +392,17 @@ async function fetchFollowupsForDashboard(
   errors: string[]
 ): Promise<FollowupDashboardRow[]> {
   const allRows: FollowupDashboardRow[] = [];
-  const pageSize = 1000;
-  const maxPages = 20;
+  const pageSize = 500;
+  const maxPages = 4;
 
   for (let page = 0; page < maxPages; page += 1) {
     const from = page * pageSize;
     const to = from + pageSize - 1;
     let query = supabase
       .from('daily_followups')
-      .select('*')
+      .select(
+        'branch,responsible_name,assigned_to,assigned_doctor,followup_status,status,contact_status,needs_manager,completed_at,followup_date,date,created_at'
+      )
       .gte('followup_date', startDate)
       .lte('followup_date', endDate)
       .order('followup_date', { ascending: true })
