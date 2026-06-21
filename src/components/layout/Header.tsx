@@ -1,4 +1,4 @@
-import { Bell, Menu, Sun, Moon, Volume2, VolumeX, CheckCheck, ExternalLink, Settings2 } from 'lucide-react';
+import { Bell, Menu, Sun, Moon, Volume2, VolumeX, CheckCheck, ExternalLink, Settings2, Fingerprint } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getSafeCurrentUserId, useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
@@ -49,6 +49,7 @@ const notifColors: Record<string, string> = {
   conversation_review: 'bg-purple-50 border-purple-200 text-purple-700',
   customer_alert: 'bg-amber-50 border-amber-200 text-amber-700',
   delivery: 'bg-cyan-50 border-cyan-200 text-cyan-700',
+  attendance: 'bg-emerald-50 border-emerald-200 text-emerald-700',
   system: 'bg-slate-50 border-slate-200 text-slate-700',
 };
 
@@ -96,6 +97,7 @@ function inferNotificationRoute(n: Partial<NotifItem & AppNotification>) {
 
   const text =
     `${n.type || ''} ${n.title || ''} ${n.body || ''} ${n.message || ''} ${n.target_type || ''}`.toLowerCase();
+  if (text.includes('attendance') || text.includes('حضور') || text.includes('انصراف')) return '/attendance-report';
   if (text.includes('follow') || text.includes('متابعة')) return '/customer-service';
   if (text.includes('review') || text.includes('تقييم')) return '/reviews';
   if (
@@ -118,8 +120,8 @@ function canSeeNotification(item: AppNotification, user: ReturnType<typeof useAu
   if (!user) return false;
   const safeUserId = getSafeCurrentUserId();
   const role = user.role || '';
-  const isAdmin = ['مدير عام', 'المدير العام', 'admin', 'أدمن'].includes(role);
-  const isBranchManager = role === 'مدير فرع';
+  const isAdmin = ['مدير عام', 'المدير العام', 'admin', 'أدمن', 'general_manager'].includes(role);
+  const isBranchManager = role === 'مدير فرع' || role === 'branch_manager';
 
   if (isAdmin) return true;
   if (item.user_id && (item.user_id === user.id || item.user_id === safeUserId)) return true;
@@ -166,15 +168,21 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
     handleNotificationClick,
   } = useNotifications();
 
+  const visibleNotifications = useMemo(
+    () => merged.filter((item) => canSeeNotification(item, user)),
+    [merged, user]
+  );
+  const visibleUnreadCount = visibleNotifications.filter((item) => !item.read && !item.is_read).length;
+
   useEffect(() => {
     if (prevUnread.current === null) {
-      prevUnread.current = unreadCount;
+      prevUnread.current = visibleUnreadCount;
       return;
     }
-    const newest = merged[0];
-    if (unreadCount > prevUnread.current && newest && isUrgent(newest)) playNotificationBeep();
-    prevUnread.current = unreadCount;
-  }, [merged, unreadCount]);
+    const newest = visibleNotifications[0];
+    if (visibleUnreadCount > prevUnread.current && newest && isUrgent(newest)) playNotificationBeep();
+    prevUnread.current = visibleUnreadCount;
+  }, [visibleNotifications, visibleUnreadCount]);
 
   const markAllRead = async () => {
     await markAllAsRead();
@@ -182,7 +190,9 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 
   const openNotification = (n: AppNotification) => {
     setShowNotifs(false);
+    const route = inferNotificationRoute(n);
     handleNotificationClick(n);
+    if (route) navigate(route);
   };
 
   const setSound = (mode: 'off' | 'soft' | 'distinct') => {
@@ -204,6 +214,16 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
         <Menu size={20} />
       </button>
       <h1 className="flex-1 truncate text-base font-black text-slate-950">{title}</h1>
+
+      <button
+        type="button"
+        onClick={() => navigate('/attendance-report')}
+        className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-xs font-black text-white shadow-sm transition hover:bg-teal-700"
+        title="تسجيل حضور / انصراف"
+      >
+        <Fingerprint size={16} />
+        <span className="hidden sm:inline">تسجيل حضور</span>
+      </button>
 
       {!isSupabaseConfigured && (
         <div className="hidden items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 sm:flex">
@@ -248,14 +268,14 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
           aria-label="الإشعارات"
         >
           <Bell size={18} />
-          {unreadCount > 0 && (
+          {visibleUnreadCount > 0 && (
             <span
               className={cn(
                 'absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white px-1 text-[10px] font-black',
                 'bg-teal-500 text-white'
               )}
             >
-              {unreadCount > 99 ? '99+' : unreadCount}
+              {visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}
             </span>
           )}
         </button>
@@ -265,132 +285,39 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
               <div>
                 <div className="text-sm font-black text-slate-950">الإشعارات</div>
-                <div className="text-xs font-semibold text-slate-500">{unreadCount} غير مقروء</div>
+                <div className="text-xs font-semibold text-slate-500">{visibleUnreadCount} غير مقروء</div>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-                  <button
-                    type="button"
-                    className={cn(
-                      'rounded-md p-1.5 text-slate-500',
-                      soundMode === 'off' && 'bg-white text-slate-900 shadow-sm'
-                    )}
-                    title="بدون صوت"
-                    onClick={() => setSound('off')}
-                  >
-                    <VolumeX size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      'rounded-md p-1.5 text-slate-500',
-                      soundMode === 'soft' && 'bg-white text-slate-900 shadow-sm'
-                    )}
-                    title="تنبيه خفيف"
-                    onClick={() => setSound('soft')}
-                  >
-                    <Volume2 size={14} className="opacity-70" />
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      'rounded-md p-1.5 text-slate-500',
-                      soundMode === 'distinct' && 'bg-white text-slate-900 shadow-sm'
-                    )}
-                    title="نغمة أوضح"
-                    onClick={() => {
-                      setSound('distinct');
-                      playNotificationBeep();
-                    }}
-                  >
-                    <Volume2 size={14} />
-                  </button>
+                  <button type="button" className={cn('rounded-md p-1.5 text-slate-500', soundMode === 'off' && 'bg-white text-slate-900 shadow-sm')} title="بدون صوت" onClick={() => setSound('off')}><VolumeX size={14} /></button>
+                  <button type="button" className={cn('rounded-md p-1.5 text-slate-500', soundMode === 'soft' && 'bg-white text-slate-900 shadow-sm')} title="تنبيه خفيف" onClick={() => setSound('soft')}><Volume2 size={14} className="opacity-70" /></button>
+                  <button type="button" className={cn('rounded-md p-1.5 text-slate-500', soundMode === 'distinct' && 'bg-white text-slate-900 shadow-sm')} title="نغمة أوضح" onClick={() => { setSound('distinct'); playNotificationBeep(); }}><Volume2 size={14} /></button>
                 </div>
-                {unreadCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={markAllRead}
-                    className="inline-flex items-center gap-1 text-xs font-black text-teal-700"
-                  >
-                    <CheckCheck size={14} /> قراءة الكل
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowNotifSettings((value) => !value)}
-                  className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50"
-                  title="إعدادات الإشعارات"
-                >
-                  <Settings2 size={14} />
-                </button>
+                {visibleUnreadCount > 0 && <button type="button" onClick={markAllRead} className="inline-flex items-center gap-1 text-xs font-black text-teal-700"><CheckCheck size={14} /> قراءة الكل</button>}
+                <button type="button" onClick={() => setShowNotifSettings((value) => !value)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50" title="إعدادات الإشعارات"><Settings2 size={14} /></button>
               </div>
             </div>
             {showNotifSettings ? (
-              <NotificationSettingsPanel
-                settings={notificationSettings}
-                onChange={saveNotificationSettings}
-              />
+              <NotificationSettingsPanel settings={notificationSettings} onChange={saveNotificationSettings} />
             ) : <div className="max-h-96 overflow-y-auto">
-              {merged.length === 0 ? (
-                <div className="py-8 text-center text-sm font-bold text-slate-500">
-                  {notificationsAvailable ? 'لا توجد إشعارات مسجلة حاليًا' : 'نظام الإشعارات يحتاج تفعيل قاعدة البيانات'}
-                </div>
-              ) : (
-                merged.slice(0, 10).map((n) => (
-                  <button
-                    key={n.id}
-                    type="button"
-                    onClick={() => void openNotification(n)}
-                    className={cn(
-                      'w-full border-b border-slate-100 px-4 py-3 text-right transition last:border-0 hover:bg-slate-50',
-                      !n.read && !n.is_read ? 'bg-teal-50/50' : ''
-                    )}
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <span
-                        className={cn(
-                          'mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-xs font-black',
-                          isUrgent(n)
-                            ? 'border-red-200 bg-red-50 text-red-700'
-                            : notifColors[String(n.type)] || notifColors.system
-                        )}
-                      >
-                        {String(n.priority || n.type || 'تنبيه')}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1 text-xs font-black text-slate-950">
-                          <span className="truncate">{n.title}</span>
-                          <ExternalLink size={12} className="shrink-0 text-slate-400" />
-                        </div>
-                        <div className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-slate-500">
-                          {n.body || n.message}
-                        </div>
-                      </div>
-                      {!n.read && !n.is_read && (
-                        <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-teal-500" />
-                      )}
-                    </div>
-                  </button>
-                ))
-              )}
+              {visibleNotifications.length === 0 ? (
+                <div className="py-8 text-center text-sm font-bold text-slate-500">{notificationsAvailable ? 'لا توجد إشعارات مسجلة حاليًا' : 'نظام الإشعارات يحتاج تفعيل قاعدة البيانات'}</div>
+              ) : visibleNotifications.slice(0, 10).map((n) => (
+                <button key={n.id} type="button" onClick={() => void openNotification(n)} className={cn('w-full border-b border-slate-100 px-4 py-3 text-right transition last:border-0 hover:bg-slate-50', !n.read && !n.is_read ? 'bg-teal-50/50' : '')}>
+                  <div className="flex items-start gap-2.5">
+                    <span className={cn('mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-xs font-black', isUrgent(n) ? 'border-red-200 bg-red-50 text-red-700' : notifColors[String(n.type)] || notifColors.system)}>{String(n.priority || n.type || 'تنبيه')}</span>
+                    <div className="min-w-0 flex-1"><div className="flex items-center gap-1 text-xs font-black text-slate-950"><span className="truncate">{n.title}</span><ExternalLink size={12} className="shrink-0 text-slate-400" /></div><div className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-slate-500">{n.body || n.message}</div></div>
+                    {!n.read && !n.is_read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-teal-500" />}
+                  </div>
+                </button>
+              ))}
             </div>}
-            <button
-              type="button"
-              onClick={() => {
-                setShowNotifs(false);
-                navigate('/operations-center');
-              }}
-              className="w-full border-t border-slate-100 bg-slate-50 px-4 py-3 text-center text-xs font-black text-teal-700 hover:bg-teal-50"
-            >
-              فتح مركز التنبيهات
-            </button>
+            <button type="button" onClick={() => { setShowNotifs(false); navigate('/operations-center'); }} className="w-full border-t border-slate-100 bg-slate-50 px-4 py-3 text-center text-xs font-black text-teal-700 hover:bg-teal-50">فتح مركز التنبيهات</button>
           </div>
         )}
       </div>
 
-      {showNotifs && (
-        <div className="fixed inset-0 z-40" onClick={() => setShowNotifs(false)} aria-hidden />
-      )}
+      {showNotifs && <div className="fixed inset-0 z-40" onClick={() => setShowNotifs(false)} aria-hidden />}
     </header>
   );
 }
