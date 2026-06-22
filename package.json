@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "npm@10.9.2",
+  "packageManager": "pnpm@10.14.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -16,10 +16,10 @@
     "doctor": "node scripts/doctor.cjs",
     "predeploy": "node scripts/doctor.cjs",
     "test": "vitest run --passWithNoTests",
-    "check": "npm run doctor && npm run typecheck && npm run build",
+    "check": "pnpm run doctor && pnpm run typecheck && pnpm run build",
     "test:integration": "vitest run src/lib/staff/__tests__/staffPerformanceProfileService.integration.ts",
-    "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",
-    "verify": "npm run doctor && npm run test && npm run build"
+    "vercel:install": "pnpm install --frozen-lockfile",
+    "verify": "pnpm run doctor && pnpm run test && pnpm run build"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -118,7 +118,6 @@
     "xlsx": "^0.18.5"
   },
   "engines": {
-    "node": "22.x",
-    "npm": "10.9.2"
+    "node": "22.x"
   }
 }
