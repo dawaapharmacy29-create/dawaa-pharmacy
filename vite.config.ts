@@ -28,7 +28,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    target: 'es2020',
+    target: ['es2019', 'safari13'],
     minify: 'esbuild',
     chunkSizeWarningLimit: 1000,
     rollupOptions: {

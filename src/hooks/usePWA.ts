@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 
 interface PWAState {
   isInstallable: boolean;
@@ -23,14 +24,17 @@ export function usePWA() {
   const [state, setState] = useState<PWAState>({
     isInstallable: false,
     isInstalled: false,
-    isOffline: !navigator.onLine,
+    isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
     hasUpdate: false,
     swVersion: null,
   });
 
   useEffect(() => {
     // ── Register Service Worker ────────────────────────────────────────────
-    if ('serviceWorker' in navigator) {
+    // iOS Safari is very sensitive to stale service-worker/chunk caches.
+    // Keep SW disabled there unless explicitly enabled from Vercel env.
+    const enableServiceWorker = import.meta.env.VITE_ENABLE_PWA_SW === 'true' && !isIOSWebKit();
+    if (enableServiceWorker && 'serviceWorker' in navigator) {
       navigator.serviceWorker
         .register('/sw.js', { scope: '/', updateViaCache: 'none' })
         .then((reg) => {
@@ -53,7 +57,8 @@ export function usePWA() {
           });
 
           // Poll for updates every 30 minutes
-          setInterval(() => reg.update(), 30 * 60 * 1000);
+          const updateTimer = window.setInterval(() => reg.update(), 30 * 60 * 1000);
+          return () => window.clearInterval(updateTimer);
         })
         .catch((err) => console.warn('[PWA] SW registration failed:', err));
 
@@ -72,8 +77,13 @@ export function usePWA() {
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         console.log('[PWA] New SW controller activated');
         const reloadKey = 'dawaa_sw_reloaded_v18_3';
-        if (!sessionStorage.getItem(reloadKey)) {
-          sessionStorage.setItem(reloadKey, '1');
+        try {
+          if (!sessionStorage.getItem(reloadKey)) {
+            sessionStorage.setItem(reloadKey, '1');
+            window.location.reload();
+            return;
+          }
+        } catch {
           window.location.reload();
           return;
         }
@@ -130,6 +140,7 @@ export function usePWA() {
 
   /** Tell waiting SW to activate (triggers reload via controllerchange) */
   const applyUpdate = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
     const reg = await navigator.serviceWorker?.getRegistration();
     if (reg?.waiting) {
       reg.waiting.postMessage({ type: 'SKIP_WAITING' });

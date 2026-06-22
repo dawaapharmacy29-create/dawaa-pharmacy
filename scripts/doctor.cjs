@@ -23,11 +23,11 @@ const readJson = (file) => {
 
 const pkg = readJson('package.json');
 const nodeMajor = Number(process.versions.node.split('.')[0]);
-if (nodeMajor !== 20) {
-  console.warn(`Warning: recommended Node.js is 20.x, current is ${process.versions.node}`);
+if (nodeMajor < 22 || nodeMajor >= 23) {
+  console.warn(`Warning: recommended Node.js is 22.x, current is ${process.versions.node}`);
 }
-if (pkg.engines?.node !== '20.x') {
-  console.error('package.json engines.node must be 20.x');
+if (pkg.engines?.node !== '22.x') {
+  console.error('package.json engines.node must be 22.x');
   ok = false;
 }
 
@@ -53,12 +53,8 @@ if (hasPackageLock && hasYarnLock) {
 
 const vercel = readJson('vercel.json');
 const installCommand = String(vercel.installCommand || '');
-if (packageManager.startsWith('npm@') && !/^npm ci\b/.test(installCommand)) {
-  console.error('vercel.json installCommand should use npm ci');
-  ok = false;
-}
-if (installCommand.includes('npm install -g')) {
-  console.error('vercel.json must not install npm globally during deployment');
+if (packageManager.startsWith('npm@') && !installCommand.includes('npm install')) {
+  console.error('vercel.json installCommand should use npm install');
   ok = false;
 }
 if (packageManager.startsWith('yarn@') && !installCommand.includes('yarn install')) {

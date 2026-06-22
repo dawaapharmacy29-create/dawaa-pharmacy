@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
+import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import Layout from '@/components/layout/Layout';
@@ -189,11 +190,17 @@ function AdminRoute({ children, permission }: { children: ReactNode; permission?
   return <>{children}</>;
 }
 
-class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  state = { hasError: false };
+type ErrorBoundaryState = { hasError: boolean; message?: string; isIOS?: boolean };
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, isIOS: false };
+
+  static getDerivedStateFromError(error: Error) {
+    return {
+      hasError: true,
+      message: error?.message || 'unknown error',
+      isIOS: isIOSWebKit(),
+    };
   }
 
   componentDidCatch(error: Error, info: unknown) {
@@ -208,8 +215,13 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
             <div className="mb-4 text-5xl">⚠️</div>
             <h1 className="text-2xl font-black text-white">حدث خطأ غير متوقع</h1>
             <p className="mt-3 text-sm text-slate-400 leading-relaxed">
-              واجه التطبيق خطأ أثناء التحميل. جرّب إعادة التحميل أو تواصل مع الدعم الفني.
+              واجه التطبيق خطأ أثناء التحميل. تم تجهيز إصلاح خاص لمتصفح iPhone/Safari لمسح الكاش القديم وإعادة فتح صفحة الدخول.
             </p>
+            {this.state.isIOS && (
+              <p className="mt-2 rounded-xl border border-teal-500/20 bg-teal-500/10 px-3 py-2 text-xs text-teal-100">
+                تم اكتشاف iPhone/Safari. اضغط زر الإصلاح بالأسفل مرة واحدة.
+              </p>
+            )}
             <div className="mt-6 flex flex-col gap-3">
               <button
                 onClick={() => void recoverApplication()}
@@ -239,7 +251,7 @@ async function recoverApplication() {
   try {
     if ('caches' in window) {
       const keys = await window.caches.keys();
-      await Promise.all(keys.filter((key) => key.startsWith('dawaa-')).map((key) => window.caches.delete(key)));
+      await Promise.all(keys.map((key) => window.caches.delete(key)));
     }
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
@@ -248,7 +260,19 @@ async function recoverApplication() {
   } catch (error) {
     console.warn('[Recovery] cache cleanup failed', error);
   }
-  const url = new URL(window.location.href);
+  try {
+    const keepKeys = new Set<string>();
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key && !key.startsWith('sb-')) keepKeys.add(key);
+    }
+    keepKeys.forEach((key) => window.localStorage.removeItem(key));
+    window.sessionStorage.clear();
+  } catch (error) {
+    console.warn('[Recovery] storage cleanup failed', error);
+  }
+
+  const url = new URL('/login', window.location.origin);
   url.searchParams.set('_recovery', Date.now().toString());
   window.location.replace(url.toString());
 }
