@@ -23,7 +23,7 @@ const readJson = (file) => {
 
 const pkg = readJson('package.json');
 const nodeMajor = Number(process.versions.node.split('.')[0]);
-if (nodeMajor < 22 || nodeMajor >= 23) {
+if (nodeMajor !== 22) {
   console.warn(`Warning: recommended Node.js is 22.x, current is ${process.versions.node}`);
 }
 if (pkg.engines?.node !== '22.x') {
@@ -34,31 +34,24 @@ if (pkg.engines?.node !== '22.x') {
 const packageManager = String(pkg.packageManager || '');
 const hasPackageLock = fs.existsSync('package-lock.json');
 const hasYarnLock = fs.existsSync('yarn.lock');
+const hasPnpmLock = fs.existsSync('pnpm-lock.yaml');
 
-if (!packageManager.startsWith('npm@') && !packageManager.startsWith('yarn@')) {
-  console.error('package.json packageManager must be npm@... or yarn@...');
+if (!packageManager.startsWith('pnpm@')) {
+  console.error('package.json packageManager must be pnpm@...');
   ok = false;
 }
-if (packageManager.startsWith('npm@') && !hasPackageLock) {
-  console.error('packageManager is npm but package-lock.json is missing');
+if (packageManager.startsWith('pnpm@') && !hasPnpmLock) {
+  console.error('packageManager is pnpm but pnpm-lock.yaml is missing');
   ok = false;
 }
-if (packageManager.startsWith('yarn@') && !hasYarnLock) {
-  console.error('packageManager is yarn but yarn.lock is missing');
-  ok = false;
-}
-if (hasPackageLock && hasYarnLock) {
-  console.warn('Warning: both package-lock.json and yarn.lock exist. Prefer one package manager only.');
+if (hasPackageLock || hasYarnLock) {
+  console.warn('Warning: old lockfiles (package-lock.json or yarn.lock) exist. Use pnpm-lock.yaml only.');
 }
 
 const vercel = readJson('vercel.json');
 const installCommand = String(vercel.installCommand || '');
-if (packageManager.startsWith('npm@') && !installCommand.includes('npm install')) {
-  console.error('vercel.json installCommand should use npm install');
-  ok = false;
-}
-if (packageManager.startsWith('yarn@') && !installCommand.includes('yarn install')) {
-  console.error('vercel.json installCommand should use yarn install');
+if (packageManager.startsWith('pnpm@') && !installCommand.includes('pnpm install')) {
+  console.error('vercel.json installCommand should use pnpm install');
   ok = false;
 }
 if (vercel.outputDirectory !== 'dist') {
