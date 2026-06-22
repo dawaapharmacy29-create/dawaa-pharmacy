@@ -25,6 +25,8 @@ import {
   type ReviewCriterionKey,
   type SevereErrorKey,
   type SevereErrorsState,
+  type ReviewItemSummary,
+  type ConversationReviewResult,
 } from '@/lib/conversationReviews';
 import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
@@ -54,6 +56,13 @@ interface StaffOpt {
   is_deleted?: boolean | null;
   points?: number | null;
   max_points?: number | null;
+}
+
+interface ReviewRawScores {
+  criteria: ConversationReviewState;
+  severe_errors: SevereErrorsState;
+  result: ConversationReviewResult & { doctorPointsImpact: number };
+  review_items?: ReviewItemSummary[] | null;
 }
 
 interface ConversationReviewHistoryRow {
@@ -88,8 +97,8 @@ interface ConversationReviewHistoryRow {
   reviewer_notes?: string | null;
   training_recommendation?: string | null;
   month_cycle?: string | null;
-  raw_scores?: any;
-  review_items?: any;
+  raw_scores?: ReviewRawScores | string | null;
+  review_items?: ReviewItemSummary[] | null;
   manager_review_score?: number | string | null;
   manager_review_notes?: string | null;
   manager_reviewed_by?: string | null;
@@ -270,16 +279,18 @@ async function updateSafe(table: string, id: string, payload: Record<string, unk
   throw new Error(`${table}: schema mismatch too large`);
 }
 
-function normalizeRawScores(raw: any) {
+function normalizeRawScores(
+  raw: ReviewRawScores | string | null | undefined
+): ReviewRawScores | null {
   if (!raw) return null;
   if (typeof raw === 'string') {
     try {
-      return JSON.parse(raw);
+      return JSON.parse(raw) as ReviewRawScores;
     } catch {
       return null;
     }
   }
-  return raw;
+  return raw as ReviewRawScores;
 }
 
 function rowReviewItems(row: ConversationReviewHistoryRow) {
@@ -1797,7 +1808,7 @@ function ReviewDetailsModal({
   );
 }
 
-function ReviewItemsTable({ items }: { items: any[] }) {
+function ReviewItemsTable({ items }: { items: ReviewItemSummary[] | null | undefined }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-[#2d4063] bg-slate-950/30">
       <table className="w-full min-w-[760px] text-sm">
@@ -1811,7 +1822,7 @@ function ReviewItemsTable({ items }: { items: any[] }) {
           </tr>
         </thead>
         <tbody>
-          {(items || []).map((item: any, index: number) => (
+          {(items || []).map((item, index) => (
             <tr key={item.key || index} className="border-t border-[#2d4063]/70">
               <td className="p-3 text-white">{item.label || item.key || '-'}</td>
               <td className="p-3">
@@ -1822,7 +1833,7 @@ function ReviewItemsTable({ items }: { items: any[] }) {
                 )}
               </td>
               <td className="p-3 text-slate-200">
-                {item.selectedOption || item.choice || 'لا ينطبق'}
+                {item.selectedOption || (item as any).choice || 'لا ينطبق'}
               </td>
               <td className="p-3 text-slate-200 num">
                 {item.pointsEarned != null ? `${item.pointsEarned}/${item.maxPoints ?? ''}` : '-'}
