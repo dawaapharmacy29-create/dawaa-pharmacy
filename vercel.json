@@ -1,7 +1,7 @@
 {
   "framework": "vite",
-  "installCommand": "rm -rf node_modules && npm install -g yarn@1.22.22 && yarn install --ignore-engines --non-interactive --network-timeout 600000",
-  "buildCommand": "yarn build",
+  "installCommand": "npm install --legacy-peer-deps --no-audit --no-fund",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     {
