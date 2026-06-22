@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { memoizeSelector } from '@/lib/performance/performanceOptimizations';
 import {
   AlertTriangle,
   BarChart3,
@@ -397,29 +398,62 @@ export default function CustomerService() {
     setVisibleCount(PAGE_SIZE);
   }, [activeTab, branch, status, debouncedSearch]);
 
-  const stats = useMemo(() => calculateFollowupStats(rows), [rows]);
-  const assignedRows = useMemo(
+  const memoStats = useMemo(() => memoizeSelector(calculateFollowupStats), []);
+  const stats = useMemo(() => memoStats(rows), [memoStats, rows]);
+
+  const memoAssigned = useMemo(
     () =>
-      rows.filter((row) =>
-        [row.responsible_name, row.assigned_to, row.assigned_doctor, responsibleOf(row)].some((name) =>
-          String(name || '').includes(userName)
+      memoizeSelector((data: { rows: FollowupRow[]; userName: string }) =>
+        data.rows.filter((row) =>
+          [row.responsible_name, row.assigned_to, row.assigned_doctor, responsibleOf(row)].some(
+            (name) => String(name || '').includes(data.userName)
+          )
         )
       ),
-    [rows, userName]
+    []
   );
-  const tabRows = useMemo(() => {
-    if (activeTab === 'assigned') return assignedRows;
-    if (activeTab === 'requests' || activeTab === 'customer-requests') {
-      return rows.filter((row) => Boolean(row.request_type || row.request_details || row.request_status));
-    }
-    if (activeTab === 'finish') return rows.filter((row) => !isCompleted(row));
-    if (activeTab === 'notes') return rows.filter((row) => row.notes || row.customer_notes || row.handling_notes || row.whatsapp_notes);
-    if (activeTab === 'alerts') {
-      return rows.filter((row) => row.needs_manager || isOverdue(row) || riskLevel(row) !== 'منخفض' || Object.values(row.customer_flags || {}).some(Boolean));
-    }
-    if (activeTab === 'history') return rows;
-    return rows.filter((row) => !isCompleted(row));
-  }, [activeTab, assignedRows, rows]);
+  const assignedRows = useMemo(
+    () => memoAssigned({ rows, userName }),
+    [memoAssigned, rows, userName]
+  );
+
+  const memoTabRows = useMemo(
+    () =>
+      memoizeSelector(
+        (data: { activeTab: TabId; assignedRows: FollowupRow[]; rows: FollowupRow[] }) => {
+          const { activeTab, assignedRows, rows } = data;
+          if (activeTab === 'assigned') return assignedRows;
+          if (activeTab === 'requests' || activeTab === 'customer-requests') {
+            return rows.filter((row) =>
+              Boolean(row.request_type || row.request_details || row.request_status)
+            );
+          }
+          if (activeTab === 'finish') return rows.filter((row) => !isCompleted(row));
+          if (activeTab === 'notes')
+            return rows.filter(
+              (row) =>
+                row.notes || row.customer_notes || row.handling_notes || row.whatsapp_notes
+            );
+          if (activeTab === 'alerts') {
+            return rows.filter(
+              (row) =>
+                row.needs_manager ||
+                isOverdue(row) ||
+                riskLevel(row) !== 'منخفض' ||
+                Object.values(row.customer_flags || {}).some(Boolean)
+            );
+          }
+          if (activeTab === 'history') return rows;
+          return rows.filter((row) => !isCompleted(row));
+        }
+      ),
+    []
+  );
+
+  const tabRows = useMemo(
+    () => memoTabRows({ activeTab, assignedRows, rows }),
+    [memoTabRows, activeTab, assignedRows, rows]
+  );
   const visibleRows = tabRows.slice(0, visibleCount);
   const staff = useMemo(
     () =>
@@ -765,7 +799,7 @@ export default function CustomerService() {
                   <InfoRow label="إجمالي مشتريات" value={money(totalSpent(selectedRow))} />
                   <InfoRow label="المسؤول" value={responsibleOf(selectedRow)} />
                 </div>
-                <CustomerFlagsBadges flags={selectedRow.customer_flags || {}} />
+                <CustomerFlagsBadges customerFlags={selectedRow.customer_flags || {}} />
               </div>
 
               <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">

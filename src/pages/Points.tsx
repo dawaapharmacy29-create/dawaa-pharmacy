@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle,
   Plus,
@@ -737,7 +737,7 @@ export default function Points() {
         </div>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <RechartsPieChart>
+            <PieChart>
               <Pie
                 data={(() => {
                   const deductionTypes = new Map<string, number>();
@@ -771,7 +771,7 @@ export default function Points() {
                   borderRadius: '8px',
                 }}
               />
-            </RechartsPieChart>
+            </PieChart>
           </ResponsiveContainer>
         </div>
       </div>

@@ -96,8 +96,27 @@ body:not(.light-mode) header .absolute[class*='shadow'] [class*='bg-cyan-50'] {
   color: #cffafe !important;
   border-color: rgba(148, 211, 226, 0.2) !important;
   white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.v3-wide-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.v3-wide-table tbody tr:hover {
+  background: rgba(45, 212, 191, 0.08) !important;
 }
 
 .v3-wide-table tbody td {
   white-space: nowrap;
+}
+
+.dawaa-panel {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dawaa-panel:hover {
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
 }

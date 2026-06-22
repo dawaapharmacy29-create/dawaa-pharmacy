@@ -11,7 +11,7 @@ import { onFCP } from 'web-vitals/onFCP.js';
 import { onINP } from 'web-vitals/onINP.js';
 import { onLCP } from 'web-vitals/onLCP.js';
 import { onTTFB } from 'web-vitals/onTTFB.js';
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 /**
  * Core Web Vitals to track:
@@ -304,8 +304,6 @@ export function initializePerformanceMonitoring() {
 /**
  * React hook for component-level performance tracking
  */
-import { useEffect, useRef } from 'react';
-
 export function useComponentPerformance(componentName: string) {
   const startTimeRef = useRef(performance.now());
 
