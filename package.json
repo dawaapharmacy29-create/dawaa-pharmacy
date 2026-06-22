@@ -6,7 +6,7 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build --configLoader runner",
     "analyze": "ANALYZE=true vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
@@ -118,7 +118,7 @@
     "xlsx": "^0.18.5"
   },
   "engines": {
-    "node": "22.x",
-    "npm": "10.9.2"
+    "node": "20.x",
+    "npm": ">=10 <11"
   }
 }

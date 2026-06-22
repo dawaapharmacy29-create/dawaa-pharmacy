@@ -6,9 +6,9 @@
 
 ## ما الذي تغير؟
 
-- تثبيت إصدار npm مستقر: `npm@10.9.2`.
-- تثبيت Node على `22.x`.
+- تشغيل Vercel على Node `20.x` مع npm 10 المرفق بالبيئة.
 - جعل Vercel يستخدم `npm ci` بدل `npm install` لثبات أعلى وسرعة أفضل.
+- إزالة تثبيت npm العالمي من خطوة النشر لتجنب تعليق عملية التثبيت.
 - تفعيل install command داخل `vercel.json` حتى لا يعتمد المشروع على إعداد يدوي من لوحة Vercel.
 - تنظيف أنواع غير ضرورية كانت تسبب تحذيرات: `@types/uuid` و `@types/dompurify` لأن المكتبتين توفران الأنواع داخليًا.
 - إضافة `.vercelignore` لمنع رفع ملفات مؤقتة أو build artifacts.
@@ -17,7 +17,6 @@
 ## أوامر التحقق المحلية
 
 ```bash
-npm install -g npm@10.9.2
 npm ci --legacy-peer-deps --no-audit --no-fund
 npm run doctor
 npm run test
@@ -29,7 +28,7 @@ npm run build
 المفروض يظهر في اللوج:
 
 ```bash
-npm install -g npm@10.9.2 && npm ci --legacy-peer-deps --no-audit --no-fund
+npm ci --legacy-peer-deps --no-audit --no-fund
 ```
 
 لو ظهر الأمر القديم `npm install --legacy-peer-deps` فقط، فهذا يعني أن Vercel لا يقرأ `vercel.json` أو أن التعديل لم يتم رفعه على GitHub.

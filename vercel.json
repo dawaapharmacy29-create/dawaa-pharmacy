@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "installCommand": "npm install -g npm@10.9.2 && npm ci --legacy-peer-deps --no-audit --no-fund",
+  "installCommand": "npm ci --legacy-peer-deps --no-audit --no-fund",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
