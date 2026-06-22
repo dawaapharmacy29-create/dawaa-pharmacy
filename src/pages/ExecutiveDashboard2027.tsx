@@ -892,8 +892,17 @@ export default function ExecutiveDashboard2027() {
       const noCache = noCacheRef.current;
       noCacheRef.current = false;
 
-      // ⚡ كل الـ requests في وقت واحد — parallel كامل
-      const [salesTruth, staffResult, scheduleResult, currentPresence] = await Promise.all([
+      const needsFollowups = !customerServiceRows.length || !customerServiceOwners.length;
+
+      // ⚡ كل الـ requests الثقيلة في parallel واحد (sales + staff + schedules + presence + followups + incentives)
+      const [
+        salesTruth,
+        staffResult,
+        scheduleResult,
+        currentPresence,
+        followupRows,
+        incentiveSettled,
+      ] = await Promise.all([
         fetchDashboardSalesTruth({
           startDate,
           endDate,
@@ -910,6 +919,21 @@ export default function ExecutiveDashboard2027() {
           .select('staff_id,staff_name,branch,day_name,shift_start,shift_end,is_off')
           .limit(1200),
         fetchCurrentShiftPresence(),
+        needsFollowups
+          ? fetchFollowupsForDashboard(
+              startDate,
+              endDate,
+              scopedBranch || ALL_BRANCHES,
+              errors
+            )
+          : Promise.resolve([] as FollowupDashboardRow[]),
+        getStaffIncentiveSummaryForCycle({
+          cycle: currentCycle,
+          branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
+        }).then(
+          (data) => ({ ok: true as const, data }),
+          (error: unknown) => ({ ok: false as const, error })
+        ),
       ]);
 
       const summary = salesTruth.summary;
@@ -919,15 +943,17 @@ export default function ExecutiveDashboard2027() {
       const effectiveMonthlySales = salesTruth.monthlySales;
       const recentInvoices = salesTruth.recentInvoices as InvoiceRow[];
       const salesReconciliation = salesTruth.reconciliation;
-      const followupRows =
-        !customerServiceRows.length || !customerServiceOwners.length
-          ? await fetchFollowupsForDashboard(
-              startDate,
-              endDate,
-              scopedBranch || ALL_BRANCHES,
-              errors
-            )
-          : [];
+
+      let incentiveSummary: StaffCycleIncentive[] = [];
+      if (incentiveSettled.ok) {
+        incentiveSummary = incentiveSettled.data;
+      } else {
+        const err = incentiveSettled.error;
+        errors.push(
+          `incentive summary: ${err instanceof Error ? err.message : 'تعذر تحميل الحوافز'}`
+        );
+      }
+
       const effectiveCustomerServiceRows = customerServiceRows.length
         ? customerServiceRows
         : followupRows.length
@@ -948,21 +974,26 @@ export default function ExecutiveDashboard2027() {
       );
       const scheduleRows = (scheduleResult.data || []) as ShiftScheduleRow[];
       const todayName = DAYS_AR[new Date().getDay()];
+
+      // ⚡ بناء Map من schedules مرة واحدة بدل .find() لكل موظف (O(n+m) بدل O(n*m))
+      const scheduleByKey = new Map<string, ShiftScheduleRow>();
+      for (const row of scheduleRows) {
+        if (row.is_off) continue;
+        if (String(row.day_name || '') !== todayName) continue;
+        const rBranch = branchName(row.branch);
+        const idKey = `id:${String(row.staff_id || '')}|${rBranch}`;
+        const nameKey = `name:${String(row.staff_name || '').trim()}|${rBranch}`;
+        if (!scheduleByKey.has(idKey)) scheduleByKey.set(idKey, row);
+        if (!scheduleByKey.has(nameKey)) scheduleByKey.set(nameKey, row);
+      }
+
       const scheduledToday = staffDirectory
         .map((member) => {
           const name = staffName(member);
           const memberBranch = branchName(member.branch);
-          const schedule = scheduleRows.find((row) => {
-            const sameStaff =
-              String(row.staff_id || '') === staffId(member) ||
-              String(row.staff_name || '').trim() === name;
-            return (
-              sameStaff &&
-              branchName(row.branch) === memberBranch &&
-              String(row.day_name || '') === todayName &&
-              !row.is_off
-            );
-          });
+          const idKey = `id:${staffId(member)}|${memberBranch}`;
+          const nameKey = `name:${name}|${memberBranch}`;
+          const schedule = scheduleByKey.get(idKey) || scheduleByKey.get(nameKey);
           if (!schedule?.shift_start || !schedule?.shift_end) return null;
           if (scopedBranch !== ALL_BRANCHES && memberBranch !== scopedBranch) return null;
           return { ...member, shift_start: schedule.shift_start, shift_end: schedule.shift_end };
@@ -997,17 +1028,6 @@ export default function ExecutiveDashboard2027() {
         : onShiftNow.length
           ? onShiftNow
           : scheduledToday;
-      let incentiveSummary: StaffCycleIncentive[] = [];
-      try {
-        incentiveSummary = await getStaffIncentiveSummaryForCycle({
-          cycle: currentCycle,
-          branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
-        });
-      } catch (error) {
-        errors.push(
-          `incentive summary: ${error instanceof Error ? error.message : 'تعذر تحميل الحوافز'}`
-        );
-      }
 
       if (loadIdRef.current !== loadId) return;
       setState({
