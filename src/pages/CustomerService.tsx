@@ -583,7 +583,7 @@ export default function CustomerService() {
 
   return (
     <div className="customer-service-v3 w-full max-w-full space-y-5 overflow-hidden" dir="rtl">
-      <section className="rounded-3xl border border-cyan-500/30 bg-gradient-to-l from-[#102640] via-slate-900 to-slate-950 p-5 text-slate-100 shadow-xl">
+      <section className="rounded-3xl border border-cyan-500/30 bg-gradient-to-l from-[#102640] via-slate-900 to-slate-950 p-4 text-slate-100 shadow-xl sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <span className="inline-flex rounded-full border border-cyan-400/30 bg-cyan-500/15 px-3 py-1 text-xs font-black text-cyan-100">
@@ -606,7 +606,7 @@ export default function CustomerService() {
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <StatCard label="المسند" value={stats.totalToday} tone="cyan" />
         <StatCard label="المكتمل" value={stats.completed} tone="emerald" />
         <StatCard label="لم يرد" value={stats.noAnswer} tone="amber" />
@@ -616,26 +616,36 @@ export default function CustomerService() {
       </section>
 
       <section className="dawaa-panel">
-        <div className="grid gap-3 lg:grid-cols-5">
-          <select value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!canAllBranches} className="input-dark">
-            <option value={ALL_FILTER}>كل الفروع</option>
-            {BRANCHES.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark">
-            {STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
-          <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-3 text-xs font-bold text-slate-300">
-            نطاق العرض: {canAllBranches ? 'كل الفروع' : text(userBranch, 'فرع المستخدم')}
+        <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_2fr]">
+          <label className="min-w-0 space-y-1">
+            <span className="text-xs font-black text-slate-400">الفرع</span>
+            <select value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!canAllBranches} className="input-dark">
+              <option value={ALL_FILTER}>كل الفروع</option>
+              {BRANCHES.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label className="min-w-0 space-y-1">
+            <span className="text-xs font-black text-slate-400">حالة المتابعة</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark">
+              {STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-900/70 p-3 text-xs font-bold text-slate-300">
+            <div className="text-slate-500">نطاق العرض</div>
+            <div className="mt-1 truncate text-slate-200">{canAllBranches ? 'كل الفروع' : text(userBranch, 'فرع المستخدم')}</div>
           </div>
-          <div className="relative lg:col-span-2">
-            <Search className="absolute right-4 top-3.5 h-5 w-5 text-slate-500" />
-            <input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="بحث بالاسم / الكود / الهاتف / المسؤول"
-              className="input-dark pr-12"
-            />
-          </div>
+          <label className="min-w-0 space-y-1">
+            <span className="text-xs font-black text-slate-400">بحث سريع</span>
+            <div className="relative">
+              <Search className="absolute right-4 top-3.5 h-5 w-5 text-slate-500" />
+              <input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="اسم / كود / هاتف / مسؤول"
+                className="input-dark pr-12"
+              />
+            </div>
+          </label>
         </div>
       </section>
 
@@ -645,15 +655,15 @@ export default function CustomerService() {
         </div>
       )}
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
+      <section className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_400px]">
         <main className="dawaa-panel min-w-0">
-          <div className="mb-4 overflow-x-auto pb-2">
-            <div className="flex min-w-max gap-2">
+          <div className="mb-4">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {PRIMARY_TABS.map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => setActiveTab(id)}
-                  className={activeTab === id ? 'btn-primary whitespace-nowrap px-4 py-2 text-xs' : 'btn-secondary whitespace-nowrap px-4 py-2 text-xs'}
+                  className={activeTab === id ? 'btn-primary min-w-0 px-4 py-2 text-xs' : 'btn-secondary min-w-0 px-4 py-2 text-xs'}
                 >
                   {label}
                 </button>
@@ -661,9 +671,12 @@ export default function CustomerService() {
             </div>
           </div>
 
-          <div className="mb-5 rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
-            <h2 className="mb-3 text-sm font-black text-white">أدوات إضافية</h2>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <details className="mb-5 rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
+            <summary className="cursor-pointer text-sm font-black text-white">
+              أدوات إضافية وتحليل المحادثات
+              <span className="mr-2 text-xs font-bold text-slate-400">CRM، تقييم محادثة، قوالب واتساب، تقارير الفريق</span>
+            </summary>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {ADDITIONAL_TOOLS.map((tool) =>
                 tool.href ? (
                   <a
@@ -689,7 +702,7 @@ export default function CustomerService() {
                 )
               )}
             </div>
-          </div>
+          </details>
 
           {cardsTabs.includes(activeTab) ? (
             <>
@@ -697,7 +710,7 @@ export default function CustomerService() {
                 <span>يتم عرض {visibleRows.length} من {tabRows.length} متابعة لتخفيف المتصفح.</span>
                 {refreshing && <span className="text-cyan-300">تحديث...</span>}
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 2xl:grid-cols-2">
                 {visibleRows.map((row) => (
                   <FollowupCard
                     key={row.id}
@@ -740,7 +753,7 @@ export default function CustomerService() {
           )}
         </main>
 
-        <aside className="dawaa-panel min-w-0 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-auto">
+        <aside className="dawaa-panel min-w-0 2xl:sticky 2xl:top-4 2xl:max-h-[calc(100vh-2rem)] 2xl:overflow-auto">
           <h2 className="text-xl font-black text-white">ملف المتابعة السريع</h2>
           {!selectedRow ? (
             <p className="mt-4 text-sm text-slate-400">اختار عميل من القائمة لعرض التفاصيل والسكريبت والإجراءات.</p>
@@ -754,7 +767,7 @@ export default function CustomerService() {
                   </div>
                   <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(selectedRow)}`}>{statusOf(selectedRow)}</span>
                 </div>
-                <div className="mt-4 grid gap-2 text-sm text-slate-300">
+                <div className="mt-4 grid gap-2 text-sm text-slate-300 sm:grid-cols-2 2xl:grid-cols-1">
                   <InfoRow label="الهاتف" value={phoneOf(selectedRow) || 'بدون رقم صحيح'} />
                   <InfoRow label="الفرع" value={text(selectedRow.branch)} />
                   <InfoRow label="الحالة" value={customerStatusOf(selectedRow)} />
@@ -780,11 +793,12 @@ export default function CustomerService() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid gap-2 sm:grid-cols-3 2xl:grid-cols-2">
                 <button className="btn-primary" onClick={() => setResultRow(selectedRow)}><CheckCircle2 className="ml-1 inline h-4 w-4" /> تسجيل نتيجة</button>
                 <button className="btn-secondary" onClick={() => setDetailsRow(selectedRow)}><Eye className="ml-1 inline h-4 w-4" /> ملف العميل</button>
                 <button className="btn-secondary" onClick={() => void copyScript(selectedRow)}><Clipboard className="ml-1 inline h-4 w-4" /> نسخ السكريبت</button>
                 <a className="btn-secondary text-center" href={generateWhatsAppLink(phoneOf(selectedRow), scriptFor(selectedRow))} target="_blank" rel="noreferrer"><MessageSquare className="ml-1 inline h-4 w-4" /> واتساب</a>
+                <a className="btn-secondary text-center" href={`tel:${phoneOf(selectedRow)}`}><PhoneCall className="ml-1 inline h-4 w-4" /> اتصال</a>
                 <button className="btn-secondary" onClick={() => void postpone(selectedRow)}><CalendarClock className="ml-1 inline h-4 w-4" /> تأجيل</button>
                 <button className="btn-secondary" onClick={() => void escalateToManager(selectedRow)}><ShieldAlert className="ml-1 inline h-4 w-4" /> يحتاج مدير</button>
               </div>
@@ -926,9 +940,9 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
   return (
     <article
       onClick={onSelect}
-      className={`cursor-pointer rounded-3xl border p-4 transition ${selected ? 'border-cyan-400 bg-cyan-500/10 shadow-lg shadow-cyan-950/20' : 'border-slate-700 bg-slate-950/45 hover:border-cyan-500/40 hover:bg-slate-900/80'}`}
+      className={`cursor-pointer rounded-3xl border p-4 transition sm:p-5 ${selected ? 'border-cyan-400 bg-cyan-500/10 shadow-lg shadow-cyan-950/20' : 'border-slate-700 bg-slate-950/45 hover:border-cyan-500/40 hover:bg-slate-900/80'}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h3 className="truncate text-lg font-black text-white">{customerName(row)}</h3>
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
@@ -937,27 +951,28 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
             <span>{text(row.branch)}</span>
           </div>
         </div>
-        <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${priorityTone(row)}`}>{text(row.priority, 'مهم')}</span>
+        <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-black ${priorityTone(row)}`}>{text(row.priority, 'مهم')}</span>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${statusTone(row)}`}>{statusOf(row)}</span>
         <span className="rounded-full border border-slate-600 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-200">{segmentOf(row)}</span>
         <span className="rounded-full border border-slate-600 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-200">خطورة: {riskLevel(row)}</span>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-300">
+      <div className="mt-4 grid gap-2 text-xs text-slate-300 sm:grid-cols-2">
         <InfoRow label="آخر شراء" value={formatDate(lastPurchaseOf(row))} />
         <InfoRow label="متوسط شهري" value={money(avgMonthly(row))} />
         <InfoRow label="إجمالي" value={money(totalSpent(row))} />
         <InfoRow label="المسؤول" value={responsibleOf(row)} />
       </div>
-      <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-300">
+      <p className="mt-3 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-3 text-sm leading-6 text-slate-300">
         {row.followup_reason || row.request_details || row.suggested_action || recommendedAction(row)}
       </p>
-      <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-3" onClick={(event) => event.stopPropagation()}>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6" onClick={(event) => event.stopPropagation()}>
         <button className="btn-primary px-3 py-2 text-xs" onClick={onResult}><CheckCircle2 className="ml-1 inline h-3.5 w-3.5" /> نتيجة</button>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onDetails}><Eye className="ml-1 inline h-3.5 w-3.5" /> التفاصيل</button>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onCopy}><Clipboard className="ml-1 inline h-3.5 w-3.5" /> نسخ</button>
         <a className="btn-secondary px-3 py-2 text-center text-xs" href={generateWhatsAppLink(phone, scriptFor(row))} target="_blank" rel="noreferrer"><MessageSquare className="ml-1 inline h-3.5 w-3.5" /> واتساب</a>
+        <a className="btn-secondary px-3 py-2 text-center text-xs" href={`tel:${phone}`}><PhoneCall className="ml-1 inline h-3.5 w-3.5" /> اتصال</a>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onPostpone}><CalendarClock className="ml-1 inline h-3.5 w-3.5" /> تأجيل</button>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onManager}><UserCheck className="ml-1 inline h-3.5 w-3.5" /> مدير</button>
       </div>
