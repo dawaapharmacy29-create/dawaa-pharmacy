@@ -948,7 +948,7 @@ export default function ExecutiveDashboard2027() {
       if (incentiveSettled.ok) {
         incentiveSummary = incentiveSettled.data;
       } else {
-        const err = incentiveSettled.error;
+        const err = 'error' in incentiveSettled ? incentiveSettled.error : null;
         errors.push(
           `incentive summary: ${err instanceof Error ? err.message : 'تعذر تحميل الحوافز'}`
         );

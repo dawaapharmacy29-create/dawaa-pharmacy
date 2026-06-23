@@ -138,7 +138,7 @@ export class PerformanceMonitor {
     this.metrics.set(metric, report);
 
     // Log to console in development
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       console.debug(`[PerformanceMonitor] ${metric}: ${value.toFixed(2)} (${report.rating})`);
     }
 
@@ -290,7 +290,7 @@ export function initializePerformanceMonitoring() {
     window.__VERCEL_WEB_VITALS_QUEUE = window.__VERCEL_WEB_VITALS_QUEUE || [];
   }
 
-  if (process.env.NODE_ENV === 'production') {
+  if (import.meta.env.PROD) {
     setupWebVitalsMonitoring();
     console.debug('[PerformanceMonitoring] Web Vitals monitoring initialized');
   }
@@ -304,8 +304,6 @@ export function initializePerformanceMonitoring() {
 /**
  * React hook for component-level performance tracking
  */
-import { useEffect, useRef } from 'react';
-
 export function useComponentPerformance(componentName: string) {
   const startTimeRef = useRef(performance.now());
 

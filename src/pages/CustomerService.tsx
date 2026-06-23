@@ -765,7 +765,7 @@ export default function CustomerService() {
                   <InfoRow label="إجمالي مشتريات" value={money(totalSpent(selectedRow))} />
                   <InfoRow label="المسؤول" value={responsibleOf(selectedRow)} />
                 </div>
-                <CustomerFlagsBadges flags={selectedRow.customer_flags || {}} />
+                <CustomerFlagsBadges customerFlags={selectedRow.customer_flags || {}} />
               </div>
 
               <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">

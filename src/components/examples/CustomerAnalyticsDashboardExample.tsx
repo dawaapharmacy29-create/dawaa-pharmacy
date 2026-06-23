@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useLocalCache } from '@/hooks/useLocalCache';
 import { useDataProcessor } from '@/hooks/useDataProcessor';
 import { useMemoizedArray } from '@/hooks/useMemoizedSelector';
@@ -58,7 +58,7 @@ export function CustomerAnalyticsDashboard() {
   );
 
   // 2. Offload heavy filtering/sorting to Web Worker
-  const { filter, sort, loading: processingData } = useDataProcessor();
+  const { filter, sort, aggregate, loading: processingData } = useDataProcessor();
   const [filteredSales, setFilteredSales] = useState<SalesRecord[]>([]);
 
   // 3. Build filter conditions
@@ -84,12 +84,12 @@ export function CustomerAnalyticsDashboard() {
     ];
 
     (async () => {
-      const filtered = await filter(rawSales, conditions);
+      const filtered = await filter(rawSales as unknown as Record<string, unknown>[], conditions);
       const sorted = await sort(filtered, [
         { field: 'date', ascending: false },
         { field: 'amount', ascending: false },
       ]);
-      setFilteredSales(sorted);
+      setFilteredSales(sorted as unknown as SalesRecord[]);
     })();
   }, [rawSales, selectedBranch, minAmount, statusFilter, filter, sort]);
 
@@ -108,8 +108,8 @@ export function CustomerAnalyticsDashboard() {
 
     (async () => {
       const [total, avg] = await Promise.all([
-        dataProcessor.aggregate(memoizedSales, 'amount', 'sum'),
-        dataProcessor.aggregate(memoizedSales, 'amount', 'avg'),
+        aggregate(memoizedSales as unknown as Record<string, unknown>[], 'amount', 'sum'),
+        aggregate(memoizedSales as unknown as Record<string, unknown>[], 'amount', 'avg'),
       ]);
 
       setStats({
@@ -118,7 +118,7 @@ export function CustomerAnalyticsDashboard() {
         count: memoizedSales.length,
       });
     })();
-  }, [memoizedSales]);
+  }, [aggregate, memoizedSales]);
 
   // 6. Get unique branches for filter
   const branches = useMemo(

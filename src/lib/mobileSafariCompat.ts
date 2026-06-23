@@ -15,15 +15,6 @@ declare global {
       reject: (reason?: unknown) => void;
     };
   }
-
-  interface Window {
-    requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-    cancelIdleCallback?: (handle: number) => void;
-  }
-
-  interface Crypto {
-    randomUUID?: () => string;
-  }
 }
 
 function defineValue<T extends object>(target: T, key: PropertyKey, value: unknown) {

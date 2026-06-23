@@ -8,23 +8,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { loadStaffPerformanceProfile } from '../staffPerformanceProfileService';
 import { checkStaffDataHealth } from '../staffDataHealthService';
-import { supabase } from '@/lib/supabase';
-
-// Mock Supabase for testing if not configured
-const isSupabaseConfigured = () => {
-  try {
-    return !!supabase;
-  } catch {
-    return false;
-  }
-};
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 describe('Staff Performance Profile Service - Validation', () => {
   let testStaffId: string | null = null;
   let testStaffName: string | null = null;
 
   beforeEach(async () => {
-    if (!isSupabaseConfigured()) {
+    if (!isSupabaseConfigured) {
       return;
     }
 
@@ -46,7 +37,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should load staff performance profile successfully', async () => {
-    if (!isSupabaseConfigured()) {
+    if (!isSupabaseConfigured) {
       console.warn('Supabase not configured, skipping test');
       return;
     }
@@ -68,7 +59,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should resolve staff identity correctly', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -84,7 +75,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should load monthly incentives', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -102,7 +93,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should load sales metrics', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -122,7 +113,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should load customer metrics', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -139,7 +130,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should load stagnant/list metrics', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -160,7 +151,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should load quarterly metrics', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -178,7 +169,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should generate recommendations', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -200,7 +191,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should calculate data health correctly', async () => {
-    if (!isSupabaseConfigured() || !testStaffId || !testStaffName) {
+    if (!isSupabaseConfigured || !testStaffId || !testStaffName) {
       return;
     }
 
@@ -219,7 +210,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should handle invalid staff ID gracefully', async () => {
-    if (!isSupabaseConfigured()) {
+    if (!isSupabaseConfigured) {
       return;
     }
 
@@ -232,7 +223,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should include charts data', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -247,7 +238,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should handle caching correctly', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -273,7 +264,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should separate monthly points from quarterly cash rewards', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -295,7 +286,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should handle inactive staff correctly', async () => {
-    if (!isSupabaseConfigured()) {
+    if (!isSupabaseConfigured) {
       return;
     }
 
@@ -323,7 +314,7 @@ describe('Staff Performance Profile Service - Validation', () => {
   });
 
   it('should include error information for failed sections', async () => {
-    if (!isSupabaseConfigured() || !testStaffId) {
+    if (!isSupabaseConfigured || !testStaffId) {
       return;
     }
 
@@ -341,7 +332,7 @@ describe('Staff Performance Profile Service - Validation', () => {
  */
 describe('Staff Performance Profile Service - Integration', () => {
   it('should load multiple staff profiles without errors', async () => {
-    if (!isSupabaseConfigured()) {
+    if (!isSupabaseConfigured) {
       return;
     }
 
@@ -370,7 +361,7 @@ describe('Staff Performance Profile Service - Integration', () => {
   });
 
   it('should handle concurrent requests safely', async () => {
-    if (!isSupabaseConfigured()) {
+    if (!isSupabaseConfigured) {
       return;
     }
 
@@ -417,15 +408,7 @@ describe('Build Validation', () => {
   });
 
   it('should have proper TypeScript interfaces', () => {
-    // Validate that interfaces are properly defined
-    const service = require('../staffPerformanceProfileService');
-
-    // Check that key interfaces exist
-    expect(service.StaffPerformanceProfile).toBeDefined();
-    expect(service.StaffIdentity).toBeDefined();
-    expect(service.StaffDataHealth).toBeDefined();
-    expect(service.StaffSalesMetrics).toBeDefined();
-    expect(service.StaffCustomerMetrics).toBeDefined();
-    expect(service.StaffQuarterlyMetrics).toBeDefined();
+    // Interfaces are compile-time only; typecheck validates them.
+    expect(true).toBe(true);
   });
 });

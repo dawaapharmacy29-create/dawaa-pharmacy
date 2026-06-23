@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle,
   Plus,
@@ -8,7 +8,7 @@ import {
   XCircle,
   Calculator,
   BarChart3,
-  PieChart,
+  PieChart as PieChartIcon,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -275,7 +275,7 @@ export default function Points() {
   const Tooltip = R?.Tooltip ?? ((props: any) => null);
   const Legend = R?.Legend ?? ((props: any) => null);
   const ResponsiveContainer = R?.ResponsiveContainer ?? (({ children }: any) => <div>{children}</div>);
-  const PieChart = R?.PieChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
+  const RechartsPieChart = R?.PieChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
   const Pie = R?.Pie ?? ((props: any) => null);
   const Cell = R?.Cell ?? ((props: any) => null);
 
@@ -732,7 +732,7 @@ export default function Points() {
       {/* Deductions by Type Chart */}
       <div className="stat-card">
         <div className="flex items-center gap-2 mb-4">
-          <PieChart className="text-teal-400" size={20} />
+          <PieChartIcon className="text-teal-400" size={20} />
           <h3 className="text-white font-bold text-sm">الخصومات حسب النوع</h3>
         </div>
         <div className="h-64">

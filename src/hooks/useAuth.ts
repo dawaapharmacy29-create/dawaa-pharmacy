@@ -127,7 +127,9 @@ export function useAuth() {
     const listener = () => setUser(currentUser);
     listeners.add(listener);
     setUser(currentUser);
-    return () => listeners.delete(listener);
+    return () => {
+      listeners.delete(listener);
+    };
   }, []);
   useEffect(() => {
     if (!user) return;

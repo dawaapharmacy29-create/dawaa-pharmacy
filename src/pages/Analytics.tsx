@@ -380,7 +380,7 @@ export default function Analytics() {
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(value) => formatMoney(Number(value))} />
-                  <Line dataKey="netSales" stroke="#00AFA5" strokeWidth={3} dot={false} />
+                  <LineC dataKey="netSales" stroke="#00AFA5" strokeWidth={3} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -391,7 +391,7 @@ export default function Analytics() {
                   <XAxis dataKey="branch" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(value) => formatMoney(Number(value))} />
-                  <Bar dataKey="netSales" fill="#00AFA5" radius={[8, 8, 0, 0]} />
+                  <BarC dataKey="netSales" fill="#00AFA5" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>

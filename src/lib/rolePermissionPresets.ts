@@ -5,7 +5,6 @@
  */
 import {
   ROLES,
-  ROLE_PERMISSIONS,
   getDefaultPermissionsForRole,
   mergePermissions,
   normalizeRole,
