@@ -363,8 +363,11 @@ function buildPurchaseAnalysis(
   const previousDate = new Date(today);
   previousDate.setMonth(previousDate.getMonth() - 1);
   const previousKey = `${previousDate.getFullYear()}-${String(previousDate.getMonth() + 1).padStart(2, '0')}`;
-  const current = rows.find((row) => row.month === currentKey)?.invoicesCount || 0;
-  const previous = rows.find((row) => row.month === previousKey)?.invoicesCount || 0;
+  // Build a map for O(1) month lookups
+  const byMonth = new Map<string, MonthlyPurchaseTrendRow>();
+  for (const r of rows) byMonth.set(r.month, r);
+  const current = byMonth.get(currentKey)?.invoicesCount || 0;
+  const previous = byMonth.get(previousKey)?.invoicesCount || 0;
   const activeRows = rows.filter((row) => row.invoicesCount > 0);
   const average = activeRows.length
     ? Math.round(activeRows.reduce((sum, row) => sum + row.invoicesCount, 0) / activeRows.length)

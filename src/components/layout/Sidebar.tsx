@@ -486,16 +486,40 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   useEffect(() => {
     const nav = navRef.current;
     if (!nav) return;
-    const saveScroll = () => sessionStorage.setItem('sidebarScroll', nav.scrollTop.toString());
+    let raf = 0;
+    const saveScroll = () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(() => {
+        try {
+          sessionStorage.setItem('sidebarScroll', String(nav.scrollTop || 0));
+        } catch {}
+        raf = 0;
+      });
+    };
     nav.addEventListener('scroll', saveScroll, { passive: true });
-    return () => nav.removeEventListener('scroll', saveScroll);
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      nav.removeEventListener('scroll', saveScroll);
+    };
   }, []);
 
   useEffect(() => {
     const savedScroll = sessionStorage.getItem('sidebarScroll');
     if (!savedScroll) return;
     const restore = () => {
-      if (navRef.current) navRef.current.scrollTop = Number(savedScroll) || 0;
+      try {
+        if (!navRef.current) return;
+        const value = Number(savedScroll);
+        const safe = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+        // clamp to scroll height to avoid invalid values
+        const max = Math.max(0, navRef.current.scrollHeight - navRef.current.clientHeight);
+        navRef.current.scrollTop = Math.min(safe, max);
+      } catch (e) {
+        // ignore restore errors and clear saved value to avoid repeated failures
+        try {
+          sessionStorage.removeItem('sidebarScroll');
+        } catch {}
+      }
     };
     const frameId = window.requestAnimationFrame(restore);
     const timerId = window.setTimeout(restore, 120);

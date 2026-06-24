@@ -1,5 +1,11 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clearInvoiceCache } from '@/lib/invoiceCache';
+import {
+  saveDashboardCache,
+  loadDashboardCache,
+  clearDashboardCache,
+  getDashboardCacheTimestamp,
+} from '@/lib/dashboard/dashboardOptimizations';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -863,6 +869,22 @@ export default function ExecutiveDashboard2027() {
 
   const load = useCallback(async () => {
     const loadId = ++loadIdRef.current;
+    
+    // Try to load from cache first
+    const cachedState = loadDashboardCache(scopedBranch || ALL_BRANCHES, {
+      start: startDate,
+      end: endDate,
+    });
+    
+    if (cachedState) {
+      // Use cached data immediately
+      if (loadIdRef.current === loadId) {
+        setState(cachedState);
+      }
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
     const errors: string[] = [];
     try {
@@ -1030,7 +1052,7 @@ export default function ExecutiveDashboard2027() {
           : scheduledToday;
 
       if (loadIdRef.current !== loadId) return;
-      setState({
+      const newState = {
         summary,
         dailySales: effectiveDailySales,
         monthlySales: effectiveMonthlySales,
@@ -1047,8 +1069,13 @@ export default function ExecutiveDashboard2027() {
         salesReconciliation,
         loadedAt: new Date().toISOString(),
         errors: salesTruth.sourceRows.length ? [] : errors,
+      };
+      // Save to cache for fast re-navigation
+      saveDashboardCache(newState, scopedBranch || ALL_BRANCHES, {
+        start: startDate,
+        end: endDate,
       });
-      return;
+      setState(newState);
     } catch (error) {
       if (loadIdRef.current !== loadId) return;
       console.error(
@@ -1372,6 +1399,7 @@ export default function ExecutiveDashboard2027() {
                 onClick={() => {
                   noCacheRef.current = true;
                   clearInvoiceCache();
+                  clearDashboardCache();
                   void load();
                 }}
                 disabled={loading}

@@ -32,8 +32,62 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 
 function normalizeFollowup(row: Row): FollowupRow { const safeFollowupReason = publicFollowupReason(row.followup_reason); const safeRequestDetails = publicFollowupReason(row.request_details); const safeSuggestedAction = publicFollowupReason(row.suggested_action); return { id: String(row.id || crypto.randomUUID()), date: (row.date as string) || null, customer_id: (row.customer_id as string) || null, customer_name: (row.customer_name as string) || (row.name as string) || null, phone: (row.phone as string) || (row.customer_phone as string) || null, segment: (row.segment as string) || (row.classification as string) || null, status: (row.status as string) || null, total_spent: toNumber(row.total_spent), followup_type: (row.followup_type as string) || null, followup_status: (row.followup_status as string) || null, notes: (row.notes as string) || null, branch: normalizeBranchName(row.branch as string), created_at: (row.created_at as string) || null, followup_date: (row.followup_date as string) || null, name: (row.name as string) || (row.customer_name as string) || null, classification: (row.classification as string) || (row.segment as string) || null, customer_status: (row.customer_status as string) || null, followup_reason: safeFollowupReason, priority: (row.priority as string) || null, contact_status: (row.contact_status as string) || null, contact_result: (row.contact_result as string) || null, responsible_name: (row.responsible_name as string) || null, contacted_at: (row.contacted_at as string) || null, staff_id: (row.staff_id as string) || null, customer_code: (row.customer_code as string) || null, customer_phone: (row.customer_phone as string) || (row.phone as string) || null, customer_flags: (row.customer_flags as Record<string, boolean>) || null, customer_notes: (row.customer_notes as string) || null, service_notes: (row.service_notes as string) || null, team_notes: (row.team_notes as string) || null, handling_notes: (row.handling_notes as string) || null, whatsapp_notes: (row.whatsapp_notes as string) || null, address: (row.address as string) || null, phone_alt: (row.phone_alt as string) || null, whatsapp_phone: (row.whatsapp_phone as string) || null, assigned_to: (row.assigned_to as string) || null, assigned_staff_id: (row.assigned_staff_id as string) || null, contact_method: (row.contact_method as string) || null, followup_summary: (row.followup_summary as string) || null, followup_result: (row.followup_result as string) || null, next_followup_date: (row.next_followup_date as string) || null, request_type: (row.request_type as string) || null, request_details: safeRequestDetails, request_status: (row.request_status as string) || null, purchase_after_followup: Boolean(row.purchase_after_followup), purchase_amount: toNumber(row.purchase_amount), purchase_invoice_no: (row.purchase_invoice_no as string) || null, purchase_date: (row.purchase_date as string) || null, closed_at: (row.closed_at as string) || null, closed_by: (row.closed_by as string) || null, created_by: (row.created_by as string) || null, created_by_name: (row.created_by_name as string) || null, assigned_doctor: (row.assigned_doctor as string) || null, followup_notes: (row.followup_notes as string) || null, last_purchase_date: (row.last_purchase_date as string) || null, purchase_count_current_month: toNumber(row.purchase_count_current_month), average_monthly_purchase_count: toNumber(row.average_monthly_purchase_count), purchase_frequency_status: (row.purchase_frequency_status as string) || null, updated_at: (row.updated_at as string) || null, category: (row.category as string) || null, suggested_action: safeSuggestedAction, quality_rating: row.quality_rating == null ? null : toNumber(row.quality_rating), customer_satisfaction: (row.customer_satisfaction as string) || null, response_status: (row.response_status as string) || null, needs_manager: Boolean(row.needs_manager), completed_at: (row.completed_at as string) || null, postponed_until: (row.postponed_until as string) || null, cancelled_at: (row.cancelled_at as string) || null, cancelled_by: (row.cancelled_by as string) || null, updated_by: (row.updated_by as string) || null, followup_datetime: (row.followup_datetime as string) || null }; }
 
-function indexMetric(map: Map<string, CustomerMetric>, metric: CustomerMetric) { [metric.customer_code, metric.customer_phone, metric.phone, metric.customer_name].map(normalizeKey).filter(Boolean).forEach((key) => map.set(key, metric)); }
-async function enrichFollowupRows(rows: FollowupRow[], filters: FollowupFilters) { if (!rows.length) return rows; try { const result = await getCustomers({ branch: !isAll(filters.branch) ? filters.branch : ALL_FILTER, search: filters.search || '', limit: 250, offset: 0 }); const byKey = new Map<string, CustomerMetric>(); result.customers.forEach((metric) => indexMetric(byKey, metric)); return rows.map((row) => { const metric = [row.customer_code, row.customer_phone, row.phone, row.name, row.customer_name].map(normalizeKey).map((key) => byKey.get(key)).find(Boolean) || null; if (!metric) return row; return { ...row, customer_metrics: metric, customer_id: row.customer_id || metric.customer_id || metric.id || null, customer_code: row.customer_code || metric.customer_code || null, customer_name: row.customer_name || metric.customer_name || row.name, name: row.name || metric.customer_name || row.customer_name, customer_phone: row.customer_phone || metric.customer_phone || metric.phone || null, phone: row.phone || metric.phone || metric.customer_phone || null, branch: row.branch || metric.branch || null, segment: row.segment || metric.segment || null, classification: row.classification || metric.segment || null, customer_status: row.customer_status || metric.customer_status || null, total_spent: row.total_spent || metric.total_spent || 0, last_purchase_date: row.last_purchase_date || metric.last_purchase || null, purchase_count_current_month: row.purchase_count_current_month || 0, average_monthly_purchase_count: row.average_monthly_purchase_count || Math.round(Number(metric.invoices_count || 0) / Math.max(1, Number(metric.active_months || 1))) }; }); } catch (error) { console.warn('customer metrics enrichment skipped', error); return rows; } }
+function indexMetric(map: Map<string, CustomerMetric>, metric: CustomerMetric) {
+	[metric.customer_code, metric.customer_phone, metric.phone, metric.customer_name]
+		.map(normalizeKey)
+		.filter(Boolean)
+		.forEach((key) => map.set(key, metric));
+}
+
+async function enrichFollowupRows(rows: FollowupRow[], filters: FollowupFilters) {
+	if (!rows.length) return rows;
+	try {
+		const result = await getCustomers({
+			branch: !isAll(filters.branch) ? filters.branch : ALL_FILTER,
+			search: filters.search || '',
+			limit: 250,
+			offset: 0,
+		});
+		const byKey = new Map<string, CustomerMetric>();
+		result.customers.forEach((metric) => indexMetric(byKey, metric));
+		return rows.map((row) => {
+			let metric: CustomerMetric | null = null;
+			const keys = [row.customer_code, row.customer_phone, row.phone, row.name, row.customer_name]
+				.map(normalizeKey)
+				.filter(Boolean);
+			for (const k of keys) {
+				const m = byKey.get(k);
+				if (m) {
+					metric = m;
+					break;
+				}
+			}
+			if (!metric) return row;
+			return {
+				...row,
+				customer_metrics: metric,
+				customer_id: row.customer_id || metric.customer_id || metric.id || null,
+				customer_code: row.customer_code || metric.customer_code || null,
+				customer_name: row.customer_name || metric.customer_name || row.name,
+				name: row.name || metric.customer_name || row.customer_name,
+				customer_phone: row.customer_phone || metric.customer_phone || metric.phone || null,
+				phone: row.phone || metric.phone || metric.customer_phone || null,
+				branch: row.branch || metric.branch || null,
+				segment: row.segment || metric.segment || null,
+				classification: row.classification || metric.segment || null,
+				customer_status: row.customer_status || metric.customer_status || null,
+				total_spent: row.total_spent || metric.total_spent || 0,
+				last_purchase_date: row.last_purchase_date || metric.last_purchase || null,
+				purchase_count_current_month: row.purchase_count_current_month || 0,
+				average_monthly_purchase_count:
+					row.average_monthly_purchase_count || Math.round(Number(metric.invoices_count || 0) / Math.max(1, Number(metric.active_months || 1))),
+			};
+		});
+	} catch (error) {
+		console.warn('customer metrics enrichment skipped', error);
+		return rows;
+	}
+}
 async function safeInsertFollowup(payload: Row) { let current = payload; const removed = new Set<string>(); for (let attempt = 0; attempt < 12; attempt += 1) { const { data, error } = await supabase.from('daily_followups').insert(current).select('*').single(); if (!error) return normalizeFollowup(data || current); const column = missingColumn(error.message); if (!column || removed.has(column)) throw new Error(error.message); removed.add(column); current = withoutColumn(current, column); } throw new Error('daily_followups insert failed.'); }
 async function safeUpdateFollowup(id: string, payload: Row) { let current = payload; const removed = new Set<string>(); for (let attempt = 0; attempt < 12; attempt += 1) { const { data, error } = await supabase.from('daily_followups').update(current).eq('id', id).select('*').single(); if (!error) return normalizeFollowup(data || { id, ...current }); const column = missingColumn(error.message); if (!column || removed.has(column)) throw new Error(error.message); removed.add(column); current = withoutColumn(current, column); } throw new Error('daily_followups update failed.'); }
 export async function searchCustomerMetrics(search: string, branch?: string): Promise<CustomerServiceSearchResult[]> { const result = await getCustomers({ search, branch: !isAll(branch) ? branch : ALL_FILTER, limit: 20, offset: 0 }); return result.customers.map((metric) => ({ ...metric, source: 'customer_metrics_summary', hasTodayFollowup: false, displayPhone: getBestCustomerPhone({ customer_code: metric.customer_code, customer_phone: metric.customer_phone, phone: metric.phone } as FollowupRow, metric, null), profile: null })); }

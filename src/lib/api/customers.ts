@@ -1393,12 +1393,13 @@ export async function getCustomerDetails(
   const previousMonthDate = new Date();
   previousMonthDate.setMonth(previousMonthDate.getMonth() - 1);
   const previousMonth = previousMonthDate.toISOString().slice(0, 7);
+  const monthlyTrendByMonth = new Map(fullProfile.monthlyPurchaseTrend.map((row) => [row.month, row]));
   const currentMonthVisitsFromProfile = Math.max(
-    fullProfile.monthlyPurchaseTrend.find((row) => row.month === currentMonth)?.invoicesCount ?? 0,
+    monthlyTrendByMonth.get(currentMonth)?.invoicesCount ?? 0,
     liveInvoiceStats.currentMonthVisits
   );
   const previousMonthVisitsFromProfile = Math.max(
-    fullProfile.monthlyPurchaseTrend.find((row) => row.month === previousMonth)?.invoicesCount ?? 0,
+    monthlyTrendByMonth.get(previousMonth)?.invoicesCount ?? 0,
     liveInvoiceStats.previousMonthVisits
   );
   const profileAverageMonthlyVisits = fullProfile.monthlyPurchaseTrend.length

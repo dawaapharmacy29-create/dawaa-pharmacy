@@ -185,10 +185,37 @@ export async function loadShiftMembers(params: {
     const rowBranch = normalizeBranchName(String(row.branch || row.branch_name || ''));
     return date === params.date && (!rowBranch || rowBranch === branch);
   });
+  // Build maps to avoid O(n × m) finds for larger staff/schedule datasets
+  const scheduleByName = new Map<string, Record<string, unknown>>();
+  const scheduleByStaffId = new Map<string, Record<string, unknown>>();
+  branchSchedules.forEach((row) => {
+    const name = String(rowName(row) || '').trim();
+    if (name) scheduleByName.set(name, row);
+    const id = String(row.staff_id || row.employee_id || row.id || '').trim();
+    if (id) scheduleByStaffId.set(id, row);
+  });
+
+  const exceptionsByName = new Map<string, Record<string, unknown>>();
+  const exceptionsByStaffId = new Map<string, Record<string, unknown>>();
+  activeExceptions.forEach((row) => {
+    const name = String(rowName(row) || '').trim();
+    if (name) exceptionsByName.set(name, row);
+    const id = String(row.staff_id || row.employee_id || row.id || '').trim();
+    if (id) exceptionsByStaffId.set(id, row);
+  });
+
+  const attendanceByName = new Map<string, Record<string, unknown>>();
+  const attendanceByStaffId = new Map<string, Record<string, unknown>>();
+  attendanceForDate.forEach((row) => {
+    const name = String(rowName(row) || '').trim();
+    if (name) attendanceByName.set(name, row);
+    const id = String(row.staff_id || row.employee_id || row.id || '').trim();
+    if (id) attendanceByStaffId.set(id, row);
+  });
 
   const members = candidates
     .map((staff) => {
-      const schedule = branchSchedules.find((row) => rowName(row) === staff.name);
+      const schedule = scheduleByName.get(staff.name) || scheduleByStaffId.get(staff.id);
       const scheduleStart = String(schedule?.shift_start || schedule?.start_time || '');
       const scheduleEnd = String(schedule?.shift_end || schedule?.end_time || '');
       const overlaps = schedule
@@ -196,14 +223,13 @@ export async function loadShiftMembers(params: {
         : true;
       if (!overlaps) return null;
 
-      const exception = activeExceptions.find((row) => rowName(row) === staff.name);
+      const exception = exceptionsByName.get(staff.name) || exceptionsByStaffId.get(staff.id);
       const exceptionType = String(exception?.type || '');
       const excluded = exceptionType.includes('إجازة') || exceptionType.includes('غياب');
       if (excluded) return null;
 
-      const attendance = attendanceForDate.find(
-        (row) => rowName(row) === staff.name || rowStaffId(row) === staff.id
-      );
+      const attendance =
+        attendanceByName.get(staff.name) || attendanceByStaffId.get(staff.id);
       const hasPermission =
         Boolean(exception) && (exceptionType.includes('إذن') || exceptionType.includes('تبديل'));
 

@@ -214,15 +214,26 @@ export async function enrichFollowupsWithCustomerData<T extends EnrichableFollow
     const phoneCandidates = [row.customer_phone, row.phone]
       .filter((phone) => isValidEgyptPhone(phone, code))
       .map(text);
-    const metric =
-      (code && metricsByKey.get(code)) ||
-      phoneCandidates.map((phone) => metricsByKey.get(phone)).find(Boolean) ||
-      row.customer_metrics ||
-      null;
-    const profile =
-      (code && profilesByKey.get(code)) ||
-      phoneCandidates.map((phone) => profilesByKey.get(phone)).find(Boolean) ||
-      null;
+    let metric = (code && metricsByKey.get(code)) || row.customer_metrics || null;
+    if (!metric) {
+      for (const phone of phoneCandidates) {
+        const m = metricsByKey.get(phone);
+        if (m) {
+          metric = m;
+          break;
+        }
+      }
+    }
+    let profile = (code && profilesByKey.get(code)) || null;
+    if (!profile) {
+      for (const phone of phoneCandidates) {
+        const p = profilesByKey.get(phone);
+        if (p) {
+          profile = p;
+          break;
+        }
+      }
+    }
     return applyProfile(row, profile || null, metric || null);
   });
 }

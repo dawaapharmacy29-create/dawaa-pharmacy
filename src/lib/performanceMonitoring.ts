@@ -55,13 +55,18 @@ function getRating(metric: string, value: number): 'good' | 'needs-improvement' 
 async function reportMetric(report: PerformanceReport) {
   try {
     // Send to your analytics endpoint
-    await fetch('/api/analytics/performance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(report),
-      // Use sendBeacon for reliability (even on page unload)
-      keepalive: true,
-    });
+    const body = JSON.stringify(report);
+    // Prefer sendBeacon when available for reliability
+    if (navigator.sendBeacon) {
+      try {
+        navigator.sendBeacon('/api/analytics/performance', new Blob([body], { type: 'application/json' }));
+      } catch (e) {
+        // fallback to fetch
+        await fetch('/api/analytics/performance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
+      }
+    } else {
+      await fetch('/api/analytics/performance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
+    }
 
     // Also log to Vercel Analytics if available
     if (window.__VERCEL_WEB_VITALS_QUEUE) {

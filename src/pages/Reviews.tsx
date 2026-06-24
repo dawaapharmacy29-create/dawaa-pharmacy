@@ -376,7 +376,39 @@ export default function Reviews() {
     [form.followUpPromisedAt, form.followUpReturnedAt]
   );
   const result = useMemo(
-    () => evaluateConversationReview(reviewState, severeErrors),
+    () => {
+      try {
+        return evaluateConversationReview(reviewState, severeErrors);
+      } catch (err) {
+        console.warn('[reviews] evaluateConversationReview failed', err);
+        return {
+          finalScore: 0,
+          earnedPoints: 0,
+          totalApplicablePoints: 0,
+          totalApplicableItems: 0,
+          totalNotApplicableItems: 0,
+          baseDoctorImpact: 0,
+          extraPenaltyPoints: 0,
+          doctorPointsImpact: 0,
+          impactStatus: 'pending',
+          impactLabel: '',
+          impactReason: '',
+          level: 'غير محدد',
+          mainPositiveReason: '',
+          mainNegativeReason: '',
+          trainingRecommendation: '',
+          hasSevereError: false,
+          forgottenCustomer: false,
+          missedSalesOpportunity: false,
+          successfulCrossSell: false,
+          handledAngryCustomerWell: false,
+          excellentCase: false,
+          repeatErrorType: null,
+          reviewItems: [],
+          extraPenalties: [],
+        } as any;
+      }
+    },
     [reviewState, severeErrors]
   );
   const finalTraining = form.trainingRecommendationManual || result.trainingRecommendation;
@@ -764,70 +796,93 @@ export default function Reviews() {
       }
 
       const currentUserProfile = getCurrentUserProfile();
-      await logActivity(
-        currentUserProfile.id,
-        currentUserProfile.name,
-        'تقييم محادثة',
-        'تقييم المحادثات',
-        `درجة ${result.finalScore}/100 - ${selectedStaff.name}`,
-        selectedStaff.branch || '',
-        {
-          user_role: currentUserProfile.role,
-          target_type: 'conversation_review',
-          target_id: reviewRowId || '',
-        }
-      );
-
-      await notifyEmployee({
-        title: result.finalScore < 70 ? 'تقييم محادثة يحتاج مراجعة' : 'تم حفظ تقييم محادثة',
-        message:
-          result.finalScore < 70
-            ? `درجتك ${result.finalScore}/100. يرجى مراجعة التقييم لتجنب تكرار الخطأ.`
-            : `تقييم المحادثة ${result.finalScore}/100. ${result.finalScore >= 90 ? 'أداء ممتاز.' : 'راجع الملاحظات للتحسين.'}`,
-        type: 'conversation_review',
-        priority: result.finalScore < 70 ? 'high' : 'normal',
-        recipient_staff_id: selectedStaff.id,
-        branch: selectedStaff.branch,
-        target_type: 'conversation_review',
-        target_id: reviewRowId || '',
-        target_route: reviewRowId ? `/reviews?id=${reviewRowId}` : '/reviews',
-        requires_action: result.finalScore < 70,
-        created_by: currentUserProfile.id,
-        created_by_name: currentUserProfile.name,
-        metadata: {
-          staff_name: selectedStaff.name,
-          score: result.finalScore,
-          points_impact: repeatedDoctorImpact,
-          positive_note: result.mainPositiveReason,
-          improvement_note: result.mainNegativeReason,
-        },
-      });
-
-      if (result.finalScore < 70 && (form.customerName || form.customerPhone || form.customerCode)) {
-        await insertSafe('followups', {
-          customer_id: form.customerId || null,
-          customer_name: form.customerName || 'عميل يحتاج متابعة جودة',
-          customer_phone: form.customerPhone || null,
-          customer_code: form.customerCode || null,
-          branch: selectedStaff.branch || null,
-          followup_status: 'pending',
-          status: 'pending',
-          priority: result.hasSevereError ? 'عاجل' : 'مهم',
-          followup_reason: 'تقييم محادثة سلبي يحتاج متابعة',
-          followup_summary: `تقييم محادثة ${result.finalScore}/100 بواسطة ${currentUserProfile.name}. ${result.mainNegativeReason || finalTraining}`,
-          assigned_staff_id: selectedStaff.id,
-          responsible_name: selectedStaff.name,
-          source: 'conversation_review',
-          source_record_id: reviewRowId || null,
-          created_by: currentUserProfile.id,
-          created_by_name: currentUserProfile.name,
-          created_at: new Date().toISOString(),
-        });
+      // Non-critical post-save actions: log activity, notify employee, create followup.
+      try {
+        await logActivity(
+          currentUserProfile.id,
+          currentUserProfile.name,
+          'تقييم محادثة',
+          'تقييم المحادثات',
+          `درجة ${result.finalScore}/100 - ${selectedStaff.name}`,
+          selectedStaff.branch || '',
+          {
+            user_role: currentUserProfile.role,
+            target_type: 'conversation_review',
+            target_id: reviewRowId || '',
+          }
+        );
+      } catch (err) {
+        console.warn('[reviews] logActivity failed', err);
       }
 
-      await loadReviewHistory();
-      window.localStorage.removeItem(REVIEW_DRAFT_KEY);
-      setDraftSavedAt(null);
+      try {
+        await notifyEmployee({
+          title: result.finalScore < 70 ? 'تقييم محادثة يحتاج مراجعة' : 'تم حفظ تقييم محادثة',
+          message:
+            result.finalScore < 70
+              ? `درجتك ${result.finalScore}/100. يرجى مراجعة التقييم لتجنب تكرار الخطأ.`
+              : `تقييم المحادثة ${result.finalScore}/100. ${result.finalScore >= 90 ? 'أداء ممتاز.' : 'راجع الملاحظات للتحسين.'}`,
+          type: 'conversation_review',
+          priority: result.finalScore < 70 ? 'high' : 'normal',
+          recipient_staff_id: selectedStaff.id,
+          branch: selectedStaff.branch,
+          target_type: 'conversation_review',
+          target_id: reviewRowId || '',
+          target_route: reviewRowId ? `/reviews?id=${reviewRowId}` : '/reviews',
+          requires_action: result.finalScore < 70,
+          created_by: currentUserProfile.id,
+          created_by_name: currentUserProfile.name,
+          metadata: {
+            staff_name: selectedStaff.name,
+            score: result.finalScore,
+            points_impact: repeatedDoctorImpact,
+            positive_note: result.mainPositiveReason,
+            improvement_note: result.mainNegativeReason,
+          },
+        });
+      } catch (err) {
+        console.warn('[reviews] notifyEmployee failed', err);
+        toast.warning('تم حفظ التقييم، لكن إشعار الموظف فشل. راجع سجلات الخادم.');
+      }
+
+      if (result.finalScore < 70 && (form.customerName || form.customerPhone || form.customerCode)) {
+        try {
+          await insertSafe('followups', {
+            customer_id: form.customerId || null,
+            customer_name: form.customerName || 'عميل يحتاج متابعة جودة',
+            customer_phone: form.customerPhone || null,
+            customer_code: form.customerCode || null,
+            branch: selectedStaff.branch || null,
+            followup_status: 'pending',
+            status: 'pending',
+            priority: result.hasSevereError ? 'عاجل' : 'مهم',
+            followup_reason: 'تقييم محادثة سلبي يحتاج متابعة',
+            followup_summary: `تقييم محادثة ${result.finalScore}/100 بواسطة ${currentUserProfile.name}. ${result.mainNegativeReason || finalTraining}`,
+            assigned_staff_id: selectedStaff.id,
+            responsible_name: selectedStaff.name,
+            source: 'conversation_review',
+            source_record_id: reviewRowId || null,
+            created_by: currentUserProfile.id,
+            created_by_name: currentUserProfile.name,
+            created_at: new Date().toISOString(),
+          });
+        } catch (err) {
+          console.warn('[reviews] insert followup failed', err);
+          toast.warning('تم حفظ التقييم، لكن لم تتم إضافة متابعة الجودة تلقائيًا.');
+        }
+      }
+
+      try {
+        await loadReviewHistory();
+      } catch (err) {
+        console.warn('[reviews] loadReviewHistory failed', err);
+      }
+
+      try {
+        window.localStorage.removeItem(REVIEW_DRAFT_KEY);
+        setDraftSavedAt(null);
+      } catch {}
+
       toast.success('تم حفظ تقييم المحادثة وتحديث سجل التقييمات بنجاح');
     } catch (error) {
       toast.error(`تعذر الحفظ الكامل: ${(error as Error).message}`);

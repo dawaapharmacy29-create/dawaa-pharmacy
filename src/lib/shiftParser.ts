@@ -50,6 +50,11 @@ function normalizeAmPm(value: string) {
   return value.replace('ص', 'AM').replace('م', 'PM').toUpperCase();
 }
 
+function normalizeDigits(value: string) {
+  // convert Arabic-Indic digits to Latin
+  return value.replace(/[٠١٢٣٤٥٦٧٨٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString());
+}
+
 function toHour(hour: string, ampm: string) {
   const normalized = hour.replace(',', '.');
   const [hourPart, minutePart] = normalized.split('.');
@@ -89,6 +94,29 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
     /(\d{1,2}(?:[.,]\d+)?)\s*(AM|PM|ص|م)\s*(?:→|->|-|الى|إلى)\s*(\d{1,2}(?:[.,]\d+)?)\s*(AM|PM|ص|م)/i
   );
   if (!match) {
+    // Try 24-hour time formats like 08:00 - 17:30 and Arabic-Indic digits
+    const normalized = normalizeDigits(text);
+    const simple = normalized.match(/(\d{1,2}):?(\d{0,2})\s*(?:→|->|-|الى|إلى)\s*(\d{1,2}):?(\d{0,2})/);
+    if (simple) {
+      const sh = Number(simple[1]);
+      const sm = Number(simple[2] || '0');
+      const eh = Number(simple[3]);
+      const em = Number(simple[4] || '0');
+      if ([sh, sm, eh, em].every(Number.isFinite)) {
+        const startH = sh + sm / 60;
+        const endH = eh + em / 60;
+        let hours = endH - startH;
+        if (hours <= 0) hours += 24;
+        const roundedHours = Number(hours.toFixed(1));
+        return {
+          isOff: false,
+          start: formatHour(startH),
+          end: formatHour(endH),
+          hours: roundedHours,
+          raw: text,
+        };
+      }
+    }
     return {
       isOff: false,
       start: text,

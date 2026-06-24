@@ -3,9 +3,91 @@
  * - معالجة البيانات الفارغة
  * - تحسينات الأداء
  * - fallback values
+ * - session caching
  */
 
 import type { DashboardSalesTruth } from '@/lib/dashboard/dashboardTruthService';
+
+// Dashboard Cache Management
+const DASHBOARD_CACHE_KEY = 'dawaa_dashboard_cache_v1';
+const DASHBOARD_CACHE_STALE_TIME = 30 * 60 * 1000; // 30 minutes
+
+export type DashboardCacheEntry = {
+  state: any;
+  timestamp: number;
+  branch: string;
+  dateRange: { start: string; end: string };
+};
+
+export function saveDashboardCache(
+  state: any,
+  branch: string,
+  dateRange: { start: string; end: string }
+): void {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    const entry: DashboardCacheEntry = {
+      state,
+      timestamp: Date.now(),
+      branch,
+      dateRange,
+    };
+    sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(entry));
+  } catch (error) {
+    console.debug('[Dashboard Cache] Failed to save cache:', error);
+  }
+}
+
+export function loadDashboardCache(
+  branch: string,
+  dateRange: { start: string; end: string }
+): any | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  try {
+    const cached = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+    if (!cached) return null;
+
+    const entry: DashboardCacheEntry = JSON.parse(cached);
+
+    // Verify cache is for the same branch and date range
+    if (entry.branch !== branch || entry.dateRange.start !== dateRange.start || entry.dateRange.end !== dateRange.end) {
+      return null;
+    }
+
+    // Check if cache is still fresh
+    const age = Date.now() - entry.timestamp;
+    if (age > DASHBOARD_CACHE_STALE_TIME) {
+      sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+      return null;
+    }
+
+    return entry.state;
+  } catch (error) {
+    console.debug('[Dashboard Cache] Failed to load cache:', error);
+    return null;
+  }
+}
+
+export function clearDashboardCache(): void {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+  } catch (error) {
+    console.debug('[Dashboard Cache] Failed to clear cache:', error);
+  }
+}
+
+export function getDashboardCacheTimestamp(): Date | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  try {
+    const cached = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+    if (!cached) return null;
+    const entry: DashboardCacheEntry = JSON.parse(cached);
+    return new Date(entry.timestamp);
+  } catch (error) {
+    return null;
+  }
+}
 
 export function ensureValidDashboardData(data: Partial<DashboardSalesTruth>): DashboardSalesTruth {
   return {

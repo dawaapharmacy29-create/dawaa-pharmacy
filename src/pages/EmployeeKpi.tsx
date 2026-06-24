@@ -22,11 +22,27 @@ type KpiRow = {
 };
 
 function monthlyBreakdown(row: KpiRow) {
-  return calculateMonthlyIncentive({
-    startingPoints: MONTHLY_STARTING_POINTS,
-    approvedDeductionPoints: row.penalty_points,
-    approvedExceptionalRewardPoints: row.reward_points,
-  });
+  try {
+    return calculateMonthlyIncentive({
+      startingPoints: MONTHLY_STARTING_POINTS,
+      approvedDeductionPoints: row.penalty_points,
+      approvedExceptionalRewardPoints: row.reward_points,
+    });
+  } catch (error) {
+    console.error('[EmployeeKpi] Error calculating monthly incentive for row:', row, error);
+    // Return a safe default breakdown
+    return {
+      startingPoints: MONTHLY_STARTING_POINTS,
+      approvedDeductionPoints: row.penalty_points,
+      approvedExceptionalRewardPoints: row.reward_points,
+      pendingDeductionPoints: 0,
+      pendingRewardPoints: 0,
+      finalPoints: MONTHLY_STARTING_POINTS,
+      monthlyIncentiveValue: 0,
+      distinctionPointsAbove500: 0,
+      progressPercent: 0,
+    };
+  }
 }
 
 function normalizeKpiRow(row: Record<string, unknown>): KpiRow {
@@ -58,18 +74,40 @@ export default function EmployeeKpi() {
   const load = useCallback(async () => {
     setLoading(true);
     setSourceIssue(null);
-    const result = await safeRows<Record<string, unknown>>(
-      'employee_kpi_cycle_summary',
-      (query) => query.order('total_score', { ascending: false }),
-      500
-    );
-    setRows(result.rows.map(normalizeKpiRow));
-    if (result.error) {
-      setSourceIssue(
-        `مصدر KPI الموظفين غير متاح أو يحتاج مراجعة: ${result.error}. لم يتم تغيير أي بيانات.`
+    try {
+      const result = await safeRows<Record<string, unknown>>(
+        'employee_kpi_cycle_summary',
+        (query) => query.order('total_score', { ascending: false }),
+        500
       );
+      setRows(result.rows.map(normalizeKpiRow));
+      if (result.error) {
+        // Check if it's a permission issue or missing table
+        const errorLower = result.error.toLowerCase();
+        if (errorLower.includes('permission') || errorLower.includes('row-level security')) {
+          setSourceIssue(
+            'لا توجد صلاحية قراءة مؤشرات أداء الموظفين. يرجى التحقق من إعدادات RLS في Supabase.'
+          );
+        } else if (
+          errorLower.includes('does not exist') ||
+          errorLower.includes('not found') ||
+          errorLower.includes('could not find')
+        ) {
+          setSourceIssue(
+            'جدول مؤشرات أداء الموظفين (employee_kpi_cycle_summary) غير موجود في قاعدة البيانات.'
+          );
+        } else {
+          setSourceIssue(`خطأ في تحميل البيانات: ${result.error}. لم يتم تغيير أي بيانات.`);
+        }
+      }
+    } catch (error) {
+      console.error('[EmployeeKpi] Load error:', error);
+      setSourceIssue(
+        `خطأ غير متوقع: ${error instanceof Error ? error.message : 'خطأ غير معروف'}. لم يتم تغيير أي بيانات.`
+      );
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {

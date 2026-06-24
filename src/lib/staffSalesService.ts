@@ -226,7 +226,8 @@ export async function getStaffCycleSales(
     if (!summaryByIdError && summaryById && summaryById.length > 0) {
       summaryData = summaryById as Row[];
       sourceTableUsed = 'staff_sales_summary_staff_id';
-      matchedAliases.push(...new Set(summaryById.map((r) => String(r.seller_name || ''))));
+      const summaryRows = summaryById as any[];
+      matchedAliases.push(...new Set(summaryRows.map((r) => String((r as any).seller_name || '') as string)));
     }
   } catch (error) {
     warnings.push(

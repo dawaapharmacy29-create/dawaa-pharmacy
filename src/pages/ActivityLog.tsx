@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
-import { Activity, Database, Search, ExternalLink, X } from 'lucide-react';
+import { Activity, Database, Search, ExternalLink, X, AlertCircle, CheckCircle2, ChevronDown } from 'lucide-react';
 import { BRANCHES } from '@/lib/constants';
 import { formatDateTime, matchesOrderedSegments } from '@/lib/utils';
 import { formatActivityDetails } from '@/lib/activityLog';
@@ -60,8 +60,20 @@ function normalizeSearch(value: string) {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function safeString(value: unknown, fallback = '') {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return String(value);
+}
+
 function logBranch(log: ActivityLogEntry) {
-  return log.branch_name || log.branch || 'غير محدد';
+  return safeString(log.branch_name || log.branch, 'غير محدد');
 }
 
 function isPermissionDenied(message?: string | null) {
@@ -91,7 +103,15 @@ export default function ActivityLog() {
   const [sourceTable, setSourceTable] = useState<'activity_log' | 'activity_logs'>('activity_log');
   const [sourceIssue, setSourceIssue] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<ActivityLogEntry | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const unavailableSourcesRef = useRef(new Set<string>());
+  const diagnosticsRef = useRef<{
+    primary: { status: 'success' | 'permission' | 'missing' | 'error'; message: string; timestamp: string };
+    secondary: { status: 'success' | 'permission' | 'missing' | 'error'; message: string; timestamp: string };
+  }>({
+    primary: { status: 'error', message: 'لم يتم الفحص بعد', timestamp: '' },
+    secondary: { status: 'error', message: 'لم يتم الفحص بعد', timestamp: '' },
+  });
 
   const loadLogs = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -103,6 +123,7 @@ export default function ActivityLog() {
     setLoading(true);
     setSourceIssue(null);
     let table: 'activity_log' | 'activity_logs' = 'activity_log';
+    const now = new Date().toISOString();
 
     // activity_log is the canonical table used by every new write. Only fall
     // back to the legacy plural table when the canonical table is unavailable,
@@ -114,13 +135,32 @@ export default function ActivityLog() {
           .select('*')
           .order('created_at', { ascending: false })
           .limit(500);
+    
+    // Determine primary table status
     if (!primary.error) {
       setLogs((primary.data || []) as ActivityLogEntry[]);
       table = 'activity_log';
+      diagnosticsRef.current.primary = {
+        status: 'success',
+        message: `تم قراءة ${(primary.data as any[])?.length || 0} سجل بنجاح`,
+        timestamp: now,
+      };
     } else {
-      if (isPermissionDenied(primary.error.message) || isMissingSource(primary.error.message)) {
+      let primaryStatus: 'permission' | 'missing' | 'error' = 'error';
+      if (isPermissionDenied(primary.error.message)) {
+        primaryStatus = 'permission';
+        unavailableSourcesRef.current.add('activity_log');
+      } else if (isMissingSource(primary.error.message)) {
+        primaryStatus = 'missing';
         unavailableSourcesRef.current.add('activity_log');
       }
+      diagnosticsRef.current.primary = {
+        status: primaryStatus,
+        message: primary.error.message,
+        timestamp: now,
+      };
+
+      // Try fallback secondary source
       const secondary = unavailableSourcesRef.current.has('activity_logs')
         ? { data: null, error: { message: 'source previously unavailable' } }
         : await supabase
@@ -128,23 +168,49 @@ export default function ActivityLog() {
             .select('*')
             .order('created_at', { ascending: false })
             .limit(500);
+      
       if (!secondary.error) {
         setLogs((secondary.data || []) as ActivityLogEntry[]);
         table = 'activity_logs';
+        diagnosticsRef.current.secondary = {
+          status: 'success',
+          message: `تم قراءة ${(secondary.data as any[])?.length || 0} سجل من الجدول البديل بنجاح`,
+          timestamp: now,
+        };
       } else {
-        if (isPermissionDenied(secondary.error.message) || isMissingSource(secondary.error.message)) {
+        let secondaryStatus: 'permission' | 'missing' | 'error' = 'error';
+        if (isPermissionDenied(secondary.error.message)) {
+          secondaryStatus = 'permission';
+          unavailableSourcesRef.current.add('activity_logs');
+        } else if (isMissingSource(secondary.error.message)) {
+          secondaryStatus = 'missing';
           unavailableSourcesRef.current.add('activity_logs');
         }
+        diagnosticsRef.current.secondary = {
+          status: secondaryStatus,
+          message: secondary.error.message,
+          timestamp: now,
+        };
+
         setLogs([]);
-        if (isPermissionDenied(primary.error.message) || isPermissionDenied(secondary.error.message)) {
+        // Generate appropriate error message based on diagnostic info
+        if (
+          diagnosticsRef.current.primary.status === 'permission' ||
+          diagnosticsRef.current.secondary.status === 'permission'
+        ) {
           setSourceIssue(
-            'لا توجد صلاحية قراءة سجل الأنشطة. راجع صلاحيات RLS أو سياسة القراءة.'
+            'لا توجد صلاحية قراءة سجل الأنشطة. راجع سياسات RLS في Supabase أو صلاحيات دورك الحالي.'
           );
-        } else if (isMissingSource(primary.error.message) && isMissingSource(secondary.error.message)) {
-          setSourceIssue('مصدر سجل الأنشطة غير موجود: activity_log أو activity_logs.');
+        } else if (
+          diagnosticsRef.current.primary.status === 'missing' &&
+          diagnosticsRef.current.secondary.status === 'missing'
+        ) {
+          setSourceIssue(
+            'جدول سجل الأنشطة غير موجود: لم يتم إنشاء activity_log أو activity_logs في قاعدة البيانات.'
+          );
         } else {
           setSourceIssue(
-            `تعذر قراءة activity_log و activity_logs: ${primary.error.message} / ${secondary.error.message}`
+            `تعذر قراءة جداول سجل الأنشطة. تفاصيل التشخيص متاحة في لوحة المراقبة.`
           );
         }
       }
@@ -159,20 +225,35 @@ export default function ActivityLog() {
   }, [loadLogs]);
 
   const users = useMemo(
-    () => [ALL, ...new Set(logs.map((log) => log.user_name).filter(Boolean) as string[])],
+    () => [
+      ALL,
+      ...new Set(
+        logs
+          .map((log) => safeString(log.user_name))
+          .filter((value) => value !== '')
+      ),
+    ],
     [logs]
   );
   const actions = useMemo(
     () => [
       ALL,
-      ...new Set(logs.map((log) => log.operation || log.action).filter(Boolean) as string[]),
+      ...new Set(
+        logs
+          .map((log) => safeString(log.operation || log.action))
+          .filter((value) => value !== '')
+      ),
     ],
     [logs]
   );
   const modules = useMemo(
     () => [
       ALL,
-      ...new Set(logs.map((log) => log.module || log.entity_type).filter(Boolean) as string[]),
+      ...new Set(
+        logs
+          .map((log) => safeString(log.module || log.entity_type))
+          .filter((value) => value !== '')
+      ),
     ],
     [logs]
   );
@@ -183,22 +264,22 @@ export default function ActivityLog() {
 
     return logs.filter((log) => {
       const details = formatActivityDetails(log.details);
-      const operation = log.operation || log.action || '';
-      const module = log.module || log.entity_type || '';
+      const operation = safeString(log.operation || log.action);
+      const module = safeString(log.module || log.entity_type);
       const matchSearch =
         !query ||
-        matchesOrderedSegments(String(log.user_name || ''), query) ||
-        matchesOrderedSegments(String(log.user_role || ''), query) ||
+        matchesOrderedSegments(safeString(log.user_name), query) ||
+        matchesOrderedSegments(safeString(log.user_role), query) ||
         matchesOrderedSegments(operation, query) ||
         matchesOrderedSegments(module, query) ||
-        matchesOrderedSegments(String(log.target_type || ''), query) ||
-        matchesOrderedSegments(String(log.target_id || ''), query) ||
-        matchesOrderedSegments(String(log.entity_type || ''), query) ||
-        matchesOrderedSegments(String(log.entity_id || ''), query) ||
+        matchesOrderedSegments(safeString(log.target_type), query) ||
+        matchesOrderedSegments(safeString(log.target_id), query) ||
+        matchesOrderedSegments(safeString(log.entity_type), query) ||
+        matchesOrderedSegments(safeString(log.entity_id), query) ||
         matchesOrderedSegments(details, query);
       const matchBranch = branchFilter === ALL || logBranch(log) === branchFilter;
       const matchModule = moduleFilter === ALL || module === moduleFilter;
-      const matchUser = userFilter === ALL || log.user_name === userFilter;
+      const matchUser = userFilter === ALL || safeString(log.user_name) === userFilter;
       const matchAction = actionFilter === ALL || operation === actionFilter;
       const matchDate = !fromTime || new Date(log.created_at).getTime() >= fromTime;
       return matchSearch && matchBranch && matchModule && matchUser && matchAction && matchDate;
@@ -243,6 +324,122 @@ export default function ActivityLog() {
           {sourceIssue}
         </div>
       )}
+
+      {/* Admin Diagnostic Panel */}
+      <div className="rounded-2xl border border-slate-700 bg-slate-900/40">
+        <button
+          onClick={() => setShowDiagnostics(!showDiagnostics)}
+          className="w-full flex items-center justify-between p-4 hover:bg-slate-800/40 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-slate-400" />
+            <span className="text-sm font-bold text-slate-300">لوحة التشخيص (للمسؤولين)</span>
+          </div>
+          <ChevronDown
+            className={`w-4 h-4 text-slate-400 transition-transform ${showDiagnostics ? 'rotate-180' : ''}`}
+          />
+        </button>
+        
+        {showDiagnostics && (
+          <div className="border-t border-slate-700 p-4 space-y-3 bg-slate-950/30">
+            {/* Current Source */}
+            <div>
+              <label className="text-xs font-bold text-slate-400 block mb-2">مصدر البيانات الحالي</label>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-teal-400" />
+                <span className="text-sm font-mono text-teal-300">{sourceTable}</span>
+                <span className="text-xs text-slate-400 ml-auto">
+                  {logs.length > 0 ? `${logs.length} سجل` : 'لا توجد سجلات'}
+                </span>
+              </div>
+            </div>
+
+            {/* Primary Table Status */}
+            <div className="border-t border-slate-700 pt-3">
+              <label className="text-xs font-bold text-slate-400 block mb-2">جدول activity_log (الأساسي)</label>
+              <div className="space-y-1 text-xs">
+                <div className="flex items-center gap-2">
+                  {diagnosticsRef.current.primary.status === 'success' ? (
+                    <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
+                  ) : diagnosticsRef.current.primary.status === 'permission' ? (
+                    <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                  )}
+                  <span className="text-slate-300">
+                    {diagnosticsRef.current.primary.status === 'success'
+                      ? 'متاح'
+                      : diagnosticsRef.current.primary.status === 'permission'
+                        ? 'مشكلة صلاحية'
+                        : diagnosticsRef.current.primary.status === 'missing'
+                          ? 'الجدول غير موجود'
+                          : 'خطأ'}
+                  </span>
+                </div>
+                <div className="text-slate-400 font-mono bg-black/20 p-2 rounded text-xs break-all">
+                  {diagnosticsRef.current.primary.message}
+                </div>
+                {diagnosticsRef.current.primary.timestamp && (
+                  <div className="text-slate-500 text-xs">
+                    آخر فحص: {new Date(diagnosticsRef.current.primary.timestamp).toLocaleTimeString('ar-EG')}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Secondary Table Status */}
+            <div className="border-t border-slate-700 pt-3">
+              <label className="text-xs font-bold text-slate-400 block mb-2">جدول activity_logs (بديل)</label>
+              <div className="space-y-1 text-xs">
+                <div className="flex items-center gap-2">
+                  {diagnosticsRef.current.secondary.status === 'success' ? (
+                    <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
+                  ) : diagnosticsRef.current.secondary.status === 'permission' ? (
+                    <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                  )}
+                  <span className="text-slate-300">
+                    {diagnosticsRef.current.secondary.status === 'success'
+                      ? 'متاح'
+                      : diagnosticsRef.current.secondary.status === 'permission'
+                        ? 'مشكلة صلاحية'
+                        : diagnosticsRef.current.secondary.status === 'missing'
+                          ? 'الجدول غير موجود'
+                          : 'خطأ'}
+                  </span>
+                </div>
+                <div className="text-slate-400 font-mono bg-black/20 p-2 rounded text-xs break-all">
+                  {diagnosticsRef.current.secondary.message}
+                </div>
+                {diagnosticsRef.current.secondary.timestamp && (
+                  <div className="text-slate-500 text-xs">
+                    آخر فحص: {new Date(diagnosticsRef.current.secondary.timestamp).toLocaleTimeString('ar-EG')}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Troubleshooting Tips */}
+            <div className="border-t border-slate-700 pt-3">
+              <label className="text-xs font-bold text-slate-400 block mb-2">نصائح استكشاف الأخطاء</label>
+              <ul className="text-xs text-slate-300 space-y-1 list-disc list-inside">
+                {diagnosticsRef.current.primary.status === 'permission' && (
+                  <li>تحقق من سياسات RLS على جدول activity_log في Supabase</li>
+                )}
+                {diagnosticsRef.current.primary.status === 'missing' && (
+                  <li>جدول activity_log غير موجود - قد تحتاج إلى تشغيل ترحيل قاعدة البيانات</li>
+                )}
+                {diagnosticsRef.current.secondary.status === 'missing' &&
+                  diagnosticsRef.current.primary.status === 'missing' && (
+                    <li>كلا الجدول الأساسي والبديل غير موجودة - تحقق من ترحيلات قاعدة البيانات</li>
+                  )}
+                <li>اضغط "تحديث" لإعادة فحص حالة الجداول</li>
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
@@ -362,22 +559,22 @@ export default function ActivityLog() {
                   <span className="text-slate-500 text-xs">{formatDateTime(log.created_at)}</span>
                 </div>
                 <div className="text-slate-300 text-sm leading-relaxed">
-                  {log.entity_title ||
+                  {safeString(log.entity_title) ||
                     formatActivityDetails(
                       log.details || {
-                        target_type: log.target_type,
-                        target_id: log.target_id,
+                        target_type: safeString(log.target_type),
+                        target_id: safeString(log.target_id),
                         branch: logBranch(log),
                       }
                     )}
                 </div>
                 <div className="text-slate-500 text-xs mt-2 flex flex-wrap gap-2 items-center">
-                  <span>{log.user_name || 'النظام'}</span>
-                  {log.user_role && <span>• {log.user_role}</span>}
+                  <span>{safeString(log.user_name, 'النظام')}</span>
+                  {log.user_role && <span>• {safeString(log.user_role)}</span>}
                   {(log.target_type || log.entity_type) && (
                     <span>
-                      • الهدف: {log.target_type || log.entity_type}
-                      {log.target_id || log.entity_id ? ` #${log.target_id || log.entity_id}` : ''}
+                      • الهدف: {safeString(log.target_type || log.entity_type)}
+                      {safeString(log.target_id || log.entity_id) ? ` #${safeString(log.target_id || log.entity_id)}` : ''}
                     </span>
                   )}
                 </div>
@@ -408,11 +605,11 @@ export default function ActivityLog() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-slate-400 text-xs block mb-1">المستخدم</label>
-                  <div className="text-white">{selectedLog.user_name || 'النظام'}</div>
+                  <div className="text-white">{safeString(selectedLog.user_name, 'النظام')}</div>
                 </div>
                 <div>
                   <label className="text-slate-400 text-xs block mb-1">الدور</label>
-                  <div className="text-white">{selectedLog.user_role || '-'}</div>
+                  <div className="text-white">{safeString(selectedLog.user_role, '-')}</div>
                 </div>
                 <div>
                   <label className="text-slate-400 text-xs block mb-1">الفرع</label>
@@ -425,13 +622,13 @@ export default function ActivityLog() {
                 <div>
                   <label className="text-slate-400 text-xs block mb-1">نوع الكيان</label>
                   <div className="text-white">
-                    {selectedLog.entity_type || selectedLog.target_type || '-'}
+                    {safeString(selectedLog.entity_type) || safeString(selectedLog.target_type) || '-'}
                   </div>
                 </div>
                 <div>
                   <label className="text-slate-400 text-xs block mb-1">معرف الكيان</label>
                   <div className="text-white font-mono">
-                    {selectedLog.entity_id || selectedLog.target_id || '-'}
+                    {safeString(selectedLog.entity_id) || safeString(selectedLog.target_id) || '-'}
                   </div>
                 </div>
               </div>
@@ -470,12 +667,12 @@ export default function ActivityLog() {
                 </div>
               )}
 
-              {selectedLog.route_path && (
+              {safeString(selectedLog.route_path) && (
                 <div className="pt-4 border-t border-[#2d4063]">
                   <label className="text-slate-400 text-xs block mb-2">الصفحة المرتبطة</label>
                   <button
                     onClick={() => {
-                      navigate(selectedLog.route_path || '/');
+                      navigate(safeString(selectedLog.route_path, '/'));
                       setSelectedLog(null);
                     }}
                     className="btn-secondary flex items-center gap-2"
@@ -486,7 +683,7 @@ export default function ActivityLog() {
                 </div>
               )}
 
-              {selectedLog.entity_type && selectedLog.entity_id && (
+              {safeString(selectedLog.entity_type) && safeString(selectedLog.entity_id) && (
                 <div className="pt-4 border-t border-[#2d4063]">
                   <label className="text-slate-400 text-xs block mb-2">الانتقال للكيان</label>
                   <button
@@ -500,15 +697,17 @@ export default function ActivityLog() {
                         delivery_evaluation: '/delivery',
                         sales_invoice: '/invoices',
                       };
-                      const basePath = routeMap[selectedLog.entity_type] || '/';
-                      const fullPath = `${basePath}?id=${selectedLog.entity_id}`;
+                      const entityType = safeString(selectedLog.entity_type);
+                      const entityId = safeString(selectedLog.entity_id);
+                      const basePath = routeMap[entityType] || '/';
+                      const fullPath = `${basePath}?id=${encodeURIComponent(entityId)}`;
                       navigate(fullPath);
                       setSelectedLog(null);
                     }}
                     className="btn-secondary flex items-center gap-2"
                   >
                     <ExternalLink size={16} />
-                    فتح {selectedLog.entity_type}
+                    فتح {safeString(selectedLog.entity_type)}
                   </button>
                 </div>
               )}

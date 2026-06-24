@@ -190,7 +190,8 @@ export async function getStaffSalesSummaryForPeriod(
       if (!summaryByIdError && summaryById && summaryById.length > 0) {
         summaryData = summaryById as Row[];
         sourceUsed = 'staff_id';
-        rawSellerNamesMatched.push(...new Set(summaryById.map((r) => String(r.seller_name || ''))));
+        const summaryRows = summaryById as any[];
+        rawSellerNamesMatched.push(...new Set(summaryRows.map((r) => String((r as any).seller_name || '') as string)));
       }
     } catch (error) {
       warnings.push(
@@ -218,7 +219,8 @@ export async function getStaffSalesSummaryForPeriod(
         if (filtered.length > 0) {
           summaryData = filtered;
           sourceUsed = 'seller_name';
-          rawSellerNamesMatched.push(...new Set(filtered.map((r) => String(r.seller_name || ''))));
+          const filteredRows = filtered as any[];
+          rawSellerNamesMatched.push(...new Set(filteredRows.map((r) => String((r as any).seller_name || '') as string)));
           warnings.push(
             `Sales matched by seller_name aliases: ${rawSellerNamesMatched.slice(0, 3).join(', ')}`
           );

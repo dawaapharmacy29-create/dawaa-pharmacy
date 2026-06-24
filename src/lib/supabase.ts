@@ -26,23 +26,49 @@ const supabaseFetch: typeof fetch = (input, init?: RequestInit) => {
   return fetch(input, { ...init, headers });
 };
 
-export const supabase = createClient(
-  hasSupabaseConfig ? supabaseUrl : 'https://placeholder.supabase.co',
-  hasSupabaseConfig ? supabaseAnonKey : 'placeholder-anon-key',
-  {
+// When Supabase is not configured, export a lightweight stub client to avoid noisy network failures in dev.
+function createStubClient() {
+  const noop = () => stubQuery;
+  const stubQuery: any = {
+    select: async () => ({ data: [], error: null }),
+    insert: async () => ({ data: null, error: null }),
+    update: async () => ({ data: null, error: null }),
+    delete: async () => ({ data: null, error: null }),
+    upsert: async () => ({ data: null, error: null }),
+    eq: () => stubQuery,
+    order: () => stubQuery,
+    limit: () => stubQuery,
+    range: () => stubQuery,
+    single: async () => ({ data: null, error: null }),
+    maybeSingle: async () => ({ data: null, error: null }),
+    is: () => stubQuery,
+    or: () => stubQuery,
+    match: () => stubQuery,
+    filter: () => stubQuery,
+    on: () => ({ subscribe: () => ({ unsubscribe: () => null }) }),
+  };
+  return {
+    from: () => stubQuery,
+    rpc: async () => ({ data: null, error: null }),
     auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
+      signIn: async () => ({ data: null, error: null }),
+      signOut: async () => ({ error: null }),
+      user: () => null,
+      onAuthStateChange: () => ({ data: null }),
     },
-    realtime: {
-      params: { eventsPerSecond: 10 },
+    storage: {
+      from: () => ({ upload: async () => ({ data: null, error: null }) }),
     },
-    global: {
-      fetch: supabaseFetch,
-    },
-  }
-);
+  } as any;
+}
+
+export const supabase = hasSupabaseConfig
+  ? createClient(hasSupabaseConfig ? supabaseUrl : 'https://placeholder.supabase.co', hasSupabaseConfig ? supabaseAnonKey : 'placeholder-anon-key', {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      realtime: { params: { eventsPerSecond: 10 } },
+      global: { fetch: supabaseFetch },
+    })
+  : createStubClient();
 
 export const isSupabaseConfigured = hasSupabaseConfig;
 

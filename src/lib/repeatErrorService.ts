@@ -195,7 +195,7 @@ export class RepeatErrorService {
 
       summaries.push({
         staff_id: employee.id,
-        staff_name: employee.name || 'غير محدد',
+        staff_name: (employee as any).name || 'غير محدد',
         total_errors: repeatErrors.length,
         total_deduction: totalDeduction,
         errors_requiring_review: errorsRequiringReview,
