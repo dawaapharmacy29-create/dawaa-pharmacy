@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { Activity, Database, Search, ExternalLink, X } from 'lucide-react';
 import { BRANCHES } from '@/lib/constants';
@@ -64,6 +64,20 @@ function logBranch(log: ActivityLogEntry) {
   return log.branch_name || log.branch || 'غير محدد';
 }
 
+function isPermissionDenied(message?: string | null) {
+  const value = String(message || '').toLowerCase();
+  return value.includes('permission denied') || value.includes('row-level security');
+}
+
+function isMissingSource(message?: string | null) {
+  const value = String(message || '').toLowerCase();
+  return (
+    value.includes('does not exist') ||
+    value.includes('schema cache') ||
+    value.includes('could not find the table')
+  );
+}
+
 export default function ActivityLog() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -75,7 +89,9 @@ export default function ActivityLog() {
   const [logs, setLogs] = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [sourceTable, setSourceTable] = useState<'activity_log' | 'activity_logs'>('activity_log');
+  const [sourceIssue, setSourceIssue] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<ActivityLogEntry | null>(null);
+  const unavailableSourcesRef = useRef(new Set<string>());
 
   const loadLogs = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -85,30 +101,52 @@ export default function ActivityLog() {
     }
 
     setLoading(true);
+    setSourceIssue(null);
     let table: 'activity_log' | 'activity_logs' = 'activity_log';
 
     // activity_log is the canonical table used by every new write. Only fall
     // back to the legacy plural table when the canonical table is unavailable,
     // not merely when it is empty (an empty current log is still authoritative).
-    const primary = await supabase
-      .from('activity_log')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
+    const primary = unavailableSourcesRef.current.has('activity_log')
+      ? { data: null, error: { message: 'source previously unavailable' } }
+      : await supabase
+          .from('activity_log')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(500);
     if (!primary.error) {
       setLogs((primary.data || []) as ActivityLogEntry[]);
       table = 'activity_log';
     } else {
-      const secondary = await supabase
-        .from('activity_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(500);
+      if (isPermissionDenied(primary.error.message) || isMissingSource(primary.error.message)) {
+        unavailableSourcesRef.current.add('activity_log');
+      }
+      const secondary = unavailableSourcesRef.current.has('activity_logs')
+        ? { data: null, error: { message: 'source previously unavailable' } }
+        : await supabase
+            .from('activity_logs')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(500);
       if (!secondary.error) {
         setLogs((secondary.data || []) as ActivityLogEntry[]);
         table = 'activity_logs';
       } else {
+        if (isPermissionDenied(secondary.error.message) || isMissingSource(secondary.error.message)) {
+          unavailableSourcesRef.current.add('activity_logs');
+        }
         setLogs([]);
+        if (isPermissionDenied(primary.error.message) || isPermissionDenied(secondary.error.message)) {
+          setSourceIssue(
+            'لا توجد صلاحية قراءة سجل الأنشطة. راجع صلاحيات RLS أو سياسة القراءة.'
+          );
+        } else if (isMissingSource(primary.error.message) && isMissingSource(secondary.error.message)) {
+          setSourceIssue('مصدر سجل الأنشطة غير موجود: activity_log أو activity_logs.');
+        } else {
+          setSourceIssue(
+            `تعذر قراءة activity_log و activity_logs: ${primary.error.message} / ${secondary.error.message}`
+          );
+        }
       }
     }
 
@@ -199,6 +237,12 @@ export default function ActivityLog() {
           <span className="text-teal-300 font-mono">{sourceTable}</span>.
         </div>
       </div>
+
+      {sourceIssue && (
+        <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm font-bold leading-7 text-amber-100">
+          {sourceIssue}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
@@ -292,7 +336,14 @@ export default function ActivityLog() {
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-slate-400">
             <Activity size={40} className="mx-auto mb-3 opacity-20" />
-            <div>لا توجد سجلات مطابقة</div>
+            <div className="font-bold text-slate-200">
+              {logs.length === 0 ? 'لا توجد سجلات نشاط محفوظة في المصدر الحالي' : 'لا توجد سجلات مطابقة'}
+            </div>
+            <div className="mx-auto mt-2 max-w-xl text-xs leading-6 text-slate-400">
+              {logs.length === 0
+                ? 'إذا كان من المتوقع ظهور عمليات هنا، راجع وجود جدول activity_log أو صلاحيات القراءة/RLS أو أن عمليات النظام تسجل فعليًا في activity_log.'
+                : 'جرّب توسيع الفترة الزمنية أو إزالة بعض الفلاتر.'}
+            </div>
           </div>
         ) : (
           filtered.map((log) => {

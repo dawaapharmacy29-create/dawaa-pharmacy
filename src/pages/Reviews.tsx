@@ -803,6 +803,28 @@ export default function Reviews() {
         },
       });
 
+      if (result.finalScore < 70 && (form.customerName || form.customerPhone || form.customerCode)) {
+        await insertSafe('followups', {
+          customer_id: form.customerId || null,
+          customer_name: form.customerName || 'عميل يحتاج متابعة جودة',
+          customer_phone: form.customerPhone || null,
+          customer_code: form.customerCode || null,
+          branch: selectedStaff.branch || null,
+          followup_status: 'pending',
+          status: 'pending',
+          priority: result.hasSevereError ? 'عاجل' : 'مهم',
+          followup_reason: 'تقييم محادثة سلبي يحتاج متابعة',
+          followup_summary: `تقييم محادثة ${result.finalScore}/100 بواسطة ${currentUserProfile.name}. ${result.mainNegativeReason || finalTraining}`,
+          assigned_staff_id: selectedStaff.id,
+          responsible_name: selectedStaff.name,
+          source: 'conversation_review',
+          source_record_id: reviewRowId || null,
+          created_by: currentUserProfile.id,
+          created_by_name: currentUserProfile.name,
+          created_at: new Date().toISOString(),
+        });
+      }
+
       await loadReviewHistory();
       window.localStorage.removeItem(REVIEW_DRAFT_KEY);
       setDraftSavedAt(null);

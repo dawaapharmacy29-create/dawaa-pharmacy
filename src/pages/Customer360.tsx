@@ -13,6 +13,7 @@ import {
   fetchCustomerSpecialItems,
   type CustomerSpecialItem,
 } from '@/lib/customers/customerSpecialItemsService';
+import { safeRows } from '@/lib/safeSupabase';
 import { normalizeBranchName } from '@/lib/branch';
 import {
   ArrowRight,
@@ -32,6 +33,7 @@ import {
   ChevronUp,
   Lightbulb,
   Plus,
+  ShieldCheck,
   Trash2,
 } from 'lucide-react';
 /* recharts will be dynamically imported inside the component to reduce initial bundle size */
@@ -123,6 +125,15 @@ function NoteBox({ label, value }: { label: string; value: string | null }) {
   );
 }
 
+function InfoPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-amber-400/20 bg-slate-950/30 px-3 py-2">
+      <div className="text-xs font-bold text-amber-200/80">{label}</div>
+      <div className="mt-1 font-black text-white">{value}</div>
+    </div>
+  );
+}
+
 function Section({
   title,
   icon,
@@ -176,6 +187,50 @@ function arabicMonth(m: string) {
   return ARABIC_MONTH[mm] ?? m;
 }
 
+function invoiceBranch(invoice: Record<string, unknown>) {
+  return normalizeBranchName(String(invoice.branch ?? invoice.branch_name ?? invoice.store_branch ?? ''));
+}
+
+function invoiceAmount(invoice: Record<string, unknown>) {
+  const amount = Number(invoice.amount ?? invoice.net_total ?? invoice.total_amount ?? invoice.total ?? 0);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function branchAudit(
+  registeredBranch: string,
+  invoices: Array<Record<string, unknown>>
+) {
+  const registered = normalizeBranchName(registeredBranch);
+  const latestInvoice = invoices.find((invoice) => invoiceBranch(invoice));
+  const latestBranch = latestInvoice ? invoiceBranch(latestInvoice) : '';
+  const branchStats = new Map<string, { count: number; value: number }>();
+
+  invoices.forEach((invoice) => {
+    const branch = invoiceBranch(invoice);
+    if (!branch) return;
+    const current = branchStats.get(branch) || { count: 0, value: 0 };
+    current.count += 1;
+    current.value += invoiceAmount(invoice);
+    branchStats.set(branch, current);
+  });
+
+  const dominantByCount = [...branchStats.entries()].sort((a, b) => b[1].count - a[1].count)[0];
+  const dominantByValue = [...branchStats.entries()].sort((a, b) => b[1].value - a[1].value)[0];
+  const mismatch =
+    Boolean(registered) &&
+    ((latestBranch && latestBranch !== registered) ||
+      (dominantByCount?.[0] && dominantByCount[0] !== registered) ||
+      (dominantByValue?.[0] && dominantByValue[0] !== registered));
+
+  return {
+    registered,
+    latestBranch,
+    dominantByCount,
+    dominantByValue,
+    mismatch,
+  };
+}
+
 // ─── main page ───────────────────────────────────────────────────────────────
 
 export default function Customer360() {
@@ -196,6 +251,8 @@ export default function Customer360() {
   const [specialItems, setSpecialItems] = useState<CustomerSpecialItem[]>([]);
   const [specialItemsSource, setSpecialItemsSource] = useState<'supabase' | 'local'>('local');
   const [specialItemsWarning, setSpecialItemsWarning] = useState<string | null>(null);
+  const [evaluationHistory, setEvaluationHistory] = useState<Array<Record<string, unknown>>>([]);
+  const [evaluationWarning, setEvaluationWarning] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(
@@ -281,6 +338,10 @@ export default function Customer360() {
   // combine timeline invoices with latestInvoices
   const allInvoices = profile?.latestInvoices ?? [];
   const allFollowups = profile?.latestFollowups ?? [];
+  const branchReview = branchAudit(
+    displayBranch,
+    allInvoices as unknown as Array<Record<string, unknown>>
+  );
 
   const specialIdentity = useMemo(
     () => ({
@@ -302,6 +363,44 @@ export default function Customer360() {
   useEffect(() => {
     void loadSpecialItems();
   }, [loadSpecialItems]);
+
+  const loadEvaluationHistory = useCallback(async () => {
+    const identity = {
+      code: displayCode,
+      phone: displayPhone2,
+      name: displayName,
+    };
+    if (!identity.code && !identity.phone && !identity.name) return;
+    const result = await safeRows<Record<string, unknown>>(
+      'conversation_sales_reviews',
+      (query) => query.order('created_at', { ascending: false }),
+      300
+    );
+    if (result.error) {
+      setEvaluationWarning(`تعذر تحميل سجل تقييمات المحادثة: ${result.error}`);
+      setEvaluationHistory([]);
+      return;
+    }
+    setEvaluationWarning(null);
+    setEvaluationHistory(
+      result.rows
+        .filter((row) => {
+          const code = String(row.customer_code || '').trim();
+          const phone = String(row.customer_phone || row.phone || '').trim();
+          const name = String(row.customer_name || '').trim();
+          return (
+            (identity.code && code === identity.code) ||
+            (identity.phone && phone === identity.phone) ||
+            (identity.name && name === identity.name)
+          );
+        })
+        .slice(0, 20)
+    );
+  }, [displayCode, displayName, displayPhone2]);
+
+  useEffect(() => {
+    void loadEvaluationHistory();
+  }, [loadEvaluationHistory]);
 
   async function addSpecialItem() {
     const name = specialItemName.trim();
@@ -458,6 +557,39 @@ export default function Customer360() {
             </div>
           </div>
         </div>
+
+        {branchReview.mismatch && (
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle size={20} className="mt-1 shrink-0 text-amber-300" />
+              <div className="space-y-2 text-sm leading-7">
+                <div className="font-black text-amber-100">
+                  تنبيه مراجعة فرع العميل — بدون أي تعديل تلقائي
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <InfoPill label="الفرع المسجل" value={branchReview.registered || 'غير محدد'} />
+                  <InfoPill label="آخر فاتورة" value={branchReview.latestBranch || 'غير محدد'} />
+                  <InfoPill
+                    label="الأغلب بالعدد"
+                    value={
+                      branchReview.dominantByCount
+                        ? `${branchReview.dominantByCount[0]} (${branchReview.dominantByCount[1].count})`
+                        : 'غير محدد'
+                    }
+                  />
+                  <InfoPill
+                    label="الأغلب بالقيمة"
+                    value={
+                      branchReview.dominantByValue
+                        ? `${branchReview.dominantByValue[0]} (${formatCurrencyEGP(branchReview.dominantByValue[1].value)})`
+                        : 'غير محدد'
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── KPI strip ── */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -764,6 +896,59 @@ export default function Customer360() {
             )}
           </div>
         </div>
+
+        <Section
+          title="سجل تقييمات المحادثة"
+          icon={<ShieldCheck size={18} className="text-cyan-400" />}
+          defaultOpen={false}
+        >
+          {evaluationWarning && (
+            <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm font-bold text-amber-100">
+              {evaluationWarning}
+            </div>
+          )}
+          {!evaluationWarning && evaluationHistory.length === 0 && (
+            <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-4 text-center text-sm font-bold text-[var(--theme-muted)]">
+              لا توجد تقييمات محادثة مرتبطة بهذا العميل في المصدر المتاح.
+            </div>
+          )}
+          <div className="grid gap-2">
+            {evaluationHistory.map((row, index) => {
+              const score = Number(row.final_score ?? row.total_score ?? 0);
+              return (
+                <div
+                  key={String(row.id || index)}
+                  className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-black text-[var(--theme-heading)]">
+                      {String(row.staff_name || row.doctor_name || 'موظف غير محدد')}
+                    </div>
+                    <span
+                      className={
+                        score >= 90
+                          ? 'badge-success'
+                          : score >= 70
+                            ? 'badge-warning'
+                            : 'badge-danger'
+                      }
+                    >
+                      {Number.isFinite(score) ? score : 0}/100
+                    </span>
+                  </div>
+                  <div className="mt-2 text-xs font-bold text-[var(--theme-muted)]">
+                    {formatDateArabic(String(row.conversation_date || row.created_at || ''))}
+                  </div>
+                  {(row.main_negative_reason || row.training_recommendation || row.reviewer_notes) && (
+                    <div className="mt-2 text-sm leading-7 text-[var(--theme-heading)]">
+                      {String(row.main_negative_reason || row.training_recommendation || row.reviewer_notes)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
 
         {/* ── notes section ── */}
         {notes &&

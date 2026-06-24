@@ -77,10 +77,13 @@ export default function DailyCommand() {
     void load();
   }, [load]);
   const k = summary?.kpis;
+  const normalizedKpis = summary?.normalizedKpis;
+  const customerIntelligence = summary?.customerIntelligence;
+  const dataHealth = summary?.dataHealth;
   const sales = k?.netSales ?? null;
   const target = useMemo(
     () =>
-      summary?.dailySales.reduce(
+      summary?.dailySales?.reduce(
         (sum, row) => sum + safeNumber((row as unknown as Row).target_amount),
         0
       ) || null,
@@ -170,7 +173,7 @@ export default function DailyCommand() {
             icon={CheckCircle2}
             label="المتابعات المتأخرة"
             value={
-              k?.overdueFollowups ?? summary?.customerIntelligence.overdueFollowups ?? 'غير متاح'
+              k?.overdueFollowups ?? customerIntelligence?.overdueFollowups ?? 'غير متاح'
             }
           />
           <MetricCard icon={FileText} label="الشكاوى المفتوحة" value={extras.complaints} />
@@ -183,7 +186,7 @@ export default function DailyCommand() {
           <MetricCard
             icon={AlertTriangle}
             label="النواقص والتنبيهات"
-            value={extras.shortages + (summary?.normalizedKpis.urgentNotifications.value || 0)}
+            value={extras.shortages + safeNumber(normalizedKpis?.urgentNotifications?.value)}
             tone="amber"
           />
         </section>
@@ -218,7 +221,7 @@ export default function DailyCommand() {
               {[
                 ['نقاط وخصومات تحتاج اعتماد', extras.pendingApprovals, '/penalty-incentive'],
                 ['طلبات إجازة معلقة', extras.leaveRequests, '/time-off'],
-                ['مشاكل بيانات تحتاج إصلاح', summary?.dataHealth.error ? 1 : 0, '/data-health'],
+                ['مشاكل بيانات تحتاج إصلاح', dataHealth?.error ? 1 : 0, '/data-health'],
                 ['تقييمات تحتاج مراجعة', extras.weakReviews, '/reviews'],
               ].map(([label, value, route]) => (
                 <a

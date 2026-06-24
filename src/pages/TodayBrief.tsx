@@ -12,6 +12,7 @@ import {
   Users,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { isOpenStatus, rowDate, safeNumber, safeRows, safeText } from '@/lib/safeSupabase';
 import { CommandHeader, MetricCard, SectionState } from '@/components/command/CommandUI';
 
 interface TodaySummary {
@@ -33,10 +34,12 @@ export default function TodayBrief() {
   const [data, setData] = useState<TodaySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sourceWarning, setSourceWarning] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setSourceWarning(null);
     try {
       const { data: result, error: err } = await supabase.rpc('get_today_command_summary', {
         p_branch: user?.branch || 'all',
@@ -45,7 +48,21 @@ export default function TodayBrief() {
       if (err) throw err;
       setData(result as TodaySummary);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذر تحميل ملخص اليوم');
+      try {
+        const fallback = await buildFallbackSummary(user?.branch || 'all');
+        setData(fallback);
+        setSourceWarning(
+          `تعذر استخدام دالة ملخص اليوم السريعة؛ تم عرض قراءة آمنة من الجداول المتاحة. السبب: ${
+            e instanceof Error ? e.message : 'مصدر البيانات غير متاح'
+          }`
+        );
+      } catch (fallbackError) {
+        setError(
+          fallbackError instanceof Error
+            ? fallbackError.message
+            : 'تعذر تحميل ملخص اليوم من المصادر المتاحة'
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -60,8 +77,11 @@ export default function TodayBrief() {
   if (!data) return null;
 
   const d = data;
-  const salesFormatted = d.sales_today.toLocaleString('ar-EG');
-  const loadedTime = new Date(d.loaded_at).toLocaleTimeString('ar-EG');
+  const salesFormatted = safeNumber(d.sales_today).toLocaleString('ar-EG');
+  const loadedAt = new Date(d.loaded_at);
+  const loadedTime = Number.isNaN(loadedAt.getTime())
+    ? 'غير محدد'
+    : loadedAt.toLocaleTimeString('ar-EG');
 
   return (
     <div className="space-y-5 p-4" dir="rtl">
@@ -78,6 +98,12 @@ export default function TodayBrief() {
           <RefreshCw size={18} />
         </button>
       </div>
+
+      {sourceWarning && (
+        <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs font-bold leading-6 text-amber-100">
+          {sourceWarning}
+        </div>
+      )}
 
       {/* المبيعات */}
       <section>
@@ -182,4 +208,81 @@ export default function TodayBrief() {
       </div>
     </div>
   );
+}
+
+type SafeRow = Record<string, unknown>;
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+function matchesBranch(row: SafeRow, branch: string) {
+  if (!branch || branch === 'all' || branch === 'الكل') return true;
+  const rowBranch = safeText(row.branch ?? row.branch_name ?? row.store_branch);
+  return !rowBranch || rowBranch === branch;
+}
+
+function rowIsToday(row: SafeRow, keys: string[]) {
+  return rowDate(row, keys) === todayIso();
+}
+
+async function buildFallbackSummary(branch: string): Promise<TodaySummary> {
+  const [invoices, followups, requests, attendance, leaves, shortages, delivery, reviews] =
+    await Promise.all([
+      safeRows<SafeRow>('sales_invoices', undefined, 300),
+      safeRows<SafeRow>('followups', undefined, 300),
+      safeRows<SafeRow>('customer_requests', undefined, 300),
+      safeRows<SafeRow>('attendance_records', undefined, 300),
+      safeRows<SafeRow>('time_off_requests', undefined, 300),
+      safeRows<SafeRow>('shortages', undefined, 300),
+      safeRows<SafeRow>('delivery_orders', undefined, 300),
+      safeRows<SafeRow>('conversation_sales_reviews', undefined, 300),
+    ]);
+
+  const todayInvoices = invoices.rows.filter(
+    (row) =>
+      matchesBranch(row, branch) &&
+      rowIsToday(row, ['invoice_date', 'sale_date', 'created_at', 'date'])
+  );
+  const todayReviews = reviews.rows.filter((row) =>
+    rowIsToday(row, ['review_date', 'created_at', 'date'])
+  );
+
+  return {
+    sales_today: todayInvoices.reduce(
+      (sum, row) => sum + safeNumber(row.net_total ?? row.total_amount ?? row.amount ?? row.total),
+      0
+    ),
+    invoices_count: todayInvoices.length,
+    open_followups: followups.rows.filter(
+      (row) => matchesBranch(row, branch) && isOpenStatus(row.followup_status ?? row.status)
+    ).length,
+    open_complaints: requests.rows.filter(
+      (row) =>
+        matchesBranch(row, branch) &&
+        isOpenStatus(row.status) &&
+        /complaint|شكوى/i.test(safeText(row.type ?? row.request_type))
+    ).length,
+    staff_present: attendance.rows.filter(
+      (row) =>
+        matchesBranch(row, branch) &&
+        rowIsToday(row, ['attendance_date', 'date', 'created_at']) &&
+        /present|حاضر/i.test(safeText(row.status ?? row.attendance_status))
+    ).length,
+    pending_leaves: leaves.rows.filter((row) =>
+      /pending|معلق|بانتظار/i.test(safeText(row.status))
+    ).length,
+    open_shortages: shortages.rows.filter(
+      (row) => matchesBranch(row, branch) && isOpenStatus(row.status)
+    ).length,
+    pending_delivery: delivery.rows.filter(
+      (row) => matchesBranch(row, branch) && isOpenStatus(row.status)
+    ).length,
+    weak_reviews: todayReviews.filter((row) => {
+      const score = safeNumber(row.final_score ?? row.score ?? row.percentage);
+      return score > 0 && score < 70;
+    }).length,
+    staff_leaves: leaves.rows.filter((row) =>
+      rowIsToday(row, ['date', 'date_start', 'created_at'])
+    ).length,
+    loaded_at: new Date().toISOString(),
+  };
 }

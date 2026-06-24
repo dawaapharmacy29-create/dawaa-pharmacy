@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Award, ClipboardCheck, RefreshCw, Star, Users } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { CommandHeader, MetricCard, SectionState } from '@/components/command/CommandUI';
 import { calculateMonthlyIncentive, FREE_PERMISSIONS_PER_CYCLE, MONTHLY_STARTING_POINTS } from '@/lib/incentives/incentiveRulesEngine';
+import { safeNumber, safeRows, safeText } from '@/lib/safeSupabase';
 
 type KpiRow = {
   staff_id: string;
@@ -29,29 +29,47 @@ function monthlyBreakdown(row: KpiRow) {
   });
 }
 
+function normalizeKpiRow(row: Record<string, unknown>): KpiRow {
+  return {
+    staff_id: safeText(row.staff_id ?? row.id ?? row.staff_name, crypto.randomUUID()),
+    staff_name: safeText(row.staff_name ?? row.name, 'غير محدد'),
+    branch: safeText(row.branch, 'غير محدد'),
+    role: safeText(row.role, 'غير محدد'),
+    reward_points: safeNumber(row.reward_points),
+    penalty_points: safeNumber(row.penalty_points),
+    avg_review_score: safeNumber(row.avg_review_score),
+    review_count: safeNumber(row.review_count),
+    days_present: safeNumber(row.days_present),
+    days_absent: safeNumber(row.days_absent),
+    tasks_done: safeNumber(row.tasks_done),
+    tasks_open: safeNumber(row.tasks_open),
+    total_score: safeNumber(row.total_score),
+    approved_permissions: safeNumber(row.approved_permissions),
+  };
+}
+
 export default function EmployeeKpi() {
   const [rows, setRows] = useState<KpiRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [sourceIssue, setSourceIssue] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [branch, setBranch] = useState('الكل');
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
-    try {
-      const { data, error } = await supabase
-        .from('employee_kpi_cycle_summary')
-        .select('*')
-        .order('total_score', { ascending: false });
-
-      if (error) throw error;
-      setRows((data || []) as KpiRow[]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر تحميل مؤشرات الأداء');
-    } finally {
-      setLoading(false);
+    setSourceIssue(null);
+    const result = await safeRows<Record<string, unknown>>(
+      'employee_kpi_cycle_summary',
+      (query) => query.order('total_score', { ascending: false }),
+      500
+    );
+    setRows(result.rows.map(normalizeKpiRow));
+    if (result.error) {
+      setSourceIssue(
+        `مصدر KPI الموظفين غير متاح أو يحتاج مراجعة: ${result.error}. لم يتم تغيير أي بيانات.`
+      );
     }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -61,7 +79,11 @@ export default function EmployeeKpi() {
   const branches = [...new Set(rows.map((r) => r.branch).filter(Boolean))];
   const filtered = rows.filter((r) => {
     const branchMatch = branch === 'الكل' || r.branch === branch;
-    const searchMatch = !search || r.staff_name.toLowerCase().includes(search.toLowerCase());
+    const query = search.trim().toLowerCase();
+    const searchMatch =
+      !query ||
+      safeText(r.staff_name).toLowerCase().includes(query) ||
+      safeText(r.role).toLowerCase().includes(query);
     return branchMatch && searchMatch;
   });
 
@@ -140,7 +162,13 @@ export default function EmployeeKpi() {
       </section>
 
       {/* الجدول */}
-      <SectionState loading={loading} error={error} empty={!rows.length}>
+      {sourceIssue && (
+        <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm font-bold leading-7 text-amber-100">
+          {sourceIssue}
+        </div>
+      )}
+
+      <SectionState loading={loading} empty={!rows.length}>
         <section className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-800/50">
           <table className="w-full text-sm">
             <thead className="border-b border-slate-700 bg-slate-900/50">

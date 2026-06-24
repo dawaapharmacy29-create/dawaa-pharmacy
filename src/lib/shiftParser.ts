@@ -6,6 +6,9 @@ export interface ParsedShift {
   end: string | null;
   hours: number | null;
   raw: string;
+  writtenHours?: number | null;
+  warnings?: string[];
+  errors?: string[];
 }
 
 export interface ParsedStaffShifts {
@@ -13,6 +16,21 @@ export interface ParsedStaffShifts {
   role: 'doctor' | 'assistant' | 'delivery' | 'staff';
   branch: string;
   shifts: Record<string, ParsedShift>;
+}
+
+export interface ScheduleImportIssue {
+  level: 'error' | 'warning';
+  staffName: string;
+  branch: string;
+  day: string;
+  message: string;
+  raw?: string;
+}
+
+export interface ScheduleImportValidation {
+  errors: ScheduleImportIssue[];
+  warnings: ScheduleImportIssue[];
+  valid: boolean;
 }
 
 export interface ParsedScheduleImport {
@@ -23,9 +41,14 @@ export interface ParsedScheduleImport {
   offCount: number;
   deliveryCount: number;
   doctorCount: number;
+  validation: ScheduleImportValidation;
 }
 
 const DAYS = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+
+function normalizeAmPm(value: string) {
+  return value.replace('ص', 'AM').replace('م', 'PM').toUpperCase();
+}
 
 function toHour(hour: string, ampm: string) {
   const normalized = hour.replace(',', '.');
@@ -36,8 +59,9 @@ function toHour(hour: string, ampm: string) {
       minutePart === '5' ? 30 : Number.parseInt(minutePart.padEnd(2, '0').slice(0, 2), 10);
     if (Number.isFinite(minutes)) value += minutes / 60;
   }
-  if (ampm.toUpperCase() === 'PM' && value !== 12) value += 12;
-  if (ampm.toUpperCase() === 'AM' && value === 12) value = 0;
+  const suffix = normalizeAmPm(ampm);
+  if (suffix === 'PM' && value !== 12) value += 12;
+  if (suffix === 'AM' && value === 12) value = 0;
   return value;
 }
 
@@ -47,27 +71,64 @@ function formatHour(value: number) {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
+function writtenHoursFromText(text: string) {
+  const match = text.match(/\((\d{1,2}(?:[.,]\d+)?)\s*(?:h|hr|hrs|ساعة|س)\)/i);
+  if (!match) return null;
+  const value = Number(String(match[1]).replace(',', '.'));
+  return Number.isFinite(value) ? value : null;
+}
+
 export function parseShiftTime(raw: unknown): ParsedShift | null {
   const text = String(raw ?? '').trim();
   if (!text) return null;
-  if (/إجازة|اجازة|off|راحة|غياب/i.test(text))
+  if (/إجازة|اجازة|off|راحة|غياب/i.test(text)) {
     return { isOff: true, start: null, end: null, hours: null, raw: text };
+  }
+
   const match = text.match(
     /(\d{1,2}(?:[.,]\d+)?)\s*(AM|PM|ص|م)\s*(?:→|->|-|الى|إلى)\s*(\d{1,2}(?:[.,]\d+)?)\s*(AM|PM|ص|م)/i
   );
-  if (!match) return { isOff: false, start: text, end: null, hours: null, raw: text };
-  const startAmpm = match[2].replace('ص', 'AM').replace('م', 'PM');
-  const endAmpm = match[4].replace('ص', 'AM').replace('م', 'PM');
+  if (!match) {
+    return {
+      isOff: false,
+      start: text,
+      end: null,
+      hours: null,
+      raw: text,
+      errors: ['وقت البداية أو النهاية غير واضح'],
+    };
+  }
+
+  const startAmpm = normalizeAmPm(match[2]);
+  const endAmpm = normalizeAmPm(match[4]);
   const startH = toHour(match[1], startAmpm);
   const endH = toHour(match[3], endAmpm);
   let hours = endH - startH;
   if (hours <= 0) hours += 24;
+  const roundedHours = Number(hours.toFixed(1));
+  const writtenHours = writtenHoursFromText(text);
+  const warnings: string[] = [];
+  const errors: string[] = [];
+
+  if (roundedHours > 12) {
+    errors.push(`مدة الشيفت المحسوبة ${roundedHours} ساعة وتتجاوز الحد الآمن 12 ساعة`);
+  }
+  if (writtenHours !== null && Math.abs(writtenHours - roundedHours) >= 0.25) {
+    warnings.push(`المدة المكتوبة ${writtenHours} ساعة لا تطابق المحسوبة ${roundedHours} ساعة`);
+  }
+  if (roundedHours >= 18 || (match[3] === '12' && endAmpm === 'PM' && roundedHours > 12)) {
+    warnings.push('احتمال خطأ AM/PM، راجع 12 PM مقابل 12 AM');
+  }
+
   return {
     isOff: false,
     start: formatHour(startH),
     end: formatHour(endH),
-    hours: Number(hours.toFixed(1)),
+    hours: roundedHours,
     raw: text,
+    writtenHours,
+    warnings,
+    errors,
   };
 }
 
@@ -88,7 +149,6 @@ function cleanStaffName(value: unknown) {
 function branchFromSheet(sheetName: string) {
   if (/شامي|الشامي|الشامى/i.test(sheetName)) return 'فرع الشامي';
   if (/أبو العزم|ابو العزم|العزم|شكري|شكرى/i.test(sheetName)) return 'فرع شكري';
-  if (/شكري|شكرى/i.test(sheetName)) return 'فرع شكري';
   return sheetName || 'غير محدد';
 }
 
@@ -105,15 +165,18 @@ export function parseExcelShifts(rows: unknown[][], branch = 'غير محدد'):
     if (detectedRole !== 'staff') role = detectedRole;
     if (/الدكاترة|الصيادلة/i.test(rowText)) role = 'doctor';
     if (/الدليفري|التوصيل|مندوب/i.test(rowText)) role = 'delivery';
+
     if (first === 'اليوم') {
       headerRow = row;
       row.slice(2).forEach((cell) => {
         const name = cleanStaffName(cell);
-        if (name && name !== 'NaN' && !staff.has(name))
+        if (name && name !== 'NaN' && !staff.has(name)) {
           staff.set(name, { name, role, branch, shifts: {} });
+        }
       });
       continue;
     }
+
     if (headerRow && DAYS.includes(first)) {
       headerRow.slice(2).forEach((cell, index) => {
         const name = cleanStaffName(cell);
@@ -121,6 +184,12 @@ export function parseExcelShifts(rows: unknown[][], branch = 'غير محدد'):
         const shift = parseShiftTime(row[index + 2]);
         if (!shift) return;
         const current = staff.get(name) || { name, role, branch, shifts: {} };
+        if (current.shifts[first]) {
+          current.shifts[first].warnings = [
+            ...(current.shifts[first].warnings || []),
+            'يوجد تكرار لنفس الموظف في نفس اليوم؛ سيتم عرض آخر شيفت مقروء في المعاينة',
+          ];
+        }
         current.shifts[first] = shift;
         staff.set(name, current);
       });
@@ -153,5 +222,61 @@ export async function parseScheduleImport(file: File): Promise<ParsedScheduleImp
     offCount: shifts.filter((shift) => shift.isOff).length,
     deliveryCount: staff.filter((item) => item.role === 'delivery').length,
     doctorCount: staff.filter((item) => item.role === 'doctor').length,
+    validation: validateScheduleImport(staff),
   };
+}
+
+export function validateScheduleImport(staff: ParsedStaffShifts[]): ScheduleImportValidation {
+  const issues: ScheduleImportIssue[] = [];
+
+  staff.forEach((person) => {
+    Object.entries(person.shifts).forEach(([day, shift]) => {
+      if (shift.isOff) return;
+
+      if (!shift.start || !shift.end) {
+        issues.push({
+          level: 'error',
+          staffName: person.name,
+          branch: person.branch,
+          day,
+          message: 'وقت البداية أو النهاية ناقص',
+          raw: shift.raw,
+        });
+      }
+      if (shift.hours !== null && shift.hours > 12) {
+        issues.push({
+          level: 'error',
+          staffName: person.name,
+          branch: person.branch,
+          day,
+          message: `مدة الشيفت ${shift.hours} ساعة وتتجاوز الحد الأقصى 12 ساعة`,
+          raw: shift.raw,
+        });
+      }
+      (shift.errors || []).forEach((message) =>
+        issues.push({
+          level: 'error',
+          staffName: person.name,
+          branch: person.branch,
+          day,
+          message,
+          raw: shift.raw,
+        })
+      );
+      (shift.warnings || []).forEach((message) =>
+        issues.push({
+          level: 'warning',
+          staffName: person.name,
+          branch: person.branch,
+          day,
+          message,
+          raw: shift.raw,
+        })
+      );
+    });
+  });
+
+  const errors = issues.filter((issue) => issue.level === 'error');
+  const warnings = issues.filter((issue) => issue.level === 'warning');
+  return { errors, warnings, valid: errors.length === 0 };
 }

@@ -223,6 +223,10 @@ export default function Schedule() {
 
   const handleSavePreview = async () => {
     if (!preview) return;
+    if (!preview.validation.valid) {
+      toast.error('يوجد أخطاء في ملف الشيفتات. راجع تقرير التحقق قبل الحفظ.');
+      return;
+    }
     if (!window.confirm('سيتم حفظ بيانات الفريق والشيفتات المقروءة من الملف. هل تريد المتابعة؟'))
       return;
     setSaving(true);
@@ -235,6 +239,31 @@ export default function Schedule() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const exportValidationReport = () => {
+    if (!preview) return;
+    const issues = [...preview.validation.errors, ...preview.validation.warnings];
+    const csv = [
+      ['level', 'staffName', 'branch', 'day', 'message', 'raw'],
+      ...issues.map((issue) => [
+        issue.level,
+        issue.staffName,
+        issue.branch,
+        issue.day,
+        issue.message,
+        issue.raw || '',
+      ]),
+    ]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `schedule-validation-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -297,6 +326,46 @@ export default function Schedule() {
               <MiniStat label="شيفتات" value={preview.shiftCount} />
               <MiniStat label="إجازات" value={preview.offCount} />
             </div>
+            {(preview.validation.errors.length > 0 || preview.validation.warnings.length > 0) && (
+              <div className="mb-4 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4">
+                <div className="mb-2 text-sm font-black text-amber-100">
+                  تقرير التحقق قبل الحفظ: {preview.validation.errors.length} أخطاء ·{' '}
+                  {preview.validation.warnings.length} تحذيرات
+                </div>
+                <div className="max-h-48 space-y-2 overflow-y-auto text-xs leading-6">
+                  {[...preview.validation.errors, ...preview.validation.warnings]
+                    .slice(0, 30)
+                    .map((issue, index) => (
+                      <div
+                        key={`${issue.level}-${issue.staffName}-${issue.day}-${index}`}
+                        className={
+                          issue.level === 'error'
+                            ? 'rounded-xl border border-red-400/25 bg-red-500/10 p-2 text-red-100'
+                            : 'rounded-xl border border-amber-400/25 bg-amber-500/10 p-2 text-amber-100'
+                        }
+                      >
+                        <b>{issue.level === 'error' ? 'خطأ' : 'تحذير'}:</b> {issue.staffName} ·{' '}
+                        {issue.branch} · {issue.day} — {issue.message}
+                        {issue.raw ? (
+                          <span className="block text-slate-300">القيمة: {issue.raw}</span>
+                        ) : null}
+                      </div>
+                    ))}
+                </div>
+                {preview.validation.errors.length > 0 && (
+                  <div className="mt-3 text-xs font-bold text-red-100">
+                    لن يتم الحفظ قبل إصلاح الأخطاء حتى لا تتلف الجداول الحالية.
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={exportValidationReport}
+                  className="btn-secondary mt-3 px-3 py-2 text-xs"
+                >
+                  تصدير تقرير التحقق CSV
+                </button>
+              </div>
+            )}
             <table className="data-table">
               <thead>
                 <tr>

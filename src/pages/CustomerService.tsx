@@ -91,6 +91,21 @@ const PRIMARY_TABS: Array<[TabId, string]> = [
   ['add', 'إضافة متابعة'],
 ];
 
+const QUICK_FILTERS = [
+  ['all', 'كل العملاء'],
+  ['vip', 'VIP'],
+  ['important', 'مهم'],
+  ['stopped', 'متوقف'],
+  ['overdue', 'متأخر'],
+  ['not_contacted', 'لم يتم التواصل'],
+  ['contacted', 'تم التواصل'],
+  ['postponed', 'مؤجل'],
+  ['needs_manager', 'يحتاج مدير'],
+  ['no_phone', 'بدون رقم صحيح'],
+] as const;
+
+type QuickFilter = (typeof QUICK_FILTERS)[number][0];
+
 const ADDITIONAL_TOOLS: Array<{ id: TabId; label: string; href?: string }> = [
   { id: 'performance', label: 'تحليل خدمة العملاء' },
   { id: 'doctor', label: 'أداء الدكتور' },
@@ -231,11 +246,38 @@ function priorityScore(row: FollowupRow) {
   return score;
 }
 
+function matchesQuickFilter(row: FollowupRow, filter: QuickFilter) {
+  if (filter === 'all') return true;
+  const status = statusOf(row);
+  const segment = segmentOf(row);
+  const customerStatus = customerStatusOf(row);
+  const priority = String(row.priority || '');
+  if (filter === 'vip') return /vip|مهم جدا|مميز/i.test(`${segment} ${priority}`);
+  if (filter === 'important') return /مهم|عاجل|high|urgent/i.test(priority);
+  if (filter === 'stopped') return /متوقف|stop|inactive/i.test(customerStatus);
+  if (filter === 'overdue') return isOverdue(row);
+  if (filter === 'not_contacted') return /لم يرد|لم يتم|not contacted/i.test(status);
+  if (filter === 'contacted') return /تم|completed|contacted/i.test(status) && !isCompleted(row);
+  if (filter === 'postponed') return Boolean(row.postponed_until) || /مؤجل/i.test(status);
+  if (filter === 'needs_manager') return Boolean(row.needs_manager) || /مدير/i.test(status);
+  if (filter === 'no_phone') return !phoneOf(row);
+  return true;
+}
+
 function scriptFor(row: FollowupRow) {
   const name = customerName(row);
   const reason = row.request_details || row.followup_reason || row.suggested_action || recommendedAction(row);
   const last = lastPurchaseOf(row) ? `\nآخر تعامل كان بتاريخ ${formatDate(lastPurchaseOf(row))}.` : '';
   return `السلام عليكم ${name}\nمع حضرتك صيدليات دواء.\nكنا بنتابع مع حضرتك بخصوص ${reason}.${last}\nهل في أي حاجة نقدر نساعد حضرتك فيها؟`;
+}
+
+function customer360Url(row: FollowupRow) {
+  return `/customer-360?${new URLSearchParams({
+    code: row.customer_code || '',
+    id: row.customer_id || '',
+    phone: phoneOf(row),
+    name: customerName(row),
+  }).toString()}`;
 }
 
 function customerFrom(row: FollowupRow): Customer {
@@ -295,6 +337,8 @@ export default function CustomerService() {
   const [error, setError] = useState<string | null>(null);
   const [branch, setBranch] = useState(dashboardBranch ? normalizeBranchName(dashboardBranch) : ALL_FILTER);
   const [status, setStatus] = useState(ALL_FILTER);
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  const [assignedFilter, setAssignedFilter] = useState(ALL_FILTER);
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -395,7 +439,7 @@ export default function CustomerService() {
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [activeTab, branch, status, debouncedSearch]);
+  }, [activeTab, branch, status, debouncedSearch, quickFilter, assignedFilter]);
 
   const stats = useMemo(() => calculateFollowupStats(rows), [rows]);
   const assignedRows = useMemo(
@@ -420,7 +464,18 @@ export default function CustomerService() {
     if (activeTab === 'history') return rows;
     return rows.filter((row) => !isCompleted(row));
   }, [activeTab, assignedRows, rows]);
-  const visibleRows = tabRows.slice(0, visibleCount);
+  const filteredTabRows = useMemo(
+    () =>
+      tabRows.filter((row) => {
+        const responsible = responsibleOf(row);
+        return (
+          matchesQuickFilter(row, quickFilter) &&
+          (assignedFilter === ALL_FILTER || responsible === assignedFilter)
+        );
+      }),
+    [assignedFilter, quickFilter, tabRows]
+  );
+  const visibleRows = filteredTabRows.slice(0, visibleCount);
   const staff = useMemo(
     () =>
       [
@@ -524,6 +579,22 @@ export default function CustomerService() {
     }
   };
 
+  const addQuickNote = async (row: FollowupRow) => {
+    const note = window.prompt('اكتب ملاحظة المتابعة الجديدة');
+    if (!note?.trim()) return;
+    try {
+      const updated = await updateFollowupResult(row.id, {
+        followup_notes: [row.followup_notes, note.trim()].filter(Boolean).join('\n'),
+        updated_by: userId || userName,
+      });
+      setRows((current) => current.map((item) => (item.id === row.id ? { ...item, ...updated } : item)));
+      setSelectedRow((current) => (current?.id === row.id ? { ...current, ...updated } : current));
+      toast.success('تم حفظ الملاحظة');
+    } catch (noteError) {
+      toast.error(noteError instanceof Error ? noteError.message : 'تعذر حفظ الملاحظة');
+    }
+  };
+
   const generateToday = async () => {
     setGenerating(true);
     try {
@@ -606,13 +677,15 @@ export default function CustomerService() {
         </div>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-        <StatCard label="المسند" value={stats.totalToday} tone="cyan" />
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+        <StatCard label="متابعات اليوم" value={stats.totalToday} tone="cyan" />
         <StatCard label="المكتمل" value={stats.completed} tone="emerald" />
         <StatCard label="لم يرد" value={stats.noAnswer} tone="amber" />
+        <StatCard label="مؤجل" value={rows.filter((row) => Boolean(row.postponed_until) || statusOf(row).includes('مؤجل')).length} tone="cyan" />
+        <StatCard label="يحتاج مدير" value={rows.filter((row) => row.needs_manager || statusOf(row).includes('مدير')).length} tone="rose" />
         <StatCard label="متأخر" value={stats.overdue} tone="rose" />
-        <StatCard label="استرجاع شراء" value={recoveredCount} tone="emerald" />
-        <StatCard label="أرقام تحتاج مراجعة" value={invalidPhoneCount} tone="amber" />
+        <StatCard label="بدون رقم صحيح" value={invalidPhoneCount} tone="amber" />
+        <StatCard label="تحول لبيع" value={recoveredCount} tone="emerald" />
       </section>
 
       <section className="dawaa-panel">
@@ -628,6 +701,13 @@ export default function CustomerService() {
             <span className="text-xs font-black text-slate-400">حالة المتابعة</span>
             <select value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark">
               {STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label className="min-w-0 space-y-1">
+            <span className="text-xs font-black text-slate-400">المسؤول</span>
+            <select value={assignedFilter} onChange={(e) => setAssignedFilter(e.target.value)} className="input-dark">
+              <option value={ALL_FILTER}>كل المسؤولين</option>
+              {doctorOptions.map((name) => <option key={name} value={name}>{name}</option>)}
             </select>
           </label>
           <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-900/70 p-3 text-xs font-bold text-slate-300">
@@ -646,6 +726,22 @@ export default function CustomerService() {
               />
             </div>
           </label>
+        </div>
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          {QUICK_FILTERS.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setQuickFilter(id)}
+              className={
+                quickFilter === id
+                  ? 'shrink-0 rounded-full border border-cyan-400 bg-cyan-500/15 px-3 py-1.5 text-xs font-black text-cyan-100'
+                  : 'shrink-0 rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-bold text-slate-300 hover:border-cyan-400/40'
+              }
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </section>
 
@@ -707,7 +803,7 @@ export default function CustomerService() {
           {cardsTabs.includes(activeTab) ? (
             <>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-300">
-                <span>يتم عرض {visibleRows.length} من {tabRows.length} متابعة لتخفيف المتصفح.</span>
+                <span>يتم عرض {visibleRows.length} من {filteredTabRows.length} متابعة لتخفيف المتصفح.</span>
                 {refreshing && <span className="text-cyan-300">تحديث...</span>}
               </div>
               <div className="grid gap-3 2xl:grid-cols-2">
@@ -726,7 +822,7 @@ export default function CustomerService() {
                 ))}
               </div>
               {!visibleRows.length && <EmptyState />}
-              {visibleCount < tabRows.length && (
+              {visibleCount < filteredTabRows.length && (
                 <div className="mt-5 text-center">
                   <button onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} className="btn-secondary">
                     عرض المزيد
@@ -787,6 +883,27 @@ export default function CustomerService() {
               </div>
 
               <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
+                <h4 className="mb-3 font-black text-white">قرار المتابعة السريع</h4>
+                <div className="grid gap-2 text-sm text-slate-300">
+                  <InfoRow label="سبب المتابعة" value={selectedRow.followup_reason || selectedRow.request_details || 'غير محدد'} />
+                  <InfoRow label="الإجراء المقترح" value={selectedRow.suggested_action || recommendedAction(selectedRow)} />
+                  <InfoRow label="حالة التواصل السابقة" value={selectedRow.contact_status || selectedRow.contact_result || statusOf(selectedRow)} />
+                  <InfoRow
+                    label="الخطوة القادمة"
+                    value={
+                      selectedRow.needs_manager
+                        ? 'تصعيد للمدير'
+                        : isOverdue(selectedRow)
+                          ? 'تواصل عاجل اليوم'
+                          : selectedRow.postponed_until
+                            ? `متابعة مؤجلة: ${formatDateTime(selectedRow.postponed_until)}`
+                            : 'تسجيل نتيجة التواصل'
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
                 <h4 className="mb-2 font-black text-white">ملاحظات قبل التواصل</h4>
                 <p className="text-sm leading-7 text-slate-300">
                   {selectedRow.handling_notes || selectedRow.service_notes || selectedRow.whatsapp_notes || selectedRow.customer_notes || selectedRow.notes || 'لا توجد ملاحظات مسجلة.'}
@@ -800,6 +917,7 @@ export default function CustomerService() {
                 <a className="btn-secondary text-center" href={generateWhatsAppLink(phoneOf(selectedRow), scriptFor(selectedRow))} target="_blank" rel="noreferrer"><MessageSquare className="ml-1 inline h-4 w-4" /> واتساب</a>
                 <a className="btn-secondary text-center" href={`tel:${phoneOf(selectedRow)}`}><PhoneCall className="ml-1 inline h-4 w-4" /> اتصال</a>
                 <button className="btn-secondary" onClick={() => void postpone(selectedRow)}><CalendarClock className="ml-1 inline h-4 w-4" /> تأجيل</button>
+                <button className="btn-secondary" onClick={() => void addQuickNote(selectedRow)}><Clipboard className="ml-1 inline h-4 w-4" /> إضافة ملاحظة</button>
                 <button className="btn-secondary" onClick={() => void escalateToManager(selectedRow)}><ShieldAlert className="ml-1 inline h-4 w-4" /> يحتاج مدير</button>
               </div>
             </div>
@@ -946,7 +1064,9 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
         <div className="min-w-0">
           <h3 className="truncate text-lg font-black text-white">{customerName(row)}</h3>
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
-            <span>{text(row.customer_code || phone, 'بدون كود')}</span>
+            <span>{text(row.customer_code, 'بدون كود')}</span>
+            <span>·</span>
+            <span>{phone || 'بدون رقم صحيح'}</span>
             <span>·</span>
             <span>{text(row.branch)}</span>
           </div>
@@ -967,9 +1087,10 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
       <p className="mt-3 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-3 text-sm leading-6 text-slate-300">
         {row.followup_reason || row.request_details || row.suggested_action || recommendedAction(row)}
       </p>
-      <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6" onClick={(event) => event.stopPropagation()}>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-7" onClick={(event) => event.stopPropagation()}>
         <button className="btn-primary px-3 py-2 text-xs" onClick={onResult}><CheckCircle2 className="ml-1 inline h-3.5 w-3.5" /> نتيجة</button>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onDetails}><Eye className="ml-1 inline h-3.5 w-3.5" /> التفاصيل</button>
+        <a className="btn-secondary px-3 py-2 text-center text-xs" href={customer360Url(row)}><Eye className="ml-1 inline h-3.5 w-3.5" /> 360</a>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onCopy}><Clipboard className="ml-1 inline h-3.5 w-3.5" /> نسخ</button>
         <a className="btn-secondary px-3 py-2 text-center text-xs" href={generateWhatsAppLink(phone, scriptFor(row))} target="_blank" rel="noreferrer"><MessageSquare className="ml-1 inline h-3.5 w-3.5" /> واتساب</a>
         <a className="btn-secondary px-3 py-2 text-center text-xs" href={`tel:${phone}`}><PhoneCall className="ml-1 inline h-3.5 w-3.5" /> اتصال</a>

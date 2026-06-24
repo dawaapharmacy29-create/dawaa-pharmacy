@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { notifyCustomerServiceResponsible } from '@/lib/notificationService';
 
 type CustomerPayload = {
   name: string;
@@ -31,6 +33,7 @@ export default function QuickCustomerCodingModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -98,8 +101,19 @@ export default function QuickCustomerCodingModal({
 
       reset();
       window.dispatchEvent(new CustomEvent('dataChanged', { detail: { table: 'customers' } }));
+      void notifyCustomerServiceResponsible({
+        title: 'طلب تكويد عميل',
+        message: `تم تسجيل ${cleanName} ويحتاج مراجعة/ترحيب من خدمة العملاء.`,
+        type: 'customer_alert',
+        priority: 'normal',
+        target_type: 'customer',
+        target_id: customerId ? String(customerId) : cleanPhone,
+        target_route: `/customer-coding?phone=${encodeURIComponent(cleanPhone)}`,
+        metadata: { customer_name: cleanName, customer_phone: cleanPhone },
+      });
       notify('success', existingId ? 'تم تحديث بيانات العميل بنجاح' : 'تم حفظ العميل بنجاح');
       onClose();
+      navigate(`/customer-coding?phone=${encodeURIComponent(cleanPhone)}`);
     } catch (error) {
       console.error('Failed to save customer:', error);
       notify('error', 'تعذر حفظ بيانات العميل');
