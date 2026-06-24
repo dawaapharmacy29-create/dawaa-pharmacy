@@ -20,7 +20,7 @@ import {
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { ALL_FILTER } from '@/lib/api/customers';
-import {
+import { searchCustomerMetrics,
   calculateFollowupStats,
   calculateTeamPerformance,
   createExceptionalFollowup,
@@ -102,6 +102,7 @@ const QUICK_FILTERS = [
   ['postponed', 'مؤجل'],
   ['needs_manager', 'يحتاج مدير'],
   ['no_phone', 'بدون رقم صحيح'],
+  ['exceptional', 'متابعة استثنائية'],
 ] as const;
 
 type QuickFilter = (typeof QUICK_FILTERS)[number][0];
@@ -131,7 +132,29 @@ type AddFollowupForm = {
   reason: string;
   priority: string;
   due: string;
+  result: string;
+  nextDue: string;
+  selectedCustomer?: ExceptionalCustomerSearchResult | null;
 };
+
+type ExceptionalCustomerSearchResult = {
+  id?: string | number | null;
+  customer_id?: string | number | null;
+  code?: string | number | null;
+  customer_code?: string | number | null;
+  name?: string | null;
+  customer_name?: string | null;
+  client_name?: string | null;
+  phone?: string | null;
+  customer_phone?: string | null;
+  mobile?: string | null;
+  branch?: string | null;
+  total_purchases?: number | null;
+  monthly_avg?: number | null;
+  last_purchase_date?: string | null;
+  [key: string]: unknown;
+};
+
 
 function text(value: unknown, fallback = 'غير محدد') {
   return String(value ?? '').trim() || fallback;
@@ -246,6 +269,24 @@ function priorityScore(row: FollowupRow) {
   return score;
 }
 
+
+function exceptionalCustomerName(customer: ExceptionalCustomerSearchResult | null | undefined) {
+  return String(customer?.customer_name || customer?.name || customer?.client_name || '').trim();
+}
+
+function exceptionalCustomerPhone(customer: ExceptionalCustomerSearchResult | null | undefined) {
+  return String(customer?.customer_phone || customer?.phone || customer?.mobile || '').trim();
+}
+
+function exceptionalCustomerCode(customer: ExceptionalCustomerSearchResult | null | undefined) {
+  const value = customer?.customer_code || customer?.code || customer?.id || customer?.customer_id || '';
+  return String(value).trim();
+}
+
+function exceptionalCustomerBranch(customer: ExceptionalCustomerSearchResult | null | undefined) {
+  return String(customer?.branch || '').trim();
+}
+
 function matchesQuickFilter(row: FollowupRow, filter: QuickFilter) {
   if (filter === 'all') return true;
   const status = statusOf(row);
@@ -261,14 +302,16 @@ function matchesQuickFilter(row: FollowupRow, filter: QuickFilter) {
   if (filter === 'postponed') return Boolean(row.postponed_until) || /مؤجل/i.test(status);
   if (filter === 'needs_manager') return Boolean(row.needs_manager) || /مدير/i.test(status);
   if (filter === 'no_phone') return !phoneOf(row);
+  if (filter === 'exceptional') return /استثنائية|exceptional/i.test(`${row.request_type || ''} ${row.followup_type || ''} ${row.followup_reason || ''} ${row.notes || ''}`);
   return true;
 }
 
 function scriptFor(row: FollowupRow) {
-  const name = customerName(row);
   const reason = row.request_details || row.followup_reason || row.suggested_action || recommendedAction(row);
   const last = lastPurchaseOf(row) ? `\nآخر تعامل كان بتاريخ ${formatDate(lastPurchaseOf(row))}.` : '';
-  return `السلام عليكم ${name}\nمع حضرتك صيدليات دواء.\nكنا بنتابع مع حضرتك بخصوص ${reason}.${last}\nهل في أي حاجة نقدر نساعد حضرتك فيها؟`;
+  return `أهلا بحضرتك، مع حضرتك خدمة عملاء صيدليات دواء.
+بنطمن على حضرتك وبنتابع بخصوص ${reason}.${last}
+نتشرف بخدمة حضرتك دائمًا.`;
 }
 
 function customer360Url(row: FollowupRow) {
@@ -323,6 +366,111 @@ function LazyState({ children }: { children: React.ReactNode }) {
   );
 }
 
+
+type ExceptionalCustomerSearchBoxProps = {
+  branch?: string | null;
+  onSelect: (customer: ExceptionalCustomerSearchResult) => void;
+};
+
+function ExceptionalCustomerSearchBox({ branch, onSelect }: ExceptionalCustomerSearchBoxProps) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<ExceptionalCustomerSearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<ExceptionalCustomerSearchResult | null>(null);
+
+  const runSearch = async () => {
+    const normalizedQuery = query.trim();
+    if (normalizedQuery.length < 2) {
+      toast.error('اكتب اسم العميل أو الكود أو رقم الهاتف');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await searchCustomerMetrics(normalizedQuery, branch || undefined);
+      const list = Array.isArray(data) ? (data as ExceptionalCustomerSearchResult[]) : [];
+      setResults(list);
+      if (list.length === 0) toast.info('لم يتم العثور على العميل، يمكن إضافته يدويًا');
+    } catch (error) {
+      console.error('[CustomerService] exceptional customer search failed', error);
+      toast.error('تعذر البحث في قائمة العملاء');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectCustomer = (customer: ExceptionalCustomerSearchResult) => {
+    setSelected(customer);
+    onSelect(customer);
+    toast.success('تم اختيار العميل من قاعدة البيانات');
+  };
+
+  const clearManual = () => {
+    setSelected(null);
+    setQuery('');
+    setResults([]);
+    toast.info('يمكنك إدخال عميل جديد يدويًا');
+  };
+
+  return (
+    <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4 space-y-3">
+      <div className="flex flex-col gap-2 lg:flex-row">
+        <input
+          className="input-dark flex-1"
+          placeholder="ابحث في قاعدة بيانات العملاء بالاسم أو الكود أو رقم الهاتف"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void runSearch();
+            }
+          }}
+        />
+        <button type="button" className="btn-primary min-w-[120px]" onClick={() => void runSearch()} disabled={loading}>
+          {loading ? 'جاري البحث...' : '🔎 بحث'}
+        </button>
+        <button type="button" className="btn-secondary min-w-[150px]" onClick={clearManual}>
+          عميل جديد يدويًا
+        </button>
+      </div>
+
+      {selected && (
+        <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-sm text-emerald-50">
+          العميل المختار من قاعدة البيانات:
+          <b className="mx-1">{exceptionalCustomerName(selected) || 'بدون اسم'}</b>
+          <span className="text-emerald-100">
+            · الكود: {exceptionalCustomerCode(selected) || 'بدون كود'}
+            · الهاتف: {exceptionalCustomerPhone(selected) || 'بدون رقم'}
+            · الفرع: {exceptionalCustomerBranch(selected) || 'غير محدد'}
+          </span>
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div className="grid gap-2">
+          {results.slice(0, 8).map((customer, index) => (
+            <button
+              key={String(customer.id || customer.customer_id || customer.customer_code || customer.code || index)}
+              type="button"
+              className="rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-right text-sm text-slate-100 hover:border-cyan-400/60 hover:bg-cyan-500/10 transition"
+              onClick={() => selectCustomer(customer)}
+            >
+              <div className="font-black">{exceptionalCustomerName(customer) || 'عميل بدون اسم'}</div>
+              <div className="mt-1 text-xs text-slate-400">
+                الكود: {exceptionalCustomerCode(customer) || 'بدون كود'} · الهاتف: {exceptionalCustomerPhone(customer) || 'بدون رقم'} · الفرع: {exceptionalCustomerBranch(customer) || 'غير محدد'}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <p className="text-xs text-slate-400">
+        لو العميل موجود اختاره من نتائج البحث، ولو عميل جديد اكتب بياناته يدويًا بالأسفل.
+      </p>
+    </div>
+  );
+}
+
 export default function CustomerService() {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -345,6 +493,11 @@ export default function CustomerService() {
   const [resultRow, setResultRow] = useState<FollowupRow | null>(null);
   const [detailsRow, setDetailsRow] = useState<FollowupRow | null>(null);
   const [selectedRow, setSelectedRow] = useState<FollowupRow | null>(null);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState<ExceptionalCustomerSearchResult[]>([]);
+  const [searchingCustomers, setSearchingCustomers] = useState(false);
+  const [selectedAddCustomer, setSelectedAddCustomer] = useState<ExceptionalCustomerSearchResult | null>(null);
+
   const [doctorName, setDoctorName] = useState('');
   const [form, setForm] = useState<AddFollowupForm>({
     customerName: '',
@@ -353,6 +506,9 @@ export default function CustomerService() {
     reason: '',
     priority: 'مهم',
     due: dateInputNow(),
+    result: 'لم يتم التواصل بعد',
+    nextDue: '',
+    selectedCustomer: null,
   });
   const mountedRef = useRef(true);
   const firstLoadRef = useRef(true);
@@ -609,10 +765,51 @@ export default function CustomerService() {
     }
   };
 
-  const addFollowup = async () => {
+    const runCustomerSearch = async () => {
+    const query = customerSearch.trim();
+    if (query.length < 2) {
+      toast.error('اكتب اسم العميل أو الكود أو رقم الهاتف');
+      return;
+    }
+    setSearchingCustomers(true);
+    try {
+      const results = await searchCustomerMetrics(query, form.branch || undefined);
+      setCustomerResults(Array.isArray(results) ? (results as ExceptionalCustomerSearchResult[]) : []);
+      if (!Array.isArray(results) || results.length === 0) {
+        toast.info('لم يتم العثور على العميل، يمكن إضافته يدويًا');
+      }
+    } catch (error) {
+      console.error('[CustomerService] exceptional customer search failed', error);
+      toast.error('تعذر البحث في قائمة العملاء');
+    } finally {
+      setSearchingCustomers(false);
+    }
+  };
+
+  const selectCustomerForExceptionalFollowup = (customer: ExceptionalCustomerSearchResult) => {
+    
+    setForm((current) => ({
+      ...current,
+      customerName: exceptionalCustomerName(customer) || current.customerName,
+      phone: exceptionalCustomerPhone(customer) || current.phone,
+      branch: exceptionalCustomerBranch(customer) || current.branch,
+    }));
+    toast.success('تم اختيار العميل من قاعدة البيانات');
+  };
+
+  const clearSelectedAddCustomer = () => {
+    setSelectedAddCustomer(null);
+    setCustomerSearch('');
+    setCustomerResults([]);
+    toast.info('يمكنك إدخال عميل جديد يدويًا');
+  };
+
+const addFollowup = async () => {
     if (!form.customerName.trim()) return toast.error('اكتب اسم العميل');
+    if (!form.reason.trim()) return toast.error('اكتب سبب المتابعة');
     try {
       const created = await createExceptionalFollowup({
+        customer: (form.selectedCustomer as any) || undefined,
         customerName: form.customerName,
         customerPhone: form.phone,
         branch: form.branch,
@@ -620,17 +817,52 @@ export default function CustomerService() {
         requestType: 'متابعة استثنائية',
         followupReason: form.reason,
         followupDatetime: form.due,
+        requestDetails: form.reason,
+        notes: [
+          'متابعة استثنائية',
+          form.reason ? `السبب: ${form.reason}` : '',
+          form.result ? `النتيجة المبدئية: ${form.result}` : '',
+        ].filter(Boolean).join('\n'),
+        assignedDoctor: userName,
         createdBy: userId,
         createdByName: userName,
       });
-      setRows((current) => [created, ...current]);
-      setSelectedRow(created);
-      createEventNotification(created, 'customer_request', form.priority === 'عاجل' ? 'high' : 'normal', 'طلب متابعة جديد');
-      setForm({ customerName: '', phone: '', branch: userBranch, reason: '', priority: 'مهم', due: dateInputNow() });
-      toast.success('تمت إضافة المتابعة');
+
+      let finalRow = created;
+      if (form.result && form.result !== 'لم يتم التواصل بعد') {
+        const shouldComplete = ['تم التواصل', 'تم البيع', 'شكوى تم حلها', 'رقم غير صحيح'].includes(form.result);
+        finalRow = await updateFollowupResult(created.id, {
+          status: form.result,
+          followup_status: form.result,
+          contact_result: form.result,
+          followup_result: form.result,
+          followup_notes: form.reason,
+          needs_manager: form.result === 'يحتاج مدير',
+          purchase_after_followup: form.result === 'تم البيع',
+          next_followup_date: form.nextDue || null,
+          completed_at: shouldComplete ? new Date().toISOString() : null,
+          updated_by: userId || userName,
+        });
+      }
+
+      setRows((current) => [finalRow, ...current]);
+      setSelectedRow(finalRow);
+      createEventNotification(finalRow, 'customer_request', form.priority === 'عاجل' ? 'high' : 'normal', 'متابعة استثنائية جديدة');
+      setForm({
+        customerName: '',
+        phone: '',
+        branch: userBranch,
+        reason: '',
+        priority: 'مهم',
+        due: dateInputNow(),
+        result: 'لم يتم التواصل بعد',
+        nextDue: '',
+        selectedCustomer: null,
+      });
+      toast.success('تمت إضافة المتابعة الاستثنائية');
       setActiveTab('today');
     } catch (saveError) {
-      toast.error(saveError instanceof Error ? saveError.message : 'تعذر إضافة المتابعة');
+      toast.error(saveError instanceof Error ? saveError.message : 'تعذر إضافة المتابعة الاستثنائية');
     }
   };
 
@@ -669,6 +901,9 @@ export default function CustomerService() {
           <div className="flex flex-wrap gap-2">
             <button onClick={() => void load(true)} disabled={refreshing} className="btn-secondary flex items-center gap-2">
               <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> تحديث هادئ
+            </button>
+            <button onClick={() => setActiveTab('add')} className="btn-secondary flex items-center gap-2">
+              <Plus size={16} /> إضافة متابعة استثنائية
             </button>
             <button onClick={generateToday} disabled={generating} className="btn-primary flex items-center gap-2">
               <Plus size={16} /> {generating ? 'جاري الإنشاء...' : 'إنشاء قائمة اليوم'}
@@ -1017,19 +1252,76 @@ function TabPanel({
   }
   if (tab === 'add') {
     return (
-      <div className="grid gap-3 lg:grid-cols-2">
-        <input className="input-dark" placeholder="اسم العميل" value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} />
-        <input className="input-dark" placeholder="رقم الهاتف" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-        <select className="input-dark" value={form.branch} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}>
-          <option value="">اختر الفرع</option>
-          {BRANCHES.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-        </select>
-        <select className="input-dark" value={form.priority} onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))}>
-          <option>مهم</option><option>عاجل</option><option>متوسط</option><option>عادي</option>
-        </select>
-        <input className="input-dark" type="datetime-local" value={form.due} onChange={(event) => setForm((current) => ({ ...current, due: event.target.value }))} />
-        <textarea className="input-dark lg:col-span-2" rows={4} placeholder="سبب المتابعة" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} />
-        <button className="btn-primary lg:col-span-2" onClick={onAdd}>إضافة متابعة</button>
+      <div className="space-y-4">
+        {selectedRow && (
+          <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4 text-sm text-cyan-50">
+            <div className="font-black">العميل المختار من القائمة: {customerName(selectedRow)}</div>
+            <div className="mt-1 text-xs text-cyan-100">
+              الكود: {text(selectedRow.customer_code, 'بدون كود')} · الهاتف: {phoneOf(selectedRow) || 'بدون رقم'} · الفرع: {text(selectedRow.branch)}
+            </div>
+            <button
+              type="button"
+              className="btn-secondary mt-3"
+              onClick={() =>
+                setForm((current) => ({
+                  ...current,
+                  customerName: customerName(selectedRow),
+                  phone: phoneOf(selectedRow),
+                  branch: selectedRow.branch || current.branch,
+                  reason: selectedRow.followup_reason || selectedRow.request_details || current.reason,
+                }))
+              }
+            >
+              استخدام هذا العميل في المتابعة الاستثنائية
+            </button>
+          </div>
+        )}
+
+        <ExceptionalCustomerSearchBox
+          branch={form.branch}
+          onSelect={(customer) => {
+            
+            setForm((current) => ({
+              ...current,
+              selectedCustomer: customer,
+              customerName: exceptionalCustomerName(customer) || current.customerName,
+              phone: exceptionalCustomerPhone(customer) || current.phone,
+              branch: exceptionalCustomerBranch(customer) || current.branch,
+            }));
+          }}
+        />
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <input className="input-dark" placeholder="اسم العميل" value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} />
+          <input className="input-dark" placeholder="رقم الهاتف" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+          <select className="input-dark" value={form.branch} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}>
+            <option value="">اختر الفرع</option>
+            {BRANCHES.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+          </select>
+          <select className="input-dark" value={form.priority} onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))}>
+            <option>عادي</option><option>مهم</option><option>عاجل</option>
+          </select>
+          <input className="input-dark" type="datetime-local" value={form.due} onChange={(event) => setForm((current) => ({ ...current, due: event.target.value }))} />
+          <select className="input-dark" value={form.result} onChange={(event) => setForm((current) => ({ ...current, result: event.target.value }))}>
+            <option>لم يتم التواصل بعد</option>
+            <option>تم التواصل</option>
+            <option>لم يرد</option>
+            <option>طلب متابعة لاحقة</option>
+            <option>تم البيع</option>
+            <option>يحتاج مدير</option>
+            <option>رقم غير صحيح</option>
+            <option>شكوى تم حلها</option>
+            <option>أخرى</option>
+          </select>
+          <input className="input-dark" type="datetime-local" value={form.nextDue} onChange={(event) => setForm((current) => ({ ...current, nextDue: event.target.value }))} />
+          <textarea className="input-dark lg:col-span-2" rows={4} placeholder="سبب المتابعة وملاحظاتها" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} />
+          <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-sm leading-7 text-cyan-50 lg:col-span-2">
+            رسالة واتساب آمنة بدون اسم العميل:
+            <br />
+            أهلا بحضرتك، مع حضرتك خدمة عملاء صيدليات دواء. بنطمن على حضرتك وبنتشرف بخدمتك دائمًا.
+          </div>
+          <button className="btn-primary lg:col-span-2" onClick={onAdd}>حفظ متابعة استثنائية</button>
+        </div>
       </div>
     );
   }
@@ -1077,6 +1369,9 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
         <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${statusTone(row)}`}>{statusOf(row)}</span>
         <span className="rounded-full border border-slate-600 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-200">{segmentOf(row)}</span>
         <span className="rounded-full border border-slate-600 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-200">خطورة: {riskLevel(row)}</span>
+        {/استثنائية|exceptional/i.test(`${row.request_type || ''} ${row.followup_type || ''} ${row.followup_reason || ''} ${row.notes || ''}`) && (
+          <span className="rounded-full border border-fuchsia-400/40 bg-fuchsia-500/10 px-2.5 py-1 text-xs font-black text-fuchsia-100">متابعة استثنائية</span>
+        )}
       </div>
       <div className="mt-4 grid gap-2 text-xs text-slate-300 sm:grid-cols-2">
         <InfoRow label="آخر شراء" value={formatDate(lastPurchaseOf(row))} />
