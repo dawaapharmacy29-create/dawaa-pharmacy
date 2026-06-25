@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_INVOICES_PER_CUSTOMER = 700;
 
 export type CustomerServiceLiveMetrics = {
   total_spent: number;
@@ -11,10 +12,18 @@ export type CustomerServiceLiveMetrics = {
   avg_invoice: number;
   avg_monthly: number;
   current_month_count: number;
+  current_month_spent: number;
+  previous_month_count: number;
+  previous_month_spent: number;
   average_monthly_purchase_count: number;
   branch: string | null;
+  branch_most_frequent: string | null;
+  branch_highest_value: string | null;
+  branch_last_purchase: string | null;
   segment: string | null;
   customer_status: string | null;
+  matched_by: string | null;
+  invoices_matched_count: number;
   source: 'sales_invoices' | 'fallback';
 };
 
@@ -23,19 +32,47 @@ type CacheEntry = { at: number; data: CustomerServiceLiveMetrics };
 const cache = new Map<string, CacheEntry>();
 
 export type CustomerMetricsLookup = {
-  customer_id?: string | null;
-  customer_code?: string | null;
-  customer_phone?: string | null;
+  customer_id?: string | number | null;
+  customer_code?: string | number | null;
+  customer_phone?: string | number | null;
   customer_name?: string | null;
   branch?: string | null;
 };
 
+type InvoiceLike = Record<string, unknown>;
+
+function cleanText(value: unknown) {
+  return String(value ?? '').trim();
+}
+
+function digitsOnly(value: unknown) {
+  return cleanText(value).replace(/\D/g, '');
+}
+
+function normalizeArabicName(value: unknown) {
+  return cleanText(value)
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function lastPhoneDigits(value: unknown, count = 10) {
+  const digits = digitsOnly(value);
+  return digits.length > count ? digits.slice(-count) : digits;
+}
+
+function isUuid(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cleanText(value));
+}
+
 export function customerMetricsKey(input: CustomerMetricsLookup) {
   return [
-    String(input.customer_code || '').trim(),
-    String(input.customer_phone || '').trim(),
-    String(input.customer_id || '').trim(),
-    String(input.customer_name || '').trim(),
+    cleanText(input.customer_code),
+    lastPhoneDigits(input.customer_phone),
+    cleanText(input.customer_id),
+    normalizeArabicName(input.customer_name),
   ]
     .filter(Boolean)
     .join('|');
@@ -51,77 +88,220 @@ function monthEnd(offset = 0) {
   return new Date(date.getFullYear(), date.getMonth() + offset + 1, 0).toISOString().slice(0, 10);
 }
 
-function summarizeInvoices(
-  rows: Array<{
-    invoice_date?: string | null;
-    net_total?: number | null;
-    total?: number | null;
-    branch?: string | null;
-  }>
-) {
-  const totals = rows.map((row) => Number(row.net_total ?? row.total ?? 0)).filter(Number.isFinite);
+function valueOf(row: InvoiceLike, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && cleanText(value) !== '') return value;
+  }
+  return null;
+}
+
+function invoiceDate(row: InvoiceLike) {
+  const value = valueOf(row, [
+    'invoice_date',
+    'invoice_datetime',
+    'date',
+    'bill_date',
+    'sale_date',
+    'created_at',
+    'updated_at',
+  ]);
+  if (!value) return null;
+  const parsed = new Date(String(value));
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  const text = String(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function invoiceAmount(row: InvoiceLike) {
+  const value = valueOf(row, [
+    'net_total',
+    'net_amount',
+    'discounted_amount',
+    'amount',
+    'gross_amount',
+    'total_amount',
+    'total',
+    'invoice_total',
+    'final_total',
+  ]);
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function invoiceBranch(row: InvoiceLike) {
+  return cleanText(valueOf(row, ['branch', 'branch_name', 'store_branch', 'pharmacy_branch'])) || null;
+}
+
+function invoiceIdentity(row: InvoiceLike) {
+  return (
+    cleanText(valueOf(row, ['id', 'invoice_id', 'invoice_no', 'invoice_number', 'bill_no'])) ||
+    `${invoiceDate(row) || 'no-date'}-${invoiceAmount(row)}-${invoiceBranch(row) || ''}`
+  );
+}
+
+function segmentFrom(total: number, invoicesCount: number, lastPurchase: string | null) {
+  const daysSinceLast = lastPurchase
+    ? Math.floor((Date.now() - new Date(lastPurchase).getTime()) / 86_400_000)
+    : Number.POSITIVE_INFINITY;
+  if (total >= 8000 || invoicesCount >= 12) return 'VIP';
+  if (total >= 4000 || invoicesCount >= 6) return 'Loyal';
+  if (daysSinceLast > 90) return 'At Risk';
+  return 'Occasional';
+}
+
+function statusFrom(lastPurchase: string | null) {
+  if (!lastPurchase) return 'لا يوجد شراء';
+  const days = Math.floor((Date.now() - new Date(lastPurchase).getTime()) / 86_400_000);
+  if (days <= 45) return 'نشط';
+  if (days <= 90) return 'يحتاج متابعة';
+  return 'متوقف';
+}
+
+function summarizeInvoices(rows: InvoiceLike[], matchedBy: string | null): CustomerServiceLiveMetrics {
+  const invoices = new Map<string, InvoiceLike>();
+  for (const row of rows) {
+    invoices.set(invoiceIdentity(row), row);
+  }
+
+  const uniqueRows = [...invoices.values()];
+  const totals = uniqueRows.map(invoiceAmount).filter(Number.isFinite);
   const total = totals.reduce((sum, value) => sum + value, 0);
-  const dates = rows
-    .map((row) => String(row.invoice_date || '').slice(0, 10))
-    .filter(Boolean)
-    .sort();
+  const datedRows = uniqueRows
+    .map((row) => ({ row, date: invoiceDate(row), amount: invoiceAmount(row), branch: invoiceBranch(row) }))
+    .filter((item) => Boolean(item.date))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+  const dates = datedRows.map((item) => item.date as string);
   const months = new Set(dates.map((date) => date.slice(0, 7)));
   const currentStart = monthStart(0);
   const currentEnd = monthEnd(0);
-  const currentMonthCount = rows.filter((row) => {
-    const date = String(row.invoice_date || '').slice(0, 10);
-    return date >= currentStart && date <= currentEnd;
-  }).length;
+  const previousStart = monthStart(-1);
+  const previousEnd = monthEnd(-1);
+
+  const currentMonthRows = datedRows.filter((item) => item.date! >= currentStart && item.date! <= currentEnd);
+  const previousMonthRows = datedRows.filter((item) => item.date! >= previousStart && item.date! <= previousEnd);
 
   const branchCounts = new Map<string, number>();
-  for (const row of rows) {
-    const branch = String(row.branch || '').trim();
-    if (!branch) continue;
-    branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
+  const branchTotals = new Map<string, number>();
+  for (const item of datedRows) {
+    if (!item.branch) continue;
+    branchCounts.set(item.branch, (branchCounts.get(item.branch) || 0) + 1);
+    branchTotals.set(item.branch, (branchTotals.get(item.branch) || 0) + item.amount);
   }
-  const branch = [...branchCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+  const branchMostFrequent = [...branchCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  const branchHighestValue = [...branchTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  const lastPurchaseRow = datedRows.at(-1);
+  const lastPurchase = dates.at(-1) || null;
+  const invoicesCount = uniqueRows.length;
+  const avgInvoice = invoicesCount ? total / invoicesCount : 0;
+  const avgMonthly = months.size ? total / months.size : 0;
 
   return {
     total_spent: total,
-    invoices_count: rows.length,
-    last_purchase: dates.at(-1) || null,
+    invoices_count: invoicesCount,
+    last_purchase: lastPurchase,
     first_purchase: dates[0] || null,
-    avg_invoice: rows.length ? total / rows.length : 0,
-    avg_monthly: months.size ? total / months.size : 0,
-    current_month_count: currentMonthCount,
-    average_monthly_purchase_count: months.size ? rows.length / months.size : currentMonthCount,
-    branch,
+    avg_invoice: avgInvoice,
+    avg_monthly: avgMonthly,
+    current_month_count: currentMonthRows.length,
+    current_month_spent: currentMonthRows.reduce((sum, item) => sum + item.amount, 0),
+    previous_month_count: previousMonthRows.length,
+    previous_month_spent: previousMonthRows.reduce((sum, item) => sum + item.amount, 0),
+    average_monthly_purchase_count: months.size ? invoicesCount / months.size : currentMonthRows.length,
+    branch: lastPurchaseRow?.branch || branchMostFrequent || null,
+    branch_most_frequent: branchMostFrequent,
+    branch_highest_value: branchHighestValue,
+    branch_last_purchase: lastPurchaseRow?.branch || null,
+    segment: segmentFrom(total, invoicesCount, lastPurchase),
+    customer_status: statusFrom(lastPurchase),
+    matched_by: matchedBy,
+    invoices_matched_count: invoicesCount,
+    source: 'sales_invoices',
   };
 }
 
-async function fetchInvoicesForCustomer(input: CustomerMetricsLookup) {
-  if (!isSupabaseConfigured) return [];
+async function querySalesInvoices(column: string, operator: 'eq' | 'ilike', value: string) {
+  if (!isSupabaseConfigured || !value) return { rows: [] as InvoiceLike[], error: null as unknown };
 
-  const select = 'invoice_date,net_total,total,branch,customer_code,customer_phone,customer_name,customer_id';
-  const clauses: string[] = [];
-  if (input.customer_code) clauses.push(`customer_code.eq.${input.customer_code}`);
-  if (input.customer_phone) clauses.push(`customer_phone.eq.${input.customer_phone}`);
-  if (input.customer_id) clauses.push(`customer_id.eq.${input.customer_id}`);
-  if (input.customer_name) clauses.push(`customer_name.eq.${input.customer_name}`);
-  if (!clauses.length) return [];
+  let query = supabase.from('sales_invoices').select('*').limit(MAX_INVOICES_PER_CUSTOMER);
+  query = operator === 'eq' ? query.eq(column, value) : query.ilike(column, value);
+  const { data, error } = await query;
+  if (error) return { rows: [] as InvoiceLike[], error };
+  return { rows: (data || []) as InvoiceLike[], error: null };
+}
 
-  const { data, error } = await supabase
-    .from('sales_invoices')
-    .select(select)
-    .or(clauses.join(','))
-    .order('invoice_date', { ascending: false })
-    .limit(500);
+async function fetchByStrategies(input: CustomerMetricsLookup) {
+  const code = cleanText(input.customer_code);
+  const phone = cleanText(input.customer_phone);
+  const phoneTail = lastPhoneDigits(phone);
+  const customerId = cleanText(input.customer_id);
+  const name = cleanText(input.customer_name);
+  const normalizedName = normalizeArabicName(name);
+  const allRows: InvoiceLike[] = [];
+  const matched: string[] = [];
 
-  if (error) {
-    if (import.meta.env.DEV) console.warn('[customerServiceCustomerMetrics] invoice query failed', error.message);
-    return [];
+  const strategies: Array<{ label: string; columns: string[]; op: 'eq' | 'ilike'; value: string }> = [];
+
+  if (code) {
+    strategies.push({ label: 'code', columns: ['customer_code', 'client_code', 'code'], op: 'eq', value: code });
   }
-  return (data || []) as Array<{
-    invoice_date?: string | null;
-    net_total?: number | null;
-    total?: number | null;
-    branch?: string | null;
-  }>;
+  if (customerId && isUuid(customerId)) {
+    strategies.push({ label: 'customer_id', columns: ['customer_id', 'client_id'], op: 'eq', value: customerId });
+  }
+  if (phone) {
+    strategies.push({
+      label: 'phone',
+      columns: ['customer_phone', 'phone', 'mobile', 'client_phone', 'whatsapp_phone'],
+      op: 'eq',
+      value: phone,
+    });
+  }
+  if (phoneTail.length >= 8) {
+    strategies.push({
+      label: 'phoneTail',
+      columns: ['customer_phone', 'phone', 'mobile', 'client_phone', 'whatsapp_phone'],
+      op: 'ilike',
+      value: `%${phoneTail}`,
+    });
+  }
+  if (name && normalizedName.length >= 3) {
+    strategies.push({
+      label: 'name',
+      columns: ['customer_name', 'name', 'client_name'],
+      op: 'ilike',
+      value: `%${name}%`,
+    });
+  }
+
+  for (const strategy of strategies) {
+    for (const column of strategy.columns) {
+      const { rows } = await querySalesInvoices(column, strategy.op, strategy.value);
+      if (!rows.length) continue;
+
+      let filteredRows = rows;
+      if (strategy.label === 'name' && phoneTail.length >= 8) {
+        const phoneColumns = ['customer_phone', 'phone', 'mobile', 'client_phone', 'whatsapp_phone'];
+        const phoneFiltered = rows.filter((row) =>
+          phoneColumns.some((columnName) => lastPhoneDigits(row[columnName]).endsWith(phoneTail))
+        );
+        if (phoneFiltered.length) filteredRows = phoneFiltered;
+      }
+
+      allRows.push(...filteredRows);
+      matched.push(`${strategy.label}:${column}`);
+      if (strategy.label === 'code' || strategy.label === 'phone' || strategy.label === 'phoneTail') {
+        break;
+      }
+    }
+    if (allRows.length && ['code', 'phone', 'phoneTail', 'customer_id'].some((key) => matched.some((m) => m.startsWith(key)))) {
+      // Stop after a strong match to avoid pulling unrelated name matches.
+      break;
+    }
+  }
+
+  return { rows: allRows, matchedBy: matched.join(',') || null };
 }
 
 export async function getCustomerServiceLiveMetrics(
@@ -134,16 +314,10 @@ export async function getCustomerServiceLiveMetrics(
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.data;
 
   try {
-    const invoices = await fetchInvoicesForCustomer(input);
-    if (!invoices.length) return null;
+    const { rows, matchedBy } = await fetchByStrategies(input);
+    if (!rows.length) return null;
 
-    const summary = summarizeInvoices(invoices);
-    const metrics: CustomerServiceLiveMetrics = {
-      ...summary,
-      segment: null,
-      customer_status: null,
-      source: 'sales_invoices',
-    };
+    const metrics = summarizeInvoices(rows, matchedBy);
     cache.set(key, { at: Date.now(), data: metrics });
     return metrics;
   } catch (error) {
@@ -157,25 +331,50 @@ export async function batchEnrichCustomerServiceMetrics(
 ): Promise<Map<string, CustomerServiceLiveMetrics>> {
   const result = new Map<string, CustomerServiceLiveMetrics>();
   const unique = new Map<string, CustomerMetricsLookup>();
+
   for (const item of items) {
     const key = customerMetricsKey(item);
     if (!key || unique.has(key)) continue;
     unique.set(key, item);
   }
 
-  await Promise.all(
-    [...unique.entries()].map(async ([key, item]) => {
-      const metrics = await getCustomerServiceLiveMetrics(item);
-      if (metrics) result.set(key, metrics);
-    })
-  );
+  const entries = [...unique.entries()];
+  const concurrency = 5;
+  for (let index = 0; index < entries.length; index += concurrency) {
+    const chunk = entries.slice(index, index + concurrency);
+    await Promise.all(
+      chunk.map(async ([key, item]) => {
+        const metrics = await getCustomerServiceLiveMetrics(item);
+        if (metrics) result.set(key, metrics);
+      })
+    );
+  }
 
   return result;
 }
 
+export function clearCustomerServiceMetricsCache() {
+  cache.clear();
+}
+
 export function useCustomerServiceMetricsEnrichment(items: CustomerMetricsLookup[]) {
   const [metricsByKey, setMetricsByKey] = useState<Map<string, CustomerServiceLiveMetrics>>(new Map());
-  const serialized = JSON.stringify(items);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const serialized = useMemo(() => JSON.stringify(items), [items]);
+
+  useEffect(() => {
+    const refresh = () => {
+      clearCustomerServiceMetricsCache();
+      setRefreshVersion((value) => value + 1);
+    };
+
+    window.addEventListener('dawaa:data-refresh', refresh);
+    window.addEventListener('dataChanged', refresh);
+    return () => {
+      window.removeEventListener('dawaa:data-refresh', refresh);
+      window.removeEventListener('dataChanged', refresh);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -185,7 +384,7 @@ export function useCustomerServiceMetricsEnrichment(items: CustomerMetricsLookup
     return () => {
       active = false;
     };
-  }, [serialized]);
+  }, [serialized, refreshVersion]);
 
   return metricsByKey;
 }
