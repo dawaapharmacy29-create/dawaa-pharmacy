@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import { PageSectionsPreview } from '@/components/security/PermissionGate';
+import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'لوحة القيادة 2027',
@@ -81,22 +82,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, [location.pathname]);
 
   return (
-    <div className="flex h-screen bg-navy-900 overflow-hidden" dir="rtl">
-      <Sidebar
-        collapsed={collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
-      />
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <Header onMobileMenuOpen={() => setMobileOpen(true)} title={title} />
-        <main ref={mainRef} className="flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="animate-fade-in max-w-[1720px] mx-auto">
-            <PageSectionsPreview path={location.pathname} />
-            {children}
-          </div>
-        </main>
+    <NavigationGuardProvider>
+      <div className="flex h-screen bg-navy-900 overflow-hidden" dir="rtl">
+        <Sidebar
+          collapsed={collapsed}
+          onToggle={() => setCollapsed(!collapsed)}
+          mobileOpen={mobileOpen}
+          onMobileClose={() => setMobileOpen(false)}
+        />
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          <Header onMobileMenuOpen={() => setMobileOpen(true)} title={title} />
+          <main ref={mainRef} className="flex-1 overflow-y-auto p-4 md:p-6">
+            <div className="animate-fade-in max-w-[1720px] mx-auto">
+              <PageSectionsPreview path={location.pathname} />
+              {children}
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </NavigationGuardProvider>
   );
 }

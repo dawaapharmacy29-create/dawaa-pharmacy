@@ -45,9 +45,12 @@ function monthlyBreakdown(row: KpiRow) {
   }
 }
 
+let kpiFallbackCounter = 0;
+
 function normalizeKpiRow(row: Record<string, unknown>): KpiRow {
+  kpiFallbackCounter += 1;
   return {
-    staff_id: safeText(row.staff_id ?? row.id ?? row.staff_name, crypto.randomUUID()),
+    staff_id: safeText(row.staff_id ?? row.id ?? row.staff_name, `kpi-${kpiFallbackCounter}`),
     staff_name: safeText(row.staff_name ?? row.name, 'غير محدد'),
     branch: safeText(row.branch, 'غير محدد'),
     role: safeText(row.role, 'غير محدد'),

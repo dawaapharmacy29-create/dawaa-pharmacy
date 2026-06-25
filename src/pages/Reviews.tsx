@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -41,6 +41,7 @@ import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices, reviewerChoices } from '@/lib/staffFallback';
 import { TABLES } from '@/lib/supabaseTables';
 import { notifyEmployee } from '@/lib/notificationService';
+import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
 
 interface StaffOpt {
   id: string;
@@ -604,18 +605,18 @@ export default function Reviews() {
     return data?.length || 0;
   };
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     if (!selectedStaff) {
       toast.error('اختر الدكتور أو الموظف الذي يتم تقييمه');
-      return;
+      return false;
     }
     if (!selectedReviewer) {
       toast.error('اختر من يقوم بالتقييم');
-      return;
+      return false;
     }
     if (result.totalApplicableItems === 0 || result.totalApplicablePoints === 0) {
       toast.error('فعّل بند واحد على الأقل قبل حفظ التقييم');
-      return;
+      return false;
     }
 
     setSaving(true);
@@ -884,8 +885,10 @@ export default function Reviews() {
       } catch {}
 
       toast.success('تم حفظ تقييم المحادثة وتحديث سجل التقييمات بنجاح');
+      return true;
     } catch (error) {
       toast.error(`تعذر الحفظ الكامل: ${(error as Error).message}`);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -914,11 +917,11 @@ export default function Reviews() {
     });
   };
 
-  const saveEdit = async () => {
-    if (!editingReview?.id) return;
+  const saveEdit = async (): Promise<boolean> => {
+    if (!editingReview?.id) return false;
     if (!canManageReviews) {
       toast.error('التعديل متاح للمدير العام فقط');
-      return;
+      return false;
     }
     setSaving(true);
     try {
@@ -940,8 +943,10 @@ export default function Reviews() {
       await loadReviewHistory();
       setEditingReview(null);
       toast.success('تم تعديل تقييم المحادثة بواسطة المدير العام');
+      return true;
     } catch (error) {
       toast.error(`تعذر تعديل التقييم: ${(error as Error).message}`);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -957,28 +962,34 @@ export default function Reviews() {
     });
   };
 
-  const saveManagerReview = async () => {
-    if (!managerReviewTarget) return;
+  const saveManagerReview = async (): Promise<boolean> => {
+    if (!managerReviewTarget) return true;
     if (!canManageReviews) {
       toast.error('تقييم مسئول خدمة العملاء متاح للمدير العام فقط');
-      return;
+      return false;
     }
     setManagerSaving(true);
     try {
       const score = Math.max(0, Math.min(100, Number(managerForm.score || 0)));
       const payload = {
         source_review_id: managerReviewTarget.id || null,
+        linked_review_id: managerReviewTarget.id || null,
         reviewer_id: asUuid(managerReviewTarget.reviewer_id),
         reviewer_name: managerReviewTarget.reviewer_name || null,
         reviewer_role: managerReviewTarget.reviewer_role || null,
+        reviewed_staff_id: asUuid(managerReviewTarget.staff_id || managerReviewTarget.doctor_id),
+        reviewed_staff_name: managerReviewTarget.staff_name || managerReviewTarget.doctor_name || null,
         manager_id: asUuid(user?.id),
         manager_name: user?.name || 'مدير عام',
         score,
+        review_score: score,
         notes: managerForm.notes,
+        manager_notes: managerForm.notes,
         strengths: managerForm.strengths,
         improvements: managerForm.improvements,
         branch: managerReviewTarget.branch || null,
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
       await insertSafe('customer_service_manager_reviews', payload);
       if (managerReviewTarget.id) {
@@ -992,14 +1003,57 @@ export default function Reviews() {
       await loadReviewHistory();
       setManagerReviewTarget(null);
       toast.success('تم حفظ تقييم مدير خدمة العملاء/المراجع');
+      return true;
     } catch (error) {
-      toast.error(
-        `تعذر حفظ تقييم المراجع. شغّل SQL المرفق أولًا. التفاصيل: ${(error as Error).message}`
-      );
+      const message = (error as Error).message || '';
+      if (/could not find the table|does not exist|schema cache/i.test(message)) {
+        toast.error('جدول تقييم المراجع غير موجود بعد. شغّل migration: 20260625_create_customer_service_manager_reviews.sql');
+      } else {
+        toast.error(`تعذر حفظ تقييم المراجع: ${message}`);
+      }
+      return false;
     } finally {
       setManagerSaving(false);
     }
   };
+
+  const reviewIsDirty = useMemo(() => {
+    if (managerReviewTarget) {
+      return Boolean(
+        managerForm.notes.trim() ||
+          managerForm.strengths.trim() ||
+          managerForm.improvements.trim() ||
+          managerForm.score !== '100'
+      );
+    }
+    if (editingReview) return true;
+    const defaultState = defaultReviewState();
+    const defaultSevere = defaultSevereErrors();
+    const criteriaChanged = JSON.stringify(reviewState) !== JSON.stringify(defaultState);
+    const severeChanged = JSON.stringify(severeErrors) !== JSON.stringify(defaultSevere);
+    const formTouched = Boolean(
+      form.staffId ||
+        form.customerName.trim() ||
+        form.customerCode.trim() ||
+        form.customerPhone.trim() ||
+        form.reviewerNotes.trim() ||
+        form.evaluationReason.trim() ||
+        form.invoiceNo.trim()
+    );
+    return criteriaChanged || severeChanged || formTouched;
+  }, [editingReview, form, managerForm, managerReviewTarget, reviewState, severeErrors]);
+
+  const saveForNavigation = useCallback(async () => {
+    if (managerReviewTarget) return saveManagerReview();
+    if (editingReview) return saveEdit();
+    return save();
+  }, [editingReview, managerReviewTarget, saveEdit, saveManagerReview, save]);
+
+  usePendingFormNavigationGuard({
+    isDirty: reviewIsDirty,
+    isSaving: saving || managerSaving,
+    onSave: saveForNavigation,
+  });
 
   return (
     <div className="w-full max-w-full space-y-5 overflow-hidden" dir="rtl">

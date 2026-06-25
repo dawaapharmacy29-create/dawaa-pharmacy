@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { createExceptionalFollowup } from '@/lib/api/customerServiceCommandCenter';
+import { isValidEgyptPhone } from '@/lib/customerAnalyticsService';
 
 type CustomerSearchResult = {
   id: string;
@@ -13,12 +15,18 @@ function notify(type: 'success' | 'error', message: string) {
   window.dispatchEvent(new CustomEvent('toast', { detail: { type, message } }));
 }
 
+function normalizePhoneInput(value: string) {
+  return value.replace(/[^\d+]/g, '').trim();
+}
+
 export default function QuickFollowupModal({
   open,
   onClose,
+  onCreated,
 }: {
   open: boolean;
   onClose: () => void;
+  onCreated?: () => void;
 }) {
   const { user } = useAuth();
   const [search, setSearch] = useState('');
@@ -84,29 +92,38 @@ export default function QuickFollowupModal({
 
   const submit = async () => {
     const cleanName = name.trim();
-    const cleanPhone = phone.trim();
+    const cleanPhone = normalizePhoneInput(phone);
     const cleanNote = note.trim();
     if ((!cleanName && !cleanPhone) || !cleanNote) {
       notify('error', 'أدخل اسم العميل أو رقم الهاتف، وملاحظة المتابعة');
       return;
     }
 
+    const validPhone = cleanPhone && isValidEgyptPhone(cleanPhone, code || undefined);
+    const phoneStatusNote = validPhone ? '' : '\n[بدون رقم صحيح]';
+
     setLoading(true);
     try {
-      const employeeName = user?.name?.trim() || 'مستخدم النظام';
-      const { error } = await supabase.from('followups').insert([
-        {
-          customer_name: cleanName || null,
-          customer_phone: cleanPhone || null,
-          followup_summary: `${cleanNote}\nسجلها: ${employeeName}`,
-          followup_status: 'pending',
-        },
-      ]);
-      if (error) throw error;
+      await createExceptionalFollowup({
+        customerName: cleanName || 'عميل بدون اسم',
+        customerPhone: cleanPhone || null,
+        branch: user?.branch || null,
+        priority: 'مهم',
+        requestType: 'طلب متابعة',
+        followupReason: cleanNote,
+        requestDetails: `${cleanNote}${phoneStatusNote}`,
+        notes: `${cleanNote}${phoneStatusNote}\nالمصدر: sidebar_quick_followup`,
+        createdBy: user?.id || null,
+        createdByName: user?.name?.trim() || 'مستخدم النظام',
+        source: 'sidebar_quick_followup',
+        customerCode: code.trim() || null,
+        contactStatus: validPhone ? undefined : 'بدون رقم صحيح',
+      });
 
       reset();
-      window.dispatchEvent(new CustomEvent('dataChanged', { detail: { table: 'followups' } }));
-      notify('success', 'تم إنشاء المتابعة بنجاح');
+      window.dispatchEvent(new CustomEvent('dataChanged', { detail: { table: 'daily_followups' } }));
+      notify('success', 'تم إنشاء طلب المتابعة بنجاح');
+      onCreated?.();
       onClose();
     } catch (error) {
       console.error('Failed to create followup:', error);
@@ -174,7 +191,7 @@ export default function QuickFollowupModal({
           onChange={(event) => setNote(event.target.value)}
           required
         />
-        <p className="mb-3 text-xs text-slate-400">يجب إدخال اسم العميل أو رقم الهاتف على الأقل.</p>
+        <p className="mb-3 text-xs text-slate-400">يجب إدخال اسم العميل أو رقم الهاتف على الأقل، وملاحظة المتابعة مطلوبة.</p>
         <div className="flex justify-end gap-2">
           <button className="rounded bg-white/5 px-3 py-1 text-sm text-white" onClick={onClose}>
             إلغاء

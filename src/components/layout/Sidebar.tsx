@@ -32,8 +32,8 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import QuickFollowupModal from '@/components/common/QuickFollowupModal';
-import QuickCustomerCodingModal from '@/components/common/QuickCustomerCodingModal';
+import { useOptionalNavigationGuard } from '@/contexts/NavigationGuardContext';
+import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
 import { LOGO_URL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
@@ -176,11 +176,16 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const { user, logout, isAdmin, checkPermission } = useAuth();
-  const [openFollowup, setOpenFollowup] = useState(false);
-  const [openCoding, setOpenCoding] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const navigate = useNavigate();
   const location = useLocation();
+  const navigationGuard = useOptionalNavigationGuard();
+  const pendingShiftNotes = usePendingShiftNotesCount();
+
+  const goTo = (target: string) => {
+    if (navigationGuard) navigationGuard.requestNavigation(target);
+    else navigate(target);
+  };
 
   const privileged = isAdmin || ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'مدير عام', 'مدير فرع'].includes(user?.role || '');
 
@@ -263,24 +268,33 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
       {!collapsed && (
         <div className="px-3 py-2">
           <div className="flex gap-2">
-            <button onClick={() => setOpenFollowup(true)} className="flex-1 rounded-lg bg-teal-500/10 px-3 py-2 text-xs font-bold text-teal-200">
+            <button
+              onClick={() => goTo('/customer-service?quickFollowup=1')}
+              className="flex-1 rounded-lg bg-teal-500/10 px-3 py-2 text-xs font-bold text-teal-200"
+            >
               متابعة سريعة
             </button>
-            <button onClick={() => setOpenCoding(true)} className="flex-1 rounded-lg bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-200">
+            <button
+              onClick={() => goTo('/customer-coding')}
+              className="flex-1 rounded-lg bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-200"
+            >
               تكويد عميل
             </button>
           </div>
         </div>
       )}
 
-      <QuickFollowupModal open={openFollowup} onClose={() => setOpenFollowup(false)} />
-      <QuickCustomerCodingModal open={openCoding} onClose={() => setOpenCoding(false)} />
-
       {showPinnedShiftNotes && (
         <div className={cn('border-b border-[#2d4063] px-3 py-2', collapsed ? 'flex justify-center' : '')}>
           <NavLink
             to={SHIFT_NOTES_ITEM.path}
-            onClick={onMobileClose}
+            onClick={(event) => {
+              if (navigationGuard?.hasActiveDirtyGuard()) {
+                event.preventDefault();
+                navigationGuard.requestNavigation(SHIFT_NOTES_ITEM.path);
+              }
+              onMobileClose();
+            }}
             className={() =>
               cn(
                 'nav-item',
@@ -293,7 +307,16 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
             title={collapsed ? SHIFT_NOTES_ITEM.label : undefined}
           >
             <SHIFT_NOTES_ITEM.icon className="h-4.5 w-4.5 flex-shrink-0" size={18} />
-            {!collapsed && <span>{SHIFT_NOTES_ITEM.label}</span>}
+            {!collapsed && (
+              <span className="flex w-full items-center justify-between gap-2">
+                {SHIFT_NOTES_ITEM.label}
+                {pendingShiftNotes != null && pendingShiftNotes > 0 && (
+                  <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-black text-black">
+                    {pendingShiftNotes}
+                  </span>
+                )}
+              </span>
+            )}
           </NavLink>
         </div>
       )}
@@ -332,7 +355,13 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                       <NavLink
                         to={item.path}
                         end={item.path === '/'}
-                        onClick={onMobileClose}
+                        onClick={(event) => {
+                          if (navigationGuard?.hasActiveDirtyGuard()) {
+                            event.preventDefault();
+                            navigationGuard.requestNavigation(item.path);
+                          }
+                          onMobileClose();
+                        }}
                         className={() => cn('nav-item', itemActive ? 'nav-item-active' : 'nav-item-inactive', collapsed ? 'justify-center px-2' : '')}
                         title={collapsed ? item.label : undefined}
                       >

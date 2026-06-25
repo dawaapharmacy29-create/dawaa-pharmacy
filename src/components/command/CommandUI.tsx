@@ -1,4 +1,4 @@
-import type { ElementType, ReactNode } from 'react';
+import { isValidElement, type ElementType, type ReactNode } from 'react';
 
 export function CommandHeader({
   title,
@@ -47,13 +47,11 @@ export function MetricCard({
     emerald: 'bg-emerald-500/10 text-emerald-500',
     rose: 'bg-rose-500/10 text-rose-500',
   };
+  const isRenderableComponent =
+    typeof icon === 'function' ||
+    (typeof icon === 'object' && icon !== null && !isValidElement(icon));
   const IconComponent = icon as ElementType;
-  const iconNode =
-    typeof icon === 'function' || typeof icon === 'string' ? (
-      <IconComponent className="h-6 w-6" />
-    ) : (
-      icon
-    );
+  const iconNode = isRenderableComponent ? <IconComponent className="h-6 w-6" /> : icon;
   return (
     <article className="dawaa-card">
       <div className="flex items-center justify-between gap-3">

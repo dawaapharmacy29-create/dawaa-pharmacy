@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useOptionalNavigationGuard } from '@/contexts/NavigationGuardContext';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { normalizeNotification, type AppNotification } from '@/lib/notificationService';
 import { normalizeRole } from '@/lib/core/permissionSystem';
@@ -117,6 +118,7 @@ async function fetchTable(table: NotificationTable) {
 
 export function useNotifications() {
   const navigate = useNavigate();
+  const navigationGuard = useOptionalNavigationGuard();
   const { user } = useAuth();
   const [rows, setRows] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -213,8 +215,10 @@ export function useNotifications() {
   const handleNotificationClick = useCallback((notification: AppNotification) => {
     void markAsRead(notification.id);
     const route = notificationRoute(notification);
-    navigate(route.startsWith('/') ? route : '/operations-center');
-  }, [markAsRead, navigate]);
+    const target = route.startsWith('/') ? route : '/operations-center';
+    if (navigationGuard) navigationGuard.requestNavigation(target);
+    else navigate(target);
+  }, [markAsRead, navigate, navigationGuard]);
 
   return { notifications, unreadCount, loading, available, settings, refreshNotifications, markAsRead, markAllAsRead, handleNotificationClick };
 }

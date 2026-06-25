@@ -40,6 +40,11 @@ import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { mergeStaffChoices } from '@/lib/staffFallback';
 import { CustomerFlagsBadges } from '@/components/CustomerFlagsBadges';
 import { createNotification } from '@/lib/notificationService';
+import QuickFollowupModal from '@/components/common/QuickFollowupModal';
+import {
+  customerMetricsKey,
+  useCustomerServiceMetricsEnrichment,
+} from '@/lib/customerServiceCustomerMetrics';
 import type { Customer, DailyFollowup } from '@/types/database';
 import type { FollowupResultData } from '@/components/customerService/FollowupResultModal';
 
@@ -771,6 +776,8 @@ export default function CustomerService() {
   const requestedTab = params.get('tab') as TabId | null;
   const dashboardBranch = params.get('branch')?.trim() || '';
   const requestedFollowupId = params.get('followupId') || params.get('requestId') || params.get('taskId') || '';
+  const quickFollowupRequested =
+    params.get('quickFollowup') === '1' || params.get('action') === 'quick-followup';
   const [activeTab, setActiveTabState] = useState<TabId>(TABS.some(([id]) => id === requestedTab) ? requestedTab! : 'today');
   const [rows, setRows] = useState<FollowupRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -792,6 +799,7 @@ export default function CustomerService() {
   const [customerResults, setCustomerResults] = useState<ExceptionalCustomerSearchResult[]>([]);
   const [searchingCustomers, setSearchingCustomers] = useState(false);
   const [selectedAddCustomer, setSelectedAddCustomer] = useState<ExceptionalCustomerSearchResult | null>(null);
+  const [quickFollowupOpen, setQuickFollowupOpen] = useState(false);
 
   const [doctorName, setDoctorName] = useState('');
   const [form, setForm] = useState<AddFollowupForm>({
@@ -842,6 +850,20 @@ export default function CustomerService() {
   useEffect(() => {
     if (requestedTab && TABS.some(([id]) => id === requestedTab)) setActiveTabState(requestedTab);
   }, [requestedTab]);
+
+  useEffect(() => {
+    if (!quickFollowupRequested) return;
+    setQuickFollowupOpen(true);
+    setActiveTabState('requests');
+  }, [quickFollowupRequested]);
+
+  const closeQuickFollowup = useCallback(() => {
+    setQuickFollowupOpen(false);
+    const next = new URLSearchParams(params);
+    next.delete('quickFollowup');
+    next.delete('action');
+    setParams(next, { replace: true });
+  }, [params, setParams]);
 
   useEffect(() => {
     if (!requestedFollowupId || !rows.length) return;
@@ -928,6 +950,61 @@ export default function CustomerService() {
       }),
     [assignedFilter, debouncedSearch, metricFilter, quickFilter, tabRows]
   );
+
+  const enrichmentTargets = useMemo(
+    () =>
+      filteredTabRows.slice(0, visibleCount).map((row) => ({
+        customer_id: row.customer_id,
+        customer_code: row.customer_code,
+        customer_phone: phoneOf(row),
+        customer_name: customerName(row),
+        branch: row.branch,
+      })),
+    [filteredTabRows, visibleCount]
+  );
+  const liveMetricsByKey = useCustomerServiceMetricsEnrichment(enrichmentTargets);
+
+  const enrichRow = useCallback(
+    (row: FollowupRow): FollowupRow => {
+      const key = customerMetricsKey({
+        customer_id: row.customer_id,
+        customer_code: row.customer_code,
+        customer_phone: phoneOf(row),
+        customer_name: customerName(row),
+      });
+      const live = liveMetricsByKey.get(key);
+      if (!live) return row;
+      return {
+        ...row,
+        total_spent: live.total_spent,
+        last_purchase_date: live.last_purchase,
+        purchase_count_current_month: live.current_month_count,
+        average_monthly_purchase_count: live.average_monthly_purchase_count,
+        branch: live.branch || row.branch,
+        customer_metrics: {
+          ...(row.customer_metrics || { id: row.customer_id || row.id }),
+          total_spent: live.total_spent,
+          invoices_count: live.invoices_count,
+          last_purchase: live.last_purchase,
+          first_purchase: live.first_purchase,
+          avg_invoice: live.avg_invoice,
+          avg_monthly: live.avg_monthly,
+        } as FollowupRow['customer_metrics'],
+      };
+    },
+    [liveMetricsByKey]
+  );
+
+  const displayTabRows = useMemo(
+    () => filteredTabRows.slice(0, visibleCount).map(enrichRow),
+    [enrichRow, filteredTabRows, visibleCount]
+  );
+
+  const selectedDisplayRow = useMemo(() => {
+    if (!selectedRow) return null;
+    return enrichRow(selectedRow);
+  }, [enrichRow, selectedRow]);
+  const detailRow = selectedDisplayRow || selectedRow;
   const { data: staffRows } = useSupabaseQuery<{ id: string; name: string; role: string; branch: string | null; active?: boolean | null }>({
     table: 'staff',
     select: 'id,name,role,branch,active',
@@ -968,7 +1045,7 @@ export default function CustomerService() {
       ].sort((a, b) => a.localeCompare(b, 'ar')),
     [staff]
   );
-  const visibleRows = filteredTabRows.slice(0, visibleCount);
+  const visibleRows = displayTabRows;
   const branchOwnerPerformance = useMemo(() => calculateBranchOwnerPerformance(rows), [rows]);
   const performance = useMemo(() => calculateTeamPerformance(rows), [rows]);
   const recoveredCount = useMemo(() => rows.filter((row) => row.purchase_after_followup).length, [rows]);
@@ -1464,7 +1541,7 @@ const addFollowup = async () => {
                       row={row}
                       selected={selectedRow?.id === row.id}
                       onSelect={() => setSelectedRow(row)}
-                      onDetails={() => setDetailsRow(row)}
+                      onDetails={() => setDetailsRow(enrichRow(row))}
                       onResult={() => setResultRow(row)}
                       onCopy={() => void copyScript(row)}
                       onPostpone={() => void postpone(row)}
@@ -1510,23 +1587,23 @@ const addFollowup = async () => {
               <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-2xl font-black text-white">{customerName(selectedRow)}</h3>
-                    <p className="mt-1 text-xs font-bold text-slate-400">{text(selectedRow.customer_code || phoneOf(selectedRow), 'بدون كود')}</p>
+                    <h3 className="text-2xl font-black text-white">{customerName(detailRow)}</h3>
+                    <p className="mt-1 text-xs font-bold text-slate-400">{text(detailRow.customer_code || phoneOf(detailRow), 'بدون كود')}</p>
                   </div>
-                  <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(selectedRow)}`}>{statusOf(selectedRow)}</span>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(detailRow)}`}>{statusOf(detailRow)}</span>
                 </div>
                 <div className="mt-4 grid gap-2 text-sm text-slate-300 sm:grid-cols-2 2xl:grid-cols-1">
-                  <InfoRow label="الهاتف" value={phoneOf(selectedRow) || 'بدون رقم صحيح'} />
-                  <InfoRow label="الفرع" value={text(selectedRow.branch)} />
-                  <InfoRow label="الحالة" value={customerStatusOf(selectedRow)} />
-                  <InfoRow label="التصنيف" value={segmentOf(selectedRow)} />
-                  <InfoRow label="درجة الخطورة" value={riskLevel(selectedRow)} />
-                  <InfoRow label="آخر شراء" value={formatDate(lastPurchaseOf(selectedRow))} />
-                  <InfoRow label="متوسط شهري" value={money(avgMonthly(selectedRow))} />
-                  <InfoRow label="إجمالي مشتريات" value={money(totalSpent(selectedRow))} />
-                  <InfoRow label="المسؤول" value={responsibleOf(selectedRow)} />
+                  <InfoRow label="الهاتف" value={phoneOf(detailRow) || 'بدون رقم صحيح'} />
+                  <InfoRow label="الفرع" value={text(detailRow.branch)} />
+                  <InfoRow label="الحالة" value={customerStatusOf(detailRow)} />
+                  <InfoRow label="التصنيف" value={segmentOf(detailRow)} />
+                  <InfoRow label="درجة الخطورة" value={riskLevel(detailRow)} />
+                  <InfoRow label="آخر شراء" value={formatDate(lastPurchaseOf(detailRow))} />
+                  <InfoRow label="متوسط شهري" value={money(avgMonthly(detailRow))} />
+                  <InfoRow label="إجمالي مشتريات" value={money(totalSpent(detailRow))} />
+                  <InfoRow label="المسؤول" value={responsibleOf(detailRow)} />
                 </div>
-                <CustomerFlagsBadges customerFlags={selectedRow.customer_flags || {}} />
+                <CustomerFlagsBadges customerFlags={detailRow.customer_flags || {}} />
               </div>
 
               <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
@@ -1564,7 +1641,7 @@ const addFollowup = async () => {
 
               <div className="grid gap-2 sm:grid-cols-3 2xl:grid-cols-2">
                 <button className="btn-primary" onClick={() => setResultRow(selectedRow)}><CheckCircle2 className="ml-1 inline h-4 w-4" /> تسجيل نتيجة</button>
-                <button className="btn-secondary" onClick={() => setDetailsRow(selectedRow)}><Eye className="ml-1 inline h-4 w-4" /> ملف العميل</button>
+                <button className="btn-secondary" onClick={() => setDetailsRow(detailRow)}><Eye className="ml-1 inline h-4 w-4" /> ملف العميل</button>
                 <button className="btn-secondary" onClick={() => void copyScript(selectedRow)}><Clipboard className="ml-1 inline h-4 w-4" /> نسخ السكريبت</button>
                 <a
                   className={`btn-secondary text-center ${hasValidPhone(selectedRow) ? '' : 'pointer-events-none opacity-40'}`}
@@ -1607,6 +1684,14 @@ const addFollowup = async () => {
           />
         </LazyState>
       )}
+      <QuickFollowupModal
+        open={quickFollowupOpen}
+        onClose={closeQuickFollowup}
+        onCreated={() => {
+          void load(true);
+          setActiveTab('requests');
+        }}
+      />
     </div>
   );
 }

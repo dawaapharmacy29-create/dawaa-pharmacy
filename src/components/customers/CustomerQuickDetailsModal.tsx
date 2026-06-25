@@ -121,10 +121,18 @@ function formatDate(value?: string | null) {
   return date.toLocaleDateString('ar-EG');
 }
 
+function safeLocalId(prefix: string) {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${prefix}-${Date.now()}`;
+  }
+}
+
 function fallbackMetric(input: Props): CustomerMetric {
   const fallback = (input.fallbackMetric || {}) as Record<string, any>;
   return {
-    id: input.customerId || input.customerCode || input.customerPhone || input.customerName || crypto.randomUUID(),
+    id: input.customerId || input.customerCode || input.customerPhone || input.customerName || safeLocalId('customer'),
     final_customer_key: input.customerCode || input.customerPhone || null,
     customer_id: input.customerId || fallback.customer_id || null,
     customer_code: input.customerCode || null,
@@ -197,12 +205,18 @@ export default function CustomerQuickDetailsModal(props: Props) {
         if (!active) return;
         setCustomer(metric);
         const [result, stats] = await Promise.all([
-          getCustomerDetails(metric),
+          getCustomerDetails(metric).catch((err) => {
+            if (import.meta.env.DEV) console.warn('[CustomerQuickDetailsModal] getCustomerDetails failed', err);
+            return null;
+          }),
           loadLivePurchaseStats(metric).catch(() => null),
         ]);
         if (!active) return;
         setDetails(result);
         setLiveStats(stats);
+        if (!result && !stats) {
+          setError(null);
+        }
       } catch (err) {
         if (!active) return;
         setError(err instanceof Error ? err.message : 'تعذر تحميل تفاصيل العميل');
