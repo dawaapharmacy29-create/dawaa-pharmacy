@@ -18,6 +18,7 @@ type Props = {
   customerPhone?: string | null;
   customerName?: string | null;
   branch?: string | null;
+  fallbackMetric?: Partial<CustomerMetric> | Record<string, unknown> | null;
   onClose: () => void;
 };
 
@@ -120,6 +121,7 @@ function formatDate(value?: string | null) {
 }
 
 function fallbackMetric(input: Props): CustomerMetric {
+  const fallback = (input.fallbackMetric || {}) as Record<string, any>;
   return {
     id: input.customerCode || input.customerPhone || input.customerName || crypto.randomUUID(),
     final_customer_key: input.customerCode || input.customerPhone || null,
@@ -130,19 +132,19 @@ function fallbackMetric(input: Props): CustomerMetric {
     phone: input.customerPhone || null,
     name: input.customerName || 'عميل بدون اسم',
     branch: normalizeBranchName(input.branch),
-    invoices_count: 0,
-    total_spent: 0,
-    total_purchases: 0,
-    avg_invoice: 0,
-    first_purchase: null,
-    last_purchase: null,
-    active_months: 0,
-    avg_monthly: 0,
-    segment: 'غير محدد',
-    type: 'غير محدد',
-    customer_status: 'غير محدد',
-    status: 'غير محدد',
-    retention_status: 'غير محدد',
+    invoices_count: Number(fallback.invoices_count || fallback.total_invoices || 0),
+    total_spent: Number(fallback.total_spent || fallback.total_purchases || 0),
+    total_purchases: Number(fallback.total_purchases || fallback.total_spent || 0),
+    avg_invoice: Number(fallback.avg_invoice || 0),
+    first_purchase: fallback.first_purchase || null,
+    last_purchase: fallback.last_purchase || null,
+    active_months: Number(fallback.active_months || 0),
+    avg_monthly: Number(fallback.avg_monthly || 0),
+    segment: String(fallback.segment || fallback.type || 'غير محدد'),
+    type: String(fallback.type || fallback.segment || 'غير محدد'),
+    customer_status: String(fallback.customer_status || fallback.status || fallback.retention_status || 'غير محدد'),
+    status: String(fallback.status || fallback.customer_status || 'غير محدد'),
+    retention_status: String(fallback.retention_status || fallback.customer_status || 'غير محدد'),
   };
 }
 
@@ -210,7 +212,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
     return () => {
       active = false;
     };
-  }, [props.branch, props.customerCode, props.customerName, props.customerPhone]);
+  }, [props.branch, props.customerCode, props.customerName, props.customerPhone, JSON.stringify(props.fallbackMetric || {})]);
 
   const displayPhone = useMemo(() => {
     return (

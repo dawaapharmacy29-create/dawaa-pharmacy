@@ -804,6 +804,8 @@ const LEGACY_ALIASES: Record<string, string[]> = {
   // Current page permissions → canonical snake_case permissions
   'page.dashboard.view': ['view_dashboard'],
   'page.customers.view': ['view_customers', 'view_customer_service'],
+  'page.customer_service.view': ['view_customer_service', 'create_followup', 'edit_followup'],
+  'page.customer_service.manage': ['view_customer_service', 'create_followup', 'edit_followup', 'assign_followup'],
   'page.customer_data_review.view': ['view_customer_service', 'edit_customer'],
   'page.crm.view': ['view_crm', 'view_customer_service'],
   'page.incubation.view': ['view_customer_incubation', 'view_customer_service'],

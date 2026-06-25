@@ -107,7 +107,73 @@ const QUICK_FILTERS = [
 
 type QuickFilter = (typeof QUICK_FILTERS)[number][0];
 
-const ADDITIONAL_TOOLS: Array<{ id: TabId; label: string; href?: string }> = [
+type MetricFilter = 'all' | 'today' | 'completed' | 'noAnswer' | 'postponed' | 'needsManager' | 'overdue' | 'invalidPhone' | 'recovered';
+
+const METRIC_FILTER_LABELS: Record<MetricFilter, string> = {
+  all: 'عرض الكل',
+  today: 'متابعات اليوم',
+  completed: 'المكتمل',
+  noAnswer: 'لم يرد',
+  postponed: 'مؤجل',
+  needsManager: 'يحتاج مدير',
+  overdue: 'متأخر',
+  invalidPhone: 'بدون رقم صحيح',
+  recovered: 'تحول لبيع',
+};
+
+function matchesMetricFilter(row: FollowupRow, filter: MetricFilter) {
+  if (filter === 'all') return true;
+  const status = statusOf(row);
+  if (filter === 'today') return !isCompleted(row);
+  if (filter === 'completed') return isCompleted(row);
+  if (filter === 'noAnswer') return /لم يرد|no answer/i.test(status);
+  if (filter === 'postponed') return Boolean(row.postponed_until) || /مؤجل/i.test(status);
+  if (filter === 'needsManager') return Boolean(row.needs_manager) || /مدير/i.test(status);
+  if (filter === 'overdue') return isOverdue(row);
+  if (filter === 'invalidPhone') return !phoneOf(row);
+  if (filter === 'recovered') return Boolean(row.purchase_after_followup);
+  return true;
+}
+
+function reviewSummaryOf(row: FollowupRow) {
+  const record = row as Record<string, unknown>;
+  const rating = record.quality_rating || record.review_score || record.conversation_score || record.customer_satisfaction;
+  return rating ? String(rating) : 'غير مسجل';
+}
+
+function updatedByOf(row: FollowupRow) {
+  const record = row as Record<string, unknown>;
+  return text(record.updated_by_name || record.updated_by || record.created_by_name || record.created_by || responsibleOf(row), 'غير محدد');
+}
+
+function modalFallbackFrom(row: FollowupRow): Record<string, unknown> {
+  return {
+    id: row.customer_id || row.id,
+    customer_id: row.customer_id || null,
+    customer_code: row.customer_code || null,
+    customer_name: customerName(row),
+    customer_phone: phoneOf(row) || null,
+    phone: phoneOf(row) || null,
+    name: customerName(row),
+    branch: row.branch || null,
+    invoices_count: invoicesCount(row),
+    total_spent: totalSpent(row),
+    total_purchases: totalSpent(row),
+    avg_monthly: avgMonthly(row),
+    avg_invoice: invoicesCount(row) ? totalSpent(row) / invoicesCount(row) : Number(row.customer_metrics?.avg_invoice || 0),
+    first_purchase: row.customer_metrics?.first_purchase || null,
+    last_purchase: lastPurchaseOf(row),
+    active_months: row.customer_metrics?.active_months || 0,
+    segment: segmentOf(row),
+    type: segmentOf(row),
+    customer_status: customerStatusOf(row),
+    status: customerStatusOf(row),
+    retention_status: customerStatusOf(row),
+  };
+}
+
+
+const ADDITIONAL_TOOLS: Array<{ id: string; label: string; href?: string }> = [
   { id: 'performance', label: 'تحليل خدمة العملاء' },
   { id: 'doctor', label: 'أداء الدكتور' },
   { id: 'team', label: 'أداء الفريق' },
@@ -117,6 +183,8 @@ const ADDITIONAL_TOOLS: Array<{ id: TabId; label: string; href?: string }> = [
   { id: 'cashback', label: 'النقاط والكاش باك', href: '/customer-cashback' },
   { id: 'credit', label: 'كريدت خدمة العملاء', href: '/customer-service-credit' },
   { id: 'evaluation', label: 'تقييم المحادثات', href: '/reviews' },
+  { id: 'quick-replies', label: 'اختصارات الردود السريعة', href: '/quick-replies' },
+  { id: 'competition', label: 'مسابقة الدكاترة', href: '/doctor-competition' },
   { id: 'scripts', label: 'قوالب واتساب' },
   { id: 'welcome', label: 'الرسائل الترحيبية' },
   { id: 'notes', label: 'ملاحظات العميل' },
@@ -486,6 +554,7 @@ export default function CustomerService() {
   const [branch, setBranch] = useState(dashboardBranch ? normalizeBranchName(dashboardBranch) : ALL_FILTER);
   const [status, setStatus] = useState(ALL_FILTER);
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  const [metricFilter, setMetricFilter] = useState<MetricFilter>('all');
   const [assignedFilter, setAssignedFilter] = useState(ALL_FILTER);
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -595,7 +664,7 @@ export default function CustomerService() {
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [activeTab, branch, status, debouncedSearch, quickFilter, assignedFilter]);
+  }, [activeTab, branch, status, debouncedSearch, quickFilter, assignedFilter, metricFilter]);
 
   const stats = useMemo(() => calculateFollowupStats(rows), [rows]);
   const assignedRows = useMemo(
@@ -626,10 +695,11 @@ export default function CustomerService() {
         const responsible = responsibleOf(row);
         return (
           matchesQuickFilter(row, quickFilter) &&
+          matchesMetricFilter(row, metricFilter) &&
           (assignedFilter === ALL_FILTER || responsible === assignedFilter)
         );
       }),
-    [assignedFilter, quickFilter, tabRows]
+    [assignedFilter, metricFilter, quickFilter, tabRows]
   );
   const visibleRows = filteredTabRows.slice(0, visibleCount);
   const staff = useMemo(
@@ -913,15 +983,24 @@ const addFollowup = async () => {
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
-        <StatCard label="متابعات اليوم" value={stats.totalToday} tone="cyan" />
-        <StatCard label="المكتمل" value={stats.completed} tone="emerald" />
-        <StatCard label="لم يرد" value={stats.noAnswer} tone="amber" />
-        <StatCard label="مؤجل" value={rows.filter((row) => Boolean(row.postponed_until) || statusOf(row).includes('مؤجل')).length} tone="cyan" />
-        <StatCard label="يحتاج مدير" value={rows.filter((row) => row.needs_manager || statusOf(row).includes('مدير')).length} tone="rose" />
-        <StatCard label="متأخر" value={stats.overdue} tone="rose" />
-        <StatCard label="بدون رقم صحيح" value={invalidPhoneCount} tone="amber" />
-        <StatCard label="تحول لبيع" value={recoveredCount} tone="emerald" />
+        <StatCard label="متابعات اليوم" value={stats.totalToday} tone="cyan" active={metricFilter === 'today'} onClick={() => setMetricFilter('today')} />
+        <StatCard label="المكتمل" value={stats.completed} tone="emerald" active={metricFilter === 'completed'} onClick={() => setMetricFilter('completed')} />
+        <StatCard label="لم يرد" value={stats.noAnswer} tone="amber" active={metricFilter === 'noAnswer'} onClick={() => setMetricFilter('noAnswer')} />
+        <StatCard label="مؤجل" value={rows.filter((row) => Boolean(row.postponed_until) || statusOf(row).includes('مؤجل')).length} tone="cyan" active={metricFilter === 'postponed'} onClick={() => setMetricFilter('postponed')} />
+        <StatCard label="يحتاج مدير" value={rows.filter((row) => row.needs_manager || statusOf(row).includes('مدير')).length} tone="rose" active={metricFilter === 'needsManager'} onClick={() => setMetricFilter('needsManager')} />
+        <StatCard label="متأخر" value={stats.overdue} tone="rose" active={metricFilter === 'overdue'} onClick={() => setMetricFilter('overdue')} />
+        <StatCard label="بدون رقم صحيح" value={invalidPhoneCount} tone="amber" active={metricFilter === 'invalidPhone'} onClick={() => setMetricFilter('invalidPhone')} />
+        <StatCard label="تحول لبيع" value={recoveredCount} tone="emerald" active={metricFilter === 'recovered'} onClick={() => setMetricFilter('recovered')} />
       </section>
+
+      {metricFilter !== 'all' && (
+        <div className="rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-3 text-sm font-bold text-cyan-100">
+          فلتر الكارت مفعل: {METRIC_FILTER_LABELS[metricFilter]}
+          <button type="button" className="btn-secondary mr-3 px-3 py-1 text-xs" onClick={() => setMetricFilter('all')}>
+            عرض الكل
+          </button>
+        </div>
+      )}
 
       <section className="dawaa-panel">
         <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_2fr]">
@@ -1021,7 +1100,7 @@ const addFollowup = async () => {
                   <button
                     key={tool.id}
                     type="button"
-                    onClick={() => setActiveTab(tool.id)}
+                    onClick={() => setActiveTab(tool.id as TabId)}
                     className={
                       activeTab === tool.id
                         ? 'rounded-xl border border-cyan-400 bg-cyan-500/15 px-3 py-2 text-xs font-bold text-cyan-100'
@@ -1378,6 +1457,10 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
         <InfoRow label="متوسط شهري" value={money(avgMonthly(row))} />
         <InfoRow label="إجمالي" value={money(totalSpent(row))} />
         <InfoRow label="المسؤول" value={responsibleOf(row)} />
+        <InfoRow label="آخر نتيجة" value={statusOf(row)} />
+        <InfoRow label="تم التواصل بواسطة" value={updatedByOf(row)} />
+        <InfoRow label="تقييم المحادثة" value={reviewSummaryOf(row)} />
+        <InfoRow label="بيع بعد المتابعة" value={row.purchase_after_followup ? money((row as any).purchase_amount || 0) : 'لا'} />
       </div>
       <p className="mt-3 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-3 text-sm leading-6 text-slate-300">
         {row.followup_reason || row.request_details || row.suggested_action || recommendedAction(row)}
@@ -1396,14 +1479,24 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
   );
 }
 
-function StatCard({ label, value, tone }: { label: string; value: number | string; tone: 'cyan' | 'emerald' | 'amber' | 'rose' }) {
+function StatCard({ label, value, tone, active = false, onClick }: { label: string; value: number | string; tone: 'cyan' | 'emerald' | 'amber' | 'rose'; active?: boolean; onClick?: () => void }) {
   const tones = {
     cyan: 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100',
     emerald: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100',
     amber: 'border-amber-400/30 bg-amber-500/10 text-amber-100',
     rose: 'border-rose-400/30 bg-rose-500/10 text-rose-100',
   };
-  return <div className={`rounded-2xl border p-4 ${tones[tone]}`}><div className="text-xs font-bold opacity-80">{label}</div><div className="mt-2 text-3xl font-black num">{value}</div></div>;
+  const className = `rounded-2xl border p-4 text-right transition ${tones[tone]} ${onClick ? 'cursor-pointer hover:scale-[1.02] hover:border-white/50' : ''} ${active ? 'ring-2 ring-white/60 shadow-lg shadow-cyan-950/30' : ''}`;
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className}>
+        <div className="text-xs font-bold opacity-80">{label}</div>
+        <div className="mt-2 text-3xl font-black num">{value}</div>
+        <div className="mt-1 text-[10px] font-bold opacity-70">اضغط لعرض العملاء</div>
+      </button>
+    );
+  }
+  return <div className={className}><div className="text-xs font-bold opacity-80">{label}</div><div className="mt-2 text-3xl font-black num">{value}</div></div>;
 }
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
