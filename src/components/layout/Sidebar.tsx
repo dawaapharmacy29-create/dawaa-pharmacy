@@ -1,4 +1,4 @@
-import { useMemo, useState, type ElementType } from 'react';
+import { useEffect, useMemo, useState, type ElementType } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   ActivitySquare,
@@ -7,6 +7,7 @@ import {
   BellRing,
   BookOpenCheck,
   Calendar,
+  ChevronDown,
   ChevronLeft,
   ClipboardCheck,
   ClipboardList,
@@ -58,6 +59,13 @@ const T = {
   logout: 'تسجيل الخروج',
 };
 
+const SHIFT_NOTES_ITEM: NavItem = {
+  path: '/shift-notes',
+  icon: ClipboardList,
+  label: 'ملاحظات الشيفت',
+  permission: 'view_schedule',
+};
+
 const GROUPS: NavGroup[] = [
   {
     title: 'لوحة القيادة',
@@ -79,7 +87,6 @@ const GROUPS: NavGroup[] = [
       { path: '/team', icon: UserCheck, label: 'الفريق والجدول', permission: 'view_team' },
       { path: '/schedule', icon: Calendar, label: 'الجداول والإجازات', permission: 'view_schedule' },
       { path: '/attendance-report', icon: ClipboardCheck, label: 'تسجيل/تقرير الحضور', permission: 'view_attendance_leaves' },
-      { path: '/shift-notes', icon: ClipboardList, label: 'ملاحظات الشيفت', permission: 'view_schedule' },
       { path: '/shift-performance', icon: ClipboardList, label: 'تقييم الشيفتات', permission: 'view_shift_performance' },
       { path: '/employee-kpi', icon: BarChart3, label: 'KPI الموظفين', permission: 'view_team' },
       { path: '/staff-accounts', icon: ShieldCheck, label: 'الحسابات والصلاحيات', permission: 'view_staff_accounts', adminOnly: true },
@@ -171,21 +178,41 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const { user, logout, isAdmin, checkPermission } = useAuth();
   const [openFollowup, setOpenFollowup] = useState(false);
   const [openCoding, setOpenCoding] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const navigate = useNavigate();
   const location = useLocation();
 
   const privileged = isAdmin || ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'مدير عام', 'مدير فرع'].includes(user?.role || '');
 
+  const canAccessItem = (item: NavItem) => {
+    if (item.adminOnly && !privileged) return false;
+    if (!item.permission) return true;
+    return privileged || checkPermission(item.permission);
+  };
+
   const groups = useMemo(() => {
     return GROUPS.map((group) => ({
       ...group,
-      items: group.items.filter((item) => {
-        if (item.adminOnly && !privileged) return false;
-        if (!item.permission) return true;
-        return privileged || checkPermission(item.permission);
-      }),
+      items: group.items.filter((item) => canAccessItem(item)),
     })).filter((group) => group.items.length > 0);
   }, [checkPermission, privileged]);
+
+  const showPinnedShiftNotes = canAccessItem(SHIFT_NOTES_ITEM);
+
+  useEffect(() => {
+    setExpandedGroups((prev) => {
+      const next = { ...prev };
+      for (const group of groups) {
+        const active = group.items.some((item) => isRouteActive(item.path, location.pathname));
+        if (active) next[group.title] = true;
+      }
+      return next;
+    });
+  }, [location.pathname, groups]);
+
+  const toggleGroup = (title: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [title]: !prev[title] }));
+  };
 
   const handleLogout = () => {
     logout();
@@ -249,19 +276,54 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
       <QuickFollowupModal open={openFollowup} onClose={() => setOpenFollowup(false)} />
       <QuickCustomerCodingModal open={openCoding} onClose={() => setOpenCoding(false)} />
 
+      {showPinnedShiftNotes && (
+        <div className={cn('border-b border-[#2d4063] px-3 py-2', collapsed ? 'flex justify-center' : '')}>
+          <NavLink
+            to={SHIFT_NOTES_ITEM.path}
+            onClick={onMobileClose}
+            className={() =>
+              cn(
+                'nav-item',
+                isRouteActive(SHIFT_NOTES_ITEM.path, location.pathname)
+                  ? 'nav-item-active'
+                  : 'nav-item-inactive',
+                collapsed ? 'justify-center px-2' : ''
+              )
+            }
+            title={collapsed ? SHIFT_NOTES_ITEM.label : undefined}
+          >
+            <SHIFT_NOTES_ITEM.icon className="h-4.5 w-4.5 flex-shrink-0" size={18} />
+            {!collapsed && <span>{SHIFT_NOTES_ITEM.label}</span>}
+          </NavLink>
+        </div>
+      )}
+
       <nav className="flex-1 space-y-2 overflow-y-auto p-3" id="sidebar-nav">
         {groups.map((group) => {
           const GroupIcon = group.icon;
           const active = group.items.some((item) => isRouteActive(item.path, location.pathname));
+          const expanded = collapsed || expandedGroups[group.title] || active;
           return (
             <div key={group.title} className="space-y-1">
               {!collapsed && (
-                <div className={cn('flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold', active ? 'bg-teal-500/10 text-teal-200' : 'text-slate-400')}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.title)}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-colors',
+                    active ? 'bg-teal-500/10 text-teal-200' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
+                  )}
+                >
                   <GroupIcon size={15} />
                   <span className="flex-1 text-right">{group.title}</span>
-                </div>
+                  <ChevronDown
+                    size={14}
+                    className={cn('flex-shrink-0 transition-transform duration-200', expanded ? 'rotate-180' : '')}
+                  />
+                </button>
               )}
-              <div className={cn('space-y-0.5', collapsed ? '' : 'pr-2')}>
+              {expanded && (
+                <div className={cn('space-y-0.5', collapsed ? '' : 'pr-2')}>
                 {group.items.map((item) => {
                   const itemActive = isRouteActive(item.path, location.pathname);
                   const visibleSections = getVisibleSectionsForPath(item.path, checkPermission);
@@ -289,7 +351,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                     </div>
                   );
                 })}
-              </div>
+                </div>
+              )}
             </div>
           );
         })}

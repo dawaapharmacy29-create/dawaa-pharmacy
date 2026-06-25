@@ -129,6 +129,129 @@ function readFirst(row: Row | null | undefined, keys: string[], fallback: unknow
   return fallback;
 }
 
+const INVOICE_AMOUNT_KEYS = [
+  'net_total',
+  'net_amount',
+  'discounted_amount',
+  'amount',
+  'gross_amount',
+  'total_amount',
+  'total',
+] as const;
+
+const INVOICE_DATE_KEYS = ['invoice_date', 'invoice_datetime', 'created_at'] as const;
+
+function readInvoiceAmount(row: Row) {
+  return safeNumber(readFirst(row, [...INVOICE_AMOUNT_KEYS], 0));
+}
+
+function readInvoiceDate(row: Row) {
+  return String(readFirst(row, [...INVOICE_DATE_KEYS], '') || '');
+}
+
+function isZeroMetrics(metrics: CustomerMetric | null) {
+  if (!metrics) return true;
+  return metrics.invoices_count === 0 && metrics.total_spent === 0;
+}
+
+function needsMetricsFromInvoices(metrics: CustomerMetric | null, invoiceCount: number) {
+  if (invoiceCount <= 0) return false;
+  if (!metrics) return true;
+  if (isZeroMetrics(metrics)) return true;
+  if (metrics.invoices_count === 0) return true;
+  return false;
+}
+
+function buildMetricsFromInvoices(
+  rows: Row[],
+  params: CustomerFullProfileParams,
+  existing: CustomerMetric | null,
+  profile: Row | null
+): CustomerMetric {
+  let totalSpent = 0;
+  let firstPurchase: string | null = null;
+  let lastPurchase: string | null = null;
+  const months = new Set<string>();
+  const branchCounts = new Map<string, number>();
+
+  for (const row of rows) {
+    totalSpent += readInvoiceAmount(row);
+    const dateStr = readInvoiceDate(row);
+    if (dateStr) {
+      if (!firstPurchase || dateStr < firstPurchase) firstPurchase = dateStr;
+      if (!lastPurchase || dateStr > lastPurchase) lastPurchase = dateStr;
+      months.add(dateStr.slice(0, 7));
+    }
+    const branch = normalizeBranchName(readFirst(row, ['branch'], null));
+    if (branch) branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
+  }
+
+  const invoicesCount = rows.length;
+  const avgInvoice = invoicesCount ? totalSpent / invoicesCount : 0;
+  const activeMonths = months.size;
+  const avgMonthly = activeMonths ? totalSpent / activeMonths : 0;
+
+  let topBranch: string | null = null;
+  let topCount = 0;
+  for (const [branch, count] of branchCounts) {
+    if (count > topCount) {
+      topCount = count;
+      topBranch = branch;
+    }
+  }
+
+  const code = normalizeCustomerCode(
+    params.customer_code || existing?.customer_code || profile?.customer_code
+  );
+  const phone = normalizePhone(
+    params.customer_phone ||
+      existing?.customer_phone ||
+      profile?.phone ||
+      profile?.whatsapp_phone ||
+      profile?.phone_alt
+  );
+  const customerId = normalizeCustomerKey(
+    params.customer_id || existing?.customer_id || profile?.id
+  );
+  const name = normalizeCustomerKey(
+    params.customer_name || existing?.customer_name || profile?.name
+  );
+  const finalKey = existing?.final_customer_key || null;
+  const segment = normalizeCustomerSegment(existing?.segment ?? null, totalSpent, avgMonthly);
+  const status =
+    invoicesCount <= 0 || !lastPurchase
+      ? 'بدون شراء'
+      : normalizeCustomerStatus(existing?.customer_status ?? null, lastPurchase, firstPurchase);
+
+  return {
+    id: String(finalKey || customerId || code || phone || name || 'unknown'),
+    final_customer_key: finalKey,
+    customer_id: customerId || null,
+    customer_code: code || null,
+    customer_name: name || null,
+    customer_phone: phone || null,
+    phone: phone || null,
+    name: name || null,
+    branch:
+      topBranch ||
+      existing?.branch ||
+      normalizeBranchName(readFirst(profile, ['branch'], null)),
+    invoices_count: invoicesCount,
+    total_spent: totalSpent,
+    total_purchases: totalSpent,
+    avg_invoice: avgInvoice,
+    first_purchase: firstPurchase,
+    last_purchase: lastPurchase,
+    active_months: activeMonths,
+    avg_monthly: avgMonthly,
+    segment,
+    type: segment,
+    customer_status: status,
+    status,
+    retention_status: status,
+  };
+}
+
 function cacheKey(params: CustomerFullProfileParams) {
   return (
     [
@@ -296,16 +419,8 @@ function normalizeMetric(row: Row | null): CustomerMetric | null {
 function mapInvoice(row: Row): CustomerInvoiceSummary {
   return {
     invoice_number: getInvoiceKey(row) || null,
-    invoice_date: readFirst(row, ['invoice_date', 'invoice_datetime', 'created_at'], null) as
-      | string
-      | null,
-    amount: safeNumber(
-      readFirst(
-        row,
-        ['net_amount', 'discounted_amount', 'amount', 'gross_amount', 'total_amount'],
-        0
-      )
-    ),
+    invoice_date: readFirst(row, [...INVOICE_DATE_KEYS], null) as string | null,
+    amount: readInvoiceAmount(row),
     seller_name: readFirst(row, ['seller_name'], null) as string | null,
     branch: normalizeBranchName(readFirst(row, ['branch'], null)),
   };
@@ -330,19 +445,11 @@ function mapFollowup(row: Row): CustomerFollowupSummary {
 function buildTrend(rows: Row[]): MonthlyPurchaseTrendRow[] {
   const byMonth = new Map<string, { invoicesCount: number; netTotal: number }>();
   for (const row of rows) {
-    const month = String(
-      readFirst(row, ['invoice_date', 'invoice_datetime', 'created_at'], '') || ''
-    ).slice(0, 7);
+    const month = readInvoiceDate(row).slice(0, 7);
     if (!month) continue;
     const current = byMonth.get(month) || { invoicesCount: 0, netTotal: 0 };
     current.invoicesCount += 1;
-    current.netTotal += safeNumber(
-      readFirst(
-        row,
-        ['net_amount', 'discounted_amount', 'amount', 'gross_amount', 'total_amount'],
-        0
-      )
-    );
+    current.netTotal += readInvoiceAmount(row);
     byMonth.set(month, current);
   }
   return [...byMonth.entries()]
@@ -531,7 +638,10 @@ export async function getCustomerFullProfile(
   const activityClauses = activityOrClauses(params, metrics, profile);
   const invoiceClauses = invoiceActivityOrClauses(params, metrics, profile);
 
-  const [latestInvoices, latestFollowups, trendRows] = await Promise.all([
+  const invoiceSelectColumns =
+    'id,invoice_no,invoice_number,invoice_date,invoice_datetime,created_at,net_total,net_amount,discounted_amount,amount,gross_amount,total_amount,total,seller_name,branch,customer_code,customer_phone,customer_name';
+
+  const [latestInvoices, latestFollowups, trendRows, invoiceAggRows] = await Promise.all([
     safeSection(
       'latestInvoices',
       async () => {
@@ -539,9 +649,7 @@ export async function getCustomerFullProfile(
         const query = withAbort(
           supabase
             .from('sales_invoices')
-            .select(
-              'id,invoice_no,invoice_number,invoice_date,net_amount,discounted_amount,amount,gross_amount,total_amount,seller_name,branch,customer_code,customer_phone,customer_name'
-            )
+            .select(invoiceSelectColumns)
             .or(invoiceClauses)
             .order('invoice_date', { ascending: false })
             .limit(10),
@@ -584,7 +692,7 @@ export async function getCustomerFullProfile(
           supabase
             .from('sales_invoices')
             .select(
-              'invoice_date,net_amount,discounted_amount,amount,gross_amount,total_amount,customer_code,customer_phone,customer_name'
+              'invoice_date,invoice_datetime,created_at,net_total,net_amount,discounted_amount,amount,gross_amount,total_amount,total,customer_code,customer_phone,customer_name'
             )
             .or(invoiceClauses)
             .order('invoice_date', { ascending: false })
@@ -598,7 +706,31 @@ export async function getCustomerFullProfile(
       errorsBySection,
       [] as MonthlyPurchaseTrendRow[]
     ),
+    safeSection(
+      'metricsFromInvoices',
+      async () => {
+        if (!invoiceClauses) return [] as Row[];
+        const query = withAbort(
+          supabase
+            .from('sales_invoices')
+            .select(
+              'invoice_date,invoice_datetime,created_at,net_total,net_amount,discounted_amount,amount,gross_amount,total_amount,total,branch,customer_code,customer_phone,customer_name'
+            )
+            .or(invoiceClauses),
+          params.signal
+        );
+        const { data, error } = await query;
+        if (error) throw error;
+        return (data ?? []) as Row[];
+      },
+      errorsBySection,
+      [] as Row[]
+    ),
   ]);
+
+  const resolvedMetrics = needsMetricsFromInvoices(metrics, invoiceAggRows.length)
+    ? buildMetricsFromInvoices(invoiceAggRows, params, metrics, profile)
+    : metrics;
 
   const notes = buildNotes(profile);
   const flags = (readFirst(profile, ['customer_flags'], null) || null) as Record<
@@ -608,16 +740,16 @@ export async function getCustomerFullProfile(
   const purchaseAnalysis = buildPurchaseAnalysis(trendRows);
   const result: CustomerFullProfile = {
     profile,
-    metrics,
+    metrics: resolvedMetrics,
     flags,
     notes,
     latestInvoices,
     latestFollowups,
     monthlyPurchaseTrend: trendRows,
     purchaseAnalysis,
-    recommendations: buildRecommendations(metrics, profile, displayPhone),
+    recommendations: buildRecommendations(resolvedMetrics, profile, displayPhone),
     dataHealth: {
-      hasMetrics: Boolean(metrics),
+      hasMetrics: Boolean(resolvedMetrics),
       hasCustomerRecord: Boolean(profile),
       hasValidPhone: Boolean(
         displayPhone &&
