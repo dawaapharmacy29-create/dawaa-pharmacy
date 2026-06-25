@@ -45,6 +45,16 @@ import {
   customerMetricsKey,
   useCustomerServiceMetricsEnrichment,
 } from '@/lib/customerServiceCustomerMetrics';
+import {
+  resolveSuggestedBranchFromInvoiceMetrics,
+  saveCustomerBranchOverride,
+} from '@/lib/customerBranchOverrides';
+import {
+  fetchQuickReplyScripts,
+  incrementQuickReplyUsage,
+  renderQuickReplyTemplate,
+  type QuickReplyScript,
+} from '@/lib/quickReplyScripts';
 import type { Customer, DailyFollowup } from '@/types/database';
 import type { FollowupResultData } from '@/components/customerService/FollowupResultModal';
 
@@ -800,6 +810,9 @@ export default function CustomerService() {
   const [searchingCustomers, setSearchingCustomers] = useState(false);
   const [selectedAddCustomer, setSelectedAddCustomer] = useState<ExceptionalCustomerSearchResult | null>(null);
   const [quickFollowupOpen, setQuickFollowupOpen] = useState(false);
+  const [quickReplies, setQuickReplies] = useState<QuickReplyScript[]>([]);
+  const [quickReplyRow, setQuickReplyRow] = useState<FollowupRow | null>(null);
+  const [useCustomerNameInReply, setUseCustomerNameInReply] = useState(false);
 
   const [doctorName, setDoctorName] = useState('');
   const [form, setForm] = useState<AddFollowupForm>({
@@ -831,6 +844,23 @@ export default function CustomerService() {
     [params, setParams]
   );
 
+  const applyMetricFilter = useCallback(
+    (filter: MetricFilter) => {
+      setMetricFilter(filter);
+      setQuickFilter('all');
+      setAssignedFilter(ALL_FILTER);
+      setStatus(ALL_FILTER);
+      if (filter === 'completed' || filter === 'recovered' || filter === 'contactedNoPurchase') {
+        setActiveTab('history');
+      } else if (filter === 'today') {
+        setActiveTab('today');
+      } else {
+        setActiveTab('today');
+      }
+    },
+    [setActiveTab]
+  );
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -856,6 +886,16 @@ export default function CustomerService() {
     setQuickFollowupOpen(true);
     setActiveTabState('requests');
   }, [quickFollowupRequested]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchQuickReplyScripts().then((scripts) => {
+      if (active) setQuickReplies(scripts);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const closeQuickFollowup = useCallback(() => {
     setQuickFollowupOpen(false);
@@ -1025,7 +1065,7 @@ export default function CustomerService() {
           invoices_matched_count: live.invoices_matched_count,
           matched_by: live.matched_by,
           source: live.source,
-        } as FollowupRow['customer_metrics'],
+        } as unknown as FollowupRow['customer_metrics'],
       };
     },
     [liveMetricsByKey]
@@ -1133,7 +1173,17 @@ export default function CustomerService() {
       followup_result: result.result,
       followup_notes: result.notes,
       quality_rating: result.qualityRating,
-      customer_satisfaction: result.customerSatisfied ? 'راضي' : null,
+      internal_rating: result.internalRating,
+      customer_satisfaction: result.customerSatisfaction || (result.customerSatisfied ? 'راضي' : null),
+      need_understood: result.needUnderstood,
+      cross_sell_offered: result.crossSellOffered,
+      up_sell_offered: result.upSellOffered,
+      needs_next_followup: result.needsNextFollowup,
+      no_purchase_reason: result.noPurchaseReason || null,
+      doctor_internal_note: result.doctorInternalNote || null,
+      evaluated_by: userId || userName || null,
+      evaluated_by_name: userName || null,
+      evaluated_at: new Date().toISOString(),
       needs_manager: needsManager,
       purchase_after_followup: purchase,
       purchase_amount: result.purchaseAmount,
@@ -1204,6 +1254,61 @@ export default function CustomerService() {
       toast.success('تم حفظ الملاحظة');
     } catch (noteError) {
       toast.error(noteError instanceof Error ? noteError.message : 'تعذر حفظ الملاحظة');
+    }
+  };
+
+  const approveBranchCorrection = async (row: FollowupRow) => {
+    const suggested = resolveSuggestedBranchFromInvoiceMetrics(row.customer_metrics);
+    if (!suggested) {
+      toast.error('لا يوجد فرع مقترح من الفواتير لهذا العميل');
+      return;
+    }
+    const reason = window.prompt('سبب تعديل فرع العميل', 'تصحيح حسب تحليل فواتير العميل');
+    if (reason === null) return;
+    try {
+      await saveCustomerBranchOverride({
+        customer_code: row.customer_code,
+        customer_id: row.customer_id,
+        customer_phone: phoneOf(row),
+        customer_name: customerName(row),
+        old_branch: row.branch,
+        new_branch: suggested,
+        suggested_branch: suggested,
+        reason,
+        created_by: userId || userName,
+        created_by_name: userName,
+      });
+      setRows((current) => current.map((item) => (item.id === row.id ? { ...item, branch: suggested } : item)));
+      setSelectedRow((current) => (current?.id === row.id ? { ...current, branch: suggested } : current));
+      toast.success('تم اعتماد تصحيح فرع العميل كـ override آمن');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ تصحيح الفرع');
+    }
+  };
+
+  const renderReplyForRow = (script: QuickReplyScript, row: FollowupRow) =>
+    renderQuickReplyTemplate(script.message_body, {
+      customer_name: customerName(row),
+      doctor_name: userName || responsibleOf(row),
+      branch: row.branch,
+      last_purchase: formatDate(lastPurchaseOf(row)),
+      use_customer_name: useCustomerNameInReply,
+    });
+
+  const useQuickReply = async (script: QuickReplyScript, row: FollowupRow, openWhatsapp = false) => {
+    const message = renderReplyForRow(script, row);
+    try {
+      await navigator.clipboard.writeText(message);
+      await incrementQuickReplyUsage(script.id);
+      setQuickReplies((current) =>
+        current.map((item) => (item.id === script.id ? { ...item, usage_count: item.usage_count + 1 } : item))
+      );
+      if (openWhatsapp && hasValidPhone(row)) {
+        window.open(generateWhatsAppLink(phoneOf(row), message), '_blank', 'noopener,noreferrer');
+      }
+      toast.success(openWhatsapp ? 'تم نسخ الرد وفتح واتساب' : 'تم نسخ الرد السريع');
+    } catch {
+      toast.error('تعذر نسخ الرد السريع');
     }
   };
 
@@ -1369,17 +1474,17 @@ const addFollowup = async () => {
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 2xl:grid-cols-10">
-        <StatCard label="متابعات اليوم" value={stats.totalToday} tone="cyan" active={metricFilter === 'today'} onClick={() => setMetricFilter('today')} />
-        <StatCard label="المكتمل" value={stats.completed} tone="emerald" active={metricFilter === 'completed'} onClick={() => setMetricFilter('completed')} />
-        <StatCard label="لم يرد" value={stats.noAnswer} tone="amber" active={metricFilter === 'noAnswer'} onClick={() => setMetricFilter('noAnswer')} />
-        <StatCard label="مؤجل" value={rows.filter((row) => Boolean(row.postponed_until) || statusOf(row).includes('مؤجل')).length} tone="cyan" active={metricFilter === 'postponed'} onClick={() => setMetricFilter('postponed')} />
-        <StatCard label="يحتاج مدير" value={rows.filter((row) => row.needs_manager || statusOf(row).includes('مدير')).length} tone="rose" active={metricFilter === 'needsManager'} onClick={() => setMetricFilter('needsManager')} />
-        <StatCard label="متأخر" value={stats.overdue} tone="rose" active={metricFilter === 'overdue'} onClick={() => setMetricFilter('overdue')} />
-        <StatCard label="بدون رقم صحيح" value={invalidPhoneCount} tone="amber" active={metricFilter === 'invalidPhone'} onClick={() => setMetricFilter('invalidPhone')} />
-        <StatCard label="قيمة الشراء بعد المتابعة" value={money(stats.purchaseAfterAmount)} tone="emerald" />
-        <StatCard label="عملاء تم استرجاعهم" value={recoveredCount} tone="emerald" active={metricFilter === 'recovered'} onClick={() => setMetricFilter('recovered')} />
-        <StatCard label="لم يبدأ التواصل" value={notStartedCount} tone="cyan" active={metricFilter === 'notStarted'} onClick={() => setMetricFilter('notStarted')} />
-        <StatCard label="تواصل ولم يشترِ" value={contactedNoPurchaseCount} tone="amber" active={metricFilter === 'contactedNoPurchase'} onClick={() => setMetricFilter('contactedNoPurchase')} />
+        <StatCard label="متابعات اليوم" value={stats.totalToday} tone="cyan" active={metricFilter === 'today'} onClick={() => applyMetricFilter('today')} />
+        <StatCard label="المكتمل" value={stats.completed} tone="emerald" active={metricFilter === 'completed'} onClick={() => applyMetricFilter('completed')} />
+        <StatCard label="لم يرد" value={stats.noAnswer} tone="amber" active={metricFilter === 'noAnswer'} onClick={() => applyMetricFilter('noAnswer')} />
+        <StatCard label="مؤجل" value={rows.filter((row) => Boolean(row.postponed_until) || statusOf(row).includes('مؤجل')).length} tone="cyan" active={metricFilter === 'postponed'} onClick={() => applyMetricFilter('postponed')} />
+        <StatCard label="يحتاج مدير" value={rows.filter((row) => row.needs_manager || statusOf(row).includes('مدير')).length} tone="rose" active={metricFilter === 'needsManager'} onClick={() => applyMetricFilter('needsManager')} />
+        <StatCard label="متأخر" value={stats.overdue} tone="rose" active={metricFilter === 'overdue'} onClick={() => applyMetricFilter('overdue')} />
+        <StatCard label="بدون رقم صحيح" value={invalidPhoneCount} tone="amber" active={metricFilter === 'invalidPhone'} onClick={() => applyMetricFilter('invalidPhone')} />
+        <StatCard label="قيمة الشراء بعد المتابعة" value={money(stats.purchaseAfterAmount)} tone="emerald" active={metricFilter === 'recovered'} onClick={() => applyMetricFilter('recovered')} />
+        <StatCard label="عملاء تم استرجاعهم" value={recoveredCount} tone="emerald" active={metricFilter === 'recovered'} onClick={() => applyMetricFilter('recovered')} />
+        <StatCard label="لم يبدأ التواصل" value={notStartedCount} tone="cyan" active={metricFilter === 'notStarted'} onClick={() => applyMetricFilter('notStarted')} />
+        <StatCard label="تواصل ولم يشترِ" value={contactedNoPurchaseCount} tone="amber" active={metricFilter === 'contactedNoPurchase'} onClick={() => applyMetricFilter('contactedNoPurchase')} />
       </section>
 
       {metricFilter !== 'all' && (
@@ -1582,6 +1687,8 @@ const addFollowup = async () => {
                       onCopy={() => void copyScript(row)}
                       onPostpone={() => void postpone(row)}
                       onManager={() => void escalateToManager(row)}
+                      onQuickReply={() => setQuickReplyRow(row)}
+                      onApproveBranch={() => void approveBranchCorrection(row)}
                     />
                   )
                 )}
@@ -1640,6 +1747,16 @@ const addFollowup = async () => {
                   <InfoRow label="المسؤول" value={responsibleOf(detailRow)} />
                 </div>
                 <CustomerFlagsBadges customerFlags={detailRow.customer_flags || {}} />
+                {resolveSuggestedBranchFromInvoiceMetrics(detailRow.customer_metrics) &&
+                  detailRow.branch !== resolveSuggestedBranchFromInvoiceMetrics(detailRow.customer_metrics) && (
+                    <div className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-50">
+                      الفرع المسجل: {text(detailRow.branch)} — المقترح من الفواتير:{' '}
+                      {resolveSuggestedBranchFromInvoiceMetrics(detailRow.customer_metrics)}
+                      <button type="button" className="btn-secondary mt-2 w-full text-xs" onClick={() => void approveBranchCorrection(detailRow)}>
+                        اعتماد التصحيح
+                      </button>
+                    </div>
+                  )}
               </div>
 
               <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
@@ -1668,6 +1785,24 @@ const addFollowup = async () => {
                 </div>
               </div>
 
+              {(detailRow.internal_rating || detailRow.no_purchase_reason || detailRow.cross_sell_offered || detailRow.up_sell_offered) && (
+                <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+                  <h4 className="mb-3 font-black text-cyan-100">آخر تقييم داخلي</h4>
+                  <div className="grid gap-2 text-sm text-slate-200">
+                    <InfoRow label="جودة التواصل" value={detailRow.internal_rating ? `${detailRow.internal_rating}/5` : 'غير محدد'} />
+                    <InfoRow label="رضا العميل" value={detailRow.customer_satisfaction || 'غير محدد'} />
+                    <InfoRow label="فهم الاحتياج" value={detailRow.need_understood == null ? 'غير محدد' : detailRow.need_understood ? 'نعم' : 'لا'} />
+                    <InfoRow label="Cross Sell / Up Sell" value={`${detailRow.cross_sell_offered ? 'نعم' : 'لا'} / ${detailRow.up_sell_offered ? 'نعم' : 'لا'}`} />
+                    <InfoRow label="سبب عدم الشراء" value={detailRow.no_purchase_reason || 'غير محدد'} />
+                  </div>
+                  {detailRow.doctor_internal_note && (
+                    <p className="mt-3 rounded-xl bg-slate-950/40 p-3 text-sm leading-7 text-slate-200">
+                      {detailRow.doctor_internal_note}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
                 <h4 className="mb-2 font-black text-white">ملاحظات قبل التواصل</h4>
                 <p className="text-sm leading-7 text-slate-300">
@@ -1679,6 +1814,7 @@ const addFollowup = async () => {
                 <button className="btn-primary" onClick={() => setResultRow(selectedRow)}><CheckCircle2 className="ml-1 inline h-4 w-4" /> تسجيل نتيجة</button>
                 <button className="btn-secondary" onClick={() => setDetailsRow(detailRow)}><Eye className="ml-1 inline h-4 w-4" /> ملف العميل</button>
                 <button className="btn-secondary" onClick={() => void copyScript(selectedRow)}><Clipboard className="ml-1 inline h-4 w-4" /> نسخ السكريبت</button>
+                <button className="btn-secondary" onClick={() => setQuickReplyRow(detailRow)}><MessageSquare className="ml-1 inline h-4 w-4" /> اختيار رد سريع</button>
                 <a
                   className={`btn-secondary text-center ${hasValidPhone(selectedRow) ? '' : 'pointer-events-none opacity-40'}`}
                   href={hasValidPhone(selectedRow) ? generateWhatsAppLink(phoneOf(selectedRow), waMessageFor(selectedRow)) : undefined}
@@ -1720,6 +1856,18 @@ const addFollowup = async () => {
           />
         </LazyState>
       )}
+      {quickReplyRow && (
+        <QuickReplyPickerModal
+          row={quickReplyRow}
+          scripts={quickReplies}
+          useCustomerName={useCustomerNameInReply}
+          onUseCustomerNameChange={setUseCustomerNameInReply}
+          renderMessage={(script) => renderReplyForRow(script, quickReplyRow)}
+          onCopy={(script) => void useQuickReply(script, quickReplyRow)}
+          onWhatsapp={(script) => void useQuickReply(script, quickReplyRow, true)}
+          onClose={() => setQuickReplyRow(null)}
+        />
+      )}
       <QuickFollowupModal
         open={quickFollowupOpen}
         onClose={closeQuickFollowup}
@@ -1728,6 +1876,89 @@ const addFollowup = async () => {
           setActiveTab('requests');
         }}
       />
+    </div>
+  );
+}
+
+function QuickReplyPickerModal({
+  row,
+  scripts,
+  useCustomerName,
+  onUseCustomerNameChange,
+  renderMessage,
+  onCopy,
+  onWhatsapp,
+  onClose,
+}: {
+  row: FollowupRow;
+  scripts: QuickReplyScript[];
+  useCustomerName: boolean;
+  onUseCustomerNameChange: (value: boolean) => void;
+  renderMessage: (script: QuickReplyScript) => string;
+  onCopy: (script: QuickReplyScript) => void;
+  onWhatsapp: (script: QuickReplyScript) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const filtered = scripts
+    .filter((script) => script.active !== false)
+    .filter((script) =>
+      !q ||
+      [script.shortcut, script.title, script.category, script.script_type, script.message_body, ...(script.tags || [])]
+        .join(' ')
+        .toLowerCase()
+        .includes(q)
+    );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" dir="rtl">
+      <div className="max-h-[88vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-black text-white">اختيار رد سريع</h2>
+            <p className="mt-1 text-sm text-slate-400">{customerName(row)} · {phoneOf(row) || 'بدون رقم'}</p>
+          </div>
+          <button className="btn-secondary px-3 py-2 text-sm" onClick={onClose}>إغلاق</button>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
+          <input
+            className="input-dark"
+            placeholder="ابحث بالاختصار مثل /برد أو العنوان أو النوع"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <label className="flex items-center gap-2 rounded-2xl border border-slate-700 px-4 py-2 text-sm text-slate-200">
+            <input type="checkbox" checked={useCustomerName} onChange={(event) => onUseCustomerNameChange(event.target.checked)} />
+            استخدام اسم العميل
+          </label>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {filtered.map((script) => {
+            const message = renderMessage(script);
+            return (
+              <article key={script.id} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-black text-white">{script.shortcut} · {script.title}</h3>
+                    <p className="mt-1 text-xs text-slate-400">{script.category} · {script.script_type} · استخدام {script.usage_count || 0}</p>
+                  </div>
+                </div>
+                <p className="mt-3 whitespace-pre-line rounded-xl bg-slate-950/70 p-3 text-sm leading-7 text-slate-200">{message}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <button className="btn-secondary text-xs" onClick={() => onCopy(script)}>
+                    <Clipboard className="ml-1 inline h-3.5 w-3.5" /> نسخ الرد
+                  </button>
+                  <button className="btn-primary text-xs" onClick={() => onWhatsapp(script)} disabled={!hasValidPhone(row)}>
+                    <MessageSquare className="ml-1 inline h-3.5 w-3.5" /> استخدام في واتساب
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        {!filtered.length && <EmptyState message="لا توجد ردود سريعة مطابقة." />}
+      </div>
     </div>
   );
 }
@@ -1933,7 +2164,7 @@ function HistoryFollowupCard({ row, onSelect }: { row: FollowupRow; onSelect: ()
   );
 }
 
-function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, onPostpone, onManager }: {
+function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, onPostpone, onManager, onQuickReply, onApproveBranch }: {
   row: FollowupRow;
   selected: boolean;
   onSelect: () => void;
@@ -1942,12 +2173,16 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
   onCopy: () => void;
   onPostpone: () => void;
   onManager: () => void;
+  onQuickReply?: () => void;
+  onApproveBranch?: () => void;
 }) {
   const phone = phoneOf(row);
   const validPhone = hasValidPhone(row);
   const waLink = validPhone ? generateWhatsAppLink(phone, waMessageFor(row)) : '';
   const score = priorityScore(row);
   const note = preContactNote(row);
+  const suggestedBranch = resolveSuggestedBranchFromInvoiceMetrics(row.customer_metrics);
+  const hasBranchMismatch = Boolean(suggestedBranch && row.branch && suggestedBranch !== row.branch);
   return (
     <article
       onClick={onSelect}
@@ -1998,6 +2233,25 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
         <b className="text-teal-200">سكريبت مقترح:</b> {scriptFor(row)}
       </p>
 
+      {hasBranchMismatch && (
+        <div className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-50">
+          <b className="text-amber-200">مراجعة الفرع:</b> الفرع المسجل: {text(row.branch)} — المقترح من الفواتير: {suggestedBranch}
+          {onApproveBranch && (
+            <button type="button" className="btn-secondary mt-2 w-full text-xs" onClick={onApproveBranch}>
+              اعتماد التصحيح
+            </button>
+          )}
+        </div>
+      )}
+
+      {(row.internal_rating || row.no_purchase_reason || row.cross_sell_offered || row.up_sell_offered) && (
+        <div className="mt-3 grid gap-2 text-xs text-slate-200 sm:grid-cols-3">
+          <InfoRow label="تقييم داخلي" value={row.internal_rating ? `${row.internal_rating}/5` : 'غير محدد'} />
+          <InfoRow label="Cross / Up" value={`${row.cross_sell_offered ? 'Cross' : '—'} / ${row.up_sell_offered ? 'Up' : '—'}`} />
+          <InfoRow label="سبب عدم الشراء" value={row.no_purchase_reason || 'غير محدد'} />
+        </div>
+      )}
+
       <p className="mt-3 rounded-2xl border border-slate-700/70 bg-slate-900/70 p-3 text-sm leading-6 text-slate-300">
         {row.followup_reason || row.request_details || row.suggested_action || recommendedAction(row)}
       </p>
@@ -2011,6 +2265,7 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
           <button type="button" className="btn-secondary px-3 py-2 text-xs opacity-40" disabled title="رقم غير صحيح"><MessageSquare className="ml-1 inline h-3.5 w-3.5" /> واتساب</button>
         )}
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onCopy}><Clipboard className="ml-1 inline h-3.5 w-3.5" /> نسخ رسالة</button>
+        <button className="btn-secondary px-3 py-2 text-xs" onClick={onQuickReply}><MessageSquare className="ml-1 inline h-3.5 w-3.5" /> اختيار رد سريع</button>
         <button className="btn-primary px-3 py-2 text-xs" onClick={onResult}><CheckCircle2 className="ml-1 inline h-3.5 w-3.5" /> تم</button>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onResult}><AlertTriangle className="ml-1 inline h-3.5 w-3.5" /> لم يرد</button>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onPostpone}><CalendarClock className="ml-1 inline h-3.5 w-3.5" /> تأجيل</button>

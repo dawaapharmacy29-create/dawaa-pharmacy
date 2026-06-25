@@ -17,6 +17,7 @@ import {
   rowMatchesUserBranch,
   scopeDescription,
 } from '@/lib/security/permissionScopes';
+import { saveCustomerBranchOverride } from '@/lib/customerBranchOverrides';
 
 type BranchReviewRow = {
   customer_code: string | null;
@@ -117,7 +118,7 @@ export default function CustomerDataReview() {
   const { user } = useAuth();
   const canUseAllBranches = canSeeAllBranches(user?.role);
   const userScopeLabel = scopeDescription(user?.role);
-  const [activeTab, setActiveTab] = useState<'branch' | 'phones'>('branch');
+  const [activeTab, setActiveTab] = useState<'branch' | 'phones' | 'invoice-analysis'>('branch');
   const [summary, setSummary] = useState<BranchSummaryRow[]>([]);
   const [branchRows, setBranchRows] = useState<BranchReviewRow[]>([]);
   const [phoneRows, setPhoneRows] = useState<InvalidPhoneRow[]>([]);
@@ -211,17 +212,20 @@ export default function CustomerDataReview() {
     setSavingCode(customerCode);
     try {
       const reviewer = user?.username || user?.name || 'app';
-      const { data, error } = await supabase.rpc('approve_customer_branch_repair_v14', {
-        p_customer_code: customerCode,
-        p_reviewed_by: reviewer,
+      if (!row.suggested_branch) throw new Error('لا يوجد فرع مقترح');
+      await saveCustomerBranchOverride({
+        customer_code: customerCode,
+        customer_phone: row.customer_phone,
+        customer_name: row.customer_name,
+        old_branch: row.current_branch,
+        new_branch: row.suggested_branch,
+        suggested_branch: row.suggested_branch,
+        reason: 'اعتماد تصحيح الفرع من مراجعة العملاء حسب الفواتير',
+        created_by: user?.id || reviewer,
+        created_by_name: reviewer,
       });
-      const result = Array.isArray(data) ? data[0] : data;
-      if (error || result?.ok === false) {
-        if (!row.suggested_branch) throw error || new Error(result?.message || 'لا يوجد فرع مقترح');
-        await safeUpdateCustomerBranch(customerCode, row.suggested_branch);
-        await safeMarkBranchRepairReviewed(customerCode, reviewer);
-      }
-      toast.success('تم اعتماد تصحيح الفرع');
+      await safeMarkBranchRepairReviewed(customerCode, reviewer);
+      toast.success('تم اعتماد تصحيح الفرع كـ override آمن');
       await loadData();
     } catch (error) {
       console.error(error);
@@ -291,6 +295,12 @@ export default function CustomerDataReview() {
         String(row.repair_status || '').includes('auto_repaired')
     )
     .reduce((sum, row) => sum + Number(row.customers_count || 0), 0);
+  const branchMismatchCount = branchRows.filter(
+    (row) => row.current_branch && row.suggested_branch && row.current_branch !== row.suggested_branch
+  ).length;
+  const invoiceReviewCount = branchRows.filter((row) => Number(row.invoices_count || 0) > 0).length;
+  const missingPhoneCount = branchRows.filter((row) => !isValidEgyptMobile(row.customer_phone)).length;
+  const missingCodeCount = branchRows.filter((row) => !row.customer_code).length;
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -353,6 +363,12 @@ export default function CustomerDataReview() {
             >
               بدون رقم صالح
             </button>
+            <button
+              onClick={() => setActiveTab('invoice-analysis')}
+              className={`rounded-2xl px-4 py-2 text-sm font-black ${activeTab === 'invoice-analysis' ? 'bg-teal-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}
+            >
+              إعادة تحليل العملاء من الفواتير
+            </button>
           </div>
           <label className="relative block w-full lg:w-96">
             <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -370,6 +386,37 @@ export default function CustomerDataReview() {
         <div className="flex items-center justify-center rounded-3xl border border-slate-800 bg-slate-950/70 p-10 text-slate-300">
           <Loader2 className="ml-2 h-5 w-5 animate-spin" /> جارٍ التحميل...
         </div>
+      ) : activeTab === 'invoice-analysis' ? (
+        <section className="grid gap-4">
+          <div className="grid gap-4 md:grid-cols-5">
+            <MiniReport label="فرعهم مختلف عن الفواتير" value={branchMismatchCount} />
+            <MiniReport label="لهم فواتير للمراجعة" value={invoiceReviewCount} />
+            <MiniReport label="بدون هاتف" value={missingPhoneCount} />
+            <MiniReport label="بدون كود" value={missingCodeCount} />
+            <MiniReport label="أكثر من فرع" value={branchMismatchCount} />
+          </div>
+          <div className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5 text-sm leading-7 text-blue-100">
+            هذا التقرير لا يغير بيانات العملاء تلقائيًا. زر الاعتماد يحفظ التصحيح في customer_branch_overrides فقط.
+          </div>
+          {filteredBranchRows.slice(0, 80).map((row) => (
+            <article key={`analysis-${row.customer_code}-${row.suggested_branch}`} className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-white">{row.customer_name || 'عميل بدون اسم'}</h2>
+                  <p className="mt-2 text-sm text-slate-300">
+                    الكود: {row.customer_code || '—'} · الهاتف: {row.customer_phone || '—'} · الحالي: {row.current_branch || '—'} · المقترح: {row.suggested_branch || '—'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    الفواتير: {number(row.invoices_count)} · إجمالي الشراء: {money(row.total_spent)} · آخر فاتورة: {date(row.last_invoice_date)}
+                  </p>
+                </div>
+                <button className="btn-primary" type="button" onClick={() => void approveBranch(row)} disabled={savingCode === row.customer_code}>
+                  اعتماد تصحيح الفرع المحدد
+                </button>
+              </div>
+            </article>
+          ))}
+        </section>
       ) : activeTab === 'branch' ? (
         <section className="grid gap-4">
           {filteredBranchRows.map((row) => {
@@ -519,6 +566,15 @@ function EmptyState({ title }: { title: string }) {
     <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-10 text-center text-slate-400">
       <ClipboardCheck className="mx-auto mb-3 h-10 w-10 text-slate-600" />
       <p className="font-bold">{title}</p>
+    </div>
+  );
+}
+
+function MiniReport({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-5">
+      <p className="text-sm text-slate-400">{label}</p>
+      <p className="mt-2 text-3xl font-black text-white">{number(value)}</p>
     </div>
   );
 }

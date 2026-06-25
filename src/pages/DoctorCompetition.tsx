@@ -1,81 +1,213 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Medal, RefreshCw, Trophy } from 'lucide-react';
+import { Download, Medal, RefreshCw, Trophy } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
 
-type Period = 'today' | 'month' | 'cycle';
+type Period = 'last30' | 'last90' | 'cycle' | 'custom';
 type DoctorScore = {
   name: string;
   branch: string;
-  sales: number;
+  totalSales: number;
   invoices: number;
   avgInvoice: number;
+  growthRate: number;
   listItems: number;
   stagnantItems: number;
+  incentiveValue: number;
+  totalQuantity: number;
+  linkedInvoiceCount: number;
   reviewCount: number;
   reviewTotal: number;
   excellentReviews: number;
   negativeReviews: number;
   followups: number;
-  convertedFollowups: number;
+  completedFollowups: number;
+  recoveredCustomers: number;
   followupSales: number;
+  satisfactionTotal: number;
+  satisfactionCount: number;
 };
-function currentCycle() { const now = new Date(); const start = new Date(now.getFullYear(), now.getMonth(), 26); if (now.getDate() < 26) start.setMonth(start.getMonth() - 1); const end = new Date(start); end.setMonth(end.getMonth() + 1); end.setDate(25); return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) }; }
-function currentRange(period: Period) {
+
+const MIN_AVG_INVOICE_THRESHOLD = 30;
+const ALL_BRANCHES = 'كل الفروع';
+
+function num(value: unknown) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function text(value: unknown) {
+  return String(value || '').trim();
+}
+
+function money(value: number) {
+  return `${value.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج`;
+}
+
+function invoiceDate(row: Record<string, unknown>) {
+  const value = text(row.invoice_date || row.invoice_datetime || row.date || row.sale_date || row.created_at);
+  return value.slice(0, 10);
+}
+
+function invoiceAmount(row: Record<string, unknown>) {
+  return num(row.net_total || row.total || row.amount || row.invoice_total || row.total_amount || row.final_total);
+}
+
+function invoiceDoctor(row: Record<string, unknown>) {
+  const name = text(
+    row.doctor_name ||
+      row.seller_name ||
+      row.staff_name ||
+      row.pharmacist_name ||
+      row.cashier_name ||
+      row.created_by_name ||
+      row.user_name
+  );
+  if (!name && import.meta.env.DEV) console.warn('[DoctorCompetition] missing doctor column in invoice', row);
+  return name || 'غير محدد';
+}
+
+function currentCycle() {
   const now = new Date();
-  if (period === 'today') return { start: now.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
-  if (period === 'month') return { start: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10), end: new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10) };
+  const start = new Date(now.getFullYear(), now.getMonth(), 26);
+  if (now.getDate() < 26) start.setMonth(start.getMonth() - 1);
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + 1);
+  end.setDate(25);
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+}
+
+function rangeFor(period: Period, customStart: string, customEnd: string) {
+  const now = new Date();
+  if (period === 'last30') {
+    const start = new Date(now);
+    start.setDate(start.getDate() - 30);
+    return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
+  }
+  if (period === 'last90') {
+    const start = new Date(now);
+    start.setMonth(start.getMonth() - 3);
+    return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
+  }
+  if (period === 'custom') return { start: customStart, end: customEnd || customStart };
   return currentCycle();
 }
-function num(value: unknown) { const n = Number(value || 0); return Number.isFinite(n) ? n : 0; }
-function money(value: number) { return value.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + ' ج'; }
-function scoreOf(row: DoctorScore) { return row.sales + row.convertedFollowups * 500 + row.excellentReviews * 100 - row.negativeReviews * 100; }
-function avgReview(row: DoctorScore) { return row.reviewCount ? Math.round(row.reviewTotal / row.reviewCount) : 0; }
+
 function emptyDoctor(name: string, branch: string): DoctorScore {
-  return { name, branch, sales: 0, invoices: 0, avgInvoice: 0, listItems: 0, stagnantItems: 0, reviewCount: 0, reviewTotal: 0, excellentReviews: 0, negativeReviews: 0, followups: 0, convertedFollowups: 0, followupSales: 0 };
+  return {
+    name,
+    branch,
+    totalSales: 0,
+    invoices: 0,
+    avgInvoice: 0,
+    growthRate: 0,
+    listItems: 0,
+    stagnantItems: 0,
+    incentiveValue: 0,
+    totalQuantity: 0,
+    linkedInvoiceCount: 0,
+    reviewCount: 0,
+    reviewTotal: 0,
+    excellentReviews: 0,
+    negativeReviews: 0,
+    followups: 0,
+    completedFollowups: 0,
+    recoveredCustomers: 0,
+    followupSales: 0,
+    satisfactionTotal: 0,
+    satisfactionCount: 0,
+  };
+}
+
+function avgReview(row: DoctorScore) {
+  return row.reviewCount ? row.reviewTotal / row.reviewCount : 0;
+}
+
+function customerServiceAvg(row: DoctorScore) {
+  return row.satisfactionCount ? row.satisfactionTotal / row.satisfactionCount : 0;
+}
+
+function normalizeScores(rows: DoctorScore[]) {
+  const max = {
+    sales: Math.max(1, ...rows.map((row) => row.totalSales)),
+    avgInvoice: Math.max(1, ...rows.filter((row) => row.invoices >= MIN_AVG_INVOICE_THRESHOLD).map((row) => row.avgInvoice)),
+    incentive: Math.max(1, ...rows.map((row) => row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100)),
+    review: Math.max(1, ...rows.map(avgReview)),
+    service: Math.max(1, ...rows.map((row) => row.completedFollowups + row.recoveredCustomers * 2 + customerServiceAvg(row))),
+  };
+  return rows.map((row) => {
+    const salesScore = (row.totalSales / max.sales) * 100;
+    const avgInvoiceScore = row.invoices >= MIN_AVG_INVOICE_THRESHOLD ? (row.avgInvoice / max.avgInvoice) * 100 : 0;
+    const incentiveScore = ((row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100) / max.incentive) * 100;
+    const reviewScore = (avgReview(row) / max.review) * 100;
+    const serviceScore = ((row.completedFollowups + row.recoveredCustomers * 2 + customerServiceAvg(row)) / max.service) * 100;
+    return {
+      ...row,
+      overallScore: salesScore * 0.3 + avgInvoiceScore * 0.2 + incentiveScore * 0.2 + reviewScore * 0.2 + serviceScore * 0.1,
+    };
+  });
 }
 
 export default function DoctorCompetition() {
   const { user } = useAuth();
-  const [rows, setRows] = useState<DoctorScore[]>([]);
+  const [rows, setRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<Period>('cycle');
-  const [branchFilter, setBranchFilter] = useState('كل الفروع');
-  const cycle = useMemo(() => currentRange(period), [period]);
+  const [period, setPeriod] = useState<Period>('last90');
+  const [branchFilter, setBranchFilter] = useState(ALL_BRANCHES);
+  const [customStart, setCustomStart] = useState(new Date().toISOString().slice(0, 10));
+  const [customEnd, setCustomEnd] = useState(new Date().toISOString().slice(0, 10));
+  const cycle = useMemo(() => rangeFor(period, customStart, customEnd), [customEnd, customStart, period]);
+
   const load = async () => {
     setLoading(true);
     try {
       const [invoiceResult, reviewResult, followupResult] = await Promise.all([
-        supabase.from('sales_invoices').select('*').gte('invoice_date', cycle.start).lte('invoice_date', cycle.end).limit(8000),
-        supabase.from('conversation_sales_reviews').select('*').gte('conversation_date', cycle.start).lte('conversation_date', cycle.end).limit(3000),
-        supabase.from('daily_followups').select('*').gte('created_at', cycle.start).lte('created_at', cycle.end + 'T23:59:59').limit(5000),
+        supabase.from('sales_invoices').select('*').gte('invoice_date', cycle.start).lte('invoice_date', cycle.end).limit(12000),
+        supabase.from('conversation_sales_reviews').select('*').gte('conversation_date', cycle.start).lte('conversation_date', cycle.end).limit(4000),
+        supabase.from('daily_followups').select('*').gte('created_at', cycle.start).lte('created_at', `${cycle.end}T23:59:59`).limit(7000),
       ]);
       const map = new Map<string, DoctorScore>();
       const allowBranch = (branch: string) => {
-        if (branchFilter !== 'كل الفروع' && branch !== branchFilter) return false;
+        if (branchFilter !== ALL_BRANCHES && branch !== branchFilter) return false;
         if (user?.branch && user.role !== 'general_manager' && user.role !== 'branches_manager' && branch && branch !== user.branch) return false;
         return true;
       };
       const upsert = (name: string, branch: string) => {
-        const key = name + '|' + branch;
+        const key = `${name}|${branch}`;
         const current = map.get(key) || emptyDoctor(name, branch);
         map.set(key, current);
         return current;
       };
-      for (const invoice of (invoiceResult.data || []) as any[]) {
-        const name = String(invoice.seller_name || invoice.doctor_name || invoice.staff_name || invoice.created_by_name || 'غير محدد').trim();
-        const branch = String(invoice.branch || 'غير محدد').trim();
+
+      const periodMidpoint = new Date(cycle.start);
+      periodMidpoint.setTime((new Date(cycle.start).getTime() + new Date(cycle.end).getTime()) / 2);
+      const firstHalfSales = new Map<string, number>();
+      const secondHalfSales = new Map<string, number>();
+
+      for (const invoice of (invoiceResult.data || []) as Record<string, unknown>[]) {
+        const name = invoiceDoctor(invoice);
+        const branch = text(invoice.branch || invoice.branch_name || invoice.store_branch) || 'غير محدد';
         if (!allowBranch(branch)) continue;
         const current = upsert(name, branch);
-        current.sales += num(invoice.net_total || invoice.total || invoice.amount || invoice.invoice_total);
+        const amount = invoiceAmount(invoice);
+        current.totalSales += amount;
         current.invoices += 1;
+        current.totalQuantity += num(invoice.quantity || invoice.qty || invoice.total_quantity);
         if (invoice.is_list_item || invoice.list_item || invoice.incentive_item) current.listItems += 1;
         if (invoice.is_stagnant || invoice.stagnant_item || invoice.slow_moving) current.stagnantItems += 1;
+        if (invoice.is_list_item || invoice.list_item || invoice.incentive_item || invoice.is_stagnant || invoice.stagnant_item) {
+          current.incentiveValue += amount;
+          current.linkedInvoiceCount += 1;
+        }
+        const key = `${name}|${branch}`;
+        if (new Date(invoiceDate(invoice)).getTime() <= periodMidpoint.getTime()) firstHalfSales.set(key, (firstHalfSales.get(key) || 0) + amount);
+        else secondHalfSales.set(key, (secondHalfSales.get(key) || 0) + amount);
       }
-      for (const review of (reviewResult.data || []) as any[]) {
-        const name = String(review.staff_name || review.doctor_name || review.employee_name || 'غير محدد').trim();
-        const branch = String(review.branch || 'غير محدد').trim();
+
+      for (const review of (reviewResult.data || []) as Record<string, unknown>[]) {
+        const name = text(review.staff_name || review.doctor_name || review.employee_name || review.created_by_name) || 'غير محدد';
+        const branch = text(review.branch) || 'غير محدد';
         if (!allowBranch(branch)) continue;
         const current = upsert(name, branch);
         const score = num(review.final_score || review.score || review.quality_rating);
@@ -86,39 +218,176 @@ export default function DoctorCompetition() {
           if (score < 70) current.negativeReviews += 1;
         }
       }
-      for (const followup of (followupResult.data || []) as any[]) {
-        const name = String(followup.responsible_name || followup.assigned_doctor || followup.assigned_to || followup.updated_by || 'غير محدد').trim();
-        const branch = String(followup.branch || 'غير محدد').trim();
+
+      for (const followup of (followupResult.data || []) as Record<string, unknown>[]) {
+        const name = text(followup.responsible_name || followup.assigned_doctor || followup.assigned_to || followup.evaluated_by_name || followup.updated_by) || 'غير محدد';
+        const branch = text(followup.branch) || 'غير محدد';
         if (!allowBranch(branch)) continue;
         const current = upsert(name, branch);
         current.followups += 1;
+        if (followup.completed_at || /تم|completed|closed/i.test(text(followup.status || followup.followup_status))) current.completedFollowups += 1;
         if (followup.purchase_after_followup) {
-          current.convertedFollowups += 1;
+          current.recoveredCustomers += 1;
           current.followupSales += num(followup.purchase_amount);
         }
+        const satisfaction = text(followup.customer_satisfaction);
+        if (satisfaction === 'نعم' || satisfaction === 'راضي') {
+          current.satisfactionTotal += 5;
+          current.satisfactionCount += 1;
+        } else if (satisfaction === 'لا') {
+          current.satisfactionTotal += 1;
+          current.satisfactionCount += 1;
+        }
       }
-      setRows([...map.values()].map((row) => ({ ...row, avgInvoice: row.invoices ? row.sales / row.invoices : 0 })).sort((a, b) => scoreOf(b) - scoreOf(a)));
-    } catch (error) { console.warn('[DoctorCompetition] failed', error); setRows([]); } finally { setLoading(false); }
+
+      const withAverages = [...map.entries()].map(([key, row]) => {
+        const first = firstHalfSales.get(key) || 0;
+        const second = secondHalfSales.get(key) || 0;
+        return {
+          ...row,
+          avgInvoice: row.invoices ? row.totalSales / row.invoices : 0,
+          growthRate: first ? ((second - first) / first) * 100 : second > 0 ? 100 : 0,
+        };
+      });
+      setRows(normalizeScores(withAverages).sort((a, b) => b.overallScore - a.overallScore));
+    } catch (error) {
+      console.warn('[DoctorCompetition] failed', error);
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
   };
-  useEffect(() => { void load(); }, [period, branchFilter]);
-  const topSales = rows[0];
-  const topList = [...rows].sort((a, b) => b.listItems - a.listItems)[0];
-  const topStagnant = [...rows].sort((a, b) => b.stagnantItems - a.stagnantItems)[0];
-  const topReviews = [...rows].sort((a, b) => avgReview(b) - avgReview(a))[0];
-  const topConversion = [...rows].sort((a, b) => b.convertedFollowups - a.convertedFollowups)[0];
+
+  useEffect(() => {
+    void load();
+  }, [period, branchFilter, customStart, customEnd]);
+
+  const topSales = [...rows].sort((a, b) => b.totalSales - a.totalSales)[0];
+  const topAvgInvoice = [...rows].filter((row) => row.invoices >= MIN_AVG_INVOICE_THRESHOLD).sort((a, b) => b.avgInvoice - a.avgInvoice)[0];
+  const topIncentive = [...rows].sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems))[0];
+  const topReviews = [...rows].filter((row) => row.reviewCount > 0).sort((a, b) => avgReview(b) - avgReview(a))[0];
+  const topService = [...rows].sort((a, b) => b.recoveredCustomers + b.completedFollowups - (a.recoveredCustomers + a.completedFollowups))[0];
+  const topOverall = rows[0];
+
+  const exportCsv = () => {
+    const header = ['doctor', 'branch', 'overall_score', 'total_sales', 'invoices', 'avg_invoice', 'growth_rate', 'stagnant_items', 'list_items', 'review_avg', 'completed_followups', 'recovered_customers'];
+    const body = rows.map((row) =>
+      [
+        row.name,
+        row.branch,
+        row.overallScore.toFixed(2),
+        row.totalSales,
+        row.invoices,
+        row.avgInvoice.toFixed(2),
+        row.growthRate.toFixed(2),
+        row.stagnantItems,
+        row.listItems,
+        avgReview(row).toFixed(2),
+        row.completedFollowups,
+        row.recoveredCustomers,
+      ].join(',')
+    );
+    const blob = new Blob([[header.join(','), ...body].join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `doctor-competition-${cycle.start}-${cycle.end}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-5" dir="rtl">
-      <section className="rounded-3xl border border-amber-400/30 bg-gradient-to-l from-amber-950/30 via-slate-950 to-slate-900 p-5 text-slate-100">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-3xl font-black text-white">مسابقة الدكاترة</h1><p className="mt-2 text-sm text-slate-300">ترتيب يومي وشهري ودورة 26 إلى 25 للمبيعات، تقييم المحادثات، والتحويل من المتابعة إلى شراء.</p><p className="mt-1 text-xs text-amber-200">الفترة الحالية: {cycle.start} إلى {cycle.end}</p></div><button className="btn-primary" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? 'ml-1 inline h-4 w-4 animate-spin' : 'ml-1 inline h-4 w-4'} /> تحديث</button></div>
+      <section className="rounded-3xl border border-amber-400/30 bg-slate-950 p-5 text-slate-100">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-black text-white">مسابقة الدكاترة</h1>
+            <p className="mt-2 text-sm text-slate-300">تحليل أداء آخر 3 شهور افتراضيًا من الفواتير، التقييمات، والمتابعات.</p>
+            <p className="mt-1 text-xs text-amber-200">الفترة: {cycle.start} إلى {cycle.end}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-secondary" onClick={exportCsv} disabled={!rows.length}><Download className="ml-1 inline h-4 w-4" /> Export CSV</button>
+            <button className="btn-primary" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? 'ml-1 inline h-4 w-4 animate-spin' : 'ml-1 inline h-4 w-4'} /> تحديث</button>
+          </div>
+        </div>
       </section>
-      <section className="dawaa-panel grid gap-3 md:grid-cols-3">
-        <select className="input-dark" value={period} onChange={(event) => setPeriod(event.target.value as Period)}><option value="today">اليوم</option><option value="month">الشهر الحالي</option><option value="cycle">دورة 26 إلى 25</option></select>
-        <select className="input-dark" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option>كل الفروع</option>{BRANCHES.map((branch) => <option key={branch}>{branch}</option>)}</select>
-        <div className="rounded-2xl border border-slate-700 bg-slate-950/50 p-3 text-sm font-bold text-slate-300">لو بيانات اللستة/الرواكد غير موجودة في الفواتير، ستظهر صفر بدون افتراض.</div>
+
+      <section className="dawaa-panel grid gap-3 md:grid-cols-4">
+        <select className="input-dark" value={period} onChange={(event) => setPeriod(event.target.value as Period)}>
+          <option value="last30">آخر 30 يوم</option>
+          <option value="last90">آخر 3 شهور</option>
+          <option value="cycle">الدورة الحالية 26 إلى 25</option>
+          <option value="custom">تاريخ مخصص</option>
+        </select>
+        <select className="input-dark" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}>
+          <option>{ALL_BRANCHES}</option>
+          {BRANCHES.map((branch) => <option key={branch}>{branch}</option>)}
+        </select>
+        <input className="input-dark" type="date" value={customStart} disabled={period !== 'custom'} onChange={(event) => setCustomStart(event.target.value)} />
+        <input className="input-dark" type="date" value={customEnd} disabled={period !== 'custom'} onChange={(event) => setCustomEnd(event.target.value)} />
       </section>
-      <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-5"><Winner title="بطل المبيعات" row={topSales} value={topSales ? money(topSales.sales) : 'لا يوجد'} /><Winner title="بطل اللستة" row={topList} value={topList?.listItems ? String(topList.listItems) : 'لا توجد بيانات كافية'} /><Winner title="بطل الرواكد" row={topStagnant} value={topStagnant?.stagnantItems ? String(topStagnant.stagnantItems) : 'لا توجد بيانات كافية'} /><Winner title="أفضل تقييم محادثة" row={topReviews} value={topReviews?.reviewCount ? `${avgReview(topReviews)}/100` : 'لا توجد بيانات كافية'} /><Winner title="أفضل تحويل" row={topConversion} value={topConversion?.convertedFollowups ? String(topConversion.convertedFollowups) : 'لا توجد بيانات كافية'} /></section>
-      <section className="dawaa-panel overflow-x-auto"><table className="min-w-full text-sm"><thead className="text-slate-400"><tr><th className="p-3 text-right">#</th><th className="p-3 text-right">الدكتور</th><th className="p-3 text-right">الفرع</th><th className="p-3 text-right">المبيعات</th><th className="p-3 text-right">الفواتير</th><th className="p-3 text-right">متوسط الفاتورة</th><th className="p-3 text-right">اللستة</th><th className="p-3 text-right">الرواكد</th><th className="p-3 text-right">متوسط التقييم</th><th className="p-3 text-right">تحويلات المتابعة</th><th className="p-3 text-right">مبيعات المتابعة</th></tr></thead><tbody>{rows.map((row, index) => (<tr key={row.name + row.branch} className="border-t border-slate-800 text-slate-200"><td className="p-3 font-black">{index + 1}</td><td className="p-3 font-black text-white">{row.name}</td><td className="p-3">{row.branch}</td><td className="p-3">{money(row.sales)}</td><td className="p-3">{row.invoices}</td><td className="p-3">{money(row.avgInvoice)}</td><td className="p-3">{row.listItems || 'غير متاح'}</td><td className="p-3">{row.stagnantItems || 'غير متاح'}</td><td className="p-3">{row.reviewCount ? `${avgReview(row)}/100` : 'غير متاح'}</td><td className="p-3">{row.convertedFollowups}</td><td className="p-3">{money(row.followupSales)}</td></tr>))}</tbody></table>{!loading && !rows.length && <div className="p-10 text-center text-slate-400">لا توجد بيانات كافية للفترة الحالية.</div>}</section>
+
+      <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <Winner title="أفضل شامل" row={topOverall} value={topOverall ? `${topOverall.overallScore.toFixed(1)} نقطة` : 'لا يوجد'} />
+        <Winner title="أفضل مبيعات" row={topSales} value={topSales ? money(topSales.totalSales) : 'لا يوجد'} />
+        <Winner title="أفضل متوسط فاتورة" row={topAvgInvoice} value={topAvgInvoice ? money(topAvgInvoice.avgInvoice) : `يتطلب ${MIN_AVG_INVOICE_THRESHOLD} فاتورة`} />
+        <Winner title="أفضل رواكد ولستة" row={topIncentive} value={topIncentive ? money(topIncentive.incentiveValue) : 'لا يوجد'} />
+        <Winner title="أفضل تقييم محادثات" row={topReviews} value={topReviews ? `${avgReview(topReviews).toFixed(1)}/100` : 'لا يوجد'} />
+        <Winner title="أفضل خدمة عملاء" row={topService} value={topService ? `${topService.completedFollowups} متابعة` : 'لا يوجد'} />
+      </section>
+
+      <section className="dawaa-panel overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="text-slate-400">
+            <tr>
+              <th className="p-3 text-right">#</th>
+              <th className="p-3 text-right">الدكتور</th>
+              <th className="p-3 text-right">الفرع</th>
+              <th className="p-3 text-right">الشامل</th>
+              <th className="p-3 text-right">المبيعات</th>
+              <th className="p-3 text-right">الفواتير</th>
+              <th className="p-3 text-right">متوسط الفاتورة</th>
+              <th className="p-3 text-right">النمو</th>
+              <th className="p-3 text-right">الرواكد/اللستة</th>
+              <th className="p-3 text-right">تقييم المحادثات</th>
+              <th className="p-3 text-right">خدمة العملاء</th>
+              <th className="p-3 text-right">سبب الفوز / فرصة التحسين</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${row.name}-${row.branch}`} className="border-t border-slate-800 text-slate-200">
+                <td className="p-3 font-black">{index + 1}</td>
+                <td className="p-3 font-black text-white">{row.name}</td>
+                <td className="p-3">{row.branch}</td>
+                <td className="p-3">{row.overallScore.toFixed(1)}</td>
+                <td className="p-3">{money(row.totalSales)}</td>
+                <td className="p-3">{row.invoices}</td>
+                <td className="p-3">{row.invoices >= MIN_AVG_INVOICE_THRESHOLD ? money(row.avgInvoice) : `خارج ترتيب المتوسط (${row.invoices})`}</td>
+                <td className="p-3">{row.growthRate.toFixed(1)}%</td>
+                <td className="p-3">{row.stagnantItems + row.listItems} / {money(row.incentiveValue)}</td>
+                <td className="p-3">{row.reviewCount ? `${avgReview(row).toFixed(1)} (${row.reviewCount})` : 'غير متاح'}</td>
+                <td className="p-3">{row.completedFollowups} مكتملة · {row.recoveredCustomers} مسترجع</td>
+                <td className="p-3">{row.totalSales === topSales?.totalSales ? 'قوة في إجمالي المبيعات' : row.invoices < MIN_AVG_INVOICE_THRESHOLD ? 'يحتاج عدد فواتير أعلى لدخول متوسط الفاتورة' : 'فرصة تحسين في المزيج أو المتابعة'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!loading && !rows.length && <div className="p-10 text-center text-slate-400">لا توجد بيانات كافية للفترة الحالية.</div>}
+      </section>
     </div>
   );
 }
-function Winner({ title, row, value }: { title: string; row?: DoctorScore; value: string }) { return <div className="rounded-3xl border border-amber-400/30 bg-amber-500/10 p-5"><div className="flex items-center gap-2 text-amber-200"><Trophy className="h-5 w-5" /> {title}</div><div className="mt-3 text-2xl font-black text-white">{row?.name || 'لا يوجد'}</div><div className="mt-1 text-sm text-slate-300">{row?.branch || ''}</div><div className="mt-3 inline-flex rounded-full bg-amber-400/15 px-3 py-1 text-sm font-black text-amber-100"><Medal className="ml-1 h-4 w-4" /> {value}</div></div>; }
+
+function Winner({ title, row, value }: { title: string; row?: DoctorScore; value: string }) {
+  return (
+    <div className="rounded-3xl border border-amber-400/30 bg-amber-500/10 p-5">
+      <div className="flex items-center gap-2 text-amber-200"><Trophy className="h-5 w-5" /> {title}</div>
+      <div className="mt-3 text-2xl font-black text-white">{row?.name || 'لا يوجد'}</div>
+      <div className="mt-1 text-sm text-slate-300">{row?.branch || ''}</div>
+      <div className="mt-3 inline-flex rounded-full bg-amber-400/15 px-3 py-1 text-sm font-black text-amber-100">
+        <Medal className="ml-1 h-4 w-4" /> {value}
+      </div>
+    </div>
+  );
+}
