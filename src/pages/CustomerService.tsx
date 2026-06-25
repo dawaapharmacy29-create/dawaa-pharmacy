@@ -32,9 +32,12 @@ import { searchCustomerMetrics,
   type FollowupRow,
 } from '@/lib/api/customerServiceCommandCenter';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
+import { isValidEgyptPhone } from '@/lib/customerAnalyticsService';
 import { normalizeBranchName } from '@/lib/branch';
-import { BRANCHES } from '@/lib/constants';
+import { BRANCHES, SHAMY_BRANCH_PHARMACISTS } from '@/lib/constants';
 import { canSeeAllBranches, effectiveBranchFilter } from '@/lib/security/permissionScopes';
+import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { mergeStaffChoices } from '@/lib/staffFallback';
 import { CustomerFlagsBadges } from '@/components/CustomerFlagsBadges';
 import { createNotification } from '@/lib/notificationService';
 import type { Customer, DailyFollowup } from '@/types/database';
@@ -55,6 +58,7 @@ const STATUS_OPTIONS = [ALL_FILTER, 'معلق', 'تم', 'لم يرد', 'مؤجل
 const CUSTOMER_CARE_RESPONSIBLES = [
   { branch: 'فرع الشامي', name: 'د ضحى' },
   { branch: 'فرع شكري', name: 'د دنيا' },
+  ...SHAMY_BRANCH_PHARMACISTS.map((name) => ({ branch: 'فرع الشامي', name })),
 ];
 const TABS = [
   ['today', 'متابعات اليوم'],
@@ -407,21 +411,87 @@ function matchesQuickFilter(row: FollowupRow, filter: QuickFilter) {
   return true;
 }
 
+function hasValidPhone(row: FollowupRow) {
+  const phone = phoneOf(row);
+  return Boolean(phone && isValidEgyptPhone(phone, row.customer_code));
+}
+
+function matchesSearch(row: FollowupRow, search: string) {
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  const digits = q.replace(/\D/g, '');
+  const name = customerName(row).toLowerCase();
+  const code = String(row.customer_code || '').toLowerCase();
+  const phone = phoneOf(row);
+  return (
+    name.includes(q) ||
+    code.includes(q) ||
+    (digits.length >= 3 && phone.replace(/\D/g, '').includes(digits)) ||
+    phone.includes(q)
+  );
+}
+
+function currentMonthPurchases(row: FollowupRow) {
+  return Number(row.purchase_count_current_month || row.customer_metrics?.invoices_count || 0);
+}
+
+function averagePurchaseCount(row: FollowupRow) {
+  const fromRow = Number(row.average_monthly_purchase_count || 0);
+  if (fromRow > 0) return fromRow;
+  const activeMonths = Number(row.customer_metrics?.active_months || 0);
+  const invoices = invoicesCount(row);
+  if (activeMonths > 0 && invoices > 0) return Math.round(invoices / activeMonths);
+  return 0;
+}
+
+function preContactNote(row: FollowupRow) {
+  return (
+    row.handling_notes ||
+    row.service_notes ||
+    row.whatsapp_notes ||
+    row.customer_notes ||
+    row.notes ||
+    null
+  );
+}
+
 function scriptFor(row: FollowupRow) {
   const reason = row.request_details || row.followup_reason || row.suggested_action || recommendedAction(row);
+  if (!hasValidPhone(row)) {
+    return 'العميل بدون رقم صحيح — راجع بيانات التواصل أو استخدم الاتصال الهاتفي من سجل الفرع قبل إرسال واتساب.';
+  }
+  if (row.needs_manager || isOverdue(row)) {
+    return `أهلا بحضرتك، مع حضرتك صيدليات دواء.\nبنطمن على حضرتك بخصوص ${reason}.\nلو في أي ملاحظة أو احتياج، نتشرف بخدمة حضرتك فورًا.`;
+  }
+  if (/متوقف|stop/i.test(customerStatusOf(row))) {
+    return `أهلا بحضرتك، مع حضرتك صيدليات دواء.\nبنطمن على حضرتك ونتأكد إن كل احتياجاتك متوفرة.\n${reason}\nنتشرف بخدمة حضرتك دائمًا.`;
+  }
+  if (/مهم جدا|vip/i.test(segmentOf(row))) {
+    return `أهلا بحضرتك، مع حضرتك صيدليات دواء.\nحضرتك من عملائنا المميزين، وبنطمن على احتياجاتك الشهرية.\n${reason}\nتحت أمر حضرتك في أي وقت.`;
+  }
+  if (/شكوى|complaint/i.test(`${reason} ${row.followup_notes || ''}`)) {
+    return `أهلا بحضرتك، مع حضرتك صيدليات دواء.\nبنعتذر عن أي إزعاج سابق، وبنتابع مع حضرتك لحل ${reason}.\nنتشرف بخدمة حضرتك.`;
+  }
   const last = lastPurchaseOf(row) ? `\nآخر تعامل كان بتاريخ ${formatDate(lastPurchaseOf(row))}.` : '';
-  return `أهلا بحضرتك، مع حضرتك خدمة عملاء صيدليات دواء.
-بنطمن على حضرتك وبنتابع بخصوص ${reason}.${last}
-نتشرف بخدمة حضرتك دائمًا.`;
+  return `أهلا بحضرتك، مع حضرتك صيدليات دواء.\nبنطمن على حضرتك وبنتابع بخصوص ${reason}.${last}\nنتشرف بخدمة حضرتك دائمًا.`;
+}
+
+function waMessageFor(row: FollowupRow) {
+  const reason = row.request_details || row.followup_reason || recommendedAction(row);
+  return `أهلا بحضرتك، مع حضرتك صيدليات دواء.\nبنطمن على حضرتك بخصوص ${reason}.\nنتشرف بخدمة حضرتك دائمًا.`;
 }
 
 function customer360Url(row: FollowupRow) {
-  return `/customer-360?${new URLSearchParams({
-    code: row.customer_code || '',
-    id: row.customer_id || '',
-    phone: phoneOf(row),
-    name: customerName(row),
-  }).toString()}`;
+  const params = new URLSearchParams();
+  const code = String(row.customer_code || '').trim();
+  const id = String(row.customer_id || '').trim();
+  const phone = phoneOf(row);
+  const name = customerName(row);
+  if (code) params.set('code', code);
+  if (id) params.set('id', id);
+  if (phone) params.set('phone', phone);
+  if (name && name !== 'عميل بدون اسم') params.set('name', name);
+  return `/customer-360?${params.toString()}`;
 }
 
 function customerFrom(row: FollowupRow): Customer {
@@ -727,30 +797,53 @@ export default function CustomerService() {
       tabRows.filter((row) => {
         const responsible = responsibleOf(row);
         return (
+          matchesSearch(row, debouncedSearch) &&
           matchesQuickFilter(row, quickFilter) &&
           matchesMetricFilter(row, metricFilter) &&
           (assignedFilter === ALL_FILTER || responsible === assignedFilter)
         );
       }),
-    [assignedFilter, metricFilter, quickFilter, tabRows]
+    [assignedFilter, debouncedSearch, metricFilter, quickFilter, tabRows]
+  );
+  const { data: staffRows } = useSupabaseQuery<{ id: string; name: string; role: string; branch: string | null; active?: boolean | null }>({
+    table: 'staff',
+    select: 'id,name,role,branch,active',
+    filters: [{ column: 'active', operator: 'eq', value: true }],
+    orderBy: { column: 'name', ascending: true },
+    limit: 200,
+  });
+  const staff = useMemo(() => {
+    const fromDb = mergeStaffChoices(staffRows || []).map((item) => ({
+      id: item.id,
+      name: item.display_name || item.name,
+      role: item.role,
+      branch: item.branch,
+    }));
+    const fromFollowups = [
+      ...new Map(
+        rows.map((row) => {
+          const name = responsibleOf(row);
+          return [name, { id: row.assigned_staff_id || name, name, role: 'خدمة عملاء', branch: row.branch || 'غير محدد' }];
+        })
+      ).values(),
+    ];
+    const merged = new Map<string, { id: string; name: string; role: string; branch: string | null }>();
+    for (const item of [...fromDb, ...fromFollowups]) {
+      if (item.name && item.name !== 'غير محدد') merged.set(item.name, item);
+    }
+    return [...merged.values()];
+  }, [rows, staffRows]);
+  const doctorOptions = useMemo(
+    () =>
+      [...new Set([...staff.map((item) => item.name), ...SHAMY_BRANCH_PHARMACISTS, 'د ضحى', 'د دنيا'].filter(Boolean))].sort(
+        (a, b) => a.localeCompare(b, 'ar')
+      ),
+    [staff]
   );
   const visibleRows = filteredTabRows.slice(0, visibleCount);
-  const staff = useMemo(
-    () =>
-      [
-        ...new Map(
-          rows.map((row) => {
-            const name = responsibleOf(row);
-            return [name, { id: row.assigned_staff_id || name, name, role: 'خدمة عملاء', branch: row.branch || 'غير محدد' }];
-          })
-        ).values(),
-      ],
-    [rows]
-  );
-  const doctorOptions = useMemo(() => staff.map((item) => item.name).filter((name) => name !== 'غير محدد'), [staff]);
   const performance = useMemo(() => calculateTeamPerformance(rows), [rows]);
   const recoveredCount = useMemo(() => rows.filter((row) => row.purchase_after_followup).length, [rows]);
-  const invalidPhoneCount = useMemo(() => rows.filter((row) => !phoneOf(row)).length, [rows]);
+  const invalidPhoneCount = useMemo(() => rows.filter((row) => !hasValidPhone(row)).length, [rows]);
   const notStartedCount = useMemo(() => rows.filter((row) => matchesMetricFilter(row, 'notStarted')).length, [rows]);
   const contactedNoPurchaseCount = useMemo(() => rows.filter((row) => matchesMetricFilter(row, 'contactedNoPurchase')).length, [rows]);
   const funnel = useMemo(() => {
@@ -988,7 +1081,7 @@ const addFollowup = async () => {
   };
 
   const copyScript = async (row: FollowupRow) => {
-    await navigator.clipboard.writeText(scriptFor(row));
+    await navigator.clipboard.writeText(waMessageFor(row));
     toast.success('تم نسخ السكريبت');
   };
 
@@ -1007,7 +1100,7 @@ const addFollowup = async () => {
 
   return (
     <div className="customer-service-v3 w-full max-w-full space-y-5 overflow-hidden" dir="rtl">
-      <section className="rounded-3xl border border-cyan-500/30 bg-gradient-to-l from-[#102640] via-slate-900 to-slate-950 p-4 text-slate-100 shadow-xl sm:p-5">
+      <section className="rounded-3xl border border-teal-500/35 bg-gradient-to-l from-[#0f2744] via-[#111827] to-[#0b1220] p-5 text-slate-100 shadow-xl">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <span className="inline-flex rounded-full border border-cyan-400/30 bg-cyan-500/15 px-3 py-1 text-xs font-black text-cyan-100">
@@ -1041,7 +1134,8 @@ const addFollowup = async () => {
         <StatCard label="يحتاج مدير" value={rows.filter((row) => row.needs_manager || statusOf(row).includes('مدير')).length} tone="rose" active={metricFilter === 'needsManager'} onClick={() => setMetricFilter('needsManager')} />
         <StatCard label="متأخر" value={stats.overdue} tone="rose" active={metricFilter === 'overdue'} onClick={() => setMetricFilter('overdue')} />
         <StatCard label="بدون رقم صحيح" value={invalidPhoneCount} tone="amber" active={metricFilter === 'invalidPhone'} onClick={() => setMetricFilter('invalidPhone')} />
-        <StatCard label="تحول لبيع" value={recoveredCount} tone="emerald" active={metricFilter === 'recovered'} onClick={() => setMetricFilter('recovered')} />
+        <StatCard label="قيمة الشراء بعد المتابعة" value={money(stats.purchaseAfterAmount)} tone="emerald" />
+        <StatCard label="عملاء تم استرجاعهم" value={recoveredCount} tone="emerald" active={metricFilter === 'recovered'} onClick={() => setMetricFilter('recovered')} />
         <StatCard label="لم يبدأ التواصل" value={notStartedCount} tone="cyan" active={metricFilter === 'notStarted'} onClick={() => setMetricFilter('notStarted')} />
         <StatCard label="تواصل ولم يشترِ" value={contactedNoPurchaseCount} tone="amber" active={metricFilter === 'contactedNoPurchase'} onClick={() => setMetricFilter('contactedNoPurchase')} />
       </section>
@@ -1338,8 +1432,20 @@ const addFollowup = async () => {
                 <button className="btn-primary" onClick={() => setResultRow(selectedRow)}><CheckCircle2 className="ml-1 inline h-4 w-4" /> تسجيل نتيجة</button>
                 <button className="btn-secondary" onClick={() => setDetailsRow(selectedRow)}><Eye className="ml-1 inline h-4 w-4" /> ملف العميل</button>
                 <button className="btn-secondary" onClick={() => void copyScript(selectedRow)}><Clipboard className="ml-1 inline h-4 w-4" /> نسخ السكريبت</button>
-                <a className="btn-secondary text-center" href={generateWhatsAppLink(phoneOf(selectedRow), scriptFor(selectedRow))} target="_blank" rel="noreferrer"><MessageSquare className="ml-1 inline h-4 w-4" /> واتساب</a>
-                <a className="btn-secondary text-center" href={`tel:${phoneOf(selectedRow)}`}><PhoneCall className="ml-1 inline h-4 w-4" /> اتصال</a>
+                <a
+                  className={`btn-secondary text-center ${hasValidPhone(selectedRow) ? '' : 'pointer-events-none opacity-40'}`}
+                  href={hasValidPhone(selectedRow) ? generateWhatsAppLink(phoneOf(selectedRow), waMessageFor(selectedRow)) : undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MessageSquare className="ml-1 inline h-4 w-4" /> واتساب
+                </a>
+                <a className="btn-secondary text-center" href={hasValidPhone(selectedRow) ? `tel:${phoneOf(selectedRow)}` : undefined}>
+                  <PhoneCall className="ml-1 inline h-4 w-4" /> اتصال
+                </a>
+                <a className="btn-primary text-center" href={customer360Url(selectedRow)}>
+                  <Eye className="ml-1 inline h-4 w-4" /> ملف 360
+                </a>
                 <button className="btn-secondary" onClick={() => void postpone(selectedRow)}><CalendarClock className="ml-1 inline h-4 w-4" /> تأجيل</button>
                 <button className="btn-secondary" onClick={() => void addQuickNote(selectedRow)}><Clipboard className="ml-1 inline h-4 w-4" /> إضافة ملاحظة</button>
                 <button className="btn-secondary" onClick={() => void escalateToManager(selectedRow)}><ShieldAlert className="ml-1 inline h-4 w-4" /> يحتاج مدير</button>
@@ -1434,10 +1540,14 @@ function TabPanel({
   }
   if (tab === 'scripts') {
     return (
-      <div className="grid gap-4 lg:grid-cols-3">
-        <ScriptCard title="استرجاع عميل متوقف" body="السلام عليكم، مع حضرتك صيدليات دواء. لاحظنا إن حضرتك بقالك فترة ما تعاملتش معانا، وحابين نطمئن هل في أي احتياج نقدر نجهزه لحضرتك؟" />
-        <ScriptCard title="عميل VIP" body="السلام عليكم، حضرتك من العملاء المميزين عندنا. بنراجع احتياجات حضرتك الشهرية ونقدر نجهز الطلب أو نوفر بدائل مناسبة." />
-        <ScriptCard title="طلب ناقص" body="السلام عليكم، بخصوص الصنف المطلوب، هنراجع توفره ونتابع مع حضرتك فور وصوله أو توفر بديل مناسب." />
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <ScriptCard title="متابعة عادية" body="أهلا بحضرتك، مع حضرتك صيدليات دواء. بنطمن على حضرتك ونتأكد إن احتياجاتك متوفرة. نتشرف بخدمة حضرتك دائمًا." />
+        <ScriptCard title="عميل متوقف" body="أهلا بحضرتك، مع حضرتك صيدليات دواء. بنطمن على حضرتك ونتأكد إن كل احتياجاتك متوفرة. لو في أي ملاحظة أو طلب، نجهزه لحضرتك فورًا." />
+        <ScriptCard title="عميل مهم جدًا" body="أهلا بحضرتك، مع حضرتك صيدليات دواء. حضرتك من عملائنا المميزين، وبنطمن على احتياجاتك الشهرية. تحت أمر حضرتك في أي وقت." />
+        <ScriptCard title="بدون رقم صحيح" body="راجع بيانات التواصل من ملف العميل أو سجل الفرع قبل الإرسال. لا ترسل واتساب لرقم غير مؤكد." />
+        <ScriptCard title="يحتاج تدخل سريع" body="أهلا بحضرتك، مع حضرتك صيدليات دواء. بنتابع مع حضرتك بخصوص طلبكم، وهنراجع التفاصيل فورًا ونرد عليكم في أقرب وقت." />
+        <ScriptCard title="اعتذار عن مشكلة" body="أهلا بحضرتك، مع حضرتك صيدليات دواء. بنعتذر عن أي إزعاج سابق، وبنتابع مع حضرتك لحل الملاحظة وضمان رضاك." />
+        <ScriptCard title="عرض مناسب بدون ضغط" body="أهلا بحضرتك، مع حضرتك صيدليات دواء. لو حضرتك محتاج أي أصناف، نقدر نجهزها أو نوفر بديل مناسب بدون أي التزام." />
       </div>
     );
   }
@@ -1538,62 +1648,78 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
   onManager: () => void;
 }) {
   const phone = phoneOf(row);
+  const validPhone = hasValidPhone(row);
+  const waLink = validPhone ? generateWhatsAppLink(phone, waMessageFor(row)) : '';
   const score = priorityScore(row);
+  const note = preContactNote(row);
   return (
     <article
       onClick={onSelect}
-      className={`cursor-pointer rounded-3xl border p-4 transition sm:p-5 ${selected ? 'border-cyan-400 bg-cyan-500/10 shadow-lg shadow-cyan-950/20' : 'border-slate-700 bg-slate-950/45 hover:border-cyan-500/40 hover:bg-slate-900/80'}`}
+      className={`cursor-pointer rounded-3xl border p-5 transition ${selected ? 'border-teal-400 bg-teal-500/15 shadow-lg shadow-teal-950/25' : 'border-slate-600/80 bg-[#0f172a]/90 hover:border-teal-500/40 hover:bg-slate-900/90'}`}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h3 className="truncate text-lg font-black text-white">{customerName(row)}</h3>
-          <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
-            <span>{text(row.customer_code, 'بدون كود')}</span>
-            <span>·</span>
-            <span>{phone || 'بدون رقم صحيح'}</span>
-            <span>·</span>
-            <span>{text(row.branch)}</span>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-xl font-black text-white">{customerName(row)}</h3>
+          <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-300">
+            <span className="rounded-lg bg-slate-800/80 px-2 py-1">كود: {text(row.customer_code, 'بدون كود')}</span>
+            <span className={`rounded-lg px-2 py-1 ${validPhone ? 'bg-emerald-500/15 text-emerald-100' : 'bg-amber-500/15 text-amber-100'}`}>
+              {validPhone ? phone : 'بدون رقم صحيح'}
+            </span>
+            <span className="rounded-lg bg-slate-800/80 px-2 py-1">{text(row.branch)}</span>
           </div>
         </div>
-        <div className="flex flex-col items-start gap-2 sm:items-end">
-          <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-black ${priorityTone(row)}`}>{text(row.priority, 'مهم')}</span>
-          <span className="w-fit rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-black text-cyan-100">
-            أولوية {score} · {priorityReason(row)}
+        <div className="flex flex-col items-start gap-2 lg:items-end">
+          <span className={`w-fit rounded-full border px-3 py-1 text-xs font-black ${priorityTone(row)}`}>{text(row.priority, 'مهم')}</span>
+          <span className="w-fit rounded-full border border-teal-400/30 bg-teal-500/10 px-3 py-1 text-[11px] font-black text-teal-100">
+            {priorityReason(row)}
           </span>
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${statusTone(row)}`}>{statusOf(row)}</span>
-        <span className="rounded-full border border-slate-600 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-200">{segmentOf(row)}</span>
-        <span className="rounded-full border border-slate-600 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-200">خطورة: {riskLevel(row)}</span>
-        {/استثنائية|exceptional/i.test(`${row.request_type || ''} ${row.followup_type || ''} ${row.followup_reason || ''} ${row.notes || ''}`) && (
-          <span className="rounded-full border border-fuchsia-400/40 bg-fuchsia-500/10 px-2.5 py-1 text-xs font-black text-fuchsia-100">متابعة استثنائية</span>
-        )}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(row)}`}>{statusOf(row)}</span>
+        <span className="rounded-full border border-slate-500/50 bg-slate-800/80 px-3 py-1 text-xs font-bold text-slate-100">{segmentOf(row)}</span>
+        <span className="rounded-full border border-slate-500/50 bg-slate-800/80 px-3 py-1 text-xs text-slate-200">حالة: {customerStatusOf(row)}</span>
+        <span className="rounded-full border border-slate-500/50 bg-slate-800/80 px-3 py-1 text-xs text-slate-200">خطورة: {riskLevel(row)}</span>
       </div>
-      <div className="mt-4 grid gap-2 text-xs text-slate-300 sm:grid-cols-2">
+
+      <div className="mt-4 grid gap-2 text-sm text-slate-200 sm:grid-cols-2 lg:grid-cols-3">
         <InfoRow label="آخر شراء" value={formatDate(lastPurchaseOf(row))} />
         <InfoRow label="متوسط شهري" value={money(avgMonthly(row))} />
-        <InfoRow label="إجمالي" value={money(totalSpent(row))} />
-        <InfoRow label="المسؤول" value={responsibleOf(row)} />
-        <InfoRow label="آخر نتيجة" value={statusOf(row)} />
-        <InfoRow label="تم التواصل بواسطة" value={updatedByOf(row)} />
-        <InfoRow label="وقت آخر تواصل" value={formatDateTime(lastContactAt(row))} />
-        <InfoRow label="تقييم المحادثة" value={reviewSummaryOf(row)} />
-        <InfoRow label="بيع بعد المتابعة" value={row.purchase_after_followup ? money((row as any).purchase_amount || 0) : 'لا'} />
-        <InfoRow label="رقم الفاتورة" value={row.purchase_invoice_no || 'غير متاح'} />
+        <InfoRow label="شراء الشهر الحالي" value={String(currentMonthPurchases(row))} />
+        <InfoRow label="متوسط مرات الشراء" value={String(averagePurchaseCount(row))} />
+        <InfoRow label="إجمالي المشتريات" value={money(totalSpent(row))} />
+        <InfoRow label="مسؤول خدمة العملاء" value={responsibleOf(row)} />
       </div>
-      <p className="mt-3 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-3 text-sm leading-6 text-slate-300">
+
+      {note && (
+        <p className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3 text-sm leading-6 text-amber-50">
+          <b className="text-amber-200">ملاحظة قبل التواصل:</b> {note}
+        </p>
+      )}
+
+      <p className="mt-3 rounded-2xl border border-teal-500/20 bg-teal-500/10 p-3 text-sm leading-7 text-teal-50">
+        <b className="text-teal-200">سكريبت مقترح:</b> {scriptFor(row)}
+      </p>
+
+      <p className="mt-3 rounded-2xl border border-slate-700/70 bg-slate-900/70 p-3 text-sm leading-6 text-slate-300">
         {row.followup_reason || row.request_details || row.suggested_action || recommendedAction(row)}
       </p>
-      <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-7" onClick={(event) => event.stopPropagation()}>
-        <button className="btn-primary px-3 py-2 text-xs" onClick={onResult}><CheckCircle2 className="ml-1 inline h-3.5 w-3.5" /> نتيجة</button>
-        <button className="btn-secondary px-3 py-2 text-xs" onClick={onDetails}><Eye className="ml-1 inline h-3.5 w-3.5" /> التفاصيل</button>
-        <a className="btn-secondary px-3 py-2 text-center text-xs" href={customer360Url(row)}><Eye className="ml-1 inline h-3.5 w-3.5" /> 360</a>
-        <button className="btn-secondary px-3 py-2 text-xs" onClick={onCopy}><Clipboard className="ml-1 inline h-3.5 w-3.5" /> نسخ</button>
-        <a className="btn-secondary px-3 py-2 text-center text-xs" href={generateWhatsAppLink(phone, scriptFor(row))} target="_blank" rel="noreferrer"><MessageSquare className="ml-1 inline h-3.5 w-3.5" /> واتساب</a>
-        <a className="btn-secondary px-3 py-2 text-center text-xs" href={`tel:${phone}`}><PhoneCall className="ml-1 inline h-3.5 w-3.5" /> اتصال</a>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5" onClick={(event) => event.stopPropagation()}>
+        <a className="btn-primary px-3 py-2 text-center text-xs" href={customer360Url(row)}><Eye className="ml-1 inline h-3.5 w-3.5" /> ملف 360</a>
+        <a className={`btn-secondary px-3 py-2 text-center text-xs ${validPhone ? '' : 'pointer-events-none opacity-40'}`} href={validPhone ? `tel:${phone}` : undefined}><PhoneCall className="ml-1 inline h-3.5 w-3.5" /> اتصال</a>
+        {validPhone && waLink ? (
+          <a className="btn-secondary px-3 py-2 text-center text-xs" href={waLink} target="_blank" rel="noreferrer"><MessageSquare className="ml-1 inline h-3.5 w-3.5" /> واتساب</a>
+        ) : (
+          <button type="button" className="btn-secondary px-3 py-2 text-xs opacity-40" disabled title="رقم غير صحيح"><MessageSquare className="ml-1 inline h-3.5 w-3.5" /> واتساب</button>
+        )}
+        <button className="btn-secondary px-3 py-2 text-xs" onClick={onCopy}><Clipboard className="ml-1 inline h-3.5 w-3.5" /> نسخ رسالة</button>
+        <button className="btn-primary px-3 py-2 text-xs" onClick={onResult}><CheckCircle2 className="ml-1 inline h-3.5 w-3.5" /> تم</button>
+        <button className="btn-secondary px-3 py-2 text-xs" onClick={onResult}><AlertTriangle className="ml-1 inline h-3.5 w-3.5" /> لم يرد</button>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onPostpone}><CalendarClock className="ml-1 inline h-3.5 w-3.5" /> تأجيل</button>
-        <button className="btn-secondary px-3 py-2 text-xs" onClick={onManager}><UserCheck className="ml-1 inline h-3.5 w-3.5" /> مدير</button>
+        <button className="btn-secondary px-3 py-2 text-xs" onClick={onManager}><UserCheck className="ml-1 inline h-3.5 w-3.5" /> يحتاج مدير</button>
+        <button className="btn-secondary px-3 py-2 text-xs" onClick={onDetails}><Eye className="ml-1 inline h-3.5 w-3.5" /> تفاصيل</button>
       </div>
     </article>
   );

@@ -47,6 +47,13 @@ export type MonthlyPurchaseTrendRow = {
   avgInvoice: number;
 };
 
+export type CustomerProfileMatchBy = 'code' | 'phone' | 'phoneTail' | 'name' | 'mixed' | 'none';
+
+export type CustomerProfileInvoiceSource =
+  | 'sales_invoices'
+  | 'customer_metrics_summary'
+  | 'mixed';
+
 export type CustomerProfileDataHealth = {
   hasMetrics: boolean;
   hasCustomerRecord: boolean;
@@ -55,6 +62,13 @@ export type CustomerProfileDataHealth = {
   invoicesLoaded: boolean;
   followupsLoaded: boolean;
   missingCustomerCode: boolean;
+  matchedBy?: CustomerProfileMatchBy;
+  invoicesMatchedCount?: number;
+  invoiceSourceUsed?: CustomerProfileInvoiceSource;
+  metricsFallbackUsed?: boolean;
+  branchMostFrequent?: string | null;
+  branchHighestValue?: string | null;
+  branchLastPurchase?: string | null;
 };
 
 export type CustomerFullProfile = {
@@ -141,6 +155,13 @@ const INVOICE_AMOUNT_KEYS = [
 
 const INVOICE_DATE_KEYS = ['invoice_date', 'invoice_datetime', 'created_at'] as const;
 
+const INVOICE_BRANCH_KEYS = ['branch', 'branch_name', 'store_branch'] as const;
+
+const INVOICE_SELECT_COLUMNS =
+  'id,invoice_no,invoice_number,invoice_date,invoice_datetime,created_at,net_total,net_amount,discounted_amount,amount,gross_amount,total_amount,total,seller_name,branch,branch_name,store_branch,customer_code,customer_id,customer_phone,phone,customer_name,name';
+
+type InvoiceMatchStrategy = 'code' | 'phone' | 'phoneTail' | 'name' | 'id';
+
 function readInvoiceAmount(row: Row) {
   return safeNumber(readFirst(row, [...INVOICE_AMOUNT_KEYS], 0));
 }
@@ -149,17 +170,90 @@ function readInvoiceDate(row: Row) {
   return String(readFirst(row, [...INVOICE_DATE_KEYS], '') || '');
 }
 
+function readInvoiceBranch(row: Row) {
+  return normalizeBranchName(readFirst(row, [...INVOICE_BRANCH_KEYS], null));
+}
+
+function sanitizeIlikeValue(value: string) {
+  return value.replace(/[,%.]/g, ' ').replace(/\s+/g, ' ').trim().replace(/[%_]/g, '');
+}
+
+function invoiceRowKey(row: Row) {
+  const id = String(readFirst(row, ['id'], '') || '').trim();
+  if (id) return `id:${id}`;
+  return `k:${getInvoiceKey(row)}|${readInvoiceDate(row)}|${readInvoiceAmount(row)}`;
+}
+
+function resolveMatchParams(
+  params: CustomerFullProfileParams,
+  metrics?: CustomerMetric | null,
+  profile?: Row | null
+) {
+  const code = normalizeCustomerCode(
+    params.customer_code || metrics?.customer_code || profile?.customer_code
+  );
+  const phone = normalizePhone(
+    params.customer_phone ||
+      metrics?.customer_phone ||
+      profile?.phone ||
+      profile?.whatsapp_phone ||
+      profile?.phone_alt
+  );
+  const customerId = normalizeCustomerKey(
+    params.customer_id || metrics?.customer_id || profile?.id
+  );
+  const name = sanitizeIlikeValue(
+    normalizeCustomerKey(params.customer_name || metrics?.customer_name || profile?.name)
+  );
+  const phoneTail = phone.length >= 10 ? phone.slice(-10) : '';
+  return { code, phone, phoneTail, customerId, name };
+}
+
+function buildInvoiceMatchQueries(
+  params: CustomerFullProfileParams,
+  metrics?: CustomerMetric | null,
+  profile?: Row | null
+): Array<{ strategy: InvoiceMatchStrategy; clauses: string }> {
+  const { code, phone, phoneTail, customerId, name } = resolveMatchParams(params, metrics, profile);
+  const queries: Array<{ strategy: InvoiceMatchStrategy; clauses: string }> = [];
+  if (code) queries.push({ strategy: 'code', clauses: `customer_code.eq.${code}` });
+  if (phone) {
+    queries.push({
+      strategy: 'phone',
+      clauses: `customer_phone.eq.${phone},phone.eq.${phone}`,
+    });
+  }
+  if (phoneTail) {
+    queries.push({
+      strategy: 'phoneTail',
+      clauses: `customer_phone.ilike.%${phoneTail}%,phone.ilike.%${phoneTail}%`,
+    });
+  }
+  if (customerId && isUuidLike(customerId)) {
+    queries.push({ strategy: 'id', clauses: `customer_id.eq.${customerId}` });
+  }
+  if (name.length >= 3) {
+    queries.push({
+      strategy: 'name',
+      clauses: `customer_name.ilike.%${name}%,name.ilike.%${name}%`,
+    });
+  }
+  return queries;
+}
+
+function summarizeMatchedBy(strategies: InvoiceMatchStrategy[]): CustomerProfileMatchBy {
+  if (!strategies.length) return 'none';
+  if (strategies.length === 1) {
+    const only = strategies[0];
+    if (only === 'id') return 'mixed';
+    return only;
+  }
+  return 'mixed';
+}
+
 function isZeroMetrics(metrics: CustomerMetric | null) {
   if (!metrics) return true;
   return metrics.invoices_count === 0 && metrics.total_spent === 0;
-}
-
-function needsMetricsFromInvoices(metrics: CustomerMetric | null, invoiceCount: number) {
-  if (invoiceCount <= 0) return false;
-  if (!metrics) return true;
-  if (isZeroMetrics(metrics)) return true;
-  if (metrics.invoices_count === 0) return true;
-  return false;
 }
 
 function buildMetricsFromInvoices(
@@ -173,17 +267,24 @@ function buildMetricsFromInvoices(
   let lastPurchase: string | null = null;
   const months = new Set<string>();
   const branchCounts = new Map<string, number>();
+  const branchTotals = new Map<string, number>();
+  const datedRows: Array<{ date: string; branch: string | null; amount: number }> = [];
 
   for (const row of rows) {
-    totalSpent += readInvoiceAmount(row);
+    const amount = readInvoiceAmount(row);
+    totalSpent += amount;
     const dateStr = readInvoiceDate(row);
+    const branch = readInvoiceBranch(row);
     if (dateStr) {
       if (!firstPurchase || dateStr < firstPurchase) firstPurchase = dateStr;
       if (!lastPurchase || dateStr > lastPurchase) lastPurchase = dateStr;
       months.add(dateStr.slice(0, 7));
+      datedRows.push({ date: dateStr, branch, amount });
     }
-    const branch = normalizeBranchName(readFirst(row, ['branch'], null));
-    if (branch) branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
+    if (branch) {
+      branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
+      branchTotals.set(branch, (branchTotals.get(branch) || 0) + amount);
+    }
   }
 
   const invoicesCount = rows.length;
@@ -199,6 +300,18 @@ function buildMetricsFromInvoices(
       topBranch = branch;
     }
   }
+
+  let highestValueBranch: string | null = null;
+  let highestValue = 0;
+  for (const [branch, value] of branchTotals) {
+    if (value > highestValue) {
+      highestValue = value;
+      highestValueBranch = branch;
+    }
+  }
+
+  const lastPurchaseBranch =
+    [...datedRows].sort((a, b) => b.date.localeCompare(a.date))[0]?.branch || null;
 
   const code = normalizeCustomerCode(
     params.customer_code || existing?.customer_code || profile?.customer_code
@@ -223,7 +336,7 @@ function buildMetricsFromInvoices(
       ? 'بدون شراء'
       : normalizeCustomerStatus(existing?.customer_status ?? null, lastPurchase, firstPurchase);
 
-  return {
+  const metric: CustomerMetric = {
     id: String(finalKey || customerId || code || phone || name || 'unknown'),
     final_customer_key: finalKey,
     customer_id: customerId || null,
@@ -250,6 +363,160 @@ function buildMetricsFromInvoices(
     status,
     retention_status: status,
   };
+
+  (metric as CustomerMetric & { branch_highest_value?: string | null; branch_last_purchase?: string | null }).branch_highest_value =
+    highestValueBranch;
+  (metric as CustomerMetric & { branch_last_purchase?: string | null }).branch_last_purchase =
+    lastPurchaseBranch;
+
+  return metric;
+}
+
+function resolveFinalMetrics(
+  summary: CustomerMetric | null,
+  invoiceMetrics: CustomerMetric | null,
+  invoiceCount: number
+): {
+  metrics: CustomerMetric | null;
+  metricsFallbackUsed: boolean;
+  invoiceSourceUsed: CustomerProfileInvoiceSource;
+} {
+  if (!invoiceCount || !invoiceMetrics) {
+    return {
+      metrics: summary,
+      metricsFallbackUsed: false,
+      invoiceSourceUsed: summary ? 'customer_metrics_summary' : 'sales_invoices',
+    };
+  }
+  if (!summary || isZeroMetrics(summary)) {
+    return {
+      metrics: invoiceMetrics,
+      metricsFallbackUsed: true,
+      invoiceSourceUsed: 'sales_invoices',
+    };
+  }
+
+  const summaryIncomplete =
+    summary.invoices_count === 0 ||
+    summary.total_spent === 0 ||
+    !summary.last_purchase;
+
+  if (summaryIncomplete) {
+    const merged: CustomerMetric = {
+      ...summary,
+      invoices_count: invoiceMetrics.invoices_count,
+      total_spent: invoiceMetrics.total_spent,
+      total_purchases: invoiceMetrics.total_purchases,
+      avg_invoice: invoiceMetrics.avg_invoice,
+      first_purchase: summary.first_purchase || invoiceMetrics.first_purchase,
+      last_purchase: summary.last_purchase || invoiceMetrics.last_purchase,
+      active_months: invoiceMetrics.active_months || summary.active_months,
+      avg_monthly: invoiceMetrics.avg_monthly || summary.avg_monthly,
+      branch: summary.branch || invoiceMetrics.branch,
+      segment: normalizeCustomerSegment(
+        summary.segment,
+        invoiceMetrics.total_spent,
+        invoiceMetrics.avg_monthly || summary.avg_monthly
+      ),
+      type: normalizeCustomerSegment(
+        summary.segment,
+        invoiceMetrics.total_spent,
+        invoiceMetrics.avg_monthly || summary.avg_monthly
+      ),
+      customer_status: normalizeCustomerStatus(
+        summary.customer_status,
+        invoiceMetrics.last_purchase || summary.last_purchase,
+        invoiceMetrics.first_purchase || summary.first_purchase
+      ),
+      status: normalizeCustomerStatus(
+        summary.customer_status,
+        invoiceMetrics.last_purchase || summary.last_purchase,
+        invoiceMetrics.first_purchase || summary.first_purchase
+      ),
+      retention_status: normalizeCustomerStatus(
+        summary.customer_status,
+        invoiceMetrics.last_purchase || summary.last_purchase,
+        invoiceMetrics.first_purchase || summary.first_purchase
+      ),
+    };
+    merged.type = merged.segment;
+    merged.status = merged.customer_status;
+    merged.retention_status = merged.customer_status;
+    return {
+      metrics: merged,
+      metricsFallbackUsed: true,
+      invoiceSourceUsed: 'mixed',
+    };
+  }
+
+  if (
+    invoiceMetrics.invoices_count > summary.invoices_count ||
+    invoiceMetrics.total_spent > summary.total_spent
+  ) {
+    const merged: CustomerMetric = {
+      ...summary,
+      invoices_count: Math.max(summary.invoices_count, invoiceMetrics.invoices_count),
+      total_spent: Math.max(summary.total_spent, invoiceMetrics.total_spent),
+      total_purchases: Math.max(summary.total_purchases, invoiceMetrics.total_purchases),
+      avg_invoice:
+        Math.max(summary.invoices_count, invoiceMetrics.invoices_count) > 0
+          ? Math.max(summary.total_spent, invoiceMetrics.total_spent) /
+            Math.max(summary.invoices_count, invoiceMetrics.invoices_count)
+          : summary.avg_invoice,
+      last_purchase: summary.last_purchase || invoiceMetrics.last_purchase,
+      first_purchase: summary.first_purchase || invoiceMetrics.first_purchase,
+      active_months: Math.max(summary.active_months, invoiceMetrics.active_months),
+      avg_monthly: invoiceMetrics.avg_monthly || summary.avg_monthly,
+      branch: summary.branch || invoiceMetrics.branch,
+    };
+    return {
+      metrics: merged,
+      metricsFallbackUsed: true,
+      invoiceSourceUsed: 'mixed',
+    };
+  }
+
+  return {
+    metrics: summary,
+    metricsFallbackUsed: false,
+    invoiceSourceUsed: 'customer_metrics_summary',
+  };
+}
+
+async function fetchCustomerInvoicesMultiMatch(
+  params: CustomerFullProfileParams,
+  metrics: CustomerMetric | null,
+  profile: Row | null,
+  errorsBySection: Record<string, string>,
+  signal?: AbortSignal
+): Promise<{ rows: Row[]; matchedStrategies: InvoiceMatchStrategy[] }> {
+  const queries = buildInvoiceMatchQueries(params, metrics, profile);
+  if (!queries.length) return { rows: [], matchedStrategies: [] };
+
+  const matchedStrategies: InvoiceMatchStrategy[] = [];
+  const byKey = new Map<string, Row>();
+
+  await Promise.all(
+    queries.map(async ({ strategy, clauses }) => {
+      try {
+        const query = withAbort(
+          supabase.from('sales_invoices').select(INVOICE_SELECT_COLUMNS).or(clauses),
+          signal
+        );
+        const { data, error } = await query;
+        if (error) throw error;
+        const rows = (data ?? []) as Row[];
+        if (rows.length) matchedStrategies.push(strategy);
+        for (const row of rows) byKey.set(invoiceRowKey(row), row);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errorsBySection[`invoices_${strategy}`] = friendlyError(message);
+        if (import.meta.env.DEV) console.warn(`[customerProfileService.invoices_${strategy}]`, error);
+      }
+    })
+  );
+
+  return { rows: [...byKey.values()], matchedStrategies };
 }
 
 function cacheKey(params: CustomerFullProfileParams) {
@@ -273,32 +540,30 @@ function withAbort<T>(query: T, signal?: AbortSignal): T {
 }
 
 function metricsOrClauses(params: CustomerFullProfileParams) {
-  const code = normalizeCustomerCode(params.customer_code);
-  const phone = normalizePhone(params.customer_phone);
+  const { code, phone, phoneTail, customerId, name } = resolveMatchParams(params);
   const finalKey = normalizeCustomerKey(params.final_customer_key);
-  const customerId = normalizeCustomerKey(params.customer_id);
   return [
     code ? `customer_code.eq.${code}` : '',
     finalKey ? `final_customer_key.eq.${finalKey}` : '',
     customerId && isUuidLike(customerId) ? `customer_id.eq.${customerId}` : '',
     phone ? `customer_phone.eq.${phone}` : '',
+    phoneTail ? `customer_phone.ilike.%${phoneTail}%` : '',
+    name.length >= 3 ? `customer_name.ilike.%${name}%` : '',
   ]
     .filter(Boolean)
     .join(',');
 }
 
 function customerOrClauses(params: CustomerFullProfileParams, metrics?: CustomerMetric | null) {
-  const code = normalizeCustomerCode(params.customer_code || metrics?.customer_code);
-  const phone = normalizePhone(params.customer_phone || metrics?.customer_phone);
-  const customerId = normalizeCustomerKey(params.customer_id || metrics?.customer_id);
-  const name = normalizeCustomerKey(params.customer_name || metrics?.customer_name);
+  const { code, phone, phoneTail, customerId, name } = resolveMatchParams(params, metrics);
   return [
     code ? `customer_code.eq.${code}` : '',
     customerId && isUuidLike(customerId) ? `id.eq.${customerId}` : '',
     phone ? `phone.eq.${phone}` : '',
     phone ? `whatsapp_phone.eq.${phone}` : '',
     phone ? `phone_alt.eq.${phone}` : '',
-    name ? `name.eq.${name}` : '',
+    phoneTail ? `phone.ilike.%${phoneTail}%` : '',
+    name.length >= 3 ? `name.ilike.%${name}%` : '',
   ]
     .filter(Boolean)
     .join(',');
@@ -309,57 +574,31 @@ function activityOrClauses(
   metrics?: CustomerMetric | null,
   profile?: Row | null
 ) {
-  const code = normalizeCustomerCode(
-    params.customer_code || metrics?.customer_code || profile?.customer_code
-  );
-  const phone = normalizePhone(
-    params.customer_phone ||
-      metrics?.customer_phone ||
-      profile?.phone ||
-      profile?.whatsapp_phone ||
-      profile?.phone_alt
-  );
-  const customerId = normalizeCustomerKey(
-    params.customer_id || metrics?.customer_id || profile?.id
-  );
-  const name = normalizeCustomerKey(
-    params.customer_name || metrics?.customer_name || profile?.name
-  );
+  const { code, phone, phoneTail, customerId, name } = resolveMatchParams(params, metrics, profile);
   return [
     customerId && isUuidLike(customerId) ? `customer_id.eq.${customerId}` : '',
     code ? `customer_code.eq.${code}` : '',
     phone ? `customer_phone.eq.${phone}` : '',
     phone ? `phone.eq.${phone}` : '',
-    name ? `customer_name.eq.${name}` : '',
+    phoneTail ? `customer_phone.ilike.%${phoneTail}%` : '',
+    phoneTail ? `phone.ilike.%${phoneTail}%` : '',
+    name.length >= 3 ? `customer_name.ilike.%${name}%` : '',
   ]
     .filter(Boolean)
     .join(',');
 }
 
-function invoiceActivityOrClauses(
+function conversationReviewOrClauses(
   params: CustomerFullProfileParams,
   metrics?: CustomerMetric | null,
   profile?: Row | null
 ) {
-  const code = normalizeCustomerCode(
-    params.customer_code || metrics?.customer_code || profile?.customer_code
-  );
-  const phone = normalizePhone(
-    params.customer_phone ||
-      metrics?.customer_phone ||
-      profile?.phone ||
-      profile?.whatsapp_phone ||
-      profile?.phone_alt
-  );
-  const name = normalizeCustomerKey(
-    params.customer_name || metrics?.customer_name || profile?.name
-  ).replace(/,/g, ' ');
-  const phoneTail = phone.length >= 10 ? phone.slice(-10) : '';
+  const { code, phone, phoneTail, name } = resolveMatchParams(params, metrics, profile);
   return [
     code ? `customer_code.eq.${code}` : '',
     phone ? `customer_phone.eq.${phone}` : '',
     phoneTail ? `customer_phone.ilike.%${phoneTail}%` : '',
-    name ? `customer_name.eq.${name}` : '',
+    name.length >= 3 ? `customer_name.ilike.%${name}%` : '',
   ]
     .filter(Boolean)
     .join(',');
@@ -422,7 +661,7 @@ function mapInvoice(row: Row): CustomerInvoiceSummary {
     invoice_date: readFirst(row, [...INVOICE_DATE_KEYS], null) as string | null,
     amount: readInvoiceAmount(row),
     seller_name: readFirst(row, ['seller_name'], null) as string | null,
-    branch: normalizeBranchName(readFirst(row, ['branch'], null)),
+    branch: readInvoiceBranch(row),
   };
 }
 
@@ -636,32 +875,10 @@ export async function getCustomerFullProfile(
   );
 
   const activityClauses = activityOrClauses(params, metrics, profile);
-  const invoiceClauses = invoiceActivityOrClauses(params, metrics, profile);
+  const reviewClauses = conversationReviewOrClauses(params, metrics, profile);
 
-  const invoiceSelectColumns =
-    'id,invoice_no,invoice_number,invoice_date,invoice_datetime,created_at,net_total,net_amount,discounted_amount,amount,gross_amount,total_amount,total,seller_name,branch,customer_code,customer_phone,customer_name';
-
-  const [latestInvoices, latestFollowups, trendRows, invoiceAggRows] = await Promise.all([
-    safeSection(
-      'latestInvoices',
-      async () => {
-        if (!invoiceClauses) return [];
-        const query = withAbort(
-          supabase
-            .from('sales_invoices')
-            .select(invoiceSelectColumns)
-            .or(invoiceClauses)
-            .order('invoice_date', { ascending: false })
-            .limit(10),
-          params.signal
-        );
-        const { data, error } = await query;
-        if (error) throw error;
-        return ((data ?? []) as Row[]).map(mapInvoice);
-      },
-      errorsBySection,
-      [] as CustomerInvoiceSummary[]
-    ),
+  const [invoiceMatch, latestFollowups] = await Promise.all([
+    fetchCustomerInvoicesMultiMatch(params, metrics, profile, errorsBySection, params.signal),
     safeSection(
       'latestFollowups',
       async () => {
@@ -685,52 +902,46 @@ export async function getCustomerFullProfile(
       [] as CustomerFollowupSummary[]
     ),
     safeSection(
-      'monthlyPurchaseTrend',
+      'conversationReviews',
       async () => {
-        if (!invoiceClauses) return [];
+        if (!reviewClauses) return 0;
         const query = withAbort(
           supabase
-            .from('sales_invoices')
-            .select(
-              'invoice_date,invoice_datetime,created_at,net_total,net_amount,discounted_amount,amount,gross_amount,total_amount,total,customer_code,customer_phone,customer_name'
-            )
-            .or(invoiceClauses)
-            .order('invoice_date', { ascending: false })
-            .limit(180),
+            .from('conversation_sales_reviews')
+            .select('id', { count: 'exact', head: true })
+            .or(reviewClauses),
           params.signal
         );
-        const { data, error } = await query;
+        const { count, error } = await query;
         if (error) throw error;
-        return buildTrend((data ?? []) as Row[]);
+        return count || 0;
       },
       errorsBySection,
-      [] as MonthlyPurchaseTrendRow[]
-    ),
-    safeSection(
-      'metricsFromInvoices',
-      async () => {
-        if (!invoiceClauses) return [] as Row[];
-        const query = withAbort(
-          supabase
-            .from('sales_invoices')
-            .select(
-              'invoice_date,invoice_datetime,created_at,net_total,net_amount,discounted_amount,amount,gross_amount,total_amount,total,branch,customer_code,customer_phone,customer_name'
-            )
-            .or(invoiceClauses),
-          params.signal
-        );
-        const { data, error } = await query;
-        if (error) throw error;
-        return (data ?? []) as Row[];
-      },
-      errorsBySection,
-      [] as Row[]
+      0
     ),
   ]);
 
-  const resolvedMetrics = needsMetricsFromInvoices(metrics, invoiceAggRows.length)
-    ? buildMetricsFromInvoices(invoiceAggRows, params, metrics, profile)
-    : metrics;
+  const invoiceAggRows = invoiceMatch.rows;
+  const invoiceMetrics =
+    invoiceAggRows.length > 0
+      ? buildMetricsFromInvoices(invoiceAggRows, params, metrics, profile)
+      : null;
+  const { metrics: resolvedMetrics, metricsFallbackUsed, invoiceSourceUsed } = resolveFinalMetrics(
+    metrics,
+    invoiceMetrics,
+    invoiceAggRows.length
+  );
+
+  const sortedInvoices = [...invoiceAggRows].sort((a, b) =>
+    readInvoiceDate(b).localeCompare(readInvoiceDate(a))
+  );
+  const latestInvoices = sortedInvoices.slice(0, 20).map(mapInvoice);
+  const trendRows = buildTrend(invoiceAggRows);
+
+  const branchExtras = invoiceMetrics as CustomerMetric & {
+    branch_highest_value?: string | null;
+    branch_last_purchase?: string | null;
+  };
 
   const notes = buildNotes(profile);
   const flags = (readFirst(profile, ['customer_flags'], null) || null) as Record<
@@ -753,21 +964,28 @@ export async function getCustomerFullProfile(
       hasCustomerRecord: Boolean(profile),
       hasValidPhone: Boolean(
         displayPhone &&
-        isValidEgyptPhone(displayPhone, metrics?.customer_code || params.customer_code)
+        isValidEgyptPhone(displayPhone, resolvedMetrics?.customer_code || params.customer_code)
       ),
       isPseudoCustomer: isPseudoCustomer({
         customer_name:
-          metrics?.customer_name || (profile?.name as string | null) || params.customer_name,
+          resolvedMetrics?.customer_name || (profile?.name as string | null) || params.customer_name,
         customer_phone: displayPhone,
         phone: displayPhone,
-        customer_id: metrics?.customer_id || (profile?.id as string | null),
-        customer_code: metrics?.customer_code || params.customer_code,
+        customer_id: resolvedMetrics?.customer_id || (profile?.id as string | null),
+        customer_code: resolvedMetrics?.customer_code || params.customer_code,
       }),
-      invoicesLoaded: !errorsBySection.latestInvoices,
+      invoicesLoaded: invoiceAggRows.length > 0 || !Object.keys(errorsBySection).some((k) => k.startsWith('invoices_')),
       followupsLoaded: !errorsBySection.latestFollowups,
       missingCustomerCode: !normalizeCustomerCode(
-        metrics?.customer_code || params.customer_code || profile?.customer_code
+        resolvedMetrics?.customer_code || params.customer_code || profile?.customer_code
       ),
+      matchedBy: summarizeMatchedBy(invoiceMatch.matchedStrategies),
+      invoicesMatchedCount: invoiceAggRows.length,
+      invoiceSourceUsed,
+      metricsFallbackUsed,
+      branchMostFrequent: resolvedMetrics?.branch || null,
+      branchHighestValue: branchExtras?.branch_highest_value || null,
+      branchLastPurchase: branchExtras?.branch_last_purchase || null,
     },
     errorsBySection,
     displayPhone,
