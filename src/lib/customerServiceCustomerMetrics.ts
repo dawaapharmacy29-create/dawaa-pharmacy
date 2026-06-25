@@ -113,20 +113,44 @@ function invoiceDate(row: InvoiceLike) {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 }
 
+function parseMoney(value: unknown) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const normalized = cleanText(value)
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[^0-9.\-]/g, '');
+  const amount = Number(normalized || 0);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
 function invoiceAmount(row: InvoiceLike) {
   const value = valueOf(row, [
     'net_total',
     'net_amount',
+    'net_value',
+    'total_net',
     'discounted_amount',
+    'amount_after_discount',
     'amount',
     'gross_amount',
+    'gross_total',
     'total_amount',
     'total',
     'invoice_total',
+    'invoice_value',
+    'bill_total',
+    'sale_total',
+    'sales_total',
+    'sales_amount',
     'final_total',
+    'final_amount',
+    'grand_total',
+    'paid_amount',
+    'value',
+    'price_total',
+    'cash_total',
   ]);
-  const amount = Number(value ?? 0);
-  return Number.isFinite(amount) ? amount : 0;
+  return parseMoney(value);
 }
 
 function invoiceBranch(row: InvoiceLike) {

@@ -974,25 +974,51 @@ export default function CustomerService() {
       });
       const live = liveMetricsByKey.get(key);
       if (!live) return row;
+
+      // لا نسمح للـ live enrichment يمسح الأرقام القديمة لو لقى الفواتير والتاريخ
+      // لكن لم يقدر يقرأ عمود قيمة الفاتورة بسبب اختلاف اسم العمود في sales_invoices.
+      const fallbackTotal = totalSpent(row);
+      const fallbackInvoices = invoicesCount(row);
+      const fallbackAvgMonthly = avgMonthly(row);
+      const fallbackAvgInvoice = Number(row.customer_metrics?.avg_invoice || 0);
+
+      const nextTotal = live.total_spent > 0 ? live.total_spent : fallbackTotal;
+      const nextInvoices = live.invoices_count > 0 ? live.invoices_count : fallbackInvoices;
+      const nextAvgInvoice =
+        live.avg_invoice > 0
+          ? live.avg_invoice
+          : fallbackAvgInvoice > 0
+            ? fallbackAvgInvoice
+            : nextInvoices > 0
+              ? nextTotal / nextInvoices
+              : 0;
+      const nextAvgMonthly = live.avg_monthly > 0 ? live.avg_monthly : fallbackAvgMonthly;
+      const nextCurrentMonthCount =
+        live.current_month_count > 0 ? live.current_month_count : Number(row.purchase_count_current_month || 0);
+      const nextAverageMonthlyPurchaseCount =
+        live.average_monthly_purchase_count > 0
+          ? live.average_monthly_purchase_count
+          : averagePurchaseCount(row);
+
       return {
         ...row,
-        total_spent: live.total_spent,
-        last_purchase_date: live.last_purchase,
-        purchase_count_current_month: live.current_month_count,
-        average_monthly_purchase_count: live.average_monthly_purchase_count,
+        total_spent: nextTotal,
+        last_purchase_date: live.last_purchase || row.last_purchase_date,
+        purchase_count_current_month: nextCurrentMonthCount,
+        average_monthly_purchase_count: nextAverageMonthlyPurchaseCount,
         customer_status: live.customer_status || row.customer_status,
         segment: live.segment || row.segment,
         branch: live.branch_last_purchase || live.branch || row.branch,
         customer_metrics: {
           ...(row.customer_metrics || { id: row.customer_id || row.id }),
-          total_spent: live.total_spent,
-          invoices_count: live.invoices_count,
-          last_purchase: live.last_purchase,
-          first_purchase: live.first_purchase,
-          avg_invoice: live.avg_invoice,
-          avg_monthly: live.avg_monthly,
-          customer_status: live.customer_status,
-          segment: live.segment,
+          total_spent: nextTotal,
+          invoices_count: nextInvoices,
+          last_purchase: live.last_purchase || row.customer_metrics?.last_purchase || row.last_purchase_date || null,
+          first_purchase: live.first_purchase || row.customer_metrics?.first_purchase || null,
+          avg_invoice: nextAvgInvoice,
+          avg_monthly: nextAvgMonthly,
+          customer_status: live.customer_status || row.customer_metrics?.customer_status,
+          segment: live.segment || row.customer_metrics?.segment,
           branch_most_frequent: live.branch_most_frequent,
           branch_highest_value: live.branch_highest_value,
           branch_last_purchase: live.branch_last_purchase,
