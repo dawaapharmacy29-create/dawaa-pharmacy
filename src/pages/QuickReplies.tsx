@@ -18,22 +18,6 @@ type Reply = {
 const STORAGE_KEY = 'dawaa_quick_replies_v1';
 
 const DEFAULT_REPLIES: Reply[] = [
-<<<<<<< HEAD
-  { id: 'welcome', shortcut: '/ترحيب', title: 'رسالة ترحيب آمنة', doctorName: 'عام', branch: 'كل الفروع', category: 'ترحيب', active: true, message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. بنطمن على حضرتك وبنتشرف بخدمتك دائمًا.' },
-  { id: 'followup', shortcut: '/متابعة', title: 'متابعة عميل', doctorName: 'عام', branch: 'كل الفروع', category: 'متابعة', active: true, message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. بنطمن على حضرتك وبنتابع هل في أي طلب أو استفسار نقدر نساعد فيه؟' },
-  { id: 'complaint', shortcut: '/شكوى', title: 'احتواء شكوى', doctorName: 'عام', branch: 'كل الفروع', category: 'شكوى', active: true, message: 'نعتذر لحضرتك عن أي تقصير. تم تسجيل الملاحظة وسيتم متابعتها فورًا من المسؤول المختص.' },
-  { id: 'offer', shortcut: '/عرض', title: 'عرض مناسب بدون ضغط', doctorName: 'عام', branch: 'كل الفروع', category: 'عرض', active: true, message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. حاليًا متاح عرض مناسب في فرع {branch}، ولو حضرتك محتاج أي صنف نقدر نراجعه ونأكد التوفر.' },
-  { id: 'confirm-order', shortcut: '/تأكيد_طلب', title: 'تأكيد طلب', doctorName: 'عام', branch: 'كل الفروع', category: 'تأكيد طلب', active: true, message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. بنأكد على طلب حضرتك، وسيتم المتابعة مع حضرتك فور التجهيز.' },
-];
-function loadReplies(): Reply[] { try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : DEFAULT_REPLIES; } catch { return DEFAULT_REPLIES; } }
-function applyVariables(message: string, userName: string, branch: string) {
-  return message
-    .replaceAll('{doctor_name}', userName || 'خدمة عملاء صيدليات دواء')
-    .replaceAll('{branch}', branch || 'فرع الصيدلية')
-    .replaceAll('{invoice_value}', 'قيمة الفاتورة')
-    .replaceAll('{customer_status}', 'حالة العميل')
-    .replaceAll('{last_purchase}', 'آخر شراء');
-=======
   {
     id: 'welcome',
     shortcut: '/ترحيب',
@@ -42,8 +26,7 @@ function applyVariables(message: string, userName: string, branch: string) {
     branch: 'كل الفروع',
     category: 'ترحيب',
     active: true,
-    message:
-      'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء فرع {branch}. بنرحب بحضرتك ونتشرف بخدمتك دائمًا.',
+    message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء فرع {branch}. بنرحب بحضرتك ونتشرف بخدمتك دائمًا.',
   },
   {
     id: 'followup',
@@ -53,8 +36,7 @@ function applyVariables(message: string, userName: string, branch: string) {
     branch: 'كل الفروع',
     category: 'متابعة',
     active: true,
-    message:
-      'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. بنطمن على حضرتك وبنتابع هل في أي طلب أو استفسار نقدر نساعد فيه؟',
+    message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. بنطمن على حضرتك وبنتابع هل في أي طلب أو استفسار نقدر نساعد فيه؟',
   },
   {
     id: 'invoice',
@@ -64,8 +46,7 @@ function applyVariables(message: string, userName: string, branch: string) {
     branch: 'كل الفروع',
     category: 'تأكيد طلب',
     active: true,
-    message:
-      'أهلا بحضرتك يا فندم، مع حضرتك صيدليات دواء. قيمة الفاتورة الخاصة بحضرتك {invoice_value}. نتشرف بخدمة حضرتك دائمًا.',
+    message: 'أهلا بحضرتك يا فندم، مع حضرتك صيدليات دواء. قيمة الفاتورة الخاصة بحضرتك {invoice_value}. نتشرف بخدمة حضرتك دائمًا.',
   },
   {
     id: 'complaint',
@@ -75,8 +56,17 @@ function applyVariables(message: string, userName: string, branch: string) {
     branch: 'كل الفروع',
     category: 'شكوى',
     active: true,
-    message:
-      'نعتذر لحضرتك عن أي تقصير. تم تسجيل الملاحظة وسيتم متابعتها فورًا من المسؤول المختص.',
+    message: 'نعتذر لحضرتك عن أي تقصير. تم تسجيل الملاحظة وسيتم متابعتها فورًا من المسؤول المختص.',
+  },
+  {
+    id: 'offer',
+    shortcut: '/عرض',
+    title: 'عرض مناسب بدون ضغط',
+    doctorName: 'عام',
+    branch: 'كل الفروع',
+    category: 'عرض',
+    active: true,
+    message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. حاليًا متاح عرض مناسب في فرع {branch}، ولو حضرتك محتاج أي صنف نقدر نراجعه ونأكد التوفر.',
   },
 ];
 
@@ -119,7 +109,9 @@ function applyVariables(message: string, userName: string, branch: string, invoi
   return message
     .replaceAll('{doctor_name}', userName || 'خدمة عملاء صيدليات دواء')
     .replaceAll('{branch}', branch || 'فرع الصيدلية')
-    .replaceAll('{invoice_value}', invoiceValue || 'قيمة الفاتورة');
+    .replaceAll('{invoice_value}', invoiceValue || 'قيمة الفاتورة')
+    .replaceAll('{customer_status}', 'حالة العميل')
+    .replaceAll('{last_purchase}', 'آخر شراء');
 }
 
 async function copyText(text: string) {
@@ -135,7 +127,6 @@ async function copyText(text: string) {
   area.select();
   document.execCommand('copy');
   document.body.removeChild(area);
->>>>>>> 1a568981bde026ff2c428d8639f26c00cb430f66
 }
 
 export default function QuickReplies() {
@@ -156,10 +147,7 @@ export default function QuickReplies() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return replies.filter((reply) => {
-      if (!reply.active && !q) return true;
-      return !q || [reply.shortcut, reply.title, reply.doctorName, reply.branch, reply.category, reply.message].join(' ').toLowerCase().includes(q);
-    });
+    return replies.filter((reply) => !q || [reply.shortcut, reply.title, reply.doctorName, reply.branch, reply.category, reply.message].join(' ').toLowerCase().includes(q));
   }, [query, replies]);
 
   const persist = (next: Reply[]) => {
@@ -209,7 +197,8 @@ export default function QuickReplies() {
 
   const copy = async (reply: Reply) => {
     try {
-      await copyText(applyVariables(reply.message, reply.doctorName === 'عام' ? user?.name || '' : reply.doctorName, reply.branch || user?.branch || '', invoiceValue));
+      const doctorName = reply.doctorName === 'عام' ? user?.name || '' : reply.doctorName;
+      await copyText(applyVariables(reply.message, doctorName, reply.branch || user?.branch || '', invoiceValue));
       toast.success('تم نسخ الرد');
     } catch {
       toast.error('تعذر النسخ تلقائيًا، انسخ النص يدويًا');
@@ -234,13 +223,6 @@ export default function QuickReplies() {
         <input className="input-dark" placeholder="الاختصار مثل /متابعة" value={form.shortcut} onChange={(event) => setForm((current) => ({ ...current, shortcut: event.target.value }))} />
         <input className="input-dark" placeholder="عنوان السكريبت" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
         <input className="input-dark" placeholder="اسم الدكتور/الموظف" value={form.doctorName} onChange={(event) => setForm((current) => ({ ...current, doctorName: event.target.value }))} />
-<<<<<<< HEAD
-        <select className="input-dark" value={form.branch} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}><option>كل الفروع</option>{BRANCHES.map((branch) => <option key={branch}>{branch}</option>)}</select>
-        <select className="input-dark" value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}><option>ترحيب</option><option>متابعة</option><option>شكوى</option><option>عرض</option><option>تأكيد طلب</option><option>اعتذار</option></select>
-        <label className="flex items-center gap-2 rounded-2xl border border-slate-700 p-3 text-slate-200"><input type="checkbox" checked={form.active} onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))} />نشط</label>
-        <textarea className="input-dark lg:col-span-2" rows={5} placeholder="الرسالة. متغيرات متاحة: {doctor_name} {branch} {invoice_value} {customer_status} {last_purchase}" value={form.message} onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))} />
-        <button className="btn-primary lg:col-span-2" onClick={save}><Save className="ml-1 inline h-4 w-4" /> حفظ الاختصار</button>
-=======
         <select className="input-dark" value={form.branch} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}>
           <option>كل الفروع</option>
           {BRANCHES.map((branch) => <option key={branch}>{branch}</option>)}
@@ -256,13 +238,12 @@ export default function QuickReplies() {
         <label className="flex items-center gap-2 rounded-2xl border border-slate-700 p-3 text-slate-200">
           <input type="checkbox" checked={form.active} onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))} />نشط
         </label>
-        <textarea className="input-dark lg:col-span-2" rows={5} placeholder="الرسالة. متغيرات متاحة: {doctor_name} {branch} {invoice_value}" value={form.message} onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))} />
+        <textarea className="input-dark lg:col-span-2" rows={5} placeholder="الرسالة. متغيرات متاحة: {doctor_name} {branch} {invoice_value} {customer_status} {last_purchase}" value={form.message} onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))} />
         <div className="grid gap-2 lg:col-span-2 lg:grid-cols-[1fr_auto_auto]">
           <input className="input-dark" placeholder="قيمة الفاتورة للاختبار/النسخ مثل 250 جنيه" value={invoiceValue} onChange={(event) => setInvoiceValue(event.target.value)} />
           <button className="btn-secondary" type="button" onClick={resetForm}>تفريغ النموذج</button>
           <button className="btn-primary" type="button" onClick={save}><Save className="ml-1 inline h-4 w-4" /> حفظ الاختصار</button>
         </div>
->>>>>>> 1a568981bde026ff2c428d8639f26c00cb430f66
       </section>
 
       <section className="dawaa-panel">
@@ -281,9 +262,9 @@ export default function QuickReplies() {
                 {applyVariables(reply.message, reply.doctorName === 'عام' ? user?.name || '' : reply.doctorName, reply.branch || user?.branch || '', invoiceValue)}
               </p>
               <div className="mt-3 grid grid-cols-3 gap-2">
-                <button className="btn-secondary text-xs" onClick={() => copy(reply)}><Clipboard className="ml-1 inline h-3.5 w-3.5" /> نسخ</button>
-                <button className="btn-secondary text-xs" onClick={() => setForm(reply)}><Plus className="ml-1 inline h-3.5 w-3.5" /> تعديل</button>
-                <button className="btn-secondary text-xs" onClick={() => remove(reply.id)}><Trash2 className="ml-1 inline h-3.5 w-3.5" /> حذف</button>
+                <button className="btn-secondary text-xs" type="button" onClick={() => copy(reply)}><Clipboard className="ml-1 inline h-3.5 w-3.5" /> نسخ</button>
+                <button className="btn-secondary text-xs" type="button" onClick={() => setForm(reply)}><Plus className="ml-1 inline h-3.5 w-3.5" /> تعديل</button>
+                <button className="btn-secondary text-xs" type="button" onClick={() => remove(reply.id)}><Trash2 className="ml-1 inline h-3.5 w-3.5" /> حذف</button>
               </div>
             </article>
           ))}
