@@ -5,8 +5,16 @@ export const FULL_LOGO_URL = '/dawaa-logo-full.jpeg';
 export const BRANCHES = ['فرع شكري', 'فرع الشامي'] as const;
 export type Branch = (typeof BRANCHES)[number];
 
-/** Pharmacists seeded for فرع الشامي — also inserted via Supabase migration. */
-export const SHAMY_BRANCH_PHARMACISTS = ['د ندي', 'د بسنت', 'د وليد', 'د عمر'] as const;
+/** Pharmacists by branch — also maintained via Supabase migration. */
+export const SHOKRY_BRANCH_PHARMACISTS = ['د ندي', 'د بسنت'] as const;
+export const SHAMY_BRANCH_PHARMACISTS = ['د وليد', 'د عمر'] as const;
+
+export const CUSTOMER_SERVICE_BRANCH_OWNERS = {
+  'فرع شكري': 'د دنيا',
+  'فرع الشامي': 'د ضحي',
+} as const;
+
+export const CUSTOMER_SERVICE_DOCTORS = ['د دنيا', 'د ضحي'] as const;
 
 export const ROLES = [
   'أدمن',

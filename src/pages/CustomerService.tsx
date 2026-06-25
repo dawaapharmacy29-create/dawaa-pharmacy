@@ -34,7 +34,7 @@ import { searchCustomerMetrics,
 import { generateWhatsAppLink } from '@/lib/whatsapp';
 import { isValidEgyptPhone } from '@/lib/customerAnalyticsService';
 import { normalizeBranchName } from '@/lib/branch';
-import { BRANCHES, SHAMY_BRANCH_PHARMACISTS } from '@/lib/constants';
+import { BRANCHES, CUSTOMER_SERVICE_BRANCH_OWNERS, CUSTOMER_SERVICE_DOCTORS, SHAMY_BRANCH_PHARMACISTS, SHOKRY_BRANCH_PHARMACISTS } from '@/lib/constants';
 import { canSeeAllBranches, effectiveBranchFilter } from '@/lib/security/permissionScopes';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { mergeStaffChoices } from '@/lib/staffFallback';
@@ -56,9 +56,8 @@ const PAGE_SIZE = 18;
 const FETCH_LIMIT = 80;
 const STATUS_OPTIONS = [ALL_FILTER, 'معلق', 'تم', 'لم يرد', 'مؤجل', 'متأخرة', 'يحتاج مدير', 'تم الشراء بعد المتابعة'];
 const CUSTOMER_CARE_RESPONSIBLES = [
-  { branch: 'فرع الشامي', name: 'د ضحى' },
-  { branch: 'فرع شكري', name: 'د دنيا' },
-  ...SHAMY_BRANCH_PHARMACISTS.map((name) => ({ branch: 'فرع الشامي', name })),
+  { branch: 'فرع الشامي', name: CUSTOMER_SERVICE_BRANCH_OWNERS['فرع الشامي'] },
+  { branch: 'فرع شكري', name: CUSTOMER_SERVICE_BRANCH_OWNERS['فرع شكري'] },
 ];
 const TABS = [
   ['today', 'متابعات اليوم'],
@@ -322,12 +321,33 @@ function invoicesCount(row: FollowupRow) {
   return Number(row.customer_metrics?.invoices_count || 0);
 }
 
-function responsibleOf(row: FollowupRow) {
-  if (row.responsible_name || row.assigned_to || row.assigned_doctor) {
-    return text(row.responsible_name || row.assigned_to || row.assigned_doctor);
+function resolveCustomerServiceOwner(branch?: string | null, responsibleName?: string | null) {
+  const normalized = normalizeBranchName(branch);
+  if (normalized === 'فرع شكري' || normalized === 'شكري') {
+    return CUSTOMER_SERVICE_BRANCH_OWNERS['فرع شكري'];
   }
-  const branch = normalizeBranchName(row.branch);
-  return CUSTOMER_CARE_RESPONSIBLES.find((item) => normalizeBranchName(item.branch) === branch)?.name || 'غير محدد';
+  if (normalized === 'فرع الشامي' || normalized === 'الشامي') {
+    return CUSTOMER_SERVICE_BRANCH_OWNERS['فرع الشامي'];
+  }
+  const explicit = String(responsibleName || '').trim();
+  return explicit || 'غير محدد';
+}
+
+function responsibleOf(row: FollowupRow) {
+  const explicit = row.responsible_name || row.assigned_to || row.assigned_doctor;
+  if (explicit) return text(explicit);
+  return resolveCustomerServiceOwner(row.branch, null);
+}
+
+function branchServiceOwner(row: FollowupRow) {
+  const normalized = normalizeBranchName(row.branch);
+  if (normalized === 'فرع شكري' || normalized === 'شكري') {
+    return CUSTOMER_SERVICE_BRANCH_OWNERS['فرع شكري'];
+  }
+  if (normalized === 'فرع الشامي' || normalized === 'الشامي') {
+    return CUSTOMER_SERVICE_BRANCH_OWNERS['فرع الشامي'];
+  }
+  return resolveCustomerServiceOwner(row.branch, row.responsible_name || row.assigned_doctor);
 }
 
 function statusOf(row: FollowupRow) {
@@ -338,7 +358,110 @@ function statusOf(row: FollowupRow) {
 }
 
 function isCompleted(row: FollowupRow) {
-  return Boolean(row.completed_at) || /تم|completed|done/i.test(statusOf(row));
+  return isHistoryCompleted(row);
+}
+
+function isHistoryCompleted(row: FollowupRow) {
+  if (row.purchase_after_followup) return true;
+  if (row.closed_at || row.completed_at) return true;
+
+  const combined = [
+    row.status,
+    row.followup_status,
+    row.contact_status,
+    row.contact_result,
+    row.followup_result,
+  ]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+
+  const openPattern =
+    /pending|معلق|لم يرد|no_answer|no answer|مؤجل|delayed|needs_manager|مدير|overdue|متأخر|open|لم يتم/i;
+  const donePattern =
+    /تم|completed|done|closed|success|purchased|converted|تم الشراء|تم الاسترجاع|تم التواصل|contacted/i;
+
+  if (openPattern.test(combined) && !donePattern.test(combined)) return false;
+  return donePattern.test(combined);
+}
+
+function followupResultLabel(row: FollowupRow) {
+  return text(
+    row.followup_result || row.contact_result || row.followup_status || row.status || row.contact_status,
+    'غير محدد'
+  );
+}
+
+function followupHistoryDate(row: FollowupRow) {
+  return row.completed_at || row.contacted_at || row.followup_datetime || row.followup_date || row.updated_at || row.created_at;
+}
+
+type BranchOwnerPerformance = {
+  responsible: string;
+  branch: string;
+  assigned: number;
+  completed: number;
+  overdue: number;
+  noAnswer: number;
+  postponed: number;
+  needsManager: number;
+  purchaseAfterCount: number;
+  purchaseAfterAmount: number;
+  recoveredCustomers: number;
+  avgQualityRating: number | null;
+  completionRate: number;
+  incentiveValueEstimate: number;
+};
+
+function calculateBranchOwnerPerformance(rows: FollowupRow[]): BranchOwnerPerformance[] {
+  const owners = CUSTOMER_SERVICE_DOCTORS;
+  const map = new Map<string, BranchOwnerPerformance>();
+
+  for (const owner of owners) {
+    const branch = owner === CUSTOMER_SERVICE_BRANCH_OWNERS['فرع شكري'] ? 'فرع شكري' : 'فرع الشامي';
+    map.set(owner, {
+      responsible: owner,
+      branch,
+      assigned: 0,
+      completed: 0,
+      overdue: 0,
+      noAnswer: 0,
+      postponed: 0,
+      needsManager: 0,
+      purchaseAfterCount: 0,
+      purchaseAfterAmount: 0,
+      recoveredCustomers: 0,
+      avgQualityRating: null,
+      completionRate: 0,
+      incentiveValueEstimate: 0,
+    });
+  }
+
+  for (const row of rows) {
+    const owner = branchServiceOwner(row);
+    if (!map.has(owner)) continue;
+    const item = map.get(owner)!;
+    item.assigned += 1;
+    if (isHistoryCompleted(row)) item.completed += 1;
+    if (isOverdue(row)) item.overdue += 1;
+    if (/لم يرد|no answer/i.test(statusOf(row))) item.noAnswer += 1;
+    if (Boolean(row.postponed_until) || /مؤجل/i.test(statusOf(row))) item.postponed += 1;
+    if (row.needs_manager || /مدير/i.test(statusOf(row))) item.needsManager += 1;
+    if (row.purchase_after_followup) {
+      item.purchaseAfterCount += 1;
+      item.purchaseAfterAmount += Number(row.purchase_amount || 0);
+      item.recoveredCustomers += 1;
+    }
+  }
+
+  return [...map.values()].map((item) => {
+    const totalPoints = item.completed * 5 + item.purchaseAfterCount * 10 - item.noAnswer * 2;
+    return {
+      ...item,
+      completionRate: item.assigned ? Math.round((item.completed / item.assigned) * 100) : 0,
+      incentiveValueEstimate: Math.max(0, totalPoints * 10),
+    };
+  });
 }
 
 function isOverdue(row: FollowupRow) {
@@ -789,7 +912,7 @@ export default function CustomerService() {
     if (activeTab === 'alerts') {
       return rows.filter((row) => row.needs_manager || isOverdue(row) || riskLevel(row) !== 'منخفض' || Object.values(row.customer_flags || {}).some(Boolean));
     }
-    if (activeTab === 'history') return rows;
+    if (activeTab === 'history') return rows.filter(isHistoryCompleted);
     return rows.filter((row) => !isCompleted(row));
   }, [activeTab, assignedRows, rows]);
   const filteredTabRows = useMemo(
@@ -835,12 +958,18 @@ export default function CustomerService() {
   }, [rows, staffRows]);
   const doctorOptions = useMemo(
     () =>
-      [...new Set([...staff.map((item) => item.name), ...SHAMY_BRANCH_PHARMACISTS, 'د ضحى', 'د دنيا'].filter(Boolean))].sort(
-        (a, b) => a.localeCompare(b, 'ar')
-      ),
+      [
+        ...new Set([
+          ...staff.map((item) => item.name),
+          ...CUSTOMER_SERVICE_DOCTORS,
+          ...SHOKRY_BRANCH_PHARMACISTS,
+          ...SHAMY_BRANCH_PHARMACISTS,
+        ].filter(Boolean)),
+      ].sort((a, b) => a.localeCompare(b, 'ar')),
     [staff]
   );
   const visibleRows = filteredTabRows.slice(0, visibleCount);
+  const branchOwnerPerformance = useMemo(() => calculateBranchOwnerPerformance(rows), [rows]);
   const performance = useMemo(() => calculateTeamPerformance(rows), [rows]);
   const recoveredCount = useMemo(() => rows.filter((row) => row.purchase_after_followup).length, [rows]);
   const invalidPhoneCount = useMemo(() => rows.filter((row) => !hasValidPhone(row)).length, [rows]);
@@ -1246,25 +1375,26 @@ const addFollowup = async () => {
             </button>
           </div>
           <div className="space-y-2">
-            {performance.slice(0, 4).map((row, index) => (
+            {branchOwnerPerformance.map((row) => (
               <div key={`${row.responsible}-${row.branch}`} className="rounded-2xl border border-slate-700 bg-slate-950/50 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <div className="font-black text-white">#{index + 1} {row.responsible}</div>
-                    <div className="text-xs text-slate-400">{row.branch}</div>
+                    <div className="font-black text-white">{row.responsible}</div>
+                    <div className="text-xs text-slate-400">مسؤولة خدمة العملاء · {row.branch}</div>
                   </div>
-                  <span className="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2 py-1 text-xs font-black text-cyan-100">
+                  <span className="rounded-full border border-teal-400/30 bg-teal-500/10 px-2 py-1 text-xs font-black text-teal-100">
                     إنجاز {row.completionRate}%
                   </span>
                 </div>
-                <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-300">
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300 sm:grid-cols-4">
                   <span>المسند: <b className="text-white">{row.assigned}</b></span>
-                  <span>تحول: <b className="text-white">{row.purchaseAfterCount}</b></span>
+                  <span>المكتمل: <b className="text-white">{row.completed}</b></span>
+                  <span>مسترجع: <b className="text-white">{row.recoveredCustomers}</b></span>
                   <span>مبيعات: <b className="text-white">{money(row.purchaseAfterAmount)}</b></span>
                 </div>
               </div>
             ))}
-            {!performance.length && <EmptyState message="لا توجد بيانات كافية لحساب أداء الدكاترة حاليًا." />}
+            {!branchOwnerPerformance.length && <EmptyState message="لا توجد بيانات كافية لحساب أداء مسؤولات الفروع." />}
           </div>
         </div>
       </section>
@@ -1325,19 +1455,23 @@ const addFollowup = async () => {
                 {refreshing && <span className="text-cyan-300">تحديث...</span>}
               </div>
               <div className="grid gap-3 2xl:grid-cols-2">
-                {visibleRows.map((row) => (
-                  <FollowupCard
-                    key={row.id}
-                    row={row}
-                    selected={selectedRow?.id === row.id}
-                    onSelect={() => setSelectedRow(row)}
-                    onDetails={() => setDetailsRow(row)}
-                    onResult={() => setResultRow(row)}
-                    onCopy={() => void copyScript(row)}
-                    onPostpone={() => void postpone(row)}
-                    onManager={() => void escalateToManager(row)}
-                  />
-                ))}
+                {visibleRows.map((row) =>
+                  activeTab === 'history' ? (
+                    <HistoryFollowupCard key={row.id} row={row} onSelect={() => setSelectedRow(row)} />
+                  ) : (
+                    <FollowupCard
+                      key={row.id}
+                      row={row}
+                      selected={selectedRow?.id === row.id}
+                      onSelect={() => setSelectedRow(row)}
+                      onDetails={() => setDetailsRow(row)}
+                      onResult={() => setResultRow(row)}
+                      onCopy={() => void copyScript(row)}
+                      onPostpone={() => void postpone(row)}
+                      onManager={() => void escalateToManager(row)}
+                    />
+                  )
+                )}
               </div>
               {!visibleRows.length && <EmptyState />}
               {visibleCount < filteredTabRows.length && (
@@ -1637,6 +1771,47 @@ function TabPanel({
   );
 }
 
+function HistoryFollowupCard({ row, onSelect }: { row: FollowupRow; onSelect: () => void }) {
+  return (
+    <article
+      onClick={onSelect}
+      className="cursor-pointer rounded-3xl border border-emerald-500/25 bg-emerald-500/5 p-5 transition hover:border-emerald-400/40 hover:bg-emerald-500/10"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-xl font-black text-white">{customerName(row)}</h3>
+          <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-300">
+            <span>كود: {text(row.customer_code, 'بدون كود')}</span>
+            <span>·</span>
+            <span>{phoneOf(row) || 'بدون رقم'}</span>
+            <span>·</span>
+            <span>{text(row.branch)}</span>
+          </div>
+        </div>
+        <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-100">
+          {followupResultLabel(row)}
+        </span>
+      </div>
+      <div className="mt-4 grid gap-2 text-sm text-slate-200 sm:grid-cols-2">
+        <InfoRow label="مسؤول خدمة العملاء" value={branchServiceOwner(row)} />
+        <InfoRow label="تاريخ المتابعة" value={formatDateTime(followupHistoryDate(row))} />
+        <InfoRow label="شراء بعد المتابعة" value={row.purchase_after_followup ? 'نعم' : 'لا'} />
+        <InfoRow label="قيمة الشراء" value={row.purchase_after_followup ? money(row.purchase_amount) : '—'} />
+      </div>
+      {(row.followup_notes || row.notes) && (
+        <p className="mt-3 rounded-2xl border border-slate-700/70 bg-slate-900/70 p-3 text-sm leading-6 text-slate-300">
+          {row.followup_notes || row.notes}
+        </p>
+      )}
+      <div className="mt-4">
+        <a className="btn-primary inline-flex px-4 py-2 text-xs" href={customer360Url(row)} onClick={(event) => event.stopPropagation()}>
+          <Eye className="ml-1 inline h-3.5 w-3.5" /> عرض ملف العميل 360
+        </a>
+      </div>
+    </article>
+  );
+}
+
 function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, onPostpone, onManager }: {
   row: FollowupRow;
   selected: boolean;
@@ -1689,7 +1864,7 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
         <InfoRow label="شراء الشهر الحالي" value={String(currentMonthPurchases(row))} />
         <InfoRow label="متوسط مرات الشراء" value={String(averagePurchaseCount(row))} />
         <InfoRow label="إجمالي المشتريات" value={money(totalSpent(row))} />
-        <InfoRow label="مسؤول خدمة العملاء" value={responsibleOf(row)} />
+        <InfoRow label="مسؤول خدمة العملاء" value={branchServiceOwner(row)} />
       </div>
 
       {note && (

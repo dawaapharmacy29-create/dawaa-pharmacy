@@ -157,10 +157,236 @@ const INVOICE_DATE_KEYS = ['invoice_date', 'invoice_datetime', 'created_at'] as 
 
 const INVOICE_BRANCH_KEYS = ['branch', 'branch_name', 'store_branch'] as const;
 
-const INVOICE_SELECT_COLUMNS =
-  'id,invoice_no,invoice_number,invoice_date,invoice_datetime,created_at,net_total,net_amount,discounted_amount,amount,gross_amount,total_amount,total,seller_name,branch,branch_name,store_branch,customer_code,customer_id,customer_phone,phone,customer_name,name';
+const INVOICE_SELECT_OPTIONS = [
+  'id,invoice_no,invoice_number,invoice_date,invoice_datetime,created_at,net_total,net_amount,discounted_amount,amount,gross_amount,total_amount,total,seller_name,branch,branch_name,store_branch,customer_code,customer_id,customer_phone,phone,customer_name,name',
+  'id,invoice_no,invoice_number,invoice_date,created_at,net_amount,discounted_amount,amount,gross_amount,total_amount,branch,seller_name,customer_code,customer_phone,customer_name',
+  'id,invoice_no,invoice_number,invoice_date,created_at,amount,total_amount,branch,seller_name,customer_code,customer_name',
+  'id,invoice_date,amount,total_amount,branch,customer_code,customer_name,seller_name',
+] as const;
+
+const FALLBACK_SCAN_LIMIT = 5000;
 
 type InvoiceMatchStrategy = 'code' | 'phone' | 'phoneTail' | 'name' | 'id';
+
+type InvoiceFetchResult = {
+  rows: Row[];
+  matchedStrategies: InvoiceMatchStrategy[];
+  selectUsed: string;
+  successfulStrategies: InvoiceMatchStrategy[];
+  failedStrategies: InvoiceMatchStrategy[];
+  fallbackScanUsed: boolean;
+};
+
+function columnListHas(selectText: string, columnName: string) {
+  return selectText
+    .split(',')
+    .map((column) => column.trim())
+    .includes(columnName);
+}
+
+function readInvoiceRowCode(row: Row) {
+  return normalizeCustomerCode(readFirst(row, ['customer_code'], ''));
+}
+
+function readInvoiceRowPhone(row: Row) {
+  return normalizePhone(readFirst(row, ['customer_phone', 'phone'], ''));
+}
+
+function readInvoiceRowName(row: Row) {
+  return sanitizeIlikeValue(String(readFirst(row, ['customer_name', 'name'], '') || ''));
+}
+
+function rowMatchesCustomer(row: Row, match: ReturnType<typeof resolveMatchParams>) {
+  const { code, phone, phoneTail, name } = match;
+  const rowCode = readInvoiceRowCode(row);
+  if (code && rowCode && rowCode === code) return true;
+
+  const rowPhone = readInvoiceRowPhone(row);
+  if (phone && rowPhone && rowPhone === phone) return true;
+  if (phoneTail && rowPhone.length >= 10 && rowPhone.slice(-10) === phoneTail) return true;
+
+  const rowName = readInvoiceRowName(row);
+  if (name.length >= 3 && rowName.includes(name)) return true;
+
+  return false;
+}
+
+async function resolveInvoiceSelect(signal?: AbortSignal): Promise<string> {
+  for (const selectText of INVOICE_SELECT_OPTIONS) {
+    const { error } = await withAbort(
+      supabase.from('sales_invoices').select(selectText).limit(1),
+      signal
+    );
+    if (!error) return selectText;
+  }
+  return INVOICE_SELECT_OPTIONS[INVOICE_SELECT_OPTIONS.length - 1];
+}
+
+function buildClausesForStrategy(
+  selectText: string,
+  strategy: InvoiceMatchStrategy,
+  match: ReturnType<typeof resolveMatchParams>
+): string | null {
+  const { code, phone, phoneTail, customerId, name } = match;
+  if (strategy === 'code') {
+    return code && columnListHas(selectText, 'customer_code') ? `customer_code.eq.${code}` : null;
+  }
+  if (strategy === 'phone') {
+    const parts: string[] = [];
+    if (phone && columnListHas(selectText, 'customer_phone')) parts.push(`customer_phone.eq.${phone}`);
+    if (phone && columnListHas(selectText, 'phone')) parts.push(`phone.eq.${phone}`);
+    return parts.length ? parts.join(',') : null;
+  }
+  if (strategy === 'phoneTail') {
+    const parts: string[] = [];
+    if (phoneTail && columnListHas(selectText, 'customer_phone')) {
+      parts.push(`customer_phone.ilike.%${phoneTail}%`);
+    }
+    if (phoneTail && columnListHas(selectText, 'phone')) parts.push(`phone.ilike.%${phoneTail}%`);
+    return parts.length ? parts.join(',') : null;
+  }
+  if (strategy === 'id') {
+    return customerId && isUuidLike(customerId) && columnListHas(selectText, 'customer_id')
+      ? `customer_id.eq.${customerId}`
+      : null;
+  }
+  if (strategy === 'name') {
+    const parts: string[] = [];
+    if (name.length >= 3 && columnListHas(selectText, 'customer_name')) {
+      parts.push(`customer_name.ilike.%${name}%`);
+    }
+    if (name.length >= 3 && columnListHas(selectText, 'name')) parts.push(`name.ilike.%${name}%`);
+    return parts.length ? parts.join(',') : null;
+  }
+  return null;
+}
+
+function buildAvailableStrategies(
+  selectText: string,
+  match: ReturnType<typeof resolveMatchParams>
+): Array<{ strategy: InvoiceMatchStrategy; clauses: string }> {
+  const strategies: InvoiceMatchStrategy[] = ['code', 'phone', 'phoneTail', 'id', 'name'];
+  const queries: Array<{ strategy: InvoiceMatchStrategy; clauses: string }> = [];
+  for (const strategy of strategies) {
+    const clauses = buildClausesForStrategy(selectText, strategy, match);
+    if (clauses) queries.push({ strategy, clauses });
+  }
+  return queries;
+}
+
+async function fallbackScanInvoices(
+  selectText: string,
+  match: ReturnType<typeof resolveMatchParams>,
+  signal?: AbortSignal
+): Promise<Row[]> {
+  const orderColumn = columnListHas(selectText, 'invoice_date')
+    ? 'invoice_date'
+    : columnListHas(selectText, 'created_at')
+      ? 'created_at'
+      : null;
+  let query = supabase.from('sales_invoices').select(selectText).limit(FALLBACK_SCAN_LIMIT);
+  if (orderColumn) {
+    query = query.order(orderColumn, { ascending: false });
+  }
+  const { data, error } = await withAbort(query, signal);
+  if (error) throw error;
+  return ((data ?? []) as Row[]).filter((row) => rowMatchesCustomer(row, match));
+}
+
+async function fetchCustomerInvoicesMultiMatch(
+  params: CustomerFullProfileParams,
+  metrics: CustomerMetric | null,
+  profile: Row | null,
+  errorsBySection: Record<string, string>,
+  signal?: AbortSignal
+): Promise<InvoiceFetchResult> {
+  const match = resolveMatchParams(params, metrics, profile);
+  const empty: InvoiceFetchResult = {
+    rows: [],
+    matchedStrategies: [],
+    selectUsed: '',
+    successfulStrategies: [],
+    failedStrategies: [],
+    fallbackScanUsed: false,
+  };
+
+  if (!match.code && !match.phone && !match.phoneTail && !match.name && !match.customerId) {
+    errorsBySection.salesInvoicesDebug = 'لا توجد بيانات كافية لمطابقة الفواتير';
+    return empty;
+  }
+
+  let selectUsed = '';
+  try {
+    selectUsed = await resolveInvoiceSelect(signal);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    errorsBySection.salesInvoicesDebug = friendlyError(message);
+    selectUsed = INVOICE_SELECT_OPTIONS[INVOICE_SELECT_OPTIONS.length - 1];
+  }
+
+  errorsBySection.selectUsed = selectUsed;
+
+  const queries = buildAvailableStrategies(selectUsed, match);
+  const matchedStrategies: InvoiceMatchStrategy[] = [];
+  const successfulStrategies: InvoiceMatchStrategy[] = [];
+  const failedStrategies: InvoiceMatchStrategy[] = [];
+  const byKey = new Map<string, Row>();
+
+  await Promise.all(
+    queries.map(async ({ strategy, clauses }) => {
+      try {
+        const { data, error } = await withAbort(
+          supabase.from('sales_invoices').select(selectUsed).or(clauses),
+          signal
+        );
+        if (error) throw error;
+        const rows = (data ?? []) as Row[];
+        successfulStrategies.push(strategy);
+        if (rows.length) matchedStrategies.push(strategy);
+        for (const row of rows) byKey.set(invoiceRowKey(row), row);
+      } catch (error) {
+        failedStrategies.push(strategy);
+        const message = error instanceof Error ? error.message : String(error);
+        errorsBySection[`invoices_${strategy}`] = friendlyError(message);
+        if (import.meta.env.DEV) console.warn(`[customerProfileService.invoices_${strategy}]`, error);
+      }
+    })
+  );
+
+  let rows = [...byKey.values()];
+  let fallbackScanUsed = false;
+
+  if (!rows.length) {
+    try {
+      rows = await fallbackScanInvoices(selectUsed, match, signal);
+      fallbackScanUsed = rows.length > 0;
+      if (fallbackScanUsed) matchedStrategies.push('code');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errorsBySection.invoices_fallbackScan = friendlyError(message);
+      if (import.meta.env.DEV) console.warn('[customerProfileService.invoices_fallbackScan]', error);
+    }
+  }
+
+  errorsBySection.successfulStrategies = successfulStrategies.join(',') || 'none';
+  errorsBySection.failedStrategies = failedStrategies.join(',') || 'none';
+  errorsBySection.fallbackScanUsed = String(fallbackScanUsed);
+  errorsBySection.salesInvoicesDebug = [
+    `select=${selectUsed.slice(0, 80)}...`,
+    `matched=${rows.length}`,
+    `strategies=${matchedStrategies.join(',') || 'none'}`,
+    `fallback=${fallbackScanUsed}`,
+  ].join(' | ');
+
+  return {
+    rows,
+    matchedStrategies: [...new Set(matchedStrategies)],
+    selectUsed,
+    successfulStrategies,
+    failedStrategies,
+    fallbackScanUsed,
+  };
+}
 
 function readInvoiceAmount(row: Row) {
   return safeNumber(readFirst(row, [...INVOICE_AMOUNT_KEYS], 0));
@@ -209,37 +435,6 @@ function resolveMatchParams(
   return { code, phone, phoneTail, customerId, name };
 }
 
-function buildInvoiceMatchQueries(
-  params: CustomerFullProfileParams,
-  metrics?: CustomerMetric | null,
-  profile?: Row | null
-): Array<{ strategy: InvoiceMatchStrategy; clauses: string }> {
-  const { code, phone, phoneTail, customerId, name } = resolveMatchParams(params, metrics, profile);
-  const queries: Array<{ strategy: InvoiceMatchStrategy; clauses: string }> = [];
-  if (code) queries.push({ strategy: 'code', clauses: `customer_code.eq.${code}` });
-  if (phone) {
-    queries.push({
-      strategy: 'phone',
-      clauses: `customer_phone.eq.${phone},phone.eq.${phone}`,
-    });
-  }
-  if (phoneTail) {
-    queries.push({
-      strategy: 'phoneTail',
-      clauses: `customer_phone.ilike.%${phoneTail}%,phone.ilike.%${phoneTail}%`,
-    });
-  }
-  if (customerId && isUuidLike(customerId)) {
-    queries.push({ strategy: 'id', clauses: `customer_id.eq.${customerId}` });
-  }
-  if (name.length >= 3) {
-    queries.push({
-      strategy: 'name',
-      clauses: `customer_name.ilike.%${name}%,name.ilike.%${name}%`,
-    });
-  }
-  return queries;
-}
 
 function summarizeMatchedBy(strategies: InvoiceMatchStrategy[]): CustomerProfileMatchBy {
   if (!strategies.length) return 'none';
@@ -481,42 +676,6 @@ function resolveFinalMetrics(
     metricsFallbackUsed: false,
     invoiceSourceUsed: 'customer_metrics_summary',
   };
-}
-
-async function fetchCustomerInvoicesMultiMatch(
-  params: CustomerFullProfileParams,
-  metrics: CustomerMetric | null,
-  profile: Row | null,
-  errorsBySection: Record<string, string>,
-  signal?: AbortSignal
-): Promise<{ rows: Row[]; matchedStrategies: InvoiceMatchStrategy[] }> {
-  const queries = buildInvoiceMatchQueries(params, metrics, profile);
-  if (!queries.length) return { rows: [], matchedStrategies: [] };
-
-  const matchedStrategies: InvoiceMatchStrategy[] = [];
-  const byKey = new Map<string, Row>();
-
-  await Promise.all(
-    queries.map(async ({ strategy, clauses }) => {
-      try {
-        const query = withAbort(
-          supabase.from('sales_invoices').select(INVOICE_SELECT_COLUMNS).or(clauses),
-          signal
-        );
-        const { data, error } = await query;
-        if (error) throw error;
-        const rows = (data ?? []) as Row[];
-        if (rows.length) matchedStrategies.push(strategy);
-        for (const row of rows) byKey.set(invoiceRowKey(row), row);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        errorsBySection[`invoices_${strategy}`] = friendlyError(message);
-        if (import.meta.env.DEV) console.warn(`[customerProfileService.invoices_${strategy}]`, error);
-      }
-    })
-  );
-
-  return { rows: [...byKey.values()], matchedStrategies };
 }
 
 function cacheKey(params: CustomerFullProfileParams) {
@@ -974,7 +1133,7 @@ export async function getCustomerFullProfile(
         customer_id: resolvedMetrics?.customer_id || (profile?.id as string | null),
         customer_code: resolvedMetrics?.customer_code || params.customer_code,
       }),
-      invoicesLoaded: invoiceAggRows.length > 0 || !Object.keys(errorsBySection).some((k) => k.startsWith('invoices_')),
+      invoicesLoaded: invoiceAggRows.length > 0,
       followupsLoaded: !errorsBySection.latestFollowups,
       missingCustomerCode: !normalizeCustomerCode(
         resolvedMetrics?.customer_code || params.customer_code || profile?.customer_code
