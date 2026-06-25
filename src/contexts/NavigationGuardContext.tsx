@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useBlocker, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Loader2, Save, X } from 'lucide-react';
 
 export type UnsavedChangesGuardHandlers = {
@@ -89,22 +89,6 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
     [navigate, openModal]
   );
 
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
-    if (modalOpen || saving) return false;
-    const guard = activeGuard(guardsRef.current);
-    if (!guard) return false;
-    return (
-      currentLocation.pathname !== nextLocation.pathname ||
-      currentLocation.search !== nextLocation.search
-    );
-  });
-
-  useEffect(() => {
-    if (blocker.state !== 'blocked') return;
-    const next = `${blocker.location.pathname}${blocker.location.search || ''}`;
-    openModal(next, () => blocker.proceed?.());
-  }, [blocker, openModal]);
-
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!activeGuard(guardsRef.current)) return;
@@ -147,9 +131,8 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
     setModalOpen(false);
     setPendingTarget(null);
     setModalError(null);
-    if (blocker.state === 'blocked') blocker.reset?.();
     proceedRef.current = null;
-  }, [blocker]);
+  }, []);
 
   const value = useMemo(
     () => ({ registerGuard, unregisterGuard, requestNavigation, hasActiveDirtyGuard }),
@@ -215,7 +198,14 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
 export function useNavigationGuard() {
   const ctx = useContext(NavigationGuardContext);
   if (!ctx) {
-    throw new Error('useNavigationGuard must be used within NavigationGuardProvider');
+    return {
+      registerGuard: () => undefined,
+      unregisterGuard: () => undefined,
+      requestNavigation: (target: string) => {
+        window.location.href = target.startsWith('/') ? target : '/operations-center';
+      },
+      hasActiveDirtyGuard: () => false,
+    } satisfies NavigationGuardContextValue;
   }
   return ctx;
 }
