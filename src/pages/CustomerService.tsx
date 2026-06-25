@@ -25,6 +25,7 @@ import { searchCustomerMetrics,
   calculateTeamPerformance,
   createExceptionalFollowup,
   fetchCustomerServiceFollowups,
+  fetchCustomerServiceFollowupById,
   generateTodayFollowupsFromCustomerMetrics,
   recommendedAction,
   riskLevel,
@@ -43,6 +44,7 @@ import { createNotification } from '@/lib/notificationService';
 import QuickFollowupModal from '@/components/common/QuickFollowupModal';
 import {
   customerMetricsKey,
+  getCustomerServiceLiveMetrics,
   useCustomerServiceMetricsEnrichment,
 } from '@/lib/customerServiceCustomerMetrics';
 import {
@@ -786,6 +788,16 @@ export default function CustomerService() {
   const requestedTab = params.get('tab') as TabId | null;
   const dashboardBranch = params.get('branch')?.trim() || '';
   const requestedFollowupId = params.get('followupId') || params.get('requestId') || params.get('taskId') || '';
+  const requestedOpenDetails = params.get('openDetails') === '1' || Boolean(requestedFollowupId);
+  const requestedCustomerFallback = useMemo(
+    () => ({
+      customer_code: params.get('code') || null,
+      customer_phone: params.get('phone') || null,
+      customer_name: params.get('name') || null,
+      customer_id: params.get('customerId') || null,
+    }),
+    [params]
+  );
   const quickFollowupRequested =
     params.get('quickFollowup') === '1' || params.get('action') === 'quick-followup';
   const [activeTab, setActiveTabState] = useState<TabId>(TABS.some(([id]) => id === requestedTab) ? requestedTab! : 'today');
@@ -905,14 +917,84 @@ export default function CustomerService() {
     setParams(next, { replace: true });
   }, [params, setParams]);
 
+  const enrichRowWithLiveMetrics = useCallback(async (row: FollowupRow): Promise<FollowupRow> => {
+    const live = await getCustomerServiceLiveMetrics({
+      customer_id: row.customer_id,
+      customer_code: row.customer_code,
+      customer_phone: phoneOf(row),
+      customer_name: customerName(row),
+      branch: row.branch,
+    });
+    if (!live) return row;
+    const fallbackTotal = totalSpent(row);
+    const fallbackInvoices = invoicesCount(row);
+    const nextTotal = live.total_spent > 0 ? live.total_spent : fallbackTotal;
+    const nextInvoices = live.invoices_count > 0 ? live.invoices_count : fallbackInvoices;
+    return {
+      ...row,
+      total_spent: nextTotal,
+      last_purchase_date: live.last_purchase || row.last_purchase_date,
+      purchase_count_current_month: live.current_month_count || row.purchase_count_current_month,
+      average_monthly_purchase_count: live.average_monthly_purchase_count || averagePurchaseCount(row),
+      customer_status: live.customer_status || row.customer_status,
+      segment: live.segment || row.segment,
+      branch: live.branch_last_purchase || live.branch || row.branch,
+      customer_metrics: {
+        ...(row.customer_metrics || { id: row.customer_id || row.id }),
+        total_spent: nextTotal,
+        invoices_count: nextInvoices,
+        last_purchase: live.last_purchase || row.customer_metrics?.last_purchase || row.last_purchase_date || null,
+        first_purchase: live.first_purchase || row.customer_metrics?.first_purchase || null,
+        avg_invoice: live.avg_invoice || (nextInvoices ? nextTotal / nextInvoices : 0),
+        avg_monthly: live.avg_monthly || avgMonthly(row),
+        customer_status: live.customer_status || row.customer_metrics?.customer_status,
+        segment: live.segment || row.customer_metrics?.segment,
+        branch_most_frequent: live.branch_most_frequent,
+        branch_highest_value: live.branch_highest_value,
+        branch_last_purchase: live.branch_last_purchase,
+        invoices_matched_count: live.invoices_matched_count,
+        matched_by: live.matched_by,
+        source: live.source,
+      } as unknown as FollowupRow['customer_metrics'],
+    };
+  }, []);
+
   useEffect(() => {
-    if (!requestedFollowupId || !rows.length) return;
-    const requested = rows.find((row) => row.id === requestedFollowupId);
-    if (requested) {
-      setSelectedRow(requested);
-      setDetailsRow(requested);
-    }
-  }, [requestedFollowupId, rows]);
+    if (!requestedFollowupId) return;
+    let cancelled = false;
+    const run = async () => {
+      const requested = rows.find((row) => row.id === requestedFollowupId) || (await fetchCustomerServiceFollowupById(requestedFollowupId));
+      if (!requested || cancelled) return;
+      const enriched = await enrichRowWithLiveMetrics({
+        ...requested,
+        customer_code: requested.customer_code || requestedCustomerFallback.customer_code,
+        customer_phone: requested.customer_phone || requested.phone || requestedCustomerFallback.customer_phone,
+        phone: requested.phone || requested.customer_phone || requestedCustomerFallback.customer_phone,
+        customer_name: requested.customer_name || requested.name || requestedCustomerFallback.customer_name,
+        name: requested.name || requested.customer_name || requestedCustomerFallback.customer_name,
+        customer_id: requested.customer_id || requestedCustomerFallback.customer_id,
+      });
+      if (cancelled) return;
+      setRows((current) => (current.some((row) => row.id === enriched.id) ? current.map((row) => (row.id === enriched.id ? enriched : row)) : [enriched, ...current]));
+      setSelectedRow(enriched);
+      if (requestedOpenDetails) setDetailsRow(enriched);
+      if (import.meta.env.DEV) {
+        console.debug('[CustomerService] requested followup opened', {
+          followupId: requestedFollowupId,
+          customer_code: enriched.customer_code,
+          customer_phone: enriched.customer_phone || enriched.phone,
+          customer_name: enriched.customer_name || enriched.name,
+          matched_by: (enriched.customer_metrics as Record<string, unknown> | null)?.matched_by,
+          invoices_matched_count: (enriched.customer_metrics as Record<string, unknown> | null)?.invoices_matched_count,
+          source: (enriched.customer_metrics as Record<string, unknown> | null)?.source,
+        });
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [enrichRowWithLiveMetrics, requestedCustomerFallback, requestedFollowupId, requestedOpenDetails, rows]);
 
   const load = useCallback(
     async (soft = false) => {
@@ -1155,7 +1237,7 @@ export default function CustomerService() {
       branch: row.branch,
       target_type: 'customer_followup',
       target_id: row.id,
-      target_route: `/customer-service?tab=today&followupId=${row.id}`,
+      target_route: `/customer-service?tab=today&followupId=${row.id}&openDetails=1&code=${encodeURIComponent(String(row.customer_code || ''))}&phone=${encodeURIComponent(phoneOf(row))}&name=${encodeURIComponent(customerName(row))}`,
       recipient_role: priority === 'urgent' ? 'customer_service_manager' : null,
       created_by: userId,
       created_by_name: userName,

@@ -520,6 +520,22 @@ export async function fetchCustomerServiceFollowups(filters: FollowupFilters = {
     return [] as FollowupRow[];
   }
 }
+
+export async function fetchCustomerServiceFollowupById(id: string) {
+  requireSupabaseConfig();
+  const normalizedId = String(id || '').trim();
+  if (!normalizedId) return null;
+  try {
+    const { data, error } = await supabase.from('daily_followups').select('*').eq('id', normalizedId).single();
+    if (error) throw new Error(error.message);
+    const row = normalizeFollowup((data || {}) as Row);
+    const enriched = await enrichFollowupRows([row], {});
+    return enriched[0] || row;
+  } catch (error) {
+    console.warn('customer followup by id failed', error);
+    return null;
+  }
+}
 export async function fetchFollowupPerformanceSummary(branch?: string) {
   try {
     let query = supabase

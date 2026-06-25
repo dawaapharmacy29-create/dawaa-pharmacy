@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   KeyRound,
   ExternalLink,
@@ -13,6 +13,10 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
+  AlertTriangle,
+  Link2,
+  ShieldAlert,
+  CheckCircle2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -20,6 +24,7 @@ import { TABLES } from '@/lib/supabaseTables';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { logActivity } from '@/lib/activityLog';
 import { Link } from 'react-router-dom';
+import { BRANCHES } from '@/lib/constants';
 import { useAuth, getCurrentUserProfile, getSafeCurrentUserId } from '@/hooks/useAuth';
 import {
   PERMISSION_CATEGORIES,
@@ -71,6 +76,63 @@ function missingColumn(msg: string) {
     msg.match(/Could not find the ["']([^"']+)["'] column/i)?.[1] ||
     msg.match(/column ["']?([^"'\s]+)["']? (?:of relation [^ ]+ )?does not exist/i)?.[1] ||
     null
+  );
+}
+
+function AuditTile({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number;
+  tone: 'emerald' | 'amber' | 'red' | 'violet';
+}) {
+  const tones = {
+    emerald: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200',
+    amber: 'border-amber-500/25 bg-amber-500/10 text-amber-200',
+    red: 'border-red-500/25 bg-red-500/10 text-red-200',
+    violet: 'border-violet-500/25 bg-violet-500/10 text-violet-200',
+  };
+  return (
+    <div className={`rounded-xl border p-3 ${tones[tone]}`}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span>{icon}</span>
+        <span className="text-2xl font-black">{value}</span>
+      </div>
+      <p className="text-xs font-bold">{label}</p>
+    </div>
+  );
+}
+
+function AuditPanel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-slate-700/50 bg-[#101d33] p-3">
+      <h3 className="mb-2 text-sm font-bold text-slate-200">{title}</h3>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function AuditRow({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-700/40 bg-slate-950/30 p-2">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-bold text-white">{title || '-'}</p>
+        {subtitle && <p className="truncate text-xs text-slate-400">{subtitle}</p>}
+      </div>
+      {children && <div className="shrink-0">{children}</div>}
+    </div>
   );
 }
 
@@ -160,6 +222,31 @@ function formatDateTime(v?: string | null) {
   }
 }
 
+function normalizeTextKey(value?: string | null) {
+  return String(value || '')
+    .trim()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function normalizedRoleKnown(role?: string | null) {
+  const value = String(role || '').trim();
+  if (!value) return false;
+  return ROLES.some((item) => item.key === value) || normalizeRole(value) !== 'assistant' || value === 'assistant';
+}
+
+function permissionDiff(
+  current: Record<string, boolean>,
+  suggested: Record<string, boolean>
+) {
+  const missing = ALL_PERMISSION_KEYS.filter((key) => suggested[key] === true && current[key] !== true);
+  const extra = ALL_PERMISSION_KEYS.filter((key) => suggested[key] !== true && current[key] === true);
+  return { missing, extra };
+}
+
 // ─── Component ────────────────────────────────────────────────
 export default function StaffAccounts() {
   const { user, canManage, checkPermission } = useAuth();
@@ -242,6 +329,66 @@ export default function StaffAccounts() {
     return mergePermissions(roleDefaults, account.permissions || {}, localPerms[account.id] || {});
   }
 
+  const accountAudit = useMemo(() => {
+    const usernameGroups = new Map<string, StaffAccountRow[]>();
+    staffAccounts.forEach((account) => {
+      const key = normalizeTextKey(account.username);
+      if (!key) return;
+      usernameGroups.set(key, [...(usernameGroups.get(key) || []), account]);
+    });
+
+    const staffByName = new Map(staffList.map((staff) => [normalizeTextKey(staff.name), staff]));
+    const staffWithoutAccount = rows.filter(({ account }) => !account).map(({ staff }) => staff);
+    const duplicateUsernames = [...usernameGroups.values()].filter((group) => group.length > 1);
+    const unlinkedAccounts = staffAccounts
+      .filter((account) => !account.staff_id)
+      .map((account) => ({
+        account,
+        match: staffByName.get(normalizeTextKey(accountDisplayName(account))) || null,
+      }));
+    const riskyAccounts = staffAccounts.filter((account) => {
+      const effective = getEffectivePerms(account);
+      return (
+        (effective.manage_permissions || effective.manage_staff_accounts || effective.delete_user) &&
+        !isAdminRole(account.role)
+      );
+    });
+    const missingPermissionAccounts = staffAccounts
+      .map((account) => {
+        const suggested = getDefaultPermissionsForRole(account.role || 'assistant');
+        const diff = permissionDiff(getEffectivePerms(account), suggested);
+        return { account, ...diff };
+      })
+      .filter((item) => item.missing.length > 0 || item.extra.length > 0);
+    const unknownRoleAccounts = staffAccounts.filter((account) => !normalizedRoleKnown(account.role));
+    const invalidBranchAccounts = staffAccounts.filter((account) => {
+      const branch = String(account.branch || '').trim();
+      return branch && !BRANCHES.includes(branch as (typeof BRANCHES)[number]) && branch !== 'كل الفروع';
+    });
+    const goodCount =
+      staffAccounts.length -
+      new Set([
+        ...staffWithoutAccount.map((staff) => `staff:${staff.id}`),
+        ...duplicateUsernames.flatMap((group) => group.map((account) => `account:${account.id}`)),
+        ...unlinkedAccounts.map(({ account }) => `account:${account.id}`),
+        ...riskyAccounts.map((account) => `account:${account.id}`),
+        ...missingPermissionAccounts.map(({ account }) => `account:${account.id}`),
+        ...unknownRoleAccounts.map((account) => `account:${account.id}`),
+        ...invalidBranchAccounts.map((account) => `account:${account.id}`),
+      ]).size;
+
+    return {
+      goodCount: Math.max(0, goodCount),
+      staffWithoutAccount,
+      duplicateUsernames,
+      unlinkedAccounts,
+      riskyAccounts,
+      missingPermissionAccounts,
+      unknownRoleAccounts,
+      invalidBranchAccounts,
+    };
+  }, [staffAccounts, staffList, rows, localPerms]);
+
   function toggleCategory(accountId: string, catKey: string) {
     setExpandedCategories((p) => ({
       ...p,
@@ -296,6 +443,35 @@ export default function StaffAccounts() {
   const savePermissions = (account: StaffAccountRow) => {
     const effective = getEffectivePerms(account);
     persistPermissions(account, effective);
+  };
+
+  const linkAccountToStaff = async (account: StaffAccountRow, staff: StaffRow) => {
+    if (!canEditAccount) return;
+    setSavingId(account.id);
+    try {
+      const { error } = await updateAccountFlexible(account.id, {
+        staff_id: staff.id,
+        name: staff.name,
+        staff_name: staff.name,
+        role: account.role || staff.role,
+        branch: account.branch || staff.branch,
+        updated_at: new Date().toISOString(),
+        ...(currentUserId ? { updated_by: currentUserId } : {}),
+      });
+      if (error) throw error;
+      toast.success('تم ربط الحساب بالموظف');
+      refetchAccounts();
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const applySuggestedPermissions = async (account: StaffAccountRow) => {
+    if (!canEditPerms) return;
+    const suggested = getDefaultPermissionsForRole(account.role || 'assistant');
+    await persistPermissions(account, suggested);
   };
 
   // ─── Account actions ─────────────────────────────────────
@@ -488,6 +664,117 @@ export default function StaffAccounts() {
             مسح
           </button>
         )}
+      </div>
+
+      <div className="rounded-2xl border border-[#2d4063] bg-[#16253f]/80 p-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-white">
+              <ShieldAlert size={20} className="text-amber-300" />
+              مراجعة الحسابات والصلاحيات
+            </h2>
+            <p className="text-sm text-slate-400">
+              فحص سريع للحسابات الناقصة، المكررة، غير المربوطة، والصلاحيات المختلفة عن قالب الدور.
+            </p>
+          </div>
+          <Link to="/roles-permissions" className="btn-secondary flex items-center gap-2">
+            <KeyRound size={16} /> مصفوفة الصلاحيات
+          </Link>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <AuditTile icon={<CheckCircle2 size={18} />} label="حسابات سليمة" value={accountAudit.goodCount} tone="emerald" />
+          <AuditTile icon={<UserPlus size={18} />} label="موظفون بلا حساب" value={accountAudit.staffWithoutAccount.length} tone="amber" />
+          <AuditTile icon={<AlertTriangle size={18} />} label="أسماء مستخدم مكررة" value={accountAudit.duplicateUsernames.length} tone="red" />
+          <AuditTile icon={<ShieldAlert size={18} />} label="صلاحيات تحتاج مراجعة" value={accountAudit.missingPermissionAccounts.length + accountAudit.riskyAccounts.length} tone="violet" />
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {accountAudit.staffWithoutAccount.length > 0 && (
+            <AuditPanel title="موظفون بدون حساب دخول">
+              {accountAudit.staffWithoutAccount.slice(0, 6).map((staff) => (
+                <AuditRow key={staff.id} title={staff.name} subtitle={`${getRoleLabel(staff.role)} — ${staff.branch || 'بدون فرع'}`}>
+                  <button
+                    onClick={() => createStaffAccount(staff)}
+                    disabled={!canCreateAccount}
+                    className="btn-primary px-3 py-1 text-xs"
+                  >
+                    إنشاء حساب
+                  </button>
+                </AuditRow>
+              ))}
+            </AuditPanel>
+          )}
+
+          {accountAudit.unlinkedAccounts.some((item) => item.match) && (
+            <AuditPanel title="حسابات غير مربوطة بموظف">
+              {accountAudit.unlinkedAccounts
+                .filter((item) => item.match)
+                .slice(0, 6)
+                .map(({ account, match }) => (
+                  <AuditRow
+                    key={account.id}
+                    title={accountDisplayName(account)}
+                    subtitle={`مطابقة محتملة: ${match?.name || '-'} — ${account.username || '-'}`}
+                  >
+                    {match && (
+                      <button
+                        onClick={() => linkAccountToStaff(account, match)}
+                        disabled={!canEditAccount || savingId === account.id}
+                        className="btn-secondary flex items-center gap-1 px-3 py-1 text-xs"
+                      >
+                        <Link2 size={12} /> ربط
+                      </button>
+                    )}
+                  </AuditRow>
+                ))}
+            </AuditPanel>
+          )}
+
+          {accountAudit.duplicateUsernames.length > 0 && (
+            <AuditPanel title="أسماء مستخدم مكررة">
+              {accountAudit.duplicateUsernames.slice(0, 5).map((group) => (
+                <AuditRow
+                  key={group.map((account) => account.id).join('-')}
+                  title={group[0].username || 'بدون اسم مستخدم'}
+                  subtitle={group.map((account) => accountDisplayName(account)).join('، ')}
+                />
+              ))}
+            </AuditPanel>
+          )}
+
+          {accountAudit.missingPermissionAccounts.length > 0 && (
+            <AuditPanel title="مقارنة الصلاحيات بقالب الدور">
+              {accountAudit.missingPermissionAccounts.slice(0, 6).map(({ account, missing, extra }) => (
+                <AuditRow
+                  key={account.id}
+                  title={accountDisplayName(account)}
+                  subtitle={`ناقص ${missing.length} / زائد ${extra.length} — ${getRoleLabel(account.role)}`}
+                >
+                  <button
+                    onClick={() => applySuggestedPermissions(account)}
+                    disabled={!canEditPerms || savingId === account.id}
+                    className="btn-secondary px-3 py-1 text-xs"
+                  >
+                    تطبيق المقترح
+                  </button>
+                </AuditRow>
+              ))}
+            </AuditPanel>
+          )}
+
+          {accountAudit.riskyAccounts.length > 0 && (
+            <AuditPanel title="صلاحيات حساسة على أدوار غير إدارية">
+              {accountAudit.riskyAccounts.slice(0, 6).map((account) => (
+                <AuditRow
+                  key={account.id}
+                  title={accountDisplayName(account)}
+                  subtitle={`${getRoleLabel(account.role)} — راجع manage_permissions / manage_staff_accounts`}
+                />
+              ))}
+            </AuditPanel>
+          )}
+        </div>
       </div>
 
       {/* Manual Account Modal */}

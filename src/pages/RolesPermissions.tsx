@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ShieldCheck, RefreshCw, UserRound, Save, ChevronDown, ChevronUp } from 'lucide-react';
+import { ShieldCheck, RefreshCw, UserRound, Save, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
@@ -16,6 +16,7 @@ import {
   isAdminRole,
   hasPermission,
   getRoleLabel,
+  ALL_PERMISSION_KEYS,
   type RoleKey,
 } from '@/lib/core/permissionSystem';
 import { logActivity } from '@/lib/activityLog';
@@ -45,6 +46,7 @@ export default function RolesPermissions() {
   const [saving, setSaving] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [previewRole, setPreviewRole] = useState<RoleKey | null>(null);
+  const [showComparison, setShowComparison] = useState(false);
 
   const canEdit = checkPermission('manage_permissions') || checkPermission('manage_roles');
   const canView =
@@ -78,6 +80,22 @@ export default function RolesPermissions() {
     return getDefaultPermissionsForRole(previewRole);
   }, [previewRole]);
 
+  const suggestedRolePermissions = useMemo(() => {
+    if (!selectedAccount) return {};
+    return getDefaultPermissionsForRole(selectedAccount.role);
+  }, [selectedAccount]);
+
+  const roleComparison = useMemo(() => {
+    if (!selectedAccount) return { missing: [] as string[], extra: [] as string[] };
+    const missing = ALL_PERMISSION_KEYS.filter(
+      (key) => suggestedRolePermissions[key] === true && effectivePermissions[key] !== true
+    );
+    const extra = ALL_PERMISSION_KEYS.filter(
+      (key) => suggestedRolePermissions[key] !== true && effectivePermissions[key] === true
+    );
+    return { missing, extra };
+  }, [selectedAccount, suggestedRolePermissions, effectivePermissions]);
+
   function toggleCategory(key: string) {
     setExpandedCategories((prev) => ({ ...prev, [key]: !prev[key] }));
   }
@@ -92,6 +110,13 @@ export default function RolesPermissions() {
     const presetPerms = getDefaultPermissionsForRole(roleKey);
     setPendingChanges(presetPerms);
     toast.info(`تم تطبيق صلاحيات: ${getRoleLabel(roleKey)}`);
+  }
+
+  function handleApplySuggestedForCurrentRole() {
+    if (!selectedAccount || !canEdit) return;
+    setPendingChanges(getDefaultPermissionsForRole(selectedAccount.role));
+    setShowComparison(true);
+    toast.info(`تم تطبيق القالب المقترح لدور: ${getRoleLabel(selectedAccount.role)}`);
   }
 
   async function handleSave() {
@@ -212,6 +237,7 @@ export default function RolesPermissions() {
               onClick={() => {
                 setSelectedAccountId(account.id);
                 setPendingChanges({});
+                setShowComparison(false);
               }}
               className={`w-full rounded-xl border p-3 text-right transition ${
                 selectedAccountId === account.id
@@ -271,6 +297,52 @@ export default function RolesPermissions() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                  <div className="mt-4 rounded-xl border border-slate-700/50 bg-slate-950/30 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <ShieldAlert className="h-4 w-4 text-amber-300" />
+                        <div>
+                          <p className="text-sm font-bold text-white">مقارنة الدور المقترح</p>
+                          <p className="text-xs text-slate-400">
+                            ناقص {roleComparison.missing.length} / زائد {roleComparison.extra.length} حسب قالب {getRoleLabel(selectedAccount.role)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => setShowComparison((value) => !value)}
+                          className="rounded-lg bg-slate-800 px-3 py-1 text-xs font-bold text-slate-200 transition hover:bg-slate-700"
+                        >
+                          {showComparison ? 'إخفاء المقارنة' : 'عرض المقارنة'}
+                        </button>
+                        <button
+                          onClick={handleApplySuggestedForCurrentRole}
+                          disabled={!canEdit}
+                          className="rounded-lg bg-violet-600 px-3 py-1 text-xs font-bold text-white transition hover:bg-violet-500 disabled:opacity-40"
+                        >
+                          تطبيق المقترح
+                        </button>
+                      </div>
+                    </div>
+                    {showComparison && (
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-2">
+                          <p className="mb-1 text-xs font-bold text-amber-200">صلاحيات ناقصة</p>
+                          <p className="text-xs text-amber-100/80">
+                            {roleComparison.missing.slice(0, 12).join('، ') || 'لا يوجد'}
+                            {roleComparison.missing.length > 12 ? ' ...' : ''}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-sky-500/20 bg-sky-500/10 p-2">
+                          <p className="mb-1 text-xs font-bold text-sky-200">صلاحيات زائدة</p>
+                          <p className="text-xs text-sky-100/80">
+                            {roleComparison.extra.slice(0, 12).join('، ') || 'لا يوجد'}
+                            {roleComparison.extra.length > 12 ? ' ...' : ''}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
 
 type Period = 'last30' | 'last90' | 'cycle' | 'custom';
+type RankingTab = 'sales' | 'avgInvoice' | 'incentive' | 'reviews' | 'service' | 'overall';
 type DoctorScore = {
   name: string;
   branch: string;
@@ -157,6 +158,8 @@ export default function DoctorCompetition() {
   const [branchFilter, setBranchFilter] = useState(ALL_BRANCHES);
   const [customStart, setCustomStart] = useState(new Date().toISOString().slice(0, 10));
   const [customEnd, setCustomEnd] = useState(new Date().toISOString().slice(0, 10));
+  const [rankingTab, setRankingTab] = useState<RankingTab>('overall');
+  const [selectedDoctor, setSelectedDoctor] = useState<(DoctorScore & { overallScore: number }) | null>(null);
   const cycle = useMemo(() => rangeFor(period, customStart, customEnd), [customEnd, customStart, period]);
 
   const load = async () => {
@@ -268,6 +271,15 @@ export default function DoctorCompetition() {
   const topReviews = [...rows].filter((row) => row.reviewCount > 0).sort((a, b) => avgReview(b) - avgReview(a))[0];
   const topService = [...rows].sort((a, b) => b.recoveredCustomers + b.completedFollowups - (a.recoveredCustomers + a.completedFollowups))[0];
   const topOverall = rows[0];
+  const rankingRows = useMemo(() => {
+    const sorted = [...rows];
+    if (rankingTab === 'sales') return sorted.sort((a, b) => b.totalSales - a.totalSales);
+    if (rankingTab === 'avgInvoice') return sorted.sort((a, b) => (b.invoices >= MIN_AVG_INVOICE_THRESHOLD ? b.avgInvoice : 0) - (a.invoices >= MIN_AVG_INVOICE_THRESHOLD ? a.avgInvoice : 0));
+    if (rankingTab === 'incentive') return sorted.sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems));
+    if (rankingTab === 'reviews') return sorted.sort((a, b) => avgReview(b) - avgReview(a));
+    if (rankingTab === 'service') return sorted.sort((a, b) => b.completedFollowups + b.recoveredCustomers - (a.completedFollowups + a.recoveredCustomers));
+    return sorted.sort((a, b) => b.overallScore - a.overallScore);
+  }, [rankingTab, rows]);
 
   const exportCsv = () => {
     const header = ['doctor', 'branch', 'overall_score', 'total_sales', 'invoices', 'avg_invoice', 'growth_rate', 'stagnant_items', 'list_items', 'review_avg', 'completed_followups', 'recovered_customers'];
@@ -327,6 +339,18 @@ export default function DoctorCompetition() {
         <input className="input-dark" type="date" value={customEnd} disabled={period !== 'custom'} onChange={(event) => setCustomEnd(event.target.value)} />
       </section>
 
+      <section className="rounded-3xl border border-amber-400/30 bg-slate-950/80 p-5">
+        <h2 className="text-2xl font-black text-white">لوحة مسابقات الدكاترة</h2>
+        <p className="mt-1 text-sm text-slate-300">أبطال الفترة حسب المبيعات، متوسط الفاتورة، الرواكد واللستة، تقييم المحادثات، وخدمة العملاء.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <Winner title="بطل المبيعات" row={topSales} value={topSales ? money(topSales.totalSales) : 'لا يوجد'} reason={topSales ? `${topSales.invoices} فاتورة · متوسط ${money(topSales.avgInvoice)}` : 'لا توجد بيانات كافية'} />
+          <Winner title="بطل متوسط الفاتورة" row={topAvgInvoice} value={topAvgInvoice ? money(topAvgInvoice.avgInvoice) : `يتطلب ${MIN_AVG_INVOICE_THRESHOLD} فاتورة`} reason={topAvgInvoice ? `${topAvgInvoice.invoices} فاتورة مؤهلة` : 'لا يوجد دكتور تجاوز الحد الأدنى'} />
+          <Winner title="بطل الرواكد واللستة" row={topIncentive} value={topIncentive?.incentiveValue ? money(topIncentive.incentiveValue) : 'لا توجد بيانات كافية للرواكد واللستة بعد'} reason={topIncentive?.incentiveValue ? `${topIncentive.stagnantItems} رواكد · ${topIncentive.listItems} لستة` : 'القسم يعمل ويعرض Empty State عند نقص البيانات'} />
+          <Winner title="بطل تقييم المحادثات" row={topReviews} value={topReviews ? `${avgReview(topReviews).toFixed(1)}/100` : 'لا توجد بيانات تقييم كافية'} reason={topReviews ? `${topReviews.reviewCount} تقييم · ${topReviews.excellentReviews} ممتاز` : 'لا توجد مراجعات كافية'} />
+          <Winner title="البطل الشامل" row={topOverall} value={topOverall ? `${topOverall.overallScore.toFixed(1)} نقطة` : 'لا يوجد'} reason="المبيعات 30% · المتوسط 20% · الرواكد 20% · التقييم 20% · خدمة العملاء 10%" />
+        </div>
+      </section>
+
       <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Winner title="أفضل شامل" row={topOverall} value={topOverall ? `${topOverall.overallScore.toFixed(1)} نقطة` : 'لا يوجد'} />
         <Winner title="أفضل مبيعات" row={topSales} value={topSales ? money(topSales.totalSales) : 'لا يوجد'} />
@@ -337,9 +361,23 @@ export default function DoctorCompetition() {
       </section>
 
       <section className="dawaa-panel overflow-x-auto">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {[
+            ['sales', 'ترتيب المبيعات'],
+            ['avgInvoice', 'ترتيب متوسط الفاتورة'],
+            ['incentive', 'ترتيب الرواكد واللستة'],
+            ['reviews', 'ترتيب تقييم المحادثات'],
+            ['service', 'ترتيب خدمة العملاء'],
+            ['overall', 'الترتيب الشامل'],
+          ].map(([key, label]) => (
+            <button key={key} className={rankingTab === key ? 'btn-primary' : 'btn-secondary'} onClick={() => setRankingTab(key as RankingTab)}>
+              {label}
+            </button>
+          ))}
+        </div>
         <table className="min-w-full text-sm">
-          <thead className="text-slate-400">
-            <tr>
+          <thead className="border-y border-slate-600/50 bg-slate-800/80 text-slate-100">
+            <tr className="text-right">
               <th className="p-3 text-right">#</th>
               <th className="p-3 text-right">الدكتور</th>
               <th className="p-3 text-right">الفرع</th>
@@ -355,8 +393,8 @@ export default function DoctorCompetition() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${row.name}-${row.branch}`} className="border-t border-slate-800 text-slate-200">
+            {rankingRows.map((row, index) => (
+              <tr key={`${row.name}-${row.branch}`} onClick={() => setSelectedDoctor(row)} className="cursor-pointer border-t border-slate-800 text-slate-200 transition hover:bg-slate-800/50">
                 <td className="p-3 font-black">{index + 1}</td>
                 <td className="p-3 font-black text-white">{row.name}</td>
                 <td className="p-3">{row.branch}</td>
@@ -375,11 +413,12 @@ export default function DoctorCompetition() {
         </table>
         {!loading && !rows.length && <div className="p-10 text-center text-slate-400">لا توجد بيانات كافية للفترة الحالية.</div>}
       </section>
+      {selectedDoctor && <DoctorDetailsModal row={selectedDoctor} onClose={() => setSelectedDoctor(null)} />}
     </div>
   );
 }
 
-function Winner({ title, row, value }: { title: string; row?: DoctorScore; value: string }) {
+function Winner({ title, row, value, reason }: { title: string; row?: DoctorScore; value: string; reason?: string }) {
   return (
     <div className="rounded-3xl border border-amber-400/30 bg-amber-500/10 p-5">
       <div className="flex items-center gap-2 text-amber-200"><Trophy className="h-5 w-5" /> {title}</div>
@@ -388,6 +427,57 @@ function Winner({ title, row, value }: { title: string; row?: DoctorScore; value
       <div className="mt-3 inline-flex rounded-full bg-amber-400/15 px-3 py-1 text-sm font-black text-amber-100">
         <Medal className="ml-1 h-4 w-4" /> {value}
       </div>
+      {reason && <p className="mt-3 text-xs leading-6 text-slate-300">{reason}</p>}
     </div>
   );
+}
+
+function DoctorDetailsModal({ row, onClose }: { row: DoctorScore & { overallScore: number }; onClose: () => void }) {
+  const strengths = [
+    row.totalSales > 0 ? 'مبيعات نشطة خلال الفترة' : '',
+    row.avgInvoice > 0 ? 'متوسط فاتورة قابل للقياس' : '',
+    row.reviewCount > 0 ? 'لديه تقييمات محادثات' : '',
+    row.completedFollowups > 0 ? 'مشارك في خدمة العملاء' : '',
+  ].filter(Boolean);
+  const improvements = [
+    row.invoices < MIN_AVG_INVOICE_THRESHOLD ? `زيادة عدد الفواتير إلى ${MIN_AVG_INVOICE_THRESHOLD} لدخول ترتيب متوسط الفاتورة` : '',
+    !row.reviewCount ? 'زيادة عدد تقييمات المحادثات' : '',
+    !row.recoveredCustomers ? 'تحسين تحويل المتابعات إلى شراء' : '',
+  ].filter(Boolean);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" dir="rtl">
+      <div className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-950 p-5 text-slate-100">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-black text-white">{row.name}</h2>
+            <p className="mt-1 text-sm text-slate-400">{row.branch} · آخر فترة مختارة</p>
+          </div>
+          <button className="btn-secondary" onClick={onClose}>إغلاق</button>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Mini label="إجمالي المبيعات" value={money(row.totalSales)} />
+          <Mini label="عدد الفواتير" value={String(row.invoices)} />
+          <Mini label="متوسط الفاتورة" value={money(row.avgInvoice)} />
+          <Mini label="التقييم الشامل" value={row.overallScore.toFixed(1)} />
+          <Mini label="تقييم المحادثات" value={row.reviewCount ? `${avgReview(row).toFixed(1)}/100` : 'غير متاح'} />
+          <Mini label="خدمة العملاء" value={`${row.completedFollowups} متابعة`} />
+          <Mini label="الرواكد/اللستة" value={`${row.stagnantItems + row.listItems}`} />
+          <Mini label="مبيعات المتابعة" value={money(row.followupSales)} />
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <TextBox title="نقاط القوة" items={strengths} fallback="لا توجد نقاط قوة كافية بعد." />
+          <TextBox title="فرص التحسين" items={improvements} fallback="الأداء متوازن للفترة الحالية." />
+          <TextBox title="توصية للمدير" items={[row.overallScore >= 70 ? 'اعتماد نموذج الأداء الحالي ومشاركته مع الفريق.' : 'متابعة مؤشرات المبيعات والتقييم أسبوعيًا مع خطة تحسين قصيرة.']} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Mini({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-2xl border border-slate-700 bg-slate-900 p-3"><div className="text-xs text-slate-400">{label}</div><div className="mt-1 text-lg font-black text-white">{value}</div></div>;
+}
+
+function TextBox({ title, items, fallback }: { title: string; items: string[]; fallback?: string }) {
+  return <div className="rounded-2xl border border-slate-700 bg-slate-900 p-4"><h3 className="font-black text-white">{title}</h3><ul className="mt-2 space-y-2 text-sm leading-6 text-slate-300">{(items.length ? items : [fallback || 'غير محدد']).map((item) => <li key={item}>{item}</li>)}</ul></div>;
 }

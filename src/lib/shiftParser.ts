@@ -83,6 +83,25 @@ function writtenHoursFromText(text: string) {
   return Number.isFinite(value) ? value : null;
 }
 
+function normalizeStaffRuleName(value: string) {
+  return value
+    .trim()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ');
+}
+
+function isNadaSixHourRule(personName: string, shift: ParsedShift) {
+  const name = normalizeStaffRuleName(personName);
+  return (
+    /^د\/?\s*ندي\b/.test(name) &&
+    shift.start === '13:30' &&
+    shift.end === '19:30' &&
+    shift.hours === 6
+  );
+}
+
 export function parseShiftTime(raw: unknown): ParsedShift | null {
   const text = String(raw ?? '').trim();
   if (!text) return null;
@@ -105,6 +124,7 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
       if ([sh, sm, eh, em].every(Number.isFinite)) {
         const startH = sh + sm / 60;
         const endH = eh + em / 60;
+        const crossesMidnight = endH <= startH;
         let hours = endH - startH;
         if (hours <= 0) hours += 24;
         const roundedHours = Number(hours.toFixed(1));
@@ -114,6 +134,7 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
           end: formatHour(endH),
           hours: roundedHours,
           raw: text,
+          warnings: crossesMidnight ? ['الشيفت يعبر منتصف الليل؛ راجع اليوم التالي قبل الحفظ'] : [],
         };
       }
     }
@@ -131,6 +152,7 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
   const endAmpm = normalizeAmPm(match[4]);
   const startH = toHour(match[1], startAmpm);
   const endH = toHour(match[3], endAmpm);
+  const crossesMidnight = endH <= startH;
   let hours = endH - startH;
   if (hours <= 0) hours += 24;
   const roundedHours = Number(hours.toFixed(1));
@@ -146,6 +168,10 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
   }
   if (roundedHours >= 18 || (match[3] === '12' && endAmpm === 'PM' && roundedHours > 12)) {
     warnings.push('احتمال خطأ AM/PM، راجع 12 PM مقابل 12 AM');
+  }
+
+  if (crossesMidnight) {
+    warnings.push('الشيفت يعبر منتصف الليل؛ راجع اليوم التالي قبل الحفظ');
   }
 
   return {
@@ -301,6 +327,16 @@ export function validateScheduleImport(staff: ParsedStaffShifts[]): ScheduleImpo
           raw: shift.raw,
         })
       );
+      if (isNadaSixHourRule(person.name, shift)) {
+        issues.push({
+          level: 'warning',
+          staffName: person.name,
+          branch: person.branch,
+          day,
+          message: 'شيفت د/ ندى 1:30 PM إلى 7:30 PM محسوب 6 ساعات ومسموح حسب قاعدة الجدول الأسبوعية',
+          raw: shift.raw,
+        });
+      }
     });
   });
 

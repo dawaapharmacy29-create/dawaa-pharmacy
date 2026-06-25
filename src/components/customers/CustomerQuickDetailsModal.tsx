@@ -12,6 +12,7 @@ import { formatCurrency } from '@/lib/utils';
 import { normalizeBranchName } from '@/lib/branch';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
 import { cashbackStatusLabel, cashbackSummaryLine } from '@/lib/api/customerLoyalty';
+import { getCustomerServiceLiveMetrics } from '@/lib/customerServiceCustomerMetrics';
 
 type Props = {
   customerId?: string | null;
@@ -177,6 +178,44 @@ async function loadCustomerMetric(input: Props): Promise<CustomerMetric> {
   return normalizeCustomerMetric((data[0] || {}) as Record<string, unknown>);
 }
 
+async function enrichMetricFromInvoices(metric: CustomerMetric): Promise<CustomerMetric> {
+  const live = await getCustomerServiceLiveMetrics({
+    customer_id: metric.customer_id || metric.id,
+    customer_code: metric.customer_code,
+    customer_phone: metric.customer_phone || metric.phone,
+    customer_name: metric.customer_name || metric.name,
+    branch: metric.branch,
+  });
+  if (!live) return metric;
+  const next: CustomerMetric = {
+    ...metric,
+    total_spent: live.total_spent > 0 ? live.total_spent : metric.total_spent,
+    total_purchases: live.total_spent > 0 ? live.total_spent : metric.total_purchases,
+    invoices_count: live.invoices_count > 0 ? live.invoices_count : metric.invoices_count,
+    avg_invoice: live.avg_invoice > 0 ? live.avg_invoice : metric.avg_invoice,
+    avg_monthly: live.avg_monthly > 0 ? live.avg_monthly : metric.avg_monthly,
+    first_purchase: live.first_purchase || metric.first_purchase,
+    last_purchase: live.last_purchase || metric.last_purchase,
+    active_months: metric.active_months || 0,
+    segment: live.segment || metric.segment,
+    type: live.segment || metric.type,
+    customer_status: live.customer_status || metric.customer_status,
+    status: live.customer_status || metric.status,
+    branch: live.branch_last_purchase || live.branch || metric.branch,
+  };
+  if (import.meta.env.DEV) {
+    console.debug('[CustomerQuickDetailsModal] live metrics', {
+      customer_code: next.customer_code,
+      customer_phone: next.customer_phone || next.phone,
+      customer_name: next.customer_name || next.name,
+      matched_by: live.matched_by,
+      invoices_matched_count: live.invoices_matched_count,
+      source: live.source,
+    });
+  }
+  return next;
+}
+
 function MetricBox({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface-2)] p-3">
@@ -201,7 +240,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
     setError(null);
     (async () => {
       try {
-        const metric = await loadCustomerMetric(props);
+        const metric = await enrichMetricFromInvoices(await loadCustomerMetric(props));
         if (!active) return;
         setCustomer(metric);
         const [result, stats] = await Promise.all([
