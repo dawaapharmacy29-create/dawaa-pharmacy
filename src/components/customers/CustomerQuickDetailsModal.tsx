@@ -14,6 +14,7 @@ import { generateWhatsAppLink } from '@/lib/whatsapp';
 import { cashbackStatusLabel, cashbackSummaryLine } from '@/lib/api/customerLoyalty';
 
 type Props = {
+  customerId?: string | null;
   customerCode?: string | null;
   customerPhone?: string | null;
   customerName?: string | null;
@@ -123,9 +124,9 @@ function formatDate(value?: string | null) {
 function fallbackMetric(input: Props): CustomerMetric {
   const fallback = (input.fallbackMetric || {}) as Record<string, any>;
   return {
-    id: input.customerCode || input.customerPhone || input.customerName || crypto.randomUUID(),
+    id: input.customerId || input.customerCode || input.customerPhone || input.customerName || crypto.randomUUID(),
     final_customer_key: input.customerCode || input.customerPhone || null,
-    customer_id: null,
+    customer_id: input.customerId || fallback.customer_id || null,
     customer_code: input.customerCode || null,
     customer_name: input.customerName || 'عميل بدون اسم',
     customer_phone: input.customerPhone || null,
@@ -150,6 +151,7 @@ function fallbackMetric(input: Props): CustomerMetric {
 
 async function loadCustomerMetric(input: Props): Promise<CustomerMetric> {
   const clauses: string[] = [];
+  if (input.customerId) clauses.push(`customer_id.eq.${input.customerId}`);
   if (input.customerCode) clauses.push(`customer_code.eq.${input.customerCode}`);
   if (input.customerPhone) clauses.push(`customer_phone.eq.${input.customerPhone}`);
   if (input.customerName) clauses.push(`customer_name.eq.${input.customerName}`);
@@ -212,7 +214,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
     return () => {
       active = false;
     };
-  }, [props.branch, props.customerCode, props.customerName, props.customerPhone, JSON.stringify(props.fallbackMetric || {})]);
+  }, [props.branch, props.customerId, props.customerCode, props.customerName, props.customerPhone, JSON.stringify(props.fallbackMetric || {})]);
 
   const displayPhone = useMemo(() => {
     return (
@@ -418,6 +420,42 @@ export default function CustomerQuickDetailsModal(props: Props) {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
+              <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-4 xl:col-span-2">
+                <div className="mb-3 font-black text-[var(--theme-heading)]">السجل الزمني للعميل</div>
+                {details?.followups?.length || details?.invoices?.length ? (
+                  <div className="grid gap-2">
+                    {(details?.followups || []).slice(0, 5).map((followup) => (
+                      <div key={`followup-${followup.id}`} className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-surface-2)] p-3 text-sm font-bold text-[var(--theme-text)]">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[var(--theme-heading)]">متابعة خدمة العملاء</span>
+                          <span className="text-xs text-[var(--theme-muted)]">{formatDate(followup.followup_date || followup.created_at)}</span>
+                        </div>
+                        <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                          <span>أنشأها: {(followup as any).created_by_name || 'غير متاح'}</span>
+                          <span>تواصل: {followup.responsible_name || followup.assigned_to || 'غير متاح'}</span>
+                          <span>النتيجة: {followup.followup_result || followup.status || 'غير متاح'}</span>
+                          <span>التأجيل: {(followup as any).postponed_until ? formatDate((followup as any).postponed_until) : 'غير متاح'}</span>
+                          <span>الإغلاق: {(followup as any).closed_at ? formatDate((followup as any).closed_at) : 'غير متاح'}</span>
+                          <span>المحادثة: {(followup as any).quality_rating || (followup as any).review_score || 'غير متاح'}</span>
+                        </div>
+                        <div className="mt-2 text-xs text-[var(--theme-muted)]">
+                          الملاحظات: {followup.notes || followup.followup_result || 'غير متاح'}
+                        </div>
+                      </div>
+                    ))}
+                    {(details?.invoices || []).slice(0, 3).map((invoice, index) => (
+                      <div key={`invoice-timeline-${invoice.invoice_number || index}`} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-950">
+                        شراء / فاتورة {invoice.invoice_number || 'غير متاح'} · {formatDate(invoice.invoice_date)} · {formatCurrency(invoice.amount)}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-[var(--theme-surface-2)] p-3 text-sm font-bold text-[var(--theme-muted)]">
+                    لا توجد أحداث كافية لبناء timeline لهذا العميل.
+                  </div>
+                )}
+              </div>
+
               <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-4">
                 <div className="mb-3 font-black text-[var(--theme-heading)]">آخر الفواتير</div>
                 {details?.invoices?.length ? (

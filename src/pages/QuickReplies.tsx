@@ -7,12 +7,21 @@ import { useAuth } from '@/hooks/useAuth';
 type Reply = { id: string; shortcut: string; title: string; message: string; doctorName: string; branch: string; category: string; active: boolean };
 const STORAGE_KEY = 'dawaa_quick_replies_v1';
 const DEFAULT_REPLIES: Reply[] = [
-  { id: 'welcome', shortcut: '/ترحيب', title: 'رسالة ترحيب آمنة', doctorName: 'عام', branch: 'كل الفروع', category: 'ترحيب', active: true, message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء فرع {branch}. بنرحب بحضرتك ونتشرف بخدمتك دائمًا.' },
+  { id: 'welcome', shortcut: '/ترحيب', title: 'رسالة ترحيب آمنة', doctorName: 'عام', branch: 'كل الفروع', category: 'ترحيب', active: true, message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. بنطمن على حضرتك وبنتشرف بخدمتك دائمًا.' },
   { id: 'followup', shortcut: '/متابعة', title: 'متابعة عميل', doctorName: 'عام', branch: 'كل الفروع', category: 'متابعة', active: true, message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. بنطمن على حضرتك وبنتابع هل في أي طلب أو استفسار نقدر نساعد فيه؟' },
   { id: 'complaint', shortcut: '/شكوى', title: 'احتواء شكوى', doctorName: 'عام', branch: 'كل الفروع', category: 'شكوى', active: true, message: 'نعتذر لحضرتك عن أي تقصير. تم تسجيل الملاحظة وسيتم متابعتها فورًا من المسؤول المختص.' },
+  { id: 'offer', shortcut: '/عرض', title: 'عرض مناسب بدون ضغط', doctorName: 'عام', branch: 'كل الفروع', category: 'عرض', active: true, message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. حاليًا متاح عرض مناسب في فرع {branch}، ولو حضرتك محتاج أي صنف نقدر نراجعه ونأكد التوفر.' },
+  { id: 'confirm-order', shortcut: '/تأكيد_طلب', title: 'تأكيد طلب', doctorName: 'عام', branch: 'كل الفروع', category: 'تأكيد طلب', active: true, message: 'أهلا بحضرتك، مع حضرتك {doctor_name} من صيدليات دواء. بنأكد على طلب حضرتك، وسيتم المتابعة مع حضرتك فور التجهيز.' },
 ];
 function loadReplies(): Reply[] { try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : DEFAULT_REPLIES; } catch { return DEFAULT_REPLIES; } }
-function applyVariables(message: string, userName: string, branch: string) { return message.replaceAll('{doctor_name}', userName || 'خدمة عملاء صيدليات دواء').replaceAll('{branch}', branch || 'فرع الصيدلية').replaceAll('{invoice_value}', 'قيمة الفاتورة'); }
+function applyVariables(message: string, userName: string, branch: string) {
+  return message
+    .replaceAll('{doctor_name}', userName || 'خدمة عملاء صيدليات دواء')
+    .replaceAll('{branch}', branch || 'فرع الصيدلية')
+    .replaceAll('{invoice_value}', 'قيمة الفاتورة')
+    .replaceAll('{customer_status}', 'حالة العميل')
+    .replaceAll('{last_purchase}', 'آخر شراء');
+}
 
 export default function QuickReplies() {
   const { user } = useAuth();
@@ -42,7 +51,7 @@ export default function QuickReplies() {
         <select className="input-dark" value={form.branch} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}><option>كل الفروع</option>{BRANCHES.map((branch) => <option key={branch}>{branch}</option>)}</select>
         <select className="input-dark" value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}><option>ترحيب</option><option>متابعة</option><option>شكوى</option><option>عرض</option><option>تأكيد طلب</option><option>اعتذار</option></select>
         <label className="flex items-center gap-2 rounded-2xl border border-slate-700 p-3 text-slate-200"><input type="checkbox" checked={form.active} onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))} />نشط</label>
-        <textarea className="input-dark lg:col-span-2" rows={5} placeholder="الرسالة. متغيرات متاحة: {doctor_name} {branch} {invoice_value}" value={form.message} onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))} />
+        <textarea className="input-dark lg:col-span-2" rows={5} placeholder="الرسالة. متغيرات متاحة: {doctor_name} {branch} {invoice_value} {customer_status} {last_purchase}" value={form.message} onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))} />
         <button className="btn-primary lg:col-span-2" onClick={save}><Save className="ml-1 inline h-4 w-4" /> حفظ الاختصار</button>
       </section>
       <section className="dawaa-panel">

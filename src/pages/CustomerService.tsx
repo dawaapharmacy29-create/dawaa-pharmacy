@@ -107,7 +107,18 @@ const QUICK_FILTERS = [
 
 type QuickFilter = (typeof QUICK_FILTERS)[number][0];
 
-type MetricFilter = 'all' | 'today' | 'completed' | 'noAnswer' | 'postponed' | 'needsManager' | 'overdue' | 'invalidPhone' | 'recovered';
+type MetricFilter =
+  | 'all'
+  | 'today'
+  | 'completed'
+  | 'noAnswer'
+  | 'postponed'
+  | 'needsManager'
+  | 'overdue'
+  | 'invalidPhone'
+  | 'recovered'
+  | 'notStarted'
+  | 'contactedNoPurchase';
 
 const METRIC_FILTER_LABELS: Record<MetricFilter, string> = {
   all: 'عرض الكل',
@@ -119,6 +130,8 @@ const METRIC_FILTER_LABELS: Record<MetricFilter, string> = {
   overdue: 'متأخر',
   invalidPhone: 'بدون رقم صحيح',
   recovered: 'تحول لبيع',
+  notStarted: 'لم يبدأ التواصل',
+  contactedNoPurchase: 'تم التواصل ولم يشترِ',
 };
 
 function matchesMetricFilter(row: FollowupRow, filter: MetricFilter) {
@@ -132,6 +145,11 @@ function matchesMetricFilter(row: FollowupRow, filter: MetricFilter) {
   if (filter === 'overdue') return isOverdue(row);
   if (filter === 'invalidPhone') return !phoneOf(row);
   if (filter === 'recovered') return Boolean(row.purchase_after_followup);
+  if (filter === 'notStarted') return !row.contacted_at && !row.contact_result && !row.followup_result && !isCompleted(row);
+  if (filter === 'contactedNoPurchase') {
+    const contacted = Boolean(row.contacted_at || row.contact_result || row.followup_result) || /تم|contacted|completed/i.test(status);
+    return contacted && !row.purchase_after_followup;
+  }
   return true;
 }
 
@@ -139,6 +157,21 @@ function reviewSummaryOf(row: FollowupRow) {
   const record = row as Record<string, unknown>;
   const rating = record.quality_rating || record.review_score || record.conversation_score || record.customer_satisfaction;
   return rating ? String(rating) : 'غير مسجل';
+}
+
+function priorityReason(row: FollowupRow) {
+  if (row.needs_manager) return 'يحتاج مدير';
+  if (isOverdue(row)) return 'متأخر';
+  if (!phoneOf(row)) return 'بدون رقم صحيح';
+  if (/عاجل|urgent|high/i.test(String(row.priority || ''))) return 'أولوية عاجلة';
+  if (riskLevel(row) === 'عالي') return 'عميل مرتفع الخطورة';
+  if (totalSpent(row) >= 8000) return 'مشتريات مرتفعة';
+  if (avgMonthly(row) >= 1500) return 'متوسط شهري مهم';
+  return 'متابعة دورية';
+}
+
+function lastContactAt(row: FollowupRow) {
+  return row.contacted_at || row.updated_at || row.completed_at || row.created_at || row.followup_date || row.date || null;
 }
 
 function updatedByOf(row: FollowupRow) {
@@ -718,6 +751,24 @@ export default function CustomerService() {
   const performance = useMemo(() => calculateTeamPerformance(rows), [rows]);
   const recoveredCount = useMemo(() => rows.filter((row) => row.purchase_after_followup).length, [rows]);
   const invalidPhoneCount = useMemo(() => rows.filter((row) => !phoneOf(row)).length, [rows]);
+  const notStartedCount = useMemo(() => rows.filter((row) => matchesMetricFilter(row, 'notStarted')).length, [rows]);
+  const contactedNoPurchaseCount = useMemo(() => rows.filter((row) => matchesMetricFilter(row, 'contactedNoPurchase')).length, [rows]);
+  const funnel = useMemo(() => {
+    const contacted = rows.filter((row) => !matchesMetricFilter(row, 'notStarted')).length;
+    const later = rows.filter((row) => row.next_followup_date || row.postponed_until || /متابعة|لاحق|مؤجل/i.test(statusOf(row))).length;
+    const closed = rows.filter((row) => row.closed_at || isCompleted(row)).length;
+    return {
+      total: rows.length,
+      contacted,
+      noAnswer: stats.noAnswer,
+      later,
+      recovered: recoveredCount,
+      needsManager: stats.needsManager,
+      closed,
+      conversionRate: rows.length ? Math.round((recoveredCount / rows.length) * 100) : 0,
+      recoveredAmount: stats.purchaseAfterAmount,
+    };
+  }, [recoveredCount, rows, stats.needsManager, stats.noAnswer, stats.purchaseAfterAmount]);
   const selectedCustomer = selectedRow ? customerFrom(selectedRow) : null;
 
   const createEventNotification = (row: FollowupRow, type: string, priority: 'normal' | 'high' | 'urgent', title: string) => {
@@ -982,7 +1033,7 @@ const addFollowup = async () => {
         </div>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 2xl:grid-cols-10">
         <StatCard label="متابعات اليوم" value={stats.totalToday} tone="cyan" active={metricFilter === 'today'} onClick={() => setMetricFilter('today')} />
         <StatCard label="المكتمل" value={stats.completed} tone="emerald" active={metricFilter === 'completed'} onClick={() => setMetricFilter('completed')} />
         <StatCard label="لم يرد" value={stats.noAnswer} tone="amber" active={metricFilter === 'noAnswer'} onClick={() => setMetricFilter('noAnswer')} />
@@ -991,11 +1042,13 @@ const addFollowup = async () => {
         <StatCard label="متأخر" value={stats.overdue} tone="rose" active={metricFilter === 'overdue'} onClick={() => setMetricFilter('overdue')} />
         <StatCard label="بدون رقم صحيح" value={invalidPhoneCount} tone="amber" active={metricFilter === 'invalidPhone'} onClick={() => setMetricFilter('invalidPhone')} />
         <StatCard label="تحول لبيع" value={recoveredCount} tone="emerald" active={metricFilter === 'recovered'} onClick={() => setMetricFilter('recovered')} />
+        <StatCard label="لم يبدأ التواصل" value={notStartedCount} tone="cyan" active={metricFilter === 'notStarted'} onClick={() => setMetricFilter('notStarted')} />
+        <StatCard label="تواصل ولم يشترِ" value={contactedNoPurchaseCount} tone="amber" active={metricFilter === 'contactedNoPurchase'} onClick={() => setMetricFilter('contactedNoPurchase')} />
       </section>
 
       {metricFilter !== 'all' && (
-        <div className="rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-3 text-sm font-bold text-cyan-100">
-          فلتر الكارت مفعل: {METRIC_FILTER_LABELS[metricFilter]}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-3 text-sm font-bold text-cyan-100">
+          <span>يتم عرض: {METRIC_FILTER_LABELS[metricFilter]}</span>
           <button type="button" className="btn-secondary mr-3 px-3 py-1 text-xs" onClick={() => setMetricFilter('all')}>
             عرض الكل
           </button>
@@ -1064,6 +1117,63 @@ const addFollowup = async () => {
           <AlertTriangle className="ml-2 inline h-5 w-5" /> {error}
         </div>
       )}
+
+      <section className="grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
+        <div className="dawaa-panel min-w-0">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-black text-white">Overview / نظرة اليوم</h2>
+              <p className="text-xs font-bold text-slate-400">Funnel خدمة العملاء من نفس بيانات المتابعات المحملة، بدون بيانات افتراضية.</p>
+            </div>
+            <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-100">
+              تحويل {funnel.conversionRate}%
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <MiniMetric label="المطلوب التواصل معهم" value={funnel.total} />
+            <MiniMetric label="تم التواصل" value={funnel.contacted} />
+            <MiniMetric label="يحتاج متابعة لاحقة" value={funnel.later} />
+            <MiniMetric label="قيمة مبيعات المتابعة" value={money(funnel.recoveredAmount)} />
+            <MiniMetric label="لم يرد" value={funnel.noAnswer} />
+            <MiniMetric label="تحول إلى شراء" value={funnel.recovered} />
+            <MiniMetric label="يحتاج مدير" value={funnel.needsManager} />
+            <MiniMetric label="مغلق" value={funnel.closed} />
+          </div>
+        </div>
+
+        <div className="dawaa-panel min-w-0">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-black text-white">أداء الدكاترة في خدمة العملاء</h2>
+              <p className="text-xs font-bold text-slate-400">أعلى المسؤولين حسب الإنجاز والتحويل.</p>
+            </div>
+            <button type="button" className="btn-secondary px-3 py-1 text-xs" onClick={() => setActiveTab('performance')}>
+              التقرير الكامل
+            </button>
+          </div>
+          <div className="space-y-2">
+            {performance.slice(0, 4).map((row, index) => (
+              <div key={`${row.responsible}-${row.branch}`} className="rounded-2xl border border-slate-700 bg-slate-950/50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="font-black text-white">#{index + 1} {row.responsible}</div>
+                    <div className="text-xs text-slate-400">{row.branch}</div>
+                  </div>
+                  <span className="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2 py-1 text-xs font-black text-cyan-100">
+                    إنجاز {row.completionRate}%
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-300">
+                  <span>المسند: <b className="text-white">{row.assigned}</b></span>
+                  <span>تحول: <b className="text-white">{row.purchaseAfterCount}</b></span>
+                  <span>مبيعات: <b className="text-white">{money(row.purchaseAfterAmount)}</b></span>
+                </div>
+              </div>
+            ))}
+            {!performance.length && <EmptyState message="لا توجد بيانات كافية لحساب أداء الدكاترة حاليًا." />}
+          </div>
+        </div>
+      </section>
 
       <section className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_400px]">
         <main className="dawaa-panel min-w-0">
@@ -1247,10 +1357,12 @@ const addFollowup = async () => {
       {detailsRow && (
         <LazyState>
           <CustomerQuickDetailsModal
+            customerId={detailsRow.customer_id}
             customerCode={detailsRow.customer_code}
             customerPhone={phoneOf(detailsRow)}
             customerName={customerName(detailsRow)}
             branch={detailsRow.branch}
+            fallbackMetric={modalFallbackFrom(detailsRow)}
             onClose={() => setDetailsRow(null)}
           />
         </LazyState>
@@ -1426,6 +1538,7 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
   onManager: () => void;
 }) {
   const phone = phoneOf(row);
+  const score = priorityScore(row);
   return (
     <article
       onClick={onSelect}
@@ -1442,7 +1555,12 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
             <span>{text(row.branch)}</span>
           </div>
         </div>
-        <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-black ${priorityTone(row)}`}>{text(row.priority, 'مهم')}</span>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-black ${priorityTone(row)}`}>{text(row.priority, 'مهم')}</span>
+          <span className="w-fit rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-black text-cyan-100">
+            أولوية {score} · {priorityReason(row)}
+          </span>
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${statusTone(row)}`}>{statusOf(row)}</span>
@@ -1459,8 +1577,10 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
         <InfoRow label="المسؤول" value={responsibleOf(row)} />
         <InfoRow label="آخر نتيجة" value={statusOf(row)} />
         <InfoRow label="تم التواصل بواسطة" value={updatedByOf(row)} />
+        <InfoRow label="وقت آخر تواصل" value={formatDateTime(lastContactAt(row))} />
         <InfoRow label="تقييم المحادثة" value={reviewSummaryOf(row)} />
         <InfoRow label="بيع بعد المتابعة" value={row.purchase_after_followup ? money((row as any).purchase_amount || 0) : 'لا'} />
+        <InfoRow label="رقم الفاتورة" value={row.purchase_invoice_no || 'غير متاح'} />
       </div>
       <p className="mt-3 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-3 text-sm leading-6 text-slate-300">
         {row.followup_reason || row.request_details || row.suggested_action || recommendedAction(row)}
@@ -1501,6 +1621,15 @@ function StatCard({ label, value, tone, active = false, onClick }: { label: stri
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="flex items-center justify-between gap-3 rounded-xl bg-white/5 px-3 py-2"><span className="text-slate-400">{label}</span><b className="text-left text-slate-100">{value}</b></div>;
+}
+
+function MiniMetric({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-3">
+      <div className="text-[11px] font-black text-slate-400">{label}</div>
+      <div className="mt-1 text-xl font-black text-white num">{value}</div>
+    </div>
+  );
 }
 
 function EmptyState({ message = 'لا توجد بيانات مطابقة حاليًا.' }: { message?: string }) {
