@@ -11,6 +11,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/customer-service': 'مركز خدمة العملاء',
   '/customer-data-review': 'مراجعة بيانات العملاء',
   '/customer-welcome': 'الرسائل الترحيبية',
+  '/welcome-messages': 'الرسائل الترحيبية',
   '/quick-replies': 'اختصارات الردود السريعة',
   '/doctor-competition': 'مسابقة الدكاترة',
   '/customer-cashback': 'نقاط العملاء / الكاش باك',

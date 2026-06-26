@@ -16,6 +16,7 @@ import {
   HeadphonesIcon,
   LayoutDashboard,
   LogOut,
+  MessageCircle,
   Package,
   PackageSearch,
   ShieldCheck,
@@ -108,6 +109,7 @@ const GROUPS: NavGroup[] = [
       { path: '/crm', icon: Users, label: 'CRM ومتابعة العملاء', permission: 'view_crm' },
       { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
       { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
+      { path: '/welcome-messages', icon: MessageCircle, label: 'الرسائل الترحيبية', permission: 'customer_welcome_messages.view' },
     ],
   },
   {

@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
+  Trophy,
   TrendingUp,
   Users,
   Wallet,
@@ -53,6 +54,13 @@ import {
   type DashboardSalesReconciliation,
 } from '@/lib/dashboard/dashboardTruthService';
 import { resolveStaffLink, getStaffNavigationTarget } from '@/lib/staff/staffIdentityResolver';
+import {
+  avgReview,
+  getDoctorCompetitionMetrics,
+  MIN_AVG_INVOICE_THRESHOLD,
+  type DoctorCompetitionMetrics,
+  type DoctorCompetitionScore,
+} from '@/lib/doctorCompetitionMetrics';
 
 const ALL_BRANCHES = DASHBOARD_ALL_BRANCHES;
 const COLORS = ['#2dd4bf', '#38bdf8', '#8b5cf6', '#22c55e', '#f59e0b', '#ef4444'];
@@ -810,6 +818,8 @@ export default function ExecutiveDashboard2027() {
   const [search, setSearch] = useState('');
   const [dailyChartMetric, setDailyChartMetric] = useState<DailyChartMetric>('sales');
   const [loading, setLoading] = useState(false);
+  const [doctorCompetition, setDoctorCompetition] = useState<DoctorCompetitionMetrics | null>(null);
+  const [doctorCompetitionLoading, setDoctorCompetitionLoading] = useState(false);
   const loadIdRef = useRef(0);
   const noCacheRef = useRef(false);
   const [state, setState] = useState<DashboardState>({
@@ -866,6 +876,32 @@ export default function ExecutiveDashboard2027() {
     const next = effectiveBranchFilter(user, branch, ALL_BRANCHES);
     if (!canAllBranches && next && branch !== next) setBranch(next);
   }, [branch, canAllBranches, user]);
+
+  useEffect(() => {
+    let mounted = true;
+    setDoctorCompetitionLoading(true);
+    getDoctorCompetitionMetrics({
+      period: 'custom',
+      customStart: startDate,
+      customEnd: endDate,
+      branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
+      userBranch: user?.branch,
+      canSeeAllBranches: canAllBranches,
+    })
+      .then((metrics) => {
+        if (mounted) setDoctorCompetition(metrics);
+      })
+      .catch((error) => {
+        if (import.meta.env.DEV) console.warn('[ExecutiveDashboard2027] doctor competition metrics failed', error);
+        if (mounted) setDoctorCompetition(null);
+      })
+      .finally(() => {
+        if (mounted) setDoctorCompetitionLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [canAllBranches, scopedBranch, startDate, endDate, user?.branch]);
 
   const load = useCallback(async () => {
     const loadId = ++loadIdRef.current;
@@ -1741,6 +1777,12 @@ export default function ExecutiveDashboard2027() {
             />
           </section>
         )}
+
+        <DashboardDoctorCompetitionPanel
+          metrics={doctorCompetition}
+          loading={doctorCompetitionLoading}
+          onNavigate={(focus) => navigate(`/doctor-competition?period=last_3_months&focus=${focus}`)}
+        />
 
         <Panel className="p-5">
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -2683,6 +2725,144 @@ export default function ExecutiveDashboard2027() {
         </Panel>
       </main>
     </div>
+  );
+}
+
+function DashboardDoctorCompetitionPanel({
+  metrics,
+  loading,
+  onNavigate,
+}: {
+  metrics: DoctorCompetitionMetrics | null;
+  loading: boolean;
+  onNavigate: (focus: 'sales' | 'average_invoice' | 'incentive' | 'reviews' | 'overall') => void;
+}) {
+  const winners = metrics?.winners;
+  const topRows = metrics?.rows.slice(0, 5) || [];
+  const hasRows = topRows.length > 0;
+  return (
+    <Panel id="doctor-competitions" className="p-5">
+      <SectionTitle
+        title="مسابقات الدكاترة"
+        subtitle={metrics ? `الفترة: ${metrics.range.start} إلى ${metrics.range.end}` : 'ملخص مباشر من sales_invoices والتقييمات والمتابعات'}
+        icon={<Trophy className="h-5 w-5" />}
+      />
+      {loading ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" aria-busy="true">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="h-40 animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40" />
+          ))}
+        </div>
+      ) : hasRows ? (
+        <>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <DoctorWinnerCard
+              title="بطل المبيعات"
+              row={winners?.sales}
+              value={winners?.sales ? `${money(winners.sales.totalSales)} جنيه` : 'لا توجد بيانات'}
+              detail={winners?.sales ? `${count(winners.sales.invoices)} فاتورة · متوسط ${money(winners.sales.avgInvoice)} جنيه` : 'لا توجد بيانات كافية'}
+              onClick={() => onNavigate('sales')}
+            />
+            <DoctorWinnerCard
+              title="بطل متوسط الفاتورة"
+              row={winners?.averageInvoice}
+              value={winners?.averageInvoice ? `${money(winners.averageInvoice.avgInvoice)} جنيه` : `يتطلب ${MIN_AVG_INVOICE_THRESHOLD} فاتورة`}
+              detail={winners?.averageInvoice ? `${count(winners.averageInvoice.invoices)} فاتورة مؤهلة` : 'لا توجد بيانات كافية للحد الأدنى'}
+              onClick={() => onNavigate('average_invoice')}
+            />
+            <DoctorWinnerCard
+              title="بطل الرواكد واللستة"
+              row={winners?.incentive}
+              value={winners?.incentive?.incentiveValue ? `${money(winners.incentive.incentiveValue)} جنيه` : 'لا توجد بيانات كافية'}
+              detail={winners?.incentive?.incentiveValue ? `${count(winners.incentive.stagnantItems)} رواكد · ${count(winners.incentive.listItems)} لستة` : 'لا توجد بيانات كافية للرواكد واللستة بعد'}
+              onClick={() => onNavigate('incentive')}
+            />
+            <DoctorWinnerCard
+              title="بطل تقييم المحادثات"
+              row={winners?.reviews}
+              value={winners?.reviews ? `${avgReview(winners.reviews).toFixed(1)}/100` : 'لا توجد تقييمات'}
+              detail={winners?.reviews ? `${count(winners.reviews.reviewCount)} تقييم · ${count(winners.reviews.excellentReviews)} ممتاز` : 'لا توجد بيانات تقييم كافية'}
+              onClick={() => onNavigate('reviews')}
+            />
+            <DoctorWinnerCard
+              title="البطل الشامل"
+              row={winners?.overall}
+              value={winners?.overall ? `${winners.overall.overallScore.toFixed(1)} نقطة` : 'لا توجد بيانات'}
+              detail="المبيعات 30% · المتوسط 20% · الرواكد 20% · التقييم 20% · الخدمة 10%"
+              onClick={() => onNavigate('overall')}
+            />
+          </div>
+          <div className="mt-4 overflow-hidden rounded-2xl border border-cyan-300/10">
+            <table className="w-full min-w-[860px] text-right text-sm">
+              <thead className="bg-slate-950/80 text-xs text-slate-400">
+                <tr>
+                  <th className="p-3">الترتيب</th>
+                  <th className="p-3">الدكتور</th>
+                  <th className="p-3">الفرع</th>
+                  <th className="p-3">المبيعات</th>
+                  <th className="p-3">الفواتير</th>
+                  <th className="p-3">متوسط الفاتورة</th>
+                  <th className="p-3">تقييم المحادثات</th>
+                  <th className="p-3">المتابعات المكتملة</th>
+                  <th className="p-3">النقاط الشاملة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topRows.map((row, index) => (
+                  <tr
+                    key={`${row.name}-${row.branch}-${index}`}
+                    onClick={() => onNavigate('overall')}
+                    className="cursor-pointer border-t border-cyan-300/10 hover:bg-cyan-400/8"
+                  >
+                    <td className="p-3 font-black text-cyan-200">{index + 1}</td>
+                    <td className="p-3 font-black text-white">{row.name}</td>
+                    <td className="p-3 text-slate-300">{row.branch}</td>
+                    <td className="p-3 text-emerald-200">{money(row.totalSales)} جنيه</td>
+                    <td className="p-3">{count(row.invoices)}</td>
+                    <td className="p-3">{money(row.avgInvoice)} جنيه</td>
+                    <td className="p-3">{row.reviewCount ? `${avgReview(row).toFixed(1)}/100` : 'غير متاح'}</td>
+                    <td className="p-3">{count(row.completedFollowups)}</td>
+                    <td className="p-3 font-black text-amber-200">{row.overallScore.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        <EmptyState label="لا توجد بيانات كافية لمسابقات الدكاترة في الفترة الحالية" />
+      )}
+    </Panel>
+  );
+}
+
+function DoctorWinnerCard({
+  title,
+  row,
+  value,
+  detail,
+  onClick,
+}: {
+  title: string;
+  row?: DoctorCompetitionScore | null;
+  value: string;
+  detail: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-right transition hover:-translate-y-0.5 hover:border-amber-200/50"
+    >
+      <div className="flex items-center gap-2 text-xs font-black text-amber-200">
+        <Trophy className="h-4 w-4" /> {title}
+      </div>
+      <div className="mt-3 text-xl font-black text-white">{row?.name || 'لا يوجد'}</div>
+      <div className="mt-1 text-xs font-bold text-slate-400">{row?.branch || 'بيانات غير كافية'}</div>
+      <div className="mt-3 rounded-xl bg-slate-950/55 px-3 py-2 text-sm font-black text-amber-100">{value}</div>
+      <p className="mt-2 min-h-10 text-xs leading-5 text-slate-300">{detail}</p>
+    </button>
   );
 }
 
