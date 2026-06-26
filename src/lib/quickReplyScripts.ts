@@ -27,6 +27,7 @@ export const QUICK_REPLY_ARRAY_FORMAT_MESSAGE =
 
 export const QUICK_REPLY_SCRIPT_TYPES = [
   'quick_reply',
+  'welcome',
   'cross_sell',
   'up_sell',
   'complaint',
@@ -43,6 +44,15 @@ export const DEFAULT_QUICK_REPLY_SCRIPTS: Array<
   Pick<QuickReplyScript, 'shortcut' | 'title' | 'category' | 'script_type' | 'message_body'> &
     Partial<QuickReplyScript>
 > = [
+  {
+    shortcut: '/ترحيب',
+    title: 'رسالة ترحيب بعميل جديد',
+    category: 'ترحيب',
+    script_type: 'welcome',
+    message_body:
+      'أهلا بحضرتك، مع حضرتك صيدليات دواء. بنرحب بحضرتك ونتشرف بخدمتك دائما. لو حضرتك محتاج أي استفسار عن دواء أو متابعة طلب، إحنا تحت أمر حضرتك.',
+    tags: ['ترحيب', 'welcome', 'عميل جديد'],
+  },
   {
     shortcut: '/برد',
     title: 'استفسار أعراض برد',

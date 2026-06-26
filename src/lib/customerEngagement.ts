@@ -8,6 +8,16 @@ export type CustomerIdentity = {
   branch?: string | null;
 };
 
+export type WelcomeMessageFilters = {
+  actor_id?: string | null;
+  search?: string | null;
+  branch?: string | null;
+  status?: string | null;
+  doctor?: string | null;
+  from?: string | null;
+  to?: string | null;
+};
+
 export type CustomerPointsLedgerRow = CustomerIdentity & {
   id: string;
   points_amount: number;
@@ -96,15 +106,19 @@ export async function addCustomerPoints(payload: Partial<CustomerPointsLedgerRow
   return data as CustomerPointsLedgerRow;
 }
 
-export async function fetchWelcomeMessageLogs(identity: CustomerIdentity) {
-  const filter = customerOrFilter(identity);
-  let query = supabase
-    .from('customer_welcome_message_logs')
-    .select('*')
-    .order('sent_at', { ascending: false })
-    .limit(100);
-  if (filter) query = query.or(filter);
-  const { data, error } = await query;
+export async function fetchWelcomeMessageLogs(identity: CustomerIdentity, filters: WelcomeMessageFilters = {}) {
+  const { data, error } = await supabase.rpc('fetch_customer_welcome_message_logs', {
+    p_actor_id: filters.actor_id || null,
+    p_customer_code: identity.customer_code || null,
+    p_customer_phone: identity.customer_phone || null,
+    p_customer_id: identity.customer_id || null,
+    p_search: filters.search || null,
+    p_branch: filters.branch || null,
+    p_status: filters.status || null,
+    p_doctor: filters.doctor || null,
+    p_from: filters.from || null,
+    p_to: filters.to || null,
+  });
   if (error) throw new Error(error.message);
   return (data || []) as WelcomeMessageLogRow[];
 }
@@ -118,8 +132,30 @@ export async function addWelcomeMessageLog(payload: Partial<WelcomeMessageLogRow
   return data as WelcomeMessageLogRow;
 }
 
+export async function updateWelcomeMessageStatus(id: string, status: string, actorId?: string | null, actorName?: string | null) {
+  const { data, error } = await supabase.rpc('update_customer_welcome_message_status', {
+    p_id: id,
+    p_status: status,
+    p_actor_id: actorId || null,
+    p_actor_name: actorName || null,
+  });
+  if (error) throw new Error(error.message || 'تعذر تحديث حالة الرسالة.');
+  return data as WelcomeMessageLogRow;
+}
+
+function normalizeEgyptWhatsappPhone(phone?: string | null) {
+  let digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('20')) return digits;
+  if (digits.startsWith('0')) return `2${digits}`;
+  if (/^1[0125]\d{8}$/.test(digits)) return `20${digits}`;
+  if (digits.startsWith('2')) return digits;
+  return digits;
+}
+
 export function whatsappWelcomeUrl(phone?: string | null, message = DEFAULT_WELCOME_MESSAGE) {
-  const cleaned = String(phone || '').replace(/\D/g, '');
-  const target = cleaned ? `2${cleaned.replace(/^2/, '')}` : '';
+  const target = normalizeEgyptWhatsappPhone(phone);
+  if (!target) return '';
   return `https://wa.me/${target}?text=${encodeURIComponent(message)}`;
 }

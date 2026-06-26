@@ -113,7 +113,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/customer-cashback': 'view_cashback',
   '/customer-service-credit': 'view_cashback',
   '/customer-points-ledger': 'view_cashback',
-  '/welcome-messages': 'whatsapp_customer',
+  '/welcome-messages': 'customer_welcome_messages.view',
   '/loyalty-tiers': 'view_loyalty_tiers',
   '/refill-reminders': 'view_customers',
   '/customer-health': 'view_customer_details',

@@ -294,8 +294,9 @@ export default function CustomerQuickDetailsModal(props: Props) {
     if (displayPhone) next.set('phone', displayPhone);
     if (customer?.customer_name || props.customerName) next.set('name', customer?.customer_name || props.customerName || '');
     if (customer?.branch || props.branch) next.set('branch', customer?.branch || props.branch || '');
+    if (props.followupId) next.set('followup_id', props.followupId);
     return next.toString();
-  }, [customer?.branch, customer?.customer_code, customer?.customer_name, displayPhone, props.branch, props.customerCode, props.customerId, props.customerName]);
+  }, [customer?.branch, customer?.customer_code, customer?.customer_name, displayPhone, props.branch, props.customerCode, props.customerId, props.customerName, props.followupId]);
 
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
@@ -331,8 +332,11 @@ export default function CustomerQuickDetailsModal(props: Props) {
             <a className="btn-secondary inline-flex items-center gap-2" href={`/customer-points-ledger?${engagementParams}`}>
               احتساب نقاط للعميل
             </a>
-            <a className="btn-secondary inline-flex items-center gap-2" href={`/welcome-messages?${engagementParams}`}>
+            <a className="btn-secondary inline-flex items-center gap-2" href={`/welcome-messages?${engagementParams}&action=create`}>
               تسجيل رسالة ترحيبية
+            </a>
+            <a className="btn-secondary inline-flex items-center gap-2" href={`/welcome-messages?${engagementParams}`}>
+              سجل الرسائل الترحيبية
             </a>
             {waLink ? (
               <a
