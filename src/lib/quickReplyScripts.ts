@@ -22,6 +22,8 @@ export type QuickReplyScript = {
 
 export const QUICK_REPLY_RLS_MESSAGE =
   'ليس لديك صلاحية حفظ الردود السريعة أو لم يتم تفعيل صلاحيات الجدول.';
+export const QUICK_REPLY_ARRAY_FORMAT_MESSAGE =
+  'حدث خطأ في صيغة الأسئلة أو الوسوم. تم إرسال القائمة بصيغة غير مناسبة.';
 
 export const QUICK_REPLY_SCRIPT_TYPES = [
   'quick_reply',
@@ -207,6 +209,9 @@ export async function saveQuickReplyScript(
   });
   if (error) {
     const message = String(error.message || '');
+    if (/questions.*text\[\].*jsonb|suggested_products.*text\[\].*jsonb|tags.*text\[\].*jsonb|expression is of type jsonb/i.test(message)) {
+      throw new Error(QUICK_REPLY_ARRAY_FORMAT_MESSAGE);
+    }
     if (/row-level security|permission|صلاحية|quick_reply/i.test(message)) {
       throw new Error(QUICK_REPLY_RLS_MESSAGE);
     }
