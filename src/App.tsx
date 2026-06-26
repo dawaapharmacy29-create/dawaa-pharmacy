@@ -125,6 +125,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/schedule': 'view_schedule',
   '/time-off': 'view_attendance_leaves',
   '/attendance-report': 'view_attendance_leaves',
+  '/attendance': 'view_attendance_leaves',
   '/shift-notes': 'view_schedule',
   '/shift-performance': 'view_shift_performance',
   '/doctor-dashboard': 'view_doctor_dashboard',
@@ -139,12 +140,14 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/supplier-performance': 'view_purchases',
   '/purchases': 'view_purchases',
   '/staff-payroll': 'view_salary_calculator',
+  '/payroll': 'view_salary_calculator',
   '/invoices': 'view_invoices',
   '/returns': 'view_invoices',
   '/points': 'view_points',
   '/penalty-incentive': 'view_penalty_management',
   '/delivery': 'view_delivery',
   '/activity-log': 'view_activity_log',
+  '/activity-logs': 'view_activity_log',
   '/stagnant-medicines': 'view_stagnant_medicines',
   '/incentive-medicines': 'view_incentive_medicines',
   '/medicine-expiry': 'view_expiry_tracker',
@@ -345,6 +348,7 @@ export default function App() {
                 path="/executive-2027"
                 element={protectedElement(<ExecutiveDashboard2027 />)}
               />
+              <Route path="/executive-dashboard" element={<Navigate to="/executive-2027" replace />} />
               <Route
                 path="/evaluation-rules"
                 element={protectedElement(<EvaluationRules2027 />, true)}
@@ -424,6 +428,7 @@ export default function App() {
               />
               <Route path="/expiry-discounts" element={protectedElement(<ExpiryDiscounts />)} />
               <Route path="/attendance-report" element={protectedElement(<AttendanceReport />)} />
+              <Route path="/attendance" element={<Navigate to="/attendance-report" replace />} />
               <Route
                 path="/incentive-medicines"
                 element={protectedElement(<IncentiveMedicines />)}
@@ -444,8 +449,10 @@ export default function App() {
               <Route path="/analytics-sales" element={protectedElement(<Analytics />)} />
               <Route path="/purchases" element={protectedElement(<Purchases />)} />
               <Route path="/staff-payroll" element={protectedElement(<StaffPayroll />)} />
+              <Route path="/payroll" element={<Navigate to="/staff-payroll" replace />} />
               <Route path="/invoices" element={protectedElement(<Invoices />)} />
               <Route path="/activity-log" element={protectedElement(<ActivityLog />, true)} />
+              <Route path="/activity-logs" element={<Navigate to="/activity-log" replace />} />
               <Route
                 path="/penalty-incentive"
                 element={protectedElement(<PenaltyIncentiveManagement />, true)}

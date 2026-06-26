@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Medal, RefreshCw, Trophy } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
@@ -152,13 +153,26 @@ function normalizeScores(rows: DoctorScore[]) {
 
 export default function DoctorCompetition() {
   const { user } = useAuth();
+  const [params] = useSearchParams();
+  const initialPeriod = params.get('period') === 'last_3_months' ? 'last90' : (params.get('period') as Period) || 'last90';
+  const initialFocus = params.get('focus');
   const [rows, setRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<Period>('last90');
+  const [period, setPeriod] = useState<Period>(['last30', 'last90', 'cycle', 'custom'].includes(initialPeriod) ? initialPeriod : 'last90');
   const [branchFilter, setBranchFilter] = useState(ALL_BRANCHES);
   const [customStart, setCustomStart] = useState(new Date().toISOString().slice(0, 10));
   const [customEnd, setCustomEnd] = useState(new Date().toISOString().slice(0, 10));
-  const [rankingTab, setRankingTab] = useState<RankingTab>('overall');
+  const [rankingTab, setRankingTab] = useState<RankingTab>(
+    initialFocus === 'sales'
+      ? 'sales'
+      : initialFocus === 'average_invoice'
+        ? 'avgInvoice'
+        : initialFocus === 'incentive'
+          ? 'incentive'
+          : initialFocus === 'reviews'
+            ? 'reviews'
+            : 'overall'
+  );
   const [selectedDoctor, setSelectedDoctor] = useState<(DoctorScore & { overallScore: number }) | null>(null);
   const cycle = useMemo(() => rangeFor(period, customStart, customEnd), [customEnd, customStart, period]);
 

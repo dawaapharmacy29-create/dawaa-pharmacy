@@ -61,6 +61,7 @@ import {
   type DoctorCompetitionMetrics,
   type DoctorCompetitionScore,
 } from '@/lib/doctorCompetitionMetrics';
+import { loadAppDataHealthSummary, summarizeDataHealth, type DataHealthIssue } from '@/lib/dataHealth/appDataHealthService';
 
 const ALL_BRANCHES = DASHBOARD_ALL_BRANCHES;
 const COLORS = ['#2dd4bf', '#38bdf8', '#8b5cf6', '#22c55e', '#f59e0b', '#ef4444'];
@@ -820,6 +821,8 @@ export default function ExecutiveDashboard2027() {
   const [loading, setLoading] = useState(false);
   const [doctorCompetition, setDoctorCompetition] = useState<DoctorCompetitionMetrics | null>(null);
   const [doctorCompetitionLoading, setDoctorCompetitionLoading] = useState(false);
+  const [dataHealthIssues, setDataHealthIssues] = useState<DataHealthIssue[]>([]);
+  const [dataHealthLoading, setDataHealthLoading] = useState(false);
   const loadIdRef = useRef(0);
   const noCacheRef = useRef(false);
   const [state, setState] = useState<DashboardState>({
@@ -902,6 +905,25 @@ export default function ExecutiveDashboard2027() {
       mounted = false;
     };
   }, [canAllBranches, scopedBranch, startDate, endDate, user?.branch]);
+
+  useEffect(() => {
+    let mounted = true;
+    setDataHealthLoading(true);
+    loadAppDataHealthSummary()
+      .then((issues) => {
+        if (mounted) setDataHealthIssues(issues);
+      })
+      .catch((error) => {
+        if (import.meta.env.DEV) console.warn('[ExecutiveDashboard2027] data health failed', error);
+        if (mounted) setDataHealthIssues([]);
+      })
+      .finally(() => {
+        if (mounted) setDataHealthLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     const loadId = ++loadIdRef.current;
@@ -1782,6 +1804,12 @@ export default function ExecutiveDashboard2027() {
           metrics={doctorCompetition}
           loading={doctorCompetitionLoading}
           onNavigate={(focus) => navigate(`/doctor-competition?period=last_3_months&focus=${focus}`)}
+        />
+
+        <DashboardDataHealthPanel
+          issues={dataHealthIssues}
+          loading={dataHealthLoading}
+          onNavigate={(route) => navigate(route)}
         />
 
         <Panel className="p-5">
@@ -2863,6 +2891,79 @@ function DoctorWinnerCard({
       <div className="mt-3 rounded-xl bg-slate-950/55 px-3 py-2 text-sm font-black text-amber-100">{value}</div>
       <p className="mt-2 min-h-10 text-xs leading-5 text-slate-300">{detail}</p>
     </button>
+  );
+}
+
+function DashboardDataHealthPanel({
+  issues,
+  loading,
+  onNavigate,
+}: {
+  issues: DataHealthIssue[];
+  loading: boolean;
+  onNavigate: (route: string) => void;
+}) {
+  const summary = summarizeDataHealth(issues);
+  const actionable = issues
+    .filter((issue) => issue.severity !== 'info' || (issue.count || 0) > 0)
+    .sort((a, b) => {
+      const rank = { danger: 3, warning: 2, info: 1 };
+      return rank[b.severity] - rank[a.severity] || (b.count || 0) - (a.count || 0);
+    })
+    .slice(0, 8);
+
+  return (
+    <Panel id="dashboard-data-health" className="p-5">
+      <SectionTitle
+        title="صحة البيانات"
+        subtitle="مؤشرات مختصرة على الفواتير والعملاء والحسابات التي تحتاج مراجعة"
+        icon={<ShieldCheck className="h-5 w-5" />}
+      />
+      {loading ? (
+        <div className="grid gap-3 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-24 animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40" />
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-3 md:grid-cols-4">
+            <MiniBox label="بنود تحتاج مراجعة" value={count(summary.actionableCount)} tone={summary.status === 'ready' ? 'green' : 'amber'} />
+            <MiniBox label="تحذيرات عالية" value={count(summary.dangerCount)} tone={summary.dangerCount ? 'red' : 'green'} />
+            <MiniBox label="تحذيرات متوسطة" value={count(summary.warningCount)} tone={summary.warningCount ? 'amber' : 'green'} />
+            <MiniBox label="سجلات متأثرة" value={count(summary.totalRecords)} tone="cyan" />
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {actionable.length ? (
+              actionable.map((issue) => {
+                const route = issue.affectedPages[0] || '/data-health';
+                return (
+                  <button
+                    key={issue.key}
+                    type="button"
+                    onClick={() => onNavigate(route)}
+                    className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4 text-right hover:bg-cyan-400/8"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-black text-white">{issue.label}</span>
+                      <span className={`rounded-full px-2 py-1 text-[11px] font-black ${issue.severity === 'danger' ? 'bg-red-500/15 text-red-200' : issue.severity === 'warning' ? 'bg-amber-500/15 text-amber-200' : 'bg-cyan-500/15 text-cyan-200'}`}>
+                        {issue.source}
+                      </span>
+                    </div>
+                    <div className="mt-3 text-2xl font-black text-white">{issue.count === null ? 'غير متاح' : count(issue.count)}</div>
+                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">{issue.error ? 'لا توجد بيانات كافية أو المصدر غير متاح حاليا.' : issue.suggestedFix}</p>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="rounded-2xl border border-emerald-300/15 bg-emerald-500/10 p-4 text-sm font-bold text-emerald-100 md:col-span-2 xl:col-span-4">
+                لا توجد بنود حرجة ظاهرة في ملخص صحة البيانات.
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </Panel>
   );
 }
 
