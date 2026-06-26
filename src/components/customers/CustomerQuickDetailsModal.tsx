@@ -15,12 +15,14 @@ import { cashbackStatusLabel, cashbackSummaryLine } from '@/lib/api/customerLoya
 import { getCustomerServiceLiveMetrics } from '@/lib/customerServiceCustomerMetrics';
 
 type Props = {
+  followupId?: string | null;
   customerId?: string | null;
   customerCode?: string | null;
   customerPhone?: string | null;
   customerName?: string | null;
   branch?: string | null;
   fallbackMetric?: Partial<CustomerMetric> | Record<string, unknown> | null;
+  onEditFollowup?: () => void;
   onClose: () => void;
 };
 
@@ -285,6 +287,16 @@ export default function CustomerQuickDetailsModal(props: Props) {
     return generateWhatsAppLink(displayPhone, `السلام عليكم أ/ ${name}`);
   }, [customer?.customer_name, displayPhone, props.customerName]);
 
+  const engagementParams = useMemo(() => {
+    const next = new URLSearchParams();
+    if (props.customerId) next.set('customerId', props.customerId);
+    if (customer?.customer_code || props.customerCode) next.set('code', customer?.customer_code || props.customerCode || '');
+    if (displayPhone) next.set('phone', displayPhone);
+    if (customer?.customer_name || props.customerName) next.set('name', customer?.customer_name || props.customerName || '');
+    if (customer?.branch || props.branch) next.set('branch', customer?.branch || props.branch || '');
+    return next.toString();
+  }, [customer?.branch, customer?.customer_code, customer?.customer_name, displayPhone, props.branch, props.customerCode, props.customerId, props.customerName]);
+
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="modal-panel max-w-6xl" onClick={(event) => event.stopPropagation()} dir="rtl">
@@ -311,6 +323,17 @@ export default function CustomerQuickDetailsModal(props: Props) {
             </div>
           </div>
           <div className="dawaa-action-stack flex flex-wrap gap-2">
+            {props.followupId && props.onEditFollowup ? (
+              <button type="button" onClick={props.onEditFollowup} className="btn-primary inline-flex items-center gap-2">
+                تعديل نتيجة المتابعة
+              </button>
+            ) : null}
+            <a className="btn-secondary inline-flex items-center gap-2" href={`/customer-points-ledger?${engagementParams}`}>
+              احتساب نقاط للعميل
+            </a>
+            <a className="btn-secondary inline-flex items-center gap-2" href={`/welcome-messages?${engagementParams}`}>
+              تسجيل رسالة ترحيبية
+            </a>
             {waLink ? (
               <a
                 href={waLink}

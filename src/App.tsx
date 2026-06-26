@@ -38,6 +38,8 @@ const CustomerDataReview = lazy(() => import('@/pages/CustomerDataReview'));
 const CRMPage = lazy(() => import('@/pages/CRMPage'));
 const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
 const CustomerServiceCredit = lazy(() => import('@/pages/CustomerServiceCredit'));
+const CustomerPointsLedger = lazy(() => import('@/pages/CustomerPointsLedger'));
+const WelcomeMessages = lazy(() => import('@/pages/WelcomeMessages'));
 const CustomerWelcome = lazy(() => import('@/pages/CustomerWelcome'));
 const CustomerCoding = lazy(() => import('@/pages/CustomerCoding'));
 const QuickReplies = lazy(() => import('@/pages/QuickReplies'));
@@ -110,6 +112,8 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/doctor-competition': 'view_analytics_sales',
   '/customer-cashback': 'view_cashback',
   '/customer-service-credit': 'view_cashback',
+  '/customer-points-ledger': 'view_cashback',
+  '/welcome-messages': 'whatsapp_customer',
   '/loyalty-tiers': 'view_loyalty_tiers',
   '/refill-reminders': 'view_customers',
   '/customer-health': 'view_customer_details',
@@ -386,6 +390,11 @@ export default function App() {
                 path="/customer-service-credit"
                 element={protectedElement(<CustomerServiceCredit />)}
               />
+              <Route
+                path="/customer-points-ledger"
+                element={protectedElement(<CustomerPointsLedger />)}
+              />
+              <Route path="/welcome-messages" element={protectedElement(<WelcomeMessages />)} />
               <Route path="/shift-notes" element={protectedElement(<ShiftNotes />)} />
               <Route path="/shelf-organization" element={protectedElement(<ShelfOrganization />)} />
               <Route path="/branch-cleaning" element={protectedElement(<BranchCleaning />)} />

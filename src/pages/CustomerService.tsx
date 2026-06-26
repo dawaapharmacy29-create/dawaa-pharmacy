@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabase';
 import { ALL_FILTER } from '@/lib/api/customers';
 import { searchCustomerMetrics,
   calculateFollowupStats,
@@ -789,6 +790,7 @@ export default function CustomerService() {
   const dashboardBranch = params.get('branch')?.trim() || '';
   const requestedFollowupId = params.get('followupId') || params.get('requestId') || params.get('taskId') || '';
   const requestedOpenDetails = params.get('openDetails') === '1' || Boolean(requestedFollowupId);
+  const requestedMode = params.get('mode') || '';
   const requestedCustomerFallback = useMemo(
     () => ({
       customer_code: params.get('code') || null,
@@ -978,6 +980,7 @@ export default function CustomerService() {
       setRows((current) => (current.some((row) => row.id === enriched.id) ? current.map((row) => (row.id === enriched.id ? enriched : row)) : [enriched, ...current]));
       setSelectedRow(enriched);
       if (requestedOpenDetails) setDetailsRow(enriched);
+      if (requestedMode === 'edit') setResultRow(enriched);
       if (import.meta.env.DEV) {
         console.debug('[CustomerService] requested followup opened', {
           followupId: requestedFollowupId,
@@ -994,7 +997,7 @@ export default function CustomerService() {
     return () => {
       cancelled = true;
     };
-  }, [enrichRowWithLiveMetrics, requestedCustomerFallback, requestedFollowupId, requestedOpenDetails, rows]);
+  }, [enrichRowWithLiveMetrics, requestedCustomerFallback, requestedFollowupId, requestedMode, requestedOpenDetails, rows]);
 
   const load = useCallback(
     async (soft = false) => {
@@ -1237,7 +1240,7 @@ export default function CustomerService() {
       branch: row.branch,
       target_type: 'customer_followup',
       target_id: row.id,
-      target_route: `/customer-service?tab=today&followupId=${row.id}&openDetails=1&code=${encodeURIComponent(String(row.customer_code || ''))}&phone=${encodeURIComponent(phoneOf(row))}&name=${encodeURIComponent(customerName(row))}`,
+      target_route: `/customer-service?tab=today&followupId=${row.id}&openDetails=1&mode=edit&code=${encodeURIComponent(String(row.customer_code || ''))}&phone=${encodeURIComponent(phoneOf(row))}&name=${encodeURIComponent(customerName(row))}`,
       recipient_role: priority === 'urgent' ? 'customer_service_manager' : null,
       created_by: userId,
       created_by_name: userName,
@@ -1246,6 +1249,7 @@ export default function CustomerService() {
 
   const saveResult = async (result: FollowupResultData) => {
     if (!resultRow) return;
+    const before = resultRow as unknown as Record<string, unknown>;
     const needsManager = result.result === 'يحتاج متابعة مدير' || result.result === 'تم الرد ويوجد شكوى';
     const purchase = result.result === 'تم الشراء بعد المتابعة';
     const updated = await updateFollowupResult(resultRow.id, {
@@ -1277,6 +1281,49 @@ export default function CustomerService() {
     setRows((current) => current.map((row) => (row.id === updated.id ? updated : row)));
     setSelectedRow(updated);
     setResultRow(null);
+    const changedFields: Record<string, { old: unknown; next: unknown }> = {};
+    const after = updated as unknown as Record<string, unknown>;
+    [
+      'status',
+      'followup_status',
+      'contact_result',
+      'followup_result',
+      'followup_notes',
+      'next_followup_date',
+      'internal_rating',
+      'customer_satisfaction',
+      'need_understood',
+      'cross_sell_offered',
+      'up_sell_offered',
+      'needs_next_followup',
+      'no_purchase_reason',
+      'doctor_internal_note',
+    ].forEach((key) => {
+      if (String(before[key] ?? '') !== String(after[key] ?? '')) {
+        changedFields[key] = { old: before[key] ?? null, next: after[key] ?? null };
+      }
+    });
+    supabase
+      .rpc('insert_customer_followup_edit_log', {
+        p_payload: {
+          followup_id: updated.id,
+          customer_code: updated.customer_code || null,
+          customer_phone: phoneOf(updated) || null,
+          customer_name: customerName(updated),
+          old_status: String(before.status || before.followup_status || ''),
+          new_status: String(after.status || after.followup_status || ''),
+          old_result: String(before.followup_result || before.contact_result || ''),
+          new_result: result.result,
+          old_notes: String(before.followup_notes || before.notes || ''),
+          new_notes: result.notes || '',
+          changed_fields: changedFields,
+          edited_by: userId || null,
+          edited_by_name: userName || null,
+        },
+      })
+      .then(({ error: logError }) => {
+        if (logError) console.warn('[customer-service] followup edit log skipped', logError);
+      });
     if (needsManager) {
       createEventNotification(
         updated,
@@ -1922,18 +1969,25 @@ const addFollowup = async () => {
 
       {resultRow && (
         <LazyState>
-          <FollowupResultModal followup={asDailyFollowup(resultRow)} onClose={() => setResultRow(null)} onSave={saveResult} />
+          <FollowupResultModal
+            followup={asDailyFollowup(resultRow)}
+            mode={requestedMode === 'edit' ? 'edit' : 'create'}
+            onClose={() => setResultRow(null)}
+            onSave={saveResult}
+          />
         </LazyState>
       )}
       {detailsRow && (
         <LazyState>
           <CustomerQuickDetailsModal
+            followupId={detailsRow.id}
             customerId={detailsRow.customer_id}
             customerCode={detailsRow.customer_code}
             customerPhone={phoneOf(detailsRow)}
             customerName={customerName(detailsRow)}
             branch={detailsRow.branch}
             fallbackMetric={modalFallbackFrom(detailsRow)}
+            onEditFollowup={() => setResultRow(detailsRow)}
             onClose={() => setDetailsRow(null)}
           />
         </LazyState>

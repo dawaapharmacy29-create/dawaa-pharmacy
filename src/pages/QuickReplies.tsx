@@ -55,6 +55,7 @@ export default function QuickReplies() {
   const [activeFilter, setActiveFilter] = useState<'active' | 'inactive' | 'all'>('active');
   const [form, setForm] = useState<Partial<QuickReplyScript>>(emptyForm(user));
   const [useCustomerName, setUseCustomerName] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -102,10 +103,12 @@ export default function QuickReplies() {
     });
 
   const save = async () => {
+    if (saving) return;
     if (!form.shortcut?.trim() || !form.title?.trim() || !form.message_body?.trim()) {
       toast.error('اكتب الاختصار والعنوان والرسالة');
       return;
     }
+    setSaving(true);
     try {
       const saved = await saveQuickReplyScript({
         ...form,
@@ -124,8 +127,10 @@ export default function QuickReplies() {
       });
       setForm(emptyForm(user));
       toast.success('تم حفظ الرد السريع');
+      setSaving(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر حفظ الرد السريع');
+      setSaving(false);
     }
   };
 
@@ -142,7 +147,12 @@ export default function QuickReplies() {
 
   const toggleActive = async (script: QuickReplyScript) => {
     try {
-      const saved = await saveQuickReplyScript({ ...script, active: !script.active });
+      const saved = await saveQuickReplyScript({
+        ...script,
+        active: !script.active,
+        created_by: user?.id || script.created_by || null,
+        created_by_name: user?.name || script.created_by_name || null,
+      });
       setScripts((current) => current.map((item) => (item.id === script.id ? saved : item)));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر تحديث حالة الرد');
@@ -214,7 +224,9 @@ export default function QuickReplies() {
             onChange={(event) => setForm((current) => ({ ...current, tags: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) }))}
           />
           <button className="btn-secondary" type="button" onClick={() => setForm(emptyForm(user))}>تفريغ النموذج</button>
-          <button className="btn-primary" type="button" onClick={() => void save()}><Save className="ml-1 inline h-4 w-4" /> حفظ الرد</button>
+          <button className="btn-primary" type="button" onClick={() => void save()} disabled={saving}>
+            <Save className="ml-1 inline h-4 w-4" /> {saving ? 'جاري الحفظ...' : 'حفظ الرد'}
+          </button>
         </div>
       </section>
 

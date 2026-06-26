@@ -17,6 +17,7 @@ interface FollowupResultModalProps {
   followup: DailyFollowup;
   onClose: () => void;
   onSave: (result: FollowupResultData) => Promise<void>;
+  mode?: 'create' | 'edit';
 }
 
 export interface FollowupResultData {
@@ -62,24 +63,84 @@ const NO_PURCHASE_REASONS = [
   'سبب آخر',
 ];
 
-export default function FollowupResultModal({ followup, onClose, onSave }: FollowupResultModalProps) {
+function textValue(record: Record<string, unknown>, keys: string[], fallback = '') {
+  for (const key of keys) {
+    const value = record[key];
+    if (value != null && String(value).trim()) return String(value);
+  }
+  return fallback;
+}
+
+function numberValue(record: Record<string, unknown>, keys: string[], fallback = 0) {
+  for (const key of keys) {
+    const value = Number(record[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return fallback;
+}
+
+function boolValue(record: Record<string, unknown>, keys: string[], fallback = false) {
+  for (const key of keys) {
+    if (record[key] === true) return true;
+    if (record[key] === false) return false;
+  }
+  return fallback;
+}
+
+export default function FollowupResultModal({
+  followup,
+  onClose,
+  onSave,
+  mode = 'create',
+}: FollowupResultModalProps) {
   useEscapeKey(onClose, true);
-  const [result, setResult] = useState('');
-  const [notes, setNotes] = useState('');
-  const [qualityRating, setQualityRating] = useState(5);
-  const [internalRating, setInternalRating] = useState(0);
-  const [needsNextFollowup, setNeedsNextFollowup] = useState(false);
-  const [nextFollowupDate, setNextFollowupDate] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [purchaseAmount, setPurchaseAmount] = useState('');
-  const [problemSolved, setProblemSolved] = useState(false);
-  const [customerSatisfied, setCustomerSatisfied] = useState(false);
-  const [customerSatisfaction, setCustomerSatisfaction] = useState('غير واضح');
-  const [needUnderstood, setNeedUnderstood] = useState<boolean | null>(null);
-  const [crossSellOffered, setCrossSellOffered] = useState(false);
-  const [upSellOffered, setUpSellOffered] = useState(false);
-  const [noPurchaseReason, setNoPurchaseReason] = useState('');
-  const [doctorInternalNote, setDoctorInternalNote] = useState('');
+  const source = followup as unknown as Record<string, unknown>;
+  const [result, setResult] = useState(() =>
+    textValue(source, ['followup_result', 'contact_result', 'followup_status', 'status'])
+  );
+  const [notes, setNotes] = useState(() => textValue(source, ['followup_notes', 'notes']));
+  const [qualityRating, setQualityRating] = useState(() => numberValue(source, ['quality_rating'], 5));
+  const [internalRating, setInternalRating] = useState(() =>
+    numberValue(source, ['internal_rating'], 0)
+  );
+  const [needsNextFollowup, setNeedsNextFollowup] = useState(() =>
+    boolValue(source, ['needs_next_followup'], false)
+  );
+  const [nextFollowupDate, setNextFollowupDate] = useState(() =>
+    textValue(source, ['next_followup_date']).slice(0, 10)
+  );
+  const [invoiceNumber, setInvoiceNumber] = useState(() =>
+    textValue(source, ['purchase_invoice_no', 'invoice_number'])
+  );
+  const [purchaseAmount, setPurchaseAmount] = useState(() =>
+    String(numberValue(source, ['purchase_amount'], 0) || '')
+  );
+  const [problemSolved, setProblemSolved] = useState(() =>
+    boolValue(source, ['problem_solved'], false)
+  );
+  const [customerSatisfied, setCustomerSatisfied] = useState(() =>
+    boolValue(source, ['customer_satisfied'], false)
+  );
+  const [customerSatisfaction, setCustomerSatisfaction] = useState(() =>
+    textValue(source, ['customer_satisfaction'], 'غير واضح')
+  );
+  const [needUnderstood, setNeedUnderstood] = useState<boolean | null>(() => {
+    if (source.need_understood === true) return true;
+    if (source.need_understood === false) return false;
+    return null;
+  });
+  const [crossSellOffered, setCrossSellOffered] = useState(() =>
+    boolValue(source, ['cross_sell_offered'], false)
+  );
+  const [upSellOffered, setUpSellOffered] = useState(() =>
+    boolValue(source, ['up_sell_offered'], false)
+  );
+  const [noPurchaseReason, setNoPurchaseReason] = useState(() =>
+    textValue(source, ['no_purchase_reason'])
+  );
+  const [doctorInternalNote, setDoctorInternalNote] = useState(() =>
+    textValue(source, ['doctor_internal_note'])
+  );
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async () => {
@@ -112,7 +173,7 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
         noPurchaseReason,
         doctorInternalNote,
       });
-      toast.success('تم تسجيل نتيجة المتابعة بنجاح');
+      toast.success(mode === 'edit' ? 'تم تعديل نتيجة المتابعة بنجاح' : 'تم تسجيل نتيجة المتابعة بنجاح');
       onClose();
     } catch (error) {
       toast.error(`تعذر حفظ النتيجة: ${(error as Error).message}`);
@@ -121,19 +182,17 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
     }
   };
 
+  const customerName = textValue(source, ['customer_name', 'name'], 'عميل بدون اسم');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" dir="rtl">
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#2d4063] bg-[#1B2B4B]">
         <div className="sticky top-0 flex items-center justify-between border-b border-[#2d4063] bg-[#1B2B4B] p-4">
           <div>
-            <h2 className="text-xl font-bold text-white">تسجيل نتيجة المتابعة</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              {String(
-                (followup as unknown as Record<string, unknown>).customer_name ||
-                  (followup as unknown as Record<string, unknown>).name ||
-                  'عميل بدون اسم'
-              )}
-            </p>
+            <h2 className="text-xl font-bold text-white">
+              {mode === 'edit' ? 'تعديل نتيجة المتابعة' : 'تسجيل نتيجة المتابعة'}
+            </h2>
+            <p className="mt-1 text-sm text-slate-400">{customerName}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white">
             <X size={24} />
@@ -167,8 +226,8 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
             </div>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-300">ملاحظات المتابعة</label>
+          <label className="block space-y-2 text-sm text-slate-300">
+            <span>ملاحظات المتابعة</span>
             <textarea
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
@@ -176,19 +235,13 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
               className="input-dark resize-none"
               rows={3}
             />
-          </div>
+          </label>
 
           <RatingControl label="تقييم جودة المتابعة" value={qualityRating} onChange={setQualityRating} tone="text-yellow-400" />
 
           <div className="space-y-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
             <h3 className="font-bold text-cyan-100">تقييم داخلي للمتابعة</h3>
-            <RatingControl
-              label="جودة التواصل مع العميل"
-              value={internalRating}
-              onChange={setInternalRating}
-              tone="text-cyan-300"
-              optional
-            />
+            <RatingControl label="جودة التواصل مع العميل" value={internalRating} onChange={setInternalRating} tone="text-cyan-300" optional />
 
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-2 text-sm text-slate-300">
@@ -236,7 +289,7 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
                 rows={3}
                 value={doctorInternalNote}
                 onChange={(event) => setDoctorInternalNote(event.target.value)}
-                placeholder="ملاحظات داخلية لا تُرسل للعميل"
+                placeholder="ملاحظات داخلية لا ترسل للعميل"
               />
             </label>
           </div>
@@ -250,11 +303,11 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-2 text-sm text-slate-300">
-              <span>رقم الفاتورة (اختياري)</span>
+              <span>رقم الفاتورة اختياري</span>
               <input type="text" value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} className="input-dark" />
             </label>
             <label className="space-y-2 text-sm text-slate-300">
-              <span>قيمة الشراء بعد المتابعة (اختياري)</span>
+              <span>قيمة الشراء بعد المتابعة اختياري</span>
               <input type="number" value={purchaseAmount} onChange={(event) => setPurchaseAmount(event.target.value)} className="input-dark" />
             </label>
           </div>
@@ -266,7 +319,7 @@ export default function FollowupResultModal({ followup, onClose, onSave }: Follo
 
           <div className="flex gap-3 border-t border-white/10 pt-4">
             <button onClick={handleSubmit} disabled={saving} className="btn-primary flex-1">
-              {saving ? 'جاري الحفظ...' : 'حفظ النتيجة'}
+              {saving ? 'جاري الحفظ...' : mode === 'edit' ? 'حفظ تعديل النتيجة' : 'حفظ النتيجة'}
             </button>
             <button onClick={onClose} disabled={saving} className="btn-secondary flex-1">
               إلغاء
@@ -311,7 +364,15 @@ function RatingControl({
   );
 }
 
-function CheckBox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+function CheckBox({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
   return (
     <label className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/30 p-3 text-sm text-slate-300">
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded" />

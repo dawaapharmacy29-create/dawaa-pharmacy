@@ -59,8 +59,8 @@ export function notificationRoute(notification: AppNotification) {
   const type = String(notification.type || notification.target_type || '').toLowerCase();
   const id = notification.target_id || String(notification.metadata?.entity_id || '');
   const routes: Record<string, () => string> = {
-    customer_followup: () => routeWithId('/customer-service?tab=today', 'followupId', id),
-    followup: () => routeWithId('/customer-service?tab=today', 'followupId', id),
+    customer_followup: () => routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
+    followup: () => routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
     customer_request: () => routeWithId('/customer-service?tab=requests', 'requestId', id),
     conversation_review: () => routeWithId('/reviews', 'reviewId', id),
     delivery_order: () => routeWithId('/delivery', 'orderId', id),

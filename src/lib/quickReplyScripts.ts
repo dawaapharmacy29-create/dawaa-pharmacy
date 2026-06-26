@@ -20,6 +20,9 @@ export type QuickReplyScript = {
   updated_at: string | null;
 };
 
+export const QUICK_REPLY_RLS_MESSAGE =
+  'ليس لديك صلاحية حفظ الردود السريعة أو لم يتم تفعيل صلاحيات الجدول.';
+
 export const QUICK_REPLY_SCRIPT_TYPES = [
   'quick_reply',
   'cross_sell',
@@ -186,19 +189,35 @@ export async function saveQuickReplyScript(
     created_by_name: script.created_by_name || null,
     updated_at: new Date().toISOString(),
   };
-  const query = script.id && !script.id.startsWith('default-')
-    ? supabase.from('quick_reply_scripts').update(payload).eq('id', script.id).select('*').single()
-    : supabase.from('quick_reply_scripts').insert(payload).select('*').single();
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  const { data, error } = await supabase.rpc('save_quick_reply_script', {
+    p_id: script.id && !script.id.startsWith('default-') ? script.id : null,
+    p_shortcut: payload.shortcut,
+    p_title: payload.title,
+    p_category: payload.category,
+    p_script_type: payload.script_type,
+    p_doctor_name: payload.doctor_name,
+    p_branch: payload.branch,
+    p_message_body: payload.message_body,
+    p_questions: payload.questions,
+    p_suggested_products: payload.suggested_products,
+    p_tags: payload.tags,
+    p_active: payload.active,
+    p_actor_id: script.created_by || null,
+    p_actor_name: script.created_by_name || null,
+  });
+  if (error) {
+    const message = String(error.message || '');
+    if (/row-level security|permission|صلاحية|quick_reply/i.test(message)) {
+      throw new Error(QUICK_REPLY_RLS_MESSAGE);
+    }
+    throw new Error(message || QUICK_REPLY_RLS_MESSAGE);
+  }
   return data as QuickReplyScript;
 }
 
 export async function incrementQuickReplyUsage(id: string) {
   if (!isSupabaseConfigured || id.startsWith('default-')) return;
-  const { data } = await supabase.from('quick_reply_scripts').select('usage_count').eq('id', id).single();
-  const current = Number((data as { usage_count?: number } | null)?.usage_count || 0);
-  await supabase.from('quick_reply_scripts').update({ usage_count: current + 1, updated_at: new Date().toISOString() }).eq('id', id);
+  await supabase.rpc('increment_quick_reply_usage', { p_id: id });
 }
 
 export function renderQuickReplyTemplate(
