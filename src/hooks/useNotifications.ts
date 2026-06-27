@@ -53,6 +53,16 @@ function routeWithId(base: string, key: string, id?: string | null) {
   return `${base}${separator}${key}=${encodeURIComponent(id)}`;
 }
 
+function employeeTaskRoute(notification: AppNotification) {
+  const taskId = notification.target_id || String(notification.metadata?.task_id || notification.metadata?.entity_id || '');
+  const staffId = String(notification.recipient_staff_id || notification.metadata?.staff_id || notification.metadata?.staffId || '');
+  const type = String(notification.type || notification.target_type || '').toLowerCase();
+  if (type === 'staff_task' && staffId) return `/staff/${encodeURIComponent(staffId)}?tab=operating-system`;
+  if (type === 'cleaning_task') return '/employee-operating-system?role=cleaning';
+  if (type === 'branch_manager_task') return '/employee-operating-system?role=branch_manager';
+  return routeWithId('/employee-operating-system', 'taskId', taskId);
+}
+
 export function notificationRoute(notification: AppNotification) {
   const explicit = String(notification.route || notification.target_route || notification.metadata?.route || '').trim();
   if (explicit.startsWith('/')) return explicit;
@@ -74,6 +84,10 @@ export function notificationRoute(notification: AppNotification) {
     sales_target: () => '/daily-target',
     customer_data_review: () => '/customer-service?tab=data-review',
     welcome_task: () => routeWithId('/customer-service?tab=welcome', 'taskId', id),
+    employee_task: () => employeeTaskRoute(notification),
+    staff_task: () => employeeTaskRoute(notification),
+    cleaning_task: () => employeeTaskRoute(notification),
+    branch_manager_task: () => employeeTaskRoute(notification),
     manager_alert: () => '/daily-command',
   };
   return routes[type]?.() || '/operations-center';

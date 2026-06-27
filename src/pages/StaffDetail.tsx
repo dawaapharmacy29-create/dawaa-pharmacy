@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useState, type ElementType, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState, type ElementType, type ReactNode } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowRight,
   BarChart3,
   CheckCircle2,
+  ClipboardList,
+  ExternalLink,
   FileText,
   Loader2,
   Package,
   ReceiptText,
+  RefreshCw,
   Sparkles,
   TrendingUp,
   Users,
   Wallet,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { formatMoney, formatNumber } from '@/lib/dawaa2027';
 import { formatCurrency } from '@/lib/utils';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
@@ -26,6 +30,17 @@ import {
 } from '@/lib/staff/staffPerformanceProfileService';
 import { STAFF_OPERATING_POLICY_SECTIONS } from '@/lib/performance/ruleDefinitions';
 import { getTransactionDetails } from '@/lib/pointsLedger';
+import { useAuth } from '@/hooks/useAuth';
+import { useNotifications } from '@/hooks/useNotifications';
+import {
+  buildDefaultTasksForStaff,
+  completeTask,
+  fetchEmployeeTasks,
+  generateTasksForStaff,
+  summarizeTasks,
+  type EmployeeDailyTask,
+} from '@/lib/employeeDailyTasks';
+import { getEmployeeRoleOperatingProfile } from '@/lib/employeeRoleOperatingProfiles';
 
 type DrilldownKey =
   | 'sales'
@@ -340,11 +355,18 @@ function drilldownRoute(
 
 export default function StaffDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const { notifications } = useNotifications();
   const [profile, setProfile] = useState<StaffPerformanceProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [drilldown, setDrilldown] = useState<DrilldownKey | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [employeeTasks, setEmployeeTasks] = useState<EmployeeDailyTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksIssue, setTasksIssue] = useState<string | null>(null);
+  const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
 
   const cycle = useMemo(() => getCurrentCycle(), []);
   const cycleStart = formatCycleDate(cycle.start);
@@ -390,6 +412,33 @@ export default function StaffDetail() {
     return () => window.removeEventListener('storage', handleImportRefresh);
   }, []);
 
+  const loadOperatingTasks = useCallback(async () => {
+    if (!id || !profile) return;
+    setTasksLoading(true);
+    const result = await fetchEmployeeTasks({
+      date: new Date().toISOString().slice(0, 10),
+      staffId: id,
+      user,
+      pageSize: 50,
+    });
+    const fallback = buildDefaultTasksForStaff(
+      {
+        id: profile.staff.id,
+        name: profile.staff.name,
+        role: profile.staff.role,
+        branch: profile.staff.branch,
+      },
+      new Date().toISOString().slice(0, 10)
+    );
+    setEmployeeTasks(result.tasks.length ? result.tasks : fallback);
+    setTasksIssue(result.error);
+    setTasksLoading(false);
+  }, [id, profile, user]);
+
+  useEffect(() => {
+    void loadOperatingTasks();
+  }, [loadOperatingTasks]);
+
   if (!isSupabaseConfigured) {
     return <CenteredMessage text="فعل Supabase لعرض ملف الموظف." />;
   }
@@ -422,6 +471,48 @@ export default function StaffDetail() {
   const finalPayout = Math.max(0, baseMonthlyIncentive + cashRewards - cashDeductions);
   const warnings = visibleDataWarnings(profile);
   const hasDataWarnings = warnings.length > 0;
+  const roleProfile = getEmployeeRoleOperatingProfile(profile.staff.role);
+  const taskSummary = summarizeTasks(employeeTasks);
+  const staffNotifications = notifications
+    .filter((notification) => {
+      const text = `${notification.title || ''} ${notification.body || ''} ${notification.message || ''} ${notification.recipient_staff_id || ''} ${notification.recipient_role || ''} ${notification.branch || ''}`.toLowerCase();
+      return (
+        text.includes(String(profile.staff.id || '').toLowerCase()) ||
+        text.includes(String(profile.staff.name || '').toLowerCase()) ||
+        text.includes(String(roleProfile.role_key).toLowerCase()) ||
+        (profile.staff.branch && text.includes(String(profile.staff.branch).toLowerCase()))
+      );
+    })
+    .slice(0, 5);
+
+  const createTodayTasks = async () => {
+    const result = await generateTasksForStaff(
+      {
+        id: profile.staff.id,
+        name: profile.staff.name,
+        role: profile.staff.role,
+        branch: profile.staff.branch,
+      },
+      new Date().toISOString().slice(0, 10)
+    );
+    if (result.error) toast.info(result.error);
+    else toast.success('تم إنشاء مهام اليوم.');
+    await loadOperatingTasks();
+  };
+
+  const completeEmployeeTask = async (task: EmployeeDailyTask) => {
+    if (task.id.startsWith('default-')) {
+      toast.info('أنشئ مهام اليوم أولًا حتى يمكن إكمال المهمة.');
+      return;
+    }
+    const result = await completeTask(task.id, taskNotes[task.id], user);
+    if (!result.ok) {
+      toast.error(result.error || 'تعذر إكمال المهمة.');
+      return;
+    }
+    toast.success('تم إكمال المهمة.');
+    await loadOperatingTasks();
+  };
 
   return (
     <div className="staff-detail-page mx-auto max-w-7xl space-y-5" dir="rtl">
@@ -546,6 +637,155 @@ export default function StaffDetail() {
             value={`${formatNumber(quarterly?.quarterlyScore || 0)}/100`}
             onClick={() => setDrilldown('quarterly')}
           />
+        </div>
+      </Section>
+
+      <Section title="نظام تشغيل الموظف">
+        {searchParams.get('tab') === 'operating-system' && (
+          <div className="rounded-xl border border-teal-400/25 bg-teal-400/10 p-3 text-sm font-bold text-teal-100">
+            تم فتح قسم نظام التشغيل من رابط مباشر.
+          </div>
+        )}
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <MiniPanel label="عدد المهام" value={formatNumber(taskSummary.total)} />
+          <MiniPanel label="مكتمل" value={formatNumber(taskSummary.completed)} />
+          <MiniPanel label="متأخر" value={formatNumber(taskSummary.late)} />
+          <MiniPanel label="مهم" value={formatNumber(taskSummary.highPriority)} />
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/30 p-3">
+            <div className="text-xs font-bold text-slate-400">تحديث المهام</div>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => void loadOperatingTasks()}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-black text-slate-200"
+              >
+                <RefreshCw size={14} /> تحديث
+              </button>
+              <button
+                type="button"
+                onClick={() => void createTodayTasks()}
+                className="inline-flex items-center gap-2 rounded-lg bg-teal-500 px-3 py-2 text-xs font-black text-slate-950"
+              >
+                <ClipboardList size={14} /> إنشاء مهام اليوم
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {tasksIssue && (
+          <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3 text-sm font-bold text-amber-100">
+            {tasksIssue}
+          </div>
+        )}
+
+        <div className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-white">مطلوب منك اليوم</h3>
+              {tasksLoading && <Loader2 className="animate-spin text-teal-300" size={16} />}
+            </div>
+            <TableShell empty="لا توجد مهام لهذا الموظف اليوم.">
+              {employeeTasks.map((task) => (
+                <div key={task.id} className="rounded-xl border border-slate-800 bg-slate-950/35 p-3">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <div className="font-black text-white">{task.task_title}</div>
+                      <div className="mt-1 text-xs leading-5 text-slate-500">{task.task_description}</div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-black">
+                        <Badge tone={task.status === 'completed' ? 'ready' : task.status === 'late' ? 'danger' : 'warning'}>
+                          {task.status === 'completed' ? 'مكتمل' : task.status === 'late' ? 'متأخر' : 'معلق'}
+                        </Badge>
+                        <Badge tone={task.priority === 'urgent' ? 'danger' : task.priority === 'high' ? 'warning' : 'info'}>
+                          {task.priority === 'urgent' ? 'عاجل' : task.priority === 'high' ? 'مهم' : 'عادي'}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Link
+                        to={task.related_route || '/employee-operating-system'}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-black text-slate-200"
+                      >
+                        <ExternalLink size={14} /> فتح المهمة
+                      </Link>
+                      {task.status !== 'completed' && (
+                        <button
+                          type="button"
+                          onClick={() => void completeEmployeeTask(task)}
+                          className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-black text-slate-950"
+                        >
+                          <CheckCircle2 size={14} /> تم التنفيذ
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    value={taskNotes[task.id] || ''}
+                    onChange={(event) => setTaskNotes((current) => ({ ...current, [task.id]: event.target.value }))}
+                    placeholder="ملاحظة التنفيذ..."
+                    className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white placeholder:text-slate-500"
+                  />
+                </div>
+              ))}
+            </TableShell>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/30 p-4">
+              <h3 className="text-sm font-black text-white">سياسات دورك</h3>
+              <div className="mt-3 grid gap-3">
+                {Object.entries(roleProfile.policies).map(([key, rows]) => (
+                  <div key={key} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+                    <div className="text-xs font-black text-teal-200">
+                      {key === 'customer' ? 'التعامل مع العميل' : key === 'team' ? 'التعامل مع الفريق' : key === 'delivery' ? 'التعامل مع الدليفري' : key === 'cleanliness' ? 'النظافة والنظام' : 'التصعيد'}
+                    </div>
+                    <ul className="mt-2 space-y-1 text-xs leading-5 text-slate-400">
+                      {rows.slice(0, 4).map((row) => (
+                        <li key={row}>{row}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                <div className="rounded-xl border border-red-400/20 bg-red-400/10 p-3">
+                  <div className="text-xs font-black text-red-200">ممنوعات الدور</div>
+                  <ul className="mt-2 space-y-1 text-xs leading-5 text-red-100/80">
+                    {roleProfile.forbidden_actions.map((row) => (
+                      <li key={row}>{row}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/30 p-4">
+              <h3 className="text-sm font-black text-white">تقييم الدور</h3>
+              <div className="mt-3 grid gap-2">
+                {roleProfile.scoring_weights.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs">
+                    <span className="font-bold text-slate-200">{item.label}</span>
+                    <span className="font-black text-teal-200">{item.weight}%</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <MiniPanel label="الدرجة الحالية" value={`${formatNumber(quarterly?.quarterlyScore || 0)}/100`} />
+                <MiniPanel label="خطة تحسين" value={roleProfile.recommended_actions.slice(0, 2).join(' - ')} />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/30 p-4">
+              <h3 className="text-sm font-black text-white">التنبيهات الخاصة بالموظف</h3>
+              <TableShell empty="لا توجد تنبيهات مرتبطة بهذا الموظف أو دوره أو فرعه.">
+                {staffNotifications.map((notification) => (
+                  <DataRow
+                    key={notification.id}
+                    title={notification.title || 'تنبيه'}
+                    subtitle={`${notification.type || 'notification'} - ${timeText(notification.created_at)}`}
+                    value={notification.priority || ''}
+                  />
+                ))}
+              </TableShell>
+            </div>
+          </div>
         </div>
       </Section>
 

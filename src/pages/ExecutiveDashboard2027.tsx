@@ -62,6 +62,7 @@ import {
   type DoctorCompetitionScore,
 } from '@/lib/doctorCompetitionMetrics';
 import { loadAppDataHealthSummary, summarizeDataHealth, type DataHealthIssue } from '@/lib/dataHealth/appDataHealthService';
+import { summarizeTeamTasks, type EmployeeTaskSummary } from '@/lib/employeeDailyTasks';
 
 const ALL_BRANCHES = DASHBOARD_ALL_BRANCHES;
 const COLORS = ['#2dd4bf', '#38bdf8', '#8b5cf6', '#22c55e', '#f59e0b', '#ef4444'];
@@ -823,6 +824,8 @@ export default function ExecutiveDashboard2027() {
   const [doctorCompetitionLoading, setDoctorCompetitionLoading] = useState(false);
   const [dataHealthIssues, setDataHealthIssues] = useState<DataHealthIssue[]>([]);
   const [dataHealthLoading, setDataHealthLoading] = useState(false);
+  const [teamTaskSummary, setTeamTaskSummary] = useState<EmployeeTaskSummary | null>(null);
+  const [teamTaskIssue, setTeamTaskIssue] = useState<string | null>(null);
   const loadIdRef = useRef(0);
   const noCacheRef = useRef(false);
   const [state, setState] = useState<DashboardState>({
@@ -924,6 +927,22 @@ export default function ExecutiveDashboard2027() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    summarizeTeamTasks(new Date().toISOString().slice(0, 10), scopedBranch, user)
+      .then((result) => {
+        if (!mounted) return;
+        setTeamTaskSummary(result.summary);
+        setTeamTaskIssue(result.error);
+      })
+      .catch((error) => {
+        if (mounted) setTeamTaskIssue(error instanceof Error ? error.message : 'تعذر تحميل مهام الفريق');
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [scopedBranch, user?.id, user?.role, user?.branch]);
 
   const load = useCallback(async () => {
     const loadId = ++loadIdRef.current;
@@ -1567,6 +1586,50 @@ export default function ExecutiveDashboard2027() {
             />
           ))}
         </section>
+
+        <Panel className="p-5">
+          <SectionTitle
+            title="مهام الفريق اليوم"
+            subtitle="ملخص مهام التشغيل اليومية حسب الدور والفرع والحالة"
+            icon={<ClipboardList className="h-5 w-5" />}
+          />
+          {teamTaskSummary && teamTaskSummary.total > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+              <button onClick={() => navigate('/employee-operating-system')} className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-right hover:bg-cyan-400/15">
+                <div className="text-xs font-black text-cyan-100">إجمالي المهام</div>
+                <div className="mt-2 text-2xl font-black text-white">{count(teamTaskSummary.total)}</div>
+              </button>
+              <button onClick={() => navigate('/employee-operating-system?status=completed')} className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-4 text-right hover:bg-emerald-400/15">
+                <div className="text-xs font-black text-emerald-100">مكتمل</div>
+                <div className="mt-2 text-2xl font-black text-white">{count(teamTaskSummary.completed)}</div>
+              </button>
+              <button onClick={() => navigate('/employee-operating-system?status=late')} className="rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-right hover:bg-rose-400/15">
+                <div className="text-xs font-black text-rose-100">متأخر</div>
+                <div className="mt-2 text-2xl font-black text-white">{count(teamTaskSummary.late)}</div>
+              </button>
+              <button onClick={() => navigate('/employee-operating-system?status=pending')} className="rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4 text-right hover:bg-amber-400/15">
+                <div className="text-xs font-black text-amber-100">يحتاج تدخل</div>
+                <div className="mt-2 text-2xl font-black text-white">{count(teamTaskSummary.needsIntervention)}</div>
+              </button>
+              <button onClick={() => navigate(teamTaskSummary.topLateRole ? `/employee-operating-system?role=${encodeURIComponent(teamTaskSummary.topLateRole)}` : '/employee-operating-system?status=late')} className="rounded-2xl border border-slate-700 bg-slate-950/45 p-4 text-right hover:bg-slate-900">
+                <div className="text-xs font-black text-slate-400">أعلى دور متأخر</div>
+                <div className="mt-2 truncate text-lg font-black text-white">{teamTaskSummary.topLateRole || 'لا يوجد'}</div>
+              </button>
+              <button onClick={() => navigate('/employee-operating-system?status=completed')} className="rounded-2xl border border-slate-700 bg-slate-950/45 p-4 text-right hover:bg-slate-900">
+                <div className="text-xs font-black text-slate-400">أفضل التزام اليوم</div>
+                <div className="mt-2 truncate text-lg font-black text-white">{teamTaskSummary.bestCommitment || 'لا يوجد'}</div>
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-6 text-center">
+              <div className="font-black text-white">لم يتم إنشاء مهام اليوم بعد</div>
+              <p className="mt-2 text-sm font-bold text-slate-400">{teamTaskIssue || 'افتح صفحة مهام الفريق لإنشاء مهام اليوم حسب الدور.'}</p>
+              <button onClick={() => navigate('/employee-operating-system')} className="mt-4 rounded-2xl bg-cyan-500 px-5 py-2 text-sm font-black text-slate-950">
+                فتح مهام الفريق
+              </button>
+            </div>
+          )}
+        </Panel>
 
         <Panel className="p-5">
           <SectionTitle

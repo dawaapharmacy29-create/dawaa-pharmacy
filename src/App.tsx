@@ -87,6 +87,7 @@ const RefillReminders = lazy(() => import('@/pages/RefillReminders'));
 const CustomerHealthProfile = lazy(() => import('@/pages/CustomerHealthProfile'));
 const ExpiryDiscounts = lazy(() => import('@/pages/ExpiryDiscounts'));
 const EmployeeKpi = lazy(() => import('@/pages/EmployeeKpi'));
+const EmployeeOperatingSystem = lazy(() => import('@/pages/EmployeeOperatingSystem'));
 const SupplierPerformance = lazy(() => import('@/pages/SupplierPerformance'));
 const ReportsCenter = lazy(() => import('@/pages/ReportsCenter'));
 const StockAlerts = lazy(() => import('@/pages/StockAlerts'));
@@ -131,6 +132,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/doctor-dashboard': 'view_doctor_dashboard',
   '/staff-dashboard': 'view_team',
   '/employee-kpi': 'view_team',
+  '/employee-operating-system': 'employee_operating_system.view',
   '/staff-accounts': 'view_staff_accounts',
   '/staff-duplicate-audit': 'view_staff_accounts',
   '/roles-permissions': 'view_roles_permissions',
@@ -459,6 +461,10 @@ export default function App() {
               />
               <Route path="/staff-dashboard" element={protectedElement(<StaffDashboard />)} />
               <Route path="/employee-kpi" element={protectedElement(<EmployeeKpi />)} />
+              <Route
+                path="/employee-operating-system"
+                element={protectedElement(<EmployeeOperatingSystem />)}
+              />
               <Route
                 path="/supplier-performance"
                 element={protectedElement(<SupplierPerformance />)}

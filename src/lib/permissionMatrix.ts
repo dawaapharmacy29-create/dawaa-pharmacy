@@ -62,6 +62,7 @@ export const PAGE_PERMISSION_DEFINITIONS: PagePermissionDefinition[] = [
   { path: '/customer-service', pageKey: 'customer_service', label: 'Customer Service', viewPermission: 'view_customer_service', sections: categorySections('customer_service') },
   { path: '/welcome-messages', pageKey: 'welcome_messages', label: 'Welcome Messages', viewPermission: 'customer_welcome_messages.view', sections: categorySections('customer_service') },
   { path: '/team', pageKey: 'team', label: 'Team', viewPermission: 'view_team', sections: categorySections('team') },
+  { path: '/employee-operating-system', pageKey: 'employee_operating_system', label: 'Employee Operating System', viewPermission: 'employee_operating_system.view', sections: categorySections('team') },
   { path: '/points', pageKey: 'points', label: 'Points', viewPermission: 'view_points', sections: categorySections('points') },
   { path: '/analytics', pageKey: 'analytics', label: 'Analytics', viewPermission: 'view_analytics', sections: categorySections('analytics') },
   { path: '/staff-accounts', pageKey: 'staff_accounts', label: 'Accounts', viewPermission: 'view_staff_accounts', sections: categorySections('accounts') },
