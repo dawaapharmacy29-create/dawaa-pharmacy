@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 /* recharts will be dynamically imported inside the component to reduce initial bundle size */
 import { supabase } from '@/lib/supabase';
-import { formatCycleDate, getCurrentCycle, getPreviousCycle } from '@/lib/pharmacy-cycle';
+import { formatCycleDate, getCurrentCycle, getPreviousCycle, getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import { normalizeBranchName } from '@/lib/branch';
 import { useAuth } from '@/hooks/useAuth';
 import DailySalesChart, {
@@ -697,7 +697,7 @@ function Panel({
   return (
     <section
       id={id}
-      className={`rounded-3xl border border-cyan-300/10 bg-[#0b1d31]/85 shadow-[0_18px_80px_rgba(0,0,0,0.28)] backdrop-blur ${className}`}
+      className={`card rounded-3xl border border-cyan-300/10 bg-[#0b1d31]/85 shadow-[0_18px_80px_rgba(0,0,0,0.28)] backdrop-blur ${className}`}
     >
       {children}
     </section>
@@ -886,10 +886,13 @@ export default function ExecutiveDashboard2027() {
   useEffect(() => {
     let mounted = true;
     setDoctorCompetitionLoading(true);
+    const doctorCompetitionParams =
+      startDate === formatCycleDate(currentCycle.start) && endDate === formatCycleDate(currentCycle.end)
+        ? { period: 'cycle' as const }
+        : { period: 'custom' as const, customStart: startDate, customEnd: endDate };
+
     getDoctorCompetitionMetrics({
-      period: 'custom',
-      customStart: startDate,
-      customEnd: endDate,
+      ...doctorCompetitionParams,
       branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
       userBranch: user?.branch,
       canSeeAllBranches: canAllBranches,
@@ -1462,7 +1465,7 @@ export default function ExecutiveDashboard2027() {
   ];
 
   return (
-    <div dir="rtl" className="min-h-screen bg-[#06131f] text-slate-100">
+    <div dir="rtl" className="executive-dashboard-page min-h-screen bg-[#06131f] text-slate-100">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_12%,rgba(45,212,191,0.14),transparent_25%),radial-gradient(circle_at_82%_0%,rgba(56,189,248,0.12),transparent_30%),linear-gradient(180deg,rgba(15,23,42,0),rgba(2,6,23,0.82))]" />
       <main className="relative mx-auto max-w-[1920px] space-y-4 px-5 py-5">
         <Panel className="p-5">
@@ -1866,7 +1869,7 @@ export default function ExecutiveDashboard2027() {
         <DashboardDoctorCompetitionPanel
           metrics={doctorCompetition}
           loading={doctorCompetitionLoading}
-          onNavigate={(focus) => navigate(`/doctor-competition?period=last_3_months&focus=${focus}`)}
+          onNavigate={(focus) => navigate(`/doctor-competition?period=cycle&focus=${focus}`)}
         />
 
         <DashboardDataHealthPanel
@@ -2835,7 +2838,7 @@ function DashboardDoctorCompetitionPanel({
     <Panel id="doctor-competitions" className="p-5">
       <SectionTitle
         title="مسابقات الدكاترة"
-        subtitle={metrics ? `الفترة: ${metrics.range.start} إلى ${metrics.range.end}` : 'ملخص مباشر من sales_invoices والتقييمات والمتابعات'}
+        subtitle={metrics ? `الفترة: من ${metrics.range.start} إلى ${metrics.range.end}` : 'ملخص مباشر من sales_invoices والتقييمات والمتابعات'}
         icon={<Trophy className="h-5 w-5" />}
       />
       {loading ? (

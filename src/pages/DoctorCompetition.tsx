@@ -4,8 +4,9 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
+import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 
-type Period = 'last30' | 'last90' | 'cycle' | 'custom';
+type Period = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 type RankingTab = 'sales' | 'avgInvoice' | 'incentive' | 'reviews' | 'service' | 'overall';
 type DoctorScore = {
   name: string;
@@ -87,7 +88,7 @@ function rangeFor(period: Period, customStart: string, customEnd: string) {
     start.setDate(start.getDate() - 30);
     return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
   }
-  if (period === 'last90') {
+  if (period === 'last90' || period === 'last_3_months') {
     const start = new Date(now);
     start.setMonth(start.getMonth() - 3);
     return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
@@ -154,14 +155,18 @@ function normalizeScores(rows: DoctorScore[]) {
 export default function DoctorCompetition() {
   const { user } = useAuth();
   const [params] = useSearchParams();
-  const initialPeriod = params.get('period') === 'last_3_months' ? 'last90' : (params.get('period') as Period) || 'last90';
+  const initialPeriod = (params.get('period') as Period) || 'cycle';
   const initialFocus = params.get('focus');
   const [rows, setRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<Period>(['last30', 'last90', 'cycle', 'custom'].includes(initialPeriod) ? initialPeriod : 'last90');
+  const [last90Available, setLast90Available] = useState(true);
+  const [reviewSourceAvailable, setReviewSourceAvailable] = useState(true);
+  const [followupSourceAvailable, setFollowupSourceAvailable] = useState(true);
+  const [period, setPeriod] = useState<Period>(['last30', 'last90', 'last_3_months', 'cycle', 'custom'].includes(initialPeriod) ? initialPeriod : 'cycle');
   const [branchFilter, setBranchFilter] = useState(ALL_BRANCHES);
-  const [customStart, setCustomStart] = useState(new Date().toISOString().slice(0, 10));
-  const [customEnd, setCustomEnd] = useState(new Date().toISOString().slice(0, 10));
+  const currentCycle = getPharmacyCycleRange(new Date());
+  const [customStart, setCustomStart] = useState(currentCycle.start);
+  const [customEnd, setCustomEnd] = useState(currentCycle.end);
   const [rankingTab, setRankingTab] = useState<RankingTab>(
     initialFocus === 'sales'
       ? 'sales'
@@ -328,7 +333,7 @@ export default function DoctorCompetition() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-black text-white">مسابقة الدكاترة</h1>
-            <p className="mt-2 text-sm text-slate-300">تحليل أداء آخر 3 شهور افتراضيًا من الفواتير، التقييمات، والمتابعات.</p>
+            <p className="mt-2 text-sm text-slate-300">تحليل أداء الدورة الحالية افتراضيًا من الفواتير، التقييمات، والمتابعات.</p>
             <p className="mt-1 text-xs text-amber-200">الفترة: {cycle.start} إلى {cycle.end}</p>
           </div>
           <div className="flex flex-wrap gap-2">

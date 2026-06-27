@@ -21,6 +21,7 @@ interface Employee {
   status: string;
   shift_start?: string | null;
   shift_end?: string | null;
+  visible_in_schedule?: boolean | null;
 }
 
 interface ShiftSchedule {
@@ -469,7 +470,7 @@ export default function Schedule() {
                 {DAYS_AR.map((day, i) => (
                   <th
                     key={day}
-                    className={`text-center text-xs font-semibold px-3 py-3 bg-[#152235] border-b border-[#2d4063] min-w-[100px] ${i === today ? 'text-teal-400' : 'text-slate-400'}`}
+                    className={`text-center text-xs font-semibold px-3 py-3 bg-[#152235] border-b border-[#2d4063] min-w-[100px] ${i === today ? 'text-white' : 'text-slate-400'}`}
                   >
                     {day}
                     {i === today && (

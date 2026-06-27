@@ -35,6 +35,15 @@ export function getPointsCycle(date: Date | string = new Date()): PointsCycleRan
   };
 }
 
+export function getPharmacyCycleRange(date: Date | string = new Date()): { start: string; end: string } {
+  const baseDate = typeof date === 'string' ? new Date(`${date.slice(0, 10)}T12:00:00`) : date;
+  const cycle = getCycleForDate(baseDate);
+  return {
+    start: isoDateOnly(cycle.start),
+    end: isoDateOnly(cycle.end),
+  };
+}
+
 /**
  * Get the current pharmacy cycle based on today's date
  */

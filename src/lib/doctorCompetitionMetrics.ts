@@ -98,7 +98,7 @@ function currentCycle() {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
-export function rangeForDoctorCompetition(period: DoctorCompetitionPeriod = 'last90', customStart?: string | null, customEnd?: string | null) {
+export function rangeForDoctorCompetition(period: DoctorCompetitionPeriod = 'cycle', customStart?: string | null, customEnd?: string | null) {
   const now = new Date();
   if (period === 'last30') {
     const start = new Date(now);

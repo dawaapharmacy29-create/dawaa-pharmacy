@@ -324,6 +324,15 @@ html.light-mode .dash-link {
   color: var(--dawaa-theme-heading) !important;
 }
 
+html.light-mode .executive-dashboard-page .text-white,
+html.light-mode .executive-dashboard-page .text-slate-100,
+html.light-mode .executive-dashboard-page .text-slate-200,
+html.light-mode .executive-dashboard-page .text-slate-300,
+html.light-mode .executive-dashboard-page .text-slate-400,
+html.light-mode .executive-dashboard-page .text-slate-500 {
+  color: var(--dawaa-theme-text) !important;
+}
+
 .executive-dashboard-page .bg-slate-50,
 .executive-dashboard-page .bg-white,
 .executive-dashboard-page .bg-\[\#F7F9FB\],

@@ -54,6 +54,7 @@ interface Employee {
   status?: string | null;
   join_date?: string | null;
   notes?: string | null;
+  visible_in_schedule?: boolean | null;
 }
 
 interface ShiftSchedule {
