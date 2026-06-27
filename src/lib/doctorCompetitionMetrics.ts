@@ -66,27 +66,44 @@ function text(value: unknown) {
 }
 
 function invoiceDate(row: Record<string, unknown>) {
-  const value = text(row.invoice_date || row.invoice_datetime || row.date || row.sale_date || row.created_at);
+  const value = text(row.sale_date || row.invoice_date || row.invoice_datetime || row.date || row.created_at);
   return value.slice(0, 10);
 }
 
 function invoiceAmount(row: Record<string, unknown>) {
-  return num(row.net_total || row.net_amount || row.discounted_amount || row.total || row.amount || row.invoice_total || row.total_amount || row.final_total);
+  return num(
+    row.net_total ||
+      row.net_amount ||
+      row.discounted_amount ||
+      row.total_amount ||
+      row.amount ||
+      row.gross_total ||
+      row.gross_amount
+  );
 }
 
 function invoiceDoctor(row: Record<string, unknown>) {
   return (
-    text(
-      row.doctor_name ||
-        row.seller_name ||
-        row.staff_name ||
-        row.pharmacist_name ||
-        row.cashier_name ||
-        row.created_by_name ||
-        row.user_name
-    ) || 'غير محدد'
+    text(row.normalized_seller_name || row.seller_name || row.staff_name) || 'غير محدد'
   );
 }
+
+function invoiceBranch(row: Record<string, unknown>) {
+  return text(row.branch_name || row.branch || row.store_branch) || 'غير محدد';
+}
+
+function invoiceTypeIndicatesReturnOrCancel(row: Record<string, unknown>) {
+  const value = text(row.invoice_type).toLowerCase();
+  return /return|refund|cancel|cancelled|مرتجع|إلغاء|ملغي/.test(value);
+}
+
+function invoiceStatusInvalid(row: Record<string, unknown>) {
+  const saveStatus = text(row.save_status).toLowerCase();
+  const importStatus = text(row.import_validation_status).toLowerCase();
+  return /invalid|error|failed|خطأ|فشل/.test(saveStatus) || /invalid|error|failed|خطأ|فشل/.test(importStatus);
+}
+
+// لا يوجد عمود إلغاء صريح في sales_invoices، لذلك يتم الاستبعاد بقيمة صافية <= 0 وبـ invoice_type عند وجود دلالة نصية.
 
 function currentCycle() {
   const now = new Date();
@@ -210,7 +227,14 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   };
 
   const [invoiceResult, reviewResult, followupResult] = await Promise.all([
-    safeSelect('sales_invoices', (query) => query.select('*').gte('invoice_date', range.start).lte('invoice_date', range.end).limit(12000)),
+    safeSelect('sales_invoices', (query) =>
+      query
+        .select('*')
+        .or(
+          `(and(invoice_date.gte.${range.start},invoice_date.lte.${range.end}),and(sale_date.gte.${range.start},sale_date.lte.${range.end}))`
+        )
+        .limit(12000)
+    ),
     safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', range.end).limit(4000)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(7000)),
   ]);
@@ -223,11 +247,15 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   if (invoiceResult.error) errors.sales_invoices = invoiceResult.error;
   sourceHealth.sales_invoices = invoiceResult.error ? 'unavailable' : invoiceResult.data.length ? 'ready' : 'empty';
   for (const invoice of invoiceResult.data) {
+    const amount = invoiceAmount(invoice);
+    if (amount <= 0) continue;
+    if (invoiceTypeIndicatesReturnOrCancel(invoice)) continue;
+    if (invoiceStatusInvalid(invoice)) continue;
+
     const name = invoiceDoctor(invoice);
-    const branch = text(invoice.branch || invoice.branch_name || invoice.store_branch) || 'غير محدد';
+    const branch = invoiceBranch(invoice);
     if (!allowBranch(branch)) continue;
     const current = upsert(name, branch);
-    const amount = invoiceAmount(invoice);
     current.totalSales += amount;
     current.invoices += 1;
     current.totalQuantity += num(invoice.quantity || invoice.qty || invoice.total_quantity);

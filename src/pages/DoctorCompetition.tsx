@@ -401,7 +401,7 @@ export default function DoctorCompetition() {
               <th className="p-3 text-right">الدكتور</th>
               <th className="p-3 text-right">الفرع</th>
               <th className="p-3 text-right">الشامل</th>
-              <th className="p-3 text-right">المبيعات</th>
+              <th className="p-3 text-right">صافي مبيعات الدورة</th>
               <th className="p-3 text-right">الفواتير</th>
               <th className="p-3 text-right">متوسط الفاتورة</th>
               <th className="p-3 text-right">النمو</th>
