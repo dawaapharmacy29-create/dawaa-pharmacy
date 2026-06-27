@@ -129,7 +129,6 @@ async function saveStaffRows(table: string, staff: ParsedStaffShifts[]) {
       branch: item.branch,
       shift_start: shift?.start || '09:00',
       shift_end: shift?.end || '17:00',
-      holiday_day: firstOffDay(item),
       status: 'نشط',
       active: true,
       points: 500,
