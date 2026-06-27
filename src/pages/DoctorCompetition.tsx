@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, Medal, RefreshCw, Trophy } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { normalizeDoctorName, pickInvoiceAmount } from '@/lib/doctorCompetitionMetrics';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
@@ -54,7 +55,7 @@ function invoiceDate(row: Record<string, unknown>) {
 }
 
 function invoiceAmount(row: Record<string, unknown>) {
-  return num(row.net_total || row.total || row.amount || row.invoice_total || row.total_amount || row.final_total);
+  return pickInvoiceAmount(row);
 }
 
 function invoiceDoctor(row: Record<string, unknown>) {
@@ -68,7 +69,7 @@ function invoiceDoctor(row: Record<string, unknown>) {
       row.user_name
   );
   if (!name && import.meta.env.DEV) console.warn('[DoctorCompetition] missing doctor column in invoice', row);
-  return name || 'غير محدد';
+  return normalizeDoctorName(name);
 }
 
 function currentCycle() {

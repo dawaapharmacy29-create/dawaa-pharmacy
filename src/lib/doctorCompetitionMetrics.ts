@@ -65,17 +65,30 @@ function text(value: unknown) {
   return String(value || '').trim();
 }
 
-function invoiceDate(row: Record<string, unknown>) {
-  const value = text(row.sale_date || row.invoice_date || row.invoice_datetime || row.date || row.created_at);
-  return value.slice(0, 10);
-}
-
 function positiveNumber(value: unknown) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function invoiceAmount(row: Record<string, unknown>) {
+function invoiceDate(row: Record<string, unknown>) {
+  const value = text(row.sale_date || row.invoice_date || row.invoice_datetime || row.date || row.created_at);
+  return value.slice(0, 10);
+}
+
+export function normalizeDoctorName(value: unknown) {
+  const name = text(value);
+  if (!name) return 'غير محدد';
+
+  let normalized = name.replace(/\s+/g, ' ').trim();
+  normalized = normalized.replace(/\([^)]*\)/g, '').trim();
+  normalized = normalized.replace(/^(?:دكتور|د\/|د)\s*/i, '').trim();
+  normalized = normalized.replace(/\s+/g, ' ');
+
+  if (!normalized) return 'غير محدد';
+  return `د/ ${normalized}`;
+}
+
+export function pickInvoiceAmount(row: Record<string, unknown>) {
   const candidates = [
     row.net_total,
     row.net_amount,
@@ -94,10 +107,12 @@ function invoiceAmount(row: Record<string, unknown>) {
   return 0;
 }
 
+function invoiceAmount(row: Record<string, unknown>) {
+  return pickInvoiceAmount(row);
+}
+
 function invoiceDoctor(row: Record<string, unknown>) {
-  return (
-    text(row.normalized_seller_name || row.seller_name || row.staff_name) || 'غير محدد'
-  );
+  return normalizeDoctorName(row.normalized_seller_name || row.seller_name || row.staff_name);
 }
 
 function invoiceBranch(row: Record<string, unknown>) {
@@ -285,7 +300,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   if (reviewResult.error) errors.conversation_sales_reviews = reviewResult.error;
   sourceHealth.conversation_sales_reviews = reviewResult.error ? 'unavailable' : reviewResult.data.length ? 'ready' : 'empty';
   for (const review of reviewResult.data) {
-    const name = text(review.staff_name || review.doctor_name || review.employee_name || review.created_by_name) || 'غير محدد';
+    const name = normalizeDoctorName(review.staff_name || review.doctor_name || review.employee_name || review.created_by_name);
     const branch = text(review.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
     const current = upsert(name, branch);
@@ -301,7 +316,9 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   if (followupResult.error) errors.daily_followups = followupResult.error;
   sourceHealth.daily_followups = followupResult.error ? 'unavailable' : followupResult.data.length ? 'ready' : 'empty';
   for (const followup of followupResult.data) {
-    const name = text(followup.responsible_name || followup.assigned_doctor || followup.assigned_to || followup.evaluated_by_name || followup.updated_by) || 'غير محدد';
+    const name = normalizeDoctorName(
+      followup.responsible_name || followup.assigned_doctor || followup.assigned_to || followup.evaluated_by_name || followup.updated_by
+    );
     const branch = text(followup.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
     const current = upsert(name, branch);
