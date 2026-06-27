@@ -38,6 +38,11 @@ export function staffRowIsActive(row: StaffActiveRow | null | undefined): boolea
   return false;
 }
 
+export function staffRowVisibleInSchedule(row: { visible_in_schedule?: boolean | null } | null | undefined): boolean {
+  if (!row) return true;
+  return row.visible_in_schedule !== false;
+}
+
 /** Supabase filter descriptor for useSupabaseQuery. */
 export function isActiveStaffFilter(): Array<{ column: string; operator: string; value: unknown }> {
   return [{ column: 'active', operator: 'eq', value: true }];

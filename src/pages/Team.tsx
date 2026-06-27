@@ -22,7 +22,10 @@ import { toast } from 'sonner';
 import type { User } from '@/types';
 import { Link } from 'react-router-dom';
 import { useStaff } from '@/hooks/useStaff';
-import { filterActiveStaffRows } from '@/lib/staffActiveFilter';
+import {
+  filterActiveStaffRows,
+  staffRowVisibleInSchedule,
+} from '@/lib/staffActiveFilter';
 import { mergeStaffChoices } from '@/lib/staffFallback';
 import { useShiftSchedules } from '@/hooks/useShiftSchedules';
 import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
@@ -180,7 +183,13 @@ export default function Team() {
   }, []);
 
   const { data: staffRows, loading, refetch } = useStaff<Employee>();
-  const employees = useMemo(() => mergeStaffChoices(filterActiveStaffRows(staffRows)), [staffRows]);
+  const employees = useMemo(
+    () =>
+      mergeStaffChoices(
+        filterActiveStaffRows(staffRows).filter(staffRowVisibleInSchedule)
+      ),
+    [staffRows]
+  );
   const { data: schedules, loading: schedulesLoading } = useShiftSchedules<ShiftSchedule>();
   const { data: employeeTransactions } = useEmployeeTransactions<EmployeeTransaction>();
   const pointRecords = employeeTransactions as PointLedgerRecord[];
