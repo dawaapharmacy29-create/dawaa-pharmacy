@@ -154,7 +154,7 @@ async function saveStaffRows(table: string, staff: ParsedStaffShifts[]) {
 }
 
 function scheduleRows(staff: ParsedStaffShifts[]) {
-  return staff.flatMap((item) =>
+  const rows = staff.flatMap((item) =>
     Object.entries(item.shifts)
       .filter(([, shift]) => !(shift.errors || []).length)
       .map(([day, shift]) => ({
@@ -171,10 +171,18 @@ function scheduleRows(staff: ParsedStaffShifts[]) {
         source: 'attendance_report.xlsx',
       }))
   );
+
+  // Deduplicate by staff_name + branch + day_name, keep the last occurrence
+  const map = new Map<string, typeof rows[number]>();
+  for (const r of rows) {
+    const key = `${r.staff_name}|${r.branch}|${r.day_name}`;
+    map.set(key, r);
+  }
+  return Array.from(map.values());
 }
 
 function leaveRows(staff: ParsedStaffShifts[]) {
-  return staff.flatMap((item) =>
+  const rows = staff.flatMap((item) =>
     Object.entries(item.shifts)
       .filter(([, shift]) => shift.isOff)
       .map(([day, shift]) => ({
@@ -188,6 +196,14 @@ function leaveRows(staff: ParsedStaffShifts[]) {
         source: 'attendance_report.xlsx',
       }))
   );
+
+  // Deduplicate by staff_name + branch + day_name, keep the last occurrence
+  const map = new Map<string, typeof rows[number]>();
+  for (const r of rows) {
+    const key = `${r.staff_name}|${r.branch}|${r.day_name}`;
+    map.set(key, r);
+  }
+  return Array.from(map.values());
 }
 
 export async function saveScheduleImport(
@@ -211,6 +227,19 @@ export async function saveScheduleImport(
   const scheduleTable = await detectTable(['shift_schedules']);
   if (scheduleTable) {
     try {
+      // Remove previously imported schedules from this source only
+      try {
+        const { error: delError } = await supabase
+          .from(scheduleTable)
+          .delete()
+          .eq('source', 'attendance_report.xlsx');
+        if (delError) {
+          skipped.push(`تعذر حذف الشيفتات القديمة في ${scheduleTable}: ${delError.message}`);
+        }
+      } catch (err) {
+        skipped.push(`تعذر حذف الشيفتات القديمة في ${scheduleTable}: ${(err as Error).message}`);
+      }
+
       shiftsSaved = await insertFlexible(scheduleTable, scheduleRows(savableStaff));
     } catch (error) {
       skipped.push(`تعذر حفظ الشيفتات في shift_schedules: ${(error as Error).message}`);
@@ -222,6 +251,19 @@ export async function saveScheduleImport(
   const exceptionTable = await detectTable(['shift_exceptions']);
   if (exceptionTable) {
     try {
+      // Remove previously imported exceptions from this source only
+      try {
+        const { error: delError } = await supabase
+          .from(exceptionTable)
+          .delete()
+          .eq('source', 'attendance_report.xlsx');
+        if (delError) {
+          skipped.push(`تعذر حذف الإجازات القديمة في ${exceptionTable}: ${delError.message}`);
+        }
+      } catch (err) {
+        skipped.push(`تعذر حذف الإجازات القديمة في ${exceptionTable}: ${(err as Error).message}`);
+      }
+
       leavesSaved = await insertFlexible(exceptionTable, leaveRows(savableStaff));
     } catch (error) {
       skipped.push(`تعذر حفظ الإجازات في shift_exceptions: ${(error as Error).message}`);
