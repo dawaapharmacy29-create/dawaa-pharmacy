@@ -245,7 +245,7 @@ export default function Schedule() {
     if (!preview) return;
     const issues = [...preview.validation.errors, ...preview.validation.warnings];
     const csv = [
-      ['level', 'staffName', 'branch', 'day', 'message', 'raw'],
+      ['level', 'staffName', 'branch', 'day', 'message', 'raw', 'start', 'end', 'hours', 'role'],
       ...issues.map((issue) => [
         issue.level,
         issue.staffName,
@@ -253,6 +253,10 @@ export default function Schedule() {
         issue.day,
         issue.message,
         issue.raw || '',
+        issue.start || '',
+        issue.end || '',
+        issue.hours ?? '',
+        issue.role || '',
       ]),
     ]
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -318,13 +322,15 @@ export default function Schedule() {
         </div>
         {preview && (
           <div className="mt-4 overflow-x-auto max-h-72 overflow-y-auto">
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-4">
               <MiniStat label="الفروع" value={preview.branchCount} />
               <MiniStat label="الفريق" value={preview.staffCount} />
               <MiniStat label="دكاترة" value={preview.doctorCount} />
               <MiniStat label="دليفري" value={preview.deliveryCount} />
               <MiniStat label="شيفتات" value={preview.shiftCount} />
               <MiniStat label="إجازات" value={preview.offCount} />
+              <MiniStat label="أخطاء" value={preview.validation.errors.length} />
+              <MiniStat label="تحذيرات" value={preview.validation.warnings.length} />
             </div>
             {(preview.validation.errors.length > 0 || preview.validation.warnings.length > 0) && (
               <div className="mb-4 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4">
@@ -357,6 +363,12 @@ export default function Schedule() {
                     لن يتم الحفظ قبل إصلاح الأخطاء حتى لا تتلف الجداول الحالية.
                   </div>
                 )}
+                {preview.validation.errors.length === 0 &&
+                  preview.validation.warnings.length > 0 && (
+                    <div className="mt-3 text-xs font-bold text-amber-100">
+                      يمكن الحفظ مع وجود تحذيرات بعد المراجعة
+                    </div>
+                  )}
                 <button
                   type="button"
                   onClick={exportValidationReport}
@@ -396,7 +408,11 @@ export default function Schedule() {
               </tbody>
             </table>
             <div className="flex flex-col md:flex-row gap-3 md:items-center mt-4">
-              <button onClick={handleSavePreview} disabled={saving} className="btn-primary">
+              <button
+                onClick={handleSavePreview}
+                disabled={saving || preview.validation.errors.length > 0}
+                className="btn-primary"
+              >
                 {saving ? 'جاري الحفظ...' : 'حفظ البيانات المقروءة'}
               </button>
               <div className="text-amber-300 text-xs">

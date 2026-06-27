@@ -107,6 +107,17 @@ function firstOffDay(item: ParsedStaffShifts) {
   return Object.entries(item.shifts).find(([, shift]) => shift.isOff)?.[0] || null;
 }
 
+function staffWithSavableShifts(staff: ParsedStaffShifts[]) {
+  return staff
+    .map((item) => ({
+      ...item,
+      shifts: Object.fromEntries(
+        Object.entries(item.shifts).filter(([, shift]) => !(shift.errors || []).length)
+      ),
+    }))
+    .filter((item) => Object.keys(item.shifts).length > 0);
+}
+
 async function saveStaffRows(table: string, staff: ParsedStaffShifts[]) {
   const rows = staff.map((item) => {
     const shift = firstWorkingShift(item);
@@ -148,19 +159,21 @@ async function saveStaffRows(table: string, staff: ParsedStaffShifts[]) {
 
 function scheduleRows(staff: ParsedStaffShifts[]) {
   return staff.flatMap((item) =>
-    Object.entries(item.shifts).map(([day, shift]) => ({
-      staff_name: item.name,
-      employee_name: item.name,
-      role: appRole(item.role),
-      branch: item.branch,
-      day_name: day,
-      shift_start: shift.start,
-      shift_end: shift.end,
-      hours: shift.hours,
-      is_off: shift.isOff,
-      raw_shift: shift.raw,
-      source: 'attendance_report.xlsx',
-    }))
+    Object.entries(item.shifts)
+      .filter(([, shift]) => !(shift.errors || []).length)
+      .map(([day, shift]) => ({
+        staff_name: item.name,
+        employee_name: item.name,
+        role: appRole(item.role),
+        branch: item.branch,
+        day_name: day,
+        shift_start: shift.start,
+        shift_end: shift.end,
+        hours: shift.hours,
+        is_off: shift.isOff,
+        raw_shift: shift.raw,
+        source: 'attendance_report.xlsx',
+      }))
   );
 }
 
@@ -187,6 +200,7 @@ export async function saveScheduleImport(
   requireSupabaseConfig();
 
   const skipped: string[] = [];
+  const savableStaff = staffWithSavableShifts(importData.staff);
   const staffTable = await detectTable(STAFF_TABLES);
   let staffSaved = 0;
   let shiftsSaved = 0;
@@ -195,13 +209,13 @@ export async function saveScheduleImport(
   if (!staffTable) {
     skipped.push('لم يتم العثور على جدول staff لحفظ بيانات الفريق.');
   } else {
-    staffSaved = await saveStaffRows(staffTable, importData.staff);
+    staffSaved = await saveStaffRows(staffTable, savableStaff);
   }
 
   const scheduleTable = await detectTable(['shift_schedules']);
   if (scheduleTable) {
     try {
-      shiftsSaved = await insertFlexible(scheduleTable, scheduleRows(importData.staff));
+      shiftsSaved = await insertFlexible(scheduleTable, scheduleRows(savableStaff));
     } catch (error) {
       skipped.push(`تعذر حفظ الشيفتات في shift_schedules: ${(error as Error).message}`);
     }
@@ -212,7 +226,7 @@ export async function saveScheduleImport(
   const exceptionTable = await detectTable(['shift_exceptions']);
   if (exceptionTable) {
     try {
-      leavesSaved = await insertFlexible(exceptionTable, leaveRows(importData.staff));
+      leavesSaved = await insertFlexible(exceptionTable, leaveRows(savableStaff));
     } catch (error) {
       skipped.push(`تعذر حفظ الإجازات في shift_exceptions: ${(error as Error).message}`);
     }

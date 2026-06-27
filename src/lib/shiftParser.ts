@@ -25,6 +25,10 @@ export interface ScheduleImportIssue {
   day: string;
   message: string;
   raw?: string;
+  start?: string | null;
+  end?: string | null;
+  hours?: number | null;
+  role?: ParsedStaffShifts['role'];
 }
 
 export interface ScheduleImportValidation {
@@ -44,24 +48,58 @@ export interface ParsedScheduleImport {
   validation: ScheduleImportValidation;
 }
 
-const DAYS = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+const DAY_ALIASES: Record<string, string> = {
+  السبت: 'السبت',
+  الاحد: 'الأحد',
+  الأحد: 'الأحد',
+  الاثنين: 'الاثنين',
+  الإثنين: 'الاثنين',
+  الاتنين: 'الاثنين',
+  الثلاثاء: 'الثلاثاء',
+  الاربعاء: 'الأربعاء',
+  الأربعاء: 'الأربعاء',
+  الخميس: 'الخميس',
+  الجمعة: 'الجمعة',
+};
+
+function normalizeArabic(value: string) {
+  return value
+    .trim()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeDayName(value: unknown) {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  const normalized = normalizeArabic(text);
+  const match = Object.keys(DAY_ALIASES).find((day) => normalizeArabic(day) === normalized);
+  return match ? DAY_ALIASES[match] : null;
+}
+
+function isDayHeader(value: unknown) {
+  return normalizeArabic(String(value ?? '')) === normalizeArabic('اليوم');
+}
 
 function normalizeAmPm(value: string) {
   return value.replace('ص', 'AM').replace('م', 'PM').toUpperCase();
 }
 
 function normalizeDigits(value: string) {
-  // convert Arabic-Indic digits to Latin
-  return value.replace(/[٠١٢٣٤٥٦٧٨٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString());
+  return value
+    .replace(/[٠١٢٣٤٥٦٧٨٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+    .replace(/[۰۱۲۳۴۵۶۷۸۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString());
 }
 
 function toHour(hour: string, ampm: string) {
-  const normalized = hour.replace(',', '.');
-  const [hourPart, minutePart] = normalized.split('.');
-  let value = Number.parseInt(hourPart, 10);
-  if (minutePart) {
-    const minutes =
-      minutePart === '5' ? 30 : Number.parseInt(minutePart.padEnd(2, '0').slice(0, 2), 10);
+  const normalized = normalizeDigits(hour).replace(',', '.');
+  const parts = normalized.includes(':') ? normalized.split(':') : normalized.split('.');
+  let value = Number.parseInt(parts[0], 10);
+  if (parts[1]) {
+    const minuteText = parts[1] === '5' ? '30' : parts[1].padEnd(2, '0').slice(0, 2);
+    const minutes = Number.parseInt(minuteText, 10);
     if (Number.isFinite(minutes)) value += minutes / 60;
   }
   const suffix = normalizeAmPm(ampm);
@@ -71,36 +109,21 @@ function toHour(hour: string, ampm: string) {
 }
 
 function formatHour(value: number) {
-  const hours = Math.floor(value);
-  const minutes = Math.round((value - hours) * 60);
+  const normalized = ((value % 24) + 24) % 24;
+  const hours = Math.floor(normalized);
+  const minutes = Math.round((normalized - hours) * 60);
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
 function writtenHoursFromText(text: string) {
-  const match = text.match(/\((\d{1,2}(?:[.,]\d+)?)\s*(?:h|hr|hrs|ساعة|س)\)/i);
+  const match = normalizeDigits(text).match(/\((\d{1,2}(?:[.,]\d+)?)\s*(?:h|hr|hrs|ساعة|س)\)/i);
   if (!match) return null;
   const value = Number(String(match[1]).replace(',', '.'));
   return Number.isFinite(value) ? value : null;
 }
 
-function normalizeStaffRuleName(value: string) {
-  return value
-    .trim()
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ى/g, 'ي')
-    .replace(/ة/g, 'ه')
-    .replace(/\s+/g, ' ');
-}
-
-function isNadaSixHourRule(personName: string, shift: ParsedShift) {
-  const name = normalizeStaffRuleName(personName);
-  return (
-    /^د\/?\s*ندي\b/.test(name) &&
-    shift.start === '13:30' &&
-    shift.end === '19:30' &&
-    shift.hours === 6
-  );
-}
+const SHIFT_SEPARATOR = String.raw`(?:→|->|–|—|-|الى|إلى|الي|حتى|to)`;
+const SHIFT_TIME = String.raw`(\d{1,2}(?::\d{1,2}|[.,]\d+)?)\s*(AM|PM|ص|م)`;
 
 export function parseShiftTime(raw: unknown): ParsedShift | null {
   const text = String(raw ?? '').trim();
@@ -109,13 +132,13 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
     return { isOff: true, start: null, end: null, hours: null, raw: text };
   }
 
-  const match = text.match(
-    /(\d{1,2}(?:[.,]\d+)?)\s*(AM|PM|ص|م)\s*(?:→|->|-|الى|إلى)\s*(\d{1,2}(?:[.,]\d+)?)\s*(AM|PM|ص|م)/i
-  );
+  const normalizedText = normalizeDigits(text);
+  const match = normalizedText.match(new RegExp(`${SHIFT_TIME}\\s*${SHIFT_SEPARATOR}\\s*${SHIFT_TIME}`, 'i'));
+
   if (!match) {
-    // Try 24-hour time formats like 08:00 - 17:30 and Arabic-Indic digits
-    const normalized = normalizeDigits(text);
-    const simple = normalized.match(/(\d{1,2}):?(\d{0,2})\s*(?:→|->|-|الى|إلى)\s*(\d{1,2}):?(\d{0,2})/);
+    const simple = normalizedText.match(
+      new RegExp(`(\\d{1,2}):?(\\d{0,2})\\s*${SHIFT_SEPARATOR}\\s*(\\d{1,2}):?(\\d{0,2})`, 'i')
+    );
     if (simple) {
       const sh = Number(simple[1]);
       const sm = Number(simple[2] || '0');
@@ -128,13 +151,19 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
         let hours = endH - startH;
         if (hours <= 0) hours += 24;
         const roundedHours = Number(hours.toFixed(1));
+        const warnings = crossesMidnight
+          ? ['الشيفت يعبر منتصف الليل؛ راجع اليوم التالي قبل الحفظ']
+          : [];
+        if (roundedHours > 12) {
+          warnings.push(`مدة الشيفت المحسوبة ${roundedHours} ساعة؛ راجعها قبل الحفظ`);
+        }
         return {
           isOff: false,
           start: formatHour(startH),
           end: formatHour(endH),
           hours: roundedHours,
           raw: text,
-          warnings: crossesMidnight ? ['الشيفت يعبر منتصف الليل؛ راجع اليوم التالي قبل الحفظ'] : [],
+          warnings,
         };
       }
     }
@@ -161,7 +190,7 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
   const errors: string[] = [];
 
   if (roundedHours > 12) {
-    errors.push(`مدة الشيفت المحسوبة ${roundedHours} ساعة وتتجاوز الحد الآمن 12 ساعة`);
+    warnings.push(`مدة الشيفت المحسوبة ${roundedHours} ساعة؛ راجعها قبل الحفظ`);
   }
   if (writtenHours !== null && Math.abs(writtenHours - roundedHours) >= 0.25) {
     warnings.push(`المدة المكتوبة ${writtenHours} ساعة لا تطابق المحسوبة ${roundedHours} ساعة`);
@@ -169,7 +198,6 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
   if (roundedHours >= 18 || (match[3] === '12' && endAmpm === 'PM' && roundedHours > 12)) {
     warnings.push('احتمال خطأ AM/PM، راجع 12 PM مقابل 12 AM');
   }
-
   if (crossesMidnight) {
     warnings.push('الشيفت يعبر منتصف الليل؛ راجع اليوم التالي قبل الحفظ');
   }
@@ -187,9 +215,9 @@ export function parseShiftTime(raw: unknown): ParsedShift | null {
 }
 
 function roleFromText(text: string): ParsedStaffShifts['role'] {
-  if (/دليفري|delivery|مندوب/i.test(text)) return 'delivery';
+  if (/دليفري|delivery|مندوب|التوصيل/i.test(text)) return 'delivery';
   if (/مساعد|assistant/i.test(text)) return 'assistant';
-  if (/دكتور|د\.|صيدلي|doctor/i.test(text)) return 'doctor';
+  if (/الدكاترة|الصيادلة|دكتور|د\.|د\/|صيدلي|doctor/i.test(text)) return 'doctor';
   return 'staff';
 }
 
@@ -198,6 +226,10 @@ function cleanStaffName(value: unknown) {
     .replace(/\s+/g, ' ')
     .replace(/^د\s*\/?\s*/i, 'د/ ')
     .trim();
+}
+
+function staffKey(branch: string, role: ParsedStaffShifts['role'], name: string) {
+  return `${branch}|${role}|${normalizeArabic(name)}`;
 }
 
 function branchFromSheet(sheetName: string) {
@@ -209,45 +241,62 @@ function branchFromSheet(sheetName: string) {
 export function parseExcelShifts(rows: unknown[][], branch = 'غير محدد'): ParsedStaffShifts[] {
   const staff = new Map<string, ParsedStaffShifts>();
   let headerRow: unknown[] | null = null;
-  let role: ParsedStaffShifts['role'] = 'doctor';
+  let headerDayIndex = 0;
+  let headerStartIndex = 1;
+  let activeRole: ParsedStaffShifts['role'] = 'doctor';
+  let headerRole: ParsedStaffShifts['role'] = activeRole;
 
   for (const row of rows) {
-    const first = String(row[0] ?? '').trim();
-    if (!first) continue;
+    const hasAnyCell = row.some((cell) => String(cell ?? '').trim());
+    if (!hasAnyCell) {
+      headerRow = null;
+      continue;
+    }
+
     const rowText = row.map((cell) => String(cell ?? '')).join(' ');
     const detectedRole = roleFromText(rowText);
-    if (detectedRole !== 'staff') role = detectedRole;
-    if (/الدكاترة|الصيادلة/i.test(rowText)) role = 'doctor';
-    if (/الدليفري|التوصيل|مندوب/i.test(rowText)) role = 'delivery';
+    if (detectedRole !== 'staff') activeRole = detectedRole;
 
-    if (first === 'اليوم') {
+    const dayColumn = row.findIndex(isDayHeader);
+    if (dayColumn >= 0) {
       headerRow = row;
-      row.slice(2).forEach((cell) => {
+      headerDayIndex = dayColumn;
+      headerStartIndex = dayColumn + 1;
+      headerRole = activeRole;
+      row.slice(headerStartIndex).forEach((cell) => {
         const name = cleanStaffName(cell);
-        if (name && name !== 'NaN' && !staff.has(name)) {
-          staff.set(name, { name, role, branch, shifts: {} });
+        if (!name || name === 'NaN') return;
+        const key = staffKey(branch, headerRole, name);
+        if (!staff.has(key)) {
+          staff.set(key, { name, role: headerRole, branch, shifts: {} });
         }
       });
       continue;
     }
 
-    if (headerRow && DAYS.includes(first)) {
-      headerRow.slice(2).forEach((cell, index) => {
-        const name = cleanStaffName(cell);
-        if (!name || name === 'NaN') return;
-        const shift = parseShiftTime(row[index + 2]);
-        if (!shift) return;
-        const current = staff.get(name) || { name, role, branch, shifts: {} };
-        if (current.shifts[first]) {
-          current.shifts[first].warnings = [
-            ...(current.shifts[first].warnings || []),
-            'يوجد تكرار لنفس الموظف في نفس اليوم؛ سيتم عرض آخر شيفت مقروء في المعاينة',
-          ];
-        }
-        current.shifts[first] = shift;
-        staff.set(name, current);
-      });
+    const day = normalizeDayName(row[headerDayIndex] ?? row[0]);
+    if (!headerRow || !day) {
+      if (detectedRole !== 'staff') headerRow = null;
+      continue;
     }
+
+    headerRow.slice(headerStartIndex).forEach((cell, index) => {
+      const columnIndex = headerStartIndex + index;
+      const name = cleanStaffName(cell);
+      if (!name || name === 'NaN') return;
+      const shift = parseShiftTime(row[columnIndex]);
+      if (!shift) return;
+      const key = staffKey(branch, headerRole, name);
+      const current = staff.get(key) || { name, role: headerRole, branch, shifts: {} };
+      if (current.shifts[day]) {
+        current.shifts[day].warnings = [
+          ...(current.shifts[day].warnings || []),
+          'يوجد تكرار لنفس الموظف في نفس اليوم؛ سيتم عرض آخر شيفت مقروء في المعاينة',
+        ];
+      }
+      current.shifts[day] = shift;
+      staff.set(key, current);
+    });
   }
 
   return [...staff.values()].filter((item) => Object.keys(item.shifts).length > 0);
@@ -280,6 +329,27 @@ export async function parseScheduleImport(file: File): Promise<ParsedScheduleImp
   };
 }
 
+function issueFor(
+  person: ParsedStaffShifts,
+  day: string,
+  shift: ParsedShift,
+  level: ScheduleImportIssue['level'],
+  message: string
+): ScheduleImportIssue {
+  return {
+    level,
+    staffName: person.name,
+    branch: person.branch,
+    day,
+    message,
+    raw: shift.raw,
+    start: shift.start,
+    end: shift.end,
+    hours: shift.hours,
+    role: person.role,
+  };
+}
+
 export function validateScheduleImport(staff: ParsedStaffShifts[]): ScheduleImportValidation {
   const issues: ScheduleImportIssue[] = [];
 
@@ -287,56 +357,19 @@ export function validateScheduleImport(staff: ParsedStaffShifts[]): ScheduleImpo
     Object.entries(person.shifts).forEach(([day, shift]) => {
       if (shift.isOff) return;
 
-      if (!shift.start || !shift.end) {
-        issues.push({
-          level: 'error',
-          staffName: person.name,
-          branch: person.branch,
-          day,
-          message: 'وقت البداية أو النهاية ناقص',
-          raw: shift.raw,
-        });
+      const shiftErrors = shift.errors || [];
+      if ((!shift.start || !shift.end) && shiftErrors.length === 0) {
+        issues.push(issueFor(person, day, shift, 'error', 'وقت البداية أو النهاية ناقص'));
       }
       if (shift.hours !== null && shift.hours > 12) {
-        issues.push({
-          level: 'error',
-          staffName: person.name,
-          branch: person.branch,
-          day,
-          message: `مدة الشيفت ${shift.hours} ساعة وتتجاوز الحد الأقصى 12 ساعة`,
-          raw: shift.raw,
-        });
+        issues.push(
+          issueFor(person, day, shift, 'warning', `مدة الشيفت ${shift.hours} ساعة؛ راجعها قبل الحفظ`)
+        );
       }
-      (shift.errors || []).forEach((message) =>
-        issues.push({
-          level: 'error',
-          staffName: person.name,
-          branch: person.branch,
-          day,
-          message,
-          raw: shift.raw,
-        })
-      );
+      shiftErrors.forEach((message) => issues.push(issueFor(person, day, shift, 'error', message)));
       (shift.warnings || []).forEach((message) =>
-        issues.push({
-          level: 'warning',
-          staffName: person.name,
-          branch: person.branch,
-          day,
-          message,
-          raw: shift.raw,
-        })
+        issues.push(issueFor(person, day, shift, 'warning', message))
       );
-      if (isNadaSixHourRule(person.name, shift)) {
-        issues.push({
-          level: 'warning',
-          staffName: person.name,
-          branch: person.branch,
-          day,
-          message: 'شيفت د/ ندى 1:30 PM إلى 7:30 PM محسوب 6 ساعات ومسموح حسب قاعدة الجدول الأسبوعية',
-          raw: shift.raw,
-        });
-      }
     });
   });
 
