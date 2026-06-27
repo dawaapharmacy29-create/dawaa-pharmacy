@@ -70,16 +70,28 @@ function invoiceDate(row: Record<string, unknown>) {
   return value.slice(0, 10);
 }
 
+function positiveNumber(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function invoiceAmount(row: Record<string, unknown>) {
-  return num(
-    row.net_total ||
-      row.net_amount ||
-      row.discounted_amount ||
-      row.total_amount ||
-      row.amount ||
-      row.gross_total ||
-      row.gross_amount
-  );
+  const candidates = [
+    row.net_total,
+    row.net_amount,
+    row.discounted_amount,
+    row.total_amount,
+    row.amount,
+    row.gross_total,
+    row.gross_amount,
+  ];
+
+  for (const candidate of candidates) {
+    const amount = positiveNumber(candidate);
+    if (amount > 0) return amount;
+  }
+
+  return 0;
 }
 
 function invoiceDoctor(row: Record<string, unknown>) {
