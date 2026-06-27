@@ -131,9 +131,6 @@ async function saveStaffRows(table: string, staff: ParsedStaffShifts[]) {
       shift_end: shift?.end || '17:00',
       status: 'نشط',
       active: true,
-      points: 500,
-      max_points: 500,
-      starting_points: 500,
       notes: 'تم الاستيراد من ملف الحضور والشيفتات',
     };
   });
