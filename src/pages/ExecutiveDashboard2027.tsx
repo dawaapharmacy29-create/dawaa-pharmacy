@@ -34,7 +34,7 @@ import { supabase } from '@/lib/supabase';
 import { formatCycleDate, getCurrentCycle, getPreviousCycle, getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import { normalizeBranchName } from '@/lib/branch';
 import { useAuth } from '@/hooks/useAuth';
-import DailySalesChart, {
+import {
   type DailyChartMetric,
   type DailyChartRow,
 } from '@/components/dashboard/DailySalesChart';
@@ -301,6 +301,38 @@ function safeDate(value?: string | null) {
   const date = new Date(`${raw}T12:00:00`);
   if (Number.isNaN(date.getTime())) return raw;
   return date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
+}
+
+function dateRangeDays(start: string, end: string) {
+  const days: string[] = [];
+  const startDate = new Date(`${String(start || '').slice(0, 10)}T12:00:00`);
+  const endDate = new Date(`${String(end || '').slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || startDate > endDate) {
+    return days;
+  }
+  const current = new Date(startDate);
+  while (current <= endDate && days.length < 45) {
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    days.push(`${year}-${month}-${day}`);
+    current.setDate(current.getDate() + 1);
+  }
+  return days;
+}
+
+function shortAxisDate(value: unknown) {
+  const raw = String(value || '').slice(0, 10);
+  if (!raw) return '';
+  const date = new Date(`${raw}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return raw.slice(5);
+  return date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'numeric' });
+}
+
+function compactChartValue(value: unknown) {
+  const parsed = n(value);
+  if (Math.abs(parsed) >= 1000) return `${Math.round(parsed / 1000).toLocaleString('ar-EG')}k`;
+  return parsed.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
 }
 
 function safeDateTime(value?: string | null) {
@@ -807,6 +839,29 @@ function MiniBox({
   );
 }
 
+function HealthSummaryBox({
+  label,
+  value,
+  tone = 'cyan',
+}: {
+  label: string;
+  value: string;
+  tone?: 'cyan' | 'green' | 'amber' | 'red';
+}) {
+  const classes = {
+    cyan: 'border-cyan-300/25 bg-cyan-400/12 shadow-cyan-950/20',
+    green: 'border-emerald-300/25 bg-emerald-400/12 shadow-emerald-950/20',
+    amber: 'border-amber-300/35 bg-amber-400/14 shadow-amber-950/20',
+    red: 'border-rose-300/35 bg-rose-400/14 shadow-rose-950/20',
+  }[tone];
+  return (
+    <div className={`rounded-3xl border p-5 shadow-lg ${classes}`}>
+      <p className="text-sm font-black text-slate-100">{label}</p>
+      <p className="mt-4 text-4xl font-black tracking-tight text-white drop-shadow-sm">{value}</p>
+    </div>
+  );
+}
+
 export default function ExecutiveDashboard2027() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -863,6 +918,7 @@ export default function ExecutiveDashboard2027() {
 
   const BarChart = R?.BarChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
   const LineChart = R?.LineChart ?? BarChart;
+  const ComposedChart = R?.ComposedChart ?? BarChart;
   const PieChart = R?.PieChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
   const ResponsiveContainer = R?.ResponsiveContainer ?? (({ children }: any) => <div>{children}</div>);
   const XAxis = R?.XAxis ?? ((props: any) => null);
@@ -1202,26 +1258,32 @@ export default function ExecutiveDashboard2027() {
   }, [endDate, scopedBranch, startDate]);
 
   const dailyChart = useMemo(() => {
-    const map = new Map<string, DailyChartRow & { date: string }>();
+    const emptyDay = (day: string): DailyChartRow & { date: string; hasData: boolean } => ({
+      date: day,
+      label: safeDate(day),
+      totalSales: 0,
+      totalInvoices: 0,
+      totalAverage: 0,
+      shokrySales: 0,
+      shokryInvoices: 0,
+      shokryAverage: 0,
+      shamySales: 0,
+      shamyInvoices: 0,
+      shamyAverage: 0,
+      hasData: false,
+    });
+
+    const map = new Map<string, DailyChartRow & { date: string; hasData: boolean }>();
+    dateRangeDays(startDate, endDate).forEach((day) => map.set(day, emptyDay(day)));
+
     state.dailySales.forEach((row) => {
       const day = String(row.sale_date || '').slice(0, 10);
       if (!day) return;
       const branch = branchName(row.branch);
-      const current = map.get(day) || {
-        date: day,
-        label: safeDate(day),
-        totalSales: 0,
-        totalInvoices: 0,
-        totalAverage: 0,
-        shokrySales: 0,
-        shokryInvoices: 0,
-        shokryAverage: 0,
-        shamySales: 0,
-        shamyInvoices: 0,
-        shamyAverage: 0,
-      };
+      const current = map.get(day) || emptyDay(day);
       const sales = n(row.daily_sales);
       const invoices = n(row.invoices_count);
+      current.hasData = true;
       current.totalSales = n(current.totalSales) + sales;
       current.totalInvoices = n(current.totalInvoices) + invoices;
       current.totalAverage = n(current.totalInvoices)
@@ -1248,7 +1310,36 @@ export default function ExecutiveDashboard2027() {
       map.set(day, current);
     });
     return [...map.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  }, [state.dailySales]);
+  }, [endDate, startDate, state.dailySales]);
+
+  const chartDataDays = useMemo(() => dailyChart.filter((row) => row.hasData), [dailyChart]);
+  const dailyChartKeys = useMemo(() => {
+    if (dailyChartMetric === 'invoices') {
+      return {
+        total: 'totalInvoices',
+        shokry: 'shokryInvoices',
+        shamy: 'shamyInvoices',
+        suffix: 'فاتورة',
+        title: 'عدد الفواتير اليومي',
+      };
+    }
+    if (dailyChartMetric === 'average') {
+      return {
+        total: 'totalAverage',
+        shokry: 'shokryAverage',
+        shamy: 'shamyAverage',
+        suffix: 'جنيه',
+        title: 'متوسط الفاتورة اليومي',
+      };
+    }
+    return {
+      total: 'totalSales',
+      shokry: 'shokrySales',
+      shamy: 'shamySales',
+      suffix: 'جنيه',
+      title: 'صافي المبيعات اليومي',
+    };
+  }, [dailyChartMetric]);
 
   const monthlyChart = useMemo(() => {
     const monthName = new Intl.DateTimeFormat('ar-EG', { month: 'short', year: 'numeric' });
@@ -1904,8 +1995,25 @@ export default function ExecutiveDashboard2027() {
               ))}
             </div>
           </div>
-          <div className="h-[360px]">
-            {dailyChart.length ? (
+          <div className="mb-3 grid gap-3 md:grid-cols-3">
+            <MiniBox
+              label="إجمالي الفترة على الرسم"
+              value={`${money(dailyChart.reduce((sum, row) => sum + n(row.totalSales), 0))} جنيه`}
+              tone="cyan"
+            />
+            <MiniBox
+              label="فرع شكري"
+              value={`${money(dailyChart.reduce((sum, row) => sum + n(row.shokrySales), 0))} جنيه`}
+              tone="green"
+            />
+            <MiniBox
+              label="فرع الشامي"
+              value={`${money(dailyChart.reduce((sum, row) => sum + n(row.shamySales), 0))} جنيه`}
+              tone="blue"
+            />
+          </div>
+          <div className="h-[380px] rounded-3xl border border-cyan-300/10 bg-slate-950/25 p-3">
+            {dailyChart.length && chartDataDays.length ? (
               <Suspense
                 fallback={
                   <div className="flex h-full items-center justify-center text-slate-400">
@@ -1913,12 +2021,65 @@ export default function ExecutiveDashboard2027() {
                   </div>
                 }
               >
-                <DailySalesChart data={dailyChart} metric={dailyChartMetric} />
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={dailyChart} margin={{ top: 18, right: 12, left: 10, bottom: 26 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={shortAxisDate}
+                      tick={{ fill: '#cbd5e1', fontSize: 11, fontWeight: 700 }}
+                      angle={-20}
+                      textAnchor="end"
+                      height={52}
+                      interval={Math.max(0, Math.floor(dailyChart.length / 10))}
+                    />
+                    <YAxis
+                      tickFormatter={compactChartValue}
+                      tick={{ fill: '#cbd5e1', fontSize: 11, fontWeight: 700 }}
+                      width={58}
+                    />
+                    <Tooltip
+                      formatter={(value: unknown, name: unknown) => [
+                        `${n(value).toLocaleString('ar-EG', { maximumFractionDigits: dailyChartMetric === 'average' ? 2 : 0 })} ${dailyChartKeys.suffix}`,
+                        name,
+                      ]}
+                      labelFormatter={(label: unknown) => `اليوم: ${safeDate(String(label))}`}
+                      contentStyle={{
+                        background: 'rgba(15, 23, 42, 0.96)',
+                        border: '1px solid rgba(45, 212, 191, 0.25)',
+                        borderRadius: 16,
+                        color: '#f8fafc',
+                        direction: 'rtl',
+                        textAlign: 'right',
+                        fontWeight: 800,
+                      }}
+                    />
+                    <Legend wrapperStyle={{ color: '#e2e8f0', fontWeight: 800, paddingTop: 8 }} />
+                    <Bar dataKey={dailyChartKeys.shokry} name="فرع شكري" fill="#22d3ee" radius={[8, 8, 0, 0]} maxBarSize={30} />
+                    <Bar dataKey={dailyChartKeys.shamy} name="فرع الشامي" fill="#8b5cf6" radius={[8, 8, 0, 0]} maxBarSize={30} />
+                    <Line
+                      type="monotone"
+                      dataKey={dailyChartKeys.total}
+                      name="إجمالي اليوم"
+                      stroke="#34d399"
+                      strokeWidth={3}
+                      dot={{ r: 3 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
               </Suspense>
+            ) : dailyChart.length ? (
+              <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-cyan-300/15 bg-slate-950/25 p-6 text-center text-sm font-bold leading-7 text-slate-300">
+                لا توجد مبيعات فعلية داخل الفترة المختارة حتى الآن. تم تجهيز أيام الدورة كلها على الرسم، وستظهر القيم فور وجود فواتير.
+              </div>
             ) : (
               <EmptyState label="لا توجد بيانات مبيعات يومية بعد" />
             )}
           </div>
+          <p className="mt-3 text-xs font-bold text-slate-400">
+            الرسم يعرض كل أيام الفترة المختارة، والأيام بدون فواتير تظهر بصفر حتى لا يختفي اتجاه الدورة.
+          </p>
         </Panel>
 
         <Panel className="p-5">
@@ -2980,11 +3141,17 @@ function DashboardDataHealthPanel({
 
   return (
     <Panel id="dashboard-data-health" className="p-5">
-      <SectionTitle
-        title="صحة البيانات"
-        subtitle="مؤشرات مختصرة على الفواتير والعملاء والحسابات التي تحتاج مراجعة"
-        icon={<ShieldCheck className="h-5 w-5" />}
-      />
+      <div className="mb-5 flex items-start justify-between gap-4 rounded-3xl border border-cyan-300/10 bg-gradient-to-l from-cyan-400/10 via-slate-950/20 to-transparent p-4">
+        <div>
+          <h2 className="text-2xl font-black text-white drop-shadow-sm">صحة البيانات</h2>
+          <p className="mt-2 text-sm font-bold leading-6 text-cyan-50/85">
+            مؤشرات مختصرة وواضحة على الفواتير والعملاء والحسابات التي تحتاج مراجعة قبل التقارير.
+          </p>
+        </div>
+        <div className="rounded-2xl bg-cyan-300/15 p-3 text-cyan-100 ring-1 ring-cyan-200/20">
+          <ShieldCheck className="h-5 w-5" />
+        </div>
+      </div>
       {loading ? (
         <div className="grid gap-3 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, index) => (
@@ -2994,10 +3161,10 @@ function DashboardDataHealthPanel({
       ) : (
         <>
           <div className="grid gap-3 md:grid-cols-4">
-            <MiniBox label="بنود تحتاج مراجعة" value={count(summary.actionableCount)} tone={summary.status === 'ready' ? 'green' : 'amber'} />
-            <MiniBox label="تحذيرات عالية" value={count(summary.dangerCount)} tone={summary.dangerCount ? 'red' : 'green'} />
-            <MiniBox label="تحذيرات متوسطة" value={count(summary.warningCount)} tone={summary.warningCount ? 'amber' : 'green'} />
-            <MiniBox label="سجلات متأثرة" value={count(summary.totalRecords)} tone="cyan" />
+            <HealthSummaryBox label="بنود تحتاج مراجعة" value={count(summary.actionableCount)} tone={summary.status === 'ready' ? 'green' : 'amber'} />
+            <HealthSummaryBox label="تحذيرات عالية" value={count(summary.dangerCount)} tone={summary.dangerCount ? 'red' : 'green'} />
+            <HealthSummaryBox label="تحذيرات متوسطة" value={count(summary.warningCount)} tone={summary.warningCount ? 'amber' : 'green'} />
+            <HealthSummaryBox label="سجلات متأثرة" value={count(summary.totalRecords)} tone="cyan" />
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {actionable.length ? (
@@ -3008,7 +3175,7 @@ function DashboardDataHealthPanel({
                     key={issue.key}
                     type="button"
                     onClick={() => onNavigate(route)}
-                    className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4 text-right hover:bg-cyan-400/8"
+                    className="rounded-2xl border border-cyan-300/15 bg-slate-950/55 p-4 text-right transition hover:border-cyan-200/35 hover:bg-cyan-400/10"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-black text-white">{issue.label}</span>
@@ -3017,7 +3184,7 @@ function DashboardDataHealthPanel({
                       </span>
                     </div>
                     <div className="mt-3 text-2xl font-black text-white">{issue.count === null ? 'غير متاح' : count(issue.count)}</div>
-                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">{issue.error ? 'لا توجد بيانات كافية أو المصدر غير متاح حاليا.' : issue.suggestedFix}</p>
+                    <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-slate-300">{issue.error ? 'لا توجد بيانات كافية أو المصدر غير متاح حاليا.' : issue.suggestedFix}</p>
                   </button>
                 );
               })
