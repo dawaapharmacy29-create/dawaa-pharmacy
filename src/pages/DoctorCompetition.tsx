@@ -364,20 +364,20 @@ export default function DoctorCompetition() {
           ))}
         </div>
         <table className="min-w-full text-sm">
-          <thead className="border-y-2 border-cyan-300/70 bg-slate-950 text-white shadow-[0_0_0_1px_rgba(34,211,238,0.35),0_14px_30px_rgba(2,6,23,0.35)] dark:bg-slate-950 dark:text-white">
+          <thead className="border-y-2 border-cyan-300/80 bg-slate-950 text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>
             <tr className="text-right">
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">#</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الدكتور</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الفرع</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الشامل</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">صافي مبيعات الدورة</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الفواتير</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">متوسط الفاتورة</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">النمو</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الرواكد/اللستة</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">تقييم المحادثات</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">خدمة العملاء</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">سبب الفوز / فرصة التحسين</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>#</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الدكتور</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الفرع</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الشامل</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>صافي مبيعات الدورة</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الفواتير</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>متوسط الفاتورة</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>النمو</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الرواكد/اللستة</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>تقييم المحادثات</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>خدمة العملاء</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>سبب الفوز / فرصة التحسين</th>
             </tr>
           </thead>
           <tbody>
