@@ -364,25 +364,25 @@ export default function DoctorCompetition() {
           ))}
         </div>
         <table className="min-w-full text-sm">
-          <thead className="border-y border-cyan-300/25 bg-gradient-to-l from-slate-950 via-slate-900 to-cyan-950/80 text-slate-50 shadow-[inset_0_-1px_0_rgba(103,232,249,0.22)]">
+          <thead className="border-y-2 border-cyan-300/70 bg-slate-950 text-white shadow-[0_0_0_1px_rgba(34,211,238,0.35),0_14px_30px_rgba(2,6,23,0.35)] dark:bg-slate-950 dark:text-white">
             <tr className="text-right">
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">#</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الدكتور</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفرع</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الشامل</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">صافي مبيعات الدورة</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفواتير</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">متوسط الفاتورة</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">النمو</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الرواكد/اللستة</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">تقييم المحادثات</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">خدمة العملاء</th>
-              <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">سبب الفوز / فرصة التحسين</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">#</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الدكتور</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الفرع</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الشامل</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">صافي مبيعات الدورة</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الفواتير</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">متوسط الفاتورة</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">النمو</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">الرواكد/اللستة</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">تقييم المحادثات</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">خدمة العملاء</th>
+              <th className="whitespace-nowrap border-l border-cyan-300/20 px-4 py-4 text-right text-sm font-black tracking-wide text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)] dark:text-white">سبب الفوز / فرصة التحسين</th>
             </tr>
           </thead>
           <tbody>
             {rankingRows.map((row, index) => (
-              <tr key={`${row.name}-${row.branch}`} onClick={() => setSelectedDoctor(row)} className="cursor-pointer border-t border-slate-800 text-slate-200 transition hover:bg-slate-800/50">
+              <tr key={`${row.name}-${row.branch}`} onClick={() => setSelectedDoctor(row)} className="cursor-pointer border-t border-slate-800 text-slate-100 transition hover:bg-slate-800/50 dark:text-slate-100">
                 <td className="p-3 font-black">{index + 1}</td>
                 <td className="p-3 font-black text-white">{row.name}</td>
                 <td className="p-3">{row.branch}</td>
