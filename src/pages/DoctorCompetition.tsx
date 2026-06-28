@@ -5,6 +5,7 @@ import {
   getDoctorCompetitionMetrics,
   normalizeDoctorName,
   pickInvoiceAmount,
+  rangeForDoctorCompetition,
 } from '@/lib/doctorCompetitionMetrics';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
@@ -75,30 +76,8 @@ function invoiceDoctor(row: Record<string, unknown>) {
   return normalizeDoctorName(name);
 }
 
-function currentCycle() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 26);
-  if (now.getDate() < 26) start.setMonth(start.getMonth() - 1);
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 1);
-  end.setDate(25);
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
-}
-
 function rangeFor(period: Period, customStart: string, customEnd: string) {
-  const now = new Date();
-  if (period === 'last30') {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 30);
-    return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
-  }
-  if (period === 'last90' || period === 'last_3_months') {
-    const start = new Date(now);
-    start.setMonth(start.getMonth() - 3);
-    return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
-  }
-  if (period === 'custom') return { start: customStart, end: customEnd || customStart };
-  return currentCycle();
+  return rangeForDoctorCompetition(period, customStart, customEnd);
 }
 
 function emptyDoctor(name: string, branch: string): DoctorScore {

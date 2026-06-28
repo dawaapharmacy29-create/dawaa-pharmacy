@@ -1,4 +1,6 @@
 import { supabase } from '@/lib/supabase';
+import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
+import { normalizeBranchName } from '@/lib/branch';
 
 export type DoctorCompetitionPeriod = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 
@@ -75,6 +77,23 @@ function invoiceDate(row: Record<string, unknown>) {
   return value.slice(0, 10);
 }
 
+function localDateOnly(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(dateText: string, days: number) {
+  const date = new Date(`${dateText}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return localDateOnly(date);
+}
+
+function isDateInRange(day: string, start: string, end: string) {
+  return Boolean(day && day >= start && day <= end);
+}
+
 export function normalizeDoctorName(value: unknown) {
   const name = text(value);
   if (!name) return 'غير محدد';
@@ -119,11 +138,20 @@ function invoiceAmount(row: Record<string, unknown>) {
 }
 
 function invoiceDoctor(row: Record<string, unknown>) {
-  return normalizeDoctorName(row.normalized_seller_name || row.seller_name || row.staff_name);
+  return normalizeDoctorName(
+    row.normalized_seller_name ||
+      row.seller_name ||
+      row.staff_name ||
+      row.doctor_name ||
+      row.pharmacist_name ||
+      row.cashier_name ||
+      row.created_by_name ||
+      row.user_name
+  );
 }
 
 function invoiceBranch(row: Record<string, unknown>) {
-  return text(row.branch_name || row.branch || row.store_branch) || 'غير محدد';
+  return normalizeBranchName(text(row.branch_name || row.branch || row.store_branch)) || 'غير محدد';
 }
 
 function invoiceTypeIndicatesReturnOrCancel(row: Record<string, unknown>) {
@@ -140,13 +168,7 @@ function invoiceStatusInvalid(row: Record<string, unknown>) {
 // لا يوجد عمود إلغاء صريح في sales_invoices، لذلك يتم الاستبعاد بقيمة صافية <= 0 وبـ invoice_type عند وجود دلالة نصية.
 
 function currentCycle() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 26);
-  if (now.getDate() < 26) start.setMonth(start.getMonth() - 1);
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 1);
-  end.setDate(25);
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+  return getPharmacyCycleRange(new Date());
 }
 
 export function rangeForDoctorCompetition(period: DoctorCompetitionPeriod = 'cycle', customStart?: string | null, customEnd?: string | null) {
@@ -154,14 +176,18 @@ export function rangeForDoctorCompetition(period: DoctorCompetitionPeriod = 'cyc
   if (period === 'last30') {
     const start = new Date(now);
     start.setDate(start.getDate() - 30);
-    return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
+    return { start: localDateOnly(start), end: localDateOnly(now) };
   }
   if (period === 'last90' || period === 'last_3_months') {
     const start = new Date(now);
     start.setMonth(start.getMonth() - 3);
-    return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
+    return { start: localDateOnly(start), end: localDateOnly(now) };
   }
-  if (period === 'custom') return { start: customStart || now.toISOString().slice(0, 10), end: customEnd || customStart || now.toISOString().slice(0, 10) };
+  if (period === 'custom') {
+    const today = localDateOnly(now);
+    const start = customStart || today;
+    return { start, end: customEnd || start };
+  }
   return currentCycle();
 }
 
@@ -260,14 +286,18 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     return current;
   };
 
+  const invoiceSelect =
+    'id,invoice_no,invoice_number,invoice_date,sale_date,invoice_datetime,date,created_at,branch,branch_name,store_branch,normalized_seller_name,seller_name,staff_name,doctor_name,pharmacist_name,cashier_name,created_by_name,user_name,invoice_type,save_status,import_validation_status,net_total,net_amount,discounted_amount,total_amount,amount,gross_total,gross_amount,quantity,qty,total_quantity,is_list_item,list_item,incentive_item,is_stagnant,stagnant_item,slow_moving';
+  const invoiceDateEndExclusive = `${addDays(range.end, 1)}T00:00:00`;
+
   const [invoiceResult, reviewResult, followupResult] = await Promise.all([
     safeSelect('sales_invoices', (query) =>
       query
-        .select('*')
+        .select(invoiceSelect)
         .or(
-          `(and(invoice_date.gte.${range.start},invoice_date.lte.${range.end}),and(sale_date.gte.${range.start},sale_date.lte.${range.end}))`
+          `and(sale_date.gte.${range.start},sale_date.lte.${range.end}),and(invoice_date.gte.${range.start}T00:00:00,invoice_date.lt.${invoiceDateEndExclusive})`
         )
-        .limit(12000)
+        .limit(20000)
     ),
     safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', range.end).limit(4000)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(7000)),
@@ -280,7 +310,14 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
 
   if (invoiceResult.error) errors.sales_invoices = invoiceResult.error;
   sourceHealth.sales_invoices = invoiceResult.error ? 'unavailable' : invoiceResult.data.length ? 'ready' : 'empty';
+  let invoiceRowsInRange = 0;
+  let invoiceNetSalesInRange = 0;
+  const debugDoctorNames = new Set<string>();
+
   for (const invoice of invoiceResult.data) {
+    const day = invoiceDate(invoice);
+    if (!isDateInRange(day, range.start, range.end)) continue;
+
     const amount = invoiceAmount(invoice);
     if (amount <= 0) continue;
     if (invoiceTypeIndicatesReturnOrCancel(invoice)) continue;
@@ -289,6 +326,9 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     const name = invoiceDoctor(invoice);
     const branch = invoiceBranch(invoice);
     if (!allowBranch(branch)) continue;
+    invoiceRowsInRange += 1;
+    invoiceNetSalesInRange += amount;
+    if (debugDoctorNames.size < 5 && name !== 'غير محدد') debugDoctorNames.add(name);
     const current = upsert(name, branch);
     current.totalSales += amount;
     current.invoices += 1;
@@ -300,8 +340,19 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       current.linkedInvoiceCount += 1;
     }
     const key = `${name}|${branch}`;
-    if (new Date(invoiceDate(invoice)).getTime() <= periodMidpoint.getTime()) firstHalfSales.set(key, (firstHalfSales.get(key) || 0) + amount);
+    if (new Date(`${day}T12:00:00`).getTime() <= periodMidpoint.getTime()) firstHalfSales.set(key, (firstHalfSales.get(key) || 0) + amount);
     else secondHalfSales.set(key, (secondHalfSales.get(key) || 0) + amount);
+  }
+
+  if (import.meta.env.DEV) {
+    console.info('[DoctorCompetitionMetrics] sales invoice diagnostics', {
+      range,
+      rowsFetched: invoiceResult.data.length,
+      rowsUsed: invoiceRowsInRange,
+      netSales: invoiceNetSalesInRange,
+      firstDoctors: [...debugDoctorNames],
+      selectedBranch: selectedBranch || ALL_BRANCHES,
+    });
   }
 
   if (reviewResult.error) errors.conversation_sales_reviews = reviewResult.error;
