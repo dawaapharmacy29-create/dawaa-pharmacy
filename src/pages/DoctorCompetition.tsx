@@ -54,7 +54,7 @@ function money(value: number) {
 }
 
 function invoiceDate(row: Record<string, unknown>) {
-  const value = text(row.sale_date || row.invoice_date || row.invoice_datetime || row.date || row.created_at);
+  const value = text(row.invoice_date || row.invoice_datetime || row.date || row.sale_date || row.created_at);
   return value.slice(0, 10);
 }
 
@@ -64,9 +64,8 @@ function invoiceAmount(row: Record<string, unknown>) {
 
 function invoiceDoctor(row: Record<string, unknown>) {
   const name = text(
-    row.normalized_seller_name ||
+    row.doctor_name ||
       row.seller_name ||
-      row.doctor_name ||
       row.staff_name ||
       row.pharmacist_name ||
       row.cashier_name ||
@@ -75,10 +74,6 @@ function invoiceDoctor(row: Record<string, unknown>) {
   );
   if (!name && import.meta.env.DEV) console.warn('[DoctorCompetition] missing doctor column in invoice', row);
   return normalizeDoctorName(name);
-}
-
-function rangeFor(period: Period, customStart: string, customEnd: string) {
-  return rangeForDoctorCompetition(period, customStart, customEnd);
 }
 
 function emptyDoctor(name: string, branch: string): DoctorScore {
@@ -163,7 +158,7 @@ export default function DoctorCompetition() {
             : 'overall'
   );
   const [selectedDoctor, setSelectedDoctor] = useState<(DoctorScore & { overallScore: number }) | null>(null);
-  const cycle = useMemo(() => rangeFor(period, customStart, customEnd), [customEnd, customStart, period]);
+  const cycle = useMemo(() => rangeForDoctorCompetition(period, customStart, customEnd), [customEnd, customStart, period]);
 
   const load = async () => {
     setLoading(true);

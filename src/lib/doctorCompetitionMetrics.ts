@@ -1,5 +1,10 @@
 import { supabase } from '@/lib/supabase';
-import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
+import {
+  DASHBOARD_ALL_BRANCHES,
+  fetchDashboardSalesTruth,
+  dashboardInvoiceAmount,
+  type DashboardInvoiceRow,
+} from '@/lib/dashboard/dashboardTruthService';
 
 export type DoctorCompetitionPeriod = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 
@@ -120,16 +125,7 @@ function invoiceAmount(row: Record<string, unknown>) {
 }
 
 function invoiceDoctor(row: Record<string, unknown>) {
-  return normalizeDoctorName(
-    row.normalized_seller_name ||
-      row.seller_name ||
-      row.staff_name ||
-      row.doctor_name ||
-      row.pharmacist_name ||
-      row.cashier_name ||
-      row.created_by_name ||
-      row.user_name
-  );
+  return normalizeDoctorName(row.normalized_seller_name || row.seller_name || row.staff_name);
 }
 
 function invoiceBranch(row: Record<string, unknown>) {
@@ -157,25 +153,26 @@ function localDateOnly(date: Date): string {
 }
 
 function currentCycle() {
-  return getPharmacyCycleRange(new Date());
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 26, 12, 0, 0);
+  if (now.getDate() < 26) start.setMonth(start.getMonth() - 1);
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 25, 12, 0, 0);
+  return { start: localDateOnly(start), end: localDateOnly(end) };
 }
 
 export function rangeForDoctorCompetition(period: DoctorCompetitionPeriod = 'cycle', customStart?: string | null, customEnd?: string | null) {
   const now = new Date();
   if (period === 'last30') {
-    const start = new Date(now);
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
     start.setDate(start.getDate() - 30);
     return { start: localDateOnly(start), end: localDateOnly(now) };
   }
   if (period === 'last90' || period === 'last_3_months') {
-    const start = new Date(now);
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
     start.setMonth(start.getMonth() - 3);
     return { start: localDateOnly(start), end: localDateOnly(now) };
   }
-  if (period === 'custom') {
-    const today = localDateOnly(now);
-    return { start: customStart || today, end: customEnd || customStart || today };
-  }
+  if (period === 'custom') return { start: customStart || localDateOnly(now), end: customEnd || customStart || localDateOnly(now) };
   return currentCycle();
 }
 
@@ -274,76 +271,73 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     return current;
   };
 
-  const invoiceColumns = [
-    'id',
-    'invoice_no',
-    'invoice_number',
-    'invoice_date',
-    'sale_date',
-    'date',
-    'created_at',
-    'branch',
-    'branch_name',
-    'normalized_seller_name',
-    'seller_name',
-    'staff_name',
-    'invoice_type',
-    'save_status',
-    'import_validation_status',
-    'net_total',
-    'net_amount',
-    'discounted_amount',
-    'total_amount',
-    'amount',
-    'gross_total',
-    'gross_amount',
-    'line_items_count',
-    'raw_data',
-  ].join(',');
-
-  const [invoiceResult, reviewResult, followupResult] = await Promise.all([
-    safeSelect('sales_invoices', (query) =>
-      query
-        .select(invoiceColumns)
-        .gte('invoice_date', `${range.start}T00:00:00`)
-        .lte('invoice_date', `${range.end}T23:59:59`)
-        .limit(15000)
-    ),
+  const [salesTruthResult, reviewResult, followupResult] = await Promise.all([
+    (async () => {
+      try {
+        const truth = await fetchDashboardSalesTruth({
+          startDate: range.start,
+          endDate: range.end,
+          branch: selectedBranch || DASHBOARD_ALL_BRANCHES,
+          noCache: true,
+          errors: [],
+        });
+        return { truth, error: null as string | null };
+      } catch (error) {
+        return {
+          truth: null,
+          error: error instanceof Error ? error.message : 'تعذر تحميل مبيعات الدكاترة من sales_invoices',
+        };
+      }
+    })(),
     safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', range.end).limit(4000)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(7000)),
   ]);
 
-  const periodMidpoint = new Date(range.start);
-  periodMidpoint.setTime((new Date(range.start).getTime() + new Date(range.end).getTime()) / 2);
+  const periodMidpoint = new Date(`${range.start}T12:00:00`);
+  periodMidpoint.setTime((new Date(`${range.start}T12:00:00`).getTime() + new Date(`${range.end}T12:00:00`).getTime()) / 2);
   const firstHalfSales = new Map<string, number>();
   const secondHalfSales = new Map<string, number>();
 
-  if (invoiceResult.error) errors.sales_invoices = invoiceResult.error;
-  sourceHealth.sales_invoices = invoiceResult.error ? 'unavailable' : invoiceResult.data.length ? 'ready' : 'empty';
-  for (const invoice of invoiceResult.data) {
-    const day = invoiceDate(invoice);
-    if (!day || day < range.start || day > range.end) continue;
-    const amount = invoiceAmount(invoice);
-    if (amount <= 0) continue;
-    if (invoiceTypeIndicatesReturnOrCancel(invoice)) continue;
-    if (invoiceStatusInvalid(invoice)) continue;
+  if (salesTruthResult.error) errors.sales_invoices = salesTruthResult.error;
+  const truth = salesTruthResult.truth;
+  sourceHealth.sales_invoices = salesTruthResult.error ? 'unavailable' : truth?.doctorSales?.length ? 'ready' : 'empty';
 
-    const name = invoiceDoctor(invoice);
-    const branch = invoiceBranch(invoice);
+  for (const doctorRow of truth?.doctorSales || []) {
+    const name = normalizeDoctorName(doctorRow.doctor_name);
+    const branch = text(doctorRow.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
     const current = upsert(name, branch);
-    current.totalSales += amount;
-    current.invoices += 1;
-    current.totalQuantity += num(invoice.line_items_count || (invoice.raw_data as Record<string, unknown> | undefined)?.quantity || (invoice.raw_data as Record<string, unknown> | undefined)?.qty);
-    if ((invoice.raw_data as Record<string, unknown> | undefined)?.is_list_item || (invoice.raw_data as Record<string, unknown> | undefined)?.list_item || (invoice.raw_data as Record<string, unknown> | undefined)?.incentive_item) current.listItems += 1;
-    if ((invoice.raw_data as Record<string, unknown> | undefined)?.is_stagnant || (invoice.raw_data as Record<string, unknown> | undefined)?.stagnant_item || (invoice.raw_data as Record<string, unknown> | undefined)?.slow_moving) current.stagnantItems += 1;
-    if ((invoice.raw_data as Record<string, unknown> | undefined)?.is_list_item || (invoice.raw_data as Record<string, unknown> | undefined)?.list_item || (invoice.raw_data as Record<string, unknown> | undefined)?.incentive_item || (invoice.raw_data as Record<string, unknown> | undefined)?.is_stagnant || (invoice.raw_data as Record<string, unknown> | undefined)?.stagnant_item) {
-      current.incentiveValue += amount;
-      current.linkedInvoiceCount += 1;
-    }
+    current.totalSales += num(doctorRow.sales_total);
+    current.invoices += num(doctorRow.invoices_count);
+    current.avgInvoice = num(doctorRow.avg_invoice);
+    current.incentiveValue += num(doctorRow.incentive_value);
+  }
+
+  for (const invoice of (truth?.cycleRows || []) as DashboardInvoiceRow[]) {
+    const amount = dashboardInvoiceAmount(invoice);
+    if (amount <= 0) continue;
+    if (invoiceTypeIndicatesReturnOrCancel(invoice as Record<string, unknown>)) continue;
+    if (invoiceStatusInvalid(invoice as Record<string, unknown>)) continue;
+
+    const name = invoiceDoctor(invoice as Record<string, unknown>);
+    const branch = invoiceBranch(invoice as Record<string, unknown>);
+    if (!allowBranch(branch)) continue;
     const key = `${name}|${branch}`;
-    if (new Date(`${day}T12:00:00`).getTime() <= periodMidpoint.getTime()) firstHalfSales.set(key, (firstHalfSales.get(key) || 0) + amount);
+    const invoiceTime = new Date(`${invoiceDate(invoice as Record<string, unknown>)}T12:00:00`).getTime();
+    if (invoiceTime <= periodMidpoint.getTime()) firstHalfSales.set(key, (firstHalfSales.get(key) || 0) + amount);
     else secondHalfSales.set(key, (secondHalfSales.get(key) || 0) + amount);
+  }
+
+  if (import.meta.env.DEV) {
+    const salesTotal = [...map.values()].reduce((sum, row) => sum + row.totalSales, 0);
+    console.info('[DoctorCompetitionMetrics] sales source', {
+      range,
+      rowsRead: truth?.reconciliation?.rowsRead || 0,
+      dashboardTotal: truth?.summary?.sales_total || 0,
+      doctorRows: truth?.doctorSales?.length || 0,
+      doctorSalesTotal: salesTotal,
+      topDoctors: [...map.values()].slice(0, 5).map((row) => ({ name: row.name, branch: row.branch, sales: row.totalSales, invoices: row.invoices })),
+    });
   }
 
   if (reviewResult.error) errors.conversation_sales_reviews = reviewResult.error;
@@ -385,21 +379,6 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       current.satisfactionTotal += 1;
       current.satisfactionCount += 1;
     }
-  }
-
-  if (import.meta.env.DEV) {
-    const invoiceRowsForDebug = invoiceResult.data.filter((invoice) => {
-      const day = invoiceDate(invoice);
-      return day && day >= range.start && day <= range.end && invoiceAmount(invoice) > 0;
-    });
-    console.info('[DoctorCompetitionMetrics] sales invoices loaded', {
-      range,
-      rowsFetched: invoiceResult.data.length,
-      rowsUsed: invoiceRowsForDebug.length,
-      netSales: invoiceRowsForDebug.reduce((sum, invoice) => sum + invoiceAmount(invoice), 0),
-      sampleDoctors: invoiceRowsForDebug.slice(0, 5).map(invoiceDoctor),
-      errors,
-    });
   }
 
   const withAverages = [...map.entries()].map(([key, row]) => {
