@@ -76,6 +76,14 @@ export interface ValidationError {
 export interface ImportSummary {
   totalRows: number;
   validRows: number;
+  rowsRead?: number;
+  uniqueInvoices?: number;
+  insertedInvoices?: number;
+  skippedInvoices?: number;
+  reviewInvoices?: number;
+  missingCustomer?: number;
+  missingDoctor?: number;
+  missingBranch?: number;
   insertedRows: number;
   updatedInvoices?: number;
   skippedDuplicates: number;
@@ -96,6 +104,11 @@ export interface ImportSummary {
   lastInvoiceDate?: string | null;
   fileNetSales?: number;
   importedNetSales?: number;
+  insertedNetSales?: number;
+  updatedNetSales?: number;
+  savedNetSales?: number;
+  savedOrUpdatedNetSales?: number;
+  reviewNetSales?: number;
   dailyCounts?: Array<{ date: string; count: number; total: number }>;
   branchCounts?: Array<{ branch: string; count: number; total: number }>;
   skippedDuplicateInvoices?: Array<{ invoiceNumber: string; branch: string; date: string }>;
@@ -328,8 +341,13 @@ function parseAmount(raw: unknown): number | null {
   if (raw === null || raw === undefined || raw === '') return null;
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
   const value = String(raw)
-    .replace(/[^\d٠-٩.-]/g, '')
-    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+    .trim()
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٬،,\s]/g, '')
+    .replace(/[٫]/g, '.')
+    .replace(/جنيه|ج\.م|egp/gi, '')
+    .replace(/[^0-9.-]/g, '');
   const amount = Number.parseFloat(value);
   return Number.isFinite(amount) ? amount : null;
 }
@@ -622,38 +640,6 @@ function existingInvoiceValue(row: Record<string, unknown>) {
     if (Number.isFinite(value)) return value;
   }
   return 0;
-}
-
-function invoiceNeedsRepair(
-  existing: Record<string, unknown>,
-  incoming: Record<string, unknown>,
-  fallbackBranch: string
-) {
-  const existingValue = existingInvoiceValue(existing);
-  const incomingValue = invoiceNetValue(incoming);
-  const sameValue = Math.abs(existingValue - incomingValue) < 0.01;
-  const checks: Array<[unknown, unknown]> = [
-    [existing.customer_code, incoming.customer_code],
-    [existing.customer_name, incoming.customer_name],
-    [existing.customer_phone, incoming.customer_phone],
-    [existing.seller_name, incoming.seller_name],
-    [existing.save_status, incoming.save_status],
-    [existing.invoice_type, incoming.invoice_type],
-  ];
-
-  if (!sameDateOnly(existing.invoice_date, incoming.invoice_date)) return false;
-  if (
-    normalizeComparableBranch(existing.branch, fallbackBranch) !==
-    normalizeComparableBranch(incoming.branch, fallbackBranch)
-  )
-    return false;
-  if (!sameValue) return true;
-
-  return checks.some(([oldValue, newValue]) => {
-    const oldText = String(oldValue || '').trim();
-    const newText = String(newValue || '').trim();
-    return Boolean(newText) && oldText !== newText;
-  });
 }
 
 function reportProgress(
@@ -1518,6 +1504,10 @@ export async function importInvoicesToDB(
       0
     ),
     importedNetSales: 0,
+    insertedNetSales: 0,
+    updatedNetSales: 0,
+    savedNetSales: 0,
+    reviewNetSales: 0,
   };
   if (rows.length === 0) return summary;
 
@@ -1530,6 +1520,10 @@ export async function importInvoicesToDB(
   summary.invoicesWithoutCustomer = rows.filter((row) => !row.customerCode && !row.phone).length;
   summary.invoicesWithoutDoctor = rows.filter((row) => !row.seller).length;
   summary.invoicesWithoutBranch = rows.filter((row) => !(row.branch || branch)).length;
+  summary.unmatchedCustomerRows = rows.filter(
+    (row) => row.customerLinkStatus === 'unmatched_customer'
+  ).length;
+  summary.zeroAmountRows = rows.filter((row) => row.importValidationStatus === 'zero_amount').length;
 
   // ربط seller_name بـ staff_id
   const staffIdMap = new Map<string, string | null>();
@@ -1609,9 +1603,12 @@ export async function importInvoicesToDB(
   const existingUpdateRecords: Array<{
     id: string;
     record: Record<string, unknown>;
+    sourceRow: RawInvoiceRow;
     rowNumber: number;
   }> = [];
+  const savedSummaryRows: RawInvoiceRow[] = [];
   let needsReviewRows = 0;
+  let reviewNetSales = 0;
   let unlinkedCustomersEstimate = 0;
   const seenImportKeys = new Set<string>();
 
@@ -1653,18 +1650,24 @@ export async function importInvoicesToDB(
           customer_phone:
             row.customerLinkStatus === 'unmatched_customer' ? null : row.phone || null,
           invoice_date: row.date,
+          sale_date: row.date,
           invoice_datetime: row.invoiceDateTime,
           close_datetime: row.closeDateTime,
           analysis_datetime: row.analysisDateTime,
           amount: row.amount,
+          total_amount: row.netAmount ?? row.discountedAmount ?? row.amount,
           gross_amount: row.grossAmount,
+          gross_total: row.grossAmount,
           discounted_amount: row.discountedAmount,
           net_amount: row.netAmount,
+          net_total: row.netAmount,
           discount_amount: row.discountAmount,
           courier_cash: row.courierCash,
           extra_fees: row.extraFees,
           line_items_count: row.lineItemsCount,
           seller_name: row.seller,
+          normalized_seller_name: normalizeName(row.seller),
+          staff_name: row.seller,
           staff_id: staffIdMap.get(row.seller) || null,
           close_time: row.closeTime || null,
           shift_name: getShiftFromDateTime(row.analysisDateTime),
@@ -1680,6 +1683,7 @@ export async function importInvoicesToDB(
           import_warning: row.importWarning,
           source_row_number: row.rowIndex,
           raw_data: row.raw,
+          branch_name: rowBranch,
         };
 
         const existingValue = existingInvoiceValue(sameBranchAndDate);
@@ -1689,10 +1693,11 @@ export async function importInvoicesToDB(
         }
 
         const existingId = String(sameBranchAndDate.id || '');
-        if (existingId && invoiceNeedsRepair(sameBranchAndDate, recordForUpdate, branch)) {
+        if (existingId) {
           existingUpdateRecords.push({
             id: existingId,
             record: recordForUpdate,
+            sourceRow: row,
             rowNumber: row.rowIndex,
           });
         } else {
@@ -1702,6 +1707,7 @@ export async function importInvoicesToDB(
       }
 
       needsReviewRows++;
+      reviewNetSales += Number(row.netAmount ?? row.discountedAmount ?? row.amount ?? 0) || 0;
       summary.conflictReviewRows = (summary.conflictReviewRows || 0) + 1;
       summary.schemaWarnings?.push(
         `الفاتورة ${row.invoiceNumber} موجودة سابقًا برقم مطابق لكن بتاريخ أو فرع مختلف؛ لم يتم إدخالها لتجنب التكرار وتحتاج مراجعة.`
@@ -1717,12 +1723,14 @@ export async function importInvoicesToDB(
 
     if (!row.customerCode && !row.phone) {
       needsReviewRows++;
+      reviewNetSales += Number(row.netAmount ?? row.discountedAmount ?? row.amount ?? 0) || 0;
       unlinkedCustomersEstimate++;
     }
     return true;
   });
 
   summary.needsReviewRows = needsReviewRows;
+  summary.reviewNetSales = reviewNetSales;
   summary.unlinkedCustomersEstimate = unlinkedCustomersEstimate;
 
   const invoiceRecords = newRows.map((row) => ({
@@ -1736,18 +1744,24 @@ export async function importInvoicesToDB(
     customer_name: row.name,
     customer_phone: row.customerLinkStatus === 'unmatched_customer' ? null : row.phone || null,
     invoice_date: row.date,
+    sale_date: row.date,
     invoice_datetime: row.invoiceDateTime,
     close_datetime: row.closeDateTime,
     analysis_datetime: row.analysisDateTime,
     amount: row.amount,
+    total_amount: row.netAmount ?? row.discountedAmount ?? row.amount,
     gross_amount: row.grossAmount,
+    gross_total: row.grossAmount,
     discounted_amount: row.discountedAmount,
     net_amount: row.netAmount,
+    net_total: row.netAmount,
     discount_amount: row.discountAmount,
     courier_cash: row.courierCash,
     extra_fees: row.extraFees,
     line_items_count: row.lineItemsCount,
     seller_name: row.seller,
+    normalized_seller_name: normalizeName(row.seller),
+    staff_name: row.seller,
     staff_id: staffIdMap.get(row.seller) || null,
     close_time: row.closeTime || null,
     shift_name: getShiftFromDateTime(row.analysisDateTime),
@@ -1763,6 +1777,7 @@ export async function importInvoicesToDB(
     import_warning: row.importWarning,
     source_row_number: row.rowIndex,
     raw_data: row.raw,
+    branch_name: row.branch || branch,
   }));
 
   const chunkSize = 500;
@@ -1802,7 +1817,17 @@ export async function importInvoicesToDB(
             }
           } else {
             summary.insertedRows += 1;
-            summary.importedNetSales = (summary.importedNetSales || 0) + invoiceNetValue(record);
+            const value = invoiceNetValue(record);
+            summary.insertedNetSales = (summary.insertedNetSales || 0) + value;
+            summary.importedNetSales = (summary.importedNetSales || 0) + value;
+            const sourceRow = newRows.find(
+              (row) =>
+                row.invoiceNumber === String(record.invoice_number || '') &&
+                row.date === String(record.invoice_date || '').slice(0, 10) &&
+                normalizeComparableBranch(row.branch || branch, branch) ===
+                  normalizeComparableBranch(record.branch, branch)
+            );
+            if (sourceRow) savedSummaryRows.push(sourceRow);
           }
         }
         reportProgress(onProgress, Math.min(i + chunkSize, invoiceRecords.length), totalWork);
@@ -1832,8 +1857,10 @@ export async function importInvoicesToDB(
       });
     } else {
       summary.insertedRows += chunk.length;
-      summary.importedNetSales =
-        (summary.importedNetSales || 0) + chunk.reduce((sum, row) => sum + invoiceNetValue(row), 0);
+      const chunkNet = chunk.reduce((sum, row) => sum + invoiceNetValue(row), 0);
+      summary.insertedNetSales = (summary.insertedNetSales || 0) + chunkNet;
+      summary.importedNetSales = (summary.importedNetSales || 0) + chunkNet;
+      savedSummaryRows.push(...newRows.slice(i, i + chunk.length));
     }
     reportProgress(onProgress, Math.min(i + chunkSize, invoiceRecords.length), totalWork);
   }
@@ -1876,7 +1903,10 @@ export async function importInvoicesToDB(
       });
     } else {
       summary.updatedInvoices = (summary.updatedInvoices || 0) + 1;
-      summary.importedNetSales = (summary.importedNetSales || 0) + invoiceNetValue(item.record);
+      const value = invoiceNetValue(item.record);
+      summary.updatedNetSales = (summary.updatedNetSales || 0) + value;
+      summary.importedNetSales = (summary.importedNetSales || 0) + value;
+      savedSummaryRows.push(item.sourceRow);
     }
     updatedInvoiceProgress += 1;
     reportProgress(onProgress, invoiceRecords.length + updatedInvoiceProgress, totalWork);
@@ -2120,8 +2150,20 @@ export async function importInvoicesToDB(
 
   const daily = new Map<string, { date: string; count: number; total: number }>();
   const branches = new Map<string, { branch: string; count: number; total: number }>();
-  for (const row of newRows) {
-    const value = Number(row.netAmount ?? row.amount ?? row.grossAmount ?? 0) || 0;
+  summary.savedNetSales = (summary.insertedNetSales || 0) + (summary.updatedNetSales || 0);
+  summary.savedOrUpdatedNetSales = summary.savedNetSales;
+  summary.importedNetSales = summary.savedNetSales;
+  summary.rowsRead = summary.totalRows;
+  summary.uniqueInvoices = summary.distinctInvoicesInFile || 0;
+  summary.insertedInvoices = summary.insertedRows;
+  summary.skippedInvoices = summary.skippedDuplicates;
+  summary.reviewInvoices = summary.needsReviewRows;
+  summary.missingCustomer = summary.invoicesWithoutCustomer || 0;
+  summary.missingDoctor = summary.invoicesWithoutDoctor || 0;
+  summary.missingBranch = summary.invoicesWithoutBranch || 0;
+
+  for (const row of savedSummaryRows) {
+    const value = Number(row.netAmount ?? row.discountedAmount ?? row.amount ?? row.grossAmount ?? 0) || 0;
     const day = daily.get(row.date) || { date: row.date, count: 0, total: 0 };
     day.count += 1;
     day.total += value;

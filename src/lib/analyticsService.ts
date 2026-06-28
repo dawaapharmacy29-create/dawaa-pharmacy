@@ -30,7 +30,9 @@ export function parseNumericValue(value: unknown): number {
   let text = String(value)
     .trim()
     .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
-    .replace(/[٬،]/g, '')
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٬،,\s]/g, '')
+    .replace(/[٫]/g, '.')
     .replace(/جنيه|ج\.م|egp/gi, '')
     .replace(/[^0-9.\-]/g, '');
   const parts = text.split('.');
@@ -52,13 +54,14 @@ export function firstNumericValue(row: SalesInvoiceLike, keys: string[]): number
 
 export function getInvoiceNetValue(row: SalesInvoiceLike) {
   return firstNumericValue(row, [
+    'net_total',
     'net_amount',
     'discounted_amount',
-    'amount',
-    'gross_amount',
     'total_amount',
+    'amount',
+    'gross_total',
+    'gross_amount',
     'invoice_total',
-    'net_total',
     'total',
   ]);
 }

@@ -14,7 +14,9 @@ export type DashboardInvoiceRow = {
   invoice_no?: string | number | null;
   invoice_number?: string | number | null;
   invoice_date?: string | null;
+  sale_date?: string | null;
   branch?: string | null;
+  branch_name?: string | null;
   amount?: number | string | null;
   net_amount?: number | string | null;
   discounted_amount?: number | string | null;
@@ -28,6 +30,8 @@ export type DashboardInvoiceRow = {
   customer_code?: string | number | null;
   customer_name?: string | null;
   seller_name?: string | null;
+  normalized_seller_name?: string | null;
+  staff_name?: string | null;
 };
 
 export type DashboardSalesReconciliation = {
@@ -116,7 +120,7 @@ export function dashboardInvoiceAmount(row: DashboardInvoiceRow) {
 }
 
 function invoiceDate(row: DashboardInvoiceRow) {
-  return String(row.invoice_date || '').slice(0, 10);
+  return String(row.sale_date || row.invoice_date || '').slice(0, 10);
 }
 
 function invoiceIdentityKey(row: DashboardInvoiceRow) {
@@ -125,6 +129,14 @@ function invoiceIdentityKey(row: DashboardInvoiceRow) {
 
 function normalizedBranch(branch?: string | null) {
   return normalizeBranchName(branch || '') || UNKNOWN_LABEL;
+}
+
+function invoiceBranch(row: DashboardInvoiceRow) {
+  return normalizedBranch(row.branch_name || row.branch);
+}
+
+function invoiceDoctorName(row: DashboardInvoiceRow) {
+  return row.normalized_seller_name || row.seller_name || row.staff_name || '';
 }
 
 function isAllBranches(branch: string) {
@@ -280,7 +292,7 @@ function buildTruth(rows: DashboardInvoiceRow[]) {
 
   for (const row of invoiceRows) {
     const day = invoiceDate(row);
-    const branch = normalizedBranch(row.branch);
+    const branch = invoiceBranch(row);
     const amount = dashboardInvoiceAmount(row);
     const key = invoiceIdentityKey(row);
 
@@ -333,8 +345,9 @@ function buildTruth(rows: DashboardInvoiceRow[]) {
       monthMap.set(monthKey, monthRow);
     }
 
-    if (isDoctorName(row.seller_name)) {
-      const doctor = normalizeDoctorName(row.seller_name);
+    const doctorSource = invoiceDoctorName(row);
+    if (isDoctorName(doctorSource)) {
+      const doctor = normalizeDoctorName(doctorSource);
       const doctorKey = `${doctor}__${branch}`;
       const doctorRow = doctorMap.get(doctorKey) || {
         doctor_name: doctor,
@@ -432,7 +445,7 @@ export async function fetchDashboardSalesTruth(params: {
     recentAnchorDate
   );
   const sqlEquivalentTotal = cycleRows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0);
-  const branchesIncluded = [...new Set(cycleRows.map((row) => normalizedBranch(row.branch)))]
+  const branchesIncluded = [...new Set(cycleRows.map((row) => invoiceBranch(row)))]
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, 'ar'));
 
@@ -457,8 +470,8 @@ export async function fetchDashboardSalesTruth(params: {
       branchesIncluded,
       firstInvoiceDate: firstInvoiceDate(cycleRows),
       lastInvoiceDate: latestInvoiceDate(cycleRows, ''),
-      missingBranchCount: cycleRows.filter((row) => !String(row.branch || '').trim()).length,
-      missingDoctorCount: cycleRows.filter((row) => !String(row.seller_name || '').trim()).length,
+      missingBranchCount: cycleRows.filter((row) => !String(row.branch_name || row.branch || '').trim()).length,
+      missingDoctorCount: cycleRows.filter((row) => !String(invoiceDoctorName(row) || '').trim()).length,
       missingInvoiceKeyCount: cycleRows.filter((row) => !invoiceIdentityKey(row)).length,
       missingCustomerCodeCount: cycleRows.filter((row) => !String(row.customer_code || '').trim())
         .length,

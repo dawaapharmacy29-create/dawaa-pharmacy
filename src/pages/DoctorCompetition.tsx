@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Medal, RefreshCw, Trophy } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { supabase } from '@/lib/supabase';
-import { normalizeDoctorName, pickInvoiceAmount } from '@/lib/doctorCompetitionMetrics';
+import {
+  getDoctorCompetitionMetrics,
+  normalizeDoctorName,
+  pickInvoiceAmount,
+} from '@/lib/doctorCompetitionMetrics';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
@@ -185,94 +188,25 @@ export default function DoctorCompetition() {
   const load = async () => {
     setLoading(true);
     try {
-      const [invoiceResult, reviewResult, followupResult] = await Promise.all([
-        supabase.from('sales_invoices').select('*').gte('invoice_date', cycle.start).lte('invoice_date', cycle.end).limit(12000),
-        supabase.from('conversation_sales_reviews').select('*').gte('conversation_date', cycle.start).lte('conversation_date', cycle.end).limit(4000),
-        supabase.from('daily_followups').select('*').gte('created_at', cycle.start).lte('created_at', `${cycle.end}T23:59:59`).limit(7000),
-      ]);
-      const map = new Map<string, DoctorScore>();
-      const allowBranch = (branch: string) => {
-        if (branchFilter !== ALL_BRANCHES && branch !== branchFilter) return false;
-        if (user?.branch && user.role !== 'general_manager' && user.role !== 'branches_manager' && branch && branch !== user.branch) return false;
-        return true;
-      };
-      const upsert = (name: string, branch: string) => {
-        const key = `${name}|${branch}`;
-        const current = map.get(key) || emptyDoctor(name, branch);
-        map.set(key, current);
-        return current;
-      };
-
-      const periodMidpoint = new Date(cycle.start);
-      periodMidpoint.setTime((new Date(cycle.start).getTime() + new Date(cycle.end).getTime()) / 2);
-      const firstHalfSales = new Map<string, number>();
-      const secondHalfSales = new Map<string, number>();
-
-      for (const invoice of (invoiceResult.data || []) as Record<string, unknown>[]) {
-        const name = invoiceDoctor(invoice);
-        const branch = text(invoice.branch || invoice.branch_name || invoice.store_branch) || 'غير محدد';
-        if (!allowBranch(branch)) continue;
-        const current = upsert(name, branch);
-        const amount = invoiceAmount(invoice);
-        current.totalSales += amount;
-        current.invoices += 1;
-        current.totalQuantity += num(invoice.quantity || invoice.qty || invoice.total_quantity);
-        if (invoice.is_list_item || invoice.list_item || invoice.incentive_item) current.listItems += 1;
-        if (invoice.is_stagnant || invoice.stagnant_item || invoice.slow_moving) current.stagnantItems += 1;
-        if (invoice.is_list_item || invoice.list_item || invoice.incentive_item || invoice.is_stagnant || invoice.stagnant_item) {
-          current.incentiveValue += amount;
-          current.linkedInvoiceCount += 1;
-        }
-        const key = `${name}|${branch}`;
-        if (new Date(invoiceDate(invoice)).getTime() <= periodMidpoint.getTime()) firstHalfSales.set(key, (firstHalfSales.get(key) || 0) + amount);
-        else secondHalfSales.set(key, (secondHalfSales.get(key) || 0) + amount);
-      }
-
-      for (const review of (reviewResult.data || []) as Record<string, unknown>[]) {
-        const name = text(review.staff_name || review.doctor_name || review.employee_name || review.created_by_name) || 'غير محدد';
-        const branch = text(review.branch) || 'غير محدد';
-        if (!allowBranch(branch)) continue;
-        const current = upsert(name, branch);
-        const score = num(review.final_score || review.score || review.quality_rating);
-        if (score > 0) {
-          current.reviewCount += 1;
-          current.reviewTotal += score;
-          if (score >= 90) current.excellentReviews += 1;
-          if (score < 70) current.negativeReviews += 1;
-        }
-      }
-
-      for (const followup of (followupResult.data || []) as Record<string, unknown>[]) {
-        const name = text(followup.responsible_name || followup.assigned_doctor || followup.assigned_to || followup.evaluated_by_name || followup.updated_by) || 'غير محدد';
-        const branch = text(followup.branch) || 'غير محدد';
-        if (!allowBranch(branch)) continue;
-        const current = upsert(name, branch);
-        current.followups += 1;
-        if (followup.completed_at || /تم|completed|closed/i.test(text(followup.status || followup.followup_status))) current.completedFollowups += 1;
-        if (followup.purchase_after_followup) {
-          current.recoveredCustomers += 1;
-          current.followupSales += num(followup.purchase_amount);
-        }
-        const satisfaction = text(followup.customer_satisfaction);
-        if (satisfaction === 'نعم' || satisfaction === 'راضي') {
-          current.satisfactionTotal += 5;
-          current.satisfactionCount += 1;
-        } else if (satisfaction === 'لا') {
-          current.satisfactionTotal += 1;
-          current.satisfactionCount += 1;
-        }
-      }
-
-      const withAverages = [...map.entries()].map(([key, row]) => {
-        const first = firstHalfSales.get(key) || 0;
-        const second = secondHalfSales.get(key) || 0;
-        return {
-          ...row,
-          avgInvoice: row.invoices ? row.totalSales / row.invoices : 0,
-          growthRate: first ? ((second - first) / first) * 100 : second > 0 ? 100 : 0,
-        };
+      const metrics = await getDoctorCompetitionMetrics({
+        period,
+        customStart,
+        customEnd,
+        branch: branchFilter,
+        userBranch: user?.branch,
+        canSeeAllBranches: !user?.branch || user.role === 'general_manager' || user.role === 'branches_manager',
       });
-      setRows(normalizeScores(withAverages).sort((a, b) => b.overallScore - a.overallScore));
+      setRows(metrics.rows);
+      setReviewSourceAvailable(metrics.sourceHealth.conversation_sales_reviews !== 'unavailable');
+      setFollowupSourceAvailable(metrics.sourceHealth.daily_followups !== 'unavailable');
+      setLast90Available(metrics.sourceHealth.sales_invoices !== 'unavailable');
+      if (Object.keys(metrics.errors).length && import.meta.env.DEV) {
+        console.warn('[DoctorCompetition] source errors', {
+          range: metrics.range,
+          branch: branchFilter,
+          errors: metrics.errors,
+        });
+      }
     } catch (error) {
       console.warn('[DoctorCompetition] failed', error);
       setRows([]);

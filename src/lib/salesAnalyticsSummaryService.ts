@@ -2,6 +2,7 @@ import { normalizeBranchName } from '@/lib/branch';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { StaffSalesSummary } from '@/lib/dashboardSummaryService';
 import { fetchStaffIdentityRows, groupStaffSalesPerformance } from '@/lib/staffIdentityService';
+import { getInvoiceNetValue } from '@/lib/analyticsService';
 
 type Row = Record<string, unknown>;
 
@@ -138,7 +139,7 @@ async function fetchLiveInvoiceRows(filters: SalesAnalyticsFilters) {
     let query = supabase
       .from('sales_invoices')
       .select(
-        'id,invoice_no,invoice_number,invoice_date,net_amount,discounted_amount,amount,gross_amount,branch,seller_name,customer_code,customer_phone,customer_name'
+        'id,invoice_no,invoice_number,sale_date,invoice_date,net_total,net_amount,discounted_amount,total_amount,amount,gross_total,gross_amount,branch,branch_name,seller_name,normalized_seller_name,staff_name,customer_code,customer_phone,customer_name'
       )
       .gte('invoice_date', filters.startDate)
       .lt('invoice_date', dayAfter(filters.endDate))
@@ -158,7 +159,7 @@ async function fetchLiveInvoiceRows(filters: SalesAnalyticsFilters) {
 }
 
 function invoiceAmount(row: Row) {
-  return toNumber(read(row, ['net_amount', 'discounted_amount', 'amount', 'gross_amount'], 0));
+  return getInvoiceNetValue(row);
 }
 
 function customerKey(row: Row) {
@@ -171,7 +172,7 @@ function buildDailyTrendFromInvoices(rows: Row[]) {
     { date: string; netSales: number; invoicesCount: number; customers: Set<string> }
   >();
   for (const row of rows) {
-    const date = String(read(row, ['invoice_date'], '') || '').slice(0, 10);
+    const date = String(read(row, ['sale_date', 'invoice_date'], '') || '').slice(0, 10);
     if (!date) continue;
     const current = byDate.get(date) || {
       date,
@@ -203,7 +204,7 @@ function buildBranchRowsFromInvoices(rows: Row[], netSales: number) {
     { branch: string; netSales: number; invoicesCount: number; customers: Set<string> }
   >();
   for (const row of rows) {
-    const branch = normalizeBranchName(read(row, ['branch'], null)) || 'غير محدد';
+    const branch = normalizeBranchName(read(row, ['branch_name', 'branch'], null)) || 'غير محدد';
     const current = byBranch.get(branch) || {
       branch,
       netSales: 0,
@@ -234,9 +235,9 @@ function buildLastFiveDaysByBranchFromInvoices(rows: Row[]) {
     { date: string; branch: string; netTotal: number; invoicesCount: number }
   >();
   for (const row of rows) {
-    const date = String(read(row, ['invoice_date'], '') || '').slice(0, 10);
+    const date = String(read(row, ['sale_date', 'invoice_date'], '') || '').slice(0, 10);
     if (!date) continue;
-    const branch = normalizeBranchName(read(row, ['branch'], null)) || 'غير محدد';
+    const branch = normalizeBranchName(read(row, ['branch_name', 'branch'], null)) || 'غير محدد';
     const key = `${date}__${branch}`;
     const current = byKey.get(key) || { date, branch, netTotal: 0, invoicesCount: 0 };
     current.netTotal += invoiceAmount(row);
@@ -282,12 +283,14 @@ function buildStaffSalesFromInvoices(rows: Row[]) {
     }
   >();
   for (const row of rows) {
-    const sellerName = String(read(row, ['seller_name'], '') || '').trim();
+    const sellerName = String(
+      read(row, ['normalized_seller_name', 'seller_name', 'staff_name'], '') || ''
+    ).trim();
     if (!sellerName) continue;
-    const branch = normalizeBranchName(read(row, ['branch'], null));
+    const branch = normalizeBranchName(read(row, ['branch_name', 'branch'], null));
     const key = `${sellerName}|${branch || ''}`;
     const current = byStaff.get(key) || {
-      saleDate: String(read(row, ['invoice_date'], '') || '').slice(0, 10),
+      saleDate: String(read(row, ['sale_date', 'invoice_date'], '') || '').slice(0, 10),
       sellerName,
       branch,
       netTotal: 0,

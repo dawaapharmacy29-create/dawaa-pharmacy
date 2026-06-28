@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { BRANCHES } from '@/lib/constants';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
@@ -111,6 +112,20 @@ function invoiceSalesValue(
   return getInvoiceNetValue(invoice as Record<string, unknown>);
 }
 
+function salesImportSuccessMessage(summary: ImportSummary) {
+  return [
+    `تم قراءة ${(summary.distinctInvoicesInFile || summary.validRows || summary.totalRows).toLocaleString('ar-EG')} فاتورة.`,
+    `تم إضافة ${summary.insertedRows.toLocaleString('ar-EG')} فاتورة جديدة.`,
+    `تم تحديث ${(summary.updatedInvoices || 0).toLocaleString('ar-EG')} فاتورة موجودة.`,
+    `تم تخطي ${summary.skippedDuplicates.toLocaleString('ar-EG')} فاتورة.`,
+    `تحتاج مراجعة: ${summary.needsReviewRows.toLocaleString('ar-EG')}.`,
+    `صافي الملف: ${formatCurrency(summary.fileNetSales || 0)}.`,
+    `صافي الفواتير الجديدة: ${formatCurrency(summary.insertedNetSales || 0)}.`,
+    `صافي الفواتير المحدثة: ${formatCurrency(summary.updatedNetSales || 0)}.`,
+    `صافي المحفوظ/المحدث: ${formatCurrency(summary.savedNetSales ?? summary.importedNetSales ?? 0)}.`,
+  ].join('\n');
+}
+
 function customerImportStatusLabel(status: string) {
   const labels: Record<string, string> = {
     existing_customer: 'عميل موجود',
@@ -146,6 +161,7 @@ interface InvoiceEditForm {
 
 export default function Invoices() {
   const { user, isAdmin } = useAuth();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const sellerNameFilter = searchParams.get('seller_name') || '';
   const fromDateFilter = searchParams.get('from') || '';
@@ -334,7 +350,7 @@ export default function Invoices() {
       setImportSummary(summary);
       setStep('done');
       toast.success(
-        importKind === 'sales' ? 'تم استيراد ملف المبيعات' : 'تم استيراد بيانات العملاء'
+        importKind === 'sales' ? salesImportSuccessMessage(summary) : 'تم استيراد بيانات العملاء'
       );
 
       const currentUserProfile = getCurrentUserProfile();
@@ -343,14 +359,17 @@ export default function Invoices() {
         currentUserProfile.name,
         importKind === 'sales' ? 'استيراد مبيعات يومية' : 'استيراد بيانات عملاء',
         importKind === 'sales' ? 'الفواتير' : 'العملاء',
-        `استيراد ${summary.insertedRows} صف - تحديث ${summary.updatedCustomers} عميل - إضافة ${summary.newCustomers} عميل`,
+        importKind === 'sales'
+          ? `قراءة ${summary.distinctInvoicesInFile || summary.totalRows} فاتورة - إضافة ${summary.insertedRows} - تحديث ${summary.updatedInvoices || 0} - صافي المحفوظ ${formatCurrency(summary.savedNetSales ?? summary.importedNetSales ?? 0)} - مراجعة ${summary.needsReviewRows}`
+          : `استيراد ${summary.insertedRows} صف - تحديث ${summary.updatedCustomers} عميل - إضافة ${summary.newCustomers} عميل`,
         branch
       );
       if (importKind === 'sales') {
+        await queryClient.invalidateQueries({ queryKey: ['supabase'] });
         await loadManagedInvoices();
         await supabase.from('notifications').insert({
           title: 'استيراد ملف فواتير جديد',
-          message: `تم استيراد ${summary.insertedRows} فاتورة مبيعات من ملف ${fileName}`,
+          message: `تم قراءة ${summary.distinctInvoicesInFile || summary.totalRows} فاتورة من ${fileName}. تمت إضافة ${summary.insertedRows} وتحديث ${summary.updatedInvoices || 0}. صافي المحفوظ/المحدث ${formatCurrency(summary.savedNetSales ?? summary.importedNetSales ?? 0)}.`,
           type: 'sales_import',
           severity: summary.errors.length ? 'medium' : 'info',
           entity_type: 'sales_invoices',
@@ -394,6 +413,7 @@ export default function Invoices() {
       p_end_date: endDate,
     });
     clearInvoiceLinkedViews();
+    await queryClient.invalidateQueries({ queryKey: ['supabase'] });
     setSummaryRefreshBusy(false);
 
     if (error) {
@@ -1529,14 +1549,32 @@ export default function Invoices() {
           <div
             className={`grid gap-3 ${importKind === 'sales' ? 'grid-cols-2 md:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'}`}
           >
-            <ResultTile value={importSummary.insertedRows} label="صفوف أضيفت" />
+            <ResultTile
+              value={importKind === 'sales' ? importSummary.totalRows : importSummary.insertedRows}
+              label={importKind === 'sales' ? 'صفوف مقروءة من الملف' : 'صفوف أضيفت'}
+            />
             {importKind === 'sales' && (
-              <ResultTile value={importSummary.updatedInvoices || 0} label="فواتير اتحدثت" />
+              <ResultTile value={importSummary.validRows} label="صفوف صالحة" />
+            )}
+            {importKind === 'sales' && (
+              <ResultTile
+                value={importSummary.distinctInvoicesInFile || 0}
+                label="فواتير مميزة بالملف"
+              />
+            )}
+            {importKind === 'sales' && (
+              <ResultTile value={importSummary.insertedRows} label="فواتير جديدة" />
+            )}
+            {importKind === 'sales' && (
+              <ResultTile value={importSummary.updatedInvoices || 0} label="فواتير محدثة" />
             )}
             {importKind === 'sales' && (
               <ResultTile value={importSummary.valueChangedUpdates || 0} label="قيم اتعدلت" />
             )}
-            <ResultTile value={importSummary.skippedDuplicates} label="مكرر تخطى" />
+            <ResultTile
+              value={importSummary.skippedDuplicates}
+              label={importKind === 'sales' ? 'فواتير متخطاة' : 'مكرر تخطى'}
+            />
             <ResultTile value={importSummary.updatedCustomers} label="عميل محدث" />
             <ResultTile value={importSummary.newCustomers} label="عميل جديد" />
             {importKind === 'sales' && (
@@ -1553,17 +1591,28 @@ export default function Invoices() {
                 />
                 <ResultTile value={importSummary.zeroAmountRows || 0} label="فواتير صفرية" />
                 <ResultTile value={errorCount} label="صفوف غير صالحة" />
-                <ResultTile
-                  value={importSummary.distinctInvoicesInFile || 0}
-                  label="فواتير مميزة بالملف"
-                />
                 <ResultTile value={importSummary.invoicesWithoutCustomer || 0} label="بدون عميل" />
                 <ResultTile value={importSummary.invoicesWithoutDoctor || 0} label="بدون دكتور" />
                 <ResultTile value={importSummary.invoicesWithoutBranch || 0} label="بدون فرع" />
                 <ResultTile value={importSummary.fileNetSales} label="صافي الملف" isCurrency />
                 <ResultTile
-                  value={importSummary.importedNetSales}
-                  label="صافي المستورد"
+                  value={importSummary.insertedNetSales || 0}
+                  label="صافي الفواتير الجديدة"
+                  isCurrency
+                />
+                <ResultTile
+                  value={importSummary.updatedNetSales || 0}
+                  label="صافي الفواتير المحدثة"
+                  isCurrency
+                />
+                <ResultTile
+                  value={importSummary.savedNetSales ?? importSummary.importedNetSales}
+                  label="صافي المحفوظ/المحدث"
+                  isCurrency
+                />
+                <ResultTile
+                  value={importSummary.reviewNetSales || 0}
+                  label="صافي يحتاج مراجعة"
                   isCurrency
                 />
               </>
@@ -1629,7 +1678,10 @@ export default function Invoices() {
           {importKind === 'sales' && (
             <div className="grid gap-3 lg:grid-cols-2">
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-3 font-bold text-white">عدد الفواتير حسب اليوم</div>
+                <div className="mb-1 font-bold text-white">عدد الفواتير حسب اليوم</div>
+                <div className="mb-3 text-xs text-slate-400">
+                  من الفواتير التي تم حفظها أو تحديثها فعليًا
+                </div>
                 <div className="max-h-48 space-y-2 overflow-auto">
                   {(importSummary.dailyCounts || []).map((row) => (
                     <div
@@ -1645,7 +1697,10 @@ export default function Invoices() {
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-3 font-bold text-white">عدد الفواتير حسب الفرع</div>
+                <div className="mb-1 font-bold text-white">عدد الفواتير حسب الفرع</div>
+                <div className="mb-3 text-xs text-slate-400">
+                  من الفواتير التي تم حفظها أو تحديثها فعليًا
+                </div>
                 <div className="max-h-48 space-y-2 overflow-auto">
                   {(importSummary.branchCounts || []).map((row) => (
                     <div

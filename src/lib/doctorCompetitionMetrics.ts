@@ -81,8 +81,15 @@ export function normalizeDoctorName(value: unknown) {
 
   let normalized = name.replace(/\s+/g, ' ').trim();
   normalized = normalized.replace(/\([^)]*\)/g, '').trim();
-  normalized = normalized.replace(/^(?:دكتور|د\/|د)\s*/i, '').trim();
-  normalized = normalized.replace(/\s+/g, ' ');
+  normalized = normalized
+    .replace(/[\u064B-\u065F\u0640]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/^(?:الدكتور|دكتور|د\s*\/?|د\.)\s*/i, '')
+    .replace(/[.،,:;_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   if (!normalized) return 'غير محدد';
   return `د/ ${normalized}`;

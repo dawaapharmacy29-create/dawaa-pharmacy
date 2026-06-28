@@ -11,7 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { useLocalCache } from '@/hooks/useLocalCache';
@@ -24,6 +24,7 @@ import {
   loadSalesAnalyticsSummary,
   type SalesAnalyticsSummary,
 } from '@/lib/salesAnalyticsSummaryService';
+import { clearExecutiveDashboardCache } from '@/lib/executiveDashboardDataService';
 
 type PeriodType = 'cycle' | 'previous_cycle' | 'month' | 'last_30_days' | 'custom';
 
@@ -60,6 +61,7 @@ function periodDays(start: string, end: string) {
 
 export default function Analytics() {
   const { user } = useAuth();
+  const [, setSearchParams] = useSearchParams();
   const cycle = getCurrentCycle();
   const previousCycle = getPreviousCycle();
   const [periodStart, setPeriodStart] = useState(() => formatCycleDate(cycle.start));
@@ -121,6 +123,7 @@ export default function Analytics() {
       setError(null);
       if (forceRefresh) {
         clearSalesAnalyticsSummaryCache();
+        clearExecutiveDashboardCache();
         await refetchAnalytics();
       } else if (!data) {
         await refetchAnalytics();
@@ -134,6 +137,17 @@ export default function Analytics() {
     const timeout = window.setTimeout(() => void load(false), 250);
     return () => window.clearTimeout(timeout);
   }, [load]);
+
+  useEffect(() => {
+    setSearchParams(
+      {
+        period: periodType,
+        start: periodStart,
+        end: periodEnd,
+      },
+      { replace: true }
+    );
+  }, [periodEnd, periodStart, periodType, setSearchParams]);
 
   const branches = useMemo(
     () => data?.branchRows.map((row) => row.branch).filter(Boolean) || [],
@@ -637,9 +651,20 @@ function OperationsV13Panel() {
         supabase.from('dawaa_branch_shift_daily_avg_v13').select('*').order('branch'),
         supabase.from('dawaa_branch_target_progress_v13').select('*').order('branch'),
       ]);
-      if (cardsResult.error) throw cardsResult.error;
-      if (shiftsResult.error) throw shiftsResult.error;
-      if (targetsResult.error) throw targetsResult.error;
+      const failed = [
+        { name: 'dawaa_dashboard_customer_cards_v13', error: cardsResult.error },
+        { name: 'dawaa_branch_shift_daily_avg_v13', error: shiftsResult.error },
+        { name: 'dawaa_branch_target_progress_v13', error: targetsResult.error },
+      ].find((item) => item.error);
+      if (failed?.error) {
+        if (import.meta.env.DEV) {
+          console.warn('[Analytics V13] failed to load view', {
+            view: failed.name,
+            message: failed.error.message,
+          });
+        }
+        throw new Error(`تعذر تحميل مؤشرات V13 من ${failed.name}: ${failed.error.message}`);
+      }
       setCards((cardsResult.data?.[0] || null) as V13CustomerCards | null);
       setShifts((shiftsResult.data || []) as V13ShiftRow[]);
       setTargets((targetsResult.data || []) as V13TargetRow[]);
