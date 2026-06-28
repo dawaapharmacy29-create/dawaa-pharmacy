@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { normalizeBranchName } from '@/lib/branch';
 import {
   DASHBOARD_ALL_BRANCHES,
   fetchDashboardSalesTruth,
@@ -254,14 +255,16 @@ function buildWinners(rows: DoctorCompetitionScore[]): DoctorCompetitionWinners 
 
 export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParams = {}): Promise<DoctorCompetitionMetrics> {
   const range = rangeForDoctorCompetition(params.period, params.customStart, params.customEnd);
-  const selectedBranch = params.branch && params.branch !== ALL_BRANCHES ? params.branch : '';
+  const selectedBranch = params.branch && params.branch !== ALL_BRANCHES ? normalizeBranchName(params.branch) : '';
+  const userBranch = params.userBranch ? normalizeBranchName(params.userBranch) : '';
   const canSeeAll = params.canSeeAllBranches !== false;
   const map = new Map<string, Omit<DoctorCompetitionScore, 'overallScore'>>();
   const errors: Record<string, string> = {};
   const sourceHealth: Record<string, 'ready' | 'empty' | 'unavailable'> = {};
   const allowBranch = (branch: string) => {
-    if (selectedBranch && branch !== selectedBranch) return false;
-    if (!canSeeAll && params.userBranch && branch && branch !== params.userBranch) return false;
+    const normalizedBranch = normalizeBranchName(branch || '');
+    if (selectedBranch && normalizedBranch !== selectedBranch) return false;
+    if (!canSeeAll && userBranch && normalizedBranch && normalizedBranch !== userBranch) return false;
     return true;
   };
   const upsert = (name: string, branch: string) => {
@@ -304,7 +307,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
 
   for (const doctorRow of truth?.doctorSales || []) {
     const name = normalizeDoctorName(doctorRow.doctor_name);
-    const branch = text(doctorRow.branch) || 'غير محدد';
+    const branch = normalizeBranchName(doctorRow.branch || '') || text(doctorRow.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
     const current = upsert(name, branch);
     current.totalSales += num(doctorRow.sales_total);
@@ -320,7 +323,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     if (invoiceStatusInvalid(invoice as Record<string, unknown>)) continue;
 
     const name = invoiceDoctor(invoice as Record<string, unknown>);
-    const branch = invoiceBranch(invoice as Record<string, unknown>);
+    const branch = normalizeBranchName(invoiceBranch(invoice as Record<string, unknown>)) || invoiceBranch(invoice as Record<string, unknown>);
     if (!allowBranch(branch)) continue;
     const key = `${name}|${branch}`;
     const invoiceTime = new Date(`${invoiceDate(invoice as Record<string, unknown>)}T12:00:00`).getTime();
@@ -344,7 +347,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   sourceHealth.conversation_sales_reviews = reviewResult.error ? 'unavailable' : reviewResult.data.length ? 'ready' : 'empty';
   for (const review of reviewResult.data) {
     const name = normalizeDoctorName(review.staff_name || review.doctor_name || review.employee_name || review.created_by_name);
-    const branch = text(review.branch) || 'غير محدد';
+    const branch = normalizeBranchName(review.branch || '') || text(review.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
     const current = upsert(name, branch);
     const score = num(review.final_score || review.score || review.quality_rating);
@@ -362,7 +365,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     const name = normalizeDoctorName(
       followup.responsible_name || followup.assigned_doctor || followup.assigned_to || followup.evaluated_by_name || followup.updated_by
     );
-    const branch = text(followup.branch) || 'غير محدد';
+    const branch = normalizeBranchName(followup.branch || '') || text(followup.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
     const current = upsert(name, branch);
     current.followups += 1;

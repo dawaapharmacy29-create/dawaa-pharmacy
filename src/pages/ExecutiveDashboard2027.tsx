@@ -884,6 +884,7 @@ export default function ExecutiveDashboard2027() {
   const [teamTaskSummary, setTeamTaskSummary] = useState<EmployeeTaskSummary | null>(null);
   const [teamTaskIssue, setTeamTaskIssue] = useState<string | null>(null);
   const loadIdRef = useRef(0);
+  const lastGoodDoctorCompetitionRef = useRef<DoctorCompetitionMetrics | null>(null);
   const noCacheRef = useRef(false);
   const [state, setState] = useState<DashboardState>({
     summary: null,
@@ -956,11 +957,21 @@ export default function ExecutiveDashboard2027() {
       canSeeAllBranches: canAllBranches,
     })
       .then((metrics) => {
-        if (mounted) setDoctorCompetition(metrics);
+        if (!mounted) return;
+        if (metrics.rows.length) {
+          lastGoodDoctorCompetitionRef.current = metrics;
+          setDoctorCompetition(metrics);
+        } else if (lastGoodDoctorCompetitionRef.current) {
+          setDoctorCompetition(lastGoodDoctorCompetitionRef.current);
+        } else {
+          setDoctorCompetition(metrics);
+        }
       })
       .catch((error) => {
         if (import.meta.env.DEV) console.warn('[ExecutiveDashboard2027] doctor competition metrics failed', error);
-        if (mounted) setDoctorCompetition(null);
+        if (mounted && lastGoodDoctorCompetitionRef.current) {
+          setDoctorCompetition(lastGoodDoctorCompetitionRef.current);
+        }
       })
       .finally(() => {
         if (mounted) setDoctorCompetitionLoading(false);

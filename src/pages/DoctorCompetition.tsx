@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Medal, RefreshCw, Trophy } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -164,6 +164,8 @@ export default function DoctorCompetition() {
   const initialFocus = params.get('focus');
   const [rows, setRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
   const [loading, setLoading] = useState(true);
+  const lastGoodRowsRef = useRef<Array<DoctorScore & { overallScore: number }>>([]);
+  const [scopeWarning, setScopeWarning] = useState<string | null>(null);
   const [last90Available, setLast90Available] = useState(true);
   const [reviewSourceAvailable, setReviewSourceAvailable] = useState(true);
   const [followupSourceAvailable, setFollowupSourceAvailable] = useState(true);
@@ -200,10 +202,22 @@ export default function DoctorCompetition() {
         userBranch: user?.branch,
         canSeeAllBranches: allBranchesAllowed,
       });
-      const scopedRows = doctorScoped
-        ? metrics.rows.filter((row) => rowMatchesCurrentDoctor(user, { ...row, doctor_name: row.name }))
-        : metrics.rows;
-      setRows(scopedRows);
+      const allRows = metrics.rows;
+      const doctorRows = doctorScoped
+        ? allRows.filter((row) => rowMatchesCurrentDoctor(user, { ...row, doctor_name: row.name }))
+        : allRows;
+      const scopedRows = doctorScoped && !doctorRows.length && allRows.length ? allRows : doctorRows;
+      setScopeWarning(
+        doctorScoped && !doctorRows.length && allRows.length
+          ? 'Sales exist, but the current doctor account is not linked exactly to invoice seller_name. Showing branch ranking temporarily.'
+          : null
+      );
+      if (scopedRows.length) {
+        lastGoodRowsRef.current = scopedRows;
+        setRows(scopedRows);
+      } else {
+        setRows(lastGoodRowsRef.current.length ? lastGoodRowsRef.current : scopedRows);
+      }
       setReviewSourceAvailable(metrics.sourceHealth.conversation_sales_reviews !== 'unavailable');
       setFollowupSourceAvailable(metrics.sourceHealth.daily_followups !== 'unavailable');
       setLast90Available(metrics.sourceHealth.sales_invoices !== 'unavailable');
@@ -216,7 +230,8 @@ export default function DoctorCompetition() {
       }
     } catch (error) {
       console.warn('[DoctorCompetition] failed', error);
-      setRows([]);
+      setScopeWarning('Competition refresh failed temporarily. Keeping the last successful data if available.');
+      setRows(lastGoodRowsRef.current);
     } finally {
       setLoading(false);
     }
@@ -284,6 +299,12 @@ export default function DoctorCompetition() {
           </div>
         </div>
       </section>
+
+      {scopeWarning && (
+        <div className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-sm font-bold text-amber-100">
+          {scopeWarning}
+        </div>
+      )}
 
       <section className="dawaa-panel grid gap-3 md:grid-cols-4">
         <select className="input-dark" value={period} onChange={(event) => setPeriod(event.target.value as Period)}>

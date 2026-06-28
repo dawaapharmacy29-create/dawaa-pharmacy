@@ -59,11 +59,48 @@ export function canViewBranchData(user: ScopeUser, branch?: unknown): boolean {
   return normalizeBranchName(branch || '') === userBranch;
 }
 
+function latinDoctorAliases(value: unknown): string[] {
+  const raw = String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!raw) return [];
+
+  const aliases = new Set<string>([raw]);
+  raw.split(' ').forEach((part) => {
+    if (part && part.length >= 3) aliases.add(part);
+  });
+
+  const dictionary: Record<string, string> = {
+    eslam: 'اسلام',
+    islam: 'اسلام',
+    yusuf: 'يوسف',
+    youssef: 'يوسف',
+    yousef: 'يوسف',
+    hassan: 'حسن',
+    hasan: 'حسن',
+    sara: 'ساره',
+    sarah: 'ساره',
+    nada: 'ندي',
+    basant: 'بسنت',
+    ola: 'علا',
+    alyaa: 'علياء',
+    aliaa: 'علياء',
+  };
+
+  for (const token of aliases) {
+    if (dictionary[token]) aliases.add(normalizeArabicName(dictionary[token]));
+  }
+
+  return [...aliases].map(normalizeArabicName).filter(Boolean);
+}
 export function doctorNameKeys(user: ScopeUser): string[] {
-  const values = [user?.name, user?.username, user?.staffId, user?.id]
-    .map(normalizeArabicName)
-    .filter(Boolean);
-  return [...new Set(values)];
+  const values = [user?.name, user?.username, user?.staffId, user?.id];
+  const direct = values.map(normalizeArabicName).filter(Boolean);
+  const aliases = values.flatMap(latinDoctorAliases);
+  return [...new Set([...direct, ...aliases])];
 }
 
 export function getCurrentUserScope(user: ScopeUser): CurrentUserScope {

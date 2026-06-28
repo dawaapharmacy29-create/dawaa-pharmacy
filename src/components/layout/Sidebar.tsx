@@ -121,7 +121,7 @@ const GROUPS: NavGroup[] = [
       { path: '/analytics', icon: BarChart3, label: 'التحليلات والمبيعات', permission: 'view_analytics' },
       { path: '/invoices', icon: FileSpreadsheet, label: 'استيراد الفواتير', permission: 'view_invoices' },
       { path: '/branch-comparison', icon: BarChart3, label: 'مقارنة الفروع', permission: 'view_branch_comparison' },
-      { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_analytics_sales' },
+      { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
       { path: '/whatsapp-analytics', icon: BarChart3, label: 'تحليلات واتساب', permission: 'view_reviews' },
       { path: '/reports', icon: FileSpreadsheet, label: 'مركز التقارير', permission: 'view_sales_reports' },
       { path: '/offers', icon: Sparkles, label: 'العروض', permission: 'view_operations' },
@@ -170,7 +170,7 @@ const PHARMACIST_GROUPS: NavGroup[] = [
     icon: UserCheck,
     items: [
       { path: '/doctor-dashboard', icon: LayoutDashboard, label: 'لوحة الدكتور', permission: 'view_doctor_dashboard' },
-      { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_analytics_sales' },
+      { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
       { path: '/customers', icon: Users, label: 'العملاء', permission: 'view_customers' },
       { path: '/customer-service', icon: HeadphonesIcon, label: 'خدمة العملاء', permission: 'view_customer_service' },
       { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
