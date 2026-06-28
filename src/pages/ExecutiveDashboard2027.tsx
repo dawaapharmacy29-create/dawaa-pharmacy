@@ -3049,17 +3049,17 @@ function DashboardDoctorCompetitionPanel({
           </div>
           <div className="mt-4 overflow-hidden rounded-2xl border border-cyan-300/10">
             <table className="w-full min-w-[860px] text-right text-sm">
-              <thead className="bg-slate-950/80 text-xs text-slate-400">
-                <tr>
-                  <th className="p-3">الترتيب</th>
-                  <th className="p-3">الدكتور</th>
-                  <th className="p-3">الفرع</th>
-                  <th className="p-3">المبيعات</th>
-                  <th className="p-3">الفواتير</th>
-                  <th className="p-3">متوسط الفاتورة</th>
-                  <th className="p-3">تقييم المحادثات</th>
-                  <th className="p-3">المتابعات المكتملة</th>
-                  <th className="p-3">النقاط الشاملة</th>
+              <thead className="bg-slate-900/90">
+                <tr className="border-b border-cyan-300/15">
+                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">الترتيب</th>
+                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">الدكتور</th>
+                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">الفرع</th>
+                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">المبيعات</th>
+                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">الفواتير</th>
+                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">متوسط الفاتورة</th>
+                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">تقييم المحادثات</th>
+                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">المتابعات المكتملة</th>
+                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">النقاط الشاملة</th>
                 </tr>
               </thead>
               <tbody>
