@@ -86,6 +86,8 @@ export interface ImportSummary {
   missingBranch?: number;
   insertedRows: number;
   updatedInvoices?: number;
+  /** فواتير كانت موجودة مسبقًا في قاعدة البيانات وتم تأكيدها من ملف الرفع الحالي */
+  confirmedExistingInvoices?: number;
   skippedDuplicates: number;
   conflictReviewRows?: number;
   valueChangedUpdates?: number;
@@ -106,6 +108,10 @@ export interface ImportSummary {
   importedNetSales?: number;
   insertedNetSales?: number;
   updatedNetSales?: number;
+  /** صافي الفواتير الموجودة مسبقًا كما وردت في ملف الرفع الحالي */
+  confirmedExistingNetSales?: number;
+  /** صافي الملف الذي تم التعامل معه = الجديد + الموجود المؤكد، ولا يشترط أن يكون كله Insert جديد */
+  processedNetSales?: number;
   savedNetSales?: number;
   savedOrUpdatedNetSales?: number;
   reviewNetSales?: number;
@@ -525,13 +531,31 @@ function schemaCacheMissingColumn(message?: string | null) {
   );
 }
 
+function finiteAmount(value: unknown): number | null {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function firstInvoiceNetCandidate(candidates: unknown[]): number {
+  const finiteValues = candidates.map(finiteAmount).filter((value): value is number => value !== null);
+  const positiveValue = finiteValues.find((value) => value > 0);
+  return positiveValue ?? finiteValues[0] ?? 0;
+}
+
 function invoiceNetValue(row: Record<string, unknown>) {
-  const candidates = [row.net_amount, row.discounted_amount, row.amount];
-  for (const candidate of candidates) {
-    const value = Number(candidate);
-    if (Number.isFinite(value)) return value;
-  }
-  return 0;
+  return firstInvoiceNetCandidate([
+    row.net_total,
+    row.net_amount,
+    row.discounted_amount,
+    row.total_amount,
+    row.amount,
+    row.gross_total,
+    row.gross_amount,
+  ]);
+}
+
+function rawInvoiceNetValue(row: RawInvoiceRow) {
+  return firstInvoiceNetCandidate([row.netAmount, row.discountedAmount, row.amount, row.grossAmount]);
 }
 
 function invoiceDuplicateKey(invoiceNumber: string, branch: string, saleDate: string) {
@@ -911,6 +935,7 @@ export async function importCustomersToDB(
     totalRows: rows.length,
     validRows: rows.length,
     insertedRows: 0,
+    confirmedExistingInvoices: 0,
     skippedDuplicates: 0,
     errors: [],
     updatedCustomers: 0,
@@ -1477,6 +1502,7 @@ export async function importInvoicesToDB(
     totalRows: rows.length,
     validRows: rows.length,
     insertedRows: 0,
+    confirmedExistingInvoices: 0,
     skippedDuplicates: 0,
     errors: [],
     updatedCustomers: 0,
@@ -1499,13 +1525,12 @@ export async function importInvoicesToDB(
         .filter(Boolean)
         .sort()
         .pop() || null,
-    fileNetSales: rows.reduce(
-      (sum, row) => sum + (Number(row.netAmount ?? row.discountedAmount ?? row.amount ?? 0) || 0),
-      0
-    ),
+    fileNetSales: rows.reduce((sum, row) => sum + rawInvoiceNetValue(row), 0),
     importedNetSales: 0,
     insertedNetSales: 0,
     updatedNetSales: 0,
+    confirmedExistingNetSales: 0,
+    processedNetSales: 0,
     savedNetSales: 0,
     reviewNetSales: 0,
   };
@@ -1687,7 +1712,9 @@ export async function importInvoicesToDB(
         };
 
         const existingValue = existingInvoiceValue(sameBranchAndDate);
-        const incomingValue = invoiceNetValue(recordForUpdate);
+        const incomingValue = rawInvoiceNetValue(row);
+        summary.confirmedExistingInvoices = (summary.confirmedExistingInvoices || 0) + 1;
+        summary.confirmedExistingNetSales = (summary.confirmedExistingNetSales || 0) + incomingValue;
         if (Math.abs(existingValue - incomingValue) >= 0.01) {
           summary.valueChangedUpdates = (summary.valueChangedUpdates || 0) + 1;
         }
@@ -1707,7 +1734,7 @@ export async function importInvoicesToDB(
       }
 
       needsReviewRows++;
-      reviewNetSales += Number(row.netAmount ?? row.discountedAmount ?? row.amount ?? 0) || 0;
+      reviewNetSales += rawInvoiceNetValue(row);
       summary.conflictReviewRows = (summary.conflictReviewRows || 0) + 1;
       summary.schemaWarnings?.push(
         `الفاتورة ${row.invoiceNumber} موجودة سابقًا برقم مطابق لكن بتاريخ أو فرع مختلف؛ لم يتم إدخالها لتجنب التكرار وتحتاج مراجعة.`
@@ -1723,7 +1750,7 @@ export async function importInvoicesToDB(
 
     if (!row.customerCode && !row.phone) {
       needsReviewRows++;
-      reviewNetSales += Number(row.netAmount ?? row.discountedAmount ?? row.amount ?? 0) || 0;
+      reviewNetSales += rawInvoiceNetValue(row);
       unlinkedCustomersEstimate++;
     }
     return true;
@@ -1903,7 +1930,7 @@ export async function importInvoicesToDB(
       });
     } else {
       summary.updatedInvoices = (summary.updatedInvoices || 0) + 1;
-      const value = invoiceNetValue(item.record);
+      const value = rawInvoiceNetValue(item.sourceRow);
       summary.updatedNetSales = (summary.updatedNetSales || 0) + value;
       summary.importedNetSales = (summary.importedNetSales || 0) + value;
       savedSummaryRows.push(item.sourceRow);
@@ -1931,21 +1958,21 @@ export async function importInvoicesToDB(
     const rowBranch = row.branch || branch;
     const current = grouped.get(key);
     if (current) {
-      current.total += row.amount;
+      current.total += rawInvoiceNetValue(row);
       current.count += 1;
       current.dates.push(row.date);
       if (!current.phone && row.phone) current.phone = row.phone;
-      current.branchTotals[rowBranch] = (current.branchTotals[rowBranch] || 0) + row.amount;
+      current.branchTotals[rowBranch] = (current.branchTotals[rowBranch] || 0) + rawInvoiceNetValue(row);
       current.branch =
         Object.entries(current.branchTotals).sort((a, b) => b[1] - a[1])[0]?.[0] || current.branch;
     } else {
       grouped.set(key, {
         name: row.name,
         phone: row.phone,
-        total: row.amount,
+        total: rawInvoiceNetValue(row),
         count: 1,
         branch: rowBranch,
-        branchTotals: { [rowBranch]: row.amount },
+        branchTotals: { [rowBranch]: rawInvoiceNetValue(row) },
         dates: [row.date],
       });
     }
@@ -2152,6 +2179,8 @@ export async function importInvoicesToDB(
   const branches = new Map<string, { branch: string; count: number; total: number }>();
   summary.savedNetSales = (summary.insertedNetSales || 0) + (summary.updatedNetSales || 0);
   summary.savedOrUpdatedNetSales = summary.savedNetSales;
+  summary.processedNetSales =
+    (summary.insertedNetSales || 0) + (summary.confirmedExistingNetSales || summary.updatedNetSales || 0);
   summary.importedNetSales = summary.savedNetSales;
   summary.rowsRead = summary.totalRows;
   summary.uniqueInvoices = summary.distinctInvoicesInFile || 0;
@@ -2163,7 +2192,7 @@ export async function importInvoicesToDB(
   summary.missingBranch = summary.invoicesWithoutBranch || 0;
 
   for (const row of savedSummaryRows) {
-    const value = Number(row.netAmount ?? row.discountedAmount ?? row.amount ?? row.grossAmount ?? 0) || 0;
+    const value = rawInvoiceNetValue(row);
     const day = daily.get(row.date) || { date: row.date, count: 0, total: 0 };
     day.count += 1;
     day.total += value;

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import {
   Upload,
@@ -113,16 +113,19 @@ function invoiceSalesValue(
 }
 
 function salesImportSuccessMessage(summary: ImportSummary) {
+  const existingCount = summary.confirmedExistingInvoices ?? summary.updatedInvoices ?? 0;
+  const existingNet = summary.confirmedExistingNetSales ?? summary.updatedNetSales ?? 0;
+  const processedNet = summary.processedNetSales ?? summary.savedNetSales ?? summary.importedNetSales ?? 0;
+
   return [
     `تم قراءة ${(summary.distinctInvoicesInFile || summary.validRows || summary.totalRows).toLocaleString('ar-EG')} فاتورة.`,
-    `تم إضافة ${summary.insertedRows.toLocaleString('ar-EG')} فاتورة جديدة.`,
-    `تم تحديث ${(summary.updatedInvoices || 0).toLocaleString('ar-EG')} فاتورة موجودة.`,
-    `تم تخطي ${summary.skippedDuplicates.toLocaleString('ar-EG')} فاتورة.`,
-    `تحتاج مراجعة: ${summary.needsReviewRows.toLocaleString('ar-EG')}.`,
     `صافي الملف: ${formatCurrency(summary.fileNetSales || 0)}.`,
-    `صافي الفواتير الجديدة: ${formatCurrency(summary.insertedNetSales || 0)}.`,
-    `صافي الفواتير المحدثة: ${formatCurrency(summary.updatedNetSales || 0)}.`,
-    `صافي المحفوظ/المحدث: ${formatCurrency(summary.savedNetSales ?? summary.importedNetSales ?? 0)}.`,
+    `تم إضافة ${summary.insertedRows.toLocaleString('ar-EG')} فاتورة جديدة بصافي ${formatCurrency(summary.insertedNetSales || 0)}.`,
+    `تم تأكيد/تحديث ${existingCount.toLocaleString('ar-EG')} فاتورة موجودة مسبقًا بصافي ${formatCurrency(existingNet)}.`,
+    `تم تخطي ${summary.skippedDuplicates.toLocaleString('ar-EG')} فاتورة.`,
+    `تحتاج مراجعة: ${summary.needsReviewRows.toLocaleString('ar-EG')} بصافي ${formatCurrency(summary.reviewNetSales || 0)}.`,
+    `صافي الجديد + الموجود المؤكد: ${formatCurrency(processedNet)}.`,
+    `صافي ما تم حفظه/تحديثه فعليًا: ${formatCurrency(summary.savedNetSales ?? summary.importedNetSales ?? 0)}.`,
   ].join('\n');
 }
 
@@ -360,7 +363,7 @@ export default function Invoices() {
         importKind === 'sales' ? 'استيراد مبيعات يومية' : 'استيراد بيانات عملاء',
         importKind === 'sales' ? 'الفواتير' : 'العملاء',
         importKind === 'sales'
-          ? `قراءة ${summary.distinctInvoicesInFile || summary.totalRows} فاتورة - إضافة ${summary.insertedRows} - تحديث ${summary.updatedInvoices || 0} - صافي المحفوظ ${formatCurrency(summary.savedNetSales ?? summary.importedNetSales ?? 0)} - مراجعة ${summary.needsReviewRows}`
+          ? `قراءة ${summary.distinctInvoicesInFile || summary.totalRows} فاتورة - إضافة ${summary.insertedRows} - موجود/محدث ${summary.confirmedExistingInvoices ?? summary.updatedInvoices ?? 0} - صافي الملف ${formatCurrency(summary.fileNetSales || 0)} - صافي المؤكد ${formatCurrency(summary.processedNetSales ?? summary.savedNetSales ?? summary.importedNetSales ?? 0)} - مراجعة ${summary.needsReviewRows}`
           : `استيراد ${summary.insertedRows} صف - تحديث ${summary.updatedCustomers} عميل - إضافة ${summary.newCustomers} عميل`,
         branch
       );
@@ -369,7 +372,7 @@ export default function Invoices() {
         await loadManagedInvoices();
         await supabase.from('notifications').insert({
           title: 'استيراد ملف فواتير جديد',
-          message: `تم قراءة ${summary.distinctInvoicesInFile || summary.totalRows} فاتورة من ${fileName}. تمت إضافة ${summary.insertedRows} وتحديث ${summary.updatedInvoices || 0}. صافي المحفوظ/المحدث ${formatCurrency(summary.savedNetSales ?? summary.importedNetSales ?? 0)}.`,
+          message: `تم قراءة ${summary.distinctInvoicesInFile || summary.totalRows} فاتورة من ${fileName}. تمت إضافة ${summary.insertedRows} وتأكيد/تحديث ${summary.confirmedExistingInvoices ?? summary.updatedInvoices ?? 0}. صافي الملف ${formatCurrency(summary.fileNetSales || 0)}، وصافي الجديد + الموجود المؤكد ${formatCurrency(summary.processedNetSales ?? summary.savedNetSales ?? summary.importedNetSales ?? 0)}.`,
           type: 'sales_import',
           severity: summary.errors.length ? 'medium' : 'info',
           entity_type: 'sales_invoices',
@@ -1566,7 +1569,10 @@ export default function Invoices() {
               <ResultTile value={importSummary.insertedRows} label="فواتير جديدة" />
             )}
             {importKind === 'sales' && (
-              <ResultTile value={importSummary.updatedInvoices || 0} label="فواتير محدثة" />
+              <ResultTile
+                value={importSummary.confirmedExistingInvoices ?? importSummary.updatedInvoices ?? 0}
+                label="موجودة/محدثة"
+              />
             )}
             {importKind === 'sales' && (
               <ResultTile value={importSummary.valueChangedUpdates || 0} label="قيم اتعدلت" />
@@ -1601,13 +1607,18 @@ export default function Invoices() {
                   isCurrency
                 />
                 <ResultTile
-                  value={importSummary.updatedNetSales || 0}
-                  label="صافي الفواتير المحدثة"
+                  value={importSummary.confirmedExistingNetSales ?? importSummary.updatedNetSales ?? 0}
+                  label="صافي الفواتير الموجودة"
+                  isCurrency
+                />
+                <ResultTile
+                  value={importSummary.processedNetSales ?? importSummary.savedNetSales ?? importSummary.importedNetSales}
+                  label="صافي الجديد + الموجود"
                   isCurrency
                 />
                 <ResultTile
                   value={importSummary.savedNetSales ?? importSummary.importedNetSales}
-                  label="صافي المحفوظ/المحدث"
+                  label="صافي المحفوظ/المحدث فعليًا"
                   isCurrency
                 />
                 <ResultTile
