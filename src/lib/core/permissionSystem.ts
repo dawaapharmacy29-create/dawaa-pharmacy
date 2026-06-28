@@ -681,6 +681,7 @@ const PHARMACIST_BASE = [
   'view_points',
   'view_reviews',
   'add_reviews',
+  'view_analytics_sales',
   'view_medicines',
   'view_stagnant_medicines',
   'view_incentive_medicines',

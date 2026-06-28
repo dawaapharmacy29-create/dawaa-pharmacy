@@ -34,6 +34,7 @@ import { supabase } from '@/lib/supabase';
 import { formatCycleDate, getCurrentCycle, getPreviousCycle, getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import { normalizeBranchName } from '@/lib/branch';
 import { useAuth } from '@/hooks/useAuth';
+import { isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
 import {
   type DailyChartMetric,
   type DailyChartRow,
@@ -863,10 +864,11 @@ function HealthSummaryBox({
 }
 
 export default function ExecutiveDashboard2027() {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
   const navigate = useNavigate();
   const currentCycle = useMemo(() => getCurrentCycle(), []);
   const previousCycle = useMemo(() => getPreviousCycle(), []);
+  const canViewExecutive = isManagerRole(user) || checkPermission('view_executive_dashboard');
   const [startDate, setStartDate] = useState(() => formatCycleDate(currentCycle.start));
   const [endDate, setEndDate] = useState(() => formatCycleDate(currentCycle.end));
   const [branch, setBranch] = useState(
@@ -1554,6 +1556,27 @@ export default function ExecutiveDashboard2027() {
       tone: 'purple' as const,
     },
   ];
+
+  if (!canViewExecutive) {
+    return (
+      <div dir="rtl" className="flex min-h-[60vh] items-center justify-center bg-[#06131f] p-6 text-slate-100">
+        <div className="max-w-md rounded-3xl border border-cyan-300/15 bg-slate-900/80 p-6 text-center shadow-2xl">
+          <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-cyan-300" />
+          <h1 className="text-xl font-black text-white">هذه اللوحة مخصصة للإدارة</h1>
+          <p className="mt-2 text-sm font-bold leading-6 text-slate-300">
+            سيتم توجيهك إلى لوحة الدكتور المناسبة لصلاحياتك.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate(isDoctorRole(user) ? '/doctor-dashboard' : '/')}
+            className="mt-5 rounded-xl bg-cyan-500 px-5 py-2 text-sm font-black text-slate-950 hover:bg-cyan-400"
+          >
+            الانتقال الآن
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div dir="rtl" className="executive-dashboard-page min-h-screen bg-[#06131f] text-slate-100">

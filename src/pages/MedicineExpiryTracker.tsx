@@ -13,6 +13,7 @@ import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataScope';
 import { exportMedicineExpiryToExcel } from '@/lib/exportExcel';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -185,19 +186,19 @@ export default function MedicineExpiryTracker() {
 
   const branches = useMemo(() => {
     const set = new Set<string>();
-    medicines.forEach((m) => {
+    medicines.filter((m) => canViewAllBranches(user) || canViewBranchData(user, m.branch_name || m.branch)).forEach((m) => {
       if (m.branch || m.branch_name) set.add(m.branch_name || m.branch || '');
     });
     return ['الكل', ...Array.from(set).filter(Boolean).sort()];
-  }, [medicines]);
+  }, [medicines, user]);
 
   const enriched = useMemo(() => {
-    return medicines.map((m) => ({
+    return medicines.filter((m) => canViewAllBranches(user) || canViewBranchData(user, m.branch_name || m.branch)).map((m) => ({
       ...m,
       days: daysUntilExpiry(m),
       bucket: getBucket(daysUntilExpiry(m)),
     }));
-  }, [medicines]);
+  }, [medicines, user]);
 
   // Auto-create notification for urgent medicines (once per session)
   useEffect(() => {

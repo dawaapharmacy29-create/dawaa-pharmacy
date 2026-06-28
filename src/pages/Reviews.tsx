@@ -28,6 +28,7 @@ import {
 } from '@/lib/conversationReviews';
 import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
+import { canViewAllBranches, isDoctorRole, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { persistPointsTransaction, applyStaffDelta } from '@/lib/pointsPersistence';
@@ -346,7 +347,19 @@ export default function Reviews() {
     filters: isActiveStaffFilter(),
     realtimeEnabled: false,
   });
-  const staffOptions = useMemo(() => mergeStaffChoices(staff), [staff]);
+  const staffOptions = useMemo(() => {
+    const choices = mergeStaffChoices(staff);
+    if (canViewAllBranches(user)) return choices;
+    if (isDoctorRole(user)) {
+      return choices.filter(
+        (row) =>
+          row.id === (user?.staffId || user?.id) ||
+          row.name === user?.name ||
+          rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
+      );
+    }
+    return choices.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>));
+  }, [staff, user]);
   const reviewers = useMemo(() => {
     const choices = reviewerChoices(staff);
     if (user && !choices.some((row) => row.id === user.id)) {
@@ -466,7 +479,9 @@ export default function Reviews() {
         .order('created_at', { ascending: false })
         .limit(120);
       if (error) throw error;
-      const rows = (data || []) as ConversationReviewHistoryRow[];
+      const rows = ((data || []) as ConversationReviewHistoryRow[]).filter((row) =>
+        rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
+      );
       setReviewHistory(rows);
       const params = new URLSearchParams(window.location.search);
       const id = params.get('id');
@@ -480,7 +495,7 @@ export default function Reviews() {
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     loadReviewHistory();

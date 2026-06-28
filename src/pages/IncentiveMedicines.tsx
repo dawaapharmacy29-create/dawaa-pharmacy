@@ -16,6 +16,7 @@ import {
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
+import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataScope';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
 import { persistPointsTransaction } from '@/lib/pointsPersistence';
@@ -189,10 +190,17 @@ export default function IncentiveMedicines() {
 
   const filteredMedicines = useMemo(
     () =>
-      (medicines || []).filter(
-        (medicine) => isAllBranches(user?.branch) || medicine.branch === user?.branch
+      (medicines || []).filter((medicine) =>
+        canViewAllBranches(user) || canViewBranchData(user, medicine.branch)
       ),
-    [medicines, user?.branch]
+    [medicines, user]
+  );
+  const scopedSaleRecords = useMemo(
+    () =>
+      (saleRecords || []).filter((row) =>
+        canViewAllBranches(user) || canViewBranchData(user, row.branch)
+      ),
+    [saleRecords, user]
   );
 
   const stats = useMemo(() => {
@@ -200,7 +208,7 @@ export default function IncentiveMedicines() {
       (acc, medicine) => {
         const perUnit = getIncentivePerUnit(medicine);
         const available = Number(medicine.current_quantity || 0);
-        const sold = movementTotalForMedicine(saleRecords, medicine.id, cycle);
+        const sold = movementTotalForMedicine(scopedSaleRecords, medicine.id, cycle);
         if (medicine.active) acc.potential += perUnit * available;
         acc.earned += perUnit * sold;
         acc.available += available;
@@ -209,16 +217,16 @@ export default function IncentiveMedicines() {
       },
       { potential: 0, earned: 0, available: 0, active: 0 }
     );
-  }, [cycle, filteredMedicines, saleRecords]);
+  }, [cycle, filteredMedicines, scopedSaleRecords]);
 
   const doctorTotals = useMemo(() => {
-    return groupDoctorTotals(saleRecords, cycle).map((item) => {
-      const money = saleRecords
+    return groupDoctorTotals(scopedSaleRecords, cycle).map((item) => {
+      const money = scopedSaleRecords
         .filter((row) => row.doctor_name === item.doctor)
         .reduce((sum, row) => sum + Number(row.incentive_total || 0), 0);
       return { ...item, money };
     });
-  }, [cycle, saleRecords]);
+  }, [cycle, scopedSaleRecords]);
 
   const resetModal = () => {
     setShowModal(false);
@@ -596,7 +604,7 @@ export default function IncentiveMedicines() {
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredMedicines.map((medicine, index) => {
             const perUnit = getIncentivePerUnit(medicine);
-            const soldInCycle = movementTotalForMedicine(saleRecords, medicine.id, cycle);
+            const soldInCycle = movementTotalForMedicine(scopedSaleRecords, medicine.id, cycle);
             const earned = perUnit * soldInCycle;
             const target = {
               id: medicine.id,

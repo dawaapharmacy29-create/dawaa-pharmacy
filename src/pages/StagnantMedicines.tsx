@@ -17,6 +17,7 @@ import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { logActivity as writeActivityLog } from '@/lib/activityLog';
 import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
+import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataScope';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { toast } from 'sonner';
 import { getCustomers } from '@/lib/api/customers';
@@ -607,8 +608,8 @@ export default function StagnantMedicines() {
   };
 
   const filteredMedicines = useMemo(() => {
-    let filtered = (medicines || []).filter(
-      (medicine) => isAllBranches(user?.branch) || medicine.branch === user?.branch
+    let filtered = (medicines || []).filter((medicine) =>
+      canViewAllBranches(user) || canViewBranchData(user, medicine.branch_name || medicine.branch)
     );
 
     if (filterBranch) {
@@ -654,7 +655,7 @@ export default function StagnantMedicines() {
     return filtered;
   }, [
     medicines,
-    user?.branch,
+    user,
     filterBranch,
     filterDoctor,
     filterStatus,

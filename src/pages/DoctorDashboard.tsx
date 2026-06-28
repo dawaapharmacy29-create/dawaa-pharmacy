@@ -20,6 +20,13 @@ import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { pointRecordDelta } from '@/lib/pointsLedger';
 import {
+  canViewAllBranches,
+  canViewBranchData,
+  isManagerRole,
+  rowMatchesCurrentDoctor,
+  rowMatchesCurrentUserScope,
+} from '@/lib/security/userDataScope';
+import {
   calculateIncentive,
   POINT_VALUE_EGP,
   STARTING_POINTS,
@@ -74,6 +81,7 @@ interface Customer {
   customer_code?: string;
   name: string;
   phone: string;
+  branch?: string | null;
   customer_notes?: string;
   retention_status?: string;
 }
@@ -147,7 +155,7 @@ export default function DoctorDashboard() {
   const cycle = getCurrentCycle();
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedStaffId, setSelectedStaffId] = useState('');
-  const isManagerView = canInspectTeam(user?.role);
+  const isManagerView = isManagerRole(user) || canInspectTeam(user?.role);
 
   const { data: staffOptions } = useSupabaseQuery<StaffOption>({
     table: 'staff',
@@ -156,20 +164,25 @@ export default function DoctorDashboard() {
     realtimeEnabled: true,
   });
 
+  const scopedStaffOptions = useMemo(() => {
+    if (canViewAllBranches(user)) return staffOptions;
+    return staffOptions.filter((item) => rowMatchesCurrentUserScope(user, item as unknown as Record<string, unknown>));
+  }, [staffOptions, user]);
+
   const selectedStaff = useMemo(() => {
     if (!isManagerView)
       return (
-        staffOptions.find((item) => item.id === (user?.staffId || user?.id)) ||
-        staffOptions.find((item) => item.name === user?.name) ||
+        scopedStaffOptions.find((item) => item.id === (user?.staffId || user?.id)) ||
+        scopedStaffOptions.find((item) => item.name === user?.name) ||
         null
       );
     return (
-      staffOptions.find((item) => item.id === selectedStaffId) ||
+      scopedStaffOptions.find((item) => item.id === selectedStaffId) ||
       staffOptions.find((item) => item.role === 'صيدلاني') ||
-      staffOptions[0] ||
+      scopedStaffOptions[0] ||
       null
     );
-  }, [isManagerView, selectedStaffId, staffOptions, user?.id, user?.name, user?.staffId]);
+  }, [isManagerView, scopedStaffOptions, selectedStaffId, user?.id, user?.name, user?.staffId]);
 
   const effectiveId = selectedStaff?.id || user?.staffId || user?.id || '';
   const effectiveName = selectedStaff?.name || user?.name || '';
@@ -210,6 +223,16 @@ export default function DoctorDashboard() {
   });
 
   const todayMetrics = metrics?.find((m) => m.metric_date === selectedDate) || metrics?.[0];
+  const scopedCustomers = useMemo(
+    () =>
+      (customers || []).filter(
+        (row) =>
+          canViewAllBranches(user) ||
+          canViewBranchData(user, row.branch) ||
+          rowMatchesCurrentDoctor(user, row as unknown as Record<string, unknown>)
+      ),
+    [customers, user]
+  );
   const totalIncentive =
     incentiveMedicines?.reduce((sum, m) => sum + m.incentive_value * m.current_quantity, 0) || 0;
 
@@ -270,7 +293,7 @@ export default function DoctorDashboard() {
               onChange={(e) => setSelectedStaffId(e.target.value)}
               className="input-dark md:w-72"
             >
-              {staffOptions
+          {scopedStaffOptions
                 .filter((item) => ['صيدلاني', 'توصيل', 'مساعد'].includes(item.role))
                 .map((item) => (
                   <option key={item.id} value={item.id}>
@@ -385,7 +408,7 @@ export default function DoctorDashboard() {
               <div className="text-slate-400 text-xs">يحتاجون متابعة</div>
             </div>
           </div>
-          <div className="text-3xl font-bold text-white num mb-2">{customers?.length || 0}</div>
+          <div className="text-3xl font-bold text-white num mb-2">{scopedCustomers.length}</div>
           <div className="text-slate-400 text-xs">عملاء معرضون للفقدان أو مفقودون</div>
         </div>
       </div>
@@ -481,9 +504,9 @@ export default function DoctorDashboard() {
             <div className="text-slate-400 text-xs">مع ملاحظات مهمة</div>
           </div>
         </div>
-        {customers && customers.length > 0 ? (
+        {scopedCustomers.length > 0 ? (
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {customers.slice(0, 10).map((customer) => (
+            {scopedCustomers.slice(0, 10).map((customer) => (
               <div key={customer.id} className="p-3 bg-white/5 rounded-lg border border-white/5">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-white font-medium text-sm">{customer.name}</div>

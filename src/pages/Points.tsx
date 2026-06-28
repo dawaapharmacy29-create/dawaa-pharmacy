@@ -54,6 +54,7 @@ import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { logActivity, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
+import { canViewAllBranches, isDoctorRole, rowMatchesCurrentDoctor, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 /* recharts will be dynamically imported inside the component to reduce initial bundle size */
 
 interface StaffMember {
@@ -192,7 +193,19 @@ export default function Points() {
     () => mergeRulesFromSupabase(remoteRulesRows || []),
     [remoteRulesRows]
   );
-  const staffChoices = useMemo(() => mergeStaffChoices(staffList), [staffList]);
+  const staffChoices = useMemo(() => {
+    const choices = mergeStaffChoices(staffList);
+    if (canViewAllBranches(user)) return choices;
+    if (isDoctorRole(user)) {
+      return choices.filter(
+        (staff) =>
+          staff.id === (user?.staffId || user?.id) ||
+          staff.name === user?.name ||
+          rowMatchesCurrentDoctor(user, staff as unknown as Record<string, unknown>)
+      );
+    }
+    return choices.filter((staff) => rowMatchesCurrentUserScope(user, staff as unknown as Record<string, unknown>));
+  }, [staffList, user]);
   const validStaffIds = useMemo(
     () => new Set(staffChoices.map((staff) => staff.id)),
     [staffChoices]
@@ -285,12 +298,13 @@ export default function Points() {
         const employeeId = String(row.employee_id || '').trim();
         const employeeName = String(row.employee_name || '').trim();
         return (
-          validStaffIds.has(employeeId) ||
-          validStaffNames.has(employeeName) ||
-          validStaffNames.has(normalizeStaffLookupKey(employeeName))
+          rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>) &&
+          (validStaffIds.has(employeeId) ||
+            validStaffNames.has(employeeName) ||
+            validStaffNames.has(normalizeStaffLookupKey(employeeName)))
         );
       }),
-    [canonicalRecords, validStaffIds, validStaffNames]
+    [canonicalRecords, user, validStaffIds, validStaffNames]
   );
   const cycleRecords = useMemo(
     () => validRecords.filter((row) => isRecordInCycle(row, cycle)) as PointRecord[],
@@ -316,7 +330,7 @@ export default function Points() {
   const pendingApprovals = validRecords.filter(
     (row) => pointRecordStatus(row) === 'pending' && isDeductionRecord(row)
   );
-  const myCycleRecords = approvedCycleRecords.filter((row) => row.employee_id === user?.id);
+  const myCycleRecords = approvedCycleRecords.filter((row) => rowMatchesCurrentDoctor(user, row as unknown as Record<string, unknown>));
 
   const staffCycleRecords = (staff: StaffMember) => {
     const normalizedName = normalizeStaffLookupKey(staff.original_name || staff.name);

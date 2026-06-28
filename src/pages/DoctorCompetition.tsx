@@ -9,6 +9,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
+import { canViewAllBranches, getScopedBranch, isDoctorRole, rowMatchesCurrentDoctor } from '@/lib/security/userDataScope';
 
 type Period = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 type RankingTab = 'sales' | 'avgInvoice' | 'incentive' | 'reviews' | 'service' | 'overall';
@@ -171,6 +172,9 @@ export default function DoctorCompetition() {
   const currentCycle = getPharmacyCycleRange(new Date());
   const [customStart, setCustomStart] = useState(currentCycle.start);
   const [customEnd, setCustomEnd] = useState(currentCycle.end);
+  const allBranchesAllowed = canViewAllBranches(user);
+  const doctorScoped = isDoctorRole(user);
+  const effectiveBranch = getScopedBranch(user, branchFilter, ALL_BRANCHES);
   const [rankingTab, setRankingTab] = useState<RankingTab>(
     initialFocus === 'sales'
       ? 'sales'
@@ -192,18 +196,21 @@ export default function DoctorCompetition() {
         period,
         customStart,
         customEnd,
-        branch: branchFilter,
+        branch: effectiveBranch,
         userBranch: user?.branch,
-        canSeeAllBranches: !user?.branch || user.role === 'general_manager' || user.role === 'branches_manager',
+        canSeeAllBranches: allBranchesAllowed,
       });
-      setRows(metrics.rows);
+      const scopedRows = doctorScoped
+        ? metrics.rows.filter((row) => rowMatchesCurrentDoctor(user, { ...row, doctor_name: row.name }))
+        : metrics.rows;
+      setRows(scopedRows);
       setReviewSourceAvailable(metrics.sourceHealth.conversation_sales_reviews !== 'unavailable');
       setFollowupSourceAvailable(metrics.sourceHealth.daily_followups !== 'unavailable');
       setLast90Available(metrics.sourceHealth.sales_invoices !== 'unavailable');
       if (Object.keys(metrics.errors).length && import.meta.env.DEV) {
         console.warn('[DoctorCompetition] source errors', {
           range: metrics.range,
-          branch: branchFilter,
+          branch: effectiveBranch,
           errors: metrics.errors,
         });
       }
@@ -217,7 +224,7 @@ export default function DoctorCompetition() {
 
   useEffect(() => {
     void load();
-  }, [period, branchFilter, customStart, customEnd]);
+  }, [period, effectiveBranch, customStart, customEnd, allBranchesAllowed, doctorScoped, user?.id, user?.staffId, user?.name, user?.username, user?.branch]);
 
   const topSales = [...rows].sort((a, b) => b.totalSales - a.totalSales)[0];
   const topAvgInvoice = [...rows].filter((row) => row.invoices >= MIN_AVG_INVOICE_THRESHOLD).sort((a, b) => b.avgInvoice - a.avgInvoice)[0];
@@ -285,10 +292,16 @@ export default function DoctorCompetition() {
           <option value="cycle">الدورة الحالية 26 إلى 25</option>
           <option value="custom">تاريخ مخصص</option>
         </select>
-        <select className="input-dark" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}>
-          <option>{ALL_BRANCHES}</option>
-          {BRANCHES.map((branch) => <option key={branch}>{branch}</option>)}
-        </select>
+        {allBranchesAllowed ? (
+          <select className="input-dark" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}>
+            <option>{ALL_BRANCHES}</option>
+            {BRANCHES.map((branch) => <option key={branch}>{branch}</option>)}
+          </select>
+        ) : (
+          <div className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-bold text-slate-200">
+            {effectiveBranch}
+          </div>
+        )}
         <input className="input-dark" type="date" value={customStart} disabled={period !== 'custom'} onChange={(event) => setCustomStart(event.target.value)} />
         <input className="input-dark" type="date" value={customEnd} disabled={period !== 'custom'} onChange={(event) => setCustomEnd(event.target.value)} />
       </section>

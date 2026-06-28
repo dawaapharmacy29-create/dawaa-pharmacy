@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import Layout from '@/components/layout/Layout';
 import { LOGO_URL } from '@/lib/constants';
 import PWABanner from '@/components/features/PWABanner';
+import { isDoctorRole } from '@/lib/security/userDataScope';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -201,6 +202,10 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
 
   if (loading) return <AppLoading />;
   if (!user) return <Navigate to="/login" replace />;
+
+  if (location.pathname === '/' && isDoctorRole(user) && !checkPermission('view_executive_dashboard')) {
+    return <Navigate to="/doctor-dashboard" replace />;
+  }
 
   if (effectivePermission && !checkPermission(effectivePermission)) {
     return (

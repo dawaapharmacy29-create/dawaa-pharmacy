@@ -38,6 +38,7 @@ import { isValidEgyptPhone } from '@/lib/customerAnalyticsService';
 import { normalizeBranchName } from '@/lib/branch';
 import { BRANCHES, CUSTOMER_SERVICE_BRANCH_OWNERS, CUSTOMER_SERVICE_DOCTORS, SHAMY_BRANCH_PHARMACISTS, SHOKRY_BRANCH_PHARMACISTS } from '@/lib/constants';
 import { canSeeAllBranches, effectiveBranchFilter } from '@/lib/security/permissionScopes';
+import { rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { mergeStaffChoices } from '@/lib/staffFallback';
 import { CustomerFlagsBadges } from '@/components/CustomerFlagsBadges';
@@ -1014,7 +1015,8 @@ export default function CustomerService() {
           limit: FETCH_LIMIT,
         });
         if (!mountedRef.current) return;
-        const sorted = [...data].sort((a, b) => priorityScore(b) - priorityScore(a));
+        const scopedData = data.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>));
+        const sorted = [...scopedData].sort((a, b) => priorityScore(b) - priorityScore(a));
         setRows(sorted);
         setSelectedRow((current) => (current && sorted.some((row) => row.id === current.id) ? current : sorted[0] || null));
         firstLoadRef.current = false;
@@ -1028,7 +1030,7 @@ export default function CustomerService() {
         }
       }
     },
-    [branch, debouncedSearch, status, userBranch, userRole]
+    [branch, debouncedSearch, status, user, userBranch, userRole]
   );
 
   useEffect(() => {

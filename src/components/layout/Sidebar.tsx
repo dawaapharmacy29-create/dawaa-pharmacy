@@ -38,6 +38,7 @@ import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
 import { LOGO_URL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
+import { isDoctorRole } from '@/lib/security/userDataScope';
 
 type NavItem = {
   path: string;
@@ -163,6 +164,26 @@ const GROUPS: NavGroup[] = [
   },
 ];
 
+const PHARMACIST_GROUPS: NavGroup[] = [
+  {
+    title: 'مساحة الدكتور',
+    icon: UserCheck,
+    items: [
+      { path: '/doctor-dashboard', icon: LayoutDashboard, label: 'لوحة الدكتور', permission: 'view_doctor_dashboard' },
+      { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_analytics_sales' },
+      { path: '/customers', icon: Users, label: 'العملاء', permission: 'view_customers' },
+      { path: '/customer-service', icon: HeadphonesIcon, label: 'خدمة العملاء', permission: 'view_customer_service' },
+      { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
+      { path: '/points', icon: Star, label: 'النقاط', permission: 'view_points' },
+      { path: '/stagnant-medicines', icon: Package, label: 'الرواكد', permission: 'view_stagnant_medicines' },
+      { path: '/incentive-medicines', icon: Sparkles, label: 'اللستة', permission: 'view_incentive_medicines' },
+      { path: '/medicine-expiry', icon: AlertTriangle, label: 'صلاحية الأدوية', permission: 'view_expiry_tracker' },
+      { path: '/shortages', icon: PackageSearch, label: 'النواقص', permission: 'view_shortages' },
+      { path: '/schedule', icon: Calendar, label: 'الجدول', permission: 'view_schedule' },
+    ],
+  },
+];
+
 function isRouteActive(itemPath: string, pathname: string) {
   if (itemPath === '/') return pathname === '/' || pathname === '/executive-2027';
   if (itemPath === '/team' && pathname.startsWith('/staff/')) return true;
@@ -191,6 +212,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   };
 
   const privileged = isAdmin || ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'مدير عام', 'مدير فرع'].includes(user?.role || '');
+  const pharmacistView = isDoctorRole(user) && !checkPermission('view_executive_dashboard');
 
   const canAccessItem = (item: NavItem) => {
     if (item.adminOnly && !privileged) return false;
@@ -199,11 +221,12 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   };
 
   const groups = useMemo(() => {
-    return GROUPS.map((group) => ({
+    const sourceGroups = pharmacistView ? PHARMACIST_GROUPS : GROUPS;
+    return sourceGroups.map((group) => ({
       ...group,
       items: group.items.filter((item) => canAccessItem(item)),
     })).filter((group) => group.items.length > 0);
-  }, [checkPermission, privileged]);
+  }, [checkPermission, pharmacistView, privileged]);
 
   const showPinnedShiftNotes = canAccessItem(SHIFT_NOTES_ITEM);
 

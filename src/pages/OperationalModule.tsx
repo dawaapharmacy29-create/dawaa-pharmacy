@@ -20,6 +20,7 @@ import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
 import { matchesOrderedSegments } from '@/lib/utils';
 import ImageUploadBox from '@/components/ImageUploadBox';
+import { canViewAllBranches, canViewBranchData, isManagerRole, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 
 type FieldKind =
   | 'text'
@@ -676,6 +677,19 @@ function stockConfig(
   };
 }
 
+function managePermissionForModule(module: keyof typeof configs) {
+  const map: Partial<Record<keyof typeof configs, string>> = {
+    shortages: 'manage_shortages',
+    inventory: 'manage_inventory',
+    shelf: 'manage_inventory',
+    cleaning: 'manage_operations',
+    supplies: 'manage_supplies',
+    purchases: 'manage_purchases',
+    branchInspection: 'manage_branch_inspection',
+  };
+  return map[module] || `manage_${String(module)}`;
+}
+
 function PackageIcon(props: { className?: string; size?: number }) {
   return <ClipboardList {...props} />;
 }
@@ -683,6 +697,7 @@ function PackageIcon(props: { className?: string; size?: number }) {
 export function OperationalModulePage({ module }: { module: keyof typeof configs }) {
   const config = configs[module];
   const { user } = useAuth();
+  const canManageModule = isManagerRole(user) || user?.permissions?.[managePermissionForModule(module)] === true;
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
   const [storyRows, setStoryRows] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(true);
@@ -702,7 +717,11 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
     realtimeEnabled: false,
   });
 
-  const staffOptions = useMemo(() => mergeStaffChoices(staffRows), [staffRows]);
+  const staffOptions = useMemo(() => {
+    const choices = mergeStaffChoices(staffRows);
+    if (canViewAllBranches(user)) return choices;
+    return choices.filter((staff) => rowMatchesCurrentUserScope(user, staff as unknown as Record<string, unknown>));
+  }, [staffRows, user]);
   const currentStaff = useMemo(() => {
     return staffOptions.find(
       (staff) => staff.id === user?.staffId || staff.id === user?.id || staff.name === user?.name
@@ -721,7 +740,11 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
       setError('تعذر تحميل البيانات. تأكد من تشغيل ترقية قاعدة البيانات.');
       setRows([]);
     } else {
-      setRows((data || []) as Array<Record<string, unknown>>);
+      setRows(
+        ((data || []) as Array<Record<string, unknown>>).filter((row) =>
+          canViewAllBranches(user) || canViewBranchData(user, row[config.branchField || 'branch'])
+        )
+      );
     }
     if (module === 'stories') {
       const { data: storiesData, error: storiesError } = await supabase
@@ -732,7 +755,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
       setStoryRows(storiesError ? [] : ((storiesData || []) as Array<Record<string, unknown>>));
     }
     setLoading(false);
-  }, [config.table, module]);
+  }, [config.table, module, user]);
 
   useEffect(() => {
     void loadRows();
@@ -776,6 +799,10 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   }, [config.dueDateField, config.statusField, rows]);
 
   const submit = async () => {
+    if (!canManageModule) {
+      toast.error('ليس لديك صلاحية إدارة هذه البيانات');
+      return;
+    }
     const missing = config.fields.find(
       (field) => field.required && !String(form[field.key] ?? '').trim()
     );
@@ -824,6 +851,10 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   };
 
   const updateStatus = async (row: Record<string, unknown>, status: string) => {
+    if (!canManageModule) {
+      toast.error('ليس لديك صلاحية تعديل هذه البيانات');
+      return;
+    }
     const { error: statusError } = await supabase
       .from(config.table)
       .update({
@@ -925,6 +956,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
 
       {module === 'stories' && <StoriesOffersAnalytics offers={rows} stories={storyRows} />}
 
+      {canManageModule && (
       <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-5">
         <div className="mb-4 flex items-center gap-2 text-white font-bold">
           <Plus size={18} className="text-teal-300" />
@@ -969,6 +1001,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
           حفظ
         </button>
       </div>
+      )}
 
       <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-4">
         <div className="grid gap-3 md:grid-cols-[1fr_180px_180px]">
@@ -1061,18 +1094,22 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
                         </span>
                       </td>
                       <td>
-                        <select
-                          className="input-dark min-w-40"
-                          value={status}
-                          onChange={(event) => updateStatus(row, event.target.value)}
-                        >
-                          {config.statuses.map((item) => (
-                            <option key={item.value} value={item.value}>
-                              {item.label}
-                            </option>
-                          ))}
-                        </select>
-                        {module === 'shortages' && row.source_customer_request_id && (
+                        {canManageModule ? (
+                          <select
+                            className="input-dark min-w-40"
+                            value={status}
+                            onChange={(event) => updateStatus(row, event.target.value)}
+                          >
+                            {config.statuses.map((item) => (
+                              <option key={item.value} value={item.value}>
+                                {item.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-xs font-bold text-slate-400">مشاهدة فقط</span>
+                        )}
+                        {canManageModule && module === 'shortages' && row.source_customer_request_id && (
                           <button
                             type="button"
                             onClick={() => returnShortageToCustomerRequest(row)}
