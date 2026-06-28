@@ -348,7 +348,7 @@ export default function DoctorCompetition() {
         <Winner title="أفضل خدمة عملاء" row={topService} value={topService ? `${topService.completedFollowups} متابعة` : 'لا يوجد'} />
       </section>
 
-      <section className="dawaa-panel overflow-x-auto">
+      <section className="dawaa-panel max-w-full min-w-0 overflow-x-auto">
         <div className="mb-4 flex flex-wrap gap-2">
           {[
             ['sales', 'ترتيب المبيعات'],
@@ -363,21 +363,45 @@ export default function DoctorCompetition() {
             </button>
           ))}
         </div>
-        <table className="min-w-full text-sm">
-          <thead className="border-y-2 border-cyan-300/80 bg-slate-950 text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>
-            <tr className="text-right">
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>#</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الدكتور</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الفرع</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الشامل</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>صافي مبيعات الدورة</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الفواتير</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>متوسط الفاتورة</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>النمو</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>الرواكد/اللستة</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>تقييم المحادثات</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>خدمة العملاء</th>
-              <th className="whitespace-nowrap border-l border-cyan-300/30 bg-slate-950 px-4 py-4 text-right text-sm font-black tracking-wide text-white dark:bg-slate-950 dark:text-white" style={{ backgroundColor: '#020617', color: '#ffffff' }}>سبب الفوز / فرصة التحسين</th>
+        <table className="w-full min-w-[980px] table-fixed text-xs md:text-sm">
+          <thead className="border-y-2 border-cyan-300/80" style={{ backgroundColor: '#020617' }}>
+            <tr className="text-right" style={{ backgroundColor: '#020617' }}>
+              <th className="w-12 border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>#</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>الدكتور</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>الفرع</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>الشامل</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>صافي مبيعات الدورة</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>الفواتير</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>متوسط الفاتورة</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>النمو</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>الرواكد/اللستة</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>تقييم المحادثات</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>خدمة العملاء</span>
+              </th>
+              <th className="border-l border-cyan-300/30 px-2 py-3 text-right align-middle text-xs font-black leading-5" style={{ backgroundColor: '#020617' }}>
+                <span className="block" style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>سبب الفوز / فرصة التحسين</span>
+              </th>
             </tr>
           </thead>
           <tbody>
