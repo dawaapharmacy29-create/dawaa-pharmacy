@@ -3049,17 +3049,17 @@ function DashboardDoctorCompetitionPanel({
           </div>
           <div className="mt-4 overflow-hidden rounded-2xl border border-cyan-300/10">
             <table className="w-full min-w-[860px] text-right text-sm">
-              <thead className="bg-slate-900/90">
-                <tr className="border-b border-cyan-300/15">
-                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">الترتيب</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">الدكتور</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">الفرع</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">المبيعات</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">الفواتير</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">متوسط الفاتورة</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">تقييم المحادثات</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">المتابعات المكتملة</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-slate-100">النقاط الشاملة</th>
+              <thead className="bg-gradient-to-l from-slate-950 via-slate-900 to-cyan-950/80 text-slate-50 shadow-[inset_0_-1px_0_rgba(103,232,249,0.22)]">
+                <tr className="border-b border-cyan-300/20">
+                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الترتيب</th>
+                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الدكتور</th>
+                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفرع</th>
+                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">المبيعات</th>
+                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفواتير</th>
+                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">متوسط الفاتورة</th>
+                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">تقييم المحادثات</th>
+                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">المتابعات المكتملة</th>
+                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">النقاط الشاملة</th>
                 </tr>
               </thead>
               <tbody>
