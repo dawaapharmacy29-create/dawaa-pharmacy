@@ -1,0 +1,152 @@
+diff --git a/src/App.tsx b/src/App.tsx
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -114,7 +114,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
+   '/customer-welcome': 'whatsapp_customer',
+   '/customer-coding': 'view_customer_service',
+   '/quick-replies': 'whatsapp_customer',
+-  '/doctor-competition': 'view_analytics_sales',
++  '/doctor-competition': 'view_doctor_dashboard',
+   '/customer-cashback': 'view_cashback',
+   '/customer-service-credit': 'view_cashback',
+   '/customer-points-ledger': 'view_cashback',
+diff --git a/src/components/layout/Sidebar.tsx b/src/components/layout/Sidebar.tsx
+--- a/src/components/layout/Sidebar.tsx
++++ b/src/components/layout/Sidebar.tsx
+@@ -122,7 +122,7 @@ const GROUPS: NavGroup[] = [
+       { path: '/analytics', icon: BarChart3, label: 'التحليلات والمبيعات', permission: 'view_analytics' },
+       { path: '/invoices', icon: FileSpreadsheet, label: 'استيراد الفواتير', permission: 'view_invoices' },
+       { path: '/branch-comparison', icon: BarChart3, label: 'مقارنة الفروع', permission: 'view_branch_comparison' },
+-      { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_analytics_sales' },
++      { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
+       { path: '/whatsapp-analytics', icon: BarChart3, label: 'تحليلات واتساب', permission: 'view_reviews' },
+       { path: '/reports', icon: FileSpreadsheet, label: 'مركز التقارير', permission: 'view_sales_reports' },
+       { path: '/offers', icon: Sparkles, label: 'العروض', permission: 'view_operations' },
+diff --git a/src/lib/security/userDataScope.ts b/src/lib/security/userDataScope.ts
+--- a/src/lib/security/userDataScope.ts
++++ b/src/lib/security/userDataScope.ts
+@@ -31,6 +31,7 @@ export function normalizeArabicName(value: unknown): string {
+     .replace(/\u0629/g, '\u0647')
+     .replace(/^(?:\s*(?:دكتور|الدكتور|د\.?|د\/)\s*)+/i, '')
++    .replace(/^(?:\s*(?:dr\.?|doctor|pharmacist)\s*)+/i, '')
+     .replace(/[.,،;:()[\]{}_\-/\\|]+/g, ' ')
+     .replace(/\s+/g, ' ')
+     .trim()
+@@ -61,11 +62,33 @@ export function canViewBranchData(user: ScopeUser, branch?: unknown): boolean {
+   return normalizeBranchName(branch || '') === userBranch;
+ }
+ 
++function compactName(value: unknown): string {
++  return normalizeArabicName(value).replace(/\s+/g, '');
++}
++
++function looseNameKeys(value: unknown): string[] {
++  const normalized = normalizeArabicName(value);
++  if (!normalized) return [];
++  const compact = normalized.replace(/\s+/g, '');
++  const parts = normalized.split(' ').filter((part) => part.length >= 3);
++  return [...new Set([normalized, compact, ...parts])].filter(Boolean);
++}
++
+ export function doctorNameKeys(user: ScopeUser): string[] {
+-  const values = [user?.name, user?.username, user?.staffId, user?.id]
+-    .map(normalizeArabicName)
+-    .filter(Boolean);
+-  return [...new Set(values)];
++  const rawValues = [user?.name, user?.username, user?.staffId, user?.id].filter(Boolean);
++  const values = rawValues.flatMap((value) => [
++    ...looseNameKeys(value),
++    // دعم حالات username مثل dr.eslam وربطه باسم اسلام عند عدم وجود staff_id في صف الفاتورة.
++    ...String(value || '')
++      .replace(/^dr\.?/i, '')
++      .split(/[._\-\s]+/)
++      .filter((part) => part.length >= 3)
++      .map(normalizeArabicName),
++  ]).filter(Boolean);
++  return [...new Set(values)];
+ }
+@@ -130,8 +153,22 @@ export function rowMatchesCurrentDoctor(user: ScopeUser, row: RowLike): boolean {
+   const scope = getCurrentUserScope(user);
+   const ids = rowIdValues(row);
+   if ((scope.staffId && ids.includes(scope.staffId)) || (scope.userId && ids.includes(scope.userId))) return true;
+   const names = rowNameValues(row);
+-  return scope.names.some((name) => names.some((rowName) => rowName === name || rowName.includes(name) || name.includes(rowName)));
++  const rowKeys = names.flatMap((name) => looseNameKeys(name));
++  return scope.names.some((name) => {
++    const compact = compactName(name);
++    return rowKeys.some((rowName) => {
++      const rowCompact = compactName(rowName);
++      if (!name || !rowName) return false;
++      if (rowName === name || rowName.includes(name) || name.includes(rowName)) return true;
++      if (compact && rowCompact && (rowCompact.includes(compact) || compact.includes(rowCompact))) return true;
++      // لا تعتمد على جزء واحد قصير إلا كحل أخير لتجنب اختفاء المسابقة للدكتور عند اختلاف username عن seller_name.
++      if (name.length >= 4 && rowName.length >= 4 && (rowName.includes(name) || name.includes(rowName))) return true;
++      return false;
++    });
++  });
+ }
+ 
+ export function rowMatchesCurrentUserScope(user: ScopeUser, row: RowLike): boolean {
+diff --git a/src/pages/DoctorCompetition.tsx b/src/pages/DoctorCompetition.tsx
+--- a/src/pages/DoctorCompetition.tsx
++++ b/src/pages/DoctorCompetition.tsx
+@@ -165,6 +165,7 @@ export default function DoctorCompetition() {
+   const initialFocus = params.get('focus');
+   const [rows, setRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
+   const [loading, setLoading] = useState(true);
++  const [scopeWarning, setScopeWarning] = useState<string | null>(null);
+   const [last90Available, setLast90Available] = useState(true);
+   const [reviewSourceAvailable, setReviewSourceAvailable] = useState(true);
+   const [followupSourceAvailable, setFollowupSourceAvailable] = useState(true);
+@@ -202,11 +203,20 @@ export default function DoctorCompetition() {
+         userBranch: user?.branch,
+         canSeeAllBranches: allBranchesAllowed,
+       });
+-      const scopedRows = doctorScoped
+-        ? metrics.rows.filter((row) => rowMatchesCurrentDoctor(user, { ...row, doctor_name: row.name }))
+-        : metrics.rows;
++      const matchedDoctorRows = doctorScoped
++        ? metrics.rows.filter((row) => rowMatchesCurrentDoctor(user, { ...row, doctor_name: row.name, seller_name: row.name, staff_name: row.name }))
++        : metrics.rows;
++      const scopedRows = doctorScoped
++        ? (matchedDoctorRows.length ? matchedDoctorRows : metrics.rows)
++        : metrics.rows;
++      setScopeWarning(
++        doctorScoped && !matchedDoctorRows.length && metrics.rows.length
++          ? 'المبيعات موجودة، لكن لم يتم ربط اسم الدكتور في الحساب باسم البائع في الفواتير بدقة. تم عرض ترتيب الفرع مؤقتًا بدل إخفاء المسابقة.'
++          : null
++      );
+       setRows(scopedRows);
+       setReviewSourceAvailable(metrics.sourceHealth.conversation_sales_reviews !== 'unavailable');
+@@ -218,7 +228,7 @@ export default function DoctorCompetition() {
+       }
+     } catch (error) {
+       console.warn('[DoctorCompetition] failed', error);
+-      setRows([]);
++      setScopeWarning('حدث خطأ مؤقت أثناء تحديث المسابقة. تم الاحتفاظ بآخر بيانات ظاهرة بدل مسح الجدول.');
+     } finally {
+       setLoading(false);
+     }
+@@ -317,6 +327,12 @@ export default function DoctorCompetition() {
+         </div>
+       </section>
++
++      {scopeWarning && (
++        <div className="rounded-2xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm font-black leading-7 text-amber-100">
++          {scopeWarning}
++        </div>
++      )}
+ 
+       <section className="dawaa-panel overflow-x-auto">
+         <div className="mb-4 flex flex-wrap gap-2">
+diff --git a/src/pages/ExecutiveDashboard2027.tsx b/src/pages/ExecutiveDashboard2027.tsx
+--- a/src/pages/ExecutiveDashboard2027.tsx
++++ b/src/pages/ExecutiveDashboard2027.tsx
+@@ -102,7 +102,7 @@
+       .catch((error) => {
+         if (import.meta.env.DEV) console.warn('[ExecutiveDashboard2027] doctor competition metrics failed', error);
+-        if (mounted) setDoctorCompetition(null);
++        // لا تمسح آخر نتيجة ناجحة بسبب خطأ مؤقت أو mismatch في الـ scope.
+       })
+       .finally(() => {
+         if (mounted) setDoctorCompetitionLoading(false);
