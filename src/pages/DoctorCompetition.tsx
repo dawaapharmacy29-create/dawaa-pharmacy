@@ -54,7 +54,7 @@ function money(value: number) {
 }
 
 function invoiceDate(row: Record<string, unknown>) {
-  const value = text(row.invoice_date || row.invoice_datetime || row.date || row.sale_date || row.created_at);
+  const value = text(row.sale_date || row.invoice_date || row.invoice_datetime || row.date || row.created_at);
   return value.slice(0, 10);
 }
 
@@ -64,8 +64,9 @@ function invoiceAmount(row: Record<string, unknown>) {
 
 function invoiceDoctor(row: Record<string, unknown>) {
   const name = text(
-    row.doctor_name ||
+    row.normalized_seller_name ||
       row.seller_name ||
+      row.doctor_name ||
       row.staff_name ||
       row.pharmacist_name ||
       row.cashier_name ||

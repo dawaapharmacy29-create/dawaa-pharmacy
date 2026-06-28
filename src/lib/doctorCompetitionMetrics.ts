@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
-import { normalizeBranchName } from '@/lib/branch';
 
 export type DoctorCompetitionPeriod = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 
@@ -77,23 +76,6 @@ function invoiceDate(row: Record<string, unknown>) {
   return value.slice(0, 10);
 }
 
-function localDateOnly(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function addDays(dateText: string, days: number) {
-  const date = new Date(`${dateText}T12:00:00`);
-  date.setDate(date.getDate() + days);
-  return localDateOnly(date);
-}
-
-function isDateInRange(day: string, start: string, end: string) {
-  return Boolean(day && day >= start && day <= end);
-}
-
 export function normalizeDoctorName(value: unknown) {
   const name = text(value);
   if (!name) return 'غير محدد';
@@ -151,7 +133,7 @@ function invoiceDoctor(row: Record<string, unknown>) {
 }
 
 function invoiceBranch(row: Record<string, unknown>) {
-  return normalizeBranchName(text(row.branch_name || row.branch || row.store_branch)) || 'غير محدد';
+  return text(row.branch_name || row.branch || row.store_branch) || 'غير محدد';
 }
 
 function invoiceTypeIndicatesReturnOrCancel(row: Record<string, unknown>) {
@@ -166,6 +148,13 @@ function invoiceStatusInvalid(row: Record<string, unknown>) {
 }
 
 // لا يوجد عمود إلغاء صريح في sales_invoices، لذلك يتم الاستبعاد بقيمة صافية <= 0 وبـ invoice_type عند وجود دلالة نصية.
+
+function localDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 function currentCycle() {
   return getPharmacyCycleRange(new Date());
@@ -185,8 +174,7 @@ export function rangeForDoctorCompetition(period: DoctorCompetitionPeriod = 'cyc
   }
   if (period === 'custom') {
     const today = localDateOnly(now);
-    const start = customStart || today;
-    return { start, end: customEnd || start };
+    return { start: customStart || today, end: customEnd || customStart || today };
   }
   return currentCycle();
 }
@@ -286,18 +274,40 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     return current;
   };
 
-  const invoiceSelect =
-    'id,invoice_no,invoice_number,invoice_date,sale_date,invoice_datetime,date,created_at,branch,branch_name,store_branch,normalized_seller_name,seller_name,staff_name,doctor_name,pharmacist_name,cashier_name,created_by_name,user_name,invoice_type,save_status,import_validation_status,net_total,net_amount,discounted_amount,total_amount,amount,gross_total,gross_amount,quantity,qty,total_quantity,is_list_item,list_item,incentive_item,is_stagnant,stagnant_item,slow_moving';
-  const invoiceDateEndExclusive = `${addDays(range.end, 1)}T00:00:00`;
+  const invoiceColumns = [
+    'id',
+    'invoice_no',
+    'invoice_number',
+    'invoice_date',
+    'sale_date',
+    'date',
+    'created_at',
+    'branch',
+    'branch_name',
+    'normalized_seller_name',
+    'seller_name',
+    'staff_name',
+    'invoice_type',
+    'save_status',
+    'import_validation_status',
+    'net_total',
+    'net_amount',
+    'discounted_amount',
+    'total_amount',
+    'amount',
+    'gross_total',
+    'gross_amount',
+    'line_items_count',
+    'raw_data',
+  ].join(',');
 
   const [invoiceResult, reviewResult, followupResult] = await Promise.all([
     safeSelect('sales_invoices', (query) =>
       query
-        .select(invoiceSelect)
-        .or(
-          `and(sale_date.gte.${range.start},sale_date.lte.${range.end}),and(invoice_date.gte.${range.start}T00:00:00,invoice_date.lt.${invoiceDateEndExclusive})`
-        )
-        .limit(20000)
+        .select(invoiceColumns)
+        .gte('invoice_date', `${range.start}T00:00:00`)
+        .lte('invoice_date', `${range.end}T23:59:59`)
+        .limit(15000)
     ),
     safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', range.end).limit(4000)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(7000)),
@@ -310,14 +320,9 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
 
   if (invoiceResult.error) errors.sales_invoices = invoiceResult.error;
   sourceHealth.sales_invoices = invoiceResult.error ? 'unavailable' : invoiceResult.data.length ? 'ready' : 'empty';
-  let invoiceRowsInRange = 0;
-  let invoiceNetSalesInRange = 0;
-  const debugDoctorNames = new Set<string>();
-
   for (const invoice of invoiceResult.data) {
     const day = invoiceDate(invoice);
-    if (!isDateInRange(day, range.start, range.end)) continue;
-
+    if (!day || day < range.start || day > range.end) continue;
     const amount = invoiceAmount(invoice);
     if (amount <= 0) continue;
     if (invoiceTypeIndicatesReturnOrCancel(invoice)) continue;
@@ -326,33 +331,19 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     const name = invoiceDoctor(invoice);
     const branch = invoiceBranch(invoice);
     if (!allowBranch(branch)) continue;
-    invoiceRowsInRange += 1;
-    invoiceNetSalesInRange += amount;
-    if (debugDoctorNames.size < 5 && name !== 'غير محدد') debugDoctorNames.add(name);
     const current = upsert(name, branch);
     current.totalSales += amount;
     current.invoices += 1;
-    current.totalQuantity += num(invoice.quantity || invoice.qty || invoice.total_quantity);
-    if (invoice.is_list_item || invoice.list_item || invoice.incentive_item) current.listItems += 1;
-    if (invoice.is_stagnant || invoice.stagnant_item || invoice.slow_moving) current.stagnantItems += 1;
-    if (invoice.is_list_item || invoice.list_item || invoice.incentive_item || invoice.is_stagnant || invoice.stagnant_item) {
+    current.totalQuantity += num(invoice.line_items_count || (invoice.raw_data as Record<string, unknown> | undefined)?.quantity || (invoice.raw_data as Record<string, unknown> | undefined)?.qty);
+    if ((invoice.raw_data as Record<string, unknown> | undefined)?.is_list_item || (invoice.raw_data as Record<string, unknown> | undefined)?.list_item || (invoice.raw_data as Record<string, unknown> | undefined)?.incentive_item) current.listItems += 1;
+    if ((invoice.raw_data as Record<string, unknown> | undefined)?.is_stagnant || (invoice.raw_data as Record<string, unknown> | undefined)?.stagnant_item || (invoice.raw_data as Record<string, unknown> | undefined)?.slow_moving) current.stagnantItems += 1;
+    if ((invoice.raw_data as Record<string, unknown> | undefined)?.is_list_item || (invoice.raw_data as Record<string, unknown> | undefined)?.list_item || (invoice.raw_data as Record<string, unknown> | undefined)?.incentive_item || (invoice.raw_data as Record<string, unknown> | undefined)?.is_stagnant || (invoice.raw_data as Record<string, unknown> | undefined)?.stagnant_item) {
       current.incentiveValue += amount;
       current.linkedInvoiceCount += 1;
     }
     const key = `${name}|${branch}`;
     if (new Date(`${day}T12:00:00`).getTime() <= periodMidpoint.getTime()) firstHalfSales.set(key, (firstHalfSales.get(key) || 0) + amount);
     else secondHalfSales.set(key, (secondHalfSales.get(key) || 0) + amount);
-  }
-
-  if (import.meta.env.DEV) {
-    console.info('[DoctorCompetitionMetrics] sales invoice diagnostics', {
-      range,
-      rowsFetched: invoiceResult.data.length,
-      rowsUsed: invoiceRowsInRange,
-      netSales: invoiceNetSalesInRange,
-      firstDoctors: [...debugDoctorNames],
-      selectedBranch: selectedBranch || ALL_BRANCHES,
-    });
   }
 
   if (reviewResult.error) errors.conversation_sales_reviews = reviewResult.error;
@@ -394,6 +385,21 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       current.satisfactionTotal += 1;
       current.satisfactionCount += 1;
     }
+  }
+
+  if (import.meta.env.DEV) {
+    const invoiceRowsForDebug = invoiceResult.data.filter((invoice) => {
+      const day = invoiceDate(invoice);
+      return day && day >= range.start && day <= range.end && invoiceAmount(invoice) > 0;
+    });
+    console.info('[DoctorCompetitionMetrics] sales invoices loaded', {
+      range,
+      rowsFetched: invoiceResult.data.length,
+      rowsUsed: invoiceRowsForDebug.length,
+      netSales: invoiceRowsForDebug.reduce((sum, invoice) => sum + invoiceAmount(invoice), 0),
+      sampleDoctors: invoiceRowsForDebug.slice(0, 5).map(invoiceDoctor),
+      errors,
+    });
   }
 
   const withAverages = [...map.entries()].map(([key, row]) => {
