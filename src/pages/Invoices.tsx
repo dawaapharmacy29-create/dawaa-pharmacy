@@ -406,7 +406,7 @@ export default function Invoices() {
       range?.startDate || importSummary?.firstInvoiceDate || invoiceBatches[0]?.firstDate;
     const endDate = range?.endDate || importSummary?.lastInvoiceDate || invoiceBatches[0]?.lastDate;
     if (!startDate || !endDate || startDate === '-' || endDate === '-') {
-      toast.error('لا يوجد مدى تاريخ واضح لتحديث الملخصات');
+      toast.warning('لا يوجد مدى تاريخ واضح لتحديث الملخصات');
       return;
     }
 
@@ -420,12 +420,10 @@ export default function Invoices() {
     setSummaryRefreshBusy(false);
 
     if (error) {
-      toast.warning(
-        'تعذر تحديث الملخص الثقيل، لكن تم تحديث كاش الداشبورد والتحليلات وسيتم الاعتماد على الفواتير مباشرة.'
-      );
+      toast.info('تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.');
       return;
     }
-    toast.success(`تم تحديث ملخصات المبيعات وتفريغ كاش الصفحات من ${startDate} إلى ${endDate}`);
+    toast.success(`تم تحديث ملخصات المبيعات للفترة من ${startDate} إلى ${endDate}`);
   };
 
   const handlePhoneUpdateFile = async (file: File) => {
@@ -789,6 +787,20 @@ export default function Invoices() {
       recommendations: Array.from(new Set(recommendations)),
     };
   }, [importSummary]);
+
+  const summaryRefreshState = importSummary?.summaryRefreshStatus || 'skipped';
+  const summaryRefreshLabel =
+    summaryRefreshState === 'refreshed'
+      ? 'تم'
+      : summaryRefreshState === 'manual_required' || summaryRefreshState === 'unavailable'
+        ? 'يحتاج تحديث يدوي'
+        : 'تم التخطي';
+  const summaryRefreshTone =
+    summaryRefreshState === 'refreshed'
+      ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-50'
+      : summaryRefreshState === 'manual_required' || summaryRefreshState === 'unavailable'
+        ? 'border-amber-300/35 bg-amber-400/10 text-amber-50'
+        : 'border-sky-300/30 bg-sky-400/10 text-sky-50';
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -1549,6 +1561,28 @@ export default function Invoices() {
               </div>
             </div>
           </div>
+          {importKind === 'sales' && (
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-4 text-emerald-50">
+                <div className="text-xs font-bold uppercase tracking-wide text-emerald-100/80">
+                  الاستيراد
+                </div>
+                <div className="mt-1 text-lg font-bold">نجح</div>
+                <div className="mt-1 text-sm text-emerald-50/80">
+                  تم حفظ/تأكيد الفواتير، وأي ملاحظات بيانات تظهر منفصلة أدناه.
+                </div>
+              </div>
+              <div className={`rounded-xl border p-4 ${summaryRefreshTone}`}>
+                <div className="text-xs font-bold uppercase tracking-wide opacity-80">
+                  تحديث الملخصات
+                </div>
+                <div className="mt-1 text-lg font-bold">{summaryRefreshLabel}</div>
+                <div className="mt-1 text-sm opacity-85">
+                  {importSummary.summaryRefreshMessage || 'لم يتم طلب تحديث ملخصات إضافي.'}
+                </div>
+              </div>
+            </div>
+          )}
           <div
             className={`grid gap-3 ${importKind === 'sales' ? 'grid-cols-2 md:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'}`}
           >
@@ -1632,7 +1666,7 @@ export default function Invoices() {
           {importKind === 'sales' && (
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-teal-300/25 bg-teal-400/10 p-4">
-                <div className="font-bold text-teal-100">حالة تحديث الملخصات</div>
+                <div className="font-bold text-teal-100">تفاصيل تحديث الملخصات</div>
                 <div className="mt-2 text-sm text-teal-50/85">
                   {importSummary.summaryRefreshMessage || 'لم يتم طلب تحديث ملخصات إضافي.'}
                 </div>
@@ -1647,14 +1681,14 @@ export default function Invoices() {
                           isSuccess
                             ? 'border-emerald-300/35 bg-emerald-300/15 text-emerald-50'
                             : isFailed
-                              ? 'border-rose-300/35 bg-rose-300/15 text-rose-50'
+                              ? 'border-amber-300/35 bg-amber-300/15 text-amber-50'
                               : 'border-amber-300/35 bg-amber-300/15 text-amber-50'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-bold">{refreshStep.label}</span>
                           <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs">
-                            {isSuccess ? 'تم' : isFailed ? 'فشل' : 'تخطي'}
+                            {isSuccess ? 'تم' : isFailed ? 'يحتاج تحديث يدوي' : 'تخطي'}
                           </span>
                         </div>
                         <div className="mt-1 opacity-90">{refreshStep.message}</div>

@@ -124,7 +124,7 @@ export interface ImportSummary {
   invoicesWithoutBranch?: number;
   schemaWarnings?: string[];
   staffLinkingMode?: 'staff_id' | 'name_fallback';
-  summaryRefreshStatus?: 'refreshed' | 'unavailable';
+  summaryRefreshStatus?: 'refreshed' | 'manual_required' | 'skipped' | 'unavailable';
   summaryRefreshMessage?: string;
   postImportRefreshSteps?: PostImportRefreshStep[];
 }
@@ -1415,46 +1415,52 @@ async function refreshImportSummaries(summary: ImportSummary) {
   const steps: PostImportRefreshStep[] = [];
   const addStep = (step: PostImportRefreshStep) => steps.push(step);
   const dateRangeReady = Boolean(summary.firstInvoiceDate && summary.lastInvoiceDate);
+  const hasSummaryAffectingChanges =
+    summary.insertedRows > 0 || (summary.valueChangedUpdates || 0) > 0;
 
-  if (dateRangeReady) {
-    const { data, error } = await supabase.rpc('dawaa_invoice_post_import_refresh_v1', {
+  if (dateRangeReady && hasSummaryAffectingChanges) {
+    const { error } = await supabase.rpc('rebuild_sales_daily_summary', {
       p_start_date: summary.firstInvoiceDate,
       p_end_date: summary.lastInvoiceDate,
     });
 
     if (!error) {
       addStep({
-        key: 'permanent_invoice_refresh',
-        label: 'تحديث دائم وسريع بعد الاستيراد',
+        key: 'sales_daily_summary',
+        label: 'تحديث ملخص المبيعات للفترة فقط',
         status: 'success',
-        message:
-          typeof data === 'string'
-            ? data
-            : `تم تحديث مؤشرات الفواتير وربط الدكاترة والعملاء للفترة ${summary.firstInvoiceDate} إلى ${summary.lastInvoiceDate}.`,
+        message: `تم تحديث sales_daily_summary للفترة من ${summary.firstInvoiceDate} إلى ${summary.lastInvoiceDate}.`,
       });
     } else {
-      if (import.meta.env.DEV)
-        console.warn('[invoiceImporter] dawaa_invoice_post_import_refresh_v1 failed', error);
+      if (import.meta.env.DEV) {
+        console.warn('[invoiceImporter] rebuild_sales_daily_summary failed', error);
+      }
       addStep({
-        key: 'permanent_invoice_refresh',
-        label: 'تحديث دائم وسريع بعد الاستيراد',
-        status: 'skipped',
-        message: friendlyImportError(error.message),
+        key: 'sales_daily_summary',
+        label: 'تحديث ملخص المبيعات للفترة فقط',
+        status: 'failed',
+        message: 'تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.',
       });
     }
 
-    // ملخصات الداشبورد القديمة أصبحت اختيارية حتى لا توقف الاستيراد أو تسبب timeout.
-    // الداشبورد والملفات تعتمد على sales_invoices مباشرة أو على RPC السريع أعلاه.
     addStep({
       key: 'legacy_summaries',
-      label: 'ملخصات قديمة اختيارية',
+      label: 'ملخصات قديمة عامة',
       status: 'skipped',
-      message: 'تم تخطي الملخصات القديمة البطيئة. استخدم زر تحديث الملخصات يدويًا عند الحاجة فقط.',
+      message: 'لم يتم تشغيل أي تحديث عام لكل النظام. التحديث محصور في مدى تاريخ الملف.',
+    });
+  } else if (dateRangeReady) {
+    addStep({
+      key: 'sales_daily_summary',
+      label: 'تحديث ملخص المبيعات للفترة فقط',
+      status: 'skipped',
+      message:
+        'تم تخطي تحديث الملخصات لأن الملف أكد فواتير موجودة مسبقًا فقط بدون إضافة فواتير جديدة أو تغيير صافي مؤثر.',
     });
   } else {
     addStep({
-      key: 'permanent_invoice_refresh',
-      label: 'تحديث دائم وسريع بعد الاستيراد',
+      key: 'sales_daily_summary',
+      label: 'تحديث ملخص المبيعات للفترة فقط',
       status: 'skipped',
       message: 'لم يتم العثور على مدى تاريخ واضح داخل ملف الاستيراد.',
     });
@@ -1486,12 +1492,19 @@ async function refreshImportSummaries(summary: ImportSummary) {
 
   summary.postImportRefreshSteps = steps;
   const failedSteps = steps.filter((step) => step.status === 'failed');
-  summary.summaryRefreshStatus = failedSteps.length ? 'unavailable' : 'refreshed';
-  summary.summaryRefreshMessage = failedSteps.length
-    ? `تم الاستيراد، لكن ${failedSteps.length.toLocaleString('ar-EG')} خطوة تحديث تحتاج مراجعة.`
-    : 'تم تحديث ملخصات المبيعات والدكاترة والعملاء وتفريغ كاش الشاشات بعد الاستيراد.';
+  const summaryStep = steps.find((step) => step.key === 'sales_daily_summary');
+  summary.summaryRefreshStatus = failedSteps.length
+    ? 'manual_required'
+    : summaryStep?.status === 'skipped'
+      ? 'skipped'
+      : 'refreshed';
+  summary.summaryRefreshMessage =
+    summary.summaryRefreshStatus === 'refreshed'
+      ? 'تم تحديث ملخصات المبيعات للفترة الموجودة في الملف.'
+      : summary.summaryRefreshStatus === 'manual_required'
+        ? 'تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.'
+        : summaryStep?.message || 'تم الاستيراد بنجاح، ولم تكن هناك حاجة لتحديث الملخصات.';
 }
-
 export async function importInvoicesToDB(
   rows: RawInvoiceRow[],
   branch: string,
@@ -2168,11 +2181,21 @@ export async function importInvoicesToDB(
     const rebuilt = { customers: summary.updatedCustomers };
     summary.updatedCustomers = Math.max(summary.updatedCustomers, rebuilt.customers);
   } catch (error) {
-    summary.errors.push({
-      row: 0,
-      field: 'مزامنة العملاء',
-      message: error instanceof Error ? error.message : 'تعذر تحديث بيانات العملاء من الفواتير',
-    });
+    if (import.meta.env.DEV) {
+      console.warn('[invoiceImporter] post-import refresh failed', error);
+    }
+    summary.summaryRefreshStatus = 'manual_required';
+    summary.summaryRefreshMessage =
+      'تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.';
+    summary.postImportRefreshSteps = [
+      ...(summary.postImportRefreshSteps || []),
+      {
+        key: 'post_import_refresh',
+        label: 'تحديث الملخصات بعد الاستيراد',
+        status: 'failed',
+        message: 'تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.',
+      },
+    ];
   }
 
   const daily = new Map<string, { date: string; count: number; total: number }>();
