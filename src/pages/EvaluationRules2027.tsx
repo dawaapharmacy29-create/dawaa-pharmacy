@@ -143,25 +143,25 @@ export default function EvaluationRules2027() {
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
+    <div className="w-full max-w-full space-y-6 overflow-hidden" dir="rtl">
+      <div className="flex w-full max-w-full flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
           <h1 className="page-title">نظام إدارة الأداء والحوافز التشغيلية</h1>
           <p className="mt-2 text-sm leading-7 text-slate-400">
             الحافز الشهري للدكاترة (500 نقطة = 1500 ج) · الحافز الربع سنوي (2000 ج) · لائحة التشغيل
             والسلوك المهني داخل الصيدلية.
           </p>
         </div>
-        <button onClick={refetch} className="btn-secondary inline-flex items-center gap-2">
+        <button onClick={refetch} className="btn-secondary inline-flex w-fit max-w-full shrink-0 items-center gap-2">
           <RefreshCw className="h-4 w-4" /> تحديث
         </button>
       </div>
 
-      <div className="stat-card">
+      <div className="stat-card w-full max-w-full overflow-hidden">
         <h2 className="section-title mb-4">إضافة بند جديد</h2>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <div className="grid w-full max-w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <input
-            className="input-dark xl:col-span-2"
+            className="input-dark min-w-0 xl:col-span-2"
             placeholder="اسم البند مثل: عدم متابعة عميل VIP"
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
@@ -217,16 +217,16 @@ export default function EvaluationRules2027() {
             />{' '}
             يحتاج اعتماد مدير
           </label>
-          <button onClick={addRule} className="btn-primary mr-auto inline-flex items-center gap-2">
+          <button onClick={addRule} className="btn-primary mr-auto inline-flex max-w-full items-center gap-2">
             <Plus className="h-4 w-4" /> إضافة البند
           </button>
         </div>
       </div>
 
       {/* Search and Filters */}
-      <div className="stat-card">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <div className="relative flex-1">
+      <div className="stat-card w-full max-w-full overflow-hidden">
+        <div className="flex w-full max-w-full flex-col flex-wrap gap-3 md:flex-row md:items-center">
+          <div className="relative min-w-0 flex-1">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
             <input
               value={search}
@@ -238,7 +238,7 @@ export default function EvaluationRules2027() {
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
-            className="input-dark md:w-48"
+            className="input-dark w-full md:w-48"
           >
             <option value="الكل">كل الأنواع</option>
             <option value="خصم شهري">خصم شهري</option>
@@ -250,7 +250,7 @@ export default function EvaluationRules2027() {
           <select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
-            className="input-dark md:w-48"
+            className="input-dark w-full md:w-48"
           >
             <option value="الكل">كل الفئات</option>
             {categories.map((c) => (
@@ -260,19 +260,19 @@ export default function EvaluationRules2027() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid w-full max-w-full grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {Object.entries(grouped as Record<string, typeof rules>).map(([category, items]) => (
-          <div key={category} className="stat-card">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="section-title">{category}</h2>
+          <div key={category} className="stat-card min-w-0 overflow-hidden">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="section-title min-w-0 break-words">{category}</h2>
               <span className="badge-info">{items.length} بند</span>
             </div>
             <div className="space-y-3">
               {items.map((rule) => (
                 <div key={rule.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-bold text-white">{rule.title}</div>
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="break-words font-bold text-white">{rule.title}</div>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs">
                         <span
                           className={
@@ -313,7 +313,7 @@ export default function EvaluationRules2027() {
                     </div>
                     <button
                       onClick={() => removeRule(rule.id)}
-                      className="rounded-xl p-2 text-slate-400 hover:bg-red-500/10 hover:text-red-300"
+                      className="shrink-0 rounded-xl p-2 text-slate-400 hover:bg-red-500/10 hover:text-red-300"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -326,7 +326,7 @@ export default function EvaluationRules2027() {
       </div>
 
       {/* Explanation Blocks */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid w-full max-w-full grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-teal-500/20 bg-teal-500/10 p-5 text-sm leading-7 text-teal-100">
           <ShieldCheck className="mb-2 h-6 w-6 text-teal-300" />
           <h3 className="font-bold text-teal-200 mb-2">الحافز الشهري</h3>

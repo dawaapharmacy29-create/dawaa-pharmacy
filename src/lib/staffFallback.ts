@@ -6,6 +6,8 @@ export interface StaffChoice {
   original_name?: string;
   display_name?: string;
   role: string;
+  role_label?: string | null;
+  job_title?: string | null;
   branch: string;
   branch_id?: string | null;
   phone?: string | null;
@@ -63,6 +65,8 @@ function normalizeStaff(row: Record<string, unknown>): StaffChoice {
     original_name: name,
     display_name: name,
     role: String(row.role || row.staff_role || '').trim(),
+    role_label: (row.role_label as string | null | undefined) || null,
+    job_title: (row.job_title as string | null | undefined) || null,
     branch,
     branch_id: (row.branch_id as string | null | undefined) || null,
     phone: (row.phone as string | null | undefined) || null,

@@ -9,7 +9,7 @@ import { applyStaffDelta, persistPointsTransaction } from '@/lib/pointsPersisten
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
 import type { EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
-import { getSafeCurrentUserId } from '@/hooks/useAuth';
+import { getSafeCurrentUserId, useAuth } from '@/hooks/useAuth';
 import { canonicalMaxPoints, canonicalSnapshotPoints } from '@/lib/pointsLedger';
 
 const TYPES = ['إذن تأخير', 'إذن انصراف مبكر', 'إجازة مرضية', 'إجازة عارضة', 'غياب', 'تبديل شيفت'];
@@ -77,6 +77,10 @@ function timeOffRule(type: string, points: number): EvaluationRuleDef {
 }
 
 export default function TimeOff() {
+  const { checkPermission, canManage } = useAuth();
+  const canCreateRequest = checkPermission('create_leave_request') || canManage;
+  const canApproveRequest = checkPermission('approve_leave_request') || canManage;
+  const canManageTimeOff = checkPermission('manage_time_off') || canManage;
   const { data: staff = [] } = useSupabaseQuery<Staff>({
     table: TABLES.staff,
     filters: isActiveStaffFilter(),
@@ -97,7 +101,7 @@ export default function TimeOff() {
   const [form, setForm] = useState({
     staff_id: '',
     type: 'إذن تأخير',
-    status: 'approved',
+    status: canApproveRequest ? 'approved' : 'pending',
     date: new Date().toISOString().slice(0, 10),
     date_end: new Date().toISOString().slice(0, 10),
     reason: '',
@@ -111,6 +115,10 @@ export default function TimeOff() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!canCreateRequest) {
+      toast.error('ليس لديك صلاحية إنشاء طلب إذن أو إجازة.');
+      return;
+    }
     if (!selectedStaff) {
       toast.error('اختار الموظف الأول.');
       return;
@@ -121,6 +129,7 @@ export default function TimeOff() {
     }
 
     setSaving(true);
+    const finalStatus = canApproveRequest ? form.status : 'pending';
     const rangeNote =
       isLeaveType && form.date_end && form.date_end !== form.date
         ? `[من ${form.date} إلى ${form.date_end}] `
@@ -135,7 +144,7 @@ export default function TimeOff() {
       staff_id: selectedStaff.id.startsWith('fallback-') ? null : selectedStaff.id,
       employee_name: selectedStaff.name,
       type: form.type,
-      status: form.status,
+      status: finalStatus,
       branch: selectedStaff.branch || null,
       date: form.date,
       date_end: form.date_end || form.date,
@@ -143,7 +152,7 @@ export default function TimeOff() {
       reason: finalReason,
       deduct_points: form.deduct_points,
       deduction_points: deductionPoints,
-      deduction_status: form.deduct_points ? form.status : 'none',
+      deduction_status: form.deduct_points ? finalStatus : 'none',
       source: 'manual',
       updated_at: new Date().toISOString(),
     };
@@ -160,7 +169,7 @@ export default function TimeOff() {
     }
 
     if (form.deduct_points && deductionPoints > 0) {
-      const status = form.status === 'approved' ? 'approved' : 'pending';
+      const status = finalStatus === 'approved' ? 'approved' : 'pending';
       const result = await persistPointsTransaction({
         employeeId: selectedStaff.id,
         employeeName: selectedStaff.name,
@@ -226,6 +235,10 @@ export default function TimeOff() {
   };
 
   const deleteItem = async (item: ShiftException) => {
+    if (!canManageTimeOff) {
+      toast.error('الحذف متاح للمديرين المصرح لهم فقط.');
+      return;
+    }
     if (!window.confirm(`هل تريد حذف سجل ${item.type} لـ ${item.staff_name}؟`)) return;
     const { error } = await supabase.from(TABLES.shiftExceptions).delete().eq('id', item.id);
     if (error) return toast.error(`تعذر حذف السجل: ${error.message}`);
@@ -273,6 +286,7 @@ export default function TimeOff() {
           value={form.status}
           onChange={(event) => setForm((f) => ({ ...f, status: event.target.value }))}
           className="input-dark"
+          disabled={!canApproveRequest}
         >
           {STATUSES.map((status) => (
             <option key={status}>{status}</option>
@@ -330,7 +344,7 @@ export default function TimeOff() {
         />
         <button
           type="submit"
-          disabled={saving || !form.staff_id}
+          disabled={saving || !form.staff_id || !canCreateRequest}
           className="btn-primary flex items-center justify-center gap-2 md:col-span-6"
         >
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
@@ -409,27 +423,33 @@ export default function TimeOff() {
                     <td>{item.reason || '-'}</td>
                     <td>
                       <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => editItem(item)}
-                          className="rounded-lg bg-teal-500/15 px-2 py-1 text-xs font-bold text-teal-200"
-                        >
-                          تعديل
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => editItem(item, true)}
-                          className="rounded-lg bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-200"
-                        >
-                          جعله بخصم
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteItem(item)}
-                          className="rounded-lg bg-red-500/15 px-2 py-1 text-xs font-bold text-red-200"
-                        >
-                          حذف
-                        </button>
+                        {(canApproveRequest || canManageTimeOff) && (
+                          <button
+                            type="button"
+                            onClick={() => editItem(item)}
+                            className="rounded-lg bg-teal-500/15 px-2 py-1 text-xs font-bold text-teal-200"
+                          >
+                            تعديل
+                          </button>
+                        )}
+                        {canApproveRequest && (
+                          <button
+                            type="button"
+                            onClick={() => editItem(item, true)}
+                            className="rounded-lg bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-200"
+                          >
+                            جعله بخصم
+                          </button>
+                        )}
+                        {canManageTimeOff && (
+                          <button
+                            type="button"
+                            onClick={() => deleteItem(item)}
+                            className="rounded-lg bg-red-500/15 px-2 py-1 text-xs font-bold text-red-200"
+                          >
+                            حذف
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

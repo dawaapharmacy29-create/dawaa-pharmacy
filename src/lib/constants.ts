@@ -6,7 +6,7 @@ export const BRANCHES = ['فرع شكري', 'فرع الشامي'] as const;
 export type Branch = (typeof BRANCHES)[number];
 
 /** Pharmacists by branch — also maintained via Supabase migration. */
-export const SHOKRY_BRANCH_PHARMACISTS = ['د ندي', 'د بسنت'] as const;
+export const SHOKRY_BRANCH_PHARMACISTS = ['د ندي', 'د/ سارة'] as const;
 export const SHAMY_BRANCH_PHARMACISTS = ['د وليد', 'د عمر'] as const;
 
 export const CUSTOMER_SERVICE_BRANCH_OWNERS = {
@@ -21,6 +21,9 @@ export const ROLES = [
   'مدير فرع',
   'مدير الفروع',
   'مدير خدمة العملاء',
+  'مسئولة شيفت صباحي',
+  'مسئول شيفت صباحي',
+  'مسئول شيفت مسائي',
   'صيدلاني',
   'مساعد',
   'توصيل',

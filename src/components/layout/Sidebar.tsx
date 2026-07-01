@@ -89,6 +89,7 @@ const GROUPS: NavGroup[] = [
       { path: '/team', icon: UserCheck, label: 'الفريق والجدول', permission: 'view_team' },
       { path: '/schedule', icon: Calendar, label: 'الجداول والإجازات', permission: 'view_schedule' },
       { path: '/attendance-report', icon: ClipboardCheck, label: 'تسجيل/تقرير الحضور', permission: 'view_attendance_leaves' },
+      { path: '/time-off', icon: Calendar, label: 'الأذونات والإجازات', permission: 'view_attendance_leaves' },
       { path: '/shift-performance', icon: ClipboardList, label: 'تقييم الشيفتات', permission: 'view_shift_performance' },
       { path: '/employee-kpi', icon: BarChart3, label: 'KPI الموظفين', permission: 'view_team' },
       { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق اليومية', permission: 'employee_operating_system.view' },

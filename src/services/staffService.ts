@@ -7,11 +7,15 @@ export interface StaffPayload {
   username?: string;
   phone?: string | null;
   role: string;
+  role_label?: string | null;
+  job_title?: string | null;
   branch: string;
   shift_start?: string | null;
   shift_end?: string | null;
   notes?: string | null;
   status?: string;
+  active?: boolean;
+  is_active?: boolean;
   max_points?: number;
   type?: string;
 }
@@ -26,6 +30,8 @@ export interface StaffAccountPayload {
   staff_name?: string | null;
   role?: string | null;
   staff_role?: string | null;
+  role_label?: string | null;
+  job_title?: string | null;
   branch?: string | null;
   active?: boolean;
   can_login?: boolean;
@@ -96,7 +102,7 @@ export async function createStaff(payload: StaffPayload) {
   return result;
 }
 
-export async function updateStaff(id: string, payload: StaffPayload) {
+export async function updateStaff(id: string, payload: Partial<StaffPayload>) {
   const result = await updateFlexible(
     TABLES.staff,
     id,
@@ -108,4 +114,26 @@ export async function updateStaff(id: string, payload: StaffPayload) {
 
 export async function createStaffAccount(payload: StaffAccountPayload) {
   return insertFlexible(TABLES.staffAccounts, payload as unknown as Record<string, unknown>);
+}
+
+export async function updateStaffAccount(id: string, payload: Partial<StaffAccountPayload>) {
+  return updateFlexible(TABLES.staffAccounts, id, payload as unknown as Record<string, unknown>);
+}
+
+export async function updateStaffAccountByStaffId(
+  staffId: string,
+  payload: Partial<StaffAccountPayload>
+) {
+  const next: Record<string, unknown> = { ...payload };
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const result = await supabase.from(TABLES.staffAccounts).update(next).eq('staff_id', staffId);
+    if (!result.error) return result;
+    logSaveStaffError(result.error);
+    const column = missingColumn(result.error.message);
+    if (!column || !(column in next)) return result;
+    delete next[column];
+  }
+  const result = await supabase.from(TABLES.staffAccounts).update(next).eq('staff_id', staffId);
+  if (result.error) logSaveStaffError(result.error);
+  return result;
 }

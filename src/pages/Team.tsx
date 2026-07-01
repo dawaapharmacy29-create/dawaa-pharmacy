@@ -31,7 +31,12 @@ import { useShiftSchedules } from '@/hooks/useShiftSchedules';
 import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
 import { friendlySupabaseError, logSupabaseError } from '@/lib/supabaseError';
 import { TABLES } from '@/lib/supabaseTables';
-import { createStaff, updateStaff, createStaffAccount } from '@/services/staffService';
+import {
+  createStaff,
+  updateStaff,
+  createStaffAccount,
+  updateStaffAccountByStaffId,
+} from '@/services/staffService';
 import { replaceStaffShiftSchedules } from '@/services/shiftScheduleService';
 import {
   fetchCurrentShiftPresence,
@@ -44,6 +49,8 @@ interface Employee {
   username?: string;
   phone?: string | null;
   role: string;
+  role_label?: string | null;
+  job_title?: string | null;
   branch: string;
   branch_id?: string;
   shift_start?: string | null;
@@ -55,6 +62,60 @@ interface Employee {
   join_date?: string | null;
   notes?: string | null;
   visible_in_schedule?: boolean | null;
+}
+
+function staffRoleLabel(role: string) {
+  if (role === 'pharmacist' || role === 'صيدلاني') return 'صيدلانية';
+  if (
+    role === 'shift_supervisor_morning' ||
+    role === 'مسئولة شيفت صباحي' ||
+    role === 'مسئول شيفت صباحي'
+  )
+    return 'مسئولة شيفت صباحي';
+  if (
+    role === 'shift_supervisor_evening' ||
+    role === 'مسئولة شيفت مسائي' ||
+    role === 'مسئول شيفت مسائي'
+  )
+    return 'مسئول شيفت مسائي';
+  return role;
+}
+
+function canonicalStaffRole(role: string) {
+  if (role === 'صيدلاني' || role === 'صيدلي' || role === 'pharmacist') return 'pharmacist';
+  if (
+    role === 'مسئولة شيفت صباحي' ||
+    role === 'مسئول شيفت صباحي' ||
+    role === 'مشرف شيفت صباحي' ||
+    role === 'shift_supervisor_morning'
+  )
+    return 'shift_supervisor_morning';
+  if (
+    role === 'مسئولة شيفت مسائي' ||
+    role === 'مسئول شيفت مسائي' ||
+    role === 'مشرف شيفت مسائي' ||
+    role === 'shift_supervisor_evening'
+  )
+    return 'shift_supervisor_evening';
+  if (role === 'توصيل') return 'delivery';
+  if (role === 'خدمة عملاء') return 'customer_service';
+  return role;
+}
+
+function staffTypeForRole(role: string) {
+  const canonical = canonicalStaffRole(role);
+  if (canonical === 'pharmacist') return 'Pharmacist';
+  if (canonical === 'delivery') return 'Delivery';
+  return role;
+}
+
+function onlyChanged<T extends Record<string, unknown>>(next: T, current: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(next).filter(([key, value]) => {
+      const previous = current[key];
+      return String(previous ?? '') !== String(value ?? '');
+    })
+  ) as Partial<T>;
 }
 
 interface ShiftSchedule {
@@ -589,6 +650,8 @@ function EmployeeModal({
     account_status: 'active',
     phone: '',
     role: 'صيدلاني',
+    role_label: 'صيدلانية',
+    job_title: 'صيدلانية',
     branch: 'فرع شكري',
     default_shift_start: '09:00',
     default_shift_end: '19:00',
@@ -613,6 +676,8 @@ function EmployeeModal({
         account_status: employee.status === 'inactive' ? 'inactive' : 'active',
         phone: employee.phone || '',
         role: employee.role || 'صيدلاني',
+        role_label: employee.role_label || staffRoleLabel(employee.role || 'صيدلاني'),
+        job_title: employee.job_title || staffRoleLabel(employee.role || 'صيدلاني'),
         branch: employee.branch || 'فرع شكري',
         default_shift_start: employee.shift_start || '09:00',
         default_shift_end: employee.shift_end || '19:00',
@@ -628,25 +693,42 @@ function EmployeeModal({
     setSaving(true);
 
     try {
+      const isActive = form.account_status === 'active';
+      const canonicalRole = canonicalStaffRole(form.role);
       const payload = {
         name: form.name,
         phone: form.phone,
-        role: form.role,
+        role: canonicalRole,
+        role_label: form.role_label || staffRoleLabel(form.role),
+        job_title: form.job_title || form.role_label || staffRoleLabel(form.role),
         branch: form.branch,
         shift_start: form.default_shift_start,
         shift_end: form.default_shift_end,
         notes: form.notes,
-        status: 'نشط',
+        status: isActive ? 'active' : 'inactive',
+        active: isActive,
+        is_active: isActive,
         max_points: INITIAL_POINTS,
-        type:
-          form.role === 'صيدلاني' ? 'Pharmacist' : form.role === 'توصيل' ? 'Delivery' : form.role,
+        type: staffTypeForRole(canonicalRole),
       };
 
       let staffId = '';
       let error: string | null = null;
 
       if (employee) {
-        const { error: updateError } = await updateStaff(employee.id, payload);
+        const updatePayload = onlyChanged(payload, {
+          ...employee,
+          role_label: employee.role_label || '',
+          job_title: employee.job_title || '',
+          shift_start: employee.shift_start || '',
+          shift_end: employee.shift_end || '',
+          active: employee.status !== 'inactive',
+          is_active: employee.status !== 'inactive',
+          status: employee.status === 'inactive' ? 'inactive' : 'active',
+        });
+        const { error: updateError } = Object.keys(updatePayload).length
+          ? await updateStaff(employee.id, updatePayload)
+          : { error: null };
         error = updateError ? friendlySupabaseError(updateError) : null;
         if (!error) staffId = employee.id;
       } else {
@@ -670,8 +752,10 @@ function EmployeeModal({
           password_status: form.password ? 'temporary' : null,
           name: form.name,
           staff_name: form.name,
-          role: form.role,
-          staff_role: form.role,
+          role: canonicalRole,
+          staff_role: canonicalRole,
+          role_label: form.role_label || staffRoleLabel(form.role),
+          job_title: form.job_title || form.role_label || staffRoleLabel(form.role),
           branch: form.branch,
           active: form.account_status === 'active',
           can_login: form.account_status === 'active',
@@ -681,6 +765,18 @@ function EmployeeModal({
         if (accountResult.error) {
           toast.warning('تم حفظ الموظف لكن حساب الدخول يحتاج مراجعة.');
         }
+      } else {
+        await updateStaffAccountByStaffId(employee.id, {
+          name: form.name,
+          staff_name: form.name,
+          role: canonicalRole,
+          staff_role: canonicalRole,
+          role_label: form.role_label || staffRoleLabel(form.role),
+          job_title: form.job_title || form.role_label || staffRoleLabel(form.role),
+          branch: form.branch,
+          active: isActive,
+          can_login: isActive,
+        });
       }
 
       const scheduleRecords = daySchedules.map((schedule, index) => ({
@@ -762,20 +858,27 @@ function EmployeeModal({
               required
             />
             <input
-              placeholder="اسم المستخدم *"
+              placeholder={employee ? 'اسم المستخدم الحالي' : 'اسم المستخدم *'}
               value={form.username}
               onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
               className="input-dark"
-              required
-            />
-            <input
-              placeholder="كلمة المرور *"
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              className="input-dark"
+              readOnly={Boolean(employee)}
               required={!employee}
             />
+            {!employee ? (
+              <input
+                placeholder="كلمة المرور *"
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                className="input-dark"
+                required
+              />
+            ) : (
+              <div className="input-dark flex items-center text-sm text-slate-400">
+                كلمة المرور لا تتغير من شاشة تعديل البيانات
+              </div>
+            )}
             <input
               placeholder="رقم الهاتف"
               value={form.phone}
@@ -784,13 +887,29 @@ function EmployeeModal({
             />
             <select
               value={form.role}
-              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+              onChange={(e) => {
+                const role = e.target.value;
+                const label = staffRoleLabel(role);
+                setForm((f) => ({ ...f, role, role_label: label, job_title: label }));
+              }}
               className="input-dark"
             >
-              {ROLES.map((r) => (
+              {Array.from(new Set([form.role, ...ROLES])).filter(Boolean).map((r) => (
                 <option key={r}>{r}</option>
               ))}
             </select>
+            <input
+              placeholder="وسم الدور"
+              value={form.role_label}
+              onChange={(e) => setForm((f) => ({ ...f, role_label: e.target.value }))}
+              className="input-dark"
+            />
+            <input
+              placeholder="المسمى الوظيفي"
+              value={form.job_title}
+              onChange={(e) => setForm((f) => ({ ...f, job_title: e.target.value }))}
+              className="input-dark"
+            />
             <select
               value={form.branch}
               onChange={(e) => setForm((f) => ({ ...f, branch: e.target.value }))}
