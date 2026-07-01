@@ -19,7 +19,7 @@ import { clearCustomersCache } from '@/lib/api/customers';
 import { clearCustomerServiceCommandCenterCache } from '@/lib/api/customerServiceCommandCenter';
 import { clearStaffPerformanceProfileCache } from '@/lib/staff/staffPerformanceProfileService';
 import { resolveStaffNameToStaffId } from '@/lib/staffIdentityMapping';
-import { getInvoiceDuplicateKey, getInvoiceKey } from '@/lib/dawaa2027';
+import { getInvoiceKey } from '@/lib/dawaa2027';
 
 export interface RawInvoiceRow {
   rowIndex: number;
@@ -230,6 +230,17 @@ function normalise(value: unknown): string {
 
 function cleanText(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+export function buildInvoiceDuplicateIdentity(
+  invoiceNumber: string | number | null | undefined,
+  branch: string | null | undefined,
+  saleDate: string | null | undefined
+) {
+  const normalizedInvoice = String(invoiceNumber ?? '').trim();
+  const normalizedBranch = String(branch ?? '').trim() || 'غير محدد';
+  const normalizedDate = String(saleDate ?? '').slice(0, 10);
+  return `${normalizedInvoice}|${normalizedBranch}|${normalizedDate}`;
 }
 
 function findColumn(headers: string[], candidates: string[]): number {
@@ -562,12 +573,7 @@ function rawInvoiceNetValue(row: RawInvoiceRow) {
 }
 
 function invoiceDuplicateKey(invoiceNumber: string, branch: string, saleDate: string) {
-  return getInvoiceDuplicateKey({
-    invoice_no: invoiceNumber,
-    invoice_number: invoiceNumber,
-    branch,
-    invoice_date: saleDate,
-  });
+  return buildInvoiceDuplicateIdentity(invoiceNumber, branch, saleDate);
 }
 
 function friendlyImportError(message: string) {
@@ -789,10 +795,11 @@ export function parseInvoiceFile(
     // It will be marked for review later, and customer matching can still use the name as a fallback.
     if (!customerCode && !isValidPhone(phone) && !name) return;
 
-    const uniqueKey =
-      invoiceNumber || customerCode || phone
-        ? `${invoiceNumber || customerCode || phone}-${date}-${normalizedAmount}`
-        : `row-${rowIndex}-${date}-${normalizedAmount}`;
+    const uniqueKey = buildInvoiceDuplicateIdentity(
+      invoiceNumber || customerCode || phone,
+      rawBranch || fallbackBranch,
+      date
+    );
     if (seen.has(uniqueKey)) {
       errors.push({
         row: rowIndex,
@@ -1642,7 +1649,6 @@ export async function importInvoicesToDB(
           gross_total: row.grossAmount,
           discounted_amount: row.discountedAmount,
           net_amount: row.netAmount,
-          net_total: row.netAmount,
           discount_amount: row.discountAmount,
           courier_cash: row.courierCash,
           extra_fees: row.extraFees,
@@ -1665,7 +1671,6 @@ export async function importInvoicesToDB(
           import_warning: row.importWarning,
           source_row_number: row.rowIndex,
           raw_data: row.raw,
-          branch_name: rowBranch,
         };
 
         const existingValue = existingInvoiceValue(sameBranchAndDate);
@@ -1738,7 +1743,6 @@ export async function importInvoicesToDB(
     gross_total: row.grossAmount,
     discounted_amount: row.discountedAmount,
     net_amount: row.netAmount,
-    net_total: row.netAmount,
     discount_amount: row.discountAmount,
     courier_cash: row.courierCash,
     extra_fees: row.extraFees,
@@ -1761,7 +1765,6 @@ export async function importInvoicesToDB(
     import_warning: row.importWarning,
     source_row_number: row.rowIndex,
     raw_data: row.raw,
-    branch_name: row.branch || branch,
   }));
 
   const chunkSize = 500;

@@ -877,6 +877,7 @@ export default function ExecutiveDashboard2027() {
   const [search, setSearch] = useState('');
   const [dailyChartMetric, setDailyChartMetric] = useState<DailyChartMetric>('sales');
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [doctorCompetition, setDoctorCompetition] = useState<DoctorCompetitionMetrics | null>(null);
   const [doctorCompetitionLoading, setDoctorCompetitionLoading] = useState(false);
   const [dataHealthIssues, setDataHealthIssues] = useState<DataHealthIssue[]>([]);
@@ -1018,23 +1019,13 @@ export default function ExecutiveDashboard2027() {
 
   const load = useCallback(async () => {
     const loadId = ++loadIdRef.current;
-    
-    // Try to load from cache first
     const cachedState = loadDashboardCache(scopedBranch || ALL_BRANCHES, {
       start: startDate,
       end: endDate,
     });
-    
-    if (cachedState) {
-      // Use cached data immediately
-      if (loadIdRef.current === loadId) {
-        setState(cachedState);
-      }
-      setLoading(false);
-      return;
-    }
-    
+
     setLoading(true);
+    setLoadError(null);
     const errors: string[] = [];
     try {
       const branchParams = { p_branch: scopedBranch || ALL_BRANCHES };
@@ -1233,13 +1224,21 @@ export default function ExecutiveDashboard2027() {
         { startDate, endDate, branch: scopedBranch },
         error
       );
-      setState((previous) => ({
-        ...previous,
-        loadedAt: new Date().toISOString(),
-        errors: [
-          `مصدر الداشبورد v171: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`,
-        ],
-      }));
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف';
+      if (cachedState) {
+        setState({
+          ...cachedState,
+          loadedAt: new Date().toISOString(),
+          errors: [`مصدر الداشبورد v171: ${message}`],
+        });
+      } else {
+        setState((previous) => ({
+          ...previous,
+          loadedAt: new Date().toISOString(),
+          errors: [`مصدر الداشبورد v171: ${message}`],
+        }));
+      }
+      setLoadError('تعذر تحميل بيانات الداشبورد الآن. يرجى الانتظار أو التحديث لاحقًا.');
     } finally {
       setLoading(false);
     }
@@ -1248,6 +1247,8 @@ export default function ExecutiveDashboard2027() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const showInitialSkeleton = loading && !state.loadedAt && !state.summary;
 
   const branchOptions = useMemo(() => {
     const fromData = [

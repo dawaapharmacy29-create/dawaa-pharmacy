@@ -164,6 +164,8 @@ export default function DoctorCompetition() {
   const initialFocus = params.get('focus');
   const [rows, setRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempted, setLoadAttempted] = useState(false);
   const lastGoodRowsRef = useRef<Array<DoctorScore & { overallScore: number }>>([]);
   const [scopeWarning, setScopeWarning] = useState<string | null>(null);
   const [last90Available, setLast90Available] = useState(true);
@@ -193,6 +195,8 @@ export default function DoctorCompetition() {
 
   const load = async () => {
     setLoading(true);
+    setLoadError(null);
+    setLoadAttempted(true);
     try {
       const metrics = await getDoctorCompetitionMetrics({
         period,
@@ -230,6 +234,7 @@ export default function DoctorCompetition() {
       }
     } catch (error) {
       console.warn('[DoctorCompetition] failed', error);
+      setLoadError('تعذر تحميل بيانات المسابقات الآن. سيتم عرض آخر بيانات ناجحة إن وجدت.');
       setScopeWarning('Competition refresh failed temporarily. Keeping the last successful data if available.');
       setRows(lastGoodRowsRef.current);
     } finally {
@@ -284,6 +289,8 @@ export default function DoctorCompetition() {
     URL.revokeObjectURL(url);
   };
 
+  const showInitialSkeleton = loading && !loadAttempted && !rows.length && !lastGoodRowsRef.current.length;
+
   return (
     <div className="space-y-5" dir="rtl">
       <section className="rounded-3xl border border-amber-400/30 bg-slate-950 p-5 text-slate-100">
@@ -305,7 +312,30 @@ export default function DoctorCompetition() {
           {scopeWarning}
         </div>
       )}
+      {loadError && (
+        <div className="rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm font-bold text-rose-100">
+          {loadError}
+        </div>
+      )}
 
+      {showInitialSkeleton ? (
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="h-32 animate-pulse rounded-3xl border border-slate-700 bg-slate-900/70" />
+            ))}
+          </div>
+          <div className="dawaa-panel overflow-hidden">
+            <div className="mb-4 h-10 w-48 animate-pulse rounded-xl bg-slate-800" />
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="h-12 animate-pulse rounded-xl bg-slate-800/80" />
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
       <section className="dawaa-panel grid gap-3 md:grid-cols-4">
         <select className="input-dark" value={period} onChange={(event) => setPeriod(event.target.value as Period)}>
           <option value="last30">آخر 30 يوم</option>
@@ -405,7 +435,15 @@ export default function DoctorCompetition() {
             </tr>
           </thead>
           <tbody>
-            {rankingRows.map((row, index) => (
+            {loading && !rows.length ? (
+              Array.from({ length: 6 }).map((_, index) => (
+                <tr key={`loading-row-${index}`} className="border-t border-slate-800">
+                  <td colSpan={12} className="p-3">
+                    <div className="h-8 animate-pulse rounded-lg bg-slate-800/80" />
+                  </td>
+                </tr>
+              ))
+            ) : rankingRows.map((row, index) => (
               <tr key={`${row.name}-${row.branch}`} onClick={() => setSelectedDoctor(row)} className="cursor-pointer border-t border-slate-800 text-slate-100 transition hover:bg-slate-800/50 dark:text-slate-100">
                 <td className="p-3 font-black">{index + 1}</td>
                 <td className="p-3 font-black text-white">{row.name}</td>
@@ -426,6 +464,8 @@ export default function DoctorCompetition() {
         {!loading && !rows.length && <div className="p-10 text-center text-slate-400">لا توجد بيانات كافية للفترة الحالية.</div>}
       </section>
       {selectedDoctor && <DoctorDetailsModal row={selectedDoctor} onClose={() => setSelectedDoctor(null)} />}
+      </>
+      )}
     </div>
   );
 }

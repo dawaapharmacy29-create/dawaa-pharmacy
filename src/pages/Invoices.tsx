@@ -409,7 +409,7 @@ export default function Invoices() {
         if (result.rows.length === 0) toast.error('لم يتم العثور على صفوف صالحة في الملف');
         else toast.success(`تم تحليل الملف: ${result.rows.length.toLocaleString('ar-EG')} صف صالح`);
       } catch (error) {
-        toast.error(`خطأ: ${(error as Error).message}`);
+        toast.error(`فشل قراءة الملف: ${(error as Error).message}`);
         setStep('idle');
       }
     },
@@ -445,10 +445,19 @@ export default function Invoices() {
       setStep('done');
       setSummaryRefreshPhase('imported');
       if (importKind === 'sales') {
-        if (summary.insertedRows === 0 && (summary.confirmedExistingInvoices ?? 0) === 0 && (summary.updatedInvoices ?? 0) === 0) {
-          toast.info('لم يتم العثور على فواتير جديدة أو صافي مؤثر');
+        const inserted = summary.insertedRows || 0;
+        const confirmed = summary.confirmedExistingInvoices ?? summary.updatedInvoices ?? 0;
+        const duplicates = summary.skippedDuplicates || 0;
+        if (inserted === 0 && confirmed === 0) {
+          if (duplicates > 0) {
+            toast.info(`لا توجد فواتير جديدة. تم تجاهل ${duplicates} فاتورة مكررة.`);
+          } else {
+            toast.info('لا توجد فواتير جديدة');
+          }
+        } else if (duplicates > 0) {
+          toast.success(`تم الاستيراد بنجاح. تم تجاهل ${duplicates} فاتورة مكررة.`);
         } else {
-          toast.success('تم استيراد الفواتير بنجاح');
+          toast.success('تم الاستيراد بنجاح');
         }
       } else {
         toast.success('تم استيراد بيانات العملاء');
@@ -482,7 +491,7 @@ export default function Invoices() {
         });
       }
     } catch (error) {
-      toast.error(`فشل الاستيراد: ${(error as Error).message}`);
+      toast.error(`فشل حفظ بعض الصفوف: ${(error as Error).message}`);
       setStep('preview');
     }
   };
