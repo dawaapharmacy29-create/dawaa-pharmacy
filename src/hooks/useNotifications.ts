@@ -181,15 +181,37 @@ export function useNotifications() {
 
     let channel: ReturnType<typeof supabase.channel> | null = null;
     if (isSupabaseConfigured) {
-      channel = supabase.channel('app-notifications-live').on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => void refreshNotifications()).subscribe((status) => {
-        if (status === 'CHANNEL_ERROR' && import.meta.env.DEV) console.warn('[notifications] realtime unavailable; polling remains active');
-      });
+      try {
+        const channelName = `app-notifications-live-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        channel = supabase
+          .channel(channelName)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'notifications' },
+            () => void refreshNotifications()
+          );
+
+        channel.subscribe((status) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            console.warn('[notifications] realtime unavailable; polling remains active', status);
+          }
+        });
+      } catch (error) {
+        console.warn('[notifications] realtime setup failed; polling remains active', error);
+        channel = null;
+      }
     }
     return () => {
       mountedRef.current = false;
       window.clearInterval(polling);
       window.removeEventListener('dawaa:notification-settings', onSettings);
-      if (channel) void supabase.removeChannel(channel);
+      if (channel) {
+        try {
+          void supabase.removeChannel(channel);
+        } catch (error) {
+          console.warn('[notifications] realtime cleanup failed', error);
+        }
+      }
     };
   }, [refreshNotifications]);
 
