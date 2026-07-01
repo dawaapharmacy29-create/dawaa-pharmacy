@@ -127,6 +127,9 @@ export interface ImportSummary {
   summaryRefreshStatus?: 'refreshed' | 'manual_required' | 'skipped' | 'unavailable';
   summaryRefreshMessage?: string;
   postImportRefreshSteps?: PostImportRefreshStep[];
+  fileName?: string | null;
+  importedBy?: string | null;
+  importedAt?: string | null;
 }
 
 export interface PostImportRefreshStep {
@@ -1412,104 +1415,39 @@ async function linkSellerToStaffId(sellerName: string, branch: string): Promise<
 }
 
 async function refreshImportSummaries(summary: ImportSummary) {
-  const steps: PostImportRefreshStep[] = [];
-  const addStep = (step: PostImportRefreshStep) => steps.push(step);
-  const dateRangeReady = Boolean(summary.firstInvoiceDate && summary.lastInvoiceDate);
-  const hasSummaryAffectingChanges =
-    summary.insertedRows > 0 || (summary.valueChangedUpdates || 0) > 0;
+  invalidateInvoiceCache();
+  clearExecutiveDashboardCache();
+  clearSalesAnalyticsSummaryCache();
+  clearCustomersCache();
+  clearCustomerServiceCommandCenterCache();
+  clearCustomerProfileCache();
+  clearStaffPerformanceProfileCache();
+  broadcastInvoiceImportRefresh();
 
-  if (dateRangeReady && hasSummaryAffectingChanges) {
-    const { error } = await supabase.rpc('rebuild_sales_daily_summary', {
-      p_start_date: summary.firstInvoiceDate,
-      p_end_date: summary.lastInvoiceDate,
-    });
-
-    if (!error) {
-      addStep({
-        key: 'sales_daily_summary',
-        label: 'تحديث ملخص المبيعات للفترة فقط',
-        status: 'success',
-        message: `تم تحديث sales_daily_summary للفترة من ${summary.firstInvoiceDate} إلى ${summary.lastInvoiceDate}.`,
-      });
-    } else {
-      if (import.meta.env.DEV) {
-        console.warn('[invoiceImporter] rebuild_sales_daily_summary failed', error);
-      }
-      addStep({
-        key: 'sales_daily_summary',
-        label: 'تحديث ملخص المبيعات للفترة فقط',
-        status: 'failed',
-        message: 'تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.',
-      });
-    }
-
-    addStep({
-      key: 'legacy_summaries',
-      label: 'ملخصات قديمة عامة',
+  summary.postImportRefreshSteps = [
+    {
+      key: 'summary_refresh_disabled',
+      label: 'ملخصات المبيعات',
       status: 'skipped',
-      message: 'لم يتم تشغيل أي تحديث عام لكل النظام. التحديث محصور في مدى تاريخ الملف.',
-    });
-  } else if (dateRangeReady) {
-    addStep({
-      key: 'sales_daily_summary',
-      label: 'تحديث ملخص المبيعات للفترة فقط',
-      status: 'skipped',
-      message:
-        'تم تخطي تحديث الملخصات لأن الملف أكد فواتير موجودة مسبقًا فقط بدون إضافة فواتير جديدة أو تغيير صافي مؤثر.',
-    });
-  } else {
-    addStep({
-      key: 'sales_daily_summary',
-      label: 'تحديث ملخص المبيعات للفترة فقط',
-      status: 'skipped',
-      message: 'لم يتم العثور على مدى تاريخ واضح داخل ملف الاستيراد.',
-    });
-  }
-
-  try {
-    invalidateInvoiceCache();
-    clearExecutiveDashboardCache();
-    clearSalesAnalyticsSummaryCache();
-    clearCustomersCache();
-    clearCustomerServiceCommandCenterCache();
-    clearCustomerProfileCache();
-    clearStaffPerformanceProfileCache();
-    broadcastInvoiceImportRefresh();
-    addStep({
-      key: 'frontend_caches',
-      label: 'تفريغ كاش الشاشات',
-      status: 'success',
-      message: 'تم تفريغ كاش الداشبورد والتحليلات والعملاء وخدمة العملاء وملفات العملاء.',
-    });
-  } catch (error) {
-    addStep({
-      key: 'frontend_caches',
-      label: 'تفريغ كاش الشاشات',
-      status: 'failed',
-      message: friendlyImportError(error instanceof Error ? error.message : String(error)),
-    });
-  }
-
-  summary.postImportRefreshSteps = steps;
-  const failedSteps = steps.filter((step) => step.status === 'failed');
-  const summaryStep = steps.find((step) => step.key === 'sales_daily_summary');
-  summary.summaryRefreshStatus = failedSteps.length
-    ? 'manual_required'
-    : summaryStep?.status === 'skipped'
-      ? 'skipped'
-      : 'refreshed';
+      message: 'تحديث الملخصات غير مفعل حاليًا، سيتم الاعتماد على الفواتير المباشرة.',
+    },
+  ];
+  summary.summaryRefreshStatus = 'unavailable';
   summary.summaryRefreshMessage =
-    summary.summaryRefreshStatus === 'refreshed'
-      ? 'تم تحديث ملخصات المبيعات للفترة الموجودة في الملف.'
-      : summary.summaryRefreshStatus === 'manual_required'
-        ? 'تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.'
-        : summaryStep?.message || 'تم الاستيراد بنجاح، ولم تكن هناك حاجة لتحديث الملخصات.';
+    'تحديث الملخصات غير مفعل حاليًا، سيتم الاعتماد على الفواتير المباشرة.';
 }
+
+async function persistInvoiceImportBatch(_summary: ImportSummary, _status: string, _errorMessage?: string | null) {
+  // لا نستخدم جداول batches جديدة الآن. الاستيراد يعتمد على sales_invoices فقط.
+  return;
+}
+
 export async function importInvoicesToDB(
   rows: RawInvoiceRow[],
   branch: string,
   importBatch: string,
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
+  options?: { fileName?: string | null; importedBy?: string | null; importedAt?: string | null }
 ): Promise<ImportSummary> {
   const summary: ImportSummary = {
     totalRows: rows.length,
@@ -1538,6 +1476,9 @@ export async function importInvoicesToDB(
         .filter(Boolean)
         .sort()
         .pop() || null,
+    fileName: options?.fileName || null,
+    importedBy: options?.importedBy || null,
+    importedAt: options?.importedAt || new Date().toISOString(),
     fileNetSales: rows.reduce((sum, row) => sum + rawInvoiceNetValue(row), 0),
     importedNetSales: 0,
     insertedNetSales: 0,
@@ -1547,7 +1488,10 @@ export async function importInvoicesToDB(
     savedNetSales: 0,
     reviewNetSales: 0,
   };
-  if (rows.length === 0) return summary;
+  if (rows.length === 0) {
+    await persistInvoiceImportBatch(summary, 'imported');
+    return summary;
+  }
 
   const distinctInvoiceKeys = new Set(
     rows
@@ -2167,8 +2111,7 @@ export async function importInvoicesToDB(
     reportProgress(onProgress, invoiceRecords.length + analysed, totalWork);
   }
 
-  // Customer metrics are refreshed through backend summaries/RPCs below.
-  // Avoid post-import sales_invoices aggregation from React to prevent timeouts.
+  // Keep import fast and avoid any heavy summary refresh path.
   invalidateInvoiceCache();
   clearExecutiveDashboardCache();
   clearSalesAnalyticsSummaryCache();
@@ -2176,27 +2119,9 @@ export async function importInvoicesToDB(
   clearCustomerServiceCommandCenterCache();
   clearCustomerProfileCache();
   clearStaffPerformanceProfileCache();
-  try {
-    await refreshImportSummaries(summary);
-    const rebuilt = { customers: summary.updatedCustomers };
-    summary.updatedCustomers = Math.max(summary.updatedCustomers, rebuilt.customers);
-  } catch (error) {
-    if (import.meta.env.DEV) {
-      console.warn('[invoiceImporter] post-import refresh failed', error);
-    }
-    summary.summaryRefreshStatus = 'manual_required';
-    summary.summaryRefreshMessage =
-      'تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.';
-    summary.postImportRefreshSteps = [
-      ...(summary.postImportRefreshSteps || []),
-      {
-        key: 'post_import_refresh',
-        label: 'تحديث الملخصات بعد الاستيراد',
-        status: 'failed',
-        message: 'تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.',
-      },
-    ];
-  }
+  await refreshImportSummaries(summary);
+  const rebuilt = { customers: summary.updatedCustomers };
+  summary.updatedCustomers = Math.max(summary.updatedCustomers, rebuilt.customers);
 
   const daily = new Map<string, { date: string; count: number; total: number }>();
   const branches = new Map<string, { branch: string; count: number; total: number }>();
@@ -2235,6 +2160,7 @@ export async function importInvoicesToDB(
   );
   summary.rejectedRows = summary.errors.length;
 
+  await persistInvoiceImportBatch(summary, 'imported');
   return summary;
 }
 

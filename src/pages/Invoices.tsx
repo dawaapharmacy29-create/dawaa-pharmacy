@@ -187,6 +187,19 @@ export default function Invoices() {
   const [duplicateAudit, setDuplicateAudit] = useState<DuplicateInvoiceGroup[]>([]);
   const [duplicateAuditLoading, setDuplicateAuditLoading] = useState(false);
   const [summaryRefreshBusy, setSummaryRefreshBusy] = useState(false);
+  const [summaryRefreshPhase, setSummaryRefreshPhase] = useState<'idle' | 'imported' | 'refreshing' | 'updated' | 'failed'>('idle');
+  const [summaryRangeStart, setSummaryRangeStart] = useState('');
+  const [summaryRangeEnd, setSummaryRangeEnd] = useState('');
+  const [summarySnapshot, setSummarySnapshot] = useState<{
+    totalInvoices: number;
+    totalSales: number;
+    latestUpdatedAt: string | null;
+    latestBatchStatus: string | null;
+    branchRows: Array<{ branch_name: string; invoices_count: number; net_total: number; updated_at: string | null }>;
+    dailyRows: Array<{ summary_date: string; invoices_count: number; net_total: number; updated_at: string | null }>;
+  } | null>(null);
+  const [summarySnapshotBusy, setSummarySnapshotBusy] = useState(false);
+  const [summarySnapshotMessage, setSummarySnapshotMessage] = useState<string | null>(null);
   const [phoneUpdateRows, setPhoneUpdateRows] = useState<CustomerPhoneCsvRow[]>([]);
   const [phoneUpdateResult, setPhoneUpdateResult] = useState<CustomerPhoneUpdateResult | null>(
     null
@@ -236,6 +249,76 @@ export default function Invoices() {
     }
     setManagedLoading(false);
   }, [isAdmin, sellerNameFilter, fromDateFilter, toDateFilter]);
+
+  const loadInvoiceSummarySnapshot = useCallback(async () => {
+    setSummarySnapshotBusy(true);
+    setSummarySnapshotMessage(null);
+    try {
+      const { data, error } = await supabase
+        .from('sales_invoices')
+        .select('invoice_date,branch,net_amount,net_total,amount')
+        .order('invoice_date', { ascending: false })
+        .limit(5000);
+
+      if (error) throw error;
+
+      const rows = ((data || []) as Array<Record<string, unknown>>)
+        .map((row) => {
+          const invoiceDate = String(row.invoice_date || '').slice(0, 10);
+          const branchName = String(row.branch || 'غير محدد').trim() || 'غير محدد';
+          const netValue = Number(row.net_amount ?? row.net_total ?? row.amount ?? 0);
+          return { invoiceDate, branchName, netValue };
+        })
+        .filter((row) => row.invoiceDate);
+
+      const dailyMap = new Map<string, { summary_date: string; invoices_count: number; net_total: number; updated_at: string | null }>();
+      const branchMap = new Map<string, { branch_name: string; invoices_count: number; net_total: number; updated_at: string | null }>();
+
+      for (const row of rows) {
+        const daily = dailyMap.get(row.invoiceDate) || {
+          summary_date: row.invoiceDate,
+          invoices_count: 0,
+          net_total: 0,
+          updated_at: row.invoiceDate,
+        };
+        daily.invoices_count += 1;
+        daily.net_total += row.netValue;
+        dailyMap.set(row.invoiceDate, daily);
+
+        const branch = branchMap.get(row.branchName) || {
+          branch_name: row.branchName,
+          invoices_count: 0,
+          net_total: 0,
+          updated_at: row.invoiceDate,
+        };
+        branch.invoices_count += 1;
+        branch.net_total += row.netValue;
+        branchMap.set(row.branchName, branch);
+      }
+
+      const dailyRows = [...dailyMap.values()]
+        .sort((a, b) => b.summary_date.localeCompare(a.summary_date))
+        .slice(0, 8);
+      const branchRows = [...branchMap.values()]
+        .sort((a, b) => b.net_total - a.net_total)
+        .slice(0, 8);
+
+      setSummarySnapshot({
+        totalInvoices: rows.length,
+        totalSales: rows.reduce((sum, row) => sum + row.netValue, 0),
+        latestUpdatedAt: rows[0]?.invoiceDate || null,
+        latestBatchStatus: null,
+        branchRows,
+        dailyRows,
+      });
+      setSummarySnapshotMessage('تحديث الملخصات غير مفعل حاليًا، سيتم الاعتماد على الفواتير المباشرة.');
+    } catch (error) {
+      setSummarySnapshotMessage(`تعذر تحميل ملخصات الفواتير: ${(error as Error).message}`);
+      setSummarySnapshot(null);
+    } finally {
+      setSummarySnapshotBusy(false);
+    }
+  }, []);
 
   const loadDuplicateAudit = useCallback(async () => {
     if (!isAdmin) return;
@@ -288,7 +371,8 @@ export default function Invoices() {
 
   useEffect(() => {
     void loadManagedInvoices();
-  }, [loadManagedInvoices]);
+    void loadInvoiceSummarySnapshot();
+  }, [loadManagedInvoices, loadInvoiceSummarySnapshot]);
 
   const readFile = (file: File): Promise<ArrayBuffer> =>
     new Promise((resolve, reject) => {
@@ -346,15 +430,29 @@ export default function Invoices() {
               (parseResult as ParseResult).rows,
               branch,
               batch,
-              (done, total) => setProgress(total > 0 ? Math.round((done / total) * 100) : 0)
+              (done, total) => setProgress(total > 0 ? Math.round((done / total) * 100) : 0),
+              {
+                fileName,
+                importedBy: user?.id || null,
+                importedAt: new Date().toISOString(),
+              }
             )
           : await importCustomersToDB((parseResult as CustomerParseResult).rows, batch);
 
       setImportSummary(summary);
+      setSummaryRangeStart(summary.firstInvoiceDate || '');
+      setSummaryRangeEnd(summary.lastInvoiceDate || '');
       setStep('done');
-      toast.success(
-        importKind === 'sales' ? salesImportSuccessMessage(summary) : 'تم استيراد بيانات العملاء'
-      );
+      setSummaryRefreshPhase('imported');
+      if (importKind === 'sales') {
+        if (summary.insertedRows === 0 && (summary.confirmedExistingInvoices ?? 0) === 0 && (summary.updatedInvoices ?? 0) === 0) {
+          toast.info('لم يتم العثور على فواتير جديدة أو صافي مؤثر');
+        } else {
+          toast.success('تم استيراد الفواتير بنجاح');
+        }
+      } else {
+        toast.success('تم استيراد بيانات العملاء');
+      }
 
       const currentUserProfile = getCurrentUserProfile();
       await logActivity(
@@ -370,6 +468,7 @@ export default function Invoices() {
       if (importKind === 'sales') {
         await queryClient.invalidateQueries({ queryKey: ['supabase'] });
         await loadManagedInvoices();
+        await loadInvoiceSummarySnapshot();
         await supabase.from('notifications').insert({
           title: 'استيراد ملف فواتير جديد',
           message: `تم قراءة ${summary.distinctInvoicesInFile || summary.totalRows} فاتورة من ${fileName}. تمت إضافة ${summary.insertedRows} وتأكيد/تحديث ${summary.confirmedExistingInvoices ?? summary.updatedInvoices ?? 0}. صافي الملف ${formatCurrency(summary.fileNetSales || 0)}، وصافي الجديد + الموجود المؤكد ${formatCurrency(summary.processedNetSales ?? summary.savedNetSales ?? summary.importedNetSales ?? 0)}.`,
@@ -394,36 +493,20 @@ export default function Invoices() {
     setParseResult(null);
     setImportSummary(null);
     setProgress(0);
+    setSummaryRefreshPhase('idle');
     setPhoneUpdateParseResult(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const rebuildSalesSummaries = async (range?: {
-    startDate?: string | null;
-    endDate?: string | null;
-  }) => {
-    const startDate =
-      range?.startDate || importSummary?.firstInvoiceDate || invoiceBatches[0]?.firstDate;
-    const endDate = range?.endDate || importSummary?.lastInvoiceDate || invoiceBatches[0]?.lastDate;
-    if (!startDate || !endDate || startDate === '-' || endDate === '-') {
-      toast.warning('لا يوجد مدى تاريخ واضح لتحديث الملخصات');
-      return;
-    }
-
+  const rebuildSalesSummaries = async () => {
     setSummaryRefreshBusy(true);
-    const { error } = await supabase.rpc('rebuild_sales_daily_summary', {
-      p_start_date: startDate,
-      p_end_date: endDate,
-    });
-    clearInvoiceLinkedViews();
-    await queryClient.invalidateQueries({ queryKey: ['supabase'] });
-    setSummaryRefreshBusy(false);
-
-    if (error) {
-      toast.info('تم الاستيراد بنجاح، وسيتم الاعتماد على الفواتير المباشرة حتى تحديث الملخص.');
-      return;
+    setSummaryRefreshPhase('failed');
+    try {
+      await loadInvoiceSummarySnapshot();
+      toast.info('تحديث الملخصات غير مفعل حاليًا، سيتم الاعتماد على الفواتير المباشرة.');
+    } finally {
+      setSummaryRefreshBusy(false);
     }
-    toast.success(`تم تحديث ملخصات المبيعات للفترة من ${startDate} إلى ${endDate}`);
   };
 
   const handlePhoneUpdateFile = async (file: File) => {
@@ -788,12 +871,17 @@ export default function Invoices() {
     };
   }, [importSummary]);
 
-  const summaryRefreshState = importSummary?.summaryRefreshStatus || 'skipped';
+  const summaryRefreshState =
+    summaryRefreshPhase === 'updated'
+      ? 'refreshed'
+      : summaryRefreshPhase === 'failed' || summaryRefreshPhase === 'imported' || summaryRefreshPhase === 'idle'
+        ? 'unavailable'
+        : importSummary?.summaryRefreshStatus || 'unavailable';
   const summaryRefreshLabel =
     summaryRefreshState === 'refreshed'
       ? 'تم'
       : summaryRefreshState === 'manual_required' || summaryRefreshState === 'unavailable'
-        ? 'يحتاج تحديث يدوي'
+        ? 'غير مفعل'
         : 'تم التخطي';
   const summaryRefreshTone =
     summaryRefreshState === 'refreshed'
@@ -1665,6 +1753,34 @@ export default function Invoices() {
           </div>
           {importKind === 'sales' && (
             <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-4">
+                <div className="font-bold text-sky-100">حالة الملخصات الخفيفة</div>
+                <div className="mt-2 text-sm text-sky-50/85">
+                  {summarySnapshotMessage || (summarySnapshot?.latestUpdatedAt ? `آخر تحديث: ${formatDate(summarySnapshot.latestUpdatedAt)}` : 'لم يتم تسجيل تحديث بعد الاستيراد.')}
+                </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <div className="space-y-2 text-xs text-sky-50/80">
+                    <div className="font-semibold text-sky-100">حسب اليوم</div>
+                    {(summarySnapshot?.dailyRows || []).slice(0, 4).map((row) => (
+                      <div key={row.summary_date} className="flex justify-between rounded-lg bg-slate-950/20 px-3 py-2">
+                        <span>{row.summary_date}</span>
+                        <span>{row.invoices_count.toLocaleString('ar-EG')} | {formatCurrency(row.net_total)}</span>
+                      </div>
+                    ))}
+                    {!summarySnapshot?.dailyRows?.length && <div className="rounded-lg bg-slate-950/20 px-3 py-2">لا توجد بيانات يومية حتى الآن</div>}
+                  </div>
+                  <div className="space-y-2 text-xs text-sky-50/80">
+                    <div className="font-semibold text-sky-100">حسب الفرع</div>
+                    {(summarySnapshot?.branchRows || []).slice(0, 4).map((row) => (
+                      <div key={row.branch_name} className="flex justify-between rounded-lg bg-slate-950/20 px-3 py-2">
+                        <span>{row.branch_name}</span>
+                        <span>{row.invoices_count.toLocaleString('ar-EG')} | {formatCurrency(row.net_total)}</span>
+                      </div>
+                    ))}
+                    {!summarySnapshot?.branchRows?.length && <div className="rounded-lg bg-slate-950/20 px-3 py-2">لا توجد بيانات فرعية حتى الآن</div>}
+                  </div>
+                </div>
+              </div>
               <div className="rounded-xl border border-teal-300/25 bg-teal-400/10 p-4">
                 <div className="font-bold text-teal-100">تفاصيل تحديث الملخصات</div>
                 <div className="mt-2 text-sm text-teal-50/85">
@@ -1696,18 +1812,34 @@ export default function Invoices() {
                     );
                   })}
                 </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <label className="text-xs text-slate-300">
+                    <span>من</span>
+                    <input
+                      type="date"
+                      value={summaryRangeStart}
+                      onChange={(event) => setSummaryRangeStart(event.target.value)}
+                      className="input-dark mt-1"
+                    />
+                  </label>
+                  <label className="text-xs text-slate-300">
+                    <span>إلى</span>
+                    <input
+                      type="date"
+                      value={summaryRangeEnd}
+                      onChange={(event) => setSummaryRangeEnd(event.target.value)}
+                      className="input-dark mt-1"
+                    />
+                  </label>
+                </div>
                 <button
                   type="button"
-                  onClick={() =>
-                    rebuildSalesSummaries({
-                      startDate: importSummary.firstInvoiceDate,
-                      endDate: importSummary.lastInvoiceDate,
-                    })
-                  }
-                  disabled={summaryRefreshBusy}
+                  onClick={() => rebuildSalesSummaries()}
+                  disabled={true}
+                  title="تحديث الملخصات غير مفعل حاليًا، سيتم الاعتماد على الفواتير المباشرة"
                   className="mt-3 rounded-xl border border-teal-200/40 bg-teal-300/15 px-4 py-2 text-sm font-bold text-teal-50 hover:bg-teal-300/25 disabled:opacity-50"
                 >
-                  {summaryRefreshBusy ? 'جاري تحديث الملخصات...' : 'تحديث الملخصات'}
+                  {summaryRefreshBusy ? 'جاري تحديث الملخصات...' : 'تحديث الملخصات غير مفعل'}
                 </button>
               </div>
               <div className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-4">
