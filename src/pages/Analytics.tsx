@@ -25,6 +25,7 @@ import {
   type SalesAnalyticsSummary,
 } from '@/lib/salesAnalyticsSummaryService';
 import { clearExecutiveDashboardCache } from '@/lib/executiveDashboardDataService';
+import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 
 type PeriodType = 'cycle' | 'previous_cycle' | 'month' | 'last_30_days' | 'custom';
 
@@ -443,7 +444,10 @@ export default function Analytics() {
                   return row.staffId ? (
                     <Link
                       key={`${row.staffId}-${row.branch}-${index}`}
-                      to={`/staff/${row.staffId}`}
+                      to={staffProfilePath({
+                        staff_id: row.staffId,
+                        name: row.doctor,
+                      })}
                       className="block rounded-xl border border-slate-100 p-3 transition hover:border-teal-200 hover:bg-teal-50/40"
                     >
                       {body}

@@ -10,6 +10,7 @@ import {
 import { STAFF_DETAIL_SECTION_TIMEOUT_MS, type StaffBaseProfile } from '@/lib/staffDetailLoader';
 import { getStaffCycleInvoices } from '@/lib/staffSalesService';
 import { getStaffInvoiceTruth, type StaffInvoiceTruth } from '@/lib/staffInvoiceTruthService';
+import { resolveCanonicalStaffIdentifier } from '@/lib/staff/staffIdentityResolver';
 import {
   generateStaffRecommendations as generateRecommendations,
   type StaffRecommendation,
@@ -326,6 +327,8 @@ export async function loadStaffPerformanceProfile(
 
   const errorsBySection: Record<string, string> = {};
   const sources: string[] = [];
+  const resolution = await resolveCanonicalStaffIdentifier(params.staffId);
+  const effectiveStaffId = resolution.canonicalStaffId || resolution.account?.id || params.staffId;
 
   // Load base staff profile
   let staff: StaffBaseProfile | null = null;
@@ -333,7 +336,7 @@ export async function loadStaffPerformanceProfile(
     const { data, error } = await supabase
       .from('staff')
       .select('id,name,branch,role,active,is_active,status,created_at,points,max_points')
-      .eq('id', params.staffId)
+      .eq('id', effectiveStaffId)
       .maybeSingle();
     if (error) throw error;
     if (data) {
@@ -356,7 +359,31 @@ export async function loadStaffPerformanceProfile(
   }
 
   if (!staff) {
-    throw new Error('Staff not found');
+    const account = resolution.account;
+    if (account?.active !== false) {
+      const accountCanLogin = account.can_login !== false;
+      staff = {
+        id: String(account.staff_id || account.id || params.staffId),
+        name: String(account.name || account.staff_name || account.username || 'غير محدد'),
+        branch: String(account.branch || 'غير محدد'),
+        role: String(account.role || ''),
+        is_active: accountCanLogin,
+        created_at: null,
+        points: null,
+        max_points: null,
+        active: account.active ?? true,
+        status: 'active',
+        primary_staff_id: account.staff_id || null,
+        primary_staff_name: account.name || account.staff_name || account.username || null,
+      };
+      errorsBySection.staff =
+        account.staff_id
+          ? 'تعذر تحميل صف الموظف، وتم عرض بيانات حساب الدخول مؤقتًا.'
+          : 'حساب الدخول نشط لكنه غير مربوط بموظف. تم عرض بيانات الحساب مؤقتًا.';
+      sources.push('staff_accounts');
+    } else {
+      throw new Error('Staff not found');
+    }
   }
 
   // Resolve staff identity
@@ -366,7 +393,7 @@ export async function loadStaffPerformanceProfile(
   let monthlyIncentive: StaffCycleIncentive | null = null;
   try {
     monthlyIncentive = await getStaffCycleIncentive({
-      staffId: params.staffId,
+      staffId: effectiveStaffId,
       staffName: staff.name,
       branch: staff.branch,
       cycleStart,
@@ -380,7 +407,7 @@ export async function loadStaffPerformanceProfile(
   let invoiceTruth: StaffInvoiceTruth | null = null;
   try {
     // getStaffInvoiceTruth never throws — it returns a full object even on errors
-    invoiceTruth = await getStaffInvoiceTruth(params.staffId, cycleStart, cycleEnd);
+    invoiceTruth = await getStaffInvoiceTruth(effectiveStaffId, cycleStart, cycleEnd);
     sources.push('sales_invoices');
     if (invoiceTruth.diagnostics.errors.length > 0) {
       errorsBySection.invoice_truth = invoiceTruth.diagnostics.errors.join('; ');
@@ -415,7 +442,7 @@ export async function loadStaffPerformanceProfile(
   let listItems: StaffStagnantListMetrics | null = null;
   try {
     const stagnantListData = await loadStaffStagnantListMetrics(
-      params.staffId,
+      effectiveStaffId,
       identity,
       cycleStart,
       cycleEnd,
@@ -440,7 +467,7 @@ export async function loadStaffPerformanceProfile(
   try {
     [attendance, permissions, schedule] = await Promise.all([
       loadStaffAttendanceMetrics(staff, identity, cycleStart, cycleEnd, params.signal),
-      PermissionPolicyService.getPermissionPolicyStatus(params.staffId, cycleStart, cycleEnd),
+      PermissionPolicyService.getPermissionPolicyStatus(effectiveStaffId, cycleStart, cycleEnd),
       loadStaffSchedule(staff, identity, cycleStart, cycleEnd, params.signal),
     ]);
     sources.push('staff_schedule', 'shift_schedules', 'shift_exceptions');
@@ -452,7 +479,7 @@ export async function loadStaffPerformanceProfile(
   let customerService: StaffCustomerServiceMetrics | null = null;
   try {
     customerService = await loadStaffCustomerServiceMetrics(
-      params.staffId,
+      effectiveStaffId,
       identity,
       cycleStart,
       cycleEnd,
@@ -467,7 +494,7 @@ export async function loadStaffPerformanceProfile(
   let quarterlyIncentive: StaffQuarterlyMetrics | null = null;
   try {
     quarterlyIncentive = await loadStaffQuarterlyMetrics(
-      params.staffId,
+      effectiveStaffId,
       identity,
       quarterStart,
       quarterEnd,
@@ -482,7 +509,7 @@ export async function loadStaffPerformanceProfile(
   let followups: Row[] = [];
   try {
     followups = await loadStaffFollowups(
-      params.staffId,
+      effectiveStaffId,
       identity,
       cycleStart,
       cycleEnd,

@@ -38,6 +38,7 @@ import {
   type PointLedgerRecord,
 } from '@/lib/pointsLedger';
 import { calculateStaffCycleIncentiveFromRows } from '@/lib/staffIncentiveService';
+import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -743,7 +744,13 @@ export default function PenaltyIncentiveManagement() {
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          navigate(`/staff/${row.staff_id || row.employee_id}`);
+                          navigate(
+                            staffProfilePath({
+                              staff_id: row.staff_id,
+                              id: row.employee_id,
+                              name: row.employee_name,
+                            })
+                          );
                         }}
                         className="text-teal-300 hover:text-teal-200 underline underline-offset-4"
                       >
@@ -854,7 +861,13 @@ export default function PenaltyIncentiveManagement() {
           record={selectedRecord}
           onClose={() => setSelectedRecord(null)}
           onStaff={() =>
-            navigate(`/staff/${selectedRecord.staff_id || selectedRecord.employee_id}`)
+            navigate(
+              staffProfilePath({
+                staff_id: selectedRecord.staff_id,
+                id: selectedRecord.employee_id,
+                name: selectedRecord.employee_name,
+              })
+            )
           }
         />
       )}

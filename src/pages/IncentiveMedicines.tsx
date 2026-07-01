@@ -29,6 +29,7 @@ import {
   targetAchieved,
 } from '@/lib/medicinePerformance';
 import { triggerCelebration } from '@/lib/celebration';
+import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 
 interface IncentiveMedicine {
   id: string;
@@ -691,7 +692,10 @@ export default function IncentiveMedicines() {
                     <div className="text-xs text-slate-400">الدكتور المسؤول</div>
                     {medicine.doctor_id ? (
                       <Link
-                        to={`/staff/${medicine.doctor_id}`}
+                        to={staffProfilePath({
+                          staff_id: medicine.doctor_id,
+                          name: medicine.responsible_doctor,
+                        })}
                         className="text-teal-300 hover:text-teal-200 font-bold inline-flex items-center gap-1 mt-1"
                       >
                         <UserRound size={14} /> {medicine.responsible_doctor || 'غير محدد'}

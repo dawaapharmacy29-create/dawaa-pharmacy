@@ -15,6 +15,7 @@ import {
   type EmployeeDailyTask,
 } from '@/lib/employeeDailyTasks';
 import { EMPLOYEE_OPERATING_ROLE_KEYS, getEmployeeRoleOperatingProfile } from '@/lib/employeeRoleOperatingProfiles';
+import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 
 const ALL = 'all';
 const PAGE_SIZE = 50;
@@ -271,7 +272,13 @@ export default function EmployeeOperatingSystem() {
                 {tasks.map((task) => (
                   <tr key={task.id} className="align-top hover:bg-slate-800/45">
                     <td className="p-3">
-                      <Link className="font-black text-white hover:text-teal-200" to={task.staff_id ? `/staff/${task.staff_id}?tab=operating-system` : '/team'}>
+                      <Link
+                        className="font-black text-white hover:text-teal-200"
+                        to={`${staffProfilePath({
+                          staff_id: task.staff_id,
+                          name: task.staff_name,
+                        })}?tab=operating-system`}
+                      >
                         {task.staff_name || 'غير محدد'}
                       </Link>
                     </td>

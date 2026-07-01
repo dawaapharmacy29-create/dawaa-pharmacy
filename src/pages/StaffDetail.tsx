@@ -28,6 +28,7 @@ import {
   loadStaffPerformanceProfile,
   type StaffPerformanceProfile,
 } from '@/lib/staff/staffPerformanceProfileService';
+import { resolveCanonicalStaffIdentifier } from '@/lib/staff/staffIdentityResolver';
 import { STAFF_OPERATING_POLICY_SECTIONS } from '@/lib/performance/ruleDefinitions';
 import { getTransactionDetails } from '@/lib/pointsLedger';
 import { useAuth } from '@/hooks/useAuth';
@@ -382,13 +383,16 @@ export default function StaffDetail() {
     setLoading(true);
     setError(null);
 
-    loadStaffPerformanceProfile({
-      staffId: id,
-      cycleStart,
-      cycleEnd,
-      signal: controller.signal,
-      forceRefresh: true,
-    })
+    resolveCanonicalStaffIdentifier(id)
+      .then((resolution) =>
+        loadStaffPerformanceProfile({
+          staffId: resolution.canonicalStaffId || resolution.routeIdentifier || id,
+          cycleStart,
+          cycleEnd,
+          signal: controller.signal,
+          forceRefresh: true,
+        })
+      )
       .then(setProfile)
       .catch((err) => {
         if (controller.signal.aborted) return;
@@ -413,11 +417,11 @@ export default function StaffDetail() {
   }, []);
 
   const loadOperatingTasks = useCallback(async () => {
-    if (!id || !profile) return;
+    if (!profile) return;
     setTasksLoading(true);
     const result = await fetchEmployeeTasks({
       date: new Date().toISOString().slice(0, 10),
-      staffId: id,
+      staffId: profile.staff.id,
       user,
       pageSize: 50,
     });
@@ -433,7 +437,7 @@ export default function StaffDetail() {
     setEmployeeTasks(result.tasks.length ? result.tasks : fallback);
     setTasksIssue(result.error);
     setTasksLoading(false);
-  }, [id, profile, user]);
+  }, [profile, user]);
 
   useEffect(() => {
     void loadOperatingTasks();

@@ -42,6 +42,7 @@ import {
   fetchCurrentShiftPresence,
   type ShiftPresencePerson,
 } from '@/lib/attendance/currentShiftPresenceService';
+import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 
 interface Employee {
   id: string;
@@ -502,7 +503,7 @@ export default function Team() {
                   </button>
                 )}
                 <Link
-                  to={`/staff/${emp.id}`}
+                  to={staffProfilePath(emp)}
                   className="p-1.5 rounded-lg text-teal-400 hover:text-white hover:bg-teal-500/10"
                   title="ملف الأداء الشامل"
                 >
@@ -1061,7 +1062,7 @@ function RankingList({
         {rows.slice(0, 8).map((employee, index) => (
           <Link
             key={employee.id}
-            to={`/staff/${employee.id}`}
+            to={staffProfilePath(employee)}
             className="flex items-center gap-3 rounded-lg bg-[#1B2B4B] px-3 py-2 hover:bg-white/10 transition-colors"
           >
             <span className="w-6 h-6 rounded-full bg-teal-500/15 text-teal-300 text-xs flex items-center justify-center num">

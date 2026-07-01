@@ -13,12 +13,14 @@ export interface ResolvedStaff {
   name: string;
   role?: string | null;
   branch?: string | null;
+  username?: string | null;
 }
 
 /** Subset of staff row used in the dashboard */
 export interface StaffDirectoryRow {
   id?: string | null;
   staff_id?: string | null;
+  username?: string | null;
   name?: string | null;
   staff_name?: string | null;
   branch?: string | null;
@@ -26,6 +28,25 @@ export interface StaffDirectoryRow {
   status?: string | null;
   active?: boolean | null;
   is_active?: boolean | null;
+}
+
+export interface CanonicalStaffResolution {
+  input: string;
+  canonicalStaffId: string | null;
+  routeIdentifier: string;
+  staff: ResolvedStaff | null;
+  account: {
+    id: string;
+    staff_id?: string | null;
+    username?: string | null;
+    name?: string | null;
+    staff_name?: string | null;
+    role?: string | null;
+    branch?: string | null;
+    active?: boolean | null;
+    can_login?: boolean | null;
+  } | null;
+  source: 'staff.id' | 'staff_accounts.staff_id' | 'staff_accounts.id' | 'username' | 'name' | 'unresolved';
 }
 
 export interface StaffLinkResult {
@@ -58,8 +79,8 @@ export function normalizeStaffName(name: string | null | undefined): string {
 
 // ─── Sync resolver (uses preloaded staffDirectory) ───────────────────────────
 
-function getStaffId(row: StaffDirectoryRow): string | null {
-  return (row.id || row.staff_id || null) as string | null;
+function getRouteIdentifier(row: StaffDirectoryRow): string | null {
+  return (row.staff_id || row.id || row.username || null) as string | null;
 }
 
 function getStaffNameStr(row: StaffDirectoryRow): string {
@@ -114,7 +135,7 @@ export function resolveStaffLink(
   if (staffDirectory && staffDirectory.length > 0 && name) {
     const match = matchStaffInDirectory(name, staffDirectory);
     if (match) {
-      const id = getStaffId(match);
+      const id = getRouteIdentifier(match);
       if (id) {
         const route = `/staff/${encodeURIComponent(id)}`;
         return { route, href: route, fallback: false, isFallback: false };
@@ -136,6 +157,190 @@ export function resolveStaffLink(
   }
 
   return { route: '/team', href: '/team', fallback: true, isFallback: true };
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
+function normalizeLooseIdentifier(value: unknown) {
+  return String(value ?? '').trim();
+}
+
+function staffFromRow(row: Record<string, unknown> | null | undefined): ResolvedStaff | null {
+  if (!row) return null;
+  const id = normalizeLooseIdentifier(row.id || row.staff_id);
+  if (!id) return null;
+  return {
+    id,
+    name: normalizeLooseIdentifier(row.name || row.staff_name || row.username || 'غير محدد'),
+    role: (row.role as string | null | undefined) || null,
+    branch: (row.branch as string | null | undefined) || null,
+    username: (row.username as string | null | undefined) || null,
+  };
+}
+
+function accountName(account: CanonicalStaffResolution['account']) {
+  return normalizeLooseIdentifier(account?.name || account?.staff_name || account?.username);
+}
+
+async function fetchStaffById(staffId: string): Promise<ResolvedStaff | null> {
+  if (!staffId || !isUuid(staffId)) return null;
+  const { data, error } = await supabase
+    .from('staff')
+    .select('id,name,staff_name,username,role,branch,active,is_active,status')
+    .eq('id', staffId)
+    .maybeSingle();
+  if (error) return null;
+  return staffFromRow(data as Record<string, unknown> | null);
+}
+
+async function fetchStaffByNameOrUsername(identifier: string): Promise<ResolvedStaff | null> {
+  const value = normalizeLooseIdentifier(identifier);
+  if (!value) return null;
+
+  const { data: byUsername } = await supabase
+    .from('staff')
+    .select('id,name,staff_name,username,role,branch,active,is_active,status')
+    .eq('username', value)
+    .limit(1);
+  const usernameMatch = staffFromRow((byUsername || [])[0] as Record<string, unknown> | undefined);
+  if (usernameMatch) return usernameMatch;
+
+  const normalized = normalizeStaffName(value);
+  const { data } = await supabase
+    .from('staff')
+    .select('id,name,staff_name,username,role,branch,active,is_active,status')
+    .limit(500);
+  const rows = (data || []) as Array<Record<string, unknown>>;
+  const exact = rows.find((row) => normalizeStaffName(String(row.name || row.staff_name || '')) === normalized);
+  if (exact) return staffFromRow(exact);
+  const partial = rows.find((row) => {
+    const name = normalizeStaffName(String(row.name || row.staff_name || ''));
+    return name.includes(normalized) || normalized.includes(name);
+  });
+  return staffFromRow(partial);
+}
+
+async function fetchAccount(identifier: string) {
+  const value = normalizeLooseIdentifier(identifier);
+  if (!value) return null;
+
+  if (isUuid(value)) {
+    const { data: byAccountId } = await supabase
+      .from('staff_accounts')
+      .select('id,staff_id,username,name,staff_name,role,branch,active,can_login')
+      .eq('id', value)
+      .maybeSingle();
+    if (byAccountId) return byAccountId as CanonicalStaffResolution['account'];
+
+    const { data: byStaffId } = await supabase
+      .from('staff_accounts')
+      .select('id,staff_id,username,name,staff_name,role,branch,active,can_login')
+      .eq('staff_id', value)
+      .eq('active', true)
+      .limit(1);
+    if (byStaffId?.[0]) return byStaffId[0] as CanonicalStaffResolution['account'];
+  }
+
+  const { data: byUsername } = await supabase
+    .from('staff_accounts')
+    .select('id,staff_id,username,name,staff_name,role,branch,active,can_login')
+    .eq('username', value)
+    .limit(1);
+  if (byUsername?.[0]) return byUsername[0] as CanonicalStaffResolution['account'];
+
+  const normalized = normalizeStaffName(value);
+  const { data: accounts } = await supabase
+    .from('staff_accounts')
+    .select('id,staff_id,username,name,staff_name,role,branch,active,can_login')
+    .eq('active', true)
+    .limit(500);
+  return (
+    ((accounts || []) as Array<NonNullable<CanonicalStaffResolution['account']>>).find(
+      (account) => normalizeStaffName(accountName(account)) === normalized
+    ) || null
+  );
+}
+
+export async function resolveCanonicalStaffIdentifier(
+  identifier: unknown
+): Promise<CanonicalStaffResolution> {
+  const input = normalizeLooseIdentifier(identifier);
+  const unresolved = (routeIdentifier = input || ''): CanonicalStaffResolution => ({
+    input,
+    canonicalStaffId: null,
+    routeIdentifier,
+    staff: null,
+    account: null,
+    source: 'unresolved',
+  });
+
+  if (!input) return unresolved('');
+
+  const directStaff = await fetchStaffById(input);
+  if (directStaff) {
+    const account = await fetchAccount(directStaff.id);
+    return {
+      input,
+      canonicalStaffId: directStaff.id,
+      routeIdentifier: directStaff.id,
+      staff: directStaff,
+      account,
+      source: 'staff.id',
+    };
+  }
+
+  const account = await fetchAccount(input);
+  if (account) {
+    const staffByAccount = account.staff_id ? await fetchStaffById(account.staff_id) : null;
+    const fallbackStaff =
+      staffByAccount ||
+      (account.username ? await fetchStaffByNameOrUsername(account.username) : null) ||
+      (accountName(account) ? await fetchStaffByNameOrUsername(accountName(account)) : null);
+    const canonicalStaffId = fallbackStaff?.id || account.staff_id || null;
+    return {
+      input,
+      canonicalStaffId,
+      routeIdentifier: canonicalStaffId || account.username || account.id,
+      staff: fallbackStaff,
+      account,
+      source: account.staff_id ? 'staff_accounts.staff_id' : input === account.id ? 'staff_accounts.id' : 'username',
+    };
+  }
+
+  const staffByName = await fetchStaffByNameOrUsername(input);
+  if (staffByName) {
+    const matchedAccount = await fetchAccount(staffByName.id);
+    return {
+      input,
+      canonicalStaffId: staffByName.id,
+      routeIdentifier: staffByName.id,
+      staff: staffByName,
+      account: matchedAccount,
+      source: isUuid(input) ? 'staff.id' : 'name',
+    };
+  }
+
+  return unresolved(input);
+}
+
+export function staffProfilePath(row: {
+  id?: unknown;
+  staff_id?: unknown;
+  username?: unknown;
+  name?: unknown;
+  staff_name?: unknown;
+}) {
+  const identifier =
+    normalizeLooseIdentifier(row.staff_id) ||
+    normalizeLooseIdentifier(row.id) ||
+    normalizeLooseIdentifier(row.username) ||
+    normalizeLooseIdentifier(row.name) ||
+    normalizeLooseIdentifier(row.staff_name);
+  return identifier ? `/staff/${encodeURIComponent(identifier)}` : '/team';
 }
 
 // ─── Async resolver (Supabase lookup) ────────────────────────────────────────

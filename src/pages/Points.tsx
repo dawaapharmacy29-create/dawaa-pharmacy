@@ -55,6 +55,7 @@ import { logActivity, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import { canViewAllBranches, isDoctorRole, rowMatchesCurrentDoctor, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
+import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 /* recharts will be dynamically imported inside the component to reduce initial bundle size */
 
 interface StaffMember {
@@ -948,7 +949,7 @@ export default function Points() {
               return (
                 <Link
                   key={employee.id}
-                  to={`/staff/${employee.id}`}
+                  to={staffProfilePath(employee)}
                   className="stat-card hover:border-teal-500/30 block transition-colors"
                 >
                   <div className="flex items-center gap-3 mb-3">
@@ -1140,7 +1141,11 @@ function RecordsTable({
                   <td className="text-slate-300">
                     {isConversationReview ? (
                       <Link
-                        to={`/staff/${resolvedEmployeeId}?review=${row.source_id}`}
+                        to={`${staffProfilePath({
+                          id: resolvedEmployeeId,
+                          staff_id: row.staff_id,
+                          name: row.employee_name,
+                        })}?review=${row.source_id}`}
                         className="text-teal-300 hover:text-teal-200 underline underline-offset-4"
                         title="فتح تفاصيل تقييم المحادثة"
                       >

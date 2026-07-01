@@ -15,6 +15,7 @@ import { formatCurrency, formatNumber } from '@/lib/utils';
 import { formatMoney } from '@/lib/dawaa2027';
 import { loadStaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
 import type { StaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
+import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 
 interface StaffSummary {
   id: string;
@@ -275,7 +276,7 @@ export default function StaffPerformanceDashboard() {
                   </td>
                   <td className="p-3">
                     <Link
-                      to={`/staff/${staff.id}`}
+                      to={staffProfilePath(staff)}
                       className="btn-secondary py-1 px-3 text-xs inline-flex items-center gap-1"
                     >
                       عرض <ArrowRight size={12} />

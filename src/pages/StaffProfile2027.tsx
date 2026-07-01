@@ -20,6 +20,7 @@ import {
 import { formatCurrency, formatNumber } from '@/lib/utils';
 import { formatMoney } from '@/lib/dawaa2027';
 import StaffPerformanceCharts from '@/components/staff/StaffPerformanceCharts';
+import { resolveCanonicalStaffIdentifier } from '@/lib/staff/staffIdentityResolver';
 
 type TabKey =
   | 'overview'
@@ -60,7 +61,11 @@ export default function StaffProfile2027() {
       setLoading(true);
       setError(null);
       try {
-        const data = await loadStaffPerformanceProfile({ staffId: id, forceRefresh: true });
+        const resolution = await resolveCanonicalStaffIdentifier(id);
+        const data = await loadStaffPerformanceProfile({
+          staffId: resolution.canonicalStaffId || resolution.routeIdentifier || id,
+          forceRefresh: true,
+        });
         setProfile(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));

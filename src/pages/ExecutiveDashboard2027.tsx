@@ -54,7 +54,7 @@ import {
   fetchDashboardSalesTruth,
   type DashboardSalesReconciliation,
 } from '@/lib/dashboard/dashboardTruthService';
-import { resolveStaffLink, getStaffNavigationTarget } from '@/lib/staff/staffIdentityResolver';
+import { resolveStaffLink, getStaffNavigationTarget, staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 import {
   avgReview,
   getDoctorCompetitionMetrics,
@@ -2784,7 +2784,7 @@ export default function ExecutiveDashboard2027() {
                           key={`${row.staff.id || row.staff.name}-points-${index}`}
                           onClick={() =>
                             void (row.staff.id
-                              ? navigate(`/staff/${encodeURIComponent(String(row.staff.id))}`)
+                              ? navigate(staffProfilePath(row.staff))
                               : navigateToStaff(
                                   row.staff.name,
                                   (row.staff as { branch?: unknown }).branch

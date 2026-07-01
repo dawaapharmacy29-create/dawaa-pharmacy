@@ -38,6 +38,7 @@ import {
   type RoleKey,
 } from '@/lib/core/permissionSystem';
 import { getPresetForRole } from '@/lib/rolePermissionPresets';
+import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 
 interface StaffRow {
   id: string;
@@ -856,7 +857,12 @@ export default function StaffAccounts() {
                   <div className="space-y-2">
                     <div className="text-xs text-slate-400">الموظف</div>
                     <Link
-                      to={`/staff/${member.id}`}
+                      to={staffProfilePath({
+                        id: member.id,
+                        staff_id: account?.staff_id,
+                        username: account?.username,
+                        name: member.name,
+                      })}
                       className="inline-flex items-center gap-1 text-lg font-bold text-white transition hover:text-teal-300"
                     >
                       {member.name} <ExternalLink size={14} />
