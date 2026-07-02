@@ -6,6 +6,7 @@ import {
   normalizeDoctorName,
   pickInvoiceAmount,
   type DoctorCompetitionScore,
+  type DoctorCompetitionMetrics,
 } from '@/lib/doctorCompetitionMetrics';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
@@ -154,6 +155,7 @@ export default function DoctorCompetition() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempted, setLoadAttempted] = useState(false);
+  const [metricsMetadata, setMetricsMetadata] = useState<DoctorCompetitionMetrics['metadata'] | null>(null);
   const lastGoodRowsRef = useRef<Array<DoctorScore & { overallScore: number }>>([]);
   const [scopeWarning, setScopeWarning] = useState<string | null>(null);
   const [last90Available, setLast90Available] = useState(true);
@@ -197,6 +199,7 @@ export default function DoctorCompetition() {
       });
       const allRows = metrics.rows;
       setReviewRows(metrics.reviewRows);
+      setMetricsMetadata(metrics.metadata);
       const doctorRows = doctorScoped
         ? allRows.filter((row) => rowMatchesCurrentDoctor(user, { ...row, doctor_name: row.name }))
         : allRows;
@@ -231,6 +234,7 @@ export default function DoctorCompetition() {
       setLoadError('تعذر تحميل بيانات المسابقات الآن. سيتم عرض آخر بيانات ناجحة إن وجدت.');
       setScopeWarning('Competition refresh failed temporarily. Keeping the last successful data if available.');
       setRows(lastGoodRowsRef.current);
+      setMetricsMetadata(null);
     } finally {
       setLoading(false);
     }
@@ -484,6 +488,43 @@ export default function DoctorCompetition() {
         {!loading && !rows.length && <div className="p-10 text-center text-slate-400">لا توجد بيانات كافية للفترة الحالية.</div>}
       </section>
       <ReviewDataSection rows={reviewRows} />
+      {import.meta.env.DEV && metricsMetadata && (
+        <section className="dawaa-panel mt-6">
+          <div className="mb-4">
+            <h2 className="text-xl font-black text-white">بيانات تصحيح المطور</h2>
+            <p className="mt-1 text-sm text-slate-400">عرض معلومات من مصدر sales_invoices وفحوصات التجميع.</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
+              <p className="text-sm text-slate-400">فواتير تم جلبها</p>
+              <p className="mt-2 text-2xl font-black text-white">{metricsMetadata.salesInvoicesFetchedCount}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
+              <p className="text-sm text-slate-400">صفوف مبيعات دكاترة</p>
+              <p className="mt-2 text-2xl font-black text-white">{metricsMetadata.doctorSalesRowsCount}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
+              <p className="text-sm text-slate-400">إجمالي مبيعات الدكاترة</p>
+              <p className="mt-2 text-2xl font-black text-white">{money(metricsMetadata.totalDoctorSales)}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
+              <p className="text-sm text-slate-400">فواتير بدون ربط دكتور</p>
+              <p className="mt-2 text-2xl font-black text-white">{metricsMetadata.invoiceRowsWithoutDoctorCount}</p>
+            </div>
+          </div>
+          <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-900 p-4 text-sm text-slate-300">
+            <p className="font-semibold text-white">أعلى 5 دكاترة حسب المبيعات الخام</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {metricsMetadata.topRawDoctorSalesPreview.map((preview) => (
+                <li key={preview}>{preview}</li>
+              ))}
+            </ul>
+            {metricsMetadata.noWinnersReasons.length > 0 && (
+              <p className="mt-3 text-amber-200">أسباب عدم وجود بطل مؤهل: {metricsMetadata.noWinnersReasons.join(' · ')}</p>
+            )}
+          </div>
+        </section>
+      )}
       {selectedDoctor && <DoctorDetailsModal row={selectedDoctor} onClose={() => setSelectedDoctor(null)} />}
       </>
       )}

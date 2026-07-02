@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
-import { fetchSalesInvoicesPagedSafe, INVOICE_SELECT_FULL } from '@/lib/salesInvoiceQueries';
+import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 
 export type DoctorCompetitionPeriod = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 
@@ -77,6 +77,11 @@ export type DoctorCompetitionMetrics = {
     hasReviewData: boolean;
     hasFollowupData: boolean;
     hasIncentiveData: boolean;
+    salesInvoicesFetchedCount: number;
+    doctorSalesRowsCount: number;
+    totalDoctorSales: number;
+    invoiceRowsWithoutDoctorCount: number;
+    topRawDoctorSalesPreview: string[];
     noWinnersReasons: string[];
   };
   range: { start: string; end: string };
@@ -128,17 +133,15 @@ export function normalizeDoctorName(value: unknown) {
   return `د/ ${normalized}`;
 }
 
-const INVOICE_SELECT_DOCTOR = `${INVOICE_SELECT_FULL},doctor_name,doctor_id,staff_id,seller_id,pharmacist_name,cashier_name,created_by_name`;
+const INVOICE_SELECT_DOCTOR =
+  'id,invoice_number,invoice_no,invoice_date,sale_date,branch,branch_name,seller_name,normalized_seller_name,staff_name,staff_id,net_amount,net_total,total_amount,amount,customer_code';
 
 export function pickInvoiceAmount(row: Record<string, unknown>) {
   const candidates = [
-    row.net_total,
     row.net_amount,
-    row.discounted_amount,
+    row.net_total,
     row.total_amount,
     row.amount,
-    row.gross_total,
-    row.gross_amount,
   ];
 
   for (const candidate of candidates) {
@@ -155,15 +158,7 @@ function invoiceAmount(row: Record<string, unknown>) {
 
 function invoiceDoctor(row: Record<string, unknown>) {
   return normalizeDoctorName(
-    row.normalized_seller_name ||
-      row.doctor_name ||
-      row.seller_name ||
-      row.staff_name ||
-      row.pharmacist_name ||
-      row.cashier_name ||
-      row.created_by_name ||
-      row.user_name ||
-      ''
+    row.normalized_seller_name || row.staff_name || row.seller_name || ''
   );
 }
 
@@ -215,6 +210,10 @@ interface DoctorSalesTruth {
     selectedStartDate: string;
     selectedEndDate: string;
   };
+  salesInvoicesFetchedCount: number;
+  doctorSalesRowsCount: number;
+  invoiceRowsWithoutDoctorCount: number;
+  topRawDoctorSalesPreview: string[];
 }
 
 async function fetchDoctorSalesTruth(
@@ -231,6 +230,7 @@ async function fetchDoctorSalesTruth(
     noCache: true,
   })) as Array<Record<string, unknown>>;
 
+  const salesInvoicesFetchedCount = rows.length;
   const cycleRows = rows.filter((row) => {
     const day = invoiceDate(row);
     return (
@@ -257,14 +257,19 @@ async function fetchDoctorSalesTruth(
   >();
   const doctorInvoiceKeys = new Map<string, Set<string>>();
   let allSalesTotal = 0;
+  let invoiceRowsWithoutDoctorCount = 0;
 
   for (const row of cycleRows) {
-    const doctor = invoiceDoctor(row);
+    const staffId = rowStaffId(row);
+    const displayName = row.normalized_seller_name || row.staff_name || row.seller_name || '';
+    const doctor = normalizeDoctorName(displayName);
     const branchName = normalizeBranchName(row.branch || '') || invoiceBranch(row);
-    const key = `${doctor}__${branchName}`;
+    const key = staffId ? `staff:${staffId}__branch:${branchName}` : `name:${doctor}__branch:${branchName}`;
     const invoiceKey = invoiceIdentityKey(row);
     const amount = invoiceAmount(row);
     allSalesTotal += amount;
+    if (!displayName) invoiceRowsWithoutDoctorCount += 1;
+
     const doctorRow = doctorMap.get(key) || {
       doctor_name: doctor,
       branch: branchName,
@@ -272,7 +277,7 @@ async function fetchDoctorSalesTruth(
       invoices_count: 0,
       avg_invoice: 0,
       incentive_value: 0,
-      staffId: rowStaffId(row),
+      staffId: staffId || null,
     };
 
     doctorRow.sales_total += amount;
@@ -285,7 +290,9 @@ async function fetchDoctorSalesTruth(
 
   const doctorSales = [...doctorMap.values()].map((row) => ({
     ...row,
-    invoices_count: doctorInvoiceKeys.get(`${row.doctor_name}__${row.branch}`)?.size || 0,
+    invoices_count: doctorInvoiceKeys.get(
+      row.staffId ? `staff:${row.staffId}__branch:${row.branch}` : `name:${row.doctor_name}__branch:${row.branch}`
+    )?.size || 0,
     avg_invoice: row.invoices_count ? row.sales_total / row.invoices_count : 0,
   }));
 
@@ -297,6 +304,10 @@ async function fetchDoctorSalesTruth(
       selectedStartDate: range.start,
       selectedEndDate: range.end,
     },
+    salesInvoicesFetchedCount,
+    doctorSalesRowsCount: doctorSales.length,
+    invoiceRowsWithoutDoctorCount,
+    topRawDoctorSalesPreview: doctorSales.slice(0, 5).map((row) => `${row.doctor_name} ${row.sales_total.toFixed(2)}`),
   };
 }
 
@@ -433,8 +444,12 @@ async function safeSelect(table: string, build: (query: ReturnType<typeof supaba
 }
 
 function buildWinners(rows: DoctorCompetitionScore[]): DoctorCompetitionWinners {
-  const sales = [...rows].filter((row) => row.totalSales > 0).sort((a, b) => b.totalSales - a.totalSales)[0] || null;
-  const averageInvoice = [...rows].filter((row) => row.avgInvoiceEligible).sort((a, b) => b.avgInvoice - a.avgInvoice)[0] || null;
+  const sales = [...rows]
+    .filter((row) => row.totalSales > 0 && row.invoices > 0)
+    .sort((a, b) => b.totalSales - a.totalSales)[0] || null;
+  const averageInvoice = [...rows]
+    .filter((row) => row.avgInvoiceEligible)
+    .sort((a, b) => b.avgInvoice - a.avgInvoice)[0] || null;
   const incentive = [...rows].filter((row) => row.stagnantStatus === 'available').sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems))[0] || null;
   const reviews = [...rows].filter((row) => row.reviewCount > 0).sort((a, b) => avgReview(b) - avgReview(a))[0] || null;
   const service = [...rows].filter((row) => row.completedFollowups > 0 || row.recoveredCustomers > 0).sort((a, b) => b.recoveredCustomers + b.completedFollowups - (a.recoveredCustomers + a.completedFollowups))[0] || null;
@@ -715,7 +730,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     rows,
     eligibleRows,
     reviewRows,
-    winners: buildWinners(eligibleRows),
+    winners: buildWinners(rows),
     status,
     warnings,
     metadata: {
@@ -729,6 +744,11 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       hasReviewData: sourceHealth.conversation_sales_reviews === 'ready',
       hasFollowupData: sourceHealth.daily_followups === 'ready',
       hasIncentiveData: incentiveAvailable,
+      salesInvoicesFetchedCount: truth?.salesInvoicesFetchedCount || 0,
+      doctorSalesRowsCount: truth?.doctorSalesRowsCount || 0,
+      totalDoctorSales: truth?.summary?.sales_total || 0,
+      invoiceRowsWithoutDoctorCount: truth?.invoiceRowsWithoutDoctorCount || 0,
+      topRawDoctorSalesPreview: truth?.topRawDoctorSalesPreview || [],
       noWinnersReasons: [
         ...(eligibleRows.length === 0 && rows.length > 0 ? ['no eligible rows'] : []),
         ...(doctorSalesMissing ? ['Dashboard sales exist but doctor sales aggregation returned zero'] : []),

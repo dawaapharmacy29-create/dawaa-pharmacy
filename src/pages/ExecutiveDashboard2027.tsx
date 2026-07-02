@@ -3050,8 +3050,20 @@ function DashboardDoctorCompetitionPanel({
             <DoctorWinnerCard
               title="بطل المبيعات"
               row={winners?.sales}
-              value={winners?.sales && winners.sales.totalSales > 0 ? `${money(winners.sales.totalSales)} جنيه` : 'لا توجد بيانات كافية'}
-              detail={winners?.sales ? `${count(winners.sales.invoices)} فاتورة · متوسط ${money(winners.sales.avgInvoice)} جنيه` : 'لا توجد بيانات كافية'}
+              value={
+                winners?.sales && winners.sales.totalSales > 0
+                  ? `${money(winners.sales.totalSales)} جنيه`
+                  : metrics?.rows.length
+                    ? 'لا يوجد بطل مبيعات مؤهل'
+                    : 'لا توجد بيانات كافية'
+              }
+              detail={
+                winners?.sales
+                  ? `${count(winners.sales.invoices)} فاتورة · متوسط ${money(winners.sales.avgInvoice)} جنيه`
+                  : metrics?.rows.length
+                    ? metrics?.metadata.noWinnersReasons.join(' · ') || 'لا يوجد بطل مبيعات مؤهل'
+                    : 'لا توجد بيانات كافية'
+              }
               onClick={() => onNavigate('sales')}
             />
             <DoctorWinnerCard
