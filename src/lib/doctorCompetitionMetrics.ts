@@ -1,12 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
-import {
-  DASHBOARD_ALL_BRANCHES,
-  fetchDashboardSalesTruth,
-  dashboardInvoiceAmount,
-  type DashboardInvoiceRow,
-} from '@/lib/dashboard/dashboardTruthService';
+import { fetchSalesInvoicesPagedSafe, INVOICE_SELECT_FULL } from '@/lib/salesInvoiceQueries';
 
 export type DoctorCompetitionPeriod = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 
@@ -133,6 +128,8 @@ export function normalizeDoctorName(value: unknown) {
   return `د/ ${normalized}`;
 }
 
+const INVOICE_SELECT_DOCTOR = `${INVOICE_SELECT_FULL},doctor_name,doctor_id,staff_id,seller_id,pharmacist_name,cashier_name,created_by_name`;
+
 export function pickInvoiceAmount(row: Record<string, unknown>) {
   const candidates = [
     row.net_total,
@@ -157,7 +154,17 @@ function invoiceAmount(row: Record<string, unknown>) {
 }
 
 function invoiceDoctor(row: Record<string, unknown>) {
-  return normalizeDoctorName(row.normalized_seller_name || row.seller_name || row.staff_name);
+  return normalizeDoctorName(
+    row.normalized_seller_name ||
+      row.doctor_name ||
+      row.seller_name ||
+      row.staff_name ||
+      row.pharmacist_name ||
+      row.cashier_name ||
+      row.created_by_name ||
+      row.user_name ||
+      ''
+  );
 }
 
 function rowStaffId(row: Record<string, unknown>) {
@@ -182,10 +189,115 @@ function invoiceTypeIndicatesReturnOrCancel(row: Record<string, unknown>) {
   return /return|refund|cancel|cancelled|مرتجع|إلغاء|ملغي/.test(value);
 }
 
+function invoiceIdentityKey(row: Record<string, unknown>) {
+  return String(row.invoice_no ?? row.invoice_number ?? row.id ?? '').trim();
+}
+
 function invoiceStatusInvalid(row: Record<string, unknown>) {
   const saveStatus = text(row.save_status).toLowerCase();
   const importStatus = text(row.import_validation_status).toLowerCase();
   return /invalid|error|failed|خطأ|فشل/.test(saveStatus) || /invalid|error|failed|خطأ|فشل/.test(importStatus);
+}
+
+interface DoctorSalesTruth {
+  summary: { sales_total: number };
+  doctorSales: Array<{
+    doctor_name: string;
+    branch: string;
+    sales_total: number;
+    invoices_count: number;
+    avg_invoice: number;
+    incentive_value: number;
+    staffId?: string | null;
+  }>;
+  reconciliation: {
+    rowsRead: number;
+    selectedStartDate: string;
+    selectedEndDate: string;
+  };
+}
+
+async function fetchDoctorSalesTruth(
+  range: { start: string; end: string },
+  branch: string,
+  errors: string[]
+): Promise<DoctorSalesTruth> {
+  const rows = (await fetchSalesInvoicesPagedSafe({
+    startDate: range.start,
+    endDate: range.end,
+    branch: branch || undefined,
+    selectOptions: [INVOICE_SELECT_DOCTOR],
+    errors,
+    noCache: true,
+  })) as Array<Record<string, unknown>>;
+
+  const cycleRows = rows.filter((row) => {
+    const day = invoiceDate(row);
+    return (
+      day &&
+      day >= range.start &&
+      day <= range.end &&
+      !invoiceTypeIndicatesReturnOrCancel(row) &&
+      !invoiceStatusInvalid(row) &&
+      invoiceAmount(row) > 0
+    );
+  });
+
+  const doctorMap = new Map<
+    string,
+    {
+      doctor_name: string;
+      branch: string;
+      sales_total: number;
+      invoices_count: number;
+      avg_invoice: number;
+      incentive_value: number;
+      staffId?: string | null;
+    }
+  >();
+  const doctorInvoiceKeys = new Map<string, Set<string>>();
+  let allSalesTotal = 0;
+
+  for (const row of cycleRows) {
+    const doctor = invoiceDoctor(row);
+    const branchName = normalizeBranchName(row.branch || '') || invoiceBranch(row);
+    const key = `${doctor}__${branchName}`;
+    const invoiceKey = invoiceIdentityKey(row);
+    const amount = invoiceAmount(row);
+    allSalesTotal += amount;
+    const doctorRow = doctorMap.get(key) || {
+      doctor_name: doctor,
+      branch: branchName,
+      sales_total: 0,
+      invoices_count: 0,
+      avg_invoice: 0,
+      incentive_value: 0,
+      staffId: rowStaffId(row),
+    };
+
+    doctorRow.sales_total += amount;
+    doctorMap.set(key, doctorRow);
+    if (invoiceKey) {
+      if (!doctorInvoiceKeys.has(key)) doctorInvoiceKeys.set(key, new Set());
+      doctorInvoiceKeys.get(key)?.add(invoiceKey);
+    }
+  }
+
+  const doctorSales = [...doctorMap.values()].map((row) => ({
+    ...row,
+    invoices_count: doctorInvoiceKeys.get(`${row.doctor_name}__${row.branch}`)?.size || 0,
+    avg_invoice: row.invoices_count ? row.sales_total / row.invoices_count : 0,
+  }));
+
+  return {
+    summary: { sales_total: allSalesTotal },
+    doctorSales: doctorSales.sort((a, b) => b.sales_total - a.sales_total),
+    reconciliation: {
+      rowsRead: cycleRows.length,
+      selectedStartDate: range.start,
+      selectedEndDate: range.end,
+    },
+  };
 }
 
 // لا يوجد عمود إلغاء صريح في sales_invoices، لذلك يتم الاستبعاد بقيمة صافية <= 0 وبـ invoice_type عند وجود دلالة نصية.
@@ -369,13 +481,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   const [salesTruthResult, previousSalesTruthResult, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
     (async () => {
       try {
-        const truth = await fetchDashboardSalesTruth({
-          startDate: range.start,
-          endDate: range.end,
-          branch: selectedBranch || DASHBOARD_ALL_BRANCHES,
-          noCache: true,
-          errors: [],
-        });
+        const truth = await fetchDoctorSalesTruth(range, selectedBranch, []);
         return { truth, error: null as string | null };
       } catch (error) {
         return {
@@ -386,13 +492,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     })(),
     (async () => {
       try {
-        const truth = await fetchDashboardSalesTruth({
-          startDate: previous.start,
-          endDate: previous.end,
-          branch: selectedBranch || DASHBOARD_ALL_BRANCHES,
-          noCache: true,
-          errors: [],
-        });
+        const truth = await fetchDoctorSalesTruth(previous, selectedBranch, []);
         return { truth, error: null as string | null };
       } catch (error) {
         return {
@@ -417,7 +517,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     const name = normalizeDoctorName(doctorRow.doctor_name);
     const branch = normalizeBranchName(doctorRow.branch || '') || text(doctorRow.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
-    const current = upsert(name, branch);
+    const current = upsert(name, branch, doctorRow.staffId);
     current.totalSales += num(doctorRow.sales_total);
     current.invoices += num(doctorRow.invoices_count);
     current.avgInvoice = num(doctorRow.avg_invoice);
@@ -599,6 +699,11 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     });
   }
 
+  const doctorSalesMissing = truth?.summary?.sales_total > 0 && rows.length === 0 && !errors.sales_invoices;
+  if (doctorSalesMissing) {
+    warnings.push('Dashboard sales exist but doctor sales aggregation returned zero');
+  }
+
   const status = errors.sales_invoices
     ? 'failed'
     : rows.length && !eligibleRows.length
@@ -624,7 +729,10 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       hasReviewData: sourceHealth.conversation_sales_reviews === 'ready',
       hasFollowupData: sourceHealth.daily_followups === 'ready',
       hasIncentiveData: incentiveAvailable,
-      noWinnersReasons: eligibleRows.length === 0 && rows.length > 0 ? ['no eligible rows'] : [],
+      noWinnersReasons: [
+        ...(eligibleRows.length === 0 && rows.length > 0 ? ['no eligible rows'] : []),
+        ...(doctorSalesMissing ? ['Dashboard sales exist but doctor sales aggregation returned zero'] : []),
+      ],
     },
     range,
     sourceHealth,

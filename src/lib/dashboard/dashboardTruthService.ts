@@ -32,6 +32,8 @@ export type DashboardInvoiceRow = {
   seller_name?: string | null;
   normalized_seller_name?: string | null;
   staff_name?: string | null;
+  doctor_name?: string | null;
+  doctor_id?: string | number | null;
 };
 
 export type DashboardSalesReconciliation = {
@@ -136,7 +138,7 @@ function invoiceBranch(row: DashboardInvoiceRow) {
 }
 
 function invoiceDoctorName(row: DashboardInvoiceRow) {
-  return row.normalized_seller_name || row.seller_name || row.staff_name || '';
+  return row.normalized_seller_name || row.doctor_name || row.seller_name || row.staff_name || '';
 }
 
 function isAllBranches(branch: string) {
