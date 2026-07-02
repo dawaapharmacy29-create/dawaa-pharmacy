@@ -124,6 +124,44 @@ describe('doctorCompetitionMetrics eligibility', () => {
     expect(doctor?.invoices).toBe(2);
   });
 
+  it('counts same invoice_number once per doctor and once per branch', async () => {
+    fetchSalesInvoicesPagedSafeMock
+      .mockResolvedValueOnce([
+        invoiceRow({ invoice_number: '100', staff_id: 'uuid-3', normalized_seller_name: 'د/ أ', branch: 'فرع أ', net_amount: 1000 }),
+        invoiceRow({ invoice_number: '100', staff_id: 'uuid-3', normalized_seller_name: 'د/ أ', branch: 'فرع أ', net_amount: 500 }),
+        invoiceRow({ invoice_number: '100', staff_id: 'uuid-4', normalized_seller_name: 'د/ ب', branch: 'فرع أ', net_amount: 1500 }),
+        invoiceRow({ invoice_number: '100', staff_id: 'uuid-3', normalized_seller_name: 'د/ أ', branch: 'فرع ب', net_amount: 2000 }),
+      ])
+      .mockResolvedValueOnce([]);
+
+    const metrics = await getDoctorCompetitionMetrics({ period: 'custom', customStart: '2026-01-01', customEnd: '2026-01-01' });
+    const doctorA = metrics.rows.find((row) => row.staffId === 'uuid-3' && row.branch === 'فرع أ');
+    const doctorAOtherBranch = metrics.rows.find((row) => row.staffId === 'uuid-3' && row.branch === 'فرع ب');
+    const doctorB = metrics.rows.find((row) => row.staffId === 'uuid-4');
+
+    expect(doctorA?.invoices).toBe(1);
+    expect(doctorAOtherBranch?.invoices).toBe(1);
+    expect(doctorB?.invoices).toBe(1);
+    expect(metrics.metadata.invoiceCountMethod).toBe('distinct invoice_number/invoice_no/id per doctor+branch');
+  });
+
+  it('calculates average invoice from totalSales divided by invoicesCount', async () => {
+    fetchSalesInvoicesPagedSafeMock
+      .mockResolvedValueOnce([
+        invoiceRow({ invoice_number: '200', normalized_seller_name: 'د/ ساره', net_amount: 10000 }),
+        invoiceRow({ invoice_number: '201', normalized_seller_name: 'د/ ساره', net_amount: 29638.15 }),
+      ])
+      .mockResolvedValueOnce([]);
+
+    const metrics = await getDoctorCompetitionMetrics({ period: 'custom', customStart: '2026-01-01', customEnd: '2026-01-01' });
+    const doctor = metrics.rows.find((row) => row.name === 'د/ ساره');
+
+    expect(doctor).toBeDefined();
+    expect(doctor?.totalSales).toBeCloseTo(39638.15, 2);
+    expect(doctor?.invoices).toBe(2);
+    expect(doctor?.avgInvoice).toBeCloseTo(19819.075, 6);
+  });
+
   it('does not award average invoice winner when invoices count is below threshold', async () => {
     fetchSalesInvoicesPagedSafeMock
       .mockResolvedValueOnce([

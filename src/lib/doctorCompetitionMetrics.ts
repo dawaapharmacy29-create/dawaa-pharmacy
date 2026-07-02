@@ -83,6 +83,8 @@ export type DoctorCompetitionMetrics = {
     invoiceRowsWithoutDoctorCount: number;
     topRawDoctorSalesPreview: string[];
     noWinnersReasons: string[];
+    totalInvoicesCountFromDoctorRows: number;
+    invoiceCountMethod: string;
   };
   range: { start: string; end: string };
   sourceHealth: Record<string, 'ready' | 'empty' | 'unavailable'>;
@@ -185,7 +187,7 @@ function invoiceTypeIndicatesReturnOrCancel(row: Record<string, unknown>) {
 }
 
 function invoiceIdentityKey(row: Record<string, unknown>) {
-  return String(row.invoice_no ?? row.invoice_number ?? row.id ?? '').trim();
+  return String(row.invoice_number ?? row.invoice_no ?? row.id ?? '').trim();
 }
 
 function invoiceStatusInvalid(row: Record<string, unknown>) {
@@ -264,13 +266,15 @@ async function fetchDoctorSalesTruth(
     const displayName = row.normalized_seller_name || row.staff_name || row.seller_name || '';
     const doctor = normalizeDoctorName(displayName);
     const branchName = normalizeBranchName(row.branch || '') || invoiceBranch(row);
-    const key = staffId ? `staff:${staffId}__branch:${branchName}` : `name:${doctor}__branch:${branchName}`;
-    const invoiceKey = invoiceIdentityKey(row);
+    const doctorKey = staffId ? `staff:${staffId}` : `name:${doctor}`;
+    const invoiceId = invoiceIdentityKey(row);
+    const invoiceCountKey = `${doctorKey}|${branchName}|${invoiceId}`;
     const amount = invoiceAmount(row);
     allSalesTotal += amount;
     if (!displayName) invoiceRowsWithoutDoctorCount += 1;
 
-    const doctorRow = doctorMap.get(key) || {
+    const rowKey = `${doctorKey}__branch:${branchName}`;
+    const doctorRow = doctorMap.get(rowKey) || {
       doctor_name: doctor,
       branch: branchName,
       sales_total: 0,
@@ -281,10 +285,10 @@ async function fetchDoctorSalesTruth(
     };
 
     doctorRow.sales_total += amount;
-    doctorMap.set(key, doctorRow);
-    if (invoiceKey) {
-      if (!doctorInvoiceKeys.has(key)) doctorInvoiceKeys.set(key, new Set());
-      doctorInvoiceKeys.get(key)?.add(invoiceKey);
+    doctorMap.set(rowKey, doctorRow);
+    if (invoiceId) {
+      if (!doctorInvoiceKeys.has(rowKey)) doctorInvoiceKeys.set(rowKey, new Set());
+      doctorInvoiceKeys.get(rowKey)?.add(invoiceCountKey);
     }
   }
 
@@ -484,7 +488,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     return true;
   };
   const identityKey = (name: string, branch: string, staffId?: string | null) =>
-    staffId ? `staff:${staffId}` : `name:${name}|${branch}`;
+    staffId ? `staff:${staffId}|${branch}` : `name:${name}|${branch}`;
   const upsert = (name: string, branch: string, staffId?: string | null) => {
     const key = identityKey(name, branch, staffId);
     const current = map.get(key) || emptyDoctor(name, branch);
@@ -748,6 +752,8 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       doctorSalesRowsCount: truth?.doctorSalesRowsCount || 0,
       totalDoctorSales: truth?.summary?.sales_total || 0,
       invoiceRowsWithoutDoctorCount: truth?.invoiceRowsWithoutDoctorCount || 0,
+      totalInvoicesCountFromDoctorRows: truth?.doctorSales?.reduce((sum, row) => sum + (row.invoices_count || 0), 0) || 0,
+      invoiceCountMethod: 'distinct invoice_number/invoice_no/id per doctor+branch',
       topRawDoctorSalesPreview: truth?.topRawDoctorSalesPreview || [],
       noWinnersReasons: [
         ...(eligibleRows.length === 0 && rows.length > 0 ? ['no eligible rows'] : []),
