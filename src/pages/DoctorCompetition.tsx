@@ -288,23 +288,39 @@ export default function DoctorCompetition() {
   }, [rankingTab, rows]);
 
   const exportCsv = () => {
-    const header = ['doctor', 'branch', 'overall_score', 'total_sales', 'invoices', 'avg_invoice', 'growth_rate', 'growth_rate_status', 'stagnant_status', 'stagnant_items', 'list_items', 'review_avg', 'completed_followups', 'recovered_customers'];
-    const body = rows.map((row) =>
+    const exportRows = [...rows, ...reviewRows.filter((reviewRow) => !rows.some((row) => row.name === reviewRow.name && row.branch === reviewRow.branch))];
+    const header = [
+      'doctor_name',
+      'branch',
+      'staff_id',
+      'total_sales',
+      'invoices_count',
+      'average_invoice',
+      'overall_score',
+      'leaderboard_eligible',
+      'ineligible_reason',
+      'avg_invoice_eligible',
+      'growth_rate',
+      'growth_rate_status',
+      'stagnant_status',
+      'review_flags',
+    ];
+    const body = exportRows.map((row) =>
       [
         row.name,
         row.branch,
-        row.overallScore.toFixed(2),
+        row.staffId || '',
         row.totalSales,
         row.invoices,
         row.avgInvoice.toFixed(2),
+        row.overallScore.toFixed(2),
+        row.leaderboardEligible ? 'true' : 'false',
+        row.ineligibleReasons.join(' | '),
+        row.avgInvoiceEligible ? 'true' : 'false',
         row.growthRate != null ? row.growthRate.toFixed(2) : '',
         row.growthRateStatus === 'available' ? 'available' : 'unavailable',
         row.stagnantStatus === 'available' ? 'available' : 'disabled',
-        row.stagnantItems,
-        row.listItems,
-        avgReview(row).toFixed(2),
-        row.completedFollowups,
-        row.recoveredCustomers,
+        row.reviewIssues.join(' | '),
       ].join(',')
     );
     const blob = new Blob([[header.join(','), ...body].join('\n')], { type: 'text/csv;charset=utf-8' });

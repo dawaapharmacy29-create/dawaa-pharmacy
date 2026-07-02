@@ -44,27 +44,46 @@ export type DoctorCompetitionScore = {
   satisfactionTotal: number;
   satisfactionCount: number;
   overallScore: number;
+  leaderboardEligible: boolean;
+  avgInvoiceEligible: boolean;
+  ineligibleReasons: string[];
   reviewIssues: string[];
 };
 
 export type DoctorCompetitionWinners = {
   sales: DoctorCompetitionScore | null;
   averageInvoice: DoctorCompetitionScore | null;
+  avgInvoice: DoctorCompetitionScore | null;
   incentive: DoctorCompetitionScore | null;
+  stagnant: DoctorCompetitionScore | null;
   reviews: DoctorCompetitionScore | null;
+  conversation: DoctorCompetitionScore | null;
   service: DoctorCompetitionScore | null;
+  customerService: DoctorCompetitionScore | null;
   overall: DoctorCompetitionScore | null;
 };
 
 export type DoctorCompetitionMetrics = {
   rows: DoctorCompetitionScore[];
+  eligibleRows: DoctorCompetitionScore[];
   reviewRows: DoctorCompetitionScore[];
   winners: DoctorCompetitionWinners;
+  status: 'ready' | 'empty' | 'partial' | 'failed';
+  warnings: string[];
+  metadata: {
+    minimumInvoicesForLeaderboard: number;
+    minimumSalesForLeaderboard: number;
+    minimumInvoicesForAvgInvoice: number;
+    stagnantEnabled: boolean;
+    previousRange: { start: string; end: string };
+  };
   range: { start: string; end: string };
   sourceHealth: Record<string, 'ready' | 'empty' | 'unavailable'>;
   errors: Record<string, string>;
 };
 
+export const MINIMUM_INVOICES_FOR_LEADERBOARD = 10;
+export const MINIMUM_SALES_FOR_LEADERBOARD = 3000;
 export const MIN_AVG_INVOICE_THRESHOLD = 30;
 export const ALL_BRANCHES = 'كل الفروع';
 
@@ -140,6 +159,11 @@ function rowStaffId(row: Record<string, unknown>) {
 
 function comparableDoctorName(name: string) {
   return normalizeDoctorName(name).replace(/^د\/\s*/, '').trim();
+}
+
+function isUnknownDoctorName(name: string) {
+  const comparable = comparableDoctorName(name);
+  return !comparable || comparable === 'غير محدد' || comparable === 'غير محدد دكتور';
 }
 
 function invoiceBranch(row: Record<string, unknown>) {
@@ -236,6 +260,9 @@ function emptyDoctor(name: string, branch: string): Omit<DoctorCompetitionScore,
     followupSales: 0,
     satisfactionTotal: 0,
     satisfactionCount: 0,
+    leaderboardEligible: false,
+    avgInvoiceEligible: false,
+    ineligibleReasons: [],
     reviewIssues: [],
   };
 }
@@ -291,13 +318,23 @@ async function safeSelect(table: string, build: (query: ReturnType<typeof supaba
 }
 
 function buildWinners(rows: DoctorCompetitionScore[]): DoctorCompetitionWinners {
+  const sales = [...rows].filter((row) => row.totalSales > 0).sort((a, b) => b.totalSales - a.totalSales)[0] || null;
+  const averageInvoice = [...rows].filter((row) => row.avgInvoiceEligible).sort((a, b) => b.avgInvoice - a.avgInvoice)[0] || null;
+  const incentive = [...rows].filter((row) => row.stagnantStatus === 'available').sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems))[0] || null;
+  const reviews = [...rows].filter((row) => row.reviewCount > 0).sort((a, b) => avgReview(b) - avgReview(a))[0] || null;
+  const service = [...rows].filter((row) => row.completedFollowups > 0 || row.recoveredCustomers > 0).sort((a, b) => b.recoveredCustomers + b.completedFollowups - (a.recoveredCustomers + a.completedFollowups))[0] || null;
+  const overall = rows[0] || null;
   return {
-    sales: [...rows].sort((a, b) => b.totalSales - a.totalSales)[0] || null,
-    averageInvoice: [...rows].filter((row) => row.invoices >= MIN_AVG_INVOICE_THRESHOLD).sort((a, b) => b.avgInvoice - a.avgInvoice)[0] || null,
-    incentive: [...rows].filter((row) => row.stagnantStatus === 'available').sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems))[0] || null,
-    reviews: [...rows].filter((row) => row.reviewCount > 0).sort((a, b) => avgReview(b) - avgReview(a))[0] || null,
-    service: [...rows].sort((a, b) => b.recoveredCustomers + b.completedFollowups - (a.recoveredCustomers + a.completedFollowups))[0] || null,
-    overall: rows[0] || null,
+    sales,
+    averageInvoice,
+    avgInvoice: averageInvoice,
+    incentive,
+    stagnant: incentive,
+    reviews,
+    conversation: reviews,
+    service,
+    customerService: service,
+    overall,
   };
 }
 
@@ -500,8 +537,9 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   const withAverages = rawRows.map(([key, row]) => {
     const previousTotal = previousSales.get(key) || 0;
     const reviewIssues = [...row.reviewIssues];
+    const ineligibleReasons: string[] = [];
     const comparableName = comparableDoctorName(row.name);
-    if (row.name === 'غير محدد') reviewIssues.push('دكتور غير محدد');
+    if (isUnknownDoctorName(row.name)) reviewIssues.push('دكتور غير محدد');
     if (row.branch === 'غير محدد' || row.branch === 'غير محدد الفرع') reviewIssues.push('فرع غير محدد');
     if (row.branch === 'متعدد الفروع') reviewIssues.push('متعدد الفروع');
     if (!row.staffId && (branchesByName.get(comparableName)?.size || 0) > 1) {
@@ -515,24 +553,64 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     if (row.invoices > 0 && row.invoices < MIN_AVG_INVOICE_THRESHOLD) reviewIssues.push('عدد فواتير غير كاف للمقارنة بمتوسط الفاتورة');
     if (row.invoices > 0 && row.invoices < 5 && row.totalSales / row.invoices >= 10000) reviewIssues.push('متوسط فاتورة outlier');
     if (!row.totalSales && !row.reviewCount && !row.followups) reviewIssues.push('لا توجد مبيعات أو تقييمات أو متابعات');
+    if (isUnknownDoctorName(row.name)) ineligibleReasons.push('دكتور غير محدد');
+    if (row.branch === 'غير محدد' || row.branch === 'غير محدد الفرع' || row.branch === 'متعدد الفروع') {
+      ineligibleReasons.push('فرع غير صالح');
+    }
+    if (row.totalSales <= 0) ineligibleReasons.push('لا توجد مبيعات في الفترة');
+    if (row.invoices < MINIMUM_INVOICES_FOR_LEADERBOARD && row.totalSales <= MINIMUM_SALES_FOR_LEADERBOARD) {
+      ineligibleReasons.push('عدد فواتير غير كاف للمقارنة');
+    }
+    const avgInvoiceEligible = row.invoices >= MIN_AVG_INVOICE_THRESHOLD;
     return {
       ...row,
       avgInvoice: row.invoices ? row.totalSales / row.invoices : 0,
       growthRate: previousTotal ? ((row.totalSales - previousTotal) / previousTotal) * 100 : null,
       growthRateStatus: previousTotal ? 'available' as const : 'unavailable' as const,
       stagnantStatus: incentiveAvailable ? row.stagnantStatus : 'disabled' as const,
+      avgInvoiceEligible,
+      leaderboardEligible: ineligibleReasons.length === 0,
+      ineligibleReasons: Array.from(new Set(ineligibleReasons)),
       reviewIssues: Array.from(new Set(reviewIssues)),
     };
   });
-  const scoredRows = normalizeScores(withAverages).sort((a, b) => b.overallScore - a.overallScore);
-  const rows = scoredRows.filter((row) => {
-    if (row.name === 'غير محدد') return false;
-    if (row.branch === 'غير محدد' || row.branch === 'غير محدد الفرع' || row.branch === 'متعدد الفروع') return false;
-    if (!row.totalSales && !row.reviewCount && !row.followups) return false;
-    return true;
-  });
-  const reviewRows = scoredRows.filter((row) => !rows.includes(row) || row.reviewIssues.length > 0);
-  return { rows, reviewRows, winners: buildWinners(rows), range, sourceHealth, errors };
+  const eligibleRows = normalizeScores(withAverages.filter((row) => row.leaderboardEligible)).sort(
+    (a, b) => b.overallScore - a.overallScore
+  );
+  const reviewRows = [
+    ...normalizeScores(withAverages.filter((row) => !row.leaderboardEligible)),
+    ...eligibleRows.filter((row) => row.reviewIssues.length > 0),
+  ].sort((a, b) => b.totalSales - a.totalSales);
+  const rows = eligibleRows;
+  const warnings = Array.from(
+    new Set([
+      ...reviewRows.flatMap((row) => row.reviewIssues),
+      ...reviewRows.flatMap((row) => row.ineligibleReasons),
+    ])
+  );
+  const status = errors.sales_invoices
+    ? 'failed'
+    : eligibleRows.length
+      ? (Object.keys(errors).length ? 'partial' : 'ready')
+      : 'empty';
+  return {
+    rows,
+    eligibleRows,
+    reviewRows,
+    winners: buildWinners(eligibleRows),
+    status,
+    warnings,
+    metadata: {
+      minimumInvoicesForLeaderboard: MINIMUM_INVOICES_FOR_LEADERBOARD,
+      minimumSalesForLeaderboard: MINIMUM_SALES_FOR_LEADERBOARD,
+      minimumInvoicesForAvgInvoice: MIN_AVG_INVOICE_THRESHOLD,
+      stagnantEnabled: incentiveAvailable,
+      previousRange: previous,
+    },
+    range,
+    sourceHealth,
+    errors,
+  };
 }
 
 export async function getDoctorCompetitionWinners(params: DoctorCompetitionParams = {}) {

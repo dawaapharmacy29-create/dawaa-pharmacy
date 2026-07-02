@@ -3028,8 +3028,9 @@ function DashboardDoctorCompetitionPanel({
   onNavigate: (focus: 'sales' | 'average_invoice' | 'incentive' | 'reviews' | 'overall') => void;
 }) {
   const winners = metrics?.winners;
-  const topRows = metrics?.rows.slice(0, 5) || [];
+  const topRows = metrics?.eligibleRows.slice(0, 5) || metrics?.rows.slice(0, 5) || [];
   const hasRows = topRows.length > 0;
+  const stagnantDisabled = metrics ? !metrics.metadata.stagnantEnabled : false;
   return (
     <Panel id="doctor-competitions" className="p-5">
       <SectionTitle
@@ -3049,36 +3050,37 @@ function DashboardDoctorCompetitionPanel({
             <DoctorWinnerCard
               title="بطل المبيعات"
               row={winners?.sales}
-              value={winners?.sales ? `${money(winners.sales.totalSales)} جنيه` : 'لا توجد بيانات'}
+              value={winners?.sales && winners.sales.totalSales > 0 ? `${money(winners.sales.totalSales)} جنيه` : 'لا توجد بيانات كافية'}
               detail={winners?.sales ? `${count(winners.sales.invoices)} فاتورة · متوسط ${money(winners.sales.avgInvoice)} جنيه` : 'لا توجد بيانات كافية'}
               onClick={() => onNavigate('sales')}
             />
             <DoctorWinnerCard
               title="بطل متوسط الفاتورة"
-              row={winners?.averageInvoice}
-              value={winners?.averageInvoice ? `${money(winners.averageInvoice.avgInvoice)} جنيه` : `يتطلب ${MIN_AVG_INVOICE_THRESHOLD} فاتورة`}
+              row={winners?.avgInvoice || winners?.averageInvoice}
+              value={winners?.avgInvoice || winners?.averageInvoice ? `${money((winners.avgInvoice || winners.averageInvoice)!.avgInvoice)} جنيه` : `يتطلب ${MIN_AVG_INVOICE_THRESHOLD} فاتورة`}
               detail={winners?.averageInvoice ? `${count(winners.averageInvoice.invoices)} فاتورة مؤهلة` : 'لا توجد بيانات كافية للحد الأدنى'}
               onClick={() => onNavigate('average_invoice')}
             />
             <DoctorWinnerCard
               title="بطل الرواكد واللستة"
-              row={winners?.incentive}
-              value={winners?.incentive?.incentiveValue ? `${money(winners.incentive.incentiveValue)} جنيه` : 'لا توجد بيانات كافية'}
-              detail={winners?.incentive?.incentiveValue ? `${count(winners.incentive.stagnantItems)} رواكد · ${count(winners.incentive.listItems)} لستة` : 'لا توجد بيانات كافية للرواكد واللستة بعد'}
+              row={stagnantDisabled ? null : winners?.stagnant || winners?.incentive}
+              value={stagnantDisabled ? 'الرواكد غير مفعلة' : winners?.stagnant || winners?.incentive ? `${money((winners.stagnant || winners.incentive)!.incentiveValue)} جنيه` : 'لا توجد بيانات رواكد كافية'}
+              detail={stagnantDisabled ? 'لا تدخل الرواكد في التقييم الشامل حاليًا' : winners?.stagnant || winners?.incentive ? `${count((winners.stagnant || winners.incentive)!.stagnantItems)} رواكد · ${count((winners.stagnant || winners.incentive)!.listItems)} لستة` : 'لا توجد بيانات رواكد كافية'}
               onClick={() => onNavigate('incentive')}
+              trophy={stagnantDisabled ? false : Boolean(winners?.stagnant || winners?.incentive)}
             />
             <DoctorWinnerCard
               title="بطل تقييم المحادثات"
-              row={winners?.reviews}
-              value={winners?.reviews ? `${avgReview(winners.reviews).toFixed(1)}/100` : 'لا توجد تقييمات'}
-              detail={winners?.reviews ? `${count(winners.reviews.reviewCount)} تقييم · ${count(winners.reviews.excellentReviews)} ممتاز` : 'لا توجد بيانات تقييم كافية'}
+              row={winners?.conversation || winners?.reviews}
+              value={winners?.conversation || winners?.reviews ? `${avgReview((winners.conversation || winners.reviews)!).toFixed(1)}/100` : 'لا توجد تقييمات كافية'}
+              detail={winners?.conversation || winners?.reviews ? `${count((winners.conversation || winners.reviews)!.reviewCount)} تقييم · ${count((winners.conversation || winners.reviews)!.excellentReviews)} ممتاز` : 'لا توجد بيانات تقييم كافية'}
               onClick={() => onNavigate('reviews')}
             />
             <DoctorWinnerCard
               title="البطل الشامل"
               row={winners?.overall}
-              value={winners?.overall ? `${winners.overall.overallScore.toFixed(1)} نقطة` : 'لا توجد بيانات'}
-              detail="المبيعات 30% · المتوسط 20% · الرواكد 20% · التقييم 20% · الخدمة 10%"
+              value={winners?.overall ? `${winners.overall.overallScore.toFixed(1)} نقطة` : 'لا توجد بيانات كافية'}
+              detail={stagnantDisabled ? 'المبيعات · المتوسط · التقييم · الخدمة، والرواكد غير مفعلة' : 'المبيعات 30% · المتوسط 20% · الرواكد 20% · التقييم 20% · الخدمة 10%'}
               onClick={() => onNavigate('overall')}
             />
           </div>
@@ -3109,7 +3111,7 @@ function DashboardDoctorCompetitionPanel({
                     <td className="p-3 text-slate-300">{row.branch}</td>
                     <td className="p-3 text-emerald-200">{money(row.totalSales)} جنيه</td>
                     <td className="p-3">{count(row.invoices)}</td>
-                    <td className="p-3">{money(row.avgInvoice)} جنيه</td>
+                    <td className="p-3">{row.avgInvoiceEligible ? `${money(row.avgInvoice)} جنيه` : 'عدد فواتير غير كافٍ'}</td>
                     <td className="p-3">{row.reviewCount ? `${avgReview(row).toFixed(1)}/100` : 'غير متاح'}</td>
                     <td className="p-3">{count(row.completedFollowups)}</td>
                     <td className="p-3 font-black text-amber-200">{row.overallScore.toFixed(1)}</td>
@@ -3132,12 +3134,14 @@ function DoctorWinnerCard({
   value,
   detail,
   onClick,
+  trophy = true,
 }: {
   title: string;
   row?: DoctorCompetitionScore | null;
   value: string;
   detail: string;
   onClick: () => void;
+  trophy?: boolean;
 }) {
   return (
     <button
@@ -3146,7 +3150,7 @@ function DoctorWinnerCard({
       className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-right transition hover:-translate-y-0.5 hover:border-amber-200/50"
     >
       <div className="flex items-center gap-2 text-xs font-black text-amber-200">
-        <Trophy className="h-4 w-4" /> {title}
+        {trophy ? <Trophy className="h-4 w-4" /> : <PackageSearch className="h-4 w-4" />} {title}
       </div>
       <div className="mt-3 text-xl font-black text-white">{row?.name || 'لا يوجد'}</div>
       <div className="mt-1 text-xs font-bold text-slate-400">{row?.branch || 'بيانات غير كافية'}</div>
