@@ -21,12 +21,15 @@ export type DoctorCompetitionParams = {
 export type DoctorCompetitionScore = {
   name: string;
   branch: string;
+  staffId?: string | null;
   totalSales: number;
   invoices: number;
   avgInvoice: number;
-  growthRate: number;
+  growthRate: number | null;
+  growthRateStatus: 'available' | 'unavailable';
   listItems: number;
   stagnantItems: number;
+  stagnantStatus: 'available' | 'disabled';
   incentiveValue: number;
   totalQuantity: number;
   linkedInvoiceCount: number;
@@ -41,6 +44,7 @@ export type DoctorCompetitionScore = {
   satisfactionTotal: number;
   satisfactionCount: number;
   overallScore: number;
+  reviewIssues: string[];
 };
 
 export type DoctorCompetitionWinners = {
@@ -54,6 +58,7 @@ export type DoctorCompetitionWinners = {
 
 export type DoctorCompetitionMetrics = {
   rows: DoctorCompetitionScore[];
+  reviewRows: DoctorCompetitionScore[];
   winners: DoctorCompetitionWinners;
   range: { start: string; end: string };
   sourceHealth: Record<string, 'ready' | 'empty' | 'unavailable'>;
@@ -129,6 +134,14 @@ function invoiceDoctor(row: Record<string, unknown>) {
   return normalizeDoctorName(row.normalized_seller_name || row.seller_name || row.staff_name);
 }
 
+function rowStaffId(row: Record<string, unknown>) {
+  return text(row.staff_id || row.doctor_id || row.seller_id || row.employee_id || row.responsible_staff_id);
+}
+
+function comparableDoctorName(name: string) {
+  return normalizeDoctorName(name).replace(/^د\/\s*/, '').trim();
+}
+
 function invoiceBranch(row: Record<string, unknown>) {
   return text(row.branch_name || row.branch || row.store_branch) || 'غير محدد';
 }
@@ -161,6 +174,26 @@ function currentCycle() {
   return { start: localDateOnly(start), end: localDateOnly(end) };
 }
 
+function previousRange(range: { start: string; end: string }) {
+  const start = new Date(`${range.start}T12:00:00`);
+  const end = new Date(`${range.end}T12:00:00`);
+  const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+  const previousEnd = new Date(start);
+  previousEnd.setDate(previousEnd.getDate() - 1);
+  const previousStart = new Date(previousEnd);
+  previousStart.setDate(previousStart.getDate() - days + 1);
+  return { start: localDateOnly(previousStart), end: localDateOnly(previousEnd) };
+}
+
+function sourceDate(row: Record<string, unknown>) {
+  return text(row.sale_date || row.invoice_date || row.dispense_date || row.sold_at || row.created_at || row.date).slice(0, 10);
+}
+
+function inRange(row: Record<string, unknown>, range: { start: string; end: string }) {
+  const day = sourceDate(row);
+  return !day || (day >= range.start && day <= range.end);
+}
+
 export function rangeForDoctorCompetition(period: DoctorCompetitionPeriod = 'cycle', customStart?: string | null, customEnd?: string | null) {
   const now = new Date();
   if (period === 'last30') {
@@ -181,12 +214,15 @@ function emptyDoctor(name: string, branch: string): Omit<DoctorCompetitionScore,
   return {
     name,
     branch,
+    staffId: null,
     totalSales: 0,
     invoices: 0,
     avgInvoice: 0,
-    growthRate: 0,
+    growthRate: null,
+    growthRateStatus: 'unavailable',
     listItems: 0,
     stagnantItems: 0,
+    stagnantStatus: 'disabled',
     incentiveValue: 0,
     totalQuantity: 0,
     linkedInvoiceCount: 0,
@@ -200,6 +236,7 @@ function emptyDoctor(name: string, branch: string): Omit<DoctorCompetitionScore,
     followupSales: 0,
     satisfactionTotal: 0,
     satisfactionCount: 0,
+    reviewIssues: [],
   };
 }
 
@@ -212,22 +249,33 @@ export function customerServiceAvg(row?: Pick<DoctorCompetitionScore, 'satisfact
 }
 
 function normalizeScores(rows: Array<Omit<DoctorCompetitionScore, 'overallScore'>>): DoctorCompetitionScore[] {
+  const hasIncentiveData = rows.some((row) => row.stagnantStatus === 'available');
   const max = {
     sales: Math.max(1, ...rows.map((row) => row.totalSales)),
     avgInvoice: Math.max(1, ...rows.filter((row) => row.invoices >= MIN_AVG_INVOICE_THRESHOLD).map((row) => row.avgInvoice)),
-    incentive: Math.max(1, ...rows.map((row) => row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100)),
+    incentive: Math.max(1, ...rows.map((row) => row.stagnantStatus === 'available' ? row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100 : 0)),
     review: Math.max(1, ...rows.map(avgReview)),
     service: Math.max(1, ...rows.map((row) => row.completedFollowups + row.recoveredCustomers * 2 + customerServiceAvg(row))),
   };
   return rows.map((row) => {
     const salesScore = (row.totalSales / max.sales) * 100;
     const avgInvoiceScore = row.invoices >= MIN_AVG_INVOICE_THRESHOLD ? (row.avgInvoice / max.avgInvoice) * 100 : 0;
-    const incentiveScore = ((row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100) / max.incentive) * 100;
+    const incentiveScore = hasIncentiveData && row.stagnantStatus === 'available'
+      ? ((row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100) / max.incentive) * 100
+      : 0;
     const reviewScore = (avgReview(row) / max.review) * 100;
     const serviceScore = ((row.completedFollowups + row.recoveredCustomers * 2 + customerServiceAvg(row)) / max.service) * 100;
+    const incentiveWeight = hasIncentiveData ? 0.2 : 0;
+    const totalWeight = 0.3 + 0.2 + incentiveWeight + 0.2 + 0.1;
     return {
       ...row,
-      overallScore: salesScore * 0.3 + avgInvoiceScore * 0.2 + incentiveScore * 0.2 + reviewScore * 0.2 + serviceScore * 0.1,
+      overallScore:
+        (salesScore * 0.3 +
+          avgInvoiceScore * 0.2 +
+          incentiveScore * incentiveWeight +
+          reviewScore * 0.2 +
+          serviceScore * 0.1) /
+        totalWeight,
     };
   });
 }
@@ -246,7 +294,7 @@ function buildWinners(rows: DoctorCompetitionScore[]): DoctorCompetitionWinners 
   return {
     sales: [...rows].sort((a, b) => b.totalSales - a.totalSales)[0] || null,
     averageInvoice: [...rows].filter((row) => row.invoices >= MIN_AVG_INVOICE_THRESHOLD).sort((a, b) => b.avgInvoice - a.avgInvoice)[0] || null,
-    incentive: [...rows].sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems))[0] || null,
+    incentive: [...rows].filter((row) => row.stagnantStatus === 'available').sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems))[0] || null,
     reviews: [...rows].filter((row) => row.reviewCount > 0).sort((a, b) => avgReview(b) - avgReview(a))[0] || null,
     service: [...rows].sort((a, b) => b.recoveredCustomers + b.completedFollowups - (a.recoveredCustomers + a.completedFollowups))[0] || null,
     overall: rows[0] || null,
@@ -255,6 +303,7 @@ function buildWinners(rows: DoctorCompetitionScore[]): DoctorCompetitionWinners 
 
 export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParams = {}): Promise<DoctorCompetitionMetrics> {
   const range = rangeForDoctorCompetition(params.period, params.customStart, params.customEnd);
+  const previous = previousRange(range);
   const selectedBranch = params.branch && params.branch !== ALL_BRANCHES ? normalizeBranchName(params.branch) : '';
   const userBranch = params.userBranch ? normalizeBranchName(params.userBranch) : '';
   const canSeeAll = params.canSeeAllBranches !== false;
@@ -267,14 +316,17 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     if (!canSeeAll && userBranch && normalizedBranch && normalizedBranch !== userBranch) return false;
     return true;
   };
-  const upsert = (name: string, branch: string) => {
-    const key = `${name}|${branch}`;
+  const identityKey = (name: string, branch: string, staffId?: string | null) =>
+    staffId ? `staff:${staffId}` : `name:${name}|${branch}`;
+  const upsert = (name: string, branch: string, staffId?: string | null) => {
+    const key = identityKey(name, branch, staffId);
     const current = map.get(key) || emptyDoctor(name, branch);
+    if (staffId) current.staffId = staffId;
     map.set(key, current);
     return current;
   };
 
-  const [salesTruthResult, reviewResult, followupResult] = await Promise.all([
+  const [salesTruthResult, previousSalesTruthResult, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
     (async () => {
       try {
         const truth = await fetchDashboardSalesTruth({
@@ -292,18 +344,34 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
         };
       }
     })(),
+    (async () => {
+      try {
+        const truth = await fetchDashboardSalesTruth({
+          startDate: previous.start,
+          endDate: previous.end,
+          branch: selectedBranch || DASHBOARD_ALL_BRANCHES,
+          noCache: true,
+          errors: [],
+        });
+        return { truth, error: null as string | null };
+      } catch (error) {
+        return {
+          truth: null,
+          error: error instanceof Error ? error.message : 'تعذر تحميل مبيعات الفترة السابقة',
+        };
+      }
+    })(),
     safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', range.end).limit(4000)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(7000)),
+    safeSelect('stagnant_medicine_dispenses', (query) => query.select('*').limit(5000)),
+    safeSelect('incentive_medicine_sales', (query) => query.select('*').limit(5000)),
   ]);
-
-  const periodMidpoint = new Date(`${range.start}T12:00:00`);
-  periodMidpoint.setTime((new Date(`${range.start}T12:00:00`).getTime() + new Date(`${range.end}T12:00:00`).getTime()) / 2);
-  const firstHalfSales = new Map<string, number>();
-  const secondHalfSales = new Map<string, number>();
+  const previousSales = new Map<string, number>();
 
   if (salesTruthResult.error) errors.sales_invoices = salesTruthResult.error;
   const truth = salesTruthResult.truth;
   sourceHealth.sales_invoices = salesTruthResult.error ? 'unavailable' : truth?.doctorSales?.length ? 'ready' : 'empty';
+  if (previousSalesTruthResult.error) errors.previous_sales_invoices = previousSalesTruthResult.error;
 
   for (const doctorRow of truth?.doctorSales || []) {
     const name = normalizeDoctorName(doctorRow.doctor_name);
@@ -316,19 +384,11 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     current.incentiveValue += num(doctorRow.incentive_value);
   }
 
-  for (const invoice of (truth?.cycleRows || []) as DashboardInvoiceRow[]) {
-    const amount = dashboardInvoiceAmount(invoice);
-    if (amount <= 0) continue;
-    if (invoiceTypeIndicatesReturnOrCancel(invoice as Record<string, unknown>)) continue;
-    if (invoiceStatusInvalid(invoice as Record<string, unknown>)) continue;
-
-    const name = invoiceDoctor(invoice as Record<string, unknown>);
-    const branch = normalizeBranchName(invoiceBranch(invoice as Record<string, unknown>)) || invoiceBranch(invoice as Record<string, unknown>);
+  for (const doctorRow of previousSalesTruthResult.truth?.doctorSales || []) {
+    const name = normalizeDoctorName(doctorRow.doctor_name);
+    const branch = normalizeBranchName(doctorRow.branch || '') || text(doctorRow.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
-    const key = `${name}|${branch}`;
-    const invoiceTime = new Date(`${invoiceDate(invoice as Record<string, unknown>)}T12:00:00`).getTime();
-    if (invoiceTime <= periodMidpoint.getTime()) firstHalfSales.set(key, (firstHalfSales.get(key) || 0) + amount);
-    else secondHalfSales.set(key, (secondHalfSales.get(key) || 0) + amount);
+    previousSales.set(identityKey(name, branch), (previousSales.get(identityKey(name, branch)) || 0) + num(doctorRow.sales_total));
   }
 
   if (import.meta.env.DEV) {
@@ -349,7 +409,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     const name = normalizeDoctorName(review.staff_name || review.doctor_name || review.employee_name || review.created_by_name);
     const branch = normalizeBranchName(review.branch || '') || text(review.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
-    const current = upsert(name, branch);
+    const current = upsert(name, branch, rowStaffId(review));
     const score = num(review.final_score || review.score || review.quality_rating);
     if (score > 0) {
       current.reviewCount += 1;
@@ -367,7 +427,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     );
     const branch = normalizeBranchName(followup.branch || '') || text(followup.branch) || 'غير محدد';
     if (!allowBranch(branch)) continue;
-    const current = upsert(name, branch);
+    const current = upsert(name, branch, rowStaffId(followup));
     current.followups += 1;
     if (followup.completed_at || /تم|completed|closed|done/i.test(text(followup.status || followup.followup_status))) current.completedFollowups += 1;
     if (followup.purchase_after_followup) {
@@ -384,17 +444,95 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     }
   }
 
-  const withAverages = [...map.entries()].map(([key, row]) => {
-    const first = firstHalfSales.get(key) || 0;
-    const second = secondHalfSales.get(key) || 0;
+  if (stagnantResult.error) errors.stagnant_medicine_dispenses = stagnantResult.error;
+  if (listResult.error) errors.incentive_medicine_sales = listResult.error;
+  const stagnantRows = stagnantResult.data.filter((row) => inRange(row, range));
+  const listRows = listResult.data.filter((row) => inRange(row, range));
+  const incentiveAvailable = !stagnantResult.error && !listResult.error && (stagnantRows.length > 0 || listRows.length > 0);
+  sourceHealth.stagnant_medicine_dispenses = stagnantResult.error ? 'unavailable' : stagnantRows.length ? 'ready' : 'empty';
+  sourceHealth.incentive_medicine_sales = listResult.error ? 'unavailable' : listRows.length ? 'ready' : 'empty';
+
+  for (const row of stagnantRows) {
+    const staffId = rowStaffId(row);
+    const name = normalizeDoctorName(row.staff_name || row.doctor_name || row.responsible_doctor_name || row.responsible_doctor);
+    const branch = normalizeBranchName(row.branch || '') || text(row.branch) || 'غير محدد';
+    if (!allowBranch(branch)) continue;
+    const current = upsert(name, branch, staffId);
+    current.stagnantStatus = 'available';
+    current.stagnantItems += 1;
+    current.totalQuantity += num(row.quantity || row.sold_quantity || row.dispensed_quantity);
+    current.incentiveValue += num(row.incentive_amount || row.reward_amount || row.total_incentive || row.amount);
+  }
+
+  for (const row of listRows) {
+    const staffId = rowStaffId(row);
+    const name = normalizeDoctorName(row.staff_name || row.doctor_name || row.responsible_doctor_name || row.responsible_doctor);
+    const branch = normalizeBranchName(row.branch || '') || text(row.branch) || 'غير محدد';
+    if (!allowBranch(branch)) continue;
+    const current = upsert(name, branch, staffId);
+    current.stagnantStatus = 'available';
+    current.listItems += 1;
+    current.linkedInvoiceCount += num(row.invoices_count || row.linked_invoice_count);
+    current.totalQuantity += num(row.quantity || row.sold_quantity);
+    current.incentiveValue += num(row.incentive_amount || row.reward_amount || row.total_incentive || row.amount);
+  }
+
+  const rawRows = [...map.entries()];
+  const branchesByName = new Map<string, Set<string>>();
+  for (const [, row] of rawRows) {
+    const key = comparableDoctorName(row.name);
+    if (!branchesByName.has(key)) branchesByName.set(key, new Set());
+    branchesByName.get(key)?.add(row.branch);
+  }
+  const similarNames = new Set<string>();
+  const names = [...branchesByName.keys()].filter((name) => name && name !== 'غير محدد');
+  for (const name of names) {
+    for (const other of names) {
+      if (name === other) continue;
+      const shortEnough = name.split(' ').length <= 2 || other.split(' ').length <= 2;
+      if (shortEnough && (name.includes(other) || other.includes(name))) {
+        similarNames.add(name);
+        similarNames.add(other);
+      }
+    }
+  }
+
+  const withAverages = rawRows.map(([key, row]) => {
+    const previousTotal = previousSales.get(key) || 0;
+    const reviewIssues = [...row.reviewIssues];
+    const comparableName = comparableDoctorName(row.name);
+    if (row.name === 'غير محدد') reviewIssues.push('دكتور غير محدد');
+    if (row.branch === 'غير محدد' || row.branch === 'غير محدد الفرع') reviewIssues.push('فرع غير محدد');
+    if (row.branch === 'متعدد الفروع') reviewIssues.push('متعدد الفروع');
+    if (!row.staffId && (branchesByName.get(comparableName)?.size || 0) > 1) {
+      reviewIssues.push('اسم مكرر في أكثر من فرع - يحتاج ربط دكتور');
+    }
+    if (!row.staffId && similarNames.has(comparableName)) {
+      reviewIssues.push('أسماء متشابهة تحتاج ربط دكتور');
+    }
+    if (!previousTotal) reviewIssues.push('growth غير متاح');
+    if (!incentiveAvailable) reviewIssues.push('الرواكد غير مربوطة');
+    if (row.invoices > 0 && row.invoices < MIN_AVG_INVOICE_THRESHOLD) reviewIssues.push('عدد فواتير غير كاف للمقارنة بمتوسط الفاتورة');
+    if (row.invoices > 0 && row.invoices < 5 && row.totalSales / row.invoices >= 10000) reviewIssues.push('متوسط فاتورة outlier');
+    if (!row.totalSales && !row.reviewCount && !row.followups) reviewIssues.push('لا توجد مبيعات أو تقييمات أو متابعات');
     return {
       ...row,
       avgInvoice: row.invoices ? row.totalSales / row.invoices : 0,
-      growthRate: first ? ((second - first) / first) * 100 : second > 0 ? 100 : 0,
+      growthRate: previousTotal ? ((row.totalSales - previousTotal) / previousTotal) * 100 : null,
+      growthRateStatus: previousTotal ? 'available' as const : 'unavailable' as const,
+      stagnantStatus: incentiveAvailable ? row.stagnantStatus : 'disabled' as const,
+      reviewIssues: Array.from(new Set(reviewIssues)),
     };
   });
-  const rows = normalizeScores(withAverages).sort((a, b) => b.overallScore - a.overallScore);
-  return { rows, winners: buildWinners(rows), range, sourceHealth, errors };
+  const scoredRows = normalizeScores(withAverages).sort((a, b) => b.overallScore - a.overallScore);
+  const rows = scoredRows.filter((row) => {
+    if (row.name === 'غير محدد') return false;
+    if (row.branch === 'غير محدد' || row.branch === 'غير محدد الفرع' || row.branch === 'متعدد الفروع') return false;
+    if (!row.totalSales && !row.reviewCount && !row.followups) return false;
+    return true;
+  });
+  const reviewRows = scoredRows.filter((row) => !rows.includes(row) || row.reviewIssues.length > 0);
+  return { rows, reviewRows, winners: buildWinners(rows), range, sourceHealth, errors };
 }
 
 export async function getDoctorCompetitionWinners(params: DoctorCompetitionParams = {}) {

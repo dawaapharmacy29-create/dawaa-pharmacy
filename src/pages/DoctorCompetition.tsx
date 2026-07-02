@@ -16,12 +16,15 @@ type RankingTab = 'sales' | 'avgInvoice' | 'incentive' | 'reviews' | 'service' |
 type DoctorScore = {
   name: string;
   branch: string;
+  staffId?: string | null;
   totalSales: number;
   invoices: number;
   avgInvoice: number;
-  growthRate: number;
+  growthRate: number | null;
+  growthRateStatus: 'available' | 'unavailable';
   listItems: number;
   stagnantItems: number;
+  stagnantStatus: 'available' | 'disabled';
   incentiveValue: number;
   totalQuantity: number;
   linkedInvoiceCount: number;
@@ -35,6 +38,7 @@ type DoctorScore = {
   followupSales: number;
   satisfactionTotal: number;
   satisfactionCount: number;
+  reviewIssues: string[];
 };
 
 const MIN_AVG_INVOICE_THRESHOLD = 30;
@@ -109,9 +113,11 @@ function emptyDoctor(name: string, branch: string): DoctorScore {
     totalSales: 0,
     invoices: 0,
     avgInvoice: 0,
-    growthRate: 0,
+    growthRate: null,
+    growthRateStatus: 'unavailable',
     listItems: 0,
     stagnantItems: 0,
+    stagnantStatus: 'disabled',
     incentiveValue: 0,
     totalQuantity: 0,
     linkedInvoiceCount: 0,
@@ -125,6 +131,7 @@ function emptyDoctor(name: string, branch: string): DoctorScore {
     followupSales: 0,
     satisfactionTotal: 0,
     satisfactionCount: 0,
+    reviewIssues: [],
   };
 }
 
@@ -137,24 +144,35 @@ function customerServiceAvg(row: DoctorScore) {
 }
 
 function normalizeScores(rows: DoctorScore[]) {
+  const hasIncentiveData = rows.some((row) => row.stagnantStatus === 'available');
   const max = {
     sales: Math.max(1, ...rows.map((row) => row.totalSales)),
     avgInvoice: Math.max(1, ...rows.filter((row) => row.invoices >= MIN_AVG_INVOICE_THRESHOLD).map((row) => row.avgInvoice)),
-    incentive: Math.max(1, ...rows.map((row) => row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100)),
+    incentive: Math.max(1, ...rows.map((row) => row.stagnantStatus === 'available' ? row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100 : 0)),
     review: Math.max(1, ...rows.map(avgReview)),
     service: Math.max(1, ...rows.map((row) => row.completedFollowups + row.recoveredCustomers * 2 + customerServiceAvg(row))),
   };
   return rows.map((row) => {
     const salesScore = (row.totalSales / max.sales) * 100;
     const avgInvoiceScore = row.invoices >= MIN_AVG_INVOICE_THRESHOLD ? (row.avgInvoice / max.avgInvoice) * 100 : 0;
-    const incentiveScore = ((row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100) / max.incentive) * 100;
+    const incentiveScore = hasIncentiveData && row.stagnantStatus === 'available' ? ((row.incentiveValue + row.listItems * 100 + row.stagnantItems * 100) / max.incentive) * 100 : 0;
     const reviewScore = (avgReview(row) / max.review) * 100;
     const serviceScore = ((row.completedFollowups + row.recoveredCustomers * 2 + customerServiceAvg(row)) / max.service) * 100;
+    const incentiveWeight = hasIncentiveData ? 0.2 : 0;
+    const totalWeight = 0.3 + 0.2 + incentiveWeight + 0.2 + 0.1;
     return {
       ...row,
-      overallScore: salesScore * 0.3 + avgInvoiceScore * 0.2 + incentiveScore * 0.2 + reviewScore * 0.2 + serviceScore * 0.1,
+      overallScore: (salesScore * 0.3 + avgInvoiceScore * 0.2 + incentiveScore * incentiveWeight + reviewScore * 0.2 + serviceScore * 0.1) / totalWeight,
     };
   });
+}
+
+function growthText(row: Pick<DoctorScore, 'growthRate' | 'growthRateStatus'>) {
+  return row.growthRateStatus === 'available' && row.growthRate != null ? `${row.growthRate.toFixed(1)}%` : 'غير متاح';
+}
+
+function incentiveText(row: Pick<DoctorScore, 'stagnantStatus' | 'stagnantItems' | 'listItems' | 'incentiveValue'>) {
+  return row.stagnantStatus === 'available' ? `${row.stagnantItems + row.listItems} / ${money(row.incentiveValue)}` : 'غير مفعل';
 }
 
 export default function DoctorCompetition() {
@@ -163,6 +181,7 @@ export default function DoctorCompetition() {
   const initialPeriod = (params.get('period') as Period) || 'cycle';
   const initialFocus = params.get('focus');
   const [rows, setRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
+  const [reviewRows, setReviewRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempted, setLoadAttempted] = useState(false);
@@ -171,6 +190,7 @@ export default function DoctorCompetition() {
   const [last90Available, setLast90Available] = useState(true);
   const [reviewSourceAvailable, setReviewSourceAvailable] = useState(true);
   const [followupSourceAvailable, setFollowupSourceAvailable] = useState(true);
+  const [stagnantSourceAvailable, setStagnantSourceAvailable] = useState(false);
   const [period, setPeriod] = useState<Period>(['last30', 'last90', 'last_3_months', 'cycle', 'custom'].includes(initialPeriod) ? initialPeriod : 'cycle');
   const [branchFilter, setBranchFilter] = useState(ALL_BRANCHES);
   const currentCycle = getPharmacyCycleRange(new Date());
@@ -207,6 +227,7 @@ export default function DoctorCompetition() {
         canSeeAllBranches: allBranchesAllowed,
       });
       const allRows = metrics.rows;
+      setReviewRows(metrics.reviewRows);
       const doctorRows = doctorScoped
         ? allRows.filter((row) => rowMatchesCurrentDoctor(user, { ...row, doctor_name: row.name }))
         : allRows;
@@ -225,6 +246,10 @@ export default function DoctorCompetition() {
       setReviewSourceAvailable(metrics.sourceHealth.conversation_sales_reviews !== 'unavailable');
       setFollowupSourceAvailable(metrics.sourceHealth.daily_followups !== 'unavailable');
       setLast90Available(metrics.sourceHealth.sales_invoices !== 'unavailable');
+      setStagnantSourceAvailable(
+        metrics.sourceHealth.stagnant_medicine_dispenses === 'ready' ||
+          metrics.sourceHealth.incentive_medicine_sales === 'ready'
+      );
       if (Object.keys(metrics.errors).length && import.meta.env.DEV) {
         console.warn('[DoctorCompetition] source errors', {
           range: metrics.range,
@@ -248,7 +273,7 @@ export default function DoctorCompetition() {
 
   const topSales = [...rows].sort((a, b) => b.totalSales - a.totalSales)[0];
   const topAvgInvoice = [...rows].filter((row) => row.invoices >= MIN_AVG_INVOICE_THRESHOLD).sort((a, b) => b.avgInvoice - a.avgInvoice)[0];
-  const topIncentive = [...rows].sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems))[0];
+  const topIncentive = [...rows].filter((row) => row.stagnantStatus === 'available').sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems))[0];
   const topReviews = [...rows].filter((row) => row.reviewCount > 0).sort((a, b) => avgReview(b) - avgReview(a))[0];
   const topService = [...rows].sort((a, b) => b.recoveredCustomers + b.completedFollowups - (a.recoveredCustomers + a.completedFollowups))[0];
   const topOverall = rows[0];
@@ -256,14 +281,14 @@ export default function DoctorCompetition() {
     const sorted = [...rows];
     if (rankingTab === 'sales') return sorted.sort((a, b) => b.totalSales - a.totalSales);
     if (rankingTab === 'avgInvoice') return sorted.sort((a, b) => (b.invoices >= MIN_AVG_INVOICE_THRESHOLD ? b.avgInvoice : 0) - (a.invoices >= MIN_AVG_INVOICE_THRESHOLD ? a.avgInvoice : 0));
-    if (rankingTab === 'incentive') return sorted.sort((a, b) => b.incentiveValue + b.listItems + b.stagnantItems - (a.incentiveValue + a.listItems + a.stagnantItems));
+    if (rankingTab === 'incentive') return sorted.sort((a, b) => (b.stagnantStatus === 'available' ? b.incentiveValue + b.listItems + b.stagnantItems : -1) - (a.stagnantStatus === 'available' ? a.incentiveValue + a.listItems + a.stagnantItems : -1));
     if (rankingTab === 'reviews') return sorted.sort((a, b) => avgReview(b) - avgReview(a));
     if (rankingTab === 'service') return sorted.sort((a, b) => b.completedFollowups + b.recoveredCustomers - (a.completedFollowups + a.recoveredCustomers));
     return sorted.sort((a, b) => b.overallScore - a.overallScore);
   }, [rankingTab, rows]);
 
   const exportCsv = () => {
-    const header = ['doctor', 'branch', 'overall_score', 'total_sales', 'invoices', 'avg_invoice', 'growth_rate', 'stagnant_items', 'list_items', 'review_avg', 'completed_followups', 'recovered_customers'];
+    const header = ['doctor', 'branch', 'overall_score', 'total_sales', 'invoices', 'avg_invoice', 'growth_rate', 'growth_rate_status', 'stagnant_status', 'stagnant_items', 'list_items', 'review_avg', 'completed_followups', 'recovered_customers'];
     const body = rows.map((row) =>
       [
         row.name,
@@ -272,7 +297,9 @@ export default function DoctorCompetition() {
         row.totalSales,
         row.invoices,
         row.avgInvoice.toFixed(2),
-        row.growthRate.toFixed(2),
+        row.growthRate != null ? row.growthRate.toFixed(2) : '',
+        row.growthRateStatus === 'available' ? 'available' : 'unavailable',
+        row.stagnantStatus === 'available' ? 'available' : 'disabled',
         row.stagnantItems,
         row.listItems,
         avgReview(row).toFixed(2),
@@ -363,7 +390,7 @@ export default function DoctorCompetition() {
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <Winner title="بطل المبيعات" row={topSales} value={topSales ? money(topSales.totalSales) : 'لا يوجد'} reason={topSales ? `${topSales.invoices} فاتورة · متوسط ${money(topSales.avgInvoice)}` : 'لا توجد بيانات كافية'} />
           <Winner title="بطل متوسط الفاتورة" row={topAvgInvoice} value={topAvgInvoice ? money(topAvgInvoice.avgInvoice) : `يتطلب ${MIN_AVG_INVOICE_THRESHOLD} فاتورة`} reason={topAvgInvoice ? `${topAvgInvoice.invoices} فاتورة مؤهلة` : 'لا يوجد دكتور تجاوز الحد الأدنى'} />
-          <Winner title="بطل الرواكد واللستة" row={topIncentive} value={topIncentive?.incentiveValue ? money(topIncentive.incentiveValue) : 'لا توجد بيانات كافية للرواكد واللستة بعد'} reason={topIncentive?.incentiveValue ? `${topIncentive.stagnantItems} رواكد · ${topIncentive.listItems} لستة` : 'القسم يعمل ويعرض Empty State عند نقص البيانات'} />
+          <Winner title="بطل الرواكد واللستة" row={topIncentive} value={stagnantSourceAvailable && topIncentive ? money(topIncentive.incentiveValue) : 'غير مفعل'} reason={stagnantSourceAvailable && topIncentive ? `${topIncentive.stagnantItems} رواكد · ${topIncentive.listItems} لستة` : 'بيانات الرواكد واللستة غير مربوطة حاليًا بالمسابقة'} />
           <Winner title="بطل تقييم المحادثات" row={topReviews} value={topReviews ? `${avgReview(topReviews).toFixed(1)}/100` : 'لا توجد بيانات تقييم كافية'} reason={topReviews ? `${topReviews.reviewCount} تقييم · ${topReviews.excellentReviews} ممتاز` : 'لا توجد مراجعات كافية'} />
           <Winner title="البطل الشامل" row={topOverall} value={topOverall ? `${topOverall.overallScore.toFixed(1)} نقطة` : 'لا يوجد'} reason="المبيعات 30% · المتوسط 20% · الرواكد 20% · التقييم 20% · خدمة العملاء 10%" />
         </div>
@@ -373,7 +400,7 @@ export default function DoctorCompetition() {
         <Winner title="أفضل شامل" row={topOverall} value={topOverall ? `${topOverall.overallScore.toFixed(1)} نقطة` : 'لا يوجد'} />
         <Winner title="أفضل مبيعات" row={topSales} value={topSales ? money(topSales.totalSales) : 'لا يوجد'} />
         <Winner title="أفضل متوسط فاتورة" row={topAvgInvoice} value={topAvgInvoice ? money(topAvgInvoice.avgInvoice) : `يتطلب ${MIN_AVG_INVOICE_THRESHOLD} فاتورة`} />
-        <Winner title="أفضل رواكد ولستة" row={topIncentive} value={topIncentive ? money(topIncentive.incentiveValue) : 'لا يوجد'} />
+        <Winner title="أفضل رواكد ولستة" row={topIncentive} value={stagnantSourceAvailable && topIncentive ? money(topIncentive.incentiveValue) : 'غير مفعل'} />
         <Winner title="أفضل تقييم محادثات" row={topReviews} value={topReviews ? `${avgReview(topReviews).toFixed(1)}/100` : 'لا يوجد'} />
         <Winner title="أفضل خدمة عملاء" row={topService} value={topService ? `${topService.completedFollowups} متابعة` : 'لا يوجد'} />
       </section>
@@ -451,18 +478,27 @@ export default function DoctorCompetition() {
                 <td className="p-3">{row.overallScore.toFixed(1)}</td>
                 <td className="p-3">{money(row.totalSales)}</td>
                 <td className="p-3">{row.invoices}</td>
-                <td className="p-3">{row.invoices >= MIN_AVG_INVOICE_THRESHOLD ? money(row.avgInvoice) : `خارج ترتيب المتوسط (${row.invoices})`}</td>
-                <td className="p-3">{row.growthRate.toFixed(1)}%</td>
-                <td className="p-3">{row.stagnantItems + row.listItems} / {money(row.incentiveValue)}</td>
+                <td className="p-3">
+                  {row.invoices >= MIN_AVG_INVOICE_THRESHOLD ? (
+                    money(row.avgInvoice)
+                  ) : (
+                    <span className="rounded-full bg-amber-400/15 px-2 py-1 text-xs font-bold text-amber-100">
+                      عدد فواتير غير كافٍ للمقارنة ({row.invoices})
+                    </span>
+                  )}
+                </td>
+                <td className="p-3">{growthText(row)}</td>
+                <td className="p-3">{incentiveText(row)}</td>
                 <td className="p-3">{row.reviewCount ? `${avgReview(row).toFixed(1)} (${row.reviewCount})` : 'غير متاح'}</td>
                 <td className="p-3">{row.completedFollowups} مكتملة · {row.recoveredCustomers} مسترجع</td>
-                <td className="p-3">{row.totalSales === topSales?.totalSales ? 'قوة في إجمالي المبيعات' : row.invoices < MIN_AVG_INVOICE_THRESHOLD ? 'يحتاج عدد فواتير أعلى لدخول متوسط الفاتورة' : 'فرصة تحسين في المزيج أو المتابعة'}</td>
+                <td className="p-3">{row.reviewIssues.length ? row.reviewIssues.slice(0, 2).join(' · ') : row.totalSales === topSales?.totalSales ? 'قوة في إجمالي المبيعات' : row.invoices < MIN_AVG_INVOICE_THRESHOLD ? 'يحتاج عدد فواتير أعلى لدخول متوسط الفاتورة' : 'فرصة تحسين في المزيج أو المتابعة'}</td>
               </tr>
             ))}
           </tbody>
         </table>
         {!loading && !rows.length && <div className="p-10 text-center text-slate-400">لا توجد بيانات كافية للفترة الحالية.</div>}
       </section>
+      <ReviewDataSection rows={reviewRows} />
       {selectedDoctor && <DoctorDetailsModal row={selectedDoctor} onClose={() => setSelectedDoctor(null)} />}
       </>
       )}
@@ -484,6 +520,44 @@ function Winner({ title, row, value, reason }: { title: string; row?: DoctorScor
   );
 }
 
+function ReviewDataSection({ rows }: { rows: Array<DoctorScore & { overallScore: number }> }) {
+  if (!rows.length) return null;
+  return (
+    <section className="dawaa-panel">
+      <div className="mb-4">
+        <h2 className="text-xl font-black text-white">بيانات تحتاج مراجعة</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          هذه الصفوف لا تدخل تلقائيًا في الليدربورد الأساسي إذا كانت غير صالحة، أو تظهر هنا كتوضيح لجودة الربط.
+        </p>
+      </div>
+      <div className="max-w-full overflow-x-auto">
+        <table className="w-full min-w-[760px] text-sm">
+          <thead className="border-y border-slate-700 text-slate-300">
+            <tr>
+              <th className="p-3 text-right">الدكتور</th>
+              <th className="p-3 text-right">الفرع</th>
+              <th className="p-3 text-right">المبيعات</th>
+              <th className="p-3 text-right">الفواتير</th>
+              <th className="p-3 text-right">الملاحظة</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.name}-${row.branch}-${row.reviewIssues.join('|')}`} className="border-t border-slate-800 text-slate-100">
+                <td className="p-3 font-bold">{row.name}</td>
+                <td className="p-3">{row.branch}</td>
+                <td className="p-3">{money(row.totalSales)}</td>
+                <td className="p-3">{row.invoices}</td>
+                <td className="p-3 text-amber-100">{row.reviewIssues.length ? row.reviewIssues.join(' · ') : 'تحتاج مراجعة ربط دكتور'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function DoctorDetailsModal({ row, onClose }: { row: DoctorScore & { overallScore: number }; onClose: () => void }) {
   const strengths = [
     row.totalSales > 0 ? 'مبيعات نشطة خلال الفترة' : '',
@@ -495,6 +569,8 @@ function DoctorDetailsModal({ row, onClose }: { row: DoctorScore & { overallScor
     row.invoices < MIN_AVG_INVOICE_THRESHOLD ? `زيادة عدد الفواتير إلى ${MIN_AVG_INVOICE_THRESHOLD} لدخول ترتيب متوسط الفاتورة` : '',
     !row.reviewCount ? 'زيادة عدد تقييمات المحادثات' : '',
     !row.recoveredCustomers ? 'تحسين تحويل المتابعات إلى شراء' : '',
+    row.growthRateStatus === 'unavailable' ? 'لا توجد فترة سابقة كافية لحساب النمو' : '',
+    row.stagnantStatus === 'disabled' ? 'بيانات الرواكد غير مفعلة في المسابقة حاليًا' : '',
   ].filter(Boolean);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" dir="rtl">
@@ -509,11 +585,12 @@ function DoctorDetailsModal({ row, onClose }: { row: DoctorScore & { overallScor
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Mini label="إجمالي المبيعات" value={money(row.totalSales)} />
           <Mini label="عدد الفواتير" value={String(row.invoices)} />
-          <Mini label="متوسط الفاتورة" value={money(row.avgInvoice)} />
+          <Mini label="متوسط الفاتورة" value={row.invoices >= MIN_AVG_INVOICE_THRESHOLD ? money(row.avgInvoice) : 'عدد فواتير غير كافٍ'} />
           <Mini label="التقييم الشامل" value={row.overallScore.toFixed(1)} />
+          <Mini label="النمو" value={growthText(row)} />
           <Mini label="تقييم المحادثات" value={row.reviewCount ? `${avgReview(row).toFixed(1)}/100` : 'غير متاح'} />
           <Mini label="خدمة العملاء" value={`${row.completedFollowups} متابعة`} />
-          <Mini label="الرواكد/اللستة" value={`${row.stagnantItems + row.listItems}`} />
+          <Mini label="الرواكد/اللستة" value={row.stagnantStatus === 'available' ? `${row.stagnantItems + row.listItems}` : 'غير مفعل'} />
           <Mini label="مبيعات المتابعة" value={money(row.followupSales)} />
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
