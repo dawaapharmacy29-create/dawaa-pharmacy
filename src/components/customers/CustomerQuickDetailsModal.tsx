@@ -189,22 +189,31 @@ async function enrichMetricFromInvoices(metric: CustomerMetric): Promise<Custome
     branch: metric.branch,
   });
   if (!live) return metric;
+  const hasLiveData = live.invoices_matched_count > 0 || live.total_spent > 0;
   const next: CustomerMetric = {
     ...metric,
-    total_spent: live.total_spent > 0 ? live.total_spent : metric.total_spent,
-    total_purchases: live.total_spent > 0 ? live.total_spent : metric.total_purchases,
-    invoices_count: live.invoices_count > 0 ? live.invoices_count : metric.invoices_count,
-    avg_invoice: live.avg_invoice > 0 ? live.avg_invoice : metric.avg_invoice,
-    avg_monthly: live.avg_monthly > 0 ? live.avg_monthly : metric.avg_monthly,
+    total_spent: hasLiveData ? live.total_spent : metric.total_spent,
+    total_purchases: hasLiveData ? live.total_spent : metric.total_purchases,
+    invoices_count: hasLiveData ? live.invoices_count : metric.invoices_count,
+    avg_invoice: hasLiveData ? live.avg_invoice : metric.avg_invoice,
+    avg_monthly: hasLiveData ? live.avg_monthly : metric.avg_monthly,
     first_purchase: live.first_purchase || metric.first_purchase,
     last_purchase: live.last_purchase || metric.last_purchase,
     active_months: metric.active_months || 0,
-    segment: live.segment || metric.segment,
-    type: live.segment || metric.type,
-    customer_status: live.customer_status || metric.customer_status,
-    status: live.customer_status || metric.status,
+    segment: hasLiveData ? live.segment || metric.segment : metric.segment,
+    type: hasLiveData ? live.segment || metric.type : metric.type,
+    customer_status: hasLiveData ? live.customer_status || metric.customer_status : metric.customer_status,
+    status: hasLiveData ? live.customer_status || metric.status : metric.status,
     branch: live.branch_last_purchase || live.branch || metric.branch,
   };
+  if (import.meta.env.DEV && hasLiveData && metric.total_spent === 0 && live.total_spent > 0) {
+    console.debug('[CustomerQuickDetailsModal] fallback to live sales_invoices metrics', {
+      customer_code: metric.customer_code,
+      customer_phone: metric.customer_phone,
+      customer_name: metric.customer_name,
+      live,
+    });
+  }
   if (import.meta.env.DEV) {
     console.debug('[CustomerQuickDetailsModal] live metrics', {
       customer_code: next.customer_code,

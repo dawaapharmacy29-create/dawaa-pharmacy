@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
+import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import {
   DASHBOARD_ALL_BRANCHES,
   fetchDashboardSalesTruth,
@@ -76,6 +77,12 @@ export type DoctorCompetitionMetrics = {
     minimumInvoicesForAvgInvoice: number;
     stagnantEnabled: boolean;
     previousRange: { start: string; end: string };
+    requestedPeriod: DoctorCompetitionPeriod;
+    selectedBranch: string | null;
+    hasReviewData: boolean;
+    hasFollowupData: boolean;
+    hasIncentiveData: boolean;
+    noWinnersReasons: string[];
   };
   range: { start: string; end: string };
   sourceHealth: Record<string, 'ready' | 'empty' | 'unavailable'>;
@@ -191,11 +198,7 @@ function localDateOnly(date: Date): string {
 }
 
 function currentCycle() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 26, 12, 0, 0);
-  if (now.getDate() < 26) start.setMonth(start.getMonth() - 1);
-  const end = new Date(start.getFullYear(), start.getMonth() + 1, 25, 12, 0, 0);
-  return { start: localDateOnly(start), end: localDateOnly(end) };
+  return getPharmacyCycleRange();
 }
 
 function previousRange(range: { start: string; end: string }) {
@@ -231,7 +234,7 @@ export function rangeForDoctorCompetition(period: DoctorCompetitionPeriod = 'cyc
     return { start: localDateOnly(start), end: localDateOnly(now) };
   }
   if (period === 'custom') return { start: customStart || localDateOnly(now), end: customEnd || customStart || localDateOnly(now) };
-  return currentCycle();
+  return getPharmacyCycleRange(now);
 }
 
 function emptyDoctor(name: string, branch: string): Omit<DoctorCompetitionScore, 'overallScore'> {
@@ -558,9 +561,6 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       ineligibleReasons.push('فرع غير صالح');
     }
     if (row.totalSales <= 0) ineligibleReasons.push('لا توجد مبيعات في الفترة');
-    if (row.invoices < MINIMUM_INVOICES_FOR_LEADERBOARD && row.totalSales <= MINIMUM_SALES_FOR_LEADERBOARD) {
-      ineligibleReasons.push('عدد فواتير غير كاف للمقارنة');
-    }
     const avgInvoiceEligible = row.invoices >= MIN_AVG_INVOICE_THRESHOLD;
     return {
       ...row,
@@ -574,25 +574,38 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       reviewIssues: Array.from(new Set(reviewIssues)),
     };
   });
-  const eligibleRows = normalizeScores(withAverages.filter((row) => row.leaderboardEligible)).sort(
-    (a, b) => b.overallScore - a.overallScore
-  );
+  const rows = normalizeScores(withAverages).sort((a, b) => b.overallScore - a.overallScore);
+  const eligibleRows = rows.filter((row) => row.leaderboardEligible);
   const reviewRows = [
-    ...normalizeScores(withAverages.filter((row) => !row.leaderboardEligible)),
+    ...rows.filter((row) => !row.leaderboardEligible),
     ...eligibleRows.filter((row) => row.reviewIssues.length > 0),
   ].sort((a, b) => b.totalSales - a.totalSales);
-  const rows = eligibleRows;
   const warnings = Array.from(
     new Set([
       ...reviewRows.flatMap((row) => row.reviewIssues),
       ...reviewRows.flatMap((row) => row.ineligibleReasons),
+      ...(eligibleRows.length === 0 && rows.length > 0 ? ['تم العثور على دكاترة في الفترة الحالية، لكن لا يوجد دكاترة مؤهلين لقائمة المنافسة الرئيسية.'] : []),
     ])
   );
+
+  if (import.meta.env.DEV && eligibleRows.length === 0 && rows.length > 0) {
+    console.warn('[DoctorCompetitionMetrics] no eligible winners', {
+      range,
+      totalRows: rows.length,
+      reviewRows: reviewRows.length,
+      warnings,
+      errors,
+      sourceHealth,
+    });
+  }
+
   const status = errors.sales_invoices
     ? 'failed'
-    : eligibleRows.length
-      ? (Object.keys(errors).length ? 'partial' : 'ready')
-      : 'empty';
+    : rows.length && !eligibleRows.length
+      ? 'partial'
+      : eligibleRows.length
+        ? (Object.keys(errors).length ? 'partial' : 'ready')
+        : 'empty';
   return {
     rows,
     eligibleRows,
@@ -606,6 +619,12 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       minimumInvoicesForAvgInvoice: MIN_AVG_INVOICE_THRESHOLD,
       stagnantEnabled: incentiveAvailable,
       previousRange: previous,
+      requestedPeriod: params.period || 'cycle',
+      selectedBranch: selectedBranch || null,
+      hasReviewData: sourceHealth.conversation_sales_reviews === 'ready',
+      hasFollowupData: sourceHealth.daily_followups === 'ready',
+      hasIncentiveData: incentiveAvailable,
+      noWinnersReasons: eligibleRows.length === 0 && rows.length > 0 ? ['no eligible rows'] : [],
     },
     range,
     sourceHealth,

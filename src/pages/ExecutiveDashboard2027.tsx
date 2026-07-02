@@ -3028,7 +3028,7 @@ function DashboardDoctorCompetitionPanel({
   onNavigate: (focus: 'sales' | 'average_invoice' | 'incentive' | 'reviews' | 'overall') => void;
 }) {
   const winners = metrics?.winners;
-  const topRows = metrics?.eligibleRows.slice(0, 5) || metrics?.rows.slice(0, 5) || [];
+  const topRows = metrics?.eligibleRows.length ? metrics.eligibleRows.slice(0, 5) : metrics?.rows.slice(0, 5) || [];
   const hasRows = topRows.length > 0;
   const stagnantDisabled = metrics ? !metrics.metadata.stagnantEnabled : false;
   return (

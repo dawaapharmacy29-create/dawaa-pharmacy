@@ -4,6 +4,7 @@ import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { getRoutePermissions } from '@/lib/core/permissionSystem';
 import Layout from '@/components/layout/Layout';
 import { LOGO_URL } from '@/lib/constants';
 import PWABanner from '@/components/features/PWABanner';
@@ -94,89 +95,7 @@ const ReportsCenter = lazy(() => import('@/pages/ReportsCenter'));
 const StockAlerts = lazy(() => import('@/pages/StockAlerts'));
 const Returns = lazy(() => import('@/pages/Returns'));
 
-const ROUTE_PERMISSIONS: Record<string, string> = {
-  '/': 'view_dashboard',
-  '/executive-2027': 'view_executive_dashboard',
-  '/data-health': 'view_data_health',
-  '/operations-center': 'view_operations',
-  '/quarterly-incentives': 'view_quarterly_incentives',
-  '/customers': 'view_customers',
-  '/customer-360': 'view_customer_360',
-  '/customers/import': 'import_customers',
-  '/customer-service': 'view_customer_service',
-  '/customer-data-review': 'view_customer_details',
-  '/crm': 'view_crm',
-  '/incubation': 'view_customer_incubation',
-  '/customer-requests': 'view_customer_requests',
-  '/customer-welcome': 'whatsapp_customer',
-  '/customer-coding': 'view_customer_service',
-  '/quick-replies': 'whatsapp_customer',
-  '/doctor-competition': 'view_doctor_dashboard',
-  '/customer-cashback': 'view_cashback',
-  '/customer-service-credit': 'view_cashback',
-  '/customer-points-ledger': 'view_cashback',
-  '/welcome-messages': 'customer_welcome_messages.view',
-  '/loyalty-tiers': 'view_loyalty_tiers',
-  '/refill-reminders': 'view_customers',
-  '/customer-health': 'view_customer_details',
-  '/reviews': 'view_reviews',
-  '/whatsapp-analytics': 'view_reviews',
-  '/team': 'view_team',
-  '/staff': 'view_team',
-  '/staff/:id': 'view_staff_details',
-  '/schedule': 'view_schedule',
-  '/time-off': 'view_attendance_leaves',
-  '/attendance-report': 'view_attendance_leaves',
-  '/attendance': 'view_attendance_leaves',
-  '/shift-notes': 'view_schedule',
-  '/shift-performance': 'view_shift_performance',
-  '/doctor-dashboard': 'view_doctor_dashboard',
-  '/staff-dashboard': 'view_team',
-  '/employee-kpi': 'view_team',
-  '/employee-operating-system': 'employee_operating_system.view',
-  '/staff-accounts': 'view_staff_accounts',
-  '/staff-duplicate-audit': 'view_staff_accounts',
-  '/roles-permissions': 'view_roles_permissions',
-  '/analytics': 'view_analytics',
-  '/analytics-sales': 'view_analytics_sales',
-  '/reports': 'view_sales_reports',
-  '/supplier-performance': 'view_purchases',
-  '/purchases': 'view_purchases',
-  '/staff-payroll': 'view_salary_calculator',
-  '/payroll': 'view_salary_calculator',
-  '/invoices': 'view_invoices',
-  '/returns': 'view_invoices',
-  '/points': 'view_points',
-  '/penalty-incentive': 'view_penalty_management',
-  '/delivery': 'view_delivery',
-  '/activity-log': 'view_activity_log',
-  '/activity-logs': 'view_activity_log',
-  '/stagnant-medicines': 'view_stagnant_medicines',
-  '/incentive-medicines': 'view_incentive_medicines',
-  '/medicine-expiry': 'view_expiry_tracker',
-  '/expiry-discounts': 'view_expiry_tracker',
-  '/stock-alerts': 'view_inventory',
-  '/shelf-organization': 'view_inventory',
-  '/inventory-counts': 'view_inventory',
-  '/shortages': 'view_shortages',
-  '/supplies': 'view_supplies',
-  '/accessories': 'view_operations',
-  '/offers': 'view_operations',
-  '/stories': 'view_operations',
-  '/training': 'view_operations',
-  '/branch-cleaning': 'view_operations',
-  '/branch-comparison': 'view_branch_comparison',
-  '/branch-inspection': 'view_branch_inspection',
-  '/daily-command': 'view_dashboard',
-  '/daily-target': 'view_dashboard',
-  '/today-brief': 'view_dashboard',
-};
-
-function getRoutePermission(pathname: string): string | undefined {
-  if (ROUTE_PERMISSIONS[pathname]) return ROUTE_PERMISSIONS[pathname];
-  if (pathname.startsWith('/staff/')) return ROUTE_PERMISSIONS['/staff/:id'];
-  return undefined;
-}
+// Route permissions are centralized in src/lib/core/permissionSystem.ts
 
 function AppLoading() {
   return (
@@ -198,7 +117,7 @@ function AppLoading() {
 function ProtectedRoute({ children, permission }: { children: ReactNode; permission?: string }) {
   const { user, loading, checkPermission } = useAuth();
   const location = useLocation();
-  const effectivePermission = permission || getRoutePermission(location.pathname);
+  const effectivePermissions = permission || getRoutePermissions(location.pathname);
 
   if (loading) return <AppLoading />;
   if (!user) return <Navigate to="/login" replace />;
@@ -207,7 +126,12 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
     return <Navigate to="/doctor-dashboard" replace />;
   }
 
-  if (effectivePermission && !checkPermission(effectivePermission)) {
+  if (
+    effectivePermissions &&
+    (Array.isArray(effectivePermissions)
+      ? !effectivePermissions.some((permission) => checkPermission(permission))
+      : !checkPermission(effectivePermissions))
+  ) {
     return (
       <Layout>
         <div className="stat-card text-center text-slate-300 py-16" dir="rtl">

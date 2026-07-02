@@ -5,6 +5,7 @@ import {
   getDoctorCompetitionMetrics,
   normalizeDoctorName,
   pickInvoiceAmount,
+  type DoctorCompetitionScore,
 } from '@/lib/doctorCompetitionMetrics';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
@@ -13,33 +14,7 @@ import { canViewAllBranches, getScopedBranch, isDoctorRole, rowMatchesCurrentDoc
 
 type Period = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 type RankingTab = 'sales' | 'avgInvoice' | 'incentive' | 'reviews' | 'service' | 'overall';
-type DoctorScore = {
-  name: string;
-  branch: string;
-  staffId?: string | null;
-  totalSales: number;
-  invoices: number;
-  avgInvoice: number;
-  growthRate: number | null;
-  growthRateStatus: 'available' | 'unavailable';
-  listItems: number;
-  stagnantItems: number;
-  stagnantStatus: 'available' | 'disabled';
-  incentiveValue: number;
-  totalQuantity: number;
-  linkedInvoiceCount: number;
-  reviewCount: number;
-  reviewTotal: number;
-  excellentReviews: number;
-  negativeReviews: number;
-  followups: number;
-  completedFollowups: number;
-  recoveredCustomers: number;
-  followupSales: number;
-  satisfactionTotal: number;
-  satisfactionCount: number;
-  reviewIssues: string[];
-};
+type DoctorScore = DoctorCompetitionScore;
 
 const MIN_AVG_INVOICE_THRESHOLD = 30;
 const ALL_BRANCHES = 'كل الفروع';
@@ -80,16 +55,6 @@ function invoiceDoctor(row: Record<string, unknown>) {
   return normalizeDoctorName(name);
 }
 
-function currentCycle() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 26);
-  if (now.getDate() < 26) start.setMonth(start.getMonth() - 1);
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 1);
-  end.setDate(25);
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
-}
-
 function rangeFor(period: Period, customStart: string, customEnd: string) {
   const now = new Date();
   if (period === 'last30') {
@@ -103,7 +68,7 @@ function rangeFor(period: Period, customStart: string, customEnd: string) {
     return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
   }
   if (period === 'custom') return { start: customStart, end: customEnd || customStart };
-  return currentCycle();
+  return getPharmacyCycleRange(now);
 }
 
 function emptyDoctor(name: string, branch: string): DoctorScore {
@@ -132,6 +97,10 @@ function emptyDoctor(name: string, branch: string): DoctorScore {
     satisfactionTotal: 0,
     satisfactionCount: 0,
     reviewIssues: [],
+    overallScore: 0,
+    leaderboardEligible: false,
+    avgInvoiceEligible: false,
+    ineligibleReasons: [],
   };
 }
 

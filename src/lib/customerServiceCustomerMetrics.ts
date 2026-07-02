@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { getInvoiceAmount } from '@/lib/dawaa2027';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_INVOICES_PER_CUSTOMER = 700;

@@ -77,7 +77,7 @@ function timeOffRule(type: string, points: number): EvaluationRuleDef {
 }
 
 export default function TimeOff() {
-  const { checkPermission, canManage } = useAuth();
+  const { user, checkPermission, canManage } = useAuth();
   const canCreateRequest = checkPermission('create_leave_request') || canManage;
   const canApproveRequest = checkPermission('approve_leave_request') || canManage;
   const canManageTimeOff = checkPermission('manage_time_off') || canManage;
@@ -96,6 +96,19 @@ export default function TimeOff() {
     realtimeEnabled: true,
   });
   const staffChoices = useMemo(() => mergeStaffChoices(staff), [staff]);
+  const availableStaffChoices = useMemo(() => {
+    if (canManageTimeOff) return staffChoices;
+    if (!user) return staffChoices;
+    return staffChoices.filter(
+      (item) => item.id === user.staffId || item.name === user.name
+    );
+  }, [staffChoices, canManageTimeOff, user?.staffId, user?.name]);
+  const visibleExceptions = useMemo(() => {
+    if (canManageTimeOff || canApproveRequest) return exceptions;
+    return exceptions.filter(
+      (item) => item.staff_id === user?.staffId || item.staff_name === user?.name
+    );
+  }, [exceptions, canManageTimeOff, canApproveRequest, user?.staffId, user?.name]);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -267,7 +280,7 @@ export default function TimeOff() {
           required
         >
           <option value="">اختار الموظف</option>
-          {staffChoices.map((item) => (
+          {availableStaffChoices.map((item) => (
             <option key={item.id} value={item.id}>
               {item.name} - {item.role} - {item.branch}
             </option>
@@ -380,7 +393,7 @@ export default function TimeOff() {
         </div>
         {loading ? (
           <div className="p-6 text-slate-400">جاري التحميل...</div>
-        ) : exceptions.length === 0 ? (
+        ) : visibleExceptions.length === 0 ? (
           <div className="p-6 text-slate-400">لا توجد إذونات مسجلة بعد.</div>
         ) : (
           <div className="overflow-x-auto">
@@ -398,7 +411,7 @@ export default function TimeOff() {
                 </tr>
               </thead>
               <tbody>
-                {exceptions.map((item) => (
+                {visibleExceptions.map((item) => (
                   <tr key={item.id}>
                     <td>{item.staff_name}</td>
                     <td>{item.type}</td>
