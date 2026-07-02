@@ -998,8 +998,11 @@ function customerInvoiceOrClauses(customer: CustomerMetric) {
   const code = String(customer.customer_code || '').trim();
   const phone = String(customer.customer_phone || customer.phone || '').replace(/[^0-9٠-٩]/g, '');
   const name = String(customer.customer_name || customer.name || '').trim();
+
+  // If customer_code exists, use it as the primary and only strong key to avoid splitting by phone
+  if (code) return `customer_code.eq.${code}`;
+
   const clauses = [
-    code ? `customer_code.eq.${code}` : '',
     phone ? `customer_phone.eq.${phone}` : '',
     phone ? `phone.eq.${phone}` : '',
     name ? `customer_name.eq.${name}` : '',
@@ -1024,63 +1027,67 @@ async function getLiveCustomerInvoiceStats(
   }
 
   try {
-    const { data, error } = await supabase
-      .from('dawaa_customer_invoice_stats_view')
-      .select(
-        'id,invoice_key,invoice_no,invoice_number,invoice_date,sale_date,date,amount,seller_name,branch,customer_code,customer_name,customer_phone,phone'
-      )
-      .or(clauses)
-      .order('invoice_date', { ascending: false })
-      .limit(2000);
+      const { data, error } = await supabase
+        .from('dawaa_customer_invoice_stats_view')
+        .select(
+          'id,invoice_key,invoice_no,invoice_number,invoice_date,sale_date,date,net_amount,net_total,total_amount,amount,seller_name,branch,customer_code,customer_name,customer_phone,phone'
+        )
+        .or(clauses)
+        .order('invoice_date', { ascending: false })
+        .limit(2000);
 
-    if (error || !data?.length) {
-      return {
-        invoices: [],
-        currentMonthVisits: 0,
-        previousMonthVisits: 0,
-        averageMonthlyVisits: 0,
-      };
-    }
+      if (error || !data?.length) {
+        return {
+          invoices: [],
+          currentMonthVisits: 0,
+          previousMonthVisits: 0,
+          averageMonthlyVisits: 0,
+        };
+      }
 
-    const rows = (data || []) as Row[];
-    const today = new Date();
-    const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-    const previousMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const previousMonth = `${previousMonthDate.getFullYear()}-${String(previousMonthDate.getMonth() + 1).padStart(2, '0')}`;
-    const months = new Map<string, number>();
+      const rows = (data || []) as Row[];
+      // Use buildCustomerLiveMetrics to dedupe and aggregate by invoice identity
+      try {
+        const { buildCustomerLiveMetrics } = await import('@/lib/customers/buildCustomerLiveMetrics');
+        const live = buildCustomerLiveMetrics(rows);
+        return {
+          invoices: live.latestInvoices as any[],
+          currentMonthVisits: live.latestInvoices.filter((inv) => (inv.invoice_date || '').slice(0, 7) === new Date().toISOString().slice(0, 7)).length,
+          previousMonthVisits: 0,
+          averageMonthlyVisits: 0,
+        };
+      } catch (err) {
+        // fallback to original lightweight extraction if helper fails
+        const today = new Date();
+        const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+        const previousMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const previousMonth = `${previousMonthDate.getFullYear()}-${String(previousMonthDate.getMonth() + 1).padStart(2, '0')}`;
+        const months = new Map<string, number>();
+        const invoices = rows.map((row) => {
+          const invoiceDate = String(readFirst(row, ['invoice_date', 'sale_date', 'date'], '') || '').slice(0, 10);
+          const month = invoiceDate.slice(0, 7);
+          if (month) months.set(month, (months.get(month) || 0) + 1);
+          return {
+            invoice_number: getInvoiceKey(row) || null,
+            invoice_date: invoiceDate || null,
+            amount: toNumber(readFirst(row, ['amount', 'net_amount', 'net_total', 'total_amount', 'gross_amount', 'gross_total'], 0)),
+            seller_name: readFirst(row, ['seller_name'], null) as string | null,
+            branch: normalizeBranchName(readFirst(row, ['branch'], null)),
+          };
+        });
 
-    const invoices = rows.map((row) => {
-      const invoiceDate = String(
-        readFirst(row, ['invoice_date', 'sale_date', 'date'], '') || ''
-      ).slice(0, 10);
-      const month = invoiceDate.slice(0, 7);
-      if (month) months.set(month, (months.get(month) || 0) + 1);
-      return {
-        invoice_number: getInvoiceKey(row) || null,
-        invoice_date: invoiceDate || null,
-        amount: toNumber(
-          readFirst(
-            row,
-            ['amount', 'net_amount', 'net_total', 'total_amount', 'gross_amount', 'gross_total'],
-            0
-          )
-        ),
-        seller_name: readFirst(row, ['seller_name'], null) as string | null,
-        branch: normalizeBranchName(readFirst(row, ['branch'], null)),
-      };
-    });
+        const monthValues = [...months.values()];
+        const averageMonthlyVisits = monthValues.length
+          ? Math.round(monthValues.reduce((sum, value) => sum + value, 0) / monthValues.length)
+          : 0;
 
-    const monthValues = [...months.values()];
-    const averageMonthlyVisits = monthValues.length
-      ? Math.round(monthValues.reduce((sum, value) => sum + value, 0) / monthValues.length)
-      : 0;
-
-    return {
-      invoices: invoices.slice(0, Math.min(invoiceLimit, 100)),
-      currentMonthVisits: months.get(currentMonth) || 0,
-      previousMonthVisits: months.get(previousMonth) || 0,
-      averageMonthlyVisits,
-    };
+        return {
+          invoices: invoices.slice(0, Math.min(invoiceLimit, 100)),
+          currentMonthVisits: months.get(currentMonth) || 0,
+          previousMonthVisits: months.get(previousMonth) || 0,
+          averageMonthlyVisits,
+        };
+      }
   } catch {
     return { invoices: [], currentMonthVisits: 0, previousMonthVisits: 0, averageMonthlyVisits: 0 };
   }

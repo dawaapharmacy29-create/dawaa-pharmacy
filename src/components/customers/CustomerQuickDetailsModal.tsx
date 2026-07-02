@@ -13,6 +13,7 @@ import { normalizeBranchName } from '@/lib/branch';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
 import { cashbackStatusLabel, cashbackSummaryLine } from '@/lib/api/customerLoyalty';
 import { getCustomerServiceLiveMetrics } from '@/lib/customerServiceCustomerMetrics';
+import { buildCustomerLiveMetrics } from '@/lib/customers/buildCustomerLiveMetrics';
 
 type Props = {
   followupId?: string | null;
@@ -181,50 +182,79 @@ async function loadCustomerMetric(input: Props): Promise<CustomerMetric> {
 }
 
 async function enrichMetricFromInvoices(metric: CustomerMetric): Promise<CustomerMetric> {
-  const live = await getCustomerServiceLiveMetrics({
-    customer_id: metric.customer_id || metric.id,
-    customer_code: metric.customer_code,
-    customer_phone: metric.customer_phone || metric.phone,
-    customer_name: metric.customer_name || metric.name,
-    branch: metric.branch,
-  });
-  if (!live) return metric;
-  const hasLiveData = live.invoices_matched_count > 0 || live.total_spent > 0;
-  const next: CustomerMetric = {
-    ...metric,
-    total_spent: hasLiveData ? live.total_spent : metric.total_spent,
-    total_purchases: hasLiveData ? live.total_spent : metric.total_purchases,
-    invoices_count: hasLiveData ? live.invoices_count : metric.invoices_count,
-    avg_invoice: hasLiveData ? live.avg_invoice : metric.avg_invoice,
-    avg_monthly: hasLiveData ? live.avg_monthly : metric.avg_monthly,
-    first_purchase: live.first_purchase || metric.first_purchase,
-    last_purchase: live.last_purchase || metric.last_purchase,
-    active_months: metric.active_months || 0,
-    segment: hasLiveData ? live.segment || metric.segment : metric.segment,
-    type: hasLiveData ? live.segment || metric.type : metric.type,
-    customer_status: hasLiveData ? live.customer_status || metric.customer_status : metric.customer_status,
-    status: hasLiveData ? live.customer_status || metric.status : metric.status,
-    branch: live.branch_last_purchase || live.branch || metric.branch,
-  };
-  if (import.meta.env.DEV && hasLiveData && metric.total_spent === 0 && live.total_spent > 0) {
-    console.debug('[CustomerQuickDetailsModal] fallback to live sales_invoices metrics', {
-      customer_code: metric.customer_code,
-      customer_phone: metric.customer_phone,
-      customer_name: metric.customer_name,
-      live,
-    });
+  try {
+    // Prefer sales_invoices as source. Fetch by customer_code first, then fallback to phones.
+    const code = metric.customer_code || (metric as any).code;
+    const clauses: string[] = [];
+    if (code) clauses.push(`customer_code.eq.${code}`);
+    if (!code && metric.customer_phone) clauses.push(`customer_phone.eq.${metric.customer_phone}`);
+    if (!code && metric.phone) clauses.push(`phone.eq.${metric.phone}`);
+    if (!code && metric.customer_name) clauses.push(`customer_name.eq.${metric.customer_name}`);
+
+    let rows: Array<Record<string, unknown>> = [];
+    if (clauses.length) {
+      const { data, error } = await supabase
+        .from('sales_invoices')
+        .select('*')
+        .or(clauses.join(','))
+        .limit(10000);
+      if (!error && data) rows = data as Array<Record<string, unknown>>;
+    }
+
+    if (!rows.length) {
+      // fallback to the existing live metrics service
+      const live = await getCustomerServiceLiveMetrics({
+        customer_id: metric.customer_id || metric.id,
+        customer_code: metric.customer_code,
+        customer_phone: metric.customer_phone || metric.phone,
+        customer_name: metric.customer_name || metric.name,
+        branch: metric.branch,
+      });
+      if (!live) return metric;
+      const hasLiveData = (live as any).invoices_matched_count > 0 || (live as any).total_spent > 0;
+      if (!hasLiveData) return metric;
+      return {
+        ...metric,
+        total_spent: (live as any).total_spent || metric.total_spent,
+        total_purchases: (live as any).total_spent || metric.total_purchases,
+        invoices_count: (live as any).invoices_count || metric.invoices_count,
+        avg_invoice: (live as any).avg_invoice || metric.avg_invoice,
+        avg_monthly: (live as any).avg_monthly || metric.avg_monthly,
+        first_purchase: (live as any).first_purchase || metric.first_purchase,
+        last_purchase: (live as any).last_purchase || metric.last_purchase,
+        branch: (live as any).branch_last_purchase || (live as any).branch || metric.branch,
+      };
+    }
+
+    const liveMetrics = buildCustomerLiveMetrics(rows);
+    // consistency check: if live invoices exist but summary total is less than max invoice, prefer live
+    const useLive = liveMetrics.invoicesCount > 0 && (metric.total_purchases || 0) < (liveMetrics.maxInvoiceAmount || 0);
+    if (useLive) {
+      if (import.meta.env.DEV) console.warn('Customer totals inconsistent with live invoices; using live metrics', { customer_code: metric.customer_code });
+      return {
+        ...metric,
+        total_spent: liveMetrics.totalPurchases,
+        total_purchases: liveMetrics.totalPurchases,
+        invoices_count: liveMetrics.invoicesCount,
+        avg_invoice: liveMetrics.avgInvoice,
+        avg_monthly: metric.avg_monthly || 0,
+        first_purchase: liveMetrics.firstPurchase || metric.first_purchase,
+        last_purchase: liveMetrics.lastPurchase || metric.last_purchase,
+        branch: metric.branch || null,
+      };
+    }
+
+    // otherwise only patch counts but keep original totals if they're reasonable
+    return {
+      ...metric,
+      invoices_count: Math.max(metric.invoices_count || 0, liveMetrics.invoicesCount),
+      first_purchase: liveMetrics.firstPurchase || metric.first_purchase,
+      last_purchase: liveMetrics.lastPurchase || metric.last_purchase,
+    };
+  } catch (err) {
+    if (import.meta.env.DEV) console.warn('[CustomerQuickDetailsModal] enrichMetricFromInvoices failed', err);
+    return metric;
   }
-  if (import.meta.env.DEV) {
-    console.debug('[CustomerQuickDetailsModal] live metrics', {
-      customer_code: next.customer_code,
-      customer_phone: next.customer_phone || next.phone,
-      customer_name: next.customer_name || next.name,
-      matched_by: live.matched_by,
-      invoices_matched_count: live.invoices_matched_count,
-      source: live.source,
-    });
-  }
-  return next;
 }
 
 function MetricBox({ label, value }: { label: string; value: string }) {
