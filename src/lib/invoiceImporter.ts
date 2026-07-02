@@ -578,7 +578,7 @@ function invoiceDuplicateKey(invoiceNumber: string, branch: string, saleDate: st
 
 function friendlyImportError(message: string) {
   if (message.includes('statement timeout') || message.includes('canceling statement')) {
-    return 'المصدر استغرق وقتًا طويلًا. تم إيقاف أي تحديث ثقيل، ويفضل تحديث الملخصات من لوحة الإدارة أو RPC مخصص.';
+    return 'استغرقت عملية قاعدة البيانات وقتًا طويلًا، ولم يكتمل هذا الجزء من الاستيراد.';
   }
   if (message.includes('schema cache')) {
     return 'أحد الأعمدة لم يظهر بعد في Supabase schema cache. تم الاستيراد بالحقول المتاحة، ويُفضّل تحديث schema cache بعد الترقية.';

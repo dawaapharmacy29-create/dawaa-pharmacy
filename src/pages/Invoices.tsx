@@ -129,6 +129,16 @@ function salesImportSuccessMessage(summary: ImportSummary) {
   ].join('\n');
 }
 
+function isSummaryRefreshNotice(message: string) {
+  return (
+    message.includes('تحديث الملخصات غير مفعل') ||
+    message.includes('سيتم الاعتماد على الفواتير المباشرة') ||
+    message.includes('تحديث ثقيل') ||
+    message.includes('RPC مخصص') ||
+    message.includes('لوحة الإدارة')
+  );
+}
+
 function customerImportStatusLabel(status: string) {
   const labels: Record<string, string> = {
     existing_customer: 'عميل موجود',
@@ -853,6 +863,7 @@ export default function Invoices() {
     );
     const critical = messages.filter(
       (message) =>
+        !isSummaryRefreshNotice(message) &&
         !message.includes('مكررة') &&
         !message.includes('schema cache') &&
         !message.includes('staff_id')
@@ -869,7 +880,7 @@ export default function Invoices() {
       ...(importSummary?.schemaWarnings || []),
       ...(importSummary?.summaryRefreshStatus === 'unavailable' &&
       importSummary.summaryRefreshMessage
-        ? [importSummary.summaryRefreshMessage]
+        ? ['تحديث الملخصات غير مفعل حاليًا، سيتم الاعتماد على الفواتير المباشرة.']
         : []),
     ];
 
@@ -1930,24 +1941,30 @@ export default function Invoices() {
             importWarningGroups.dataWarnings.length > 0 ||
             importWarningGroups.recommendations.length > 0) && (
             <div className="grid gap-3 lg:grid-cols-3">
-              <WarningGroup
-                title="أخطاء حرجة"
-                tone="danger"
-                items={importWarningGroups.critical}
-                emptyText="لا توجد أخطاء حرجة"
-              />
-              <WarningGroup
-                title="تحذيرات بيانات"
-                tone="warning"
-                items={importWarningGroups.dataWarnings}
-                emptyText="لا توجد تحذيرات بيانات"
-              />
-              <WarningGroup
-                title="توصيات"
-                tone="info"
-                items={importWarningGroups.recommendations}
-                emptyText="لا توجد توصيات إضافية"
-              />
+              {importWarningGroups.critical.length > 0 && (
+                <WarningGroup
+                  title="أخطاء حرجة"
+                  tone="danger"
+                  items={importWarningGroups.critical}
+                  emptyText="لا توجد أخطاء حرجة"
+                />
+              )}
+              {importWarningGroups.dataWarnings.length > 0 && (
+                <WarningGroup
+                  title="تحذيرات بيانات"
+                  tone="warning"
+                  items={importWarningGroups.dataWarnings}
+                  emptyText="لا توجد تحذيرات بيانات"
+                />
+              )}
+              {importWarningGroups.recommendations.length > 0 && (
+                <WarningGroup
+                  title="توصيات"
+                  tone="info"
+                  items={importWarningGroups.recommendations}
+                  emptyText="لا توجد توصيات إضافية"
+                />
+              )}
             </div>
           )}
           <button onClick={handleReset} className="btn-primary flex items-center gap-2">
