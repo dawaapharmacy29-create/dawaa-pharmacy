@@ -26,6 +26,7 @@ import {
 } from '@/lib/salesAnalyticsSummaryService';
 import { clearExecutiveDashboardCache } from '@/lib/executiveDashboardDataService';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
+import { canSeeAllBranches, getBranchScope } from '@/lib/security/permissionScopes';
 
 type PeriodType = 'cycle' | 'previous_cycle' | 'month' | 'last_30_days' | 'custom';
 
@@ -65,10 +66,15 @@ export default function Analytics() {
   const [, setSearchParams] = useSearchParams();
   const cycle = getCurrentCycle();
   const previousCycle = getPreviousCycle();
+  const [params] = useSearchParams();
+  const requestedBranch = params.get('branch')?.trim() || '';
+  const canAllBranches = canSeeAllBranches(user?.role);
   const [periodStart, setPeriodStart] = useState(() => formatCycleDate(cycle.start));
   const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(cycle.end));
   const [periodType, setPeriodType] = useState<PeriodType>('cycle');
-  const [selectedBranch, setSelectedBranch] = useState(ALL_FILTER);
+  const [selectedBranch, setSelectedBranch] = useState(() =>
+    canAllBranches ? requestedBranch || ALL_FILTER : normalizeBranchName(user?.branch || requestedBranch) || ALL_FILTER
+  );
   const [selectedDoctor, setSelectedDoctor] = useState(ALL_FILTER);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
@@ -79,15 +85,16 @@ export default function Analytics() {
     realtimeEnabled: false,
   });
 
+  const branchScope = getBranchScope(user, selectedBranch, ALL_FILTER);
   const cacheKey = useMemo(
     () =>
       `sales-analytics-summary:${JSON.stringify({
         startDate: periodStart,
         endDate: periodEnd,
-        branch: selectedBranch,
+        branch: branchScope,
         doctor: selectedDoctor,
       })}`,
-    [periodEnd, periodStart, selectedBranch, selectedDoctor]
+    [branchScope, periodEnd, periodStart, selectedDoctor]
   );
 
   const loadSummary = useCallback(async () => {
@@ -95,12 +102,12 @@ export default function Analytics() {
       {
         startDate: periodStart,
         endDate: periodEnd,
-        branch: selectedBranch,
+        branch: branchScope,
         doctor: selectedDoctor,
       },
       false
     );
-  }, [periodEnd, periodStart, selectedBranch, selectedDoctor]);
+  }, [branchScope, periodEnd, periodStart, selectedDoctor]);
 
   const {
     data,
@@ -145,10 +152,12 @@ export default function Analytics() {
         period: periodType,
         start: periodStart,
         end: periodEnd,
+        branch: selectedBranch,
+        doctor: selectedDoctor,
       },
       { replace: true }
     );
-  }, [periodEnd, periodStart, periodType, setSearchParams]);
+  }, [periodEnd, periodStart, periodType, selectedBranch, selectedDoctor, setSearchParams]);
 
   const branches = useMemo(
     () => data?.branchRows.map((row) => row.branch).filter(Boolean) || [],

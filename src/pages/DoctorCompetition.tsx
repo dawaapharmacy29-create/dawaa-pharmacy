@@ -11,7 +11,9 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
-import { canViewAllBranches, getScopedBranch, isDoctorRole, rowMatchesCurrentDoctor } from '@/lib/security/userDataScope';
+import { canViewAllBranches, isDoctorRole, rowMatchesCurrentDoctor } from '@/lib/security/userDataScope';
+import { getBranchScope } from '@/lib/security/permissionScopes';
+import { normalizeBranchName } from '@/lib/branch';
 
 type Period = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 type RankingTab = 'sales' | 'avgInvoice' | 'incentive' | 'reviews' | 'service' | 'overall';
@@ -148,8 +150,14 @@ function incentiveText(row: Pick<DoctorScore, 'stagnantStatus' | 'stagnantItems'
 export default function DoctorCompetition() {
   const { user } = useAuth();
   const [params] = useSearchParams();
-  const initialPeriod = (params.get('period') as Period) || 'cycle';
-  const initialFocus = params.get('focus');
+  const requestedBranch = params.get('branch')?.trim() || ALL_BRANCHES;
+  const initialPeriod = params.get('period')?.trim() as Period | null;
+  const initialFocus = params.get('focus')?.trim() || '';
+  const canAllBranches = canViewAllBranches(user);
+  const [period, setPeriod] = useState<Period>(['last30', 'last90', 'last_3_months', 'cycle', 'custom'].includes(initialPeriod || '') ? (initialPeriod as Period) : 'cycle');
+  const [branchFilter, setBranchFilter] = useState(
+    () => (canAllBranches ? requestedBranch : normalizeBranchName(user?.branch || requestedBranch) || ALL_BRANCHES)
+  );
   const [rows, setRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
   const [reviewRows, setReviewRows] = useState<Array<DoctorScore & { overallScore: number }>>([]);
   const [loading, setLoading] = useState(true);
@@ -162,14 +170,17 @@ export default function DoctorCompetition() {
   const [reviewSourceAvailable, setReviewSourceAvailable] = useState(true);
   const [followupSourceAvailable, setFollowupSourceAvailable] = useState(true);
   const [stagnantSourceAvailable, setStagnantSourceAvailable] = useState(false);
-  const [period, setPeriod] = useState<Period>(['last30', 'last90', 'last_3_months', 'cycle', 'custom'].includes(initialPeriod) ? initialPeriod : 'cycle');
-  const [branchFilter, setBranchFilter] = useState(ALL_BRANCHES);
   const currentCycle = getPharmacyCycleRange(new Date());
   const [customStart, setCustomStart] = useState(currentCycle.start);
   const [customEnd, setCustomEnd] = useState(currentCycle.end);
   const allBranchesAllowed = canViewAllBranches(user);
   const doctorScoped = isDoctorRole(user);
-  const effectiveBranch = getScopedBranch(user, branchFilter, ALL_BRANCHES);
+  const effectiveBranch = getBranchScope(user, branchFilter, ALL_BRANCHES);
+  useEffect(() => {
+    if (!allBranchesAllowed) {
+      setBranchFilter(normalizeBranchName(user?.branch || requestedBranch) || ALL_BRANCHES);
+    }
+  }, [allBranchesAllowed, requestedBranch, user?.branch]);
   const [rankingTab, setRankingTab] = useState<RankingTab>(
     initialFocus === 'sales'
       ? 'sales'

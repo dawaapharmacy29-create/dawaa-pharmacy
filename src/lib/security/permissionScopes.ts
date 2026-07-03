@@ -1,29 +1,25 @@
 /**
  * permissionScopes.ts — redirect to central system
  */
-import { normalizeBranchName } from '@/lib/branch';
+import type { User } from '@/types';
 export type { DataScope } from '@/lib/core/permissionSystem';
 export { getUserDataScope, canSeeAllBranches } from '@/lib/core/permissionSystem';
 import { canSeeAllBranches, getUserDataScope } from '@/lib/core/permissionSystem';
-import type { User } from '@/types';
+import { applyBranchFilter, getBranchScope, normalizeBranchScope, ALL_BRANCHES } from '@/lib/core/branchScope';
 
 export function effectiveBranchFilter(
   user: Pick<User, 'role' | 'branch'> | null | undefined,
   requestedBranch?: string | null,
-  allValue = 'كل الفروع'
+  allValue = ALL_BRANCHES
 ): string {
-  if (canSeeAllBranches(user?.role)) return requestedBranch || allValue;
-  return normalizeBranchName(user?.branch || requestedBranch || '');
+  return getBranchScope(user, requestedBranch, allValue);
 }
 
 export function rowMatchesUserBranch(
   user: Pick<User, 'role' | 'branch'> | null | undefined,
   rowBranch?: string | null
 ): boolean {
-  if (canSeeAllBranches(user?.role)) return true;
-  const userBranch = normalizeBranchName(user?.branch || '');
-  if (!userBranch) return false;
-  return normalizeBranchName(rowBranch || '') === userBranch;
+  return applyBranchFilter(user, rowBranch);
 }
 
 export function rowMatchesAssignedUser(
@@ -50,3 +46,5 @@ export function scopeDescription(scopeOrRole?: string | null): string {
   if (scope === 'own_only') return 'بيانات المستخدم الشخصية فقط';
   return 'نطاق محدود';
 }
+
+export { getBranchScope, applyBranchFilter, normalizeBranchScope, ALL_BRANCHES };

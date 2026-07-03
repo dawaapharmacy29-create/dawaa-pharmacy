@@ -7,6 +7,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { exportAttendanceToExcel } from '@/lib/exportExcel';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createNotification } from '@/lib/notificationService';
+import { normalizeBranchName } from '@/lib/branch';
+import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import {
   fetchAttendanceLocations,
   getDevicePosition,
@@ -107,9 +109,13 @@ export default function AttendanceReport() {
   const { user } = useAuth();
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const canAllBranches = canSeeAllBranches(user?.role);
+  const normalizedUserBranch = normalizeBranchName(user?.branch || '');
   const [tab, setTab] = useState<Tab>('clock');
   const [month, setMonth] = useState(defaultMonth);
-  const [branchFilter, setBranchFilter] = useState('الكل');
+  const [branchFilter, setBranchFilter] = useState(
+    () => (canAllBranches ? 'الكل' : normalizedUserBranch || 'الكل')
+  );
   const [rows, setRows] = useState<AttendanceRow[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [locations, setLocations] = useState<AttendanceLocation[]>([]);
@@ -121,6 +127,11 @@ export default function AttendanceReport() {
   const userId = user?.staffId || user?.id || null;
   const userName = user?.name || 'غير محدد';
   const userBranch = user?.branch || null;
+  useEffect(() => {
+    if (!canAllBranches) {
+      setBranchFilter(normalizedUserBranch || 'الكل');
+    }
+  }, [canAllBranches, normalizedUserBranch]);
   const [year, monthNum] = month.split('-').map(Number);
   const startDate = `${month}-01`;
   const endDate = `${month}-${String(getMonthDays(year, monthNum)).padStart(2, '0')}`;
@@ -159,13 +170,18 @@ export default function AttendanceReport() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: err } = await supabase
+      let query = supabase
         .from('attendance')
         .select('id,staff_id,staff_name,date,check_in,check_out,branch,shift_start,shift_end,notes,status')
         .gte('date', startDate)
         .lte('date', endDate)
-        .order('date', { ascending: true })
-        .limit(2000);
+        .order('date', { ascending: true });
+      if (!canAllBranches && normalizedUserBranch) {
+        query = query.eq('branch', normalizedUserBranch);
+      } else if (branchFilter !== 'الكل') {
+        query = query.eq('branch', branchFilter);
+      }
+      const { data, error: err } = await query.limit(2000);
       if (err) throw err;
       setRows((data || []) as AttendanceRow[]);
     } catch (e) {
@@ -173,16 +189,17 @@ export default function AttendanceReport() {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [branchFilter, canAllBranches, endDate, normalizedUserBranch, startDate]);
 
   useEffect(() => { void loadClock(); }, [loadClock]);
   useEffect(() => { if (tab === 'report') void loadReport(); }, [tab, loadReport]);
 
   const branches = useMemo(() => {
+    if (!canAllBranches && normalizedUserBranch) return [normalizedUserBranch];
     const set = new Set<string>();
     rows.forEach((r) => { if (r.branch) set.add(r.branch); });
     return ['الكل', ...Array.from(set).sort()];
-  }, [rows]);
+  }, [canAllBranches, normalizedUserBranch, rows]);
 
   const summaries = useMemo((): StaffSummary[] => {
     const map = new Map<string, { rows: AttendanceRow[]; branch: string }>();
