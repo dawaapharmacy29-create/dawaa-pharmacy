@@ -868,7 +868,10 @@ export default function ExecutiveDashboard2027() {
   const navigate = useNavigate();
   const currentCycle = useMemo(() => getCurrentCycle(), []);
   const previousCycle = useMemo(() => getPreviousCycle(), []);
-  const canViewExecutive = isManagerRole(user) || checkPermission('view_executive_dashboard');
+  const canViewExecutive =
+    isManagerRole(user) ||
+    checkPermission('view_executive_dashboard') ||
+    checkPermission('view_branch_dashboard');
   const [startDate, setStartDate] = useState(() => formatCycleDate(currentCycle.start));
   const [endDate, setEndDate] = useState(() => formatCycleDate(currentCycle.end));
   const [branch, setBranch] = useState(
@@ -1258,6 +1261,10 @@ export default function ExecutiveDashboard2027() {
     const unique = [...new Set([...fromData, 'فرع شكري', 'فرع الشامي'])];
     return canAllBranches ? [ALL_BRANCHES, ...unique] : [branchName(user?.branch || '')];
   }, [canAllBranches, state.branchDistribution, state.targets, user?.branch]);
+
+  const branchScopeLabel = canAllBranches
+    ? `نطاق العرض: ${scopedBranch === ALL_BRANCHES ? 'كل الفروع' : scopedBranch}`
+    : `نطاق العرض: فرع ${branchName(user?.branch || '')}`;
 
   const summary = state.summary || {};
   const service = state.customerService || {};
@@ -1668,8 +1675,13 @@ export default function ExecutiveDashboard2027() {
                 <CalendarDays className="h-4 w-4 text-cyan-300" />
                 الفترة: {startDate} إلى {endDate}
               </div>
-              <div className="xl:col-span-3 rounded-2xl border border-cyan-300/10 bg-slate-950/45 px-4 py-3 text-xs font-bold text-slate-400">
-                آخر تحديث: {safeDateTime(state.loadedAt)}
+              <div className="xl:col-span-3 grid gap-2">
+                <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 px-4 py-3 text-xs font-bold text-slate-400">
+                  آخر تحديث: {safeDateTime(state.loadedAt)}
+                </div>
+                <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 px-4 py-3 text-xs font-bold text-cyan-200">
+                  {branchScopeLabel}
+                </div>
               </div>
             </div>
 

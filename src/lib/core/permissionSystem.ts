@@ -178,6 +178,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
       { key: 'view_dashboard',            label: 'مشاهدة لوحة التحكم' },
       { key: 'view_dashboard_stats',      label: 'إحصائيات لوحة التحكم' },
       { key: 'view_executive_dashboard',  label: 'لوحة التحكم التنفيذية' },
+      { key: 'view_branch_dashboard',     label: 'مشاهدة لوحة الفرع التنفيذية' },
       { key: 'view_alerts',               label: 'مشاهدة التنبيهات' },
       { key: 'manage_alerts',             label: 'إدارة التنبيهات', sensitive: true },
     ],
@@ -608,6 +609,7 @@ const BRANCH_MANAGER_BASE = [
 
 const CS_MANAGER_BASE = [
   'view_dashboard',
+  'view_branch_dashboard',
   'view_customers',
   'view_customer_details',
   'create_customer',
@@ -914,7 +916,7 @@ const LEGACY_ALIASES: Record<string, string[]> = {
 };
 export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/': 'view_dashboard',
-  '/executive-2027': 'view_executive_dashboard',
+  '/executive-2027': ['view_executive_dashboard', 'view_branch_dashboard'],
   '/data-health': 'view_data_health',
   '/operations-center': 'view_operations',
   '/quarterly-incentives': 'view_quarterly_incentives',

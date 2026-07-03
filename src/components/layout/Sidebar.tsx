@@ -74,7 +74,7 @@ const GROUPS: NavGroup[] = [
     icon: Crown,
     items: [
       { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة 2027', permission: 'view_dashboard' },
-      { path: '/executive-2027', icon: Crown, label: 'الداشبورد التنفيذي', permission: 'view_executive_dashboard' },
+      { path: '/executive-2027', icon: Crown, label: 'الداشبورد التنفيذي', permission: ['view_executive_dashboard', 'view_branch_dashboard'] },
       { path: '/daily-command', icon: Target, label: 'مركز القيادة اليومي', permission: 'view_dashboard' },
       { path: '/today-brief', icon: ClipboardCheck, label: 'ملخص اليوم', permission: 'view_dashboard' },
       { path: '/operations-center', icon: BellRing, label: 'المهام والتنبيهات', permission: 'view_operations' },
