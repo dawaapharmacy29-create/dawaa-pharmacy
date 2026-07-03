@@ -851,6 +851,10 @@ const LEGACY_ALIASES: Record<string, string[]> = {
   'page.incubation.view': ['view_customer_incubation', 'view_customer_service'],
   'page.customer_cashback.view': ['view_cashback', 'view_loyalty_tiers'],
   'page.reviews.view': ['view_reviews'],
+  'view_conversation_evaluations': ['view_reviews'],
+  'view_conversation_reviews': ['view_reviews'],
+  'evaluate_conversations': ['view_reviews'],
+  'manage_conversation_evaluations': ['edit_reviews', 'approve_reviews', 'delete_reviews'],
   'page.team.view': ['view_team'],
   'page.schedule.view': ['view_schedule'],
   'page.time_off.view': ['view_attendance_leaves'],
@@ -905,7 +909,6 @@ const LEGACY_ALIASES: Record<string, string[]> = {
   manage_leaves: ['manage_time_off', 'approve_leave_request'],
   attendance_leaves: ['view_attendance_leaves'],
   view_analytics_sales: ['view_analytics_sales'],
-  view_conversation_reviews: ['view_reviews'],
   add_conversation_review: ['add_reviews'],
   manage_permissions: ['manage_permissions'],
 };

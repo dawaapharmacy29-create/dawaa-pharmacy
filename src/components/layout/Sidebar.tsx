@@ -105,6 +105,7 @@ const GROUPS: NavGroup[] = [
       { path: '/customer-coding', icon: UserPlus, label: 'تكويد عميل', permission: 'view_customer_service' },
       { path: '/customers', icon: Users, label: 'قاعدة العملاء', permission: 'view_customers' },
       { path: '/customer-service', icon: HeadphonesIcon, label: 'خدمة العملاء', permission: 'view_customer_service' },
+      { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
       { path: '/crm', icon: Users, label: 'CRM / Customer 360', permission: 'view_crm' },
       { path: '/customer-360', icon: Users, label: 'Customer 360', permission: 'view_customer_360' },
       { path: '/customer-data-review', icon: ClipboardCheck, label: 'مراجعة البيانات', permission: 'view_customer_details' },

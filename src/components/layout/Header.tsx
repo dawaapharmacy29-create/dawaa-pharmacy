@@ -142,6 +142,18 @@ function canSeeNotification(item: AppNotification, user: ReturnType<typeof useAu
   );
 }
 
+function formatNotificationDate(value: string | number | null | undefined) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return 'غير متاح';
+  return date.toLocaleString('ar-EG', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function isUrgent(item: AppNotification) {
   return /urgent|critical|high|عاجل|حرج|خطر|مرتفع/i.test(String(item.priority || item.type || ''));
 }
@@ -162,6 +174,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const {
     notifications: merged,
     unreadCount,
+    loading: notificationsLoading,
     available: notificationsAvailable,
     settings: notificationSettings,
     markAllAsRead,
@@ -190,9 +203,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 
   const openNotification = (n: AppNotification) => {
     setShowNotifs(false);
-    const route = inferNotificationRoute(n);
     handleNotificationClick(n);
-    if (route) navigate(route);
   };
 
   const setSound = (mode: 'off' | 'soft' | 'distinct') => {
@@ -299,19 +310,52 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
             </div>
             {showNotifSettings ? (
               <NotificationSettingsPanel settings={notificationSettings} onChange={saveNotificationSettings} />
-            ) : <div className="max-h-96 overflow-y-auto">
-              {visibleNotifications.length === 0 ? (
-                <div className="py-8 text-center text-sm font-bold text-slate-500">{notificationsAvailable ? 'لا توجد إشعارات مسجلة حاليًا' : 'نظام الإشعارات يحتاج تفعيل قاعدة البيانات'}</div>
-              ) : visibleNotifications.slice(0, 10).map((n) => (
-                <button key={n.id} type="button" onClick={() => void openNotification(n)} className={cn('w-full border-b border-slate-100 px-4 py-3 text-right transition last:border-0 hover:bg-slate-50', !n.read && !n.is_read ? 'bg-teal-50/50' : '')}>
-                  <div className="flex items-start gap-2.5">
-                    <span className={cn('mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-xs font-black', isUrgent(n) ? 'border-red-200 bg-red-50 text-red-700' : notifColors[String(n.type)] || notifColors.system)}>{String(n.priority || n.type || 'تنبيه')}</span>
-                    <div className="min-w-0 flex-1"><div className="flex items-center gap-1 text-xs font-black text-slate-950"><span className="truncate">{n.title}</span><ExternalLink size={12} className="shrink-0 text-slate-400" /></div><div className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-slate-500">{n.body || n.message}</div></div>
-                    {!n.read && !n.is_read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-teal-500" />}
-                  </div>
-                </button>
-              ))}
-            </div>}
+            ) : (
+              <div className="max-h-96 overflow-y-auto">
+                {notificationsLoading ? (
+                  <div className="py-8 text-center text-sm font-bold text-slate-500">جاري تحميل الإشعارات...</div>
+                ) : !notificationsAvailable ? (
+                  <div className="py-8 text-center text-sm font-bold text-slate-500">نظام الإشعارات يحتاج تفعيل قاعدة البيانات</div>
+                ) : visibleNotifications.length === 0 ? (
+                  <div className="py-8 text-center text-sm font-bold text-slate-500">لا توجد إشعارات مسجلة حاليًا</div>
+                ) : visibleNotifications.slice(0, 10).map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => void openNotification(n)}
+                    className={cn(
+                      'w-full border-b border-slate-100 px-4 py-3 text-right transition last:border-0 hover:bg-slate-50',
+                      !n.read && !n.is_read ? 'bg-teal-50/50' : ''
+                    )}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span
+                        className={cn(
+                          'mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-xs font-black',
+                          isUrgent(n)
+                            ? 'border-red-200 bg-red-50 text-red-700'
+                            : notifColors[String(n.type)] || notifColors.system
+                        )}
+                      >
+                        {String(n.priority || n.type || 'تنبيه')}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1 text-xs font-black text-slate-950">
+                          <span className="truncate">{n.title}</span>
+                          <ExternalLink size={12} className="shrink-0 text-slate-400" />
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                          <span>{String(n.type || 'نوع غير محدد')}</span>
+                          <span>{formatNotificationDate(n.created_at)}</span>
+                        </div>
+                        <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{n.body || n.message}</div>
+                      </div>
+                      {!n.read && !n.is_read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-teal-500" />}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
             <button type="button" onClick={() => { setShowNotifs(false); navigate('/operations-center'); }} className="w-full border-t border-slate-100 bg-slate-50 px-4 py-3 text-center text-xs font-black text-teal-700 hover:bg-teal-50">فتح مركز التنبيهات</button>
           </div>
         )}

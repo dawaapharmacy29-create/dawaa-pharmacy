@@ -67,12 +67,14 @@ export function notificationRoute(notification: AppNotification) {
   const explicit = String(notification.route || notification.target_route || notification.metadata?.route || '').trim();
   if (explicit.startsWith('/')) return explicit;
   const type = String(notification.type || notification.target_type || '').toLowerCase();
-  const id = notification.target_id || String(notification.metadata?.entity_id || '');
+  const id =
+    notification.target_id ||
+    String(notification.metadata?.entity_id || notification.metadata?.review_id || notification.metadata?.id || '');
   const routes: Record<string, () => string> = {
     customer_followup: () => routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
     followup: () => routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
     customer_request: () => routeWithId('/customer-service?tab=requests', 'requestId', id),
-    conversation_review: () => routeWithId('/reviews', 'reviewId', id),
+    conversation_review: () => routeWithId('/reviews', 'id', id),
     delivery_order: () => routeWithId('/delivery', 'orderId', id),
     delivery: () => routeWithId('/delivery', 'orderId', id),
     low_stock: () => routeWithId('/shortages', 'itemId', id),

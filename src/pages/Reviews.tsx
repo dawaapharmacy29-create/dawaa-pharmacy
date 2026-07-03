@@ -319,9 +319,29 @@ export default function Reviews() {
   const [draftRestored, setDraftRestored] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [selectedReview, setSelectedReview] = useState<ConversationReviewHistoryRow | null>(null);
+  const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const [editingReview, setEditingReview] = useState<ConversationReviewHistoryRow | null>(null);
   const [managerReviewTarget, setManagerReviewTarget] =
     useState<ConversationReviewHistoryRow | null>(null);
+
+  const closeSelectedReview = useCallback(() => {
+    setSelectedReview(null);
+    setSelectedReviewId(null);
+    setHistoryError(null);
+    setHistoryLoading(false);
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('id')) {
+      params.delete('id');
+      const search = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${search ? `?${search}` : ''}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      closeSelectedReview();
+    };
+  }, [closeSelectedReview]);
   const [managerSaving, setManagerSaving] = useState(false);
   const [managerForm, setManagerForm] = useState({
     score: '100',
@@ -487,7 +507,13 @@ export default function Reviews() {
       const id = params.get('id');
       if (id) {
         const found = rows.find((row) => row.id === id);
-        if (found) setSelectedReview(found);
+        if (found) {
+          setSelectedReview(found);
+          setSelectedReviewId(found.id ?? null);
+        } else {
+          setSelectedReview(null);
+          setSelectedReviewId(null);
+        }
       }
     } catch (error) {
       setHistoryError((error as Error).message);
@@ -1735,14 +1761,14 @@ export default function Reviews() {
       {selectedReview && (
         <ReviewDetailsModal
           row={selectedReview}
-          onClose={() => setSelectedReview(null)}
+          onClose={closeSelectedReview}
           onEdit={() => {
             openEdit(selectedReview);
-            setSelectedReview(null);
+            closeSelectedReview();
           }}
           onManagerReview={() => {
             openManagerReview(selectedReview);
-            setSelectedReview(null);
+            closeSelectedReview();
           }}
           canManage={canManageReviews}
         />
@@ -1998,12 +2024,33 @@ function Modal({
   children: React.ReactNode;
   onClose: () => void;
 }) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 z-[100] bg-slate-950/75 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
       dir="rtl"
+      role="dialog"
+      aria-modal="true"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
     >
-      <div className="w-full max-w-5xl rounded-3xl border border-teal-500/30 bg-[#0f1b2e] shadow-2xl p-5 space-y-4">
+      <div
+        className="w-full max-w-5xl rounded-3xl border border-teal-500/30 bg-[#0f1b2e] shadow-2xl p-5 space-y-4"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between gap-3 border-b border-[#2d4063] pb-3">
           <h2 className="text-white text-xl font-black">{title}</h2>
           <button
