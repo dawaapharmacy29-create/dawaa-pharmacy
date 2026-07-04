@@ -14,6 +14,7 @@
 import { supabase } from '@/lib/supabase';
 import { branchMatches } from '@/lib/branch';
 import { cacheGet, cacheSet, invoiceCacheKey } from '@/lib/invoiceCache';
+import { getInvoiceBranch } from '@/lib/invoices/invoiceCore';
 
 // ─── Field sets for different use cases ──────────────────────────────────────
 
@@ -156,7 +157,7 @@ export async function fetchSalesInvoicesPagedSafe(options: {
   }
 
   const filterRow = (row: SalesInvoiceQueryRow) =>
-    allBranches || branchMatches(options.branch || '', row.branch);
+    allBranches || branchMatches(options.branch || '', getInvoiceBranch(row));
   rows.push(...page0result.data.filter(filterRow));
 
   // ── If page 0 wasn't full, we have everything ─────────────────────────────

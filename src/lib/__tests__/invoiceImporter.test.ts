@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { buildInvoiceDuplicateIdentity, parseInvoiceDate } from '@/lib/invoiceImporter';
+import {
+  getInvoiceAmount,
+  getInvoiceBranch,
+  getInvoiceDay,
+  getInvoiceId,
+  getInvoiceSellerName,
+} from '@/lib/invoices/invoiceCore';
 
 describe('buildInvoiceDuplicateIdentity', () => {
   it('uses invoice number, branch and date to create a stable duplicate key', () => {
@@ -23,6 +30,28 @@ describe('parseInvoiceDate', () => {
 
   it('supports dd-mm-yyyy and Excel serial dates', () => {
     expect(parseInvoiceDate('2-7-2026')).toBe('2026-07-02');
+    expect(parseInvoiceDate('2026-07-02')).toBe('2026-07-02');
     expect(parseInvoiceDate(46205)).toBe('2026-07-02');
+  });
+});
+
+describe('invoiceCore helpers', () => {
+  it('uses one canonical day parser across invoice fields', () => {
+    expect(getInvoiceDay({ sale_date: '02/07/2026' })).toBe('2026-07-02');
+    expect(getInvoiceDay({ invoice_datetime: '03/07/2026 14:30' })).toBe('2026-07-03');
+  });
+
+  it('prefers net amount fields in the expected order', () => {
+    expect(getInvoiceAmount({ net_amount: 120, net_total: 90, amount: 80 })).toBe(120);
+    expect(getInvoiceAmount({ net_total: 90, total_amount: 80, amount: 70 })).toBe(90);
+    expect(getInvoiceAmount({ total_amount: 80, amount: 70 })).toBe(80);
+    expect(getInvoiceAmount({ amount: 70, gross_amount: 100 })).toBe(70);
+  });
+
+  it('normalizes invoice id, branch and seller name', () => {
+    expect(getInvoiceId({ invoice_number: '  A-1  ', invoice_no: 'B-2' })).toBe('A-1');
+    expect(getInvoiceBranch({ branch: 'shokry' })).toBe('فرع شكري');
+    expect(getInvoiceBranch({ branch_name: 'الشامي' })).toBe('فرع الشامي');
+    expect(getInvoiceSellerName({ staff_name: 'د/ سارة', seller_name: 'د/ بسنت' })).toBe('د/ سارة');
   });
 });

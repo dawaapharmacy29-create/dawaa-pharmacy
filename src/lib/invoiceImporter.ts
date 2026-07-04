@@ -20,6 +20,16 @@ import { clearCustomerServiceCommandCenterCache } from '@/lib/api/customerServic
 import { clearStaffPerformanceProfileCache } from '@/lib/staff/staffPerformanceProfileService';
 import { resolveStaffNameToStaffId } from '@/lib/staffIdentityMapping';
 import { getInvoiceKey } from '@/lib/dawaa2027';
+import {
+  getInvoiceAmount as getCoreInvoiceAmount,
+  getInvoiceBranch as getCoreInvoiceBranch,
+  getInvoiceDay,
+  getInvoiceId as getCoreInvoiceId,
+  parseInvoiceAmount,
+  parseInvoiceDateTime,
+} from '@/lib/invoices/invoiceCore';
+
+export { parseInvoiceDate } from '@/lib/invoices/invoiceCore';
 
 export interface RawInvoiceRow {
   rowIndex: number;
@@ -125,12 +135,22 @@ export interface ImportSummary {
   savedRowsByDate?: Array<{ date: string; count: number; total: number }>;
   databaseMinDateAfterImport?: string | null;
   databaseMaxDateAfterImport?: string | null;
+  databaseInvoicesCount?: number;
+  databaseTotalNet?: number;
+  databaseByDay?: Array<{ date: string; count: number; total: number }>;
+  databaseByBranch?: Array<{ branch: string; count: number; total: number }>;
+  missingDaysInDatabase?: Array<{ date: string; count: number; total: number }>;
+  missingInvoicesCount?: number;
+  missingInvoicesSample?: Array<{ invoiceNumber: string; date: string; branch: string; amount: number; reason: string }>;
+  conflictsByReason?: Array<{ reason: string; count: number; total: number }>;
+  duplicateRowsInFileSample?: Array<{ invoiceNumber: string; date: string; branch: string; row: number }>;
   dayDatabaseComparison?: Array<{
     date: string;
     fileCount: number;
     fileTotal: number;
     databaseCount: number;
     databaseTotal: number;
+    countDifference: number;
     difference: number;
     status: 'matched' | 'missing_in_database' | 'partial' | 'extra_in_database';
   }>;
@@ -399,88 +419,13 @@ function excelSerialToDate(serial: number): Date | null {
   return date;
 }
 
-export function parseInvoiceDate(raw: unknown): string | null {
+function parseInvoiceDateLegacy(raw: unknown): string | null {
   const dateTime = parseDateTime(raw);
   return dateTime ? dateTime.slice(0, 10) : null;
 }
 
 function parseDateTime(raw: unknown): string | null {
-  if (!raw) return null;
-
-  if (typeof raw === 'number') {
-    return excelSerialToDate(raw)?.toISOString() ?? null;
-  }
-
-  const value = String(raw).trim();
-
-  if (/^\d+(\.\d+)?$/.test(value)) {
-    const serial = Number.parseFloat(value);
-    if (serial > 40000 && serial < 60000) {
-      return excelSerialToDate(serial)?.toISOString() ?? null;
-    }
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}/.test(value)) {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) {
-      const year = parsed.getUTCFullYear();
-      if (year >= 2000 && year <= 2100) {
-        return parsed.toISOString();
-      }
-    }
-  }
-
-  const match = value.match(
-    /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/
-  );
-  if (match) {
-    const [, first, second, year, hours = '0', minutes = '0', seconds = '0'] = match;
-    const fullYear = year.length === 2 ? `20${year}` : year;
-    const day = Number(first);
-    const month = Number(second);
-    const hour = Number(hours);
-    const minute = Number(minutes);
-    const secondValue = Number(seconds);
-    if (
-      month < 1 ||
-      month > 12 ||
-      day < 1 ||
-      day > 31 ||
-      hour > 23 ||
-      minute > 59 ||
-      secondValue > 59
-    ) {
-      return null;
-    }
-    const parsed = new Date(
-      Date.UTC(
-        Number(fullYear),
-        month - 1,
-        day,
-        hour,
-        minute,
-        secondValue
-      )
-    );
-    if (
-      !Number.isNaN(parsed.getTime()) &&
-      parsed.getUTCFullYear() === Number(fullYear) &&
-      parsed.getUTCMonth() === month - 1 &&
-      parsed.getUTCDate() === day
-    ) {
-      return parsed.toISOString();
-    }
-  }
-
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) {
-    const year = parsed.getUTCFullYear();
-    if (year >= 2000 && year <= 2100) {
-      return parsed.toISOString();
-    }
-  }
-
-  return null;
+  return parseInvoiceDateTime(raw);
 }
 
 function parseCloseDateTime(raw: unknown, invoiceDateTime: string): string | null {
@@ -648,13 +593,17 @@ async function loadDatabaseDayComparison(
   const empty = {
     databaseMinDateAfterImport: null as string | null,
     databaseMaxDateAfterImport: null as string | null,
+    databaseInvoicesCount: 0,
+    databaseTotalNet: 0,
+    databaseByDay: [] as Array<{ date: string; count: number; total: number }>,
+    databaseByBranch: [] as Array<{ branch: string; count: number; total: number }>,
     comparison: [] as NonNullable<ImportSummary['dayDatabaseComparison']>,
   };
   if (!startDate || !endDate) return empty;
 
   const { data, error } = await supabase
     .from('sales_invoices')
-    .select('invoice_date,net_amount,net_total,discounted_amount,amount,gross_amount')
+    .select('id,invoice_no,invoice_number,sale_date,invoice_date,invoice_datetime,date,branch,branch_name,net_amount,net_total,total_amount,amount,gross_amount,discounted_amount')
     .gte('invoice_date', startDate)
     .lt('invoice_date', dayAfterIso(endDate))
     .limit(100000);
@@ -662,9 +611,21 @@ async function loadDatabaseDayComparison(
   if (error) return empty;
 
   const databaseDays = new Map<string, { date: string; count: number; total: number }>();
+  const databaseBranches = new Map<string, { branch: string; count: number; total: number }>();
+  let databaseInvoicesCount = 0;
+  let databaseTotalNet = 0;
   for (const row of (data || []) as Array<Record<string, unknown>>) {
-    const date = String(row.invoice_date || '').slice(0, 10);
-    addDailyTotal(databaseDays, date, invoiceNetValue(row));
+    const date = getInvoiceDay(row);
+    const amount = getCoreInvoiceAmount(row);
+    const branch = getCoreInvoiceBranch(row);
+    if (!date || !getCoreInvoiceId(row)) continue;
+    databaseInvoicesCount += 1;
+    databaseTotalNet += amount;
+    addDailyTotal(databaseDays, date, amount);
+    const currentBranch = databaseBranches.get(branch) || { branch, count: 0, total: 0 };
+    currentBranch.count += 1;
+    currentBranch.total += amount;
+    databaseBranches.set(branch, currentBranch);
   }
 
   const databaseDates = [...databaseDays.keys()].sort();
@@ -687,6 +648,7 @@ async function loadDatabaseDayComparison(
       fileTotal: file.total,
       databaseCount: database.count,
       databaseTotal: database.total,
+      countDifference: file.count - database.count,
       difference,
       status,
     };
@@ -695,6 +657,10 @@ async function loadDatabaseDayComparison(
   return {
     databaseMinDateAfterImport: databaseDates[0] || null,
     databaseMaxDateAfterImport: databaseDates[databaseDates.length - 1] || null,
+    databaseInvoicesCount,
+    databaseTotalNet,
+    databaseByDay: dailyMapToArray(databaseDays),
+    databaseByBranch: [...databaseBranches.values()].sort((a, b) => b.total - a.total),
     comparison,
   };
 }
@@ -1648,6 +1614,15 @@ export async function importInvoicesToDB(
     savedRowsByDate: [],
     databaseMinDateAfterImport: null,
     databaseMaxDateAfterImport: null,
+    databaseInvoicesCount: 0,
+    databaseTotalNet: 0,
+    databaseByDay: [],
+    databaseByBranch: [],
+    missingDaysInDatabase: [],
+    missingInvoicesCount: 0,
+    missingInvoicesSample: [],
+    conflictsByReason: [],
+    duplicateRowsInFileSample: [],
     dayDatabaseComparison: [],
   };
   if (rows.length === 0) {
@@ -1756,12 +1731,22 @@ export async function importInvoicesToDB(
   let unlinkedCustomersEstimate = 0;
   const seenImportKeys = new Set<string>();
   const skippedByReason = new Map<string, { reason: string; count: number; total: number }>();
+  const duplicateRowsInFileSample: NonNullable<ImportSummary['duplicateRowsInFileSample']> = [];
+  const conflictRowsSample: NonNullable<ImportSummary['missingInvoicesSample']> = [];
 
   const newRows = rows.filter((row) => {
     const rowBranch = row.branch || branch;
     const dedupeKey = invoiceDuplicateKey(row.invoiceNumber, rowBranch, row.date);
     if (seenImportKeys.has(dedupeKey)) {
       addSkippedReason(skippedByReason, 'duplicate_inside_file', rawInvoiceNetValue(row));
+      if (duplicateRowsInFileSample.length < 20) {
+        duplicateRowsInFileSample.push({
+          invoiceNumber: row.invoiceNumber,
+          date: row.date,
+          branch: rowBranch,
+          row: row.rowIndex,
+        });
+      }
       summary.skippedDuplicates++;
       summary.skippedDuplicateInvoices?.push({
         invoiceNumber: row.invoiceNumber,
@@ -1861,6 +1846,15 @@ export async function importInvoicesToDB(
         'same_invoice_number_different_date_or_branch',
         rawInvoiceNetValue(row)
       );
+      if (conflictRowsSample.length < 20) {
+        conflictRowsSample.push({
+          invoiceNumber: row.invoiceNumber,
+          date: row.date,
+          branch: rowBranch,
+          amount: rawInvoiceNetValue(row),
+          reason: 'same_invoice_number_different_date_or_branch',
+        });
+      }
       summary.schemaWarnings?.push(
         `الفاتورة ${row.invoiceNumber} موجودة سابقًا برقم مطابق لكن بتاريخ أو فرع مختلف؛ لم يتم إدخالها لتجنب التكرار وتحتاج مراجعة.`
       );
@@ -2326,9 +2320,43 @@ export async function importInvoicesToDB(
   );
   summary.databaseMinDateAfterImport = databaseComparison.databaseMinDateAfterImport;
   summary.databaseMaxDateAfterImport = databaseComparison.databaseMaxDateAfterImport;
+  summary.databaseInvoicesCount = databaseComparison.databaseInvoicesCount;
+  summary.databaseTotalNet = databaseComparison.databaseTotalNet;
+  summary.databaseByDay = databaseComparison.databaseByDay;
+  summary.databaseByBranch = databaseComparison.databaseByBranch;
   summary.dayDatabaseComparison = databaseComparison.comparison;
+  summary.missingDaysInDatabase = summary.dayDatabaseComparison
+    .filter((row) => row.status === 'missing_in_database')
+    .map((row) => ({ date: row.date, count: row.fileCount, total: row.fileTotal }));
+  const missingDaySet = new Set(summary.missingDaysInDatabase.map((row) => row.date));
+  const missingDaySamples = rows
+    .filter((row) => missingDaySet.has(row.date))
+    .slice(0, 20)
+    .map((row) => ({
+      invoiceNumber: row.invoiceNumber,
+      date: row.date,
+      branch: row.branch || branch,
+      amount: rawInvoiceNetValue(row),
+      reason: 'missing_day_in_database_after_import',
+    }));
+  summary.missingInvoicesSample = [...conflictRowsSample, ...missingDaySamples].slice(0, 30);
+  summary.missingInvoicesCount =
+    summary.missingDaysInDatabase.reduce((sum, row) => sum + row.count, 0) +
+    conflictRowsSample.length;
+  summary.conflictsByReason = [...skippedByReason.values()]
+    .filter((row) => row.reason.includes('different_date_or_branch'))
+    .sort((a, b) => b.count - a.count);
+  summary.duplicateRowsInFileSample = duplicateRowsInFileSample;
   if (summary.dayDatabaseComparison?.some((row) => row.status === 'missing_in_database')) {
     summary.schemaWarnings?.push('يوجد أيام في الملف لم تظهر في قاعدة البيانات بعد الاستيراد.');
+  }
+  if (
+    Math.abs((summary.fileNetSales || 0) - (summary.databaseTotalNet || 0)) >= 0.01 &&
+    summary.dayDatabaseComparison.length > 0
+  ) {
+    summary.schemaWarnings?.push(
+      'يوجد فرق بين قيمة الملف وقيمة قاعدة البيانات، راجع جدول المطابقة وأسباب التخطي.'
+    );
   }
   summary.schemaWarnings = Array.from(new Set(summary.schemaWarnings || []));
   summary.errors = Array.from(

@@ -5,6 +5,14 @@ import {
   isCancelledInvoice,
   normalizeDoctorName,
 } from '@/lib/analyticsService';
+import {
+  getInvoiceAmount as getCoreInvoiceAmount,
+  getInvoiceBranch as getCoreInvoiceBranch,
+  getInvoiceCustomerKey,
+  getInvoiceDay,
+  getInvoiceId,
+  getInvoiceSellerName,
+} from '@/lib/invoices/invoiceCore';
 
 export const DASHBOARD_ALL_BRANCHES = '\u0643\u0644 \u0627\u0644\u0641\u0631\u0648\u0639';
 const UNKNOWN_LABEL = '\u063A\u064A\u0631 \u0645\u062D\u062F\u062F';
@@ -118,15 +126,15 @@ export function dashboardNumber(value: unknown) {
 }
 
 export function dashboardInvoiceAmount(row: DashboardInvoiceRow) {
-  return getInvoiceNetValue(row as Record<string, unknown>);
+  return getCoreInvoiceAmount(row as Record<string, unknown>) || getInvoiceNetValue(row as Record<string, unknown>);
 }
 
 function invoiceDate(row: DashboardInvoiceRow) {
-  return String(row.sale_date || row.invoice_date || '').slice(0, 10);
+  return getInvoiceDay(row as Record<string, unknown>) || '';
 }
 
 function invoiceIdentityKey(row: DashboardInvoiceRow) {
-  return String(row.invoice_no ?? row.invoice_number ?? row.id ?? '').trim();
+  return getInvoiceId(row as Record<string, unknown>);
 }
 
 function normalizedBranch(branch?: string | null) {
@@ -134,11 +142,11 @@ function normalizedBranch(branch?: string | null) {
 }
 
 function invoiceBranch(row: DashboardInvoiceRow) {
-  return normalizedBranch(row.branch_name || row.branch);
+  return getCoreInvoiceBranch(row as Record<string, unknown>, UNKNOWN_LABEL);
 }
 
 function invoiceDoctorName(row: DashboardInvoiceRow) {
-  return row.normalized_seller_name || row.doctor_name || row.seller_name || row.staff_name || '';
+  return getInvoiceSellerName(row as Record<string, unknown>) || row.doctor_name || '';
 }
 
 function isAllBranches(branch: string) {
@@ -228,7 +236,7 @@ function isDoctorName(name: unknown) {
 }
 
 function isLinkedInvoice(row: DashboardInvoiceRow) {
-  const code = String(row.customer_code ?? '').trim();
+  const code = getInvoiceCustomerKey(row as Record<string, unknown>);
   const name = normalizeText(row.customer_name);
   return Boolean(
     code &&

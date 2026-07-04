@@ -179,6 +179,70 @@ function dayMatchStatusClass(status: string) {
   return 'bg-slate-400/15 text-slate-100';
 }
 
+function importCompletion(summary: ImportSummary) {
+  const missingDays = summary.dayDatabaseComparison?.some(
+    (row) => row.status === 'missing_in_database'
+  );
+  const hasDifferences = summary.dayDatabaseComparison?.some(
+    (row) => row.status === 'partial' || Math.abs(row.difference) >= 0.01 || row.countDifference !== 0
+  );
+  if (missingDays) {
+    return {
+      label: 'غير مكتمل',
+      tone: 'border-red-300/35 bg-red-400/10 text-red-50',
+      message: 'توجد أيام كاملة من الملف لم تظهر في قاعدة البيانات. راجع جدول المطابقة وأسباب التخطي.',
+    };
+  }
+  if (hasDifferences || (summary.conflictReviewRows || 0) > 0) {
+    return {
+      label: 'يحتاج مراجعة',
+      tone: 'border-amber-300/35 bg-amber-400/10 text-amber-50',
+      message: 'يوجد فرق بين الملف وقاعدة البيانات أو فواتير متعارضة تحتاج مراجعة.',
+    };
+  }
+  return {
+    label: 'مكتمل',
+    tone: 'border-emerald-300/35 bg-emerald-400/10 text-emerald-50',
+    message: 'كل أيام الملف ظهرت في قاعدة البيانات داخل مدى الملف بدون فروق مؤثرة.',
+  };
+}
+
+function downloadImportReviewCsv(summary: ImportSummary) {
+  const rows = [
+    ...(summary.missingInvoicesSample || []).map((row) => ({
+      invoice_number: row.invoiceNumber,
+      date: row.date,
+      branch: row.branch,
+      amount: row.amount,
+      status: 'missing_or_conflict',
+      reason: row.reason,
+    })),
+    ...(summary.skippedDuplicateInvoices || []).slice(0, 500).map((row) => ({
+      invoice_number: row.invoiceNumber,
+      date: row.date,
+      branch: row.branch,
+      amount: '',
+      status: 'skipped',
+      reason: 'duplicate_or_conflict',
+    })),
+  ];
+  const headers = ['invoice_number', 'date', 'branch', 'amount', 'status', 'reason'];
+  const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const lines = [
+    headers.join(','),
+    ...rows.map((row) => headers.map((key) => escapeCsv((row as Record<string, unknown>)[key])).join(',')),
+  ];
+  const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `invoice-import-review-${summary.importBatch || new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 interface InvoiceEditForm {
   branch: string;
   invoice_number: string;
@@ -1733,6 +1797,31 @@ export default function Invoices() {
               </div>
             </div>
           )}
+          {importKind === 'sales' && (
+            <div className={`rounded-xl border p-4 ${importCompletion(importSummary).tone}`}>
+              <div className="text-xs font-bold uppercase tracking-wide opacity-80">
+                هل الاستيراد مكتمل؟
+              </div>
+              <div className="mt-1 text-lg font-bold">{importCompletion(importSummary).label}</div>
+              <div className="mt-1 text-sm opacity-85">{importCompletion(importSummary).message}</div>
+              <div className="mt-3 grid gap-2 text-sm md:grid-cols-4">
+                <span>صافي القاعدة بعد الاستيراد: {formatCurrency(importSummary.databaseTotalNet || 0)}</span>
+                <span>
+                  فرق الملف والقاعدة:{' '}
+                  {formatCurrency((importSummary.fileNetSales || 0) - (importSummary.databaseTotalNet || 0))}
+                </span>
+                <span>فواتير لم تحفظ: {(importSummary.missingInvoicesCount || 0).toLocaleString('ar-EG')}</span>
+                <span>أيام مفقودة: {(importSummary.missingDaysInDatabase || []).length.toLocaleString('ar-EG')}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => downloadImportReviewCsv(importSummary)}
+                className="btn-secondary mt-3 px-3 py-2 text-sm"
+              >
+                تحميل تقرير المراجعة CSV
+              </button>
+            </div>
+          )}
           <div
             className={`grid gap-3 ${importKind === 'sales' ? 'grid-cols-2 md:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'}`}
           >
@@ -1979,7 +2068,8 @@ export default function Invoices() {
                       <th>صافي الملف</th>
                       <th>عدد فواتير قاعدة البيانات</th>
                       <th>صافي قاعدة البيانات</th>
-                      <th>الفرق</th>
+                      <th>فرق العدد</th>
+                      <th>فرق القيمة</th>
                       <th>الحالة</th>
                     </tr>
                   </thead>
@@ -1992,6 +2082,13 @@ export default function Invoices() {
                         <td className="num">{row.databaseCount.toLocaleString('ar-EG')}</td>
                         <td className="text-teal-300 font-bold">
                           {formatCurrency(row.databaseTotal)}
+                        </td>
+                        <td
+                          className={
+                            row.countDifference !== 0 ? 'text-red-200 font-bold' : 'text-slate-300'
+                          }
+                        >
+                          {row.countDifference.toLocaleString('ar-EG')}
                         </td>
                         <td
                           className={

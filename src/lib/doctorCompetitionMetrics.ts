@@ -2,6 +2,13 @@ import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
+import {
+  getInvoiceAmount,
+  getInvoiceBranch,
+  getInvoiceDay,
+  getInvoiceId,
+  getInvoiceSellerName,
+} from '@/lib/invoices/invoiceCore';
 
 export type DoctorCompetitionPeriod = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 
@@ -111,8 +118,7 @@ function positiveNumber(value: unknown) {
 }
 
 function invoiceDate(row: Record<string, unknown>) {
-  const value = text(row.sale_date || row.invoice_date || row.invoice_datetime || row.date || row.created_at);
-  return value.slice(0, 10);
+  return getInvoiceDay(row) || '';
 }
 
 export function normalizeDoctorName(value: unknown) {
@@ -139,19 +145,7 @@ const INVOICE_SELECT_DOCTOR =
   'id,invoice_number,invoice_no,invoice_date,sale_date,branch,branch_name,seller_name,normalized_seller_name,staff_name,staff_id,net_amount,net_total,total_amount,amount,customer_code';
 
 export function pickInvoiceAmount(row: Record<string, unknown>) {
-  const candidates = [
-    row.net_amount,
-    row.net_total,
-    row.total_amount,
-    row.amount,
-  ];
-
-  for (const candidate of candidates) {
-    const amount = positiveNumber(candidate);
-    if (amount > 0) return amount;
-  }
-
-  return 0;
+  return getInvoiceAmount(row);
 }
 
 function invoiceAmount(row: Record<string, unknown>) {
@@ -159,9 +153,7 @@ function invoiceAmount(row: Record<string, unknown>) {
 }
 
 function invoiceDoctor(row: Record<string, unknown>) {
-  return normalizeDoctorName(
-    row.normalized_seller_name || row.staff_name || row.seller_name || ''
-  );
+  return normalizeDoctorName(getInvoiceSellerName(row));
 }
 
 function rowStaffId(row: Record<string, unknown>) {
@@ -178,7 +170,7 @@ function isUnknownDoctorName(name: string) {
 }
 
 function invoiceBranch(row: Record<string, unknown>) {
-  return text(row.branch_name || row.branch || row.store_branch) || 'غير محدد';
+  return getInvoiceBranch(row);
 }
 
 function invoiceTypeIndicatesReturnOrCancel(row: Record<string, unknown>) {
@@ -187,7 +179,7 @@ function invoiceTypeIndicatesReturnOrCancel(row: Record<string, unknown>) {
 }
 
 function invoiceIdentityKey(row: Record<string, unknown>) {
-  return String(row.invoice_number ?? row.invoice_no ?? row.id ?? '').trim();
+  return getInvoiceId(row);
 }
 
 function invoiceStatusInvalid(row: Record<string, unknown>) {

@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { getInvoiceAmount } from '@/lib/dawaa2027';
+import {
+  getInvoiceAmount,
+  getInvoiceBranch,
+  getInvoiceDay,
+  getInvoiceId,
+} from '@/lib/invoices/invoiceCore';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_INVOICES_PER_CUSTOMER = 700;
@@ -98,20 +103,7 @@ function valueOf(row: InvoiceLike, keys: string[]) {
 }
 
 function invoiceDate(row: InvoiceLike) {
-  const value = valueOf(row, [
-    'invoice_date',
-    'invoice_datetime',
-    'date',
-    'bill_date',
-    'sale_date',
-    'created_at',
-    'updated_at',
-  ]);
-  if (!value) return null;
-  const parsed = new Date(String(value));
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-  const text = String(value).slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+  return getInvoiceDay(row);
 }
 
 function parseMoney(value: unknown) {
@@ -125,42 +117,16 @@ function parseMoney(value: unknown) {
 }
 
 function invoiceAmount(row: InvoiceLike) {
-  const value = valueOf(row, [
-    'net_total',
-    'net_amount',
-    'net_value',
-    'total_net',
-    'discounted_amount',
-    'amount_after_discount',
-    'amount',
-    'gross_amount',
-    'gross_total',
-    'total_amount',
-    'total',
-    'invoice_total',
-    'invoice_value',
-    'bill_total',
-    'sale_total',
-    'sales_total',
-    'sales_amount',
-    'final_total',
-    'final_amount',
-    'grand_total',
-    'paid_amount',
-    'value',
-    'price_total',
-    'cash_total',
-  ]);
-  return parseMoney(value);
+  return getInvoiceAmount(row);
 }
 
 function invoiceBranch(row: InvoiceLike) {
-  return cleanText(valueOf(row, ['branch', 'branch_name', 'store_branch', 'pharmacy_branch'])) || null;
+  return getInvoiceBranch(row) || null;
 }
 
 function invoiceIdentity(row: InvoiceLike) {
   return (
-    cleanText(valueOf(row, ['id', 'invoice_id', 'invoice_no', 'invoice_number', 'bill_no'])) ||
+    getInvoiceId(row) ||
     `${invoiceDate(row) || 'no-date'}-${invoiceAmount(row)}-${invoiceBranch(row) || ''}`
   );
 }

@@ -14,6 +14,7 @@ import { generateWhatsAppLink } from '@/lib/whatsapp';
 import { cashbackStatusLabel, cashbackSummaryLine } from '@/lib/api/customerLoyalty';
 import { getCustomerServiceLiveMetrics } from '@/lib/customerServiceCustomerMetrics';
 import { buildCustomerLiveMetrics } from '@/lib/customers/buildCustomerLiveMetrics';
+import { getInvoiceDay } from '@/lib/invoices/invoiceCore';
 
 type Props = {
   followupId?: string | null;
@@ -95,14 +96,18 @@ async function loadLivePurchaseStats(customer: CustomerMetric): Promise<LivePurc
       .or(clauses)
       .gte('invoice_date', previousStart)
       .lte('invoice_date', previousEnd),
-    supabase.from('sales_invoices').select('invoice_date').or(clauses).limit(5000),
+    supabase
+      .from('sales_invoices')
+      .select('invoice_date,sale_date,invoice_datetime,date')
+      .or(clauses)
+      .limit(5000),
   ]);
 
   if (current.error || previous.error) return null;
   const currentCount = Number(current.count || 0);
   const previousCount = Number(previous.count || 0);
   const months = new Set(
-    (all.data || []).map((row: any) => String(row.invoice_date || '').slice(0, 7)).filter(Boolean)
+    (all.data || []).map((row: any) => String(getInvoiceDay(row) || '').slice(0, 7)).filter(Boolean)
   );
   const totalRows = (all.data || []).length;
   const avg = months.size
