@@ -116,6 +116,24 @@ export interface ImportSummary {
   savedOrUpdatedNetSales?: number;
   reviewNetSales?: number;
   dailyCounts?: Array<{ date: string; count: number; total: number }>;
+  fileMinDate?: string | null;
+  fileMaxDate?: string | null;
+  parsedRowsByDate?: Array<{ date: string; count: number; total: number }>;
+  invalidDateRowsCount?: number;
+  invalidDateRowsSample?: Array<{ row: number; value: string }>;
+  skippedRowsByReason?: Array<{ reason: string; count: number; total: number }>;
+  savedRowsByDate?: Array<{ date: string; count: number; total: number }>;
+  databaseMinDateAfterImport?: string | null;
+  databaseMaxDateAfterImport?: string | null;
+  dayDatabaseComparison?: Array<{
+    date: string;
+    fileCount: number;
+    fileTotal: number;
+    databaseCount: number;
+    databaseTotal: number;
+    difference: number;
+    status: 'matched' | 'missing_in_database' | 'partial' | 'extra_in_database';
+  }>;
   branchCounts?: Array<{ branch: string; count: number; total: number }>;
   skippedDuplicateInvoices?: Array<{ invoiceNumber: string; branch: string; date: string }>;
   distinctInvoicesInFile?: number;
@@ -381,7 +399,7 @@ function excelSerialToDate(serial: number): Date | null {
   return date;
 }
 
-function parseDate(raw: unknown): string | null {
+export function parseInvoiceDate(raw: unknown): string | null {
   const dateTime = parseDateTime(raw);
   return dateTime ? dateTime.slice(0, 10) : null;
 }
@@ -418,21 +436,38 @@ function parseDateTime(raw: unknown): string | null {
   if (match) {
     const [, first, second, year, hours = '0', minutes = '0', seconds = '0'] = match;
     const fullYear = year.length === 2 ? `20${year}` : year;
-    const firstNumber = Number(first);
-    const secondNumber = Number(second);
-    const day = firstNumber > 12 ? first : secondNumber > 12 ? second : first;
-    const month = firstNumber > 12 ? second : secondNumber > 12 ? first : second;
+    const day = Number(first);
+    const month = Number(second);
+    const hour = Number(hours);
+    const minute = Number(minutes);
+    const secondValue = Number(seconds);
+    if (
+      month < 1 ||
+      month > 12 ||
+      day < 1 ||
+      day > 31 ||
+      hour > 23 ||
+      minute > 59 ||
+      secondValue > 59
+    ) {
+      return null;
+    }
     const parsed = new Date(
       Date.UTC(
         Number(fullYear),
-        Number(month) - 1,
-        Number(day),
-        Number(hours),
-        Number(minutes),
-        Number(seconds)
+        month - 1,
+        day,
+        hour,
+        minute,
+        secondValue
       )
     );
-    if (!Number.isNaN(parsed.getTime())) {
+    if (
+      !Number.isNaN(parsed.getTime()) &&
+      parsed.getUTCFullYear() === Number(fullYear) &&
+      parsed.getUTCMonth() === month - 1 &&
+      parsed.getUTCDate() === day
+    ) {
       return parsed.toISOString();
     }
   }
@@ -570,6 +605,98 @@ function invoiceNetValue(row: Record<string, unknown>) {
 
 function rawInvoiceNetValue(row: RawInvoiceRow) {
   return firstInvoiceNetCandidate([row.netAmount, row.discountedAmount, row.amount, row.grossAmount]);
+}
+
+function addDailyTotal(
+  map: Map<string, { date: string; count: number; total: number }>,
+  date: string,
+  total: number
+) {
+  if (!date) return;
+  const current = map.get(date) || { date, count: 0, total: 0 };
+  current.count += 1;
+  current.total += total;
+  map.set(date, current);
+}
+
+function dailyMapToArray(map: Map<string, { date: string; count: number; total: number }>) {
+  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function addSkippedReason(
+  map: Map<string, { reason: string; count: number; total: number }>,
+  reason: string,
+  total: number
+) {
+  const current = map.get(reason) || { reason, count: 0, total: 0 };
+  current.count += 1;
+  current.total += total;
+  map.set(reason, current);
+}
+
+function dayAfterIso(date: string) {
+  const next = new Date(`${date}T12:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+
+async function loadDatabaseDayComparison(
+  fileDays: Map<string, { date: string; count: number; total: number }>,
+  startDate: string | null | undefined,
+  endDate: string | null | undefined
+) {
+  const empty = {
+    databaseMinDateAfterImport: null as string | null,
+    databaseMaxDateAfterImport: null as string | null,
+    comparison: [] as NonNullable<ImportSummary['dayDatabaseComparison']>,
+  };
+  if (!startDate || !endDate) return empty;
+
+  const { data, error } = await supabase
+    .from('sales_invoices')
+    .select('invoice_date,net_amount,net_total,discounted_amount,amount,gross_amount')
+    .gte('invoice_date', startDate)
+    .lt('invoice_date', dayAfterIso(endDate))
+    .limit(100000);
+
+  if (error) return empty;
+
+  const databaseDays = new Map<string, { date: string; count: number; total: number }>();
+  for (const row of (data || []) as Array<Record<string, unknown>>) {
+    const date = String(row.invoice_date || '').slice(0, 10);
+    addDailyTotal(databaseDays, date, invoiceNetValue(row));
+  }
+
+  const databaseDates = [...databaseDays.keys()].sort();
+  const allDates = Array.from(new Set([...fileDays.keys(), ...databaseDays.keys()])).sort();
+  const comparison = allDates.map((date) => {
+    const file = fileDays.get(date) || { date, count: 0, total: 0 };
+    const database = databaseDays.get(date) || { date, count: 0, total: 0 };
+    const difference = file.total - database.total;
+    const status: NonNullable<ImportSummary['dayDatabaseComparison']>[number]['status'] =
+      file.count > 0 && database.count === 0
+        ? 'missing_in_database'
+        : file.count > 0 && (database.count < file.count || Math.abs(difference) >= 0.01)
+          ? 'partial'
+          : file.count === 0 && database.count > 0
+            ? 'extra_in_database'
+            : 'matched';
+    return {
+      date,
+      fileCount: file.count,
+      fileTotal: file.total,
+      databaseCount: database.count,
+      databaseTotal: database.total,
+      difference,
+      status,
+    };
+  });
+
+  return {
+    databaseMinDateAfterImport: databaseDates[0] || null,
+    databaseMaxDateAfterImport: databaseDates[databaseDates.length - 1] || null,
+    comparison,
+  };
 }
 
 function invoiceDuplicateKey(invoiceNumber: string, branch: string, saleDate: string) {
@@ -1454,8 +1581,17 @@ export async function importInvoicesToDB(
   branch: string,
   importBatch: string,
   onProgress?: (done: number, total: number) => void,
-  options?: { fileName?: string | null; importedBy?: string | null; importedAt?: string | null }
+  options?: {
+    fileName?: string | null;
+    importedBy?: string | null;
+    importedAt?: string | null;
+    invalidDateRowsCount?: number;
+    invalidDateRowsSample?: Array<{ row: number; value: string }>;
+  }
 ): Promise<ImportSummary> {
+  const parsedRowsByDateMap = new Map<string, { date: string; count: number; total: number }>();
+  for (const row of rows) addDailyTotal(parsedRowsByDateMap, row.date, rawInvoiceNetValue(row));
+
   const summary: ImportSummary = {
     totalRows: rows.length,
     validRows: rows.length,
@@ -1494,6 +1630,25 @@ export async function importInvoicesToDB(
     processedNetSales: 0,
     savedNetSales: 0,
     reviewNetSales: 0,
+    fileMinDate:
+      rows
+        .map((row) => row.date)
+        .filter(Boolean)
+        .sort()[0] || null,
+    fileMaxDate:
+      rows
+        .map((row) => row.date)
+        .filter(Boolean)
+        .sort()
+        .pop() || null,
+    parsedRowsByDate: dailyMapToArray(parsedRowsByDateMap),
+    invalidDateRowsCount: options?.invalidDateRowsCount || 0,
+    invalidDateRowsSample: options?.invalidDateRowsSample || [],
+    skippedRowsByReason: [],
+    savedRowsByDate: [],
+    databaseMinDateAfterImport: null,
+    databaseMaxDateAfterImport: null,
+    dayDatabaseComparison: [],
   };
   if (rows.length === 0) {
     await persistInvoiceImportBatch(summary, 'imported');
@@ -1600,11 +1755,13 @@ export async function importInvoicesToDB(
   let reviewNetSales = 0;
   let unlinkedCustomersEstimate = 0;
   const seenImportKeys = new Set<string>();
+  const skippedByReason = new Map<string, { reason: string; count: number; total: number }>();
 
   const newRows = rows.filter((row) => {
     const rowBranch = row.branch || branch;
     const dedupeKey = invoiceDuplicateKey(row.invoiceNumber, rowBranch, row.date);
     if (seenImportKeys.has(dedupeKey)) {
+      addSkippedReason(skippedByReason, 'duplicate_inside_file', rawInvoiceNetValue(row));
       summary.skippedDuplicates++;
       summary.skippedDuplicateInvoices?.push({
         invoiceNumber: row.invoiceNumber,
@@ -1690,6 +1847,7 @@ export async function importInvoicesToDB(
             rowNumber: row.rowIndex,
           });
         } else {
+          addSkippedReason(skippedByReason, 'missing_existing_invoice_id', rawInvoiceNetValue(row));
           summary.skippedDuplicates++;
         }
         return false;
@@ -1698,6 +1856,11 @@ export async function importInvoicesToDB(
       needsReviewRows++;
       reviewNetSales += rawInvoiceNetValue(row);
       summary.conflictReviewRows = (summary.conflictReviewRows || 0) + 1;
+      addSkippedReason(
+        skippedByReason,
+        'same_invoice_number_different_date_or_branch',
+        rawInvoiceNetValue(row)
+      );
       summary.schemaWarnings?.push(
         `الفاتورة ${row.invoiceNumber} موجودة سابقًا برقم مطابق لكن بتاريخ أو فرع مختلف؛ لم يتم إدخالها لتجنب التكرار وتحتاج مراجعة.`
       );
@@ -2144,10 +2307,7 @@ export async function importInvoicesToDB(
 
   for (const row of savedSummaryRows) {
     const value = rawInvoiceNetValue(row);
-    const day = daily.get(row.date) || { date: row.date, count: 0, total: 0 };
-    day.count += 1;
-    day.total += value;
-    daily.set(row.date, day);
+    addDailyTotal(daily, row.date, value);
 
     const branchName = row.branch || branch;
     const branchRow = branches.get(branchName) || { branch: branchName, count: 0, total: 0 };
@@ -2155,8 +2315,21 @@ export async function importInvoicesToDB(
     branchRow.total += value;
     branches.set(branchName, branchRow);
   }
-  summary.dailyCounts = [...daily.values()].sort((a, b) => a.date.localeCompare(b.date));
+  summary.dailyCounts = dailyMapToArray(daily);
+  summary.savedRowsByDate = summary.dailyCounts;
   summary.branchCounts = [...branches.values()].sort((a, b) => b.count - a.count);
+  summary.skippedRowsByReason = [...skippedByReason.values()].sort((a, b) => b.count - a.count);
+  const databaseComparison = await loadDatabaseDayComparison(
+    parsedRowsByDateMap,
+    summary.fileMinDate || summary.firstInvoiceDate,
+    summary.fileMaxDate || summary.lastInvoiceDate
+  );
+  summary.databaseMinDateAfterImport = databaseComparison.databaseMinDateAfterImport;
+  summary.databaseMaxDateAfterImport = databaseComparison.databaseMaxDateAfterImport;
+  summary.dayDatabaseComparison = databaseComparison.comparison;
+  if (summary.dayDatabaseComparison?.some((row) => row.status === 'missing_in_database')) {
+    summary.schemaWarnings?.push('يوجد أيام في الملف لم تظهر في قاعدة البيانات بعد الاستيراد.');
+  }
   summary.schemaWarnings = Array.from(new Set(summary.schemaWarnings || []));
   summary.errors = Array.from(
     new Map(summary.errors.map((error) => [`${error.field}|${error.message}`, error])).values()

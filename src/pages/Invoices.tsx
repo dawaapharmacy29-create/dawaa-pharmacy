@@ -158,6 +158,27 @@ function customerImportStatusLabel(status: string) {
   return labels[status] || status;
 }
 
+function dayMatchStatusLabel(status: ImportSummary['dayDatabaseComparison'] extends Array<infer Row>
+  ? Row extends { status: infer Status }
+    ? Status
+    : string
+  : string) {
+  const labels: Record<string, string> = {
+    matched: 'مطابق',
+    missing_in_database: 'غير موجود في القاعدة',
+    partial: 'فرق يحتاج مراجعة',
+    extra_in_database: 'موجود في القاعدة فقط',
+  };
+  return labels[String(status)] || String(status);
+}
+
+function dayMatchStatusClass(status: string) {
+  if (status === 'matched') return 'bg-emerald-400/15 text-emerald-100';
+  if (status === 'missing_in_database') return 'bg-red-400/15 text-red-100';
+  if (status === 'partial') return 'bg-amber-400/15 text-amber-100';
+  return 'bg-slate-400/15 text-slate-100';
+}
+
 interface InvoiceEditForm {
   branch: string;
   invoice_number: string;
@@ -445,6 +466,21 @@ export default function Invoices() {
                 fileName,
                 importedBy: user?.id || null,
                 importedAt: new Date().toISOString(),
+                invalidDateRowsCount: (parseResult.errors || []).filter(
+                  (error) =>
+                    error.field.includes('التاريخ') ||
+                    error.message.includes('تاريخ') ||
+                    error.field.toLowerCase().includes('date')
+                ).length,
+                invalidDateRowsSample: (parseResult.errors || [])
+                  .filter(
+                    (error) =>
+                      error.field.includes('التاريخ') ||
+                      error.message.includes('تاريخ') ||
+                      error.field.toLowerCase().includes('date')
+                  )
+                  .slice(0, 8)
+                  .map((error) => ({ row: error.row, value: error.message })),
               }
             )
           : await importCustomersToDB((parseResult as CustomerParseResult).rows, batch);
@@ -861,6 +897,9 @@ export default function Invoices() {
     const messages = Array.from(
       new Set((importSummary?.errors || []).map((error) => error.message).filter(Boolean))
     );
+    const missingDatabaseDays = (importSummary?.dayDatabaseComparison || []).filter(
+      (row) => row.status === 'missing_in_database'
+    );
     const critical = messages.filter(
       (message) =>
         !isSummaryRefreshNotice(message) &&
@@ -873,6 +912,9 @@ export default function Invoices() {
         ? [
             'يوجد أرقام فواتير موجودة سابقًا بتاريخ أو فرع مختلف وتحتاج مراجعة يدوية، وتم منع إدخالها لتجنب التكرار.',
           ]
+        : []),
+      ...(missingDatabaseDays.length > 0
+        ? ['يوجد أيام في الملف لم تظهر في قاعدة البيانات بعد الاستيراد']
         : []),
       ...messages.filter((message) => message.includes('مكررة')),
     ];
@@ -1911,6 +1953,68 @@ export default function Invoices() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          )}
+          {importKind === 'sales' && (importSummary.dayDatabaseComparison?.length || 0) > 0 && (
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="mb-1 font-bold text-white">مطابقة أيام الملف مع قاعدة البيانات</div>
+              <div className="mb-3 text-xs text-slate-400">
+                مدى الملف: {importSummary.fileMinDate || '-'} إلى {importSummary.fileMaxDate || '-'} | مدى القاعدة بعد الاستيراد: {importSummary.databaseMinDateAfterImport || '-'} إلى{' '}
+                {importSummary.databaseMaxDateAfterImport || '-'}
+              </div>
+              {(importSummary.dayDatabaseComparison || []).some(
+                (row) => row.status === 'missing_in_database'
+              ) && (
+                <div className="mb-3 rounded-lg border border-red-300/30 bg-red-400/10 px-3 py-2 text-sm font-bold text-red-100">
+                  يوجد أيام في الملف لم تظهر في قاعدة البيانات بعد الاستيراد
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>اليوم</th>
+                      <th>عدد فواتير الملف</th>
+                      <th>صافي الملف</th>
+                      <th>عدد فواتير قاعدة البيانات</th>
+                      <th>صافي قاعدة البيانات</th>
+                      <th>الفرق</th>
+                      <th>الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(importSummary.dayDatabaseComparison || []).map((row) => (
+                      <tr key={row.date}>
+                        <td className="num">{row.date}</td>
+                        <td className="num">{row.fileCount.toLocaleString('ar-EG')}</td>
+                        <td className="text-amber-300 font-bold">{formatCurrency(row.fileTotal)}</td>
+                        <td className="num">{row.databaseCount.toLocaleString('ar-EG')}</td>
+                        <td className="text-teal-300 font-bold">
+                          {formatCurrency(row.databaseTotal)}
+                        </td>
+                        <td
+                          className={
+                            Math.abs(row.difference) >= 0.01
+                              ? 'text-red-200 font-bold'
+                              : 'text-slate-300'
+                          }
+                        >
+                          {formatCurrency(row.difference)}
+                        </td>
+                        <td>
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs font-bold ${dayMatchStatusClass(
+                              row.status
+                            )}`}
+                          >
+                            {dayMatchStatusLabel(row.status)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
