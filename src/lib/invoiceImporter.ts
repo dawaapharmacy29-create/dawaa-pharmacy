@@ -141,6 +141,13 @@ export interface ImportSummary {
   databaseTotalNet?: number;
   databaseByDay?: Array<{ date: string; count: number; total: number }>;
   databaseByBranch?: Array<{ branch: string; count: number; total: number }>;
+  databaseComparisonQuery?: {
+    startDate: string | null;
+    endDate: string | null;
+    endExclusive: string | null;
+    select: string;
+    error?: string | null;
+  };
   missingDaysInDatabase?: Array<{ date: string; count: number; total: number }>;
   missingInvoicesCount?: number;
   missingInvoicesSample?: Array<{ invoiceNumber: string; date: string; branch: string; amount: number; reason: string }>;
@@ -590,11 +597,16 @@ function dayAfterIso(date: string) {
   return next.toISOString().slice(0, 10);
 }
 
-async function loadDatabaseDayComparison(
+export async function loadDatabaseDayComparison(
   fileDays: Map<string, { date: string; count: number; total: number }>,
   startDate: string | null | undefined,
   endDate: string | null | undefined
 ) {
+  const selectColumns =
+    'id,invoice_no,invoice_number,sale_date,invoice_date,invoice_datetime,date,branch,branch_name,net_amount,net_total,total_amount,amount,gross_amount,discounted_amount';
+  const queryStart = startDate || null;
+  const queryEnd = endDate || null;
+  const queryEndExclusive = endDate ? dayAfterIso(endDate) : null;
   const empty = {
     databaseMinDateAfterImport: null as string | null,
     databaseMaxDateAfterImport: null as string | null,
@@ -603,17 +615,34 @@ async function loadDatabaseDayComparison(
     databaseByDay: [] as Array<{ date: string; count: number; total: number }>,
     databaseByBranch: [] as Array<{ branch: string; count: number; total: number }>,
     comparison: [] as NonNullable<ImportSummary['dayDatabaseComparison']>,
+    databaseComparisonQuery: {
+      startDate: queryStart,
+      endDate: queryEnd,
+      endExclusive: queryEndExclusive,
+      select: selectColumns,
+      error: null,
+    },
   };
   if (!startDate || !endDate) return empty;
 
   const { data, error } = await supabase
     .from('sales_invoices')
-    .select('id,invoice_no,invoice_number,sale_date,invoice_date,invoice_datetime,date,branch,branch_name,net_amount,net_total,total_amount,amount,gross_amount,discounted_amount')
+    .select(selectColumns)
     .gte('invoice_date', startDate)
-    .lt('invoice_date', dayAfterIso(endDate))
+    .lt('invoice_date', queryEndExclusive)
     .limit(100000);
 
-  if (error) return empty;
+  if (error)
+    return {
+      ...empty,
+      databaseComparisonQuery: {
+        startDate: queryStart,
+        endDate: queryEnd,
+        endExclusive: queryEndExclusive,
+        select: selectColumns,
+        error: error.message || String(error),
+      },
+    };
 
   const databaseDays = new Map<string, { date: string; count: number; total: number }>();
   const databaseBranches = new Map<string, { branch: string; count: number; total: number }>();
@@ -2330,6 +2359,7 @@ export async function importInvoicesToDB(
   summary.databaseByDay = databaseComparison.databaseByDay;
   summary.databaseByBranch = databaseComparison.databaseByBranch;
   summary.dayDatabaseComparison = databaseComparison.comparison;
+  summary.databaseComparisonQuery = databaseComparison.databaseComparisonQuery;
   summary.missingDaysInDatabase = summary.dayDatabaseComparison
     .filter((row) => row.status === 'missing_in_database')
     .map((row) => ({ date: row.date, count: row.fileCount, total: row.fileTotal }));

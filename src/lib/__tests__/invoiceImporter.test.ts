@@ -1,4 +1,46 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mockSelect = vi.fn();
+const mockGte = vi.fn();
+const mockLt = vi.fn();
+const mockLimit = vi.fn();
+
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    from: () => ({
+      select: (select: string) => {
+        mockSelect(select);
+        return chain;
+      },
+      gte: (field: string, value: string) => {
+        mockGte(field, value);
+        return chain;
+      },
+      lt: (field: string, value: string) => {
+        mockLt(field, value);
+        return chain;
+      },
+      limit: mockLimit,
+    }),
+  },
+}));
+
+const chain = {
+  select: (select: string) => {
+    mockSelect(select);
+    return chain;
+  },
+  gte: (field: string, value: string) => {
+    mockGte(field, value);
+    return chain;
+  },
+  lt: (field: string, value: string) => {
+    mockLt(field, value);
+    return chain;
+  },
+  limit: mockLimit,
+};
+
 import { buildInvoiceDuplicateIdentity, parseInvoiceDate } from '@/lib/invoiceImporter';
 import {
   getInvoiceAmount,
