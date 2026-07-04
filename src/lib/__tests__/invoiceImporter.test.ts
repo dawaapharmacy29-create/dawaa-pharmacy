@@ -20,6 +20,30 @@ describe('buildInvoiceDuplicateIdentity', () => {
       'INV-200|غير محدد|2026-07-02'
     );
   });
+
+  it('treats branch aliases as the same normalized branch and normalizes date values', () => {
+    const key1 = buildInvoiceDuplicateIdentity('INV-300', 'شكري', '02/07/2026');
+    const key2 = buildInvoiceDuplicateIdentity('INV-300', 'فرع شكري', '2026-07-02T08:15:00Z');
+    expect(key1).toBe(key2);
+  });
+
+  it('returns different keys for same invoice number with different dates or branches', () => {
+    const baseKey = buildInvoiceDuplicateIdentity('INV-400', 'فرع شكري', '2026-07-02');
+    const differentDateKey = buildInvoiceDuplicateIdentity('INV-400', 'فرع شكري', '2026-07-03');
+    const differentBranchKey = buildInvoiceDuplicateIdentity('INV-400', 'فرع الشامي', '2026-07-02');
+
+    expect(differentDateKey).not.toBe(baseKey);
+    expect(differentBranchKey).not.toBe(baseKey);
+  });
+
+  it('does not treat blank invoice numbers as the same invoice across different dates or normalized branches', () => {
+    const keyA = buildInvoiceDuplicateIdentity('', 'فرع شكري', '2026-07-02');
+    const keyB = buildInvoiceDuplicateIdentity('', 'فرع الشامي', '2026-07-02');
+    const keyC = buildInvoiceDuplicateIdentity('', 'فرع شكري', '2026-07-03');
+
+    expect(keyA).not.toBe(keyB);
+    expect(keyA).not.toBe(keyC);
+  });
 });
 
 describe('parseInvoiceDate', () => {
@@ -28,10 +52,12 @@ describe('parseInvoiceDate', () => {
     expect(parseInvoiceDate('03/07/2026')).toBe('2026-07-03');
   });
 
-  it('supports dd-mm-yyyy and Excel serial dates', () => {
+  it('supports dd-mm-yyyy, ISO dates, and Excel serial dates', () => {
     expect(parseInvoiceDate('2-7-2026')).toBe('2026-07-02');
     expect(parseInvoiceDate('2026-07-02')).toBe('2026-07-02');
     expect(parseInvoiceDate(46205)).toBe('2026-07-02');
+    expect(parseInvoiceDate('46205')).toBe('2026-07-02');
+    expect(parseInvoiceDate('2026-07-02T08:15:00Z')).toBe('2026-07-02');
   });
 });
 

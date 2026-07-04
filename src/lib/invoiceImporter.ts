@@ -26,7 +26,9 @@ import {
   getInvoiceDay,
   getInvoiceId as getCoreInvoiceId,
   parseInvoiceAmount,
+  parseInvoiceDate,
   parseInvoiceDateTime,
+  getInvoiceBranch,
 } from '@/lib/invoices/invoiceCore';
 
 export { parseInvoiceDate } from '@/lib/invoices/invoiceCore';
@@ -276,8 +278,11 @@ export function buildInvoiceDuplicateIdentity(
   saleDate: string | null | undefined
 ) {
   const normalizedInvoice = String(invoiceNumber ?? '').trim();
-  const normalizedBranch = String(branch ?? '').trim() || 'غير محدد';
-  const normalizedDate = String(saleDate ?? '').slice(0, 10);
+  const normalizedBranch = getInvoiceBranch(
+    { branch: String(branch ?? '').trim() },
+    'غير محدد'
+  );
+  const normalizedDate = parseInvoiceDate(saleDate) || String(saleDate ?? '').slice(0, 10);
   return `${normalizedInvoice}|${normalizedBranch}|${normalizedDate}`;
 }
 
