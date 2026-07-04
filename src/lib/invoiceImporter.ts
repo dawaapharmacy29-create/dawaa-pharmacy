@@ -142,12 +142,33 @@ export interface ImportSummary {
   databaseByDay?: Array<{ date: string; count: number; total: number }>;
   databaseByBranch?: Array<{ branch: string; count: number; total: number }>;
   databaseComparisonQuery?: {
-    startDate: string | null;
-    endDate: string | null;
-    endExclusive: string | null;
+    table: string;
+    dateColumn: string;
+    gte: string | null;
+    lt: string | null;
+    fileMinDate: string | null;
+    fileMaxDate: string | null;
     select: string;
     error?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    endExclusive?: string | null;
   };
+  skippedRowsSample?: Array<{
+    invoiceNumber: string;
+    branch: string;
+    originalDate: string;
+    parsedDate: string;
+    reason: string;
+  }>;
+  savedRowsSample?: Array<{
+    invoiceNumber: string;
+    branch: string;
+    originalDate: string;
+    invoiceDate: string;
+    netTotal: number;
+    duplicateKey: string;
+  }>;
   missingDaysInDatabase?: Array<{ date: string; count: number; total: number }>;
   missingInvoicesCount?: number;
   missingInvoicesSample?: Array<{ invoiceNumber: string; date: string; branch: string; amount: number; reason: string }>;
@@ -591,6 +612,16 @@ function addSkippedReason(
   map.set(reason, current);
 }
 
+function classifyParseErrorReason(error: ValidationError) {
+  const field = (error.field || '').toLowerCase();
+  const message = (error.message || '').toLowerCase();
+  if (field.includes('التاريخ') || message.includes('تاريخ')) return 'invalid_date';
+  if (field.includes('رقم الفاتورة') || message.includes('رقم الفاتورة')) return 'missing_invoice_number';
+  if (field.includes('المخزن') || field.includes('الفرع') || message.includes('فرع')) return 'missing_branch';
+  if (field.includes('العميل') || message.includes('حقل') || message.includes('غير موجود')) return 'missing_required_fields';
+  return 'missing_required_fields';
+}
+
 function dayAfterIso(date: string) {
   const next = new Date(`${date}T12:00:00.000Z`);
   next.setUTCDate(next.getUTCDate() + 1);
@@ -616,11 +647,17 @@ export async function loadDatabaseDayComparison(
     databaseByBranch: [] as Array<{ branch: string; count: number; total: number }>,
     comparison: [] as NonNullable<ImportSummary['dayDatabaseComparison']>,
     databaseComparisonQuery: {
+      table: 'sales_invoices',
+      dateColumn: 'invoice_date',
+      gte: queryStart,
+      lt: queryEndExclusive,
+      fileMinDate: queryStart,
+      fileMaxDate: queryEnd,
+      select: selectColumns,
+      error: null,
       startDate: queryStart,
       endDate: queryEnd,
       endExclusive: queryEndExclusive,
-      select: selectColumns,
-      error: null,
     },
   };
   if (!startDate || !endDate) return empty;
@@ -636,11 +673,17 @@ export async function loadDatabaseDayComparison(
     return {
       ...empty,
       databaseComparisonQuery: {
+        table: 'sales_invoices',
+        dateColumn: 'invoice_date',
+        gte: queryStart,
+        lt: queryEndExclusive,
+        fileMinDate: queryStart,
+        fileMaxDate: queryEnd,
+        select: selectColumns,
+        error: error.message || String(error),
         startDate: queryStart,
         endDate: queryEnd,
         endExclusive: queryEndExclusive,
-        select: selectColumns,
-        error: error.message || String(error),
       },
     };
 
@@ -695,6 +738,19 @@ export async function loadDatabaseDayComparison(
     databaseTotalNet,
     databaseByDay: dailyMapToArray(databaseDays),
     databaseByBranch: [...databaseBranches.values()].sort((a, b) => b.total - a.total),
+    databaseComparisonQuery: {
+      table: 'sales_invoices',
+      dateColumn: 'invoice_date',
+      gte: queryStart,
+      lt: queryEndExclusive,
+      fileMinDate: queryStart,
+      fileMaxDate: queryEnd,
+      startDate: queryStart,
+      endDate: queryEnd,
+      endExclusive: queryEndExclusive,
+      select: selectColumns,
+      error: null,
+    },
     comparison,
   };
 }
@@ -1587,10 +1643,30 @@ export async function importInvoicesToDB(
     importedAt?: string | null;
     invalidDateRowsCount?: number;
     invalidDateRowsSample?: Array<{ row: number; value: string }>;
+    parseErrors?: ValidationError[];
   }
 ): Promise<ImportSummary> {
   const parsedRowsByDateMap = new Map<string, { date: string; count: number; total: number }>();
   for (const row of rows) addDailyTotal(parsedRowsByDateMap, row.date, rawInvoiceNetValue(row));
+
+  const skippedByReason = new Map<string, { reason: string; count: number; total: number }>();
+  const skippedRowsSample: NonNullable<ImportSummary['skippedRowsSample']> = [];
+  const savedRowsSample: NonNullable<ImportSummary['savedRowsSample']> = [];
+
+  if (options?.parseErrors) {
+    for (const error of options.parseErrors) {
+      addSkippedReason(skippedByReason, classifyParseErrorReason(error), 0);
+      if (skippedRowsSample.length < 10) {
+        skippedRowsSample.push({
+          invoiceNumber: '',
+          branch: '',
+          originalDate: String(error.row || ''),
+          parsedDate: '',
+          reason: classifyParseErrorReason(error),
+        });
+      }
+    }
+  }
 
   const summary: ImportSummary = {
     totalRows: rows.length,
@@ -1646,6 +1722,8 @@ export async function importInvoicesToDB(
     invalidDateRowsSample: options?.invalidDateRowsSample || [],
     skippedRowsByReason: [],
     savedRowsByDate: [],
+    skippedRowsSample,
+    savedRowsSample,
     databaseMinDateAfterImport: null,
     databaseMaxDateAfterImport: null,
     databaseInvoicesCount: 0,
@@ -1764,7 +1842,6 @@ export async function importInvoicesToDB(
   let reviewNetSales = 0;
   let unlinkedCustomersEstimate = 0;
   const seenImportKeys = new Set<string>();
-  const skippedByReason = new Map<string, { reason: string; count: number; total: number }>();
   const duplicateRowsInFileSample: NonNullable<ImportSummary['duplicateRowsInFileSample']> = [];
   const conflictRowsSample: NonNullable<ImportSummary['missingInvoicesSample']> = [];
 
@@ -1772,13 +1849,22 @@ export async function importInvoicesToDB(
     const rowBranch = row.branch || branch;
     const dedupeKey = invoiceDuplicateKey(row.invoiceNumber, rowBranch, row.date);
     if (seenImportKeys.has(dedupeKey)) {
-      addSkippedReason(skippedByReason, 'duplicate_inside_file', rawInvoiceNetValue(row));
+      addSkippedReason(skippedByReason, 'duplicate_in_file', rawInvoiceNetValue(row));
       if (duplicateRowsInFileSample.length < 20) {
         duplicateRowsInFileSample.push({
           invoiceNumber: row.invoiceNumber,
           date: row.date,
           branch: rowBranch,
           row: row.rowIndex,
+        });
+      }
+      if (skippedRowsSample.length < 10) {
+        skippedRowsSample.push({
+          invoiceNumber: row.invoiceNumber,
+          branch: rowBranch,
+          originalDate: row.date,
+          parsedDate: row.date,
+          reason: 'duplicate_in_file',
         });
       }
       summary.skippedDuplicates++;
@@ -1803,6 +1889,21 @@ export async function importInvoicesToDB(
       });
 
       if (sameBranchAndDate) {
+        if (!String(sameBranchAndDate.id || '').trim()) {
+          addSkippedReason(skippedByReason, 'save_error', rawInvoiceNetValue(row));
+          if (skippedRowsSample.length < 10) {
+            skippedRowsSample.push({
+              invoiceNumber: row.invoiceNumber,
+              branch: rowBranch,
+              originalDate: row.date,
+              parsedDate: row.date,
+              reason: 'save_error',
+            });
+          }
+          summary.skippedDuplicates++;
+          return false;
+        }
+
         const recordForUpdate: Record<string, unknown> = {
           import_batch: importBatch,
           branch: rowBranch,
@@ -1875,18 +1976,23 @@ export async function importInvoicesToDB(
       needsReviewRows++;
       reviewNetSales += rawInvoiceNetValue(row);
       summary.conflictReviewRows = (summary.conflictReviewRows || 0) + 1;
-      addSkippedReason(
-        skippedByReason,
-        'same_invoice_number_different_date_or_branch',
-        rawInvoiceNetValue(row)
-      );
+      addSkippedReason(skippedByReason, 'duplicate_in_database', rawInvoiceNetValue(row));
       if (conflictRowsSample.length < 20) {
         conflictRowsSample.push({
           invoiceNumber: row.invoiceNumber,
           date: row.date,
           branch: rowBranch,
           amount: rawInvoiceNetValue(row),
-          reason: 'same_invoice_number_different_date_or_branch',
+          reason: 'duplicate_in_database',
+        });
+      }
+      if (skippedRowsSample.length < 10) {
+        skippedRowsSample.push({
+          invoiceNumber: row.invoiceNumber,
+          branch: rowBranch,
+          originalDate: row.date,
+          parsedDate: row.date,
+          reason: 'duplicate_in_database',
         });
       }
       summary.schemaWarnings?.push(
@@ -1980,6 +2086,16 @@ export async function importInvoicesToDB(
               single.error.message.includes('duplicate key') ||
               single.error.message.includes('ON CONFLICT');
             if (singleDuplicate) {
+              addSkippedReason(skippedByReason, 'duplicate_in_database', invoiceNetValue(record));
+              if (skippedRowsSample.length < 10) {
+                skippedRowsSample.push({
+                  invoiceNumber: String(record.invoice_number || ''),
+                  branch: String(record.branch || branch),
+                  originalDate: String(record.invoice_date || '').slice(0, 10),
+                  parsedDate: String(record.invoice_date || '').slice(0, 10),
+                  reason: 'duplicate_in_database',
+                });
+              }
               summary.skippedDuplicates++;
               summary.skippedDuplicateInvoices?.push({
                 invoiceNumber: String(record.invoice_number || ''),
@@ -1992,6 +2108,16 @@ export async function importInvoicesToDB(
                 field: 'sales_invoices',
                 message: friendlyImportError(single.error.message),
               });
+              addSkippedReason(skippedByReason, 'save_error', invoiceNetValue(record));
+              if (skippedRowsSample.length < 10) {
+                skippedRowsSample.push({
+                  invoiceNumber: String(record.invoice_number || ''),
+                  branch: String(record.branch || branch),
+                  originalDate: String(record.invoice_date || '').slice(0, 10),
+                  parsedDate: String(record.invoice_date || '').slice(0, 10),
+                  reason: 'save_error',
+                });
+              }
             }
           } else {
             summary.insertedRows += 1;
@@ -2038,7 +2164,20 @@ export async function importInvoicesToDB(
       const chunkNet = chunk.reduce((sum, row) => sum + invoiceNetValue(row), 0);
       summary.insertedNetSales = (summary.insertedNetSales || 0) + chunkNet;
       summary.importedNetSales = (summary.importedNetSales || 0) + chunkNet;
-      savedSummaryRows.push(...newRows.slice(i, i + chunk.length));
+      const newSavedRows = newRows.slice(i, i + chunk.length);
+      savedSummaryRows.push(...newSavedRows);
+      for (const row of newSavedRows) {
+        if (savedRowsSample.length < 10) {
+          savedRowsSample.push({
+            invoiceNumber: row.invoiceNumber,
+            branch: row.branch || branch,
+            originalDate: row.date,
+            invoiceDate: row.date,
+            netTotal: rawInvoiceNetValue(row),
+            duplicateKey: invoiceDuplicateKey(row.invoiceNumber, row.branch || branch, row.date),
+          });
+        }
+      }
     }
     reportProgress(onProgress, Math.min(i + chunkSize, invoiceRecords.length), totalWork);
   }
@@ -2085,6 +2224,20 @@ export async function importInvoicesToDB(
       summary.updatedNetSales = (summary.updatedNetSales || 0) + value;
       summary.importedNetSales = (summary.importedNetSales || 0) + value;
       savedSummaryRows.push(item.sourceRow);
+      if (savedRowsSample.length < 10) {
+        savedRowsSample.push({
+          invoiceNumber: item.sourceRow.invoiceNumber,
+          branch: item.sourceRow.branch || branch,
+          originalDate: item.sourceRow.date,
+          invoiceDate: item.sourceRow.date,
+          netTotal: value,
+          duplicateKey: invoiceDuplicateKey(
+            item.sourceRow.invoiceNumber,
+            item.sourceRow.branch || branch,
+            item.sourceRow.date
+          ),
+        });
+      }
     }
     updatedInvoiceProgress += 1;
     reportProgress(onProgress, invoiceRecords.length + updatedInvoiceProgress, totalWork);

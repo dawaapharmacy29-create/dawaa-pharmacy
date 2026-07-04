@@ -208,30 +208,111 @@ function importCompletion(summary: ImportSummary) {
 }
 
 function downloadImportReviewCsv(summary: ImportSummary) {
+  const query = summary.databaseComparisonQuery;
+  const dayComparison = summary.dayDatabaseComparison || [];
+  const databaseByDay = summary.databaseByDay || [];
+  const statusCounts = dayComparison.reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = (acc[row.status] || 0) + 1;
+    return acc;
+  }, {});
+
   const rows = [
     ...(summary.missingInvoicesSample || []).map((row) => ({
       invoice_number: row.invoiceNumber,
       date: row.date,
       branch: row.branch,
+      invoice_date: '',
       amount: row.amount,
       status: 'missing_or_conflict',
       reason: row.reason,
+      duplicate_key: '',
     })),
-    ...(summary.skippedDuplicateInvoices || []).slice(0, 500).map((row) => ({
+    ...(summary.skippedRowsSample || []).slice(0, 500).map((row) => ({
       invoice_number: row.invoiceNumber,
-      date: row.date,
+      date: row.originalDate,
       branch: row.branch,
+      invoice_date: row.parsedDate,
       amount: '',
       status: 'skipped',
-      reason: 'duplicate_or_conflict',
+      reason: row.reason,
+      duplicate_key: '',
+    })),
+    ...(summary.savedRowsSample || []).slice(0, 500).map((row) => ({
+      invoice_number: row.invoiceNumber,
+      date: row.originalDate,
+      branch: row.branch,
+      invoice_date: row.invoiceDate,
+      amount: row.netTotal,
+      status: 'saved',
+      reason: 'saved',
+      duplicate_key: row.duplicateKey,
     })),
   ];
-  const headers = ['invoice_number', 'date', 'branch', 'amount', 'status', 'reason'];
+
+  const headers = [
+    'invoice_number',
+    'date',
+    'branch',
+    'invoice_date',
+    'amount',
+    'status',
+    'reason',
+    'duplicate_key',
+  ];
+
   const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+  const metadataLines = [
+    ['SECTION', 'FIELD', 'VALUE'],
+    ['IMPORT_RANGE', 'fileMinDate', query?.fileMinDate || ''],
+    ['IMPORT_RANGE', 'fileMaxDate', query?.fileMaxDate || ''],
+    ['DB_QUERY_RANGE', 'gte', query?.gte || ''],
+    ['DB_QUERY_RANGE', 'lt', query?.lt || ''],
+    ['DB_QUERY_RANGE', 'startDate', query?.startDate || ''],
+    ['DB_QUERY_RANGE', 'endDate', query?.endDate || ''],
+    ['DB_QUERY_RANGE', 'endExclusive', query?.endExclusive || ''],
+    ['DB_QUERY_META', 'table', query?.table || ''],
+    ['DB_QUERY_META', 'dateColumn', query?.dateColumn || ''],
+    ['DB_QUERY_META', 'select', query?.select || ''],
+    ['DB_QUERY_META', 'error', query?.error || ''],
+    ['DB_STATE', 'databaseMinDateAfterImport', summary.databaseMinDateAfterImport || ''],
+    ['DB_STATE', 'databaseMaxDateAfterImport', summary.databaseMaxDateAfterImport || ''],
+    ['DB_STATE', 'databaseByDayCount', String(databaseByDay.length)],
+    ['DB_STATE', 'dayDatabaseComparisonCount', String(dayComparison.length)],
+    ['DB_STATE', 'matchedDays', String(statusCounts.matched || 0)],
+    ['DB_STATE', 'missingDays', String(statusCounts.missing_in_database || 0)],
+    ['DB_STATE', 'partialDays', String(statusCounts.partial || 0)],
+    ['DB_STATE', 'extraDays', String(statusCounts.extra_in_database || 0)],
+  ];
+
+  const databaseByDayLines = [
+    ['DB_BY_DAY', 'date', 'count', 'total'],
+    ...databaseByDay.map((row) => [row.date, String(row.count), String(row.total)]),
+  ];
+
+  const dayComparisonLines = [
+    ['DAY_COMPARISON', 'date', 'fileCount', 'databaseCount', 'countDifference', 'difference', 'status'],
+    ...dayComparison.map((row) => [
+      row.date,
+      String(row.fileCount),
+      String(row.databaseCount),
+      String(row.countDifference),
+      String(row.difference),
+      row.status,
+    ]),
+  ];
+
   const lines = [
+    ...metadataLines.map((row) => row.map(escapeCsv).join(',')),
+    [''].map(escapeCsv).join(','),
+    ...databaseByDayLines.map((row) => row.map(escapeCsv).join(',')),
+    [''].map(escapeCsv).join(','),
+    ...dayComparisonLines.map((row) => row.map(escapeCsv).join(',')),
+    [''].map(escapeCsv).join(','),
     headers.join(','),
     ...rows.map((row) => headers.map((key) => escapeCsv((row as Record<string, unknown>)[key])).join(',')),
   ];
+
   const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -545,6 +626,7 @@ export default function Invoices() {
                   )
                   .slice(0, 8)
                   .map((error) => ({ row: error.row, value: error.message })),
+                parseErrors: parseResult.errors,
               }
             )
           : await importCustomersToDB((parseResult as CustomerParseResult).rows, batch);
@@ -2004,14 +2086,15 @@ export default function Invoices() {
             </div>
           )}
           {importKind === 'sales' && (
-            <div className="grid gap-3 lg:grid-cols-2">
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-1 font-bold text-white">عدد الفواتير حسب اليوم</div>
+            <>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="mb-1 font-bold text-white">فواتير مفهومة من الملف حسب اليوم</div>
                 <div className="mb-3 text-xs text-slate-400">
-                  من الفواتير التي تم حفظها أو تحديثها فعليًا
+                  عدد وقيمة الفواتير التي تم استخراجها من الملف قبل الحفظ.
                 </div>
                 <div className="max-h-48 space-y-2 overflow-auto">
-                  {(importSummary.dailyCounts || []).map((row) => (
+                  {(importSummary.parsedRowsByDate || []).map((row) => (
                     <div
                       key={row.date}
                       className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
@@ -2025,17 +2108,17 @@ export default function Invoices() {
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-1 font-bold text-white">عدد الفواتير حسب الفرع</div>
+                <div className="mb-1 font-bold text-white">عدد الفواتير المحفوظة حسب اليوم</div>
                 <div className="mb-3 text-xs text-slate-400">
-                  من الفواتير التي تم حفظها أو تحديثها فعليًا
+                  عدد وقيمة الفواتير التي وصلت للحفظ أو التحديث في قاعدة البيانات.
                 </div>
                 <div className="max-h-48 space-y-2 overflow-auto">
-                  {(importSummary.branchCounts || []).map((row) => (
+                  {(importSummary.savedRowsByDate || []).map((row) => (
                     <div
-                      key={row.branch}
+                      key={row.date}
                       className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
                     >
-                      <span>{row.branch}</span>
+                      <span>{row.date}</span>
                       <span>
                         {row.count.toLocaleString('ar-EG')} | {formatCurrency(row.total)}
                       </span>
@@ -2044,6 +2127,159 @@ export default function Invoices() {
                 </div>
               </div>
             </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-1 font-bold text-white">استعلام قاعدة البيانات</div>
+                <div className="mb-3 text-xs text-slate-400">
+                  معلومات حول استعلام يومية فواتير `sales_invoices`.
+                </div>
+                <div className="space-y-2 text-sm text-slate-200">
+                  <div>الجدول: {importSummary.databaseComparisonQuery?.table || '-'}</div>
+                  <div>العمود: {importSummary.databaseComparisonQuery?.dateColumn || '-'}</div>
+                  <div>gte: {importSummary.databaseComparisonQuery?.gte || '-'}</div>
+                  <div>lt: {importSummary.databaseComparisonQuery?.lt || '-'}</div>
+                  <div>fileMinDate: {importSummary.databaseComparisonQuery?.fileMinDate || '-'}</div>
+                  <div>fileMaxDate: {importSummary.databaseComparisonQuery?.fileMaxDate || '-'}</div>
+                  <div>startDate: {importSummary.databaseComparisonQuery?.startDate || '-'}</div>
+                  <div>endDate: {importSummary.databaseComparisonQuery?.endDate || '-'}</div>
+                  <div>endExclusive: {importSummary.databaseComparisonQuery?.endExclusive || '-'}</div>
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-1 font-bold text-white">عدد الفواتير في القاعدة حسب اليوم</div>
+                <div className="mb-3 text-xs text-slate-400">
+                  عدد وقيمة الفواتير التي تم قراءتها من `sales_invoices` لكل يوم.
+                </div>
+                <div className="max-h-48 space-y-2 overflow-auto">
+                  {(importSummary.databaseByDay || []).map((row) => (
+                    <div
+                      key={row.date}
+                      className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
+                    >
+                      <span>{row.date}</span>
+                      <span>
+                        {row.count.toLocaleString('ar-EG')} | {formatCurrency(row.total)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="mb-1 font-bold text-white">أول 10 صفوف تم تخطيها</div>
+              <div className="mb-3 text-xs text-slate-400">
+                عرض عينة من الصفوف التي لم تدخل لسبب تخطي.
+              </div>
+              <div className="overflow-x-auto">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>رقم الفاتورة</th>
+                      <th>الفرع</th>
+                      <th>التاريخ الأصلي</th>
+                      <th>التاريخ بعد التحليل</th>
+                      <th>السبب</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(importSummary.skippedRowsSample || []).map((row, index) => (
+                      <tr key={`${row.invoiceNumber}-${row.branch}-${index}`}>
+                        <td>{row.invoiceNumber}</td>
+                        <td>{row.branch}</td>
+                        <td>{row.originalDate}</td>
+                        <td>{row.parsedDate}</td>
+                        <td>{row.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="mb-1 font-bold text-white">أول 10 صفوف تم حفظها أو إرسالها للحفظ</div>
+              <div className="mb-3 text-xs text-slate-400">
+                عرض عينة من الصفوف التي تم حفظها أو تحديثها بنجاح.
+              </div>
+              <div className="overflow-x-auto">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>رقم الفاتورة</th>
+                      <th>الفرع</th>
+                      <th>التاريخ الأصلي</th>
+                      <th>invoice_date</th>
+                      <th>صافي الفاتورة</th>
+                      <th>duplicate key</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(importSummary.savedRowsSample || []).map((row, index) => (
+                      <tr key={`${row.invoiceNumber}-${row.branch}-${index}`}>
+                        <td>{row.invoiceNumber}</td>
+                        <td>{row.branch}</td>
+                        <td>{row.originalDate}</td>
+                        <td>{row.invoiceDate}</td>
+                        <td className="text-amber-300">{formatCurrency(row.netTotal)}</td>
+                        <td>{row.duplicateKey}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="mb-1 font-bold text-white">مقارنة الملف مع القاعدة لكل يوم</div>
+              <div className="mb-3 text-xs text-slate-400">
+                يظهر هنا نتيجة المقارنة اليومية لكل يوم ملف.
+              </div>
+              <div className="overflow-x-auto">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>اليوم</th>
+                      <th>عدد فواتير الملف</th>
+                      <th>صافي الملف</th>
+                      <th>عدد فواتير قاعدة البيانات</th>
+                      <th>صافي قاعدة البيانات</th>
+                      <th>فرق العدد</th>
+                      <th>فرق القيمة</th>
+                      <th>الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(importSummary.dayDatabaseComparison || []).map((row) => (
+                      <tr key={row.date}>
+                        <td className="num">{row.date}</td>
+                        <td className="num">{row.fileCount.toLocaleString('ar-EG')}</td>
+                        <td className="text-amber-300 font-bold">{formatCurrency(row.fileTotal)}</td>
+                        <td className="num">{row.databaseCount.toLocaleString('ar-EG')}</td>
+                        <td className="text-teal-300 font-bold">{formatCurrency(row.databaseTotal)}</td>
+                        <td className={
+                            row.countDifference !== 0 ? 'text-red-200 font-bold' : 'text-slate-300'
+                          }>
+                          {row.countDifference.toLocaleString('ar-EG')}
+                        </td>
+                        <td className={
+                            Math.abs(row.difference) >= 0.01 ? 'text-red-200 font-bold' : 'text-slate-300'
+                          }>
+                          {formatCurrency(row.difference)}
+                        </td>
+                        <td>
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs font-bold ${dayMatchStatusClass(
+                              row.status
+                            )}`}
+                          >
+                            {dayMatchStatusLabel(row.status)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
           )}
           {importKind === 'sales' && (importSummary.dayDatabaseComparison?.length || 0) > 0 && (
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
