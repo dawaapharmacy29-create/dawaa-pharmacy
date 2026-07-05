@@ -179,6 +179,99 @@ function dayMatchStatusClass(status: string) {
   return 'bg-slate-400/15 text-slate-100';
 }
 
+type DaySalesChartRow = {
+  date: string;
+  label: string;
+  shokryTotal: number;
+  shamyTotal: number;
+  otherTotal: number;
+  fileTotal: number;
+  databaseTotal: number;
+  fileCount: number;
+  databaseCount: number;
+  countDifference: number;
+  difference: number;
+  status: NonNullable<ImportSummary['dayDatabaseComparison']>[number]['status'];
+};
+
+function shortDayLabel(date: string) {
+  const [, month, day] = date.split('-');
+  return month && day ? `${Number(day)}/${Number(month)}` : date;
+}
+
+function isEmptyComparisonDay(row: Pick<DaySalesChartRow, 'fileCount' | 'databaseCount' | 'fileTotal' | 'databaseTotal'>) {
+  return row.fileCount === 0 && row.databaseCount === 0 && row.fileTotal === 0 && row.databaseTotal === 0;
+}
+
+function normalizeBranchBucket(branch: string) {
+  const normalized = branch.trim();
+  if (normalized === BRANCHES[0]) return 'shokryTotal' as const;
+  if (normalized === BRANCHES[1]) return 'shamyTotal' as const;
+  return 'otherTotal' as const;
+}
+
+function buildDaySalesChartRows(summary: ImportSummary): DaySalesChartRow[] {
+  const byDate = new Map<string, DaySalesChartRow>();
+
+  for (const row of summary.dayDatabaseComparison || []) {
+    byDate.set(row.date, {
+      date: row.date,
+      label: shortDayLabel(row.date),
+      shokryTotal: 0,
+      shamyTotal: 0,
+      otherTotal: 0,
+      fileTotal: row.fileTotal,
+      databaseTotal: row.databaseTotal,
+      fileCount: row.fileCount,
+      databaseCount: row.databaseCount,
+      countDifference: row.countDifference,
+      difference: row.difference,
+      status: row.status,
+    });
+  }
+
+  for (const trace of summary.rowSaveTrace || []) {
+    if (!trace.parsed_date) continue;
+    const current =
+      byDate.get(trace.parsed_date) ||
+      ({
+        date: trace.parsed_date,
+        label: shortDayLabel(trace.parsed_date),
+        shokryTotal: 0,
+        shamyTotal: 0,
+        otherTotal: 0,
+        fileTotal: 0,
+        databaseTotal: 0,
+        fileCount: 0,
+        databaseCount: 0,
+        countDifference: 0,
+        difference: 0,
+        status: 'matched',
+      } satisfies DaySalesChartRow);
+    const branchKey = normalizeBranchBucket(trace.branch || '');
+    current[branchKey] += Number(trace.amount || 0);
+    byDate.set(trace.parsed_date, current);
+  }
+
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function chartBarColor(status: string) {
+  if (status === 'matched') return 'bg-emerald-400';
+  if (status === 'missing_in_database') return 'bg-red-400';
+  if (status === 'partial') return 'bg-amber-400';
+  return 'bg-slate-400';
+}
+
+function MetricMiniCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+      <div className="text-[11px] font-bold text-slate-400">{label}</div>
+      <div className="mt-1 text-sm font-bold text-white">{value}</div>
+    </div>
+  );
+}
+
 function importCompletion(summary: ImportSummary) {
   const missingDays = summary.dayDatabaseComparison?.some(
     (row) => row.status === 'missing_in_database'
@@ -438,6 +531,7 @@ export default function Invoices() {
   } | null>(null);
   const [summarySnapshotBusy, setSummarySnapshotBusy] = useState(false);
   const [summarySnapshotMessage, setSummarySnapshotMessage] = useState<string | null>(null);
+  const [showEmptyChartDays, setShowEmptyChartDays] = useState(false);
   const [phoneUpdateRows, setPhoneUpdateRows] = useState<CustomerPhoneCsvRow[]>([]);
   const [phoneUpdateResult, setPhoneUpdateResult] = useState<CustomerPhoneUpdateResult | null>(
     null
@@ -1099,6 +1193,44 @@ export default function Invoices() {
     importKind === 'sales' && parseResult
       ? (parseResult as ParseResult).rows.reduce((sum, row) => sum + row.amount, 0)
       : 0;
+
+  const daySalesChartRows = useMemo(
+    () => (importSummary ? buildDaySalesChartRows(importSummary) : []),
+    [importSummary]
+  );
+  const visibleDaySalesChartRows = useMemo(
+    () =>
+      showEmptyChartDays
+        ? daySalesChartRows
+        : daySalesChartRows.filter((row) => !isEmptyComparisonDay(row)),
+    [daySalesChartRows, showEmptyChartDays]
+  );
+  const hiddenEmptyChartDaysCount = daySalesChartRows.length - visibleDaySalesChartRows.length;
+  const chartMaxTotal = Math.max(
+    1,
+    ...visibleDaySalesChartRows.map((row) =>
+      Math.max(row.shokryTotal, row.shamyTotal, row.otherTotal, row.databaseTotal)
+    )
+  );
+  const chartTickStep = Math.max(1, Math.ceil(visibleDaySalesChartRows.length / 10));
+  const chartSummary = useMemo(
+    () =>
+      daySalesChartRows.reduce(
+        (acc, row) => {
+          acc.total += row.fileTotal;
+          acc.shokry += row.shokryTotal;
+          acc.shamy += row.shamyTotal;
+          acc.salesDays += row.fileCount > 0 || row.databaseCount > 0 ? 1 : 0;
+          acc.missingOrZeroDays +=
+            row.status === 'missing_in_database' || row.status === 'partial' || isEmptyComparisonDay(row)
+              ? 1
+              : 0;
+          return acc;
+        },
+        { total: 0, shokry: 0, shamy: 0, salesDays: 0, missingOrZeroDays: 0 }
+      ),
+    [daySalesChartRows]
+  );
 
   const rowsForPreview = parseResult?.rows.slice(0, 120) ?? [];
   const importWarningGroups = useMemo(() => {
@@ -2307,6 +2439,136 @@ export default function Invoices() {
               <div className="mb-1 font-bold text-white">أول 10 صفوف تم تخطيها</div>
               <div className="mb-3 text-xs text-slate-400">
                 عرض عينة من الصفوف التي لم تدخل لسبب تخطي.
+              </div>
+              <div className="mb-4 rounded-xl border border-white/10 bg-slate-950/20 p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-bold text-white">مبيعات الفترة حسب الأيام والفروع</div>
+                    <div className="text-xs text-slate-400">
+                      الرسم يعرض الأيام التي لها فواتير في الملف أو القاعدة افتراضيًا لتجنب هبوط الصفر المضلل.
+                    </div>
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-slate-100">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-teal-400"
+                      checked={showEmptyChartDays}
+                      onChange={(event) => setShowEmptyChartDays(event.target.checked)}
+                    />
+                    إظهار الأيام الفارغة
+                  </label>
+                </div>
+
+                {(importSummary.dayDatabaseComparison || []).some(
+                  (row) => row.status === 'missing_in_database' || row.status === 'partial'
+                ) && (
+                  <div className="mb-3 rounded-lg border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-sm font-bold text-amber-50">
+                    يوجد أيام في الفترة لا تحتوي فواتير في قاعدة البيانات أو بها فرق يحتاج مراجعة.
+                  </div>
+                )}
+
+                <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-5">
+                  <MetricMiniCard label="إجمالي الفترة" value={formatCurrency(chartSummary.total)} />
+                  <MetricMiniCard label={BRANCHES[0]} value={formatCurrency(chartSummary.shokry)} />
+                  <MetricMiniCard label={BRANCHES[1]} value={formatCurrency(chartSummary.shamy)} />
+                  <MetricMiniCard
+                    label="أيام بها مبيعات"
+                    value={chartSummary.salesDays.toLocaleString('ar-EG')}
+                  />
+                  <MetricMiniCard
+                    label="أيام مفقودة/صفرية"
+                    value={chartSummary.missingOrZeroDays.toLocaleString('ar-EG')}
+                  />
+                </div>
+
+                <div className="mb-3 flex flex-wrap gap-3 text-xs text-slate-300">
+                  <span className="flex items-center gap-1">
+                    <span className="h-3 w-3 rounded-sm bg-cyan-400" />
+                    {BRANCHES[0]}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-3 w-3 rounded-sm bg-violet-400" />
+                    {BRANCHES[1]}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-3 w-3 rounded-sm bg-slate-400" />
+                    فروع أخرى
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-3 w-3 rounded-sm bg-teal-300" />
+                    إجمالي القاعدة
+                  </span>
+                </div>
+
+                {visibleDaySalesChartRows.length === 0 ? (
+                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-6 text-center text-sm text-slate-300">
+                    لا توجد أيام كافية لعرض الرسم.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto pb-2">
+                    <div
+                      className="flex min-h-[250px] items-end gap-3 border-b border-l border-white/10 px-3 pt-8"
+                      style={{ minWidth: Math.max(680, visibleDaySalesChartRows.length * 74) }}
+                    >
+                      {visibleDaySalesChartRows.map((row, index) => {
+                        const bars = [
+                          { key: 'shokry', value: row.shokryTotal, className: 'bg-cyan-400' },
+                          { key: 'shamy', value: row.shamyTotal, className: 'bg-violet-400' },
+                          { key: 'other', value: row.otherTotal, className: 'bg-slate-400' },
+                          { key: 'database', value: row.databaseTotal, className: 'bg-teal-300' },
+                        ];
+                        return (
+                          <div
+                            key={row.date}
+                            className="group relative flex w-16 shrink-0 flex-col items-center justify-end gap-2"
+                          >
+                            <div className="absolute bottom-full left-1/2 z-20 mb-3 hidden w-64 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-950 p-3 text-right text-xs shadow-xl group-hover:block">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <span className={`rounded-full px-2 py-1 ${dayMatchStatusClass(row.status)}`}>
+                                  {dayMatchStatusLabel(row.status)}
+                                </span>
+                                <span className="font-bold text-white">{row.date}</span>
+                              </div>
+                              <div className="space-y-1 text-slate-200">
+                                <div>إجمالي اليوم: {formatCurrency(row.fileTotal)}</div>
+                                <div>{BRANCHES[0]}: {formatCurrency(row.shokryTotal)}</div>
+                                <div>{BRANCHES[1]}: {formatCurrency(row.shamyTotal)}</div>
+                                {row.otherTotal > 0 && <div>فروع أخرى: {formatCurrency(row.otherTotal)}</div>}
+                                <div>إجمالي القاعدة: {formatCurrency(row.databaseTotal)}</div>
+                                <div>عدد فواتير الملف: {row.fileCount.toLocaleString('ar-EG')}</div>
+                                <div>عدد فواتير القاعدة: {row.databaseCount.toLocaleString('ar-EG')}</div>
+                                <div>فرق القيمة: {formatCurrency(row.difference)}</div>
+                              </div>
+                            </div>
+                            <div className="flex h-40 items-end gap-1">
+                              {bars.map((bar) => (
+                                <div
+                                  key={bar.key}
+                                  className={`w-2.5 rounded-t ${bar.value > 0 ? bar.className : 'bg-white/10'}`}
+                                  style={{
+                                    height: bar.value > 0 ? Math.max(6, (bar.value / chartMaxTotal) * 160) : 2,
+                                  }}
+                                />
+                              ))}
+                            </div>
+                            <div className={`h-1.5 w-12 rounded-full ${chartBarColor(row.status)}`} />
+                            <div className="h-8 text-center text-[11px] font-bold text-slate-300">
+                              {index % chartTickStep === 0 || index === visibleDaySalesChartRows.length - 1
+                                ? row.label
+                                : ''}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {!showEmptyChartDays && hiddenEmptyChartDaysCount > 0 && (
+                  <div className="mt-3 rounded-lg border border-sky-300/20 bg-sky-400/10 px-3 py-2 text-xs text-sky-100">
+                    تم إخفاء الأيام الفارغة من الرسم لتوضيح الاتجاه. يمكن إظهارها من خيار إظهار الأيام الفارغة.
+                  </div>
+                )}
               </div>
               <div className="overflow-x-auto">
                 <table className="data-table">
