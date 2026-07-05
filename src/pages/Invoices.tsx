@@ -276,10 +276,13 @@ function importCompletion(summary: ImportSummary) {
   const missingDays = summary.dayDatabaseComparison?.some(
     (row) => row.status === 'missing_in_database'
   );
+  const savedButNotFound = summary.rowSaveTrace?.some(
+    (row) => row.finalStatus === 'saved_but_not_found_after_verification'
+  );
   const hasDifferences = summary.dayDatabaseComparison?.some(
     (row) => row.status === 'partial' || Math.abs(row.difference) >= 0.01 || row.countDifference !== 0
   );
-  if (missingDays) {
+  if (missingDays || savedButNotFound) {
     return {
       label: 'غير مكتمل',
       tone: 'border-red-300/35 bg-red-400/10 text-red-50',
@@ -329,6 +332,10 @@ function downloadImportReviewCsv(summary: ImportSummary) {
       save_error: row.saveError || '',
       original_skip_reason: row.skipReason || '',
       post_import_status: row.postImportStatus || '',
+      matched_existing_id: row.matchedExistingId || '',
+      matched_existing_invoice_date: row.matchedExistingInvoiceDate || '',
+      matched_existing_branch: row.matchedExistingBranch || '',
+      post_save_found: row.postSaveFound ? 'true' : 'false',
     }))
     : [
     ...(summary.missingInvoicesSample || []).map((row) => ({
@@ -349,6 +356,10 @@ function downloadImportReviewCsv(summary: ImportSummary) {
       save_error: '',
       original_skip_reason: row.reason,
       post_import_status: '',
+      matched_existing_id: '',
+      matched_existing_invoice_date: '',
+      matched_existing_branch: '',
+      post_save_found: '',
     })),
     ...(summary.skippedRowsSample || []).slice(0, 500).map((row) => ({
       invoice_number: row.invoiceNumber,
@@ -368,6 +379,10 @@ function downloadImportReviewCsv(summary: ImportSummary) {
       save_error: '',
       original_skip_reason: row.reason,
       post_import_status: '',
+      matched_existing_id: '',
+      matched_existing_invoice_date: '',
+      matched_existing_branch: '',
+      post_save_found: '',
     })),
     ...(summary.savedRowsSample || []).slice(0, 500).map((row) => ({
       invoice_number: row.invoiceNumber,
@@ -387,6 +402,10 @@ function downloadImportReviewCsv(summary: ImportSummary) {
       save_error: '',
       original_skip_reason: '',
       post_import_status: '',
+      matched_existing_id: '',
+      matched_existing_invoice_date: '',
+      matched_existing_branch: '',
+      post_save_found: '',
     })),
   ];
 
@@ -408,6 +427,10 @@ function downloadImportReviewCsv(summary: ImportSummary) {
     'save_error',
     'original_skip_reason',
     'post_import_status',
+    'matched_existing_id',
+    'matched_existing_invoice_date',
+    'matched_existing_branch',
+    'post_save_found',
   ];
 
   const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
@@ -2176,6 +2199,43 @@ export default function Invoices() {
                       تم عرض أول 6 batches فقط. التقرير CSV يحتوي تفاصيل الصفوف.
                     </div>
                   )}
+                </div>
+              )}
+              {(importSummary.postSaveVerificationRows || []).length > 0 && (
+                <div className="mt-3 overflow-x-auto">
+                  <div className="mb-2 text-xs font-bold text-fuchsia-100/80">
+                    أول 20 صف من تشخيص المطابقة بعد الحفظ
+                  </div>
+                  <table className="data-table text-xs">
+                    <thead>
+                      <tr>
+                        <th>invoice_number</th>
+                        <th>branch</th>
+                        <th>invoice_date</th>
+                        <th>actual_action</th>
+                        <th>matched_existing_id</th>
+                        <th>matched_existing_invoice_date</th>
+                        <th>matched_existing_branch</th>
+                        <th>post_save_found</th>
+                        <th>post_import_status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(importSummary.postSaveVerificationRows || []).map((row, index) => (
+                        <tr key={`${row.invoice_number}-${row.invoice_date}-${row.branch}-${index}`}>
+                          <td>{row.invoice_number}</td>
+                          <td>{row.branch}</td>
+                          <td>{row.invoice_date}</td>
+                          <td>{row.actual_action}</td>
+                          <td>{row.matched_existing_id || '-'}</td>
+                          <td>{row.matched_existing_invoice_date || '-'}</td>
+                          <td>{row.matched_existing_branch || '-'}</td>
+                          <td>{row.post_save_found ? 'true' : 'false'}</td>
+                          <td>{row.post_import_status || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

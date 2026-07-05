@@ -11,6 +11,7 @@ let mockInsertImplementation: ((rows: any[]) => Promise<{ data: any[] | null; er
 let currentTable = '';
 let lastSelect = '';
 let lastInsertPayload = [];
+let lastSalesInvoiceInsertPayload = [];
 let lastUpdatePayload = null;
 let isUpdateChain = false;
 
@@ -51,6 +52,7 @@ const chain = {
   insert: async (rows) => {
     lastInsertPayload = rows;
     if (currentTable === 'sales_invoices') {
+      lastSalesInvoiceInsertPayload = rows;
       if (mockInsertImplementation) return mockInsertImplementation(rows);
       return { data: rows, error: null };
     }
@@ -123,6 +125,7 @@ beforeEach(() => {
   currentTable = '';
   lastSelect = '';
   lastInsertPayload = [];
+  lastSalesInvoiceInsertPayload = [];
   lastUpdatePayload = null;
   isUpdateChain = false;
 });
@@ -571,6 +574,107 @@ describe('loadDatabaseDayComparison', () => {
     expect(summary.rowsSavedSuccessfullyCount).toBe(1);
     expect(lastInsertPayload).toEqual([]);
     expect(lastUpdatePayload).toMatchObject({ invoice_number: 'IDEMP-1' });
+  });
+
+  it('inserts same invoice_number on a different date instead of updating the old row', async () => {
+    const row = makeInvoiceRow({ rowIndex: 1, invoiceNumber: 'SAME-NO', date: '2026-07-05', amount: 180 });
+    mockExistingInvoiceRows = [
+      {
+        id: 'old-date',
+        invoice_date: '2026-07-04',
+        invoice_number: 'SAME-NO',
+        invoice_no: 'SAME-NO',
+        branch: row.branch,
+        net_amount: 170,
+        amount: 170,
+      },
+    ];
+    mockDatabaseRows = [
+      ...mockExistingInvoiceRows,
+      {
+        invoice_date: '2026-07-05',
+        invoice_number: 'SAME-NO',
+        invoice_no: 'SAME-NO',
+        branch: row.branch,
+        net_amount: 180,
+        amount: 180,
+      },
+    ];
+
+    const summary = await importInvoicesToDB([row], 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'same-number-new-date');
+
+    expect(summary.insertedRows).toBe(1);
+    expect(summary.confirmedExistingInvoices || 0).toBe(0);
+    expect(lastUpdatePayload).toBeNull();
+    expect(lastSalesInvoiceInsertPayload[0]).toMatchObject({
+      invoice_number: 'SAME-NO',
+      invoice_date: '2026-07-05',
+      sale_date: '2026-07-05',
+      date: '2026-07-05',
+    });
+  });
+
+  it('inserts same invoice_number in a different branch instead of updating the old row', async () => {
+    const row = makeInvoiceRow({
+      rowIndex: 1,
+      invoiceNumber: 'SAME-BRANCH-NO',
+      date: '2026-07-05',
+      branch: 'shamy',
+      amount: 220,
+    });
+    mockExistingInvoiceRows = [
+      {
+        id: 'old-branch',
+        invoice_date: '2026-07-05',
+        invoice_number: 'SAME-BRANCH-NO',
+        invoice_no: 'SAME-BRANCH-NO',
+        branch: 'shokry',
+        net_amount: 220,
+        amount: 220,
+      },
+    ];
+    mockDatabaseRows = [
+      ...mockExistingInvoiceRows,
+      {
+        invoice_date: '2026-07-05',
+        invoice_number: 'SAME-BRANCH-NO',
+        invoice_no: 'SAME-BRANCH-NO',
+        branch: row.branch,
+        net_amount: 220,
+        amount: 220,
+      },
+    ];
+
+    const summary = await importInvoicesToDB([row], 'shamy', 'same-number-new-branch');
+
+    expect(summary.insertedRows).toBe(1);
+    expect(summary.confirmedExistingInvoices || 0).toBe(0);
+    expect(lastUpdatePayload).toBeNull();
+    expect(lastSalesInvoiceInsertPayload[0]).toMatchObject({
+      invoice_number: 'SAME-BRANCH-NO',
+      branch: 'shamy',
+      invoice_date: '2026-07-05',
+    });
+  });
+
+  it('marks saved rows that are not found by branch invoice_number and invoice_date after verification', async () => {
+    const rows = [makeInvoiceRow({ rowIndex: 1, invoiceNumber: 'GHOST-1', date: '2026-07-05', amount: 300 })];
+    mockDatabaseRows = [];
+
+    const summary = await importInvoicesToDB(rows, 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'ghost-save');
+
+    expect(summary.rowsSavedSuccessfullyCount).toBe(1);
+    expect(summary.rowSaveTrace?.[0]).toMatchObject({
+      invoice_number: 'GHOST-1',
+      saveSucceeded: true,
+      postSaveFound: false,
+      finalStatus: 'saved_but_not_found_after_verification',
+    });
+    expect(summary.postSaveVerificationRows?.[0]).toMatchObject({
+      invoice_number: 'GHOST-1',
+      post_save_found: false,
+      post_import_status: 'missing_day_in_database_after_import',
+    });
   });
 
   it('detects partial days when database has fewer invoices than the file', async () => {

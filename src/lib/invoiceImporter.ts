@@ -152,6 +152,17 @@ export interface ImportSummary {
   databaseTotalNet?: number;
   databaseByDay?: Array<{ date: string; count: number; total: number }>;
   databaseByBranch?: Array<{ branch: string; count: number; total: number }>;
+  postSaveVerificationRows?: Array<{
+    invoice_number: string;
+    branch: string;
+    invoice_date: string;
+    actual_action: string;
+    matched_existing_id?: string | null;
+    matched_existing_invoice_date?: string | null;
+    matched_existing_branch?: string | null;
+    post_save_found: boolean;
+    post_import_status?: string | null;
+  }>;
   databaseComparisonQuery?: {
     table: string;
     dateColumn: string;
@@ -227,6 +238,10 @@ export interface InvoiceSaveTrace {
   finalStatus: string;
   batchNumber?: number | null;
   postImportStatus?: string | null;
+  matchedExistingId?: string | null;
+  matchedExistingInvoiceDate?: string | null;
+  matchedExistingBranch?: string | null;
+  postSaveFound?: boolean;
 }
 
 export interface InvoiceSaveBatchReport {
@@ -676,6 +691,10 @@ function createInvoiceTrace(row: RawInvoiceRow, fallbackBranch: string): Invoice
     finalStatus: '',
     batchNumber: null,
     postImportStatus: null,
+    matchedExistingId: null,
+    matchedExistingInvoiceDate: null,
+    matchedExistingBranch: null,
+    postSaveFound: false,
   };
 }
 
@@ -741,6 +760,7 @@ export async function loadDatabaseDayComparison(
     databaseTotalNet: 0,
     databaseByDay: [] as Array<{ date: string; count: number; total: number }>,
     databaseByBranch: [] as Array<{ branch: string; count: number; total: number }>,
+    databaseInvoiceKeys: [] as string[],
     comparison: [] as NonNullable<ImportSummary['dayDatabaseComparison']>,
     databaseComparisonQuery: {
       table: 'sales_invoices',
@@ -785,16 +805,19 @@ export async function loadDatabaseDayComparison(
 
   const databaseDays = new Map<string, { date: string; count: number; total: number }>();
   const databaseBranches = new Map<string, { branch: string; count: number; total: number }>();
+  const databaseInvoiceKeys = new Set<string>();
   let databaseInvoicesCount = 0;
   let databaseTotalNet = 0;
   for (const row of (data || []) as Array<Record<string, unknown>>) {
     const date = getInvoiceDay(row);
     const amount = getCoreInvoiceAmount(row);
     const branch = getCoreInvoiceBranch(row);
-    if (!date || !getCoreInvoiceId(row)) continue;
+    const invoiceId = getCoreInvoiceId(row);
+    if (!date || !invoiceId) continue;
     databaseInvoicesCount += 1;
     databaseTotalNet += amount;
     addDailyTotal(databaseDays, date, amount);
+    databaseInvoiceKeys.add(invoiceDuplicateKey(String(invoiceId), branch, date));
     const currentBranch = databaseBranches.get(branch) || { branch, count: 0, total: 0 };
     currentBranch.count += 1;
     currentBranch.total += amount;
@@ -834,6 +857,7 @@ export async function loadDatabaseDayComparison(
     databaseTotalNet,
     databaseByDay: dailyMapToArray(databaseDays),
     databaseByBranch: [...databaseBranches.values()].sort((a, b) => b.total - a.total),
+    databaseInvoiceKeys: [...databaseInvoiceKeys],
     databaseComparisonQuery: {
       table: 'sales_invoices',
       dateColumn: 'invoice_date',
@@ -1875,6 +1899,7 @@ export async function importInvoicesToDB(
     databaseTotalNet: 0,
     databaseByDay: [],
     databaseByBranch: [],
+    postSaveVerificationRows: [],
     missingDaysInDatabase: [],
     missingInvoicesCount: 0,
     missingInvoicesSample: [],
@@ -1920,7 +1945,7 @@ export async function importInvoicesToDB(
 
   const existingInvoices: Array<Record<string, unknown>> = [];
   const existingSelect =
-    'id, branch, invoice_no, invoice_number, invoice_date, amount, net_amount, discounted_amount, gross_amount, customer_code, customer_name, customer_phone, seller_name, save_status, invoice_type';
+    'id, branch, invoice_no, invoice_number, invoice_date, sale_date, date, amount, net_amount, discounted_amount, gross_amount, customer_code, customer_name, customer_phone, seller_name, save_status, invoice_type';
 
   for (const numberChunk of chunkArray(invoiceNumbers, 500)) {
     const seenExistingIds = new Set(
@@ -2035,9 +2060,9 @@ export async function importInvoicesToDB(
 
     if (matches.length > 0) {
       const sameBranchAndDate = matches.find((existing) => {
-        const existingBranch = normalizeComparableBranch(existing.branch, branch);
+        const existingBranch = normalizeComparableBranch(getCoreInvoiceBranch(existing), branch);
         const incomingBranch = normalizeComparableBranch(rowBranch, branch);
-        return sameDateOnly(existing.invoice_date, row.date) && existingBranch === incomingBranch;
+        return sameDateOnly(getInvoiceDay(existing), row.date) && existingBranch === incomingBranch;
       });
 
       if (sameBranchAndDate) {
@@ -2075,6 +2100,7 @@ export async function importInvoicesToDB(
             row.customerLinkStatus === 'unmatched_customer' ? null : row.phone || null,
           invoice_date: row.date,
           sale_date: row.date,
+          date: row.date,
           invoice_datetime: row.invoiceDateTime,
           close_datetime: row.closeDateTime,
           analysis_datetime: row.analysisDateTime,
@@ -2121,6 +2147,9 @@ export async function importInvoicesToDB(
           markTrace(traceMap, traceKey(row), {
             intendedAction: 'update_existing',
             actualAction: 'queued_for_update',
+            matchedExistingId: existingId,
+            matchedExistingInvoiceDate: getInvoiceDay(sameBranchAndDate),
+            matchedExistingBranch: getCoreInvoiceBranch(sameBranchAndDate),
           });
           existingUpdateRecords.push({
             id: existingId,
@@ -2141,6 +2170,7 @@ export async function importInvoicesToDB(
         return false;
       }
 
+      /*
       needsReviewRows++;
       reviewNetSales += rawInvoiceNetValue(row);
       summary.conflictReviewRows = (summary.conflictReviewRows || 0) + 1;
@@ -2179,6 +2209,7 @@ export async function importInvoicesToDB(
         date: row.date,
       });
       return false;
+      */
     }
 
     if (!row.customerCode && !row.phone) {
@@ -2209,6 +2240,7 @@ export async function importInvoicesToDB(
     customer_phone: row.customerLinkStatus === 'unmatched_customer' ? null : row.phone || null,
     invoice_date: row.date,
     sale_date: row.date,
+    date: row.date,
     invoice_datetime: row.invoiceDateTime,
     close_datetime: row.closeDateTime,
     analysis_datetime: row.analysisDateTime,
@@ -2796,6 +2828,18 @@ export async function importInvoicesToDB(
   summary.databaseByBranch = databaseComparison.databaseByBranch;
   summary.dayDatabaseComparison = databaseComparison.comparison;
   summary.databaseComparisonQuery = databaseComparison.databaseComparisonQuery;
+  const verifiedInvoiceKeys = new Set(databaseComparison.databaseInvoiceKeys || []);
+  for (const trace of traceMap.values()) {
+    if (!trace.saveSucceeded) continue;
+    const verificationKey = invoiceDuplicateKey(trace.invoice_number, trace.branch, trace.parsed_date);
+    const postSaveFound = verifiedInvoiceKeys.has(verificationKey);
+    markTrace(traceMap, String(trace.rowNumber), {
+      postSaveFound,
+      postImportStatus: postSaveFound ? 'found_after_verification' : 'saved_but_not_found_after_verification',
+      finalStatus: postSaveFound ? trace.finalStatus || 'saved' : 'saved_but_not_found_after_verification',
+      skipReason: postSaveFound ? trace.skipReason : trace.skipReason || 'saved_but_not_found_after_verification',
+    });
+  }
   summary.missingDaysInDatabase = summary.dayDatabaseComparison
     .filter((row) => row.status === 'missing_in_database')
     .map((row) => ({ date: row.date, count: row.fileCount, total: row.fileTotal }));
@@ -2862,6 +2906,27 @@ export async function importInvoicesToDB(
     }
   }
   summary.rowSaveTrace = [...traceMap.values()].sort((a, b) => a.rowNumber - b.rowNumber);
+  const savedButNotFound = summary.rowSaveTrace.filter(
+    (row) => row.finalStatus === 'saved_but_not_found_after_verification'
+  );
+  if (savedButNotFound.length > 0) {
+    summary.schemaWarnings?.push('توجد فواتير أبلغت قاعدة البيانات أنها حُفظت لكن لم تظهر في التحقق بعد الحفظ.');
+  }
+  summary.postSaveVerificationRows = summary.rowSaveTrace
+    .filter((row) => row.saveAttempted || row.matchedExistingId || row.finalStatus === 'saved_but_not_found_after_verification')
+    .slice(0, 20)
+    .map((row) => ({
+      invoice_number: row.invoice_number,
+      branch: row.branch,
+      invoice_date: row.parsed_date,
+      actual_action: row.actualAction,
+      matched_existing_id: row.matchedExistingId || null,
+      matched_existing_invoice_date: row.matchedExistingInvoiceDate || null,
+      matched_existing_branch: row.matchedExistingBranch || null,
+      post_save_found: Boolean(row.postSaveFound),
+      post_import_status: row.postImportStatus || row.finalStatus,
+    }));
+  summary.missingInvoicesCount = (summary.missingInvoicesCount || 0) + savedButNotFound.length;
   summary.rowsSavedSuccessfullyCount = summary.rowSaveTrace.filter((row) => row.saveSucceeded).length;
   summary.rowsFailedToSaveCount = summary.rowSaveTrace.filter(
     (row) => row.saveAttempted && !row.saveSucceeded
