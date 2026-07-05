@@ -6,10 +6,13 @@ const mockSelect = vi.fn();
 const mockGte = vi.fn();
 const mockLt = vi.fn();
 let mockDatabaseRows = [];
+let mockExistingInvoiceRows = [];
+let mockInsertImplementation: ((rows: any[]) => Promise<{ data: any[] | null; error: { message: string } | null }>) | null = null;
 let currentTable = '';
 let lastSelect = '';
 let lastInsertPayload = [];
 let lastUpdatePayload = null;
+let isUpdateChain = false;
 
 const chain = {
   select(select) {
@@ -29,6 +32,10 @@ const chain = {
     return chain;
   },
   eq(_field, _value) {
+    if (isUpdateChain) {
+      isUpdateChain = false;
+      return Promise.resolve({ data: [], error: null });
+    }
     return chain;
   },
   order(_column: string, _options: { ascending: boolean }) {
@@ -37,20 +44,22 @@ const chain = {
   maybeSingle: async () => ({ data: null, error: null }),
   limit: async () => {
     if (currentTable === 'sales_invoices' && lastSelect.startsWith('id, branch, invoice_no')) {
-      return { data: [], error: null };
+      return { data: mockExistingInvoiceRows, error: null };
     }
     return { data: mockDatabaseRows, error: null };
   },
   insert: async (rows) => {
     lastInsertPayload = rows;
     if (currentTable === 'sales_invoices') {
+      if (mockInsertImplementation) return mockInsertImplementation(rows);
       return { data: rows, error: null };
     }
     return { data: null, error: null };
   },
-  update: async (row) => {
+  update: (row) => {
     lastUpdatePayload = row;
-    return { data: [], error: null };
+    isUpdateChain = true;
+    return chain;
   },
 };
 
@@ -62,6 +71,61 @@ vi.mock('@/lib/supabase', () => ({
     },
   },
 }));
+
+function makeInvoiceRow(overrides: Partial<any> = {}) {
+  const index = overrides.rowIndex ?? 1;
+  const date = overrides.date ?? '2026-07-03';
+  const amount = overrides.amount ?? 100;
+  return {
+    rowIndex: index,
+    invoiceNumber: overrides.invoiceNumber ?? `INV-${index}`,
+    customerCode: overrides.customerCode ?? `C${index}`,
+    name: overrides.name ?? `Customer ${index}`,
+    phone: overrides.phone ?? `0100000000${index}`,
+    amount,
+    grossAmount: overrides.grossAmount ?? amount,
+    discountedAmount: overrides.discountedAmount ?? amount,
+    netAmount: overrides.netAmount ?? amount,
+    discountAmount: null,
+    courierCash: null,
+    extraFees: null,
+    lineItemsCount: null,
+    date,
+    invoiceDateTime: `${date}T10:00:00.000Z`,
+    closeDateTime: null,
+    analysisDateTime: `${date}T10:00:00.000Z`,
+    branch: overrides.branch ?? 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ',
+    invoiceType: overrides.invoiceType ?? 'Ù…Ø¨ÙŠØ¹Ø§Øª',
+    seller: overrides.seller ?? 'Ø¯/ Ø³Ø§Ø±Ø©',
+    closeTime: null,
+    deliveryStaff: '',
+    specialty: '',
+    clinic: '',
+    deliveryAddress: '',
+    notes: '',
+    saveStatus: '',
+    deviceName: '',
+    customerLinkStatus: 'matched_by_file',
+    importValidationStatus: 'valid',
+    importWarning: null,
+    raw: {},
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  mockSelect.mockReset();
+  mockGte.mockReset();
+  mockLt.mockReset();
+  mockDatabaseRows = [];
+  mockExistingInvoiceRows = [];
+  mockInsertImplementation = null;
+  currentTable = '';
+  lastSelect = '';
+  lastInsertPayload = [];
+  lastUpdatePayload = null;
+  isUpdateChain = false;
+});
 
 describe('buildInvoiceDuplicateIdentity', () => {
   it('uses invoice number, branch and date to create a stable duplicate key', () => {
@@ -390,5 +454,149 @@ describe('loadDatabaseDayComparison', () => {
       'matched',
       'matched',
     ]);
+  });
+
+  it('splits timeout batches and keeps saving rows that can persist', async () => {
+    const rows = Array.from({ length: 30 }, (_, index) =>
+      makeInvoiceRow({
+        rowIndex: index + 1,
+        invoiceNumber: `TIMEOUT-${index + 1}`,
+        amount: 100,
+        date: index < 25 ? '2026-07-04' : '2026-07-05',
+      })
+    );
+    mockInsertImplementation = async (payload) => {
+      if (payload.length > 1) {
+        return { data: null, error: { message: 'canceling statement due to statement timeout' } };
+      }
+      if (payload[0]?.invoice_number === 'TIMEOUT-5') {
+        return { data: null, error: { message: 'canceling statement due to statement timeout' } };
+      }
+      return { data: payload, error: null };
+    };
+    mockDatabaseRows = rows
+      .filter((row) => row.invoiceNumber !== 'TIMEOUT-5')
+      .map((row) => ({
+        invoice_date: row.date,
+        invoice_number: row.invoiceNumber,
+        invoice_no: row.invoiceNumber,
+        branch: row.branch,
+        net_amount: row.netAmount,
+        amount: row.amount,
+      }));
+
+    const summary = await importInvoicesToDB(rows, 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'timeout-batch');
+
+    expect(summary.rowsPreparedForSaveCount).toBe(30);
+    expect(summary.rowsActuallySentToSupabaseCount).toBe(30);
+    expect(summary.rowsSavedSuccessfullyCount).toBe(29);
+    expect(summary.rowsFailedToSaveCount).toBe(1);
+    expect(summary.rowSaveTrace?.find((row) => row.invoice_number === 'TIMEOUT-5')).toMatchObject({
+      saveAttempted: true,
+      saveSucceeded: false,
+      finalStatus: 'supabase_insert_timeout',
+    });
+    expect(summary.saveBatchReports?.some((batch) => batch.batchError?.includes('split into single-row retries'))).toBe(true);
+  });
+
+  it('retries transient timeout errors and succeeds without marking rows failed', async () => {
+    const rows = [makeInvoiceRow({ rowIndex: 1, invoiceNumber: 'RETRY-1' }), makeInvoiceRow({ rowIndex: 2, invoiceNumber: 'RETRY-2' })];
+    let attempts = 0;
+    mockInsertImplementation = async (payload) => {
+      attempts += 1;
+      if (attempts === 1) {
+        return { data: null, error: { message: 'canceling statement due to statement timeout' } };
+      }
+      return { data: payload, error: null };
+    };
+    mockDatabaseRows = rows.map((row) => ({
+      invoice_date: row.date,
+      invoice_number: row.invoiceNumber,
+      invoice_no: row.invoiceNumber,
+      branch: row.branch,
+      net_amount: row.netAmount,
+      amount: row.amount,
+    }));
+
+    const summary = await importInvoicesToDB(rows, 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'retry-batch');
+
+    expect(attempts).toBeGreaterThanOrEqual(2);
+    expect(summary.rowsSavedSuccessfullyCount).toBe(2);
+    expect(summary.rowsFailedToSaveCount).toBe(0);
+    expect(summary.rowSaveTrace?.every((row) => row.finalStatus === 'saved')).toBe(true);
+  });
+
+  it('detects missing days after import verification', async () => {
+    const rows = [
+      makeInvoiceRow({ rowIndex: 1, invoiceNumber: 'MISS-4', date: '2026-07-04', amount: 100 }),
+      makeInvoiceRow({ rowIndex: 2, invoiceNumber: 'MISS-5', date: '2026-07-05', amount: 200 }),
+    ];
+    mockDatabaseRows = [
+      {
+        invoice_date: '2026-07-04',
+        invoice_number: 'MISS-4',
+        invoice_no: 'MISS-4',
+        branch: rows[0].branch,
+        net_amount: 100,
+        amount: 100,
+      },
+    ];
+
+    const summary = await importInvoicesToDB(rows, 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'missing-day-batch');
+
+    expect(summary.dayDatabaseComparison?.find((row) => row.date === '2026-07-04')?.status).toBe('matched');
+    expect(summary.dayDatabaseComparison?.find((row) => row.date === '2026-07-05')?.status).toBe('missing_in_database');
+    expect(summary.missingDaysInDatabase).toEqual([{ date: '2026-07-05', count: 1, total: 200 }]);
+  });
+
+  it('keeps re-import idempotent by updating existing same invoice/branch/date instead of inserting', async () => {
+    const rows = [makeInvoiceRow({ rowIndex: 1, invoiceNumber: 'IDEMP-1', date: '2026-07-04', amount: 150 })];
+    mockExistingInvoiceRows = [
+      {
+        id: 'existing-1',
+        invoice_date: '2026-07-04',
+        invoice_number: 'IDEMP-1',
+        invoice_no: 'IDEMP-1',
+        branch: rows[0].branch,
+        net_amount: 150,
+        amount: 150,
+      },
+    ];
+    mockDatabaseRows = mockExistingInvoiceRows;
+
+    const summary = await importInvoicesToDB(rows, 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'idempotent-batch');
+
+    expect(summary.insertedRows).toBe(0);
+    expect(summary.confirmedExistingInvoices).toBe(1);
+    expect(summary.rowsSavedSuccessfullyCount).toBe(1);
+    expect(lastInsertPayload).toEqual([]);
+    expect(lastUpdatePayload).toMatchObject({ invoice_number: 'IDEMP-1' });
+  });
+
+  it('detects partial days when database has fewer invoices than the file', async () => {
+    const rows = [
+      makeInvoiceRow({ rowIndex: 1, invoiceNumber: 'PART-1', date: '2026-07-03', amount: 100 }),
+      makeInvoiceRow({ rowIndex: 2, invoiceNumber: 'PART-2', date: '2026-07-03', amount: 200 }),
+    ];
+    mockDatabaseRows = [
+      {
+        invoice_date: '2026-07-03',
+        invoice_number: 'PART-1',
+        invoice_no: 'PART-1',
+        branch: rows[0].branch,
+        net_amount: 100,
+        amount: 100,
+      },
+    ];
+
+    const summary = await importInvoicesToDB(rows, 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'partial-day-batch');
+
+    expect(summary.dayDatabaseComparison?.[0]).toMatchObject({
+      date: '2026-07-03',
+      status: 'partial',
+      fileCount: 2,
+      databaseCount: 1,
+      countDifference: 1,
+    });
   });
 });

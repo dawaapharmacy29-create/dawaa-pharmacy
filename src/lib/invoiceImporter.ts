@@ -868,6 +868,36 @@ function friendlyImportError(message: string) {
   return message;
 }
 
+const DEFAULT_INVOICE_SAVE_BATCH_SIZE = 25;
+const MIN_INVOICE_SAVE_BATCH_SIZE = 1;
+const MAX_INVOICE_SAVE_RETRIES = 3;
+const SAVE_RETRY_BASE_DELAY_MS = 25;
+
+function isDuplicateSaveError(message?: string | null) {
+  const text = String(message || '').toLowerCase();
+  return text.includes('unique constraint') || text.includes('duplicate key') || text.includes('on conflict');
+}
+
+function isRetryableSaveError(message?: string | null) {
+  const text = String(message || '').toLowerCase();
+  return (
+    text.includes('statement timeout') ||
+    text.includes('canceling statement') ||
+    text.includes('network') ||
+    text.includes('fetch failed') ||
+    text.includes('failed to fetch') ||
+    text.includes('timeout') ||
+    text.includes('timed out') ||
+    text.includes('econnreset') ||
+    text.includes('etimedout')
+  );
+}
+
+function waitForRetry(attempt: number) {
+  const delay = SAVE_RETRY_BASE_DELAY_MS * 2 ** attempt;
+  return new Promise((resolve) => globalThis.setTimeout(resolve, delay));
+}
+
 function broadcastInvoiceImportRefresh() {
   if (typeof window === 'undefined') return;
   try {
@@ -884,6 +914,11 @@ async function insertRowsWithOptionalColumns(table: string, rows: Array<Record<s
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const { error } = await supabase.from(table).insert(nextRows);
     if (!error) return { error: null, removedColumns: [...removedColumns] };
+
+    if (isRetryableSaveError(error.message) && attempt < MAX_INVOICE_SAVE_RETRIES - 1) {
+      await waitForRetry(attempt);
+      continue;
+    }
 
     const missingColumn = schemaCacheMissingColumn(error.message);
     if (!missingColumn || removedColumns.has(missingColumn)) {
@@ -2218,7 +2253,7 @@ export async function importInvoicesToDB(
     existingUpdateRecords.reduce((sum, item) => sum + rawInvoiceNetValue(item.sourceRow), 0);
   summary.preparedForSaveByDay = dailyMapToArray(preparedByDay);
 
-  const chunkSize = 500;
+  const chunkSize = DEFAULT_INVOICE_SAVE_BATCH_SIZE;
   const totalWork = invoiceRecords.length + existingUpdateRecords.length + newRows.length;
   const optionalColumnsRemoved = new Set<string>();
   let insertBatchNumber = 0;
@@ -2249,20 +2284,19 @@ export async function importInvoicesToDB(
     removedColumns.forEach((column) => optionalColumnsRemoved.add(column));
     if (error) {
       batchReport.batchError = error.message;
-      const isDuplicateError =
-        error.message.includes('unique constraint') ||
-        error.message.includes('duplicate key') ||
-        error.message.includes('ON CONFLICT');
-      if (isDuplicateError && chunk.length > 1) {
+      const isDuplicateError = isDuplicateSaveError(error.message);
+      const shouldSplitBatch = (isDuplicateError || isRetryableSaveError(error.message)) && chunk.length > 1;
+      if (shouldSplitBatch) {
+        if (isRetryableSaveError(error.message)) {
+          batchReport.batchError = `${error.message}; split into single-row retries`;
+        }
         for (const record of chunk) {
           const single = await insertRowsWithOptionalColumns('sales_invoices', [record]);
           single.removedColumns.forEach((column) => optionalColumnsRemoved.add(column));
           if (single.error) {
             batchReport.batchFailedCount += 1;
-            const singleDuplicate =
-              single.error.message.includes('unique constraint') ||
-              single.error.message.includes('duplicate key') ||
-              single.error.message.includes('ON CONFLICT');
+            const singleDuplicate = isDuplicateSaveError(single.error.message);
+            const singleRetryable = isRetryableSaveError(single.error.message);
             if (singleDuplicate) {
               markTrace(traceMap, traceKeyFromRecord(record), {
                 saveSucceeded: false,
@@ -2291,9 +2325,9 @@ export async function importInvoicesToDB(
               markTrace(traceMap, traceKeyFromRecord(record), {
                 saveSucceeded: false,
                 saveError: single.error.message,
-                actualAction: 'supabase_insert_failed',
-                skipReason: 'supabase_insert_failed',
-                finalStatus: 'supabase_insert_failed',
+                actualAction: singleRetryable ? 'supabase_insert_timeout' : 'supabase_insert_failed',
+                skipReason: singleRetryable ? 'supabase_insert_timeout' : 'supabase_insert_failed',
+                finalStatus: singleRetryable ? 'supabase_insert_timeout' : 'supabase_insert_failed',
               });
               recordFailureSample(summary, record, branch, single.error.message);
               summary.errors.push({
@@ -2301,14 +2335,14 @@ export async function importInvoicesToDB(
                 field: 'sales_invoices',
                 message: friendlyImportError(single.error.message),
               });
-              addSkippedReason(skippedByReason, 'save_error', invoiceNetValue(record));
+              addSkippedReason(skippedByReason, singleRetryable ? 'supabase_insert_timeout' : 'save_error', invoiceNetValue(record));
               if (skippedRowsSample.length < 10) {
                 skippedRowsSample.push({
                   invoiceNumber: String(record.invoice_number || ''),
                   branch: String(record.branch || branch),
                   originalDate: String(record.invoice_date || '').slice(0, 10),
                   parsedDate: String(record.invoice_date || '').slice(0, 10),
-                  reason: 'save_error',
+                  reason: singleRetryable ? 'supabase_insert_timeout' : 'save_error',
                 });
               }
             }
@@ -2360,7 +2394,7 @@ export async function importInvoicesToDB(
       // Provide user-friendly error message
       const errorMsg = error.message.includes('out of range')
         ? 'خطأ في التاريخ أو الوقت في بعض الصفوف. تأكد من صحة التواريخ في ملف Excel.'
-        : error.message.includes('unique constraint') || error.message.includes('ON CONFLICT')
+        : isDuplicateSaveError(error.message)
           ? 'يوجد فواتير مكررة في قاعدة البيانات.'
           : friendlyImportError(error.message);
       summary.errors.push({
@@ -2372,12 +2406,12 @@ export async function importInvoicesToDB(
         markTrace(traceMap, traceKeyFromRecord(record), {
           saveSucceeded: false,
           saveError: error.message,
-          actualAction: 'supabase_insert_failed',
-          skipReason: 'supabase_insert_failed',
-          finalStatus: 'supabase_insert_failed',
+          actualAction: isRetryableSaveError(error.message) ? 'supabase_insert_timeout' : 'supabase_insert_failed',
+          skipReason: isRetryableSaveError(error.message) ? 'supabase_insert_timeout' : 'supabase_insert_failed',
+          finalStatus: isRetryableSaveError(error.message) ? 'supabase_insert_timeout' : 'supabase_insert_failed',
         });
         recordFailureSample(summary, record, branch, error.message);
-        addSkippedReason(skippedByReason, 'supabase_insert_failed', invoiceNetValue(record));
+        addSkippedReason(skippedByReason, isRetryableSaveError(error.message) ? 'supabase_insert_timeout' : 'supabase_insert_failed', invoiceNetValue(record));
       }
       batchReport.batchFailedCount = chunk.length;
     } else {

@@ -793,10 +793,16 @@ export default function Invoices() {
       setStep('done');
       setSummaryRefreshPhase('imported');
       if (importKind === 'sales') {
+        const preparedForSave = summary.rowsPreparedForSaveCount || 0;
+        const savedSuccessfully = summary.rowsSavedSuccessfullyCount || 0;
         const inserted = summary.insertedRows || 0;
         const confirmed = summary.confirmedExistingInvoices ?? summary.updatedInvoices ?? 0;
         const duplicates = summary.skippedDuplicates || 0;
-        if (inserted === 0 && confirmed === 0) {
+        if (preparedForSave > 0 && savedSuccessfully < preparedForSave) {
+          toast.warning(
+            `تم حفظ ${savedSuccessfully.toLocaleString('ar-EG')} من ${preparedForSave.toLocaleString('ar-EG')} فاتورة فقط. راجع تشخيص الحفظ وتقرير المراجعة.`
+          );
+        } else if (inserted === 0 && confirmed === 0) {
           if (duplicates > 0) {
             toast.info(`لا توجد فواتير جديدة. تم تجاهل ${duplicates} فاتورة مكررة.`);
           } else {
