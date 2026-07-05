@@ -22,7 +22,8 @@ export type DashboardCacheEntry = {
 export function saveDashboardCache(
   state: any,
   branch: string,
-  dateRange: { start: string; end: string }
+  dateRange: { start: string; end: string },
+  userRole?: string
 ): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
@@ -32,7 +33,8 @@ export function saveDashboardCache(
       branch,
       dateRange,
     };
-    sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(entry));
+    const key = `${DASHBOARD_CACHE_KEY}__${branch}__${dateRange.start}__${dateRange.end}__${userRole || ''}`;
+    sessionStorage.setItem(key, JSON.stringify(entry));
   } catch (error) {
     console.debug('[Dashboard Cache] Failed to save cache:', error);
   }
@@ -40,24 +42,21 @@ export function saveDashboardCache(
 
 export function loadDashboardCache(
   branch: string,
-  dateRange: { start: string; end: string }
+  dateRange: { start: string; end: string },
+  userRole?: string
 ): any | null {
   if (typeof sessionStorage === 'undefined') return null;
   try {
-    const cached = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+    const key = `${DASHBOARD_CACHE_KEY}__${branch}__${dateRange.start}__${dateRange.end}__${userRole || ''}`;
+    const cached = sessionStorage.getItem(key);
     if (!cached) return null;
 
     const entry: DashboardCacheEntry = JSON.parse(cached);
 
-    // Verify cache is for the same branch and date range
-    if (entry.branch !== branch || entry.dateRange.start !== dateRange.start || entry.dateRange.end !== dateRange.end) {
-      return null;
-    }
-
     // Check if cache is still fresh
     const age = Date.now() - entry.timestamp;
     if (age > DASHBOARD_CACHE_STALE_TIME) {
-      sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+      sessionStorage.removeItem(key);
       return null;
     }
 
@@ -71,7 +70,11 @@ export function loadDashboardCache(
 export function clearDashboardCache(): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
-    sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+    // remove any keys that belong to dashboard cache namespace
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith(DASHBOARD_CACHE_KEY)) sessionStorage.removeItem(key);
+    }
   } catch (error) {
     console.debug('[Dashboard Cache] Failed to clear cache:', error);
   }
@@ -80,10 +83,19 @@ export function clearDashboardCache(): void {
 export function getDashboardCacheTimestamp(): Date | null {
   if (typeof sessionStorage === 'undefined') return null;
   try {
-    const cached = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
-    if (!cached) return null;
-    const entry: DashboardCacheEntry = JSON.parse(cached);
-    return new Date(entry.timestamp);
+    // find latest dashboard cache entry for this namespace
+    let latest: number | null = null;
+    for (let i = 0; i < sessionStorage.length; i += 1) {
+      const key = sessionStorage.key(i) || '';
+      if (!key.startsWith(DASHBOARD_CACHE_KEY)) continue;
+      try {
+        const entry: DashboardCacheEntry = JSON.parse(sessionStorage.getItem(key) || '{}');
+        if (entry && entry.timestamp && (latest === null || entry.timestamp > latest)) latest = entry.timestamp;
+      } catch (e) {
+        // ignore malformed
+      }
+    }
+    return latest ? new Date(latest) : null;
   } catch (error) {
     return null;
   }

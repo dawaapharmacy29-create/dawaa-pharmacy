@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { countStaffAccountsWithoutStaffSafe } from '@/lib/staff/staffAccountsApi';
 
 export type DataHealthIssue = {
   key: string;
@@ -64,6 +65,13 @@ function severityForCount(count: number | null, dangerAt = 100) {
 }
 
 export async function loadAppDataHealthSummary() {
+  const staffAccountsWithoutStaffPromise = countStaffAccountsWithoutStaffSafe()
+    .then((count) => ({ count, error: null as string | null }))
+    .catch((error) => ({
+      count: null,
+      error: error instanceof Error ? error.message : 'تعذر تحميل مصدر الحسابات',
+    }));
+
   const [
     invoicesWithoutCustomer,
     invoicesWithoutDoctor,
@@ -95,13 +103,12 @@ export async function loadAppDataHealthSummary() {
     ),
     safeCount('customers', (query) => query.or('branch.is.null,branch.eq.')),
     safeCount('customers', (query) => query.or('phone.is.null,phone.eq.')),
-    safeCount('staff_accounts', (query) => query.is('staff_id', null)),
+    staffAccountsWithoutStaffPromise,
     safeCount('conversation_sales_reviews', (query) => query.is('points_transaction_id', null)),
     ...[
       'customers',
       'sales_invoices',
       'staff',
-      'staff_accounts',
       'daily_followups',
       'conversation_sales_reviews',
       'employee_transactions',
@@ -115,7 +122,6 @@ export async function loadAppDataHealthSummary() {
     'customers',
     'sales_invoices',
     'staff',
-    'staff_accounts',
     'daily_followups',
     'conversation_sales_reviews',
     'employee_transactions',

@@ -113,11 +113,11 @@ export async function updateStaff(id: string, payload: Partial<StaffPayload>) {
 }
 
 export async function createStaffAccount(payload: StaffAccountPayload) {
-  return insertFlexible(TABLES.staffAccounts, payload as unknown as Record<string, unknown>);
+  return insertFlexibleNoSelect(TABLES.staffAccounts, payload as unknown as Record<string, unknown>);
 }
 
 export async function updateStaffAccount(id: string, payload: Partial<StaffAccountPayload>) {
-  return updateFlexible(TABLES.staffAccounts, id, payload as unknown as Record<string, unknown>);
+  return updateFlexibleNoSelect(TABLES.staffAccounts, id, payload as unknown as Record<string, unknown>);
 }
 
 export async function updateStaffAccountByStaffId(
@@ -134,6 +134,40 @@ export async function updateStaffAccountByStaffId(
     delete next[column];
   }
   const result = await supabase.from(TABLES.staffAccounts).update(next).eq('staff_id', staffId);
+  if (result.error) logSaveStaffError(result.error);
+  return result;
+}
+
+async function insertFlexibleNoSelect<T extends Record<string, unknown>>(table: string, payload: T) {
+  const next: Record<string, unknown> = { ...payload };
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const result = await supabase.from(table).insert(next);
+    if (!result.error) return result;
+    logSaveStaffError(result.error);
+    const column = missingColumn(result.error.message);
+    if (!column || !(column in next)) return result;
+    delete next[column];
+  }
+  const result = await supabase.from(table).insert(next);
+  if (result.error) logSaveStaffError(result.error);
+  return result;
+}
+
+async function updateFlexibleNoSelect<T extends Record<string, unknown>>(
+  table: string,
+  id: string,
+  payload: T
+) {
+  const next: Record<string, unknown> = { ...payload };
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const result = await supabase.from(table).update(next).eq('id', id);
+    if (!result.error) return result;
+    logSaveStaffError(result.error);
+    const column = missingColumn(result.error.message);
+    if (!column || !(column in next)) return result;
+    delete next[column];
+  }
+  const result = await supabase.from(table).update(next).eq('id', id);
   if (result.error) logSaveStaffError(result.error);
   return result;
 }

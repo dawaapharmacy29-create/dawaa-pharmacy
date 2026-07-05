@@ -3,9 +3,11 @@ import { ShieldCheck, RefreshCw, UserRound, Save, ChevronDown, ChevronUp, Shield
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { TABLES } from '@/lib/supabaseTables';
+import { listStaffAccountsSafe, type SafeStaffAccountRow } from '@/lib/staff/staffAccountsApi';
 import { upsertUserPermission } from '@/services/permissionService';
 import {
   ROLES,
@@ -21,16 +23,6 @@ import {
 } from '@/lib/core/permissionSystem';
 import { logActivity } from '@/lib/activityLog';
 
-interface StaffAccount {
-  id: string;
-  name: string;
-  username: string;
-  role: string;
-  branch: string;
-  status?: string;
-  permissions?: Record<string, boolean> | null;
-}
-
 interface StaffMember {
   id: string;
   name: string;
@@ -41,6 +33,7 @@ interface StaffMember {
 
 export default function RolesPermissions() {
   const { user: currentUser, checkPermission } = useAuth();
+  const queryClient = useQueryClient();
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [pendingChanges, setPendingChanges] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
@@ -52,10 +45,13 @@ export default function RolesPermissions() {
   const canView =
     checkPermission('view_roles_permissions') || checkPermission('view_staff_accounts') || canEdit;
 
-  const { data: staffAccounts, refetch: refetchAccounts } = useSupabaseQuery<StaffAccount>({
-    table: TABLES.staffAccounts,
-    orderBy: { column: 'name', ascending: true },
+  const { data: staffAccounts = [] } = useQuery<SafeStaffAccountRow[], Error>({
+    queryKey: ['staff-accounts-safe'],
+    queryFn: listStaffAccountsSafe,
+    enabled: canView,
+    staleTime: 60_000,
   });
+  const refetchAccounts = () => queryClient.invalidateQueries({ queryKey: ['staff-accounts-safe'] });
 
   const { data: staffList } = useSupabaseQuery<StaffMember>({
     table: TABLES.staff,
@@ -71,7 +67,7 @@ export default function RolesPermissions() {
   // Effective permissions = role defaults + custom overrides + pending changes
   const effectivePermissions = useMemo(() => {
     if (!selectedAccount) return {};
-    const roleDefaults = getDefaultPermissionsForRole(selectedAccount.role);
+    const roleDefaults = getDefaultPermissionsForRole(selectedAccount.role || 'assistant');
     return mergePermissions(roleDefaults, selectedAccount.permissions || {}, pendingChanges);
   }, [selectedAccount, pendingChanges]);
 
@@ -82,7 +78,7 @@ export default function RolesPermissions() {
 
   const suggestedRolePermissions = useMemo(() => {
     if (!selectedAccount) return {};
-    return getDefaultPermissionsForRole(selectedAccount.role);
+    return getDefaultPermissionsForRole(selectedAccount.role || 'assistant');
   }, [selectedAccount]);
 
   const roleComparison = useMemo(() => {

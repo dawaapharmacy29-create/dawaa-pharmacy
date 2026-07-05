@@ -315,4 +315,80 @@ describe('loadDatabaseDayComparison', () => {
     expect(summary.savedRowsSample?.length).toBeGreaterThanOrEqual(2);
     expect(summary.skippedRowsSample?.length).toBe(0);
   });
+
+  it('tracks prepared, sent and saved invoices across Egyptian, ISO and Excel date inputs', async () => {
+    const specs = [
+      { invoiceNumber: 'JUL-2', rawDate: '02/07/2026', amount: 100 },
+      { invoiceNumber: 'JUL-3', rawDate: '03/07/2026', amount: 200 },
+      { invoiceNumber: 'ISO-4', rawDate: '2026-07-04', amount: 300 },
+      { invoiceNumber: 'XLS-2', rawDate: 46205, amount: 400 },
+    ];
+    const rows = specs.map((spec, index) => {
+      const date = parseInvoiceDate(spec.rawDate)!;
+      return {
+        rowIndex: index + 1,
+        invoiceNumber: spec.invoiceNumber,
+        customerCode: `C${index + 1}`,
+        name: `Customer ${index + 1}`,
+        phone: `0100000000${index + 1}`,
+        amount: spec.amount,
+        grossAmount: spec.amount,
+        discountedAmount: spec.amount,
+        netAmount: spec.amount,
+        discountAmount: null,
+        courierCash: null,
+        extraFees: null,
+        lineItemsCount: null,
+        date,
+        invoiceDateTime: `${date}T10:00:00.000Z`,
+        closeDateTime: null,
+        analysisDateTime: `${date}T10:00:00.000Z`,
+        branch: 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ',
+        invoiceType: 'Ù…Ø¨ÙŠØ¹Ø§Øª',
+        seller: 'Ø¯/ Ø³Ø§Ø±Ø©',
+        closeTime: null,
+        deliveryStaff: '',
+        specialty: '',
+        clinic: '',
+        deliveryAddress: '',
+        notes: '',
+        saveStatus: '',
+        deviceName: '',
+        customerLinkStatus: 'matched_by_file',
+        importValidationStatus: 'valid',
+        importWarning: null,
+        raw: { rawDate: spec.rawDate },
+      };
+    });
+
+    mockDatabaseRows = rows.map((row) => ({
+      invoice_date: row.date,
+      invoice_number: row.invoiceNumber,
+      invoice_no: row.invoiceNumber,
+      branch: row.branch,
+      net_amount: row.netAmount,
+      amount: row.amount,
+      discounted_amount: row.discountedAmount,
+      gross_amount: row.grossAmount,
+    }));
+
+    const summary = await importInvoicesToDB(rows, 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'multi-day-batch');
+
+    expect(summary.parsedRowsByDate).toEqual([
+      { date: '2026-07-02', count: 2, total: 500 },
+      { date: '2026-07-03', count: 1, total: 200 },
+      { date: '2026-07-04', count: 1, total: 300 },
+    ]);
+    expect(summary.rowsPreparedForSaveCount).toBe(4);
+    expect(summary.rowsActuallySentToSupabaseCount).toBe(4);
+    expect(summary.rowsSavedSuccessfullyCount).toBe(4);
+    expect(summary.rowsFailedToSaveCount).toBe(0);
+    expect(summary.rowsSaveNotAttemptedCount).toBe(0);
+    expect(summary.rowSaveTrace?.every((row) => row.finalStatus === 'saved')).toBe(true);
+    expect(summary.dayDatabaseComparison?.map((row) => row.status)).toEqual([
+      'matched',
+      'matched',
+      'matched',
+    ]);
+  });
 });

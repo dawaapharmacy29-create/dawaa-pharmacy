@@ -5,6 +5,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
+import { resolveStaffAccountSafe } from '@/lib/staff/staffAccountsApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -228,38 +229,21 @@ async function fetchAccount(identifier: string) {
   const value = normalizeLooseIdentifier(identifier);
   if (!value) return null;
 
+  const accounts = await resolveStaffAccountSafe(value);
   if (isUuid(value)) {
-    const { data: byAccountId } = await supabase
-      .from('staff_accounts')
-      .select('id,staff_id,username,name,staff_name,role,branch,active,can_login')
-      .eq('id', value)
-      .maybeSingle();
+    const byAccountId = accounts.find((account) => account.id === value);
     if (byAccountId) return byAccountId as CanonicalStaffResolution['account'];
 
-    const { data: byStaffId } = await supabase
-      .from('staff_accounts')
-      .select('id,staff_id,username,name,staff_name,role,branch,active,can_login')
-      .eq('staff_id', value)
-      .eq('active', true)
-      .limit(1);
-    if (byStaffId?.[0]) return byStaffId[0] as CanonicalStaffResolution['account'];
+    const byStaffId = accounts.find((account) => account.staff_id === value && account.active !== false);
+    if (byStaffId) return byStaffId as CanonicalStaffResolution['account'];
   }
 
-  const { data: byUsername } = await supabase
-    .from('staff_accounts')
-    .select('id,staff_id,username,name,staff_name,role,branch,active,can_login')
-    .eq('username', value)
-    .limit(1);
-  if (byUsername?.[0]) return byUsername[0] as CanonicalStaffResolution['account'];
+  const byUsername = accounts.find((account) => account.username === value);
+  if (byUsername) return byUsername as CanonicalStaffResolution['account'];
 
   const normalized = normalizeStaffName(value);
-  const { data: accounts } = await supabase
-    .from('staff_accounts')
-    .select('id,staff_id,username,name,staff_name,role,branch,active,can_login')
-    .eq('active', true)
-    .limit(500);
   return (
-    ((accounts || []) as Array<NonNullable<CanonicalStaffResolution['account']>>).find(
+    (accounts as Array<NonNullable<CanonicalStaffResolution['account']>>).find(
       (account) => normalizeStaffName(accountName(account)) === normalized
     ) || null
   );

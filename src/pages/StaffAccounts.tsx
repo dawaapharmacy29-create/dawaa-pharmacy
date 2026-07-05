@@ -8,8 +8,6 @@ import {
   ShieldCheck,
   UserPlus,
   Edit2,
-  Eye,
-  EyeOff,
   Search,
   ChevronDown,
   ChevronUp,
@@ -24,6 +22,7 @@ import { TABLES } from '@/lib/supabaseTables';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { logActivity } from '@/lib/activityLog';
 import { Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BRANCHES } from '@/lib/constants';
 import { useAuth, getCurrentUserProfile, getSafeCurrentUserId } from '@/hooks/useAuth';
 import {
@@ -39,6 +38,7 @@ import {
 } from '@/lib/core/permissionSystem';
 import { getPresetForRole } from '@/lib/rolePermissionPresets';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
+import { listStaffAccountsSafe } from '@/lib/staff/staffAccountsApi';
 
 interface StaffRow {
   id: string;
@@ -56,7 +56,6 @@ interface StaffAccountRow {
   id: string;
   staff_id?: string | null;
   username?: string | null;
-  temporary_password?: string | null;
   password_status?: string | null;
   name?: string | null;
   staff_name?: string | null;
@@ -251,18 +250,17 @@ function permissionDiff(
 // ─── Component ────────────────────────────────────────────────
 export default function StaffAccounts() {
   const { user, canManage, checkPermission } = useAuth();
+  const queryClient = useQueryClient();
   const currentUserId = getSafeCurrentUserId();
   const currentRole = normalizeRole(user?.role);
 
   const canViewAccounts = checkPermission('view_staff_accounts') || canManage;
   const canCreateAccount = checkPermission('manage_staff_accounts') || canManage;
   const canEditAccount = checkPermission('manage_staff_accounts') || canManage;
-  const canRevealPasswords = isAdminRole(currentRole) || checkPermission('manage_staff_accounts');
   const canEditPerms = checkPermission('manage_permissions') || canManage;
 
   const [accountSearch, setAccountSearch] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
   const [editingUsername, setEditingUsername] = useState<string | null>(null);
   const [newUsername, setNewUsername] = useState('');
   const [editingPassword, setEditingPassword] = useState<string | null>(null);
@@ -287,15 +285,18 @@ export default function StaffAccounts() {
   });
 
   const {
-    data: staffAccounts,
-    loading: accountLoading,
-    error: accountError,
-    refetch: refetchAccounts,
-  } = useSupabaseQuery<StaffAccountRow>({
-    table: TABLES.staffAccounts,
-    orderBy: { column: 'name', ascending: true },
+    data: staffAccounts = [],
+    isLoading: accountLoading,
+    error: accountQueryError,
+  } = useQuery<StaffAccountRow[], Error>({
+    queryKey: ['staff-accounts-safe'],
+    queryFn: listStaffAccountsSafe,
+    enabled: canViewAccounts,
+    staleTime: 60_000,
   });
 
+  const accountError = accountQueryError?.message || null;
+  const refetchAccounts = () => queryClient.invalidateQueries({ queryKey: ['staff-accounts-safe'] });
   const refresh = () => refetchAccounts();
 
   // Match staff rows with their accounts
@@ -935,7 +936,7 @@ export default function StaffAccounts() {
                     {/* Password */}
                     <div className="rounded-xl border border-[#2d4063] bg-[#101d33] p-3">
                       <div className="mb-1 text-xs text-slate-400">كلمة المرور</div>
-                      {account && canRevealPasswords ? (
+                      {account && canEditAccount ? (
                         editingPassword === account.id ? (
                           <div className="flex gap-2">
                             <input
@@ -963,25 +964,14 @@ export default function StaffAccounts() {
                           </div>
                         ) : (
                           <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm text-slate-300">
-                              {showPassword[account.id]
-                                ? account.temporary_password || '—'
-                                : '••••••••'}
-                            </span>
-                            <button
-                              onClick={() =>
-                                setShowPassword((p) => ({ ...p, [account.id]: !p[account.id] }))
-                              }
-                              className="text-slate-400 transition hover:text-white"
-                            >
-                              {showPassword[account.id] ? <EyeOff size={14} /> : <Eye size={14} />}
-                            </button>
+                            <span className="font-mono text-sm text-slate-300">••••••••</span>
                             <button
                               onClick={() => {
                                 setEditingPassword(account.id);
-                                setNewPassword(account.temporary_password || '');
+                                setNewPassword('');
                               }}
                               className="text-slate-400 transition hover:text-white"
+                              title="تعيين كلمة مرور جديدة"
                             >
                               <Edit2 size={14} />
                             </button>

@@ -216,9 +216,31 @@ function downloadImportReviewCsv(summary: ImportSummary) {
     return acc;
   }, {});
 
-  const rows = [
+  const traceRows = summary.rowSaveTrace || [];
+  const rows = traceRows.length > 0
+    ? traceRows.map((row) => ({
+      invoice_number: row.invoice_number,
+      row_number: row.rowNumber,
+      date: row.parsed_date,
+      branch: row.branch,
+      invoice_date: row.parsed_date,
+      amount: row.amount,
+      status: row.finalStatus,
+      reason: row.skipReason || row.saveError || row.finalStatus,
+      duplicate_key: '',
+      validation_status: row.validationStatus,
+      intended_action: row.intendedAction,
+      actual_action: row.actualAction,
+      save_attempted: row.saveAttempted ? 'true' : 'false',
+      save_succeeded: row.saveSucceeded ? 'true' : 'false',
+      save_error: row.saveError || '',
+      original_skip_reason: row.skipReason || '',
+      post_import_status: row.postImportStatus || '',
+    }))
+    : [
     ...(summary.missingInvoicesSample || []).map((row) => ({
       invoice_number: row.invoiceNumber,
+      row_number: '',
       date: row.date,
       branch: row.branch,
       invoice_date: '',
@@ -226,9 +248,18 @@ function downloadImportReviewCsv(summary: ImportSummary) {
       status: 'missing_or_conflict',
       reason: row.reason,
       duplicate_key: '',
+      validation_status: '',
+      intended_action: '',
+      actual_action: '',
+      save_attempted: '',
+      save_succeeded: '',
+      save_error: '',
+      original_skip_reason: row.reason,
+      post_import_status: '',
     })),
     ...(summary.skippedRowsSample || []).slice(0, 500).map((row) => ({
       invoice_number: row.invoiceNumber,
+      row_number: '',
       date: row.originalDate,
       branch: row.branch,
       invoice_date: row.parsedDate,
@@ -236,9 +267,18 @@ function downloadImportReviewCsv(summary: ImportSummary) {
       status: 'skipped',
       reason: row.reason,
       duplicate_key: '',
+      validation_status: '',
+      intended_action: '',
+      actual_action: 'skipped_before_save',
+      save_attempted: 'false',
+      save_succeeded: 'false',
+      save_error: '',
+      original_skip_reason: row.reason,
+      post_import_status: '',
     })),
     ...(summary.savedRowsSample || []).slice(0, 500).map((row) => ({
       invoice_number: row.invoiceNumber,
+      row_number: '',
       date: row.originalDate,
       branch: row.branch,
       invoice_date: row.invoiceDate,
@@ -246,11 +286,20 @@ function downloadImportReviewCsv(summary: ImportSummary) {
       status: 'saved',
       reason: 'saved',
       duplicate_key: row.duplicateKey,
+      validation_status: '',
+      intended_action: '',
+      actual_action: 'saved',
+      save_attempted: 'true',
+      save_succeeded: 'true',
+      save_error: '',
+      original_skip_reason: '',
+      post_import_status: '',
     })),
   ];
 
   const headers = [
     'invoice_number',
+    'row_number',
     'date',
     'branch',
     'invoice_date',
@@ -258,6 +307,14 @@ function downloadImportReviewCsv(summary: ImportSummary) {
     'status',
     'reason',
     'duplicate_key',
+    'validation_status',
+    'intended_action',
+    'actual_action',
+    'save_attempted',
+    'save_succeeded',
+    'save_error',
+    'original_skip_reason',
+    'post_import_status',
   ];
 
   const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
@@ -283,6 +340,11 @@ function downloadImportReviewCsv(summary: ImportSummary) {
     ['DB_STATE', 'missingDays', String(statusCounts.missing_in_database || 0)],
     ['DB_STATE', 'partialDays', String(statusCounts.partial || 0)],
     ['DB_STATE', 'extraDays', String(statusCounts.extra_in_database || 0)],
+    ['SAVE_DIAG', 'rowsPreparedForSaveCount', String(summary.rowsPreparedForSaveCount || 0)],
+    ['SAVE_DIAG', 'rowsActuallySentToSupabaseCount', String(summary.rowsActuallySentToSupabaseCount || 0)],
+    ['SAVE_DIAG', 'rowsSavedSuccessfullyCount', String(summary.rowsSavedSuccessfullyCount || 0)],
+    ['SAVE_DIAG', 'rowsFailedToSaveCount', String(summary.rowsFailedToSaveCount || 0)],
+    ['SAVE_DIAG', 'rowsSaveNotAttemptedCount', String(summary.rowsSaveNotAttemptedCount || 0)],
   ];
 
   const databaseByDayLines = [
@@ -1902,6 +1964,82 @@ export default function Invoices() {
               >
                 تحميل تقرير المراجعة CSV
               </button>
+            </div>
+          )}
+          {importKind === 'sales' && (
+            <div className="rounded-xl border border-fuchsia-300/25 bg-fuchsia-400/10 p-4 text-fuchsia-50">
+              <div className="text-xs font-bold uppercase tracking-wide text-fuchsia-100/80">
+                تشخيص الحفظ
+              </div>
+              <div className="mt-3 grid gap-2 text-sm md:grid-cols-5">
+                <span>تم تجهيز: {(importSummary.rowsPreparedForSaveCount || 0).toLocaleString('ar-EG')}</span>
+                <span>تم إرسال: {(importSummary.rowsActuallySentToSupabaseCount || 0).toLocaleString('ar-EG')}</span>
+                <span>تم حفظه: {(importSummary.rowsSavedSuccessfullyCount || 0).toLocaleString('ar-EG')}</span>
+                <span>فشل حفظه: {(importSummary.rowsFailedToSaveCount || 0).toLocaleString('ar-EG')}</span>
+                <span>لم يتم محاولة حفظه: {(importSummary.rowsSaveNotAttemptedCount || 0).toLocaleString('ar-EG')}</span>
+              </div>
+              <div className="mt-2 text-sm text-fuchsia-50/85">
+                صافي المجهز للحفظ: {formatCurrency(importSummary.rowsPreparedForSaveNet || 0)} | صافي المرسل:
+                {' '}{formatCurrency(importSummary.rowsActuallySentToSupabaseNet || 0)}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                {Object.entries(
+                  (importSummary.rowSaveTrace || []).reduce<Record<string, number>>((acc, row) => {
+                    const reason = row.skipReason || row.saveError || row.finalStatus || 'unknown';
+                    if (row.finalStatus === 'saved') return acc;
+                    acc[reason] = (acc[reason] || 0) + 1;
+                    return acc;
+                  }, {})
+                )
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 6)
+                  .map(([reason, count]) => (
+                    <span key={reason} className="rounded-full bg-white/15 px-2 py-1 font-bold">
+                      {reason}: {count.toLocaleString('ar-EG')}
+                    </span>
+                  ))}
+              </div>
+              {(importSummary.supabaseInsertErrorsSample || []).length > 0 && (
+                <div className="mt-3 rounded-lg border border-red-300/25 bg-red-400/10 p-3 text-sm text-red-50">
+                  أول خطأ Supabase: {importSummary.supabaseInsertErrorsSample?.[0]?.error}
+                </div>
+              )}
+              {(importSummary.saveBatchReports || []).length > 0 && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="data-table text-xs">
+                    <thead>
+                      <tr>
+                        <th>Batch</th>
+                        <th>الحجم</th>
+                        <th>تم حفظه</th>
+                        <th>فشل</th>
+                        <th>الخطأ</th>
+                        <th>أرقام الفواتير</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(importSummary.saveBatchReports || []).slice(0, 6).map((batch) => (
+                        <tr key={batch.batchNumber}>
+                          <td>{batch.batchNumber}</td>
+                          <td>{batch.batchSize.toLocaleString('ar-EG')}</td>
+                          <td>{batch.batchInsertedCount.toLocaleString('ar-EG')}</td>
+                          <td>{batch.batchFailedCount.toLocaleString('ar-EG')}</td>
+                          <td className="max-w-xs truncate">{batch.batchError || '-'}</td>
+                          <td className="max-w-sm truncate">
+                            {(batch.affectedInvoiceNumbers || []).slice(0, 12).join(', ')}
+                            {(batch.affectedInvoiceNumbers || []).length > 12 ? ' ...' : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {(importSummary.saveBatchReports || []).length > 6 && (
+                    <div className="mt-2 text-xs text-fuchsia-50/75">
+                      تم عرض أول 6 batches فقط. التقرير CSV يحتوي تفاصيل الصفوف.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
           <div

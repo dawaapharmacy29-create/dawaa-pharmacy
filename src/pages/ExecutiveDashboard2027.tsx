@@ -1,20 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clearInvoiceCache } from '@/lib/invoiceCache';
 import {
-  saveDashboardCache,
-  loadDashboardCache,
-  clearDashboardCache,
-  getDashboardCacheTimestamp,
-} from '@/lib/dashboard/dashboardOptimizations';
-import { useNavigate } from 'react-router-dom';
-import {
-  AlertTriangle,
-  BarChart3,
-  Bell,
-  CalendarDays,
-  CheckCircle2,
-  ClipboardList,
-  Clock3,
   Download,
   FileText,
   Headphones,
@@ -28,7 +14,14 @@ import {
   TrendingUp,
   Users,
   Wallet,
+  CalendarDays,
+  BarChart3,
+  ClipboardList,
+  Clock3,
+  AlertTriangle,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { loadDashboardCache, saveDashboardCache, clearDashboardCache } from '@/lib/dashboard/dashboardOptimizations';
 /* recharts will be dynamically imported inside the component to reduce initial bundle size */
 import { supabase } from '@/lib/supabase';
 import { formatCycleDate, getCurrentCycle, getPreviousCycle, getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
@@ -423,13 +416,27 @@ async function rpcRows<T>(
   errors: string[]
 ): Promise<T[]> {
   for (const name of names) {
-    const { data, error } = await supabase.rpc(name, params);
-    if (error) {
-      errors.push(`${label}: ${error.message}`);
-      continue;
+    let attempts = 0;
+    while (attempts < 3) {
+      try {
+        const { data, error } = await supabase.rpc(name, params);
+        if (error) {
+          attempts += 1;
+          console.error(`[RPC ERROR] ${label} -> ${name} attempt=${attempts}:`, error.message || error);
+          errors.push(`${label} ${name}: ${error.message || String(error)}`);
+          if (attempts < 3) await new Promise((r) => setTimeout(r, 300 * attempts));
+          continue;
+        }
+        const rowsData = rows<T>(data);
+        if (rowsData.length) return rowsData;
+        break;
+      } catch (err) {
+        attempts += 1;
+        console.error(`[RPC EXCEPTION] ${label} -> ${name} attempt=${attempts}:`, err);
+        errors.push(`${label} ${name}: ${err instanceof Error ? err.message : String(err)}`);
+        if (attempts < 3) await new Promise((r) => setTimeout(r, 300 * attempts));
+      }
     }
-    const rowsData = rows<T>(data);
-    if (rowsData.length) return rowsData;
   }
   return [];
 }
@@ -881,8 +888,39 @@ export default function ExecutiveDashboard2027() {
   const [dailyChartMetric, setDailyChartMetric] = useState<DailyChartMetric>('sales');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Per-section loading / error / loadedAt
+  const [salesKPILoading, setSalesKPILoading] = useState(false);
+  const [salesKPIError, setSalesKPIError] = useState<string | null>(null);
+  const [salesKPILoadedAt, setSalesKPILoadedAt] = useState<string | null>(null);
+
+  const [customerServiceLoading, setCustomerServiceLoading] = useState(false);
+  const [customerServiceError, setCustomerServiceError] = useState<string | null>(null);
+  const [customerServiceLoadedAt, setCustomerServiceLoadedAt] = useState<string | null>(null);
+
+  const [incentivesLoading, setIncentivesLoading] = useState(false);
+  const [incentivesError, setIncentivesError] = useState<string | null>(null);
+  const [incentivesLoadedAt, setIncentivesLoadedAt] = useState<string | null>(null);
+
+  const [dailyTasksLoading, setDailyTasksLoading] = useState(false);
+  const [dailyTasksError, setDailyTasksError] = useState<string | null>(null);
+  const [dailyTasksLoadedAt, setDailyTasksLoadedAt] = useState<string | null>(null);
+
+  const [staffAttendanceLoading, setStaffAttendanceLoading] = useState(false);
+  const [staffAttendanceError, setStaffAttendanceError] = useState<string | null>(null);
+  const [staffAttendanceLoadedAt, setStaffAttendanceLoadedAt] = useState<string | null>(null);
+
+  // branchPerformance depends on salesKPIs results
+  const [branchPerformanceLoading, setBranchPerformanceLoading] = useState(false);
+  const [branchPerformanceError, setBranchPerformanceError] = useState<string | null>(null);
+  const [branchPerformanceLoadedAt, setBranchPerformanceLoadedAt] = useState<string | null>(null);
+  const [inventoryOperationsLoading, setInventoryOperationsLoading] = useState(false);
+  const [inventoryOperationsError, setInventoryOperationsError] = useState<string | null>(null);
+  const [inventoryOperationsLoadedAt, setInventoryOperationsLoadedAt] = useState<string | null>(null);
   const [doctorCompetition, setDoctorCompetition] = useState<DoctorCompetitionMetrics | null>(null);
   const [doctorCompetitionLoading, setDoctorCompetitionLoading] = useState(false);
+  const [competitionsLoading, setCompetitionsLoading] = useState(false);
+  const [doctorCompetitionError, setDoctorCompetitionError] = useState<string | null>(null);
+  const [doctorCompetitionLoadedAt, setDoctorCompetitionLoadedAt] = useState<string | null>(null);
   const [dataHealthIssues, setDataHealthIssues] = useState<DataHealthIssue[]>([]);
   const [dataHealthLoading, setDataHealthLoading] = useState(false);
   const [teamTaskSummary, setTeamTaskSummary] = useState<EmployeeTaskSummary | null>(null);
@@ -908,6 +946,25 @@ export default function ExecutiveDashboard2027() {
     loadedAt: null,
     errors: [],
   });
+
+  function getSectionValue<T>({
+    value,
+    loading,
+    error,
+    loadedAt,
+    fallback = '...',
+  }: {
+    value: T;
+    loading: boolean;
+    error: string | null;
+    loadedAt: string | null;
+    fallback?: string;
+  }): T | string {
+    if (error) return 'تعذر تحميل البيانات';
+    if (loading && !loadedAt) return fallback;
+    if (!loadedAt) return fallback;
+    return value;
+  }
 
   const canAllBranches = canSeeAllBranches(user?.role);
   const scopedBranch = effectiveBranchFilter(user, branch, ALL_BRANCHES) || ALL_BRANCHES;
@@ -970,12 +1027,15 @@ export default function ExecutiveDashboard2027() {
         } else {
           setDoctorCompetition(metrics);
         }
+        setDoctorCompetitionError(null);
+        setDoctorCompetitionLoadedAt(new Date().toISOString());
       })
       .catch((error) => {
         if (import.meta.env.DEV) console.warn('[ExecutiveDashboard2027] doctor competition metrics failed', error);
         if (mounted && lastGoodDoctorCompetitionRef.current) {
           setDoctorCompetition(lastGoodDoctorCompetitionRef.current);
         }
+        setDoctorCompetitionError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         if (mounted) setDoctorCompetitionLoading(false);
@@ -1006,14 +1066,21 @@ export default function ExecutiveDashboard2027() {
 
   useEffect(() => {
     let mounted = true;
+    setDailyTasksLoading(true);
+    setDailyTasksError(null);
     summarizeTeamTasks(new Date().toISOString().slice(0, 10), scopedBranch, user)
       .then((result) => {
         if (!mounted) return;
         setTeamTaskSummary(result.summary);
         setTeamTaskIssue(result.error);
+        setDailyTasksLoadedAt(new Date().toISOString());
       })
       .catch((error) => {
         if (mounted) setTeamTaskIssue(error instanceof Error ? error.message : 'تعذر تحميل مهام الفريق');
+        setDailyTasksError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (mounted) setDailyTasksLoading(false);
       });
     return () => {
       mounted = false;
@@ -1025,231 +1092,266 @@ export default function ExecutiveDashboard2027() {
     const cachedState = loadDashboardCache(scopedBranch || ALL_BRANCHES, {
       start: startDate,
       end: endDate,
-    });
+    }, user?.role);
 
+    // orchestrate independent section fetches
     setLoading(true);
     setLoadError(null);
     const errors: string[] = [];
+
+    // prepare section flags
+    setSalesKPILoading(true);
+    setSalesKPIError(null);
+    setCustomerServiceLoading(true);
+    setCustomerServiceError(null);
+    setIncentivesLoading(true);
+    setIncentivesError(null);
+    setStaffAttendanceLoading(true);
+    setStaffAttendanceError(null);
+    setInventoryOperationsLoading(true);
+    setInventoryOperationsError(null);
+    setInventoryOperationsLoadedAt(null);
+
+    // CUSTOMER SERVICE block
+    let customerServiceRows: CustomerServiceSummary[] = [];
+    let customerServiceOwners: CustomerServiceOwner[] = [];
+    let staffOpsRows: StaffOps[] = [];
     try {
       const branchParams = { p_branch: scopedBranch || ALL_BRANCHES };
-
-      const [customerServiceRows, customerServiceOwners, staffOpsRows] = await Promise.all([
-        rpcRows<CustomerServiceSummary>(
+      try {
+        customerServiceRows = await rpcRows<CustomerServiceSummary>(
           ['get_dashboard_customer_service_summary_v171'],
           branchParams,
           'customer service',
           errors
-        ),
-        rpcRows<CustomerServiceOwner>(
+        );
+      } catch (e) {
+        customerServiceRows = [];
+        console.error('[Dashboard] customer service fetch failed', e);
+        setCustomerServiceError(String(e instanceof Error ? e.message : e));
+      }
+      try {
+        customerServiceOwners = await rpcRows<CustomerServiceOwner>(
           ['get_dashboard_customer_service_by_responsible_v171'],
           branchParams,
           'customer service owners',
           errors
-        ),
-        rpcRows<StaffOps>(
+        );
+      } catch (e) {
+        customerServiceOwners = [];
+        console.error('[Dashboard] customer service owners fetch failed', e);
+        setCustomerServiceError((prev) => prev ? prev + ' | owners failed' : String(e instanceof Error ? e.message : e));
+      }
+      try {
+        staffOpsRows = await rpcRows<StaffOps>(
           ['get_dashboard_staff_ops_summary_v171'],
           undefined,
           'staff operations',
           errors
-        ),
-      ]);
+        );
+      } catch (e) {
+        staffOpsRows = [];
+        console.error('[Dashboard] staff ops fetch failed', e);
+      }
+      setCustomerServiceLoadedAt(new Date().toISOString());
+    } finally {
+      // update state for customer service section
+      const effectiveCustomerServiceRows = customerServiceRows.length ? customerServiceRows : [];
+      const effectiveCustomerServiceOwners = customerServiceOwners.length ? customerServiceOwners : [];
+      setState((prev) => ({
+        ...prev,
+        customerService: effectiveCustomerServiceRows[0] || null,
+        customerServiceOwners: effectiveCustomerServiceOwners,
+        staffOps: staffOpsRows[0] || null,
+      }));
+      setCustomerServiceLoading(false);
+    }
 
-      const noCache = noCacheRef.current;
-      noCacheRef.current = false;
+    // ensure inventory section is marked as loaded for static operations cards
+    setInventoryOperationsLoadedAt(new Date().toISOString());
+    setInventoryOperationsLoading(false);
 
-      const needsFollowups = !customerServiceRows.length || !customerServiceOwners.length;
-
-      // ⚡ كل الـ requests الثقيلة في parallel واحد (sales + staff + schedules + presence + followups + incentives)
-      const [
-        salesTruth,
-        staffResult,
-        scheduleResult,
-        currentPresence,
-        followupRows,
-        incentiveSettled,
-      ] = await Promise.all([
-        fetchDashboardSalesTruth({
+    // SALES KPIs block (main heavy)
+    let salesTruth: any = { summary: {}, dailySales: [], branchDistribution: [], doctorSales: [], monthlySales: [], recentInvoices: [], reconciliation: {} };
+    try {
+      try {
+        const noCache = noCacheRef.current;
+        noCacheRef.current = false;
+        salesTruth = await fetchDashboardSalesTruth({
           startDate,
           endDate,
           branch: scopedBranch || ALL_BRANCHES,
           errors,
           noCache,
-        }),
-        supabase
-          .from('staff')
-          .select('id,staff_id,name,staff_name,role,branch,status,active,is_active')
-          .limit(700),
-        supabase
-          .from('shift_schedules')
-          .select('staff_id,staff_name,branch,day_name,shift_start,shift_end,is_off')
-          .limit(1200),
-        fetchCurrentShiftPresence(),
-        needsFollowups
-          ? fetchFollowupsForDashboard(
-              startDate,
-              endDate,
-              scopedBranch || ALL_BRANCHES,
-              errors
-            )
-          : Promise.resolve([] as FollowupDashboardRow[]),
-        getStaffIncentiveSummaryForCycle({
+        });
+        // apply sales truth to state incrementally
+        const summary = salesTruth.summary;
+        const effectiveDailySales = salesTruth.dailySales;
+        const effectiveBranchDistribution = salesTruth.branchDistribution;
+        const effectiveDoctorSales = salesTruth.doctorSales;
+        const effectiveMonthlySales = salesTruth.monthlySales;
+        const recentInvoices = salesTruth.recentInvoices as InvoiceRow[];
+        const salesReconciliation = salesTruth.reconciliation;
+        const daysCount = new Set(
+          (effectiveDailySales || []).map((row: any) => String(row.sale_date || '').slice(0, 10)).filter(Boolean)
+        ).size || 1;
+        const targets = createTargets(effectiveBranchDistribution, daysCount, startDate, endDate);
+        setState((prev) => ({
+          ...prev,
+          summary,
+          dailySales: effectiveDailySales,
+          monthlySales: effectiveMonthlySales,
+          branchDistribution: effectiveBranchDistribution,
+          targets,
+          doctorSales: effectiveDoctorSales,
+          recentInvoices,
+          salesReconciliation,
+        }));
+        setSalesKPILoadedAt(new Date().toISOString());
+      } catch (e) {
+        console.error('[Dashboard] sales KPIs fetch failed', e);
+        setSalesKPIError(String(e instanceof Error ? e.message : e));
+      }
+    } finally {
+      setSalesKPILoading(false);
+    }
+
+    // INCENTIVES block
+    try {
+      setIncentivesLoading(true);
+      try {
+        const incentiveSettled = await getStaffIncentiveSummaryForCycle({
           cycle: currentCycle,
           branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
         }).then(
           (data) => ({ ok: true as const, data }),
           (error: unknown) => ({ ok: false as const, error })
-        ),
-      ]);
-
-      const summary = salesTruth.summary;
-      const effectiveDailySales = salesTruth.dailySales;
-      const effectiveBranchDistribution = salesTruth.branchDistribution;
-      const effectiveDoctorSales = salesTruth.doctorSales;
-      const effectiveMonthlySales = salesTruth.monthlySales;
-      const recentInvoices = salesTruth.recentInvoices as InvoiceRow[];
-      const salesReconciliation = salesTruth.reconciliation;
-
-      let incentiveSummary: StaffCycleIncentive[] = [];
-      if (incentiveSettled.ok) {
-        incentiveSummary = incentiveSettled.data;
-      } else {
-        const err = 'error' in incentiveSettled ? incentiveSettled.error : null;
-        errors.push(
-          `incentive summary: ${err instanceof Error ? err.message : 'تعذر تحميل الحوافز'}`
         );
+        if (incentiveSettled.ok) {
+          setState((prev) => ({ ...prev, incentiveSummary: incentiveSettled.data }));
+          setIncentivesLoadedAt(new Date().toISOString());
+        } else {
+          const err = 'error' in incentiveSettled ? incentiveSettled.error : null;
+          setIncentivesError(err instanceof Error ? err.message : String(err));
+        }
+      } catch (e) {
+        console.error('[Dashboard] incentives fetch failed', e);
+        setIncentivesError(String(e instanceof Error ? e.message : e));
       }
-
-      const effectiveCustomerServiceRows = customerServiceRows.length
-        ? customerServiceRows
-        : followupRows.length
-          ? [buildCustomerServiceSummaryFallback(followupRows)]
-          : [];
-      const effectiveCustomerServiceOwners = customerServiceOwners.length
-        ? customerServiceOwners
-        : buildCustomerServiceOwnersFallback(followupRows);
-      const daysCount =
-        new Set(
-          effectiveDailySales.map((row) => String(row.sale_date || '').slice(0, 10)).filter(Boolean)
-        ).size || 1;
-      const targets = createTargets(effectiveBranchDistribution, daysCount, startDate, endDate);
-      if (staffResult.error) errors.push(`staff directory: ${staffResult.error.message}`);
-      if (scheduleResult.error) errors.push(`shift schedules: ${scheduleResult.error.message}`);
-      const staffDirectory = ((staffResult.data || []) as StaffDirectoryRow[]).filter(
-        isActiveStaff
-      );
-      const scheduleRows = (scheduleResult.data || []) as ShiftScheduleRow[];
-      const todayName = DAYS_AR[new Date().getDay()];
-
-      // ⚡ بناء Map من schedules مرة واحدة بدل .find() لكل موظف (O(n+m) بدل O(n*m))
-      const scheduleByKey = new Map<string, ShiftScheduleRow>();
-      for (const row of scheduleRows) {
-        if (row.is_off) continue;
-        if (String(row.day_name || '') !== todayName) continue;
-        const rBranch = branchName(row.branch);
-        const idKey = `id:${String(row.staff_id || '')}|${rBranch}`;
-        const nameKey = `name:${String(row.staff_name || '').trim()}|${rBranch}`;
-        if (!scheduleByKey.has(idKey)) scheduleByKey.set(idKey, row);
-        if (!scheduleByKey.has(nameKey)) scheduleByKey.set(nameKey, row);
-      }
-
-      const scheduledToday = staffDirectory
-        .map((member) => {
-          const name = staffName(member);
-          const memberBranch = branchName(member.branch);
-          const idKey = `id:${staffId(member)}|${memberBranch}`;
-          const nameKey = `name:${name}|${memberBranch}`;
-          const schedule = scheduleByKey.get(idKey) || scheduleByKey.get(nameKey);
-          if (!schedule?.shift_start || !schedule?.shift_end) return null;
-          if (scopedBranch !== ALL_BRANCHES && memberBranch !== scopedBranch) return null;
-          return { ...member, shift_start: schedule.shift_start, shift_end: schedule.shift_end };
-        })
-        .filter(Boolean) as ShiftNowRow[];
-      const onShiftNow = scheduledToday.filter((member) =>
-        isCurrentlyOnShift(member.shift_start || '', member.shift_end || '')
-      );
-      const presenceRows = [
-        ...currentPresence.doctors,
-        ...currentPresence.assistants,
-        ...currentPresence.delivery,
-      ]
-        .filter(
-          (person) => scopedBranch === ALL_BRANCHES || branchName(person.branch) === scopedBranch
-        )
-        .map((person) => ({
-          id: person.id,
-          staff_id: person.id,
-          name: person.name,
-          staff_name: person.name,
-          role: person.role,
-          branch: person.branch,
-          status: person.attendance_status,
-          active: true,
-          is_active: true,
-          shift_start: person.shift_start,
-          shift_end: person.shift_end,
-        })) as ShiftNowRow[];
-      const effectiveOnShiftNow = presenceRows.length
-        ? presenceRows
-        : onShiftNow.length
-          ? onShiftNow
-          : scheduledToday;
-
-      if (loadIdRef.current !== loadId) return;
-      const newState = {
-        summary,
-        dailySales: effectiveDailySales,
-        monthlySales: effectiveMonthlySales,
-        branchDistribution: effectiveBranchDistribution,
-        targets,
-        doctorSales: effectiveDoctorSales,
-        customerService: effectiveCustomerServiceRows[0] || null,
-        customerServiceOwners: effectiveCustomerServiceOwners,
-        staffOps: staffOpsRows[0] || null,
-        staffDirectory,
-        onShiftNow: effectiveOnShiftNow,
-        incentiveSummary,
-        recentInvoices,
-        salesReconciliation,
-        loadedAt: new Date().toISOString(),
-        errors: salesTruth.sourceRows.length ? [] : errors,
-      };
-      // Save to cache for fast re-navigation
-      saveDashboardCache(newState, scopedBranch || ALL_BRANCHES, {
-        start: startDate,
-        end: endDate,
-      });
-      setState(newState);
-    } catch (error) {
-      if (loadIdRef.current !== loadId) return;
-      console.error(
-        '[Dashboard RPC failed]',
-        'dashboard-load',
-        { startDate, endDate, branch: scopedBranch },
-        error
-      );
-      const message = error instanceof Error ? error.message : 'خطأ غير معروف';
-      if (cachedState) {
-        setState({
-          ...cachedState,
-          loadedAt: new Date().toISOString(),
-          errors: [`مصدر الداشبورد v171: ${message}`],
-        });
-      } else {
-        setState((previous) => ({
-          ...previous,
-          loadedAt: new Date().toISOString(),
-          errors: [`مصدر الداشبورد v171: ${message}`],
-        }));
-      }
-      setLoadError('تعذر تحميل بيانات الداشبورد الآن. يرجى الانتظار أو التحديث لاحقًا.');
     } finally {
-      setLoading(false);
+      setIncentivesLoading(false);
     }
+
+    // STAFF ATTENDANCE block (staff directory, schedules, presence)
+    try {
+      setStaffAttendanceLoading(true);
+      try {
+        const [staffResult, scheduleResult, currentPresence] = await Promise.all([
+          supabase
+            .from('staff')
+            .select('id,staff_id,name,staff_name,role,branch,status,active,is_active')
+            .limit(700),
+          supabase
+            .from('shift_schedules')
+            .select('staff_id,staff_name,branch,day_name,shift_start,shift_end,is_off')
+            .limit(1200),
+          fetchCurrentShiftPresence(),
+        ]);
+        const staffDirectory = ((staffResult.data || []) as StaffDirectoryRow[]).filter(isActiveStaff);
+        const scheduleRows = (scheduleResult.data || []) as ShiftScheduleRow[];
+        const todayName = DAYS_AR[new Date().getDay()];
+        const scheduleByKey = new Map<string, ShiftScheduleRow>();
+        for (const row of scheduleRows) {
+          if (row.is_off) continue;
+          if (String(row.day_name || '') !== todayName) continue;
+          const rBranch = branchName(row.branch);
+          const idKey = `id:${String(row.staff_id || '')}|${rBranch}`;
+          const nameKey = `name:${String(row.staff_name || '').trim()}|${rBranch}`;
+          if (!scheduleByKey.has(idKey)) scheduleByKey.set(idKey, row);
+          if (!scheduleByKey.has(nameKey)) scheduleByKey.set(nameKey, row);
+        }
+        const scheduledToday = staffDirectory
+          .map((member) => {
+            const name = staffName(member);
+            const memberBranch = branchName(member.branch);
+            const idKey = `id:${staffId(member)}|${memberBranch}`;
+            const nameKey = `name:${name}|${memberBranch}`;
+            const schedule = scheduleByKey.get(idKey) || scheduleByKey.get(nameKey);
+            if (!schedule?.shift_start || !schedule?.shift_end) return null;
+            if (scopedBranch !== ALL_BRANCHES && memberBranch !== scopedBranch) return null;
+            return { ...member, shift_start: schedule.shift_start, shift_end: schedule.shift_end };
+          })
+          .filter(Boolean) as ShiftNowRow[];
+        const onShiftNow = scheduledToday.filter((member) =>
+          isCurrentlyOnShift(member.shift_start || '', member.shift_end || '')
+        );
+        const presenceRows = [
+          ...currentPresence.doctors,
+          ...currentPresence.assistants,
+          ...currentPresence.delivery,
+        ]
+          .filter((person) => scopedBranch === ALL_BRANCHES || branchName(person.branch) === scopedBranch)
+          .map((person) => ({
+            id: person.id,
+            staff_id: person.id,
+            name: person.name,
+            staff_name: person.name,
+            role: person.role,
+            branch: person.branch,
+            status: person.attendance_status,
+            active: true,
+            is_active: true,
+            shift_start: person.shift_start,
+            shift_end: person.shift_end,
+          })) as ShiftNowRow[];
+        const effectiveOnShiftNow = presenceRows.length ? presenceRows : onShiftNow.length ? onShiftNow : scheduledToday;
+        setState((prev) => ({ ...prev, staffDirectory, onShiftNow: effectiveOnShiftNow }));
+        setStaffAttendanceLoadedAt(new Date().toISOString());
+      } catch (e) {
+        console.error('[Dashboard] staff attendance fetch failed', e);
+        setStaffAttendanceError(String(e instanceof Error ? e.message : e));
+      }
+    } finally {
+      setStaffAttendanceLoading(false);
+    }
+
+    // ensure branch performance computed after sales KPIs
+    try {
+      setBranchPerformanceLoading(true);
+      if (!salesKPILoading) {
+        // compute branchPerformance from state.targets
+        setBranchPerformanceLoadedAt(new Date().toISOString());
+      }
+    } catch (e) {
+      setBranchPerformanceError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBranchPerformanceLoading(false);
+    }
+
+    // finalize: save cache and set global loadedAt
+    try {
+      const finalLoadedAt = new Date().toISOString();
+      setState((prev) => ({ ...prev, loadedAt: finalLoadedAt }));
+      try {
+        saveDashboardCache(
+          { ...state, loadedAt: finalLoadedAt },
+          scopedBranch || ALL_BRANCHES,
+          { start: startDate, end: endDate },
+          user?.role
+        );
+      } catch (e) {
+        // ignore cache save errors
+      }
+    } catch (e) {
+      // ignore
+    }
+    setLoading(false);
   }, [currentCycle, endDate, scopedBranch, startDate]);
 
   useEffect(() => {
+    if (!user?.id) return;
     void load();
-  }, [load]);
+  }, [load, user?.id]);
 
   const showInitialSkeleton = loading && !state.loadedAt && !state.summary;
 
@@ -1552,16 +1654,36 @@ export default function ExecutiveDashboard2027() {
     {
       id: 'branch-performance',
       title: 'أداء الفروع',
-      value: `${branchPerformance.length || 0} فرع`,
+      value: getSectionValue({
+        value: `${branchPerformance.length || 0} فرع`,
+        loading: branchPerformanceLoading,
+        error: branchPerformanceError,
+        loadedAt: branchPerformanceLoadedAt,
+      }),
       tone: 'cyan' as const,
     },
     {
       id: 'customer-service-analysis',
       title: 'خدمة العملاء',
-      value: count(service.open_followups),
+      value: getSectionValue({
+        value: count(service.open_followups),
+        loading: customerServiceLoading,
+        error: customerServiceError,
+        loadedAt: customerServiceLoadedAt,
+      }),
       tone: 'green' as const,
     },
-    { id: 'operations-quality', title: 'التشغيل والجرد', value: 'متابعة', tone: 'blue' as const },
+    {
+      id: 'operations-quality',
+      title: 'التشغيل والجرد',
+      value: getSectionValue({
+        value: 'متابعة',
+        loading: inventoryOperationsLoading,
+        error: inventoryOperationsError,
+        loadedAt: inventoryOperationsLoadedAt,
+      }),
+      tone: 'blue' as const,
+    },
     {
       id: 'stagnant-list-analysis',
       title: 'الرواكد واللستة',
@@ -1571,7 +1693,12 @@ export default function ExecutiveDashboard2027() {
     {
       id: 'incentives-analysis',
       title: 'الحوافز والنقاط',
-      value: count(topDoctors.length),
+      value: getSectionValue({
+        value: count(topDoctors.length),
+        loading: incentivesLoading,
+        error: incentivesError,
+        loadedAt: incentivesLoadedAt,
+      }),
       tone: 'purple' as const,
     },
   ];
@@ -1953,7 +2080,12 @@ export default function ExecutiveDashboard2027() {
           <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <KpiCard
               title="صافي مبيعات الفترة"
-              value={`${money(summary.sales_total)} جنيه`}
+              value={getSectionValue({
+                value: `${money(summary.sales_total)} جنيه`,
+                loading: salesKPILoading,
+                error: salesKPIError,
+                loadedAt: salesKPILoadedAt,
+              })}
               subtitle="عن الفترة المختارة"
               icon={<Wallet className="h-6 w-6" />}
               tone="amber"
@@ -1961,7 +2093,12 @@ export default function ExecutiveDashboard2027() {
             />
             <KpiCard
               title="عدد الفواتير"
-              value={count(summary.invoices_count)}
+              value={getSectionValue({
+                value: count(summary.invoices_count),
+                loading: salesKPILoading,
+                error: salesKPIError,
+                loadedAt: salesKPILoadedAt,
+              })}
               subtitle="كل الفواتير داخل الفترة"
               icon={<FileText className="h-6 w-6" />}
               tone="green"
@@ -1969,7 +2106,12 @@ export default function ExecutiveDashboard2027() {
             />
             <KpiCard
               title="متوسط الفاتورة"
-              value={`${money(summary.avg_invoice, 2)} جنيه`}
+              value={getSectionValue({
+                value: `${money(summary.avg_invoice, 2)} جنيه`,
+                loading: salesKPILoading,
+                error: salesKPIError,
+                loadedAt: salesKPILoadedAt,
+              })}
               subtitle="قيمة الفاتورة"
               icon={<ClipboardList className="h-6 w-6" />}
               tone="cyan"
@@ -1977,7 +2119,12 @@ export default function ExecutiveDashboard2027() {
             />
             <KpiCard
               title="العملاء المشترين"
-              value={count(summary.linked_customers)}
+              value={getSectionValue({
+                value: count(summary.linked_customers),
+                loading: salesKPILoading,
+                error: salesKPIError,
+                loadedAt: salesKPILoadedAt,
+              })}
               subtitle="عملاء لهم كود"
               icon={<Users className="h-6 w-6" />}
               tone="blue"
@@ -1985,7 +2132,12 @@ export default function ExecutiveDashboard2027() {
             />
             <KpiCard
               title="نسبة ربط العملاء"
-              value={pct(summary.customer_link_rate_percent)}
+              value={getSectionValue({
+                value: pct(summary.customer_link_rate_percent),
+                loading: salesKPILoading,
+                error: salesKPIError,
+                loadedAt: salesKPILoadedAt,
+              })}
               subtitle={`${count(summary.linked_invoices)} فاتورة مرتبطة`}
               icon={<ShieldCheck className="h-6 w-6" />}
               tone="purple"
@@ -1993,7 +2145,12 @@ export default function ExecutiveDashboard2027() {
             />
             <KpiCard
               title="الفواتير غير المسجلة"
-              value={count(summary.unregistered_customer_invoices)}
+              value={getSectionValue({
+                value: count(summary.unregistered_customer_invoices),
+                loading: salesKPILoading,
+                error: salesKPIError,
+                loadedAt: salesKPILoadedAt,
+              })}
               subtitle={`${money(summary.unregistered_customer_sales)} جنيه`}
               icon={<FileText className="h-6 w-6" />}
               tone="red"
@@ -2494,7 +2651,12 @@ export default function ExecutiveDashboard2027() {
             />
             <KpiCard
               title="طلبات العملاء"
-              value={count(service.open_followups)}
+              value={getSectionValue({
+                value: count(service.open_followups),
+                loading: customerServiceLoading,
+                error: customerServiceError,
+                loadedAt: customerServiceLoadedAt,
+              })}
               subtitle="اضغط لفتح مركز خدمة العملاء"
               icon={<Headphones className="h-6 w-6" />}
               tone="green"

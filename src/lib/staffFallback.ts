@@ -18,7 +18,6 @@ export interface StaffChoice {
   points: number | null;
   max_points: number | null;
   username?: string | null;
-  temporary_password?: string | null;
   permissions?: Record<string, boolean> | null;
   duplicate_ids?: string[];
   aliases?: string[];
@@ -77,7 +76,6 @@ function normalizeStaff(row: Record<string, unknown>): StaffChoice {
     points: toNumber(row.points ?? row.current_points, null),
     max_points: toNumber(row.max_points ?? row.target_points, INITIAL_POINTS),
     username: (row.username as string | null | undefined) || null,
-    temporary_password: (row.temporary_password as string | null | undefined) || null,
     permissions: (row.permissions as Record<string, boolean> | null | undefined) || null,
   };
 }

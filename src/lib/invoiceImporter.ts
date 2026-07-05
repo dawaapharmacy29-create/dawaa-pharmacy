@@ -135,6 +135,17 @@ export interface ImportSummary {
   invalidDateRowsSample?: Array<{ row: number; value: string }>;
   skippedRowsByReason?: Array<{ reason: string; count: number; total: number }>;
   savedRowsByDate?: Array<{ date: string; count: number; total: number }>;
+  rowSaveTrace?: InvoiceSaveTrace[];
+  rowsPreparedForSaveCount?: number;
+  rowsPreparedForSaveNet?: number;
+  preparedForSaveByDay?: Array<{ date: string; count: number; total: number }>;
+  rowsActuallySentToSupabaseCount?: number;
+  rowsActuallySentToSupabaseNet?: number;
+  rowsSavedSuccessfullyCount?: number;
+  rowsFailedToSaveCount?: number;
+  rowsSaveNotAttemptedCount?: number;
+  supabaseInsertErrorsSample?: Array<{ invoiceNumber: string; date: string; branch: string; rowNumber: number; error: string }>;
+  saveBatchReports?: InvoiceSaveBatchReport[];
   databaseMinDateAfterImport?: string | null;
   databaseMaxDateAfterImport?: string | null;
   databaseInvoicesCount?: number;
@@ -198,6 +209,33 @@ export interface ImportSummary {
   fileName?: string | null;
   importedBy?: string | null;
   importedAt?: string | null;
+}
+
+export interface InvoiceSaveTrace {
+  rowNumber: number;
+  invoice_number: string;
+  parsed_date: string;
+  branch: string;
+  amount: number;
+  validationStatus: string;
+  intendedAction: string;
+  actualAction: string;
+  saveAttempted: boolean;
+  saveSucceeded: boolean;
+  saveError: string | null;
+  skipReason: string | null;
+  finalStatus: string;
+  batchNumber?: number | null;
+  postImportStatus?: string | null;
+}
+
+export interface InvoiceSaveBatchReport {
+  batchNumber: number;
+  batchSize: number;
+  batchInsertedCount: number;
+  batchFailedCount: number;
+  batchError: string | null;
+  affectedInvoiceNumbers: string[];
 }
 
 export interface PostImportRefreshStep {
@@ -610,6 +648,64 @@ function addSkippedReason(
   current.count += 1;
   current.total += total;
   map.set(reason, current);
+}
+
+function traceKey(row: Pick<RawInvoiceRow, 'rowIndex'>) {
+  return String(row.rowIndex);
+}
+
+function traceKeyFromRecord(record: Record<string, unknown>) {
+  return String(record.source_row_number || '');
+}
+
+function createInvoiceTrace(row: RawInvoiceRow, fallbackBranch: string): InvoiceSaveTrace {
+  return {
+    rowNumber: row.rowIndex,
+    invoice_number: row.invoiceNumber,
+    parsed_date: row.date,
+    branch: row.branch || fallbackBranch,
+    amount: rawInvoiceNetValue(row),
+    validationStatus:
+      row.importValidationStatus === 'zero_amount' ? 'validation_warning_zero_amount' : 'valid',
+    intendedAction: 'undecided',
+    actualAction: 'pending',
+    saveAttempted: false,
+    saveSucceeded: false,
+    saveError: null,
+    skipReason: null,
+    finalStatus: '',
+    batchNumber: null,
+    postImportStatus: null,
+  };
+}
+
+function markTrace(
+  traceMap: Map<string, InvoiceSaveTrace>,
+  key: string,
+  patch: Partial<InvoiceSaveTrace>
+) {
+  const current = traceMap.get(key);
+  if (!current) return;
+  traceMap.set(key, { ...current, ...patch });
+}
+
+function recordFailureSample(
+  summary: ImportSummary,
+  record: Record<string, unknown>,
+  fallbackBranch: string,
+  error: string
+) {
+  const sample = summary.supabaseInsertErrorsSample || [];
+  if (sample.length < 30) {
+    sample.push({
+      invoiceNumber: String(record.invoice_number || ''),
+      date: String(record.invoice_date || '').slice(0, 10),
+      branch: String(record.branch || fallbackBranch),
+      rowNumber: Number(record.source_row_number || 0),
+      error,
+    });
+  }
+  summary.supabaseInsertErrorsSample = sample;
 }
 
 function classifyParseErrorReason(error: ValidationError) {
@@ -1652,6 +1748,9 @@ export async function importInvoicesToDB(
   const skippedByReason = new Map<string, { reason: string; count: number; total: number }>();
   const skippedRowsSample: NonNullable<ImportSummary['skippedRowsSample']> = [];
   const savedRowsSample: NonNullable<ImportSummary['savedRowsSample']> = [];
+  const traceMap = new Map<string, InvoiceSaveTrace>(
+    rows.map((row) => [traceKey(row), createInvoiceTrace(row, branch)])
+  );
 
   if (options?.parseErrors) {
     for (const error of options.parseErrors) {
@@ -1724,6 +1823,17 @@ export async function importInvoicesToDB(
     savedRowsByDate: [],
     skippedRowsSample,
     savedRowsSample,
+    rowSaveTrace: [],
+    rowsPreparedForSaveCount: 0,
+    rowsPreparedForSaveNet: 0,
+    preparedForSaveByDay: [],
+    rowsActuallySentToSupabaseCount: 0,
+    rowsActuallySentToSupabaseNet: 0,
+    rowsSavedSuccessfullyCount: 0,
+    rowsFailedToSaveCount: 0,
+    rowsSaveNotAttemptedCount: 0,
+    supabaseInsertErrorsSample: [],
+    saveBatchReports: [],
     databaseMinDateAfterImport: null,
     databaseMaxDateAfterImport: null,
     databaseInvoicesCount: 0,
@@ -1738,6 +1848,7 @@ export async function importInvoicesToDB(
     dayDatabaseComparison: [],
   };
   if (rows.length === 0) {
+    summary.rowSaveTrace = [];
     await persistInvoiceImportBatch(summary, 'imported');
     return summary;
   }
@@ -1849,6 +1960,12 @@ export async function importInvoicesToDB(
     const rowBranch = row.branch || branch;
     const dedupeKey = invoiceDuplicateKey(row.invoiceNumber, rowBranch, row.date);
     if (seenImportKeys.has(dedupeKey)) {
+      markTrace(traceMap, traceKey(row), {
+        intendedAction: 'skip',
+        actualAction: 'skipped_before_save',
+        skipReason: 'duplicate_inside_file',
+        finalStatus: 'duplicate_inside_file',
+      });
       addSkippedReason(skippedByReason, 'duplicate_in_file', rawInvoiceNetValue(row));
       if (duplicateRowsInFileSample.length < 20) {
         duplicateRowsInFileSample.push({
@@ -1889,7 +2006,13 @@ export async function importInvoicesToDB(
       });
 
       if (sameBranchAndDate) {
-        if (!String(sameBranchAndDate.id || '').trim()) {
+      if (!String(sameBranchAndDate.id || '').trim()) {
+          markTrace(traceMap, traceKey(row), {
+            intendedAction: 'update_existing',
+            actualAction: 'skipped_before_save',
+            skipReason: 'missing_existing_invoice_id',
+            finalStatus: 'save_not_attempted',
+          });
           addSkippedReason(skippedByReason, 'save_error', rawInvoiceNetValue(row));
           if (skippedRowsSample.length < 10) {
             skippedRowsSample.push({
@@ -1960,6 +2083,10 @@ export async function importInvoicesToDB(
 
         const existingId = String(sameBranchAndDate.id || '');
         if (existingId) {
+          markTrace(traceMap, traceKey(row), {
+            intendedAction: 'update_existing',
+            actualAction: 'queued_for_update',
+          });
           existingUpdateRecords.push({
             id: existingId,
             record: recordForUpdate,
@@ -1967,6 +2094,12 @@ export async function importInvoicesToDB(
             rowNumber: row.rowIndex,
           });
         } else {
+          markTrace(traceMap, traceKey(row), {
+            intendedAction: 'update_existing',
+            actualAction: 'skipped_before_save',
+            skipReason: 'missing_existing_invoice_id',
+            finalStatus: 'save_not_attempted',
+          });
           addSkippedReason(skippedByReason, 'missing_existing_invoice_id', rawInvoiceNetValue(row));
           summary.skippedDuplicates++;
         }
@@ -1976,6 +2109,12 @@ export async function importInvoicesToDB(
       needsReviewRows++;
       reviewNetSales += rawInvoiceNetValue(row);
       summary.conflictReviewRows = (summary.conflictReviewRows || 0) + 1;
+      markTrace(traceMap, traceKey(row), {
+        intendedAction: 'review',
+        actualAction: 'skipped_before_save',
+        skipReason: 'existing_different_date_or_branch',
+        finalStatus: 'existing_different_date_or_branch',
+      });
       addSkippedReason(skippedByReason, 'duplicate_in_database', rawInvoiceNetValue(row));
       if (conflictRowsSample.length < 20) {
         conflictRowsSample.push({
@@ -2012,6 +2151,10 @@ export async function importInvoicesToDB(
       reviewNetSales += rawInvoiceNetValue(row);
       unlinkedCustomersEstimate++;
     }
+    markTrace(traceMap, traceKey(row), {
+      intendedAction: 'insert_new',
+      actualAction: 'prepared_for_insert',
+    });
     return true;
   });
 
@@ -2064,14 +2207,48 @@ export async function importInvoicesToDB(
     raw_data: row.raw,
   }));
 
+  const preparedByDay = new Map<string, { date: string; count: number; total: number }>();
+  for (const row of newRows) addDailyTotal(preparedByDay, row.date, rawInvoiceNetValue(row));
+  for (const item of existingUpdateRecords) {
+    addDailyTotal(preparedByDay, item.sourceRow.date, rawInvoiceNetValue(item.sourceRow));
+  }
+  summary.rowsPreparedForSaveCount = invoiceRecords.length + existingUpdateRecords.length;
+  summary.rowsPreparedForSaveNet =
+    newRows.reduce((sum, row) => sum + rawInvoiceNetValue(row), 0) +
+    existingUpdateRecords.reduce((sum, item) => sum + rawInvoiceNetValue(item.sourceRow), 0);
+  summary.preparedForSaveByDay = dailyMapToArray(preparedByDay);
+
   const chunkSize = 500;
   const totalWork = invoiceRecords.length + existingUpdateRecords.length + newRows.length;
   const optionalColumnsRemoved = new Set<string>();
+  let insertBatchNumber = 0;
   for (let i = 0; i < invoiceRecords.length; i += chunkSize) {
+    insertBatchNumber += 1;
     const chunk = invoiceRecords.slice(i, i + chunkSize) as Array<Record<string, unknown>>;
+    summary.rowsActuallySentToSupabaseCount =
+      (summary.rowsActuallySentToSupabaseCount || 0) + chunk.length;
+    summary.rowsActuallySentToSupabaseNet =
+      (summary.rowsActuallySentToSupabaseNet || 0) +
+      chunk.reduce((sum, row) => sum + invoiceNetValue(row), 0);
+    for (const record of chunk) {
+      markTrace(traceMap, traceKeyFromRecord(record), {
+        saveAttempted: true,
+        actualAction: 'sent_to_supabase_insert',
+        batchNumber: insertBatchNumber,
+      });
+    }
+    const batchReport: InvoiceSaveBatchReport = {
+      batchNumber: insertBatchNumber,
+      batchSize: chunk.length,
+      batchInsertedCount: 0,
+      batchFailedCount: 0,
+      batchError: null,
+      affectedInvoiceNumbers: chunk.map((row) => String(row.invoice_number || '')).filter(Boolean),
+    };
     const { error, removedColumns } = await insertRowsWithOptionalColumns('sales_invoices', chunk);
     removedColumns.forEach((column) => optionalColumnsRemoved.add(column));
     if (error) {
+      batchReport.batchError = error.message;
       const isDuplicateError =
         error.message.includes('unique constraint') ||
         error.message.includes('duplicate key') ||
@@ -2081,11 +2258,19 @@ export async function importInvoicesToDB(
           const single = await insertRowsWithOptionalColumns('sales_invoices', [record]);
           single.removedColumns.forEach((column) => optionalColumnsRemoved.add(column));
           if (single.error) {
+            batchReport.batchFailedCount += 1;
             const singleDuplicate =
               single.error.message.includes('unique constraint') ||
               single.error.message.includes('duplicate key') ||
               single.error.message.includes('ON CONFLICT');
             if (singleDuplicate) {
+              markTrace(traceMap, traceKeyFromRecord(record), {
+                saveSucceeded: false,
+                saveError: single.error.message,
+                actualAction: 'duplicate_rejected_by_supabase',
+                skipReason: 'existing_same_identity',
+                finalStatus: 'existing_same_identity',
+              });
               addSkippedReason(skippedByReason, 'duplicate_in_database', invoiceNetValue(record));
               if (skippedRowsSample.length < 10) {
                 skippedRowsSample.push({
@@ -2103,6 +2288,14 @@ export async function importInvoicesToDB(
                 date: String(record.invoice_date || '').slice(0, 10),
               });
             } else {
+              markTrace(traceMap, traceKeyFromRecord(record), {
+                saveSucceeded: false,
+                saveError: single.error.message,
+                actualAction: 'supabase_insert_failed',
+                skipReason: 'supabase_insert_failed',
+                finalStatus: 'supabase_insert_failed',
+              });
+              recordFailureSample(summary, record, branch, single.error.message);
               summary.errors.push({
                 row: Number(record.source_row_number || 0),
                 field: 'sales_invoices',
@@ -2120,6 +2313,12 @@ export async function importInvoicesToDB(
               }
             }
           } else {
+            batchReport.batchInsertedCount += 1;
+            markTrace(traceMap, traceKeyFromRecord(record), {
+              saveSucceeded: true,
+              actualAction: 'inserted',
+              finalStatus: 'saved',
+            });
             summary.insertedRows += 1;
             const value = invoiceNetValue(record);
             summary.insertedNetSales = (summary.insertedNetSales || 0) + value;
@@ -2134,17 +2333,27 @@ export async function importInvoicesToDB(
             if (sourceRow) savedSummaryRows.push(sourceRow);
           }
         }
+        summary.saveBatchReports?.push(batchReport);
         reportProgress(onProgress, Math.min(i + chunkSize, invoiceRecords.length), totalWork);
         continue;
       }
       if (isDuplicateError && chunk.length === 1) {
         const record = chunk[0];
+        batchReport.batchFailedCount = 1;
+        markTrace(traceMap, traceKeyFromRecord(record), {
+          saveSucceeded: false,
+          saveError: error.message,
+          actualAction: 'duplicate_rejected_by_supabase',
+          skipReason: 'existing_same_identity',
+          finalStatus: 'existing_same_identity',
+        });
         summary.skippedDuplicates++;
         summary.skippedDuplicateInvoices?.push({
           invoiceNumber: String(record.invoice_number || ''),
           branch: String(record.branch || branch),
           date: String(record.invoice_date || '').slice(0, 10),
         });
+        summary.saveBatchReports?.push(batchReport);
         reportProgress(onProgress, Math.min(i + chunkSize, invoiceRecords.length), totalWork);
         continue;
       }
@@ -2159,7 +2368,20 @@ export async function importInvoicesToDB(
         field: 'sales_invoices',
         message: errorMsg,
       });
+      for (const record of chunk) {
+        markTrace(traceMap, traceKeyFromRecord(record), {
+          saveSucceeded: false,
+          saveError: error.message,
+          actualAction: 'supabase_insert_failed',
+          skipReason: 'supabase_insert_failed',
+          finalStatus: 'supabase_insert_failed',
+        });
+        recordFailureSample(summary, record, branch, error.message);
+        addSkippedReason(skippedByReason, 'supabase_insert_failed', invoiceNetValue(record));
+      }
+      batchReport.batchFailedCount = chunk.length;
     } else {
+      batchReport.batchInsertedCount = chunk.length;
       summary.insertedRows += chunk.length;
       const chunkNet = chunk.reduce((sum, row) => sum + invoiceNetValue(row), 0);
       summary.insertedNetSales = (summary.insertedNetSales || 0) + chunkNet;
@@ -2167,6 +2389,11 @@ export async function importInvoicesToDB(
       const newSavedRows = newRows.slice(i, i + chunk.length);
       savedSummaryRows.push(...newSavedRows);
       for (const row of newSavedRows) {
+        markTrace(traceMap, traceKey(row), {
+          saveSucceeded: true,
+          actualAction: 'inserted',
+          finalStatus: 'saved',
+        });
         if (savedRowsSample.length < 10) {
           savedRowsSample.push({
             invoiceNumber: row.invoiceNumber,
@@ -2179,6 +2406,7 @@ export async function importInvoicesToDB(
         }
       }
     }
+    summary.saveBatchReports?.push(batchReport);
     reportProgress(onProgress, Math.min(i + chunkSize, invoiceRecords.length), totalWork);
   }
 
@@ -2206,6 +2434,14 @@ export async function importInvoicesToDB(
 
   let updatedInvoiceProgress = 0;
   for (const item of existingUpdateRecords) {
+    summary.rowsActuallySentToSupabaseCount = (summary.rowsActuallySentToSupabaseCount || 0) + 1;
+    summary.rowsActuallySentToSupabaseNet =
+      (summary.rowsActuallySentToSupabaseNet || 0) + rawInvoiceNetValue(item.sourceRow);
+    markTrace(traceMap, traceKey(item.sourceRow), {
+      saveAttempted: true,
+      actualAction: 'sent_to_supabase_update',
+      batchNumber: null,
+    });
     const { error, removedColumns } = await updateRowWithOptionalColumns(
       'sales_invoices',
       item.id,
@@ -2213,12 +2449,25 @@ export async function importInvoicesToDB(
     );
     removedColumns.forEach((column) => optionalColumnsRemoved.add(column));
     if (error) {
+      markTrace(traceMap, traceKey(item.sourceRow), {
+        saveSucceeded: false,
+        saveError: error.message,
+        actualAction: 'supabase_update_failed',
+        skipReason: 'supabase_upsert_failed',
+        finalStatus: 'supabase_upsert_failed',
+      });
+      recordFailureSample(summary, item.record, branch, error.message);
       summary.errors.push({
         row: item.rowNumber,
         field: 'تحديث فاتورة موجودة',
         message: friendlyImportError(error.message),
       });
     } else {
+      markTrace(traceMap, traceKey(item.sourceRow), {
+        saveSucceeded: true,
+        actualAction: 'updated_existing',
+        finalStatus: 'saved',
+      });
       summary.updatedInvoices = (summary.updatedInvoices || 0) + 1;
       const value = rawInvoiceNetValue(item.sourceRow);
       summary.updatedNetSales = (summary.updatedNetSales || 0) + value;
@@ -2517,6 +2766,18 @@ export async function importInvoicesToDB(
     .filter((row) => row.status === 'missing_in_database')
     .map((row) => ({ date: row.date, count: row.fileCount, total: row.fileTotal }));
   const missingDaySet = new Set(summary.missingDaysInDatabase.map((row) => row.date));
+  for (const trace of traceMap.values()) {
+    if (missingDaySet.has(trace.parsed_date)) {
+      const finalStatus = trace.saveSucceeded
+        ? 'saved_but_not_found_after_verification'
+        : trace.finalStatus || (trace.saveAttempted ? 'supabase_insert_failed' : 'save_not_attempted');
+      markTrace(traceMap, String(trace.rowNumber), {
+        postImportStatus: 'missing_day_in_database_after_import',
+        finalStatus,
+        skipReason: trace.skipReason || finalStatus,
+      });
+    }
+  }
   const missingDaySamples = rows
     .filter((row) => missingDaySet.has(row.date))
     .slice(0, 20)
@@ -2525,7 +2786,10 @@ export async function importInvoicesToDB(
       date: row.date,
       branch: row.branch || branch,
       amount: rawInvoiceNetValue(row),
-      reason: 'missing_day_in_database_after_import',
+      reason:
+        traceMap.get(traceKey(row))?.finalStatus ||
+        traceMap.get(traceKey(row))?.skipReason ||
+        'saved_but_not_found_after_verification',
     }));
   summary.missingInvoicesSample = [...conflictRowsSample, ...missingDaySamples].slice(0, 30);
   summary.missingInvoicesCount =
@@ -2551,6 +2815,24 @@ export async function importInvoicesToDB(
     new Map(summary.errors.map((error) => [`${error.field}|${error.message}`, error])).values()
   );
   summary.rejectedRows = summary.errors.length;
+  for (const trace of traceMap.values()) {
+    if (!trace.finalStatus) {
+      markTrace(traceMap, String(trace.rowNumber), {
+        finalStatus: trace.saveAttempted
+          ? trace.saveSucceeded
+            ? 'saved'
+            : 'supabase_insert_failed'
+          : 'save_not_attempted',
+        skipReason: trace.skipReason || (trace.saveAttempted ? null : 'save_not_attempted'),
+      });
+    }
+  }
+  summary.rowSaveTrace = [...traceMap.values()].sort((a, b) => a.rowNumber - b.rowNumber);
+  summary.rowsSavedSuccessfullyCount = summary.rowSaveTrace.filter((row) => row.saveSucceeded).length;
+  summary.rowsFailedToSaveCount = summary.rowSaveTrace.filter(
+    (row) => row.saveAttempted && !row.saveSucceeded
+  ).length;
+  summary.rowsSaveNotAttemptedCount = summary.rowSaveTrace.filter((row) => !row.saveAttempted).length;
 
   await persistInvoiceImportBatch(summary, 'imported');
   return summary;
