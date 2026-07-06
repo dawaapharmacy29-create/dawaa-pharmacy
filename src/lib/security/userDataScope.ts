@@ -43,6 +43,24 @@ export function isManagerRole(user: ScopeUser): boolean {
   );
 }
 
+function getDashboardBranchOverrideForUser(user: ScopeUser): string | null {
+  const username = String(user?.username || '').trim().toLowerCase();
+  const name = String(user?.name || '').trim().toLowerCase();
+  if (username === 'cs.doha' || name.includes('ضحي')) {
+    return 'فرع الشامي';
+  }
+  return null;
+}
+
+function getReviewBranchOverride(user: ScopeUser): string[] | null {
+  const username = String(user?.username || '').trim().toLowerCase();
+  const name = String(user?.name || '').trim().toLowerCase();
+  if (username === 'cs.doha' || name.includes('ضحي') || username === 'cs.donia' || name.includes('دنيا')) {
+    return ['فرع الشامي', 'فرع شكري'];
+  }
+  return null;
+}
+
 export function canViewAllBranches(user: ScopeUser): boolean {
   return ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(user?.role));
 }
@@ -54,9 +72,18 @@ export function canViewOwnOnly(user: ScopeUser): boolean {
 
 export function canViewBranchData(user: ScopeUser, branch?: unknown): boolean {
   if (canViewAllBranches(user)) return true;
-  const userBranch = normalizeBranchName(user?.branch || '');
+  const overrideBranch = getDashboardBranchOverrideForUser(user);
+  const userBranch = overrideBranch || normalizeBranchName(user?.branch || '');
   if (!userBranch || userBranch === ALL_BRANCHES) return false;
   return normalizeBranchName(branch || '') === userBranch;
+}
+
+export function getDashboardBranchOverride(user: ScopeUser): string {
+  return getDashboardBranchOverrideForUser(user) || normalizeBranchName(user?.branch || '');
+}
+
+export function getReviewAllowedBranches(user: ScopeUser): string[] {
+  return getReviewBranchOverride(user) || [normalizeBranchName(user?.branch || '')].filter(Boolean);
 }
 
 function latinDoctorAliases(value: unknown): string[] {

@@ -1,5 +1,6 @@
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches as coreCanSeeAllBranches, getUserDataScope } from '@/lib/core/permissionSystem';
+import { getDashboardBranchOverride } from '@/lib/security/userDataScope';
 import type { User } from '@/types';
 
 export const ALL_BRANCHES = 'كل الفروع';
@@ -25,7 +26,8 @@ export function getBranchScope(
   allValue = ALL_BRANCHES
 ): string {
   if (canSeeAllBranches(user?.role)) return requestedBranch || allValue;
-  const branch = normalizeBranchScope(user?.branch) || normalizeBranchScope(requestedBranch);
+  const overrideBranch = getDashboardBranchOverride(user as any);
+  const branch = normalizeBranchScope(overrideBranch) || normalizeBranchScope(user?.branch) || normalizeBranchScope(requestedBranch);
   return branch || allValue;
 }
 

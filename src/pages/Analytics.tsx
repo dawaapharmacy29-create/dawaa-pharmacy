@@ -27,6 +27,7 @@ import {
 import { clearExecutiveDashboardCache } from '@/lib/executiveDashboardDataService';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 import { canSeeAllBranches, getBranchScope } from '@/lib/security/permissionScopes';
+import { getDashboardBranchOverride } from '@/lib/security/userDataScope';
 
 type PeriodType = 'cycle' | 'previous_cycle' | 'month' | 'last_30_days' | 'custom';
 
@@ -67,15 +68,24 @@ export default function Analytics() {
   const cycle = getCurrentCycle();
   const previousCycle = getPreviousCycle();
   const [params] = useSearchParams();
-  const requestedBranch = params.get('branch')?.trim() || '';
+  const requestedBranch = (params.get('branch') || '').trim();
+  const requestedDoctor = (params.get('doctor') || '').trim();
   const canAllBranches = canSeeAllBranches(user?.role);
   const [periodStart, setPeriodStart] = useState(() => formatCycleDate(cycle.start));
   const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(cycle.end));
   const [periodType, setPeriodType] = useState<PeriodType>('cycle');
-  const [selectedBranch, setSelectedBranch] = useState(() =>
-    canAllBranches ? requestedBranch || ALL_FILTER : normalizeBranchName(user?.branch || requestedBranch) || ALL_FILTER
-  );
-  const [selectedDoctor, setSelectedDoctor] = useState(ALL_FILTER);
+  const [selectedBranch, setSelectedBranch] = useState(() => {
+    const overrideBranch = getDashboardBranchOverride(user as any);
+    const normalizedRequestedBranch = normalizeBranchName(requestedBranch || '') || ALL_FILTER;
+    const fallbackBranch = canAllBranches
+      ? normalizedRequestedBranch
+      : overrideBranch || normalizeBranchName(user?.branch || requestedBranch) || ALL_FILTER;
+    return normalizeBranchName(fallbackBranch) || ALL_FILTER;
+  });
+  const [selectedDoctor, setSelectedDoctor] = useState(() => {
+    const normalizedDoctor = requestedDoctor === 'الكل' || requestedDoctor === 'all' ? ALL_FILTER : requestedDoctor || ALL_FILTER;
+    return normalizedDoctor;
+  });
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
@@ -120,7 +130,7 @@ export default function Analytics() {
 
   useEffect(() => {
     if (cacheError) {
-      setError(cacheError.message);
+      setError(cacheError.message || 'تعذر تحميل بيانات التحليلات');
     }
   }, [cacheError]);
 
@@ -160,11 +170,11 @@ export default function Analytics() {
   }, [periodEnd, periodStart, periodType, selectedBranch, selectedDoctor, setSearchParams]);
 
   const branches = useMemo(
-    () => data?.branchRows.map((row) => row.branch).filter(Boolean) || [],
+    () => (Array.isArray(data?.branchRows) ? data.branchRows.map((row) => row?.branch).filter(Boolean) : []) as string[],
     [data]
   );
   const doctors = useMemo(
-    () => data?.doctorRows.map((row) => row.doctor).filter(Boolean) || [],
+    () => (Array.isArray(data?.doctorRows) ? data.doctorRows.map((row) => row?.doctor).filter(Boolean) : []) as string[],
     [data]
   );
 
@@ -191,14 +201,15 @@ export default function Analytics() {
     const byBranch = new Map(
       (branchTargets || []).map((target) => [normalizeBranchName(target.branch_name), target])
     );
-    return (data?.branchRows || []).map((row) => {
+    return (Array.isArray(data?.branchRows) ? data.branchRows : []).map((row) => {
       const target = byBranch.get(normalizeBranchName(row.branch));
       const targetAmount = Number(target?.target_amount || 0);
+      const netSales = Number(row?.netSales || 0);
       return {
         ...row,
         targetId: target?.id,
         targetAmount,
-        percent: targetAmount ? Math.round((row.netSales / targetAmount) * 100) : null,
+        percent: targetAmount ? Math.round((netSales / targetAmount) * 100) : null,
       };
     });
   }, [branchTargets, data?.branchRows]);

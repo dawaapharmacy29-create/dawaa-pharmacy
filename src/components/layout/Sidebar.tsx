@@ -225,6 +225,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const pharmacistView = isDoctorRole(user) && !checkPermission('view_executive_dashboard');
 
   const canAccessItem = (item: NavItem) => {
+    const isHiddenForCustomerService =
+      (user?.username === 'cs.doha' || user?.username === 'cs.donia' || user?.name?.includes('ضحي') || user?.name?.includes('دنيا')) &&
+      (item.path === '/daily-command' || item.path === '/today-brief');
+    if (isHiddenForCustomerService) return false;
     if (item.adminOnly && !privileged) return false;
     if (!item.permission) return true;
     if (Array.isArray(item.permission)) {

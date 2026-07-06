@@ -27,7 +27,7 @@ import { supabase } from '@/lib/supabase';
 import { formatCycleDate, getCurrentCycle, getPreviousCycle, getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import { normalizeBranchName } from '@/lib/branch';
 import { useAuth } from '@/hooks/useAuth';
-import { isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
+import { getDashboardBranchOverride, isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
 import {
   type DailyChartMetric,
   type DailyChartRow,
@@ -881,9 +881,11 @@ export default function ExecutiveDashboard2027() {
     checkPermission('view_branch_dashboard');
   const [startDate, setStartDate] = useState(() => formatCycleDate(currentCycle.start));
   const [endDate, setEndDate] = useState(() => formatCycleDate(currentCycle.end));
-  const [branch, setBranch] = useState(
-    () => effectiveBranchFilter(user, ALL_BRANCHES, ALL_BRANCHES) || ALL_BRANCHES
-  );
+  const [branch, setBranch] = useState(() => {
+    const overrideBranch = getDashboardBranchOverride(user as any);
+    const branchValue = effectiveBranchFilter(user, overrideBranch, ALL_BRANCHES) || ALL_BRANCHES;
+    return normalizeBranchName(branchValue) || ALL_BRANCHES;
+  });
   const [search, setSearch] = useState('');
   const [dailyChartMetric, setDailyChartMetric] = useState<DailyChartMetric>('sales');
   const [loading, setLoading] = useState(false);
@@ -968,6 +970,7 @@ export default function ExecutiveDashboard2027() {
 
   const canAllBranches = canSeeAllBranches(user?.role);
   const scopedBranch = effectiveBranchFilter(user, branch, ALL_BRANCHES) || ALL_BRANCHES;
+  const effectiveBranchLabel = normalizeBranchName(scopedBranch || ALL_BRANCHES) || ALL_BRANCHES;
 
   const [R, setR] = useState<any>(null);
   useEffect(() => {
@@ -1365,7 +1368,7 @@ export default function ExecutiveDashboard2027() {
   }, [canAllBranches, state.branchDistribution, state.targets, user?.branch]);
 
   const branchScopeLabel = canAllBranches
-    ? `نطاق العرض: ${scopedBranch === ALL_BRANCHES ? 'كل الفروع' : scopedBranch}`
+    ? `نطاق العرض: ${effectiveBranchLabel === ALL_BRANCHES ? 'كل الفروع' : effectiveBranchLabel}`
     : `نطاق العرض: فرع ${branchName(user?.branch || '')}`;
 
   const summary = state.summary || {};
