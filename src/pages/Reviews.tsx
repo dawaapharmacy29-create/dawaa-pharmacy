@@ -28,7 +28,9 @@ import {
 } from '@/lib/conversationReviews';
 import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
-import { canViewAllBranches, isDoctorRole, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
+import { normalizeBranchName } from '@/lib/branch';
+import { normalizeRole } from '@/lib/core/permissionSystem';
+import { canViewAllBranches, isDoctorRole, normalizeArabicName, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { persistPointsTransaction, applyStaffDelta } from '@/lib/pointsPersistence';
@@ -147,6 +149,29 @@ const emptyReviewForm = {
   reviewerNotes: '',
   trainingRecommendationManual: '',
 };
+
+function canUserSeeConversationReviewBranch(
+  user: { role?: string | null; name?: string | null; username?: string | null; branch?: string | null } | null | undefined,
+  branch?: string | null
+) {
+  if (!user) return false;
+  if (canViewAllBranches(user)) return true;
+
+  const normalizedBranch = normalizeBranchName(branch || '');
+  const allowedReviewBranches = new Set(['فرع الشامي', 'فرع شكري']);
+  const normalizedName = normalizeArabicName(user.name || user.username || '');
+  const normalizedUsername = normalizeArabicName(user.username || '');
+  const explicitReviewUsers = new Set(['ضحى', 'دنيا']);
+  const isExplicitReviewUser = explicitReviewUsers.has(normalizedName) || explicitReviewUsers.has(normalizedUsername);
+  const isCustomerServiceManager = normalizeRole(user.role) === 'customer_service_manager';
+
+  // استثناء آمن لعرض تقييم المحادثات في فرعي الشامي وشكري فقط لهؤلاء المستخدمين.
+  if ((isExplicitReviewUser || isCustomerServiceManager) && allowedReviewBranches.has(normalizedBranch)) {
+    return true;
+  }
+
+  return rowMatchesCurrentUserScope(user, { branch } as Record<string, unknown>);
+}
 
 function asUuid(value?: string | null) {
   if (!value) return null;
@@ -500,7 +525,7 @@ export default function Reviews() {
         .limit(120);
       if (error) throw error;
       const rows = ((data || []) as ConversationReviewHistoryRow[]).filter((row) =>
-        rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
+        canUserSeeConversationReviewBranch(user, row.branch)
       );
       setReviewHistory(rows);
       const params = new URLSearchParams(window.location.search);
