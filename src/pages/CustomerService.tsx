@@ -28,10 +28,12 @@ import { searchCustomerMetrics,
   fetchCustomerServiceFollowups,
   fetchCustomerServiceFollowupById,
   generateTodayFollowupsFromCustomerMetrics,
+  fetchCustomerServiceInsightPools,
   recommendedAction,
   riskLevel,
   updateFollowupResult,
   type FollowupRow,
+  type CustomerServiceInsightPools,
 } from '@/lib/api/customerServiceCommandCenter';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
 import { isValidEgyptPhone } from '@/lib/customerAnalyticsService';
@@ -78,8 +80,48 @@ const CUSTOMER_CARE_RESPONSIBLES = [
   { branch: 'فرع الشامي', name: CUSTOMER_SERVICE_BRANCH_OWNERS['فرع الشامي'] },
   { branch: 'فرع شكري', name: CUSTOMER_SERVICE_BRANCH_OWNERS['فرع شكري'] },
 ];
+
+function customerServiceBranchForUser(user?: { username?: string | null; name?: string | null; branch?: string | null } | null) {
+  const username = String(user?.username || '').trim().toLowerCase();
+  const name = String(user?.name || '').trim();
+  if (username === 'cs.doha' || name.includes('ضحي') || name.includes('ضحى')) return 'فرع الشامي';
+  if (username === 'cs.donia' || name.includes('دنيا')) return 'فرع شكري';
+  return normalizeBranchName(user?.branch || '');
+}
+
+function customerKey(row: FollowupRow) {
+  return String(row.customer_code || row.customer_phone || row.phone || row.customer_id || row.customer_name || row.name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+}
+
+function dedupeCustomerRows(rows: FollowupRow[]) {
+  const map = new Map<string, FollowupRow>();
+  for (const row of rows) {
+    const key = customerKey(row);
+    if (!key) continue;
+    if (!map.has(key)) map.set(key, row);
+  }
+  return [...map.values()];
+}
+
+const EMPTY_INSIGHTS: CustomerServiceInsightPools = {
+  important: [],
+  reduced: [],
+  stopped60: [],
+  strong: [],
+  source: 'not_loaded',
+  warnings: [],
+};
 const TABS = [
   ['today', 'متابعات اليوم'],
+  ['strong', 'متابعة قوية'],
+  ['important-customers', 'أهم العملاء'],
+  ['reduced-customers', 'قللوا التعامل'],
+  ['stopped-customers', 'توقفوا أكثر من شهرين'],
+  ['impact', 'أثر المتابعات'],
+  ['owners-performance', 'أداء مسؤولي خدمة العملاء'],
   ['assigned', 'المتابعات المسندة'],
   ['requests', 'طلبات المتابعة'],
   ['finish', 'إنهاء متابعة'],
@@ -106,6 +148,12 @@ type TabId = (typeof TABS)[number][0];
 
 const PRIMARY_TABS: Array<[TabId, string]> = [
   ['today', 'متابعات اليوم'],
+  ['strong', 'متابعة قوية'],
+  ['important-customers', 'أهم العملاء'],
+  ['reduced-customers', 'قللوا التعامل'],
+  ['stopped-customers', 'توقفوا أكثر من شهرين'],
+  ['impact', 'أثر المتابعات'],
+  ['owners-performance', 'أداء مسؤولي خدمة العملاء'],
   ['assigned', 'المتابعات المسندة'],
   ['requests', 'طلبات المتابعة'],
   ['finish', 'إنهاء متابعة'],
@@ -803,13 +851,22 @@ export default function CustomerService() {
   );
   const quickFollowupRequested =
     params.get('quickFollowup') === '1' || params.get('action') === 'quick-followup';
+  const userId = user?.id || '';
+  const userName = user?.name || '';
+  const userRole = user?.role || '';
+  const userBranch = user?.branch || '';
+  const serviceBranchOverride = customerServiceBranchForUser(user);
+  const canAllBranches = canSeeAllBranches(userRole);
+  const serviceCanAllBranches = canAllBranches && !['cs.doha', 'cs.donia'].includes(String(user?.username || '').toLowerCase());
   const [activeTab, setActiveTabState] = useState<TabId>(TABS.some(([id]) => id === requestedTab) ? requestedTab! : 'today');
   const [rows, setRows] = useState<FollowupRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [branch, setBranch] = useState(dashboardBranch ? normalizeBranchName(dashboardBranch) : ALL_FILTER);
+  const [branch, setBranch] = useState(
+    dashboardBranch ? normalizeBranchName(dashboardBranch) : serviceCanAllBranches ? ALL_FILTER : serviceBranchOverride || ALL_FILTER
+  );
   const [status, setStatus] = useState(ALL_FILTER);
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [metricFilter, setMetricFilter] = useState<MetricFilter>('all');
@@ -828,6 +885,9 @@ export default function CustomerService() {
   const [quickReplies, setQuickReplies] = useState<QuickReplyScript[]>([]);
   const [quickReplyRow, setQuickReplyRow] = useState<FollowupRow | null>(null);
   const [useCustomerNameInReply, setUseCustomerNameInReply] = useState(false);
+  const [insights, setInsights] = useState<CustomerServiceInsightPools>(EMPTY_INSIGHTS);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
 
   const [doctorName, setDoctorName] = useState('');
   const [form, setForm] = useState<AddFollowupForm>({
@@ -843,11 +903,6 @@ export default function CustomerService() {
   });
   const mountedRef = useRef(true);
   const firstLoadRef = useRef(true);
-  const userId = user?.id || '';
-  const userName = user?.name || '';
-  const userRole = user?.role || '';
-  const userBranch = user?.branch || '';
-  const canAllBranches = canSeeAllBranches(userRole);
 
   const setActiveTab = useCallback(
     (tab: TabId) => {
@@ -889,8 +944,8 @@ export default function CustomerService() {
   }, [searchInput]);
 
   useEffect(() => {
-    if (!canAllBranches && userBranch) setBranch(normalizeBranchName(userBranch));
-  }, [canAllBranches, userBranch]);
+    if (!serviceCanAllBranches) setBranch(serviceBranchOverride || normalizeBranchName(userBranch));
+  }, [serviceCanAllBranches, serviceBranchOverride, userBranch]);
 
   useEffect(() => {
     if (requestedTab && TABS.some(([id]) => id === requestedTab)) setActiveTabState(requestedTab);
@@ -1006,8 +1061,8 @@ export default function CustomerService() {
       else setInitialLoading(true);
       setError(null);
       try {
-        const scopedUser = { role: userRole, branch: userBranch };
-        const scopedBranch = effectiveBranchFilter(scopedUser, branch, ALL_FILTER);
+        const scopedUser = { role: userRole, branch: serviceBranchOverride || userBranch };
+        const scopedBranch = serviceCanAllBranches ? effectiveBranchFilter(scopedUser, branch, ALL_FILTER) : serviceBranchOverride || userBranch;
         const data = await fetchCustomerServiceFollowups({
           branch: scopedBranch,
           status,
@@ -1030,12 +1085,33 @@ export default function CustomerService() {
         }
       }
     },
-    [branch, debouncedSearch, status, user, userBranch, userRole]
+    [branch, debouncedSearch, serviceBranchOverride, serviceCanAllBranches, status, user, userBranch, userRole]
   );
 
   useEffect(() => {
     void load(!firstLoadRef.current);
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setInsightsLoading(true);
+      setInsightsError(null);
+      try {
+        const scopedBranch = serviceCanAllBranches ? effectiveBranchFilter({ role: userRole, branch: serviceBranchOverride || userBranch }, branch, ALL_FILTER) : serviceBranchOverride || userBranch;
+        const data = await fetchCustomerServiceInsightPools(scopedBranch);
+        if (!cancelled) setInsights(data);
+      } catch (error) {
+        if (!cancelled) setInsightsError(error instanceof Error ? error.message : 'تعذر تحميل القوائم التحليلية');
+      } finally {
+        if (!cancelled) setInsightsLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [branch, serviceBranchOverride, serviceCanAllBranches, userBranch, userRole]);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
@@ -1052,6 +1128,10 @@ export default function CustomerService() {
     [rows, userName]
   );
   const tabRows = useMemo(() => {
+    if (activeTab === 'strong') return dedupeCustomerRows(rows.filter((row) => /متابعة قوية|متابعة استثنائية|عاجل/i.test(String(row.request_type || row.followup_reason || row.priority || ''))));
+    if (activeTab === 'important-customers') return dedupeCustomerRows([...insights.important]);
+    if (activeTab === 'reduced-customers') return dedupeCustomerRows([...insights.reduced]);
+    if (activeTab === 'stopped-customers') return dedupeCustomerRows([...insights.stopped60]);
     if (activeTab === 'assigned') return assignedRows;
     if (activeTab === 'requests' || activeTab === 'customer-requests') {
       return rows.filter((row) => Boolean(row.request_type || row.request_details || row.request_status));
@@ -1063,7 +1143,7 @@ export default function CustomerService() {
     }
     if (activeTab === 'history') return rows.filter(isHistoryCompleted);
     return rows.filter((row) => !isCompleted(row));
-  }, [activeTab, assignedRows, rows]);
+  }, [activeTab, assignedRows, insights.important, insights.reduced, insights.stopped60, rows]);
   const filteredTabRows = useMemo(
     () =>
       tabRows.filter((row) => {
@@ -1443,10 +1523,32 @@ export default function CustomerService() {
     }
   };
 
+  const convertToStrongFollowup = (row: FollowupRow) => {
+    setSelectedRow(row);
+    setForm((current) => ({
+      ...current,
+      customerName: customerName(row),
+      phone: phoneOf(row),
+      branch: row.branch || branch,
+      priority: 'عاجل',
+      due: dateInputNow(),
+      result: 'لم يتم التواصل بعد',
+      nextDue: '',
+      reason: [
+        'متابعة قوية',
+        row.followup_reason || recommendedAction(row),
+        lastContactAt(row) ? `آخر متابعة/تحديث: ${formatDateTime(lastContactAt(row))}` : '',
+      ].filter(Boolean).join('\n'),
+      selectedCustomer: (row.customer_metrics as any) || null,
+    }));
+    setActiveTab('add');
+    toast.success('تم تجهيز العميل كمتابعة قوية. راجع السبب وحدد موعد المتابعة ثم احفظ.');
+  };
+
   const generateToday = async () => {
     setGenerating(true);
     try {
-      const scopedBranch = effectiveBranchFilter({ role: userRole, branch: userBranch }, branch, ALL_FILTER);
+      const scopedBranch = serviceCanAllBranches ? effectiveBranchFilter({ role: userRole, branch: serviceBranchOverride || userBranch }, branch, ALL_FILTER) : serviceBranchOverride || userBranch;
       const created = await generateTodayFollowupsFromCustomerMetrics(scopedBranch, userName);
       toast.success(created.length ? `تم إنشاء ${created.length} متابعة` : 'لا توجد متابعات جديدة');
       await load(true);
@@ -1574,7 +1676,7 @@ const addFollowup = async () => {
     );
   }
 
-  const cardsTabs: TabId[] = ['today', 'assigned', 'requests', 'finish', 'notes', 'alerts', 'history', 'customer-requests'];
+  const cardsTabs: TabId[] = ['today', 'strong', 'important-customers', 'reduced-customers', 'stopped-customers', 'assigned', 'requests', 'finish', 'notes', 'alerts', 'history', 'customer-requests'];
 
   return (
     <div className="customer-service-v3 w-full max-w-full space-y-5 overflow-hidden" dir="rtl">
@@ -1631,7 +1733,7 @@ const addFollowup = async () => {
         <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_2fr]">
           <label className="min-w-0 space-y-1">
             <span className="text-xs font-black text-slate-400">الفرع</span>
-            <select value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!canAllBranches} className="input-dark">
+            <select value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!serviceCanAllBranches} className="input-dark">
               <option value={ALL_FILTER}>كل الفروع</option>
               {BRANCHES.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
@@ -1651,7 +1753,7 @@ const addFollowup = async () => {
           </label>
           <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-900/70 p-3 text-xs font-bold text-slate-300">
             <div className="text-slate-500">نطاق العرض</div>
-            <div className="mt-1 truncate text-slate-200">{canAllBranches ? 'كل الفروع' : text(userBranch, 'فرع المستخدم')}</div>
+            <div className="mt-1 truncate text-slate-200">{serviceCanAllBranches ? 'كل الفروع' : text(serviceBranchOverride || userBranch, 'فرع المستخدم')}</div>
           </div>
           <label className="min-w-0 space-y-1">
             <span className="text-xs font-black text-slate-400">بحث سريع</span>
@@ -1687,6 +1789,12 @@ const addFollowup = async () => {
       {error && (
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-100">
           <AlertTriangle className="ml-2 inline h-5 w-5" /> {error}
+        </div>
+      )}
+
+      {(insightsLoading || insightsError || insights.warnings.length > 0) && (
+        <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4 text-sm font-bold text-cyan-50">
+          {insightsLoading ? 'جاري تحميل القوائم التحليلية للعملاء...' : insightsError || insights.warnings.join(' · ')}
         </div>
       )}
 
@@ -1819,6 +1927,7 @@ const addFollowup = async () => {
                       onPostpone={() => void postpone(row)}
                       onManager={() => void escalateToManager(row)}
                       onQuickReply={() => setQuickReplyRow(row)}
+                      onStrongFollowup={() => convertToStrongFollowup(row)}
                       onApproveBranch={() => void approveBranchCorrection(row)}
                     />
                   )
@@ -2144,6 +2253,32 @@ function TabPanel({
     return selectedRow ? <CustomerDecisionAnalysis customer={customerFrom(selectedRow)} followups={rows.map(asDailyFollowup)} /> : <EmptyState message="اختار عميل من القائمة أولًا." />;
   }
   if (tab === 'improvements') return <ContinuousImprovement followups={rows.map(asDailyFollowup)} />;
+  if (tab === 'impact') {
+    const completed = rows.filter((row) => isHistoryCompleted(row));
+    const recovered = completed.filter((row) => row.purchase_after_followup);
+    const amount = recovered.reduce((sum, row) => sum + Number(row.purchase_amount || 0), 0);
+    const avgDays = recovered.length
+      ? Math.round(
+          recovered.reduce((sum, row) => {
+            const start = new Date(row.created_at || row.followup_date || row.date || '').getTime();
+            const end = new Date(row.purchase_date || row.completed_at || row.updated_at || '').getTime();
+            return sum + (Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, (end - start) / 86400000) : 0);
+          }, 0) / recovered.length
+        )
+      : 0;
+    return (
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MiniMetric label="إجمالي المتابعات" value={rows.length} />
+        <MiniMetric label="اشتروا بعد المتابعة" value={recovered.length} />
+        <MiniMetric label="معدل التحويل" value={rows.length ? `${Math.round((recovered.length / rows.length) * 100)}%` : '0%'} />
+        <MiniMetric label="قيمة المبيعات بعد المتابعة" value={money(amount)} />
+        <MiniMetric label="متوسط أيام التحويل" value={avgDays ? `${avgDays} يوم` : 'غير متاح'} />
+      </div>
+    );
+  }
+  if (tab === 'owners-performance') {
+    return <TeamPerformanceAnalytics followups={rows.map(asDailyFollowup)} staff={staff as any} />;
+  }
   if (tab === 'performance') {
     return (
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -2302,7 +2437,7 @@ function HistoryFollowupCard({ row, onSelect }: { row: FollowupRow; onSelect: ()
   );
 }
 
-function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, onPostpone, onManager, onQuickReply, onApproveBranch }: {
+function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, onPostpone, onManager, onQuickReply, onStrongFollowup, onApproveBranch }: {
   row: FollowupRow;
   selected: boolean;
   onSelect: () => void;
@@ -2312,6 +2447,7 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
   onPostpone: () => void;
   onManager: () => void;
   onQuickReply?: () => void;
+  onStrongFollowup?: () => void;
   onApproveBranch?: () => void;
 }) {
   const phone = phoneOf(row);
@@ -2359,6 +2495,7 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
         <InfoRow label="متوسط مرات الشراء" value={String(averagePurchaseCount(row))} />
         <InfoRow label="إجمالي المشتريات" value={money(totalSpent(row))} />
         <InfoRow label="مسؤول خدمة العملاء" value={branchServiceOwner(row)} />
+        <InfoRow label="المتابعة القادمة" value={formatDateTime(row.next_followup_date || row.postponed_until || row.followup_datetime)} />
       </div>
 
       {note && (
@@ -2408,6 +2545,7 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onResult}><AlertTriangle className="ml-1 inline h-3.5 w-3.5" /> لم يرد</button>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onPostpone}><CalendarClock className="ml-1 inline h-3.5 w-3.5" /> تأجيل</button>
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onManager}><UserCheck className="ml-1 inline h-3.5 w-3.5" /> يحتاج مدير</button>
+        {onStrongFollowup && <button className="btn-primary px-3 py-2 text-xs" onClick={onStrongFollowup}><Sparkles className="ml-1 inline h-3.5 w-3.5" /> متابعة قوية</button>}
         <button className="btn-secondary px-3 py-2 text-xs" onClick={onDetails}><Eye className="ml-1 inline h-3.5 w-3.5" /> تفاصيل</button>
       </div>
     </article>

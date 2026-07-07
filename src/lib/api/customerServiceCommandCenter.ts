@@ -103,6 +103,15 @@ export type CustomerServiceSearchResult = CustomerMetric & {
   displayPhone: string | null;
   profile?: Record<string, unknown> | null;
 };
+export type CustomerServiceInsightPools = {
+  important: FollowupRow[];
+  reduced: FollowupRow[];
+  stopped60: FollowupRow[];
+  strong: FollowupRow[];
+  source: string;
+  warnings: string[];
+};
+
 export type FollowupStats = {
   totalToday: number;
   completed: number;
@@ -666,36 +675,165 @@ export async function updateFollowupResult(id: string, payload: FollowupResultPa
     patch.completed_at = payload.completed_at || new Date().toISOString();
   return safeUpdateFollowup(id, patch);
 }
+
+function daysSince(value?: string | null) {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return null;
+  return Math.floor((Date.now() - time) / 86400000);
+}
+
+function followupKeyFromCustomer(customer: CustomerMetric) {
+  return normalizeKey(customer.customer_code || customer.customer_phone || customer.phone || customer.id || customer.customer_name);
+}
+
+function followupKeyFromRow(row: FollowupRow) {
+  return normalizeKey(row.customer_code || row.customer_phone || row.phone || row.customer_id || row.customer_name || row.name);
+}
+
+function metricToFollowupRow(customer: CustomerMetric, reason: string, priority = 'مهم'): FollowupRow {
+  const now = new Date().toISOString();
+  return normalizeFollowup({
+    id: `insight-${customer.id || customer.customer_code || customer.customer_phone || crypto.randomUUID()}`,
+    date: todayDay(),
+    customer_id: customer.customer_id || customer.id || null,
+    customer_code: customer.customer_code || null,
+    customer_name: customer.customer_name || customer.name || null,
+    name: customer.customer_name || customer.name || null,
+    customer_phone: customer.customer_phone || customer.phone || null,
+    phone: customer.phone || customer.customer_phone || null,
+    branch: customer.branch || null,
+    segment: customer.segment || customer.type || null,
+    customer_status: customer.customer_status || customer.status || null,
+    total_spent: customer.total_spent || customer.total_purchases || 0,
+    last_purchase_date: customer.last_purchase || null,
+    priority,
+    followup_reason: reason,
+    suggested_action: recommendedAction(customer),
+    request_type: reason,
+    status: 'معلق',
+    followup_status: 'معلق',
+    followup_date: now,
+    followup_datetime: now,
+    customer_metrics: customer,
+  });
+}
+
+export async function fetchCustomerServiceInsightPools(branch?: string): Promise<CustomerServiceInsightPools> {
+  const warnings: string[] = [];
+  const scopedBranch = !isAll(branch) ? branch : ALL_FILTER;
+  const fetchPool = async (options: Parameters<typeof getCustomers>[0], label: string) => {
+    try {
+      const result = await withTimeout(getCustomers({ ...options, branch: scopedBranch, limit: 80, offset: 0 }), 9000, label);
+      return result.customers;
+    } catch (error) {
+      warnings.push(error instanceof Error ? `${label}: ${error.message}` : `${label}: تعذر التحميل`);
+      return [] as CustomerMetric[];
+    }
+  };
+
+  const [vipCustomers, atRiskCustomers, stoppedCustomers] = await Promise.all([
+    fetchPool({ type: 'مهم جدًا' }, 'أهم العملاء'),
+    fetchPool({ status: 'مهدد بالتوقف' }, 'عملاء قللوا التعامل'),
+    fetchPool({ status: 'متوقف' }, 'عملاء متوقفون'),
+  ]);
+
+  const important = vipCustomers
+    .sort((a, b) => toNumber(b.total_spent || b.total_purchases) - toNumber(a.total_spent || a.total_purchases))
+    .slice(0, 40)
+    .map((customer) => metricToFollowupRow(customer, 'عميل مهم حاليًا يحتاج متابعة ذكية', customer.segment === 'مهم جدًا' ? 'عاجل' : 'مهم'));
+
+  const reduced = atRiskCustomers
+    .filter((customer) => (customer.avg_monthly || 0) >= 500 || (customer.total_spent || 0) >= 1500)
+    .slice(0, 40)
+    .map((customer) => metricToFollowupRow(customer, 'قلل التعامل ويحتاج استرجاع قبل التوقف', 'مهم'));
+
+  const stopped60 = stoppedCustomers
+    .filter((customer) => {
+      const days = daysSince(customer.last_purchase);
+      return days == null || days >= 60;
+    })
+    .slice(0, 40)
+    .map((customer) => {
+      const days = daysSince(customer.last_purchase);
+      return metricToFollowupRow(
+        customer,
+        days ? `متوقف منذ ${days} يوم ويحتاج متابعة استرجاع` : 'متوقف أكثر من شهرين ويحتاج متابعة استرجاع',
+        'عاجل'
+      );
+    });
+
+  return { important, reduced, stopped60, strong: [], source: 'dawaa_customer_metrics_app_view', warnings };
+}
+
+async function fetchOpenFollowupKeys(branch?: string) {
+  try {
+    let query = supabase
+      .from('daily_followups')
+      .select('customer_code,customer_phone,phone,customer_id,customer_name,name,status,followup_status,completed_at,closed_at,next_followup_date,followup_date,date')
+      .limit(1000);
+    if (!isAll(branch)) query = query.eq('branch', branch as string);
+    const { data, error } = await query;
+    if (error) return new Set<string>();
+    const keys = new Set<string>();
+    for (const raw of (data || []) as Row[]) {
+      const row = normalizeFollowup(raw);
+      if (!isDone(row)) keys.add(followupKeyFromRow(row));
+      const date = String(row.date || row.followup_date || row.next_followup_date || '').slice(0, 10);
+      if (date === todayDay()) keys.add(followupKeyFromRow(row));
+    }
+    return keys;
+  } catch {
+    return new Set<string>();
+  }
+}
+
 export async function generateTodayFollowupsFromCustomerMetrics(
   branch?: string,
   createdByName?: string | null
 ) {
-  const result = await getCustomers({
-    branch: !isAll(branch) ? branch : ALL_FILTER,
-    limit: 12,
-    offset: 0,
-  });
-  const rows: FollowupRow[] = [];
-  for (const customer of result.customers.slice(0, 12)) {
-    try {
-      rows.push(
-        await createExceptionalFollowup({
-          customer,
-          customerName: customer.customer_name || 'عميل',
-          customerPhone: customer.customer_phone,
-          branch: customer.branch,
-          priority: customer.segment === 'مهم جدًا' ? 'عاجل' : 'مهم',
-          requestType: 'متابعة يومية',
-          followupReason: recommendedAction(customer),
+  const branches = isAll(branch) ? ['فرع الشامي', 'فرع شكري'] : [normalizeBranchName(branch || '')].filter(Boolean);
+  const createdRows: FollowupRow[] = [];
+
+  for (const branchName of branches) {
+    const existingKeys = await fetchOpenFollowupKeys(branchName);
+    const pools = await fetchCustomerServiceInsightPools(branchName);
+    const candidates = [...pools.strong, ...pools.stopped60, ...pools.reduced, ...pools.important];
+    const unique = new Map<string, FollowupRow>();
+    for (const row of candidates) {
+      const key = followupKeyFromRow(row);
+      if (!key || existingKeys.has(key) || unique.has(key)) continue;
+      unique.set(key, row);
+      if (unique.size >= 20) break;
+    }
+
+    for (const row of unique.values()) {
+      try {
+        const created = await createExceptionalFollowup({
+          customer: row.customer_metrics as CustomerMetric | null,
+          customerName: row.customer_name || row.name || 'عميل',
+          customerPhone: row.customer_phone || row.phone,
+          customerCode: row.customer_code,
+          branch: branchName,
+          priority: row.priority || 'مهم',
+          requestType: 'متابعة يومية ذكية',
+          followupReason: row.followup_reason || recommendedAction(row),
+          followupDatetime: new Date().toISOString(),
+          requestDetails: row.followup_reason || recommendedAction(row),
           createdByName,
-        })
-      );
-    } catch (error) {
-      console.warn('daily followup insert skipped', error);
+          source: 'smart_daily_customer_service_queue',
+        });
+        createdRows.push(created);
+        existingKeys.add(followupKeyFromRow(created));
+      } catch (error) {
+        console.warn('smart daily followup insert skipped', error);
+      }
     }
   }
-  return rows;
+
+  return createdRows;
 }
+
 export function riskLevel(row: FollowupRow | CustomerMetric) {
   const status = 'customer_status' in row ? row.customer_status : null;
   const segment = 'segment' in row ? row.segment : null;

@@ -637,6 +637,19 @@ async function countRows(table: string, build: (query: any) => any) {
   return count ?? 0;
 }
 
+
+async function withSummaryTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: statement timeout`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function startOfTodayIso() {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
@@ -659,12 +672,16 @@ async function fetchCustomerIntelligence(
     // V13: استخدم مصدر العملاء الجديد إذا كان موجودًا، لأنه مبني على dawaa_customer_purchase_frequency_v2
     // ويحل مشكلة ظهور العملاء المهمين والمتوقفين بصفر في الداشبورد.
     if (isAllBranches(branch)) {
-      const { data: v13Rows, error: v13Error } = await supabase
-        .from('dawaa_dashboard_customer_cards_v13')
-        .select(
-          'important_customers,very_important_customers,customers_need_attention,stopped_customers'
-        )
-        .limit(1);
+      const { data: v13Rows, error: v13Error } = (await withSummaryTimeout(
+        supabase
+          .from('dawaa_dashboard_customer_cards_v13')
+          .select(
+            'important_customers,very_important_customers,customers_need_attention,stopped_customers'
+          )
+          .limit(1),
+        8000,
+        'dawaa_dashboard_customer_cards_v13'
+      )) as { data?: Row[] | null; error?: { message?: string } | null };
 
       if (!v13Error && v13Rows && v13Rows.length > 0) {
         const row = v13Rows[0] as Row;

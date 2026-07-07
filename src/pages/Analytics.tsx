@@ -619,6 +619,26 @@ function Mini({ label, value }: { label: string; value: string }) {
   );
 }
 
+
+async function withAnalyticsTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: انتهت مهلة تحميل البيانات`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function viewErrorMessage(error: unknown) {
+  if (!error) return null;
+  if (error instanceof Error) return error.message;
+  const message = (error as { message?: string })?.message;
+  return message || 'تعذر تحميل البيانات';
+}
+
 function Empty({ text }: { text: string }) {
   return (
     <div className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500">
@@ -669,30 +689,74 @@ function OperationsV13Panel() {
   const loadV13 = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const errors: string[] = [];
     try {
-      const [cardsResult, shiftsResult, targetsResult] = await Promise.all([
-        supabase.from('dawaa_dashboard_customer_cards_v13').select('*').limit(1),
-        supabase.from('dawaa_branch_shift_daily_avg_v13').select('*').order('branch'),
-        supabase.from('dawaa_branch_target_progress_v13').select('*').order('branch'),
+      const [cardsResult, shiftsResult, targetsResult] = await Promise.allSettled([
+        withAnalyticsTimeout(
+          supabase.from('dawaa_dashboard_customer_cards_v13').select('*').limit(1),
+          10000,
+          'dawaa_dashboard_customer_cards_v13'
+        ),
+        withAnalyticsTimeout(
+          supabase.from('dawaa_branch_shift_daily_avg_v13').select('*').order('branch'),
+          10000,
+          'dawaa_branch_shift_daily_avg_v13'
+        ),
+        withAnalyticsTimeout(
+          supabase.from('dawaa_branch_target_progress_v13').select('*').order('branch'),
+          10000,
+          'dawaa_branch_target_progress_v13'
+        ),
       ]);
-      const failed = [
-        { name: 'dawaa_dashboard_customer_cards_v13', error: cardsResult.error },
-        { name: 'dawaa_branch_shift_daily_avg_v13', error: shiftsResult.error },
-        { name: 'dawaa_branch_target_progress_v13', error: targetsResult.error },
-      ].find((item) => item.error);
-      if (failed?.error) {
-        if (import.meta.env.DEV) {
-          console.warn('[Analytics V13] failed to load view', {
-            view: failed.name,
-            message: failed.error.message,
-          });
-        }
-        throw new Error(`تعذر تحميل مؤشرات V13 من ${failed.name}: ${failed.error.message}`);
+
+      const cardsValue = cardsResult.status === 'fulfilled' ? (cardsResult.value as { data?: unknown[]; error?: { message?: string } | null }) : null;
+      const shiftsValue = shiftsResult.status === 'fulfilled' ? (shiftsResult.value as { data?: unknown[]; error?: { message?: string } | null }) : null;
+      const targetsValue = targetsResult.status === 'fulfilled' ? (targetsResult.value as { data?: unknown[]; error?: { message?: string } | null }) : null;
+
+      if (cardsValue && !cardsValue.error) {
+        setCards((cardsValue.data?.[0] || null) as V13CustomerCards | null);
+      } else {
+        setCards(null);
+        errors.push(
+          `مؤشرات العملاء غير متاحة مؤقتًا: ${
+            cardsResult.status === 'rejected'
+              ? viewErrorMessage(cardsResult.reason)
+              : cardsValue?.error?.message || 'تعذر تحميل البيانات'
+          }`
+        );
       }
-      setCards((cardsResult.data?.[0] || null) as V13CustomerCards | null);
-      setShifts((shiftsResult.data || []) as V13ShiftRow[]);
-      setTargets((targetsResult.data || []) as V13TargetRow[]);
+
+      if (shiftsValue && !shiftsValue.error) {
+        setShifts((shiftsValue.data || []) as V13ShiftRow[]);
+      } else {
+        setShifts([]);
+        errors.push(
+          `متوسط الفرع/الشيفت غير متاح: ${
+            shiftsResult.status === 'rejected'
+              ? viewErrorMessage(shiftsResult.reason)
+              : shiftsValue?.error?.message || 'تعذر تحميل البيانات'
+          }`
+        );
+      }
+
+      if (targetsValue && !targetsValue.error) {
+        setTargets((targetsValue.data || []) as V13TargetRow[]);
+      } else {
+        setTargets([]);
+        errors.push(
+          `تارجت الفروع غير متاح: ${
+            targetsResult.status === 'rejected'
+              ? viewErrorMessage(targetsResult.reason)
+              : targetsValue?.error?.message || 'تعذر تحميل البيانات'
+          }`
+        );
+      }
+
+      if (errors.length) setError(errors.join(' · '));
     } catch (err) {
+      setCards(null);
+      setShifts([]);
+      setTargets([]);
       setError(err instanceof Error ? err.message : 'تعذر تحميل مؤشرات V13');
     } finally {
       setLoading(false);
