@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   BarChart3,
   BellRing,
-  BookOpenCheck,
   Calendar,
   ChevronDown,
   ChevronLeft,
@@ -23,8 +22,6 @@ import {
   Sparkles,
   Star,
   Store,
-  Target,
-  Trash2,
   Truck,
   UserCheck,
   UserPlus,
@@ -61,6 +58,9 @@ const T = {
   logout: 'تسجيل الخروج',
 };
 
+/** تطبيق الدليفري منفصل — إخفاء مجموعة الدليفري من تطبيق الإدارة */
+const ENABLE_INTERNAL_DELIVERY_MODULE = false;
+
 const SHIFT_NOTES_ITEM: NavItem = {
   path: '/shift-notes',
   icon: ClipboardList,
@@ -75,8 +75,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة 2027', permission: 'view_dashboard' },
       { path: '/executive-2027', icon: Crown, label: 'الداشبورد التنفيذي', permission: ['view_executive_dashboard', 'view_branch_dashboard'] },
-      { path: '/daily-command', icon: Target, label: 'مركز القيادة اليومي', permission: 'view_dashboard' },
-      { path: '/today-brief', icon: ClipboardCheck, label: 'ملخص اليوم', permission: 'view_dashboard' },
+      { path: '/branch-inspection', icon: ClipboardList, label: 'مرور مدير الفروع', permission: 'view_branch_inspection' },
       { path: '/operations-center', icon: BellRing, label: 'المهام والتنبيهات', permission: 'view_operations' },
       { path: '/data-health', icon: ShieldCheck, label: 'صحة البيانات', permission: 'view_data_health' },
       { path: '/activity-log', icon: ActivitySquare, label: 'سجل الأنشطة', permission: 'view_activity_log', adminOnly: true },
@@ -88,27 +87,23 @@ const GROUPS: NavGroup[] = [
     items: [
       { path: '/team', icon: UserCheck, label: 'الفريق / الموظفون', permission: 'view_team' },
       { path: '/staff-accounts', icon: ShieldCheck, label: 'الحسابات والصلاحيات', permission: 'view_staff_accounts', adminOnly: true },
+      { path: '/roles-permissions', icon: ShieldCheck, label: 'إعدادات الصلاحيات', permission: 'view_roles_permissions', adminOnly: true },
       { path: '/schedule', icon: Calendar, label: 'الجداول والشيفتات', permission: 'view_schedule' },
       { path: '/attendance-report', icon: ClipboardCheck, label: 'تسجيل/تقرير الحضور', permission: ['view_attendance_leaves', 'record_attendance'] },
       { path: '/time-off', icon: Calendar, label: 'الأذونات والإجازات', permission: ['view_attendance_leaves', 'create_leave_request'] },
       { path: '/shift-performance', icon: ClipboardList, label: 'تقييمات الشيفتات', permission: 'view_shift_performance' },
       { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system.view' },
-      { path: '/employee-kpi', icon: BarChart3, label: 'مهام الفريق/الأداء', permission: 'view_team' },
-      { path: '/shift-notes', icon: ClipboardList, label: 'ملاحظات الشيفت', permission: 'view_schedule' },
     ],
   },
   {
     title: 'العملاء وخدمة العملاء',
     icon: HeadphonesIcon,
     items: [
-      { path: '/customer-requests', icon: BellRing, label: 'متابعة العملاء', permission: 'view_customer_requests' },
-      { path: '/customer-coding', icon: UserPlus, label: 'تكويد عميل', permission: 'view_customer_service' },
+      { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة العملاء وخدمة العملاء', permission: 'view_customer_service' },
+      { path: '/customer-coding', icon: UserPlus, label: 'تكويد العملاء', permission: 'view_customer_service' },
       { path: '/customers', icon: Users, label: 'قاعدة العملاء', permission: 'view_customers' },
-      { path: '/customer-service', icon: HeadphonesIcon, label: 'خدمة العملاء', permission: 'view_customer_service' },
+      { path: '/customer-data-review', icon: ClipboardCheck, label: 'مراجعة بيانات العملاء', permission: 'view_customer_details' },
       { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
-      { path: '/crm', icon: Users, label: 'CRM / Customer 360', permission: 'view_crm' },
-      { path: '/customer-360', icon: Users, label: 'Customer 360', permission: 'view_customer_360' },
-      { path: '/customer-data-review', icon: ClipboardCheck, label: 'مراجعة البيانات', permission: 'view_customer_details' },
       { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
       { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages.view' },
     ],
@@ -135,9 +130,6 @@ const GROUPS: NavGroup[] = [
       { path: '/inventory-counts', icon: ClipboardList, label: 'الجرد', permission: 'view_inventory' },
       { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
       { path: '/supplies', icon: PackageSearch, label: 'المستلزمات', permission: 'view_supplies' },
-      { path: '/returns', icon: Trash2, label: 'المرتجعات', permission: 'view_invoices' },
-      { path: '/branch-inspection', icon: ClipboardList, label: 'مرور مدير الفروع', permission: 'view_branch_inspection' },
-      { path: '/shift-notes', icon: ClipboardList, label: 'ملاحظات الشيفت', permission: 'view_schedule' },
     ],
   },
   {
@@ -159,17 +151,9 @@ const GROUPS: NavGroup[] = [
     items: [
       { path: '/points', icon: Star, label: 'النقاط', permission: 'view_points' },
       { path: '/staff-payroll', icon: Wallet, label: 'الرواتب', permission: 'view_salary_calculator' },
-      { path: '/quarterly-incentives', icon: Crown, label: 'الحوافز', permission: 'view_quarterly_incentives' },
+      { path: '/quarterly-incentives', icon: Crown, label: 'شرح الحافز الشهري', permission: 'view_quarterly_incentives' },
       { path: '/penalty-incentive', icon: AlertTriangle, label: 'الجزاءات والمكافآت', permission: 'view_penalty_management' },
       { path: '/evaluation-rules', icon: ClipboardCheck, label: 'قواعد التقييم', permission: 'manage_permissions', adminOnly: true },
-    ],
-  },
-  {
-    title: 'الإدارة والإعدادات',
-    icon: ShieldCheck,
-    items: [
-      { path: '/roles-permissions', icon: ShieldCheck, label: 'إعدادات الصلاحيات', permission: 'view_roles_permissions', adminOnly: true },
-      { path: '/staff-accounts', icon: ShieldCheck, label: 'إعدادات الفروع', permission: 'view_staff_accounts', adminOnly: true },
     ],
   },
 ];
@@ -181,24 +165,30 @@ const PHARMACIST_GROUPS: NavGroup[] = [
     items: [
       { path: '/doctor-dashboard', icon: LayoutDashboard, label: 'لوحة الدكتور', permission: 'view_doctor_dashboard' },
       { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
-      { path: '/customers', icon: Users, label: 'العملاء', permission: 'view_customers' },
-      { path: '/customer-service', icon: HeadphonesIcon, label: 'خدمة العملاء', permission: 'view_customer_service' },
+      { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة العملاء', permission: 'view_customer_service' },
+      { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
+      { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages.view' },
       { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
-      { path: '/points', icon: Star, label: 'النقاط', permission: 'view_points' },
+      { path: '/points', icon: Star, label: 'النقاط والحافز', permission: 'view_points' },
       { path: '/stagnant-medicines', icon: Package, label: 'الرواكد', permission: 'view_stagnant_medicines' },
       { path: '/incentive-medicines', icon: Sparkles, label: 'اللستة', permission: 'view_incentive_medicines' },
-      { path: '/medicine-expiry', icon: AlertTriangle, label: 'صلاحية الأدوية', permission: 'view_expiry_tracker' },
       { path: '/shortages', icon: PackageSearch, label: 'النواقص', permission: 'view_shortages' },
       { path: '/schedule', icon: Calendar, label: 'الجدول', permission: 'view_schedule' },
     ],
   },
 ];
 
+function navItemBasePath(itemPath: string) {
+  return itemPath.split('?')[0];
+}
+
 function isRouteActive(itemPath: string, pathname: string) {
-  if (itemPath === '/') return pathname === '/' || pathname === '/executive-2027';
-  if (itemPath === '/team' && pathname.startsWith('/staff/')) return true;
-  if (itemPath === '/analytics' && pathname === '/analytics-sales') return true;
-  return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+  const basePath = navItemBasePath(itemPath);
+  if (basePath === '/') return pathname === '/' || pathname === '/executive-2027';
+  if (basePath === '/team' && pathname.startsWith('/staff/')) return true;
+  if (basePath === '/analytics' && pathname === '/analytics-sales') return true;
+  if (basePath === '/customer-service' && pathname.startsWith('/customer-service')) return true;
+  return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
 interface SidebarProps {
@@ -225,10 +215,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const pharmacistView = isDoctorRole(user) && !checkPermission('view_executive_dashboard');
 
   const canAccessItem = (item: NavItem) => {
-    const isHiddenForCustomerService =
-      (user?.username === 'cs.doha' || user?.username === 'cs.donia' || user?.name?.includes('ضحي') || user?.name?.includes('دنيا')) &&
-      (item.path === '/daily-command' || item.path === '/today-brief');
-    if (isHiddenForCustomerService) return false;
     if (item.adminOnly && !privileged) return false;
     if (!item.permission) return true;
     if (Array.isArray(item.permission)) {
@@ -239,11 +225,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
 
   const groups = useMemo(() => {
     const sourceGroups = pharmacistView ? PHARMACIST_GROUPS : GROUPS;
-    return sourceGroups.map((group) => ({
-      ...group,
-      items: group.items.filter((item) => canAccessItem(item)),
-    })).filter((group) => group.items.length > 0);
-  }, [checkPermission, pharmacistView, privileged]);
+    return sourceGroups
+      .filter((group) => group.title !== 'الدليفري' || ENABLE_INTERNAL_DELIVERY_MODULE)
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => canAccessItem(item)),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [checkPermission, pharmacistView, privileged, user]);
 
   const showPinnedShiftNotes = canAccessItem(SHIFT_NOTES_ITEM);
 
@@ -392,9 +381,9 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                 <div className={cn('space-y-0.5', collapsed ? '' : 'pr-2')}>
                 {group.items.map((item) => {
                   const itemActive = isRouteActive(item.path, location.pathname);
-                  const visibleSections = getVisibleSectionsForPath(item.path, checkPermission);
+                  const visibleSections = getVisibleSectionsForPath(navItemBasePath(item.path), checkPermission);
                   return (
-                    <div key={item.path} className="space-y-1">
+                    <div key={`${group.title}-${item.path}-${item.label}`} className="space-y-1">
                       <NavLink
                         to={item.path}
                         end={item.path === '/'}

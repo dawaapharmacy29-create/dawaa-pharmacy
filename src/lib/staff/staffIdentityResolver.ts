@@ -5,6 +5,9 @@
  */
 
 import { supabase } from '@/lib/supabase';
+import { normalizeBranchName } from '@/lib/branch';
+import { normalizeRole } from '@/lib/core/permissionSystem';
+import { normalizeArabicName } from '@/lib/security/userDataScope';
 import { resolveStaffAccountSafe } from '@/lib/staff/staffAccountsApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -66,16 +69,206 @@ export interface StaffLinkResult {
 // ─── Name normalization ───────────────────────────────────────────────────────
 
 /**
- * Strips Arabic diacritics, collapses spaces, and lowercases.
- * Used for fuzzy name matching.
+ * Strips Arabic diacritics, doctor prefixes, and lowercases for fuzzy matching.
  */
 export function normalizeStaffName(name: string | null | undefined): string {
   if (!name) return '';
-  return String(name)
-    .trim()
-    .replace(/\s+/g, ' ')
-    .replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06ED]/g, '')
-    .toLowerCase();
+  return normalizeArabicName(String(name).trim());
+}
+
+/** Normalized doctor name key (without د/ prefix) for grouping and deduplication. */
+export function normalizeDoctorName(value: unknown): string {
+  const normalized = normalizeStaffName(String(value ?? ''));
+  if (!normalized) return '';
+  return normalized;
+}
+
+const PHARMACIST_ROLE_PATTERN = /صيدلاني|pharmacist|دكتور|doctor/i;
+
+function isStaffRowActive(row: StaffDirectoryRow): boolean {
+  if (row.active === false || row.is_active === false) return false;
+  const status = String(row.status ?? '').trim();
+  if (status && !['active', 'نشط', ''].includes(status)) return false;
+  return true;
+}
+
+function isPrimaryPharmacistRow(row: StaffDirectoryRow): boolean {
+  if (!isStaffRowActive(row)) return false;
+  const role = String(row.role ?? '').trim();
+  if (!role) return true;
+  return PHARMACIST_ROLE_PATTERN.test(role);
+}
+
+function staffRowId(row: StaffDirectoryRow): string {
+  return String(row.staff_id || row.id || '').trim();
+}
+
+function staffRowDisplayName(row: StaffDirectoryRow): string {
+  return String(row.name || row.staff_name || row.username || '').trim();
+}
+
+export interface StaffIdentityMapEntry {
+  staffId: string;
+  displayName: string;
+  normalizedName: string;
+  branch: string;
+  username: string;
+  role: string;
+  isPrimary: boolean;
+}
+
+export type StaffIdentityMap = Map<string, StaffIdentityMapEntry>;
+
+const DOCTOR_ALIAS_GROUPS: string[][] = [
+  ['eslam', 'islam', 'اسلام', 'اسلام فاروق', 'د اسلام', 'د/ اسلام'],
+];
+
+function expandDoctorAliasKeys(normalized: string): string[] {
+  const keys = new Set<string>([normalized]);
+  for (const group of DOCTOR_ALIAS_GROUPS) {
+    const normalizedGroup = group.map((item) => normalizeDoctorName(item)).filter(Boolean);
+    if (normalizedGroup.includes(normalized)) {
+      normalizedGroup.forEach((item) => keys.add(item));
+    }
+  }
+  return [...keys];
+}
+
+/** Build a lookup map from staff_id and normalized names to the primary pharmacist account. */
+export function buildStaffIdentityMap(staffRows: StaffDirectoryRow[]): StaffIdentityMap {
+  const primaryRows = staffRows.filter(isPrimaryPharmacistRow);
+  const byNormalized = new Map<string, StaffDirectoryRow[]>();
+
+  for (const row of primaryRows) {
+    const normalized = normalizeDoctorName(staffRowDisplayName(row));
+    if (!normalized) continue;
+    const bucket = byNormalized.get(normalized) || [];
+    bucket.push(row);
+    byNormalized.set(normalized, bucket);
+  }
+
+  function pickPrimary(candidates: StaffDirectoryRow[]): StaffDirectoryRow | null {
+    if (!candidates.length) return null;
+    const active = candidates.filter(isStaffRowActive);
+    const pool = active.length ? active : candidates;
+    const pharmacist = pool.find((row) => PHARMACIST_ROLE_PATTERN.test(String(row.role ?? '')));
+    return pharmacist || pool[0];
+  }
+
+  const map: StaffIdentityMap = new Map();
+
+  for (const [normalized, candidates] of byNormalized.entries()) {
+    const primary = pickPrimary(candidates);
+    if (!primary) continue;
+    const staffId = staffRowId(primary);
+    if (!staffId) continue;
+    const entry: StaffIdentityMapEntry = {
+      staffId,
+      displayName: staffRowDisplayName(primary),
+      normalizedName: normalized,
+      branch: normalizeBranchName(primary.branch || '') || String(primary.branch || '').trim(),
+      username: String(primary.username || '').trim(),
+      role: String(primary.role || '').trim(),
+      isPrimary: true,
+    };
+    map.set(`id:${staffId}`, entry);
+    expandDoctorAliasKeys(normalized).forEach((key) => map.set(`name:${key}`, entry));
+    if (entry.username) map.set(`username:${entry.username.toLowerCase()}`, entry);
+  }
+
+  return map;
+}
+
+function readRowId(row: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = String(row[key] ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function readRowName(row: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = String(row[key] ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+/** Resolve a review/invoice row to one primary staff member. */
+export function resolvePrimaryStaffForDoctor(
+  row: Record<string, unknown>,
+  staffRows: StaffDirectoryRow[],
+  identityMap?: StaffIdentityMap
+): StaffIdentityMapEntry | null {
+  const map = identityMap || buildStaffIdentityMap(staffRows);
+
+  const staffId = readRowId(row, [
+    'staff_id',
+    'reviewed_staff_id',
+    'employee_id',
+    'doctor_id',
+    'seller_id',
+    'responsible_staff_id',
+  ]);
+  if (staffId) {
+    const byId = map.get(`id:${staffId}`);
+    if (byId) return byId;
+    const direct = staffRows.find((item) => staffRowId(item) === staffId);
+    if (direct) {
+      return {
+        staffId,
+        displayName: staffRowDisplayName(direct),
+        normalizedName: normalizeDoctorName(staffRowDisplayName(direct)),
+        branch: normalizeBranchName(direct.branch || '') || String(direct.branch || '').trim(),
+        username: String(direct.username || '').trim(),
+        role: String(direct.role || '').trim(),
+        isPrimary: isPrimaryPharmacistRow(direct),
+      };
+    }
+  }
+
+  const username = readRowName(row, ['username', 'staff_username', 'reviewed_username']).toLowerCase();
+  if (username) {
+    const byUsername = map.get(`username:${username}`);
+    if (byUsername) return byUsername;
+  }
+
+  const rawName = readRowName(row, [
+    'doctor_name',
+    'staff_name',
+    'employee_name',
+    'reviewed_staff_name',
+    'seller_name',
+    'normalized_seller_name',
+    'responsible_doctor_name',
+    'responsible_doctor',
+  ]);
+  const normalized = normalizeDoctorName(rawName);
+  if (!normalized) return null;
+
+  for (const key of expandDoctorAliasKeys(normalized)) {
+    const byName = map.get(`name:${key}`);
+    if (byName) return byName;
+  }
+
+  return null;
+}
+
+export function dedupeStaffRows<T extends StaffDirectoryRow>(rows: T[]): T[] {
+  const identityMap = buildStaffIdentityMap(rows);
+  const seen = new Set<string>();
+  const result: T[] = [];
+
+  for (const row of rows) {
+    const resolved = resolvePrimaryStaffForDoctor(row as Record<string, unknown>, rows, identityMap);
+    const key = resolved?.staffId || `name:${normalizeDoctorName(staffRowDisplayName(row))}`;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(row);
+  }
+
+  return result;
 }
 
 // ─── Sync resolver (uses preloaded staffDirectory) ───────────────────────────

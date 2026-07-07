@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Download,
   MessageCircle,
   Phone,
   Plus,
@@ -11,6 +12,7 @@ import {
   ShieldCheck,
   UserPlus,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -171,6 +173,46 @@ export default function CustomerCoding() {
     }),
     [rows]
   );
+
+  function exportExcel() {
+    if (!filtered.length) {
+      toast.error('لا توجد بيانات للتصدير');
+      return;
+    }
+    const exportRows = filtered.map((row) => {
+      const extended = row as CustomerCodingRow & {
+        customer_code?: string | null;
+        whatsapp?: string | null;
+        whatsapp_phone?: string | null;
+        updated_at?: string | null;
+      };
+      return {
+        'كود العميل': extended.customer_code || '',
+        'اسم العميل': row.customer_name,
+        'رقم الهاتف': row.phone,
+        'رقم واتساب': extended.whatsapp || extended.whatsapp_phone || '',
+        العنوان: row.address || '',
+        الفرع: row.branch || '',
+        الحالة: STATUS_LABEL[String(row.status || 'open')] || row.status || '',
+        المصدر: row.source || '',
+        الملاحظات: row.notes || '',
+        'تاريخ الإنشاء': row.created_at,
+        'تاريخ آخر تحديث': extended.updated_at || '',
+        'من أنشأ الطلب': row.created_by_name || '',
+        'من أغلق الطلب': row.completed_by_name || '',
+      };
+    });
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'تكويد العملاء');
+    const branchPart =
+      branchFilter === 'all'
+        ? 'كل_الفروع'
+        : String(branchFilter).replace(/\s+/g, '_');
+    const filename = `تصدير_تكويد_العملاء_${branchPart}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(workbook, filename);
+    toast.success('تم تصدير ملف Excel');
+  }
 
   async function createRequest(event: React.FormEvent) {
     event.preventDefault();
@@ -348,7 +390,7 @@ export default function CustomerCoding() {
       </form>
 
       <div className="rounded-3xl border border-slate-700/50 bg-slate-900/60 p-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_180px_180px]">
+        <div className="grid gap-3 md:grid-cols-[1fr_180px_180px_auto]">
           <div className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/50 px-3 py-2">
             <Search size={16} className="text-slate-400" />
             <input
@@ -381,6 +423,14 @@ export default function CustomerCoding() {
                 <option key={b}>{b}</option>
               ))}
           </select>
+          <button
+            type="button"
+            onClick={exportExcel}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-teal-500/40 bg-teal-600/20 px-4 py-2 text-sm font-black text-teal-100"
+          >
+            <Download size={16} />
+            تصدير Excel
+          </button>
         </div>
       </div>
 

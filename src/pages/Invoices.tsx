@@ -35,6 +35,11 @@ import { clearStaffPerformanceProfileCache } from '@/lib/staff/staffPerformanceP
 import { invalidateInvoiceCache } from '@/lib/salesInvoiceSource';
 import { getInvoiceNetValue } from '@/lib/analyticsService';
 import {
+  canAccessInvoiceImportPage,
+  canDeleteInvoiceImportBatch,
+  canManageInvoiceImportBatches,
+} from '@/lib/invoices/invoiceAccess';
+import {
   generateTemplateFile,
   importCustomersToDB,
   importInvoicesToDB,
@@ -518,6 +523,20 @@ interface InvoiceEditForm {
 
 export default function Invoices() {
   const { user, isAdmin } = useAuth();
+  const canAccessInvoices = canAccessInvoiceImportPage(user) || isAdmin;
+  const canDeleteBatches = canDeleteInvoiceImportBatch(user) || isAdmin;
+  const canManageBatches = canManageInvoiceImportBatches(user) || isAdmin;
+
+  if (!canAccessInvoices) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center p-6" dir="rtl">
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-6 py-5 text-center text-amber-100">
+          ليس لديك صلاحية للوصول إلى صفحة استيراد الفواتير.
+        </div>
+      </div>
+    );
+  }
+
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const sellerNameFilter = searchParams.get('seller_name') || '';
@@ -574,7 +593,7 @@ export default function Invoices() {
   );
 
   const loadManagedInvoices = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!canManageBatches) return;
     setManagedLoading(true);
     let query = supabase
       .from('sales_invoices')
@@ -603,7 +622,7 @@ export default function Invoices() {
       setManagedInvoices((data || []) as ManagedInvoiceRow[]);
     }
     setManagedLoading(false);
-  }, [isAdmin, sellerNameFilter, fromDateFilter, toDateFilter]);
+  }, [canManageBatches, sellerNameFilter, fromDateFilter, toDateFilter]);
 
   const loadInvoiceSummarySnapshot = useCallback(async () => {
     setSummarySnapshotBusy(true);
@@ -676,7 +695,7 @@ export default function Invoices() {
   }, []);
 
   const loadDuplicateAudit = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!canManageBatches) return;
     setDuplicateAuditLoading(true);
     const { data, error } = await supabase
       .from('sales_invoices')
@@ -1062,7 +1081,7 @@ export default function Invoices() {
   };
 
   const deleteInvoiceBatch = async (batch: string) => {
-    if (!isAdmin || adminBusy) return;
+    if (!canDeleteBatches || adminBusy) return;
     if (!window.confirm(`تأكيد مسح دفعة الفواتير: ${batch}`)) return;
 
     setAdminBusy(true);
@@ -1121,7 +1140,7 @@ export default function Invoices() {
   };
 
   const deleteAllInvoices = async () => {
-    if (!isAdmin || adminBusy) return;
+    if (!canDeleteBatches || adminBusy) return;
     if (deleteConfirmText.trim() !== 'مسح الفواتير') {
       toast.error('اكتب عبارة التأكيد كما هي: مسح الفواتير');
       return;
@@ -1169,7 +1188,7 @@ export default function Invoices() {
   };
 
   const saveInvoiceEdit = async () => {
-    if (!isAdmin || !editInvoice || !editForm || adminBusy) return;
+    if (!canManageBatches || !editInvoice || !editForm || adminBusy) return;
     const amount = Number(editForm.amount);
     const netAmount = editForm.net_amount.trim() ? Number(editForm.net_amount) : amount;
     const grossAmount = editForm.gross_amount.trim() ? Number(editForm.gross_amount) : amount;

@@ -2,7 +2,7 @@ import { normalizeBranchName } from '@/lib/branch';
 import { normalizeRole, getUserDataScope, type DataScope, type RoleKey } from '@/lib/core/permissionSystem';
 import type { User } from '@/types';
 
-type ScopeUser = Pick<User, 'id' | 'staffId' | 'name' | 'username' | 'branch' | 'role'> | null | undefined;
+type ScopeUser = (Partial<Pick<User, 'id' | 'staffId' | 'name' | 'username' | 'branch' | 'role'>> & { id?: string | null }) | null | undefined;
 type RowLike = Record<string, unknown> | null | undefined;
 
 export interface CurrentUserScope {
@@ -63,6 +63,11 @@ function getReviewBranchOverride(user: ScopeUser): string[] | null {
 
 export function canViewAllBranches(user: ScopeUser): boolean {
   return ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(user?.role));
+}
+
+export function canViewAllBranchesForServiceAnalytics(user: ScopeUser): boolean {
+  const role = normalizeRole(user?.role);
+  return canViewAllBranches(user) || role === 'customer_service_manager';
 }
 
 export function canViewOwnOnly(user: ScopeUser): boolean {

@@ -9,6 +9,9 @@ import {
   Calendar,
   Clock,
   FileText,
+  ClipboardList,
+  ClipboardCheck,
+  Star,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useDoctorPermissions } from '@/hooks/useDoctorPermissions';
@@ -17,7 +20,7 @@ import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import { formatCurrency, toNumber } from '@/lib/utils';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
-import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { pointRecordDelta } from '@/lib/pointsLedger';
 import {
   canViewAllBranches,
@@ -39,6 +42,15 @@ import {
 } from '@/lib/staffIncentiveService';
 import StaffOperatingPolicy from '@/components/incentives/StaffOperatingPolicy';
 import { toast } from 'sonner';
+import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
+import {
+  completeTask,
+  fetchEmployeeTasks,
+  type EmployeeDailyTask,
+} from '@/lib/employeeDailyTasks';
+import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
+import { getDoctorCompetitionMetrics } from '@/lib/doctorCompetitionMetrics';
+import { TABLES as SUPABASE_TABLES } from '@/lib/supabaseTables';
 
 interface DoctorMetrics {
   id: string;
@@ -191,6 +203,7 @@ export default function DoctorDashboard() {
   const {
     data: metrics,
     loading: metricsLoading,
+    error: metricsError,
     refetch: refetchMetrics,
   } = useSupabaseQuery<DoctorMetrics>({
     table: 'doctor_metrics',
@@ -264,6 +277,166 @@ export default function DoctorDashboard() {
   const pointsBalance = incentiveSummary.finalPoints;
   const rewardsBalance = incentiveSummary.approvedRewardPoints;
   const discountBalance = incentiveSummary.approvedDeductionPoints;
+  const expectedIncentive = calculateIncentive(pointsBalance);
+  const pendingShiftNotes = usePendingShiftNotesCount();
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const [todayTasks, setTodayTasks] = useState<EmployeeDailyTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
+  const [todayShift, setTodayShift] = useState<Record<string, unknown> | null>(null);
+  const [shiftLoading, setShiftLoading] = useState(false);
+  const [shiftError, setShiftError] = useState<string | null>(null);
+  const [salesSummary, setSalesSummary] = useState<{
+    dailySales: number;
+    cycleSales: number;
+    invoices: number;
+    avgInvoice: number;
+    branchAvg: number;
+  } | null>(null);
+  const [salesError, setSalesError] = useState<string | null>(null);
+  const [branchRank, setBranchRank] = useState<number | null>(null);
+  const [rankError, setRankError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTasks() {
+      if (!effectiveId) return;
+      setTasksLoading(true);
+      setTasksError(null);
+      const result = await fetchEmployeeTasks({
+        date: todayIso,
+        staffId: effectiveId,
+        user,
+      });
+      if (cancelled) return;
+      setTasksLoading(false);
+      if (result.error) setTasksError(result.error);
+      setTodayTasks(result.tasks);
+    }
+    void loadTasks();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveId, todayIso, user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadShift() {
+      if (!effectiveId) return;
+      setShiftLoading(true);
+      setShiftError(null);
+      const { data, error } = await supabase
+        .from(SUPABASE_TABLES.shiftSchedules)
+        .select('*')
+        .eq('staff_id', effectiveId)
+        .eq('shift_date', todayIso)
+        .limit(1);
+      if (cancelled) return;
+      setShiftLoading(false);
+      if (error) {
+        setShiftError('تعذر تحميل بيانات الشيفت');
+        setTodayShift(null);
+        return;
+      }
+      setTodayShift((data || [])[0] || null);
+    }
+    void loadShift();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveId, todayIso]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSales() {
+      if (!effectiveName) return;
+      setSalesError(null);
+      try {
+        const summary = await loadSalesAnalyticsSummary({
+          startDate: formatCycleDate(cycle.start),
+          endDate: formatCycleDate(cycle.end),
+          branch: effectiveBranch || undefined,
+          doctor: effectiveName,
+        });
+        const todaySummary = await loadSalesAnalyticsSummary({
+          startDate: todayIso,
+          endDate: todayIso,
+          branch: effectiveBranch || undefined,
+          doctor: effectiveName,
+        });
+        if (cancelled) return;
+        const doctorRow = summary.doctorRows.find(
+          (row) => row.doctor === effectiveName || row.staffId === effectiveId
+        );
+        const branchAvg =
+          summary.branchRows.find((row) => row.branch === effectiveBranch)?.avgInvoice || 0;
+        setSalesSummary({
+          dailySales: todaySummary.kpis.netSales,
+          cycleSales: doctorRow?.netSales || summary.kpis.netSales,
+          invoices: doctorRow?.invoicesCount || summary.kpis.invoicesCount,
+          avgInvoice: doctorRow?.avgInvoice || summary.kpis.avgInvoice,
+          branchAvg,
+        });
+      } catch {
+        if (!cancelled) setSalesError('تعذر تحميل بيانات المبيعات');
+      }
+    }
+    void loadSales();
+    return () => {
+      cancelled = true;
+    };
+  }, [cycle.end, cycle.start, effectiveBranch, effectiveId, effectiveName, todayIso]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRank() {
+      if (!effectiveName || !effectiveBranch) return;
+      setRankError(null);
+      try {
+        const metricsResult = await getDoctorCompetitionMetrics({
+          period: 'cycle',
+          branch: effectiveBranch,
+          userBranch: user?.branch,
+          canSeeAllBranches: canViewAllBranches(user),
+        });
+        if (cancelled) return;
+        const sorted = [...metricsResult.rows].sort((a, b) => b.overallScore - a.overallScore);
+        const index = sorted.findIndex((row) => row.staffId === effectiveId || row.name === effectiveName);
+        setBranchRank(index >= 0 ? index + 1 : null);
+        if (index < 0 && !isManagerView) {
+          setRankError('تعذر تحديد ترتيبك داخل الفرع حالياً');
+        }
+      } catch {
+        if (!cancelled) setRankError('تعذر تحميل ترتيب المسابقة');
+      }
+    }
+    void loadRank();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveBranch, effectiveId, effectiveName, isManagerView, user]);
+
+  const taskSummary = useMemo(() => {
+    return {
+      total: todayTasks.length,
+      late: todayTasks.filter((task) => task.status === 'late').length,
+      high: todayTasks.filter((task) => task.priority === 'high' || task.priority === 'urgent').length,
+      completed: todayTasks.filter((task) => task.status === 'completed').length,
+      needsIntervention: todayTasks.filter((task) => task.status === 'late' || task.priority === 'urgent').length,
+    };
+  }, [todayTasks]);
+
+  async function handleCompleteTask(taskId: string) {
+    const result = await completeTask(taskId, undefined, user || undefined);
+    if (!result.ok) {
+      toast.error(result.error || 'تعذر إتمام المهمة');
+      return;
+    }
+    setTodayTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, status: 'completed' } : task))
+    );
+  }
 
   if (!permissions?.can_view_dashboard) {
     return (
@@ -278,6 +451,106 @@ export default function DoctorDashboard() {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-2xl border border-teal-400/20 bg-[#10213a] p-5">
+        <h1 className="text-2xl font-black text-white">أهلًا د/ {effectiveName || user?.name}</h1>
+        <div className="mt-2 grid gap-2 text-sm text-slate-300 md:grid-cols-2 lg:grid-cols-3">
+          <div>الفرع: {effectiveBranch || user?.branch || '—'}</div>
+          <div>الدورة الحالية: {cycle.label}</div>
+          <div>نقاطك الحالية: {metricsLoading || metricsError ? '—' : `${pointsBalance} نقطة`}</div>
+          <div>حافزك المتوقع: {metricsLoading || metricsError ? '—' : formatCurrency(expectedIncentive)}</div>
+          <div>
+            ترتيبك داخل الفرع:{' '}
+            {rankError ? '—' : branchRank != null ? `#${branchRank}` : metricsLoading ? '...' : '—'}
+          </div>
+        </div>
+        {rankError && <div className="mt-3 text-sm text-amber-300">{rankError}</div>}
+      </div>
+
+      {metricsError && (
+        <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-red-200">
+          تعذر تحميل البيانات
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricCard icon={DollarSign} label="مبيعاتي اليوم" value={salesError || !salesSummary ? '—' : formatCurrency(salesSummary.dailySales)} sub="" color="teal" textValue />
+        <MetricCard icon={FileText} label="فواتيري اليوم" value={salesError || !salesSummary ? '—' : String(todayMetrics?.daily_invoice_count ?? salesSummary.invoices)} sub="" color="green" textValue />
+        <MetricCard icon={TrendingUp} label="متوسط الفاتورة" value={salesError || !salesSummary ? '—' : formatCurrency(salesSummary.avgInvoice)} sub="" color="teal" textValue />
+        <MetricCard icon={Wallet} label="مبيعات الدورة" value={salesError || !salesSummary ? '—' : formatCurrency(salesSummary.cycleSales)} sub={cycle.label} color="green" textValue />
+        <MetricCard icon={Star} label="نقاطي الحالية" value={metricsError ? '—' : pointsBalance} sub={`/ ${STARTING_POINTS}`} color="teal" />
+        <MetricCard icon={Wallet} label="حافزي المتوقع" value={metricsError ? '—' : formatCurrency(expectedIncentive)} sub={`سقف ${MAX_BASE_INCENTIVE} ج`} color="green" textValue />
+        <MetricCard icon={ClipboardCheck} label="ملاحظات الشيفت المفتوحة" value={pendingShiftNotes ?? '—'} sub="مفتوحة" color="red" textValue />
+      </div>
+
+      <div className="stat-card">
+        <div className="mb-3 flex items-center gap-2 text-white font-bold">
+          <Clock size={18} className="text-teal-400" />
+          شيفتي اليوم
+        </div>
+        {shiftLoading ? (
+          <div className="text-slate-400 text-sm">جاري التحميل...</div>
+        ) : shiftError ? (
+          <div className="text-red-300 text-sm">{shiftError}</div>
+        ) : todayShift ? (
+          <div className="grid gap-2 text-sm text-slate-300 md:grid-cols-4">
+            <div>الشيفت: {String(todayShift.shift_type || todayShift.shift_name || '—')}</div>
+            <div>وقت البداية: {String(todayShift.start_time || todayShift.shift_start || '—')}</div>
+            <div>وقت النهاية: {String(todayShift.end_time || todayShift.shift_end || '—')}</div>
+            <div>
+              هل اليوم إجازة:{' '}
+              {todayShift.is_off || todayShift.status === 'off' || todayShift.shift_type === 'إجازة'
+                ? 'نعم'
+                : 'لا'}
+            </div>
+          </div>
+        ) : (
+          <div className="text-slate-400 text-sm">لا يوجد شيفت مسجل لك اليوم</div>
+        )}
+      </div>
+
+      <div className="stat-card">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-white font-bold">
+            <ClipboardList size={18} className="text-teal-400" />
+            مهامي اليوم
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-white/10 px-2 py-1">اليوم: {taskSummary.total}</span>
+            <span className="rounded-full bg-amber-500/20 px-2 py-1 text-amber-200">متأخر: {taskSummary.late}</span>
+            <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-200">عالي الأولوية: {taskSummary.high}</span>
+            <span className="rounded-full bg-green-500/20 px-2 py-1 text-green-200">مكتمل: {taskSummary.completed}</span>
+            <span className="rounded-full bg-orange-500/20 px-2 py-1 text-orange-200">يحتاج تدخل: {taskSummary.needsIntervention}</span>
+          </div>
+        </div>
+        {tasksLoading ? (
+          <div className="text-slate-400 text-sm">جاري تحميل المهام...</div>
+        ) : tasksError ? (
+          <div className="text-red-300 text-sm">{tasksError}</div>
+        ) : todayTasks.length === 0 ? (
+          <div className="text-slate-400 text-sm">لا توجد مهام مسجلة لك اليوم</div>
+        ) : (
+          <div className="space-y-2">
+            {todayTasks.map((task) => (
+              <div key={task.id} className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 p-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="font-bold text-white">{task.task_title}</div>
+                  <div className="text-xs text-slate-400">
+                    {task.branch || effectiveBranch} • {task.priority} • {task.status}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {task.status !== 'completed' && (
+                    <button type="button" className="btn-primary text-xs" onClick={() => void handleCompleteTask(task.id)}>
+                      تم
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-white">لوحة تحكم الدكتور</h2>
@@ -548,12 +821,14 @@ function MetricCard({
   value,
   sub,
   color,
+  textValue = false,
 }: {
   icon: React.ElementType;
   label: string;
-  value: number;
+  value: number | string;
   sub: string;
   color: string;
+  textValue?: boolean;
 }) {
   const colors: Record<string, string> = {
     teal: 'bg-teal-500/15 text-teal-400',
@@ -566,9 +841,9 @@ function MetricCard({
         <Icon size={20} />
       </div>
       <div className="mt-3">
-        <div className="text-3xl font-bold text-white num">{value}</div>
+        <div className={`font-bold text-white ${textValue ? 'text-lg' : 'text-3xl num'}`}>{value}</div>
         <div className="text-slate-300 text-sm font-medium mt-0.5">{label}</div>
-        <div className="text-slate-400 text-xs mt-0.5">{sub}</div>
+        {sub ? <div className="text-slate-400 text-xs mt-0.5">{sub}</div> : null}
       </div>
     </div>
   );

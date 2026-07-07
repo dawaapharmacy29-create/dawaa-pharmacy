@@ -212,19 +212,19 @@ export default function DoctorCompetition() {
       setReviewRows(metrics.reviewRows);
       setMetricsMetadata(metrics.metadata);
       const doctorRows = doctorScoped
-        ? allRows.filter((row) => rowMatchesCurrentDoctor(user, { ...row, doctor_name: row.name }))
+        ? allRows.filter((row) => rowMatchesCurrentDoctor(user, { ...row, doctor_name: row.name, staff_id: row.staffId }))
         : allRows;
-      const scopedRows = doctorScoped && !doctorRows.length && allRows.length ? allRows : doctorRows;
+      const scopedRows = doctorRows;
       setScopeWarning(
-        doctorScoped && !doctorRows.length && allRows.length
-          ? 'Sales exist, but the current doctor account is not linked exactly to invoice seller_name. Showing branch ranking temporarily.'
+        doctorScoped && !doctorRows.length
+          ? 'حسابك غير مربوط ببيانات الفواتير بشكل صحيح. برجاء التواصل مع الإدارة لربط الحساب.'
           : null
       );
       if (scopedRows.length) {
         lastGoodRowsRef.current = scopedRows;
         setRows(scopedRows);
       } else {
-        setRows(lastGoodRowsRef.current.length ? lastGoodRowsRef.current : scopedRows);
+        setRows([]);
       }
       setReviewSourceAvailable(metrics.sourceHealth.conversation_sales_reviews !== 'unavailable');
       setFollowupSourceAvailable(metrics.sourceHealth.daily_followups !== 'unavailable');
