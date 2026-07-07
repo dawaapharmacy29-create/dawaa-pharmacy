@@ -190,6 +190,74 @@ type MetricFilter =
   | 'notStarted'
   | 'contactedNoPurchase';
 
+type AuditFilter =
+  | 'today'
+  | 'completed'
+  | 'notStarted'
+  | 'overdue'
+  | 'noAnswer'
+  | 'postponed'
+  | 'needsManager'
+  | 'invalidPhone'
+  | 'recovered'
+  | 'purchaseAfter'
+  | 'contactedNoPurchase'
+  | 'dataQuality';
+
+const AUDIT_FILTER_LABELS: Record<AuditFilter, string> = {
+  today: 'متابعات اليوم',
+  completed: 'المكتمل',
+  notStarted: 'لم يبدأ التواصل',
+  overdue: 'متأخر',
+  noAnswer: 'لم يرد',
+  postponed: 'مؤجل',
+  needsManager: 'يحتاج مدير',
+  invalidPhone: 'بدون رقم صحيح',
+  recovered: 'عملاء تم استرجاعهم',
+  purchaseAfter: 'قيمة الشراء بعد المتابعة',
+  contactedNoPurchase: 'تواصل ولم يشترِ',
+  dataQuality: 'مشاكل جودة البيانات',
+};
+
+const AUDIT_CSV_COLUMNS = [
+  'customer_code',
+  'customer_name',
+  'phone',
+  'mobile',
+  'normalized_phone',
+  'branch',
+  'customer_category',
+  'followup_date',
+  'followup_status',
+  'followup_result',
+  'assigned_to',
+  'assigned_to_name',
+  'created_by',
+  'created_at',
+  'last_contact_at',
+  'closed_at',
+  'is_overdue',
+  'overdue_days',
+  'has_valid_phone',
+  'first_invoice_date',
+  'last_invoice_date',
+  'days_since_last_purchase',
+  'total_invoices',
+  'total_sales',
+  'average_invoice_value',
+  'sales_before_followup',
+  'sales_after_followup',
+  'first_purchase_after_followup_date',
+  'invoices_after_followup_count',
+  'recovered_customer',
+  'notes',
+  'next_followup_date',
+  'audit_reason',
+] as const;
+
+type AuditCsvColumn = (typeof AUDIT_CSV_COLUMNS)[number];
+type CustomerServiceAuditRow = Record<AuditCsvColumn, string | number | boolean | null>;
+
 const METRIC_FILTER_LABELS: Record<MetricFilter, string> = {
   all: 'عرض الكل',
   today: 'متابعات اليوم',
@@ -221,6 +289,192 @@ function matchesMetricFilter(row: FollowupRow, filter: MetricFilter) {
     return contacted && !row.purchase_after_followup;
   }
   return true;
+}
+
+function asRecord(row: FollowupRow): Record<string, unknown> {
+  return row as unknown as Record<string, unknown>;
+}
+
+function valueFrom(row: FollowupRow, keys: string[]) {
+  const record = asRecord(row);
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') return value;
+  }
+  return null;
+}
+
+function stringFrom(row: FollowupRow, keys: string[], fallback = '') {
+  const value = valueFrom(row, keys);
+  return value === null ? fallback : String(value).trim();
+}
+
+function numberFrom(row: FollowupRow, keys: string[], fallback = 0) {
+  const value = valueFrom(row, keys);
+  const n = Number(value ?? fallback);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizePhoneForAudit(value?: string | null) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('20') && digits.length === 12) return `0${digits.slice(2)}`;
+  if (digits.startsWith('0020') && digits.length === 14) return `0${digits.slice(4)}`;
+  return digits;
+}
+
+function daysSince(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.floor((today.getTime() - date.getTime()) / 86400000));
+}
+
+function overdueDays(row: FollowupRow) {
+  if (!isOverdue(row)) return 0;
+  return daysSince(row.followup_datetime || row.followup_date || row.date) || 0;
+}
+
+function salesAfterFollowup(row: FollowupRow) {
+  return numberFrom(row, ['sales_after_followup', 'purchase_after_followup_amount', 'purchase_amount'], 0);
+}
+
+function salesBeforeFollowup(row: FollowupRow) {
+  return numberFrom(row, ['sales_before_followup', 'previous_sales_before_followup'], 0);
+}
+
+function firstInvoiceDate(row: FollowupRow) {
+  return stringFrom(row, ['first_invoice_date', 'first_purchase_date', 'first_purchase'], row.customer_metrics?.first_purchase || '');
+}
+
+function lastInvoiceDate(row: FollowupRow) {
+  return stringFrom(row, ['last_invoice_date', 'last_purchase_date', 'last_purchase'], lastPurchaseOf(row) || '');
+}
+
+function firstPurchaseAfterFollowupDate(row: FollowupRow) {
+  return stringFrom(row, ['first_purchase_after_followup_date', 'purchase_date'], '');
+}
+
+function invoicesAfterFollowupCount(row: FollowupRow) {
+  const explicit = numberFrom(row, ['invoices_after_followup_count', 'purchase_after_followup_count'], NaN);
+  if (Number.isFinite(explicit)) return explicit;
+  return row.purchase_after_followup ? 1 : 0;
+}
+
+function isRecoveredCustomer(row: FollowupRow) {
+  return Boolean(row.purchase_after_followup || salesAfterFollowup(row) > 0 || firstPurchaseAfterFollowupDate(row));
+}
+
+function isContactedNoPurchase(row: FollowupRow) {
+  return matchesMetricFilter(row, 'contactedNoPurchase');
+}
+
+function isDataQualityIssue(row: FollowupRow) {
+  return !hasValidPhone(row) || !String(row.customer_code || '').trim() || !normalizeBranchName(row.branch || '') || customerName(row) === 'عميل بدون اسم';
+}
+
+function auditReasons(row: FollowupRow) {
+  const reasons: string[] = [];
+  if (!hasValidPhone(row)) reasons.push('بدون رقم صحيح');
+  if (!String(row.customer_code || '').trim()) reasons.push('بدون كود عميل');
+  if (!normalizeBranchName(row.branch || '')) reasons.push('فرع غير محدد');
+  if (customerName(row) === 'عميل بدون اسم') reasons.push('اسم العميل غير واضح');
+  if (isOverdue(row)) reasons.push(`متأخر ${overdueDays(row)} يوم`);
+  if (isRecoveredCustomer(row)) reasons.push('اشترى بعد المتابعة');
+  if (isContactedNoPurchase(row)) reasons.push('تم التواصل ولم يشترِ');
+  if (row.needs_manager || /مدير/i.test(statusOf(row))) reasons.push('يحتاج تدخل مدير');
+  if (row.postponed_until || /مؤجل/i.test(statusOf(row))) reasons.push('متابعة مؤجلة');
+  if (/لم يرد|no answer/i.test(statusOf(row))) reasons.push('لم يرد');
+  if (!row.contacted_at && !row.contact_result && !row.followup_result && !isCompleted(row)) reasons.push('لم يبدأ التواصل');
+  return reasons.length ? reasons.join(' + ') : priorityReason(row);
+}
+
+function auditRowFromFollowup(row: FollowupRow): CustomerServiceAuditRow {
+  const phone = phoneOf(row);
+  const firstDate = firstInvoiceDate(row);
+  const lastDate = lastInvoiceDate(row);
+  const invoices = invoicesCount(row);
+  const totalSales = totalSpent(row);
+  return {
+    customer_code: row.customer_code || '',
+    customer_name: customerName(row),
+    phone,
+    mobile: stringFrom(row, ['mobile', 'customer_mobile', 'whatsapp_phone', 'phone_alt'], ''),
+    normalized_phone: normalizePhoneForAudit(phone),
+    branch: normalizeBranchName(row.branch || '') || row.branch || '',
+    customer_category: segmentOf(row),
+    followup_date: row.followup_datetime || row.followup_date || row.date || '',
+    followup_status: statusOf(row),
+    followup_result: followupResultLabel(row),
+    assigned_to: row.assigned_to || row.assigned_staff_id || row.assigned_doctor || '',
+    assigned_to_name: responsibleOf(row),
+    created_by: row.created_by_name || row.created_by || '',
+    created_at: row.created_at || '',
+    last_contact_at: lastContactAt(row) || '',
+    closed_at: row.closed_at || row.completed_at || '',
+    is_overdue: isOverdue(row),
+    overdue_days: overdueDays(row),
+    has_valid_phone: hasValidPhone(row),
+    first_invoice_date: firstDate || '',
+    last_invoice_date: lastDate || '',
+    days_since_last_purchase: daysSince(lastDate) ?? '',
+    total_invoices: invoices,
+    total_sales: totalSales,
+    average_invoice_value: invoices ? Math.round(totalSales / invoices) : numberFrom(row, ['average_invoice_value', 'avg_invoice'], 0),
+    sales_before_followup: salesBeforeFollowup(row),
+    sales_after_followup: salesAfterFollowup(row),
+    first_purchase_after_followup_date: firstPurchaseAfterFollowupDate(row),
+    invoices_after_followup_count: invoicesAfterFollowupCount(row),
+    recovered_customer: isRecoveredCustomer(row),
+    notes: [row.notes, row.followup_notes, row.customer_notes, row.handling_notes].filter(Boolean).join(' | '),
+    next_followup_date: row.next_followup_date || row.postponed_until || '',
+    audit_reason: auditReasons(row),
+  };
+}
+
+function matchesAuditFilter(row: FollowupRow, filter: AuditFilter) {
+  if (filter === 'today') return matchesMetricFilter(row, 'today');
+  if (filter === 'completed') return isCompleted(row);
+  if (filter === 'notStarted') return matchesMetricFilter(row, 'notStarted');
+  if (filter === 'overdue') return isOverdue(row);
+  if (filter === 'noAnswer') return /لم يرد|no answer/i.test(statusOf(row));
+  if (filter === 'postponed') return Boolean(row.postponed_until) || /مؤجل/i.test(statusOf(row));
+  if (filter === 'needsManager') return Boolean(row.needs_manager) || /مدير/i.test(statusOf(row));
+  if (filter === 'invalidPhone') return !hasValidPhone(row);
+  if (filter === 'recovered') return isRecoveredCustomer(row);
+  if (filter === 'purchaseAfter') return salesAfterFollowup(row) > 0 || isRecoveredCustomer(row);
+  if (filter === 'contactedNoPurchase') return isContactedNoPurchase(row);
+  if (filter === 'dataQuality') return isDataQualityIssue(row);
+  return true;
+}
+
+function csvEscape(value: unknown) {
+  const textValue = value === null || value === undefined ? '' : String(value);
+  if (/[",\n\r]/.test(textValue)) return `"${textValue.replace(/"/g, '""')}"`;
+  return textValue;
+}
+
+function downloadAuditCsv(rows: CustomerServiceAuditRow[], filename: string) {
+  const csv = [
+    AUDIT_CSV_COLUMNS.join(','),
+    ...rows.map((row) => AUDIT_CSV_COLUMNS.map((column) => csvEscape(row[column])).join(',')),
+  ].join('\n');
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function safePercent(part: number, total: number) {
+  return total > 0 ? Math.round((part / total) * 100) : 0;
 }
 
 function reviewSummaryOf(row: FollowupRow) {
@@ -870,6 +1124,7 @@ export default function CustomerService() {
   const [status, setStatus] = useState(ALL_FILTER);
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [metricFilter, setMetricFilter] = useState<MetricFilter>('all');
+  const [auditFilter, setAuditFilter] = useState<AuditFilter>('today');
   const [assignedFilter, setAssignedFilter] = useState(ALL_FILTER);
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -1115,7 +1370,7 @@ export default function CustomerService() {
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [activeTab, branch, status, debouncedSearch, quickFilter, assignedFilter, metricFilter]);
+  }, [activeTab, branch, status, debouncedSearch, quickFilter, assignedFilter, metricFilter, auditFilter]);
 
   const stats = useMemo(() => calculateFollowupStats(rows), [rows]);
   const assignedRows = useMemo(
@@ -1295,6 +1550,66 @@ export default function CustomerService() {
   const invalidPhoneCount = useMemo(() => rows.filter((row) => !hasValidPhone(row)).length, [rows]);
   const notStartedCount = useMemo(() => rows.filter((row) => matchesMetricFilter(row, 'notStarted')).length, [rows]);
   const contactedNoPurchaseCount = useMemo(() => rows.filter((row) => matchesMetricFilter(row, 'contactedNoPurchase')).length, [rows]);
+  const auditRows = useMemo(() => dedupeCustomerRows(rows).map(auditRowFromFollowup), [rows]);
+  const auditFilteredSourceRows = useMemo(() => dedupeCustomerRows(rows).filter((row) => matchesAuditFilter(row, auditFilter)), [auditFilter, rows]);
+  const auditFilteredRows = useMemo(() => auditFilteredSourceRows.map(auditRowFromFollowup), [auditFilteredSourceRows]);
+  const auditCounts = useMemo(() => {
+    const uniqueRows = dedupeCustomerRows(rows);
+    return {
+      today: uniqueRows.filter((row) => matchesAuditFilter(row, 'today')).length,
+      completed: uniqueRows.filter((row) => matchesAuditFilter(row, 'completed')).length,
+      notStarted: uniqueRows.filter((row) => matchesAuditFilter(row, 'notStarted')).length,
+      overdue: uniqueRows.filter((row) => matchesAuditFilter(row, 'overdue')).length,
+      noAnswer: uniqueRows.filter((row) => matchesAuditFilter(row, 'noAnswer')).length,
+      postponed: uniqueRows.filter((row) => matchesAuditFilter(row, 'postponed')).length,
+      needsManager: uniqueRows.filter((row) => matchesAuditFilter(row, 'needsManager')).length,
+      invalidPhone: uniqueRows.filter((row) => matchesAuditFilter(row, 'invalidPhone')).length,
+      recovered: uniqueRows.filter((row) => matchesAuditFilter(row, 'recovered')).length,
+      purchaseAfter: uniqueRows.reduce((sum, row) => sum + salesAfterFollowup(row), 0),
+      contactedNoPurchase: uniqueRows.filter((row) => matchesAuditFilter(row, 'contactedNoPurchase')).length,
+      dataQuality: uniqueRows.filter((row) => matchesAuditFilter(row, 'dataQuality')).length,
+    };
+  }, [rows]);
+  const auditAnalysis = useMemo(() => {
+    const uniqueRows = dedupeCustomerRows(rows);
+    const total = uniqueRows.length;
+    const byOwner = new Map<string, { name: string; branch: string; recovered: number; amount: number; total: number }>();
+    const byBranch = new Map<string, { branch: string; recovered: number; amount: number; total: number }>();
+    for (const row of uniqueRows) {
+      const owner = responsibleOf(row);
+      const branchName = normalizeBranchName(row.branch || '') || 'غير محدد';
+      const ownerItem = byOwner.get(owner) || { name: owner, branch: branchName, recovered: 0, amount: 0, total: 0 };
+      ownerItem.total += 1;
+      if (isRecoveredCustomer(row)) ownerItem.recovered += 1;
+      ownerItem.amount += salesAfterFollowup(row);
+      byOwner.set(owner, ownerItem);
+      const branchItem = byBranch.get(branchName) || { branch: branchName, recovered: 0, amount: 0, total: 0 };
+      branchItem.total += 1;
+      if (isRecoveredCustomer(row)) branchItem.recovered += 1;
+      branchItem.amount += salesAfterFollowup(row);
+      byBranch.set(branchName, branchItem);
+    }
+    const bestOwner = [...byOwner.values()].sort((a, b) => b.recovered - a.recovered || b.amount - a.amount || b.total - a.total)[0];
+    const bestBranch = [...byBranch.values()].sort((a, b) => safePercent(b.recovered, b.total) - safePercent(a.recovered, a.total) || b.amount - a.amount)[0];
+    return {
+      completionRate: safePercent(auditCounts.completed, total),
+      overdueRate: safePercent(auditCounts.overdue, total),
+      noAnswerRate: safePercent(auditCounts.noAnswer, total),
+      recoveryRate: safePercent(auditCounts.recovered, total),
+      purchaseAfterAmount: auditCounts.purchaseAfter,
+      bestOwner: bestOwner ? `${bestOwner.name} · ${bestOwner.recovered} عميل · ${money(bestOwner.amount)}` : 'غير متاح',
+      bestBranch: bestBranch ? `${bestBranch.branch} · ${safePercent(bestBranch.recovered, bestBranch.total)}% استرجاع · ${money(bestBranch.amount)}` : 'غير متاح',
+      dataQualityIssues: auditCounts.dataQuality,
+    };
+  }, [auditCounts, rows]);
+  const exportAuditDisplayed = useCallback(() => {
+    downloadAuditCsv(auditFilteredRows, `customer-service-audit-${AUDIT_FILTER_LABELS[auditFilter]}-${new Date().toISOString().slice(0, 10)}.csv`);
+    toast.success('تم تصدير المعروض CSV');
+  }, [auditFilter, auditFilteredRows]);
+  const exportAuditFull = useCallback(() => {
+    downloadAuditCsv(auditRows, `customer-service-audit-full-${new Date().toISOString().slice(0, 10)}.csv`);
+    toast.success('تم تصدير التحليل الكامل CSV');
+  }, [auditRows]);
   const funnel = useMemo(() => {
     const contacted = rows.filter((row) => !matchesMetricFilter(row, 'notStarted')).length;
     const later = rows.filter((row) => row.next_followup_date || row.postponed_until || /متابعة|لاحق|مؤجل/i.test(statusOf(row))).length;
@@ -1549,8 +1864,14 @@ export default function CustomerService() {
     setGenerating(true);
     try {
       const scopedBranch = serviceCanAllBranches ? effectiveBranchFilter({ role: userRole, branch: serviceBranchOverride || userBranch }, branch, ALL_FILTER) : serviceBranchOverride || userBranch;
+      const beforeKeys = new Set(rows.map(customerKey).filter(Boolean));
       const created = await generateTodayFollowupsFromCustomerMetrics(scopedBranch, userName);
-      toast.success(created.length ? `تم إنشاء ${created.length} متابعة` : 'لا توجد متابعات جديدة');
+      const uniqueCreated = dedupeCustomerRows(created);
+      const duplicated = created.length - uniqueCreated.length + uniqueCreated.filter((row) => beforeKeys.has(customerKey(row))).length;
+      if (duplicated > 0) {
+        toast.info(`تم منع/تجاهل ${duplicated} متابعة مكررة لنفس العميل`);
+      }
+      toast.success(uniqueCreated.length ? `تم إنشاء ${uniqueCreated.length} متابعة بدون تكرار` : 'لا توجد متابعات جديدة');
       await load(true);
     } catch (generateError) {
       toast.error(generateError instanceof Error ? generateError.message : 'تعذر إنشاء قائمة اليوم');
@@ -1702,6 +2023,113 @@ const addFollowup = async () => {
             <button onClick={generateToday} disabled={generating} className="btn-primary flex items-center gap-2">
               <Plus size={16} /> {generating ? 'جاري الإنشاء...' : 'إنشاء قائمة اليوم'}
             </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-cyan-400/30 bg-slate-950/45 p-4 shadow-xl">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <span className="inline-flex rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-100">
+              Customer Service Audit V4
+            </span>
+            <h2 className="mt-2 text-xl font-black text-white">تدقيق خدمة العملاء V4</h2>
+            <p className="mt-1 text-xs font-semibold text-slate-400">
+              التحليل مبني على نفس بيانات المتابعات المحملة من fetchCustomerServiceFollowups، بدون بيانات وهمية أو localStorage.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary" onClick={exportAuditDisplayed}>
+              تصدير المعروض CSV
+            </button>
+            <button type="button" className="btn-primary" onClick={exportAuditFull}>
+              تصدير التحليل الكامل CSV
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
+          {([
+            ['today', auditCounts.today, 'cyan'],
+            ['completed', auditCounts.completed, 'emerald'],
+            ['notStarted', auditCounts.notStarted, 'cyan'],
+            ['overdue', auditCounts.overdue, 'rose'],
+            ['noAnswer', auditCounts.noAnswer, 'amber'],
+            ['postponed', auditCounts.postponed, 'cyan'],
+            ['needsManager', auditCounts.needsManager, 'rose'],
+            ['invalidPhone', auditCounts.invalidPhone, 'amber'],
+            ['recovered', auditCounts.recovered, 'emerald'],
+            ['purchaseAfter', money(auditCounts.purchaseAfter), 'emerald'],
+            ['contactedNoPurchase', auditCounts.contactedNoPurchase, 'amber'],
+            ['dataQuality', auditCounts.dataQuality, 'rose'],
+          ] as Array<[AuditFilter, string | number, 'cyan' | 'emerald' | 'amber' | 'rose']>).map(([id, value, tone]) => (
+            <StatCard
+              key={id}
+              label={AUDIT_FILTER_LABELS[id]}
+              value={value}
+              tone={tone}
+              active={auditFilter === id}
+              onClick={() => setAuditFilter(id)}
+            />
+          ))}
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <MiniMetric label="نسبة الإنجاز" value={`${auditAnalysis.completionRate}%`} />
+          <MiniMetric label="نسبة المتأخر" value={`${auditAnalysis.overdueRate}%`} />
+          <MiniMetric label="نسبة عدم الرد" value={`${auditAnalysis.noAnswerRate}%`} />
+          <MiniMetric label="معدل الاسترجاع" value={`${auditAnalysis.recoveryRate}%`} />
+          <MiniMetric label="قيمة الشراء بعد المتابعة" value={money(auditAnalysis.purchaseAfterAmount)} />
+          <MiniMetric label="أفضل مسؤول خدمة عملاء" value={auditAnalysis.bestOwner} />
+          <MiniMetric label="أفضل فرع حسب الاسترجاع" value={auditAnalysis.bestBranch} />
+          <MiniMetric label="مشاكل جودة البيانات" value={auditAnalysis.dataQualityIssues} />
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-700 bg-slate-950/40">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-3 text-sm font-bold text-slate-200">
+            <span>تفاصيل: {AUDIT_FILTER_LABELS[auditFilter]} · {auditFilteredRows.length} عميل</span>
+            <span className="text-xs text-slate-400">الجدول يعرض أول 80 عميل، والتصدير يحتوي كل النتائج المعروضة.</span>
+          </div>
+          <div className="max-h-[420px] overflow-auto">
+            <table className="min-w-[1100px] w-full text-right text-xs">
+              <thead className="sticky top-0 bg-slate-900 text-slate-300">
+                <tr>
+                  <th className="px-3 py-2">العميل</th>
+                  <th className="px-3 py-2">الكود</th>
+                  <th className="px-3 py-2">الهاتف</th>
+                  <th className="px-3 py-2">الفرع</th>
+                  <th className="px-3 py-2">الحالة/النتيجة</th>
+                  <th className="px-3 py-2">المسؤول</th>
+                  <th className="px-3 py-2">آخر شراء</th>
+                  <th className="px-3 py-2">مبيعات بعد المتابعة</th>
+                  <th className="px-3 py-2">المتابعة القادمة</th>
+                  <th className="px-3 py-2">سبب التصنيف</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditFilteredRows.slice(0, 80).map((row, index) => (
+                  <tr key={`${row.customer_code}-${row.normalized_phone}-${index}`} className="border-t border-slate-800 text-slate-200">
+                    <td className="px-3 py-2 font-bold text-white">{row.customer_name}</td>
+                    <td className="px-3 py-2">{row.customer_code || '—'}</td>
+                    <td className="px-3 py-2">{row.phone || row.mobile || '—'}</td>
+                    <td className="px-3 py-2">{row.branch || '—'}</td>
+                    <td className="px-3 py-2">{row.followup_status} · {row.followup_result}</td>
+                    <td className="px-3 py-2">{row.assigned_to_name || row.assigned_to || '—'}</td>
+                    <td className="px-3 py-2">{row.last_invoice_date || '—'}</td>
+                    <td className="px-3 py-2 font-black text-emerald-200">{money(row.sales_after_followup)}</td>
+                    <td className="px-3 py-2">{row.next_followup_date || '—'}</td>
+                    <td className="px-3 py-2 text-cyan-100">{row.audit_reason}</td>
+                  </tr>
+                ))}
+                {auditFilteredRows.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="px-3 py-8 text-center font-bold text-slate-400">
+                      لا توجد عملاء داخل هذا التصنيف حاليًا.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
