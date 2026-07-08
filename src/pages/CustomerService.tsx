@@ -28,6 +28,7 @@ import { searchCustomerMetrics,
   fetchCustomerServiceFollowups,
   fetchCustomerServiceFollowupById,
   generateTodayFollowupsFromCustomerMetrics,
+  generateTodayFollowupsSmartReport,
   fetchCustomerServiceInsightPools,
   recommendedAction,
   riskLevel,
@@ -254,11 +255,62 @@ const AUDIT_CSV_COLUMNS = [
   'recovered_customer',
   'notes',
   'next_followup_date',
+  'priority_label',
+  'priority_score',
   'audit_reason',
+  'data_quality_issues',
 ] as const;
 
 type AuditCsvColumn = (typeof AUDIT_CSV_COLUMNS)[number];
 type CustomerServiceAuditRow = Record<AuditCsvColumn, string | number | boolean | null>;
+
+type AuditUiFilters = {
+  search: string;
+  branch: string;
+  owner: string;
+  status: string;
+  priority: string;
+  result: string;
+  category: string;
+  phone: string;
+  recovered: string;
+  from: string;
+  to: string;
+};
+
+const AUDIT_STATUS_OPTIONS = [
+  [ALL_FILTER, 'كل الحالات'],
+  ['completed', 'مكتمل'],
+  ['notStarted', 'لم يبدأ التواصل'],
+  ['notStartedOverdue', 'لم يبدأ ومتأخر'],
+  ['overdue', 'متأخر'],
+  ['noAnswer', 'لم يرد'],
+  ['postponed', 'مؤجل'],
+  ['needsManager', 'يحتاج مدير'],
+  ['recovered', 'تم استرجاعه'],
+  ['contactedNoPurchase', 'تواصل ولم يشترِ'],
+  ['open', 'مفتوح / قيد المتابعة'],
+] as const;
+
+const AUDIT_PRIORITY_OPTIONS = [
+  [ALL_FILTER, 'كل الأولويات'],
+  ['critical', 'حرجة'],
+  ['high', 'عالية'],
+  ['medium', 'متوسطة'],
+  ['normal', 'عادية'],
+] as const;
+
+const AUDIT_PHONE_OPTIONS = [
+  [ALL_FILTER, 'كل الأرقام'],
+  ['valid', 'رقم صحيح فقط'],
+  ['invalid', 'بدون رقم صحيح'],
+] as const;
+
+const AUDIT_RECOVERY_OPTIONS = [
+  [ALL_FILTER, 'كل العملاء'],
+  ['recovered', 'مسترجع فقط'],
+  ['not_recovered', 'غير مسترجع'],
+] as const;
 
 const METRIC_FILTER_LABELS: Record<MetricFilter, string> = {
   all: 'عرض الكل',
@@ -375,17 +427,62 @@ function isContactedNoPurchase(row: FollowupRow) {
   return contacted && !isRecoveredCustomer(row);
 }
 
+function dataQualityIssues(row: FollowupRow) {
+  const issues: string[] = [];
+  if (!hasValidPhone(row)) issues.push('invalid_phone');
+  if (!String(row.customer_code || '').trim()) issues.push('missing_customer_code');
+  if (customerName(row) === 'عميل بدون اسم') issues.push('missing_customer_name');
+  if (!normalizeBranchName(row.branch || '')) issues.push('missing_branch');
+  if (!String(responsibleOf(row) || '').trim() || responsibleOf(row) === 'غير محدد') issues.push('missing_assigned_to');
+  if (!(row.followup_datetime || row.followup_date || row.date)) issues.push('missing_followup_date');
+  return issues;
+}
+
 function isDataQualityIssue(row: FollowupRow) {
-  return !hasValidPhone(row) || !String(row.customer_code || '').trim() || !normalizeBranchName(row.branch || '') || customerName(row) === 'عميل بدون اسم';
+  return dataQualityIssues(row).length > 0;
+}
+
+function auditStatusKey(row: FollowupRow) {
+  if (isNotStartedOverdue(row)) return 'notStartedOverdue';
+  if (isRecoveredCustomer(row)) return 'recovered';
+  if (isCompleted(row)) return 'completed';
+  if (row.needs_manager || /مدير/i.test(statusOf(row))) return 'needsManager';
+  if (row.postponed_until || /مؤجل/i.test(statusOf(row))) return 'postponed';
+  if (/لم يرد|no answer/i.test(statusOf(row))) return 'noAnswer';
+  if (isOverdue(row)) return 'overdue';
+  if (matchesMetricFilter(row, 'notStarted')) return 'notStarted';
+  if (isContactedNoPurchase(row)) return 'contactedNoPurchase';
+  return 'open';
+}
+
+function auditPriorityLabel(row: FollowupRow) {
+  const score = auditPriorityScore(row);
+  if (score >= 220) return 'حرجة';
+  if (score >= 140) return 'عالية';
+  if (score >= 80) return 'متوسطة';
+  return 'عادية';
+}
+
+function auditPriorityKey(row: FollowupRow) {
+  const label = auditPriorityLabel(row);
+  if (label === 'حرجة') return 'critical';
+  if (label === 'عالية') return 'high';
+  if (label === 'متوسطة') return 'medium';
+  return 'normal';
+}
+
+function auditDateValue(row: FollowupRow) {
+  return String(row.followup_datetime || row.followup_date || row.date || '').slice(0, 10);
 }
 
 function auditReasons(row: FollowupRow) {
   const reasons: string[] = [];
+  if (isNotStartedOverdue(row)) reasons.push(`لم يبدأ التواصل ومتأخر ${overdueDays(row)} يوم`);
   if (!hasValidPhone(row)) reasons.push('بدون رقم صحيح');
   if (!String(row.customer_code || '').trim()) reasons.push('بدون كود عميل');
   if (!normalizeBranchName(row.branch || '')) reasons.push('فرع غير محدد');
   if (customerName(row) === 'عميل بدون اسم') reasons.push('اسم العميل غير واضح');
-  if (isOverdue(row)) reasons.push(`متأخر ${overdueDays(row)} يوم`);
+  if (isOverdue(row) && !isNotStartedOverdue(row)) reasons.push(`متأخر ${overdueDays(row)} يوم`);
   if (isRecoveredCustomer(row)) reasons.push('اشترى بعد المتابعة');
   if (isContactedNoPurchase(row)) reasons.push('تم التواصل ولم يشترِ');
   if (row.needs_manager || /مدير/i.test(statusOf(row))) reasons.push('يحتاج تدخل مدير');
@@ -455,7 +552,10 @@ function auditRowFromFollowup(row: FollowupRow): CustomerServiceAuditRow {
     recovered_customer: isRecoveredCustomer(row),
     notes: [row.notes, row.followup_notes, row.customer_notes, row.handling_notes].filter(Boolean).join(' | '),
     next_followup_date: row.next_followup_date || row.postponed_until || '',
+    priority_label: auditPriorityLabel(row),
+    priority_score: auditPriorityScore(row),
     audit_reason: auditReasons(row),
+    data_quality_issues: dataQualityIssues(row).join(' | '),
   };
 }
 
@@ -473,6 +573,30 @@ function matchesAuditFilter(row: FollowupRow, filter: AuditFilter) {
   if (filter === 'purchaseAfter') return salesAfterFollowup(row) > 0 || isRecoveredCustomer(row);
   if (filter === 'contactedNoPurchase') return isContactedNoPurchase(row);
   if (filter === 'dataQuality') return isDataQualityIssue(row);
+  return true;
+}
+
+
+function matchesAuditUiFilters(row: FollowupRow, filters: AuditUiFilters) {
+  const q = filters.search.trim().toLowerCase();
+  if (q) {
+    const digits = q.replace(/\D/g, '');
+    const searchable = [customerName(row), row.customer_code, phoneOf(row), normalizePhoneForAudit(phoneOf(row)), row.customer_id].join(' ').toLowerCase();
+    if (!searchable.includes(q) && !(digits.length >= 3 && normalizePhoneForAudit(phoneOf(row)).includes(digits))) return false;
+  }
+  if (filters.branch !== ALL_FILTER && normalizeBranchName(row.branch || '') !== filters.branch) return false;
+  if (filters.owner !== ALL_FILTER && responsibleOf(row) !== filters.owner) return false;
+  if (filters.status !== ALL_FILTER && auditStatusKey(row) !== filters.status) return false;
+  if (filters.priority !== ALL_FILTER && auditPriorityKey(row) !== filters.priority) return false;
+  if (filters.result !== ALL_FILTER && followupResultLabel(row) !== filters.result) return false;
+  if (filters.category !== ALL_FILTER && segmentOf(row) !== filters.category) return false;
+  if (filters.phone === 'valid' && !hasValidPhone(row)) return false;
+  if (filters.phone === 'invalid' && hasValidPhone(row)) return false;
+  if (filters.recovered === 'recovered' && !isRecoveredCustomer(row)) return false;
+  if (filters.recovered === 'not_recovered' && isRecoveredCustomer(row)) return false;
+  const date = auditDateValue(row);
+  if (filters.from && (!date || date < filters.from)) return false;
+  if (filters.to && (!date || date > filters.to)) return false;
   return true;
 }
 
@@ -1165,6 +1289,18 @@ export default function CustomerService() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [metricFilter, setMetricFilter] = useState<MetricFilter>('all');
   const [auditFilter, setAuditFilter] = useState<AuditFilter>('today');
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditBranchFilter, setAuditBranchFilter] = useState(ALL_FILTER);
+  const [auditOwnerFilter, setAuditOwnerFilter] = useState(ALL_FILTER);
+  const [auditStatusFilter, setAuditStatusFilter] = useState(ALL_FILTER);
+  const [auditPriorityFilter, setAuditPriorityFilter] = useState(ALL_FILTER);
+  const [auditResultFilter, setAuditResultFilter] = useState(ALL_FILTER);
+  const [auditCategoryFilter, setAuditCategoryFilter] = useState(ALL_FILTER);
+  const [auditPhoneFilter, setAuditPhoneFilter] = useState(ALL_FILTER);
+  const [auditRecoveredFilter, setAuditRecoveredFilter] = useState(ALL_FILTER);
+  const [auditFromDate, setAuditFromDate] = useState('');
+  const [auditToDate, setAuditToDate] = useState('');
+  const [auditRowsLimit, setAuditRowsLimit] = useState(120);
   const [assignedFilter, setAssignedFilter] = useState(ALL_FILTER);
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -1590,11 +1726,50 @@ export default function CustomerService() {
   const invalidPhoneCount = useMemo(() => rows.filter((row) => !hasValidPhone(row)).length, [rows]);
   const notStartedCount = useMemo(() => rows.filter((row) => matchesMetricFilter(row, 'notStarted')).length, [rows]);
   const contactedNoPurchaseCount = useMemo(() => rows.filter((row) => matchesMetricFilter(row, 'contactedNoPurchase')).length, [rows]);
-  const auditRows = useMemo(() => dedupeCustomerRows(rows).map(auditRowFromFollowup), [rows]);
-  const auditFilteredSourceRows = useMemo(() => dedupeCustomerRows(rows).filter((row) => matchesAuditFilter(row, auditFilter)).sort(compareAuditRowsByPriority), [auditFilter, rows]);
+  const auditBaseSourceRows = useMemo(() => dedupeCustomerRows(rows), [rows]);
+  const auditUiFilters = useMemo<AuditUiFilters>(() => ({
+    search: auditSearch,
+    branch: auditBranchFilter,
+    owner: auditOwnerFilter,
+    status: auditStatusFilter,
+    priority: auditPriorityFilter,
+    result: auditResultFilter,
+    category: auditCategoryFilter,
+    phone: auditPhoneFilter,
+    recovered: auditRecoveredFilter,
+    from: auditFromDate,
+    to: auditToDate,
+  }), [auditBranchFilter, auditCategoryFilter, auditFromDate, auditOwnerFilter, auditPhoneFilter, auditPriorityFilter, auditRecoveredFilter, auditResultFilter, auditSearch, auditStatusFilter, auditToDate]);
+  const auditUiFiltersActive = useMemo(() => Boolean(
+    auditSearch.trim() || auditBranchFilter !== ALL_FILTER || auditOwnerFilter !== ALL_FILTER || auditStatusFilter !== ALL_FILTER || auditPriorityFilter !== ALL_FILTER || auditResultFilter !== ALL_FILTER || auditCategoryFilter !== ALL_FILTER || auditPhoneFilter !== ALL_FILTER || auditRecoveredFilter !== ALL_FILTER || auditFromDate || auditToDate
+  ), [auditBranchFilter, auditCategoryFilter, auditFromDate, auditOwnerFilter, auditPhoneFilter, auditPriorityFilter, auditRecoveredFilter, auditResultFilter, auditSearch, auditStatusFilter, auditToDate]);
+  const auditScopedSourceRows = useMemo(() => auditBaseSourceRows.filter((row) => matchesAuditUiFilters(row, auditUiFilters)), [auditBaseSourceRows, auditUiFilters]);
+  const auditRows = useMemo(() => auditBaseSourceRows.map(auditRowFromFollowup), [auditBaseSourceRows]);
+  const auditFilteredSourceRows = useMemo(() => auditScopedSourceRows.filter((row) => matchesAuditFilter(row, auditFilter)).sort(compareAuditRowsByPriority), [auditFilter, auditScopedSourceRows]);
   const auditFilteredRows = useMemo(() => auditFilteredSourceRows.map(auditRowFromFollowup), [auditFilteredSourceRows]);
+  const auditVisibleSourceRows = useMemo(() => auditFilteredSourceRows.slice(0, auditRowsLimit), [auditFilteredSourceRows, auditRowsLimit]);
+  const auditVisibleRows = useMemo(() => auditVisibleSourceRows.map(auditRowFromFollowup), [auditVisibleSourceRows]);
+  const auditBranchOptions = useMemo(() => [ALL_FILTER, ...new Set(auditBaseSourceRows.map((row) => normalizeBranchName(row.branch || '')).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar')), [auditBaseSourceRows]);
+  const auditOwnerOptions = useMemo(() => [ALL_FILTER, ...new Set(auditBaseSourceRows.map((row) => responsibleOf(row)).filter((value) => value && value !== 'غير محدد'))].sort((a, b) => a.localeCompare(b, 'ar')), [auditBaseSourceRows]);
+  const auditResultOptions = useMemo(() => [ALL_FILTER, ...new Set(auditBaseSourceRows.map((row) => followupResultLabel(row)).filter((value) => value && value !== 'غير محدد'))].sort((a, b) => a.localeCompare(b, 'ar')), [auditBaseSourceRows]);
+  const auditCategoryOptions = useMemo(() => [ALL_FILTER, ...new Set(auditBaseSourceRows.map((row) => segmentOf(row)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar')), [auditBaseSourceRows]);
+  const resetAuditUiFilters = useCallback(() => {
+    setAuditSearch('');
+    setAuditBranchFilter(ALL_FILTER);
+    setAuditOwnerFilter(ALL_FILTER);
+    setAuditStatusFilter(ALL_FILTER);
+    setAuditPriorityFilter(ALL_FILTER);
+    setAuditResultFilter(ALL_FILTER);
+    setAuditCategoryFilter(ALL_FILTER);
+    setAuditPhoneFilter(ALL_FILTER);
+    setAuditRecoveredFilter(ALL_FILTER);
+    setAuditFromDate('');
+    setAuditToDate('');
+    setAuditRowsLimit(120);
+  }, []);
+  useEffect(() => { setAuditRowsLimit(120); }, [auditFilter, auditUiFilters]);
   const auditCounts = useMemo(() => {
-    const uniqueRows = dedupeCustomerRows(rows);
+    const uniqueRows = auditScopedSourceRows;
     return {
       today: uniqueRows.filter((row) => matchesAuditFilter(row, 'today')).length,
       completed: uniqueRows.filter((row) => matchesAuditFilter(row, 'completed')).length,
@@ -1610,9 +1785,9 @@ export default function CustomerService() {
       contactedNoPurchase: uniqueRows.filter((row) => matchesAuditFilter(row, 'contactedNoPurchase')).length,
       dataQuality: uniqueRows.filter((row) => matchesAuditFilter(row, 'dataQuality')).length,
     };
-  }, [rows]);
+  }, [auditScopedSourceRows]);
   const auditAnalysis = useMemo(() => {
-    const uniqueRows = dedupeCustomerRows(rows);
+    const uniqueRows = auditScopedSourceRows;
     const total = uniqueRows.length;
     const byOwner = new Map<string, { name: string; branch: string; recovered: number; amount: number; total: number }>();
     const byBranch = new Map<string, { branch: string; recovered: number; amount: number; total: number }>();
@@ -1658,7 +1833,7 @@ export default function CustomerService() {
       dataQualityIssues: `${auditCounts.dataQuality} مشكلة · بدون رقم صحيح ${auditCounts.invalidPhone}`,
       warnings,
     };
-  }, [auditCounts, rows]);
+  }, [auditCounts, auditScopedSourceRows]);
   const exportAuditDisplayed = useCallback(() => {
     downloadAuditCsv(auditFilteredRows, `customer-service-audit-${AUDIT_FILTER_LABELS[auditFilter]}-${new Date().toISOString().slice(0, 10)}.csv`);
     toast.success('تم تصدير المعروض CSV');
@@ -1921,14 +2096,19 @@ export default function CustomerService() {
     setGenerating(true);
     try {
       const scopedBranch = serviceCanAllBranches ? effectiveBranchFilter({ role: userRole, branch: serviceBranchOverride || userBranch }, branch, ALL_FILTER) : serviceBranchOverride || userBranch;
-      const beforeKeys = new Set(rows.map(customerKey).filter(Boolean));
-      const created = await generateTodayFollowupsFromCustomerMetrics(scopedBranch, userName);
+      const report = await generateTodayFollowupsSmartReport(scopedBranch, userName);
+      const created = report.createdRows || [];
       const uniqueCreated = dedupeCustomerRows(created);
-      const duplicated = created.length - uniqueCreated.length + uniqueCreated.filter((row) => beforeKeys.has(customerKey(row))).length;
-      if (duplicated > 0) {
-        toast.info(`تم منع/تجاهل ${duplicated} متابعة مكررة لنفس العميل`);
-      }
-      toast.success(uniqueCreated.length ? `تم إنشاء ${uniqueCreated.length} متابعة بدون تكرار` : 'لا توجد متابعات جديدة');
+      const summary = [
+        `تم إنشاء ${report.created_count} متابعة`,
+        `تكرار: ${report.skipped_duplicates_count}`,
+        `متابعة مفتوحة/اليوم: ${report.skipped_open_followups_count}`,
+        `رقم غير صالح: ${report.skipped_invalid_phone_count}`,
+        `فشل حفظ: ${report.failed_count}`,
+      ].join(' · ');
+      if (report.created_count > 0) toast.success(summary);
+      else toast.info(`لا توجد متابعات جديدة · ${summary}`);
+      if (uniqueCreated.length !== created.length) toast.info(`تم تنظيف ${created.length - uniqueCreated.length} تكرار من نتيجة الإنشاء قبل العرض`);
       await load(true);
     } catch (generateError) {
       toast.error(generateError instanceof Error ? generateError.message : 'تعذر إنشاء قائمة اليوم');
@@ -2088,9 +2268,9 @@ const addFollowup = async () => {
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <span className="inline-flex rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-100">
-              Customer Service Audit V5
+              Customer Service Operations V6
             </span>
-            <h2 className="mt-2 text-xl font-black text-white">تدقيق خدمة العملاء V4</h2>
+            <h2 className="mt-2 text-xl font-black text-white">تدقيق وتشغيل خدمة العملاء V6</h2>
             <p className="mt-1 text-xs font-semibold text-slate-400">
               التحليل مبني على نفس بيانات المتابعات المحملة من fetchCustomerServiceFollowups، بدون بيانات وهمية أو localStorage.
             </p>
@@ -2163,10 +2343,53 @@ const addFollowup = async () => {
           </div>
         )}
 
+        <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-900/55 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-black text-white">فلاتر تشغيل خدمة العملاء</div>
+              <div className="text-xs font-semibold text-slate-400">كل الكروت والجدول والتصدير تعتمد على نفس الفلاتر الحالية.</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {auditUiFiltersActive && <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-100">الأرقام متأثرة بالفلاتر الحالية</span>}
+              <button type="button" className="btn-secondary text-xs" onClick={resetAuditUiFilters}>إعادة ضبط الفلاتر</button>
+              <button type="button" className="btn-secondary text-xs" onClick={() => setAuditFilter('today')}>مسح كارت التصنيف</button>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <input className="input-dark" placeholder="بحث بالاسم / الكود / الرقم" value={auditSearch} onChange={(event) => setAuditSearch(event.target.value)} />
+            <select className="input-dark" value={auditBranchFilter} onChange={(event) => setAuditBranchFilter(event.target.value)}>
+              {auditBranchOptions.map((item) => <option key={item} value={item}>{item === ALL_FILTER ? 'كل الفروع' : item}</option>)}
+            </select>
+            <select className="input-dark" value={auditOwnerFilter} onChange={(event) => setAuditOwnerFilter(event.target.value)}>
+              {auditOwnerOptions.map((item) => <option key={item} value={item}>{item === ALL_FILTER ? 'كل مسؤولي خدمة العملاء' : item}</option>)}
+            </select>
+            <select className="input-dark" value={auditStatusFilter} onChange={(event) => setAuditStatusFilter(event.target.value)}>
+              {AUDIT_STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <select className="input-dark" value={auditPriorityFilter} onChange={(event) => setAuditPriorityFilter(event.target.value)}>
+              {AUDIT_PRIORITY_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <select className="input-dark" value={auditResultFilter} onChange={(event) => setAuditResultFilter(event.target.value)}>
+              {auditResultOptions.map((item) => <option key={item} value={item}>{item === ALL_FILTER ? 'كل نتائج المتابعة' : item}</option>)}
+            </select>
+            <select className="input-dark" value={auditCategoryFilter} onChange={(event) => setAuditCategoryFilter(event.target.value)}>
+              {auditCategoryOptions.map((item) => <option key={item} value={item}>{item === ALL_FILTER ? 'كل تصنيفات العملاء' : item}</option>)}
+            </select>
+            <select className="input-dark" value={auditPhoneFilter} onChange={(event) => setAuditPhoneFilter(event.target.value)}>
+              {AUDIT_PHONE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <select className="input-dark" value={auditRecoveredFilter} onChange={(event) => setAuditRecoveredFilter(event.target.value)}>
+              {AUDIT_RECOVERY_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <input className="input-dark" type="date" value={auditFromDate} onChange={(event) => setAuditFromDate(event.target.value)} aria-label="تاريخ المتابعة من" />
+            <input className="input-dark" type="date" value={auditToDate} onChange={(event) => setAuditToDate(event.target.value)} aria-label="تاريخ المتابعة إلى" />
+          </div>
+        </div>
+
         <div className="mt-4 overflow-hidden rounded-2xl border border-slate-700 bg-slate-950/40">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-3 text-sm font-bold text-slate-200">
-            <span>تفاصيل: {AUDIT_FILTER_LABELS[auditFilter]} · {auditFilteredRows.length} عميل</span>
-            <span className="text-xs text-slate-400">مرتب تلقائيًا: المتأخر ولم يبدأ أولًا، ثم أعلى إجمالي مبيعات، والتصدير يحتوي كل النتائج المعروضة.</span>
+            <span>تفاصيل: {AUDIT_FILTER_LABELS[auditFilter]} · يعرض {auditVisibleRows.length} من {auditFilteredRows.length} متابعة</span>
+            <span className="text-xs text-slate-400">مرتب تلقائيًا حسب الأولوية التشغيلية. {auditUiFiltersActive ? 'الأرقام متأثرة بالفلاتر الحالية.' : 'لا توجد فلاتر إضافية مطبقة.'}</span>
           </div>
           <div className="max-h-[420px] overflow-auto">
             <table className="min-w-[1100px] w-full text-right text-xs">
@@ -2182,11 +2405,13 @@ const addFollowup = async () => {
                   <th className="px-3 py-2">مبيعات بعد المتابعة</th>
                   <th className="px-3 py-2">المتابعة القادمة</th>
                   <th className="px-3 py-2">الأولوية</th>
+                  <th className="px-3 py-2">درجة الأولوية</th>
+                  <th className="px-3 py-2">مشاكل البيانات</th>
                   <th className="px-3 py-2">سبب التصنيف</th>
                 </tr>
               </thead>
               <tbody>
-                {auditFilteredRows.slice(0, 80).map((row, index) => (
+                {auditVisibleRows.map((row, index) => (
                   <tr key={`${row.customer_code}-${row.normalized_phone}-${index}`} className="border-t border-slate-800 text-slate-200">
                     <td className="px-3 py-2 font-bold text-white">{row.customer_name}</td>
                     <td className="px-3 py-2">{row.customer_code || '—'}</td>
@@ -2197,13 +2422,15 @@ const addFollowup = async () => {
                     <td className="px-3 py-2">{row.last_invoice_date || '—'}</td>
                     <td className="px-3 py-2 font-black text-emerald-200">{money(row.sales_after_followup)}</td>
                     <td className="px-3 py-2">{row.next_followup_date || '—'}</td>
-                    <td className="px-3 py-2 font-black text-amber-200">{auditPriorityScore(auditFilteredSourceRows[index])}</td>
+                    <td className="px-3 py-2 font-black text-amber-100">{row.priority_label}</td>
+                    <td className="px-3 py-2 font-black text-amber-200">{row.priority_score}</td>
+                    <td className="px-3 py-2 text-rose-100">{row.data_quality_issues || '—'}</td>
                     <td className="px-3 py-2 text-cyan-100">{row.audit_reason}</td>
                   </tr>
                 ))}
                 {auditFilteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-3 py-8 text-center font-bold text-slate-400">
+                    <td colSpan={13} className="px-3 py-8 text-center font-bold text-slate-400">
                       لا توجد عملاء داخل هذا التصنيف حاليًا.
                     </td>
                   </tr>
@@ -2211,6 +2438,13 @@ const addFollowup = async () => {
               </tbody>
             </table>
           </div>
+          {auditFilteredRows.length > auditVisibleRows.length && (
+            <div className="border-t border-slate-800 p-3 text-center">
+              <button type="button" className="btn-secondary" onClick={() => setAuditRowsLimit((value) => value + 120)}>
+                عرض المزيد · متبقي {auditFilteredRows.length - auditVisibleRows.length}
+              </button>
+            </div>
+          )}
         </div>
       </section>
 

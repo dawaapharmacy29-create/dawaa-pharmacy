@@ -788,21 +788,57 @@ async function fetchOpenFollowupKeys(branch?: string) {
   }
 }
 
-export async function generateTodayFollowupsFromCustomerMetrics(
+export type GenerateTodayFollowupsSmartReport = {
+  createdRows: FollowupRow[];
+  created_count: number;
+  skipped_duplicates_count: number;
+  skipped_open_followups_count: number;
+  skipped_invalid_phone_count: number;
+  failed_count: number;
+  candidate_count: number;
+};
+
+function smartCandidatePhone(row: FollowupRow) {
+  return getBestCustomerPhone(row.customer_metrics as CustomerMetric | null) || row.customer_phone || row.phone || '';
+}
+
+export async function generateTodayFollowupsSmartReport(
   branch?: string,
   createdByName?: string | null
-) {
+): Promise<GenerateTodayFollowupsSmartReport> {
   const branches = isAll(branch) ? ['فرع الشامي', 'فرع شكري'] : [normalizeBranchName(branch || '')].filter(Boolean);
-  const createdRows: FollowupRow[] = [];
+  const report: GenerateTodayFollowupsSmartReport = {
+    createdRows: [],
+    created_count: 0,
+    skipped_duplicates_count: 0,
+    skipped_open_followups_count: 0,
+    skipped_invalid_phone_count: 0,
+    failed_count: 0,
+    candidate_count: 0,
+  };
 
   for (const branchName of branches) {
     const existingKeys = await fetchOpenFollowupKeys(branchName);
     const pools = await fetchCustomerServiceInsightPools(branchName);
     const candidates = [...pools.strong, ...pools.stopped60, ...pools.reduced, ...pools.important];
+    report.candidate_count += candidates.length;
     const unique = new Map<string, FollowupRow>();
+
     for (const row of candidates) {
       const key = followupKeyFromRow(row);
-      if (!key || existingKeys.has(key) || unique.has(key)) continue;
+      const phone = smartCandidatePhone(row).replace(/\D/g, '');
+      if (!key || phone.length < 10) {
+        report.skipped_invalid_phone_count += 1;
+        continue;
+      }
+      if (existingKeys.has(key)) {
+        report.skipped_open_followups_count += 1;
+        continue;
+      }
+      if (unique.has(key)) {
+        report.skipped_duplicates_count += 1;
+        continue;
+      }
       unique.set(key, row);
       if (unique.size >= 20) break;
     }
@@ -812,7 +848,7 @@ export async function generateTodayFollowupsFromCustomerMetrics(
         const created = await createExceptionalFollowup({
           customer: row.customer_metrics as CustomerMetric | null,
           customerName: row.customer_name || row.name || 'عميل',
-          customerPhone: row.customer_phone || row.phone,
+          customerPhone: smartCandidatePhone(row),
           customerCode: row.customer_code,
           branch: branchName,
           priority: row.priority || 'مهم',
@@ -821,17 +857,27 @@ export async function generateTodayFollowupsFromCustomerMetrics(
           followupDatetime: new Date().toISOString(),
           requestDetails: row.followup_reason || recommendedAction(row),
           createdByName,
-          source: 'smart_daily_customer_service_queue',
+          source: 'smart_daily_customer_service_queue_v6',
         });
-        createdRows.push(created);
+        report.createdRows.push(created);
+        report.created_count += 1;
         existingKeys.add(followupKeyFromRow(created));
       } catch (error) {
+        report.failed_count += 1;
         console.warn('smart daily followup insert skipped', error);
       }
     }
   }
 
-  return createdRows;
+  return report;
+}
+
+export async function generateTodayFollowupsFromCustomerMetrics(
+  branch?: string,
+  createdByName?: string | null
+) {
+  const report = await generateTodayFollowupsSmartReport(branch, createdByName);
+  return report.createdRows;
 }
 
 export function riskLevel(row: FollowupRow | CustomerMetric) {
