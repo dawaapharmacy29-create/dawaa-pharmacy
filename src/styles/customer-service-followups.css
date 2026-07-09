@@ -1,0 +1,238 @@
+/* Customer service + reviews production hardening.
+   Fixes reported screenshots: cramped reviews page, unreadable dark header, and wide customer-service followup tables. */
+
+html {
+  --cs-header-bg: color-mix(in srgb, var(--theme-surface, #10243d) 95%, transparent);
+  --cs-header-border: var(--theme-border, rgba(125, 211, 252, .2));
+  --cs-header-text: var(--theme-heading, #fff);
+}
+
+html.light-mode {
+  --cs-header-bg: rgba(255,255,255,.96);
+  --cs-header-border: #cfe7e4;
+  --cs-header-text: #071527;
+}
+
+html header,
+html .topbar,
+html .dawaa-topbar {
+  background: var(--cs-header-bg) !important;
+  border-color: var(--cs-header-border) !important;
+  color: var(--cs-header-text) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  z-index: 70;
+}
+
+html header h1,
+html header h2,
+html header h3,
+html header .text-white,
+html header .text-slate-950,
+html header .text-slate-900,
+html header .text-slate-800 {
+  color: var(--cs-header-text) !important;
+}
+
+html header .text-slate-400,
+html header .text-slate-500,
+html header .text-slate-600 {
+  color: var(--theme-muted, #9fb3c8) !important;
+}
+
+/* Generic table safety */
+html .data-table,
+html .dawaa-table,
+html table {
+  max-width: 100%;
+}
+
+html .data-table th,
+html .data-table td,
+html .dawaa-table th,
+html .dawaa-table td,
+html table th,
+html table td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+html .data-table th,
+html .dawaa-table th,
+html thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+/* Reviews page */
+html main > div.max-w-6xl.space-y-5,
+html main > div:has(.page-title) {
+  width: min(100%, 1500px) !important;
+  max-width: 100% !important;
+  overflow: hidden;
+}
+
+html main > div.max-w-6xl.space-y-5 .stat-card,
+html main > div:has(.page-title) .stat-card {
+  max-width: 100%;
+}
+
+html main > div.max-w-6xl.space-y-5 .overflow-x-auto,
+html main > div:has(.page-title) .overflow-x-auto,
+html main > div.max-w-6xl.space-y-5 [class*='overflow-x-auto'],
+html main > div:has(.page-title) [class*='overflow-x-auto'] {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+html main > div.max-w-6xl.space-y-5 table,
+html main > div:has(.page-title) table {
+  min-width: 760px;
+}
+
+html main > div.max-w-6xl.space-y-5 td button,
+html main > div:has(.page-title) td button,
+html main > div.max-w-6xl.space-y-5 .btn-secondary,
+html main > div:has(.page-title) .btn-secondary {
+  min-width: 0 !important;
+  padding-inline: .75rem !important;
+}
+
+/* Customer service page */
+.customer-service-page {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.customer-service-page .dawaa-hero,
+.customer-service-page .dawaa-panel,
+.customer-service-page .dawaa-card,
+.customer-service-page .stat-card {
+  background: var(--theme-surface, #10243d) !important;
+  border-color: var(--theme-border, rgba(125, 211, 252, .2)) !important;
+  color: var(--theme-text, #eef8fb) !important;
+}
+
+.customer-service-page .dawaa-hero {
+  background: linear-gradient(135deg, var(--theme-surface, #10243d), var(--theme-surface-2, #132d4d)) !important;
+}
+
+.customer-service-page .dawaa-hero h1,
+.customer-service-page .dawaa-hero p,
+.customer-service-page .section-title,
+.customer-service-page h1,
+.customer-service-page h2,
+.customer-service-page h3 {
+  color: var(--theme-heading, #ffffff) !important;
+}
+
+.customer-service-page .dawaa-brand-chip,
+.customer-service-page .dawaa-source-badge {
+  background: var(--theme-soft, rgba(20,184,166,.12)) !important;
+  border-color: var(--theme-border-strong, rgba(45,212,191,.42)) !important;
+  color: var(--theme-primary, #2dd4bf) !important;
+}
+
+.customer-service-page [class*='overflow-x-auto'] {
+  scrollbar-gutter: stable both-edges;
+}
+
+.customer-service-page table {
+  min-width: 1120px;
+}
+
+.customer-service-page th,
+.customer-service-page td {
+  max-width: 240px;
+}
+
+.customer-service-page td:first-child,
+.customer-service-page td:last-child,
+.customer-service-page th:first-child,
+.customer-service-page th:last-child {
+  max-width: 330px;
+}
+
+.customer-service-page .line-clamp-2,
+.customer-service-page td .line-clamp-2 {
+  white-space: normal;
+}
+
+.customer-service-page .btn-secondary,
+.customer-service-page .dawaa-button-primary {
+  min-height: 2.45rem;
+  min-width: 0;
+  padding-inline: .85rem !important;
+}
+
+.customer-service-page .dawaa-panel > div > button {
+  background: var(--theme-surface-2, #132d4d) !important;
+  border-color: var(--theme-border, rgba(125, 211, 252, .2)) !important;
+  color: var(--theme-text, #eef8fb) !important;
+}
+
+.customer-service-page .dawaa-panel > div > button[class*='bg-teal-50'],
+.customer-service-page .dawaa-panel > div > button[aria-selected='true'] {
+  background: var(--theme-soft, rgba(20,184,166,.12)) !important;
+  border-color: var(--theme-border-strong, rgba(45,212,191,.42)) !important;
+  color: var(--theme-primary, #2dd4bf) !important;
+}
+
+html.light-mode .customer-service-page .dawaa-hero,
+html.light-mode .customer-service-page .dawaa-panel,
+html.light-mode .customer-service-page .dawaa-card,
+html.light-mode .customer-service-page .stat-card {
+  background: #ffffff !important;
+  border-color: #cfe7e4 !important;
+  color: #102033 !important;
+}
+
+html.light-mode .customer-service-page .dawaa-hero h1,
+html.light-mode .customer-service-page .dawaa-hero p,
+html.light-mode .customer-service-page .section-title,
+html.light-mode .customer-service-page h1,
+html.light-mode .customer-service-page h2,
+html.light-mode .customer-service-page h3 {
+  color: #102033 !important;
+}
+
+html.light-mode .customer-service-page .dawaa-panel > div > button {
+  background: #ffffff !important;
+  border-color: #d7e7e4 !important;
+  color: #102033 !important;
+}
+
+html.light-mode .customer-service-page .dawaa-panel > div > button[class*='bg-teal-50'],
+html.light-mode .customer-service-page .dawaa-panel > div > button[aria-selected='true'] {
+  background: #dff8f5 !important;
+  border-color: #8ee5dc !important;
+  color: #04766d !important;
+}
+
+@media (max-width: 900px) {
+  html main { overflow-x: hidden; }
+
+  html .stat-card,
+  html .dawaa-panel,
+  html .dawaa-card {
+    padding: .85rem !important;
+    border-radius: 1rem !important;
+  }
+
+  .customer-service-page .dawaa-hero {
+    align-items: stretch;
+  }
+
+  .customer-service-page .dawaa-controls > * {
+    flex: 1 1 100%;
+  }
+
+  .customer-service-page table,
+  html main > div.max-w-6xl.space-y-5 table,
+  html main > div:has(.page-title) table {
+    min-width: 900px;
+  }
+}
