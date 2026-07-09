@@ -63,47 +63,53 @@ ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS invoices_count numeric DEF
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS total_spent numeric DEFAULT 0;
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
-CREATE OR REPLACE VIEW public.dawaa_customer_invalid_phone_review_v14_6 AS
+-- Postgres cannot change an existing view column type with CREATE OR REPLACE VIEW.
+-- Drop dependent views first, then recreate them with the desired stable types.
+DROP VIEW IF EXISTS public.dawaa_customer_branch_review_summary_v14 CASCADE;
+DROP VIEW IF EXISTS public.dawaa_customer_branch_review_queue_v14 CASCADE;
+DROP VIEW IF EXISTS public.dawaa_customer_invalid_phone_review_v14_6 CASCADE;
+
+CREATE VIEW public.dawaa_customer_invalid_phone_review_v14_6 AS
 SELECT
-  c.customer_code,
-  c.name AS customer_name,
-  COALESCE(NULLIF(c.phone, ''), NULLIF(c.mobile, ''), NULLIF(c.whatsapp, '')) AS customer_phone,
-  c.branch,
+  c.customer_code::text AS customer_code,
+  c.name::text AS customer_name,
+  COALESCE(NULLIF(c.phone, ''), NULLIF(c.mobile, ''), NULLIF(c.whatsapp, ''))::text AS customer_phone,
+  c.branch::text AS branch,
   'customers'::text AS source_table,
   CASE
     WHEN COALESCE(NULLIF(c.phone, ''), NULLIF(c.mobile, ''), NULLIF(c.whatsapp, '')) IS NULL THEN 'لا يوجد رقم مسجل'
     ELSE 'رقم غير صالح أو يحتاج تنظيف'
-  END AS invalid_reason,
-  COALESCE(c.updated_at, c.created_at) AS last_seen_at
+  END::text AS invalid_reason,
+  COALESCE(c.updated_at, c.created_at)::timestamptz AS last_seen_at
 FROM public.customers c
 WHERE COALESCE(NULLIF(c.phone, ''), NULLIF(c.mobile, ''), NULLIF(c.whatsapp, '')) IS NULL
    OR regexp_replace(COALESCE(c.phone, c.mobile, c.whatsapp, ''), '\D', '', 'g') !~ '^(01[0125][0-9]{8}|201[0125][0-9]{8})$';
 
-CREATE OR REPLACE VIEW public.dawaa_customer_branch_review_queue_v14 AS
+CREATE VIEW public.dawaa_customer_branch_review_queue_v14 AS
 SELECT
-  c.customer_code,
-  c.name AS customer_name,
-  COALESCE(NULLIF(c.phone, ''), NULLIF(c.mobile, ''), NULLIF(c.whatsapp, '')) AS customer_phone,
-  c.branch AS current_branch,
-  COALESCE(o.new_branch, o.suggested_branch, c.branch) AS suggested_branch,
+  c.customer_code::text AS customer_code,
+  c.name::text AS customer_name,
+  COALESCE(NULLIF(c.phone, ''), NULLIF(c.mobile, ''), NULLIF(c.whatsapp, ''))::text AS customer_phone,
+  c.branch::text AS current_branch,
+  COALESCE(o.new_branch, o.suggested_branch, c.branch)::text AS suggested_branch,
   COALESCE(c.invoices_count, 0)::numeric AS invoices_count,
   COALESCE(c.total_spent, 0)::numeric AS total_spent,
-  COALESCE(c.last_purchase, c.last_order_date, c.updated_at::date) AS last_invoice_date,
+  COALESCE(c.last_purchase, c.last_order_date, c.updated_at::date)::date AS last_invoice_date,
   CASE
     WHEN c.branch IS NULL OR trim(c.branch) = '' OR c.branch IN ('غير محدد', 'unknown') THEN 'manual_review'
     WHEN o.id IS NOT NULL THEN 'high'
     ELSE 'fallback_customer'
-  END AS confidence_level,
-  CASE WHEN o.id IS NOT NULL THEN 'manual_approved' ELSE 'pending' END AS repair_status,
+  END::text AS confidence_level,
+  CASE WHEN o.id IS NOT NULL THEN 'manual_approved' ELSE 'pending' END::text AS repair_status,
   CASE
     WHEN c.branch IS NULL OR trim(c.branch) = '' OR c.branch IN ('غير محدد', 'unknown') THEN 'فرع غير محدد في جدول العملاء'
     WHEN o.id IS NOT NULL THEN 'يوجد override معتمد'
     ELSE 'مراجعة دورية من جدول العملاء'
-  END AS review_label,
+  END::text AS review_label,
   CASE
     WHEN COALESCE(NULLIF(c.phone, ''), NULLIF(c.mobile, ''), NULLIF(c.whatsapp, '')) IS NULL THEN NULL
     ELSE 'https://wa.me/2' || regexp_replace(COALESCE(c.phone, c.mobile, c.whatsapp, ''), '\D', '', 'g')
-  END AS whatsapp_link
+  END::text AS whatsapp_link
 FROM public.customers c
 LEFT JOIN LATERAL (
   SELECT * FROM public.customer_branch_overrides o
@@ -121,13 +127,13 @@ WHERE c.customer_code IS NOT NULL
     OR COALESCE(NULLIF(c.phone, ''), NULLIF(c.mobile, ''), NULLIF(c.whatsapp, '')) IS NULL
   );
 
-CREATE OR REPLACE VIEW public.dawaa_customer_branch_review_summary_v14 AS
+CREATE VIEW public.dawaa_customer_branch_review_summary_v14 AS
 SELECT
-  confidence_level,
-  repair_status,
+  confidence_level::text AS confidence_level,
+  repair_status::text AS repair_status,
   COUNT(*)::integer AS customers_count,
-  SUM(total_spent)::numeric AS total_spent,
-  SUM(invoices_count)::numeric AS invoices_count
+  COALESCE(SUM(total_spent), 0)::numeric AS total_spent,
+  COALESCE(SUM(invoices_count), 0)::numeric AS invoices_count
 FROM public.dawaa_customer_branch_review_queue_v14
 GROUP BY confidence_level, repair_status;
 
