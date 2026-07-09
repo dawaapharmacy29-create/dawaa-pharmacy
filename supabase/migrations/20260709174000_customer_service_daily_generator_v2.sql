@@ -52,9 +52,9 @@ BEGIN
       SELECT
         c.*,
         CASE
-          WHEN coalesce(c.segment, c.type, '') IN ('مهم جدًا','VIP','vip','مهم جدا') OR coalesce(c.total_spent, c.total_purchases, 0) >= 8000 THEN 'important_vip'
-          WHEN coalesce(c.customer_status, c.status, '') ILIKE '%مهدد%' OR (c.last_purchase IS NOT NULL AND c.last_purchase::date <= p_followup_day - interval '60 days') THEN 'at_risk_60'
-          WHEN coalesce(c.customer_status, c.status, '') ILIKE '%متوقف%' OR (c.last_purchase IS NOT NULL AND c.last_purchase::date <= p_followup_day - interval '90 days') THEN 'stopped_strong'
+          WHEN coalesce(c.segment, '') IN ('مهم جدًا','VIP','vip','مهم جدا') OR coalesce(c.total_spent, 0) >= 8000 THEN 'important_vip'
+          WHEN coalesce(c.customer_status, '') ILIKE '%مهدد%' OR (c.last_purchase IS NOT NULL AND c.last_purchase::date <= p_followup_day - interval '60 days') THEN 'at_risk_60'
+          WHEN coalesce(c.customer_status, '') ILIKE '%متوقف%' OR (c.last_purchase IS NOT NULL AND c.last_purchase::date <= p_followup_day - interval '90 days') THEN 'stopped_strong'
           ELSE 'other'
         END AS bucket,
         public.dawaa_customer_followup_key(
@@ -67,12 +67,12 @@ BEGIN
         row_number() OVER (
           PARTITION BY
             CASE
-              WHEN coalesce(c.segment, c.type, '') IN ('مهم جدًا','VIP','vip','مهم جدا') OR coalesce(c.total_spent, c.total_purchases, 0) >= 8000 THEN 'important_vip'
-              WHEN coalesce(c.customer_status, c.status, '') ILIKE '%مهدد%' OR (c.last_purchase IS NOT NULL AND c.last_purchase::date <= p_followup_day - interval '60 days') THEN 'at_risk_60'
-              WHEN coalesce(c.customer_status, c.status, '') ILIKE '%متوقف%' OR (c.last_purchase IS NOT NULL AND c.last_purchase::date <= p_followup_day - interval '90 days') THEN 'stopped_strong'
+              WHEN coalesce(c.segment, '') IN ('مهم جدًا','VIP','vip','مهم جدا') OR coalesce(c.total_spent, 0) >= 8000 THEN 'important_vip'
+              WHEN coalesce(c.customer_status, '') ILIKE '%مهدد%' OR (c.last_purchase IS NOT NULL AND c.last_purchase::date <= p_followup_day - interval '60 days') THEN 'at_risk_60'
+              WHEN coalesce(c.customer_status, '') ILIKE '%متوقف%' OR (c.last_purchase IS NOT NULL AND c.last_purchase::date <= p_followup_day - interval '90 days') THEN 'stopped_strong'
               ELSE 'other'
             END
-          ORDER BY coalesce(c.avg_monthly, 0) DESC, coalesce(c.total_spent, c.total_purchases, 0) DESC, c.last_purchase NULLS FIRST
+          ORDER BY coalesce(c.avg_monthly, 0) DESC, coalesce(c.total_spent, 0) DESC, c.last_purchase NULLS FIRST
         ) AS bucket_rank
       FROM public.dawaa_customer_metrics_app_view c
       WHERE c.branch = v_branch
@@ -96,7 +96,7 @@ BEGIN
         FROM public.daily_followups f
         WHERE coalesce(f.followup_day, f.followup_date::date, f.followup_datetime::date, f.date::date, f.created_at::date) = p_followup_day
           AND coalesce(f.branch, '') = coalesce(v_branch, '')
-          AND coalesce(f.cancelled_at, null) IS NULL
+          AND f.cancelled_at IS NULL
           AND coalesce(f.canonical_customer_key, public.dawaa_customer_followup_key(f.customer_id::text, f.customer_code::text, coalesce(f.customer_phone::text, f.phone::text), f.customer_name::text, f.branch::text)) = d.canonical_key
       )
     ), inserted AS (
@@ -112,7 +112,7 @@ BEGIN
       SELECT
         p_followup_day, p_followup_day, p_followup_day, now(),
         i.customer_id, i.customer_code, i.customer_name, i.customer_name, i.customer_phone, i.customer_phone,
-        v_branch, i.segment, i.segment, i.customer_status, coalesce(i.total_spent, i.total_purchases, 0), i.last_purchase,
+        v_branch, i.segment, i.segment, i.customer_status, coalesce(i.total_spent, 0), i.last_purchase,
         'smart_daily_core',
         CASE i.bucket
           WHEN 'important_vip' THEN '10 عملاء مهمين / VIP'
