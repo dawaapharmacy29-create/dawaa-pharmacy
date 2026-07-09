@@ -24,6 +24,28 @@ CREATE TABLE IF NOT EXISTS public.activity_log (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- If activity_log already existed before this migration, CREATE TABLE IF NOT EXISTS will not add missing columns.
+-- Add them defensively before creating indexes to avoid ERROR 42703 column does not exist.
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS user_id text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS user_name text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS user_role text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS operation text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS action text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS module text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS entity_type text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS entity_id text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS entity_title text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS details jsonb;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS branch text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS branch_name text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS branch_id text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS target_type text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS target_id text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS old_value jsonb;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS new_value jsonb;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS route_path text;
+ALTER TABLE public.activity_log ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON public.activity_log (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_log_module ON public.activity_log (module);
 CREATE INDEX IF NOT EXISTS idx_activity_log_branch ON public.activity_log (branch);
@@ -51,6 +73,27 @@ CREATE TABLE IF NOT EXISTS public.employee_daily_tasks (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS staff_id text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS staff_name text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS role text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS branch text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS task_key text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS task_title text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS task_description text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS task_date date DEFAULT current_date;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS status text DEFAULT 'pending';
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS priority text DEFAULT 'normal';
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS source text DEFAULT 'system';
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS related_route text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS related_entity_type text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS related_entity_id text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS completed_at timestamptz;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS completed_by text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS completed_by_name text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS notes text;
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+ALTER TABLE public.employee_daily_tasks ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_employee_daily_tasks_staff_day_key
 ON public.employee_daily_tasks (coalesce(staff_id, staff_name, ''), task_date, task_key);
