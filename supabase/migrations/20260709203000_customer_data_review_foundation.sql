@@ -17,6 +17,21 @@ CREATE TABLE IF NOT EXISTS public.customer_branch_overrides (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- If the table already existed, CREATE TABLE IF NOT EXISTS will not add missing columns.
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS customer_code text;
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS customer_phone text;
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS customer_name text;
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS old_branch text;
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS new_branch text;
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS suggested_branch text;
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS reason text;
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS status text DEFAULT 'approved';
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS created_by text;
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS created_by_name text;
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+ALTER TABLE public.customer_branch_overrides ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+UPDATE public.customer_branch_overrides SET status = 'approved' WHERE status IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_customer_branch_overrides_code ON public.customer_branch_overrides (customer_code);
 CREATE INDEX IF NOT EXISTS idx_customer_branch_overrides_status ON public.customer_branch_overrides (status);
 
@@ -29,6 +44,13 @@ CREATE TABLE IF NOT EXISTS public.customer_data_review_actions (
   metadata jsonb DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS customer_code text;
+ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS action_type text DEFAULT 'reviewed';
+ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS reviewed_by text;
+ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS reason text;
+ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb;
+ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 
 CREATE OR REPLACE VIEW public.dawaa_customer_invalid_phone_review_v14_6 AS
 SELECT
@@ -75,8 +97,8 @@ FROM public.customers c
 LEFT JOIN LATERAL (
   SELECT * FROM public.customer_branch_overrides o
   WHERE o.customer_code = c.customer_code
-    AND o.status = 'approved'
-  ORDER BY o.created_at DESC
+    AND coalesce(o.status, 'approved') = 'approved'
+  ORDER BY o.created_at DESC NULLS LAST
   LIMIT 1
 ) o ON true
 WHERE c.customer_code IS NOT NULL
