@@ -1,3 +1,4 @@
+import CustomerServiceModalSafety from '@/components/customerService/CustomerServiceModalSafety';
 import CustomerServiceSmartLayer from '@/components/customerService/CustomerServiceSmartLayer';
 import CustomerServiceClassic from './CustomerService';
 
@@ -7,6 +8,7 @@ import CustomerServiceClassic from './CustomerService';
 export default function SmartCustomerService() {
   return (
     <div className="customer-service-page smart-customer-service-shell" dir="rtl">
+      <CustomerServiceModalSafety />
       <CustomerServiceSmartLayer />
       <CustomerServiceClassic />
     </div>
