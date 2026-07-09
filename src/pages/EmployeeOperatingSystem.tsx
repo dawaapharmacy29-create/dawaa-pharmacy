@@ -7,6 +7,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/core/permissionSystem';
+import { BRANCHES } from '@/lib/constants';
 import {
   completeTask,
   fetchEmployeeTasks,
@@ -57,6 +58,89 @@ function badgeClass(kind: 'status' | 'priority', value: string) {
   return 'border-slate-500/25 bg-slate-500/10 text-slate-200';
 }
 
+function branchKey(value?: string | null) {
+  return normalizeBranchName(value || '') || 'غير محدد';
+}
+
+function branchOrder(name: string) {
+  const normalized = branchKey(name);
+  const idx = BRANCHES.findIndex((item) => branchKey(item) === normalized);
+  if (idx >= 0) return idx;
+  if (normalized.includes('مخزن')) return 90;
+  if (normalized === 'غير محدد') return 999;
+  return 100;
+}
+
+function groupTasksByBranch(tasks: EmployeeDailyTask[]) {
+  const map = new Map<string, EmployeeDailyTask[]>();
+  for (const task of tasks) {
+    const key = branchKey(task.branch);
+    map.set(key, [...(map.get(key) || []), task]);
+  }
+  return [...map.entries()]
+    .sort((a, b) => branchOrder(a[0]) - branchOrder(b[0]) || a[0].localeCompare(b[0], 'ar'))
+    .map(([branchName, branchTasks]) => ({ branchName, tasks: branchTasks }));
+}
+
+function TaskRows({ tasks, notes, setNotes, finishTask }: {
+  tasks: EmployeeDailyTask[];
+  notes: Record<string, string>;
+  setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  finishTask: (task: EmployeeDailyTask) => Promise<void>;
+}) {
+  return (
+    <tbody className="divide-y divide-slate-800">
+      {tasks.map((task) => (
+        <tr key={task.id} className="align-top hover:bg-slate-800/45">
+          <td className="p-3">
+            <Link
+              className="font-black text-white hover:text-teal-200"
+              to={`${staffProfilePath({ staff_id: task.staff_id, name: task.staff_name })}?tab=operating-system`}
+            >
+              {task.staff_name || 'غير محدد'}
+            </Link>
+          </td>
+          <td className="p-3 text-slate-300">{getEmployeeRoleOperatingProfile(task.role).role_name_ar}</td>
+          <td className="p-3 text-slate-300">{task.branch || '-'}</td>
+          <td className="p-3">
+            <div className="font-black text-white">{task.task_title}</div>
+            <div className="mt-1 text-xs leading-5 text-slate-500">{task.task_description}</div>
+            <input
+              value={notes[task.id] || ''}
+              onChange={(event) => setNotes((current) => ({ ...current, [task.id]: event.target.value }))}
+              placeholder="ملاحظة التنفيذ..."
+              className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white"
+            />
+          </td>
+          <td className="p-3">
+            <span className={`rounded-full border px-2 py-1 text-xs font-black ${badgeClass('status', String(task.status))}`}>
+              {statusLabel(String(task.status))}
+            </span>
+          </td>
+          <td className="p-3">
+            <span className={`rounded-full border px-2 py-1 text-xs font-black ${badgeClass('priority', String(task.priority))}`}>
+              {priorityLabel(String(task.priority))}
+            </span>
+          </td>
+          <td className="p-3 text-xs text-slate-400">{String(task.updated_at || task.created_at || '-').slice(0, 16)}</td>
+          <td className="p-3">
+            <div className="flex flex-col gap-2">
+              <Link to={task.related_route || '/employee-operating-system'} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-black text-slate-200 hover:bg-slate-800">
+                <ExternalLink size={14} /> فتح المهمة
+              </Link>
+              {task.status !== 'completed' && (
+                <button type="button" onClick={() => void finishTask(task)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-black text-slate-950">
+                  <CheckCircle2 size={14} /> تم التنفيذ
+                </button>
+              )}
+            </div>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  );
+}
+
 export default function EmployeeOperatingSystem() {
   const { user, checkPermission } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -75,8 +159,7 @@ export default function EmployeeOperatingSystem() {
   const debouncedSearch = useDebounce(search, 350);
   const canManage = checkPermission('employee_operating_system.manage');
 
-  const scopedBranch =
-    !canSeeAllBranches(user?.role) && user?.branch ? normalizeBranchName(user.branch) : branch;
+  const scopedBranch = !canSeeAllBranches(user?.role) && user?.branch ? normalizeBranchName(user.branch) : branch;
 
   const syncParams = useCallback(() => {
     const next = new URLSearchParams();
@@ -113,17 +196,19 @@ export default function EmployeeOperatingSystem() {
   }, [load]);
 
   const summary = useMemo(() => summarizeTasks(tasks), [tasks]);
-  const branches = useMemo(
-    () => [...new Set(tasks.map((task) => task.branch).filter(Boolean))] as string[],
-    [tasks]
-  );
+  const groupedTasks = useMemo(() => groupTasksByBranch(tasks), [tasks]);
+  const branchOptions = useMemo(() => {
+    const fromTasks = tasks.map((task) => branchKey(task.branch)).filter(Boolean);
+    const fromUser = user?.branch ? [branchKey(user.branch)] : [];
+    return [...new Set([...BRANCHES.map(branchKey), 'المخزن', ...fromTasks, ...fromUser])].filter(Boolean);
+  }, [tasks, user?.branch]);
 
   async function loadStaffForGeneration() {
     if (!isSupabaseConfigured) return [] as StaffRow[];
     let query = supabase
       .from('staff')
       .select('id,staff_id,name,staff_name,role,branch,status,active,is_active')
-      .limit(120);
+      .limit(200);
     if (scopedBranch && scopedBranch !== ALL) query = query.eq('branch', scopedBranch);
     if (role && role !== ALL) query = query.eq('role', role);
     const { data, error } = await query;
@@ -181,24 +266,15 @@ export default function EmployeeOperatingSystem() {
             </span>
             <h1 className="mt-3 text-2xl font-black text-white">مهام الفريق اليومية</h1>
             <p className="mt-1 text-sm font-semibold text-slate-400">
-              متابعة يومية حسب الدور، الفرع، الحالة، والأولوية بدون تحميل كل الفروع لمستخدم فرع واحد.
+              متابعة يومية مفصولة حسب الفرع: شكري، الشامي، المخزن، مع احترام استثناءات الفرع الفعلية داخل المهمة.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void load()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-black text-slate-200 hover:bg-slate-800"
-            >
+            <button type="button" onClick={() => void load()} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-black text-slate-200 hover:bg-slate-800">
               <RefreshCw size={16} /> تحديث
             </button>
             {canManage && (
-              <button
-                type="button"
-                onClick={() => void generateToday()}
-                disabled={generating}
-                className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-60"
-              >
+              <button type="button" onClick={() => void generateToday()} disabled={generating} className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-60">
                 {generating ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
                 إنشاء مهام اليوم
               </button>
@@ -219,14 +295,11 @@ export default function EmployeeOperatingSystem() {
         <input type="date" value={date} onChange={(event) => { setDate(event.target.value); setPage(1); }} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
         <select value={branch} onChange={(event) => { setBranch(event.target.value); setPage(1); }} disabled={!canSeeAllBranches(user?.role)} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white disabled:opacity-60">
           <option value={ALL}>كل الفروع</option>
-          {branches.map((item) => <option key={item} value={item}>{item}</option>)}
-          {user?.branch && <option value={normalizeBranchName(user.branch)}>{normalizeBranchName(user.branch)}</option>}
+          {branchOptions.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
         <select value={role} onChange={(event) => { setRole(event.target.value); setPage(1); }} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white">
           <option value={ALL}>كل الأدوار</option>
-          {EMPLOYEE_OPERATING_ROLE_KEYS.map((key) => (
-            <option key={key} value={key}>{getEmployeeRoleOperatingProfile(key).role_name_ar}</option>
-          ))}
+          {EMPLOYEE_OPERATING_ROLE_KEYS.map((key) => <option key={key} value={key}>{getEmployeeRoleOperatingProfile(key).role_name_ar}</option>)}
         </select>
         <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white">
           <option value={ALL}>كل الحالات</option>
@@ -245,95 +318,50 @@ export default function EmployeeOperatingSystem() {
         </div>
       </section>
 
-      {sourceIssue && (
-        <div className="rounded-2xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm font-bold text-amber-100">
-          {sourceIssue}
-        </div>
-      )}
+      {sourceIssue && <div className="rounded-2xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm font-bold text-amber-100">{sourceIssue}</div>}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-900/80">
-        {loading ? (
-          <div className="grid gap-2 p-4">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="h-16 animate-pulse rounded-xl bg-slate-800" />
-            ))}
-          </div>
-        ) : tasks.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
-              <thead className="border-b border-slate-700 bg-slate-950/60 text-xs text-slate-400">
-                <tr>
-                  {['الموظف', 'الدور', 'الفرع', 'المهمة', 'الحالة', 'الأولوية', 'آخر تحديث', 'إجراء'].map((head) => (
-                    <th key={head} className="p-3 text-right font-black">{head}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {tasks.map((task) => (
-                  <tr key={task.id} className="align-top hover:bg-slate-800/45">
-                    <td className="p-3">
-                      <Link
-                        className="font-black text-white hover:text-teal-200"
-                        to={`${staffProfilePath({
-                          staff_id: task.staff_id,
-                          name: task.staff_name,
-                        })}?tab=operating-system`}
-                      >
-                        {task.staff_name || 'غير محدد'}
-                      </Link>
-                    </td>
-                    <td className="p-3 text-slate-300">{getEmployeeRoleOperatingProfile(task.role).role_name_ar}</td>
-                    <td className="p-3 text-slate-300">{task.branch || '-'}</td>
-                    <td className="p-3">
-                      <div className="font-black text-white">{task.task_title}</div>
-                      <div className="mt-1 text-xs leading-5 text-slate-500">{task.task_description}</div>
-                      <input
-                        value={notes[task.id] || ''}
-                        onChange={(event) => setNotes((current) => ({ ...current, [task.id]: event.target.value }))}
-                        placeholder="ملاحظة التنفيذ..."
-                        className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white"
-                      />
-                    </td>
-                    <td className="p-3">
-                      <span className={`rounded-full border px-2 py-1 text-xs font-black ${badgeClass('status', String(task.status))}`}>
-                        {statusLabel(String(task.status))}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <span className={`rounded-full border px-2 py-1 text-xs font-black ${badgeClass('priority', String(task.priority))}`}>
-                        {priorityLabel(String(task.priority))}
-                      </span>
-                    </td>
-                    <td className="p-3 text-xs text-slate-400">{String(task.updated_at || task.created_at || '-').slice(0, 16)}</td>
-                    <td className="p-3">
-                      <div className="flex flex-col gap-2">
-                        <Link to={task.related_route || '/employee-operating-system'} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-black text-slate-200 hover:bg-slate-800">
-                          <ExternalLink size={14} /> فتح المهمة
-                        </Link>
-                        {task.status !== 'completed' && (
-                          <button type="button" onClick={() => void finishTask(task)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-black text-slate-950">
-                            <CheckCircle2 size={14} /> تم التنفيذ
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="p-8 text-center">
-            <div className="text-lg font-black text-white">لم يتم إنشاء مهام اليوم بعد</div>
-            <p className="mt-2 text-sm text-slate-400">اضغط إنشاء مهام اليوم أو غيّر الفلاتر لعرض مهام أخرى.</p>
-            {canManage && (
-              <button type="button" onClick={() => void generateToday()} className="mt-4 rounded-xl bg-teal-500 px-4 py-2 text-sm font-black text-slate-950">
-                إنشاء مهام اليوم
-              </button>
-            )}
-          </div>
-        )}
-      </section>
+      {loading ? (
+        <section className="grid gap-2 rounded-2xl border border-slate-700 bg-slate-900/80 p-4">
+          {Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-16 animate-pulse rounded-xl bg-slate-800" />)}
+        </section>
+      ) : tasks.length ? (
+        <div className="space-y-5">
+          {groupedTasks.map((group) => {
+            const groupSummary = summarizeTasks(group.tasks);
+            return (
+              <section key={group.branchName} className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-900/80">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 bg-slate-950/60 px-4 py-3">
+                  <div>
+                    <h2 className="text-lg font-black text-white">{group.branchName}</h2>
+                    <p className="text-xs font-bold text-slate-400">جدول مستقل للفرع الفعلي المسجل على المهمة اليوم.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs font-black">
+                    <span className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1 text-cyan-100">إجمالي {groupSummary.total}</span>
+                    <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-emerald-100">مكتمل {groupSummary.completed}</span>
+                    <span className="rounded-full border border-rose-400/25 bg-rose-400/10 px-3 py-1 text-rose-100">متأخر {groupSummary.late}</span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[980px] text-sm">
+                    <thead className="border-b border-slate-700 bg-slate-950/60 text-xs text-slate-400">
+                      <tr>
+                        {['الموظف', 'الدور', 'الفرع', 'المهمة', 'الحالة', 'الأولوية', 'آخر تحديث', 'إجراء'].map((head) => <th key={head} className="p-3 text-right font-black">{head}</th>)}
+                      </tr>
+                    </thead>
+                    <TaskRows tasks={group.tasks} notes={notes} setNotes={setNotes} finishTask={finishTask} />
+                  </table>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <section className="rounded-2xl border border-slate-700 bg-slate-900/80 p-8 text-center">
+          <div className="text-lg font-black text-white">لم يتم إنشاء مهام اليوم بعد</div>
+          <p className="mt-2 text-sm text-slate-400">اضغط إنشاء مهام اليوم أو غيّر الفلاتر لعرض مهام أخرى.</p>
+          {canManage && <button type="button" onClick={() => void generateToday()} className="mt-4 rounded-xl bg-teal-500 px-4 py-2 text-sm font-black text-slate-950">إنشاء مهام اليوم</button>}
+        </section>
+      )}
 
       <div className="flex items-center justify-between rounded-2xl border border-slate-700 bg-slate-900/80 p-3 text-sm text-slate-300">
         <button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-lg border border-slate-700 px-3 py-2 disabled:opacity-40">السابق</button>
