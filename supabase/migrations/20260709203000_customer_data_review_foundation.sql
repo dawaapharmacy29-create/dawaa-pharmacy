@@ -1,5 +1,6 @@
 -- Customer Data Review foundation views/RPCs.
 -- Keeps /customer-data-review useful even if the advanced invoice-analysis views are not installed yet.
+-- This migration is defensive for older customers schemas that may not have mobile/whatsapp/last_purchase columns.
 
 CREATE TABLE IF NOT EXISTS public.customer_branch_overrides (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -51,6 +52,16 @@ ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS reviewe
 ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS reason text;
 ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb;
 ALTER TABLE public.customer_data_review_actions ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+
+-- Add optional compatibility columns used by the app and review views.
+-- Existing projects may have only phone, so adding nullable columns is safer than dynamic SQL views.
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS mobile text;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS whatsapp text;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS last_purchase date;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS last_order_date date;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS invoices_count numeric DEFAULT 0;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS total_spent numeric DEFAULT 0;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
 CREATE OR REPLACE VIEW public.dawaa_customer_invalid_phone_review_v14_6 AS
 SELECT
