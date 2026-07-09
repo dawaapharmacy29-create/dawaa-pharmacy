@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS public.employee_daily_tasks (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_employee_daily_tasks_staff_day_key
 ON public.employee_daily_tasks (coalesce(staff_id, staff_name, ''), task_date, task_key);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_employee_daily_tasks_staffid_day_key
+ON public.employee_daily_tasks (staff_id, task_date, task_key)
+WHERE staff_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_employee_daily_tasks_day_branch ON public.employee_daily_tasks (task_date, branch);
 CREATE INDEX IF NOT EXISTS idx_employee_daily_tasks_status ON public.employee_daily_tasks (status);
 
