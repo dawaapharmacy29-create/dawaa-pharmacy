@@ -137,7 +137,13 @@ SELECT
 FROM public.dawaa_customer_branch_review_queue_v14
 GROUP BY confidence_level, repair_status;
 
-CREATE OR REPLACE FUNCTION public.mark_customer_branch_repair_reviewed_v14(
+-- Postgres cannot change an existing function return type with CREATE OR REPLACE FUNCTION.
+-- Drop the known signatures first, then recreate them.
+DROP FUNCTION IF EXISTS public.mark_customer_branch_repair_reviewed_v14(text, text);
+DROP FUNCTION IF EXISTS public.ignore_customer_branch_repair_v14(text, text, text);
+DROP FUNCTION IF EXISTS public.update_customer_phone_v14_6(text, text, text);
+
+CREATE FUNCTION public.mark_customer_branch_repair_reviewed_v14(
   p_customer_code text,
   p_reviewed_by text DEFAULT NULL
 ) RETURNS boolean
@@ -150,7 +156,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.ignore_customer_branch_repair_v14(
+CREATE FUNCTION public.ignore_customer_branch_repair_v14(
   p_customer_code text,
   p_reviewed_by text DEFAULT NULL,
   p_reason text DEFAULT NULL
@@ -164,7 +170,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.update_customer_phone_v14_6(
+CREATE FUNCTION public.update_customer_phone_v14_6(
   p_customer_code text,
   p_new_phone text,
   p_reviewed_by text DEFAULT NULL
