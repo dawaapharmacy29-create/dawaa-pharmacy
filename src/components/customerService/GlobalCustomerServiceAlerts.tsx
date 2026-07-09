@@ -99,10 +99,6 @@ function alertRoute(branch?: string | null) {
 
 async function queryOverdueRows(branch?: string | null, allBranches = false) {
   const branchName = normalizeBranchName(branch || '');
-  const applyBranch = <T extends { eq: (column: string, value: string) => T }>(query: T) => {
-    if (!allBranches && branchName) return query.eq('branch', branchName);
-    return query;
-  };
 
   try {
     let query = supabase
@@ -110,7 +106,7 @@ async function queryOverdueRows(branch?: string | null, allBranches = false) {
       .select('*')
       .order('minutes_late', { ascending: false })
       .limit(120);
-    query = applyBranch(query);
+    if (!allBranches && branchName) query = query.eq('branch', branchName);
     const { data, error } = await query;
     if (!error) return (data || []) as AlertRow[];
   } catch {
@@ -123,7 +119,7 @@ async function queryOverdueRows(branch?: string | null, allBranches = false) {
     .is('completed_at', null)
     .is('cancelled_at', null)
     .limit(160);
-  fallback = applyBranch(fallback);
+  if (!allBranches && branchName) fallback = fallback.eq('branch', branchName);
   const { data, error } = await fallback;
   if (error) return [];
   return ((data || []) as AlertRow[]).filter(isOverdue).sort((a, b) => minutesLate(b) - minutesLate(a));
