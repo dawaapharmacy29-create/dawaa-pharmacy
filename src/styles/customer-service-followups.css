@@ -212,6 +212,17 @@ html.light-mode .customer-service-page .dawaa-panel > div > button[aria-selected
   color: #04766d !important;
 }
 
+@keyframes dawaaTicker {
+  0% { transform: translateX(-12%); }
+  100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [class*='dawaaTicker'] {
+    animation: none !important;
+  }
+}
+
 @media (max-width: 900px) {
   html main { overflow-x: hidden; }
 
