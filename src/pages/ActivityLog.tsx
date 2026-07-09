@@ -90,6 +90,10 @@ function isMissingSource(message?: string | null) {
   );
 }
 
+async function readActivitySource(table: 'activity_log' | 'activity_logs') {
+  return supabase.from(table).select('*').order('created_at', { ascending: false }).limit(500);
+}
+
 export default function ActivityLog() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -125,26 +129,44 @@ export default function ActivityLog() {
     let table: 'activity_log' | 'activity_logs' = 'activity_log';
     const now = new Date().toISOString();
 
-    // activity_log is the canonical table used by every new write. Only fall
-    // back to the legacy plural table when the canonical table is unavailable,
-    // not merely when it is empty (an empty current log is still authoritative).
     const primary = unavailableSourcesRef.current.has('activity_log')
       ? { data: null, error: { message: 'source previously unavailable' } }
-      : await supabase
-          .from('activity_log')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(500);
-    
-    // Determine primary table status
+      : await readActivitySource('activity_log');
+
     if (!primary.error) {
-      setLogs((primary.data || []) as ActivityLogEntry[]);
-      table = 'activity_log';
       diagnosticsRef.current.primary = {
         status: 'success',
         message: `تم قراءة ${(primary.data as any[])?.length || 0} سجل بنجاح`,
         timestamp: now,
       };
+
+      const primaryRows = (primary.data || []) as ActivityLogEntry[];
+      if (primaryRows.length > 0) {
+        setLogs(primaryRows);
+        table = 'activity_log';
+      } else {
+        const secondary = unavailableSourcesRef.current.has('activity_logs')
+          ? { data: null, error: { message: 'source previously unavailable' } }
+          : await readActivitySource('activity_logs');
+
+        if (!secondary.error && Array.isArray(secondary.data) && secondary.data.length > 0) {
+          setLogs(secondary.data as ActivityLogEntry[]);
+          table = 'activity_logs';
+          diagnosticsRef.current.secondary = {
+            status: 'success',
+            message: `الجدول الأساسي فارغ، وتم قراءة ${secondary.data.length} سجل من الجدول البديل`,
+            timestamp: now,
+          };
+          setSourceIssue('الجدول الأساسي activity_log فارغ حاليًا؛ تم العرض من activity_logs مؤقتًا.');
+        } else {
+          setLogs([]);
+          table = 'activity_log';
+          diagnosticsRef.current.secondary = secondary.error
+            ? { status: isMissingSource(secondary.error.message) ? 'missing' : isPermissionDenied(secondary.error.message) ? 'permission' : 'error', message: secondary.error.message, timestamp: now }
+            : { status: 'success', message: 'الجدول البديل متاح لكنه فارغ أيضًا', timestamp: now };
+          setSourceIssue('لا توجد سجلات نشاط محفوظة في المصدر الحالي. تأكد أن عمليات التطبيق تستدعي logActivity وأن RLS يسمح بالقراءة.');
+        }
+      }
     } else {
       let primaryStatus: 'permission' | 'missing' | 'error' = 'error';
       if (isPermissionDenied(primary.error.message)) {
@@ -160,15 +182,10 @@ export default function ActivityLog() {
         timestamp: now,
       };
 
-      // Try fallback secondary source
       const secondary = unavailableSourcesRef.current.has('activity_logs')
         ? { data: null, error: { message: 'source previously unavailable' } }
-        : await supabase
-            .from('activity_logs')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(500);
-      
+        : await readActivitySource('activity_logs');
+
       if (!secondary.error) {
         setLogs((secondary.data || []) as ActivityLogEntry[]);
         table = 'activity_logs';
@@ -177,6 +194,7 @@ export default function ActivityLog() {
           message: `تم قراءة ${(secondary.data as any[])?.length || 0} سجل من الجدول البديل بنجاح`,
           timestamp: now,
         };
+        if (!secondary.data?.length) setSourceIssue('المصدر البديل متاح لكنه فارغ.');
       } else {
         let secondaryStatus: 'permission' | 'missing' | 'error' = 'error';
         if (isPermissionDenied(secondary.error.message)) {
@@ -193,7 +211,6 @@ export default function ActivityLog() {
         };
 
         setLogs([]);
-        // Generate appropriate error message based on diagnostic info
         if (
           diagnosticsRef.current.primary.status === 'permission' ||
           diagnosticsRef.current.secondary.status === 'permission'
@@ -298,423 +315,153 @@ export default function ActivityLog() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3, 4, 5].map((item) => (
-          <div key={item} className="h-16 animate-pulse bg-white/5 rounded-xl" />
-        ))}
-      </div>
-    );
-  }
+  const todayCount = filtered.filter((log) => new Date(log.created_at).toDateString() === today).length;
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const weekCount = filtered.filter((log) => new Date(log.created_at).getTime() >= weekAgo).length;
+  const uniqueUsers = new Set(filtered.map((log) => log.user_name || log.user_id).filter(Boolean)).size;
 
   return (
-    <div className="space-y-5">
-      <div className="stat-card border border-teal-500/15 flex gap-3 items-start">
-        <Database className="text-teal-400 flex-shrink-0 mt-1" size={20} />
-        <div className="text-sm text-slate-300 leading-relaxed">
-          هذا السجل يعرض العمليات المهمة داخل النظام: النقاط، التقييمات، المتابعات، الفواتير،
-          والإجراءات الإدارية. مصدر البيانات الحالي:{' '}
-          <span className="text-teal-300 font-mono">{sourceTable}</span>.
+    <div className="space-y-5" dir="rtl">
+      <div className="stat-card border-teal-500/30 bg-teal-500/10 text-slate-300">
+        <div className="flex items-center gap-3 text-sm">
+          <Database className="h-5 w-5 text-teal-400" />
+          <span>
+            هذا السجل يعرض العمليات المهمة داخل النظام: النقاط، التقييمات، المتابعات، الفواتير، والإجراءات الإدارية.
+            مصدر البيانات الحالي: <span className="font-mono text-teal-300">{sourceTable}</span>.
+          </span>
         </div>
       </div>
 
       {sourceIssue && (
-        <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm font-bold leading-7 text-amber-100">
-          {sourceIssue}
+        <div className="stat-card border-amber-500/30 bg-amber-500/10 text-amber-100">
+          <div className="flex items-center gap-3 text-sm font-bold">
+            <AlertCircle className="h-5 w-5" />
+            {sourceIssue}
+          </div>
         </div>
       )}
 
-      {/* Admin Diagnostic Panel */}
-      <div className="rounded-2xl border border-slate-700 bg-slate-900/40">
-        <button
-          onClick={() => setShowDiagnostics(!showDiagnostics)}
-          className="w-full flex items-center justify-between p-4 hover:bg-slate-800/40 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-slate-400" />
-            <span className="text-sm font-bold text-slate-300">لوحة التشخيص (للمسؤولين)</span>
-          </div>
-          <ChevronDown
-            className={`w-4 h-4 text-slate-400 transition-transform ${showDiagnostics ? 'rotate-180' : ''}`}
-          />
-        </button>
-        
-        {showDiagnostics && (
-          <div className="border-t border-slate-700 p-4 space-y-3 bg-slate-950/30">
-            {/* Current Source */}
-            <div>
-              <label className="text-xs font-bold text-slate-400 block mb-2">مصدر البيانات الحالي</label>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-teal-400" />
-                <span className="text-sm font-mono text-teal-300">{sourceTable}</span>
-                <span className="text-xs text-slate-400 ml-auto">
-                  {logs.length > 0 ? `${logs.length} سجل` : 'لا توجد سجلات'}
-                </span>
-              </div>
-            </div>
+      <button
+        type="button"
+        onClick={() => setShowDiagnostics((value) => !value)}
+        className="flex w-full items-center justify-between bg-slate-800/90 px-4 py-3 text-right text-sm font-bold text-slate-200"
+      >
+        <span>لوحة التشخيص للمسؤولين</span>
+        <ChevronDown className={`h-4 w-4 transition ${showDiagnostics ? 'rotate-180' : ''}`} />
+      </button>
 
-            {/* Primary Table Status */}
-            <div className="border-t border-slate-700 pt-3">
-              <label className="text-xs font-bold text-slate-400 block mb-2">جدول activity_log (الأساسي)</label>
-              <div className="space-y-1 text-xs">
-                <div className="flex items-center gap-2">
-                  {diagnosticsRef.current.primary.status === 'success' ? (
-                    <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
-                  ) : diagnosticsRef.current.primary.status === 'permission' ? (
-                    <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />
-                  )}
-                  <span className="text-slate-300">
-                    {diagnosticsRef.current.primary.status === 'success'
-                      ? 'متاح'
-                      : diagnosticsRef.current.primary.status === 'permission'
-                        ? 'مشكلة صلاحية'
-                        : diagnosticsRef.current.primary.status === 'missing'
-                          ? 'الجدول غير موجود'
-                          : 'خطأ'}
-                  </span>
-                </div>
-                <div className="text-slate-400 font-mono bg-black/20 p-2 rounded text-xs break-all">
-                  {diagnosticsRef.current.primary.message}
-                </div>
-                {diagnosticsRef.current.primary.timestamp && (
-                  <div className="text-slate-500 text-xs">
-                    آخر فحص: {new Date(diagnosticsRef.current.primary.timestamp).toLocaleTimeString('ar-EG')}
-                  </div>
-                )}
+      {showDiagnostics && (
+        <div className="grid gap-3 md:grid-cols-2">
+          {(['primary', 'secondary'] as const).map((key) => (
+            <div key={key} className="stat-card">
+              <div className="mb-2 flex items-center gap-2 text-sm font-black text-white">
+                {diagnosticsRef.current[key].status === 'success' ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <AlertCircle className="h-4 w-4 text-amber-400" />}
+                {key === 'primary' ? 'activity_log' : 'activity_logs'}
               </div>
+              <p className="text-xs leading-6 text-slate-400">{diagnosticsRef.current[key].message}</p>
+              <p className="mt-2 text-[11px] text-slate-500">{diagnosticsRef.current[key].timestamp}</p>
             </div>
+          ))}
+        </div>
+      )}
 
-            {/* Secondary Table Status */}
-            <div className="border-t border-slate-700 pt-3">
-              <label className="text-xs font-bold text-slate-400 block mb-2">جدول activity_logs (بديل)</label>
-              <div className="space-y-1 text-xs">
-                <div className="flex items-center gap-2">
-                  {diagnosticsRef.current.secondary.status === 'success' ? (
-                    <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
-                  ) : diagnosticsRef.current.secondary.status === 'permission' ? (
-                    <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />
-                  )}
-                  <span className="text-slate-300">
-                    {diagnosticsRef.current.secondary.status === 'success'
-                      ? 'متاح'
-                      : diagnosticsRef.current.secondary.status === 'permission'
-                        ? 'مشكلة صلاحية'
-                        : diagnosticsRef.current.secondary.status === 'missing'
-                          ? 'الجدول غير موجود'
-                          : 'خطأ'}
-                  </span>
-                </div>
-                <div className="text-slate-400 font-mono bg-black/20 p-2 rounded text-xs break-all">
-                  {diagnosticsRef.current.secondary.message}
-                </div>
-                {diagnosticsRef.current.secondary.timestamp && (
-                  <div className="text-slate-500 text-xs">
-                    آخر فحص: {new Date(diagnosticsRef.current.secondary.timestamp).toLocaleTimeString('ar-EG')}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Troubleshooting Tips */}
-            <div className="border-t border-slate-700 pt-3">
-              <label className="text-xs font-bold text-slate-400 block mb-2">نصائح استكشاف الأخطاء</label>
-              <ul className="text-xs text-slate-300 space-y-1 list-disc list-inside">
-                {diagnosticsRef.current.primary.status === 'permission' && (
-                  <li>تحقق من سياسات RLS على جدول activity_log في Supabase</li>
-                )}
-                {diagnosticsRef.current.primary.status === 'missing' && (
-                  <li>جدول activity_log غير موجود - قد تحتاج إلى تشغيل ترحيل قاعدة البيانات</li>
-                )}
-                {diagnosticsRef.current.secondary.status === 'missing' &&
-                  diagnosticsRef.current.primary.status === 'missing' && (
-                    <li>كلا الجدول الأساسي والبديل غير موجودة - تحقق من ترحيلات قاعدة البيانات</li>
-                  )}
-                <li>اضغط "تحديث" لإعادة فحص حالة الجداول</li>
-              </ul>
-            </div>
-          </div>
-        )}
+      <div className="grid gap-3 md:grid-cols-4">
+        <Stat label="إجمالي السجلات" value={filtered.length} tone="white" />
+        <Stat label="اليوم" value={todayCount} tone="teal" />
+        <Stat label="هذا الأسبوع" value={weekCount} tone="blue" />
+        <Stat label="مستخدمون" value={uniqueUsers} tone="purple" />
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[
-          { label: 'إجمالي السجلات', value: logs.length, color: 'text-white' },
-          {
-            label: 'اليوم',
-            value: logs.filter((log) => new Date(log.created_at).toDateString() === today).length,
-            color: 'text-teal-400',
-          },
-          {
-            label: 'هذا الأسبوع',
-            value: logs.filter(
-              (log) => Date.now() - new Date(log.created_at).getTime() < 7 * 86400000
-            ).length,
-            color: 'text-blue-400',
-          },
-          {
-            label: 'مستخدمون',
-            value: new Set(logs.map((log) => log.user_id || log.user_name).filter(Boolean)).size,
-            color: 'text-purple-400',
-          },
-        ].map((stat) => (
-          <div key={stat.label} className="stat-card text-center">
-            <div className={`text-2xl font-bold ${stat.color} num`}>{stat.value}</div>
-            <div className="text-slate-400 text-sm mt-1">{stat.label}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+      <div className="grid gap-3 rounded-2xl border border-slate-700/60 bg-[#101d33] p-3 md:grid-cols-6">
+        <div className="relative md:col-span-2">
+          <Search className="absolute right-3 top-3 h-4 w-4 text-slate-400" />
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder="بحث في المستخدم أو العملية أو التفاصيل..."
-            className="input-dark pl-10 w-full"
+            className="input-dark pr-10"
           />
         </div>
-        <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-2">
-          <select
-            value={branchFilter}
-            onChange={(event) => setBranchFilter(event.target.value)}
-            className="input-dark"
-          >
-            <option value={ALL}>كل الفروع</option>
-            {BRANCHES.map((branch) => (
-              <option key={branch}>{branch}</option>
-            ))}
-          </select>
-          <select
-            value={moduleFilter}
-            onChange={(event) => setModuleFilter(event.target.value)}
-            className="input-dark"
-          >
-            {modules.map((moduleName) => (
-              <option key={moduleName}>{moduleName}</option>
-            ))}
-          </select>
-          <select
-            value={userFilter}
-            onChange={(event) => setUserFilter(event.target.value)}
-            className="input-dark"
-          >
-            {users.map((userName) => (
-              <option key={userName}>{userName}</option>
-            ))}
-          </select>
-          <select
-            value={actionFilter}
-            onChange={(event) => setActionFilter(event.target.value)}
-            className="input-dark"
-          >
-            {actions.map((action) => (
-              <option key={action}>{action}</option>
-            ))}
-          </select>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => setDateFrom(event.target.value)}
-            className="input-dark"
-          />
-          <button onClick={loadLogs} className="btn-secondary">
-            تحديث
-          </button>
-        </div>
+        <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="input-dark">
+          {[ALL, ...BRANCHES, 'غير محدد'].map((item) => <option key={item}>{item}</option>)}
+        </select>
+        <select value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} className="input-dark">
+          {modules.map((item) => <option key={item}>{item}</option>)}
+        </select>
+        <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="input-dark">
+          {actions.map((item) => <option key={item}>{item}</option>)}
+        </select>
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-dark" />
+        <button onClick={loadLogs} className="btn-secondary">تحديث</button>
       </div>
 
-      <div className="space-y-2">
-        {filtered.length === 0 ? (
-          <div className="text-center py-16 text-slate-400">
-            <Activity size={40} className="mx-auto mb-3 opacity-20" />
-            <div className="font-bold text-slate-200">
-              {logs.length === 0 ? 'لا توجد سجلات نشاط محفوظة في المصدر الحالي' : 'لا توجد سجلات مطابقة'}
-            </div>
-            <div className="mx-auto mt-2 max-w-xl text-xs leading-6 text-slate-400">
-              {logs.length === 0
-                ? 'إذا كان من المتوقع ظهور عمليات هنا، راجع وجود جدول activity_log أو صلاحيات القراءة/RLS أو أن عمليات النظام تسجل فعليًا في activity_log.'
-                : 'جرّب توسيع الفترة الزمنية أو إزالة بعض الفلاتر.'}
-            </div>
-          </div>
-        ) : (
-          filtered.map((log) => {
-            const action = log.operation || log.action || 'عملية';
-            const moduleName = log.module || log.entity_type || 'النظام';
+      {loading ? (
+        <div className="stat-card py-16 text-center text-slate-400">جاري تحميل السجل...</div>
+      ) : filtered.length === 0 ? (
+        <div className="stat-card py-20 text-center text-slate-400">
+          <Activity className="mx-auto mb-4 h-10 w-10 text-slate-600" />
+          لا توجد سجلات نشاط محفوظة في المصدر الحالي
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((log) => {
+            const operation = safeString(log.operation || log.action, 'عملية');
+            const moduleName = safeString(log.module || log.entity_type, 'النظام');
+            const details = formatActivityDetails(log.details);
             return (
-              <div
+              <button
+                type="button"
                 key={log.id}
-                className="bg-[#1B2B4B] border border-[#2d4063] rounded-xl p-4 hover:border-teal-500/20 transition-all cursor-pointer"
                 onClick={() => setSelectedLog(log)}
+                className="w-full rounded-2xl border border-slate-700/60 bg-[#101d33] p-4 text-right transition hover:border-teal-500/50"
               >
-                <div className="flex flex-col md:flex-row md:items-center gap-2 mb-2">
-                  <span className="text-white font-bold text-sm">{action}</span>
-                  <span className={moduleBadge(moduleName)}>{moduleName}</span>
-                  <span className="text-slate-400 text-xs md:mr-auto">{logBranch(log)}</span>
-                  <span className="text-slate-500 text-xs">{formatDateTime(log.created_at)}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={moduleBadge(moduleName)}>{moduleName}</span>
+                    <span className="text-sm font-black text-white">{operation}</span>
+                  </div>
+                  <span className="text-xs text-slate-400">{formatDateTime(log.created_at)}</span>
                 </div>
-                <div className="text-slate-300 text-sm leading-relaxed">
-                  {safeString(log.entity_title) ||
-                    formatActivityDetails(
-                      log.details || {
-                        target_type: safeString(log.target_type),
-                        target_id: safeString(log.target_id),
-                        branch: logBranch(log),
-                      }
-                    )}
+                <div className="mt-2 grid gap-2 text-xs text-slate-400 md:grid-cols-3">
+                  <span>المستخدم: {safeString(log.user_name || log.user_id, '-')}</span>
+                  <span>الدور: {safeString(log.user_role, '-')}</span>
+                  <span>الفرع: {logBranch(log)}</span>
                 </div>
-                <div className="text-slate-500 text-xs mt-2 flex flex-wrap gap-2 items-center">
-                  <span>{safeString(log.user_name, 'النظام')}</span>
-                  {log.user_role && <span>• {safeString(log.user_role)}</span>}
-                  {(log.target_type || log.entity_type) && (
-                    <span>
-                      • الهدف: {safeString(log.target_type || log.entity_type)}
-                      {safeString(log.target_id || log.entity_id) ? ` #${safeString(log.target_id || log.entity_id)}` : ''}
-                    </span>
-                  )}
-                </div>
-              </div>
+                {details && <p className="mt-3 line-clamp-2 text-sm text-slate-300">{details}</p>}
+              </button>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
       {selectedLog && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-[#2d4063] flex justify-between items-start">
-              <div>
-                <h3 className="text-white text-xl font-bold mb-2">تفاصيل السجل</h3>
-                <p className="text-slate-400 text-sm">
-                  {selectedLog.operation || selectedLog.action || 'عملية'}
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedLog(null)}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
-                <X size={24} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setSelectedLog(null)}>
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-3xl border border-slate-700 bg-[#101d33] p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-black text-white">تفاصيل النشاط</h2>
+              <button onClick={() => setSelectedLog(null)} className="btn-secondary"><X className="h-4 w-4" /></button>
+            </div>
+            <pre className="whitespace-pre-wrap rounded-2xl bg-slate-950/60 p-4 text-xs leading-6 text-slate-200">
+              {JSON.stringify(selectedLog, null, 2)}
+            </pre>
+            {selectedLog.route_path && (
+              <button onClick={() => navigate(selectedLog.route_path || '/')} className="btn-primary mt-4 flex items-center gap-2">
+                فتح الصفحة المرتبطة <ExternalLink className="h-4 w-4" />
               </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">المستخدم</label>
-                  <div className="text-white">{safeString(selectedLog.user_name, 'النظام')}</div>
-                </div>
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">الدور</label>
-                  <div className="text-white">{safeString(selectedLog.user_role, '-')}</div>
-                </div>
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">الفرع</label>
-                  <div className="text-white">{logBranch(selectedLog)}</div>
-                </div>
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">التاريخ</label>
-                  <div className="text-white">{formatDateTime(selectedLog.created_at)}</div>
-                </div>
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">نوع الكيان</label>
-                  <div className="text-white">
-                    {safeString(selectedLog.entity_type) || safeString(selectedLog.target_type) || '-'}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">معرف الكيان</label>
-                  <div className="text-white font-mono">
-                    {safeString(selectedLog.entity_id) || safeString(selectedLog.target_id) || '-'}
-                  </div>
-                </div>
-              </div>
-
-              {selectedLog.entity_title && (
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">عنوان الكيان</label>
-                  <div className="text-white">{selectedLog.entity_title}</div>
-                </div>
-              )}
-
-              {selectedLog.details && (
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">التفاصيل</label>
-                  <div className="text-white bg-[#0d1b2a] p-3 rounded-lg text-sm">
-                    {formatActivityDetails(selectedLog.details)}
-                  </div>
-                </div>
-              )}
-
-              {selectedLog.old_value && Object.keys(selectedLog.old_value).length > 0 && (
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">القيمة القديمة</label>
-                  <div className="text-white bg-[#0d1b2a] p-3 rounded-lg text-sm font-mono overflow-x-auto">
-                    <pre>{JSON.stringify(selectedLog.old_value, null, 2)}</pre>
-                  </div>
-                </div>
-              )}
-
-              {selectedLog.new_value && Object.keys(selectedLog.new_value).length > 0 && (
-                <div>
-                  <label className="text-slate-400 text-xs block mb-1">القيمة الجديدة</label>
-                  <div className="text-white bg-[#0d1b2a] p-3 rounded-lg text-sm font-mono overflow-x-auto">
-                    <pre>{JSON.stringify(selectedLog.new_value, null, 2)}</pre>
-                  </div>
-                </div>
-              )}
-
-              {safeString(selectedLog.route_path) && (
-                <div className="pt-4 border-t border-[#2d4063]">
-                  <label className="text-slate-400 text-xs block mb-2">الصفحة المرتبطة</label>
-                  <button
-                    onClick={() => {
-                      navigate(safeString(selectedLog.route_path, '/'));
-                      setSelectedLog(null);
-                    }}
-                    className="btn-secondary flex items-center gap-2"
-                  >
-                    <ExternalLink size={16} />
-                    فتح الصفحة المرتبطة
-                  </button>
-                </div>
-              )}
-
-              {safeString(selectedLog.entity_type) && safeString(selectedLog.entity_id) && (
-                <div className="pt-4 border-t border-[#2d4063]">
-                  <label className="text-slate-400 text-xs block mb-2">الانتقال للكيان</label>
-                  <button
-                    onClick={() => {
-                      const routeMap: Record<string, string> = {
-                        stagnant_medicine: '/stagnant-medicines',
-                        incentive_medicine: '/incentive-medicines',
-                        staff_account: '/staff-accounts',
-                        point_record: '/points',
-                        conversation_review: '/reviews',
-                        delivery_evaluation: '/delivery',
-                        sales_invoice: '/invoices',
-                      };
-                      const entityType = safeString(selectedLog.entity_type);
-                      const entityId = safeString(selectedLog.entity_id);
-                      const basePath = routeMap[entityType] || '/';
-                      const fullPath = `${basePath}?id=${encodeURIComponent(entityId)}`;
-                      navigate(fullPath);
-                      setSelectedLog(null);
-                    }}
-                    className="btn-secondary flex items-center gap-2"
-                  >
-                    <ExternalLink size={16} />
-                    فتح {safeString(selectedLog.entity_type)}
-                  </button>
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: number; tone: 'white' | 'teal' | 'blue' | 'purple' }) {
+  const color = tone === 'teal' ? 'text-teal-300' : tone === 'blue' ? 'text-blue-300' : tone === 'purple' ? 'text-purple-300' : 'text-white';
+  return (
+    <div className="stat-card">
+      <div className={`text-2xl font-black ${color}`}>{value}</div>
+      <div className="mt-1 text-xs text-slate-400">{label}</div>
     </div>
   );
 }
