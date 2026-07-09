@@ -7,6 +7,7 @@ import './styles/dawaa-design-system.css';
 import './styles/v3-polish.css';
 import './styles/customer-service-followups.css';
 import App from './App.tsx';
+import GlobalCustomerServiceAlerts from '@/components/customerService/GlobalCustomerServiceAlerts';
 import { installRuntimeSafetyGuards } from '@/lib/runtimeSafety';
 import { initOfflineQueueAutoSync } from '@/lib/offlineQueue';
 import { initializePerformanceMonitoring } from '@/lib/performanceMonitoring';
@@ -46,6 +47,7 @@ installStartupRecoveryHandlers();
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
+    <GlobalCustomerServiceAlerts />
   </StrictMode>
 );
 
