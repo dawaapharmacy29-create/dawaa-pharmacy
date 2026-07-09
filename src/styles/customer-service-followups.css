@@ -212,6 +212,116 @@ html.light-mode .customer-service-page .dawaa-panel > div > button[aria-selected
   color: #04766d !important;
 }
 
+/* Global production safety for screenshots reported across reviews, analytics, reports, staff and attendance. */
+html body {
+  background: #06131f;
+}
+
+html main {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+html main > * {
+  min-width: 0;
+}
+
+html .card,
+html .stat-card,
+html .dawaa-panel,
+html .dawaa-card,
+html [class*='rounded-3xl'][class*='border'] {
+  color: var(--theme-text, #eef8fb);
+}
+
+html h1,
+html h2,
+html h3,
+html .page-title,
+html .section-title {
+  color: var(--theme-heading, #ffffff) !important;
+}
+
+html thead,
+html thead tr,
+html thead th,
+html table thead th {
+  background: var(--theme-surface-2, #132d4d) !important;
+  color: var(--theme-heading, #ffffff) !important;
+  border-color: var(--theme-border, rgba(125, 211, 252, .2)) !important;
+}
+
+html th,
+html td {
+  color: inherit;
+}
+
+html [class*='text-slate-950'],
+html [class*='text-slate-900'],
+html [class*='text-slate-800'],
+html [class*='text-gray-900'],
+html [class*='text-gray-800'] {
+  color: var(--theme-heading, #ffffff) !important;
+}
+
+html [class*='bg-white'] {
+  color: #102033;
+}
+
+html .nav-item,
+html aside .nav-item,
+html aside a,
+html aside button {
+  scroll-margin-block: 9rem;
+}
+
+html aside nav#sidebar-nav {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-behavior: auto;
+}
+
+html aside nav#sidebar-nav .nav-item-active {
+  position: relative;
+}
+
+html aside nav#sidebar-nav .nav-item-active::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: .25rem;
+  top: 30%;
+  bottom: 30%;
+  width: 3px;
+  border-radius: 999px;
+  background: #2dd4bf;
+}
+
+html .reviews-page table,
+html [data-page='reviews'] table,
+html main:has([href*='reviews']) table {
+  min-width: 1100px;
+}
+
+html .analytics-page table,
+html .reports-page table,
+html .whatsapp-analytics-page table,
+html .activity-log-page table {
+  min-width: 1040px;
+}
+
+html input,
+html select,
+html textarea {
+  color: var(--theme-heading, #ffffff) !important;
+  background-color: rgba(15, 23, 42, .78) !important;
+  border-color: rgba(125, 211, 252, .22) !important;
+}
+
+html input::placeholder,
+html textarea::placeholder {
+  color: rgba(203, 213, 225, .7) !important;
+}
+
 @keyframes dawaaTicker {
   0% { transform: translateX(-12%); }
   100% { transform: translateX(100%); }
