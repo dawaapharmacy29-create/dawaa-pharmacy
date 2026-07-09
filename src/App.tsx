@@ -33,7 +33,8 @@ const DataHealthCenter = lazy(() => import('@/pages/DataHealthCenter'));
 const Customers = lazy(() => import('@/pages/Customers'));
 const Customer360 = lazy(() => import('@/pages/Customer360'));
 const CustomerImport = lazy(() => import('@/pages/CustomerImport'));
-const CustomerService = lazy(() => import('@/pages/CustomerService'));
+const CustomerService = lazy(() => import('@/pages/SmartCustomerService'));
+const CustomerServiceClassic = lazy(() => import('@/pages/CustomerService'));
 const CustomerRequests = lazy(() => import('@/pages/CustomerRequests'));
 const CustomerIncubation = lazy(() => import('@/pages/CustomerIncubation'));
 const CustomerDataReview = lazy(() => import('@/pages/CustomerDataReview'));
@@ -303,6 +304,7 @@ export default function App() {
                 element={protectedElement(<CustomerImport />, true)}
               />
               <Route path="/customer-service" element={protectedElement(<CustomerService />)} />
+              <Route path="/customer-service-classic" element={protectedElement(<CustomerServiceClassic />)} />
               <Route path="/customer-requests" element={protectedElement(<CustomerRequests />)} />
               <Route
                 path="/customer-data-review"
