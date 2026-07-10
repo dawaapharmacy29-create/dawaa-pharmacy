@@ -42,6 +42,48 @@
       } catch (e) {}
     </script>
     <div id="root"></div>
+    <script>
+      // Emergency recovery when a stale service worker/cache keeps the app on "جاري التحميل".
+      (function () {
+        function showRecovery() {
+          if (document.getElementById('dawaa-emergency-recovery')) return;
+          var root = document.getElementById('root');
+          var text = root ? root.textContent || '' : '';
+          if (text.indexOf('جاري التحميل') === -1 && text.indexOf('جارى التحميل') === -1) return;
+          var box = document.createElement('div');
+          box.id = 'dawaa-emergency-recovery';
+          box.dir = 'rtl';
+          box.style.cssText = 'position:fixed;left:24px;bottom:24px;z-index:999999;max-width:360px;background:#0f1b2d;color:#e5f7ff;border:1px solid rgba(45,212,191,.45);border-radius:18px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.45);font-family:Cairo,Tahoma,sans-serif;line-height:1.8';
+          box.innerHTML = '<b style="display:block;margin-bottom:6px;color:#2dd4bf">التطبيق متوقف على التحميل</b><span style="font-size:13px;color:#b7c7d8">اضغط إصلاح التحميل لمسح كاش التطبيق القديم وإعادة فتح صفحة الدخول.</span><button id="dawaa-recover-btn" style="margin-top:12px;width:100%;border:0;border-radius:12px;background:#2dd4bf;color:#06202a;font-weight:900;padding:10px;cursor:pointer">إصلاح التحميل الآن</button>';
+          document.body.appendChild(box);
+          document.getElementById('dawaa-recover-btn').onclick = async function () {
+            try {
+              if ('caches' in window) {
+                var keys = await caches.keys();
+                await Promise.all(keys.map(function (key) { return caches.delete(key); }));
+              }
+              if ('serviceWorker' in navigator) {
+                var regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map(function (reg) { return reg.unregister(); }));
+              }
+              try {
+                var keep = [];
+                for (var i = 0; i < localStorage.length; i++) {
+                  var k = localStorage.key(i);
+                  if (k && k.indexOf('sb-') !== 0) keep.push(k);
+                }
+                keep.forEach(function (k) { localStorage.removeItem(k); });
+                sessionStorage.clear();
+              } catch (e) {}
+            } finally {
+              location.replace('/login?_recovery=' + Date.now());
+            }
+          };
+        }
+        setTimeout(showRecovery, 9000);
+        setTimeout(showRecovery, 18000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <!-- SW SKIP_WAITING handler -->
     <script>
