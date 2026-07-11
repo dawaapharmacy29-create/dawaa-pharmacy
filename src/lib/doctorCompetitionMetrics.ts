@@ -104,6 +104,8 @@ const INVOICE_SELECT_DOCTOR_OPTIONS = [
   'id,invoice_date,branch,seller_name,amount,total_amount,customer_code',
 ];
 
+type Row = Record<string, unknown>;
+
 function text(value: unknown) {
   return String(value ?? '').trim();
 }
@@ -126,7 +128,7 @@ function normalizePlain(value: unknown) {
     .replace(/[أإآ]/g, 'ا')
     .replace(/ى/g, 'ي')
     .replace(/ة/g, 'ه')
-    .replace(/[.،,:;_\-\/()]/g, ' ')
+    .replace(/[.،,:;_\-/()]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -145,31 +147,35 @@ function isUnknownDoctorName(name: string) {
   return !comparable || comparable === 'غير محدد' || comparable === 'غير محدد دكتور';
 }
 
-function invoiceDate(row: Record<string, unknown>) {
+function invoiceDate(row: Row) {
   return getInvoiceDay(row) || '';
 }
 
-function invoiceBranch(row: Record<string, unknown>) {
+function invoiceBranch(row: Row) {
   return normalizeBranchName(getInvoiceBranch(row)) || getInvoiceBranch(row) || 'غير محدد';
 }
 
-function invoiceDoctor(row: Record<string, unknown>) {
+function invoiceDoctor(row: Row) {
   return normalizeDoctorName(row.normalized_seller_name || row.staff_name || getInvoiceSellerName(row));
 }
 
-function rowStaffId(row: Record<string, unknown>) {
+function rowStaffId(row: Row) {
   return text(row.staff_id || row.doctor_id || row.seller_id || row.employee_id || row.responsible_staff_id || row.reviewed_staff_id || row.assigned_staff_id);
 }
 
-function invoiceAmount(row: Record<string, unknown>) {
+export function pickInvoiceAmount(row: Row) {
   return getInvoiceAmount(row);
 }
 
-function invoiceIdentityKey(row: Record<string, unknown>) {
+function invoiceAmount(row: Row) {
+  return pickInvoiceAmount(row);
+}
+
+function invoiceIdentityKey(row: Row) {
   return getInvoiceId(row) || text(row.id);
 }
 
-function invoiceInvalid(row: Record<string, unknown>) {
+function invoiceInvalid(row: Row) {
   const raw = `${text(row.invoice_type)} ${text(row.status)} ${text(row.save_status)}`.toLowerCase();
   return /return|refund|cancel|cancelled|مرتجع|الغاء|إلغاء|ملغي|invalid|failed|error|فشل|خطأ/.test(raw);
 }
@@ -245,17 +251,20 @@ function customerServiceAvg(row?: Pick<DoctorCompetitionScore, 'satisfactionCoun
 async function safeSelect(table: string, build: (query: ReturnType<typeof supabase.from>) => unknown) {
   try {
     const result = await (build(supabase.from(table)) as PromiseLike<{ data: unknown; error: { message?: string } | null }>);
-    if (result.error) return { data: [] as Record<string, unknown>[], error: result.error.message || `تعذر تحميل ${table}` };
-    return { data: (result.data || []) as Record<string, unknown>[], error: null };
+    if (result.error) return { data: [] as Row[], error: result.error.message || `تعذر تحميل ${table}` };
+    return { data: (result.data || []) as Row[], error: null };
   } catch (error) {
-    return { data: [] as Record<string, unknown>[], error: error instanceof Error ? error.message : `تعذر تحميل ${table}` };
+    return { data: [] as Row[], error: error instanceof Error ? error.message : `تعذر تحميل ${table}` };
   }
 }
 
-function timeoutValue<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+function delayFallback<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   return new Promise((resolve) => {
-    const timer = window.setTimeout(() => resolve(fallback), timeoutMs);
-    promise.then((value) => resolve(value)).catch(() => resolve(fallback)).finally(() => window.clearTimeout(timer));
+    const timer = setTimeout(() => resolve(fallback), timeoutMs);
+    promise
+      .then((value) => resolve(value))
+      .catch(() => resolve(fallback))
+      .finally(() => clearTimeout(timer));
   });
 }
 
@@ -268,7 +277,7 @@ async function fetchDoctorSalesRows(range: { start: string; end: string }, branc
     errors,
     noCache: false,
     pageSize: 1000,
-  })) as Array<Record<string, unknown>>;
+  })) as Row[];
   return rows.filter((row) => {
     const day = invoiceDate(row);
     return day && day >= range.start && day <= range.end && !invoiceInvalid(row) && invoiceAmount(row) > 0;
@@ -336,7 +345,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   const [salesRows, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
     fetchDoctorSalesRows(range, selectedBranch, salesErrors).catch((error) => {
       errors.sales_invoices = error instanceof Error ? error.message : 'تعذر تحميل مبيعات الدكاترة';
-      return [] as Record<string, unknown>[];
+      return [] as Row[];
     }),
     safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', `${range.end}T23:59:59`).limit(2500)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(3500)),
@@ -345,7 +354,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   ]);
   if (salesErrors.length) errors.sales_invoices = salesErrors.join(' | ');
 
-  const previousRows = await timeoutValue(fetchDoctorSalesRows(previous, selectedBranch, []), 2200, [] as Record<string, unknown>[]);
+  const previousRows = await delayFallback(fetchDoctorSalesRows(previous, selectedBranch, []), 2200, [] as Row[]);
   const previousSales = new Map<string, number>();
 
   for (const row of salesRows) {
@@ -371,7 +380,6 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     const key = identityKey(name, branch, rowStaffId(row));
     previousSales.set(key, (previousSales.get(key) || 0) + invoiceAmount(row));
   }
-
   sourceHealth.sales_invoices = errors.sales_invoices ? 'unavailable' : salesRows.length ? 'ready' : 'empty';
 
   if (reviewResult.error) errors.conversation_sales_reviews = reviewResult.error;
