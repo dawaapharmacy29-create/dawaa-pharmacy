@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { clearCorruptStoredUser, logRuntimeError } from '@/lib/appRecovery';
 import type { User } from '@/types';
 import {
   ALL_PERMISSION_KEYS,
@@ -81,8 +82,9 @@ function readStoredUser(): User | null {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? sanitizeUser(JSON.parse(stored) as User) : null;
-  } catch {
-    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+  } catch (error) {
+    console.warn('[Dawaa auth] corrupt stored user removed', error);
+    clearCorruptStoredUser();
     return null;
   }
 }
@@ -107,10 +109,24 @@ function logAuthActivity(user: User, action: string, details: string) {
 
 async function loginWithStaffAccount(username: string, password: string): Promise<User | null> {
   if (!isSupabaseConfigured) return null;
-  const { data, error } = await supabase.rpc('staff_account_login', { p_username: username, p_password: password });
-  if (error) return null;
+  let data: unknown;
+  try {
+    const result = await supabase.rpc('staff_account_login', { p_username: username, p_password: password });
+    data = result.data;
+    if (result.error) {
+      console.warn('[Dawaa auth] login failed reason', result.error.message || result.error);
+      return null;
+    }
+  } catch (error) {
+    console.warn('[Dawaa auth] login failed reason', error);
+    logRuntimeError('auth login rpc failed', error);
+    return null;
+  }
   const row = Array.isArray(data) ? (data[0] as StaffAccountLoginRow | undefined) : (data as StaffAccountLoginRow | null);
-  if (!row?.id || row.active === false || row.can_login === false) return null;
+  if (!row?.id || row.active === false || row.can_login === false) {
+    console.warn('[Dawaa auth] login failed reason', 'inactive or invalid staff account');
+    return null;
+  }
   try { await supabase.rpc('set_current_user_context', { p_user_id: row.id }); } catch {}
   const roleKey = normalizeRole(safeText(row.role, 'assistant'));
   let effectivePermissions = capPermissionsToRole(roleKey, row.permissions || {});

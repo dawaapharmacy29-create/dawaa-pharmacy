@@ -34,6 +34,16 @@ export function usePWA() {
     // iOS Safari is very sensitive to stale service-worker/chunk caches.
     // Keep SW disabled there unless explicitly enabled from Vercel env.
     const enableServiceWorker = import.meta.env.VITE_ENABLE_PWA_SW === 'true' && !isIOSWebKit();
+    if (!enableServiceWorker && 'serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) => {
+          console.info('[Dawaa sw] registrations found/removed', registrations.length);
+          return Promise.all(registrations.map((registration) => registration.unregister()));
+        })
+        .catch((err) => console.warn('[Dawaa sw] unregister failed:', err));
+    }
+
     if (enableServiceWorker && 'serviceWorker' in navigator) {
       navigator.serviceWorker
         .register('/sw.js', { scope: '/', updateViaCache: 'none' })

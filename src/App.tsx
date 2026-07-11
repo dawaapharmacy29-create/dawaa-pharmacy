@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Component, lazy, Suspense, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -9,6 +9,8 @@ import Layout from '@/components/layout/Layout';
 import { LOGO_URL } from '@/lib/constants';
 import PWABanner from '@/components/features/PWABanner';
 import { isDoctorRole } from '@/lib/security/userDataScope';
+import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
+import { diagnosticsUrl, logRuntimeError, loginRecoveryUrl } from '@/lib/appRecovery';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -95,6 +97,7 @@ const SupplierPerformance = lazy(() => import('@/pages/SupplierPerformance'));
 const ReportsCenter = lazy(() => import('@/pages/ReportsCenter'));
 const StockAlerts = lazy(() => import('@/pages/StockAlerts'));
 const Returns = lazy(() => import('@/pages/Returns'));
+const Diagnostics = lazy(() => import('@/pages/Diagnostics'));
 
 // Route permissions are centralized in src/lib/core/permissionSystem.ts
 
@@ -113,6 +116,27 @@ function AppLoading() {
       </div>
     </div>
   );
+}
+
+function SlowLoadingRecovery() {
+  const [isSlow, setIsSlow] = useState(false);
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => setIsSlow(true), 8000);
+    return () => window.clearTimeout(timerId);
+  }, []);
+
+  if (isSlow) {
+    return (
+      <AppRecoveryScreen
+        reason="slow_loading"
+        title="استغرق التحميل وقتًا طويلًا"
+        message="لم يكتمل تحميل الصفحة خلال 8 ثوانٍ. يمكنك فتح تسجيل الدخول فورًا أو تشغيل التشخيص لمعرفة السبب."
+      />
+    );
+  }
+
+  return <AppLoading />;
 }
 
 function ProtectedRoute({ children, permission }: { children: ReactNode; permission?: string }) {
@@ -172,6 +196,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
 
   componentDidCatch(error: Error, info: unknown) {
     console.error('App error boundary caught error:', error, info);
+    logRuntimeError('App error boundary caught error', error);
   }
 
   render() {
@@ -190,21 +215,18 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
               </p>
             )}
             <div className="mt-6 flex flex-col gap-3">
-              <button
-                onClick={() => void recoverApplication()}
+              <a
+                href={loginRecoveryUrl('app_error')}
                 className="w-full rounded-2xl bg-teal-600 py-3 text-sm font-black text-white hover:bg-teal-500 transition"
               >
-                🔄 إصلاح وإعادة تحميل التطبيق
-              </button>
-              <button
-                onClick={() => {
-                  this.setState({ hasError: false });
-                  window.history.back();
-                }}
+                فتح تسجيل الدخول
+              </a>
+              <a
+                href={diagnosticsUrl('app_error')}
                 className="w-full rounded-2xl border border-slate-700 py-3 text-sm font-black text-slate-300 hover:bg-slate-800 transition"
               >
-                ← العودة للصفحة السابقة
-              </button>
+                فتح التشخيص
+              </a>
             </div>
           </div>
         </div>
@@ -214,39 +236,43 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
   }
 }
 
-async function recoverApplication() {
-  try {
-    if ('caches' in window) {
-      const keys = await window.caches.keys();
-      await Promise.all(keys.map((key) => window.caches.delete(key)));
-    }
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
-    }
-  } catch (error) {
-    console.warn('[Recovery] cache cleanup failed', error);
-  }
-  try {
-    const keepKeys = new Set<string>();
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i);
-      if (key && !key.startsWith('sb-')) keepKeys.add(key);
-    }
-    keepKeys.forEach((key) => window.localStorage.removeItem(key));
-    window.sessionStorage.clear();
-  } catch (error) {
-    console.warn('[Recovery] storage cleanup failed', error);
+class PageErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
   }
 
-  const url = new URL('/login', window.location.origin);
-  url.searchParams.set('_recovery', Date.now().toString());
-  window.location.replace(url.toString());
+  componentDidCatch(error: Error) {
+    logRuntimeError('lazy page load failed', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <AppRecoveryScreen
+          reason="page_load_failed"
+          title="تعذر تحميل هذه الصفحة"
+          message="فشل تحميل ملفات هذه الصفحة. يمكنك فتح تسجيل الدخول أو التشخيص، أو تحديث الصفحة بعد تنظيف ملفات التشغيل المؤقتة."
+        />
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 function protectedElement(component: ReactNode, admin = false) {
   const content = admin ? <AdminRoute>{component}</AdminRoute> : component;
-  return <ProtectedRoute>{content}</ProtectedRoute>;
+  return (
+    <PageErrorBoundary>
+      <ProtectedRoute>{content}</ProtectedRoute>
+    </PageErrorBoundary>
+  );
+}
+
+function publicElement(component: ReactNode) {
+  return <PageErrorBoundary>{component}</PageErrorBoundary>;
 }
 
 export default function App() {
@@ -268,9 +294,10 @@ export default function App() {
             richColors
           />
           <PWABanner />
-          <Suspense fallback={<AppLoading />}>
+          <Suspense fallback={<SlowLoadingRecovery />}>
             <Routes>
-              <Route path="/login" element={<Login />} />
+              <Route path="/login" element={publicElement(<Login />)} />
+              <Route path="/diagnostics" element={publicElement(<Diagnostics />)} />
               <Route path="/" element={protectedElement(<Dashboard />)} />
               <Route
                 path="/dashboard-classic"

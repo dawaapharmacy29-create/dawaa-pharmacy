@@ -42,6 +42,131 @@
       } catch (e) {}
     </script>
     <div id="root"></div>
+    <script>
+      (function () {
+        var RECOVERY_DELAY_MS = 8000;
+        var shown = false;
+
+        function recoveryUrl(path, reason) {
+          var url = new URL(path, window.location.origin);
+          url.searchParams.set('_recovery', reason + '_' + Date.now());
+          return url.toString();
+        }
+
+        function cleanupInBackground(clearStorage) {
+          try {
+            if (window.caches) {
+              window.caches.keys().then(function (keys) {
+                console.info('[Dawaa sw] cache names found', keys);
+                return Promise.all(keys.map(function (key) { return window.caches.delete(key); }));
+              }).catch(function (error) { console.warn('[Dawaa recovery] cache cleanup failed', error); });
+            }
+          } catch (error) {
+            console.warn('[Dawaa recovery] cache cleanup failed', error);
+          }
+
+          try {
+            if (navigator.serviceWorker) {
+              navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                console.info('[Dawaa sw] registrations found/removed', registrations.length);
+                return Promise.all(registrations.map(function (registration) { return registration.unregister(); }));
+              }).catch(function (error) { console.warn('[Dawaa recovery] sw cleanup failed', error); });
+            }
+          } catch (error) {
+            console.warn('[Dawaa recovery] sw cleanup failed', error);
+          }
+
+          if (!clearStorage) return;
+          try {
+            ['localStorage', 'sessionStorage'].forEach(function (storageName) {
+              var storage = window[storageName];
+              var keys = [];
+              for (var index = 0; index < storage.length; index += 1) {
+                var key = storage.key(index);
+                if (/^(dawA|dawaA|dawaa|supabase|sb-)/.test(key || '')) keys.push(key);
+              }
+              keys.forEach(function (key) { storage.removeItem(key); });
+            });
+          } catch (error) {
+            console.warn('[Dawaa recovery] storage cleanup failed', error);
+          }
+        }
+
+        function showRecovery(reason, detail) {
+          if (shown || window.__DAWAA_REACT_BOOTSTRAPPED) return;
+          shown = true;
+          try {
+            sessionStorage.setItem('dawA_last_runtime_error', JSON.stringify({
+              source: 'index recovery',
+              message: detail || reason,
+              at: new Date().toISOString()
+            }));
+          } catch (error) {}
+
+          var loginUrl = recoveryUrl('/login', reason);
+          var cleanLoginUrl = recoveryUrl('/login', reason + '_clean');
+          var diagnosticsUrl = recoveryUrl('/diagnostics', reason);
+          var root = document.getElementById('root');
+          if (!root) return;
+          root.innerHTML =
+            '<main dir="rtl" style="min-height:100vh;background:#020617;color:#f8fafc;display:flex;align-items:center;justify-content:center;padding:20px;font-family:Cairo,Tajawal,system-ui,sans-serif">' +
+              '<section style="width:100%;max-width:520px;background:#0f172a;border:1px solid rgba(45,212,191,.35);border-radius:18px;padding:24px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.35)">' +
+                '<div style="margin:0 auto 14px;width:54px;height:54px;border-radius:16px;background:rgba(20,184,166,.14);display:grid;place-items:center;font-size:28px">!</div>' +
+                '<h1 style="margin:0;font-size:24px;font-weight:900">إصلاح تحميل التطبيق</h1>' +
+                '<p style="margin:12px 0 0;color:#cbd5e1;line-height:1.8;font-size:14px">لم يكتمل تحميل التطبيق. استخدم تسجيل الدخول أو التشخيص مباشرة، وسيتم تنظيف ملفات التشغيل القديمة في الخلفية عند اختيار الإصلاح.</p>' +
+                '<div style="display:grid;gap:10px;margin-top:22px">' +
+                  '<a href="' + loginUrl + '" style="background:#0d9488;color:white;text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">فتح تسجيل الدخول فقط</a>' +
+                  '<a id="dawaa-index-repair" href="' + cleanLoginUrl + '" style="background:rgba(20,184,166,.12);border:1px solid rgba(45,212,191,.45);color:#ccfbf1;text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">إصلاح التحميل</a>' +
+                  '<a id="dawaa-index-clean" href="' + cleanLoginUrl + '" style="background:rgba(245,158,11,.12);border:1px solid rgba(251,191,36,.45);color:#fef3c7;text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">تنظيف كامل والدخول من جديد</a>' +
+                  '<a href="' + diagnosticsUrl + '" style="border:1px solid #334155;color:#e2e8f0;text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">فتح التشخيص</a>' +
+                '</div>' +
+              '</section>' +
+            '</main>';
+
+          var repair = document.getElementById('dawaa-index-repair');
+          var clean = document.getElementById('dawaa-index-clean');
+          if (repair) {
+            repair.addEventListener('click', function () {
+              cleanupInBackground(true);
+              console.info('[Dawaa recovery] redirecting to login', cleanLoginUrl);
+              window.location.assign(cleanLoginUrl);
+            });
+          }
+          if (clean) {
+            clean.addEventListener('click', function () {
+              cleanupInBackground(true);
+              console.info('[Dawaa recovery] redirecting to login', cleanLoginUrl);
+              window.location.assign(cleanLoginUrl);
+            });
+          }
+        }
+
+        window.addEventListener('error', function (event) {
+          var target = event.target;
+          var isAssetFailure = target && target !== window && (target.tagName === 'SCRIPT' || target.tagName === 'LINK');
+          var message = event.message || (isAssetFailure ? 'asset load failed' : '');
+          if (/module|script|chunk|CSP|Content Security Policy|asset load failed/i.test(message)) {
+            showRecovery('module_error', message);
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason;
+          var message = reason && reason.message ? reason.message : String(reason || '');
+          if (/module|chunk|dynamically imported|Failed to fetch/i.test(message)) {
+            showRecovery('module_rejection', message);
+          }
+        });
+
+        window.setTimeout(function () {
+          var root = document.getElementById('root');
+          var text = root ? (root.textContent || '').trim() : '';
+          if (!root || !text || /جاري التحميل|loading/i.test(text)) {
+            showRecovery('startup_timeout', text || 'empty root');
+          }
+        }, RECOVERY_DELAY_MS);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <!-- SW SKIP_WAITING handler -->
     <script>

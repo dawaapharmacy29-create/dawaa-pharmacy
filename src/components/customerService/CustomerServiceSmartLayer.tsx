@@ -18,7 +18,12 @@ import { normalizeBranchName } from '@/lib/branch';
 import { BRANCHES } from '@/lib/constants';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
-type SmartRow = FollowupRow & { smart_source?: string; virtual?: boolean; smart_score?: number };
+type SmartRow = FollowupRow & {
+  smart_source?: string;
+  virtual?: boolean;
+  smart_score?: number;
+  source_type?: string | null;
+};
 type MixRow = { source_type: string; rows_count: number; open_count: number; completed_count: number };
 
 const LIMIT = 220;
