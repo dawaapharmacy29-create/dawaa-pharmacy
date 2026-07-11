@@ -1,21 +1,21 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
-import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { getRoutePermissions } from '@/lib/core/permissionSystem';
 import Layout from '@/components/layout/Layout';
-import { LOGO_URL } from '@/lib/constants';
 import PWABanner from '@/components/features/PWABanner';
 import { isDoctorRole } from '@/lib/security/userDataScope';
+import { AppRecoveryScreen, SlowLoadingRecovery } from '@/components/system/AppRecoveryScreen';
+import { recordRuntimeError } from '@/lib/appRecovery';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000,
       gcTime: 30 * 60 * 1000,
-      retry: 2,
+      retry: 1,
       refetchOnWindowFocus: false,
     },
   },
@@ -95,24 +95,10 @@ const SupplierPerformance = lazy(() => import('@/pages/SupplierPerformance'));
 const ReportsCenter = lazy(() => import('@/pages/ReportsCenter'));
 const StockAlerts = lazy(() => import('@/pages/StockAlerts'));
 const Returns = lazy(() => import('@/pages/Returns'));
-
-// Route permissions are centralized in src/lib/core/permissionSystem.ts
+const Diagnostics = lazy(() => import('@/pages/Diagnostics'));
 
 function AppLoading() {
-  return (
-    <div className="min-h-screen bg-navy-900 flex items-center justify-center" dir="rtl">
-      <div className="flex flex-col items-center gap-4">
-        <img
-          src={LOGO_URL}
-          alt="Dawaa"
-          loading="lazy"
-          className="w-16 h-16 rounded-2xl object-contain animate-pulse-soft"
-        />
-        <div className="w-8 h-8 border-3 border-teal-500/30 border-t-teal-500 rounded-full animate-spin" />
-        <div className="text-slate-400 text-sm">جاري التحميل...</div>
-      </div>
-    </div>
-  );
+  return <SlowLoadingRecovery />;
 }
 
 function ProtectedRoute({ children, permission }: { children: ReactNode; permission?: string }) {
@@ -127,12 +113,11 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
     return <Navigate to="/doctor-dashboard" replace />;
   }
 
-  if (
-    effectivePermissions &&
-    (Array.isArray(effectivePermissions)
-      ? !effectivePermissions.some((permission) => checkPermission(permission))
-      : !checkPermission(effectivePermissions))
-  ) {
+  const denied = effectivePermissions && (Array.isArray(effectivePermissions)
+    ? !effectivePermissions.some((item) => checkPermission(item))
+    : !checkPermission(effectivePermissions));
+
+  if (denied) {
     return (
       <Layout>
         <div className="stat-card text-center text-slate-300 py-16" dir="rtl">
@@ -157,91 +142,26 @@ function AdminRoute({ children, permission }: { children: ReactNode; permission?
   return <>{children}</>;
 }
 
-type ErrorBoundaryState = { hasError: boolean; message?: string; isIOS?: boolean };
+type ErrorBoundaryState = { hasError: boolean; message?: string };
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false, isIOS: false };
+  state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(error: Error) {
-    return {
-      hasError: true,
-      message: error?.message || 'unknown error',
-      isIOS: isIOSWebKit(),
-    };
+    return { hasError: true, message: error?.message || 'unknown error' };
   }
 
   componentDidCatch(error: Error, info: unknown) {
+    recordRuntimeError(error, 'app-boundary');
     console.error('App error boundary caught error:', error, info);
   }
 
   render() {
     if (this.state.hasError) {
-      return (
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6" dir="rtl">
-          <div className="rounded-3xl border border-red-500/20 bg-slate-900 p-8 text-center text-slate-200 shadow-2xl max-w-md w-full">
-            <div className="mb-4 text-5xl">⚠️</div>
-            <h1 className="text-2xl font-black text-white">حدث خطأ غير متوقع</h1>
-            <p className="mt-3 text-sm text-slate-400 leading-relaxed">
-              واجه التطبيق خطأ أثناء التحميل. تم تجهيز إصلاح خاص لمتصفح iPhone/Safari لمسح الكاش القديم وإعادة فتح صفحة الدخول.
-            </p>
-            {this.state.isIOS && (
-              <p className="mt-2 rounded-xl border border-teal-500/20 bg-teal-500/10 px-3 py-2 text-xs text-teal-100">
-                تم اكتشاف iPhone/Safari. اضغط زر الإصلاح بالأسفل مرة واحدة.
-              </p>
-            )}
-            <div className="mt-6 flex flex-col gap-3">
-              <button
-                onClick={() => void recoverApplication()}
-                className="w-full rounded-2xl bg-teal-600 py-3 text-sm font-black text-white hover:bg-teal-500 transition"
-              >
-                🔄 إصلاح وإعادة تحميل التطبيق
-              </button>
-              <button
-                onClick={() => {
-                  this.setState({ hasError: false });
-                  window.history.back();
-                }}
-                className="w-full rounded-2xl border border-slate-700 py-3 text-sm font-black text-slate-300 hover:bg-slate-800 transition"
-              >
-                ← العودة للصفحة السابقة
-              </button>
-            </div>
-          </div>
-        </div>
-      );
+      return <AppRecoveryScreen technicalError={this.state.message} />;
     }
     return this.props.children;
   }
-}
-
-async function recoverApplication() {
-  try {
-    if ('caches' in window) {
-      const keys = await window.caches.keys();
-      await Promise.all(keys.map((key) => window.caches.delete(key)));
-    }
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
-    }
-  } catch (error) {
-    console.warn('[Recovery] cache cleanup failed', error);
-  }
-  try {
-    const keepKeys = new Set<string>();
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i);
-      if (key && !key.startsWith('sb-')) keepKeys.add(key);
-    }
-    keepKeys.forEach((key) => window.localStorage.removeItem(key));
-    window.sessionStorage.clear();
-  } catch (error) {
-    console.warn('[Recovery] storage cleanup failed', error);
-  }
-
-  const url = new URL('/login', window.location.origin);
-  url.searchParams.set('_recovery', Date.now().toString());
-  window.location.replace(url.toString());
 }
 
 function protectedElement(component: ReactNode, admin = false) {
@@ -271,45 +191,25 @@ export default function App() {
           <Suspense fallback={<AppLoading />}>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/diagnostics" element={<Diagnostics />} />
               <Route path="/" element={protectedElement(<Dashboard />)} />
-              <Route
-                path="/dashboard-classic"
-                element={protectedElement(<Navigate to="/executive-2027" replace />)}
-              />
-              <Route
-                path="/executive-2027"
-                element={protectedElement(<ExecutiveDashboard2027 />)}
-              />
+              <Route path="/dashboard-classic" element={protectedElement(<Navigate to="/executive-2027" replace />)} />
+              <Route path="/executive-2027" element={protectedElement(<ExecutiveDashboard2027 />)} />
               <Route path="/executive-dashboard" element={<Navigate to="/executive-2027" replace />} />
-              <Route
-                path="/evaluation-rules"
-                element={protectedElement(<EvaluationRules2027 />, true)}
-              />
-              <Route
-                path="/quarterly-incentives"
-                element={protectedElement(<QuarterlyIncentives2027 />)}
-              />
-              <Route
-                path="/operations-center"
-                element={protectedElement(<OperationsCenter2027 />)}
-              />
+              <Route path="/evaluation-rules" element={protectedElement(<EvaluationRules2027 />, true)} />
+              <Route path="/quarterly-incentives" element={protectedElement(<QuarterlyIncentives2027 />)} />
+              <Route path="/operations-center" element={protectedElement(<OperationsCenter2027 />)} />
               <Route path="/data-health" element={protectedElement(<DataHealthCenter />)} />
               <Route path="/daily-command" element={protectedElement(<DailyCommand />)} />
               <Route path="/daily-target" element={protectedElement(<DailyTarget />)} />
               <Route path="/today-brief" element={protectedElement(<TodayBrief />)} />
               <Route path="/customers" element={protectedElement(<Customers />)} />
               <Route path="/customer-360" element={protectedElement(<Customer360 />)} />
-              <Route
-                path="/customers/import"
-                element={protectedElement(<CustomerImport />, true)}
-              />
+              <Route path="/customers/import" element={protectedElement(<CustomerImport />, true)} />
               <Route path="/customer-service" element={protectedElement(<CustomerService />)} />
               <Route path="/customer-service-classic" element={protectedElement(<CustomerServiceClassic />)} />
               <Route path="/customer-requests" element={protectedElement(<CustomerRequests />)} />
-              <Route
-                path="/customer-data-review"
-                element={protectedElement(<CustomerDataReview />)}
-              />
+              <Route path="/customer-data-review" element={protectedElement(<CustomerDataReview />)} />
               <Route path="/crm" element={protectedElement(<CRMPage />)} />
               <Route path="/incubation" element={protectedElement(<CustomerIncubation />)} />
               <Route path="/customer-welcome" element={protectedElement(<CustomerWelcome />)} />
@@ -319,18 +219,9 @@ export default function App() {
               <Route path="/customer-cashback" element={protectedElement(<CustomerCashback />)} />
               <Route path="/loyalty-tiers" element={protectedElement(<LoyaltyTiers />)} />
               <Route path="/refill-reminders" element={protectedElement(<RefillReminders />)} />
-              <Route
-                path="/customer-health"
-                element={protectedElement(<CustomerHealthProfile />)}
-              />
-              <Route
-                path="/customer-service-credit"
-                element={protectedElement(<CustomerServiceCredit />)}
-              />
-              <Route
-                path="/customer-points-ledger"
-                element={protectedElement(<CustomerPointsLedger />)}
-              />
+              <Route path="/customer-health" element={protectedElement(<CustomerHealthProfile />)} />
+              <Route path="/customer-service-credit" element={protectedElement(<CustomerServiceCredit />)} />
+              <Route path="/customer-points-ledger" element={protectedElement(<CustomerPointsLedger />)} />
               <Route path="/welcome-messages" element={protectedElement(<WelcomeMessages />)} />
               <Route path="/shift-notes" element={protectedElement(<ShiftNotes />)} />
               <Route path="/shelf-organization" element={protectedElement(<ShelfOrganization />)} />
@@ -355,26 +246,14 @@ export default function App() {
               <Route path="/time-off" element={protectedElement(<TimeOff />)} />
               <Route path="/doctor-dashboard" element={protectedElement(<DoctorDashboard />)} />
               <Route path="/stagnant-medicines" element={protectedElement(<StagnantMedicines />)} />
-              <Route
-                path="/medicine-expiry"
-                element={protectedElement(<MedicineExpiryTracker />)}
-              />
+              <Route path="/medicine-expiry" element={protectedElement(<MedicineExpiryTracker />)} />
               <Route path="/expiry-discounts" element={protectedElement(<ExpiryDiscounts />)} />
               <Route path="/attendance-report" element={protectedElement(<AttendanceReport />)} />
               <Route path="/attendance" element={<Navigate to="/attendance-report" replace />} />
-              <Route
-                path="/incentive-medicines"
-                element={protectedElement(<IncentiveMedicines />)}
-              />
+              <Route path="/incentive-medicines" element={protectedElement(<IncentiveMedicines />)} />
               <Route path="/staff-accounts" element={protectedElement(<StaffAccounts />, true)} />
-              <Route
-                path="/staff-duplicate-audit"
-                element={protectedElement(<StaffDuplicateAudit />, true)}
-              />
-              <Route
-                path="/roles-permissions"
-                element={protectedElement(<RolesPermissions />, true)}
-              />
+              <Route path="/staff-duplicate-audit" element={protectedElement(<StaffDuplicateAudit />, true)} />
+              <Route path="/roles-permissions" element={protectedElement(<RolesPermissions />, true)} />
               <Route path="/delivery" element={protectedElement(<Delivery />)} />
               <Route path="/branch-comparison" element={protectedElement(<BranchComparison />)} />
               <Route path="/branch-inspection" element={protectedElement(<BranchInspection />)} />
@@ -386,20 +265,11 @@ export default function App() {
               <Route path="/invoices" element={protectedElement(<Invoices />)} />
               <Route path="/activity-log" element={protectedElement(<ActivityLog />, true)} />
               <Route path="/activity-logs" element={<Navigate to="/activity-log" replace />} />
-              <Route
-                path="/penalty-incentive"
-                element={protectedElement(<PenaltyIncentiveManagement />, true)}
-              />
+              <Route path="/penalty-incentive" element={protectedElement(<PenaltyIncentiveManagement />, true)} />
               <Route path="/staff-dashboard" element={protectedElement(<StaffDashboard />)} />
               <Route path="/employee-kpi" element={protectedElement(<EmployeeKpi />)} />
-              <Route
-                path="/employee-operating-system"
-                element={protectedElement(<EmployeeOperatingSystem />)}
-              />
-              <Route
-                path="/supplier-performance"
-                element={protectedElement(<SupplierPerformance />)}
-              />
+              <Route path="/employee-operating-system" element={protectedElement(<EmployeeOperatingSystem />)} />
+              <Route path="/supplier-performance" element={protectedElement(<SupplierPerformance />)} />
               <Route path="/reports" element={protectedElement(<ReportsCenter />)} />
               <Route path="/stock-alerts" element={protectedElement(<StockAlerts />)} />
               <Route path="/returns" element={protectedElement(<Returns />)} />
