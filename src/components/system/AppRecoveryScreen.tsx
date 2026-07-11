@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Home, LogIn, RefreshCw, Trash2 } from 'lucide-react';
-import { getLastRuntimeError, repairAndReload } from '@/lib/appRecovery';
+import { forceGoLogin, getLastRuntimeError, repairAndReload } from '@/lib/appRecovery';
 
 export function AppRecoveryScreen({
   title = 'حدث خطأ أثناء تحميل التطبيق',
@@ -18,7 +18,7 @@ export function AppRecoveryScreen({
     setStoredError(getLastRuntimeError());
   }, []);
 
-  const repair = async (login = false, clearSupabaseAuth = false) => {
+  const repair = async (login = true, clearSupabaseAuth = false) => {
     setBusy(true);
     await repairAndReload({ login, clearSupabaseAuth });
   };
@@ -35,16 +35,17 @@ export function AppRecoveryScreen({
           <button disabled={busy} onClick={() => window.location.reload()} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-600 px-4 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-60">
             <RefreshCw size={16} /> إعادة المحاولة
           </button>
-          <button disabled={busy} onClick={() => void repair(false)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-teal-500 px-4 py-3 text-sm font-black text-slate-950 hover:bg-teal-400 disabled:opacity-60">
+          <button disabled={busy} onClick={() => void repair(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-teal-500 px-4 py-3 text-sm font-black text-slate-950 hover:bg-teal-400 disabled:opacity-60">
             <Trash2 size={16} /> إصلاح التحميل
           </button>
-          <button disabled={busy} onClick={() => void repair(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-teal-400/40 px-4 py-3 text-sm font-black text-teal-100 hover:bg-teal-400/10 disabled:opacity-60">
-            <LogIn size={16} /> فتح تسجيل الدخول
-          </button>
+          <a href={`/login?_direct=${Date.now()}`} onClick={(event) => { event.preventDefault(); forceGoLogin(); }} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-teal-400/40 px-4 py-3 text-sm font-black text-teal-100 hover:bg-teal-400/10">
+            <LogIn size={16} /> فتح تسجيل الدخول فورًا
+          </a>
           <button disabled={busy} onClick={() => void repair(true, true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-400/40 px-4 py-3 text-sm font-black text-rose-100 hover:bg-rose-400/10 disabled:opacity-60">
             <Home size={16} /> دخول من جديد
           </button>
         </div>
+        <p className="mt-4 text-xs font-bold text-slate-500">لو زر الإصلاح لم يستجب، استخدم زر فتح تسجيل الدخول فورًا لأنه رابط مباشر وليس عملية تنظيف.</p>
         {(technicalError || storedError) && (
           <details className="mt-5 rounded-2xl border border-slate-700 bg-slate-950 p-3 text-right text-xs text-slate-400">
             <summary className="cursor-pointer font-black text-slate-200">تفاصيل تقنية للمراجعة</summary>
