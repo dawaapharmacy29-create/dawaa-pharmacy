@@ -15,6 +15,7 @@ import { canSeeAllBranches, effectiveBranchFilter } from '@/lib/security/permiss
 import { rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { isValidEgyptPhone } from '@/lib/customerAnalyticsService';
 import { normalizeBranchName } from '@/lib/branch';
+import { CustomerFlagChips, getCustomerCodeSafe, resolveCustomerBranch } from '@/lib/customerDisplay';
 import { BRANCHES } from '@/lib/constants';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
@@ -103,12 +104,12 @@ function minutesLate(row: FollowupRow) {
 
 function hasValidPhone(row: FollowupRow) {
   const phone = phoneOf(row);
-  return Boolean(phone && isValidEgyptPhone(phone, row.customer_code));
+  return Boolean(phone && isValidEgyptPhone(phone, getCustomerCodeSafe(row)));
 }
 
 function canonicalKey(row: FollowupRow) {
   const digits = phoneOf(row).replace(/\D/g, '');
-  return String(row.customer_id || row.customer_code || digits || customerName(row))
+  return String(row.customer_id || getCustomerCodeSafe(row) || digits || customerName(row))
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '');
@@ -172,7 +173,7 @@ function nextAction(row: SmartRow) {
 }
 
 function rowUrl(row: SmartRow, mode: 'details' | 'edit' = 'details') {
-  if (row.virtual) return `/customer-service?tab=add&name=${encodeURIComponent(customerName(row))}&phone=${encodeURIComponent(phoneOf(row))}&code=${encodeURIComponent(String(row.customer_code || ''))}`;
+  if (row.virtual) return `/customer-service?tab=add&name=${encodeURIComponent(customerName(row))}&phone=${encodeURIComponent(phoneOf(row))}&code=${encodeURIComponent(getCustomerCodeSafe(row))}`;
   const url = new URL('/customer-service', window.location.origin);
   url.searchParams.set('followupId', row.id);
   url.searchParams.set('openDetails', mode === 'details' ? '1' : '0');
@@ -389,7 +390,8 @@ export default function CustomerServiceSmartLayer() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-base font-black text-white">{customerName(row)}</div>
-                      <div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {normalizeBranchName(row.branch || '') || 'فرع غير محدد'}</div>
+                      <div className="mt-1 text-xs font-bold text-slate-400">{getCustomerCodeSafe(row) || 'بدون كود'} · {resolveCustomerBranch(row).branch}</div>
+                      <CustomerFlagChips row={row} className="mt-2" />
                     </div>
                     <span className={`rounded-full border px-2 py-1 text-[11px] font-black ${isOverdue(row) ? 'border-red-400/40 bg-red-500/10 text-red-100' : row.virtual ? 'border-amber-400/40 bg-amber-500/10 text-amber-100' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'}`}>
                       {rowSource(row)}

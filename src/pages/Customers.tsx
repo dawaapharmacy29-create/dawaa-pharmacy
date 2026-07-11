@@ -56,6 +56,7 @@ import { CustomerFlagsBadges } from '@/components/CustomerFlagsBadges';
 import { logActivity } from '@/lib/activityLog';
 import { useAuth } from '@/hooks/useAuth';
 import { getBestCustomerPhone } from '@/lib/customerAnalyticsService';
+import { CustomerFlagChips, getCustomerCodeSafe, resolveCustomerBranch } from '@/lib/customerDisplay';
 
 const PAGE_SIZE = 30;
 
@@ -687,28 +688,36 @@ export default function Customers() {
                 </thead>
                 <tbody>
                   {customers.map((customer) => (
-                    <tr
-                      key={customer.id}
-                      className="cursor-pointer"
-                      onClick={() => setSelected(customer)}
-                    >
+                    <tr key={customer.id} className="cursor-pointer" onClick={() => setSelected(customer)}>
                       <td className="font-bold text-[var(--theme-muted)]">
-                        {customer.customer_code || 'بدون كود'}
+                        {getCustomerCodeSafe(customer) || 'بدون كود'}
                       </td>
                       <td>
                         <div className="flex items-center gap-3">
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-500/15 text-sm font-black text-teal-100">
                             {(customer.customer_name || 'ع')[0]}
                           </div>
-                          <span className="font-black text-[var(--theme-heading)]">
-                            {customer.customer_name || 'عميل بدون اسم'}
-                          </span>
+                          <div className="min-w-0">
+                            <span className="line-clamp-2 font-black text-[var(--theme-heading)]" title={customer.customer_name || 'عميل بدون اسم'}>
+                              {customer.customer_name || 'عميل بدون اسم'}
+                            </span>
+                            <CustomerFlagChips row={customer} className="mt-1" />
+                          </div>
                         </div>
                       </td>
                       <td>
                         <CustomerPhoneCell customer={customer} />
                       </td>
-                      <td>{normalizeBranchName(customer.branch)}</td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span>{resolveCustomerBranch(customer).branch}</span>
+                          {resolveCustomerBranch(customer).needsReview ? (
+                            <span className="w-fit rounded-full border border-amber-300/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-black text-amber-200">
+                              فرع غير مؤكد
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td>
                         <SegmentBadge segment={customer.segment} />
                       </td>
@@ -777,6 +786,8 @@ function CustomerResponsiveCard({
   onOpen: () => void;
 }) {
   const displayPhone = customer.customer_phone || customer.phone || '';
+  const customerCode = getCustomerCodeSafe(customer);
+  const resolvedBranch = resolveCustomerBranch(customer);
   return (
     <article className="customer-responsive-card" onClick={onOpen}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -789,10 +800,11 @@ function CustomerResponsiveCard({
               {customer.customer_name || 'عميل بدون اسم'}
             </div>
             <div className="mt-1 flex flex-wrap gap-2 text-xs font-bold text-[var(--theme-muted)]">
-              <span>كود: {customer.customer_code || 'بدون كود'}</span>
-              <span>{normalizeBranchName(customer.branch)}</span>
+              <span>كود: {customerCode || 'بدون كود'}</span>
+              <span>{resolvedBranch.branch}</span>
               <span>{displayPhone || 'بدون رقم'}</span>
             </div>
+            <CustomerFlagChips row={customer} className="mt-2" />
           </div>
         </div>
         <button
@@ -811,9 +823,11 @@ function CustomerResponsiveCard({
       <div className="mt-3 flex flex-wrap gap-2">
         <SegmentBadge segment={customer.segment} />
         <StatusBadge status={customer.customer_status} />
-        <span className="rounded-full border border-[var(--theme-border)] bg-[var(--theme-surface)] px-3 py-1 text-xs font-black text-[var(--theme-muted)]">
-          العلامات داخل التفاصيل
-        </span>
+        {resolvedBranch.needsReview ? (
+          <span className="rounded-full border border-amber-300/40 bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-200">
+            فرع غير مؤكد
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">

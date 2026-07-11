@@ -15,6 +15,7 @@ import { cashbackStatusLabel, cashbackSummaryLine } from '@/lib/api/customerLoya
 import { getCustomerServiceLiveMetrics } from '@/lib/customerServiceCustomerMetrics';
 import { buildCustomerLiveMetrics } from '@/lib/customers/buildCustomerLiveMetrics';
 import { getInvoiceDay } from '@/lib/invoices/invoiceCore';
+import { CustomerFlagChips, getCustomerCodeSafe, resolveCustomerBranch } from '@/lib/customerDisplay';
 
 type Props = {
   followupId?: string | null;
@@ -281,6 +282,14 @@ export default function CustomerQuickDetailsModal(props: Props) {
   useEscapeKey(props.onClose, true);
 
   useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
@@ -331,20 +340,30 @@ export default function CustomerQuickDetailsModal(props: Props) {
     return generateWhatsAppLink(displayPhone, `السلام عليكم أ/ ${name}`);
   }, [customer?.customer_name, displayPhone, props.customerName]);
 
+  const resolvedBranch = useMemo(() => resolveCustomerBranch(customer || props.fallbackMetric || props), [customer, props]);
+  const safeCustomerCode = getCustomerCodeSafe(customer || props.fallbackMetric || props);
+
   const engagementParams = useMemo(() => {
     const next = new URLSearchParams();
     if (props.customerId) next.set('customerId', props.customerId);
-    if (customer?.customer_code || props.customerCode) next.set('code', customer?.customer_code || props.customerCode || '');
+    if (safeCustomerCode || props.customerCode) next.set('code', safeCustomerCode || props.customerCode || '');
     if (displayPhone) next.set('phone', displayPhone);
     if (customer?.customer_name || props.customerName) next.set('name', customer?.customer_name || props.customerName || '');
-    if (customer?.branch || props.branch) next.set('branch', customer?.branch || props.branch || '');
+    if (resolvedBranch.branch && resolvedBranch.branch !== 'غير محدد') next.set('branch', resolvedBranch.branch);
     if (props.followupId) next.set('followup_id', props.followupId);
     return next.toString();
-  }, [customer?.branch, customer?.customer_code, customer?.customer_name, displayPhone, props.branch, props.customerCode, props.customerId, props.customerName, props.followupId]);
+  }, [customer?.customer_name, displayPhone, props.customerCode, props.customerId, props.customerName, props.followupId, resolvedBranch.branch, safeCustomerCode]);
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="modal-panel max-w-6xl" onClick={(event) => event.stopPropagation()} dir="rtl">
+    <div className="modal-backdrop" onClick={props.onClose} role="presentation">
+      <div
+        className="modal-panel max-w-6xl"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="تفاصيل العميل الكاملة"
+        dir="rtl"
+      >
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--theme-border)] bg-[var(--theme-surface)] p-5 text-[var(--theme-text)]">
           <div>
             <div className="flex items-center gap-2 text-[var(--theme-muted)]">
@@ -358,8 +377,14 @@ export default function CustomerQuickDetailsModal(props: Props) {
               <span className="inline-flex items-center gap-1">
                 <Phone size={14} /> {displayPhone || 'بدون رقم'}
               </span>
-              <span>كود {customer?.customer_code || props.customerCode || 'بدون كود'}</span>
-              <span>{normalizeBranchName(customer?.branch || props.branch)}</span>
+              <span>كود {safeCustomerCode || props.customerCode || 'بدون كود'}</span>
+              <span>{resolvedBranch.branch}</span>
+              {resolvedBranch.needsReview ? (
+                <span className="rounded-full border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs font-black text-amber-200">
+                  فرع غير مؤكد
+                </span>
+              ) : null}
+              <CustomerFlagChips row={customer || props.fallbackMetric || props} />
               {liveStats?.status || details?.purchaseFrequencyStatus ? (
                 <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-1 text-xs font-black text-teal-700">
                   {liveStats?.status || details?.purchaseFrequencyStatus}
@@ -394,7 +419,10 @@ export default function CustomerQuickDetailsModal(props: Props) {
             ) : null}
             <button
               type="button"
-              onClick={props.onClose}
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onClose();
+              }}
               className="btn-secondary inline-flex items-center gap-2"
             >
               <X size={16} /> إغلاق

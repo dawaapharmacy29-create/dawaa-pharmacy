@@ -56,6 +56,7 @@ import {
   resolveSuggestedBranchFromInvoiceMetrics,
   saveCustomerBranchOverride,
 } from '@/lib/customerBranchOverrides';
+import { CustomerFlagChips, getCustomerCodeSafe, resolveCustomerBranch } from '@/lib/customerDisplay';
 import {
   fetchQuickReplyScripts,
   incrementQuickReplyUsage,
@@ -91,7 +92,7 @@ function customerServiceBranchForUser(user?: { username?: string | null; name?: 
 }
 
 function customerKey(row: FollowupRow) {
-  return String(row.customer_code || row.customer_phone || row.phone || row.customer_id || row.customer_name || row.name || '')
+  return String(getCustomerCodeSafe(row) || row.customer_phone || row.phone || row.customer_id || row.customer_name || row.name || '')
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '');
@@ -1021,7 +1022,7 @@ function matchesQuickFilter(row: FollowupRow, filter: QuickFilter) {
 
 function hasValidPhone(row: FollowupRow) {
   const phone = phoneOf(row);
-  return Boolean(phone && isValidEgyptPhone(phone, row.customer_code));
+  return Boolean(phone && isValidEgyptPhone(phone, getCustomerCodeSafe(row)));
 }
 
 function matchesSearch(row: FollowupRow, search: string) {
@@ -1029,7 +1030,7 @@ function matchesSearch(row: FollowupRow, search: string) {
   if (!q) return true;
   const digits = q.replace(/\D/g, '');
   const name = customerName(row).toLowerCase();
-  const code = String(row.customer_code || '').toLowerCase();
+  const code = getCustomerCodeSafe(row).toLowerCase();
   const phone = phoneOf(row);
   return (
     name.includes(q) ||
@@ -1091,7 +1092,7 @@ function waMessageFor(row: FollowupRow) {
 
 function customer360Url(row: FollowupRow) {
   const params = new URLSearchParams();
-  const code = String(row.customer_code || '').trim();
+  const code = getCustomerCodeSafe(row);
   const id = String(row.customer_id || '').trim();
   const phone = phoneOf(row);
   const name = customerName(row);
@@ -1103,12 +1104,13 @@ function customer360Url(row: FollowupRow) {
 }
 
 function customerFrom(row: FollowupRow): Customer {
+  const resolvedBranch = resolveCustomerBranch(row);
   return {
     id: row.customer_id || row.id,
-    customer_code: row.customer_code,
+    customer_code: getCustomerCodeSafe(row),
     name: customerName(row),
     phone: phoneOf(row),
-    branch: row.branch,
+    branch: resolvedBranch.branch,
     type: row.segment || row.classification,
     avg_monthly: avgMonthly(row),
     total_purchases: totalSpent(row),
@@ -1405,6 +1407,19 @@ export default function CustomerService() {
     next.delete('action');
     setParams(next, { replace: true });
   }, [params, setParams]);
+
+  const clearModalQueryParams = useCallback(() => {
+    const next = new URLSearchParams(params);
+    ['followupId', 'requestId', 'taskId', 'openDetails', 'mode', 'customerId', 'code', 'phone', 'name', 'customer', 'followup', 'modal'].forEach((key) => {
+      next.delete(key);
+    });
+    setParams(next, { replace: true });
+  }, [params, setParams]);
+
+  const closeCustomerDetails = useCallback(() => {
+    setDetailsRow(null);
+    clearModalQueryParams();
+  }, [clearModalQueryParams]);
 
   const enrichRowWithLiveMetrics = useCallback(async (row: FollowupRow): Promise<FollowupRow> => {
     const live = await getCustomerServiceLiveMetrics({
@@ -2713,13 +2728,13 @@ const addFollowup = async () => {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-2xl font-black text-white">{customerName(detailRow)}</h3>
-                    <p className="mt-1 text-xs font-bold text-slate-400">{text(detailRow.customer_code || phoneOf(detailRow), 'بدون كود')}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-400">{getCustomerCodeSafe(detailRow) || phoneOf(detailRow) || 'بدون كود'}</p>
                   </div>
                   <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(detailRow)}`}>{statusOf(detailRow)}</span>
                 </div>
                 <div className="mt-4 grid gap-2 text-sm text-slate-300 sm:grid-cols-2 2xl:grid-cols-1">
                   <InfoRow label="الهاتف" value={phoneOf(detailRow) || 'بدون رقم صحيح'} />
-                  <InfoRow label="الفرع" value={text(detailRow.branch)} />
+                  <InfoRow label="الفرع" value={resolveCustomerBranch(detailRow).branch} />
                   <InfoRow label="الحالة" value={customerStatusOf(detailRow)} />
                   <InfoRow label="التصنيف" value={segmentOf(detailRow)} />
                   <InfoRow label="درجة الخطورة" value={riskLevel(detailRow)} />
@@ -2729,6 +2744,7 @@ const addFollowup = async () => {
                   <InfoRow label="المسؤول" value={responsibleOf(detailRow)} />
                 </div>
                 <CustomerFlagsBadges customerFlags={detailRow.customer_flags || {}} />
+                <CustomerFlagChips row={detailRow} className="mt-3" />
                 {resolveSuggestedBranchFromInvoiceMetrics(detailRow.customer_metrics) &&
                   detailRow.branch !== resolveSuggestedBranchFromInvoiceMetrics(detailRow.customer_metrics) && (
                     <div className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-50">
@@ -2825,7 +2841,10 @@ const addFollowup = async () => {
           <FollowupResultModal
             followup={asDailyFollowup(resultRow)}
             mode={requestedMode === 'edit' ? 'edit' : 'create'}
-            onClose={() => setResultRow(null)}
+            onClose={() => {
+              setResultRow(null);
+              clearModalQueryParams();
+            }}
             onSave={saveResult}
           />
         </LazyState>
@@ -2841,7 +2860,7 @@ const addFollowup = async () => {
             branch={detailsRow.branch}
             fallbackMetric={modalFallbackFrom(detailsRow)}
             onEditFollowup={() => setResultRow(detailsRow)}
-            onClose={() => setDetailsRow(null)}
+            onClose={closeCustomerDetails}
           />
         </LazyState>
       )}
@@ -3139,6 +3158,7 @@ function TabPanel({
 }
 
 function HistoryFollowupCard({ row, onSelect }: { row: FollowupRow; onSelect: () => void }) {
+  const resolvedBranch = resolveCustomerBranch(row);
   return (
     <article
       onClick={onSelect}
@@ -3148,12 +3168,13 @@ function HistoryFollowupCard({ row, onSelect }: { row: FollowupRow; onSelect: ()
         <div>
           <h3 className="text-xl font-black text-white">{customerName(row)}</h3>
           <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-300">
-            <span>كود: {text(row.customer_code, 'بدون كود')}</span>
+            <span>كود: {getCustomerCodeSafe(row) || 'بدون كود'}</span>
             <span>·</span>
             <span>{phoneOf(row) || 'بدون رقم'}</span>
             <span>·</span>
-            <span>{text(row.branch)}</span>
+            <span>{resolvedBranch.branch}</span>
           </div>
+          <CustomerFlagChips row={row} className="mt-2" />
         </div>
         <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-100">
           {followupResultLabel(row)}
@@ -3197,6 +3218,8 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
   const waLink = validPhone ? generateWhatsAppLink(phone, waMessageFor(row)) : '';
   const score = priorityScore(row);
   const note = preContactNote(row);
+  const code = getCustomerCodeSafe(row);
+  const resolvedBranch = resolveCustomerBranch(row);
   const suggestedBranch = resolveSuggestedBranchFromInvoiceMetrics(row.customer_metrics);
   const hasBranchMismatch = Boolean(suggestedBranch && row.branch && suggestedBranch !== row.branch);
   return (
@@ -3206,14 +3229,20 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-xl font-black text-white">{customerName(row)}</h3>
+          <h3 className="line-clamp-2 text-xl font-black text-white" title={customerName(row)}>{customerName(row)}</h3>
           <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-300">
-            <span className="rounded-lg bg-slate-800/80 px-2 py-1">كود: {text(row.customer_code, 'بدون كود')}</span>
+            <span className="rounded-lg bg-slate-800/80 px-2 py-1">كود: {code || 'بدون كود'}</span>
             <span className={`rounded-lg px-2 py-1 ${validPhone ? 'bg-emerald-500/15 text-emerald-100' : 'bg-amber-500/15 text-amber-100'}`}>
               {validPhone ? phone : 'بدون رقم صحيح'}
             </span>
-            <span className="rounded-lg bg-slate-800/80 px-2 py-1">{text(row.branch)}</span>
+            <span className="rounded-lg bg-slate-800/80 px-2 py-1">{resolvedBranch.branch}</span>
+            {resolvedBranch.needsReview ? (
+              <span className="rounded-lg border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-amber-200">
+                فرع غير مؤكد
+              </span>
+            ) : null}
           </div>
+          <CustomerFlagChips row={row} className="mt-2" />
         </div>
         <div className="flex flex-col items-start gap-2 lg:items-end">
           <span className={`w-fit rounded-full border px-3 py-1 text-xs font-black ${priorityTone(row)}`}>{text(row.priority, 'مهم')}</span>

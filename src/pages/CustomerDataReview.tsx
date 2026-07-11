@@ -16,6 +16,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { canSeeAllBranches, rowMatchesUserBranch, scopeDescription } from '@/lib/security/permissionScopes';
 import { saveCustomerBranchOverride } from '@/lib/customerBranchOverrides';
+import { resolveCustomerBranch } from '@/lib/customerDisplay';
 
 type BranchReviewRow = {
   customer_code: string | null;
@@ -105,12 +106,17 @@ function readCustomerPhone(row: RawRow) {
 }
 
 function readCustomerBranch(row: RawRow) {
-  return nilIfEmpty(row.branch ?? row.current_branch ?? row.customer_branch ?? row.final_branch ?? row.branch_name);
+  const resolved = resolveCustomerBranch(row);
+  return resolved.branch === 'غير محدد' ? null : resolved.branch;
 }
 
 function isMissingBranch(branch?: string | null) {
   const value = str(branch).toLowerCase();
   return !value || value === 'غير محدد' || value === 'unknown' || value === 'null' || value === 'undefined';
+}
+
+function canApproveBranchValue(branch?: string | null) {
+  return Boolean(branch && !isMissingBranch(branch));
 }
 
 function safeErrorMessage(error: unknown) {
@@ -321,7 +327,7 @@ export default function CustomerDataReview() {
   const approveBranch = async (row: BranchReviewRow) => {
     const customerCode = row.customer_code;
     if (!customerCode) return;
-    if (!row.suggested_branch) {
+    if (!canApproveBranchValue(row.suggested_branch)) {
       toast.error('لا يوجد فرع مقترح يمكن اعتماده لهذا العميل');
       return;
     }
@@ -557,6 +563,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 }
 
 function BranchAnalysisCard({ row, saving, onApprove }: { row: BranchReviewRow; saving: boolean; onApprove: (row: BranchReviewRow) => void }) {
+  const branchReview = resolveCustomerBranch(row as unknown as Record<string, unknown>);
   return (
     <article className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -564,8 +571,13 @@ function BranchAnalysisCard({ row, saving, onApprove }: { row: BranchReviewRow; 
           <h2 className="text-xl font-black text-white">{row.customer_name || 'عميل بدون اسم'}</h2>
           <p className="mt-2 text-sm text-slate-300">الكود: {row.customer_code || '—'} · الهاتف: {row.customer_phone || '—'} · الحالي: {row.current_branch || '—'} · المقترح: {row.suggested_branch || '—'}</p>
           <p className="mt-1 text-xs text-slate-500">الفواتير: {number(row.invoices_count)} · إجمالي الشراء: {money(row.total_spent)} · آخر فاتورة: {date(row.last_invoice_date)}</p>
+          {branchReview.needsReview ? (
+            <p className="mt-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100">
+              فرع غير مؤكد: لا يمكن اعتماد التصحيح قبل وجود فرع واضح من الفواتير أو المتابعات.
+            </p>
+          ) : null}
         </div>
-        <button className="btn-primary" type="button" onClick={() => onApprove(row)} disabled={saving || !row.suggested_branch}>اعتماد تصحيح الفرع المحدد</button>
+        <button className="btn-primary" type="button" onClick={() => onApprove(row)} disabled={saving || !canApproveBranchValue(row.suggested_branch)}>اعتماد تصحيح الفرع المحدد</button>
       </div>
     </article>
   );
@@ -573,6 +585,7 @@ function BranchAnalysisCard({ row, saving, onApprove }: { row: BranchReviewRow; 
 
 function BranchReviewCard({ row, saving, onApprove, onIgnore }: { row: BranchReviewRow; saving: boolean; onApprove: (row: BranchReviewRow) => void; onIgnore: (code?: string | null) => void }) {
   const code = row.customer_code || '';
+  const branchReview = resolveCustomerBranch(row as unknown as Record<string, unknown>);
   return (
     <article className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5 shadow-xl">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -581,6 +594,7 @@ function BranchReviewCard({ row, saving, onApprove, onIgnore }: { row: BranchRev
             <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-black text-slate-200">كود {code || '—'}</span>
             <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-200">{labelConfidence(row.confidence_level)}</span>
             {!isValidEgyptMobile(row.customer_phone) ? <span className="rounded-full bg-red-500/10 px-3 py-1 text-xs font-black text-red-200">بدون رقم صالح</span> : null}
+            {branchReview.needsReview ? <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-200">فرع غير مؤكد</span> : null}
           </div>
           <h2 className="text-xl font-black text-white">{row.customer_name || 'عميل بدون اسم'}</h2>
           <div className="grid gap-2 text-sm text-slate-300 md:grid-cols-2 lg:grid-cols-4">
@@ -591,9 +605,10 @@ function BranchReviewCard({ row, saving, onApprove, onIgnore }: { row: BranchRev
           </div>
           <div className="grid gap-2 text-sm text-slate-400 md:grid-cols-2"><span>عدد الفواتير: {number(row.invoices_count)}</span><span>إجمالي الشراء: {money(row.total_spent)} جنيه</span></div>
           {row.review_label ? <p className="text-xs text-slate-500">{row.review_label}</p> : null}
+          {branchReview.needsReview ? <p className="text-xs font-bold text-amber-200">لا يوجد فرع واضح يمكن اعتماده لهذا العميل حاليًا.</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={saving || !row.suggested_branch} onClick={() => onApprove(row)} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"><CheckCircle2 className="h-4 w-4" /> اعتماد</button>
+          <button type="button" disabled={saving || !canApproveBranchValue(row.suggested_branch)} onClick={() => onApprove(row)} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"><CheckCircle2 className="h-4 w-4" /> اعتماد</button>
           <button type="button" disabled={saving} onClick={() => onIgnore(code)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200 disabled:opacity-50"><XCircle className="h-4 w-4" /> تجاهل</button>
         </div>
       </div>
