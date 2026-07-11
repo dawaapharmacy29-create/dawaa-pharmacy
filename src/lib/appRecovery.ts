@@ -19,26 +19,14 @@ export function recordRuntimeError(error: unknown, source = 'runtime') {
   }
 }
 
-export async function clearAppCaches(options: { clearSupabaseAuth?: boolean } = {}) {
-  if (typeof window === 'undefined') return;
-  try {
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
-    }
-  } catch (error) {
-    console.warn('[Dawaa Recovery] unregister SW failed', error);
-  }
+function withTimeout<T>(promise: Promise<T>, ms = 1200): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => window.setTimeout(() => resolve(null), ms)),
+  ]);
+}
 
-  try {
-    if ('caches' in window) {
-      const keys = await window.caches.keys();
-      await Promise.all(keys.map((key) => window.caches.delete(key)));
-    }
-  } catch (error) {
-    console.warn('[Dawaa Recovery] clear caches failed', error);
-  }
-
+function clearStorageSync(clearSupabaseAuth = false) {
   try {
     window.sessionStorage.clear();
   } catch (error) {
@@ -51,7 +39,7 @@ export async function clearAppCaches(options: { clearSupabaseAuth?: boolean } = 
       const key = window.localStorage.key(index);
       if (!key) continue;
       const isSupabaseKey = key.startsWith('sb-') || key.includes('supabase');
-      const isSafeToKeep = isSupabaseKey && !options.clearSupabaseAuth;
+      const isSafeToKeep = isSupabaseKey && !clearSupabaseAuth;
       if (!isSafeToKeep && (key.startsWith('dawaa_') || key.startsWith('sb-') || key.includes('supabase'))) {
         keysToRemove.push(key);
       }
@@ -62,12 +50,53 @@ export async function clearAppCaches(options: { clearSupabaseAuth?: boolean } = 
   }
 }
 
+export async function clearAppCaches(options: { clearSupabaseAuth?: boolean } = {}) {
+  if (typeof window === 'undefined') return;
+  clearStorageSync(Boolean(options.clearSupabaseAuth));
+
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await withTimeout(navigator.serviceWorker.getRegistrations(), 900);
+      if (registrations) await withTimeout(Promise.all(registrations.map((registration) => registration.unregister())), 900);
+    }
+  } catch (error) {
+    console.warn('[Dawaa Recovery] unregister SW failed', error);
+  }
+
+  try {
+    if ('caches' in window) {
+      const keys = await withTimeout(window.caches.keys(), 900);
+      if (keys) await withTimeout(Promise.all(keys.map((key) => window.caches.delete(key))), 900);
+    }
+  } catch (error) {
+    console.warn('[Dawaa Recovery] clear caches failed', error);
+  }
+}
+
 export async function repairAndReload(options: { login?: boolean; clearSupabaseAuth?: boolean } = {}) {
-  await clearAppCaches({ clearSupabaseAuth: options.clearSupabaseAuth });
-  const target = options.login ? '/login' : window.location.pathname || '/login';
+  if (typeof window === 'undefined') return;
+  const target = options.login ? '/login' : '/login';
   const url = new URL(target, window.location.origin);
   url.searchParams.set('_recovery', Date.now().toString());
-  window.location.replace(url.toString());
+
+  // Hard fallback first: even if service-worker/caches promises hang, the click must navigate.
+  const fallback = window.setTimeout(() => {
+    window.location.href = url.toString();
+  }, 350);
+
+  try {
+    await clearAppCaches({ clearSupabaseAuth: options.clearSupabaseAuth });
+  } finally {
+    window.clearTimeout(fallback);
+    window.location.href = url.toString();
+  }
+}
+
+export function forceGoLogin() {
+  if (typeof window === 'undefined') return;
+  const url = new URL('/login', window.location.origin);
+  url.searchParams.set('_direct', Date.now().toString());
+  window.location.href = url.toString();
 }
 
 export function getLastRuntimeError() {
