@@ -19,10 +19,9 @@
       href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <!-- Security: conservative Content Security Policy and other headers -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https: wss: https://*.supabase.co wss://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; frame-ancestors 'none';"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https: wss: https://*.supabase.co wss://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: https: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; frame-ancestors 'none';"
     />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta
@@ -43,19 +42,24 @@
     </script>
     <div id="root"></div>
     <script>
-      // Emergency recovery when a stale service worker/cache keeps the app on "جاري التحميل".
+      // Emergency recovery when a stale service worker/cache or startup JS error leaves a blank screen.
       (function () {
-        function showRecovery() {
+        function showRecovery(force) {
           if (document.getElementById('dawaa-emergency-recovery')) return;
           var root = document.getElementById('root');
           var text = root ? root.textContent || '' : '';
-          if (text.indexOf('جاري التحميل') === -1 && text.indexOf('جارى التحميل') === -1) return;
+          var isBlank = !root || text.trim().length === 0;
+          var isStillLoading = text.indexOf('جاري التحميل') !== -1 || text.indexOf('جارى التحميل') !== -1;
+          if (!force && !isBlank && !isStillLoading) return;
           var box = document.createElement('div');
           box.id = 'dawaa-emergency-recovery';
           box.dir = 'rtl';
-          box.style.cssText = 'position:fixed;left:24px;bottom:24px;z-index:999999;max-width:360px;background:#0f1b2d;color:#e5f7ff;border:1px solid rgba(45,212,191,.45);border-radius:18px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.45);font-family:Cairo,Tahoma,sans-serif;line-height:1.8';
-          box.innerHTML = '<b style="display:block;margin-bottom:6px;color:#2dd4bf">التطبيق متوقف على التحميل</b><span style="font-size:13px;color:#b7c7d8">اضغط إصلاح التحميل لمسح كاش التطبيق القديم وإعادة فتح صفحة الدخول.</span><button id="dawaa-recover-btn" style="margin-top:12px;width:100%;border:0;border-radius:12px;background:#2dd4bf;color:#06202a;font-weight:900;padding:10px;cursor:pointer">إصلاح التحميل الآن</button>';
+          box.style.cssText = 'position:fixed;left:24px;bottom:24px;z-index:999999;max-width:390px;background:#0f1b2d;color:#e5f7ff;border:1px solid rgba(45,212,191,.45);border-radius:18px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.45);font-family:Cairo,Tahoma,sans-serif;line-height:1.8';
+          box.innerHTML = '<b style="display:block;margin-bottom:6px;color:#2dd4bf">إصلاح تحميل التطبيق</b><span style="font-size:13px;color:#b7c7d8">ظهر توقف أو شاشة سوداء. اضغط إصلاح التحميل لمسح الكاش وفتح صفحة الدخول بأمان.</span><button id="dawaa-recover-btn" style="margin-top:12px;width:100%;border:0;border-radius:12px;background:#2dd4bf;color:#06202a;font-weight:900;padding:10px;cursor:pointer">إصلاح التحميل الآن</button><button id="dawaa-login-btn" style="margin-top:8px;width:100%;border:1px solid rgba(45,212,191,.35);border-radius:12px;background:transparent;color:#dff;font-weight:900;padding:9px;cursor:pointer">فتح تسجيل الدخول فقط</button>';
           document.body.appendChild(box);
+          document.getElementById('dawaa-login-btn').onclick = function () {
+            location.replace('/login?_recovery=' + Date.now());
+          };
           document.getElementById('dawaa-recover-btn').onclick = async function () {
             try {
               if ('caches' in window) {
@@ -67,12 +71,12 @@
                 await Promise.all(regs.map(function (reg) { return reg.unregister(); }));
               }
               try {
-                var keep = [];
+                var remove = [];
                 for (var i = 0; i < localStorage.length; i++) {
                   var k = localStorage.key(i);
-                  if (k && k.indexOf('sb-') !== 0) keep.push(k);
+                  if (k && (k.indexOf('dawaa_') === 0 || k.indexOf('sb-') === 0 || k.indexOf('supabase') !== -1)) remove.push(k);
                 }
-                keep.forEach(function (k) { localStorage.removeItem(k); });
+                remove.forEach(function (k) { localStorage.removeItem(k); });
                 sessionStorage.clear();
               } catch (e) {}
             } finally {
@@ -80,22 +84,12 @@
             }
           };
         }
-        setTimeout(showRecovery, 9000);
-        setTimeout(showRecovery, 18000);
+        window.addEventListener('error', function () { setTimeout(function () { showRecovery(true); }, 0); });
+        window.addEventListener('unhandledrejection', function () { setTimeout(function () { showRecovery(true); }, 0); });
+        setTimeout(function () { showRecovery(false); }, 7000);
+        setTimeout(function () { showRecovery(false); }, 14000);
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
-    <!-- SW SKIP_WAITING handler -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.addEventListener('message', function (e) {
-          if (e.data && e.data.type === 'SKIP_WAITING') {
-            navigator.serviceWorker.getRegistration().then(function (reg) {
-              if (reg && reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-            });
-          }
-        });
-      }
-    </script>
   </body>
 </html>
