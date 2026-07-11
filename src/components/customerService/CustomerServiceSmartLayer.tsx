@@ -27,10 +27,11 @@ type SmartRow = FollowupRow & {
 };
 
 type MixRow = { source_type: string; rows_count: number; open_count: number; completed_count: number };
-
 type WarningItem = { id: string; text: string; href?: string; tone?: 'amber' | 'red' | 'cyan' | 'emerald' };
+type QuickResult = 'تم التواصل' | 'لم يرد' | 'طلب لاحق' | 'تم البيع' | 'شكوى' | 'رقم غير صحيح' | 'يحتاج مدير';
 
 const LIMIT = 220;
+const QUICK_RESULTS: QuickResult[] = ['تم التواصل', 'لم يرد', 'طلب لاحق', 'تم البيع', 'شكوى', 'رقم غير صحيح', 'يحتاج مدير'];
 const EMPTY_INSIGHTS: CustomerServiceInsightPools = {
   important: [],
   reduced: [],
@@ -136,7 +137,7 @@ function smartScore(row: SmartRow) {
   if (resolveCustomerBranch(row).needsReview) score += 60;
   if (row.virtual) score += 80;
   if (/عاجل|urgent|high/i.test(String(row.priority || ''))) score += 90;
-  if (/مهم جدًا|vip/i.test(segmentOf(row))) score += 75;
+  if (/مهم جدًا|مهم جدا|vip/i.test(segmentOf(row))) score += 75;
   if (/متوقف/i.test(String(row.customer_status || row.customer_metrics?.customer_status || ''))) score += 70;
   if (/مهدد/i.test(String(row.customer_status || row.customer_metrics?.customer_status || ''))) score += 60;
   score += Math.min(90, Math.round(totalSpent(row) / 2200));
@@ -206,6 +207,30 @@ function operationScript(row: SmartRow) {
   if (/vip|مهم جدًا|مهم جدا/i.test(segmentOf(row))) return `أهلا بحضرتك ${name}. مع حضرتك صيدليات دواء. حضرتك من عملائنا المميزين وبنطمن على احتياجاتك الشهرية. تحت أمر حضرتك في أي وقت.`;
   if (/متوقف|stop/i.test(String(row.customer_status || row.customer_metrics?.customer_status || ''))) return `أهلا بحضرتك ${name}. مع حضرتك صيدليات دواء. بنطمن على حضرتك لأن بقالنا فترة ما تشرفناش بتعاملك، ويهمنا نعرف لو في أي احتياج نقدر نوفره لحضرتك.`;
   return `أهلا بحضرتك ${name}. مع حضرتك صيدليات دواء. بنطمن على حضرتك بخصوص ${reason}. نتشرف بخدمة حضرتك دائمًا.`;
+}
+
+function quickResultSummary(row: SmartRow, result: QuickResult, note: string, nextStep: string) {
+  const parts = [
+    `نتيجة المتابعة: ${result}`,
+    `العميل: ${customerName(row)}`,
+    `الكود: ${getCustomerCodeSafe(row) || 'بدون كود'}`,
+    `الهاتف: ${phoneOf(row) || 'بدون رقم'}`,
+    `الإجراء المقترح: ${nextAction(row)}`,
+  ];
+  if (note.trim()) parts.push(`ملاحظة: ${note.trim()}`);
+  if (nextStep.trim()) parts.push(`الخطوة القادمة: ${nextStep.trim()}`);
+  return parts.join('\n');
+}
+
+function timelineFor(row: SmartRow) {
+  const items = [
+    { label: 'تاريخ إنشاء المتابعة', value: row.created_at },
+    { label: 'موعد المتابعة', value: dueAt(row) },
+    { label: 'آخر تواصل', value: row.contacted_at || row.updated_at },
+    { label: 'إغلاق/اكتمال', value: row.completed_at || row.closed_at },
+    { label: 'آخر شراء', value: row.customer_metrics?.last_purchase || row.last_purchase_date },
+  ].filter((item) => Boolean(item.value));
+  return items.length ? items : [{ label: 'سجل مختصر', value: 'لا توجد تواريخ كافية بعد' }];
 }
 
 function rowUrl(row: SmartRow, mode: 'details' | 'edit' = 'details') {
@@ -319,6 +344,9 @@ export default function CustomerServiceSmartLayer() {
   const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem('dawaa_cs_smart_layer_collapsed') === '1');
   const [fastMode, setFastMode] = useState(false);
   const [selectedKey, setSelectedKey] = useState('');
+  const [quickResult, setQuickResult] = useState<QuickResult>('تم التواصل');
+  const [quickNote, setQuickNote] = useState('');
+  const [nextStep, setNextStep] = useState('');
 
   useEffect(() => {
     try {
@@ -381,6 +409,9 @@ export default function CustomerServiceSmartLayer() {
   const nextSelectedRow = selectedIndex >= 0 ? topPriority[selectedIndex + 1] : null;
   const selectedBranch = selectedRow ? resolveCustomerBranch(selectedRow) : null;
   const selectedWhatsApp = selectedRow ? whatsappHref(selectedRow) : '';
+  const selectedTimeline = selectedRow ? timelineFor(selectedRow) : [];
+  const quickSummary = selectedRow ? quickResultSummary(selectedRow, quickResult, quickNote, nextStep) : '';
+  const completedPercent = openRows.length + completed.length ? Math.round((completed.length / (openRows.length + completed.length)) * 100) : 0;
 
   useEffect(() => {
     if (!selectedRow) return;
@@ -437,6 +468,24 @@ export default function CustomerServiceSmartLayer() {
     }
   };
 
+  const copyQuickResult = async () => {
+    if (!selectedRow) return;
+    try {
+      await navigator.clipboard.writeText(quickSummary);
+      toast.success('تم نسخ ملخص النتيجة، افتح تسجيل النتيجة الرسمي والصقه في الملاحظة');
+    } catch {
+      toast.info('انسخ ملخص النتيجة يدويًا');
+    }
+  };
+
+  const goNext = () => {
+    if (!nextSelectedRow) return;
+    setSelectedKey(canonicalKey(nextSelectedRow));
+    setQuickResult('تم التواصل');
+    setQuickNote('');
+    setNextStep('');
+  };
+
   return (
     <section className="customer-service-smart-layer mb-5 scroll-mt-24 rounded-3xl border border-cyan-400/30 bg-slate-950/55 p-4 pt-6 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -446,7 +495,7 @@ export default function CustomerServiceSmartLayer() {
           </span>
           <h2 className="mt-2 text-2xl font-black text-white">ابدأ من أهم عميل، وشغّل المتابعة من شاشة واحدة</h2>
           <p className="mt-1 text-sm font-bold text-slate-400">
-            قائمة أولوية + ملف مختصر + إجراءات سريعة + سكريبت واتساب جاهز. الهدف إن مسؤول خدمة العملاء ينجز المتابعة بدون تنقل زائد.
+            قائمة أولوية + ملف مختصر + إجراءات سريعة + سكريبت واتساب + تسجيل نتيجة سريع. الهدف إن مسؤول خدمة العملاء ينجز المتابعة بدون تنقل زائد.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -492,7 +541,7 @@ export default function CustomerServiceSmartLayer() {
         <MetricCard icon={<AlertTriangle className="h-5 w-5" />} label="متأخر" value={overdue.length} href="/customer-service?filter=overdue" danger />
         <MetricCard icon={<ShieldAlert className="h-5 w-5" />} label="يحتاج مدير" value={needsManager.length} href="/customer-service?tab=alerts" danger />
         <MetricCard icon={<Sparkles className="h-5 w-5" />} label="مقترحات ذكية" value={suggested.length} href="/customer-service?tab=strong" />
-        <MetricCard icon={<CheckCircle2 className="h-5 w-5" />} label="المكتمل" value={completed.length} href="/customer-service?tab=history" />
+        <MetricCard icon={<CheckCircle2 className="h-5 w-5" />} label="نسبة الإنجاز" value={`${completedPercent}%`} href="/customer-service?tab=history" />
         <MetricCard icon={<BarChart3 className="h-5 w-5" />} label="مبيعات بعد المتابعة" value={money(recoveredAmount)} href="/customer-service?tab=impact" />
       </div>
 
@@ -507,7 +556,7 @@ export default function CustomerServiceSmartLayer() {
                 </div>
                 {loading && <Loader2 className="h-5 w-5 animate-spin text-cyan-200" />}
               </div>
-              <div className="grid max-h-[680px] gap-2 overflow-y-auto pr-1">
+              <div className="grid max-h-[760px] gap-2 overflow-y-auto pr-1">
                 {topPriority.map((row, index) => {
                   const key = canonicalKey(row);
                   const active = selectedRow && canonicalKey(selectedRow) === key;
@@ -585,6 +634,18 @@ export default function CustomerServiceSmartLayer() {
                       {operationScript(selectedRow)}
                     </p>
                   </div>
+
+                  <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+                    <h4 className="font-black text-white">آخر أحداث مهمة</h4>
+                    <div className="mt-3 grid gap-2">
+                      {selectedTimeline.map((item) => (
+                        <div key={`${item.label}-${item.value}`} className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950/40 px-3 py-2 text-xs font-bold text-slate-200">
+                          <span>{item.label}</span>
+                          <span>{item.value === 'لا توجد تواريخ كافية بعد' ? item.value : formatDateTime(String(item.value))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -595,10 +656,58 @@ export default function CustomerServiceSmartLayer() {
                 <div className="mt-3 grid gap-2">
                   {selectedRow && selectedWhatsApp ? <a className="btn-primary text-center" href={selectedWhatsApp} target="_blank" rel="noreferrer">إرسال واتساب بالسكريبت</a> : <button type="button" className="btn-primary opacity-60" disabled>واتساب غير متاح</button>}
                   {selectedRow && phoneOf(selectedRow) ? <a className="btn-secondary text-center" href={`tel:${phoneOf(selectedRow)}`}>اتصال الآن</a> : <button type="button" className="btn-secondary opacity-60" disabled>لا يوجد رقم للاتصال</button>}
-                  {selectedRow && <SmartLink href={rowUrl(selectedRow, 'edit')} label={selectedRow.virtual ? 'إنشاء متابعة' : 'تسجيل نتيجة'} primary />}
+                  {selectedRow && <SmartLink href={rowUrl(selectedRow, 'edit')} label={selectedRow.virtual ? 'إنشاء متابعة' : 'تسجيل نتيجة رسمي'} primary />}
                   {selectedRow && <SmartLink href={rowUrl(selectedRow, 'details')} label="فتح ملف العميل" />}
                   {selectedRow && <SmartLink href="/customer-data-review" label="تصحيح بيانات العميل" />}
-                  {nextSelectedRow && <button type="button" className="btn-secondary" onClick={() => setSelectedKey(canonicalKey(nextSelectedRow))}>العميل التالي في الدور</button>}
+                  {nextSelectedRow && <button type="button" className="btn-secondary" onClick={goNext}>العميل التالي في الدور</button>}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+                <h3 className="font-black text-white">تسجيل نتيجة سريع</h3>
+                <p className="mt-1 text-xs font-bold text-emerald-100/80">اختر النتيجة واكتب ملاحظة، ثم انسخ الملخص وافتح التسجيل الرسمي.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {QUICK_RESULTS.map((result) => (
+                    <button
+                      key={result}
+                      type="button"
+                      className={`rounded-full border px-3 py-1 text-xs font-black ${quickResult === result ? 'border-emerald-200 bg-emerald-300/20 text-white' : 'border-emerald-300/20 bg-slate-950/40 text-emerald-100'}`}
+                      onClick={() => setQuickResult(result)}
+                    >
+                      {result}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  className="input-dark mt-3 min-h-[82px]"
+                  value={quickNote}
+                  onChange={(event) => setQuickNote(event.target.value)}
+                  placeholder="ملاحظة مختصرة: تم الاتصال، العميل طلب كذا، أو لم يرد بعد محاولتين..."
+                />
+                <input
+                  className="input-dark mt-2"
+                  value={nextStep}
+                  onChange={(event) => setNextStep(event.target.value)}
+                  placeholder="الخطوة القادمة أو موعد متابعة مقترح"
+                />
+                {selectedRow && (
+                  <div className="mt-3 rounded-xl border border-emerald-300/20 bg-slate-950/50 p-3 text-xs font-bold leading-6 text-emerald-50 whitespace-pre-line">
+                    {quickSummary}
+                  </div>
+                )}
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <button type="button" className="btn-primary" disabled={!selectedRow} onClick={() => void copyQuickResult()}>نسخ ملخص النتيجة</button>
+                  {selectedRow ? <SmartLink href={rowUrl(selectedRow, 'edit')} label="فتح التسجيل الرسمي" /> : <button type="button" className="btn-secondary opacity-60" disabled>فتح التسجيل الرسمي</button>}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-4">
+                <h3 className="font-black text-white">قائمة جودة قبل الإغلاق</h3>
+                <div className="mt-3 grid gap-2 text-xs font-bold">
+                  <ChecklistItem ok={Boolean(selectedRow && hasValidPhone(selectedRow))} label="رقم العميل صالح" />
+                  <ChecklistItem ok={Boolean(selectedRow && getCustomerCodeSafe(selectedRow))} label="كود العميل موجود" />
+                  <ChecklistItem ok={Boolean(selectedRow && !resolveCustomerBranch(selectedRow).needsReview)} label="الفرع مؤكد" />
+                  <ChecklistItem ok={Boolean(selectedRow && !isOverdue(selectedRow))} label="ليست متأخرة أو تم التعامل معها" />
                 </div>
               </div>
 
@@ -607,8 +716,8 @@ export default function CustomerServiceSmartLayer() {
                 <div className="mt-3 space-y-2 text-xs font-bold text-slate-300">
                   <p>1) راجع الملخص والسكريبت.</p>
                   <p>2) اضغط واتساب أو اتصال.</p>
-                  <p>3) سجل النتيجة.</p>
-                  <p>4) انتقل تلقائيًا للعميل التالي.</p>
+                  <p>3) انسخ ملخص النتيجة وافتح التسجيل الرسمي.</p>
+                  <p>4) انتقل للعميل التالي.</p>
                 </div>
                 <button type="button" className={fastMode ? 'btn-primary mt-3 w-full' : 'btn-secondary mt-3 w-full'} onClick={() => setFastMode((value) => !value)}>
                   {fastMode ? 'إيقاف التشغيل السريع' : 'تشغيل الوضع السريع'}
@@ -680,6 +789,14 @@ function MiniStat({ label, value, danger }: { label: string; value: string | num
     <div className={`rounded-xl border px-3 py-2 ${danger ? 'border-amber-400/30 bg-amber-500/10' : 'border-slate-700 bg-slate-900/70'}`}>
       <div className="text-[11px] font-black text-slate-400">{label}</div>
       <div className="mt-1 text-lg font-black text-white">{value}</div>
+    </div>
+  );
+}
+
+function ChecklistItem({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${ok ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100' : 'border-amber-400/30 bg-amber-500/10 text-amber-100'}`}>
+      {ok ? '✓' : '•'} {label}
     </div>
   );
 }
