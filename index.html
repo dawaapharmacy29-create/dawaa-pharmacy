@@ -44,6 +44,36 @@
     <script>
       // Emergency recovery when a stale service worker/cache or startup JS error leaves a blank screen.
       (function () {
+        function goLogin() {
+          window.location.href = '/login?_recovery=' + Date.now();
+        }
+        function cleanBestEffort() {
+          try {
+            sessionStorage.clear();
+          } catch (e) {}
+          try {
+            var remove = [];
+            for (var i = 0; i < localStorage.length; i++) {
+              var k = localStorage.key(i);
+              if (k && (k.indexOf('dawaa_') === 0 || k.indexOf('sb-') === 0 || k.indexOf('supabase') !== -1)) remove.push(k);
+            }
+            remove.forEach(function (k) { localStorage.removeItem(k); });
+          } catch (e) {}
+          try {
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                regs.forEach(function (reg) { try { reg.unregister(); } catch (e) {} });
+              }).catch(function () {});
+            }
+          } catch (e) {}
+          try {
+            if ('caches' in window) {
+              caches.keys().then(function (keys) {
+                keys.forEach(function (key) { try { caches.delete(key); } catch (e) {} });
+              }).catch(function () {});
+            }
+          } catch (e) {}
+        }
         function showRecovery(force) {
           if (document.getElementById('dawaa-emergency-recovery')) return;
           var root = document.getElementById('root');
@@ -55,33 +85,16 @@
           box.id = 'dawaa-emergency-recovery';
           box.dir = 'rtl';
           box.style.cssText = 'position:fixed;left:24px;bottom:24px;z-index:999999;max-width:390px;background:#0f1b2d;color:#e5f7ff;border:1px solid rgba(45,212,191,.45);border-radius:18px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.45);font-family:Cairo,Tahoma,sans-serif;line-height:1.8';
-          box.innerHTML = '<b style="display:block;margin-bottom:6px;color:#2dd4bf">إصلاح تحميل التطبيق</b><span style="font-size:13px;color:#b7c7d8">ظهر توقف أو شاشة سوداء. اضغط إصلاح التحميل لمسح الكاش وفتح صفحة الدخول بأمان.</span><button id="dawaa-recover-btn" style="margin-top:12px;width:100%;border:0;border-radius:12px;background:#2dd4bf;color:#06202a;font-weight:900;padding:10px;cursor:pointer">إصلاح التحميل الآن</button><button id="dawaa-login-btn" style="margin-top:8px;width:100%;border:1px solid rgba(45,212,191,.35);border-radius:12px;background:transparent;color:#dff;font-weight:900;padding:9px;cursor:pointer">فتح تسجيل الدخول فقط</button>';
+          box.innerHTML = '<b style="display:block;margin-bottom:6px;color:#2dd4bf">إصلاح تحميل التطبيق</b><span style="font-size:13px;color:#b7c7d8">ظهر توقف أو شاشة سوداء. زر الإصلاح ينقلك فورًا لتسجيل الدخول ثم ينظف الكاش في الخلفية.</span><a id="dawaa-recover-btn" href="/login" style="display:block;margin-top:12px;width:100%;box-sizing:border-box;text-align:center;text-decoration:none;border:0;border-radius:12px;background:#2dd4bf;color:#06202a;font-weight:900;padding:10px;cursor:pointer">إصلاح التحميل وفتح الدخول</a><a id="dawaa-login-btn" href="/login" style="display:block;margin-top:8px;width:100%;box-sizing:border-box;text-align:center;text-decoration:none;border:1px solid rgba(45,212,191,.35);border-radius:12px;background:transparent;color:#dff;font-weight:900;padding:9px;cursor:pointer">فتح تسجيل الدخول فقط</a>';
           document.body.appendChild(box);
-          document.getElementById('dawaa-login-btn').onclick = function () {
-            location.replace('/login?_recovery=' + Date.now());
+          document.getElementById('dawaa-login-btn').onclick = function (event) {
+            event.preventDefault();
+            goLogin();
           };
-          document.getElementById('dawaa-recover-btn').onclick = async function () {
-            try {
-              if ('caches' in window) {
-                var keys = await caches.keys();
-                await Promise.all(keys.map(function (key) { return caches.delete(key); }));
-              }
-              if ('serviceWorker' in navigator) {
-                var regs = await navigator.serviceWorker.getRegistrations();
-                await Promise.all(regs.map(function (reg) { return reg.unregister(); }));
-              }
-              try {
-                var remove = [];
-                for (var i = 0; i < localStorage.length; i++) {
-                  var k = localStorage.key(i);
-                  if (k && (k.indexOf('dawaa_') === 0 || k.indexOf('sb-') === 0 || k.indexOf('supabase') !== -1)) remove.push(k);
-                }
-                remove.forEach(function (k) { localStorage.removeItem(k); });
-                sessionStorage.clear();
-              } catch (e) {}
-            } finally {
-              location.replace('/login?_recovery=' + Date.now());
-            }
+          document.getElementById('dawaa-recover-btn').onclick = function (event) {
+            event.preventDefault();
+            cleanBestEffort();
+            window.setTimeout(goLogin, 50);
           };
         }
         window.addEventListener('error', function () { setTimeout(function () { showRecovery(true); }, 0); });
