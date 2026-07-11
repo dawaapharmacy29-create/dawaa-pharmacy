@@ -1,14 +1,14 @@
 import CustomerServiceModalSafety from '@/components/customerService/CustomerServiceModalSafety';
-import CustomerServiceOperatingCenterV2 from '@/components/customerService/CustomerServiceOperatingCenterV2';
+import CustomerServiceSmartLayer from '@/components/customerService/CustomerServiceSmartLayer';
 import CustomerServiceClassic from './CustomerService';
 
-// Keep the established customer-service page, but put a cleaner operating center above it.
-// The center is intentionally focused: priority queue, customer file, caring script, and quick result.
+// Keep the established customer-service page and restore the stable smart layer above it.
+// The full classic page remains underneath with reports, CSV exports, scripts, reviews, history, and analytics.
 export default function SmartCustomerService() {
   return (
     <div className="customer-service-page smart-customer-service-shell" dir="rtl">
       <CustomerServiceModalSafety />
-      <CustomerServiceOperatingCenterV2 />
+      <CustomerServiceSmartLayer />
       <CustomerServiceClassic />
     </div>
   );
