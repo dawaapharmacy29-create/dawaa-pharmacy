@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, BarChart3, CheckCircle2, Clock, Loader2, RefreshCw, Search, ShieldAlert, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -25,7 +25,10 @@ type SmartRow = FollowupRow & {
   smart_score?: number;
   source_type?: string | null;
 };
+
 type MixRow = { source_type: string; rows_count: number; open_count: number; completed_count: number };
+
+type WarningItem = { id: string; text: string; href?: string; tone?: 'amber' | 'red' | 'cyan' };
 
 const LIMIT = 220;
 const EMPTY_INSIGHTS: CustomerServiceInsightPools = {
@@ -102,6 +105,15 @@ function minutesLate(row: FollowupRow) {
   return Math.max(0, Math.floor((Date.now() - new Date(raw).getTime()) / 60_000));
 }
 
+function delayLabel(row: FollowupRow) {
+  const minutes = minutesLate(row);
+  if (!minutes) return 'في الموعد';
+  if (minutes < 60) return `${minutes} دقيقة`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ساعة`;
+  return `${Math.floor(hours / 24)} يوم`;
+}
+
 function hasValidPhone(row: FollowupRow) {
   const phone = phoneOf(row);
   return Boolean(phone && isValidEgyptPhone(phone, getCustomerCodeSafe(row)));
@@ -120,6 +132,8 @@ function smartScore(row: SmartRow) {
   if (isOverdue(row)) score += 250 + Math.min(150, minutesLate(row));
   if (row.needs_manager) score += 180;
   if (!hasValidPhone(row)) score += 120;
+  if (!getCustomerCodeSafe(row)) score += 95;
+  if (resolveCustomerBranch(row).needsReview) score += 60;
   if (row.virtual) score += 80;
   if (/عاجل|urgent|high/i.test(String(row.priority || ''))) score += 90;
   if (/مهم جدًا|vip/i.test(segmentOf(row))) score += 75;
@@ -162,9 +176,20 @@ function rowSource(row: SmartRow) {
   return 'متابعة مفتوحة';
 }
 
+function sourceKey(row: SmartRow) {
+  if (row.source_type) return String(row.source_type);
+  if (row.virtual || row.smart_source) return 'smart_suggestion';
+  if (row.request_type || row.request_details) return 'quick_followup';
+  if (row.next_followup_date || row.postponed_until) return 'scheduled_followup';
+  if (isOverdue(row)) return 'carried_over';
+  return 'daily_core';
+}
+
 function nextAction(row: SmartRow) {
   if (row.virtual) return 'حوّله لمتابعة الآن واتصل بالعميل';
   if (!hasValidPhone(row)) return 'صحّح رقم العميل قبل أي تواصل';
+  if (!getCustomerCodeSafe(row)) return 'راجع كود العميل قبل إغلاق المتابعة';
+  if (resolveCustomerBranch(row).needsReview) return 'راجع الفرع قبل الإسناد النهائي';
   if (row.needs_manager) return 'تصعيد ومراجعة مدير الفرع';
   if (isOverdue(row)) return 'تواصل عاجل وسجل نتيجة واضحة';
   if (row.postponed_until) return `انتظار الموعد المؤجل: ${formatDateTime(row.postponed_until)}`;
@@ -186,8 +211,9 @@ function sourceLabel(source: string) {
     daily_core: 'الأساسي اليومي',
     quick_followup: 'السريع',
     scheduled_followup: 'المجدول',
-    carried_over: 'المرحّل',
+    carried_over: 'المرحّل / المتأخر',
     doctor_requested_followup: 'طلبات الدكاترة',
+    smart_suggestion: 'مقترحات ذكية',
     unknown: 'غير محدد',
   };
   return labels[source] || source || 'غير محدد';
@@ -216,6 +242,19 @@ async function fetchMix(branch: string) {
   } catch {
     return [];
   }
+}
+
+function buildFallbackMix(rows: SmartRow[]): MixRow[] {
+  const grouped = new Map<string, MixRow>();
+  for (const row of rows) {
+    const key = sourceKey(row);
+    const current = grouped.get(key) || { source_type: key, rows_count: 0, open_count: 0, completed_count: 0 };
+    current.rows_count += 1;
+    if (isCompleted(row)) current.completed_count += 1;
+    else current.open_count += 1;
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].sort((a, b) => b.rows_count - a.rows_count);
 }
 
 async function generateCoreDailyQueue(branch: string, userName: string) {
@@ -261,6 +300,17 @@ export default function CustomerServiceSmartLayer() {
   const [generating, setGenerating] = useState(false);
   const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem('dawaa_cs_smart_layer_collapsed') === '1');
 
+  useEffect(() => {
+    try {
+      window.sessionStorage.removeItem('dawaa_scroll_/customer-service');
+      window.sessionStorage.removeItem('dawaa_scroll/customer-service');
+      window.sessionStorage.removeItem('dawaa_scroll__customer-service');
+    } catch {
+      // ignore storage access issues
+    }
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
+  }, []);
+
   const scopedBranch = useMemo(() => {
     const scopedUser = { role: userRole, branch: user?.branch || '' };
     return canAllBranches ? effectiveBranchFilter(scopedUser, branch, ALL_FILTER) : normalizeBranchName(user?.branch || '') || ALL_FILTER;
@@ -294,10 +344,30 @@ export default function CustomerServiceSmartLayer() {
   const overdue = useMemo(() => openRows.filter(isOverdue), [openRows]);
   const needsManager = useMemo(() => openRows.filter((row) => row.needs_manager), [openRows]);
   const dataIssues = useMemo(() => openRows.filter((row) => !hasValidPhone(row) || !getCustomerCodeSafe(row)), [openRows]);
+  const branchIssues = useMemo(() => openRows.filter((row) => resolveCustomerBranch(row).needsReview), [openRows]);
   const scheduled = useMemo(() => openRows.filter((row) => row.next_followup_date || row.postponed_until), [openRows]);
   const suggested = useMemo(() => openRows.filter((row) => row.virtual), [openRows]);
   const completed = useMemo(() => rows.filter(isCompleted), [rows]);
   const recoveredAmount = useMemo(() => rows.reduce((sum, row) => sum + Number(row.purchase_amount || 0), 0), [rows]);
+  const displayMix = useMemo(() => (mix.length ? mix : buildFallbackMix(smartRows)), [mix, smartRows]);
+  const branchDistribution = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of smartRows) {
+      const branchName = resolveCustomerBranch(row).branch || 'غير محدد';
+      map.set(branchName, (map.get(branchName) || 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+  }, [smartRows]);
+  const warnings = useMemo<WarningItem[]>(() => {
+    const list: WarningItem[] = [];
+    if (overdue.length > 0) list.push({ id: 'overdue', text: `${overdue.length} متابعة متأخرة: افتحها وسجل نتيجة أو سبب تأجيل.`, href: '/customer-service?filter=overdue', tone: 'red' });
+    if (needsManager.length > 0) list.push({ id: 'manager', text: `${needsManager.length} متابعة تحتاج تدخل مدير الفرع.`, href: '/customer-service?tab=alerts', tone: 'red' });
+    if (dataIssues.length > 0) list.push({ id: 'data', text: `${dataIssues.length} عميل لديه كود/رقم يحتاج مراجعة.`, href: '/customer-data-review', tone: 'amber' });
+    if (branchIssues.length > 0) list.push({ id: 'branch', text: `${branchIssues.length} عميل يحتاج مراجعة الفرع.`, href: '/customer-data-review', tone: 'amber' });
+    if (scheduled.length > 0) list.push({ id: 'scheduled', text: `${scheduled.length} متابعة مجدولة أو مؤجلة يجب احترام موعدها.`, href: '/customer-service?tab=today', tone: 'cyan' });
+    insights.warnings.forEach((warning, index) => list.push({ id: `insight-${index}`, text: warning, tone: 'amber' }));
+    return list;
+  }, [branchIssues.length, dataIssues.length, insights.warnings, needsManager.length, overdue.length, scheduled.length]);
 
   const generateToday = async () => {
     setGenerating(true);
@@ -319,7 +389,7 @@ export default function CustomerServiceSmartLayer() {
   };
 
   return (
-    <section className="customer-service-smart-layer mb-5 rounded-3xl border border-cyan-400/30 bg-slate-950/55 p-4 shadow-xl" dir="rtl">
+    <section className="customer-service-smart-layer mb-5 scroll-mt-24 rounded-3xl border border-cyan-400/30 bg-slate-950/55 p-4 pt-6 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-100">
@@ -327,7 +397,7 @@ export default function CustomerServiceSmartLayer() {
           </span>
           <h2 className="mt-2 text-2xl font-black text-white">ابدأ من أهم عميل، وسجل نتيجة، ولا تترك متابعة تفلت</h2>
           <p className="mt-1 text-sm font-bold text-slate-400">
-            هذه الطبقة لا تلغي أدوات الصفحة القديمة؛ هي ترتب العمل وتفتح لك المكان الصحيح داخل نفس الصفحة: إنشاء، تعديل، سجل، تقارير، تصدير، قوالب، وتحليل.
+            هذه الطبقة ترتب العمل اليومي وتجمع إنشاء المتابعات، التسجيل، القوالب، التحليل، ومراجعة البيانات في شاشة واحدة واضحة.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -402,7 +472,7 @@ export default function CustomerServiceSmartLayer() {
                     <span>الأولوية: {smartScore(row)}</span>
                     <span>إجمالي: {money(totalSpent(row))}</span>
                     <span>خطورة: {riskLevel(row)}</span>
-                    <span className={isOverdue(row) ? 'text-red-200' : ''}>{isOverdue(row) ? `متأخر ${minutesLate(row)} دقيقة` : formatDateTime(dueAt(row))}</span>
+                    <span className={isOverdue(row) ? 'text-red-200' : ''}>{isOverdue(row) ? `متأخر ${delayLabel(row)}` : formatDateTime(dueAt(row))}</span>
                     <span className={!hasValidPhone(row) ? 'text-amber-200' : ''}>{hasValidPhone(row) ? 'رقم صالح' : 'رقم يحتاج مراجعة'}</span>
                   </div>
                   <p className="mt-2 rounded-xl border border-slate-700 bg-slate-950/50 p-2 text-xs font-bold leading-6 text-slate-200">{nextAction(row)}</p>
@@ -420,26 +490,39 @@ export default function CustomerServiceSmartLayer() {
           <div className="space-y-4">
             <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
               <h3 className="font-black text-white">توزيع قائمة اليوم</h3>
-              <p className="text-xs font-bold text-slate-400">يوضح هل العدد فوق 60 بسبب السريع/المجدول/المرحّل، وليس تكرار عشوائي.</p>
+              <p className="text-xs font-bold text-slate-400">توزيع عملي من بيانات الصفحة الحالية، ويستبدل تلقائيًا بالتوزيع الدقيق عند توفر view التحليل اليومية.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <MiniStat label="إجمالي القائمة" value={smartRows.length} />
+                <MiniStat label="مفتوح" value={openRows.length} />
+                <MiniStat label="متأخر" value={overdue.length} danger />
+                <MiniStat label="VIP / مقترح" value={suggested.length} />
+                <MiniStat label="بدون كود/رقم" value={dataIssues.length} danger />
+                <MiniStat label="فرع غير مؤكد" value={branchIssues.length} danger />
+              </div>
               <div className="mt-3 space-y-2">
-                {mix.map((item) => (
+                {displayMix.map((item) => (
                   <div key={item.source_type} className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-bold text-slate-200">
                     <span>{sourceLabel(item.source_type)}</span>
                     <span>إجمالي {item.rows_count} · مفتوح {item.open_count} · مكتمل {item.completed_count}</span>
                   </div>
                 ))}
-                {!mix.length && <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100">طبّق migration الخاصة بـ customer_service_daily_queue_mix_v1 لعرض التوزيع الدقيق. حتى ذلك الوقت، الصفحة تعمل من البيانات الأساسية.</div>}
+                {!displayMix.length && <div className="rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-3 text-center text-xs font-bold text-slate-300">لا توجد بيانات كافية لتوزيع قائمة اليوم حاليًا.</div>}
               </div>
+              {!!branchDistribution.length && (
+                <div className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-500/10 p-3 text-xs font-bold text-cyan-100">
+                  <div className="mb-2 text-white">توزيع الفروع</div>
+                  <div className="flex flex-wrap gap-2">
+                    {branchDistribution.map(([branchName, count]) => <span key={branchName} className="rounded-full border border-cyan-300/25 px-3 py-1">{branchName}: {count}</span>)}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
               <h3 className="font-black text-white">تنبيهات تشغيلية</h3>
               <div className="mt-3 grid gap-2 text-xs font-bold text-slate-200">
-                <SmartWarning active={overdue.length > 0} text={`${overdue.length} متابعة متأخرة: افتحها وسجل نتيجة أو سبب تأجيل.`} />
-                <SmartWarning active={needsManager.length > 0} text={`${needsManager.length} متابعة تحتاج تدخل مدير الفرع.`} />
-                <SmartWarning active={dataIssues.length > 0} text={`${dataIssues.length} عميل لديه كود/رقم يحتاج مراجعة.`} />
-                <SmartWarning active={scheduled.length > 0} text={`${scheduled.length} متابعة مجدولة أو مؤجلة يجب احترام موعدها.`} />
-                {insights.warnings.map((warning) => <SmartWarning key={warning} active text={warning} />)}
+                {warnings.map((warning) => <SmartWarning key={warning.id} {...warning} />)}
+                {!warnings.length && <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-emerald-100">لا توجد تنبيهات تشغيلية حاليًا</div>}
               </div>
             </div>
           </div>
@@ -449,7 +532,7 @@ export default function CustomerServiceSmartLayer() {
   );
 }
 
-function MetricCard({ icon, label, value, href, danger }: { icon: React.ReactNode; label: string; value: string | number; href: string; danger?: boolean }) {
+function MetricCard({ icon, label, value, href, danger }: { icon: ReactNode; label: string; value: string | number; href: string; danger?: boolean }) {
   return (
     <a href={href} className={`rounded-2xl border p-3 transition ${danger ? 'border-red-400/30 bg-red-500/10 hover:border-red-300' : 'border-slate-700 bg-slate-900/70 hover:border-cyan-400/40'}`}>
       <div className="flex items-center justify-between gap-2 text-xs font-black text-slate-400">
@@ -461,14 +544,25 @@ function MetricCard({ icon, label, value, href, danger }: { icon: React.ReactNod
   );
 }
 
+function MiniStat({ label, value, danger }: { label: string; value: string | number; danger?: boolean }) {
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${danger ? 'border-amber-400/30 bg-amber-500/10' : 'border-slate-700 bg-slate-900/70'}`}>
+      <div className="text-[11px] font-black text-slate-400">{label}</div>
+      <div className="mt-1 text-lg font-black text-white">{value}</div>
+    </div>
+  );
+}
+
 function SmartLink({ href, label, primary }: { href: string; label: string; primary?: boolean }) {
   return <a className={primary ? 'btn-primary px-3 py-2 text-xs' : 'btn-secondary px-3 py-2 text-xs'} href={href}>{label}</a>;
 }
 
-function SmartWarning({ active, text }: { active: boolean; text: string }) {
-  return (
-    <div className={`rounded-xl border px-3 py-2 ${active ? 'border-amber-400/30 bg-amber-500/10 text-amber-100' : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'}`}>
-      {active ? text : 'لا يوجد تنبيه حاليًا'}
-    </div>
-  );
+function SmartWarning({ text, href, tone = 'amber' }: WarningItem) {
+  const toneClass = tone === 'red'
+    ? 'border-red-400/30 bg-red-500/10 text-red-100'
+    : tone === 'cyan'
+      ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'
+      : 'border-amber-400/30 bg-amber-500/10 text-amber-100';
+  const content = <div className={`rounded-xl border px-3 py-2 ${toneClass}`}>{text}</div>;
+  return href ? <a href={href} className="block hover:brightness-110">{content}</a> : content;
 }
