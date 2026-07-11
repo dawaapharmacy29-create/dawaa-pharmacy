@@ -29,6 +29,7 @@ import {
   rowMatchesCurrentDoctor,
   rowMatchesCurrentUserScope,
 } from '@/lib/security/userDataScope';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
   calculateIncentive,
   POINT_VALUE_EGP,
@@ -43,6 +44,7 @@ import {
 import StaffOperatingPolicy from '@/components/incentives/StaffOperatingPolicy';
 import { toast } from 'sonner';
 import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
+import { useNotifications } from '@/hooks/useNotifications';
 import {
   completeTask,
   fetchEmployeeTasks,
@@ -122,7 +124,7 @@ interface StaffOption {
 }
 
 function canInspectTeam(role?: string) {
-  return role === 'أدمن' || role === 'مدير عام' || role === 'مدير فرع';
+  return ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager'].includes(normalizeRole(role));
 }
 
 function openMonthlyPdfReport(
@@ -168,6 +170,7 @@ export default function DoctorDashboard() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedStaffId, setSelectedStaffId] = useState('');
   const isManagerView = isManagerRole(user) || canInspectTeam(user?.role);
+  const isDoctorOnlyView = normalizeRole(user?.role) === 'pharmacist' && !isManagerView;
 
   const { data: staffOptions } = useSupabaseQuery<StaffOption>({
     table: 'staff',
@@ -190,15 +193,35 @@ export default function DoctorDashboard() {
       );
     return (
       scopedStaffOptions.find((item) => item.id === selectedStaffId) ||
-      staffOptions.find((item) => item.role === 'صيدلاني') ||
+      scopedStaffOptions.find((item) => normalizeRole(item.role) === 'pharmacist') ||
       scopedStaffOptions[0] ||
       null
     );
   }, [isManagerView, scopedStaffOptions, selectedStaffId, user?.id, user?.name, user?.staffId]);
 
+  useEffect(() => {
+    if (!isManagerView) {
+      setSelectedStaffId(user?.staffId || user?.id || '');
+      return;
+    }
+    if (selectedStaffId && scopedStaffOptions.some((item) => item.id === selectedStaffId)) return;
+    setSelectedStaffId(scopedStaffOptions[0]?.id || '');
+  }, [isManagerView, scopedStaffOptions, selectedStaffId, user?.id, user?.staffId]);
+
   const effectiveId = selectedStaff?.id || user?.staffId || user?.id || '';
   const effectiveName = selectedStaff?.name || user?.name || '';
   const effectiveBranch = selectedStaff?.branch || user?.branch || '';
+  const canReadSelectedStaff =
+    canViewAllBranches(user) ||
+    (isDoctorOnlyView
+      ? rowMatchesCurrentDoctor(user, {
+          staff_id: effectiveId,
+          employee_id: effectiveId,
+          staff_name: effectiveName,
+          employee_name: effectiveName,
+          branch: effectiveBranch,
+        })
+      : canViewBranchData(user, effectiveBranch));
 
   const {
     data: metrics,
@@ -279,6 +302,13 @@ export default function DoctorDashboard() {
   const discountBalance = incentiveSummary.approvedDeductionPoints;
   const expectedIncentive = calculateIncentive(pointsBalance);
   const pendingShiftNotes = usePendingShiftNotesCount();
+  const {
+    notifications,
+    loading: notificationsLoading,
+    available: notificationsAvailable,
+    handleNotificationClick,
+  } = useNotifications();
+  const latestNotifications = notifications.slice(0, 5);
   const todayIso = new Date().toISOString().slice(0, 10);
 
   const [todayTasks, setTodayTasks] = useState<EmployeeDailyTask[]>([]);
@@ -449,6 +479,18 @@ export default function DoctorDashboard() {
     );
   }
 
+  if (!canReadSelectedStaff) {
+    return (
+      <div className="stat-card py-16 text-center">
+        <AlertCircle className="mx-auto mb-4 text-amber-400" size={48} />
+        <div className="text-lg font-black text-white">لا يمكن عرض بيانات هذا الموظف</div>
+        <div className="mt-2 text-sm text-slate-400">
+          الدكتور يرى بياناته فقط، ومدير الفرع يرى بيانات فرعه فقط.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-teal-400/20 bg-[#10213a] p-5">
@@ -471,6 +513,41 @@ export default function DoctorDashboard() {
           تعذر تحميل البيانات
         </div>
       )}
+
+      <div className="stat-card">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-white font-bold">
+            <AlertCircle size={18} className="text-teal-400" />
+            آخر التنبيهات
+          </div>
+          <span className="rounded-full bg-white/10 px-2 py-1 text-xs text-slate-300">
+            {latestNotifications.length}
+          </span>
+        </div>
+        {notificationsLoading ? (
+          <div className="text-sm text-slate-400">جاري تحميل التنبيهات...</div>
+        ) : !notificationsAvailable ? (
+          <div className="text-sm text-amber-300">تعذر الاتصال بمصدر التنبيهات، وسيستمر التطبيق في العمل.</div>
+        ) : latestNotifications.length === 0 ? (
+          <div className="text-sm text-slate-400">لا توجد تنبيهات جديدة ضمن صلاحياتك.</div>
+        ) : (
+          <div className="space-y-2">
+            {latestNotifications.map((notification) => (
+              <button
+                key={notification.id}
+                type="button"
+                onClick={() => handleNotificationClick(notification)}
+                className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-right hover:bg-white/10"
+              >
+                <div className="font-bold text-white">{notification.title || notification.type || 'تنبيه'}</div>
+                <div className="mt-1 line-clamp-2 text-xs text-slate-400">
+                  {notification.body || notification.message || 'لا توجد تفاصيل إضافية'}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <MetricCard icon={DollarSign} label="مبيعاتي اليوم" value={salesError || !salesSummary ? '—' : formatCurrency(salesSummary.dailySales)} sub="" color="teal" textValue />
@@ -567,7 +644,7 @@ export default function DoctorDashboard() {
               className="input-dark md:w-72"
             >
           {scopedStaffOptions
-                .filter((item) => ['صيدلاني', 'توصيل', 'مساعد'].includes(item.role))
+                .filter((item) => ['pharmacist', 'delivery', 'assistant'].includes(normalizeRole(item.role)))
                 .map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name} - {item.role} - {item.branch}

@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import type { AppNotification } from '@/lib/notificationService';
 import { saveNotificationSettings, useNotifications } from '@/hooks/useNotifications';
+import { normalizeRole } from '@/lib/core/permissionSystem';
+import { normalizeBranchName } from '@/lib/branch';
 
 interface NotifItem {
   id: string;
@@ -119,9 +121,10 @@ function inferNotificationRoute(n: Partial<NotifItem & AppNotification>) {
 function canSeeNotification(item: AppNotification, user: ReturnType<typeof useAuth>['user']) {
   if (!user) return false;
   const safeUserId = getSafeCurrentUserId();
-  const role = user.role || '';
-  const isAdmin = ['مدير عام', 'المدير العام', 'admin', 'أدمن', 'general_manager'].includes(role);
-  const isBranchManager = role === 'مدير فرع' || role === 'branch_manager';
+  const role = normalizeRole(user.role);
+  const userBranch = normalizeBranchName(user.branch || '');
+  const isAdmin = ['general_manager', 'executive_manager', 'branches_manager'].includes(role);
+  const isBranchManager = ['branch_manager', 'customer_service_manager', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(role);
 
   if (isAdmin) return true;
   if (item.user_id && (item.user_id === user.id || item.user_id === safeUserId)) return true;
@@ -131,14 +134,14 @@ function canSeeNotification(item: AppNotification, user: ReturnType<typeof useAu
   )
     return true;
   if (item.recipient_staff_id && item.recipient_staff_id === user.staffId) return true;
-  if (item.recipient_role && item.recipient_role === role) return true;
-  if (isBranchManager && item.branch && item.branch === user.branch) return true;
+  if (item.recipient_role && normalizeRole(item.recipient_role) === role) return true;
+  if (isBranchManager && item.branch && normalizeBranchName(item.branch) === userBranch) return true;
   return (
     !item.user_id &&
     !item.recipient_user_id &&
     !item.recipient_staff_id &&
     !item.recipient_role &&
-    (!item.branch || item.branch === user.branch)
+    (!item.branch || normalizeBranchName(item.branch) === userBranch)
   );
 }
 

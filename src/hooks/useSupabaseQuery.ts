@@ -44,6 +44,8 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
         else if (f.operator === 'ilike') query = query.ilike(f.column, String(f.value));
         else if (f.operator === 'gte') query = query.gte(f.column, f.value);
         else if (f.operator === 'lte') query = query.lte(f.column, f.value);
+        else if (f.operator === 'in') query = query.in(f.column, Array.isArray(f.value) ? f.value : [f.value]);
+        else if (f.operator === 'neq') query = query.neq(f.column, f.value);
       }
     }
 

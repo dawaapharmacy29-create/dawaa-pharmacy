@@ -890,6 +890,7 @@ export default function ExecutiveDashboard2027() {
   const [dailyChartMetric, setDailyChartMetric] = useState<DailyChartMetric>('sales');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [initialLoadTimedOut, setInitialLoadTimedOut] = useState(false);
   // Per-section loading / error / loadedAt
   const [salesKPILoading, setSalesKPILoading] = useState(false);
   const [salesKPIError, setSalesKPIError] = useState<string | null>(null);
@@ -1099,6 +1100,7 @@ export default function ExecutiveDashboard2027() {
 
     // orchestrate independent section fetches
     setLoading(true);
+    setInitialLoadTimedOut(false);
     setLoadError(null);
     const errors: string[] = [];
 
@@ -1249,7 +1251,7 @@ export default function ExecutiveDashboard2027() {
     try {
       setStaffAttendanceLoading(true);
       try {
-        const [staffResult, scheduleResult, currentPresence] = await Promise.all([
+        const [staffResult, scheduleResult, presenceResult] = await Promise.allSettled([
           supabase
             .from('staff')
             .select('id,staff_id,name,staff_name,role,branch,status,active,is_active')
@@ -1260,8 +1262,14 @@ export default function ExecutiveDashboard2027() {
             .limit(1200),
           fetchCurrentShiftPresence(),
         ]);
-        const staffDirectory = ((staffResult.data || []) as StaffDirectoryRow[]).filter(isActiveStaff);
-        const scheduleRows = (scheduleResult.data || []) as ShiftScheduleRow[];
+        if (staffResult.status === 'rejected') errors.push(`staff: ${staffResult.reason instanceof Error ? staffResult.reason.message : String(staffResult.reason)}`);
+        if (scheduleResult.status === 'rejected') errors.push(`shift_schedules: ${scheduleResult.reason instanceof Error ? scheduleResult.reason.message : String(scheduleResult.reason)}`);
+        if (presenceResult.status === 'rejected') errors.push(`current presence: ${presenceResult.reason instanceof Error ? presenceResult.reason.message : String(presenceResult.reason)}`);
+        if (staffResult.status === 'fulfilled' && staffResult.value.error) errors.push(`staff: ${staffResult.value.error.message}`);
+        if (scheduleResult.status === 'fulfilled' && scheduleResult.value.error) errors.push(`shift_schedules: ${scheduleResult.value.error.message}`);
+
+        const staffDirectory = (staffResult.status === 'fulfilled' ? ((staffResult.value.data || []) as StaffDirectoryRow[]) : []).filter(isActiveStaff);
+        const scheduleRows = scheduleResult.status === 'fulfilled' ? ((scheduleResult.value.data || []) as ShiftScheduleRow[]) : [];
         const todayName = DAYS_AR[new Date().getDay()];
         const scheduleByKey = new Map<string, ShiftScheduleRow>();
         for (const row of scheduleRows) {
@@ -1288,6 +1296,10 @@ export default function ExecutiveDashboard2027() {
         const onShiftNow = scheduledToday.filter((member) =>
           isCurrentlyOnShift(member.shift_start || '', member.shift_end || '')
         );
+        const currentPresence =
+          presenceResult.status === 'fulfilled'
+            ? presenceResult.value
+            : { doctors: [], assistants: [], delivery: [] };
         const presenceRows = [
           ...currentPresence.doctors,
           ...currentPresence.assistants,
@@ -1356,7 +1368,13 @@ export default function ExecutiveDashboard2027() {
     void load();
   }, [load, user?.id]);
 
-  const showInitialSkeleton = loading && !state.loadedAt && !state.summary;
+  useEffect(() => {
+    if (!loading || state.loadedAt || state.summary) return;
+    const id = window.setTimeout(() => setInitialLoadTimedOut(true), 8000);
+    return () => window.clearTimeout(id);
+  }, [loading, state.loadedAt, state.summary]);
+
+  const showInitialSkeleton = loading && !initialLoadTimedOut && !state.loadedAt && !state.summary;
 
   const branchOptions = useMemo(() => {
     const fromData = [
@@ -1731,6 +1749,37 @@ export default function ExecutiveDashboard2027() {
     <div dir="rtl" className="executive-dashboard-page min-h-screen bg-[#06131f] text-slate-100">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_12%,rgba(45,212,191,0.14),transparent_25%),radial-gradient(circle_at_82%_0%,rgba(56,189,248,0.12),transparent_30%),linear-gradient(180deg,rgba(15,23,42,0),rgba(2,6,23,0.82))]" />
       <main className="relative mx-auto max-w-[1920px] space-y-4 px-5 py-5">
+        {initialLoadTimedOut && loading && !state.loadedAt ? (
+          <Panel className="border-amber-300/25 bg-amber-500/10 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-base font-black text-amber-100">تعذر تحميل بيانات لوحة القيادة بسرعة</h2>
+                <p className="mt-1 text-sm font-bold text-amber-50/80">
+                  تم عرض الصفحة بالبيانات المتاحة، وستظهر أخطاء الأقسام داخل كل قسم عند الحاجة.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    noCacheRef.current = true;
+                    void load();
+                  }}
+                  className="rounded-xl bg-amber-300 px-4 py-2 text-sm font-black text-slate-950 hover:bg-amber-200"
+                >
+                  إعادة المحاولة
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/diagnostics')}
+                  className="rounded-xl border border-amber-200/40 px-4 py-2 text-sm font-black text-amber-50 hover:bg-amber-200/10"
+                >
+                  فتح التشخيص
+                </button>
+              </div>
+            </div>
+          </Panel>
+        ) : null}
         <Panel className="p-5">
           <div className="grid gap-5 xl:grid-cols-[1.3fr_1fr] xl:items-center">
             <div className="order-2 grid gap-3 md:grid-cols-2 xl:order-1 xl:grid-cols-6">

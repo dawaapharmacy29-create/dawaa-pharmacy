@@ -34,6 +34,12 @@ import { getTransactionDetails } from '@/lib/pointsLedger';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import {
+  canViewAllBranches,
+  canViewBranchData,
+  rowMatchesCurrentDoctor,
+} from '@/lib/security/userDataScope';
+import { normalizeRole } from '@/lib/core/permissionSystem';
+import {
   buildDefaultTasksForStaff,
   completeTask,
   fetchEmployeeTasks,
@@ -462,6 +468,35 @@ export default function StaffDetail() {
         <div className="text-slate-300">{error || 'لم يتم العثور على الموظف.'}</div>
         <Link to="/team" className="btn-secondary inline-flex items-center gap-2">
           <ArrowRight size={14} /> العودة للفريق
+        </Link>
+      </div>
+    );
+  }
+
+  const currentRole = normalizeRole(user?.role);
+  const staffIdentityRow = {
+    id: profile.staff.id,
+    staff_id: profile.staff.id,
+    employee_id: profile.staff.id,
+    staff_name: profile.staff.name,
+    employee_name: profile.staff.name,
+    branch: profile.staff.branch,
+  };
+  const hasStaffAccess =
+    canViewAllBranches(user) ||
+    (currentRole === 'pharmacist'
+      ? rowMatchesCurrentDoctor(user, staffIdentityRow)
+      : canViewBranchData(user, profile.staff.branch));
+
+  if (!hasStaffAccess) {
+    return (
+      <div className="stat-card space-y-4 py-16 text-center">
+        <div className="text-lg font-black text-white">ليس لديك صلاحية لعرض هذا الموظف</div>
+        <div className="text-sm text-slate-400">
+          يتم عرض بيانات الموظف حسب صلاحياتك: الدكتور يرى بياناته فقط، ومدير الفرع يرى موظفي فرعه فقط.
+        </div>
+        <Link to="/doctor-dashboard" className="btn-secondary inline-flex items-center gap-2">
+          <ArrowRight size={14} /> العودة للوحة المناسبة
         </Link>
       </div>
     );
