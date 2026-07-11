@@ -1,5 +1,5 @@
 import './lib/mobileSafariCompat';
-import { StrictMode } from 'react';
+import { Component, StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import './styles/dawaa-theme.css';
@@ -9,18 +9,44 @@ import './styles/customer-service-followups.css';
 import App from './App.tsx';
 import SidebarRuntimePolish from '@/components/layout/SidebarRuntimePolish';
 import GlobalCustomerServiceAlerts from '@/components/customerService/GlobalCustomerServiceAlerts';
+import { AppRecoveryScreen } from '@/components/system/AppRecoveryScreen';
+import { isRecoverableChunkError, recordRuntimeError } from '@/lib/appRecovery';
 import { installRuntimeSafetyGuards } from '@/lib/runtimeSafety';
 import { initOfflineQueueAutoSync } from '@/lib/offlineQueue';
 import { initializePerformanceMonitoring } from '@/lib/performanceMonitoring';
 
+type BoundaryState = { hasError: boolean; message?: string };
+
+class RootErrorBoundary extends Component<{ children: ReactNode }, BoundaryState> {
+  state: BoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error?.message || 'unknown error' };
+  }
+
+  componentDidCatch(error: Error, info: unknown) {
+    recordRuntimeError(error, 'root-boundary');
+    console.error('[Dawaa bootstrap] Root error boundary caught:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <AppRecoveryScreen technicalError={this.state.message} />;
+    }
+    return this.props.children;
+  }
+}
+
 function installStartupRecoveryHandlers() {
   if (typeof window === 'undefined') return;
-  const isRecoverable = (message: string) =>
-    /Loading chunk|dynamically imported module|Failed to fetch dynamically imported module|Importing a module script failed|ChunkLoadError|module script/i.test(message);
+  console.info('[Dawaa bootstrap] starting app', { path: window.location.pathname, at: new Date().toISOString() });
 
-  const recover = () => {
+  const recover = (reason: unknown) => {
+    recordRuntimeError(reason, 'startup-handler');
+    const message = reason instanceof Error ? reason.message : String(reason || '');
+    if (!isRecoverableChunkError(message)) return;
     try {
-      const marker = 'dawaa_chunk_recovery_v1';
+      const marker = 'dawaa_chunk_recovery_v2';
       if (window.sessionStorage.getItem(marker)) return;
       window.sessionStorage.setItem(marker, '1');
     } catch {
@@ -33,32 +59,48 @@ function installStartupRecoveryHandlers() {
 
   window.addEventListener('error', (event) => {
     const message = `${event.message || ''} ${(event.error as Error | undefined)?.message || ''}`;
-    if (isRecoverable(message)) recover();
+    if (message.trim()) recover(event.error || message);
   });
 
   window.addEventListener('unhandledrejection', (event) => {
-    const reason = event.reason;
-    const message = reason instanceof Error ? reason.message : String(reason || '');
-    if (isRecoverable(message)) recover();
+    recover(event.reason);
   });
+}
+
+function SafeOptionalRuntimeComponents() {
+  return (
+    <>
+      <SidebarRuntimePolish />
+      <GlobalCustomerServiceAlerts />
+    </>
+  );
 }
 
 installStartupRecoveryHandlers();
 
-createRoot(document.getElementById('root')!).render(
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  document.body.innerHTML = '<div style="direction:rtl;color:white;background:#020617;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif">تعذر بدء التطبيق: عنصر root غير موجود</div>';
+  throw new Error('Root element not found');
+}
+
+createRoot(rootElement).render(
   <StrictMode>
-    <App />
-    <SidebarRuntimePolish />
-    <GlobalCustomerServiceAlerts />
+    <RootErrorBoundary>
+      <App />
+      <SafeOptionalRuntimeComponents />
+    </RootErrorBoundary>
   </StrictMode>
 );
 
-// Initialize runtime safety, offline queue and performance monitoring
-try {
-  installRuntimeSafetyGuards?.();
-  initOfflineQueueAutoSync?.();
-  initializePerformanceMonitoring();
-} catch (e) {
-  // Non-fatal: log to console for now
-  console.debug('Init failed', e);
-}
+// Initialize runtime safety, offline queue and performance monitoring. These must never block first paint.
+window.setTimeout(() => {
+  try {
+    installRuntimeSafetyGuards?.();
+    initOfflineQueueAutoSync?.();
+    initializePerformanceMonitoring();
+  } catch (e) {
+    recordRuntimeError(e, 'non-fatal-init');
+    console.debug('Init failed', e);
+  }
+}, 0);
