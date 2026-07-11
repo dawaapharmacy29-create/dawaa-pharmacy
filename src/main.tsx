@@ -91,15 +91,23 @@ const SafeApp = lazy(async () => {
   }
 });
 
+function isOptionalRuntimeEnabled() {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('addons') === '1' || params.get('runtime') === '1' || params.get('debug') === '1';
+}
+
 function OptionalRuntimeAddons() {
   const [mounted, setMounted] = useState(false);
+  const enabled = isOptionalRuntimeEnabled();
 
   useEffect(() => {
+    if (!enabled) return;
     const id = window.requestAnimationFrame(() => setMounted(true));
     return () => window.cancelAnimationFrame(id);
-  }, []);
+  }, [enabled]);
 
-  if (!mounted) return null;
+  if (!enabled || !mounted) return null;
 
   const SidebarRuntimePolish = lazy(async () => {
     try {
@@ -128,6 +136,8 @@ function OptionalRuntimeAddons() {
 }
 
 function initOptionalRuntimeServices() {
+  if (!isOptionalRuntimeEnabled()) return;
+
   void import('@/lib/runtimeSafety')
     .then(({ installRuntimeSafetyGuards }) => installRuntimeSafetyGuards?.())
     .catch((error) => logRuntimeError('runtimeSafety init failed', error));

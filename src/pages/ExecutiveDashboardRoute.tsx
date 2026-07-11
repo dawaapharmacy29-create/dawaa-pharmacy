@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from 'react';
+import { Component, useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import ExecutiveDashboardSafe from '@/pages/ExecutiveDashboardSafe';
 import { logRuntimeError } from '@/lib/appRecovery';
 
@@ -28,29 +28,59 @@ function AdvancedLoadingShell() {
         <div className="mt-4 h-4 w-96 max-w-full animate-pulse rounded-xl bg-slate-800" />
       </section>
       <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm font-bold text-slate-300">
-        جاري تحميل النسخة المتقدمة المستقرة... إذا تأخر التحميل سيتم الرجوع لوضع التشغيل الآمن تلقائيًا.
+        جاري تحميل النسخة المتقدمة... إذا تأخر التحميل يتم الانتقال إلى النسخة الآمنة تلقائيًا.
       </section>
     </main>
   );
 }
 
 function dashboardMode() {
-  if (typeof window === 'undefined') return 'safe';
+  if (typeof window === 'undefined') return 'advanced';
   const params = new URLSearchParams(window.location.search);
-  if (params.get('legacy') === '1') return 'legacy';
-  if (params.get('advanced') === '1' || params.get('dashboard') === 'advanced') return 'advanced';
-  return 'safe';
+  if (params.get('safe') === '1') return 'safe';
+  if (params.get('advanced') === '1' || params.get('legacy') === '1' || params.get('dashboard') === 'advanced') {
+    return 'advanced';
+  }
+  return 'advanced';
+}
+
+class DashboardRuntimeErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    logRuntimeError('executive dashboard advanced render failed', error);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="space-y-4" dir="rtl">
+          <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold leading-7 text-amber-100">
+            تعذر عرض النسخة المتقدمة بشكل صحيح. تم تشغيل النسخة الآمنة بدلاً منها.
+          </div>
+          <ExecutiveDashboardSafe />
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 export default function ExecutiveDashboardRoute() {
   const [state, setState] = useState<DashboardState>(() => {
     const mode = dashboardMode();
-    if (mode === 'advanced' || mode === 'legacy') return { status: 'loading-advanced' };
-    return {
-      status: 'safe',
-      message:
-        'تم تشغيل لوحة القيادة الآمنة افتراضيًا لضمان استقرار التطبيق. افتح النسخة المتقدمة المستقرة بإضافة ?advanced=1، أو النسخة القديمة الخام للاختبار فقط بإضافة ?legacy=1.',
-    };
+    if (mode === 'safe') {
+      return {
+        status: 'safe',
+        message: 'تم تشغيل النسخة الآمنة فقط لأنك طلبت ?safe=1.',
+      };
+    }
+    return { status: 'loading-advanced' };
   });
 
   useEffect(() => {
@@ -59,13 +89,10 @@ export default function ExecutiveDashboardRoute() {
 
     async function loadAdvancedDashboard() {
       try {
-        const mode = dashboardMode();
         const module = await withTimeout(
-          mode === 'legacy'
-            ? import('@/pages/ExecutiveDashboard2027')
-            : import('@/pages/ExecutiveDashboardAdvancedStable'),
+          import('@/pages/ExecutiveDashboard2027'),
           DASHBOARD_IMPORT_TIMEOUT_MS,
-          mode === 'legacy' ? 'ExecutiveDashboard2027 legacy import' : 'ExecutiveDashboardAdvancedStable import'
+          'ExecutiveDashboard2027 import'
         );
         if (!cancelled) setState({ status: 'ready-advanced', Component: module.default });
       } catch (error) {
@@ -88,7 +115,11 @@ export default function ExecutiveDashboardRoute() {
 
   if (state.status === 'ready-advanced') {
     const Component = state.Component;
-    return <Component />;
+    return (
+      <DashboardRuntimeErrorBoundary>
+        <Component />
+      </DashboardRuntimeErrorBoundary>
+    );
   }
 
   if (state.status === 'loading-advanced') return <AdvancedLoadingShell />;

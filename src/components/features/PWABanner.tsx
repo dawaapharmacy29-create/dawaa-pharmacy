@@ -3,7 +3,7 @@ import { RefreshCw, Download, WifiOff, X } from 'lucide-react';
 import { useState } from 'react';
 import { useOfflineQueueStatus } from '@/hooks/useOfflineQueueStatus';
 
-export default function PWABanner() {
+function EnabledPWABanner() {
   const { isInstallable, isOffline, hasUpdate, installApp, applyUpdate } = usePWA();
   const { pendingCount, syncing, syncNow } = useOfflineQueueStatus();
   const [dismissed, setDismissed] = useState(false);
@@ -142,4 +142,10 @@ export default function PWABanner() {
   }
 
   return null;
+}
+
+export default function PWABanner() {
+  const enabled = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pwa') === '1';
+  if (!enabled) return null;
+  return <EnabledPWABanner />;
 }
