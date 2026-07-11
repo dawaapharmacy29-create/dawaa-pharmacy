@@ -1,27 +1,40 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Wallet,
-  TrendingUp,
   AlertCircle,
-  Users,
-  Package,
-  DollarSign,
+  Award,
+  BarChart3,
+  Bell,
   Calendar,
-  Clock,
-  FileText,
-  ClipboardList,
+  CheckCircle2,
   ClipboardCheck,
+  ClipboardList,
+  Clock,
+  DollarSign,
+  FileText,
+  GraduationCap,
+  HeartHandshake,
+  Package,
+  RefreshCw,
+  ShieldCheck,
   Star,
+  Target,
+  TrendingUp,
+  UserRound,
+  Users,
+  Wallet,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useDoctorPermissions } from '@/hooks/useDoctorPermissions';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
-import { formatCurrency, toNumber } from '@/lib/utils';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
-import { pointRecordDelta } from '@/lib/pointsLedger';
+import { formatCurrency } from '@/lib/utils';
+import { normalizeRole } from '@/lib/core/permissionSystem';
+import { calculateIncentive, MAX_BASE_INCENTIVE, STARTING_POINTS } from '@/lib/points';
+import { calculateStaffCycleIncentiveFromRows } from '@/lib/staffIncentiveService';
 import {
   canViewAllBranches,
   canViewBranchData,
@@ -29,30 +42,14 @@ import {
   rowMatchesCurrentDoctor,
   rowMatchesCurrentUserScope,
 } from '@/lib/security/userDataScope';
-import { normalizeRole } from '@/lib/core/permissionSystem';
-import {
-  calculateIncentive,
-  POINT_VALUE_EGP,
-  STARTING_POINTS,
-  MAX_BASE_INCENTIVE,
-} from '@/lib/points';
-import {
-  calculateStaffCycleIncentiveFromRows,
-  getStaffCycleIncentive,
-  type StaffCycleIncentive,
-} from '@/lib/staffIncentiveService';
-import StaffOperatingPolicy from '@/components/incentives/StaffOperatingPolicy';
-import { toast } from 'sonner';
 import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
 import { useNotifications } from '@/hooks/useNotifications';
-import {
-  completeTask,
-  fetchEmployeeTasks,
-  type EmployeeDailyTask,
-} from '@/lib/employeeDailyTasks';
+import { completeTask, fetchEmployeeTasks, type EmployeeDailyTask } from '@/lib/employeeDailyTasks';
 import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import { getDoctorCompetitionMetrics } from '@/lib/doctorCompetitionMetrics';
-import { TABLES as SUPABASE_TABLES } from '@/lib/supabaseTables';
+import StaffOperatingPolicy from '@/components/incentives/StaffOperatingPolicy';
+
+type LoadStatus = 'loading' | 'success' | 'empty' | 'error';
 
 interface DoctorMetrics {
   id: string;
@@ -70,24 +67,13 @@ interface DoctorMetrics {
   customers_to_contact: number;
 }
 
-interface StagnantMedicine {
+interface StaffOption {
   id: string;
-  medicine_name: string;
-  usage: string;
-  expiry_date: string;
-  quantity_available: number;
+  name: string;
+  role: string;
   branch: string;
-  priority: string;
-  notes: string;
-}
-
-interface IncentiveMedicine {
-  id: string;
-  product_name: string;
-  incentive_value: number;
-  current_quantity: number;
-  branch: string;
-  active: boolean;
+  points?: number | null;
+  max_points?: number | null;
 }
 
 interface Customer {
@@ -98,6 +84,8 @@ interface Customer {
   branch?: string | null;
   customer_notes?: string;
   retention_status?: string;
+  total_spent?: number | null;
+  avg_monthly?: number | null;
 }
 
 interface PointRecordRow {
@@ -114,65 +102,80 @@ interface PointRecordRow {
   created_at?: string | null;
 }
 
-interface StaffOption {
+interface StagnantMedicine {
   id: string;
-  name: string;
-  role: string;
+  medicine_name: string;
+  usage?: string | null;
+  expiry_date?: string | null;
+  quantity_available?: number | null;
+  branch?: string | null;
+  priority?: string | null;
+}
+
+interface IncentiveMedicine {
+  id: string;
+  product_name: string;
+  incentive_value: number;
+  current_quantity: number;
   branch: string;
-  points?: number | null;
-  max_points?: number | null;
+  active: boolean;
 }
 
 function canInspectTeam(role?: string) {
-  return ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager'].includes(normalizeRole(role));
+  return ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'customer_service_manager'].includes(
+    normalizeRole(role)
+  );
 }
 
-function openMonthlyPdfReport(
-  staffName: string,
-  staffRole: string,
-  branch: string,
-  cycleLabel: string,
-  points: number,
-  rewards: number,
-  deductions: number
-) {
-  const incentive = calculateIncentive(points);
-  const win = window.open('', '_blank', 'width=900,height=700');
-  if (!win) return;
-  win.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" />
-    <title>تقرير شهري - ${staffName}</title>
-    <style>
-      body{font-family:Arial,Tahoma,sans-serif;margin:32px;color:#102033;direction:rtl}
-      h1{margin:0 0 8px;font-size:24px}.muted{color:#667085}.box{border:1px solid #d8dee8;border-radius:12px;padding:18px;margin:14px 0}
-      table{width:100%;border-collapse:collapse}th,td{border:1px solid #d8dee8;padding:10px;text-align:right}th{background:#eef5f8}.num{font-weight:700;font-size:20px}
-      button{padding:10px 18px;border:0;border-radius:8px;background:#00c9a7;color:white;font-weight:700;cursor:pointer}@media print{button{display:none}}
-    </style></head><body>
-    <button onclick="window.print()">طباعة / حفظ PDF</button>
-    <h1>صيدليات دواء - تقرير التقييم الشهري</h1><div class="muted">الدورة: ${cycleLabel}</div>
-    <div class="box"><h2>بيانات الموظف</h2><table>
-      <tr><th>الاسم</th><td>${staffName}</td></tr><tr><th>الدور</th><td>${staffRole}</td></tr><tr><th>الفرع</th><td>${branch}</td></tr>
-    </table></div>
-    <div class="box"><h2>ملخص النقاط والحافز</h2><table>
-      <tr><th>النقاط النهائية</th><td class="num">${points} / ${STARTING_POINTS}</td></tr>
-      <tr><th>المكافآت</th><td>${rewards} نقطة</td></tr>
-      <tr><th>الخصومات</th><td>${deductions} نقطة</td></tr>
-      <tr><th>الحافز المستحق</th><td class="num">${incentive.toLocaleString('ar-EG')} جنيه</td></tr>
-    </table></div>
-    <p class="muted">الحافز الكامل ${MAX_BASE_INCENTIVE.toLocaleString('ar-EG')} جنيه عند ${STARTING_POINTS} نقطة، وقيمة النقطة ${POINT_VALUE_EGP} جنيه.</p>
-    </body></html>`);
-  win.document.close();
+function safeNumber(value: unknown) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function nowLabel() {
+  return new Date().toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'صباح الخير';
+  if (hour < 18) return 'نهارك سعيد';
+  return 'مساء الخير';
+}
+
+function shiftWindowLabel(shift?: Record<string, unknown> | null) {
+  if (!shift) return 'غير مسجل حتى الآن';
+  const start = String(shift.start_time || shift.shift_start || '—');
+  const end = String(shift.end_time || shift.shift_end || '—');
+  return `${start} → ${end}`;
+}
+
+function shiftTypeLabel(shift?: Record<string, unknown> | null) {
+  return String(shift?.shift_type || shift?.shift_name || shift?.type || 'غير محدد');
+}
+
+function actionHrefForTask(task?: EmployeeDailyTask | null) {
+  if (!task) return '/doctor-dashboard';
+  const title = `${task.task_title || ''} ${task.task_type || ''}`;
+  if (/عميل|متابعة|customer|follow/i.test(title)) return '/customer-service';
+  if (/طلب|صنف|order|request/i.test(title)) return '/customer-requests';
+  if (/تقييم|review/i.test(title)) return '/reviews';
+  if (/شيفت|shift/i.test(title)) return '/shift-notes';
+  return '/doctor-dashboard';
 }
 
 export default function DoctorDashboard() {
   const { user } = useAuth();
   const { permissions } = useDoctorPermissions();
   const cycle = getCurrentCycle();
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [selectedDate, setSelectedDate] = useState(todayIso);
   const [selectedStaffId, setSelectedStaffId] = useState('');
+  const [lastRefresh, setLastRefresh] = useState(nowLabel());
   const isManagerView = isManagerRole(user) || canInspectTeam(user?.role);
   const isDoctorOnlyView = normalizeRole(user?.role) === 'pharmacist' && !isManagerView;
 
-  const { data: staffOptions } = useSupabaseQuery<StaffOption>({
+  const { data: staffOptions, loading: staffLoading } = useSupabaseQuery<StaffOption>({
     table: 'staff',
     filters: isActiveStaffFilter(),
     orderBy: { column: 'name', ascending: true },
@@ -180,17 +183,18 @@ export default function DoctorDashboard() {
   });
 
   const scopedStaffOptions = useMemo(() => {
-    if (canViewAllBranches(user)) return staffOptions;
-    return staffOptions.filter((item) => rowMatchesCurrentUserScope(user, item as unknown as Record<string, unknown>));
+    if (canViewAllBranches(user)) return staffOptions || [];
+    return (staffOptions || []).filter((item) => rowMatchesCurrentUserScope(user, item as unknown as Record<string, unknown>));
   }, [staffOptions, user]);
 
   const selectedStaff = useMemo(() => {
-    if (!isManagerView)
+    if (!isManagerView) {
       return (
         scopedStaffOptions.find((item) => item.id === (user?.staffId || user?.id)) ||
         scopedStaffOptions.find((item) => item.name === user?.name) ||
         null
       );
+    }
     return (
       scopedStaffOptions.find((item) => item.id === selectedStaffId) ||
       scopedStaffOptions.find((item) => normalizeRole(item.role) === 'pharmacist') ||
@@ -210,6 +214,7 @@ export default function DoctorDashboard() {
 
   const effectiveId = selectedStaff?.id || user?.staffId || user?.id || '';
   const effectiveName = selectedStaff?.name || user?.name || '';
+  const effectiveRole = selectedStaff?.role || user?.role || '';
   const effectiveBranch = selectedStaff?.branch || user?.branch || '';
   const canReadSelectedStaff =
     canViewAllBranches(user) ||
@@ -235,6 +240,13 @@ export default function DoctorDashboard() {
     realtimeEnabled: true,
   });
 
+  const { data: customers, loading: customersLoading } = useSupabaseQuery<Customer>({
+    table: 'customers',
+    filters: [{ column: 'retention_status', operator: 'in', value: ['معرض للفقدان', 'مفقود'] }],
+    orderBy: { column: 'retention_status', ascending: false },
+    realtimeEnabled: true,
+  });
+
   const { data: stagnantMedicines } = useSupabaseQuery<StagnantMedicine>({
     table: 'stagnant_medicines',
     filters: [{ column: 'branch', operator: 'eq', value: effectiveBranch }],
@@ -251,10 +263,10 @@ export default function DoctorDashboard() {
     realtimeEnabled: true,
   });
 
-  const { data: customers } = useSupabaseQuery<Customer>({
-    table: 'customers',
-    filters: [{ column: 'retention_status', operator: 'in', value: ['معرض للفقدان', 'مفقود'] }],
-    orderBy: { column: 'retention_status', ascending: false },
+  const { data: pointRecords, loading: pointsLoading } = useSupabaseQuery<PointRecordRow>({
+    table: TABLES.employeeTransactions,
+    orderBy: { column: 'created_at', ascending: false },
+    limit: 2000,
     realtimeEnabled: true,
   });
 
@@ -269,19 +281,7 @@ export default function DoctorDashboard() {
       ),
     [customers, user]
   );
-  const totalIncentive =
-    incentiveMedicines?.reduce((sum, m) => sum + m.incentive_value * m.current_quantity, 0) || 0;
 
-  // Calculate points, rewards, and discounts from employee_transactions
-  const { data: pointRecords } = useSupabaseQuery<PointRecordRow>({
-    table: TABLES.employeeTransactions,
-    orderBy: { column: 'created_at', ascending: false },
-    limit: 2000,
-    realtimeEnabled: true,
-  });
-
-  // استخدام calculateStaffCycleIncentiveFromRows مع البيانات المحلية للتوافق مع useSupabaseQuery
-  // في المستقبل يمكن استخدام getStaffCycleIncentive لجمع من جميع المصادر
   const incentiveSummary = useMemo(
     () =>
       calculateStaffCycleIncentiveFromRows({
@@ -301,15 +301,10 @@ export default function DoctorDashboard() {
   const rewardsBalance = incentiveSummary.approvedRewardPoints;
   const discountBalance = incentiveSummary.approvedDeductionPoints;
   const expectedIncentive = calculateIncentive(pointsBalance);
+  const pointsToFull = Math.max(0, STARTING_POINTS - pointsBalance);
   const pendingShiftNotes = usePendingShiftNotesCount();
-  const {
-    notifications,
-    loading: notificationsLoading,
-    available: notificationsAvailable,
-    handleNotificationClick,
-  } = useNotifications();
+  const { notifications, loading: notificationsLoading, available: notificationsAvailable, handleNotificationClick } = useNotifications();
   const latestNotifications = notifications.slice(0, 5);
-  const todayIso = new Date().toISOString().slice(0, 10);
 
   const [todayTasks, setTodayTasks] = useState<EmployeeDailyTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -325,8 +320,15 @@ export default function DoctorDashboard() {
     branchAvg: number;
   } | null>(null);
   const [salesError, setSalesError] = useState<string | null>(null);
+  const [salesLoading, setSalesLoading] = useState(false);
   const [branchRank, setBranchRank] = useState<number | null>(null);
   const [rankError, setRankError] = useState<string | null>(null);
+
+  async function reloadAll() {
+    setLastRefresh(nowLabel());
+    refetchMetrics?.();
+    toast.success('تم طلب تحديث بيانات لوحة الدكتور');
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -334,15 +336,11 @@ export default function DoctorDashboard() {
       if (!effectiveId) return;
       setTasksLoading(true);
       setTasksError(null);
-      const result = await fetchEmployeeTasks({
-        date: todayIso,
-        staffId: effectiveId,
-        user,
-      });
+      const result = await fetchEmployeeTasks({ date: todayIso, staffId: effectiveId, user });
       if (cancelled) return;
       setTasksLoading(false);
       if (result.error) setTasksError(result.error);
-      setTodayTasks(result.tasks);
+      setTodayTasks(result.tasks || []);
     }
     void loadTasks();
     return () => {
@@ -357,7 +355,7 @@ export default function DoctorDashboard() {
       setShiftLoading(true);
       setShiftError(null);
       const { data, error } = await supabase
-        .from(SUPABASE_TABLES.shiftSchedules)
+        .from('shift_schedules')
         .select('*')
         .eq('staff_id', effectiveId)
         .eq('shift_date', todayIso)
@@ -381,6 +379,7 @@ export default function DoctorDashboard() {
     let cancelled = false;
     async function loadSales() {
       if (!effectiveName) return;
+      setSalesLoading(true);
       setSalesError(null);
       try {
         const summary = await loadSalesAnalyticsSummary({
@@ -396,11 +395,8 @@ export default function DoctorDashboard() {
           doctor: effectiveName,
         });
         if (cancelled) return;
-        const doctorRow = summary.doctorRows.find(
-          (row) => row.doctor === effectiveName || row.staffId === effectiveId
-        );
-        const branchAvg =
-          summary.branchRows.find((row) => row.branch === effectiveBranch)?.avgInvoice || 0;
+        const doctorRow = summary.doctorRows.find((row) => row.doctor === effectiveName || row.staffId === effectiveId);
+        const branchAvg = summary.branchRows.find((row) => row.branch === effectiveBranch)?.avgInvoice || 0;
         setSalesSummary({
           dailySales: todaySummary.kpis.netSales,
           cycleSales: doctorRow?.netSales || summary.kpis.netSales,
@@ -410,6 +406,8 @@ export default function DoctorDashboard() {
         });
       } catch {
         if (!cancelled) setSalesError('تعذر تحميل بيانات المبيعات');
+      } finally {
+        if (!cancelled) setSalesLoading(false);
       }
     }
     void loadSales();
@@ -434,9 +432,6 @@ export default function DoctorDashboard() {
         const sorted = [...metricsResult.rows].sort((a, b) => b.overallScore - a.overallScore);
         const index = sorted.findIndex((row) => row.staffId === effectiveId || row.name === effectiveName);
         setBranchRank(index >= 0 ? index + 1 : null);
-        if (index < 0 && !isManagerView) {
-          setRankError('تعذر تحديد ترتيبك داخل الفرع حالياً');
-        }
       } catch {
         if (!cancelled) setRankError('تعذر تحميل ترتيب المسابقة');
       }
@@ -445,17 +440,45 @@ export default function DoctorDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveBranch, effectiveId, effectiveName, isManagerView, user]);
+  }, [effectiveBranch, effectiveId, effectiveName, user]);
 
-  const taskSummary = useMemo(() => {
-    return {
+  const taskSummary = useMemo(
+    () => ({
       total: todayTasks.length,
       late: todayTasks.filter((task) => task.status === 'late').length,
       high: todayTasks.filter((task) => task.priority === 'high' || task.priority === 'urgent').length,
       completed: todayTasks.filter((task) => task.status === 'completed').length,
-      needsIntervention: todayTasks.filter((task) => task.status === 'late' || task.priority === 'urgent').length,
-    };
+      remaining: todayTasks.filter((task) => task.status !== 'completed').length,
+    }),
+    [todayTasks]
+  );
+
+  const mainTask = useMemo(() => {
+    return (
+      todayTasks.find((task) => task.status === 'late' || task.priority === 'urgent') ||
+      todayTasks.find((task) => task.status !== 'completed') ||
+      null
+    );
   }, [todayTasks]);
+
+  const dashboardInsights = useMemo(() => {
+    const list: Array<{ title: string; detail: string; href: string; tone: 'red' | 'amber' | 'teal' | 'green' }> = [];
+    if (mainTask) {
+      list.push({ title: 'أهم إجراء الآن', detail: mainTask.task_title, href: actionHrefForTask(mainTask), tone: mainTask.status === 'late' ? 'red' : 'amber' });
+    } else {
+      list.push({ title: 'أهم إجراء الآن', detail: 'لا توجد مهمة عاجلة حاليًا، راجع فرص المتابعة والعملاء المعرضين للفقدان.', href: '/customer-service', tone: 'green' });
+    }
+    if (scopedCustomers.length) {
+      list.push({ title: 'فرصة استرجاع عملاء', detail: `${scopedCustomers.length} عميل معرض للفقدان أو مفقود يحتاج اهتمامًا ودلعًا من صيدليات دواء.`, href: '/customer-service', tone: 'teal' });
+    }
+    if (pointsToFull > 0) {
+      list.push({ title: 'أقرب فرصة للحافز', detail: `متبقي ${pointsToFull} نقطة للوصول إلى ${STARTING_POINTS} نقطة. ركّز على المتابعات وتقييمات المحادثات الإيجابية.`, href: '/doctor-dashboard', tone: 'amber' });
+    }
+    if (salesSummary && salesSummary.branchAvg > 0 && salesSummary.avgInvoice < salesSummary.branchAvg) {
+      list.push({ title: 'تحسين متوسط الفاتورة', detail: 'متوسط فاتورتك أقل من متوسط الفرع. استخدم الترشيح المكمل المناسب بدون ضغط على العميل.', href: '/doctor-dashboard', tone: 'amber' });
+    }
+    return list;
+  }, [mainTask, pointsToFull, salesSummary, scopedCustomers.length]);
 
   async function handleCompleteTask(taskId: string) {
     const result = await completeTask(taskId, undefined, user || undefined);
@@ -463,465 +486,377 @@ export default function DoctorDashboard() {
       toast.error(result.error || 'تعذر إتمام المهمة');
       return;
     }
-    setTodayTasks((prev) =>
-      prev.map((task) => (task.id === taskId ? { ...task, status: 'completed' } : task))
-    );
+    setTodayTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, status: 'completed' } : task)));
   }
 
   if (!permissions?.can_view_dashboard) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <AlertCircle className="mx-auto mb-4 text-amber-400" size={48} />
-          <div className="text-white text-lg font-bold">ليس لديك صلاحية للوصول إلى هذه الصفحة</div>
-        </div>
-      </div>
-    );
+    return <BlockedState text="ليس لديك صلاحية للوصول إلى هذه الصفحة" />;
   }
 
   if (!canReadSelectedStaff) {
-    return (
-      <div className="stat-card py-16 text-center">
-        <AlertCircle className="mx-auto mb-4 text-amber-400" size={48} />
-        <div className="text-lg font-black text-white">لا يمكن عرض بيانات هذا الموظف</div>
-        <div className="mt-2 text-sm text-slate-400">
-          الدكتور يرى بياناته فقط، ومدير الفرع يرى بيانات فرعه فقط.
-        </div>
-      </div>
-    );
+    return <BlockedState text="لا يمكن عرض بيانات هذا الموظف. الدكتور يرى بياناته فقط، ومدير الفرع يرى بيانات فرعه فقط." />;
   }
 
+  const salesStatus: LoadStatus = salesLoading ? 'loading' : salesError ? 'error' : salesSummary ? 'success' : 'empty';
+  const metricsStatus: LoadStatus = metricsLoading ? 'loading' : metricsError ? 'error' : todayMetrics ? 'success' : 'empty';
+  const taskStatus: LoadStatus = tasksLoading ? 'loading' : tasksError ? 'error' : todayTasks.length ? 'success' : 'empty';
+  const pointsStatus: LoadStatus = pointsLoading ? 'loading' : 'success';
+  const shiftStatus: LoadStatus = shiftLoading ? 'loading' : shiftError ? 'error' : todayShift ? 'success' : 'empty';
+
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border border-teal-400/20 bg-[#10213a] p-5">
-        <h1 className="text-2xl font-black text-white">أهلًا د/ {effectiveName || user?.name}</h1>
-        <div className="mt-2 grid gap-2 text-sm text-slate-300 md:grid-cols-2 lg:grid-cols-3">
-          <div>الفرع: {effectiveBranch || user?.branch || '—'}</div>
-          <div>الدورة الحالية: {cycle.label}</div>
-          <div>نقاطك الحالية: {metricsLoading || metricsError ? '—' : `${pointsBalance} نقطة`}</div>
-          <div>حافزك المتوقع: {metricsLoading || metricsError ? '—' : formatCurrency(expectedIncentive)}</div>
-          <div>
-            ترتيبك داخل الفرع:{' '}
-            {rankError ? '—' : branchRank != null ? `#${branchRank}` : metricsLoading ? '...' : '—'}
+    <div className="space-y-6" dir="rtl">
+      <section className="rounded-3xl border border-teal-400/25 bg-gradient-to-l from-[#0d1c33] via-[#10213a] to-[#0f3140] p-5 shadow-xl">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl border border-teal-300/30 bg-teal-400/15 text-2xl font-black text-teal-100">
+              {effectiveName ? effectiveName.replace(/^د\.?\s*/i, '').slice(0, 1) : <UserRound />}
+            </div>
+            <div>
+              <div className="text-xs font-black text-teal-200">لوحة أداء الدكتور</div>
+              <h1 className="mt-1 text-2xl font-black text-white">
+                {greeting()} يا دكتور {effectiveName || user?.name || '—'}
+              </h1>
+              <p className="mt-2 text-sm font-bold text-slate-300">
+                شيفتك اليوم: {shiftTypeLabel(todayShift)} — {effectiveBranch || user?.branch || 'غير محدد'} — {shiftWindowLabel(todayShift)}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-slate-200">
+                <Pill>الدور: {effectiveRole || '—'}</Pill>
+                <Pill>الفرع الأساسي: {effectiveBranch || '—'}</Pill>
+                <Pill>الحضور: {todayShift ? 'شيفت مسجل' : 'غير مؤكد'}</Pill>
+                <Pill>آخر تحديث: {lastRefresh}</Pill>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {isManagerView && (
+              <select value={selectedStaff?.id || ''} onChange={(event) => setSelectedStaffId(event.target.value)} className="input-dark min-w-72">
+                {scopedStaffOptions
+                  .filter((item) => ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening', 'assistant'].includes(normalizeRole(item.role)))
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} — {item.branch} — {item.role}
+                    </option>
+                  ))}
+              </select>
+            )}
+            <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void reloadAll()}>
+              <RefreshCw size={16} /> تحديث
+            </button>
+            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+              <Calendar size={16} className="text-teal-200" />
+              <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent text-sm text-white outline-none" />
+            </div>
           </div>
         </div>
-        {rankError && <div className="mt-3 text-sm text-amber-300">{rankError}</div>}
-      </div>
+      </section>
 
-      {metricsError && (
-        <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-red-200">
-          تعذر تحميل البيانات
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,.85fr)]">
+        <ActionNowCard task={mainTask} loading={tasksLoading} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {dashboardInsights.slice(0, 4).map((item) => (
+            <InsightCard key={item.title} {...item} />
+          ))}
         </div>
-      )}
+      </section>
 
-      <div className="stat-card">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-white font-bold">
-            <AlertCircle size={18} className="text-teal-400" />
-            آخر التنبيهات
-          </div>
-          <span className="rounded-full bg-white/10 px-2 py-1 text-xs text-slate-300">
-            {latestNotifications.length}
-          </span>
-        </div>
-        {notificationsLoading ? (
-          <div className="text-sm text-slate-400">جاري تحميل التنبيهات...</div>
-        ) : !notificationsAvailable ? (
-          <div className="text-sm text-amber-300">تعذر الاتصال بمصدر التنبيهات، وسيستمر التطبيق في العمل.</div>
-        ) : latestNotifications.length === 0 ? (
-          <div className="text-sm text-slate-400">لا توجد تنبيهات جديدة ضمن صلاحياتك.</div>
-        ) : (
-          <div className="space-y-2">
-            {latestNotifications.map((notification) => (
-              <button
-                key={notification.id}
-                type="button"
-                onClick={() => handleNotificationClick(notification)}
-                className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-right hover:bg-white/10"
-              >
-                <div className="font-bold text-white">{notification.title || notification.type || 'تنبيه'}</div>
-                <div className="mt-1 line-clamp-2 text-xs text-slate-400">
-                  {notification.body || notification.message || 'لا توجد تفاصيل إضافية'}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard icon={DollarSign} label="مبيعاتي اليوم" value={salesSummary ? formatCurrency(salesSummary.dailySales) : '—'} status={salesStatus} sub="لا تظهر أصفارًا أثناء التحميل" />
+        <MetricCard icon={FileText} label="عدد الفواتير" value={salesSummary ? salesSummary.invoices.toLocaleString('ar-EG') : '—'} status={salesStatus} sub="الدورة الحالية" />
+        <MetricCard icon={TrendingUp} label="متوسط الفاتورة" value={salesSummary ? formatCurrency(salesSummary.avgInvoice) : '—'} status={salesStatus} sub={salesSummary?.branchAvg ? `متوسط الفرع ${formatCurrency(salesSummary.branchAvg)}` : 'مقارنة الفرع عند توفرها'} />
+        <MetricCard icon={Target} label="مبيعات الدورة" value={salesSummary ? formatCurrency(salesSummary.cycleSales) : '—'} status={salesStatus} sub={cycle.label} />
+        <MetricCard icon={ClipboardList} label="مهامي اليوم" value={taskSummary.total.toLocaleString('ar-EG')} status={taskStatus} sub={`متبقي ${taskSummary.remaining} · متأخر ${taskSummary.late}`} />
+        <MetricCard icon={Star} label="نقاطي الحالية" value={pointsBalance.toLocaleString('ar-EG')} status={pointsStatus} sub={`من ${STARTING_POINTS} نقطة`} />
+        <MetricCard icon={Wallet} label="حافزي المتوقع" value={formatCurrency(expectedIncentive)} status={pointsStatus} sub={`تقديري حتى اعتماد الدورة · سقف ${MAX_BASE_INCENTIVE} ج`} />
+        <MetricCard icon={Bell} label="تنبيهات وملاحظات" value={(latestNotifications.length + safeNumber(pendingShiftNotes)).toLocaleString('ar-EG')} status={notificationsLoading ? 'loading' : 'success'} sub="تنبيهات + ملاحظات شيفت" />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.8fr)]">
+        <SectionCard icon={ClipboardCheck} title="المطلوب مني اليوم" subtitle="مرتب حسب العاجل والمتأخر والمهم">
+          <StateLine status={taskStatus} error={tasksError} empty="تم إنجاز جميع مهام اليوم أو لا توجد مهام مسجلة." />
+          {!!todayTasks.length && (
+            <div className="mt-3 space-y-2">
+              {todayTasks.slice(0, 8).map((task) => (
+                <div key={task.id} className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/5 p-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="font-bold text-white">{task.task_title}</div>
+                    <div className="mt-1 text-xs text-slate-400">
+                      {task.branch || effectiveBranch} · {task.priority || 'عادي'} · {task.status || 'مفتوح'}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <a className="btn-secondary px-3 py-2 text-xs" href={actionHrefForTask(task)}>تنفيذ</a>
+                    {task.status !== 'completed' && (
+                      <button type="button" className="btn-primary px-3 py-2 text-xs" onClick={() => void handleCompleteTask(task.id)}>
+                        تم
+                      </button>
+                    )}
+                  </div>
                 </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard icon={Clock} title="الحضور وجدول الشيفت" subtitle="الشيفت الحالي والتغطيات">
+          <StateLine status={shiftStatus} error={shiftError} empty="لا يوجد شيفت مسجل لك اليوم." />
+          {todayShift && (
+            <div className="mt-3 grid gap-2 text-sm font-bold text-slate-200">
+              <InfoRow label="الشيفت" value={shiftTypeLabel(todayShift)} />
+              <InfoRow label="الوقت" value={shiftWindowLabel(todayShift)} />
+              <InfoRow label="الفرع" value={String(todayShift.branch || effectiveBranch || '—')} />
+              <InfoRow label="نوع اليوم" value={todayShift.is_off || todayShift.status === 'off' ? 'إجازة' : 'عمل'} />
+            </div>
+          )}
+        </SectionCard>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-3">
+        <SectionCard icon={Users} title="طلبات ومتابعات العملاء" subtitle="عملاء معرضون للفقدان أو يحتاجون دلع واسترجاع">
+          <StateLine status={customersLoading ? 'loading' : scopedCustomers.length ? 'success' : 'empty'} empty="لا توجد طلبات أو عملاء معرضون للفقدان ضمن نطاقك حاليًا." />
+          <div className="mt-3 space-y-2">
+            {scopedCustomers.slice(0, 6).map((customer) => (
+              <div key={customer.id} className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-black text-white">{customer.name}</div>
+                  <Pill>{customer.retention_status || 'متابعة'}</Pill>
+                </div>
+                <div className="mt-1 text-xs text-slate-400">{customer.customer_code || 'بدون كود'} · {customer.phone || 'بدون رقم'} · {customer.branch || effectiveBranch}</div>
+                {customer.customer_notes && <div className="mt-2 rounded-xl border border-amber-400/20 bg-amber-500/10 p-2 text-xs font-bold text-amber-100">{customer.customer_notes}</div>}
+              </div>
+            ))}
+          </div>
+          <a className="btn-primary mt-3 block text-center" href="/customer-service">فتح مركز خدمة العملاء</a>
+        </SectionCard>
+
+        <SectionCard icon={HeartHandshake} title="تقييمات محادثاتي" subtitle="اطلاع وتحسين وليس خصومات فقط">
+          <div className="space-y-2 text-sm font-bold text-slate-300">
+            <p>سيظهر هنا متوسط التقييمات، نقاط القوة، أكثر الأخطاء تكرارًا، والرد الصحيح المقترح عند اكتمال ربط التقييمات بـ staff_id.</p>
+            <p className="rounded-xl border border-teal-400/20 bg-teal-500/10 p-3 text-teal-100">المرحلة الحالية تعرض مدخلًا مباشرًا للتقييمات مع الحفاظ على عدم تعديل الدكتور للتقييم.</p>
+          </div>
+          <a className="btn-secondary mt-3 block text-center" href="/reviews">فتح تقييمات المحادثات</a>
+        </SectionCard>
+
+        <SectionCard icon={ShieldCheck} title="حوافزي ونقاطي" subtitle="شفافية الحركة والخصم والتعويض">
+          <div className="grid gap-2 text-sm font-bold text-slate-200">
+            <InfoRow label="النقاط الحالية" value={`${pointsBalance} / ${STARTING_POINTS}`} />
+            <InfoRow label="المكافآت" value={`${rewardsBalance} نقطة`} />
+            <InfoRow label="الخصومات" value={`${discountBalance} نقطة`} />
+            <InfoRow label="الحافز المتوقع" value={formatCurrency(expectedIncentive)} />
+            <InfoRow label="للمستوى الكامل" value={pointsToFull ? `${pointsToFull} نقطة متبقية` : 'مكتمل'} />
+          </div>
+          <p className="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-xs font-bold text-emerald-100">
+            يمكن تعويض الخصم بعد 3 محادثات إيجابية متتالية وفق سياسة الإدارة، والحافز الحالي تقديري حتى اعتماد الدورة.
+          </p>
+        </SectionCard>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-3">
+        <SectionCard icon={BarChart3} title="مبيعاتي وأهدافي" subtitle="الدورة الشهرية من 26 إلى 25">
+          <div className="grid gap-2 text-sm font-bold text-slate-200">
+            <InfoRow label="مبيعات اليوم" value={salesSummary ? formatCurrency(salesSummary.dailySales) : '—'} />
+            <InfoRow label="مبيعات الدورة" value={salesSummary ? formatCurrency(salesSummary.cycleSales) : '—'} />
+            <InfoRow label="متوسط الفاتورة" value={salesSummary ? formatCurrency(salesSummary.avgInvoice) : '—'} />
+            <InfoRow label="متوسط الفرع" value={salesSummary?.branchAvg ? formatCurrency(salesSummary.branchAvg) : 'غير كافٍ'} />
+            <InfoRow label="ترتيبي في الفرع" value={rankError ? 'غير متاح' : branchRank ? `#${branchRank}` : 'قيد الحساب'} />
+          </div>
+        </SectionCard>
+
+        <SectionCard icon={Package} title="فرص البيع المعتمدة" subtitle="رواكد وحوافز بدون ضغط على العميل">
+          <div className="space-y-2">
+            {(stagnantMedicines || []).slice(0, 3).map((item) => (
+              <InfoRow key={item.id} label={item.medicine_name} value={`${item.quantity_available || 0} متاح`} />
+            ))}
+            {(incentiveMedicines || []).slice(0, 3).map((item) => (
+              <InfoRow key={item.id} label={item.product_name} value={`${formatCurrency(item.incentive_value)} / علبة`} />
+            ))}
+            {!(stagnantMedicines || []).length && !(incentiveMedicines || []).length && <StateLine status="empty" empty="لا توجد فرص معتمدة حاليًا." />}
+          </div>
+        </SectionCard>
+
+        <SectionCard icon={GraduationCap} title="تطوير أدائي" subtitle="تدريب مقترح حسب مؤشراتك">
+          <div className="space-y-2 text-sm font-bold text-slate-200">
+            <TrainingItem title="تسجيل طلب العميل بصورة صحيحة" reason="مهم لمنع ضياع العملاء والوعود غير المسجلة" />
+            <TrainingItem title="التعامل مع تأخير الأوردر" reason="إبلاغ العميل والاعتذار والمتابعة أهم من سبب التأخير نفسه" />
+            <TrainingItem title="رفع متوسط الفاتورة بدون ضغط" reason="ترشيح مكمل مناسب حسب احتياج العميل فقط" />
+          </div>
+        </SectionCard>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.8fr)]">
+        <SectionCard icon={Award} title="إنجازاتي والتقدير الإيجابي" subtitle="التطبيق يساعد الدكتور ويحفزه، وليس أداة رقابة فقط">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <BadgeCard title="متابعات اليوم" value={`${taskSummary.completed}/${taskSummary.total}`} />
+            <BadgeCard title="الالتزام بالنقاط" value={`${pointsBalance} نقطة`} />
+            <BadgeCard title="مسابقة الفرع" value={branchRank ? `المركز #${branchRank}` : 'قيد الحساب'} />
+            <BadgeCard title="استرجاع العملاء" value={`${scopedCustomers.length} فرصة`} />
+            <BadgeCard title="ملاحظات الشيفت" value={`${pendingShiftNotes ?? 0} مفتوحة`} />
+            <BadgeCard title="الحافز المتوقع" value={formatCurrency(expectedIncentive)} />
+          </div>
+        </SectionCard>
+
+        <SectionCard icon={FileText} title="ملخص وتسليم الشيفت" subtitle="مراجعة قبل نهاية الشيفت">
+          <div className="space-y-2 text-xs font-bold text-slate-300">
+            <Checklist ok={taskSummary.remaining === 0} label="لا توجد مهام غير مكتملة" />
+            <Checklist ok={scopedCustomers.length === 0} label="لا توجد متابعات عملاء معرضة للفقدان" />
+            <Checklist ok={!pendingShiftNotes} label="لا توجد ملاحظات شيفت مفتوحة" />
+            <Checklist ok={!!todayShift} label="الشيفت مسجل ومحدد" />
+          </div>
+          <button type="button" className="btn-secondary mt-3 w-full" onClick={() => toast.info('سيتم ربط تأكيد تسليم الشيفت بحفظ رسمي في المرحلة التالية')}>
+            مراجعة تسليم الشيفت
+          </button>
+        </SectionCard>
+      </section>
+
+      <SectionCard icon={Bell} title="آخر التنبيهات" subtitle="تنبيهات مهمة فقط وبروابط مباشرة">
+        {notificationsLoading ? (
+          <StateLine status="loading" />
+        ) : !notificationsAvailable ? (
+          <StateLine status="error" error="تعذر الاتصال بمصدر التنبيهات، وسيستمر التطبيق في العمل." />
+        ) : latestNotifications.length === 0 ? (
+          <StateLine status="empty" empty="لا توجد تنبيهات جديدة ضمن صلاحياتك." />
+        ) : (
+          <div className="grid gap-2 md:grid-cols-2">
+            {latestNotifications.map((notification) => (
+              <button key={notification.id} type="button" onClick={() => handleNotificationClick(notification)} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-right hover:bg-white/10">
+                <div className="font-bold text-white">{notification.title || notification.type || 'تنبيه'}</div>
+                <div className="mt-1 line-clamp-2 text-xs text-slate-400">{notification.body || notification.message || 'لا توجد تفاصيل إضافية'}</div>
               </button>
             ))}
           </div>
         )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <MetricCard icon={DollarSign} label="مبيعاتي اليوم" value={salesError || !salesSummary ? '—' : formatCurrency(salesSummary.dailySales)} sub="" color="teal" textValue />
-        <MetricCard icon={FileText} label="فواتيري اليوم" value={salesError || !salesSummary ? '—' : String(todayMetrics?.daily_invoice_count ?? salesSummary.invoices)} sub="" color="green" textValue />
-        <MetricCard icon={TrendingUp} label="متوسط الفاتورة" value={salesError || !salesSummary ? '—' : formatCurrency(salesSummary.avgInvoice)} sub="" color="teal" textValue />
-        <MetricCard icon={Wallet} label="مبيعات الدورة" value={salesError || !salesSummary ? '—' : formatCurrency(salesSummary.cycleSales)} sub={cycle.label} color="green" textValue />
-        <MetricCard icon={Star} label="نقاطي الحالية" value={metricsError ? '—' : pointsBalance} sub={`/ ${STARTING_POINTS}`} color="teal" />
-        <MetricCard icon={Wallet} label="حافزي المتوقع" value={metricsError ? '—' : formatCurrency(expectedIncentive)} sub={`سقف ${MAX_BASE_INCENTIVE} ج`} color="green" textValue />
-        <MetricCard icon={ClipboardCheck} label="ملاحظات الشيفت المفتوحة" value={pendingShiftNotes ?? '—'} sub="مفتوحة" color="red" textValue />
-      </div>
-
-      <div className="stat-card">
-        <div className="mb-3 flex items-center gap-2 text-white font-bold">
-          <Clock size={18} className="text-teal-400" />
-          شيفتي اليوم
-        </div>
-        {shiftLoading ? (
-          <div className="text-slate-400 text-sm">جاري التحميل...</div>
-        ) : shiftError ? (
-          <div className="text-red-300 text-sm">{shiftError}</div>
-        ) : todayShift ? (
-          <div className="grid gap-2 text-sm text-slate-300 md:grid-cols-4">
-            <div>الشيفت: {String(todayShift.shift_type || todayShift.shift_name || '—')}</div>
-            <div>وقت البداية: {String(todayShift.start_time || todayShift.shift_start || '—')}</div>
-            <div>وقت النهاية: {String(todayShift.end_time || todayShift.shift_end || '—')}</div>
-            <div>
-              هل اليوم إجازة:{' '}
-              {todayShift.is_off || todayShift.status === 'off' || todayShift.shift_type === 'إجازة'
-                ? 'نعم'
-                : 'لا'}
-            </div>
-          </div>
-        ) : (
-          <div className="text-slate-400 text-sm">لا يوجد شيفت مسجل لك اليوم</div>
-        )}
-      </div>
-
-      <div className="stat-card">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-white font-bold">
-            <ClipboardList size={18} className="text-teal-400" />
-            مهامي اليوم
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-white/10 px-2 py-1">اليوم: {taskSummary.total}</span>
-            <span className="rounded-full bg-amber-500/20 px-2 py-1 text-amber-200">متأخر: {taskSummary.late}</span>
-            <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-200">عالي الأولوية: {taskSummary.high}</span>
-            <span className="rounded-full bg-green-500/20 px-2 py-1 text-green-200">مكتمل: {taskSummary.completed}</span>
-            <span className="rounded-full bg-orange-500/20 px-2 py-1 text-orange-200">يحتاج تدخل: {taskSummary.needsIntervention}</span>
-          </div>
-        </div>
-        {tasksLoading ? (
-          <div className="text-slate-400 text-sm">جاري تحميل المهام...</div>
-        ) : tasksError ? (
-          <div className="text-red-300 text-sm">{tasksError}</div>
-        ) : todayTasks.length === 0 ? (
-          <div className="text-slate-400 text-sm">لا توجد مهام مسجلة لك اليوم</div>
-        ) : (
-          <div className="space-y-2">
-            {todayTasks.map((task) => (
-              <div key={task.id} className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 p-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <div className="font-bold text-white">{task.task_title}</div>
-                  <div className="text-xs text-slate-400">
-                    {task.branch || effectiveBranch} • {task.priority} • {task.status}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {task.status !== 'completed' && (
-                    <button type="button" className="btn-primary text-xs" onClick={() => void handleCompleteTask(task.id)}>
-                      تم
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-white">لوحة تحكم الدكتور</h2>
-          <p className="text-slate-400 text-sm mt-1">
-            عرض تقييم ومبيعات وحوافز {effectiveName || user?.name} —{' '}
-            {effectiveBranch || user?.branch}
-          </p>
-        </div>
-        <div className="flex flex-col md:flex-row gap-2">
-          {isManagerView && (
-            <select
-              value={selectedStaff?.id || ''}
-              onChange={(e) => setSelectedStaffId(e.target.value)}
-              className="input-dark md:w-72"
-            >
-          {scopedStaffOptions
-                .filter((item) => ['pharmacist', 'delivery', 'assistant'].includes(normalizeRole(item.role)))
-                .map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} - {item.role} - {item.branch}
-                  </option>
-                ))}
-            </select>
-          )}
-          <div className="flex items-center gap-2 bg-[#1B2B4B] border border-[#2d4063] rounded-xl px-4 py-2">
-            <Calendar size={18} className="text-teal-400" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent text-white text-sm focus:outline-none"
-            />
-          </div>
-          <button
-            type="button"
-            className="btn-secondary flex items-center justify-center gap-2"
-            onClick={() =>
-              openMonthlyPdfReport(
-                effectiveName || 'موظف',
-                selectedStaff?.role || user?.role || '',
-                effectiveBranch || '',
-                cycle.label,
-                pointsBalance,
-                rewardsBalance,
-                discountBalance
-              )
-            }
-          >
-            <FileText size={16} /> تقرير PDF شهري
-          </button>
-        </div>
-      </div>
+      </SectionCard>
 
       <StaffOperatingPolicy />
+    </div>
+  );
+}
 
-      {/* Points, Rewards, and Discounts Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <MetricCard
-          icon={Wallet}
-          label="رصيد النقاط"
-          value={pointsBalance}
-          sub={`/ ${STARTING_POINTS}`}
-          color="teal"
-        />
-        <MetricCard
-          icon={TrendingUp}
-          label="رصيد المكافآت"
-          value={rewardsBalance}
-          sub="نقطة"
-          color="green"
-        />
-        <MetricCard
-          icon={AlertCircle}
-          label="رصيد الخصم"
-          value={discountBalance}
-          sub="نقطة"
-          color="red"
-        />
-      </div>
-
-      {/* Sales Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="stat-card">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center text-blue-400">
-              <DollarSign size={20} />
-            </div>
-            <div>
-              <div className="text-white font-bold">المبيعات</div>
-              <div className="text-slate-400 text-xs">الدورة الحالية</div>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400 text-sm">مبيعات اليوم</span>
-              <span className="text-white font-bold num">
-                {formatCurrency(todayMetrics?.daily_sales || 0)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400 text-sm">مبيعات الشهر</span>
-              <span className="text-white font-bold num">
-                {formatCurrency(todayMetrics?.monthly_sales || 0)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400 text-sm">فواتير اليوم</span>
-              <span className="text-white font-bold num">
-                {todayMetrics?.daily_invoice_count || 0}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400 text-sm">فواتير الشهر</span>
-              <span className="text-white font-bold num">
-                {todayMetrics?.monthly_invoice_count || 0}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/15 flex items-center justify-center text-purple-400">
-              <Users size={20} />
-            </div>
-            <div>
-              <div className="text-white font-bold">العملاء</div>
-              <div className="text-slate-400 text-xs">يحتاجون متابعة</div>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-white num mb-2">{scopedCustomers.length}</div>
-          <div className="text-slate-400 text-xs">عملاء معرضون للفقدان أو مفقودون</div>
-        </div>
-      </div>
-
-      {/* Stagnant Medicines */}
-      {permissions?.can_view_stagnant_medicines && (
-        <div className="stat-card">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center text-amber-400">
-              <Package size={20} />
-            </div>
-            <div>
-              <div className="text-white font-bold">الأدوية الرواكد</div>
-              <div className="text-slate-400 text-xs">مطلوب التركيز عليها</div>
-            </div>
-          </div>
-          {stagnantMedicines && stagnantMedicines.length > 0 ? (
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {stagnantMedicines.map((med) => (
-                <div
-                  key={med.id}
-                  className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5"
-                >
-                  <div className="flex-1">
-                    <div className="text-white font-medium text-sm">{med.medicine_name}</div>
-                    <div className="text-slate-400 text-xs">
-                      {med.usage} • ينتهي {med.expiry_date}
-                    </div>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-amber-400 font-bold num">{med.quantity_available}</div>
-                    <div className="text-slate-400 text-xs">متاح</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-slate-400 text-sm py-4 text-center">
-              لا توجد أدوية رواكد حالياً
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Incentive Medicines */}
-      {permissions?.can_view_incentive_medicines && (
-        <div className="stat-card">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-green-500/15 flex items-center justify-center text-green-400">
-              <TrendingUp size={20} />
-            </div>
-            <div>
-              <div className="text-white font-bold">أدوية الحوافز</div>
-              <div className="text-slate-400 text-xs">مكافأة على البيع</div>
-            </div>
-          </div>
-          {incentiveMedicines && incentiveMedicines.length > 0 ? (
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {incentiveMedicines.map((med) => (
-                <div
-                  key={med.id}
-                  className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5"
-                >
-                  <div className="flex-1">
-                    <div className="text-white font-medium text-sm">{med.product_name}</div>
-                    <div className="text-slate-400 text-xs">{med.current_quantity} متاح</div>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-green-400 font-bold num">
-                      {formatCurrency(med.incentive_value)}
-                    </div>
-                    <div className="text-slate-400 text-xs">حافز/علبة</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-slate-400 text-sm py-4 text-center">
-              لا توجد أدوية حوافز حالياً
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Customers to Contact */}
-      <div className="stat-card">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center text-blue-400">
-            <Users size={20} />
-          </div>
-          <div>
-            <div className="text-white font-bold">العملاء الذين يحتاجون متابعة</div>
-            <div className="text-slate-400 text-xs">مع ملاحظات مهمة</div>
-          </div>
-        </div>
-        {scopedCustomers.length > 0 ? (
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {scopedCustomers.slice(0, 10).map((customer) => (
-              <div key={customer.id} className="p-3 bg-white/5 rounded-lg border border-white/5">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-white font-medium text-sm">{customer.name}</div>
-                  <div className="text-slate-400 text-xs">{customer.customer_code || '—'}</div>
-                </div>
-                <div className="text-slate-400 text-xs mb-1">{customer.phone}</div>
-                {customer.customer_notes && (
-                  <div className="bg-amber-500/10 border border-amber-500/20 rounded p-2 mt-2">
-                    <div className="text-amber-200 text-xs">{customer.customer_notes}</div>
-                  </div>
-                )}
-                <div className="mt-2">
-                  <span
-                    className={`text-xs px-2 py-1 rounded ${
-                      customer.retention_status === 'معرض للفقدان'
-                        ? 'bg-amber-500/20 text-amber-400'
-                        : 'bg-red-500/20 text-red-400'
-                    }`}
-                  >
-                    {customer.retention_status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-slate-400 text-sm py-4 text-center">
-            لا يوجد عملاء يحتاجون متابعة حالياً
-          </div>
-        )}
+function BlockedState({ text }: { text: string }) {
+  return (
+    <div className="flex min-h-[400px] items-center justify-center">
+      <div className="rounded-3xl border border-amber-400/25 bg-amber-500/10 p-8 text-center">
+        <AlertCircle className="mx-auto mb-4 text-amber-300" size={48} />
+        <div className="text-lg font-bold text-white">{text}</div>
       </div>
     </div>
   );
 }
 
-function MetricCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  color,
-  textValue = false,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: number | string;
-  sub: string;
-  color: string;
-  textValue?: boolean;
-}) {
-  const colors: Record<string, string> = {
-    teal: 'bg-teal-500/15 text-teal-400',
-    green: 'bg-green-500/15 text-green-400',
-    red: 'bg-red-500/15 text-red-400',
-  };
+function SectionCard({ icon: Icon, title, subtitle, children }: { icon: React.ElementType; title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="stat-card">
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${colors[color]}`}>
-        <Icon size={20} />
+    <section className="rounded-3xl border border-white/10 bg-[#10213a] p-4 shadow-lg">
+      <div className="mb-3 flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-400/15 text-teal-200">
+          <Icon size={20} />
+        </div>
+        <div>
+          <h2 className="font-black text-white">{title}</h2>
+          {subtitle && <p className="mt-1 text-xs font-bold text-slate-400">{subtitle}</p>}
+        </div>
       </div>
-      <div className="mt-3">
-        <div className={`font-bold text-white ${textValue ? 'text-lg' : 'text-3xl num'}`}>{value}</div>
-        <div className="text-slate-300 text-sm font-medium mt-0.5">{label}</div>
-        {sub ? <div className="text-slate-400 text-xs mt-0.5">{sub}</div> : null}
+      {children}
+    </section>
+  );
+}
+
+function MetricCard({ icon: Icon, label, value, sub, status }: { icon: React.ElementType; label: string; value: string | number; sub?: string; status: LoadStatus }) {
+  const statusText = status === 'loading' ? 'جاري التحميل...' : status === 'error' ? 'تعذر التحميل' : status === 'empty' ? 'لا توجد بيانات كافية' : sub;
+  return (
+    <div className="rounded-3xl border border-white/10 bg-[#10213a] p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-400/15 text-teal-200"><Icon size={20} /></div>
+        <span className={`rounded-full px-2 py-1 text-[11px] font-black ${status === 'error' ? 'bg-red-500/15 text-red-200' : status === 'loading' ? 'bg-amber-500/15 text-amber-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
+          {status === 'success' ? 'محدث' : status === 'loading' ? 'تحميل' : status === 'empty' ? 'فارغ' : 'خطأ'}
+        </span>
       </div>
+      <div className="mt-3 text-2xl font-black text-white">{status === 'loading' ? '—' : value}</div>
+      <div className="mt-1 text-sm font-bold text-slate-300">{label}</div>
+      {statusText && <div className="mt-1 text-xs font-bold text-slate-500">{statusText}</div>}
+    </div>
+  );
+}
+
+function ActionNowCard({ task, loading }: { task: EmployeeDailyTask | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <section className="rounded-3xl border border-amber-400/25 bg-amber-500/10 p-5">
+        <div className="font-black text-white">أهم إجراء الآن</div>
+        <div className="mt-2 text-sm text-amber-100">جاري تحميل المهام العاجلة...</div>
+      </section>
+    );
+  }
+  const href = actionHrefForTask(task);
+  return (
+    <section className="rounded-3xl border border-red-400/25 bg-gradient-to-l from-red-500/15 to-amber-500/10 p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="text-xs font-black text-red-200">أهم إجراء الآن</div>
+          <h2 className="mt-1 text-xl font-black text-white">{task ? task.task_title : 'لا توجد مهمة عاجلة حاليًا'}</h2>
+          <p className="mt-2 text-sm font-bold text-slate-300">
+            {task ? `الأولوية: ${task.priority || 'عادي'} · الحالة: ${task.status || 'مفتوح'}` : 'راجع العملاء المعرضين للفقدان وفرص تحسين الأداء.'}
+          </p>
+        </div>
+        <a className="btn-primary whitespace-nowrap text-center" href={href}>{task ? 'تنفيذ المهمة' : 'فتح خدمة العملاء'}</a>
+      </div>
+    </section>
+  );
+}
+
+function InsightCard({ title, detail, href, tone }: { title: string; detail: string; href: string; tone: 'red' | 'amber' | 'teal' | 'green' }) {
+  const toneClass = tone === 'red' ? 'border-red-400/25 bg-red-500/10' : tone === 'amber' ? 'border-amber-400/25 bg-amber-500/10' : tone === 'green' ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-teal-400/25 bg-teal-500/10';
+  return (
+    <a href={href} className={`rounded-3xl border p-4 transition hover:brightness-110 ${toneClass}`}>
+      <div className="font-black text-white">{title}</div>
+      <p className="mt-2 text-xs font-bold leading-6 text-slate-200">{detail}</p>
+    </a>
+  );
+}
+
+function StateLine({ status, error, empty }: { status: LoadStatus; error?: string | null; empty?: string }) {
+  if (status === 'loading') return <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3 text-sm font-bold text-amber-100">جاري التحميل...</div>;
+  if (status === 'error') return <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-sm font-bold text-red-100">{error || 'تعذر تحميل هذا القسم'}</div>;
+  if (status === 'empty') return <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm font-bold text-slate-400">{empty || 'لا توجد بيانات كافية حاليًا.'}</div>;
+  return null;
+}
+
+function InfoRow({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-bold">
+      <span className="text-slate-400">{label}</span>
+      <span className="text-white">{value}</span>
+    </div>
+  );
+}
+
+function Pill({ children }: { children: React.ReactNode }) {
+  return <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{children}</span>;
+}
+
+function TrainingItem({ title, reason }: { title: string; reason: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+      <div className="font-black text-white">{title}</div>
+      <div className="mt-1 text-xs text-slate-400">سبب الترشيح: {reason}</div>
+      <button type="button" className="btn-secondary mt-2 px-3 py-2 text-xs" onClick={() => toast.info('سيتم فتح التدريب التفاعلي في المرحلة التالية')}>
+        ابدأ تدريبًا قصيرًا
+      </button>
+    </div>
+  );
+}
+
+function BadgeCard({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-teal-400/20 bg-teal-500/10 p-3">
+      <div className="text-xs font-bold text-teal-100">{title}</div>
+      <div className="mt-1 text-lg font-black text-white">{value}</div>
+    </div>
+  );
+}
+
+function Checklist({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${ok ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100' : 'border-amber-400/25 bg-amber-500/10 text-amber-100'}`}>
+      {ok ? '✓' : '•'} {label}
     </div>
   );
 }
