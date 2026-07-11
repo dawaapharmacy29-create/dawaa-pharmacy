@@ -28,7 +28,7 @@ type SmartRow = FollowupRow & {
 
 type MixRow = { source_type: string; rows_count: number; open_count: number; completed_count: number };
 
-type WarningItem = { id: string; text: string; href?: string; tone?: 'amber' | 'red' | 'cyan' };
+type WarningItem = { id: string; text: string; href?: string; tone?: 'amber' | 'red' | 'cyan' | 'emerald' };
 
 const LIMIT = 220;
 const EMPTY_INSIGHTS: CustomerServiceInsightPools = {
@@ -197,6 +197,17 @@ function nextAction(row: SmartRow) {
   return 'تواصل، سجل النتيجة، وحدد الخطوة القادمة';
 }
 
+function operationScript(row: SmartRow) {
+  const name = customerName(row);
+  const reason = row.request_details || row.followup_reason || nextAction(row);
+  if (!hasValidPhone(row)) return 'قبل إرسال أي رسالة: راجع رقم العميل أو اطلب تحديث الرقم من الفرع، ثم سجل ملاحظة واضحة.';
+  if (row.needs_manager) return `أهلا بحضرتك ${name}. مع حضرتك صيدليات دواء. بنراجع طلب حضرتك مع المدير المختص وهنرجع لحضرتك بأسرع وقت. تحت أمر حضرتك.`;
+  if (isOverdue(row)) return `أهلا بحضرتك ${name}. مع حضرتك صيدليات دواء. بنعتذر عن التأخير وبنتابع مع حضرتك بخصوص ${reason}. يهمنا نطمن إن طلب حضرتك تم بالشكل المناسب.`;
+  if (/vip|مهم جدًا|مهم جدا/i.test(segmentOf(row))) return `أهلا بحضرتك ${name}. مع حضرتك صيدليات دواء. حضرتك من عملائنا المميزين وبنطمن على احتياجاتك الشهرية. تحت أمر حضرتك في أي وقت.`;
+  if (/متوقف|stop/i.test(String(row.customer_status || row.customer_metrics?.customer_status || ''))) return `أهلا بحضرتك ${name}. مع حضرتك صيدليات دواء. بنطمن على حضرتك لأن بقالنا فترة ما تشرفناش بتعاملك، ويهمنا نعرف لو في أي احتياج نقدر نوفره لحضرتك.`;
+  return `أهلا بحضرتك ${name}. مع حضرتك صيدليات دواء. بنطمن على حضرتك بخصوص ${reason}. نتشرف بخدمة حضرتك دائمًا.`;
+}
+
 function rowUrl(row: SmartRow, mode: 'details' | 'edit' = 'details') {
   if (row.virtual) return `/customer-service?tab=add&name=${encodeURIComponent(customerName(row))}&phone=${encodeURIComponent(phoneOf(row))}&code=${encodeURIComponent(getCustomerCodeSafe(row))}`;
   const url = new URL('/customer-service', window.location.origin);
@@ -204,6 +215,13 @@ function rowUrl(row: SmartRow, mode: 'details' | 'edit' = 'details') {
   url.searchParams.set('openDetails', mode === 'details' ? '1' : '0');
   if (mode === 'edit') url.searchParams.set('mode', 'edit');
   return `${url.pathname}${url.search}`;
+}
+
+function whatsappHref(row: SmartRow) {
+  const digits = phoneOf(row).replace(/\D/g, '');
+  if (!digits) return '';
+  const phone = digits.startsWith('20') ? digits : digits.startsWith('0') ? `2${digits}` : digits;
+  return `https://wa.me/${phone}?text=${encodeURIComponent(operationScript(row))}`;
 }
 
 function sourceLabel(source: string) {
@@ -299,6 +317,8 @@ export default function CustomerServiceSmartLayer() {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem('dawaa_cs_smart_layer_collapsed') === '1');
+  const [fastMode, setFastMode] = useState(false);
+  const [selectedKey, setSelectedKey] = useState('');
 
   useEffect(() => {
     try {
@@ -340,7 +360,7 @@ export default function CustomerServiceSmartLayer() {
 
   const smartRows = useMemo(() => dedupe([...rows, ...virtualRows(insights)]), [rows, insights]);
   const openRows = useMemo(() => smartRows.filter((row) => !isCompleted(row)), [smartRows]);
-  const topPriority = useMemo(() => openRows.slice(0, 6), [openRows]);
+  const topPriority = useMemo(() => openRows.slice(0, fastMode ? 12 : 8), [fastMode, openRows]);
   const overdue = useMemo(() => openRows.filter(isOverdue), [openRows]);
   const needsManager = useMemo(() => openRows.filter((row) => row.needs_manager), [openRows]);
   const dataIssues = useMemo(() => openRows.filter((row) => !hasValidPhone(row) || !getCustomerCodeSafe(row)), [openRows]);
@@ -350,6 +370,24 @@ export default function CustomerServiceSmartLayer() {
   const completed = useMemo(() => rows.filter(isCompleted), [rows]);
   const recoveredAmount = useMemo(() => rows.reduce((sum, row) => sum + Number(row.purchase_amount || 0), 0), [rows]);
   const displayMix = useMemo(() => (mix.length ? mix : buildFallbackMix(smartRows)), [mix, smartRows]);
+  const selectedRow = useMemo(() => {
+    if (!smartRows.length) return null;
+    return smartRows.find((row) => canonicalKey(row) === selectedKey) || topPriority[0] || openRows[0] || smartRows[0];
+  }, [openRows, selectedKey, smartRows, topPriority]);
+  const selectedIndex = useMemo(() => {
+    if (!selectedRow) return -1;
+    return topPriority.findIndex((row) => canonicalKey(row) === canonicalKey(selectedRow));
+  }, [selectedRow, topPriority]);
+  const nextSelectedRow = selectedIndex >= 0 ? topPriority[selectedIndex + 1] : null;
+  const selectedBranch = selectedRow ? resolveCustomerBranch(selectedRow) : null;
+  const selectedWhatsApp = selectedRow ? whatsappHref(selectedRow) : '';
+
+  useEffect(() => {
+    if (!selectedRow) return;
+    const key = canonicalKey(selectedRow);
+    if (key && key !== selectedKey) setSelectedKey(key);
+  }, [selectedKey, selectedRow]);
+
   const branchDistribution = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of smartRows) {
@@ -358,6 +396,7 @@ export default function CustomerServiceSmartLayer() {
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [smartRows]);
+
   const warnings = useMemo<WarningItem[]>(() => {
     const list: WarningItem[] = [];
     if (overdue.length > 0) list.push({ id: 'overdue', text: `${overdue.length} متابعة متأخرة: افتحها وسجل نتيجة أو سبب تأجيل.`, href: '/customer-service?filter=overdue', tone: 'red' });
@@ -388,16 +427,26 @@ export default function CustomerServiceSmartLayer() {
     window.localStorage.setItem('dawaa_cs_smart_layer_collapsed', next ? '1' : '0');
   };
 
+  const copyScript = async () => {
+    if (!selectedRow) return;
+    try {
+      await navigator.clipboard.writeText(operationScript(selectedRow));
+      toast.success('تم نسخ سكريبت التواصل');
+    } catch {
+      toast.info('انسخ النص يدويًا من صندوق السكريبت');
+    }
+  };
+
   return (
     <section className="customer-service-smart-layer mb-5 scroll-mt-24 rounded-3xl border border-cyan-400/30 bg-slate-950/55 p-4 pt-6 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-100">
-            <Sparkles className="h-4 w-4" /> طبقة الذكاء التشغيلي لخدمة العملاء
+            <Sparkles className="h-4 w-4" /> مركز قيادة خدمة العملاء
           </span>
-          <h2 className="mt-2 text-2xl font-black text-white">ابدأ من أهم عميل، وسجل نتيجة، ولا تترك متابعة تفلت</h2>
+          <h2 className="mt-2 text-2xl font-black text-white">ابدأ من أهم عميل، وشغّل المتابعة من شاشة واحدة</h2>
           <p className="mt-1 text-sm font-bold text-slate-400">
-            هذه الطبقة ترتب العمل اليومي وتجمع إنشاء المتابعات، التسجيل، القوالب، التحليل، ومراجعة البيانات في شاشة واحدة واضحة.
+            قائمة أولوية + ملف مختصر + إجراءات سريعة + سكريبت واتساب جاهز. الهدف إن مسؤول خدمة العملاء ينجز المتابعة بدون تنقل زائد.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -406,6 +455,9 @@ export default function CustomerServiceSmartLayer() {
           </button>
           <button type="button" className="btn-primary flex items-center gap-2" onClick={() => void generateToday()} disabled={generating}>
             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} إنشاء 30/فرع
+          </button>
+          <button type="button" className={fastMode ? 'btn-primary' : 'btn-secondary'} onClick={() => setFastMode((value) => !value)}>
+            {fastMode ? 'وضع سريع مفعل' : 'وضع التشغيل السريع'}
           </button>
           <button type="button" className="btn-secondary" onClick={toggleCollapsed}>{collapsed ? 'إظهار التفاصيل' : 'إخفاء التفاصيل'}</button>
         </div>
@@ -445,53 +497,139 @@ export default function CustomerServiceSmartLayer() {
       </div>
 
       {!collapsed && (
-        <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.8fr)]">
-          <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div>
-                <h3 className="font-black text-white">أهم العملاء للعمل الآن</h3>
-                <p className="text-xs font-bold text-slate-400">مرتب حسب التأخير، الخطورة، قيمة العميل، ومصدر المتابعة.</p>
+        <>
+          <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(280px,.85fr)_minmax(0,1.2fr)_minmax(320px,.85fr)]">
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-black text-white">ابدأ من هنا</h3>
+                  <p className="text-xs font-bold text-slate-400">أعلى العملاء أولوية حسب التأخير والخطورة والقيمة.</p>
+                </div>
+                {loading && <Loader2 className="h-5 w-5 animate-spin text-cyan-200" />}
               </div>
-              {loading && <Loader2 className="h-5 w-5 animate-spin text-cyan-200" />}
-            </div>
-            <div className="grid gap-2 xl:grid-cols-2">
-              {topPriority.map((row) => (
-                <article key={`${row.id}-${canonicalKey(row)}`} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-base font-black text-white">{customerName(row)}</div>
-                      <div className="mt-1 text-xs font-bold text-slate-400">{getCustomerCodeSafe(row) || 'بدون كود'} · {resolveCustomerBranch(row).branch}</div>
+              <div className="grid max-h-[680px] gap-2 overflow-y-auto pr-1">
+                {topPriority.map((row, index) => {
+                  const key = canonicalKey(row);
+                  const active = selectedRow && canonicalKey(selectedRow) === key;
+                  return (
+                    <button
+                      key={`${row.id}-${key}`}
+                      type="button"
+                      onClick={() => setSelectedKey(key)}
+                      className={`rounded-2xl border p-3 text-right transition ${active ? 'border-cyan-300 bg-cyan-500/15' : 'border-slate-700 bg-slate-900/70 hover:border-cyan-400/40'}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-base font-black text-white">{index + 1}. {customerName(row)}</div>
+                          <div className="mt-1 text-xs font-bold text-slate-400">{getCustomerCodeSafe(row) || 'بدون كود'} · {resolveCustomerBranch(row).branch}</div>
+                        </div>
+                        <span className={`rounded-full border px-2 py-1 text-[11px] font-black ${isOverdue(row) ? 'border-red-400/40 bg-red-500/10 text-red-100' : row.virtual ? 'border-amber-400/40 bg-amber-500/10 text-amber-100' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'}`}>
+                          {rowSource(row)}
+                        </span>
+                      </div>
                       <CustomerFlagChips row={row} className="mt-2" />
+                      <div className="mt-2 grid gap-1 text-xs font-bold text-slate-300">
+                        <span>المسؤول: {responsibleOf(row)}</span>
+                        <span className={isOverdue(row) ? 'text-red-200' : ''}>{isOverdue(row) ? `متأخر ${delayLabel(row)}` : formatDateTime(dueAt(row))}</span>
+                        <span>الأولوية: {smartScore(row)} · إجمالي {money(totalSpent(row))}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+                {!topPriority.length && <p className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5 text-center text-sm font-bold text-slate-400">لا توجد متابعات مفتوحة في نطاق العرض الحالي.</p>}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
+              <h3 className="font-black text-white">ملف العميل المختار</h3>
+              {!selectedRow ? (
+                <p className="mt-4 rounded-2xl border border-slate-700 bg-slate-900/70 p-5 text-center text-sm font-bold text-slate-400">اختر عميلًا من قائمة الأولوية لعرض التفاصيل والإجراءات.</p>
+              ) : (
+                <div className="mt-3 space-y-4">
+                  <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <h4 className="text-2xl font-black text-white">{customerName(selectedRow)}</h4>
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs font-black text-slate-200">
+                          <span className="rounded-full border border-slate-600 px-3 py-1">{getCustomerCodeSafe(selectedRow) || 'بدون كود'}</span>
+                          <span className="rounded-full border border-slate-600 px-3 py-1">{phoneOf(selectedRow) || 'بدون رقم'}</span>
+                          <span className="rounded-full border border-slate-600 px-3 py-1">{selectedBranch?.branch || 'غير محدد'}</span>
+                        </div>
+                        <CustomerFlagChips row={selectedRow} className="mt-3" />
+                      </div>
+                      <div className="rounded-2xl border border-slate-700 bg-slate-950/50 p-3 text-center">
+                        <div className="text-xs font-black text-slate-400">درجة الأولوية</div>
+                        <div className="text-3xl font-black text-cyan-100">{smartScore(selectedRow)}</div>
+                      </div>
                     </div>
-                    <span className={`rounded-full border px-2 py-1 text-[11px] font-black ${isOverdue(row) ? 'border-red-400/40 bg-red-500/10 text-red-100' : row.virtual ? 'border-amber-400/40 bg-amber-500/10 text-amber-100' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'}`}>
-                      {rowSource(row)}
-                    </span>
                   </div>
-                  <div className="mt-2 grid gap-1 text-xs font-bold text-slate-300 sm:grid-cols-2">
-                    <span>المسؤول: {responsibleOf(row)}</span>
-                    <span>الأولوية: {smartScore(row)}</span>
-                    <span>إجمالي: {money(totalSpent(row))}</span>
-                    <span>خطورة: {riskLevel(row)}</span>
-                    <span className={isOverdue(row) ? 'text-red-200' : ''}>{isOverdue(row) ? `متأخر ${delayLabel(row)}` : formatDateTime(dueAt(row))}</span>
-                    <span className={!hasValidPhone(row) ? 'text-amber-200' : ''}>{hasValidPhone(row) ? 'رقم صالح' : 'رقم يحتاج مراجعة'}</span>
+
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <MiniStat label="إجمالي مشتريات" value={money(totalSpent(selectedRow))} />
+                    <MiniStat label="متوسط شهري" value={money(avgMonthly(selectedRow))} />
+                    <MiniStat label="الحالة" value={statusOf(selectedRow)} />
+                    <MiniStat label="موعد/تأخير" value={isOverdue(selectedRow) ? delayLabel(selectedRow) : formatDateTime(dueAt(selectedRow))} danger={isOverdue(selectedRow)} />
                   </div>
-                  <p className="mt-2 rounded-xl border border-slate-700 bg-slate-950/50 p-2 text-xs font-bold leading-6 text-slate-200">{nextAction(row)}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <SmartLink href={rowUrl(row, 'edit')} label={row.virtual ? 'إنشاء متابعة' : 'تسجيل نتيجة'} primary />
-                    <SmartLink href={rowUrl(row, 'details')} label="ملف العميل" />
-                    <SmartLink href="/customer-service?tab=history" label="السجل" />
+
+                  <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+                    <div className="text-sm font-black text-white">اعمل التالي</div>
+                    <p className="mt-2 text-sm font-bold leading-7 text-slate-200">{nextAction(selectedRow)}</p>
                   </div>
-                </article>
-              ))}
-              {!topPriority.length && <p className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5 text-center text-sm font-bold text-slate-400">لا توجد متابعات مفتوحة في نطاق العرض الحالي.</p>}
+
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="font-black text-white">سكريبت واتساب مقترح</h4>
+                      <button type="button" className="btn-secondary px-3 py-2 text-xs" onClick={() => void copyScript()}>نسخ السكريبت</button>
+                    </div>
+                    <p className="mt-3 whitespace-pre-line rounded-xl border border-emerald-300/20 bg-slate-950/50 p-3 text-sm font-bold leading-7 text-emerald-50">
+                      {operationScript(selectedRow)}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
+                <h3 className="font-black text-white">الإجراءات السريعة</h3>
+                <div className="mt-3 grid gap-2">
+                  {selectedRow && selectedWhatsApp ? <a className="btn-primary text-center" href={selectedWhatsApp} target="_blank" rel="noreferrer">إرسال واتساب بالسكريبت</a> : <button type="button" className="btn-primary opacity-60" disabled>واتساب غير متاح</button>}
+                  {selectedRow && phoneOf(selectedRow) ? <a className="btn-secondary text-center" href={`tel:${phoneOf(selectedRow)}`}>اتصال الآن</a> : <button type="button" className="btn-secondary opacity-60" disabled>لا يوجد رقم للاتصال</button>}
+                  {selectedRow && <SmartLink href={rowUrl(selectedRow, 'edit')} label={selectedRow.virtual ? 'إنشاء متابعة' : 'تسجيل نتيجة'} primary />}
+                  {selectedRow && <SmartLink href={rowUrl(selectedRow, 'details')} label="فتح ملف العميل" />}
+                  {selectedRow && <SmartLink href="/customer-data-review" label="تصحيح بيانات العميل" />}
+                  {nextSelectedRow && <button type="button" className="btn-secondary" onClick={() => setSelectedKey(canonicalKey(nextSelectedRow))}>العميل التالي في الدور</button>}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
+                <h3 className="font-black text-white">وضع التشغيل السريع</h3>
+                <div className="mt-3 space-y-2 text-xs font-bold text-slate-300">
+                  <p>1) راجع الملخص والسكريبت.</p>
+                  <p>2) اضغط واتساب أو اتصال.</p>
+                  <p>3) سجل النتيجة.</p>
+                  <p>4) انتقل تلقائيًا للعميل التالي.</p>
+                </div>
+                <button type="button" className={fastMode ? 'btn-primary mt-3 w-full' : 'btn-secondary mt-3 w-full'} onClick={() => setFastMode((value) => !value)}>
+                  {fastMode ? 'إيقاف التشغيل السريع' : 'تشغيل الوضع السريع'}
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
+                <h3 className="font-black text-white">تنبيهات تشغيلية</h3>
+                <div className="mt-3 grid gap-2 text-xs font-bold text-slate-200">
+                  {warnings.map((warning) => <SmartWarning key={warning.id} {...warning} />)}
+                  {!warnings.length && <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-emerald-100">لا توجد تنبيهات تشغيلية حاليًا</div>}
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.65fr)]">
             <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
               <h3 className="font-black text-white">توزيع قائمة اليوم</h3>
               <p className="text-xs font-bold text-slate-400">توزيع عملي من بيانات الصفحة الحالية، ويستبدل تلقائيًا بالتوزيع الدقيق عند توفر view التحليل اليومية.</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
                 <MiniStat label="إجمالي القائمة" value={smartRows.length} />
                 <MiniStat label="مفتوح" value={openRows.length} />
                 <MiniStat label="متأخر" value={overdue.length} danger />
@@ -499,7 +637,7 @@ export default function CustomerServiceSmartLayer() {
                 <MiniStat label="بدون كود/رقم" value={dataIssues.length} danger />
                 <MiniStat label="فرع غير مؤكد" value={branchIssues.length} danger />
               </div>
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 grid gap-2 lg:grid-cols-2">
                 {displayMix.map((item) => (
                   <div key={item.source_type} className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-bold text-slate-200">
                     <span>{sourceLabel(item.source_type)}</span>
@@ -508,25 +646,18 @@ export default function CustomerServiceSmartLayer() {
                 ))}
                 {!displayMix.length && <div className="rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-3 text-center text-xs font-bold text-slate-300">لا توجد بيانات كافية لتوزيع قائمة اليوم حاليًا.</div>}
               </div>
-              {!!branchDistribution.length && (
-                <div className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-500/10 p-3 text-xs font-bold text-cyan-100">
-                  <div className="mb-2 text-white">توزيع الفروع</div>
-                  <div className="flex flex-wrap gap-2">
-                    {branchDistribution.map(([branchName, count]) => <span key={branchName} className="rounded-full border border-cyan-300/25 px-3 py-1">{branchName}: {count}</span>)}
-                  </div>
-                </div>
-              )}
             </div>
 
-            <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-4">
-              <h3 className="font-black text-white">تنبيهات تشغيلية</h3>
-              <div className="mt-3 grid gap-2 text-xs font-bold text-slate-200">
-                {warnings.map((warning) => <SmartWarning key={warning.id} {...warning} />)}
-                {!warnings.length && <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-emerald-100">لا توجد تنبيهات تشغيلية حاليًا</div>}
+            {!!branchDistribution.length && (
+              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-4 text-xs font-bold text-cyan-100">
+                <div className="mb-2 text-base font-black text-white">توزيع الفروع</div>
+                <div className="flex flex-wrap gap-2">
+                  {branchDistribution.map(([branchName, count]) => <span key={branchName} className="rounded-full border border-cyan-300/25 px-3 py-1">{branchName}: {count}</span>)}
+                </div>
               </div>
-            </div>
+            )}
           </div>
-        </div>
+        </>
       )}
     </section>
   );
@@ -554,7 +685,7 @@ function MiniStat({ label, value, danger }: { label: string; value: string | num
 }
 
 function SmartLink({ href, label, primary }: { href: string; label: string; primary?: boolean }) {
-  return <a className={primary ? 'btn-primary px-3 py-2 text-xs' : 'btn-secondary px-3 py-2 text-xs'} href={href}>{label}</a>;
+  return <a className={primary ? 'btn-primary px-3 py-2 text-xs text-center' : 'btn-secondary px-3 py-2 text-xs text-center'} href={href}>{label}</a>;
 }
 
 function SmartWarning({ text, href, tone = 'amber' }: WarningItem) {
@@ -562,7 +693,9 @@ function SmartWarning({ text, href, tone = 'amber' }: WarningItem) {
     ? 'border-red-400/30 bg-red-500/10 text-red-100'
     : tone === 'cyan'
       ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'
-      : 'border-amber-400/30 bg-amber-500/10 text-amber-100';
+      : tone === 'emerald'
+        ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+        : 'border-amber-400/30 bg-amber-500/10 text-amber-100';
   const content = <div className={`rounded-xl border px-3 py-2 ${toneClass}`}>{text}</div>;
   return href ? <a href={href} className="block hover:brightness-110">{content}</a> : content;
 }
