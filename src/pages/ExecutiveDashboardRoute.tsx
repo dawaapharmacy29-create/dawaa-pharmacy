@@ -5,9 +5,9 @@ import { logRuntimeError } from '@/lib/appRecovery';
 const DASHBOARD_IMPORT_TIMEOUT_MS = 8000;
 
 type DashboardState =
-  | { status: 'loading'; Component?: undefined; message?: undefined }
-  | { status: 'ready'; Component: ComponentType; message?: undefined }
-  | { status: 'safe'; Component?: undefined; message: string };
+  | { status: 'safe'; message: string }
+  | { status: 'loading-advanced'; Component?: undefined; message?: undefined }
+  | { status: 'ready-advanced'; Component: ComponentType; message?: undefined };
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timeoutId: number | undefined;
@@ -20,41 +20,50 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
-function DashboardLoadingShell() {
+function AdvancedLoadingShell() {
   return (
     <main className="space-y-6 text-slate-100" dir="rtl">
       <section className="rounded-2xl border border-teal-400/20 bg-slate-900 p-6">
         <div className="h-8 w-64 animate-pulse rounded-xl bg-slate-700/70" />
         <div className="mt-4 h-4 w-96 max-w-full animate-pulse rounded-xl bg-slate-800" />
       </section>
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="h-28 animate-pulse rounded-2xl border border-slate-800 bg-slate-900" />
-        ))}
-      </section>
       <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm font-bold text-slate-300">
-        جاري تحميل لوحة القيادة المتقدمة... إذا تأخر التحميل سيتم فتح وضع الأمان تلقائيًا.
+        جاري تحميل لوحة القيادة المتقدمة... إذا تأخر التحميل سيتم الرجوع لوضع التشغيل الآمن تلقائيًا.
       </section>
     </main>
   );
 }
 
+function shouldLoadAdvancedDashboard() {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('advanced') === '1' || params.get('dashboard') === 'advanced';
+}
+
 export default function ExecutiveDashboardRoute() {
-  const [state, setState] = useState<DashboardState>({ status: 'loading' });
+  const [state, setState] = useState<DashboardState>(() => {
+    if (shouldLoadAdvancedDashboard()) return { status: 'loading-advanced' };
+    return {
+      status: 'safe',
+      message:
+        'تم تعطيل لوحة القيادة المتقدمة مؤقتًا لأنها كانت تسبب تهنيج التطبيق. استخدم روابط التشغيل السريعة، ويمكن تجربة المتقدمة بإضافة ?advanced=1 للرابط.',
+    };
+  });
 
   useEffect(() => {
+    if (state.status !== 'loading-advanced') return;
     let cancelled = false;
 
-    async function loadDashboard() {
+    async function loadAdvancedDashboard() {
       try {
         const module = await withTimeout(
-          import('@/pages/ExecutiveDashboardProduction'),
+          import('@/pages/ExecutiveDashboard2027'),
           DASHBOARD_IMPORT_TIMEOUT_MS,
-          'ExecutiveDashboardProduction import'
+          'ExecutiveDashboard2027 import'
         );
-        if (!cancelled) setState({ status: 'ready', Component: module.default });
+        if (!cancelled) setState({ status: 'ready-advanced', Component: module.default });
       } catch (error) {
-        logRuntimeError('executive dashboard route fallback', error);
+        logRuntimeError('executive dashboard advanced fallback', error);
         console.warn('[ExecutiveDashboardRoute] switched to safe dashboard', error);
         if (!cancelled) {
           setState({
@@ -65,27 +74,25 @@ export default function ExecutiveDashboardRoute() {
       }
     }
 
-    void loadDashboard();
+    void loadAdvancedDashboard();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [state.status]);
 
-  if (state.status === 'ready') {
+  if (state.status === 'ready-advanced') {
     const Component = state.Component;
     return <Component />;
   }
 
-  if (state.status === 'safe') {
-    return (
-      <div className="space-y-4" dir="rtl">
-        <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
-          تم تشغيل وضع الأمان لأن لوحة القيادة المتقدمة لم تكتمل: {state.message}
-        </div>
-        <ExecutiveDashboardSafe />
-      </div>
-    );
-  }
+  if (state.status === 'loading-advanced') return <AdvancedLoadingShell />;
 
-  return <DashboardLoadingShell />;
+  return (
+    <div className="space-y-4" dir="rtl">
+      <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold leading-7 text-amber-100">
+        {state.message}
+      </div>
+      <ExecutiveDashboardSafe />
+    </div>
+  );
 }
