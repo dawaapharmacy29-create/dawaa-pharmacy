@@ -293,7 +293,7 @@ export default function CustomerServiceSmartLayer() {
   const topPriority = useMemo(() => openRows.slice(0, 6), [openRows]);
   const overdue = useMemo(() => openRows.filter(isOverdue), [openRows]);
   const needsManager = useMemo(() => openRows.filter((row) => row.needs_manager), [openRows]);
-  const dataIssues = useMemo(() => openRows.filter((row) => !hasValidPhone(row) || !row.customer_code), [openRows]);
+  const dataIssues = useMemo(() => openRows.filter((row) => !hasValidPhone(row) || !getCustomerCodeSafe(row)), [openRows]);
   const scheduled = useMemo(() => openRows.filter((row) => row.next_followup_date || row.postponed_until), [openRows]);
   const suggested = useMemo(() => openRows.filter((row) => row.virtual), [openRows]);
   const completed = useMemo(() => rows.filter(isCompleted), [rows]);

@@ -123,18 +123,23 @@ type DoctorSales = {
 
 type CustomerServiceSummary = {
   open_followups?: number | string | null;
+  overdue_followups?: number | string | null;
   completed_today?: number | string | null;
   needs_manager?: number | string | null;
   avg_response_hours?: number | string | null;
   unregistered_customer_invoices?: number | string | null;
+  no_code_customers?: number | string | null;
+  purchase_after_followup_amount?: number | string | null;
 };
 
 type CustomerServiceOwner = {
   responsible_name?: string | null;
   branch?: string | null;
   assigned_followups?: number | string | null;
+  overdue_followups?: number | string | null;
   completed_today?: number | string | null;
   needs_manager?: number | string | null;
+  purchase_after_followup_amount?: number | string | null;
   completion_percent?: number | string | null;
 };
 
@@ -189,6 +194,7 @@ type InvoiceRow = {
 };
 
 type FollowupDashboardRow = {
+  customer_code?: string | number | null;
   branch?: string | null;
   responsible_name?: string | null;
   assigned_to?: string | null;
@@ -198,6 +204,8 @@ type FollowupDashboardRow = {
   contact_status?: string | null;
   needs_manager?: boolean | null;
   completed_at?: string | null;
+  purchase_after_followup?: boolean | null;
+  purchase_amount?: number | string | null;
   followup_date?: string | null;
   date?: string | null;
   created_at?: string | null;
@@ -470,7 +478,7 @@ async function fetchFollowupsForDashboard(
     let query = supabase
       .from('daily_followups')
       .select(
-        'branch,responsible_name,assigned_to,assigned_doctor,followup_status,status,contact_status,needs_manager,completed_at,followup_date,date,created_at'
+        'customer_code,branch,responsible_name,assigned_to,assigned_doctor,followup_status,status,contact_status,needs_manager,completed_at,purchase_after_followup,purchase_amount,followup_date,date,created_at'
       )
       .gte('followup_date', startDate)
       .lte('followup_date', endDate)
@@ -523,6 +531,18 @@ function followupNeedsManager(row: FollowupDashboardRow) {
   return Boolean(row.needs_manager || status.includes('مدير') || status.includes('manager'));
 }
 
+function followupIsOverdue(row: FollowupDashboardRow) {
+  if (followupIsDone(row)) return false;
+  const raw = row.followup_date || row.date || row.created_at || '';
+  const time = new Date(raw).getTime();
+  return Number.isFinite(time) && time < Date.now();
+}
+
+function followupHasNoCode(row: FollowupDashboardRow) {
+  const code = String(row.customer_code ?? '').trim();
+  return !code || code === '0' || code === '-' || /^null$/i.test(code);
+}
+
 function buildCustomerServiceOwnersFallback(rows: FollowupDashboardRow[]): CustomerServiceOwner[] {
   const map = new Map<string, CustomerServiceOwner>();
   rows.forEach((row) => {
@@ -540,6 +560,8 @@ function buildCustomerServiceOwnersFallback(rows: FollowupDashboardRow[]): Custo
     current.assigned_followups = n(current.assigned_followups) + 1;
     if (followupIsDone(row)) current.completed_today = n(current.completed_today) + 1;
     if (followupNeedsManager(row)) current.needs_manager = n(current.needs_manager) + 1;
+    if (followupIsOverdue(row)) current.overdue_followups = n(current.overdue_followups) + 1;
+    if (row.purchase_after_followup) current.purchase_after_followup_amount = n(current.purchase_after_followup_amount) + n(row.purchase_amount);
     current.completion_percent = n(current.assigned_followups)
       ? (n(current.completed_today) / n(current.assigned_followups)) * 100
       : 0;
@@ -552,10 +574,16 @@ function buildCustomerServiceOwnersFallback(rows: FollowupDashboardRow[]): Custo
 function buildCustomerServiceSummaryFallback(rows: FollowupDashboardRow[]): CustomerServiceSummary {
   const completed = rows.filter(followupIsDone).length;
   const needsManager = rows.filter(followupNeedsManager).length;
+  const overdue = rows.filter(followupIsOverdue).length;
+  const noCode = rows.filter(followupHasNoCode).length;
+  const purchaseAfterAmount = rows.reduce((sum, row) => sum + (row.purchase_after_followup ? n(row.purchase_amount) : 0), 0);
   return {
     open_followups: Math.max(0, rows.length - completed),
+    overdue_followups: overdue,
     completed_today: completed,
     needs_manager: needsManager,
+    no_code_customers: noCode,
+    purchase_after_followup_amount: purchaseAfterAmount,
     avg_response_hours: null,
   };
 }
@@ -1187,6 +1215,7 @@ export default function ExecutiveDashboard2027() {
       // CUSTOMER SERVICE block
       let customerServiceRows: CustomerServiceSummary[] = [];
     let customerServiceOwners: CustomerServiceOwner[] = [];
+    let customerServiceFollowups: FollowupDashboardRow[] = [];
     let staffOpsRows: StaffOps[] = [];
     try {
       const branchParams = { p_branch: scopedBranch || ALL_BRANCHES };
@@ -1215,6 +1244,13 @@ export default function ExecutiveDashboard2027() {
         setCustomerServiceError((prev) => prev ? prev + ' | owners failed' : String(e instanceof Error ? e.message : e));
       }
       try {
+        if (!customerServiceRows.length || !customerServiceOwners.length) {
+          customerServiceFollowups = await fetchFollowupsForDashboard(startDate, endDate, scopedBranch || ALL_BRANCHES, errors);
+        }
+      } catch (e) {
+        console.warn('[Dashboard] customer service fallback fetch skipped', e);
+      }
+      try {
         staffOpsRows = await rpcRows<StaffOps>(
           ['get_dashboard_staff_ops_summary_v171'],
           undefined,
@@ -1228,8 +1264,10 @@ export default function ExecutiveDashboard2027() {
       setCustomerServiceLoadedAt(new Date().toISOString());
     } finally {
       // update state for customer service section
-      const effectiveCustomerServiceRows = customerServiceRows.length ? customerServiceRows : [];
-      const effectiveCustomerServiceOwners = customerServiceOwners.length ? customerServiceOwners : [];
+      const fallbackSummary = customerServiceFollowups.length ? buildCustomerServiceSummaryFallback(customerServiceFollowups) : null;
+      const fallbackOwners = customerServiceFollowups.length ? buildCustomerServiceOwnersFallback(customerServiceFollowups) : [];
+      const effectiveCustomerServiceRows = customerServiceRows.length ? customerServiceRows : fallbackSummary ? [fallbackSummary] : [];
+      const effectiveCustomerServiceOwners = customerServiceOwners.length ? customerServiceOwners : fallbackOwners;
       setState((prev) => ({
         ...prev,
         customerService: effectiveCustomerServiceRows[0] || null,
@@ -2877,22 +2915,24 @@ export default function ExecutiveDashboard2027() {
               subtitle="المتابعات المفتوحة والنتائج اليومية حسب المسؤولة والفرع"
               icon={<Headphones className="h-5 w-5" />}
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
               <MiniBox
-                label="المتابعات المفتوحة"
+                label="مفتوح الآن"
                 value={count(service.open_followups)}
                 tone="cyan"
               />
+              <MiniBox label="متأخر" value={count(service.overdue_followups)} tone="red" />
               <MiniBox label="المكتملة اليوم" value={count(service.completed_today)} tone="green" />
               <MiniBox label="تحتاج مدير" value={count(service.needs_manager)} tone="amber" />
+              <MiniBox label="عملاء بدون كود" value={count(service.no_code_customers)} tone="blue" />
               <MiniBox
-                label="متوسط الاستجابة"
+                label="مبيعات بعد المتابعة"
                 value={
-                  service.avg_response_hours == null
-                    ? 'غير محدد'
-                    : `${n(service.avg_response_hours)} س`
+                  n(service.purchase_after_followup_amount)
+                    ? `${money(service.purchase_after_followup_amount)} جنيه`
+                    : 'غير محدد'
                 }
-                tone="blue"
+                tone="green"
               />
             </div>
             <div className="mt-5 grid gap-3 xl:grid-cols-2">
@@ -2906,6 +2946,7 @@ export default function ExecutiveDashboard2027() {
                     (sum, owner) => sum + n(owner.completed_today),
                     0
                   );
+                  const overdue = owners.reduce((sum, owner) => sum + n(owner.overdue_followups), 0);
                   const manager = owners.reduce((sum, owner) => sum + n(owner.needs_manager), 0);
                   const bestOwner = [...owners].sort(
                     (a, b) => n(b.completion_percent) - n(a.completion_percent)
@@ -2929,8 +2970,9 @@ export default function ExecutiveDashboard2027() {
                           {pct(percent)}
                         </span>
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <MiniBox label="مسند" value={count(assigned)} tone="cyan" />
+                      <div className="grid grid-cols-4 gap-2">
+                        <MiniBox label="مفتوح" value={count(Math.max(0, assigned - completed))} tone="cyan" />
+                        <MiniBox label="متأخر" value={count(overdue)} tone="red" />
                         <MiniBox label="مكتمل" value={count(completed)} tone="green" />
                         <MiniBox label="يحتاج مدير" value={count(manager)} tone="amber" />
                       </div>
@@ -2943,7 +2985,7 @@ export default function ExecutiveDashboard2027() {
                                 `/customer-service?responsible=${encodeURIComponent(String(owner.responsible_name || ''))}&branch=${encodeURIComponent(branchLabel)}`
                               )
                             }
-                            className="grid w-full grid-cols-[1fr_auto_auto_auto] gap-2 rounded-xl border border-cyan-300/10 bg-slate-900/70 px-3 py-2 text-right text-xs font-bold hover:bg-cyan-400/10"
+                            className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-2 rounded-xl border border-cyan-300/10 bg-slate-900/70 px-3 py-2 text-right text-xs font-bold hover:bg-cyan-400/10"
                           >
                             <span className="font-black text-white">
                               {owner.responsible_name || 'غير محدد'}
@@ -2953,6 +2995,9 @@ export default function ExecutiveDashboard2027() {
                             </span>
                             <span className="text-emerald-200">
                               {count(owner.completed_today)} مكتمل
+                            </span>
+                            <span className="text-red-200">
+                              {count(owner.overdue_followups)} متأخر
                             </span>
                             <span className="text-amber-200">
                               {count(owner.needs_manager)} مدير
@@ -2965,7 +3010,13 @@ export default function ExecutiveDashboard2027() {
                 })
               ) : (
                 <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-5 text-center text-sm font-bold text-slate-400 xl:col-span-2">
-                  لا توجد بيانات خدمة عملاء موزعة حسب الفروع بعد.
+                  <div className="text-base font-black text-white">لا توجد متابعات مسجلة لهذه الفترة</div>
+                  <div className="mt-2 text-slate-400">افتح مركز خدمة العملاء أو أنشئ متابعة جديدة ثم حدث البيانات.</div>
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    <button type="button" className="rounded-xl border border-cyan-300/25 px-4 py-2 text-xs font-black text-cyan-100 hover:bg-cyan-400/10" onClick={() => navigate('/customer-service')}>فتح مركز خدمة العملاء</button>
+                    <button type="button" className="rounded-xl border border-emerald-300/25 px-4 py-2 text-xs font-black text-emerald-100 hover:bg-emerald-400/10" onClick={() => navigate('/customer-service?quickFollowup=1')}>إنشاء متابعة</button>
+                    <button type="button" className="rounded-xl border border-slate-500/40 px-4 py-2 text-xs font-black text-slate-100 hover:bg-white/10" onClick={() => void load()}>تحديث البيانات</button>
+                  </div>
                 </div>
               )}
             </div>

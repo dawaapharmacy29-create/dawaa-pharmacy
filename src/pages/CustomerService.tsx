@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clipboard,
+  Download,
   Eye,
   Loader2,
   MessageSquare,
@@ -56,7 +57,7 @@ import {
   resolveSuggestedBranchFromInvoiceMetrics,
   saveCustomerBranchOverride,
 } from '@/lib/customerBranchOverrides';
-import { CustomerFlagChips, getCustomerCodeSafe, resolveCustomerBranch } from '@/lib/customerDisplay';
+import { CustomerFlagChips, getCustomerCodeSafe, getCustomerFlagChips, resolveCustomerBranch } from '@/lib/customerDisplay';
 import {
   fetchQuickReplyScripts,
   incrementQuickReplyUsage,
@@ -178,6 +179,18 @@ const QUICK_FILTERS = [
 ] as const;
 
 type QuickFilter = (typeof QUICK_FILTERS)[number][0];
+type OperationsFilter = 'priority' | 'overdue' | 'manager' | 'noCode' | 'branchReview' | 'vip' | 'completed' | 'all';
+
+const OPERATIONS_TABS: Array<[OperationsFilter, string]> = [
+  ['priority', 'الأهم الآن'],
+  ['overdue', 'متأخر'],
+  ['manager', 'يحتاج مدير'],
+  ['noCode', 'بدون كود'],
+  ['branchReview', 'فرع غير مؤكد'],
+  ['vip', 'VIP / مهم جدًا'],
+  ['completed', 'مكتمل اليوم'],
+  ['all', 'كل المتابعات'],
+];
 
 type MetricFilter =
   | 'all'
@@ -393,6 +406,18 @@ function overdueDays(row: FollowupRow) {
   return daysSince(row.followup_datetime || row.followup_date || row.date) || 0;
 }
 
+function followupDelayLabel(row: FollowupRow) {
+  if (!isOverdue(row)) return 'غير متأخر';
+  const raw = row.followup_datetime || row.followup_date || row.date || '';
+  const time = new Date(raw).getTime();
+  if (!Number.isFinite(time)) return 'متأخر';
+  const minutes = Math.max(1, Math.floor((Date.now() - time) / 60000));
+  if (minutes < 60) return `${minutes} دقيقة`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ساعة`;
+  return `${Math.floor(hours / 24)} يوم`;
+}
+
 function salesAfterFollowup(row: FollowupRow) {
   return numberFrom(row, ['sales_after_followup', 'purchase_after_followup_amount', 'purchase_amount'], 0);
 }
@@ -431,7 +456,7 @@ function isContactedNoPurchase(row: FollowupRow) {
 function dataQualityIssues(row: FollowupRow) {
   const issues: string[] = [];
   if (!hasValidPhone(row)) issues.push('invalid_phone');
-  if (!String(row.customer_code || '').trim()) issues.push('missing_customer_code');
+  if (!getCustomerCodeSafe(row)) issues.push('missing_customer_code');
   if (customerName(row) === 'عميل بدون اسم') issues.push('missing_customer_name');
   if (!normalizeBranchName(row.branch || '')) issues.push('missing_branch');
   if (!String(responsibleOf(row) || '').trim() || responsibleOf(row) === 'غير محدد') issues.push('missing_assigned_to');
@@ -480,7 +505,7 @@ function auditReasons(row: FollowupRow) {
   const reasons: string[] = [];
   if (isNotStartedOverdue(row)) reasons.push(`لم يبدأ التواصل ومتأخر ${overdueDays(row)} يوم`);
   if (!hasValidPhone(row)) reasons.push('بدون رقم صحيح');
-  if (!String(row.customer_code || '').trim()) reasons.push('بدون كود عميل');
+  if (!getCustomerCodeSafe(row)) reasons.push('بدون كود عميل');
   if (!normalizeBranchName(row.branch || '')) reasons.push('فرع غير محدد');
   if (customerName(row) === 'عميل بدون اسم') reasons.push('اسم العميل غير واضح');
   if (isOverdue(row) && !isNotStartedOverdue(row)) reasons.push(`متأخر ${overdueDays(row)} يوم`);
@@ -521,7 +546,7 @@ function auditRowFromFollowup(row: FollowupRow): CustomerServiceAuditRow {
   const invoices = invoicesCount(row);
   const totalSales = totalSpent(row);
   return {
-    customer_code: row.customer_code || '',
+    customer_code: getCustomerCodeSafe(row),
     customer_name: customerName(row),
     phone,
     mobile: stringFrom(row, ['mobile', 'customer_mobile', 'whatsapp_phone', 'phone_alt'], ''),
@@ -582,7 +607,7 @@ function matchesAuditUiFilters(row: FollowupRow, filters: AuditUiFilters) {
   const q = filters.search.trim().toLowerCase();
   if (q) {
     const digits = q.replace(/\D/g, '');
-    const searchable = [customerName(row), row.customer_code, phoneOf(row), normalizePhoneForAudit(phoneOf(row)), row.customer_id].join(' ').toLowerCase();
+    const searchable = [customerName(row), getCustomerCodeSafe(row), phoneOf(row), normalizePhoneForAudit(phoneOf(row)), row.customer_id].join(' ').toLowerCase();
     if (!searchable.includes(q) && !(digits.length >= 3 && normalizePhoneForAudit(phoneOf(row)).includes(digits))) return false;
   }
   if (filters.branch !== ALL_FILTER && normalizeBranchName(row.branch || '') !== filters.branch) return false;
@@ -657,7 +682,7 @@ function modalFallbackFrom(row: FollowupRow): Record<string, unknown> {
   return {
     id: row.customer_id || row.id,
     customer_id: row.customer_id || null,
-    customer_code: row.customer_code || null,
+    customer_code: getCustomerCodeSafe(row) || null,
     customer_name: customerName(row),
     customer_phone: phoneOf(row) || null,
     phone: phoneOf(row) || null,
@@ -1289,6 +1314,7 @@ export default function CustomerService() {
   );
   const [status, setStatus] = useState(ALL_FILTER);
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  const [operationsFilter, setOperationsFilter] = useState<OperationsFilter>('priority');
   const [metricFilter, setMetricFilter] = useState<MetricFilter>('all');
   const [auditFilter, setAuditFilter] = useState<AuditFilter>('today');
   const [auditSearch, setAuditSearch] = useState('');
@@ -1424,7 +1450,7 @@ export default function CustomerService() {
   const enrichRowWithLiveMetrics = useCallback(async (row: FollowupRow): Promise<FollowupRow> => {
     const live = await getCustomerServiceLiveMetrics({
       customer_id: row.customer_id,
-      customer_code: row.customer_code,
+      customer_code: getCustomerCodeSafe(row),
       customer_phone: phoneOf(row),
       customer_name: customerName(row),
       branch: row.branch,
@@ -1471,7 +1497,7 @@ export default function CustomerService() {
       if (!requested || cancelled) return;
       const enriched = await enrichRowWithLiveMetrics({
         ...requested,
-        customer_code: requested.customer_code || requestedCustomerFallback.customer_code,
+        customer_code: getCustomerCodeSafe(requested) || requestedCustomerFallback.customer_code,
         customer_phone: requested.customer_phone || requested.phone || requestedCustomerFallback.customer_phone,
         phone: requested.phone || requested.customer_phone || requestedCustomerFallback.customer_phone,
         customer_name: requested.customer_name || requested.name || requestedCustomerFallback.customer_name,
@@ -1608,7 +1634,7 @@ export default function CustomerService() {
     () =>
       filteredTabRows.slice(0, visibleCount).map((row) => ({
         customer_id: row.customer_id,
-        customer_code: row.customer_code,
+        customer_code: getCustomerCodeSafe(row),
         customer_phone: phoneOf(row),
         customer_name: customerName(row),
         branch: row.branch,
@@ -1621,7 +1647,7 @@ export default function CustomerService() {
     (row: FollowupRow): FollowupRow => {
       const key = customerMetricsKey({
         customer_id: row.customer_id,
-        customer_code: row.customer_code,
+        customer_code: getCustomerCodeSafe(row),
         customer_phone: phoneOf(row),
         customer_name: customerName(row),
       });
@@ -1684,11 +1710,6 @@ export default function CustomerService() {
     [liveMetricsByKey]
   );
 
-  const displayTabRows = useMemo(
-    () => filteredTabRows.slice(0, visibleCount).map(enrichRow),
-    [enrichRow, filteredTabRows, visibleCount]
-  );
-
   const selectedDisplayRow = useMemo(() => {
     if (!selectedRow) return null;
     return enrichRow(selectedRow);
@@ -1734,7 +1755,41 @@ export default function CustomerService() {
       ].sort((a, b) => a.localeCompare(b, 'ar')),
     [staff]
   );
-  const visibleRows = displayTabRows;
+  const operationRows = useMemo(() => {
+    const source = [...filteredTabRows];
+    const byPriority = source.sort(compareAuditRowsByPriority);
+    if (operationsFilter === 'all') return byPriority;
+    if (operationsFilter === 'overdue') return byPriority.filter(isOverdue);
+    if (operationsFilter === 'manager') return byPriority.filter((row) => row.needs_manager || /مدير/i.test(statusOf(row)));
+    if (operationsFilter === 'noCode') return byPriority.filter((row) => !getCustomerCodeSafe(row));
+    if (operationsFilter === 'branchReview') return byPriority.filter((row) => resolveCustomerBranch(row).needsReview);
+    if (operationsFilter === 'vip') return byPriority.filter((row) => /vip|مهم جدًا|مميز/i.test(`${segmentOf(row)} ${String(row.priority || '')} ${getCustomerFlagChips(row).join(' ')}`));
+    if (operationsFilter === 'completed') return byPriority.filter(isHistoryCompleted);
+    return byPriority;
+  }, [filteredTabRows, operationsFilter]);
+  const operationsCounts = useMemo(() => {
+    const noCode = rows.filter((row) => !getCustomerCodeSafe(row)).length;
+    const branchUncertain = rows.filter((row) => resolveCustomerBranch(row).needsReview).length;
+    const urgent = rows.filter((row) => priorityScore(row) >= 100 || /عاجل|urgent/i.test(String(row.priority || ''))).length;
+    const vip = rows.filter((row) => /vip|مهم جدًا|مميز/i.test(`${segmentOf(row)} ${String(row.priority || '')} ${getCustomerFlagChips(row).join(' ')}`)).length;
+    return {
+      open: rows.filter((row) => !isCompleted(row)).length,
+      overdue: rows.filter(isOverdue).length,
+      urgent,
+      needsManager: rows.filter((row) => row.needs_manager || /مدير/i.test(statusOf(row))).length,
+      completedToday: rows.filter(isHistoryCompleted).length,
+      smartSuggestions: insights.important.length + insights.reduced.length + insights.stopped60.length,
+      purchaseAfterAmount: stats.purchaseAfterAmount,
+      noCode,
+      branchUncertain,
+      vip,
+    };
+  }, [insights.important.length, insights.reduced.length, insights.stopped60.length, rows, stats.purchaseAfterAmount]);
+  const operationalVisibleRows = useMemo(
+    () => operationRows.slice(0, visibleCount).map(enrichRow),
+    [enrichRow, operationRows, visibleCount]
+  );
+  const visibleRows = operationalVisibleRows;
   const branchOwnerPerformance = useMemo(() => calculateBranchOwnerPerformance(rows), [rows]);
   const performance = useMemo(() => calculateTeamPerformance(rows), [rows]);
   const recoveredCount = useMemo(() => rows.filter((row) => row.purchase_after_followup).length, [rows]);
@@ -1884,7 +1939,7 @@ export default function CustomerService() {
       branch: row.branch,
       target_type: 'customer_followup',
       target_id: row.id,
-      target_route: `/customer-service?tab=today&followupId=${row.id}&openDetails=1&mode=edit&code=${encodeURIComponent(String(row.customer_code || ''))}&phone=${encodeURIComponent(phoneOf(row))}&name=${encodeURIComponent(customerName(row))}`,
+      target_route: `/customer-service?tab=today&followupId=${row.id}&openDetails=1&mode=edit&code=${encodeURIComponent(getCustomerCodeSafe(row))}&phone=${encodeURIComponent(phoneOf(row))}&name=${encodeURIComponent(customerName(row))}`,
       recipient_role: priority === 'urgent' ? 'customer_service_manager' : null,
       created_by: userId,
       created_by_name: userName,
@@ -1951,7 +2006,7 @@ export default function CustomerService() {
       .rpc('insert_customer_followup_edit_log', {
         p_payload: {
           followup_id: updated.id,
-          customer_code: updated.customer_code || null,
+          customer_code: getCustomerCodeSafe(updated) || null,
           customer_phone: phoneOf(updated) || null,
           customer_name: customerName(updated),
           old_status: String(before.status || before.followup_status || ''),
@@ -2040,7 +2095,7 @@ export default function CustomerService() {
     if (reason === null) return;
     try {
       await saveCustomerBranchOverride({
-        customer_code: row.customer_code,
+        customer_code: getCustomerCodeSafe(row),
         customer_id: row.customer_id,
         customer_phone: phoneOf(row),
         customer_name: customerName(row),
@@ -2259,24 +2314,45 @@ const addFollowup = async () => {
             <span className="inline-flex rounded-full border border-cyan-400/30 bg-cyan-500/15 px-3 py-1 text-xs font-black text-cyan-100">
               Customer Service Command Center
             </span>
-            <h1 className="mt-3 text-2xl font-black text-white">مركز خدمة العملاء والمتابعات</h1>
+            <h1 className="mt-3 text-3xl font-black text-white">مركز خدمة العملاء</h1>
             <p className="mt-1 text-sm font-semibold text-slate-200">
-              نسخة V3 تجمع تفاصيل النسخة القديمة مع تحميل تدريجي، تابات خفيفة، وإجراءات مباشرة على كل عميل.
+              ابدأ من أهم عميل وسجل نتيجة كل متابعة بسرعة، مع ترتيب تلقائي حسب الخطورة والأولوية.
             </p>
             {dashboardBranch && <p className="mt-2 text-xs font-bold text-cyan-200">عرض مرتبط من لوحة القيادة · الفرع: {dashboardBranch}</p>}
           </div>
           <div className="flex flex-wrap gap-2">
+            <button onClick={() => setQuickFollowupOpen(true)} className="btn-primary flex items-center gap-2">
+              <Plus size={16} /> إنشاء متابعة
+            </button>
             <button onClick={() => void load(true)} disabled={refreshing} className="btn-secondary flex items-center gap-2">
-              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> تحديث هادئ
+              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> تحديث ذكي
             </button>
-            <button onClick={() => setActiveTab('add')} className="btn-secondary flex items-center gap-2">
-              <Plus size={16} /> إضافة متابعة استثنائية
+            <button onClick={exportAuditDisplayed} className="btn-secondary flex items-center gap-2">
+              <Download size={16} /> تصدير CSV
             </button>
-            <button onClick={generateToday} disabled={generating} className="btn-primary flex items-center gap-2">
-              <Plus size={16} /> {generating ? 'جاري الإنشاء...' : 'إنشاء قائمة اليوم'}
+            <button onClick={() => setActiveTab('scripts')} className="btn-secondary flex items-center gap-2">
+              <MessageSquare size={16} /> قوالب الردود
+            </button>
+            <a href="/customer-data-review" className="btn-secondary flex items-center gap-2">
+              <ShieldAlert size={16} /> مراجعة البيانات
+            </a>
+            <button onClick={generateToday} disabled={generating} className="btn-secondary flex items-center gap-2">
+              <Sparkles size={16} /> {generating ? 'جاري الإنشاء...' : 'مقترحات ذكية'}
             </button>
           </div>
         </div>
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-9">
+        <StatCard label="مفتوح الآن" value={operationsCounts.open} tone="cyan" active={operationsFilter === 'all'} onClick={() => setOperationsFilter('all')} />
+        <StatCard label="متأخر" value={operationsCounts.overdue} tone="rose" active={operationsFilter === 'overdue'} onClick={() => setOperationsFilter('overdue')} />
+        <StatCard label="عاجل" value={operationsCounts.urgent} tone="rose" active={operationsFilter === 'priority'} onClick={() => setOperationsFilter('priority')} />
+        <StatCard label="يحتاج مدير" value={operationsCounts.needsManager} tone="rose" active={operationsFilter === 'manager'} onClick={() => setOperationsFilter('manager')} />
+        <StatCard label="بدون كود" value={operationsCounts.noCode} tone="amber" active={operationsFilter === 'noCode'} onClick={() => setOperationsFilter('noCode')} />
+        <StatCard label="فرع غير مؤكد" value={operationsCounts.branchUncertain} tone="amber" active={operationsFilter === 'branchReview'} onClick={() => setOperationsFilter('branchReview')} />
+        <StatCard label="مكتمل اليوم" value={operationsCounts.completedToday} tone="emerald" active={operationsFilter === 'completed'} onClick={() => setOperationsFilter('completed')} />
+        <StatCard label="مقترحات ذكية" value={operationsCounts.smartSuggestions} tone="cyan" onClick={() => setActiveTab('important-customers')} />
+        <StatCard label="مبيعات بعد المتابعة" value={money(operationsCounts.purchaseAfterAmount)} tone="emerald" active={metricFilter === 'recovered'} onClick={() => applyMetricFilter('recovered')} />
       </section>
 
       <section className="rounded-3xl border border-cyan-400/30 bg-slate-950/45 p-4 shadow-xl">
@@ -2427,9 +2503,9 @@ const addFollowup = async () => {
               </thead>
               <tbody>
                 {auditVisibleRows.map((row, index) => (
-                  <tr key={`${row.customer_code}-${row.normalized_phone}-${index}`} className="border-t border-slate-800 text-slate-200">
+                  <tr key={`${row.customer_code || 'no-code'}-${row.normalized_phone}-${index}`} className="border-t border-slate-800 text-slate-200">
                     <td className="px-3 py-2 font-bold text-white">{row.customer_name}</td>
-                    <td className="px-3 py-2">{row.customer_code || '—'}</td>
+                    <td className="px-3 py-2">{row.customer_code || 'بدون كود'}</td>
                     <td className="px-3 py-2">{row.phone || row.mobile || '—'}</td>
                     <td className="px-3 py-2">{row.branch || '—'}</td>
                     <td className="px-3 py-2">{row.followup_status} · {row.followup_result}</td>
@@ -2526,6 +2602,20 @@ const addFollowup = async () => {
           </label>
         </div>
         <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          {OPERATIONS_TABS.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setOperationsFilter(id)}
+              className={
+                operationsFilter === id
+                  ? 'shrink-0 rounded-full border border-emerald-300 bg-emerald-500/15 px-3 py-1.5 text-xs font-black text-emerald-100'
+                  : 'shrink-0 rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-bold text-slate-300 hover:border-emerald-300/40'
+              }
+            >
+              {label}
+            </button>
+          ))}
           {QUICK_FILTERS.map(([id, label]) => (
             <button
               key={id}
@@ -2665,7 +2755,7 @@ const addFollowup = async () => {
           {cardsTabs.includes(activeTab) ? (
             <>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-300">
-                <span>يتم عرض {visibleRows.length} من {filteredTabRows.length} متابعة لتخفيف المتصفح.</span>
+                <span>يتم عرض {visibleRows.length} من {operationRows.length} متابعة مرتبة حسب الأولوية والتشغيل.</span>
                 {refreshing && <span className="text-cyan-300">تحديث...</span>}
               </div>
               <div className="grid gap-3 2xl:grid-cols-2">
@@ -2690,8 +2780,22 @@ const addFollowup = async () => {
                   )
                 )}
               </div>
-              {!visibleRows.length && <EmptyState />}
-              {visibleCount < filteredTabRows.length && (
+              {!visibleRows.length && (
+                <EmptyState
+                  message="لا توجد متابعات مطابقة للفلاتر الحالية. امسح الفلاتر أو أنشئ متابعة جديدة أو افتح قاعدة العملاء."
+                  onReset={() => {
+                    setSearchInput('');
+                    setQuickFilter('all');
+                    setOperationsFilter('priority');
+                    setMetricFilter('all');
+                    setAssignedFilter(ALL_FILTER);
+                    setStatus(ALL_FILTER);
+                  }}
+                  onCreate={() => setQuickFollowupOpen(true)}
+                  onCustomers={() => { window.location.href = '/customers'; }}
+                />
+              )}
+              {visibleCount < operationRows.length && (
                 <div className="mt-5 text-center">
                   <button onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} className="btn-secondary">
                     عرض المزيد
@@ -2854,7 +2958,7 @@ const addFollowup = async () => {
           <CustomerQuickDetailsModal
             followupId={detailsRow.id}
             customerId={detailsRow.customer_id}
-            customerCode={detailsRow.customer_code}
+            customerCode={getCustomerCodeSafe(detailsRow)}
             customerPhone={phoneOf(detailsRow)}
             customerName={customerName(detailsRow)}
             branch={detailsRow.branch}
@@ -3078,7 +3182,7 @@ function TabPanel({
           <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4 text-sm text-cyan-50">
             <div className="font-black">العميل المختار من القائمة: {customerName(selectedRow)}</div>
             <div className="mt-1 text-xs text-cyan-100">
-              الكود: {text(selectedRow.customer_code, 'بدون كود')} · الهاتف: {phoneOf(selectedRow) || 'بدون رقم'} · الفرع: {text(selectedRow.branch)}
+              الكود: {getCustomerCodeSafe(selectedRow) || 'بدون كود'} · الهاتف: {phoneOf(selectedRow) || 'بدون رقم'} · الفرع: {resolveCustomerBranch(selectedRow).branch}
             </div>
             <button
               type="button"
@@ -3257,6 +3361,12 @@ function FollowupCard({ row, selected, onSelect, onDetails, onResult, onCopy, on
         <span className="rounded-full border border-slate-500/50 bg-slate-800/80 px-3 py-1 text-xs font-bold text-slate-100">{segmentOf(row)}</span>
         <span className="rounded-full border border-slate-500/50 bg-slate-800/80 px-3 py-1 text-xs text-slate-200">حالة: {customerStatusOf(row)}</span>
         <span className="rounded-full border border-slate-500/50 bg-slate-800/80 px-3 py-1 text-xs text-slate-200">خطورة: {riskLevel(row)}</span>
+        <span className={`rounded-full border px-3 py-1 text-xs text-slate-200 ${isOverdue(row) ? 'border-red-400/35 bg-red-500/10 text-red-100' : 'border-slate-500/50 bg-slate-800/80'}`}>
+          التأخير: {followupDelayLabel(row)}
+        </span>
+        <span className="rounded-full border border-cyan-400/25 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-100">
+          المسؤول: {responsibleOf(row)}
+        </span>
       </div>
 
       <div className="mt-4 grid gap-2 text-sm text-slate-200 sm:grid-cols-2 lg:grid-cols-3">
@@ -3356,8 +3466,29 @@ function MiniMetric({ label, value }: { label: string; value: React.ReactNode })
   );
 }
 
-function EmptyState({ message = 'لا توجد بيانات مطابقة حاليًا.' }: { message?: string }) {
-  return <div className="rounded-2xl border border-dashed border-slate-700 p-10 text-center text-slate-400">{message}</div>;
+function EmptyState({
+  message = 'لا توجد بيانات مطابقة حاليًا.',
+  onReset,
+  onCreate,
+  onCustomers,
+}: {
+  message?: string;
+  onReset?: () => void;
+  onCreate?: () => void;
+  onCustomers?: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/35 p-10 text-center text-slate-300">
+      <div className="text-base font-black text-white">{message}</div>
+      {(onReset || onCreate || onCustomers) && (
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          {onReset && <button type="button" className="btn-secondary" onClick={onReset}>إزالة الفلاتر</button>}
+          {onCreate && <button type="button" className="btn-primary" onClick={onCreate}>إنشاء متابعة</button>}
+          {onCustomers && <button type="button" className="btn-secondary" onClick={onCustomers}>فتح قاعدة العملاء</button>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ScriptCard({ title, body }: { title: string; body: string }) {
