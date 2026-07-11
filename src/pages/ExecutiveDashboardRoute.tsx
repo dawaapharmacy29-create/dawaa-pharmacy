@@ -28,25 +28,28 @@ function AdvancedLoadingShell() {
         <div className="mt-4 h-4 w-96 max-w-full animate-pulse rounded-xl bg-slate-800" />
       </section>
       <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm font-bold text-slate-300">
-        جاري تحميل لوحة القيادة المتقدمة... إذا تأخر التحميل سيتم الرجوع لوضع التشغيل الآمن تلقائيًا.
+        جاري تحميل النسخة المتقدمة المستقرة... إذا تأخر التحميل سيتم الرجوع لوضع التشغيل الآمن تلقائيًا.
       </section>
     </main>
   );
 }
 
-function shouldLoadAdvancedDashboard() {
-  if (typeof window === 'undefined') return false;
+function dashboardMode() {
+  if (typeof window === 'undefined') return 'safe';
   const params = new URLSearchParams(window.location.search);
-  return params.get('advanced') === '1' || params.get('dashboard') === 'advanced';
+  if (params.get('legacy') === '1') return 'legacy';
+  if (params.get('advanced') === '1' || params.get('dashboard') === 'advanced') return 'advanced';
+  return 'safe';
 }
 
 export default function ExecutiveDashboardRoute() {
   const [state, setState] = useState<DashboardState>(() => {
-    if (shouldLoadAdvancedDashboard()) return { status: 'loading-advanced' };
+    const mode = dashboardMode();
+    if (mode === 'advanced' || mode === 'legacy') return { status: 'loading-advanced' };
     return {
       status: 'safe',
       message:
-        'تم تعطيل لوحة القيادة المتقدمة مؤقتًا لأنها كانت تسبب تهنيج التطبيق. استخدم روابط التشغيل السريعة، ويمكن تجربة المتقدمة بإضافة ?advanced=1 للرابط.',
+        'تم تشغيل لوحة القيادة الآمنة افتراضيًا لضمان استقرار التطبيق. افتح النسخة المتقدمة المستقرة بإضافة ?advanced=1، أو النسخة القديمة الخام للاختبار فقط بإضافة ?legacy=1.',
     };
   });
 
@@ -56,10 +59,13 @@ export default function ExecutiveDashboardRoute() {
 
     async function loadAdvancedDashboard() {
       try {
+        const mode = dashboardMode();
         const module = await withTimeout(
-          import('@/pages/ExecutiveDashboard2027'),
+          mode === 'legacy'
+            ? import('@/pages/ExecutiveDashboard2027')
+            : import('@/pages/ExecutiveDashboardAdvancedStable'),
           DASHBOARD_IMPORT_TIMEOUT_MS,
-          'ExecutiveDashboard2027 import'
+          mode === 'legacy' ? 'ExecutiveDashboard2027 legacy import' : 'ExecutiveDashboardAdvancedStable import'
         );
         if (!cancelled) setState({ status: 'ready-advanced', Component: module.default });
       } catch (error) {
