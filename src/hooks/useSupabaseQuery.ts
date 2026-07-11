@@ -2,9 +2,8 @@ import { useEffect, useRef } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { logActivity as writeActivityLog } from '@/lib/activityLog';
 import { logSupabaseError } from '@/lib/supabaseError';
-import { TABLES } from '@/lib/supabaseTables';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 interface QueryOptions {
   table: string;
@@ -13,12 +12,16 @@ interface QueryOptions {
   orderBy?: { column: string; ascending?: boolean };
   limit?: number;
   realtimeEnabled?: boolean; // default: false — enable only where live updates are truly needed
+  timeoutMs?: number;
 }
 
 type QueryBuilder = ReturnType<ReturnType<typeof supabase.from>['select']>;
 
 function friendlySupabaseError(message: string): string {
   const lower = message.toLowerCase();
+  if (lower.includes('timed out') || lower.includes('timeout')) {
+    return 'استغرق تحميل البيانات وقتًا أطول من المعتاد. جرّب تحديث الصفحة أو فتح التشخيص.';
+  }
   if (lower.includes('row-level security') || lower.includes('permission denied')) {
     return 'صلاحيات قاعدة البيانات لا تسمح بهذه العملية. راجع إعدادات RLS في Supabase.';
   }
@@ -29,6 +32,16 @@ function friendlySupabaseError(message: string): string {
     return 'تعذر الاتصال بقاعدة البيانات. راجع الإنترنت وإعدادات Supabase.';
   }
   return message;
+}
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, label: string): Promise<T> {
+  let timerId: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timerId = window.setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => {
+    if (timerId) window.clearTimeout(timerId);
+  });
 }
 
 export function useSupabaseQuery<T>(options: QueryOptions) {
@@ -76,7 +89,8 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
       throw new Error('إعدادات Supabase غير موجودة. أضف ملف .env لتفعيل البيانات الحقيقية.');
     }
     const query = buildQuery();
-    const { data: result, error: err } = await query;
+    const timeoutMs = options.timeoutMs ?? 9000;
+    const { data: result, error: err } = await withTimeout(query, timeoutMs, `${options.table} fetch`);
     if (err) {
       logSupabaseError(`${options.table} fetch`, err);
       throw new Error(friendlySupabaseError(err.message));
@@ -87,17 +101,16 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   const { data = [], isLoading: loading, error } = useQuery<T[], Error>({
     queryKey,
     queryFn: fetcher,
-    staleTime: 60_000, // 1 minute
-    gcTime: 5 * 60_000, // 5 minutes
-    refetchOnWindowFocus: true,
-    retry: 2,
-    retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 30000),
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 
   useEffect(() => {
     if (!isSupabaseConfigured || options.realtimeEnabled !== true) return;
 
-    // Single channel per hook instance; on any change invalidate the query key
     channelRef.current = supabase
       .channel(`realtime:${options.table}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: options.table }, () => {
@@ -121,11 +134,15 @@ export async function supabaseInsert<T>(
   record: Partial<T>
 ): Promise<{ data: T | null; error: string | null }> {
   if (!isSupabaseConfigured) return { data: null, error: 'إعدادات Supabase غير موجودة' };
-  const { data, error } = await supabase
-    .from(table)
-    .insert(record as Record<string, unknown>)
-    .select()
-    .single();
+  const { data, error } = await withTimeout(
+    supabase
+      .from(table)
+      .insert(record as Record<string, unknown>)
+      .select()
+      .single(),
+    9000,
+    `${table} insert`
+  );
   if (error) {
     logSupabaseError(`${table} insert`, error);
     return { data: null, error: friendlySupabaseError(error.message) };
@@ -139,10 +156,14 @@ export async function supabaseUpdate<T>(
   updates: Partial<T>
 ): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured) return { error: 'إعدادات Supabase غير موجودة' };
-  const { error } = await supabase
-    .from(table)
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id);
+  const { error } = await withTimeout(
+    supabase
+      .from(table)
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id),
+    9000,
+    `${table} update`
+  );
   if (error) {
     logSupabaseError(`${table} update`, error);
     return { error: friendlySupabaseError(error.message) };
@@ -152,7 +173,7 @@ export async function supabaseUpdate<T>(
 
 export async function supabaseDelete(table: string, id: string): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured) return { error: 'إعدادات Supabase غير موجودة' };
-  const { error } = await supabase.from(table).delete().eq('id', id);
+  const { error } = await withTimeout(supabase.from(table).delete().eq('id', id), 9000, `${table} delete`);
   if (error) {
     logSupabaseError(`${table} delete`, error);
     return { error: friendlySupabaseError(error.message) };
