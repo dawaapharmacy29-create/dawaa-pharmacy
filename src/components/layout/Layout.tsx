@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Children, useEffect, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import { PageSectionsPreview } from '@/components/security/PermissionGate';
@@ -49,6 +49,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const title = PAGE_TITLES[location.pathname] || 'صيدليات دواء';
   const mainRef = useRef<HTMLElement>(null);
+  const hasChildren = Children.count(children) > 0;
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -93,10 +94,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         />
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <Header onMobileMenuOpen={() => setMobileOpen(true)} title={title} />
-          <main ref={mainRef} className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="animate-fade-in max-w-[1720px] mx-auto">
+          <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+            <div className="animate-fade-in mx-auto min-h-[calc(100vh-120px)] max-w-[1720px]">
               <PageSectionsPreview path={location.pathname} />
-              {children}
+              {hasChildren ? (
+                children
+              ) : (
+                <section className="rounded-2xl border border-amber-300/30 bg-slate-900 p-6 text-center text-slate-100">
+                  <h1 className="text-xl font-black text-white">لم يتم تحميل محتوى الصفحة</h1>
+                  <p className="mt-2 text-sm text-slate-300">
+                    الصفحة فتحت لكن لم يصل محتوى قابل للعرض. افتح التشخيص لمعرفة آخر خطأ تشغيل.
+                  </p>
+                  <Link
+                    to="/diagnostics"
+                    className="mt-4 inline-flex rounded-xl bg-teal-600 px-4 py-3 text-sm font-black text-white"
+                  >
+                    فتح التشخيص
+                  </Link>
+                </section>
+              )}
             </div>
           </main>
         </div>

@@ -1,5 +1,5 @@
 import './lib/mobileSafariCompat';
-import { StrictMode, Suspense, lazy, type ComponentType } from 'react';
+import { StrictMode, Suspense, lazy, useEffect, useState, type ComponentType } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './index.css';
@@ -92,6 +92,15 @@ const SafeApp = lazy(async () => {
 });
 
 function OptionalRuntimeAddons() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setMounted(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  if (!mounted) return null;
+
   const SidebarRuntimePolish = lazy(async () => {
     try {
       return await import('@/components/layout/SidebarRuntimePolish');
@@ -145,5 +154,5 @@ if (!rootElement) {
       </Suspense>
     </StrictMode>
   );
-  initOptionalRuntimeServices();
+  window.requestAnimationFrame(() => initOptionalRuntimeServices());
 }

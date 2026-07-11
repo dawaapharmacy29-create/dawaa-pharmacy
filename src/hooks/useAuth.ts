@@ -30,7 +30,7 @@ interface StaffAccountLoginRow {
   phone: string | null;
   active: boolean;
   can_login?: boolean | null;
-  permissions?: Record<string, boolean> | null;
+  permissions?: unknown;
 }
 
 const STORAGE_KEY = 'dawaa_auth_user_v2';
@@ -48,12 +48,36 @@ function safeText(value: unknown, fallback = ''): string {
   return fallback;
 }
 
-function capPermissionsToRole(role: unknown, extra?: Record<string, boolean> | null): Record<string, boolean> {
+function normalizePermissionInput(extra: unknown): Record<string, boolean> {
+  if (!extra) return {};
+  if (Array.isArray(extra)) {
+    return Object.fromEntries(extra.map((key) => [String(key), true]));
+  }
+  if (typeof extra === 'string') {
+    return Object.fromEntries(
+      extra
+        .split(',')
+        .map((key) => key.trim())
+        .filter(Boolean)
+        .map((key) => [key, true])
+    );
+  }
+  if (typeof extra === 'object') {
+    const result: Record<string, boolean> = {};
+    for (const [key, value] of Object.entries(extra as Record<string, unknown>)) {
+      result[key] = value === true || value === 'true' || value === 1;
+    }
+    return result;
+  }
+  return {};
+}
+
+function capPermissionsToRole(role: unknown, extra?: unknown): Record<string, boolean> {
   const roleKey = normalizeRole(safeText(role, 'assistant'));
   if (roleKey === 'general_manager') return Object.fromEntries(ALL_PERMISSION_KEYS.map((key) => [key, true]));
   const roleDefaults = getDefaultPermissionsForRole(roleKey);
   const capped: Record<string, boolean> = { ...roleDefaults };
-  for (const [key, value] of Object.entries(extra || {})) {
+  for (const [key, value] of Object.entries(normalizePermissionInput(extra))) {
     if (!(key in roleDefaults)) continue;
     capped[key] = value === true;
   }
@@ -139,11 +163,14 @@ async function loginWithStaffAccount(username: string, password: string): Promis
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(currentUser);
+  const [authTimedOut, setAuthTimedOut] = useState(false);
   useEffect(() => {
+    const timeoutId = window.setTimeout(() => setAuthTimedOut(true), 6000);
     const listener = () => setUser(currentUser);
     listeners.add(listener);
     setUser(currentUser);
     return () => {
+      window.clearTimeout(timeoutId);
       listeners.delete(listener);
     };
   }, []);
@@ -172,9 +199,25 @@ export function useAuth() {
   const isAdmin = isAdminRole(roleKey);
   const isBranchManager = isBranchManagerRole(roleKey);
   const canManage = isPrivilegedRole(roleKey) || isBranchManager;
-  const checkPermission = useCallback((permission?: string): boolean => coreHasPermission(safeUser, permission || ''), [safeUser]);
-  const hasPermission = useCallback(async (permission?: string): Promise<boolean> => !permission || coreHasPermission(safeUser, permission), [safeUser]);
-  return { user: safeUser, loading: false, login, logout, isAdmin, isBranchManager, canManage, checkPermission, hasPermission };
+  const checkPermission = useCallback((permission?: string): boolean => {
+    try {
+      return coreHasPermission(safeUser, permission || '');
+    } catch (error) {
+      console.warn('[Dawaa auth] checkPermission failed', error);
+      logRuntimeError('auth checkPermission failed', error);
+      return false;
+    }
+  }, [safeUser]);
+  const hasPermission = useCallback(async (permission?: string): Promise<boolean> => {
+    try {
+      return !permission || coreHasPermission(safeUser, permission);
+    } catch (error) {
+      console.warn('[Dawaa auth] hasPermission failed', error);
+      logRuntimeError('auth hasPermission failed', error);
+      return false;
+    }
+  }, [safeUser]);
+  return { user: safeUser, loading: !authTimedOut && false, login, logout, isAdmin, isBranchManager, canManage, checkPermission, hasPermission };
 }
 
 export function getSafeCurrentUserId(): string | null {

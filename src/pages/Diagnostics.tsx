@@ -9,13 +9,16 @@ type DiagnosticsState = {
   hasSupabaseUrl: boolean;
   hasSupabaseAnonKey: boolean;
   serviceWorkerCount: number;
+  serviceWorkerStatus: string;
   cacheNames: string[];
   localStorageKeys: string[];
   sessionStorageKeys: string[];
   lastRuntimeError: string;
+  storedUser: string;
 };
 
 const BUILD_ID = `build-${new Date().toISOString()}`;
+const BUILD_TIME = new Date().toISOString();
 
 function readStorageKeys(storage: Storage) {
   const keys: string[] = [];
@@ -24,6 +27,24 @@ function readStorageKeys(storage: Storage) {
     if (key) keys.push(key);
   }
   return keys.sort();
+}
+
+function readStoredUserSummary() {
+  try {
+    const raw = window.localStorage.getItem('dawaa_auth_user_v2');
+    if (!raw) return 'لا يوجد مستخدم مخزن';
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return JSON.stringify({
+      id: typeof parsed.id === 'string' ? parsed.id : 'غير محدد',
+      name: typeof parsed.name === 'string' ? parsed.name : 'غير محدد',
+      username: typeof parsed.username === 'string' ? parsed.username : 'غير محدد',
+      role: typeof parsed.role === 'string' ? parsed.role : 'غير محدد',
+      branch: typeof parsed.branch === 'string' ? parsed.branch : 'غير محدد',
+      active: parsed.active !== false,
+    });
+  } catch {
+    return 'بيانات مستخدم تالفة';
+  }
 }
 
 async function collectDiagnostics(): Promise<DiagnosticsState> {
@@ -39,10 +60,12 @@ async function collectDiagnostics(): Promise<DiagnosticsState> {
     hasSupabaseUrl: Boolean(import.meta.env.VITE_SUPABASE_URL),
     hasSupabaseAnonKey: Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY),
     serviceWorkerCount: registrations.length,
+    serviceWorkerStatus: registrations.length ? 'يوجد تسجيل service worker' : 'لا يوجد service worker مسجل',
     cacheNames,
     localStorageKeys: readStorageKeys(window.localStorage),
     sessionStorageKeys: readStorageKeys(window.sessionStorage),
     lastRuntimeError: window.sessionStorage.getItem(LAST_RUNTIME_ERROR_KEY) || 'لا يوجد',
+    storedUser: readStoredUserSummary(),
   };
 }
 
@@ -91,13 +114,16 @@ export default function Diagnostics() {
   const rows = state
     ? [
         ['Build', state.buildId],
+        ['Build time', BUILD_TIME],
         ['URL', state.url],
         ['Origin', state.origin],
         ['Path', state.path],
         ['Supabase URL', state.hasSupabaseUrl ? 'موجود' : 'غير موجود'],
         ['Supabase anon key', state.hasSupabaseAnonKey ? 'موجود' : 'غير موجود'],
         ['Service workers', String(state.serviceWorkerCount)],
+        ['Service worker status', state.serviceWorkerStatus],
         ['Cache names', state.cacheNames.join(', ') || 'لا يوجد'],
+        ['Stored user', state.storedUser],
         ['localStorage keys', state.localStorageKeys.join(', ') || 'لا يوجد'],
         ['sessionStorage keys', state.sessionStorageKeys.join(', ') || 'لا يوجد'],
         ['Last runtime error', state.lastRuntimeError],

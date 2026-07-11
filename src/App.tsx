@@ -11,6 +11,8 @@ import PWABanner from '@/components/features/PWABanner';
 import { isDoctorRole } from '@/lib/security/userDataScope';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
 import { diagnosticsUrl, logRuntimeError, loginRecoveryUrl } from '@/lib/appRecovery';
+import PageSafetyBoundary from '@/components/system/PageSafetyBoundary';
+import AppHealthBanner from '@/components/system/AppHealthBanner';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,7 +27,7 @@ const queryClient = new QueryClient({
 
 const Login = lazy(() => import('@/pages/Login'));
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
-const ExecutiveDashboard2027 = lazy(() => import('@/pages/ExecutiveDashboard2027'));
+const ExecutiveDashboardSafe = lazy(() => import('@/pages/ExecutiveDashboardSafe'));
 const BranchComparison = lazy(() => import('@/pages/BranchComparison'));
 const BranchInspection = lazy(() => import('@/pages/BranchInspection'));
 const EvaluationRules2027 = lazy(() => import('@/pages/EvaluationRules2027'));
@@ -144,7 +146,7 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
   const location = useLocation();
   const effectivePermissions = permission || getRoutePermissions(location.pathname);
 
-  if (loading) return <AppLoading />;
+  if (loading) return <SlowLoadingRecovery />;
   if (!user) return <Navigate to="/login" replace />;
 
   if (location.pathname === '/' && isDoctorRole(user) && !checkPermission('view_executive_dashboard')) {
@@ -236,43 +238,21 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
   }
 }
 
-class PageErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  state = { hasError: false };
-
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: Error) {
-    logRuntimeError('lazy page load failed', error);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <AppRecoveryScreen
-          reason="page_load_failed"
-          title="تعذر تحميل هذه الصفحة"
-          message="فشل تحميل ملفات هذه الصفحة. يمكنك فتح تسجيل الدخول أو التشخيص، أو تحديث الصفحة بعد تنظيف ملفات التشغيل المؤقتة."
-        />
-      );
-    }
-
-    return this.props.children;
-  }
+function safePage(component: ReactNode, pageName: string) {
+  return <PageSafetyBoundary pageName={pageName}>{component}</PageSafetyBoundary>;
 }
 
-function protectedElement(component: ReactNode, admin = false) {
+function protectedElement(component: ReactNode, admin = false, pageName = 'صفحة داخلية') {
   const content = admin ? <AdminRoute>{component}</AdminRoute> : component;
   return (
-    <PageErrorBoundary>
+    <PageSafetyBoundary pageName={pageName}>
       <ProtectedRoute>{content}</ProtectedRoute>
-    </PageErrorBoundary>
+    </PageSafetyBoundary>
   );
 }
 
-function publicElement(component: ReactNode) {
-  return <PageErrorBoundary>{component}</PageErrorBoundary>;
+function publicElement(component: ReactNode, pageName = 'صفحة عامة') {
+  return safePage(component, pageName);
 }
 
 export default function App() {
@@ -280,6 +260,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AppErrorBoundary>
+          <AppHealthBanner />
           <Toaster
             position="top-left"
             toastOptions={{
@@ -296,8 +277,8 @@ export default function App() {
           <PWABanner />
           <Suspense fallback={<SlowLoadingRecovery />}>
             <Routes>
-              <Route path="/login" element={publicElement(<Login />)} />
-              <Route path="/diagnostics" element={publicElement(<Diagnostics />)} />
+              <Route path="/login" element={publicElement(<Login />, 'تسجيل الدخول')} />
+              <Route path="/diagnostics" element={publicElement(<Diagnostics />, 'التشخيص')} />
               <Route path="/" element={protectedElement(<Dashboard />)} />
               <Route
                 path="/dashboard-classic"
@@ -305,7 +286,7 @@ export default function App() {
               />
               <Route
                 path="/executive-2027"
-                element={protectedElement(<ExecutiveDashboard2027 />)}
+                element={protectedElement(<ExecutiveDashboardSafe />, false, 'لوحة القيادة 2027')}
               />
               <Route path="/executive-dashboard" element={<Navigate to="/executive-2027" replace />} />
               <Route
@@ -330,12 +311,12 @@ export default function App() {
                 path="/customers/import"
                 element={protectedElement(<CustomerImport />, true)}
               />
-              <Route path="/customer-service" element={protectedElement(<CustomerService />)} />
+              <Route path="/customer-service" element={protectedElement(<CustomerService />, false, 'متابعة العملاء')} />
               <Route path="/customer-service-classic" element={protectedElement(<CustomerServiceClassic />)} />
               <Route path="/customer-requests" element={protectedElement(<CustomerRequests />)} />
               <Route
                 path="/customer-data-review"
-                element={protectedElement(<CustomerDataReview />)}
+                element={protectedElement(<CustomerDataReview />, false, 'مراجعة بيانات العملاء')}
               />
               <Route path="/crm" element={protectedElement(<CRMPage />)} />
               <Route path="/incubation" element={protectedElement(<CustomerIncubation />)} />
@@ -371,7 +352,7 @@ export default function App() {
               <Route path="/stories-offers" element={<Navigate to="/offers" replace />} />
               <Route path="/training" element={protectedElement(<Training />)} />
               <Route path="/whatsapp-analytics" element={protectedElement(<WhatsappAnalytics />)} />
-              <Route path="/team" element={protectedElement(<Team />)} />
+              <Route path="/team" element={protectedElement(<Team />, false, 'الفريق')} />
               <Route path="/staff" element={protectedElement(<Team />)} />
               <Route path="/employees" element={<Navigate to="/team" replace />} />
               <Route path="/staff/:id" element={protectedElement(<StaffDetail />)} />
@@ -387,13 +368,13 @@ export default function App() {
                 element={protectedElement(<MedicineExpiryTracker />)}
               />
               <Route path="/expiry-discounts" element={protectedElement(<ExpiryDiscounts />)} />
-              <Route path="/attendance-report" element={protectedElement(<AttendanceReport />)} />
+              <Route path="/attendance-report" element={protectedElement(<AttendanceReport />, false, 'تقرير الحضور')} />
               <Route path="/attendance" element={<Navigate to="/attendance-report" replace />} />
               <Route
                 path="/incentive-medicines"
                 element={protectedElement(<IncentiveMedicines />)}
               />
-              <Route path="/staff-accounts" element={protectedElement(<StaffAccounts />, true)} />
+              <Route path="/staff-accounts" element={protectedElement(<StaffAccounts />, true, 'حسابات الموظفين')} />
               <Route
                 path="/staff-duplicate-audit"
                 element={protectedElement(<StaffDuplicateAudit />, true)}
@@ -405,13 +386,13 @@ export default function App() {
               <Route path="/delivery" element={protectedElement(<Delivery />)} />
               <Route path="/branch-comparison" element={protectedElement(<BranchComparison />)} />
               <Route path="/branch-inspection" element={protectedElement(<BranchInspection />)} />
-              <Route path="/analytics" element={protectedElement(<Analytics />)} />
+              <Route path="/analytics" element={protectedElement(<Analytics />, false, 'التحليلات')} />
               <Route path="/analytics-sales" element={protectedElement(<Analytics />)} />
               <Route path="/purchases" element={protectedElement(<Purchases />)} />
               <Route path="/staff-payroll" element={protectedElement(<StaffPayroll />)} />
               <Route path="/payroll" element={<Navigate to="/staff-payroll" replace />} />
-              <Route path="/invoices" element={protectedElement(<Invoices />)} />
-              <Route path="/activity-log" element={protectedElement(<ActivityLog />, true)} />
+              <Route path="/invoices" element={protectedElement(<Invoices />, false, 'الفواتير')} />
+              <Route path="/activity-log" element={protectedElement(<ActivityLog />, true, 'سجل الأنشطة')} />
               <Route path="/activity-logs" element={<Navigate to="/activity-log" replace />} />
               <Route
                 path="/penalty-incentive"
@@ -421,13 +402,13 @@ export default function App() {
               <Route path="/employee-kpi" element={protectedElement(<EmployeeKpi />)} />
               <Route
                 path="/employee-operating-system"
-                element={protectedElement(<EmployeeOperatingSystem />)}
+                element={protectedElement(<EmployeeOperatingSystem />, false, 'مهام الفريق')}
               />
               <Route
                 path="/supplier-performance"
                 element={protectedElement(<SupplierPerformance />)}
               />
-              <Route path="/reports" element={protectedElement(<ReportsCenter />)} />
+              <Route path="/reports" element={protectedElement(<ReportsCenter />, false, 'مركز التقارير')} />
               <Route path="/stock-alerts" element={protectedElement(<StockAlerts />)} />
               <Route path="/returns" element={protectedElement(<Returns />)} />
               <Route path="*" element={<NotFound />} />
