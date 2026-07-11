@@ -72,6 +72,11 @@ function normalizePermissionInput(extra: unknown): Record<string, boolean> {
   return {};
 }
 
+type SupabaseRpcResult<T> = {
+  data: T | null;
+  error: { message?: string } | null;
+};
+
 function capPermissionsToRole(role: unknown, extra?: unknown): Record<string, boolean> {
   const roleKey = normalizeRole(safeText(role, 'assistant'));
   if (roleKey === 'general_manager') return Object.fromEntries(ALL_PERMISSION_KEYS.map((key) => [key, true]));
@@ -135,7 +140,11 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   if (!isSupabaseConfigured) return null;
   let data: unknown;
   try {
-    const result = await supabase.rpc('staff_account_login', { p_username: username, p_password: password });
+    const result = await withTimeout<SupabaseRpcResult<unknown>>(
+      supabase.rpc('staff_account_login', { p_username: username, p_password: password }),
+      10000,
+      'staff_account_login'
+    );
     data = result.data;
     if (result.error) {
       console.warn('[Dawaa auth] login failed reason', result.error.message || result.error);
@@ -161,16 +170,23 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   return sanitizeUser({ id: safeText(row.id), staffId: row.staff_id || undefined, name: safeText(row.name, safeText(row.username, 'User')), username: safeText(row.username, safeText(row.name, 'user')), role: roleKey, branch: safeText(row.branch, 'all'), phone: row.phone || undefined, active: row.active, permissions: effectivePermissions } as User);
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => window.clearTimeout(timeoutId));
+  });
+}
+
 export function useAuth() {
   const [user, setUser] = useState<User | null>(currentUser);
-  const [authTimedOut, setAuthTimedOut] = useState(false);
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => setAuthTimedOut(true), 6000);
     const listener = () => setUser(currentUser);
     listeners.add(listener);
     setUser(currentUser);
     return () => {
-      window.clearTimeout(timeoutId);
       listeners.delete(listener);
     };
   }, []);
@@ -217,7 +233,7 @@ export function useAuth() {
       return false;
     }
   }, [safeUser]);
-  return { user: safeUser, loading: !authTimedOut && false, login, logout, isAdmin, isBranchManager, canManage, checkPermission, hasPermission };
+  return { user: safeUser, loading: false, login, logout, isAdmin, isBranchManager, canManage, checkPermission, hasPermission };
 }
 
 export function getSafeCurrentUserId(): string | null {

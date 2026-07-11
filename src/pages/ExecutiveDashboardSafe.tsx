@@ -1,15 +1,23 @@
-import { ActivitySquare, ClipboardCheck, FileSpreadsheet, Headphones, ShieldCheck, Users } from 'lucide-react';
+import {
+  ActivitySquare,
+  BarChart3,
+  ClipboardCheck,
+  FileSpreadsheet,
+  Headphones,
+  ShieldCheck,
+  Users,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 
 const quickLinks = [
-  { label: 'متابعة العملاء', href: '/customer-service', icon: Headphones },
-  { label: 'مراجعة بيانات العملاء', href: '/customer-data-review', icon: ClipboardCheck },
-  { label: 'حسابات الموظفين', href: '/staff-accounts', icon: ShieldCheck },
-  { label: 'تقرير الحضور', href: '/attendance-report', icon: Users },
-  { label: 'سجل الأنشطة', href: '/activity-log', icon: ActivitySquare },
-  { label: 'مركز التقارير', href: '/reports', icon: FileSpreadsheet },
-  { label: 'الفواتير', href: '/invoices', icon: FileSpreadsheet },
+  { label: 'متابعة العملاء', href: '/customer-service', icon: Headphones, hint: 'فتح مركز خدمة العملاء' },
+  { label: 'مراجعة بيانات العملاء', href: '/customer-data-review', icon: ClipboardCheck, hint: 'تنظيف ومراجعة بيانات العملاء' },
+  { label: 'حسابات الموظفين', href: '/staff-accounts', icon: ShieldCheck, hint: 'صلاحيات وحسابات الفريق' },
+  { label: 'تقرير الحضور', href: '/attendance-report', icon: Users, hint: 'متابعة الحضور والانصراف' },
+  { label: 'سجل الأنشطة', href: '/activity-log', icon: ActivitySquare, hint: 'تتبع العمليات المهمة' },
+  { label: 'مركز التقارير', href: '/reports', icon: BarChart3, hint: 'تقارير تشغيلية سريعة' },
+  { label: 'الفواتير', href: '/invoices', icon: FileSpreadsheet, hint: 'استيراد ومراجعة الفواتير' },
 ];
 
 export default function ExecutiveDashboardSafe() {
@@ -30,7 +38,7 @@ export default function ExecutiveDashboardSafe() {
           <div>
             <h1 className="text-3xl font-black text-white">لوحة القيادة 2027</h1>
             <p className="mt-2 text-sm leading-7 text-slate-300">
-              تم تشغيل وضع الأمان لحين اكتمال تحميل لوحة القيادة المتقدمة.
+              الداشبورد يعمل الآن في وضع الأمان حتى لا تظهر صفحة فارغة أثناء مراجعة الداشبورد المتقدم.
             </p>
           </div>
           <Link
@@ -60,10 +68,13 @@ export default function ExecutiveDashboardSafe() {
               <Link
                 key={item.href}
                 to={item.href}
-                className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950 px-4 py-4 text-sm font-black text-slate-100 transition hover:border-teal-400/50 hover:bg-slate-800"
+                className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-950 px-4 py-4 text-sm font-black text-slate-100 transition hover:border-teal-400/50 hover:bg-slate-800"
               >
-                <Icon className="h-5 w-5 text-teal-300" />
-                <span>{item.label}</span>
+                <Icon className="mt-0.5 h-5 w-5 flex-shrink-0 text-teal-300" />
+                <span>
+                  <span className="block">{item.label}</span>
+                  <span className="mt-1 block text-xs font-bold text-slate-400">{item.hint}</span>
+                </span>
               </Link>
             );
           })}
@@ -75,7 +86,7 @@ export default function ExecutiveDashboardSafe() {
           <div key={section} className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
             <div className="text-sm font-black text-white">{section}</div>
             <p className="mt-2 text-sm leading-7 text-slate-400">
-              القسم متاح عبر الروابط السريعة، وتم عزله عن الداشبورد المتقدم أثناء وضع الأمان.
+              هذا القسم معزول مؤقتًا عن الاستعلامات الثقيلة. استخدم الروابط السريعة للوصول للصفحة المتخصصة.
             </p>
           </div>
         ))}
