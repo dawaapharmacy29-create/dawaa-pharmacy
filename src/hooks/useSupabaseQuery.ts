@@ -17,6 +17,11 @@ interface QueryOptions {
 
 type QueryBuilder = ReturnType<ReturnType<typeof supabase.from>['select']>;
 
+type SupabaseResultLike<T = unknown> = {
+  data?: T | null;
+  error?: { message?: string } | null;
+};
+
 function friendlySupabaseError(message: string): string {
   const lower = message.toLowerCase();
   if (lower.includes('timed out') || lower.includes('timeout')) {
@@ -90,7 +95,11 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     }
     const query = buildQuery();
     const timeoutMs = options.timeoutMs ?? 9000;
-    const { data: result, error: err } = await withTimeout(query, timeoutMs, `${options.table} fetch`);
+    const { data: result, error: err } = await withTimeout<SupabaseResultLike<T[]>>(
+      query,
+      timeoutMs,
+      `${options.table} fetch`
+    );
     if (err) {
       logSupabaseError(`${options.table} fetch`, err);
       throw new Error(friendlySupabaseError(err.message));
@@ -134,7 +143,7 @@ export async function supabaseInsert<T>(
   record: Partial<T>
 ): Promise<{ data: T | null; error: string | null }> {
   if (!isSupabaseConfigured) return { data: null, error: 'إعدادات Supabase غير موجودة' };
-  const { data, error } = await withTimeout(
+  const { data, error } = await withTimeout<SupabaseResultLike<T>>(
     supabase
       .from(table)
       .insert(record as Record<string, unknown>)
@@ -156,7 +165,7 @@ export async function supabaseUpdate<T>(
   updates: Partial<T>
 ): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured) return { error: 'إعدادات Supabase غير موجودة' };
-  const { error } = await withTimeout(
+  const { error } = await withTimeout<SupabaseResultLike>(
     supabase
       .from(table)
       .update({ ...updates, updated_at: new Date().toISOString() })
@@ -173,7 +182,11 @@ export async function supabaseUpdate<T>(
 
 export async function supabaseDelete(table: string, id: string): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured) return { error: 'إعدادات Supabase غير موجودة' };
-  const { error } = await withTimeout(supabase.from(table).delete().eq('id', id), 9000, `${table} delete`);
+  const { error } = await withTimeout<SupabaseResultLike>(
+    supabase.from(table).delete().eq('id', id),
+    9000,
+    `${table} delete`
+  );
   if (error) {
     logSupabaseError(`${table} delete`, error);
     return { error: friendlySupabaseError(error.message) };

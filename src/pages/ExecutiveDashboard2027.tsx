@@ -409,6 +409,15 @@ function rows<T>(data: unknown): T[] {
   return [];
 }
 
+type SupabaseQueryResult<T> = { data: T | null; error: { message?: string } | null };
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    Promise.resolve(promise).then(resolve).catch(reject).finally(() => window.clearTimeout(timeoutId));
+  });
+}
+
 async function rpcRows<T>(
   names: string[],
   params: Record<string, unknown> | undefined,
@@ -417,14 +426,18 @@ async function rpcRows<T>(
 ): Promise<T[]> {
   for (const name of names) {
     let attempts = 0;
-    while (attempts < 3) {
+    while (attempts < 2) {
       try {
-        const { data, error } = await supabase.rpc(name, params);
+        const { data, error } = await withTimeout<SupabaseQueryResult<unknown>>(
+          supabase.rpc(name, params) as PromiseLike<SupabaseQueryResult<unknown>>,
+          7000,
+          `${label}:${name}`
+        );
         if (error) {
           attempts += 1;
           console.error(`[RPC ERROR] ${label} -> ${name} attempt=${attempts}:`, error.message || error);
           errors.push(`${label} ${name}: ${error.message || String(error)}`);
-          if (attempts < 3) await new Promise((r) => setTimeout(r, 300 * attempts));
+          if (attempts < 2) await new Promise((r) => setTimeout(r, 300 * attempts));
           continue;
         }
         const rowsData = rows<T>(data);
@@ -434,7 +447,7 @@ async function rpcRows<T>(
         attempts += 1;
         console.error(`[RPC EXCEPTION] ${label} -> ${name} attempt=${attempts}:`, err);
         errors.push(`${label} ${name}: ${err instanceof Error ? err.message : String(err)}`);
-        if (attempts < 3) await new Promise((r) => setTimeout(r, 300 * attempts));
+        if (attempts < 2) await new Promise((r) => setTimeout(r, 300 * attempts));
       }
     }
   }
@@ -448,8 +461,8 @@ async function fetchFollowupsForDashboard(
   errors: string[]
 ): Promise<FollowupDashboardRow[]> {
   const allRows: FollowupDashboardRow[] = [];
-  const pageSize = 500;
-  const maxPages = 4;
+  const pageSize = 250;
+  const maxPages = 2;
 
   for (let page = 0; page < maxPages; page += 1) {
     const from = page * pageSize;
@@ -466,7 +479,11 @@ async function fetchFollowupsForDashboard(
 
     if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
 
-    const { data, error } = await query;
+    const { data, error } = await withTimeout<SupabaseQueryResult<FollowupDashboardRow[]>>(
+      query as PromiseLike<SupabaseQueryResult<FollowupDashboardRow[]>>,
+      7000,
+      'daily_followups'
+    );
     if (error) {
       errors.push(`daily_followups: ${error.message}`);
       break;
@@ -771,6 +788,9 @@ function KpiCard({
   icon,
   tone = 'cyan',
   onClick,
+  actionLabel,
+  onAction,
+  showAction = false,
 }: {
   title: string;
   value: string;
@@ -778,6 +798,9 @@ function KpiCard({
   icon: React.ReactNode;
   tone?: 'cyan' | 'green' | 'amber' | 'blue' | 'purple' | 'red';
   onClick?: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
+  showAction?: boolean;
 }) {
   const toneClass = {
     cyan: 'from-cyan-500/12 to-cyan-400/5 border-cyan-300/22',
@@ -811,6 +834,18 @@ function KpiCard({
         </div>
         <div className="rounded-2xl bg-slate-950/55 p-3 text-cyan-200">{icon}</div>
       </div>
+      {showAction && onAction ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onAction();
+          }}
+          className="mt-3 rounded-xl border border-cyan-300/20 bg-slate-950/55 px-3 py-2 text-xs font-black text-cyan-100 hover:bg-cyan-400/15"
+        >
+          {actionLabel || 'إعادة تحميل القسم'}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -895,22 +930,27 @@ export default function ExecutiveDashboard2027() {
   const [salesKPILoading, setSalesKPILoading] = useState(false);
   const [salesKPIError, setSalesKPIError] = useState<string | null>(null);
   const [salesKPILoadedAt, setSalesKPILoadedAt] = useState<string | null>(null);
+  const [salesKPITimedOut, setSalesKPITimedOut] = useState(false);
 
   const [customerServiceLoading, setCustomerServiceLoading] = useState(false);
   const [customerServiceError, setCustomerServiceError] = useState<string | null>(null);
   const [customerServiceLoadedAt, setCustomerServiceLoadedAt] = useState<string | null>(null);
+  const [customerServiceTimedOut, setCustomerServiceTimedOut] = useState(false);
 
   const [incentivesLoading, setIncentivesLoading] = useState(false);
   const [incentivesError, setIncentivesError] = useState<string | null>(null);
   const [incentivesLoadedAt, setIncentivesLoadedAt] = useState<string | null>(null);
+  const [incentivesTimedOut, setIncentivesTimedOut] = useState(false);
 
   const [dailyTasksLoading, setDailyTasksLoading] = useState(false);
   const [dailyTasksError, setDailyTasksError] = useState<string | null>(null);
   const [dailyTasksLoadedAt, setDailyTasksLoadedAt] = useState<string | null>(null);
+  const [dailyTasksTimedOut, setDailyTasksTimedOut] = useState(false);
 
   const [staffAttendanceLoading, setStaffAttendanceLoading] = useState(false);
   const [staffAttendanceError, setStaffAttendanceError] = useState<string | null>(null);
   const [staffAttendanceLoadedAt, setStaffAttendanceLoadedAt] = useState<string | null>(null);
+  const [staffAttendanceTimedOut, setStaffAttendanceTimedOut] = useState(false);
 
   // branchPerformance depends on salesKPIs results
   const [branchPerformanceLoading, setBranchPerformanceLoading] = useState(false);
@@ -919,6 +959,7 @@ export default function ExecutiveDashboard2027() {
   const [inventoryOperationsLoading, setInventoryOperationsLoading] = useState(false);
   const [inventoryOperationsError, setInventoryOperationsError] = useState<string | null>(null);
   const [inventoryOperationsLoadedAt, setInventoryOperationsLoadedAt] = useState<string | null>(null);
+  const [inventoryOperationsTimedOut, setInventoryOperationsTimedOut] = useState(false);
   const [doctorCompetition, setDoctorCompetition] = useState<DoctorCompetitionMetrics | null>(null);
   const [doctorCompetitionLoading, setDoctorCompetitionLoading] = useState(false);
   const [competitionsLoading, setCompetitionsLoading] = useState(false);
@@ -926,6 +967,7 @@ export default function ExecutiveDashboard2027() {
   const [doctorCompetitionLoadedAt, setDoctorCompetitionLoadedAt] = useState<string | null>(null);
   const [dataHealthIssues, setDataHealthIssues] = useState<DataHealthIssue[]>([]);
   const [dataHealthLoading, setDataHealthLoading] = useState(false);
+  const [dataHealthTimedOut, setDataHealthTimedOut] = useState(false);
   const [teamTaskSummary, setTeamTaskSummary] = useState<EmployeeTaskSummary | null>(null);
   const [teamTaskIssue, setTeamTaskIssue] = useState<string | null>(null);
   const loadIdRef = useRef(0);
@@ -950,20 +992,41 @@ export default function ExecutiveDashboard2027() {
     errors: [],
   });
 
+  function useSectionTimeout(loading: boolean, loadedAt: string | null, onTimeout: (value: boolean) => void) {
+    useEffect(() => {
+      if (!loading || loadedAt) {
+        onTimeout(false);
+        return;
+      }
+      const timer = window.setTimeout(() => onTimeout(true), 7000);
+      return () => window.clearTimeout(timer);
+    }, [loading, loadedAt, onTimeout]);
+  }
+
+  useSectionTimeout(salesKPILoading, salesKPILoadedAt, setSalesKPITimedOut);
+  useSectionTimeout(customerServiceLoading, customerServiceLoadedAt, setCustomerServiceTimedOut);
+  useSectionTimeout(incentivesLoading, incentivesLoadedAt, setIncentivesTimedOut);
+  useSectionTimeout(dailyTasksLoading, dailyTasksLoadedAt, setDailyTasksTimedOut);
+  useSectionTimeout(staffAttendanceLoading, staffAttendanceLoadedAt, setStaffAttendanceTimedOut);
+  useSectionTimeout(inventoryOperationsLoading, inventoryOperationsLoadedAt, setInventoryOperationsTimedOut);
+  useSectionTimeout(dataHealthLoading, null, setDataHealthTimedOut);
+
   function getSectionValue<T>({
     value,
     loading,
     error,
     loadedAt,
+    timedOut = false,
     fallback = '...',
   }: {
     value: T;
     loading: boolean;
     error: string | null;
     loadedAt: string | null;
+    timedOut?: boolean;
     fallback?: string;
   }): T | string {
-    if (error) return 'تعذر تحميل البيانات';
+    if (error || timedOut) return 'تعذر التحميل';
     if (loading && !loadedAt) return fallback;
     if (!loadedAt) return fallback;
     return value;
@@ -1015,12 +1078,16 @@ export default function ExecutiveDashboard2027() {
         ? { period: 'cycle' as const }
         : { period: 'custom' as const, customStart: startDate, customEnd: endDate };
 
-    getDoctorCompetitionMetrics({
-      ...doctorCompetitionParams,
-      branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
-      userBranch: user?.branch,
-      canSeeAllBranches: canAllBranches,
-    })
+    withTimeout(
+      getDoctorCompetitionMetrics({
+        ...doctorCompetitionParams,
+        branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
+        userBranch: user?.branch,
+        canSeeAllBranches: canAllBranches,
+      }),
+      7000,
+      'doctor-competition'
+    )
       .then((metrics) => {
         if (!mounted) return;
         if (metrics.rows.length) {
@@ -1052,7 +1119,7 @@ export default function ExecutiveDashboard2027() {
   useEffect(() => {
     let mounted = true;
     setDataHealthLoading(true);
-    loadAppDataHealthSummary()
+    withTimeout(loadAppDataHealthSummary(), 7000, 'data-health')
       .then((issues) => {
         if (mounted) setDataHealthIssues(issues);
       })
@@ -1072,7 +1139,7 @@ export default function ExecutiveDashboard2027() {
     let mounted = true;
     setDailyTasksLoading(true);
     setDailyTasksError(null);
-    summarizeTeamTasks(new Date().toISOString().slice(0, 10), scopedBranch, user)
+    withTimeout(summarizeTeamTasks(new Date().toISOString().slice(0, 10), scopedBranch, user), 7000, 'daily-tasks')
       .then((result) => {
         if (!mounted) return;
         setTeamTaskSummary(result.summary);
@@ -1098,27 +1165,27 @@ export default function ExecutiveDashboard2027() {
       end: endDate,
     }, user?.role);
 
-    // orchestrate independent section fetches
     setLoading(true);
     setInitialLoadTimedOut(false);
     setLoadError(null);
     const errors: string[] = [];
 
-    // prepare section flags
-    setSalesKPILoading(true);
-    setSalesKPIError(null);
-    setCustomerServiceLoading(true);
-    setCustomerServiceError(null);
-    setIncentivesLoading(true);
-    setIncentivesError(null);
-    setStaffAttendanceLoading(true);
-    setStaffAttendanceError(null);
-    setInventoryOperationsLoading(true);
-    setInventoryOperationsError(null);
-    setInventoryOperationsLoadedAt(null);
+    void (async () => {
+      // prepare section flags
+      setSalesKPILoading(true);
+      setSalesKPIError(null);
+      setCustomerServiceLoading(true);
+      setCustomerServiceError(null);
+      setIncentivesLoading(true);
+      setIncentivesError(null);
+      setStaffAttendanceLoading(true);
+      setStaffAttendanceError(null);
+      setInventoryOperationsLoading(true);
+      setInventoryOperationsError(null);
+      setInventoryOperationsLoadedAt(null);
 
-    // CUSTOMER SERVICE block
-    let customerServiceRows: CustomerServiceSummary[] = [];
+      // CUSTOMER SERVICE block
+      let customerServiceRows: CustomerServiceSummary[] = [];
     let customerServiceOwners: CustomerServiceOwner[] = [];
     let staffOpsRows: StaffOps[] = [];
     try {
@@ -1172,11 +1239,11 @@ export default function ExecutiveDashboard2027() {
       setCustomerServiceLoading(false);
     }
 
-    // ensure inventory section is marked as loaded for static operations cards
-    setInventoryOperationsLoadedAt(new Date().toISOString());
-    setInventoryOperationsLoading(false);
+      // ensure inventory section is marked as loaded for static operations cards
+      setInventoryOperationsLoadedAt(new Date().toISOString());
+      setInventoryOperationsLoading(false);
 
-    // SALES KPIs block (main heavy)
+      // SALES KPIs block (main heavy)
     let salesTruth: any = { summary: {}, dailySales: [], branchDistribution: [], doctorSales: [], monthlySales: [], recentInvoices: [], reconciliation: {} };
     try {
       try {
@@ -1221,8 +1288,8 @@ export default function ExecutiveDashboard2027() {
       setSalesKPILoading(false);
     }
 
-    // INCENTIVES block
-    try {
+      // INCENTIVES block
+      try {
       setIncentivesLoading(true);
       try {
         const incentiveSettled = await getStaffIncentiveSummaryForCycle({
@@ -1247,29 +1314,57 @@ export default function ExecutiveDashboard2027() {
       setIncentivesLoading(false);
     }
 
-    // STAFF ATTENDANCE block (staff directory, schedules, presence)
-    try {
+      // STAFF ATTENDANCE block (staff directory, schedules, presence)
+      try {
       setStaffAttendanceLoading(true);
       try {
-        const [staffResult, scheduleResult, presenceResult] = await Promise.allSettled([
+        const staffResult = await withTimeout<{
+          data: StaffDirectoryRow[] | null;
+          error: { message?: string } | null;
+        }>(
           supabase
             .from('staff')
             .select('id,staff_id,name,staff_name,role,branch,status,active,is_active')
-            .limit(700),
+            .limit(700) as PromiseLike<{
+              data: StaffDirectoryRow[] | null;
+              error: { message?: string } | null;
+            }>,
+          7000,
+          'staff-directory'
+        );
+        const scheduleResult = await withTimeout<{
+          data: ShiftScheduleRow[] | null;
+          error: { message?: string } | null;
+        }>(
           supabase
             .from('shift_schedules')
             .select('staff_id,staff_name,branch,day_name,shift_start,shift_end,is_off')
-            .limit(1200),
-          fetchCurrentShiftPresence(),
-        ]);
-        if (staffResult.status === 'rejected') errors.push(`staff: ${staffResult.reason instanceof Error ? staffResult.reason.message : String(staffResult.reason)}`);
-        if (scheduleResult.status === 'rejected') errors.push(`shift_schedules: ${scheduleResult.reason instanceof Error ? scheduleResult.reason.message : String(scheduleResult.reason)}`);
-        if (presenceResult.status === 'rejected') errors.push(`current presence: ${presenceResult.reason instanceof Error ? presenceResult.reason.message : String(presenceResult.reason)}`);
-        if (staffResult.status === 'fulfilled' && staffResult.value.error) errors.push(`staff: ${staffResult.value.error.message}`);
-        if (scheduleResult.status === 'fulfilled' && scheduleResult.value.error) errors.push(`shift_schedules: ${scheduleResult.value.error.message}`);
+            .limit(1200) as PromiseLike<{
+              data: ShiftScheduleRow[] | null;
+              error: { message?: string } | null;
+            }>,
+          7000,
+          'shift-schedules'
+        );
+        const presenceResult = await withTimeout<{
+          doctors: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+          assistants: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+          delivery: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+          error?: { message?: string } | null;
+        }>(fetchCurrentShiftPresence() as PromiseLike<{
+          doctors: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+          assistants: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+          delivery: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+          error?: { message?: string } | null;
+        }>, 7000, 'shift-presence');
+        if (staffResult.error) errors.push(`staff: ${staffResult.error.message}`);
+        if (scheduleResult.error) errors.push(`shift_schedules: ${scheduleResult.error.message}`);
+        if (presenceResult && 'error' in presenceResult && presenceResult.error) {
+          errors.push(`current presence: ${presenceResult.error.message}`);
+        }
 
-        const staffDirectory = (staffResult.status === 'fulfilled' ? ((staffResult.value.data || []) as StaffDirectoryRow[]) : []).filter(isActiveStaff);
-        const scheduleRows = scheduleResult.status === 'fulfilled' ? ((scheduleResult.value.data || []) as ShiftScheduleRow[]) : [];
+        const staffDirectory = ((staffResult.data || []) as StaffDirectoryRow[]).filter(isActiveStaff);
+        const scheduleRows = (scheduleResult.data || []) as ShiftScheduleRow[];
         const todayName = DAYS_AR[new Date().getDay()];
         const scheduleByKey = new Map<string, ShiftScheduleRow>();
         for (const row of scheduleRows) {
@@ -1296,10 +1391,9 @@ export default function ExecutiveDashboard2027() {
         const onShiftNow = scheduledToday.filter((member) =>
           isCurrentlyOnShift(member.shift_start || '', member.shift_end || '')
         );
-        const currentPresence =
-          presenceResult.status === 'fulfilled'
-            ? presenceResult.value
-            : { doctors: [], assistants: [], delivery: [] };
+        const currentPresence = presenceResult && typeof presenceResult === 'object' && 'doctors' in presenceResult
+          ? presenceResult
+          : { doctors: [], assistants: [], delivery: [] };
         const presenceRows = [
           ...currentPresence.doctors,
           ...currentPresence.assistants,
@@ -1330,8 +1424,8 @@ export default function ExecutiveDashboard2027() {
       setStaffAttendanceLoading(false);
     }
 
-    // ensure branch performance computed after sales KPIs
-    try {
+      // ensure branch performance computed after sales KPIs
+      try {
       setBranchPerformanceLoading(true);
       if (!salesKPILoading) {
         // compute branchPerformance from state.targets
@@ -1343,8 +1437,8 @@ export default function ExecutiveDashboard2027() {
       setBranchPerformanceLoading(false);
     }
 
-    // finalize: save cache and set global loadedAt
-    try {
+      // finalize: save cache and set global loadedAt
+      try {
       const finalLoadedAt = new Date().toISOString();
       setState((prev) => ({ ...prev, loadedAt: finalLoadedAt }));
       try {
@@ -1360,8 +1454,16 @@ export default function ExecutiveDashboard2027() {
     } catch (e) {
       // ignore
     }
-    setLoading(false);
+      setLoading(false);
+    })();
   }, [currentCycle, endDate, scopedBranch, startDate]);
+
+  const reloadDashboard = useCallback(() => {
+    noCacheRef.current = true;
+    clearInvoiceCache();
+    clearDashboardCache();
+    void load();
+  }, [load]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -1370,11 +1472,9 @@ export default function ExecutiveDashboard2027() {
 
   useEffect(() => {
     if (!loading || state.loadedAt || state.summary) return;
-    const id = window.setTimeout(() => setInitialLoadTimedOut(true), 8000);
+    const id = window.setTimeout(() => setInitialLoadTimedOut(true), 7000);
     return () => window.clearTimeout(id);
   }, [loading, state.loadedAt, state.summary]);
-
-  const showInitialSkeleton = loading && !initialLoadTimedOut && !state.loadedAt && !state.summary;
 
   const branchOptions = useMemo(() => {
     const fromData = [
@@ -2111,107 +2211,104 @@ export default function ExecutiveDashboard2027() {
           </Panel>
         )}
 
-        {loading && !state.loadedAt ? (
-          <section
-            className="grid gap-3 md:grid-cols-2 xl:grid-cols-6"
-            aria-busy="true"
-            aria-label="جارٍ تحميل مؤشرات الأداء"
-          >
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="relative overflow-hidden rounded-3xl border border-slate-700/50 bg-slate-800/40 p-5 animate-pulse"
-              >
-                <div className="mb-3 h-3 w-16 rounded-full bg-slate-700/70" />
-                <div className="mb-2 h-7 w-28 rounded-xl bg-slate-700/70" />
-                <div className="h-2.5 w-20 rounded-full bg-slate-700/50" />
-              </div>
-            ))}
-          </section>
-        ) : (
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-            <KpiCard
-              title="صافي مبيعات الفترة"
-              value={getSectionValue({
-                value: `${money(summary.sales_total)} جنيه`,
-                loading: salesKPILoading,
-                error: salesKPIError,
-                loadedAt: salesKPILoadedAt,
-              })}
-              subtitle="عن الفترة المختارة"
-              icon={<Wallet className="h-6 w-6" />}
-              tone="amber"
-              onClick={() => navigate(`/analytics?${dashboardQuery}`)}
-            />
-            <KpiCard
-              title="عدد الفواتير"
-              value={getSectionValue({
-                value: count(summary.invoices_count),
-                loading: salesKPILoading,
-                error: salesKPIError,
-                loadedAt: salesKPILoadedAt,
-              })}
-              subtitle="كل الفواتير داخل الفترة"
-              icon={<FileText className="h-6 w-6" />}
-              tone="green"
-              onClick={() => navigate(`/invoice-import?${dashboardQuery}`)}
-            />
-            <KpiCard
-              title="متوسط الفاتورة"
-              value={getSectionValue({
-                value: `${money(summary.avg_invoice, 2)} جنيه`,
-                loading: salesKPILoading,
-                error: salesKPIError,
-                loadedAt: salesKPILoadedAt,
-              })}
-              subtitle="قيمة الفاتورة"
-              icon={<ClipboardList className="h-6 w-6" />}
-              tone="cyan"
-              onClick={() => navigate(`/analytics?metric=avg-invoice&${dashboardQuery}`)}
-            />
-            <KpiCard
-              title="العملاء المشترين"
-              value={getSectionValue({
-                value: count(summary.linked_customers),
-                loading: salesKPILoading,
-                error: salesKPIError,
-                loadedAt: salesKPILoadedAt,
-              })}
-              subtitle="عملاء لهم كود"
-              icon={<Users className="h-6 w-6" />}
-              tone="blue"
-              onClick={() => navigate(`/customers?${dashboardQuery}`)}
-            />
-            <KpiCard
-              title="نسبة ربط العملاء"
-              value={getSectionValue({
-                value: pct(summary.customer_link_rate_percent),
-                loading: salesKPILoading,
-                error: salesKPIError,
-                loadedAt: salesKPILoadedAt,
-              })}
-              subtitle={`${count(summary.linked_invoices)} فاتورة مرتبطة`}
-              icon={<ShieldCheck className="h-6 w-6" />}
-              tone="purple"
-              onClick={() => navigate(`/customer-data-review?${dashboardQuery}`)}
-            />
-            <KpiCard
-              title="الفواتير غير المسجلة"
-              value={getSectionValue({
-                value: count(summary.unregistered_customer_invoices),
-                loading: salesKPILoading,
-                error: salesKPIError,
-                loadedAt: salesKPILoadedAt,
-              })}
-              subtitle={`${money(summary.unregistered_customer_sales)} جنيه`}
-              icon={<FileText className="h-6 w-6" />}
-              tone="red"
-              onClick={() =>
-                navigate(`/customer-data-review?status=unregistered&${dashboardQuery}`)
-              }
-            />
-          </section>
-        )}
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <KpiCard
+            title="صافي مبيعات الفترة"
+            value={getSectionValue({
+              value: `${money(summary.sales_total)} جنيه`,
+              loading: salesKPILoading,
+              error: salesKPIError,
+              loadedAt: salesKPILoadedAt,
+              timedOut: salesKPITimedOut,
+            })}
+            subtitle="عن الفترة المختارة"
+            icon={<Wallet className="h-6 w-6" />}
+            tone="amber"
+            onClick={() => navigate(`/analytics?${dashboardQuery}`)}
+            showAction={Boolean(salesKPIError || salesKPITimedOut)}
+            onAction={reloadDashboard}
+          />
+          <KpiCard
+            title="عدد الفواتير"
+            value={getSectionValue({
+              value: count(summary.invoices_count),
+              loading: salesKPILoading,
+              error: salesKPIError,
+              loadedAt: salesKPILoadedAt,
+              timedOut: salesKPITimedOut,
+            })}
+            subtitle="كل الفواتير داخل الفترة"
+            icon={<FileText className="h-6 w-6" />}
+            tone="green"
+            onClick={() => navigate(`/invoice-import?${dashboardQuery}`)}
+            showAction={Boolean(salesKPIError || salesKPITimedOut)}
+            onAction={reloadDashboard}
+          />
+          <KpiCard
+            title="متوسط الفاتورة"
+            value={getSectionValue({
+              value: `${money(summary.avg_invoice, 2)} جنيه`,
+              loading: salesKPILoading,
+              error: salesKPIError,
+              loadedAt: salesKPILoadedAt,
+              timedOut: salesKPITimedOut,
+            })}
+            subtitle="قيمة الفاتورة"
+            icon={<ClipboardList className="h-6 w-6" />}
+            tone="cyan"
+            onClick={() => navigate(`/analytics?metric=avg-invoice&${dashboardQuery}`)}
+            showAction={Boolean(salesKPIError || salesKPITimedOut)}
+            onAction={reloadDashboard}
+          />
+          <KpiCard
+            title="العملاء المشترين"
+            value={getSectionValue({
+              value: count(summary.linked_customers),
+              loading: salesKPILoading,
+              error: salesKPIError,
+              loadedAt: salesKPILoadedAt,
+              timedOut: salesKPITimedOut,
+            })}
+            subtitle="عملاء لهم كود"
+            icon={<Users className="h-6 w-6" />}
+            tone="blue"
+            onClick={() => navigate(`/customers?${dashboardQuery}`)}
+            showAction={Boolean(salesKPIError || salesKPITimedOut)}
+            onAction={reloadDashboard}
+          />
+          <KpiCard
+            title="نسبة ربط العملاء"
+            value={getSectionValue({
+              value: pct(summary.customer_link_rate_percent),
+              loading: salesKPILoading,
+              error: salesKPIError,
+              loadedAt: salesKPILoadedAt,
+              timedOut: salesKPITimedOut,
+            })}
+            subtitle={`${count(summary.linked_invoices)} فاتورة مرتبطة`}
+            icon={<ShieldCheck className="h-6 w-6" />}
+            tone="purple"
+            onClick={() => navigate(`/customer-data-review?${dashboardQuery}`)}
+            showAction={Boolean(salesKPIError || salesKPITimedOut)}
+            onAction={reloadDashboard}
+          />
+          <KpiCard
+            title="الفواتير غير المسجلة"
+            value={getSectionValue({
+              value: count(summary.unregistered_customer_invoices),
+              loading: salesKPILoading,
+              error: salesKPIError,
+              loadedAt: salesKPILoadedAt,
+              timedOut: salesKPITimedOut,
+            })}
+            subtitle={`${money(summary.unregistered_customer_sales)} جنيه`}
+            icon={<FileText className="h-6 w-6" />}
+            tone="red"
+            onClick={() => navigate(`/customer-data-review?status=unregistered&${dashboardQuery}`)}
+            showAction={Boolean(salesKPIError || salesKPITimedOut)}
+            onAction={reloadDashboard}
+          />
+        </section>
 
         <DashboardDoctorCompetitionPanel
           metrics={doctorCompetition}
@@ -2224,6 +2321,28 @@ export default function ExecutiveDashboard2027() {
           loading={dataHealthLoading}
           onNavigate={(route) => navigate(route)}
         />
+
+        <Panel className="p-5">
+          <SectionTitle
+            title="تشخيص تحميل الداشبورد"
+            subtitle="حالة كل قسم من الأقسام الأساسية في الوقت الحالي"
+            icon={<AlertTriangle className="h-5 w-5" />}
+          />
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {[
+              { key: 'sales', label: 'sales', state: salesKPILoading ? 'loading' : salesKPIError || salesKPITimedOut ? 'error' : salesKPILoadedAt ? 'loaded' : 'loading' },
+              { key: 'customerService', label: 'customerService', state: customerServiceLoading ? 'loading' : customerServiceError || customerServiceTimedOut ? 'error' : customerServiceLoadedAt ? 'loaded' : 'loading' },
+              { key: 'staff', label: 'staff', state: staffAttendanceLoading ? 'loading' : staffAttendanceError || staffAttendanceTimedOut ? 'error' : staffAttendanceLoadedAt ? 'loaded' : 'loading' },
+              { key: 'incentives', label: 'incentives', state: incentivesLoading ? 'loading' : incentivesError || incentivesTimedOut ? 'error' : incentivesLoadedAt ? 'loaded' : 'loading' },
+              { key: 'dailyTasks', label: 'dailyTasks', state: dailyTasksLoading ? 'loading' : dailyTasksError || dailyTasksTimedOut ? 'error' : dailyTasksLoadedAt ? 'loaded' : 'loading' },
+            ].map((item) => (
+              <div key={item.key} className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4">
+                <div className="text-sm font-black text-white">{item.label}</div>
+                <div className="mt-3 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{item.state}</div>
+              </div>
+            ))}
+          </div>
+        </Panel>
 
         <Panel className="p-5">
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
