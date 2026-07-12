@@ -41,6 +41,79 @@
           document.documentElement.classList.add('light-mode');
       } catch (e) {}
     </script>
+    <script>
+      (function () {
+        try {
+          var reviewDraftKey = 'dawaa_conversation_review_draft_v3';
+          var rawDraft = localStorage.getItem(reviewDraftKey);
+          if (rawDraft) {
+            var draft = JSON.parse(rawDraft);
+            var state = draft && draft.reviewState && typeof draft.reviewState === 'object'
+              ? draft.reviewState
+              : {};
+            var defaults = {
+              first_response_speed: { applies: true, choice: 'within_5', notes: '' },
+              greeting: { applies: true, choice: 'official_full', notes: '' },
+              doctor_name: { applies: true, choice: 'start', notes: '' },
+              customer_name: { applies: false, choice: 'used', notes: '' },
+              tone: { applies: true, choice: 'professional', notes: '' },
+              understanding: { applies: true, choice: 'strong', notes: '' },
+              followup_after_wait: { applies: false, choice: 'within_5', notes: '' },
+              consultation_quality: { applies: false, choice: 'excellent', notes: '' },
+              dosage_explanation: { applies: false, choice: 'clear', notes: '' },
+              unavailable_items: { applies: false, choice: 'good_alternative', notes: '' },
+              sales_closing: { applies: true, choice: 'closed', notes: '' },
+              cross_sell_upsell: { applies: false, choice: 'successful', notes: '' },
+              angry_customer: { applies: false, choice: 'excellent', notes: '' },
+              order_confirmation: { applies: false, choice: 'complete', notes: '' },
+              order_delay_handling: { applies: false, choice: 'no_delay', notes: '' },
+              customer_request_registration: { applies: false, choice: 'registered', notes: '' },
+              closing_message: { applies: true, choice: 'official', notes: '' }
+            };
+            Object.keys(defaults).forEach(function (key) {
+              var current = state[key];
+              if (!current || typeof current !== 'object') {
+                state[key] = defaults[key];
+                return;
+              }
+              if (typeof current.applies !== 'boolean') current.applies = defaults[key].applies;
+              if (typeof current.choice !== 'string' || !current.choice) current.choice = defaults[key].choice;
+              if (typeof current.notes !== 'string') current.notes = '';
+            });
+            draft.reviewState = state;
+            localStorage.setItem(reviewDraftKey, JSON.stringify(draft));
+          }
+        } catch (error) {
+          try { localStorage.removeItem('dawaa_conversation_review_draft_v3'); } catch (ignore) {}
+        }
+
+        try {
+          var settingsKey = 'dawaa_notification_settings_v1';
+          var savedSettings = JSON.parse(localStorage.getItem(settingsKey) || '{}');
+          var notificationDefaults = {
+            customerService: true,
+            delivery: true,
+            inventory: true,
+            reviews: true,
+            attendance: true,
+            targets: true,
+            highPriorityOnly: false,
+            sound: 'soft',
+            retentionDays: 30
+          };
+          var normalizedSettings = Object.assign({}, notificationDefaults, savedSettings || {});
+          if (['off', 'soft', 'distinct'].indexOf(normalizedSettings.sound) === -1) normalizedSettings.sound = 'soft';
+          var retention = Number(normalizedSettings.retentionDays);
+          normalizedSettings.retentionDays = Number.isFinite(retention) && retention > 0 ? Math.min(Math.round(retention), 365) : 30;
+          ['customerService', 'delivery', 'inventory', 'reviews', 'attendance', 'targets', 'highPriorityOnly'].forEach(function (key) {
+            normalizedSettings[key] = typeof normalizedSettings[key] === 'boolean' ? normalizedSettings[key] : notificationDefaults[key];
+          });
+          localStorage.setItem(settingsKey, JSON.stringify(normalizedSettings));
+        } catch (error) {
+          try { localStorage.removeItem('dawaa_notification_settings_v1'); } catch (ignore) {}
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script>
       (function () {
