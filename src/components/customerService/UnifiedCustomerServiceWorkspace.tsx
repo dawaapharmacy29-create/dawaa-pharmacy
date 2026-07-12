@@ -4,9 +4,9 @@ import {
   BarChart3,
   CheckCircle2,
   ClipboardList,
+  Clock3,
   HeartHandshake,
-  MessageCircle,
-  Phone,
+  History,
   RefreshCw,
   Search,
   Sparkles,
@@ -18,7 +18,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { getCustomers, type CustomerMetric } from '@/lib/api/customers';
 import {
   calculateFollowupStats,
-  calculateTeamPerformance,
   createExceptionalFollowup,
   fetchCustomerServiceFollowups,
   updateFollowupResult,
@@ -33,7 +32,7 @@ import FollowupResultModal, { type FollowupResultData } from '@/components/custo
 import type { DailyFollowup } from '@/types/database';
 
 type QueueSource = 'doctor_request' | 'yesterday' | 'at_risk' | 'important';
-type WorkspaceTab = 'today' | 'doctor-requests' | 'care' | 'performance';
+type WorkspaceTab = 'today' | 'doctor-requests' | 'care' | 'history' | 'performance';
 
 type QueueItem = {
   key: string;
@@ -56,6 +55,10 @@ type QueueItem = {
 };
 
 const BRANCHES = ['فرع الشامي', 'فرع شكري'];
+const BRANCH_OWNER: Record<string, string> = {
+  'فرع الشامي': 'د/ ضحى',
+  'فرع شكري': 'د/ دنيا',
+};
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -68,16 +71,37 @@ function yesterdayIso() {
 }
 
 function normalizeKey(...values: Array<string | null | undefined>) {
-  return values
-    .map((value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ''))
-    .find(Boolean) || crypto.randomUUID();
+  return values.map((value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '')).find(Boolean) || crypto.randomUUID();
+}
+
+function rowValue(row: FollowupRow | null | undefined, ...keys: string[]) {
+  const source = (row || {}) as unknown as Record<string, unknown>;
+  for (const key of keys) {
+    const value = source[key];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value);
+  }
+  return '';
+}
+
+function rowNumber(row: FollowupRow | null | undefined, ...keys: string[]) {
+  const value = Number(rowValue(row, ...keys));
+  return Number.isFinite(value) ? value : 0;
 }
 
 function isCompleted(row?: FollowupRow | null) {
-  return Boolean(row?.completed_at) || ['تم', 'تم التواصل', 'تم الشراء بعد المتابعة'].includes(String(row?.followup_status || row?.status || ''));
+  const status = String(row?.followup_status || row?.status || '');
+  return Boolean(row?.completed_at) || ['تم', 'تم التواصل', 'تم الشراء بعد المتابعة', 'تم الرد والعميل راضي', 'تم الرد ولا يحتاج الآن'].includes(status);
 }
 
-function followupToItem(row: FollowupRow, source: QueueSource): QueueItem {
+function sourceFromRow(row: FollowupRow): QueueSource {
+  const text = `${row.request_type || ''} ${row.notes || ''} ${row.followup_reason || ''} ${rowValue(row, 'source')}`;
+  if (/doctor_requested_followup|طلب دكتور|سريع\/طلب دكتور/i.test(text)) return 'doctor_request';
+  if (/أمس|yesterday/i.test(text)) return 'yesterday';
+  if (/مهدد|قلل|استرجاع|متوقف/i.test(text)) return 'at_risk';
+  return 'important';
+}
+
+function followupToItem(row: FollowupRow, source = sourceFromRow(row)): QueueItem {
   const metric = row.customer_metrics || null;
   return {
     key: normalizeKey(row.customer_code, row.customer_phone, row.phone, row.customer_id, row.customer_name),
@@ -112,7 +136,7 @@ function customerToItem(customer: CustomerMetric, source: QueueSource, reason: s
     branch: normalizeBranchName(customer.branch || ''),
     segment: customer.segment || customer.type || 'غير مصنف',
     status: customer.customer_status || customer.status || 'غير محدد',
-    priority: source === 'doctor_request' ? 'عاجل' : source === 'at_risk' ? 'مهم' : 'عادي',
+    priority: source === 'at_risk' ? 'مهم' : 'عادي',
     reason,
     avgMonthly: Number(customer.avg_monthly || 0),
     totalSpent: Number(customer.total_spent || customer.total_purchases || 0),
@@ -131,16 +155,17 @@ function sourceLabel(source: QueueSource) {
 
 function scriptFor(item: QueueItem) {
   const firstName = item.name.split(' ')[0] || item.name;
+  const owner = BRANCH_OWNER[item.branch] || 'فريق خدمة العملاء';
   if (item.source === 'doctor_request') {
-    return `أهلًا بحضرتك أ/ ${firstName}، مع حضرتك خدمة عملاء صيدليات دواء. الدكتور بلغنا إن حضرتك محتاج متابعة بخصوص ${item.reason}، وحابين نتابع الموضوع مع حضرتك لحد ما يتم.`;
+    return `أهلًا بحضرتك أ/ ${firstName}، مع حضرتك ${owner} من خدمة عملاء صيدليات دواء. الدكتور بلغنا إن حضرتك محتاج متابعة بخصوص ${item.reason}. حبيت أتواصل مع حضرتك بنفسي وأطمن إن الموضوع بيتابع لحد ما نوصل لحل يرضي حضرتك، وتشرفني أي ملاحظة أو تفاصيل تحب تضيفها.`;
   }
   if (item.source === 'yesterday') {
-    return `أهلًا بحضرتك أ/ ${firstName}، مع حضرتك خدمة عملاء صيدليات دواء. حابين نطمن إن طلب امبارح وصل لحضرتك كويس وإن كل الأصناف كانت تمام، وهل في أي حاجة نقدر نساعد حضرتك فيها؟`;
+    return `أهلًا بحضرتك أ/ ${firstName}، مع حضرتك ${owner} من صيدليات دواء. حبيت أطمن على حضرتك بعد طلب امبارح: هل الطلب وصل كامل وفي الوقت المناسب، وهل كل الأصناف كانت تمام مع حضرتك؟ حضرتك من عملائنا المهمين، وأي ملاحظة—even لو بسيطة—تهمنا جدًا علشان نخدم حضرتك بشكل أفضل.`;
   }
   if (item.source === 'at_risk') {
-    return `أهلًا بحضرتك أ/ ${firstName}، مع حضرتك خدمة عملاء صيدليات دواء. حابين نطمن على حضرتك ونعرف لو كان فيه أي ملاحظة أو احتياج إحنا محتاجين نساعد فيه.`;
+    return `أهلًا بحضرتك أ/ ${firstName}، مع حضرتك ${owner} من صيدليات دواء. وحشتنا تعاملات حضرتك، وحبيت أطمن إن كل شيء تمام وإن مفيش موقف أو احتياج إحنا مقصرين فيه. رأي حضرتك مهم جدًا لينا، ويسعدني أتابع أي ملاحظة بنفسي لحد ما تتحل.`;
   }
-  return `أهلًا بحضرتك أ/ ${firstName}، مع حضرتك خدمة عملاء صيدليات دواء. حضرتك من عملائنا المميزين وحابين نطمن إن كل احتياجات حضرتك متوفرة وإن الخدمة كانت على المستوى المطلوب.`;
+  return `أهلًا بحضرتك أ/ ${firstName}، مع حضرتك ${owner} من صيدليات دواء. حضرتك من عملائنا المميزين وحبيت أطمن على حضرتك وعلى احتياجاتك الشهرية، وأتأكد إن الخدمة والتوصيل كانوا على المستوى اللي يرضي حضرتك. تشرفنا دائمًا خدمتك وأي طلب أو ملاحظة تحت أمرك.`;
 }
 
 export default function UnifiedCustomerServiceWorkspace() {
@@ -163,31 +188,21 @@ export default function UnifiedCustomerServiceWorkspace() {
     setLoading(true);
     try {
       const [followups, importantResult, atRiskResult, recentResult] = await Promise.all([
-        fetchCustomerServiceFollowups({ branch, limit: 250 }),
+        fetchCustomerServiceFollowups({ branch, limit: 1000 }),
         getCustomers({ branch, type: 'مهم جدًا', limit: 100, offset: 0 }),
         getCustomers({ branch, status: 'مهدد بالتوقف', limit: 100, offset: 0 }),
         getCustomers({ branch, limit: 100, offset: 0 }),
       ]);
-
       setAllFollowups(followups);
-      const doctorRequests = followups
-        .filter((row) => !isCompleted(row))
-        .filter((row) => /doctor_requested_followup|طلب دكتور|سريع\/طلب دكتور/i.test(`${row.request_type || ''} ${row.notes || ''} ${row.followup_reason || ''}`))
-        .map((row) => followupToItem(row, 'doctor_request'));
 
+      const doctorRequests = followups.filter((row) => !isCompleted(row) && sourceFromRow(row) === 'doctor_request').map((row) => followupToItem(row, 'doctor_request'));
       const yesterday = recentResult.customers
         .filter((customer) => String(customer.last_purchase || '').slice(0, 10) === yesterdayIso())
         .filter((customer) => Number(customer.avg_invoice || 0) >= 500 || Number(customer.total_spent || 0) >= 1000)
         .sort((a, b) => Number(b.avg_invoice || 0) - Number(a.avg_invoice || 0))
         .map((customer) => customerToItem(customer, 'yesterday', `متابعة شراء أمس بمتوسط فاتورة ${formatCurrency(Number(customer.avg_invoice || 0))}`));
-
-      const atRisk = atRiskResult.customers
-        .sort((a, b) => Number(b.avg_monthly || 0) - Number(a.avg_monthly || 0))
-        .map((customer) => customerToItem(customer, 'at_risk', 'قلل التعامل أو مهدد بالتوقف ويحتاج متابعة استرجاع'));
-
-      const important = importantResult.customers
-        .sort((a, b) => Number(b.total_spent || 0) - Number(a.total_spent || 0))
-        .map((customer) => customerToItem(customer, 'important', 'عميل مهم يحتاج متابعة دورية ودلع'));
+      const atRisk = atRiskResult.customers.sort((a, b) => Number(b.avg_monthly || 0) - Number(a.avg_monthly || 0)).map((customer) => customerToItem(customer, 'at_risk', 'قلل التعامل أو مهدد بالتوقف ويحتاج متابعة استرجاع'));
+      const important = importantResult.customers.sort((a, b) => Number(b.total_spent || 0) - Number(a.total_spent || 0)).map((customer) => customerToItem(customer, 'important', 'عميل مهم يحتاج متابعة دورية ودلع'));
 
       const map = new Map<string, QueueItem>();
       const add = (items: QueueItem[], limit: number) => {
@@ -199,12 +214,10 @@ export default function UnifiedCustomerServiceWorkspace() {
           if (added >= limit || map.size >= 30) break;
         }
       };
-
       add(doctorRequests, 10);
       add(yesterday, 10);
       add(atRisk, 10);
       add(important, 30);
-
       const finalQueue = [...map.values()].slice(0, 30);
       setQueue(finalQueue);
       setSelectedKey((current) => current && finalQueue.some((item) => item.key === current) ? current : finalQueue[0]?.key || '');
@@ -216,12 +229,12 @@ export default function UnifiedCustomerServiceWorkspace() {
     }
   }
 
-  useEffect(() => {
-    void loadWorkspace();
-  }, [branch]);
+  useEffect(() => { void loadWorkspace(); }, [branch]);
 
-  const stats = useMemo(() => calculateFollowupStats(allFollowups.filter((row) => String(row.date || row.followup_date || '').slice(0, 10) === todayIso())), [allFollowups]);
-  const performance = useMemo(() => calculateTeamPerformance(allFollowups), [allFollowups]);
+  const owner = BRANCH_OWNER[branch] || 'مسئول خدمة العملاء';
+  const todayRows = useMemo(() => allFollowups.filter((row) => String(row.date || row.followup_date || '').slice(0, 10) === todayIso()), [allFollowups]);
+  const stats = useMemo(() => calculateFollowupStats(todayRows), [todayRows]);
+  const completedHistory = useMemo(() => allFollowups.filter(isCompleted).sort((a, b) => new Date(rowValue(b, 'completed_at', 'updated_at', 'followup_date', 'date') || 0).getTime() - new Date(rowValue(a, 'completed_at', 'updated_at', 'followup_date', 'date') || 0).getTime()), [allFollowups]);
   const selected = queue.find((item) => item.key === selectedKey) || null;
   const filteredQueue = useMemo(() => queue.filter((item) => {
     if (sourceFilter !== 'all' && item.source !== sourceFilter) return false;
@@ -252,11 +265,8 @@ export default function UnifiedCustomerServiceWorkspace() {
   }
 
   async function openResult(item: QueueItem) {
-    try {
-      setResultRow(await ensureFollowup(item));
-    } catch (error) {
-      toast.error(`تعذر تجهيز المتابعة: ${(error as Error).message}`);
-    }
+    try { setResultRow(await ensureFollowup(item)); }
+    catch (error) { toast.error(`تعذر تجهيز المتابعة: ${(error as Error).message}`); }
   }
 
   async function saveResult(data: FollowupResultData) {
@@ -295,21 +305,19 @@ export default function UnifiedCustomerServiceWorkspace() {
     toast.success('تم نسخ السكريبت');
   }
 
+  const visibleQueue = filteredQueue.filter((item) => tab === 'doctor-requests' ? item.source === 'doctor_request' : tab === 'care' ? ['important', 'at_risk'].includes(item.source) : true);
+
   return (
     <div className="space-y-5" dir="rtl">
       <section className="rounded-3xl border border-teal-400/25 bg-gradient-to-l from-[#0b1c2f] to-[#12334a] p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <div className="text-xs font-black text-teal-200">مركز خدمة العملاء الموحد</div>
-            <h1 className="mt-1 text-3xl font-black text-white">قائمة واحدة واضحة، 30 عميلًا يوميًا</h1>
-            <p className="mt-2 text-sm font-bold text-slate-300">طلبات الدكاترة + مشتريات أمس + العملاء المهددون + أهم العملاء، بدون تكرار أو تراكب صفحات.</p>
+            <h1 className="mt-1 text-3xl font-black text-white">قائمة {owner}: 30 عميلًا يوميًا</h1>
+            <p className="mt-2 text-sm font-bold text-slate-300">كل فرع له قائمته المستقلة ومسئوله المعتمد، مع سجل كامل للمتابعات المنفذة.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {managerView ? (
-              <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}>
-                {BRANCHES.map((item) => <option key={item}>{item}</option>)}
-              </select>
-            ) : <span className="rounded-xl border border-teal-400/20 bg-teal-500/10 px-4 py-3 text-sm font-black text-teal-100">{branch}</span>}
+            {managerView ? <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}>{BRANCHES.map((item) => <option key={item}>{item}</option>)}</select> : <span className="rounded-xl border border-teal-400/20 bg-teal-500/10 px-4 py-3 text-sm font-black text-teal-100">{branch} · {owner}</span>}
             <button className="btn-secondary flex items-center gap-2" onClick={() => void loadWorkspace()}><RefreshCw size={16} /> تحديث</button>
             <button className="btn-primary" onClick={() => setQuickOpen(true)}>إضافة متابعة</button>
           </div>
@@ -317,9 +325,9 @@ export default function UnifiedCustomerServiceWorkspace() {
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Stat icon={Users} label="قائمة اليوم" value={queue.length} />
-        <Stat icon={CheckCircle2} label="تم اليوم" value={stats.completed} />
-        <Stat icon={AlertTriangle} label="متأخر" value={stats.overdue} />
+        <Stat icon={Users} label={`قائمة ${owner}`} value={queue.length} />
+        <Stat icon={CheckCircle2} label="مكتمل اليوم" value={stats.completed} />
+        <Stat icon={History} label="إجمالي السجل المكتمل" value={completedHistory.length} />
         <Stat icon={UserRoundSearch} label="طلبات دكاترة" value={queue.filter((item) => item.source === 'doctor_request').length} />
         <Stat icon={HeartHandshake} label="مهددون" value={queue.filter((item) => item.source === 'at_risk').length} />
         <Stat icon={Sparkles} label="عملاء مهمون" value={queue.filter((item) => item.source === 'important').length} />
@@ -329,6 +337,7 @@ export default function UnifiedCustomerServiceWorkspace() {
         <Tab active={tab === 'today'} onClick={() => setTab('today')} icon={ClipboardList}>قائمة اليوم</Tab>
         <Tab active={tab === 'doctor-requests'} onClick={() => setTab('doctor-requests')} icon={UserRoundSearch}>طلبات الدكاترة</Tab>
         <Tab active={tab === 'care'} onClick={() => setTab('care')} icon={HeartHandshake}>الدلع والاسترجاع</Tab>
+        <Tab active={tab === 'history'} onClick={() => setTab('history')} icon={History}>سجل المتابعات</Tab>
         <Tab active={tab === 'performance'} onClick={() => setTab('performance')} icon={BarChart3}>الأداء والتقارير</Tab>
       </section>
 
@@ -337,48 +346,59 @@ export default function UnifiedCustomerServiceWorkspace() {
           <div className="stat-card min-h-[620px]">
             <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
               <div className="relative"><Search className="absolute right-3 top-3 text-slate-500" size={17} /><input className="input-dark pr-10" placeholder="اسم / كود / هاتف" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
-              <select className="input-dark" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as 'all' | QueueSource)}>
-                <option value="all">كل الأنواع</option><option value="doctor_request">طلبات الدكاترة</option><option value="yesterday">اشترى أمس</option><option value="at_risk">مهدد بالتوقف</option><option value="important">عميل مهم</option>
-              </select>
+              <select className="input-dark" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as 'all' | QueueSource)}><option value="all">كل الأنواع</option><option value="doctor_request">طلبات الدكاترة</option><option value="yesterday">اشترى أمس</option><option value="at_risk">مهدد بالتوقف</option><option value="important">عميل مهم</option></select>
               <select className="input-dark" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">كل الحالات</option><option value="open">مفتوح</option><option value="completed">تم</option></select>
             </div>
             <div className="mt-4 max-h-[560px] space-y-2 overflow-y-auto pl-1">
-              {loading ? <Empty text="جاري تجهيز قائمة اليوم..." /> : filteredQueue.filter((item) => tab === 'doctor-requests' ? item.source === 'doctor_request' : tab === 'care' ? ['important', 'at_risk'].includes(item.source) : true).map((item, index) => (
+              {loading ? <Empty text="جاري تجهيز قائمة اليوم..." /> : visibleQueue.map((item, index) => (
                 <button key={item.key} onClick={() => setSelectedKey(item.key)} className={`w-full rounded-2xl border p-3 text-right transition ${selectedKey === item.key ? 'border-teal-300/50 bg-teal-500/15' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
                   <div className="flex items-start justify-between gap-3"><div><div className="font-black text-white">{index + 1}. {item.name}</div><div className="mt-1 text-xs text-slate-400">{item.code || 'بدون كود'} · {item.phone || 'بدون رقم'}</div></div><Badge>{sourceLabel(item.source)}</Badge></div>
                   <div className="mt-2 line-clamp-2 text-xs font-bold text-slate-300">{item.reason}</div>
                 </button>
               ))}
+              {!loading && !visibleQueue.length && <Empty text="لا توجد نتائج مطابقة." />}
             </div>
           </div>
 
           <div className="stat-card min-h-[620px]">
-            {selected ? (
-              <div className="space-y-5">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-black text-white">{selected.name}</h2><Badge>{sourceLabel(selected.source)}</Badge><Badge>{selected.status}</Badge><Badge>{selected.segment}</Badge></div><p className="mt-2 text-sm font-bold text-slate-400">{selected.code || 'بدون كود'} · {selected.phone || 'بدون رقم'} · {selected.branch}</p></div>
-                  <div className="flex gap-2"><a className="btn-secondary" href={`/customer-360?customerId=${encodeURIComponent(selected.customer?.customer_id || selected.customer?.id || selected.row?.customer_id || '')}&code=${encodeURIComponent(selected.code)}`}>ملف 360</a><button className="btn-primary" onClick={() => void openResult(selected)}>تسجيل النتيجة</button></div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Info label="إجمالي المشتريات" value={formatCurrency(selected.totalSpent)} /><Info label="متوسط شهري" value={formatCurrency(selected.avgMonthly)} /><Info label="متوسط الفاتورة" value={formatCurrency(selected.avgInvoice)} /><Info label="آخر شراء" value={selected.lastPurchase ? new Date(selected.lastPurchase).toLocaleDateString('ar-EG') : 'غير متاح'} /></div>
-
-                <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4"><div className="text-xs font-black text-amber-200">سبب المتابعة</div><div className="mt-2 text-base font-bold leading-7 text-amber-50">{selected.reason}</div></div>
-
-                <div className="rounded-2xl border border-teal-400/20 bg-teal-500/10 p-4"><div className="flex items-center justify-between gap-3"><div><div className="text-xs font-black text-teal-200">السكريبت المقترح</div><p className="mt-2 text-sm font-bold leading-7 text-teal-50">{scriptFor(selected)}</p></div><button className="btn-secondary shrink-0" onClick={() => copyScript(selected)}>نسخ</button></div></div>
-
-                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><button className="btn-primary" onClick={() => void openResult(selected)}>تسجيل نتيجة</button><button className="btn-secondary" disabled={!selected.phone} onClick={() => selected.phone && window.open(generateWhatsAppLink(selected.phone, scriptFor(selected)), '_blank')}>واتساب</button><a className="btn-secondary text-center" href={selected.phone ? `tel:${selected.phone}` : undefined}>اتصال</a><button className="btn-secondary" onClick={() => setQuickOpen(true)}>إضافة ملاحظة/متابعة</button></div>
-
-                <div className="grid gap-4 xl:grid-cols-2"><Panel title="ملاحظات العميل"><p>{selected.row?.customer_notes || selected.row?.service_notes || selected.row?.handling_notes || 'لا توجد ملاحظات مهمة مسجلة.'}</p></Panel><Panel title="حالة المتابعة"><p>{selected.completed ? 'تمت المتابعة' : 'مفتوحة وتحتاج تنفيذ'} · الأولوية {selected.priority}</p></Panel></div>
+            {selected ? <div className="space-y-5">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-black text-white">{selected.name}</h2><Badge>{sourceLabel(selected.source)}</Badge><Badge>{selected.status}</Badge><Badge>{selected.segment}</Badge></div><p className="mt-2 text-sm font-bold text-slate-400">{selected.code || 'بدون كود'} · {selected.phone || 'بدون رقم'} · {selected.branch}</p></div>
+                <div className="flex gap-2"><a className="btn-secondary" href={`/customer-360?customerId=${encodeURIComponent(selected.customer?.customer_id || selected.customer?.id || selected.row?.customer_id || '')}&code=${encodeURIComponent(selected.code)}`}>ملف 360</a><button className="btn-primary" onClick={() => void openResult(selected)}>تسجيل النتيجة</button></div>
               </div>
-            ) : <Empty text="اختر عميلًا من القائمة لعرض ملفه." />}
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Info label="إجمالي المشتريات" value={formatCurrency(selected.totalSpent)} /><Info label="متوسط شهري" value={formatCurrency(selected.avgMonthly)} /><Info label="متوسط الفاتورة" value={formatCurrency(selected.avgInvoice)} /><Info label="آخر شراء" value={selected.lastPurchase ? new Date(selected.lastPurchase).toLocaleDateString('ar-EG') : 'غير متاح'} /></div>
+              <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4"><div className="text-xs font-black text-amber-200">سبب المتابعة</div><div className="mt-2 text-base font-bold leading-7 text-amber-50">{selected.reason}</div></div>
+              <div className="rounded-2xl border border-teal-400/20 bg-teal-500/10 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black text-teal-200">سكريبت ودود باسم {owner}</div><p className="mt-2 text-sm font-bold leading-7 text-teal-50">{scriptFor(selected)}</p></div><button className="btn-secondary shrink-0" onClick={() => copyScript(selected)}>نسخ</button></div></div>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><button className="btn-primary" onClick={() => void openResult(selected)}>تسجيل نتيجة</button><button className="btn-secondary" disabled={!selected.phone} onClick={() => selected.phone && window.open(generateWhatsAppLink(selected.phone, scriptFor(selected)), '_blank')}>واتساب</button><a className="btn-secondary text-center" href={selected.phone ? `tel:${selected.phone}` : undefined}>اتصال</a><button className="btn-secondary" onClick={() => setQuickOpen(true)}>إضافة ملاحظة/متابعة</button></div>
+              <div className="grid gap-4 xl:grid-cols-2"><Panel title="ملاحظات العميل"><p>{rowValue(selected.row, 'customer_notes', 'service_notes', 'handling_notes') || 'لا توجد ملاحظات مهمة مسجلة.'}</p></Panel><Panel title="حالة المتابعة"><p>{selected.completed ? 'تمت المتابعة' : 'مفتوحة وتحتاج تنفيذ'} · الأولوية {selected.priority}</p></Panel></div>
+            </div> : <Empty text="اختر عميلًا من القائمة لعرض ملفه." />}
+          </div>
+        </section>
+      )}
+
+      {tab === 'history' && (
+        <section className="stat-card">
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between"><div><h2 className="text-2xl font-black text-white">سجل المتابعات المكتملة — {branch}</h2><p className="text-sm font-bold text-slate-400">كل متابعة تمت ونتيجتها وملاحظاتها وقيمة الشراء الناتج عنها.</p></div><Badge>{owner}</Badge></div>
+          <div className="overflow-x-auto rounded-2xl border border-white/10">
+            <table className="min-w-full text-sm"><thead className="bg-white/5 text-slate-300"><tr><th className="p-3 text-right">العميل</th><th className="p-3 text-right">تاريخ التنفيذ</th><th className="p-3 text-right">النتيجة</th><th className="p-3 text-right">الملاحظات</th><th className="p-3 text-right">شراء بعد المتابعة</th><th className="p-3 text-right">ملف العميل</th></tr></thead>
+              <tbody>{completedHistory.map((row) => {
+                const item = followupToItem(row);
+                const completedAt = rowValue(row, 'completed_at', 'updated_at', 'followup_date', 'date');
+                return <tr key={row.id} className="border-t border-white/5 text-slate-200"><td className="p-3"><div className="font-black text-white">{item.name}</div><div className="text-xs text-slate-400">{item.code || 'بدون كود'} · {item.phone || 'بدون رقم'}</div></td><td className="p-3">{completedAt ? new Date(completedAt).toLocaleString('ar-EG') : '—'}</td><td className="p-3 font-bold text-teal-200">{rowValue(row, 'followup_result', 'contact_result', 'followup_status', 'status') || 'تم'}</td><td className="max-w-sm p-3">{rowValue(row, 'followup_summary', 'followup_notes', 'notes') || 'لا توجد ملاحظات'}</td><td className="p-3">{formatCurrency(rowNumber(row, 'purchase_amount'))}</td><td className="p-3"><a className="btn-secondary inline-block" href={`/customer-360?customerId=${encodeURIComponent(item.customer?.customer_id || item.customer?.id || row.customer_id || '')}&code=${encodeURIComponent(item.code)}`}>فتح 360</a></td></tr>;
+              })}</tbody></table>
+            {!completedHistory.length && <Empty text="لا يوجد سجل متابعات مكتملة لهذا الفرع حتى الآن." />}
           </div>
         </section>
       )}
 
       {tab === 'performance' && (
         <section className="grid gap-4 lg:grid-cols-2">
-          {performance.map((item) => <div key={`${item.responsible}-${item.branch}`} className="stat-card"><h3 className="text-xl font-black text-white">{item.responsible}</h3><p className="text-sm text-slate-400">{item.branch}</p><div className="mt-4 grid gap-2 sm:grid-cols-3"><Info label="المسند" value={String(item.assigned)} /><Info label="المكتمل" value={String(item.completed)} /><Info label="نسبة الإنجاز" value={`${item.completionRate}%`} /><Info label="مسترجعون" value={String(item.recoveredCustomers)} /><Info label="شراء بعد المتابعة" value={String(item.purchaseAfterCount)} /><Info label="مبيعات بعد المتابعة" value={formatCurrency(item.purchaseAfterAmount)} /></div></div>)}
-          {!performance.length && <Empty text="لا توجد بيانات أداء متاحة حاليًا." />}
+          {BRANCHES.map((branchName) => {
+            const rows = branchName === branch ? allFollowups : [];
+            const completedRows = rows.filter(isCompleted);
+            const purchases = completedRows.filter((row) => rowNumber(row, 'purchase_amount') > 0);
+            return <div key={branchName} className={`stat-card ${branchName !== branch ? 'opacity-60' : ''}`}><h3 className="text-xl font-black text-white">{BRANCH_OWNER[branchName]}</h3><p className="text-sm text-slate-400">{branchName}</p><div className="mt-4 grid gap-2 sm:grid-cols-3"><Info label="مكتمل" value={String(completedRows.length)} /><Info label="شراء بعد المتابعة" value={String(purchases.length)} /><Info label="مبيعات بعد المتابعة" value={formatCurrency(purchases.reduce((sum, row) => sum + rowNumber(row, 'purchase_amount'), 0))} /></div>{branchName !== branch && <p className="mt-3 text-xs font-bold text-slate-500">اختر هذا الفرع من الفلتر لعرض أرقامه.</p>}</div>;
+          })}
         </section>
       )}
 
@@ -405,9 +425,9 @@ function Info({ label, value }: { label: string; value: string }) {
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><h3 className="font-black text-white">{title}</h3><div className="mt-2 text-sm font-bold leading-7 text-slate-300">{children}</div></div>;
+  return <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="mb-2 text-sm font-black text-white">{title}</div><div className="text-sm font-bold leading-7 text-slate-300">{children}</div></div>;
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm font-bold text-slate-400">{text}</div>;
+  return <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center text-sm font-bold text-slate-400">{text}</div>;
 }
