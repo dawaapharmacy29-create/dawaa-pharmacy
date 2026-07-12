@@ -1,0 +1,161 @@
+name: Apply operations phase 1
+
+on:
+  push:
+    branches: [feature/full-operations-upgrade]
+    paths:
+      - '.github/workflows/apply-operations-phase1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/full-operations-upgrade
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Patch team presence and GPS sampling
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          team_path = Path('src/pages/Team.tsx')
+          team = team_path.read_text(encoding='utf-8')
+
+          old_live_cards = re.compile(r"\n  const liveCards = livePresence\?\.total.*?\n\n  const roles =", re.S)
+          new_live_cards = r'''
+  const livePeople = livePresence?.total
+    ? [
+        ...livePresence.doctors.map((person) => ({ ...person, category: 'doctors' as const })),
+        ...livePresence.assistants.map((person) => ({ ...person, category: 'assistants' as const })),
+        ...livePresence.delivery.map((person) => ({ ...person, category: 'delivery' as const })),
+      ]
+    : [
+        ...doctors.map((person) => ({ ...(person as LiveShiftRow), category: 'doctors' as const })),
+        ...assistants.map((person) => ({ ...(person as LiveShiftRow), category: 'assistants' as const })),
+        ...deliveryNow.map((person) => ({ ...(person as LiveShiftRow), category: 'delivery' as const })),
+      ];
+
+  const liveBranches = Array.from(
+    livePeople.reduce((groups, person) => {
+      const branch = person.branch || 'غير محدد';
+      const current = groups.get(branch) || { branch, doctors: [], assistants: [], delivery: [] };
+      current[person.category].push(person);
+      groups.set(branch, current);
+      return groups;
+    }, new Map<string, { branch: string; doctors: LiveShiftRow[]; assistants: LiveShiftRow[]; delivery: LiveShiftRow[] }>()).values()
+  ).sort((a, b) => a.branch.localeCompare(b.branch, 'ar'));
+
+  const roles ='''
+          team, count = old_live_cards.subn(new_live_cards, team, count=1)
+          if count != 1:
+              raise SystemExit('Could not replace Team liveCards block')
+
+          old_jsx = re.compile(r"\n      \{/\* Live Status \*/\}.*?\n      \{livePresence\?\.debug && \(.*?\n      \)\}\n", re.S)
+          new_jsx = r'''
+      {/* Live status grouped by branch, then doctors/assistants/delivery. */}
+      <div className="space-y-4">
+        {liveBranches.length === 0 ? (
+          <div className="stat-card text-center text-sm text-slate-400">لا يوجد موظفون مجدولون على الشيفت الحالي.</div>
+        ) : (
+          liveBranches.map((group) => {
+            const sections = [
+              { key: 'doctors', title: 'الدكاترة والصيادلة', rows: group.doctors, tone: 'teal' },
+              { key: 'assistants', title: 'المساعدون', rows: group.assistants, tone: 'blue' },
+              { key: 'delivery', title: 'الدليفري', rows: group.delivery, tone: 'amber' },
+            ] as const;
+            return (
+              <section key={group.branch} className="stat-card space-y-4">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <h2 className="text-lg font-black text-white">{group.branch}</h2>
+                  <span className="rounded-full bg-teal-500/10 px-3 py-1 text-xs font-black text-teal-300">
+                    {group.doctors.length + group.assistants.length + group.delivery.length} على الشيفت
+                  </span>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-3">
+                  {sections.map((section) => (
+                    <div key={section.key} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="text-sm font-black text-white">{section.title}</div>
+                        <span className="num text-lg font-black text-teal-300">{section.rows.length}</span>
+                      </div>
+                      <div className="space-y-2">
+                        {section.rows.length === 0 ? (
+                          <div className="py-3 text-center text-xs text-slate-500">لا يوجد حالياً</div>
+                        ) : (
+                          section.rows.map((person) => (
+                            <div key={`${section.key}-${person.id}`} className="flex items-center gap-2 rounded-xl bg-slate-950/20 px-3 py-2">
+                              <span className={`h-2 w-2 rounded-full ${section.tone === 'teal' ? 'bg-teal-400' : section.tone === 'blue' ? 'bg-blue-400' : 'bg-amber-400'}`} />
+                              <span className="min-w-0 flex-1 truncate text-xs font-bold text-white">{person.name}</span>
+                              <span className="whitespace-nowrap text-[11px] text-slate-400">{person.shift_start || '-'}–{person.shift_end || '-'}</span>
+                              {person.attendance_status && person.attendance_status !== 'لم يبصم' && person.attendance_status !== 'غير مجدول' && (
+                                <span className="whitespace-nowrap rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-slate-300">
+                                  {person.attendance_status}
+                                </span>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            );
+          })
+        )}
+      </div>
+'''
+          team, count = old_jsx.subn(new_jsx, team, count=1)
+          if count != 1:
+              raise SystemExit('Could not replace Team live status JSX')
+          team_path.write_text(team, encoding='utf-8')
+
+          attendance_path = Path('src/pages/AttendanceReport.tsx')
+          attendance = attendance_path.read_text(encoding='utf-8')
+          old = "const [locs, pos] = await Promise.all([fetchAttendanceLocations(), getDevicePosition()]);\n      const validation = validateAttendancePosition(pos, locs);"
+          new = """const locs = await fetchAttendanceLocations();
+      const positionSamples = await Promise.all(
+        [0, 1, 2].map(async (attempt) => {
+          if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, 900 * attempt));
+          return getDevicePosition().catch(() => null);
+        })
+      );
+      const pos = positionSamples
+        .filter((sample): sample is DevicePosition => Boolean(sample))
+        .sort((a, b) => Number(a.accuracy || Number.MAX_SAFE_INTEGER) - Number(b.accuracy || Number.MAX_SAFE_INTEGER))[0];
+      if (!pos) throw new Error('تعذر الحصول على موقع دقيق. فعّل GPS ثم أعد المحاولة.');
+      const validation = validateAttendancePosition(pos, locs);"""
+          if old not in attendance:
+              raise SystemExit('Could not find AttendanceReport clock block')
+          attendance = attendance.replace(old, new, 1)
+          attendance_path.write_text(attendance, encoding='utf-8')
+
+          workflow = Path('.github/workflows/apply-operations-phase1.yml')
+          if workflow.exists():
+            workflow.unlink()
+          PY
+
+      - run: npm ci
+      - run: npm run typecheck --if-present
+      - run: npm run build
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          git config user.name "Dawaa Operations Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/pages/Team.tsx src/pages/AttendanceReport.tsx .github/workflows/apply-operations-phase1.yml
+          git commit -m "feat: group shift presence by branch and improve GPS sampling"
+          git push origin feature/full-operations-upgrade
