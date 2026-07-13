@@ -93,8 +93,13 @@ on public.staff_accounts
 for each row
 execute function public.enforce_active_staff_account_identity();
 
+-- Return types changed from older migrations, so drop before recreating.
+drop function if exists public.resolve_staff_account_safe(text);
+drop function if exists public.list_staff_accounts_safe();
+drop function if exists public.count_staff_accounts_without_staff_safe();
+
 -- Exact resolver only. Managers no longer receive every account for any search term.
-create or replace function public.resolve_staff_account_safe(p_identifier text)
+create function public.resolve_staff_account_safe(p_identifier text)
 returns table (
   id uuid,
   staff_id text,
@@ -146,7 +151,7 @@ as $$
   limit 20
 $$;
 
-create or replace function public.list_staff_accounts_safe()
+create function public.list_staff_accounts_safe()
 returns table (
   id uuid,
   staff_id text,
@@ -191,7 +196,7 @@ as $$
   order by coalesce(a.name, a.staff_name, a.username)
 $$;
 
-create or replace function public.count_staff_accounts_without_staff_safe()
+create function public.count_staff_accounts_without_staff_safe()
 returns integer
 language sql
 stable
@@ -210,7 +215,7 @@ as $$
   end
 $$;
 
--- Remove every known permissive or duplicated legacy policy.
+-- Remove every permissive or duplicated legacy policy from this table.
 do $$
 declare
   p record;
