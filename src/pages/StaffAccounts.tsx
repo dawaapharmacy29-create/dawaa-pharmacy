@@ -1,43 +1,35 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import {
+  CheckCircle2,
+  Edit2,
   KeyRound,
-  ExternalLink,
   Power,
   RefreshCw,
   Save,
+  Search,
   ShieldCheck,
   UserPlus,
-  Edit2,
-  Search,
-  ChevronDown,
-  ChevronUp,
-  AlertTriangle,
-  Link2,
-  ShieldAlert,
-  CheckCircle2,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
 import { logActivity } from '@/lib/activityLog';
-import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BRANCHES } from '@/lib/constants';
-import { useAuth, getCurrentUserProfile, getSafeCurrentUserId } from '@/hooks/useAuth';
 import {
+  ALL_PERMISSION_KEYS,
   PERMISSION_CATEGORIES,
   ROLES,
   getDefaultPermissionsForRole,
+  getRoleLabel,
   mergePermissions,
   normalizeRole,
-  isAdminRole,
-  getRoleLabel,
-  ALL_PERMISSION_KEYS,
   type RoleKey,
 } from '@/lib/core/permissionSystem';
 import { getPresetForRole } from '@/lib/rolePermissionPresets';
-import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 import { listStaffAccountsSafe } from '@/lib/staff/staffAccountsApi';
 
 interface StaffRow {
@@ -48,6 +40,7 @@ interface StaffRow {
   branch_id?: string | null;
   status?: string | null;
   active?: boolean | null;
+  is_active?: boolean | null;
   deleted_at?: string | null;
   is_deleted?: boolean | null;
 }
@@ -70,214 +63,127 @@ interface StaffAccountRow {
   created_at?: string | null;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────
-function missingColumn(msg: string) {
+interface EditorState {
+  account: StaffAccountRow;
+  staff: StaffRow | null;
+  name: string;
+  username: string;
+  pin: string;
+  role: RoleKey;
+  branch: string;
+  active: boolean;
+  canLogin: boolean;
+  permissions: Record<string, boolean>;
+  applySuggestedPermissions: boolean;
+}
+
+function missingColumn(message: string) {
   return (
-    msg.match(/Could not find the ["']([^"']+)["'] column/i)?.[1] ||
-    msg.match(/column ["']?([^"'\s]+)["']? (?:of relation [^ ]+ )?does not exist/i)?.[1] ||
+    message.match(/Could not find the ["']([^"']+)["'] column/i)?.[1] ||
+    message.match(/column ["']?([^"'\s]+)["']? (?:of relation [^ ]+ )?does not exist/i)?.[1] ||
     null
   );
 }
 
-function AuditTile({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: number;
-  tone: 'emerald' | 'amber' | 'red' | 'violet';
-}) {
-  const tones = {
-    emerald: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200',
-    amber: 'border-amber-500/25 bg-amber-500/10 text-amber-200',
-    red: 'border-red-500/25 bg-red-500/10 text-red-200',
-    violet: 'border-violet-500/25 bg-violet-500/10 text-violet-200',
-  };
-  return (
-    <div className={`rounded-xl border p-3 ${tones[tone]}`}>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span>{icon}</span>
-        <span className="text-2xl font-black">{value}</span>
-      </div>
-      <p className="text-xs font-bold">{label}</p>
-    </div>
-  );
-}
-
-function AuditPanel({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="rounded-xl border border-slate-700/50 bg-[#101d33] p-3">
-      <h3 className="mb-2 text-sm font-bold text-slate-200">{title}</h3>
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
-}
-
-function AuditRow({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-700/40 bg-slate-950/30 p-2">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-bold text-white">{title || '-'}</p>
-        {subtitle && <p className="truncate text-xs text-slate-400">{subtitle}</p>}
-      </div>
-      {children && <div className="shrink-0">{children}</div>}
-    </div>
-  );
-}
-
-async function updateAccountFlexible(id: string, payload: Record<string, unknown>) {
+async function updateFlexible(
+  table: string,
+  id: string,
+  payload: Record<string, unknown>
+) {
   const next = { ...payload };
-  for (let i = 0; i < 8; i++) {
-    const res = await supabase.from(TABLES.staffAccounts).update(next).eq('id', id);
-    if (!res.error) return res;
-    const col = missingColumn(res.error.message);
-    if (!col || !(col in next)) return res;
-    delete next[col];
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const result = await supabase.from(table).update(next).eq('id', id);
+    if (!result.error) return result;
+    const column = missingColumn(result.error.message);
+    if (!column || !(column in next)) return result;
+    delete next[column];
   }
-  return supabase.from(TABLES.staffAccounts).update(next).eq('id', id);
+  return supabase.from(table).update(next).eq('id', id);
 }
 
-async function insertAccountFlexible(payload: Record<string, unknown>) {
+async function insertFlexible(table: string, payload: Record<string, unknown>) {
   const next = { ...payload };
-  for (let i = 0; i < 8; i++) {
-    const res = await supabase.from(TABLES.staffAccounts).insert(next);
-    if (!res.error) return res;
-    const col = missingColumn(res.error.message);
-    if (!col || !(col in next)) return res;
-    delete next[col];
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const result = await supabase.from(table).insert(next);
+    if (!result.error) return result;
+    const column = missingColumn(result.error.message);
+    if (!column || !(column in next)) return result;
+    delete next[column];
   }
-  return supabase.from(TABLES.staffAccounts).insert(next);
+  return supabase.from(table).insert(next);
 }
 
-function friendlyError(err: unknown): string {
-  const msg =
-    err instanceof Error
-      ? err.message
-      : typeof err === 'object' && err !== null
-        ? (err as Record<string, unknown>).message?.toString() || JSON.stringify(err)
-        : String(err);
-  if (msg.includes('row-level security') || msg.includes('permission denied'))
-    return 'ليس لديك صلاحية لتنفيذ هذا. تأكد من صلاحيات الحساب.';
-  if (msg.includes('unique') || msg.includes('duplicate'))
-    return 'يوجد حساب بهذا الاسم أو اسم المستخدم مسبقًا.';
-  if (msg.includes('not null') || msg.includes('null value')) return 'هناك حقل مطلوب فارغ.';
-  return `خطأ: ${msg}`;
+function friendlyError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error !== null
+        ? String((error as { message?: unknown }).message || JSON.stringify(error))
+        : String(error);
+
+  if (/row-level security|permission denied/i.test(message))
+    return 'ليس لديك صلاحية لتنفيذ هذا التعديل.';
+  if (/unique|duplicate/i.test(message)) return 'اسم المستخدم مستخدم في حساب آخر.';
+  if (/4 أرقام|four digit|23514/i.test(message)) return 'الرقم السري يجب أن يكون 4 أرقام فقط.';
+  if (/staff_id|هوية الموظف/i.test(message))
+    return 'لا يمكن تفعيل الحساب قبل ربطه بموظف أساسي.';
+  return message;
 }
 
-function accountDisplayName(a: StaffAccountRow) {
-  return (a.staff_name || a.name || a.username || '').trim();
+function accountName(account: StaffAccountRow) {
+  return String(account.staff_name || account.name || account.username || 'غير محدد').trim();
 }
 
 function generateUsername(name: string) {
+  const base = name
+    .trim()
+    .replace(/^(د\s*\/|دكتور|دكتورة)\s*/i, '')
+    .replace(/\s+/g, '.')
+    .replace(/[^a-zA-Z0-9._-]/g, '')
+    .toLowerCase();
+  return base || `staff.${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function generatePin() {
+  const blocked = new Set(['0000', '1111', '1234', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999']);
+  let pin = '';
+  do pin = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+  while (blocked.has(pin));
+  return pin;
+}
+
+function validatePin(pin: string) {
+  return /^\d{4}$/.test(pin);
+}
+
+function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    name
-      .trim()
-      .replace(/^(د\/|دكتور|دكتورة)\s*/i, '')
-      .replace(/[أإآ]/g, 'a')
-      .replace(/ع/g, 'a')
-      .replace(/[بپ]/g, 'b')
-      .replace(/ت/g, 't')
-      .replace(/[جچ]/g, 'j')
-      .replace(/[حه]/g, 'h')
-      .replace(/[دذ]/g, 'd')
-      .replace(/[رز]/g, 'r')
-      .replace(/[سص]/g, 's')
-      .replace(/[شض]/g, 'sh')
-      .replace(/[طظ]/g, 't')
-      .replace(/[فق]/g, 'f')
-      .replace(/ك/g, 'k')
-      .replace(/ل/g, 'l')
-      .replace(/م/g, 'm')
-      .replace(/ن/g, 'n')
-      .replace(/و/g, 'w')
-      .replace(/ي/g, 'y')
-      .replace(/[\s-]+/g, '_')
-      .replace(/[^a-zA-Z0-9_]/g, '')
-      .toLowerCase()
-      .slice(0, 30) || 'user'
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-3" dir="rtl">
+      <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
+        <div className="sticky top-0 z-10 flex justify-end border-b border-slate-800 bg-slate-950/95 p-3 backdrop-blur">
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-300 hover:bg-slate-800">
+            <X size={20} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }
 
-function generateDefaultPassword() {
-  return 'Dawaa' + Math.floor(1000 + Math.random() * 9000);
-}
-
-function formatDateTime(v?: string | null) {
-  if (!v) return '-';
-  try {
-    return new Date(v).toLocaleString('ar-EG');
-  } catch {
-    return v;
-  }
-}
-
-function normalizeTextKey(value?: string | null) {
-  return String(value || '')
-    .trim()
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ى/g, 'ي')
-    .replace(/ة/g, 'ه')
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
-}
-
-function normalizedRoleKnown(role?: string | null) {
-  const value = String(role || '').trim();
-  if (!value) return false;
-  return ROLES.some((item) => item.key === value) || normalizeRole(value) !== 'assistant' || value === 'assistant';
-}
-
-function permissionDiff(
-  current: Record<string, boolean>,
-  suggested: Record<string, boolean>
-) {
-  const missing = ALL_PERMISSION_KEYS.filter((key) => suggested[key] === true && current[key] !== true);
-  const extra = ALL_PERMISSION_KEYS.filter((key) => suggested[key] !== true && current[key] === true);
-  return { missing, extra };
-}
-
-// ─── Component ────────────────────────────────────────────────
 export default function StaffAccounts() {
-  const { user, canManage, checkPermission } = useAuth();
+  const { canManage, checkPermission } = useAuth();
   const queryClient = useQueryClient();
   const currentUserId = getSafeCurrentUserId();
-  const currentRole = normalizeRole(user?.role);
+  const canView = checkPermission('view_staff_accounts') || canManage;
+  const canEdit = checkPermission('manage_staff_accounts') || canManage;
+  const canEditPermissions = checkPermission('manage_permissions') || canManage;
 
-  const canViewAccounts = checkPermission('view_staff_accounts') || canManage;
-  const canCreateAccount = checkPermission('manage_staff_accounts') || canManage;
-  const canEditAccount = checkPermission('manage_staff_accounts') || canManage;
-  const canEditPerms = checkPermission('manage_permissions') || canManage;
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [showMissingOnly, setShowMissingOnly] = useState(false);
 
-  const [accountSearch, setAccountSearch] = useState('');
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [editingUsername, setEditingUsername] = useState<string | null>(null);
-  const [newUsername, setNewUsername] = useState('');
-  const [editingPassword, setEditingPassword] = useState<string | null>(null);
-  const [newPassword, setNewPassword] = useState('');
-  const [localPerms, setLocalPerms] = useState<Record<string, Record<string, boolean>>>({});
-  const [expandedPerms, setExpandedPerms] = useState<Record<string, boolean>>({});
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
-  const [showManualAccount, setShowManualAccount] = useState(false);
-  const [manualAccount, setManualAccount] = useState({
-    name: '',
-    role: 'assistant' as RoleKey,
-    branch: '',
-    username: '',
-    password: '',
-  });
-
-  // ─── Data ─────────────────────────────────────────────────
   const { data: staffList, loading: staffLoading } = useSupabaseQuery<StaffRow>({
     table: TABLES.staff,
     filters: [{ column: 'is_deleted', operator: 'neq', value: true }],
@@ -285,891 +191,585 @@ export default function StaffAccounts() {
   });
 
   const {
-    data: staffAccounts = [],
+    data: accounts = [],
     isLoading: accountLoading,
-    error: accountQueryError,
+    error: accountError,
   } = useQuery<StaffAccountRow[], Error>({
     queryKey: ['staff-accounts-safe'],
     queryFn: listStaffAccountsSafe,
-    enabled: canViewAccounts,
-    staleTime: 60_000,
+    enabled: canView,
+    staleTime: 30_000,
   });
 
-  const accountError = accountQueryError?.message || null;
-  const refetchAccounts = () => queryClient.invalidateQueries({ queryKey: ['staff-accounts-safe'] });
-  const refresh = () => refetchAccounts();
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['staff-accounts-safe'] });
+  };
 
-  // Match staff rows with their accounts
   const rows = useMemo(() => {
-    return staffList
-      .filter((s) => s.active !== false && !s.deleted_at && !s.is_deleted)
-      .map((s) => ({
-        staff: s,
-        account: staffAccounts.find((a) => a.staff_id === s.id || a.name === s.name),
-      }));
-  }, [staffList, staffAccounts]);
+    const activeStaff = staffList.filter(
+      (staff) => staff.active !== false && staff.is_active !== false && !staff.deleted_at && !staff.is_deleted
+    );
 
-  // Standalone accounts (no matching staff)
-  const standaloneAccounts = useMemo(
-    () => staffAccounts.filter((a) => !rows.some((r) => r.account?.id === a.id)),
-    [staffAccounts, rows]
-  );
+    const linked = activeStaff.map((staff) => ({
+      staff,
+      account: accounts.find((account) => account.staff_id === staff.id) || null,
+    }));
+
+    const standalone = accounts
+      .filter((account) => !account.staff_id || !activeStaff.some((staff) => staff.id === account.staff_id))
+      .map((account) => ({ staff: null as StaffRow | null, account }));
+
+    return [...linked, ...standalone];
+  }, [staffList, accounts]);
 
   const filteredRows = useMemo(() => {
-    if (!accountSearch.trim()) return rows;
-    const q = accountSearch.toLowerCase();
-    return rows.filter(({ staff, account }) =>
-      [staff.name, staff.role, staff.branch, account?.username, account?.role].some((v) =>
-        v?.toLowerCase().includes(q)
-      )
+    const query = search.trim().toLowerCase();
+    return rows.filter(({ staff, account }) => {
+      if (showMissingOnly && account) return false;
+      if (!query) return true;
+      return [
+        staff?.name,
+        staff?.role,
+        staff?.branch,
+        account?.username,
+        account?.role,
+        account?.branch,
+        accountName(account || ({} as StaffAccountRow)),
+      ].some((value) => String(value || '').toLowerCase().includes(query));
+    });
+  }, [rows, search, showMissingOnly]);
+
+  const missingAccounts = rows.filter((row) => row.staff && !row.account).length;
+  const activeAccounts = accounts.filter((account) => account.active !== false && account.can_login !== false).length;
+  const disabledAccounts = accounts.filter((account) => account.active === false || account.can_login === false).length;
+
+  function openEditor(account: StaffAccountRow, staff: StaffRow | null) {
+    const role = normalizeRole(account.role || staff?.role);
+    const defaults = getDefaultPermissionsForRole(role);
+    setEditor({
+      account,
+      staff,
+      name: accountName(account) || staff?.name || '',
+      username: String(account.username || ''),
+      pin: '',
+      role,
+      branch: String(account.branch || staff?.branch || ''),
+      active: account.active !== false,
+      canLogin: account.can_login !== false,
+      permissions: mergePermissions(defaults, account.permissions || {}),
+      applySuggestedPermissions: true,
+    });
+  }
+
+  function changeRole(role: RoleKey) {
+    setEditor((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        role,
+        permissions: current.applySuggestedPermissions
+          ? getDefaultPermissionsForRole(role)
+          : current.permissions,
+      };
+    });
+  }
+
+  function togglePermission(key: string) {
+    setEditor((current) =>
+      current
+        ? {
+            ...current,
+            permissions: { ...current.permissions, [key]: !current.permissions[key] },
+          }
+        : current
     );
-  }, [rows, accountSearch]);
-
-  // ─── Permission helpers ───────────────────────────────────
-  function getEffectivePerms(account: StaffAccountRow): Record<string, boolean> {
-    const roleDefaults = getDefaultPermissionsForRole(account.role || 'assistant');
-    return mergePermissions(roleDefaults, account.permissions || {}, localPerms[account.id] || {});
   }
 
-  const accountAudit = useMemo(() => {
-    const usernameGroups = new Map<string, StaffAccountRow[]>();
-    staffAccounts.forEach((account) => {
-      const key = normalizeTextKey(account.username);
-      if (!key) return;
-      usernameGroups.set(key, [...(usernameGroups.get(key) || []), account]);
-    });
-
-    const staffByName = new Map(staffList.map((staff) => [normalizeTextKey(staff.name), staff]));
-    const staffWithoutAccount = rows.filter(({ account }) => !account).map(({ staff }) => staff);
-    const duplicateUsernames = [...usernameGroups.values()].filter((group) => group.length > 1);
-    const unlinkedAccounts = staffAccounts
-      .filter((account) => !account.staff_id)
-      .map((account) => ({
-        account,
-        match: staffByName.get(normalizeTextKey(accountDisplayName(account))) || null,
-      }));
-    const riskyAccounts = staffAccounts.filter((account) => {
-      const effective = getEffectivePerms(account);
-      return (
-        (effective.manage_permissions || effective.manage_staff_accounts || effective.delete_user) &&
-        !isAdminRole(account.role)
-      );
-    });
-    const missingPermissionAccounts = staffAccounts
-      .map((account) => {
-        const suggested = getDefaultPermissionsForRole(account.role || 'assistant');
-        const diff = permissionDiff(getEffectivePerms(account), suggested);
-        return { account, ...diff };
-      })
-      .filter((item) => item.missing.length > 0 || item.extra.length > 0);
-    const unknownRoleAccounts = staffAccounts.filter((account) => !normalizedRoleKnown(account.role));
-    const invalidBranchAccounts = staffAccounts.filter((account) => {
-      const branch = String(account.branch || '').trim();
-      return branch && !BRANCHES.includes(branch as (typeof BRANCHES)[number]) && branch !== 'كل الفروع';
-    });
-    const goodCount =
-      staffAccounts.length -
-      new Set([
-        ...staffWithoutAccount.map((staff) => `staff:${staff.id}`),
-        ...duplicateUsernames.flatMap((group) => group.map((account) => `account:${account.id}`)),
-        ...unlinkedAccounts.map(({ account }) => `account:${account.id}`),
-        ...riskyAccounts.map((account) => `account:${account.id}`),
-        ...missingPermissionAccounts.map(({ account }) => `account:${account.id}`),
-        ...unknownRoleAccounts.map((account) => `account:${account.id}`),
-        ...invalidBranchAccounts.map((account) => `account:${account.id}`),
-      ]).size;
-
-    return {
-      goodCount: Math.max(0, goodCount),
-      staffWithoutAccount,
-      duplicateUsernames,
-      unlinkedAccounts,
-      riskyAccounts,
-      missingPermissionAccounts,
-      unknownRoleAccounts,
-      invalidBranchAccounts,
-    };
-  }, [staffAccounts, staffList, rows, localPerms]);
-
-  function toggleCategory(accountId: string, catKey: string) {
-    setExpandedCategories((p) => ({
-      ...p,
-      [`${accountId}-${catKey}`]: !p[`${accountId}-${catKey}`],
-    }));
-  }
-
-  const applyRolePreset = (account: StaffAccountRow, roleKey: RoleKey) => {
-    const perms = getDefaultPermissionsForRole(roleKey);
-    setLocalPerms((prev) => ({ ...prev, [account.id]: perms }));
-    toast.info(`تم تطبيق قالب: ${getRoleLabel(roleKey)}`);
-  };
-
-  const persistPermissions = async (
-    account: StaffAccountRow,
-    permissions: Record<string, boolean>
-  ) => {
-    if (!account.id) return;
-    setSavingId(account.id);
-    try {
-      const { error } = await updateAccountFlexible(account.id, {
-        permissions,
-        updated_at: new Date().toISOString(),
-      });
-      if (error) throw error;
-      setLocalPerms((prev) => {
-        const n = { ...prev };
-        delete n[account.id];
-        return n;
-      });
-      toast.success('تم حفظ الصلاحيات ✓');
-      await logActivity({
-        action: 'تعديل الصلاحيات',
-        module: 'حسابات وصلاحيات الفريق',
-        details: `تعديل صلاحيات ${accountDisplayName(account)}`,
-      });
-      refetchAccounts();
-    } catch (e) {
-      toast.error(friendlyError(e));
-    } finally {
-      setSavingId(null);
-    }
-  };
-
-  const togglePermission = async (account: StaffAccountRow, key: string) => {
-    if (!account.id || !canEditPerms) return;
-    const effective = getEffectivePerms(account);
-    const newPerms = { ...effective, [key]: !effective[key] };
-    setLocalPerms((prev) => ({ ...prev, [account.id]: newPerms }));
-  };
-
-  const savePermissions = (account: StaffAccountRow) => {
-    const effective = getEffectivePerms(account);
-    persistPermissions(account, effective);
-  };
-
-  const linkAccountToStaff = async (account: StaffAccountRow, staff: StaffRow) => {
-    if (!canEditAccount) return;
-    setSavingId(account.id);
-    try {
-      const { error } = await updateAccountFlexible(account.id, {
-        staff_id: staff.id,
-        name: staff.name,
-        staff_name: staff.name,
-        role: account.role || staff.role,
-        branch: account.branch || staff.branch,
-        updated_at: new Date().toISOString(),
-        ...(currentUserId ? { updated_by: currentUserId } : {}),
-      });
-      if (error) throw error;
-      toast.success('تم ربط الحساب بالموظف');
-      refetchAccounts();
-    } catch (e) {
-      toast.error(friendlyError(e));
-    } finally {
-      setSavingId(null);
-    }
-  };
-
-  const applySuggestedPermissions = async (account: StaffAccountRow) => {
-    if (!canEditPerms) return;
-    const suggested = getDefaultPermissionsForRole(account.role || 'assistant');
-    await persistPermissions(account, suggested);
-  };
-
-  // ─── Account actions ─────────────────────────────────────
-  const createStaffAccount = async (staff: StaffRow) => {
-    if (!canCreateAccount) return toast.error('لا توجد صلاحية لإنشاء الحساب');
+  async function createAccount(staff: StaffRow) {
+    if (!canEdit) return toast.error('لا توجد صلاحية لإنشاء الحساب.');
     const username = generateUsername(staff.name);
-    const password = generateDefaultPassword();
-    const preset = getPresetForRole(staff.role);
-    const perms = preset ? preset.permissions : getDefaultPermissionsForRole(staff.role);
-    const { error } = await insertAccountFlexible({
+    const pin = generatePin();
+    const role = normalizeRole(staff.role);
+    const preset = getPresetForRole(role);
+    const permissions = preset?.permissions || getDefaultPermissionsForRole(role);
+
+    const { error } = await insertFlexible(TABLES.staffAccounts, {
       staff_id: staff.id,
       name: staff.name,
       staff_name: staff.name,
       username,
-      password_hash: password,
-      role: staff.role,
+      temporary_password: pin,
+      password_hash: pin,
+      password_status: 'مؤقتة',
+      role,
       branch: staff.branch,
       active: true,
       can_login: true,
       visible_in_admin: true,
-      permissions: perms,
-      password_status: 'مؤقتة',
+      permissions,
       ...(currentUserId ? { created_by: currentUserId } : {}),
     });
-    if (error) return toast.error(friendlyError(error));
-    toast.success(`تم إنشاء حساب: ${username} / ${password}`);
-    refetchAccounts();
-  };
 
-  const createManualAccount = async () => {
-    const { name, role, branch, username: u, password: p } = manualAccount;
-    const username = (u || generateUsername(name)).trim();
-    const password = (p || generateDefaultPassword()).trim();
-    if (!name || !username || !password)
-      return toast.error('أكمل الاسم واسم المستخدم وكلمة المرور');
-    const preset = getPresetForRole(role);
-    const perms = preset ? preset.permissions : getDefaultPermissionsForRole(role);
-    const { error } = await insertAccountFlexible({
-      name,
-      staff_name: name,
-      username,
-      password_hash: password,
-      role,
-      branch,
-      active: true,
-      can_login: true,
-      visible_in_admin: true,
-      permissions: perms,
-      password_status: 'مؤقتة',
-      ...(currentUserId ? { created_by: currentUserId } : {}),
+    if (error) return toast.error(friendlyError(error));
+    toast.success(`تم إنشاء الحساب — ${username} / ${pin}`);
+    await logActivity({
+      action: 'إنشاء حساب موظف',
+      module: 'حسابات وصلاحيات الفريق',
+      details: `إنشاء حساب ${staff.name} باسم مستخدم ${username}`,
     });
-    if (error) return toast.error(friendlyError(error));
-    toast.success('تم إنشاء الحساب ✓');
-    setShowManualAccount(false);
-    setManualAccount({ name: '', role: 'assistant', branch: '', username: '', password: '' });
-    refetchAccounts();
-  };
+    refresh();
+  }
 
-  const createAllAccounts = async () => {
-    const missing = rows.filter(({ account }) => !account);
-    if (!missing.length) return toast.info('جميع الموظفين لديهم حسابات');
-    if (!confirm(`إنشاء حسابات لـ ${missing.length} موظف؟`)) return;
-    let ok = 0,
-      fail = 0;
-    for (const { staff: s } of missing) {
-      const { error } = await insertAccountFlexible({
-        staff_id: s.id,
-        name: s.name,
-        staff_name: s.name,
-        username: generateUsername(s.name),
-        password_hash: generateDefaultPassword(),
-        role: s.role,
-        branch: s.branch,
-        active: true,
-        can_login: true,
+  async function saveEditor() {
+    if (!editor || !canEdit) return;
+    const username = editor.username.trim().toLowerCase();
+    const name = editor.name.trim();
+    const branch = editor.branch.trim();
+
+    if (!name) return toast.error('اسم الموظف مطلوب.');
+    if (!username) return toast.error('اسم المستخدم مطلوب.');
+    if (editor.pin && !validatePin(editor.pin))
+      return toast.error('الرقم السري يجب أن يكون 4 أرقام فقط.');
+    if ((editor.active || editor.canLogin) && !editor.account.staff_id)
+      return toast.error('لا يمكن تفعيل حساب غير مربوط بموظف أساسي.');
+
+    const activeGeneralManagers = accounts.filter(
+      (account) =>
+        account.id !== editor.account.id &&
+        normalizeRole(account.role) === 'general_manager' &&
+        account.active !== false &&
+        account.can_login !== false
+    ).length;
+    const isCurrentGeneralManager = normalizeRole(editor.account.role) === 'general_manager';
+    const removesLastGeneralManager =
+      isCurrentGeneralManager &&
+      activeGeneralManagers === 0 &&
+      (editor.role !== 'general_manager' || !editor.active || !editor.canLogin);
+    if (removesLastGeneralManager)
+      return toast.error('لا يمكن تعطيل أو تغيير وظيفة آخر مدير عام نشط.');
+
+    setSaving(true);
+    const oldStaff = editor.staff
+      ? { name: editor.staff.name, role: editor.staff.role, branch: editor.staff.branch }
+      : null;
+
+    try {
+      if (editor.staff) {
+        const staffResult = await updateFlexible(TABLES.staff, editor.staff.id, {
+          name,
+          role: editor.role,
+          branch,
+          active: editor.active,
+          is_active: editor.active,
+          status: editor.active ? 'active' : 'inactive',
+        });
+        if (staffResult.error) throw staffResult.error;
+      }
+
+      const accountPayload: Record<string, unknown> = {
+        name,
+        staff_name: name,
+        username,
+        role: editor.role,
+        branch,
+        active: editor.active,
+        can_login: editor.active && editor.canLogin,
+        permissions: editor.permissions,
         visible_in_admin: true,
-        permissions: getDefaultPermissionsForRole(s.role),
-        password_status: 'مؤقتة',
+        updated_at: new Date().toISOString(),
+        ...(currentUserId ? { updated_by: currentUserId } : {}),
+      };
+
+      if (editor.pin) {
+        accountPayload.temporary_password = editor.pin;
+        accountPayload.password_hash = editor.pin;
+        accountPayload.password_status = 'مؤقتة';
+      }
+
+      const accountResult = await updateFlexible(
+        TABLES.staffAccounts,
+        editor.account.id,
+        accountPayload
+      );
+      if (accountResult.error) {
+        if (editor.staff && oldStaff) {
+          await updateFlexible(TABLES.staff, editor.staff.id, oldStaff);
+        }
+        throw accountResult.error;
+      }
+
+      await logActivity({
+        action: 'تعديل حساب موظف',
+        module: 'حسابات وصلاحيات الفريق',
+        details: `تعديل ${name}: المستخدم=${username}، الوظيفة=${getRoleLabel(editor.role)}، الفرع=${branch}، الحالة=${editor.active ? 'نشط' : 'موقوف'}`,
       });
-      error ? fail++ : ok++;
+
+      toast.success('تم حفظ بيانات الموظف والحساب والصلاحيات بنجاح.');
+      setEditor(null);
+      await refresh();
+    } catch (error) {
+      toast.error(friendlyError(error));
+    } finally {
+      setSaving(false);
     }
-    toast.success(`تم إنشاء ${ok} حساب${fail ? ` — فشل ${fail}` : ''}`);
-    refetchAccounts();
-  };
+  }
 
-  const toggleAccountStatus = async (account: StaffAccountRow) => {
-    if (!canEditAccount) return;
-    const { error } = await updateAccountFlexible(account.id, {
-      active: !account.active,
-      can_login: !account.active,
-      updated_at: new Date().toISOString(),
-    });
-    if (error) return toast.error(friendlyError(error));
-    toast.success(account.active ? 'تم تعطيل الحساب' : 'تم تفعيل الحساب');
-    refetchAccounts();
-  };
+  async function quickToggle(account: StaffAccountRow) {
+    if (!canEdit) return;
+    const disabling = account.active !== false && account.can_login !== false;
+    const isLastGeneralManager =
+      normalizeRole(account.role) === 'general_manager' &&
+      disabling &&
+      accounts.filter(
+        (item) =>
+          item.id !== account.id &&
+          normalizeRole(item.role) === 'general_manager' &&
+          item.active !== false &&
+          item.can_login !== false
+      ).length === 0;
+    if (isLastGeneralManager) return toast.error('لا يمكن تعطيل آخر مدير عام نشط.');
 
-  const updateUsername = async (account: StaffAccountRow) => {
-    if (!newUsername.trim()) return toast.error('اسم المستخدم لا يمكن أن يكون فارغًا');
-    const { error } = await updateAccountFlexible(account.id, {
-      username: newUsername.trim(),
-      updated_at: new Date().toISOString(),
-      ...(currentUserId ? { updated_by: currentUserId } : {}),
-    });
-    if (error) return toast.error(friendlyError(error));
-    toast.success('تم تحديث اسم المستخدم');
-    setEditingUsername(null);
-    setNewUsername('');
-    refetchAccounts();
-  };
-
-  const updatePassword = async (account: StaffAccountRow) => {
-    if (!newPassword.trim()) return toast.error('كلمة المرور لا يمكن أن تكون فارغة');
-    const { error } = await updateAccountFlexible(account.id, {
-      password_hash: newPassword.trim(),
-      password_status: 'مؤقتة',
+    const { error } = await updateFlexible(TABLES.staffAccounts, account.id, {
+      active: !disabling,
+      can_login: !disabling,
       updated_at: new Date().toISOString(),
       ...(currentUserId ? { updated_by: currentUserId } : {}),
     });
     if (error) return toast.error(friendlyError(error));
-    toast.success('تم تحديث كلمة المرور');
-    setEditingPassword(null);
-    setNewPassword('');
-    refetchAccounts();
-  };
+    toast.success(disabling ? 'تم إيقاف الحساب.' : 'تم تفعيل الحساب.');
+    refresh();
+  }
 
-  if (!canViewAccounts) {
+  if (!canView) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center" dir="rtl">
-        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-8 text-center text-red-200">
-          <ShieldCheck className="mx-auto mb-3 h-10 w-10 opacity-50" />
-          <p className="text-lg font-bold">غير مصرح بالوصول</p>
-          <p className="mt-1 text-sm opacity-70">ليس لديك صلاحية عرض حسابات الفريق.</p>
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-8 text-center text-red-200">
+          <ShieldCheck className="mx-auto mb-3" />
+          <p className="font-bold">غير مصرح لك بعرض حسابات الفريق.</p>
         </div>
       </div>
     );
   }
 
-  // ─── Render ───────────────────────────────────────────────
+  const loading = staffLoading || accountLoading;
+
   return (
-    <div dir="rtl" className="space-y-5">
-      {/* Header */}
+    <div className="space-y-5" dir="rtl">
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <div className="flex-1">
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
-            <ShieldCheck className="text-teal-400" size={24} />
-            حسابات وصلاحيات الفريق
+          <h1 className="flex items-center gap-2 text-2xl font-black text-white">
+            <ShieldCheck className="text-teal-400" /> حسابات وصلاحيات الفريق
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            راجع اسم المستخدم وكلمة المرور وحدد صلاحيات كل موظف داخل التطبيق
+            المدير العام يستطيع تعديل بيانات الموظف، اسم المستخدم، الرقم السري، الوظيفة، الفرع، الحالة والصلاحيات.
           </p>
         </div>
-        <div className="flex gap-2">
-          {canCreateAccount && (
-            <>
-              <button
-                onClick={() => setShowManualAccount(true)}
-                className="btn-secondary flex items-center gap-2"
-              >
-                <UserPlus size={16} /> إضافة حساب
-              </button>
-              <button onClick={createAllAccounts} className="btn-primary flex items-center gap-2">
-                <UserPlus size={16} /> إنشاء للجميع
-              </button>
-            </>
-          )}
-          <button onClick={refresh} className="btn-secondary flex items-center gap-2">
-            <RefreshCw size={16} /> تحديث
-          </button>
+        <button onClick={refresh} className="btn-secondary flex items-center gap-2">
+          <RefreshCw size={16} /> تحديث
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+          <p className="text-xs text-emerald-200">الحسابات النشطة</p>
+          <p className="mt-1 text-3xl font-black text-white">{activeAccounts}</p>
         </div>
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+          <p className="text-xs text-amber-200">الحسابات الموقوفة</p>
+          <p className="mt-1 text-3xl font-black text-white">{disabledAccounts}</p>
+        </div>
+        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4">
+          <p className="text-xs text-red-200">موظفون بدون حساب</p>
+          <p className="mt-1 text-3xl font-black text-white">{missingAccounts}</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3 md:flex-row">
+        <label className="relative flex-1">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="input w-full pr-10"
+            placeholder="ابحث بالاسم أو المستخدم أو الوظيفة أو الفرع"
+          />
+        </label>
+        <button
+          onClick={() => setShowMissingOnly((value) => !value)}
+          className={showMissingOnly ? 'btn-primary' : 'btn-secondary'}
+        >
+          موظفون بدون حساب فقط
+        </button>
       </div>
 
       {accountError && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-          تعذر تحميل جدول الحسابات. تأكد من تشغيل ملف SQL في Supabase ثم اضغط تحديث.
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-200">
+          {friendlyError(accountError)}
         </div>
       )}
 
-      {/* Search */}
-      <div className="flex items-center gap-3 rounded-xl border border-[#2d4063] bg-[#1B2B4B] p-3">
-        <Search size={18} className="text-slate-400" />
-        <input
-          className="input-dark flex-1"
-          value={accountSearch}
-          onChange={(e) => setAccountSearch(e.target.value)}
-          placeholder="ابحث بالاسم أو اسم المستخدم أو الدور أو الفرع..."
-        />
-        {accountSearch && (
-          <button className="btn-secondary px-3" onClick={() => setAccountSearch('')}>
-            مسح
-          </button>
-        )}
-      </div>
-
-      <div className="rounded-2xl border border-[#2d4063] bg-[#16253f]/80 p-4">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold text-white">
-              <ShieldAlert size={20} className="text-amber-300" />
-              مراجعة الحسابات والصلاحيات
-            </h2>
-            <p className="text-sm text-slate-400">
-              فحص سريع للحسابات الناقصة، المكررة، غير المربوطة، والصلاحيات المختلفة عن قالب الدور.
-            </p>
-          </div>
-          <Link to="/roles-permissions" className="btn-secondary flex items-center gap-2">
-            <KeyRound size={16} /> مصفوفة الصلاحيات
-          </Link>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <AuditTile icon={<CheckCircle2 size={18} />} label="حسابات سليمة" value={accountAudit.goodCount} tone="emerald" />
-          <AuditTile icon={<UserPlus size={18} />} label="موظفون بلا حساب" value={accountAudit.staffWithoutAccount.length} tone="amber" />
-          <AuditTile icon={<AlertTriangle size={18} />} label="أسماء مستخدم مكررة" value={accountAudit.duplicateUsernames.length} tone="red" />
-          <AuditTile icon={<ShieldAlert size={18} />} label="صلاحيات تحتاج مراجعة" value={accountAudit.missingPermissionAccounts.length + accountAudit.riskyAccounts.length} tone="violet" />
-        </div>
-
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          {accountAudit.staffWithoutAccount.length > 0 && (
-            <AuditPanel title="موظفون بدون حساب دخول">
-              {accountAudit.staffWithoutAccount.slice(0, 6).map((staff) => (
-                <AuditRow key={staff.id} title={staff.name} subtitle={`${getRoleLabel(staff.role)} — ${staff.branch || 'بدون فرع'}`}>
-                  <button
-                    onClick={() => createStaffAccount(staff)}
-                    disabled={!canCreateAccount}
-                    className="btn-primary px-3 py-1 text-xs"
-                  >
-                    إنشاء حساب
-                  </button>
-                </AuditRow>
-              ))}
-            </AuditPanel>
-          )}
-
-          {accountAudit.unlinkedAccounts.some((item) => item.match) && (
-            <AuditPanel title="حسابات غير مربوطة بموظف">
-              {accountAudit.unlinkedAccounts
-                .filter((item) => item.match)
-                .slice(0, 6)
-                .map(({ account, match }) => (
-                  <AuditRow
-                    key={account.id}
-                    title={accountDisplayName(account)}
-                    subtitle={`مطابقة محتملة: ${match?.name || '-'} — ${account.username || '-'}`}
-                  >
-                    {match && (
-                      <button
-                        onClick={() => linkAccountToStaff(account, match)}
-                        disabled={!canEditAccount || savingId === account.id}
-                        className="btn-secondary flex items-center gap-1 px-3 py-1 text-xs"
-                      >
-                        <Link2 size={12} /> ربط
-                      </button>
-                    )}
-                  </AuditRow>
-                ))}
-            </AuditPanel>
-          )}
-
-          {accountAudit.duplicateUsernames.length > 0 && (
-            <AuditPanel title="أسماء مستخدم مكررة">
-              {accountAudit.duplicateUsernames.slice(0, 5).map((group) => (
-                <AuditRow
-                  key={group.map((account) => account.id).join('-')}
-                  title={group[0].username || 'بدون اسم مستخدم'}
-                  subtitle={group.map((account) => accountDisplayName(account)).join('، ')}
-                />
-              ))}
-            </AuditPanel>
-          )}
-
-          {accountAudit.missingPermissionAccounts.length > 0 && (
-            <AuditPanel title="مقارنة الصلاحيات بقالب الدور">
-              {accountAudit.missingPermissionAccounts.slice(0, 6).map(({ account, missing, extra }) => (
-                <AuditRow
-                  key={account.id}
-                  title={accountDisplayName(account)}
-                  subtitle={`ناقص ${missing.length} / زائد ${extra.length} — ${getRoleLabel(account.role)}`}
-                >
-                  <button
-                    onClick={() => applySuggestedPermissions(account)}
-                    disabled={!canEditPerms || savingId === account.id}
-                    className="btn-secondary px-3 py-1 text-xs"
-                  >
-                    تطبيق المقترح
-                  </button>
-                </AuditRow>
-              ))}
-            </AuditPanel>
-          )}
-
-          {accountAudit.riskyAccounts.length > 0 && (
-            <AuditPanel title="صلاحيات حساسة على أدوار غير إدارية">
-              {accountAudit.riskyAccounts.slice(0, 6).map((account) => (
-                <AuditRow
-                  key={account.id}
-                  title={accountDisplayName(account)}
-                  subtitle={`${getRoleLabel(account.role)} — راجع manage_permissions / manage_staff_accounts`}
-                />
-              ))}
-            </AuditPanel>
-          )}
-        </div>
-      </div>
-
-      {/* Manual Account Modal */}
-      {showManualAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" dir="rtl">
-          <div className="w-full max-w-md rounded-2xl border border-[#2d4063] bg-[#0f1e38] p-6 shadow-2xl">
-            <h2 className="mb-4 text-lg font-bold text-white">إضافة حساب يدوي</h2>
-            <div className="space-y-3">
-              <input
-                className="input-dark w-full"
-                placeholder="الاسم الكامل *"
-                value={manualAccount.name}
-                onChange={(e) => setManualAccount((p) => ({ ...p, name: e.target.value }))}
-              />
-              <select
-                className="input-dark w-full"
-                value={manualAccount.role}
-                onChange={(e) =>
-                  setManualAccount((p) => ({ ...p, role: e.target.value as RoleKey }))
-                }
-              >
-                {ROLES.map((r) => (
-                  <option key={r.key} value={r.key}>
-                    {r.labelAr}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="input-dark w-full"
-                placeholder="الفرع"
-                value={manualAccount.branch}
-                onChange={(e) => setManualAccount((p) => ({ ...p, branch: e.target.value }))}
-              />
-              <input
-                className="input-dark w-full"
-                placeholder="اسم المستخدم (اختياري — سيُولَّد تلقائيًا)"
-                value={manualAccount.username}
-                onChange={(e) => setManualAccount((p) => ({ ...p, username: e.target.value }))}
-              />
-              <input
-                className="input-dark w-full"
-                placeholder="كلمة المرور (اختياري — ستُولَّد تلقائيًا)"
-                value={manualAccount.password}
-                onChange={(e) => setManualAccount((p) => ({ ...p, password: e.target.value }))}
-              />
-            </div>
-            <div className="mt-4 flex gap-2">
-              <button onClick={createManualAccount} className="btn-primary flex-1">
-                إنشاء الحساب
-              </button>
-              <button onClick={() => setShowManualAccount(false)} className="btn-secondary flex-1">
-                إلغاء
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Staff / Accounts List */}
-      {staffLoading || accountLoading ? (
-        <div className="p-8 text-center text-slate-400">جاري التحميل...</div>
-      ) : filteredRows.length === 0 ? (
-        <div className="p-8 text-center text-slate-400">لا توجد نتائج</div>
+      {loading ? (
+        <div className="py-16 text-center text-slate-400">جاري تحميل الحسابات…</div>
       ) : (
-        <div className="space-y-4">
-          {filteredRows.map(({ staff: member, account }) => {
-            const hasLocalChanges = !!localPerms[account?.id || ''];
-            const effectivePerms = account ? getEffectivePerms(account) : {};
-            const isExpanded = expandedPerms[account?.id || member.id] || false;
-
+        <div className="grid gap-3 xl:grid-cols-2">
+          {filteredRows.map(({ staff, account }) => {
+            const displayName = staff?.name || (account ? accountName(account) : 'غير محدد');
             return (
               <div
-                key={member.id}
-                className="rounded-2xl border border-[#2d4063] bg-[#16253f]/70 p-4 shadow-sm"
+                key={account?.id || staff?.id}
+                className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
               >
-                {/* Staff info row */}
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_1.2fr_1fr_auto] items-start">
-                  {/* Name / role / branch */}
-                  <div className="space-y-2">
-                    <div className="text-xs text-slate-400">الموظف</div>
-                    <Link
-                      to={staffProfilePath({
-                        id: member.id,
-                        staff_id: account?.staff_id,
-                        username: account?.username,
-                        name: member.name,
-                      })}
-                      className="inline-flex items-center gap-1 text-lg font-bold text-white transition hover:text-teal-300"
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-lg font-black text-white">{displayName}</h2>
+                    <p className="mt-1 text-sm text-slate-400">
+                      {getRoleLabel(account?.role || staff?.role)} • {account?.branch || staff?.branch || 'بدون فرع'}
+                    </p>
+                    {account ? (
+                      <p className="mt-2 font-mono text-sm text-teal-300">{account.username || 'بدون اسم مستخدم'}</p>
+                    ) : (
+                      <p className="mt-2 text-sm font-bold text-red-300">لا يوجد حساب دخول</p>
+                    )}
+                  </div>
+                  {account && (
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-bold ${
+                        account.active !== false && account.can_login !== false
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : 'bg-red-500/15 text-red-300'
+                      }`}
                     >
-                      {member.name} <ExternalLink size={14} />
-                    </Link>
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      <span className="rounded-full border border-[#2d4063] bg-white/5 px-2 py-1 text-slate-300">
-                        {getRoleLabel(member.role)}
-                      </span>
-                      <span className="rounded-full border border-[#2d4063] bg-white/5 px-2 py-1 text-slate-300">
-                        {member.branch || 'بدون فرع'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Username + Password */}
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    {/* Username */}
-                    <div className="rounded-xl border border-[#2d4063] bg-[#101d33] p-3">
-                      <div className="mb-1 text-xs text-slate-400">اسم المستخدم</div>
-                      {account ? (
-                        editingUsername === account.id ? (
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={newUsername}
-                              onChange={(e) => setNewUsername(e.target.value)}
-                              className="input-dark flex-1 px-2 py-1 text-sm"
-                              placeholder="اسم المستخدم"
-                            />
-                            <button
-                              onClick={() => updateUsername(account)}
-                              className="btn-primary px-2 py-1 text-xs"
-                            >
-                              حفظ
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingUsername(null);
-                                setNewUsername('');
-                              }}
-                              className="btn-secondary px-2 py-1 text-xs"
-                            >
-                              إلغاء
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm text-teal-300">
-                              {account.username || 'غير محدد'}
-                            </span>
-                            {canEditAccount && (
-                              <button
-                                onClick={() => {
-                                  setEditingUsername(account.id);
-                                  setNewUsername(account.username || '');
-                                }}
-                                className="text-slate-400 transition hover:text-white"
-                                title="تعديل"
-                              >
-                                <Edit2 size={14} />
-                              </button>
-                            )}
-                          </div>
-                        )
-                      ) : (
-                        <span className="text-sm text-slate-500">لا يوجد حساب</span>
-                      )}
-                    </div>
-
-                    {/* Password */}
-                    <div className="rounded-xl border border-[#2d4063] bg-[#101d33] p-3">
-                      <div className="mb-1 text-xs text-slate-400">كلمة المرور</div>
-                      {account && canEditAccount ? (
-                        editingPassword === account.id ? (
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={newPassword}
-                              onChange={(e) => setNewPassword(e.target.value)}
-                              className="input-dark flex-1 px-2 py-1 text-sm"
-                              placeholder="كلمة مرور جديدة"
-                            />
-                            <button
-                              onClick={() => updatePassword(account)}
-                              className="btn-primary px-2 py-1 text-xs"
-                            >
-                              حفظ
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingPassword(null);
-                                setNewPassword('');
-                              }}
-                              className="btn-secondary px-2 py-1 text-xs"
-                            >
-                              إلغاء
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm text-slate-300">••••••••</span>
-                            <button
-                              onClick={() => {
-                                setEditingPassword(account.id);
-                                setNewPassword('');
-                              }}
-                              className="text-slate-400 transition hover:text-white"
-                              title="تعيين كلمة مرور جديدة"
-                            >
-                              <Edit2 size={14} />
-                            </button>
-                          </div>
-                        )
-                      ) : account ? (
-                        <span className="text-sm text-slate-500">••••••••</span>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex flex-wrap gap-2">
-                    {!account && canCreateAccount && (
-                      <button
-                        onClick={() => createStaffAccount(member)}
-                        className="btn-primary flex items-center gap-1 text-sm"
-                      >
-                        <UserPlus size={14} /> إنشاء حساب
-                      </button>
-                    )}
-                    {account && (
-                      <>
-                        <button
-                          onClick={() => toggleAccountStatus(account)}
-                          disabled={!canEditAccount}
-                          className={`flex items-center gap-1 rounded-xl px-3 py-1.5 text-sm font-bold transition ${
-                            account.active
-                              ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30'
-                              : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
-                          } disabled:opacity-40`}
-                        >
-                          <Power size={14} /> {account.active ? 'تعطيل' : 'تفعيل'}
-                        </button>
-                        <button
-                          onClick={() =>
-                            setExpandedPerms((p) => ({ ...p, [account.id]: !p[account.id] }))
-                          }
-                          className="btn-secondary flex items-center gap-1 text-sm"
-                        >
-                          <KeyRound size={14} />
-                          {isExpanded ? 'إخفاء الصلاحيات' : 'الصلاحيات'}
-                          {hasLocalChanges && (
-                            <span className="h-2 w-2 rounded-full bg-amber-400" />
-                          )}
-                        </button>
-                      </>
-                    )}
-                  </div>
+                      {account.active !== false && account.can_login !== false ? 'نشط' : 'موقوف'}
+                    </span>
+                  )}
                 </div>
 
-                {/* Permissions panel */}
-                {account && isExpanded && (
-                  <div className="mt-4 space-y-3 border-t border-[#2d4063] pt-4">
-                    {/* Role preset buttons */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-slate-400">تطبيق قالب دور:</span>
-                      {ROLES.slice(0, 9).map((role) => (
-                        <button
-                          key={role.key}
-                          onClick={() => canEditPerms && applyRolePreset(account, role.key)}
-                          disabled={!canEditPerms}
-                          className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-violet-700 disabled:opacity-40"
-                        >
-                          {role.labelAr}
-                        </button>
-                      ))}
-                      {hasLocalChanges && (
-                        <button
-                          onClick={() => savePermissions(account)}
-                          disabled={savingId === account.id}
-                          className="mr-auto flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-                        >
-                          {savingId === account.id ? (
-                            <RefreshCw size={14} className="animate-spin" />
-                          ) : (
-                            <Save size={14} />
-                          )}
-                          حفظ التغييرات
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Permission categories */}
-                    {PERMISSION_CATEGORIES.map((cat) => {
-                      const catKey = `${account.id}-${cat.key}`;
-                      const isCatExpanded = expandedCategories[catKey] ?? true;
-                      const activeCount = cat.permissions.filter(
-                        (p) => effectivePerms[p.key] === true
-                      ).length;
-
-                      return (
-                        <div
-                          key={cat.key}
-                          className="rounded-xl border border-slate-700/40 bg-slate-900/50 overflow-hidden"
-                        >
-                          <button
-                            onClick={() => toggleCategory(account.id, cat.key)}
-                            className="flex w-full items-center justify-between gap-3 p-3 text-right hover:bg-slate-800/40"
-                          >
-                            <span className="text-sm font-bold text-slate-200">{cat.label}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
-                                {activeCount}/{cat.permissions.length}
-                              </span>
-                              {isCatExpanded ? (
-                                <ChevronUp size={14} className="text-slate-400" />
-                              ) : (
-                                <ChevronDown size={14} className="text-slate-400" />
-                              )}
-                            </div>
-                          </button>
-                          {isCatExpanded && (
-                            <div className="border-t border-slate-700/40 p-3">
-                              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                                {cat.permissions.map((perm) => {
-                                  const isOn = effectivePerms[perm.key] === true;
-                                  return (
-                                    <label
-                                      key={perm.key}
-                                      className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg border p-2 transition ${
-                                        isOn
-                                          ? 'border-emerald-500/20 bg-emerald-500/10'
-                                          : 'border-slate-700/30 bg-slate-800/40'
-                                      } ${perm.sensitive ? 'ring-1 ring-amber-500/20' : ''}`}
-                                    >
-                                      <div className="min-w-0">
-                                        <p
-                                          className={`truncate text-xs font-semibold ${isOn ? 'text-emerald-200' : 'text-slate-400'}`}
-                                        >
-                                          {perm.label}
-                                        </p>
-                                        {perm.sensitive && (
-                                          <p className="text-[10px] text-amber-400">حساسة</p>
-                                        )}
-                                      </div>
-                                      <input
-                                        type="checkbox"
-                                        checked={isOn}
-                                        disabled={!canEditPerms}
-                                        onChange={() => togglePermission(account, perm.key)}
-                                        className="h-4 w-4 shrink-0 accent-emerald-500"
-                                      />
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {account ? (
+                    <>
+                      <button
+                        disabled={!canEdit}
+                        onClick={() => openEditor(account, staff)}
+                        className="btn-primary flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <Edit2 size={16} /> تعديل كامل
+                      </button>
+                      <button
+                        disabled={!canEdit}
+                        onClick={() => quickToggle(account)}
+                        className="btn-secondary flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <Power size={16} />
+                        {account.active !== false && account.can_login !== false ? 'إيقاف' : 'تفعيل'}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      disabled={!canEdit || !staff}
+                      onClick={() => staff && createAccount(staff)}
+                      className="btn-primary flex items-center gap-2 disabled:opacity-50"
+                    >
+                      <UserPlus size={16} /> إنشاء حساب
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}
+        </div>
+      )}
 
-          {/* Standalone accounts (no matching staff member) */}
-          {standaloneAccounts.length > 0 && (
-            <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
-              <h3 className="mb-3 text-sm font-bold text-violet-300">
-                حسابات مستقلة ({standaloneAccounts.length}) — لا تتطابق مع موظف نشط
-              </h3>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {standaloneAccounts.map((account) => (
-                  <div
-                    key={account.id}
-                    className="rounded-xl border border-[#2d4063] bg-[#101d33] p-3"
+      {editor && (
+        <Modal onClose={() => !saving && setEditor(null)}>
+          <div className="space-y-6 p-5">
+            <div>
+              <h2 className="text-xl font-black text-white">تعديل حساب {editor.name}</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                تغيير الفرع أو الوظيفة لا يشترط تغيير اسم المستخدم أو الرقم السري.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-1">
+                <span className="text-sm font-bold text-slate-200">اسم الموظف</span>
+                <input
+                  className="input w-full"
+                  value={editor.name}
+                  onChange={(event) => setEditor({ ...editor, name: event.target.value })}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-sm font-bold text-slate-200">اسم المستخدم</span>
+                <input
+                  className="input w-full text-left"
+                  dir="ltr"
+                  value={editor.username}
+                  onChange={(event) => setEditor({ ...editor, username: event.target.value })}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-sm font-bold text-slate-200">رقم سري جديد — اختياري</span>
+                <div className="relative">
+                  <KeyRound className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} />
+                  <input
+                    className="input w-full pr-10 text-left"
+                    dir="ltr"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="4 أرقام"
+                    value={editor.pin}
+                    onChange={(event) =>
+                      setEditor({ ...editor, pin: event.target.value.replace(/\D/g, '').slice(0, 4) })
+                    }
+                  />
+                </div>
+              </label>
+              <label className="space-y-1">
+                <span className="text-sm font-bold text-slate-200">الوظيفة</span>
+                <select
+                  className="input w-full"
+                  value={editor.role}
+                  onChange={(event) => changeRole(event.target.value as RoleKey)}
+                >
+                  {ROLES.map((role) => (
+                    <option key={role.key} value={role.key}>{role.labelAr}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1 md:col-span-2">
+                <span className="text-sm font-bold text-slate-200">الفرع</span>
+                <select
+                  className="input w-full"
+                  value={editor.branch}
+                  onChange={(event) => setEditor({ ...editor, branch: event.target.value })}
+                >
+                  <option value="">اختر الفرع</option>
+                  {[...BRANCHES, 'كل الفروع'].filter((value, index, list) => list.indexOf(value) === index).map((branch) => (
+                    <option key={branch} value={branch}>{branch}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex items-center justify-between rounded-xl border border-slate-800 p-3">
+                <span className="font-bold text-slate-200">الموظف نشط</span>
+                <input
+                  type="checkbox"
+                  checked={editor.active}
+                  onChange={(event) =>
+                    setEditor({
+                      ...editor,
+                      active: event.target.checked,
+                      canLogin: event.target.checked ? editor.canLogin : false,
+                    })
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between rounded-xl border border-slate-800 p-3">
+                <span className="font-bold text-slate-200">مسموح بتسجيل الدخول</span>
+                <input
+                  type="checkbox"
+                  checked={editor.canLogin}
+                  disabled={!editor.active}
+                  onChange={(event) => setEditor({ ...editor, canLogin: event.target.checked })}
+                />
+              </label>
+            </div>
+
+            <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="font-black text-white">الصلاحيات المقترحة للوظيفة</h3>
+                  <p className="text-sm text-slate-400">
+                    عند تغيير الوظيفة يمكن تطبيق قالب الصلاحيات المقترح ثم تعديله يدويًا.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={editor.applySuggestedPermissions}
+                      onChange={(event) =>
+                        setEditor({ ...editor, applySuggestedPermissions: event.target.checked })
+                      }
+                    />
+                    تطبيق تلقائي عند تغيير الوظيفة
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditor({
+                        ...editor,
+                        permissions: getDefaultPermissionsForRole(editor.role),
+                      })
+                    }
+                    className="btn-secondary"
                   >
-                    <p className="font-bold text-white">{accountDisplayName(account)}</p>
-                    <p className="text-xs text-slate-400">
-                      {getRoleLabel(account.role)} — {account.branch}
-                    </p>
-                    <p className="mt-1 font-mono text-xs text-teal-300">{account.username}</p>
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      آخر دخول: {formatDateTime(account.last_login_at)}
-                    </p>
-                    <div className="mt-2 flex gap-1">
-                      <button
-                        onClick={() => toggleAccountStatus(account)}
-                        disabled={!canEditAccount}
-                        className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold ${
-                          account.active
-                            ? 'bg-red-500/20 text-red-300'
-                            : 'bg-emerald-500/20 text-emerald-300'
-                        } disabled:opacity-40`}
-                      >
-                        <Power size={12} /> {account.active ? 'تعطيل' : 'تفعيل'}
-                      </button>
+                    تطبيق المقترح الآن
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {canEditPermissions && (
+              <div className="space-y-3">
+                {PERMISSION_CATEGORIES.map((category) => (
+                  <div key={category.key} className="rounded-xl border border-slate-800 p-3">
+                    <h4 className="mb-3 font-black text-white">{category.label}</h4>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {category.permissions.map((permission) => (
+                        <label
+                          key={permission.key}
+                          className="flex items-start gap-2 rounded-lg bg-slate-900/70 p-2 text-sm text-slate-200"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={editor.permissions[permission.key] === true}
+                            onChange={() => togglePermission(permission.key)}
+                          />
+                          <span>
+                            <span className="font-bold">{permission.label}</span>
+                            {permission.description && (
+                              <span className="block text-xs text-slate-500">{permission.description}</span>
+                            )}
+                          </span>
+                        </label>
+                      ))}
                     </div>
                   </div>
                 ))}
+                <p className="text-xs text-slate-500">
+                  الصلاحيات المعرفة رسميًا: {ALL_PERMISSION_KEYS.length} صلاحية.
+                </p>
               </div>
+            )}
+
+            <div className="sticky bottom-0 flex flex-col-reverse gap-2 border-t border-slate-800 bg-slate-950 py-4 md:flex-row">
+              <button
+                onClick={() => setEditor(null)}
+                disabled={saving}
+                className="btn-secondary flex-1"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={saveEditor}
+                disabled={saving || !canEdit}
+                className="btn-primary flex flex-1 items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {saving ? <RefreshCw className="animate-spin" size={17} /> : <Save size={17} />}
+                حفظ كل التعديلات
+              </button>
             </div>
-          )}
-        </div>
+          </div>
+        </Modal>
       )}
+
+      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+        <CheckCircle2 className="ml-2 inline" size={17} />
+        الربط بين الموظف والحساب يعتمد على staff_id فقط، ولا توجد مطابقة بالاسم.
+      </div>
     </div>
   );
 }
