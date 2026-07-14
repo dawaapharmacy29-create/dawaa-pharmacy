@@ -33,12 +33,24 @@ export function normalizeArabicName(value: unknown): string {
     .toLowerCase();
 }
 
+/**
+ * أدوار مساحة الدكتور: الصيدلي ومشرفا الشيفت.
+ * هذه الدالة تتحكم في الصفحة الرئيسية والقائمة الجانبية فقط، بينما يظل نطاق
+ * البيانات الفعلي لكل دور محكومًا بـ permissionSystem وRLS.
+ */
 export function isDoctorRole(user: ScopeUser): boolean {
-  return normalizeRole(user?.role) === 'pharmacist';
+  return ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(
+    normalizeRole(user?.role)
+  );
 }
 
+/**
+ * المديرون الذين يملكون وضع استعراض الفريق داخل اللوحات الإدارية.
+ * مشرف الشيفت يبدأ من لوحة الدكتور وبياناته الشخصية، وتظل صلاحيات الإشراف
+ * الإضافية متاحة له من الصفحات المسموح بها.
+ */
 export function isManagerRole(user: ScopeUser): boolean {
-  return ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(
+  return ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager'].includes(
     normalizeRole(user?.role)
   );
 }
@@ -211,4 +223,3 @@ export function rowMatchesCurrentUserScope(user: ScopeUser, row: RowLike): boole
   }
   return true;
 }
-
