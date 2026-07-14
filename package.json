@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "npm@10.9.2",
   "scripts": {
-    "repair:customer-analytics": "node scripts/apply-customer-analytics-fixes.cjs && node scripts/fix-analytics-null-safety.cjs && node scripts/apply-analytics-runtime-fixes.cjs",
+    "repair:customer-analytics": "node scripts/apply-customer-analytics-fixes.cjs && node scripts/fix-analytics-null-safety.cjs && node scripts/apply-analytics-runtime-fixes.cjs && node scripts/apply-analytics-summary-view-fixes.cjs",
     "dev": "npm run repair:customer-analytics && vite --configLoader runner",
     "build": "npm run repair:customer-analytics && vite build --configLoader runner",
     "analyze": "npm run repair:customer-analytics && ANALYZE=true vite build --configLoader runner",
