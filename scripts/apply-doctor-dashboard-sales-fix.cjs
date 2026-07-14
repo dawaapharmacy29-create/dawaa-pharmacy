@@ -11,6 +11,31 @@ function replaceOnce(before, after, label) {
 }
 
 replaceOnce(
+`function safeNumber(value: unknown) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number : 0;
+}`,
+`function safeNumber(value: unknown) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function normalizeDoctorSalesName(value: unknown) {
+  return String(value ?? '')
+    .replace(/[\u064B-\u065F\u0640]/g, '')
+    .replace(/[\u0623\u0625\u0622]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/^(?:\\s*(?:دكتور|الدكتور|دكتوره|د\\.?|د\\/)\\s*)+/i, '')
+    .replace(/[.,،;:()[\\]{}_\\-/\\\\|]+/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}`,
+'normalizer helper'
+);
+
+replaceOnce(
 `  const [salesSummary, setSalesSummary] = useState<{
     dailySales: number;
     cycleSales: number;
@@ -55,15 +80,17 @@ replaceOnce(
           startDate: formatCycleDate(cycle.start),
           endDate: formatCycleDate(cycle.end),
           branch: effectiveBranch || undefined,
-          doctor: effectiveName,
         });
         if (cancelled) return;
+        const effectiveNameKey = normalizeDoctorSalesName(effectiveName);
         const doctorRow = summary.doctorRows.find(
-          (row) => row.staffId === effectiveId || row.doctor === effectiveName
+          (row) =>
+            (row.staffId && row.staffId === effectiveId) ||
+            normalizeDoctorSalesName(row.doctor) === effectiveNameKey
         );
         if (!doctorRow) {
           setSalesSummary(null);
-          setSalesError('تعذر ربط مبيعات الدكتور بالحساب. راجع staff_id واسم البائع في ملف المبيعات.');
+          setSalesError('تعذر ربط مبيعات الدكتور بالحساب. راجع اسم البائع في ملف المبيعات أو ربط staff_id.');
           return;
         }
         const lastSalesDate = summary.dailyTrend
