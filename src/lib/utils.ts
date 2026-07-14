@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { matchesAppSearch, normalizeAppSearchText } from '@/lib/appSearch';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -63,37 +64,15 @@ export function getInitials(name: string): string {
 }
 
 export function normalizeName(value: unknown): string {
-  return String(value || '')
-    .replace(/[\u0623\u0625\u0622]/g, 'ا')
-    .replace(/\u0629/g, 'ه')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeAppSearchText(value).replace(/ة/g, 'ه');
 }
 
 /**
- * بحث مرن بالنجوم: `ا*س*ل*ا*م` يطابق "إسلام" لأن الأجزاء تظهر بالترتيب.
- * بدون `*` يُستخدم تطابق جزئي بسيط (يحتوي النص).
+ * بحث موحد على مستوى التطبيق يدعم النجمة في البداية أو المنتصف أو النهاية،
+ * مع توحيد الهمزات والتشكيل والأرقام العربية والإنجليزية.
  */
 export function matchesOrderedSegments(haystack: string, needleRaw: string): boolean {
-  const raw = normalizeName(needleRaw).toLowerCase().trim();
-  if (!raw) return true;
-  const h = normalizeName(haystack).toLowerCase();
-  if (!raw.includes('*')) {
-    const q = raw.replace(/\s+/g, ' ');
-    return h.includes(q);
-  }
-  const segments = raw
-    .split('*')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (segments.length === 0) return true;
-  let idx = 0;
-  for (const seg of segments) {
-    const i = h.indexOf(seg, idx);
-    if (i === -1) return false;
-    idx = i + seg.length;
-  }
-  return true;
+  return matchesAppSearch(haystack, needleRaw);
 }
 
 export function classifyCustomer(avgMonthly: number): { label: string; color: string; bg: string } {
