@@ -1,16 +1,18 @@
 /**
- * staffIdentityResolver.ts
- * Resolves staff profiles from seller/doctor names.
- * Supports both sync (staffDirectory) and async (Supabase) lookups.
+ * Canonical staff identity resolver.
+ *
+ * Safety rules:
+ * 1) staff_id / account id are authoritative.
+ * 2) username is the second-best identifier.
+ * 3) name-only matching is accepted only when it produces one unambiguous result.
+ * 4) branch is used as a disambiguation hint.
+ * 5) no broad aliases are allowed (especially Islam El-Sabaa vs Dr Islam Farouk).
  */
 
 import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
-import { normalizeRole } from '@/lib/core/permissionSystem';
 import { normalizeArabicName } from '@/lib/security/userDataScope';
 import { resolveStaffAccountSafe } from '@/lib/staff/staffAccountsApi';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ResolvedStaff {
   id: string;
@@ -20,7 +22,6 @@ export interface ResolvedStaff {
   username?: string | null;
 }
 
-/** Subset of staff row used in the dashboard */
 export interface StaffDirectoryRow {
   id?: string | null;
   staff_id?: string | null;
@@ -54,57 +55,11 @@ export interface CanonicalStaffResolution {
 }
 
 export interface StaffLinkResult {
-  /** Route string — use with navigate() */
   route: string;
-  /** Alias for route — use in href */
   href: string;
-  /** True when we couldn't find an exact match */
   fallback: boolean;
-  /** Alias for fallback */
   isFallback: boolean;
-  /** Toast message to show when fallback=true */
   toastMessage?: string;
-}
-
-// ─── Name normalization ───────────────────────────────────────────────────────
-
-/**
- * Strips Arabic diacritics, doctor prefixes, and lowercases for fuzzy matching.
- */
-export function normalizeStaffName(name: string | null | undefined): string {
-  if (!name) return '';
-  return normalizeArabicName(String(name).trim());
-}
-
-/** Normalized doctor name key (without د/ prefix) for grouping and deduplication. */
-export function normalizeDoctorName(value: unknown): string {
-  const normalized = normalizeStaffName(String(value ?? ''));
-  if (!normalized) return '';
-  return normalized;
-}
-
-const PHARMACIST_ROLE_PATTERN = /صيدلاني|pharmacist|دكتور|doctor/i;
-
-function isStaffRowActive(row: StaffDirectoryRow): boolean {
-  if (row.active === false || row.is_active === false) return false;
-  const status = String(row.status ?? '').trim();
-  if (status && !['active', 'نشط', ''].includes(status)) return false;
-  return true;
-}
-
-function isPrimaryPharmacistRow(row: StaffDirectoryRow): boolean {
-  if (!isStaffRowActive(row)) return false;
-  const role = String(row.role ?? '').trim();
-  if (!role) return true;
-  return PHARMACIST_ROLE_PATTERN.test(role);
-}
-
-function staffRowId(row: StaffDirectoryRow): string {
-  return String(row.staff_id || row.id || '').trim();
-}
-
-function staffRowDisplayName(row: StaffDirectoryRow): string {
-  return String(row.name || row.staff_name || row.username || '').trim();
 }
 
 export interface StaffIdentityMapEntry {
@@ -119,83 +74,143 @@ export interface StaffIdentityMapEntry {
 
 export type StaffIdentityMap = Map<string, StaffIdentityMapEntry>;
 
-const DOCTOR_ALIAS_GROUPS: string[][] = [
-  ['eslam', 'islam', 'اسلام', 'اسلام فاروق', 'د اسلام', 'د/ اسلام'],
-];
+const PHARMACIST_ROLE_PATTERN = /صيدلاني|pharmacist|دكتور|doctor/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function expandDoctorAliasKeys(normalized: string): string[] {
-  const keys = new Set<string>([normalized]);
-  for (const group of DOCTOR_ALIAS_GROUPS) {
-    const normalizedGroup = group.map((item) => normalizeDoctorName(item)).filter(Boolean);
-    if (normalizedGroup.includes(normalized)) {
-      normalizedGroup.forEach((item) => keys.add(item));
-    }
-  }
-  return [...keys];
+export function normalizeStaffName(name: string | null | undefined): string {
+  if (!name) return '';
+  return normalizeArabicName(String(name).trim());
 }
 
-/** Build a lookup map from staff_id and normalized names to the primary pharmacist account. */
+export function normalizeDoctorName(value: unknown): string {
+  return normalizeStaffName(String(value ?? ''));
+}
+
+function normalizeIdentifier(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function normalizedBranch(value: unknown): string {
+  const raw = normalizeIdentifier(value);
+  return normalizeBranchName(raw) || raw;
+}
+
+function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
+
+function isStaffRowActive(row: StaffDirectoryRow): boolean {
+  if (row.active === false || row.is_active === false) return false;
+  const status = normalizeIdentifier(row.status);
+  return !status || status === 'active' || status === 'نشط';
+}
+
+function isPrimaryPharmacistRow(row: StaffDirectoryRow): boolean {
+  if (!isStaffRowActive(row)) return false;
+  const role = normalizeIdentifier(row.role);
+  return !role || PHARMACIST_ROLE_PATTERN.test(role);
+}
+
+function staffRowId(row: StaffDirectoryRow): string {
+  return normalizeIdentifier(row.staff_id || row.id);
+}
+
+function staffRowDisplayName(row: StaffDirectoryRow): string {
+  return normalizeIdentifier(row.name || row.staff_name || row.username);
+}
+
+function makeEntry(row: StaffDirectoryRow): StaffIdentityMapEntry | null {
+  const staffId = staffRowId(row);
+  if (!staffId) return null;
+  const displayName = staffRowDisplayName(row);
+  return {
+    staffId,
+    displayName,
+    normalizedName: normalizeDoctorName(displayName),
+    branch: normalizedBranch(row.branch),
+    username: normalizeIdentifier(row.username),
+    role: normalizeIdentifier(row.role),
+    isPrimary: isPrimaryPharmacistRow(row),
+  };
+}
+
+function uniqueByStaffId(rows: StaffDirectoryRow[]): StaffDirectoryRow[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const id = staffRowId(row);
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function exactNameCandidates(name: string, rows: StaffDirectoryRow[]): StaffDirectoryRow[] {
+  const normalized = normalizeDoctorName(name);
+  if (!normalized) return [];
+  return uniqueByStaffId(
+    rows.filter(
+      (row) =>
+        isStaffRowActive(row) &&
+        normalizeDoctorName(staffRowDisplayName(row)) === normalized
+    )
+  );
+}
+
+function applyBranchHint(rows: StaffDirectoryRow[], branchHint: unknown): StaffDirectoryRow[] {
+  const branch = normalizedBranch(branchHint);
+  if (!branch) return rows;
+  const matches = rows.filter((row) => normalizedBranch(row.branch) === branch);
+  return matches.length ? matches : rows;
+}
+
+function resolveUniqueName(
+  name: string,
+  rows: StaffDirectoryRow[],
+  branchHint?: unknown
+): StaffDirectoryRow | null {
+  const candidates = applyBranchHint(exactNameCandidates(name, rows), branchHint);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 export function buildStaffIdentityMap(staffRows: StaffDirectoryRow[]): StaffIdentityMap {
-  const primaryRows = staffRows.filter(isPrimaryPharmacistRow);
-  const byNormalized = new Map<string, StaffDirectoryRow[]>();
-
-  for (const row of primaryRows) {
-    const normalized = normalizeDoctorName(staffRowDisplayName(row));
-    if (!normalized) continue;
-    const bucket = byNormalized.get(normalized) || [];
-    bucket.push(row);
-    byNormalized.set(normalized, bucket);
-  }
-
-  function pickPrimary(candidates: StaffDirectoryRow[]): StaffDirectoryRow | null {
-    if (!candidates.length) return null;
-    const active = candidates.filter(isStaffRowActive);
-    const pool = active.length ? active : candidates;
-    const pharmacist = pool.find((row) => PHARMACIST_ROLE_PATTERN.test(String(row.role ?? '')));
-    return pharmacist || pool[0];
-  }
-
   const map: StaffIdentityMap = new Map();
+  const activeRows = staffRows.filter(isStaffRowActive);
 
-  for (const [normalized, candidates] of byNormalized.entries()) {
-    const primary = pickPrimary(candidates);
-    if (!primary) continue;
-    const staffId = staffRowId(primary);
-    if (!staffId) continue;
-    const entry: StaffIdentityMapEntry = {
-      staffId,
-      displayName: staffRowDisplayName(primary),
-      normalizedName: normalized,
-      branch: normalizeBranchName(primary.branch || '') || String(primary.branch || '').trim(),
-      username: String(primary.username || '').trim(),
-      role: String(primary.role || '').trim(),
-      isPrimary: true,
-    };
-    map.set(`id:${staffId}`, entry);
-    expandDoctorAliasKeys(normalized).forEach((key) => map.set(`name:${key}`, entry));
-    if (entry.username) map.set(`username:${entry.username.toLowerCase()}`, entry);
+  for (const row of activeRows) {
+    const entry = makeEntry(row);
+    if (!entry) continue;
+
+    map.set(`id:${entry.staffId}`, entry);
+    if (entry.username) {
+      map.set(`username:${entry.username.toLowerCase()}`, entry);
+    }
+  }
+
+  const names = new Map<string, StaffDirectoryRow[]>();
+  for (const row of activeRows) {
+    const key = normalizeDoctorName(staffRowDisplayName(row));
+    if (!key) continue;
+    names.set(key, [...(names.get(key) || []), row]);
+  }
+
+  for (const [name, candidates] of names) {
+    const unique = uniqueByStaffId(candidates);
+    if (unique.length !== 1) continue;
+    const entry = makeEntry(unique[0]);
+    if (entry) map.set(`name:${name}`, entry);
   }
 
   return map;
 }
 
-function readRowId(row: Record<string, unknown>, keys: string[]): string {
+function readRowValue(row: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
-    const value = String(row[key] ?? '').trim();
+    const value = normalizeIdentifier(row[key]);
     if (value) return value;
   }
   return '';
 }
 
-function readRowName(row: Record<string, unknown>, keys: string[]): string {
-  for (const key of keys) {
-    const value = String(row[key] ?? '').trim();
-    if (value) return value;
-  }
-  return '';
-}
-
-/** Resolve a review/invoice row to one primary staff member. */
 export function resolvePrimaryStaffForDoctor(
   row: Record<string, unknown>,
   staffRows: StaffDirectoryRow[],
@@ -203,7 +218,7 @@ export function resolvePrimaryStaffForDoctor(
 ): StaffIdentityMapEntry | null {
   const map = identityMap || buildStaffIdentityMap(staffRows);
 
-  const staffId = readRowId(row, [
+  const staffId = readRowValue(row, [
     'staff_id',
     'reviewed_staff_id',
     'employee_id',
@@ -211,30 +226,26 @@ export function resolvePrimaryStaffForDoctor(
     'seller_id',
     'responsible_staff_id',
   ]);
+
   if (staffId) {
     const byId = map.get(`id:${staffId}`);
     if (byId) return byId;
     const direct = staffRows.find((item) => staffRowId(item) === staffId);
-    if (direct) {
-      return {
-        staffId,
-        displayName: staffRowDisplayName(direct),
-        normalizedName: normalizeDoctorName(staffRowDisplayName(direct)),
-        branch: normalizeBranchName(direct.branch || '') || String(direct.branch || '').trim(),
-        username: String(direct.username || '').trim(),
-        role: String(direct.role || '').trim(),
-        isPrimary: isPrimaryPharmacistRow(direct),
-      };
-    }
+    return direct ? makeEntry(direct) : null;
   }
 
-  const username = readRowName(row, ['username', 'staff_username', 'reviewed_username']).toLowerCase();
+  const username = readRowValue(row, [
+    'username',
+    'staff_username',
+    'reviewed_username',
+  ]).toLowerCase();
+
   if (username) {
     const byUsername = map.get(`username:${username}`);
     if (byUsername) return byUsername;
   }
 
-  const rawName = readRowName(row, [
+  const rawName = readRowValue(row, [
     'doctor_name',
     'staff_name',
     'employee_name',
@@ -244,25 +255,22 @@ export function resolvePrimaryStaffForDoctor(
     'responsible_doctor_name',
     'responsible_doctor',
   ]);
-  const normalized = normalizeDoctorName(rawName);
-  if (!normalized) return null;
+  if (!rawName) return null;
 
-  for (const key of expandDoctorAliasKeys(normalized)) {
-    const byName = map.get(`name:${key}`);
-    if (byName) return byName;
-  }
-
-  return null;
+  const branchHint = readRowValue(row, ['branch', 'branch_name', 'staff_branch']);
+  const unique = resolveUniqueName(rawName, staffRows, branchHint);
+  return unique ? makeEntry(unique) : null;
 }
 
 export function dedupeStaffRows<T extends StaffDirectoryRow>(rows: T[]): T[] {
-  const identityMap = buildStaffIdentityMap(rows);
   const seen = new Set<string>();
   const result: T[] = [];
 
   for (const row of rows) {
-    const resolved = resolvePrimaryStaffForDoctor(row as Record<string, unknown>, rows, identityMap);
-    const key = resolved?.staffId || `name:${normalizeDoctorName(staffRowDisplayName(row))}`;
+    const id = staffRowId(row);
+    const username = normalizeIdentifier(row.username).toLowerCase();
+    const fallback = `${normalizeDoctorName(staffRowDisplayName(row))}|${normalizedBranch(row.branch)}|${normalizeIdentifier(row.role)}`;
+    const key = id ? `id:${id}` : username ? `username:${username}` : `row:${fallback}`;
     if (!key || seen.has(key)) continue;
     seen.add(key);
     result.push(row);
@@ -271,65 +279,40 @@ export function dedupeStaffRows<T extends StaffDirectoryRow>(rows: T[]): T[] {
   return result;
 }
 
-// ─── Sync resolver (uses preloaded staffDirectory) ───────────────────────────
-
-function getRouteIdentifier(row: StaffDirectoryRow): string | null {
-  return (row.staff_id || row.id || row.username || null) as string | null;
-}
-
-function getStaffNameStr(row: StaffDirectoryRow): string {
-  return String(row.name || row.staff_name || '').trim();
-}
-
 function matchStaffInDirectory(
-  name: string,
-  staffDirectory: StaffDirectoryRow[]
-): StaffDirectoryRow | undefined {
-  const norm = normalizeStaffName(name);
-  if (!norm) return undefined;
+  identifier: string,
+  staffDirectory: StaffDirectoryRow[],
+  branchHint?: unknown
+): StaffDirectoryRow | null {
+  const value = normalizeIdentifier(identifier);
+  if (!value) return null;
 
-  // 1. Exact match
-  const exact = staffDirectory.find((s) => normalizeStaffName(getStaffNameStr(s)) === norm);
-  if (exact) return exact;
-
-  // 2. Substring match (either side)
-  const sub = staffDirectory.find(
-    (s) =>
-      normalizeStaffName(getStaffNameStr(s)).includes(norm) ||
-      norm.includes(normalizeStaffName(getStaffNameStr(s)))
+  const byId = staffDirectory.filter(
+    (row) => isStaffRowActive(row) && (staffRowId(row) === value || normalizeIdentifier(row.id) === value)
   );
-  if (sub) return sub;
+  if (byId.length === 1) return byId[0];
 
-  // 3. First-word prefix match (≥3 chars)
-  const first = norm.split(' ')[0];
-  if (first.length >= 3) {
-    return staffDirectory.find((s) => normalizeStaffName(getStaffNameStr(s)).startsWith(first));
-  }
+  const byUsername = staffDirectory.filter(
+    (row) =>
+      isStaffRowActive(row) &&
+      normalizeIdentifier(row.username).toLowerCase() === value.toLowerCase()
+  );
+  if (byUsername.length === 1) return byUsername[0];
 
-  return undefined;
+  return resolveUniqueName(value, staffDirectory, branchHint);
 }
 
-/**
- * Primary resolver — used in the dashboard where staffDirectory is already loaded.
- *
- * Usage (dashboard):
- *   resolveStaffLink(sellerName, branch, state.staffDirectory).route
- *
- * Usage (simple):
- *   resolveStaffLink(staffId, fallbackName)
- */
 export function resolveStaffLink(
   nameOrId: unknown,
   branchOrFallback?: unknown,
   staffDirectory?: StaffDirectoryRow[]
 ): StaffLinkResult {
-  const name = String(nameOrId || '').trim();
+  const value = normalizeIdentifier(nameOrId);
 
-  // Fast path: if staffDirectory is provided, search it synchronously
-  if (staffDirectory && staffDirectory.length > 0 && name) {
-    const match = matchStaffInDirectory(name, staffDirectory);
+  if (staffDirectory?.length && value) {
+    const match = matchStaffInDirectory(value, staffDirectory, branchOrFallback);
     if (match) {
-      const id = getRouteIdentifier(match);
+      const id = staffRowId(match) || normalizeIdentifier(match.id) || normalizeIdentifier(match.username);
       if (id) {
         const route = `/staff/${encodeURIComponent(id)}`;
         return { route, href: route, fallback: false, isFallback: false };
@@ -337,51 +320,33 @@ export function resolveStaffLink(
     }
   }
 
-  // Fallback: open team search
-  if (name) {
-    const encoded = encodeURIComponent(name);
-    const route = `/team?search=${encoded}`;
-    return {
-      route,
-      href: route,
-      fallback: true,
-      isFallback: true,
-      toastMessage: 'لم يتم العثور على الملف الشخصي بدقة، تم فتح بحث الفريق بدلاً منه.',
-    };
-  }
-
-  return { route: '/team', href: '/team', fallback: true, isFallback: true };
-}
-
-function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-    value
-  );
-}
-
-function normalizeLooseIdentifier(value: unknown) {
-  return String(value ?? '').trim();
+  const route = value ? `/team?search=${encodeURIComponent(value)}` : '/team';
+  return {
+    route,
+    href: route,
+    fallback: true,
+    isFallback: true,
+    toastMessage: value
+      ? 'تعذر تحديد الموظف بشكل فريد، تم فتح بحث الفريق بدلًا منه.'
+      : undefined,
+  };
 }
 
 function staffFromRow(row: Record<string, unknown> | null | undefined): ResolvedStaff | null {
   if (!row) return null;
-  const id = normalizeLooseIdentifier(row.id || row.staff_id);
+  const id = normalizeIdentifier(row.id || row.staff_id);
   if (!id) return null;
   return {
     id,
-    name: normalizeLooseIdentifier(row.name || row.staff_name || row.username || 'غير محدد'),
+    name: normalizeIdentifier(row.name || row.staff_name || row.username || 'غير محدد'),
     role: (row.role as string | null | undefined) || null,
     branch: (row.branch as string | null | undefined) || null,
     username: (row.username as string | null | undefined) || null,
   };
 }
 
-function accountName(account: CanonicalStaffResolution['account']) {
-  return normalizeLooseIdentifier(account?.name || account?.staff_name || account?.username);
-}
-
 async function fetchStaffById(staffId: string): Promise<ResolvedStaff | null> {
-  if (!staffId || !isUuid(staffId)) return null;
+  if (!isUuid(staffId)) return null;
   const { data, error } = await supabase
     .from('staff')
     .select('id,name,staff_name,username,role,branch,active,is_active,status')
@@ -391,117 +356,107 @@ async function fetchStaffById(staffId: string): Promise<ResolvedStaff | null> {
   return staffFromRow(data as Record<string, unknown> | null);
 }
 
-async function fetchStaffByNameOrUsername(identifier: string): Promise<ResolvedStaff | null> {
-  const value = normalizeLooseIdentifier(identifier);
+async function fetchUniqueStaffByNameOrUsername(
+  identifier: string,
+  branchHint?: unknown
+): Promise<ResolvedStaff | null> {
+  const value = normalizeIdentifier(identifier);
   if (!value) return null;
 
-  const { data: byUsername } = await supabase
-    .from('staff')
-    .select('id,name,staff_name,username,role,branch,active,is_active,status')
-    .eq('username', value)
-    .limit(1);
-  const usernameMatch = staffFromRow((byUsername || [])[0] as Record<string, unknown> | undefined);
-  if (usernameMatch) return usernameMatch;
-
-  const normalized = normalizeStaffName(value);
   const { data } = await supabase
     .from('staff')
     .select('id,name,staff_name,username,role,branch,active,is_active,status')
     .limit(500);
-  const rows = (data || []) as Array<Record<string, unknown>>;
-  const exact = rows.find((row) => normalizeStaffName(String(row.name || row.staff_name || '')) === normalized);
-  if (exact) return staffFromRow(exact);
-  const partial = rows.find((row) => {
-    const name = normalizeStaffName(String(row.name || row.staff_name || ''));
-    return name.includes(normalized) || normalized.includes(name);
-  });
-  return staffFromRow(partial);
+
+  const rows = (data || []) as StaffDirectoryRow[];
+  const byUsername = rows.filter(
+    (row) =>
+      isStaffRowActive(row) &&
+      normalizeIdentifier(row.username).toLowerCase() === value.toLowerCase()
+  );
+  if (byUsername.length === 1) return staffFromRow(byUsername[0] as Record<string, unknown>);
+
+  const match = resolveUniqueName(value, rows, branchHint);
+  return match ? staffFromRow(match as Record<string, unknown>) : null;
 }
 
 async function fetchAccount(identifier: string) {
-  const value = normalizeLooseIdentifier(identifier);
+  const value = normalizeIdentifier(identifier);
   if (!value) return null;
 
   const accounts = await resolveStaffAccountSafe(value);
-  if (isUuid(value)) {
-    const byAccountId = accounts.find((account) => account.id === value);
-    if (byAccountId) return byAccountId as CanonicalStaffResolution['account'];
+  const exact = accounts.filter((account) => {
+    if (account.active === false || account.can_login === false) return false;
+    return (
+      account.id === value ||
+      account.staff_id === value ||
+      normalizeIdentifier(account.username).toLowerCase() === value.toLowerCase() ||
+      normalizeStaffName(account.name || account.staff_name) === normalizeStaffName(value)
+    );
+  });
 
-    const byStaffId = accounts.find((account) => account.staff_id === value && account.active !== false);
-    if (byStaffId) return byStaffId as CanonicalStaffResolution['account'];
-  }
-
-  const byUsername = accounts.find((account) => account.username === value);
-  if (byUsername) return byUsername as CanonicalStaffResolution['account'];
-
-  const normalized = normalizeStaffName(value);
-  return (
-    (accounts as Array<NonNullable<CanonicalStaffResolution['account']>>).find(
-      (account) => normalizeStaffName(accountName(account)) === normalized
-    ) || null
-  );
+  return exact.length === 1
+    ? (exact[0] as CanonicalStaffResolution['account'])
+    : null;
 }
 
 export async function resolveCanonicalStaffIdentifier(
   identifier: unknown
 ): Promise<CanonicalStaffResolution> {
-  const input = normalizeLooseIdentifier(identifier);
-  const unresolved = (routeIdentifier = input || ''): CanonicalStaffResolution => ({
+  const input = normalizeIdentifier(identifier);
+  const unresolved = (): CanonicalStaffResolution => ({
     input,
     canonicalStaffId: null,
-    routeIdentifier,
+    routeIdentifier: input,
     staff: null,
     account: null,
     source: 'unresolved',
   });
 
-  if (!input) return unresolved('');
+  if (!input) return unresolved();
 
   const directStaff = await fetchStaffById(input);
   if (directStaff) {
-    const account = await fetchAccount(directStaff.id);
     return {
       input,
       canonicalStaffId: directStaff.id,
       routeIdentifier: directStaff.id,
       staff: directStaff,
-      account,
+      account: await fetchAccount(directStaff.id),
       source: 'staff.id',
     };
   }
 
   const account = await fetchAccount(input);
   if (account) {
-    const staffByAccount = account.staff_id ? await fetchStaffById(account.staff_id) : null;
-    const fallbackStaff =
-      staffByAccount ||
-      (account.username ? await fetchStaffByNameOrUsername(account.username) : null) ||
-      (accountName(account) ? await fetchStaffByNameOrUsername(accountName(account)) : null);
-    const canonicalStaffId = fallbackStaff?.id || account.staff_id || null;
+    const linkedStaff = account.staff_id ? await fetchStaffById(account.staff_id) : null;
     return {
       input,
-      canonicalStaffId,
-      routeIdentifier: canonicalStaffId || account.username || account.id,
-      staff: fallbackStaff,
+      canonicalStaffId: linkedStaff?.id || account.staff_id || null,
+      routeIdentifier: linkedStaff?.id || account.staff_id || account.username || account.id,
+      staff: linkedStaff,
       account,
-      source: account.staff_id ? 'staff_accounts.staff_id' : input === account.id ? 'staff_accounts.id' : 'username',
+      source: account.staff_id
+        ? 'staff_accounts.staff_id'
+        : input === account.id
+          ? 'staff_accounts.id'
+          : 'username',
     };
   }
 
-  const staffByName = await fetchStaffByNameOrUsername(input);
-  if (staffByName) {
-    const matchedAccount = await fetchAccount(staffByName.id);
+  const uniqueStaff = await fetchUniqueStaffByNameOrUsername(input);
+  if (uniqueStaff) {
     return {
       input,
-      canonicalStaffId: staffByName.id,
-      routeIdentifier: staffByName.id,
-      staff: staffByName,
-      account: matchedAccount,
-      source: isUuid(input) ? 'staff.id' : 'name',
+      canonicalStaffId: uniqueStaff.id,
+      routeIdentifier: uniqueStaff.id,
+      staff: uniqueStaff,
+      account: await fetchAccount(uniqueStaff.id),
+      source: 'name',
     };
   }
 
-  return unresolved(input);
+  return unresolved();
 }
 
 export function staffProfilePath(row: {
@@ -512,85 +467,62 @@ export function staffProfilePath(row: {
   staff_name?: unknown;
 }) {
   const identifier =
-    normalizeLooseIdentifier(row.staff_id) ||
-    normalizeLooseIdentifier(row.id) ||
-    normalizeLooseIdentifier(row.username) ||
-    normalizeLooseIdentifier(row.name) ||
-    normalizeLooseIdentifier(row.staff_name);
+    normalizeIdentifier(row.staff_id) ||
+    normalizeIdentifier(row.id) ||
+    normalizeIdentifier(row.username) ||
+    normalizeIdentifier(row.name) ||
+    normalizeIdentifier(row.staff_name);
   return identifier ? `/staff/${encodeURIComponent(identifier)}` : '/team';
 }
 
-// ─── Async resolver (Supabase lookup) ────────────────────────────────────────
-
 const staffCache = new Map<string, ResolvedStaff | null>();
-let allStaff: ResolvedStaff[] = [];
+let allStaff: StaffDirectoryRow[] = [];
 let loaded = false;
 
 async function ensureLoaded(): Promise<void> {
   if (loaded) return;
   const { data } = await supabase
     .from('staff')
-    .select('id, name, role, branch')
-    .eq('active', true)
+    .select('id,name,staff_name,username,role,branch,active,is_active,status')
     .limit(500);
-  allStaff = (data ?? []) as ResolvedStaff[];
+  allStaff = (data || []) as StaffDirectoryRow[];
   loaded = true;
 }
 
-/**
- * Async resolver — looks up Supabase when no staffDirectory is available.
- * Caches results in memory.
- */
 export async function resolveStaffBySellerName(
   sellerName: string | null | undefined
 ): Promise<ResolvedStaff | null> {
-  if (!sellerName) return null;
+  const value = normalizeIdentifier(sellerName);
+  if (!value) return null;
 
-  const key = normalizeStaffName(sellerName);
+  const key = normalizeStaffName(value);
   if (staffCache.has(key)) return staffCache.get(key) ?? null;
 
   await ensureLoaded();
-  const norm = normalizeStaffName(sellerName);
-
-  let match =
-    allStaff.find((s) => normalizeStaffName(s.name) === norm) ??
-    allStaff.find(
-      (s) => normalizeStaffName(s.name).includes(norm) || norm.includes(normalizeStaffName(s.name))
-    );
-
-  if (!match) {
-    const first = norm.split(' ')[0];
-    if (first.length >= 3) {
-      match = allStaff.find((s) => normalizeStaffName(s.name).startsWith(first));
-    }
-  }
-
-  staffCache.set(key, match ?? null);
-  return match ?? null;
+  const match = resolveUniqueName(value, allStaff);
+  const resolved = match ? staffFromRow(match as Record<string, unknown>) : null;
+  staffCache.set(key, resolved);
+  return resolved;
 }
 
-/**
- * Full async resolution with toast message.
- * Use when clicking a name in a table that does NOT have the staff directory preloaded.
- */
 export async function getStaffNavigationTarget(sellerName: string): Promise<StaffLinkResult> {
   const staff = await resolveStaffBySellerName(sellerName);
   if (staff) {
-    const route = `/staff/${staff.id}`;
+    const route = `/staff/${encodeURIComponent(staff.id)}`;
     return { route, href: route, fallback: false, isFallback: false };
   }
-  const encoded = encodeURIComponent(sellerName.trim());
-  const route = `/team?search=${encoded}`;
+
+  const value = normalizeIdentifier(sellerName);
+  const route = value ? `/team?search=${encodeURIComponent(value)}` : '/team';
   return {
     route,
     href: route,
     fallback: true,
     isFallback: true,
-    toastMessage: 'لم يتم العثور على الملف الشخصي بدقة، تم فتح بحث الفريق بدلاً منه.',
+    toastMessage: 'تعذر تحديد الموظف بشكل فريد، تم فتح بحث الفريق بدلًا منه.',
   };
 }
 
-/** Clears the async cache — call after staff mutations. */
 export function clearStaffCache(): void {
   staffCache.clear();
   allStaff = [];
