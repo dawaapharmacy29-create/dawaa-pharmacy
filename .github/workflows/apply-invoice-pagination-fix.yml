@@ -1,0 +1,263 @@
+name: Apply invoice pagination fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-invoice-pagination-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply pagination fix
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('src/lib/invoiceImporter.ts')
+          text = path.read_text(encoding='utf-8')
+
+          old_interface = """  databaseByBranch?: Array<{ branch: string; count: number; total: number }>;
+  postSaveVerificationRows?: Array<{"""
+          new_interface = """  databaseByBranch?: Array<{ branch: string; count: number; total: number }>;
+  verificationComplete?: boolean;
+  verificationFetchedCount?: number;
+  verificationPagesCount?: number;
+  verificationPageSize?: number;
+  verificationError?: string | null;
+  postSaveVerificationRows?: Array<{"""
+          if old_interface not in text:
+              raise SystemExit('ImportSummary insertion point not found')
+          text = text.replace(old_interface, new_interface, 1)
+
+          old_empty = """    databaseByBranch: [] as Array<{ branch: string; count: number; total: number }>,
+    databaseInvoiceKeys: [] as string[],
+    comparison: [] as NonNullable<ImportSummary['dayDatabaseComparison']>,"""
+          new_empty = """    databaseByBranch: [] as Array<{ branch: string; count: number; total: number }>,
+    databaseInvoiceKeys: [] as string[],
+    verificationComplete: false,
+    verificationFetchedCount: 0,
+    verificationPagesCount: 0,
+    verificationPageSize: 500,
+    verificationError: null as string | null,
+    comparison: [] as NonNullable<ImportSummary['dayDatabaseComparison']>,"""
+          if old_empty not in text:
+              raise SystemExit('empty comparison insertion point not found')
+          text = text.replace(old_empty, new_empty, 1)
+
+          old_query = """  const { data, error } = await supabase
+    .from('sales_invoices')
+    .select(selectColumns)
+    .gte('invoice_date', startDate)
+    .lt('invoice_date', queryEndExclusive)
+    .limit(100000);
+
+  if (error)
+    return {
+      ...empty,
+      databaseComparisonQuery: {
+        table: 'sales_invoices',
+        dateColumn: 'invoice_date',
+        gte: queryStart,
+        lt: queryEndExclusive,
+        fileMinDate: queryStart,
+        fileMaxDate: queryEnd,
+        select: selectColumns,
+        error: error.message || String(error),
+        startDate: queryStart,
+        endDate: queryEnd,
+        endExclusive: queryEndExclusive,
+      },
+    };
+"""
+          new_query = """  const verificationPageSize = 500;
+  const maxVerificationPages = 1000;
+  const data: Array<Record<string, unknown>> = [];
+  let verificationPagesCount = 0;
+  let verificationError: string | null = null;
+
+  for (let page = 0; page < maxVerificationPages; page += 1) {
+    const from = page * verificationPageSize;
+    const to = from + verificationPageSize - 1;
+    const response = await supabase
+      .from('sales_invoices')
+      .select(selectColumns)
+      .gte('invoice_date', startDate)
+      .lt('invoice_date', queryEndExclusive)
+      .order('invoice_date', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to);
+
+    verificationPagesCount += 1;
+    if (response.error) {
+      verificationError = response.error.message || String(response.error);
+      break;
+    }
+
+    const pageRows = (response.data || []) as Array<Record<string, unknown>>;
+    data.push(...pageRows);
+    if (pageRows.length < verificationPageSize) break;
+
+    if (page === maxVerificationPages - 1) {
+      verificationError = `توقف التحقق بعد ${maxVerificationPages} صفحة لحماية التطبيق من حلقة غير منتهية.`;
+    }
+  }
+
+  if (verificationError)
+    return {
+      ...empty,
+      verificationFetchedCount: data.length,
+      verificationPagesCount,
+      verificationPageSize,
+      verificationError,
+      databaseComparisonQuery: {
+        table: 'sales_invoices',
+        dateColumn: 'invoice_date',
+        gte: queryStart,
+        lt: queryEndExclusive,
+        fileMinDate: queryStart,
+        fileMaxDate: queryEnd,
+        select: selectColumns,
+        error: verificationError,
+        startDate: queryStart,
+        endDate: queryEnd,
+        endExclusive: queryEndExclusive,
+      },
+    };
+"""
+          if old_query not in text:
+              raise SystemExit('single-query verification block not found')
+          text = text.replace(old_query, new_query, 1)
+
+          old_return = """    databaseInvoiceKeys: [...databaseInvoiceKeys],
+    databaseComparisonQuery: {"""
+          new_return = """    databaseInvoiceKeys: [...databaseInvoiceKeys],
+    verificationComplete: true,
+    verificationFetchedCount: data.length,
+    verificationPagesCount,
+    verificationPageSize,
+    verificationError: null,
+    databaseComparisonQuery: {"""
+          if old_return not in text:
+              raise SystemExit('comparison return insertion point not found')
+          text = text.replace(old_return, new_return, 1)
+
+          old_summary_init = """    databaseByBranch: [],
+    postSaveVerificationRows: [],"""
+          new_summary_init = """    databaseByBranch: [],
+    verificationComplete: false,
+    verificationFetchedCount: 0,
+    verificationPagesCount: 0,
+    verificationPageSize: 500,
+    verificationError: null,
+    postSaveVerificationRows: [],"""
+          if old_summary_init not in text:
+              raise SystemExit('summary initialization point not found')
+          text = text.replace(old_summary_init, new_summary_init, 1)
+
+          old_assign = """  summary.databaseByBranch = databaseComparison.databaseByBranch;
+  summary.dayDatabaseComparison = databaseComparison.comparison;
+  summary.databaseComparisonQuery = databaseComparison.databaseComparisonQuery;
+  const verifiedInvoiceKeys = new Set(databaseComparison.databaseInvoiceKeys || []);
+  for (const trace of traceMap.values()) {
+    if (!trace.saveSucceeded) continue;
+    const verificationKey = invoiceDuplicateKey(trace.invoice_number, trace.branch, trace.parsed_date);
+    const postSaveFound = verifiedInvoiceKeys.has(verificationKey);
+    markTrace(traceMap, String(trace.rowNumber), {
+      postSaveFound,
+      postImportStatus: postSaveFound ? 'found_after_verification' : 'saved_but_not_found_after_verification',
+      finalStatus: postSaveFound ? trace.finalStatus || 'saved' : 'saved_but_not_found_after_verification',
+      skipReason: postSaveFound ? trace.skipReason : trace.skipReason || 'saved_but_not_found_after_verification',
+    });
+  }
+  summary.missingDaysInDatabase = summary.dayDatabaseComparison
+"""
+          new_assign = """  summary.databaseByBranch = databaseComparison.databaseByBranch;
+  summary.dayDatabaseComparison = databaseComparison.comparison;
+  summary.databaseComparisonQuery = databaseComparison.databaseComparisonQuery;
+  summary.verificationComplete = databaseComparison.verificationComplete;
+  summary.verificationFetchedCount = databaseComparison.verificationFetchedCount;
+  summary.verificationPagesCount = databaseComparison.verificationPagesCount;
+  summary.verificationPageSize = databaseComparison.verificationPageSize;
+  summary.verificationError = databaseComparison.verificationError;
+
+  if (databaseComparison.verificationComplete) {
+    const verifiedInvoiceKeys = new Set(databaseComparison.databaseInvoiceKeys || []);
+    for (const trace of traceMap.values()) {
+      if (!trace.saveSucceeded) continue;
+      const verificationKey = invoiceDuplicateKey(trace.invoice_number, trace.branch, trace.parsed_date);
+      const postSaveFound = verifiedInvoiceKeys.has(verificationKey);
+      markTrace(traceMap, String(trace.rowNumber), {
+        postSaveFound,
+        postImportStatus: postSaveFound ? 'found_after_verification' : 'saved_but_not_found_after_verification',
+        finalStatus: postSaveFound ? trace.finalStatus || 'saved' : 'saved_but_not_found_after_verification',
+        skipReason: postSaveFound ? trace.skipReason : trace.skipReason || 'saved_but_not_found_after_verification',
+      });
+    }
+  } else {
+    for (const trace of traceMap.values()) {
+      if (!trace.saveSucceeded) continue;
+      markTrace(traceMap, String(trace.rowNumber), {
+        postSaveFound: false,
+        postImportStatus: 'verification_incomplete_due_to_query_error',
+        finalStatus: trace.finalStatus || 'saved',
+      });
+    }
+    summary.schemaWarnings?.push(
+      `تعذر إكمال التحقق بعد الحفظ${databaseComparison.verificationError ? `: ${databaseComparison.verificationError}` : ''}. لم يتم اعتبار أي فاتورة مفقودة.`
+    );
+  }
+  summary.missingDaysInDatabase = databaseComparison.verificationComplete
+    ? summary.dayDatabaseComparison
+"""
+          if old_assign not in text:
+              raise SystemExit('post-save verification block not found')
+          text = text.replace(old_assign, new_assign, 1)
+
+          old_missing_tail = """    .filter((row) => row.status === 'missing_in_database')
+    .map((row) => ({ date: row.date, count: row.fileCount, total: row.fileTotal }));"""
+          new_missing_tail = """        .filter((row) => row.status === 'missing_in_database')
+        .map((row) => ({ date: row.date, count: row.fileCount, total: row.fileTotal }))
+    : [];"""
+          if old_missing_tail not in text:
+              raise SystemExit('missing day calculation block not found')
+          text = text.replace(old_missing_tail, new_missing_tail, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Invoice importer tests
+        run: npx vitest run src/lib/__tests__/invoiceImporter.test.ts
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/invoiceImporter.ts
+          git diff --cached --quiet && exit 0
+          git commit -m 'Fix invoice verification pagination'
+          git push origin HEAD:main
