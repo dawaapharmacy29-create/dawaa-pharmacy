@@ -1,4 +1,4 @@
-name: Apply customer search and notes fix
+name: Apply full analytics and customer repair
 
 on:
   push:
@@ -21,23 +21,38 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Patch customer search, branch and visible notes
+      - name: Apply customer, search and analytics fixes
         shell: bash
         run: |
           python3 <<'PY'
           from pathlib import Path
 
+          def replace_once(text, old, new, label, required=False):
+              if new in text:
+                  print(f'{label}: already applied')
+                  return text
+              if old not in text:
+                  if required:
+                      raise SystemExit(f'{label}: source block not found')
+                  print(f'{label}: skipped; source block changed')
+                  return text
+              print(f'{label}: applied')
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------
+          # Customer API: wildcard search + visible metadata + master branch
+          # ------------------------------------------------------------
           api = Path('src/lib/api/customers.ts')
           text = api.read_text(encoding='utf-8')
 
-          old = """function normalizeSearchPattern(search: string) {
+          old_search = """function normalizeSearchPattern(search: string) {
   const trimmed = search.replace(/\\s+/g, ' ').trim();
   if (!trimmed) return null;
   const safe = trimmed.replace(/[%,()]/g, '').replace(/\\*/g, '%');
   return safe.includes('%') ? safe : `%${safe}%`;
 }
 """
-          new = """function normalizeArabicSearchText(value: string) {
+          new_search = """function normalizeArabicSearchText(value: string) {
   const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
   return value
     .normalize('NFKC')
@@ -70,11 +85,9 @@ function normalizeSearchPattern(search: string) {
   return wildcardSafe.includes('%') ? wildcardSafe : `%${wildcardSafe}%`;
 }
 """
-          if old not in text:
-            raise SystemExit('normalizeSearchPattern block not found')
-          text = text.replace(old, new, 1)
+          text = replace_once(text, old_search, new_search, 'wildcard search')
 
-          insert_before = "export async function getCustomers(options: GetCustomersOptions = {}) {"
+          marker = "export async function getCustomers(options: GetCustomersOptions = {}) {"
           helper = r'''
 async function hydrateCustomerListMetadata(customers: CustomerMetric[]) {
   const ids = [...new Set(customers.map((customer) => customer.customer_id).filter((id): id is string => Boolean(id && isUuidLike(id))))];
@@ -84,13 +97,15 @@ async function hydrateCustomerListMetadata(customers: CustomerMetric[]) {
   const fields = 'id,customer_code,branch,notes,whatsapp_notes,service_notes,team_notes,handling_notes,customer_flags,address,phone,mobile,whatsapp';
   const rows: Row[] = [];
 
-  if (ids.length) {
-    const { data, error } = await supabase.from('customers').select(fields).in('id', ids.slice(0, 100));
-    if (!error && data) rows.push(...(data as Row[]));
-  }
-  if (codes.length) {
-    const { data, error } = await supabase.from('customers').select(fields).in('customer_code', codes.slice(0, 100));
-    if (!error && data) rows.push(...(data as Row[]));
+  const [byIds, byCodes] = await Promise.allSettled([
+    ids.length ? supabase.from('customers').select(fields).in('id', ids.slice(0, 100)) : Promise.resolve({ data: [], error: null }),
+    codes.length ? supabase.from('customers').select(fields).in('customer_code', codes.slice(0, 100)) : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  for (const result of [byIds, byCodes]) {
+    if (result.status === 'fulfilled' && !result.value.error && result.value.data) {
+      rows.push(...(result.value.data as Row[]));
+    }
   }
 
   const byId = new Map(rows.map((row) => [String(row.id || ''), row]));
@@ -117,9 +132,10 @@ async function hydrateCustomerListMetadata(customers: CustomerMetric[]) {
 }
 
 '''
-          if insert_before not in text:
-            raise SystemExit('getCustomers marker not found')
-          text = text.replace(insert_before, helper + insert_before, 1)
+          if 'async function hydrateCustomerListMetadata' not in text:
+              if marker not in text:
+                  raise SystemExit('customer metadata marker not found')
+              text = text.replace(marker, helper + marker, 1)
 
           old_mapped = """  const mapped = await patchCustomerMetricsFromInvoices(
     ((data ?? []) as Row[]).map(normalizeCustomerMetric)
@@ -129,11 +145,12 @@ async function hydrateCustomerListMetadata(customers: CustomerMetric[]) {
     await patchCustomerMetricsFromInvoices(((data ?? []) as Row[]).map(normalizeCustomerMetric))
   );
 """
-          if old_mapped not in text:
-            raise SystemExit('mapped block not found')
-          text = text.replace(old_mapped, new_mapped, 1)
+          text = replace_once(text, old_mapped, new_mapped, 'customer list metadata')
           api.write_text(text, encoding='utf-8')
 
+          # ------------------------------------------------------------
+          # Customer list chips: show operational notes before opening modal
+          # ------------------------------------------------------------
           display = Path('src/lib/customerDisplay.tsx')
           text = display.read_text(encoding='utf-8')
           old_labels = """    ...labelFromValue(row.classification),
@@ -147,9 +164,7 @@ async function hydrateCustomerListMetadata(customers: CustomerMetric[]) {
     ...labelFromValue(row.customer_notes ?? row.notes),
   ];
 """
-          if old_labels not in text:
-            raise SystemExit('customer display labels marker not found')
-          text = text.replace(old_labels, new_labels, 1)
+          text = replace_once(text, old_labels, new_labels, 'visible customer notes')
 
           old_return = """  return [...new Set(labels.map((label) => label.trim()).filter(Boolean))].slice(0, 8);
 """
@@ -160,19 +175,142 @@ async function hydrateCustomerListMetadata(customers: CustomerMetric[]) {
   const rest = cleaned.filter((label) => !important.includes(label));
   return [...important, ...rest].slice(0, 8);
 """
-          if old_return not in text:
-            raise SystemExit('customer display return marker not found')
-          text = text.replace(old_return, new_return, 1)
+          text = replace_once(text, old_return, new_return, 'customer note priority')
           display.write_text(text, encoding='utf-8')
 
           page = Path('src/pages/Customers.tsx')
           text = page.read_text(encoding='utf-8')
           text = text.replace(
-            "placeholder=\"بحث بالكود، الاسم، الهاتف... مثال: احمد* أو *ا*س*لا*م أو 010*\"",
-            "placeholder=\"بحث مرن بالكود أو الاسم أو الهاتف — استخدم * قبل أو بعد أي جزء، مثال: *احمد* أو 782*\"",
-            1,
+            'placeholder="بحث بالكود، الاسم، الهاتف... مثال: احمد* أو *ا*س*لا*م أو 010*"',
+            'placeholder="بحث مرن بالكود أو الاسم أو الهاتف — استخدم * قبل أو بعد أي جزء، مثال: *احمد* أو 782*"',
           )
           page.write_text(text, encoding='utf-8')
+
+          # ------------------------------------------------------------
+          # Analytics: prefer compact summary views, live invoices only fallback
+          # and isolate expensive counts so one timeout cannot blank the page.
+          # ------------------------------------------------------------
+          service = Path('src/lib/salesAnalyticsSummaryService.ts')
+          text = service.read_text(encoding='utf-8')
+          old_block = """  const [
+    liveInvoicesResult,
+    salesResult,
+    staffResult,
+    staffIdentityResult,
+    customerResult,
+    healthResult,
+  ] = await Promise.allSettled([
+    fetchLiveInvoiceRows(filters),
+    fetchAllSummaryRows(
+      'sales_daily_summary',
+      'sale_date',
+      filters.startDate,
+      filters.endDate,
+      filters.branch
+    ),
+    fetchAllSummaryRows(
+      'staff_sales_summary',
+      'sale_date',
+      filters.startDate,
+      filters.endDate,
+      filters.branch,
+      filters.doctor
+    ),
+    fetchStaffIdentityRows(),
+    Promise.all([
+      countCustomers((query) => query.in('segment', ['مهم جدًا', 'مهم'])),
+      countCustomers((query) => query.eq('customer_status', 'متوقف')),
+      countCustomers((query) => query.eq('customer_status', 'مهدد بالتوقف')),
+      countCustomers((query) =>
+        query.or('customer_phone.is.null,customer_phone.eq.,customer_phone.ilike.code:%')
+      ),
+    ]),
+    Promise.all([
+      countMissing('customer_code', filters.startDate, filters.endDate, filters.branch),
+      countMissing('seller_name', filters.startDate, filters.endDate, filters.branch),
+      countMissing('branch', filters.startDate, filters.endDate, filters.branch),
+    ]),
+  ]);
+"""
+          new_block = """  const [salesResult, staffResult, staffIdentityResult] = await Promise.allSettled([
+    fetchAllSummaryRows(
+      'sales_daily_summary',
+      'sale_date',
+      filters.startDate,
+      filters.endDate,
+      filters.branch
+    ),
+    fetchAllSummaryRows(
+      'staff_sales_summary',
+      'sale_date',
+      filters.startDate,
+      filters.endDate,
+      filters.branch,
+      filters.doctor
+    ),
+    fetchStaffIdentityRows(),
+  ]);
+
+  const summaryRowsAvailable =
+    salesResult.status === 'fulfilled' && salesResult.value.rows.length > 0;
+
+  const [liveInvoicesResult, customerResult, healthResult] = await Promise.allSettled([
+    summaryRowsAvailable
+      ? Promise.resolve({ rows: [] as Row[], error: null as string | null })
+      : fetchLiveInvoiceRows(filters),
+    Promise.allSettled([
+      countCustomers((query) => query.in('segment', ['مهم جدًا', 'مهم'])),
+      countCustomers((query) => query.eq('customer_status', 'متوقف')),
+      countCustomers((query) => query.eq('customer_status', 'مهدد بالتوقف')),
+      countCustomers((query) =>
+        query.or('customer_phone.is.null,customer_phone.eq.,customer_phone.ilike.code:%')
+      ),
+    ]).then((results) => results.map((result) => (result.status === 'fulfilled' ? result.value : null))),
+    Promise.allSettled([
+      countMissing('customer_code', filters.startDate, filters.endDate, filters.branch),
+      countMissing('seller_name', filters.startDate, filters.endDate, filters.branch),
+      countMissing('branch', filters.startDate, filters.endDate, filters.branch),
+    ]).then((results) => results.map((result) => (result.status === 'fulfilled' ? result.value : null))),
+  ]);
+"""
+          text = replace_once(text, old_block, new_block, 'analytics staged loading')
+
+          old_cards = """            important: customerResult.value[0],
+            stopped: customerResult.value[1],
+            threatened: customerResult.value[2],
+            invalidPhone: customerResult.value[3],
+"""
+          new_cards = """            important: customerResult.value[0] ?? null,
+            stopped: customerResult.value[1] ?? null,
+            threatened: customerResult.value[2] ?? null,
+            invalidPhone: customerResult.value[3] ?? null,
+"""
+          text = replace_once(text, old_cards, new_cards, 'nullable customer analytics')
+
+          old_health = """            invoicesWithoutCustomer: healthResult.value[0],
+            invoicesWithoutDoctor: healthResult.value[1],
+            invoicesWithoutBranch: healthResult.value[2],
+"""
+          new_health = """            invoicesWithoutCustomer: healthResult.value[0] ?? null,
+            invoicesWithoutDoctor: healthResult.value[1] ?? null,
+            invoicesWithoutBranch: healthResult.value[2] ?? null,
+"""
+          text = replace_once(text, old_health, new_health, 'nullable data health')
+          service.write_text(text, encoding='utf-8')
+
+          analytics = Path('src/pages/Analytics.tsx')
+          text = analytics.read_text(encoding='utf-8')
+          old_error = """      setError(cacheError.message || 'تعذر تحميل بيانات التحليلات');
+"""
+          new_error = """      const rawMessage = cacheError.message || '';
+      setError(
+        /statement timeout|cancelling statement/i.test(rawMessage)
+          ? 'تعذر تحديث بعض مؤشرات التحليلات مؤقتًا. تم الاحتفاظ بالأقسام المتاحة ويمكن إعادة المحاولة.'
+          : rawMessage || 'تعذر تحميل بيانات التحليلات'
+      );
+"""
+          text = replace_once(text, old_error, new_error, 'friendly analytics error')
+          analytics.write_text(text, encoding='utf-8')
           PY
 
       - name: Install dependencies
@@ -181,15 +319,15 @@ async function hydrateCustomerListMetadata(customers: CustomerMetric[]) {
       - name: Validate build
         run: npm run build
 
-      - name: Commit fixes
+      - name: Commit fixes to main
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/api/customers.ts src/lib/customerDisplay.tsx src/pages/Customers.tsx
+          git add src/lib/api/customers.ts src/lib/customerDisplay.tsx src/pages/Customers.tsx src/lib/salesAnalyticsSummaryService.ts src/pages/Analytics.tsx
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "No source changes to commit"
             exit 0
           fi
-          git commit -m "fix: wildcard customer search and visible customer notes"
-          git push
+          git commit -m "fix: repair analytics timeouts, wildcard search and customer notes"
+          git push origin HEAD:main
