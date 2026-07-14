@@ -1,0 +1,195 @@
+name: Apply customer search and notes fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-customer-search-and-notes-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Patch customer search, branch and visible notes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          api = Path('src/lib/api/customers.ts')
+          text = api.read_text(encoding='utf-8')
+
+          old = """function normalizeSearchPattern(search: string) {
+  const trimmed = search.replace(/\\s+/g, ' ').trim();
+  if (!trimmed) return null;
+  const safe = trimmed.replace(/[%,()]/g, '').replace(/\\*/g, '%');
+  return safe.includes('%') ? safe : `%${safe}%`;
+}
+"""
+          new = """function normalizeArabicSearchText(value: string) {
+  const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+  return value
+    .normalize('NFKC')
+    .replace(/[٠-٩]/g, (digit) => String(arabicDigits.indexOf(digit)))
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
+    .replace(/[\\u064B-\\u065F\\u0670\\u0640]/g, '')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function escapePostgrestLike(value: string) {
+  return value.replace(/\\\\/g, '\\\\\\\\').replace(/%/g, '\\\\%').replace(/_/g, '\\\\_');
+}
+
+function normalizeSearchPattern(search: string) {
+  const trimmed = normalizeArabicSearchText(search);
+  if (!trimmed) return null;
+  const wildcardSafe = trimmed
+    .replace(/[(),]/g, ' ')
+    .replace(/\\*+/g, '*')
+    .split('*')
+    .map(escapePostgrestLike)
+    .join('%')
+    .replace(/\\s+/g, ' ')
+    .trim();
+  if (!wildcardSafe) return null;
+  return wildcardSafe.includes('%') ? wildcardSafe : `%${wildcardSafe}%`;
+}
+"""
+          if old not in text:
+            raise SystemExit('normalizeSearchPattern block not found')
+          text = text.replace(old, new, 1)
+
+          insert_before = "export async function getCustomers(options: GetCustomersOptions = {}) {"
+          helper = r'''
+async function hydrateCustomerListMetadata(customers: CustomerMetric[]) {
+  const ids = [...new Set(customers.map((customer) => customer.customer_id).filter((id): id is string => Boolean(id && isUuidLike(id))))];
+  const codes = [...new Set(customers.map((customer) => String(customer.customer_code || '').trim()).filter(Boolean))];
+  if (!ids.length && !codes.length) return customers;
+
+  const fields = 'id,customer_code,branch,notes,whatsapp_notes,service_notes,team_notes,handling_notes,customer_flags,address,phone,mobile,whatsapp';
+  const rows: Row[] = [];
+
+  if (ids.length) {
+    const { data, error } = await supabase.from('customers').select(fields).in('id', ids.slice(0, 100));
+    if (!error && data) rows.push(...(data as Row[]));
+  }
+  if (codes.length) {
+    const { data, error } = await supabase.from('customers').select(fields).in('customer_code', codes.slice(0, 100));
+    if (!error && data) rows.push(...(data as Row[]));
+  }
+
+  const byId = new Map(rows.map((row) => [String(row.id || ''), row]));
+  const byCode = new Map(rows.map((row) => [String(row.customer_code || '').trim(), row]));
+
+  return customers.map((customer) => {
+    const profile = byId.get(String(customer.customer_id || '')) || byCode.get(String(customer.customer_code || '').trim());
+    if (!profile) return customer;
+    const masterBranch = normalizeBranchName(profile.branch);
+    return {
+      ...customer,
+      branch: masterBranch || customer.branch,
+      customer_flags: parseCustomerFlags(profile.customer_flags),
+      notes: readFirst(profile, ['notes'], null),
+      customer_notes: readFirst(profile, ['notes'], null),
+      whatsapp_notes: readFirst(profile, ['whatsapp_notes'], null),
+      service_notes: readFirst(profile, ['service_notes'], null),
+      team_notes: readFirst(profile, ['team_notes'], null),
+      handling_notes: readFirst(profile, ['handling_notes'], null),
+      address: readFirst(profile, ['address'], null),
+      phone: readFirst(profile, ['phone', 'mobile', 'whatsapp'], customer.phone),
+    } as CustomerMetric;
+  });
+}
+
+'''
+          if insert_before not in text:
+            raise SystemExit('getCustomers marker not found')
+          text = text.replace(insert_before, helper + insert_before, 1)
+
+          old_mapped = """  const mapped = await patchCustomerMetricsFromInvoices(
+    ((data ?? []) as Row[]).map(normalizeCustomerMetric)
+  );
+"""
+          new_mapped = """  const mapped = await hydrateCustomerListMetadata(
+    await patchCustomerMetricsFromInvoices(((data ?? []) as Row[]).map(normalizeCustomerMetric))
+  );
+"""
+          if old_mapped not in text:
+            raise SystemExit('mapped block not found')
+          text = text.replace(old_mapped, new_mapped, 1)
+          api.write_text(text, encoding='utf-8')
+
+          display = Path('src/lib/customerDisplay.tsx')
+          text = display.read_text(encoding='utf-8')
+          old_labels = """    ...labelFromValue(row.classification),
+  ];
+"""
+          new_labels = """    ...labelFromValue(row.classification),
+    ...labelFromValue(row.handling_notes),
+    ...labelFromValue(row.service_notes),
+    ...labelFromValue(row.team_notes),
+    ...labelFromValue(row.whatsapp_notes),
+    ...labelFromValue(row.customer_notes ?? row.notes),
+  ];
+"""
+          if old_labels not in text:
+            raise SystemExit('customer display labels marker not found')
+          text = text.replace(old_labels, new_labels, 1)
+
+          old_return = """  return [...new Set(labels.map((label) => label.trim()).filter(Boolean))].slice(0, 8);
+"""
+          new_return = """  const cleaned = [...new Set(labels.map((label) => label.trim()).filter(Boolean))];
+  const important = cleaned.filter((label) =>
+    /مهم|توقف|تحذير|ممنوع|لا يقبل|لا يضاف|حساس|سرعة|VIP/i.test(label)
+  );
+  const rest = cleaned.filter((label) => !important.includes(label));
+  return [...important, ...rest].slice(0, 8);
+"""
+          if old_return not in text:
+            raise SystemExit('customer display return marker not found')
+          text = text.replace(old_return, new_return, 1)
+          display.write_text(text, encoding='utf-8')
+
+          page = Path('src/pages/Customers.tsx')
+          text = page.read_text(encoding='utf-8')
+          text = text.replace(
+            "placeholder=\"بحث بالكود، الاسم، الهاتف... مثال: احمد* أو *ا*س*لا*م أو 010*\"",
+            "placeholder=\"بحث مرن بالكود أو الاسم أو الهاتف — استخدم * قبل أو بعد أي جزء، مثال: *احمد* أو 782*\"",
+            1,
+          )
+          page.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate build
+        run: npm run build
+
+      - name: Commit fixes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/api/customers.ts src/lib/customerDisplay.tsx src/pages/Customers.tsx
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "fix: wildcard customer search and visible customer notes"
+          git push
