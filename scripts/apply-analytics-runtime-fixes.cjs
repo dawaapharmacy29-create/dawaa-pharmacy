@@ -67,13 +67,5 @@ replaceOnce(
   'V13 optional description'
 );
 
-replaceOnce(
-`        <MiniV13Card title="عملاء مشترين" value={cards?.total_customers_with_purchase} />
-`,
-`        <MiniV13Card title="عملاء مشترين" value={cards?.total_customers_with_purchase} loading={loading} />
-`,
-  'V13 loading state first card'
-);
-
 fs.writeFileSync(file, text, 'utf8');
 console.log('[analytics-runtime] completed');
