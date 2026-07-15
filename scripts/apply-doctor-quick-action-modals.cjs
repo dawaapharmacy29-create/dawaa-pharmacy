@@ -44,5 +44,4 @@ source = source.replace(
 );
 
 fs.writeFileSync(filePath, source);
-require('./apply-doctor-interaction-freeze-fix.cjs');
 console.log('[doctor-quick-action-modals] applied');
