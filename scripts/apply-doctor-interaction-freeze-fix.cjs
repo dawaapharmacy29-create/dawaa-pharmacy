@@ -36,16 +36,6 @@ patch('src/components/layout/Sidebar.tsx', (source) => {
   }, [location.pathname, groups]);`
   );
 
-  source = source.replace(
-`                        <NavLink
-                          to={item.path}
-                          end={item.path === '/'}`, 
-`                        <NavLink
-                          to={item.path}
-                          reloadDocument={isDoctorRole(user) && location.pathname === '/doctor-dashboard' && navItemBasePath(item.path) !== '/doctor-dashboard'}
-                          end={item.path === '/'}`
-  );
-
   return source;
 });
 
