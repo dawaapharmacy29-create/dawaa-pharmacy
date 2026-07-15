@@ -77,4 +77,6 @@ patchFile('src/components/layout/Sidebar.tsx', [
   },
 ]);
 
+require('./apply-role-aware-home-permissions.cjs');
+
 console.log('[doctor-home-route-fix] applied');
