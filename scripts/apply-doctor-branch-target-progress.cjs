@@ -33,11 +33,11 @@ replaceOnce(
 `        const branchSales = branchDoctors.reduce((sum, row) => sum + row.netSales, 0);
         const branchInvoices = branchDoctors.reduce((sum, row) => sum + row.invoicesCount, 0);
         const branchAvg = branchInvoices ? branchSales / branchInvoices : 0;
-        const normalizedBranch = String(effectiveBranch || '').replace(/\s+/g, ' ').trim();
+        const normalizedBranch = String(effectiveBranch || '').replace(/\\s+/g, ' ').trim();
         const branchTarget = normalizedBranch.includes('شكري') ? 1500000 : normalizedBranch.includes('الشامي') ? 1000000 : Math.max(branchSales * 1.25, 1);
-        const cycleStart = new Date(\`${formatCycleDate(cycle.start)}T12:00:00\`);
-        const cycleEnd = new Date(\`${formatCycleDate(cycle.end)}T12:00:00\`);
-        const lastDataDate = lastSalesDate ? new Date(\`${lastSalesDate}T12:00:00\`) : cycleStart;
+        const cycleStart = new Date(formatCycleDate(cycle.start) + 'T12:00:00');
+        const cycleEnd = new Date(formatCycleDate(cycle.end) + 'T12:00:00');
+        const lastDataDate = lastSalesDate ? new Date(lastSalesDate + 'T12:00:00') : cycleStart;
         const dayMs = 24 * 60 * 60 * 1000;
         const totalCycleDays = Math.max(1, Math.floor((cycleEnd.getTime() - cycleStart.getTime()) / dayMs) + 1);
         const elapsedCycleDays = Math.max(1, Math.min(totalCycleDays, Math.floor((lastDataDate.getTime() - cycleStart.getTime()) / dayMs) + 1));
@@ -78,26 +78,26 @@ replaceOnce(
             <p className="mt-1 text-sm text-slate-300">الدورة الحالية {cycle.label} — الحساب حتى آخر يوم مبيعات مرفوع</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm font-bold text-slate-200">
-            {salesSummary?.lastSalesDate ? \`آخر تحديث: \${new Date(\`${salesSummary.lastSalesDate}T12:00:00\`).toLocaleDateString('ar-EG')}\` : 'لا توجد بيانات مبيعات مرفوعة'}
+            {salesSummary?.lastSalesDate ? 'آخر تحديث: ' + new Date(salesSummary.lastSalesDate + 'T12:00:00').toLocaleDateString('ar-EG') : 'لا توجد بيانات مبيعات مرفوعة'}
           </div>
         </div>
         <StateLine status={salesStatus} error={salesError} empty="لا توجد بيانات مبيعات للفرع في الدورة الحالية." />
         {salesSummary && (
           <>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <MetricCard icon={BarChart3} label="مبيعات الفرع" value={formatCurrency(salesSummary.branchSales)} status="success" sub={\`حتى اليوم \${salesSummary.elapsedCycleDays} من \${salesSummary.totalCycleDays}\`} />
+              <MetricCard icon={BarChart3} label="مبيعات الفرع" value={formatCurrency(salesSummary.branchSales)} status="success" sub={'حتى اليوم ' + salesSummary.elapsedCycleDays + ' من ' + salesSummary.totalCycleDays} />
               <MetricCard icon={Target} label="تارجت الفرع" value={formatCurrency(salesSummary.branchTarget)} status="success" sub="هدف الدورة الحالية" />
-              <MetricCard icon={Award} label="نسبة تحقيق التارجت" value={\`\${salesSummary.branchAchievementPercent.toFixed(1)}%\`} status="success" sub={salesSummary.branchAchievementPercent >= 100 ? 'تم تحقيق التارجت' : 'نسبة الإنجاز الحالية'} />
+              <MetricCard icon={Award} label="نسبة تحقيق التارجت" value={salesSummary.branchAchievementPercent.toFixed(1) + '%'} status="success" sub={salesSummary.branchAchievementPercent >= 100 ? 'تم تحقيق التارجت' : 'نسبة الإنجاز الحالية'} />
               <MetricCard icon={TrendingUp} label="المتبقي لتحقيق التارجت" value={formatCurrency(salesSummary.branchRemaining)} status="success" sub={salesSummary.branchRemaining <= 0 ? 'تم تجاوز الهدف' : 'المبلغ المطلوب حتى نهاية الدورة'} />
-              <MetricCard icon={DollarSign} label="التوقع بنهاية الدورة" value={formatCurrency(salesSummary.branchProjectedSales)} status="success" sub={\`تحقيق متوقع \${salesSummary.branchProjectedAchievementPercent.toFixed(1)}%\`} />
+              <MetricCard icon={DollarSign} label="التوقع بنهاية الدورة" value={formatCurrency(salesSummary.branchProjectedSales)} status="success" sub={'تحقيق متوقع ' + salesSummary.branchProjectedAchievementPercent.toFixed(1) + '%'} />
             </div>
             <div className="mt-4 overflow-hidden rounded-full bg-slate-800">
-              <div className="h-3 rounded-full bg-gradient-to-l from-teal-400 to-sky-500 transition-all" style={{ width: \`${Math.min(100, Math.max(0, salesSummary.branchAchievementPercent))}%\` }} />
+              <div className="h-3 rounded-full bg-gradient-to-l from-teal-400 to-sky-500 transition-all" style={{ width: Math.min(100, Math.max(0, salesSummary.branchAchievementPercent)) + '%' }} />
             </div>
             <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/35 p-4 text-sm font-bold text-slate-200">
               {salesSummary.branchProjectedAchievementPercent >= 100
-                ? \`لو استمر الفرع بنفس معدل البيع الحالي، فالتوقع الوصول إلى \${formatCurrency(salesSummary.branchProjectedSales)} بنهاية الدورة، أي نحو \${salesSummary.branchProjectedAchievementPercent.toFixed(1)}% من التارجت.\`
-                : \`لو استمر الفرع بنفس المعدل الحالي، فالتوقع الوصول إلى \${formatCurrency(salesSummary.branchProjectedSales)}. نحتاج تحسين المعدل لتحقيق المتبقي \${formatCurrency(salesSummary.branchRemaining)}.\`}
+                ? 'لو استمر الفرع بنفس معدل البيع الحالي، فالتوقع الوصول إلى ' + formatCurrency(salesSummary.branchProjectedSales) + ' بنهاية الدورة، أي نحو ' + salesSummary.branchProjectedAchievementPercent.toFixed(1) + '% من التارجت.'
+                : 'لو استمر الفرع بنفس المعدل الحالي، فالتوقع الوصول إلى ' + formatCurrency(salesSummary.branchProjectedSales) + '. نحتاج تحسين المعدل لتحقيق المتبقي ' + formatCurrency(salesSummary.branchRemaining) + '.'}
             </div>
           </>
         )}
