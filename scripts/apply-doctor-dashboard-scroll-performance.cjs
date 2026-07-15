@@ -30,4 +30,5 @@ patch('src/index.css', (source) => {
   return `${source}\n\n${marker}\n.doctor-dashboard-page > section {\n  content-visibility: auto;\n  contain: layout paint style;\n  contain-intrinsic-size: auto 520px;\n}\n\n.doctor-dashboard-page > section:first-of-type,\n.doctor-dashboard-page > section:nth-of-type(2) {\n  content-visibility: visible;\n  contain: none;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .doctor-dashboard-page *,\n  .doctor-dashboard-page *::before,\n  .doctor-dashboard-page *::after {\n    scroll-behavior: auto !important;\n    transition-duration: 0.01ms !important;\n    animation-duration: 0.01ms !important;\n  }\n}\n`;
 });
 
+require('./apply-doctor-navigation-exit-fix.cjs');
 console.log('[doctor-dashboard-scroll-performance] applied');
