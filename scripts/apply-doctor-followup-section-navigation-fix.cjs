@@ -35,4 +35,5 @@ replaceOnce(
 );
 
 fs.writeFileSync(filePath, source);
+require('./apply-doctor-service-discipline-rules.cjs');
 console.log('[doctor-followup-section-navigation-fix] applied');
