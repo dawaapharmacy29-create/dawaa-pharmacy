@@ -83,4 +83,5 @@ patchFile('src/index.css', [
   },
 ]);
 
+require('./apply-doctor-interaction-freeze-fix.cjs');
 console.log('[doctor-navigation-exit-fix] applied');
