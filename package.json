@@ -6,21 +6,21 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "repair:customer-analytics": "node scripts/apply-customer-analytics-fixes.cjs && node scripts/fix-analytics-null-safety.cjs && node scripts/apply-analytics-runtime-fixes.cjs && node scripts/apply-analytics-summary-view-fixes.cjs && node scripts/apply-doctor-dashboard-sales-fix.cjs && node scripts/apply-doctor-dashboard-experience-v2.cjs && node scripts/apply-doctor-branch-target-progress.cjs && node scripts/apply-doctor-workspace-followups-navigation.cjs && node scripts/apply-doctor-home-route-fix.cjs && node scripts/apply-doctor-dashboard-stability-fix.cjs && node scripts/apply-doctor-followup-section-navigation-fix.cjs && node scripts/apply-invoice-verification-pagination-fix.cjs && node scripts/apply-doctor-stable-workspace-v3.cjs",
-    "dev": "npm run repair:customer-analytics && vite --configLoader runner",
-    "build": "npm run repair:customer-analytics && vite build --configLoader runner",
-    "analyze": "npm run repair:customer-analytics && ANALYZE=true vite build --configLoader runner",
+    "dev": "vite --configLoader runner",
+    "build": "vite build --configLoader runner",
+    "analyze": "ANALYZE=true vite build --configLoader runner",
     "preview": "vite preview",
-    "typecheck": "npm run repair:customer-analytics && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx --ignore-path .eslintignore",
     "lint:fix": "eslint . --ext .ts,.tsx --ignore-path .eslintignore --fix",
     "format": "prettier --write .",
     "doctor": "node scripts/doctor.cjs",
     "predeploy": "node scripts/doctor.cjs",
-    "test": "npm run repair:customer-analytics && node scripts/run-tests.cjs",
+    "test": "node scripts/run-tests.cjs",
     "check": "npm run doctor && npm run typecheck && npm run build",
     "test:integration": "vitest run src/lib/staff/__tests__/staffPerformanceProfileService.integration.ts",
     "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",
-    "verify": "npm run doctor && npm run test && npm run build"
+    "verify": "npm run doctor && npm run test && npm run typecheck && npm run build"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
