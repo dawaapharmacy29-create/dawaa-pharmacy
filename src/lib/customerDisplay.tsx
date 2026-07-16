@@ -1,7 +1,25 @@
+import { useEffect, useMemo, useState } from 'react';
 import { normalizeBranchName } from '@/lib/branch';
 import { translateAndDedupeCustomerFlags } from '@/lib/customerFlagLabels';
+import { supabase } from '@/lib/supabase';
 
 type AnyRow = Record<string, unknown>;
+
+type CustomerDisplayProfile = {
+  customer_flags?: unknown;
+  flags?: unknown;
+  tags?: unknown;
+  customer_tags?: unknown;
+  customer_notes?: unknown;
+  notes?: unknown;
+  service_notes?: unknown;
+  team_notes?: unknown;
+  handling_notes?: unknown;
+  whatsapp_notes?: unknown;
+};
+
+const profileCache = new Map<string, CustomerDisplayProfile | null>();
+const pendingProfiles = new Map<string, Promise<CustomerDisplayProfile | null>>();
 
 function isRecord(row: unknown): row is AnyRow {
   return Boolean(row && typeof row === 'object');
@@ -51,6 +69,59 @@ function normalizeBranchCandidate(value: unknown) {
   return '';
 }
 
+function customerIdentity(row: AnyRow) {
+  const customerId = text(row.customer_id ?? row.id);
+  const code = getCustomerCodeSafe(row);
+  const phone = text(row.customer_phone ?? row.phone);
+  return customerId || code || phone;
+}
+
+function hasDisplayData(row: AnyRow) {
+  return Boolean(
+    labelFromValue(row.customer_flags).length ||
+      labelFromValue(row.flags).length ||
+      labelFromValue(row.tags).length ||
+      labelFromValue(row.customer_tags).length ||
+      getCustomerHandlingSummary(row)
+  );
+}
+
+async function loadCustomerDisplayProfile(row: AnyRow): Promise<CustomerDisplayProfile | null> {
+  const key = customerIdentity(row);
+  if (!key || hasDisplayData(row)) return null;
+  if (profileCache.has(key)) return profileCache.get(key) ?? null;
+  const pending = pendingProfiles.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    let query = supabase
+      .from('customers')
+      .select('customer_flags,customer_notes,notes,service_notes,team_notes,handling_notes,whatsapp_notes')
+      .limit(1);
+
+    const customerId = text(row.customer_id);
+    const code = getCustomerCodeSafe(row);
+    const phone = text(row.customer_phone ?? row.phone);
+    if (customerId) query = query.eq('id', customerId);
+    else if (code) query = query.eq('customer_code', code);
+    else if (phone) query = query.or(`phone.eq.${phone},mobile.eq.${phone},whatsapp.eq.${phone}`);
+    else return null;
+
+    const { data, error } = await query.maybeSingle();
+    if (error) {
+      if (import.meta.env.DEV) console.warn('[customer-display] profile enrichment failed', error.message);
+      profileCache.set(key, null);
+      return null;
+    }
+    const profile = (data || null) as CustomerDisplayProfile | null;
+    profileCache.set(key, profile);
+    return profile;
+  })().finally(() => pendingProfiles.delete(key));
+
+  pendingProfiles.set(key, request);
+  return request;
+}
+
 export function getCustomerCodeSafe(row: unknown): string {
   if (!isRecord(row)) return '';
   return text(row.customer_code ?? row.code ?? row.raw_customer_code ?? row.customerCode ?? row.final_customer_key);
@@ -96,6 +167,18 @@ export function resolveCustomerBranch(row: unknown): {
   return { branch: 'غير محدد', source: 'missing', needsReview: true };
 }
 
+export function getCustomerHandlingSummary(row: unknown): string {
+  if (!isRecord(row)) return '';
+  return text(
+    row.handling_notes ??
+      row.service_notes ??
+      row.customer_notes ??
+      row.whatsapp_notes ??
+      row.team_notes ??
+      row.notes
+  );
+}
+
 export function getCustomerFlagChips(row: unknown): string[] {
   if (!isRecord(row)) return [];
   const rawLabels = [
@@ -103,11 +186,8 @@ export function getCustomerFlagChips(row: unknown): string[] {
     ...labelFromValue(row.flags),
     ...labelFromValue(row.tags),
     ...labelFromValue(row.customer_tags),
-    ...labelFromValue(row.segment),
-    ...labelFromValue(row.status ?? row.customer_status),
     ...labelFromValue(row.risk_label),
     ...labelFromValue(row.priority_label ?? row.priority),
-    ...labelFromValue(row.classification),
   ];
 
   const code = getCustomerCodeSafe(row);
@@ -122,18 +202,54 @@ export function getCustomerFlagChips(row: unknown): string[] {
 }
 
 export function CustomerFlagChips({ row, className = '' }: { row: unknown; className?: string }) {
-  const chips = getCustomerFlagChips(row);
-  if (!chips.length) return null;
+  const [profile, setProfile] = useState<CustomerDisplayProfile | null>(null);
+
+  useEffect(() => {
+    if (!isRecord(row)) {
+      setProfile(null);
+      return;
+    }
+    let cancelled = false;
+    void loadCustomerDisplayProfile(row).then((loaded) => {
+      if (!cancelled) setProfile(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [row]);
+
+  const merged = useMemo(() => {
+    if (!isRecord(row) || !profile) return row;
+    return { ...profile, ...row, customer_flags: row.customer_flags ?? profile.customer_flags };
+  }, [profile, row]);
+
+  const chips = getCustomerFlagChips(merged);
+  const handlingSummary = getCustomerHandlingSummary(merged);
+  if (!chips.length && !handlingSummary) return null;
+
   return (
-    <div className={`flex flex-wrap gap-1.5 ${className}`}>
-      {chips.map((chip) => (
-        <span
-          key={chip}
-          className="rounded-full border border-teal-300/30 bg-teal-500/10 px-2.5 py-1 text-[11px] font-black text-teal-100"
+    <div className={`space-y-1.5 ${className}`}>
+      {chips.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((chip) => (
+            <span
+              key={chip}
+              className="rounded-full border border-teal-300/30 bg-teal-500/10 px-2.5 py-1 text-[11px] font-black text-teal-100"
+            >
+              {chip}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {handlingSummary ? (
+        <div
+          className="max-w-xl rounded-xl border border-amber-300/25 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-bold leading-5 text-amber-100"
+          title={handlingSummary}
         >
-          {chip}
-        </span>
-      ))}
+          <span className="font-black">تعليمات التعامل: </span>
+          {handlingSummary.length > 140 ? `${handlingSummary.slice(0, 140)}…` : handlingSummary}
+        </div>
+      ) : null}
     </div>
   );
 }
