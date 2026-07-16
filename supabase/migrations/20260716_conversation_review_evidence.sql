@@ -3,6 +3,8 @@
 
 begin;
 
+create extension if not exists pgcrypto;
+
 alter table if exists public.conversation_sales_reviews
   add column if not exists reviewer_message text;
 
@@ -42,9 +44,8 @@ on conflict (id) do update set
   allowed_mime_types = excluded.allowed_mime_types;
 
 -- The application currently uses its own staff session layer, so storage access
--- is granted to the app roles while object paths remain undiscoverable and URLs
--- remain private/signed. Row-level ownership continues to be enforced by the
--- review query (staff_id/doctor_id) in the doctor workspace.
+-- is granted to the application roles while object paths remain undiscoverable
+-- and every displayed image uses a short-lived signed URL.
 drop policy if exists conversation_review_evidence_read on storage.objects;
 create policy conversation_review_evidence_read
 on storage.objects for select
@@ -63,9 +64,8 @@ on storage.objects for delete
 to anon, authenticated
 using (bucket_id = 'conversation-review-evidence');
 
--- Keep attachment rows available to the existing custom session layer.
--- A later migration can replace these grants with auth.uid()-based RLS once all
--- staff_accounts are linked to auth_user_id.
+-- Keep attachment rows available to the existing custom staff session layer.
+-- Doctor-facing queries still filter reviews by staff_id/doctor_id.
 grant select, insert, update, delete on public.conversation_review_attachments to anon, authenticated;
 grant select, update on public.conversation_sales_reviews to anon, authenticated;
 
