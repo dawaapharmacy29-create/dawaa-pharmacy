@@ -1,4 +1,5 @@
 import { normalizeBranchName } from '@/lib/branch';
+import { translateAndDedupeCustomerFlags } from '@/lib/customerFlagLabels';
 
 type AnyRow = Record<string, unknown>;
 
@@ -22,11 +23,12 @@ function labelFromValue(value: unknown): string[] {
     return Object.entries(value as AnyRow)
       .filter(([, entryValue]) => entryValue !== false && entryValue != null && entryValue !== '')
       .flatMap(([key, entryValue]) => {
+        if (key === 'important_tags' && Array.isArray(entryValue)) return entryValue.flatMap(labelFromValue);
         if (typeof entryValue === 'string') return entryValue;
         if (entryValue === true) return key;
         if (typeof entryValue === 'object') {
           const record = entryValue as AnyRow;
-          return text(record.label ?? record.name ?? record.title ?? key);
+          return text(record.key ?? record.label ?? record.name ?? record.title ?? key);
         }
         return key;
       });
@@ -96,7 +98,7 @@ export function resolveCustomerBranch(row: unknown): {
 
 export function getCustomerFlagChips(row: unknown): string[] {
   if (!isRecord(row)) return [];
-  const labels = [
+  const rawLabels = [
     ...labelFromValue(row.customer_flags),
     ...labelFromValue(row.flags),
     ...labelFromValue(row.tags),
@@ -110,13 +112,13 @@ export function getCustomerFlagChips(row: unknown): string[] {
 
   const code = getCustomerCodeSafe(row);
   const branch = resolveCustomerBranch(row);
-  if (!code) labels.push('بدون كود');
-  if (branch.needsReview) labels.push('فرع غير مؤكد');
+  if (!code) rawLabels.push('بدون كود');
+  if (branch.needsReview) rawLabels.push('فرع غير مؤكد');
   if (text(row.source_type).includes('unregistered') || text(row.customer_status).includes('غير مسجل')) {
-    labels.push('عميل غير مسجل');
+    rawLabels.push('عميل غير مسجل');
   }
 
-  return [...new Set(labels.map((label) => label.trim()).filter(Boolean))].slice(0, 8);
+  return translateAndDedupeCustomerFlags(rawLabels, 8);
 }
 
 export function CustomerFlagChips({ row, className = '' }: { row: unknown; className?: string }) {

@@ -1,5 +1,15 @@
-import * as AspectRatioPrimitive from '@radix-ui/react-aspect-ratio';
+import { forwardRef, type HTMLAttributes } from 'react';
 
-const AspectRatio = AspectRatioPrimitive.Root;
+type AspectRatioProps = HTMLAttributes<HTMLDivElement> & {
+  ratio?: number;
+};
+
+const AspectRatio = forwardRef<HTMLDivElement, AspectRatioProps>(
+  ({ ratio = 1, style, ...props }, ref) => (
+    <div ref={ref} style={{ aspectRatio: String(ratio), ...style }} {...props} />
+  )
+);
+
+AspectRatio.displayName = 'AspectRatio';
 
 export { AspectRatio };
