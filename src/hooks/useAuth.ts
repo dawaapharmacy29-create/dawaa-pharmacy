@@ -161,7 +161,7 @@ function logAuthActivity(user: User, action: string, details: string) {
 
 async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
   if (!isSupabaseConfigured) return sanitizeUser(user);
-  const identifiers = [user.id, user.staffId, user.username].map(safeText).filter(Boolean);
+  const identifiers = [user.id, user.staffId, user.username].map((value) => safeText(value)).filter(Boolean);
   for (const identifier of identifiers) {
     try {
       const { data, error } = await supabase.rpc('resolve_staff_account_safe', { p_identifier: identifier });
@@ -309,7 +309,7 @@ export function useAuth() {
 
 export function getSafeCurrentUserId(): string | null {
   if (!currentUser) return null;
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return uuidRegex.test(currentUser.id) ? currentUser.id : null;
 }
 
