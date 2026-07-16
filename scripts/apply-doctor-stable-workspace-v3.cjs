@@ -19,6 +19,16 @@ patchFile('src/components/layout/Sidebar.tsx', (source) => {
       `{ path: '/doctor-dashboard?tab=reviews', icon: ClipboardCheck, label: 'تقييماتي الشخصية', permission: 'view_reviews' },\n      { path: '/doctor-dashboard?tab=notifications', icon: BellRing, label: 'إشعاراتي', permission: 'view_doctor_dashboard' },\n      { path: '/points', icon: Star, label: 'النقاط والحافز', permission: 'view_points' },`
     );
   }
+  if (!source.includes("label: 'سجل نشاطي'")) {
+    source = source.replace(
+      `{ path: '/doctor-dashboard?tab=notifications', icon: BellRing, label: 'إشعاراتي', permission: 'view_doctor_dashboard' },`,
+      `{ path: '/doctor-dashboard?tab=notifications', icon: BellRing, label: 'إشعاراتي', permission: 'view_doctor_dashboard' },\n      { path: '/doctor-dashboard?tab=activity', icon: Activity, label: 'سجل نشاطي', permission: 'view_doctor_dashboard' },\n      { path: '/doctor-dashboard?tab=payroll', icon: WalletCards, label: 'حسابي والقبض', permission: 'view_doctor_dashboard' },`
+    );
+    source = source.replace(
+      `  BellRing,`,
+      `  BellRing,\n  Activity,\n  WalletCards,`
+    );
+  }
   return source;
 });
 
@@ -42,4 +52,6 @@ patchFile('src/lib/salesAnalyticsSummaryService.ts', (source) => {
   return source;
 });
 
+require('./apply-employee-360-profile.cjs');
+require('./apply-employee-event-wiring.cjs');
 console.log('[doctor-stable-workspace-v3] applied');
