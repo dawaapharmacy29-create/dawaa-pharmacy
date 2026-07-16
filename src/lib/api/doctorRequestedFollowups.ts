@@ -44,37 +44,21 @@ function normalizeName(value: unknown) {
     .toLowerCase();
 }
 
-function isMine(row: Record<string, unknown>, staffId: string, userId: string, doctorName: string) {
-  const staffIds = [row.requested_by_staff_id, row.created_by_staff_id].map(text).filter(Boolean);
-  const userIds = [row.requested_by_user_id, row.created_by_user_id, row.created_by].map(text).filter(Boolean);
-  if (staffId && staffIds.includes(staffId)) return true;
-  if (userId && userIds.includes(userId)) return true;
-  const names = [row.requested_by_name, row.created_by_name].map(normalizeName).filter(Boolean);
-  return Boolean(doctorName && names.includes(normalizeName(doctorName)));
+function isMine(row: Record<string, unknown>, userId: string, doctorName: string) {
+  const createdBy = text(row.created_by);
+  if (userId && createdBy === userId) return true;
+  const createdByName = normalizeName(row.created_by_name);
+  return Boolean(doctorName && createdByName && createdByName === normalizeName(doctorName));
 }
 
 export async function createDoctorRequestedFollowup(
   input: CreateExceptionalFollowupInput & { createdByStaffId?: string | null }
 ) {
-  const created = await createExceptionalFollowup({
+  return createExceptionalFollowup({
     ...input,
     requestType: input.requestType || 'doctor_requested_followup',
     source: input.source || 'doctor_requested_followup',
   });
-
-  const id = text(created?.id);
-  if (id) {
-    const identity = {
-      requested_by_staff_id: input.createdByStaffId || null,
-      requested_by_user_id: input.createdBy || null,
-      created_by_staff_id: input.createdByStaffId || null,
-      created_by_user_id: input.createdBy || null,
-      source_type: 'doctor_requested_followup',
-    };
-    const { error } = await supabase.from('daily_followups').update(identity).eq('id', id);
-    if (error && import.meta.env.DEV) console.warn('[doctor-followups] requester identity update failed', error.message);
-  }
-  return created;
 }
 
 export async function fetchMyRequestedFollowups(
@@ -87,18 +71,7 @@ export async function fetchMyRequestedFollowups(
     .order('created_at', { ascending: false })
     .limit(1000);
 
-  const clauses: string[] = [];
-  if (identity.staffId) {
-    clauses.push(`requested_by_staff_id.eq.${identity.staffId}`, `created_by_staff_id.eq.${identity.staffId}`);
-  }
-  if (identity.userId) {
-    clauses.push(
-      `requested_by_user_id.eq.${identity.userId}`,
-      `created_by_user_id.eq.${identity.userId}`,
-      `created_by.eq.${identity.userId}`
-    );
-  }
-  if (clauses.length) query = query.or(clauses.join(','));
+  if (identity.userId) query = query.eq('created_by', identity.userId);
   if (filters.from) query = query.gte('created_at', `${filters.from}T00:00:00`);
   if (filters.to) query = query.lte('created_at', `${filters.to}T23:59:59`);
 
@@ -106,7 +79,7 @@ export async function fetchMyRequestedFollowups(
   if (error) throw new Error(error.message);
 
   const rows = ((data || []) as Record<string, unknown>[]).filter((row) =>
-    isMine(row, identity.staffId, identity.userId, identity.doctorName)
+    isMine(row, identity.userId, identity.doctorName)
   ) as unknown as FollowupRow[];
 
   const search = text(filters.search).toLowerCase();
@@ -127,14 +100,34 @@ export async function fetchMyRequestedFollowups(
 
 export async function fetchFollowupEvents(followupId: string): Promise<DoctorFollowupEvent[]> {
   const { data, error } = await supabase
-    .from('daily_followup_events')
+    .from('customer_followup_edit_logs')
     .select('*')
     .eq('followup_id', followupId)
-    .order('created_at', { ascending: true })
+    .order('edited_at', { ascending: true })
     .limit(500);
+
   if (error) {
     if (/does not exist|schema cache/i.test(error.message)) return [];
     throw new Error(error.message);
   }
-  return (data || []) as DoctorFollowupEvent[];
+
+  return ((data || []) as Record<string, unknown>[]).map((row) => ({
+    id: text(row.id),
+    followup_id: text(row.followup_id),
+    event_type: 'updated',
+    title: 'تم تحديث المتابعة',
+    status: text(row.new_status) || null,
+    notes: text(row.new_notes) || null,
+    result: text(row.new_result) || null,
+    customer_response: null,
+    responsible_name: null,
+    actor_name: text(row.edited_by_name) || null,
+    metadata: {
+      old_status: row.old_status ?? null,
+      old_result: row.old_result ?? null,
+      old_notes: row.old_notes ?? null,
+      changed_fields: row.changed_fields ?? null,
+    },
+    created_at: text(row.edited_at),
+  }));
 }
