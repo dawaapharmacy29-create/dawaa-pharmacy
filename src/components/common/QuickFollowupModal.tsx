@@ -26,10 +26,12 @@ export default function QuickFollowupModal({
   open,
   onClose,
   onCreated,
+  defaultBranch,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated?: () => void;
+  defaultBranch?: string;
 }) {
   const { user } = useAuth();
   const [search, setSearch] = useState('');
@@ -48,9 +50,9 @@ export default function QuickFollowupModal({
 
   useEffect(() => {
     if (!open) return;
-    setBranch((current) => current || normalizeBranchName(user?.branch || '') || '');
+    setBranch((current) => current || normalizeBranchName(defaultBranch || user?.branch || '') || '');
     setDue((current) => current || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
-  }, [open, user?.branch]);
+  }, [defaultBranch, open, user?.branch]);
 
   useEffect(() => {
     if (!open) return;
@@ -98,7 +100,7 @@ export default function QuickFollowupModal({
 
   const reset = () => {
     setSearch(''); setResults([]); setName(''); setPhone(''); setCode('');
-    setBranch(normalizeBranchName(user?.branch || '') || '');
+    setBranch(normalizeBranchName(defaultBranch || user?.branch || '') || '');
     setPriority('مهم'); setAssignedDoctor('');
     setDue(new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
     setReason('طلب متابعة'); setNote('');
@@ -119,7 +121,7 @@ export default function QuickFollowupModal({
       await createDoctorRequestedFollowup({
         customerName: cleanName || 'عميل بدون اسم',
         customerPhone: cleanPhone || null,
-        branch: branch || user?.branch || null,
+        branch: branch || defaultBranch || user?.branch || null,
         priority,
         requestType: 'doctor_requested_followup',
         followupReason: reason || cleanNote,
