@@ -58,7 +58,7 @@ replaceOnce(
 
 replaceOnce(
 `              subtitle="المتابعات المفتوحة والنتائج اليومية حسب المسؤولة والفرع"`,
-`              subtitle={\`نطاق التقرير: ${safeDate(startDate)} إلى ${safeDate(endDate)} — نفس الفترة مطبقة على الإجمالي والفروع والمسؤولات\`}`,
+`              subtitle={\`نطاق التقرير: \${safeDate(startDate)} إلى \${safeDate(endDate)} — نفس الفترة مطبقة على الإجمالي والفروع والمسؤولات\`}`,
 'customer service period subtitle'
 );
 
