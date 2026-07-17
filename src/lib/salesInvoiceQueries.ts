@@ -1,41 +1,21 @@
-/**
- * salesInvoiceQueries.ts
- * ────────────────────────────────────────────────────────────────────────────
- * Optimized query builders for sales_invoices table.
- * Always use these instead of raw .from("sales_invoices") calls.
- *
- * Performance features:
- *  - SessionStorage cache (5-min TTL) for repeat loads
- *  - Parallel page batching (4 pages simultaneously vs sequential)
- *  - Consistent field projection (no select('*') overfetching)
- *  - Built-in date range helpers
- */
-
 import { supabase } from '@/lib/supabase';
 import { branchMatches } from '@/lib/branch';
 import { cacheGet, cacheSet, invoiceCacheKey } from '@/lib/invoiceCache';
 import { getInvoiceBranch } from '@/lib/invoices/invoiceCore';
 
-// ─── Field sets for different use cases ──────────────────────────────────────
-
-/** Minimal fields for dashboard KPIs */
 export const INVOICE_SELECT_KPI =
   'sale_date, invoice_date, net_total, net_amount, discounted_amount, total_amount, amount, gross_total, gross_amount, branch, branch_name, seller_name, normalized_seller_name, staff_name, customer_code';
 
-/** Fields needed for staff performance matching */
 export const INVOICE_SELECT_STAFF =
   'id, invoice_number, invoice_no, sale_date, invoice_date, net_total, net_amount, discounted_amount, amount, gross_total, gross_amount, total_amount, ' +
   'branch, branch_name, seller_name, normalized_seller_name, staff_name, customer_code, customer_phone, customer_name, ' +
   'invoice_type, shift';
 
-/** Full fields including optional columns */
 export const INVOICE_SELECT_FULL =
   'id, invoice_number, invoice_no, sale_date, invoice_date, net_total, net_amount, discounted_amount, amount, gross_total, gross_amount, total_amount, ' +
   'branch, branch_name, seller_name, normalized_seller_name, staff_name, customer_code, customer_phone, customer_name, ' +
-  'customer_address, customer_segment, customer_type, invoice_type, invoice_category, shift, ' +
-  'customer_id';
+  'customer_address, customer_segment, customer_type, invoice_type, invoice_category, shift, customer_id';
 
-/** Fields for customer-specific queries */
 export const INVOICE_SELECT_CUSTOMER =
   'id, invoice_number, invoice_no, sale_date, invoice_date, net_total, net_amount, discounted_amount, amount, gross_total, gross_amount, total_amount, ' +
   'customer_name, customer_code, customer_phone, branch, branch_name, seller_name, normalized_seller_name, staff_name, invoice_type';
@@ -50,6 +30,19 @@ export const INVOICE_SELECT_TRUTH_OPTIONS = [
 
 export type SalesInvoiceQueryRow = Record<string, unknown>;
 
+type PageResult = { data: SalesInvoiceQueryRow[]; error: Error | null };
+
+const DEFAULT_PAGE_SIZE = 1000;
+const DEFAULT_MAX_PAGES = 500;
+const PARALLEL_BATCH = 3;
+const PAGE_TIMEOUT_MS = 15000;
+const PAGE_RETRIES = 2;
+const lastGoodResults = new Map<string, SalesInvoiceQueryRow[]>();
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
 function nextDay(dateText: string) {
   const date = new Date(`${dateText}T12:00:00`);
   if (Number.isNaN(date.getTime())) return dateText;
@@ -58,48 +51,69 @@ function nextDay(dateText: string) {
 }
 
 function isAllBranchesSelection(branch?: string) {
-  const raw = String(branch || '')
-    .trim()
-    .toLowerCase();
+  const raw = String(branch || '').trim().toLowerCase();
   return !raw || raw === 'all' || raw.includes('كل');
 }
 
-// ─── Single-page fetcher (shared across serial and parallel paths) ───────────
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs);
+    Promise.resolve(promise).then(
+      (value) => { window.clearTimeout(timer); resolve(value); },
+      (error) => { window.clearTimeout(timer); reject(error); },
+    );
+  });
+}
 
-async function fetchOnePage(
+async function fetchOnePageOnce(
   page: number,
   selectField: string,
   startDate: string,
   endDate: string,
-  pageSize: number
-): Promise<{ data: SalesInvoiceQueryRow[]; error: Error | null }> {
+  pageSize: number,
+): Promise<PageResult> {
   const from = page * pageSize;
   const to = from + pageSize - 1;
   const endExclusive = nextDay(endDate);
-  const result = await supabase
-    .from('sales_invoices')
-    .select(selectField)
-    .gte('invoice_date', startDate)
-    .lt('invoice_date', endExclusive)
-    .order('invoice_date', { ascending: true })
-    .order('id', { ascending: true })
-    .range(from, to);
+  const result = await withTimeout(
+    supabase
+      .from('sales_invoices')
+      .select(selectField)
+      .gte('invoice_date', startDate)
+      .lt('invoice_date', endExclusive)
+      .order('invoice_date', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to),
+    PAGE_TIMEOUT_MS,
+    `sales_invoices page ${page}`,
+  );
   return {
     data: (result.data || []) as unknown as SalesInvoiceQueryRow[],
     error: result.error as Error | null,
   };
 }
 
-// ─── Main paginated fetcher (cached + parallel) ───────────────────────────────
+async function fetchOnePage(
+  page: number,
+  selectField: string,
+  startDate: string,
+  endDate: string,
+  pageSize: number,
+): Promise<PageResult> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= PAGE_RETRIES; attempt += 1) {
+    try {
+      const result = await fetchOnePageOnce(page, selectField, startDate, endDate, pageSize);
+      if (!result.error) return result;
+      lastError = result.error;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+    if (attempt < PAGE_RETRIES) await sleep(350 * 2 ** attempt);
+  }
+  return { data: [], error: lastError || new Error(`تعذر تحميل صفحة الفواتير ${page}`) };
+}
 
-/**
- * Fetches all sales invoices in a date range with:
- * - SessionStorage caching (5-min TTL) for repeat tab loads
- * - Parallel batch fetching (4 pages at a time) instead of sequential
- * - Automatic column-set fallback if a column doesn't exist
- *
- * Pass `noCache: true` to bypass cache (e.g. after user clicks Refresh).
- */
 export async function fetchSalesInvoicesPagedSafe(options: {
   startDate: string;
   endDate: string;
@@ -111,141 +125,100 @@ export async function fetchSalesInvoicesPagedSafe(options: {
   noCache?: boolean;
 }) {
   const errors = options.errors || [];
-  const pageSize = options.pageSize || 1000;
-  const maxPages = options.maxPages || 500;
-  const selects = options.selectOptions?.length
-    ? options.selectOptions
-    : INVOICE_SELECT_TRUTH_OPTIONS;
+  const pageSize = options.pageSize || DEFAULT_PAGE_SIZE;
+  const maxPages = options.maxPages || DEFAULT_MAX_PAGES;
+  const selects = options.selectOptions?.length ? options.selectOptions : INVOICE_SELECT_TRUTH_OPTIONS;
   const allBranches = isAllBranchesSelection(options.branch);
-  const PARALLEL_BATCH = 4;
-
-  // ── Cache check ────────────────────────────────────────────────────────────
   const cacheKey = invoiceCacheKey(options.startDate, options.endDate, options.branch || '');
+
   if (!options.noCache) {
     const cached = cacheGet<SalesInvoiceQueryRow[]>(cacheKey);
-    if (cached) {
-      return cached;
-    }
-  }
-
-  const rows: SalesInvoiceQueryRow[] = [];
-
-  // ── Determine working selectIndex from page 0 ─────────────────────────────
-  let selectIndex = 0;
-  let page0result = await fetchOnePage(
-    0,
-    selects[selectIndex],
-    options.startDate,
-    options.endDate,
-    pageSize
-  );
-
-  while (page0result.error && selectIndex < selects.length - 1) {
-    selectIndex += 1;
-    page0result = await fetchOnePage(
-      0,
-      selects[selectIndex],
-      options.startDate,
-      options.endDate,
-      pageSize
-    );
-  }
-
-  if (page0result.error) {
-    errors.push(`sales_invoices: ${page0result.error.message}`);
-    return rows;
+    if (cached?.length) return cached;
   }
 
   const filterRow = (row: SalesInvoiceQueryRow) =>
     allBranches || branchMatches(options.branch || '', getInvoiceBranch(row));
-  rows.push(...page0result.data.filter(filterRow));
 
-  // ── If page 0 wasn't full, we have everything ─────────────────────────────
+  let selectIndex = 0;
+  let page0result = await fetchOnePage(0, selects[selectIndex], options.startDate, options.endDate, pageSize);
+  while (page0result.error && selectIndex < selects.length - 1) {
+    selectIndex += 1;
+    page0result = await fetchOnePage(0, selects[selectIndex], options.startDate, options.endDate, pageSize);
+  }
+
+  if (page0result.error) {
+    errors.push(`sales_invoices: ${page0result.error.message}`);
+    const fallback = lastGoodResults.get(cacheKey) || cacheGet<SalesInvoiceQueryRow[]>(cacheKey);
+    if (fallback?.length) return fallback;
+    throw page0result.error;
+  }
+
+  const rows: SalesInvoiceQueryRow[] = page0result.data.filter(filterRow);
   if (page0result.data.length < pageSize) {
     cacheSet(cacheKey, rows);
+    lastGoodResults.set(cacheKey, rows);
     return rows;
   }
 
-  // ── Parallel batch fetching for remaining pages ───────────────────────────
   const workingSelect = selects[selectIndex];
   let batchStart = 1;
+  let completed = false;
 
-  while (batchStart < maxPages) {
+  while (batchStart < maxPages && !completed) {
     const batchEnd = Math.min(batchStart + PARALLEL_BATCH, maxPages);
-    const pagePromises: Promise<{ data: SalesInvoiceQueryRow[]; error: Error | null }>[] = [];
+    const pageNumbers = Array.from({ length: batchEnd - batchStart }, (_, index) => batchStart + index);
+    const batchResults = await Promise.all(
+      pageNumbers.map((page) => fetchOnePage(page, workingSelect, options.startDate, options.endDate, pageSize)),
+    );
 
-    for (let p = batchStart; p < batchEnd; p++) {
-      pagePromises.push(
-        fetchOnePage(p, workingSelect, options.startDate, options.endDate, pageSize)
-      );
-    }
-
-    const batchResults = await Promise.all(pagePromises);
-    let allDone = false;
-
-    for (const result of batchResults) {
+    for (let index = 0; index < batchResults.length; index += 1) {
+      const result = batchResults[index];
+      const page = pageNumbers[index];
       if (result.error) {
-        errors.push(`sales_invoices page: ${result.error.message}`);
-        allDone = true;
-        break;
+        errors.push(`sales_invoices page ${page}: ${result.error.message}`);
+        const fallback = lastGoodResults.get(cacheKey) || cacheGet<SalesInvoiceQueryRow[]>(cacheKey);
+        if (fallback?.length) return fallback;
+        throw result.error;
       }
       rows.push(...result.data.filter(filterRow));
       if (result.data.length < pageSize) {
-        allDone = true;
+        completed = true;
         break;
       }
     }
-
-    if (allDone) break;
     batchStart = batchEnd;
   }
 
+  if (!completed && batchStart >= maxPages) {
+    const error = new Error(`تم الوصول للحد الأقصى لصفحات الفواتير (${maxPages}) قبل اكتمال التحميل`);
+    errors.push(error.message);
+    const fallback = lastGoodResults.get(cacheKey) || cacheGet<SalesInvoiceQueryRow[]>(cacheKey);
+    if (fallback?.length) return fallback;
+    throw error;
+  }
+
   cacheSet(cacheKey, rows);
+  lastGoodResults.set(cacheKey, rows);
   return rows;
 }
 
-// ─── Query builders ───────────────────────────────────────────────────────────
-
-/**
- * Build a date-filtered invoices query.
- * @param start - ISO date string (inclusive)
- * @param end   - ISO date string (inclusive)
- * @param fields - Select projection (use INVOICE_SELECT_* constants)
- */
 export function invoicesByDateRange(start: string, end: string, fields = INVOICE_SELECT_KPI) {
-  return supabase
-    .from('sales_invoices')
-    .select(fields)
-    .gte('invoice_date', start)
-    .lte('invoice_date', end);
+  return supabase.from('sales_invoices').select(fields).gte('invoice_date', start).lte('invoice_date', end);
 }
 
-/**
- * Build a branch + date filtered query.
- */
-export function invoicesByBranchAndDate(
-  branch: string,
-  start: string,
-  end: string,
-  fields = INVOICE_SELECT_KPI
-) {
-  const q = invoicesByDateRange(start, end, fields);
-  return branch && branch !== 'all' ? q.eq('branch', branch) : q;
+export function invoicesByBranchAndDate(branch: string, start: string, end: string, fields = INVOICE_SELECT_KPI) {
+  const query = invoicesByDateRange(start, end, fields);
+  return branch && branch !== 'all' ? query.eq('branch', branch) : query;
 }
 
-/**
- * Build a seller-name filtered query.
- */
 export function invoicesBySellerNames(
   sellerNames: string[],
   start: string,
   end: string,
   fields = INVOICE_SELECT_STAFF,
-  limit = 5000
+  limit = 5000,
 ) {
-  if (sellerNames.length === 0) {
-    return supabase.from('sales_invoices').select(fields).limit(0);
-  }
+  if (!sellerNames.length) return supabase.from('sales_invoices').select(fields).limit(0);
   return supabase
     .from('sales_invoices')
     .select(fields)
@@ -255,21 +228,13 @@ export function invoicesBySellerNames(
     .limit(limit);
 }
 
-/**
- * Count invoices for a seller in a period (lightweight — no data transfer).
- */
-export async function countInvoicesBySeller(
-  sellerName: string,
-  start: string,
-  end: string
-): Promise<number> {
+export async function countInvoicesBySeller(sellerName: string, start: string, end: string): Promise<number> {
   const { count, error } = await supabase
     .from('sales_invoices')
     .select('id', { count: 'exact', head: true })
     .eq('seller_name', sellerName)
     .gte('invoice_date', start)
     .lte('invoice_date', end);
-
   if (error) return 0;
   return count ?? 0;
 }
