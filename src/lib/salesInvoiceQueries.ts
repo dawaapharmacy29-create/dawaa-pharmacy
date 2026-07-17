@@ -34,10 +34,11 @@ type PageResult = { data: SalesInvoiceQueryRow[]; error: Error | null };
 
 const DEFAULT_PAGE_SIZE = 1000;
 const DEFAULT_MAX_PAGES = 500;
-const PARALLEL_BATCH = 3;
+const PARALLEL_BATCH = 5;
 const PAGE_TIMEOUT_MS = 15000;
 const PAGE_RETRIES = 2;
 const lastGoodResults = new Map<string, SalesInvoiceQueryRow[]>();
+const inFlightLoads = new Map<string, Promise<SalesInvoiceQueryRow[]>>();
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -53,6 +54,18 @@ function nextDay(dateText: string) {
 function isAllBranchesSelection(branch?: string) {
   const raw = String(branch || '').trim().toLowerCase();
   return !raw || raw === 'all' || raw.includes('كل');
+}
+
+function isSchemaError(error: Error | null) {
+  if (!error) return false;
+  const message = String(error.message || '').toLowerCase();
+  return (
+    message.includes('does not exist') ||
+    message.includes('column') && message.includes('not found') ||
+    message.includes('pgrst204') ||
+    message.includes('42703') ||
+    message.includes('schema cache')
+  );
 }
 
 function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, label: string): Promise<T> {
@@ -106,15 +119,17 @@ async function fetchOnePage(
       const result = await fetchOnePageOnce(page, selectField, startDate, endDate, pageSize);
       if (!result.error) return result;
       lastError = result.error;
+      if (isSchemaError(lastError)) break;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      if (isSchemaError(lastError)) break;
     }
-    if (attempt < PAGE_RETRIES) await sleep(350 * 2 ** attempt);
+    if (attempt < PAGE_RETRIES) await sleep(250 * 2 ** attempt);
   }
   return { data: [], error: lastError || new Error(`تعذر تحميل صفحة الفواتير ${page}`) };
 }
 
-export async function fetchSalesInvoicesPagedSafe(options: {
+async function loadSalesInvoicesPaged(options: {
   startDate: string;
   endDate: string;
   branch?: string;
@@ -123,18 +138,12 @@ export async function fetchSalesInvoicesPagedSafe(options: {
   pageSize?: number;
   maxPages?: number;
   noCache?: boolean;
-}) {
+}, cacheKey: string): Promise<SalesInvoiceQueryRow[]> {
   const errors = options.errors || [];
   const pageSize = options.pageSize || DEFAULT_PAGE_SIZE;
   const maxPages = options.maxPages || DEFAULT_MAX_PAGES;
   const selects = options.selectOptions?.length ? options.selectOptions : INVOICE_SELECT_TRUTH_OPTIONS;
   const allBranches = isAllBranchesSelection(options.branch);
-  const cacheKey = invoiceCacheKey(options.startDate, options.endDate, options.branch || '');
-
-  if (!options.noCache) {
-    const cached = cacheGet<SalesInvoiceQueryRow[]>(cacheKey);
-    if (cached?.length) return cached;
-  }
 
   const filterRow = (row: SalesInvoiceQueryRow) =>
     allBranches || branchMatches(options.branch || '', getInvoiceBranch(row));
@@ -200,6 +209,33 @@ export async function fetchSalesInvoicesPagedSafe(options: {
   cacheSet(cacheKey, rows);
   lastGoodResults.set(cacheKey, rows);
   return rows;
+}
+
+export async function fetchSalesInvoicesPagedSafe(options: {
+  startDate: string;
+  endDate: string;
+  branch?: string;
+  selectOptions?: string[];
+  errors?: string[];
+  pageSize?: number;
+  maxPages?: number;
+  noCache?: boolean;
+}) {
+  const cacheKey = invoiceCacheKey(options.startDate, options.endDate, options.branch || '');
+
+  if (!options.noCache) {
+    const cached = cacheGet<SalesInvoiceQueryRow[]>(cacheKey);
+    if (cached?.length) return cached;
+  }
+
+  const existingLoad = inFlightLoads.get(cacheKey);
+  if (existingLoad) return existingLoad;
+
+  const loadPromise = loadSalesInvoicesPaged(options, cacheKey).finally(() => {
+    if (inFlightLoads.get(cacheKey) === loadPromise) inFlightLoads.delete(cacheKey);
+  });
+  inFlightLoads.set(cacheKey, loadPromise);
+  return loadPromise;
 }
 
 export function invoicesByDateRange(start: string, end: string, fields = INVOICE_SELECT_KPI) {
