@@ -2,7 +2,7 @@ import { Component, useEffect, useState, type ComponentType, type ReactNode } fr
 import ExecutiveDashboardSafe from '@/pages/ExecutiveDashboardSafe';
 import { logRuntimeError } from '@/lib/appRecovery';
 
-const DASHBOARD_IMPORT_TIMEOUT_MS = 8000;
+const DASHBOARD_IMPORT_TIMEOUT_MS = 15000;
 
 type DashboardState =
   | { status: 'safe'; message: string }
@@ -90,9 +90,9 @@ export default function ExecutiveDashboardRoute() {
     async function loadAdvancedDashboard() {
       try {
         const module = await withTimeout(
-          import('@/pages/ExecutiveDashboard2027'),
+          import('@/pages/ExecutiveDashboard2027Resilient'),
           DASHBOARD_IMPORT_TIMEOUT_MS,
-          'ExecutiveDashboard2027 import'
+          'ExecutiveDashboard2027Resilient import'
         );
         if (!cancelled) setState({ status: 'ready-advanced', Component: module.default });
       } catch (error) {
