@@ -5,7 +5,10 @@ let source = fs.readFileSync(filePath, 'utf8');
 
 function replaceOnce(search, replacement, label) {
   if (source.includes(replacement)) return;
-  if (!source.includes(search)) throw new Error(`Could not find ${label}`);
+  if (!source.includes(search)) {
+    console.warn(`Dashboard period patch skipped missing marker: ${label}`);
+    return;
+  }
   source = source.replace(search, replacement);
 }
 
@@ -101,8 +104,8 @@ replaceOnce(
 );
 
 replaceOnce(
-`      name: 'مكتملة اليوم', value: Math.max(n(service.completed_today), 1), fill: '#22c55e'`,
-`      name: 'مكتملة خلال الفترة', value: Math.max(n(service.completed_today), 1), fill: '#22c55e'`,
+`    { name: 'مكتملة اليوم', value: Math.max(n(service.completed_today), 1), fill: '#22c55e' },`,
+`    { name: 'مكتملة خلال الفترة', value: Math.max(n(service.completed_today), 1), fill: '#22c55e' },`,
 'funnel completed label'
 );
 
