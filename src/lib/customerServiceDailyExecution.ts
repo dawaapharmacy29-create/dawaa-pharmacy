@@ -25,7 +25,7 @@ export type DailyQueueItem = DailyQueueCandidate & {
   completedAt?: string | null;
 };
 
-const QUEUE_VERSION = 'smart-branch-v2';
+const QUEUE_VERSION = 'smart-branch-quality-v3';
 const text = (value: unknown) => String(value ?? '').trim();
 const todayKey = () => {
   const now = new Date();
@@ -36,14 +36,39 @@ const digits = (value: unknown) => text(value).replace(/\D/g, '').replace(/^20(?
 const missingRelation = (message: string) => /does not exist|schema cache|relation .* not found/i.test(message);
 const sameBranch = (a: unknown, b: unknown) => normalizeBranchName(a) === normalizeBranchName(b);
 
+function normalizedCustomerName(value: unknown) {
+  return normalizeKey(value)
+    .replace(/^(عميل|customer)(غيرمسجل|غيرمحدد|مجهول)?$/i, '')
+    .replace(/^(بدوناسم|لايوجد|غيرمعروف|test|تجربه|تجربة)$/i, '');
+}
+
+function validCustomerPhone(value: unknown) {
+  const phone = digits(value);
+  return /^01[0125]\d{8}$/.test(phone) || /^1[0125]\d{8}$/.test(phone);
+}
+
+function qualityIssues(item: DailyQueueCandidate) {
+  const issues: string[] = [];
+  if (!normalizedCustomerName(item.name) || normalizedCustomerName(item.name).length < 3) issues.push('invalid_name');
+  const code = normalizeKey(item.code);
+  const hasCode = Boolean(code && !/^(0+|غيرمسجل|بدونكود|unknown|null)$/.test(code));
+  if (!hasCode && !validCustomerPhone(item.phone)) issues.push('missing_identity');
+  if (!sameBranch(item.branch, normalizeBranchName(item.branch))) issues.push('invalid_branch');
+  return issues;
+}
+
+function isEligibleCustomer(item: DailyQueueCandidate) {
+  return qualityIssues(item).length === 0;
+}
+
 function canonicalIdentity(item: DailyQueueCandidate) {
+  const code = normalizeKey(item.code);
+  if (code && !/^(0+|غيرمسجل|بدونكود|unknown|null)$/.test(code)) return `code:${code}`;
+  const phone = digits(item.phone);
+  if (validCustomerPhone(phone)) return `phone:${phone.slice(-11)}`;
   const customerId = normalizeKey(item.customerId);
   if (customerId) return `id:${customerId}`;
-  const code = normalizeKey(item.code);
-  if (code) return `code:${code}`;
-  const phone = digits(item.phone);
-  if (phone.length >= 10) return `phone:${phone.slice(-11)}`;
-  return `name:${normalizeKey(item.name)}:branch:${normalizeKey(normalizeBranchName(item.branch))}`;
+  return `name:${normalizedCustomerName(item.name)}:branch:${normalizeKey(normalizeBranchName(item.branch))}`;
 }
 
 function candidateScore(item: DailyQueueCandidate) {
@@ -84,28 +109,31 @@ async function recentCustomerKeys(branch: string, days = 7) {
     .gte('queue_date', startKey).lt('queue_date', todayKey()).limit(3000);
   if (error) { if (missingRelation(error.message)) return new Set<string>(); throw error; }
   const today = todayKey();
-  return new Set((data || []).filter((row) => sameBranch(row.branch, branch) && text(row.next_followup_date) !== today)
-    .map((row) => canonicalIdentity({ key: text(row.customer_key), source: '', customerId: text(row.customer_id), code: text(row.customer_code), name: text(row.customer_name), phone: text(row.customer_phone), branch: text(row.branch) })).filter(Boolean));
+  return new Set((data || [])
+    .map((row) => mapRow(row as Record<string, unknown>))
+    .filter((row) => sameBranch(row.branch, branch) && isEligibleCustomer(row) && text(row.nextFollowupDate) !== today)
+    .map((row) => canonicalIdentity(row))
+    .filter(Boolean));
 }
 
 export async function loadOrCreateDailyQueue(branch: string, candidates: DailyQueueCandidate[], actor?: { id?: string | null; name?: string | null }): Promise<{ items: DailyQueueItem[]; persistent: boolean }> {
   const queueDate = todayKey();
   const targetBranch = normalizeBranchName(branch);
-  const scopedCandidates = candidates.filter((item) => sameBranch(item.branch, targetBranch));
+  const scopedCandidates = candidates.filter((item) => sameBranch(item.branch, targetBranch) && isEligibleCustomer(item));
   const current = await supabase.from('customer_service_daily_queue_items').select('*').eq('queue_date', queueDate).order('created_at', { ascending: true }).limit(1000);
   if (current.error) {
     if (missingRelation(current.error.message)) return { items: dedupeCandidates(scopedCandidates).slice(0, 30).map((item, index) => ({ ...item, id: `fallback-${index}`, queueDate, status: 'not_started' })), persistent: false };
     throw current.error;
   }
 
-  const currentScoped = (current.data || []).map((row) => mapRow(row as Record<string, unknown>)).filter((row) => sameBranch(row.branch, targetBranch));
-  const isCurrentVersion = currentScoped.length > 0 && currentScoped.every((row) => row.metadata?.queueVersion === QUEUE_VERSION);
+  const currentAll = (current.data || []).map((row) => mapRow(row as Record<string, unknown>));
+  const currentScoped = currentAll.filter((row) => sameBranch(row.branch, targetBranch) && isEligibleCustomer(row));
+  const pollutedScoped = currentAll.filter((row) => sameBranch(row.branch, targetBranch) && !isEligibleCustomer(row));
+  const isCurrentVersion = currentScoped.length > 0 && pollutedScoped.length === 0 && currentScoped.every((row) => row.metadata?.queueVersion === QUEUE_VERSION);
   if (isCurrentVersion) return { items: dedupeRows(currentScoped), persistent: true };
 
-  if (currentScoped.length) {
-    const ids = currentScoped.map((row) => row.id).filter(Boolean);
-    if (ids.length) await supabase.from('customer_service_daily_queue_items').delete().in('id', ids);
-  }
+  const idsToRebuild = currentAll.filter((row) => sameBranch(row.branch, targetBranch)).map((row) => row.id).filter(Boolean);
+  if (idsToRebuild.length) await supabase.from('customer_service_daily_queue_items').delete().in('id', idsToRebuild);
 
   const recent = await recentCustomerKeys(targetBranch);
   const ranked = dedupeCandidates(scopedCandidates).sort((a, b) => candidateScore(b) - candidateScore(a));
@@ -127,16 +155,17 @@ export async function loadOrCreateDailyQueue(branch: string, candidates: DailyQu
     linked_followup_id: item.linkedFollowupId || null,
     next_followup_date: item.nextFollowupDate ? item.nextFollowupDate.slice(0, 10) : null,
     created_by: actor?.id || null, created_by_name: actor?.name || null,
-    metadata: { ...(item.metadata || {}), queueVersion: QUEUE_VERSION, canonicalBranch: targetBranch, smartScore: candidateScore(item) },
+    metadata: { ...(item.metadata || {}), queueVersion: QUEUE_VERSION, canonicalBranch: targetBranch, smartScore: candidateScore(item), qualityStatus: 'valid' },
   }));
   const inserted = await supabase.from('customer_service_daily_queue_items').upsert(payload, { onConflict: 'queue_date,branch,customer_key' }).select('*');
   if (inserted.error) throw inserted.error;
-  return { items: dedupeRows((inserted.data || []).map((row) => mapRow(row as Record<string, unknown>))), persistent: true };
+  return { items: dedupeRows((inserted.data || []).map((row) => mapRow(row as Record<string, unknown>)).filter(isEligibleCustomer)), persistent: true };
 }
 
 function dedupeCandidates(items: DailyQueueCandidate[]) {
   const map = new Map<string, DailyQueueCandidate>();
   for (const item of items) {
+    if (!isEligibleCustomer(item)) continue;
     const identity = canonicalIdentity(item);
     const old = map.get(identity);
     if (!old || candidateScore(item) > candidateScore(old)) map.set(identity, { ...item, key: identity });
@@ -147,6 +176,7 @@ function dedupeCandidates(items: DailyQueueCandidate[]) {
 function dedupeRows(items: DailyQueueItem[]) {
   const map = new Map<string, DailyQueueItem>();
   for (const item of items) {
+    if (!isEligibleCustomer(item)) continue;
     const identity = canonicalIdentity(item);
     const old = map.get(identity);
     if (!old || candidateScore(item) > candidateScore(old)) map.set(identity, { ...item, key: identity });
