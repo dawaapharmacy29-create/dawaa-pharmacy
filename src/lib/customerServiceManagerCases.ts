@@ -94,19 +94,41 @@ export async function createOrUpdateManagerCase(input: {
     metadata: input.metadata || {},
   };
 
-  let query = supabase.from('customer_service_manager_cases').insert(payload).select('*').single();
+  let data: Record<string, unknown> | null = null;
   if (input.followupId) {
-    query = supabase
+    const existing = await supabase
       .from('customer_service_manager_cases')
-      .upsert(payload, { onConflict: 'followup_id', ignoreDuplicates: false })
       .select('*')
-      .single();
+      .eq('followup_id', input.followupId)
+      .in('status', ['open', 'accepted', 'in_progress', 'returned'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing.error && !missingRelation(existing.error.message)) throw new Error(existing.error.message);
+    if (existing.data) {
+      const updated = await supabase
+        .from('customer_service_manager_cases')
+        .update(payload)
+        .eq('id', existing.data.id)
+        .select('*')
+        .single();
+      if (updated.error) {
+        if (missingRelation(updated.error.message)) return null;
+        throw new Error(updated.error.message);
+      }
+      data = updated.data as Record<string, unknown>;
+    }
   }
-  const { data, error } = await query;
-  if (error) {
-    if (missingRelation(error.message)) return null;
-    throw new Error(error.message);
+
+  if (!data) {
+    const inserted = await supabase.from('customer_service_manager_cases').insert(payload).select('*').single();
+    if (inserted.error) {
+      if (missingRelation(inserted.error.message)) return null;
+      throw new Error(inserted.error.message);
+    }
+    data = inserted.data as Record<string, unknown>;
   }
+
   await appendFollowupEvent({
     followupId: input.followupId,
     queueItemId: input.queueItemId,
