@@ -1,5 +1,19 @@
 const fs = require('node:fs');
 
+const queueFilePath = 'src/lib/customerServiceDailyExecution.ts';
+if (fs.existsSync(queueFilePath)) {
+  const queueSource = fs.readFileSync(queueFilePath, 'utf8');
+  const canonicalQueueSource = queueSource
+    .replace("const QUEUE_VERSION = 'smart-branch-quality-v3';", "const QUEUE_VERSION = 'canonical-customer-master-v4';")
+    .replace("qualityStatus: 'valid' }", "qualityStatus: 'valid', customerMasterSource: 'dawaa_customer_metrics_app_view_v2' }");
+  if (canonicalQueueSource !== queueSource) {
+    fs.writeFileSync(queueFilePath, canonicalQueueSource);
+    console.log('Canonical customer master queue v4 applied.');
+  } else {
+    console.log('Canonical customer master queue v4 already applied.');
+  }
+}
+
 const filePath = 'src/components/customerService/UnifiedCustomerServiceWorkspace.tsx';
 let source = fs.readFileSync(filePath, 'utf8');
 const marker = "@/components/customerService/ManagerCasesPanel";
