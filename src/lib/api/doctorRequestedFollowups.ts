@@ -28,6 +28,9 @@ export type DoctorFollowupFilters = {
   to?: string;
 };
 
+type DoctorIdentity = { staffId: string; userId: string; doctorName: string };
+type RawRow = Record<string, unknown>;
+
 function text(value: unknown) {
   return String(value ?? '').trim();
 }
@@ -44,11 +47,27 @@ function normalizeName(value: unknown) {
     .toLowerCase();
 }
 
-function isMine(row: Record<string, unknown>, userId: string, doctorName: string) {
-  const createdBy = text(row.created_by);
-  if (userId && createdBy === userId) return true;
-  const createdByName = normalizeName(row.created_by_name);
-  return Boolean(doctorName && createdByName && createdByName === normalizeName(doctorName));
+function isMine(row: RawRow, identity: DoctorIdentity) {
+  const ids = new Set(
+    [identity.userId, identity.staffId]
+      .map(text)
+      .filter(Boolean)
+  );
+
+  const linkedIds = [
+    row.requested_by_staff_id,
+    row.created_by,
+    row.staff_id,
+  ].map(text);
+
+  if (linkedIds.some((value) => value && ids.has(value))) return true;
+
+  const doctorName = normalizeName(identity.doctorName);
+  if (!doctorName) return false;
+
+  return [row.created_by_name, row.requested_by_name, row.assigned_doctor]
+    .map(normalizeName)
+    .some((value) => value && value === doctorName);
 }
 
 export async function createDoctorRequestedFollowup(
@@ -56,13 +75,15 @@ export async function createDoctorRequestedFollowup(
 ) {
   return createExceptionalFollowup({
     ...input,
+    createdBy: input.createdBy || input.createdByStaffId || null,
+    requestedByStaffId: input.createdByStaffId || input.createdBy || null,
     requestType: input.requestType || 'doctor_requested_followup',
     source: input.source || 'doctor_requested_followup',
   });
 }
 
 export async function fetchMyRequestedFollowups(
-  identity: { staffId: string; userId: string; doctorName: string },
+  identity: DoctorIdentity,
   filters: DoctorFollowupFilters = {}
 ): Promise<FollowupRow[]> {
   let query = supabase
@@ -71,15 +92,16 @@ export async function fetchMyRequestedFollowups(
     .order('created_at', { ascending: false })
     .limit(1000);
 
-  if (identity.userId) query = query.eq('created_by', identity.userId);
+  // لا نقيد الاستعلام بـ created_by فقط؛ السجلات القديمة والجديدة قد تكون
+  // مرتبطة بالدكتور عبر user id أو staff id أو الاسم الموحد.
   if (filters.from) query = query.gte('created_at', `${filters.from}T00:00:00`);
   if (filters.to) query = query.lte('created_at', `${filters.to}T23:59:59`);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
 
-  const rows = ((data || []) as Record<string, unknown>[]).filter((row) =>
-    isMine(row, identity.userId, identity.doctorName)
+  const rows = ((data || []) as RawRow[]).filter((row) =>
+    isMine(row, identity)
   ) as unknown as FollowupRow[];
 
   const search = text(filters.search).toLowerCase();
@@ -98,20 +120,33 @@ export async function fetchMyRequestedFollowups(
   });
 }
 
-export async function fetchFollowupEvents(followupId: string): Promise<DoctorFollowupEvent[]> {
-  const { data, error } = await supabase
-    .from('customer_followup_edit_logs')
-    .select('*')
-    .eq('followup_id', followupId)
-    .order('edited_at', { ascending: true })
-    .limit(500);
+function mapExecutionEvent(row: RawRow): DoctorFollowupEvent {
+  const eventType = text(row.event_type) || 'updated';
+  const titles: Record<string, string> = {
+    started: 'بدأ تنفيذ المتابعة',
+    result_saved: 'تم تسجيل نتيجة المتابعة',
+    completed: 'تم إكمال المتابعة',
+    scheduled: 'تم تحديد متابعة قادمة',
+    needs_manager: 'تم رفع الحالة للمدير',
+  };
+  return {
+    id: text(row.id),
+    followup_id: text(row.followup_id),
+    event_type: eventType,
+    title: titles[eventType] || 'تم تحديث المتابعة',
+    status: text(row.event_status) || null,
+    notes: text(row.notes) || null,
+    result: text(row.event_status) || null,
+    customer_response: null,
+    responsible_name: text(row.actor_name) || null,
+    actor_name: text(row.actor_name) || null,
+    metadata: (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, unknown>,
+    created_at: text(row.created_at),
+  };
+}
 
-  if (error) {
-    if (/does not exist|schema cache/i.test(error.message)) return [];
-    throw new Error(error.message);
-  }
-
-  return ((data || []) as Record<string, unknown>[]).map((row) => ({
+function mapLegacyEvent(row: RawRow): DoctorFollowupEvent {
+  return {
     id: text(row.id),
     followup_id: text(row.followup_id),
     event_type: 'updated',
@@ -129,5 +164,34 @@ export async function fetchFollowupEvents(followupId: string): Promise<DoctorFol
       changed_fields: row.changed_fields ?? null,
     },
     created_at: text(row.edited_at),
-  }));
+  };
+}
+
+export async function fetchFollowupEvents(followupId: string): Promise<DoctorFollowupEvent[]> {
+  const [execution, legacy] = await Promise.all([
+    supabase
+      .from('customer_service_followup_events')
+      .select('*')
+      .eq('followup_id', followupId)
+      .order('created_at', { ascending: true })
+      .limit(500),
+    supabase
+      .from('customer_followup_edit_logs')
+      .select('*')
+      .eq('followup_id', followupId)
+      .order('edited_at', { ascending: true })
+      .limit(500),
+  ]);
+
+  const executionRows = execution.error && !/does not exist|schema cache/i.test(execution.error.message)
+    ? []
+    : ((execution.data || []) as RawRow[]).map(mapExecutionEvent);
+
+  const legacyRows = legacy.error && !/does not exist|schema cache/i.test(legacy.error.message)
+    ? []
+    : ((legacy.data || []) as RawRow[]).map(mapLegacyEvent);
+
+  return [...executionRows, ...legacyRows]
+    .filter((row) => row.id)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
