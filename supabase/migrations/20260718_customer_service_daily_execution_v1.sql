@@ -32,7 +32,7 @@ create table if not exists public.customer_service_daily_queue_items (
   priority text not null default 'مهم',
   reason text,
   status text not null default 'not_started',
-  linked_followup_id uuid references public.daily_followups(id) on delete set null,
+  linked_followup_id text references public.daily_followups(id) on delete set null,
   next_followup_date date,
   assigned_staff_id text,
   created_by text,
@@ -57,7 +57,7 @@ create index if not exists customer_service_daily_queue_customer_history_idx
 
 create table if not exists public.customer_service_followup_events (
   id uuid primary key default gen_random_uuid(),
-  followup_id uuid references public.daily_followups(id) on delete cascade,
+  followup_id text references public.daily_followups(id) on delete cascade,
   queue_item_id uuid references public.customer_service_daily_queue_items(id) on delete set null,
   event_type text not null,
   event_status text,
