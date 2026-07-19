@@ -251,7 +251,7 @@ async function verifyAtRiskQueue(items: QueueItem[]) {
         const raw = profile.profile as Record<string, unknown> | null;
         const lastPurchase =
           metrics?.last_purchase || String(raw?.last_purchase || '') || item.lastPurchase;
-        if (lastPurchase && !activityStatus(lastPurchase).atRisk) return null;
+        if (lastPurchase && !activityStatus(lastPurchase).atRisk && !item.completed) return null;
         const branch = normalizeBranchName(
           metrics?.branch || String(raw?.branch || '') || item.branch
         );
@@ -265,7 +265,7 @@ async function verifyAtRiskQueue(items: QueueItem[]) {
           ),
           branch,
           segment: metrics?.segment || item.segment,
-          status: activityStatus(lastPurchase).label,
+          status: item.completed ? 'completed' : activityStatus(lastPurchase).label,
           avgMonthly: Number(metrics?.avg_monthly || item.avgMonthly || 0),
           totalSpent: Number(metrics?.total_spent || item.totalSpent || 0),
           avgInvoice: Number(metrics?.avg_invoice || item.avgInvoice || 0),
@@ -434,6 +434,13 @@ function sourceLabel(source: QueueSource) {
   return 'عميل مهم';
 }
 
+function queueLabel(item: QueueItem) {
+  if (item.completed) return 'تمت المتابعة';
+  if (item.source === 'at_risk' && item.lastPurchase && !activityStatus(item.lastPurchase).atRisk)
+    return 'متابعة اهتمام';
+  return sourceLabel(item.source);
+}
+
 function scriptFor(item: QueueItem) {
   const owner = BRANCH_OWNER[item.branch] || 'فريق خدمة العملاء';
   return buildFollowupScript({
@@ -597,6 +604,7 @@ export default function UnifiedCustomerServiceWorkspace() {
       const stalePhones = new Set(staleAtRiskCustomers.map((customer) => normalizePhone(customer.customer_phone || customer.phone)).filter(Boolean));
       const finalQueue = snapshot.items.filter(
         (saved) =>
+          saved.status === 'completed' ||
           saved.source !== 'at_risk' ||
           (!staleCodes.has(String(saved.code || '').trim()) &&
             !stalePhones.has(normalizePhone(saved.phone)))
@@ -1214,7 +1222,7 @@ export default function UnifiedCustomerServiceWorkspace() {
       item.phone,
       item.branch,
       item.branchEvidence,
-      sourceLabel(item.source),
+      queueLabel(item),
       item.priority,
       item.priorityReason,
       item.requestedBy,
@@ -1639,7 +1647,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1">
-                        <Badge>{sourceLabel(item.source)}</Badge>
+                        <Badge>{queueLabel(item)}</Badge>
                         {Number(item.openRequestCount || 0) > 1 && (
                           <span className="rounded-lg bg-violet-500/20 px-2 py-1 text-[10px] font-black text-violet-100">
                             {item.openRequestCount} طلبات مفتوحة
@@ -1656,7 +1664,9 @@ export default function UnifiedCustomerServiceWorkspace() {
                       {item.priorityReason}
                     </div>
                     <div className="mt-1 line-clamp-2 text-xs font-bold text-slate-300">
-                      {item.reason}
+                      {item.completed
+                        ? `النتيجة: ${resultOf(item.row) === 'غير محدد' ? 'تمت المتابعة بنجاح' : resultOf(item.row)}`
+                        : item.reason}
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black text-slate-400">
                       <span>شهري: {moneyOrUnavailable(item.avgMonthly)}</span>
@@ -1690,9 +1700,10 @@ export default function UnifiedCustomerServiceWorkspace() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="w-full text-xs font-black text-teal-300">اسم العميل</span>
                       <h2 className="text-2xl font-black text-white">{selected.name}</h2>
-                      <Badge>{sourceLabel(selected.source)}</Badge>
+                      <Badge>{queueLabel(selected)}</Badge>
                       <Badge>حالة النشاط: {activityStatus(selected.lastPurchase).label}</Badge>
                       <Badge>فئة المشتريات: {selected.segment}</Badge>
+                      {selected.completed && <Badge>النتيجة: {resultOf(selected.row)}</Badge>}
                     </div>
                     <p className="mt-2 text-sm font-bold text-slate-400">
                       {selected.code || 'بدون كود'} · {selected.phone || 'بدون رقم'} ·{' '}
