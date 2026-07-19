@@ -100,6 +100,7 @@ export type FollowupFilters = {
   responsible?: string;
   search?: string;
   limit?: number;
+  strict?: boolean;
 };
 export type CustomerServiceSearchResult = CustomerMetric & {
   source: 'customer_metrics_summary' | 'customers';
@@ -531,6 +532,7 @@ export async function fetchCustomerServiceFollowups(filters: FollowupFilters = {
     return await enrichFollowupRows(finalRows, filters);
   } catch (error) {
     console.warn('customer followups safe fallback returned empty list', error);
+    if (filters.strict) throw error;
     return [] as FollowupRow[];
   }
 }
