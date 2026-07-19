@@ -534,9 +534,16 @@ function followupNeedsManager(row: FollowupDashboardRow) {
 
 function followupIsOverdue(row: FollowupDashboardRow) {
   if (followupIsDone(row)) return false;
-  const raw = row.followup_date || row.date || row.created_at || '';
-  const time = new Date(raw).getTime();
-  return Number.isFinite(time) && time < Date.now();
+  const raw = row.followup_date || row.date || '';
+  const day = String(raw).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const today = new Date();
+  const todayKey = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('-');
+  return day < todayKey;
 }
 
 function followupHasNoCode(row: FollowupDashboardRow) {
@@ -1245,9 +1252,12 @@ export default function ExecutiveDashboard2027() {
         setCustomerServiceError((prev) => prev ? prev + ' | owners failed' : String(e instanceof Error ? e.message : e));
       }
       try {
-        if (!customerServiceRows.length || !customerServiceOwners.length) {
-          customerServiceFollowups = await fetchFollowupsForDashboard(startDate, endDate, scopedBranch || ALL_BRANCHES, errors);
-        }
+        customerServiceFollowups = await fetchFollowupsForDashboard(
+          startDate,
+          endDate,
+          scopedBranch || ALL_BRANCHES,
+          errors
+        );
       } catch (e) {
         console.warn('[Dashboard] customer service fallback fetch skipped', e);
       }
@@ -1267,8 +1277,8 @@ export default function ExecutiveDashboard2027() {
       // update state for customer service section
       const fallbackSummary = customerServiceFollowups.length ? buildCustomerServiceSummaryFallback(customerServiceFollowups) : null;
       const fallbackOwners = customerServiceFollowups.length ? buildCustomerServiceOwnersFallback(customerServiceFollowups) : [];
-      const effectiveCustomerServiceRows = customerServiceRows.length ? customerServiceRows : fallbackSummary ? [fallbackSummary] : [];
-      const effectiveCustomerServiceOwners = customerServiceOwners.length ? customerServiceOwners : fallbackOwners;
+      const effectiveCustomerServiceRows = fallbackSummary ? [fallbackSummary] : customerServiceRows;
+      const effectiveCustomerServiceOwners = fallbackOwners.length ? fallbackOwners : customerServiceOwners;
       setState((prev) => ({
         ...prev,
         customerService: effectiveCustomerServiceRows[0] || null,
@@ -2913,7 +2923,7 @@ export default function ExecutiveDashboard2027() {
           <Panel id="customer-service-analysis" className="xl:col-span-12 p-5 scroll-mt-24">
             <SectionTitle
               title="عمليات خدمة العملاء"
-              subtitle="المتابعات المفتوحة والنتائج اليومية حسب المسؤولة والفرع"
+              subtitle="المتابعات داخل الفترة المختارة حسب المسؤولة والفرع"
               icon={<Headphones className="h-5 w-5" />}
             />
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
@@ -2922,8 +2932,8 @@ export default function ExecutiveDashboard2027() {
                 value={count(service.open_followups)}
                 tone="cyan"
               />
-              <MiniBox label="متأخر" value={count(service.overdue_followups)} tone="red" />
-              <MiniBox label="المكتملة اليوم" value={count(service.completed_today)} tone="green" />
+              <MiniBox label="متأخر قبل اليوم" value={count(service.overdue_followups)} tone="red" />
+              <MiniBox label="المكتملة خلال الفترة" value={count(service.completed_today)} tone="green" />
               <MiniBox label="تحتاج مدير" value={count(service.needs_manager)} tone="amber" />
               <MiniBox label="عملاء بدون كود" value={count(service.no_code_customers)} tone="blue" />
               <MiniBox

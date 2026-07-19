@@ -25,7 +25,7 @@ export type DailyQueueItem = DailyQueueCandidate & {
   completedAt?: string | null;
 };
 
-const QUEUE_VERSION = 'smart-branch-quality-v3';
+const QUEUE_VERSION = 'canonical-customer-master-v4';
 const text = (value: unknown) => String(value ?? '').trim();
 const todayKey = () => {
   const now = new Date();
@@ -155,7 +155,7 @@ export async function loadOrCreateDailyQueue(branch: string, candidates: DailyQu
     linked_followup_id: item.linkedFollowupId || null,
     next_followup_date: item.nextFollowupDate ? item.nextFollowupDate.slice(0, 10) : null,
     created_by: actor?.id || null, created_by_name: actor?.name || null,
-    metadata: { ...(item.metadata || {}), queueVersion: QUEUE_VERSION, canonicalBranch: targetBranch, smartScore: candidateScore(item), qualityStatus: 'valid' },
+    metadata: { ...(item.metadata || {}), queueVersion: QUEUE_VERSION, canonicalBranch: targetBranch, smartScore: candidateScore(item), qualityStatus: 'valid', customerMasterSource: 'dawaa_customer_metrics_app_view_v2' },
   }));
   const inserted = await supabase.from('customer_service_daily_queue_items').upsert(payload, { onConflict: 'queue_date,branch,customer_key' }).select('*');
   if (inserted.error) throw inserted.error;

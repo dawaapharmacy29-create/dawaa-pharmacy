@@ -5,7 +5,9 @@ import { getInvoiceAmount, getInvoiceBranch, getInvoiceDay, getInvoiceId, getInv
 const mockSelect = vi.fn();
 const mockGte = vi.fn();
 const mockLt = vi.fn();
+const mockRange = vi.fn();
 let mockDatabaseRows = [];
+let mockVerificationErrorPage = -1;
 let mockExistingInvoiceRows = [];
 let mockInsertImplementation: ((rows: any[]) => Promise<{ data: any[] | null; error: { message: string } | null }>) | null = null;
 let currentTable = '';
@@ -41,6 +43,14 @@ const chain = {
   },
   order(_column: string, _options: { ascending: boolean }) {
     return chain;
+  },
+  range: async (from: number, to: number) => {
+    mockRange(from, to);
+    const pageNumber = Math.floor(from / 500);
+    if (pageNumber === mockVerificationErrorPage) {
+      return { data: null, error: { message: 'verification page failed' } };
+    }
+    return { data: mockDatabaseRows.slice(from, to + 1), error: null };
   },
   maybeSingle: async () => ({ data: null, error: null }),
   limit: async () => {
@@ -119,7 +129,9 @@ beforeEach(() => {
   mockSelect.mockReset();
   mockGte.mockReset();
   mockLt.mockReset();
+  mockRange.mockReset();
   mockDatabaseRows = [];
+  mockVerificationErrorPage = -1;
   mockExistingInvoiceRows = [];
   mockInsertImplementation = null;
   currentTable = '';
@@ -210,6 +222,60 @@ describe('loadDatabaseDayComparison', () => {
     mockGte.mockReset();
     mockLt.mockReset();
     mockDatabaseRows = [];
+  });
+
+
+  it.each([999, 1000, 1001, 1599, 2001])(
+    'reads all %i verification rows with 500-row pagination and reports no false missing invoices',
+    async (rowCount) => {
+      mockDatabaseRows = Array.from({ length: rowCount }, (_, index) => ({
+        id: `db-${String(index + 1).padStart(6, '0')}`,
+        invoice_date: '2026-07-03',
+        invoice_number: `INV-${index + 1}`,
+        invoice_no: `INV-${index + 1}`,
+        branch: 'فرع شكري',
+        net_amount: 1,
+      }));
+      const fileDays = new Map([
+        ['2026-07-03', { date: '2026-07-03', count: rowCount, total: rowCount }],
+      ]);
+
+      const result = await loadDatabaseDayComparison(fileDays, '2026-07-03', '2026-07-03');
+
+      expect(result.verificationComplete).toBe(true);
+      expect(result.verificationFetchedCount).toBe(rowCount);
+      expect(result.verificationPageSize).toBe(500);
+      expect(result.verificationPagesCount).toBe(Math.floor(rowCount / 500) + 1);
+      expect(result.databaseInvoicesCount).toBe(rowCount);
+      expect(result.comparison[0]?.status).toBe('matched');
+      expect(result.comparison[0]?.countDifference).toBe(0);
+      expect(mockRange).toHaveBeenLastCalledWith(
+        Math.floor(rowCount / 500) * 500,
+        Math.floor(rowCount / 500) * 500 + 499
+      );
+    }
+  );
+
+  it('marks verification incomplete when any page fails', async () => {
+    mockDatabaseRows = Array.from({ length: 1001 }, (_, index) => ({
+      id: `db-${index + 1}`,
+      invoice_date: '2026-07-03',
+      invoice_number: `INV-${index + 1}`,
+      branch: 'فرع شكري',
+      net_amount: 1,
+    }));
+    mockVerificationErrorPage = 1;
+    const fileDays = new Map([
+      ['2026-07-03', { date: '2026-07-03', count: 1001, total: 1001 }],
+    ]);
+
+    const result = await loadDatabaseDayComparison(fileDays, '2026-07-03', '2026-07-03');
+
+    expect(result.verificationComplete).toBe(false);
+    expect(result.verificationFetchedCount).toBe(500);
+    expect(result.verificationPagesCount).toBe(2);
+    expect(result.verificationError).toBe('verification page failed');
+    expect(result.comparison).toEqual([]);
   });
 
   it('marks a day as matched when a file day exists in sales_invoices after import', async () => {
