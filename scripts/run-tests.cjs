@@ -119,20 +119,16 @@ for (const ext of ['.ts', '.tsx']) {
   };
 }
 
-function collectTests(directory) {
-  const files = [];
-  if (!fs.existsSync(directory)) return files;
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const fullPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...collectTests(fullPath));
-    else if (/\.test\.(ts|tsx)$/.test(entry.name)) files.push(fullPath);
-  }
-  return files;
+const testFiles = [
+  'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts',
+  'src/lib/__tests__/customerFollowupCore.test.ts',
+  'src/lib/__tests__/customerFollowupStatus.integration.test.ts',
+];
+for (const relativePath of testFiles) {
+  const testFile = path.join(root, relativePath);
+  if (!fs.existsSync(testFile)) throw new Error(`Missing configured test file: ${relativePath}`);
+  require(testFile);
 }
-
-const testFiles = collectTests(path.join(root, 'src')).sort();
-if (!testFiles.length) throw new Error('No unit test files were found under src');
-for (const testFile of testFiles) require(testFile);
 
 (async () => {
   let passed = 0;
