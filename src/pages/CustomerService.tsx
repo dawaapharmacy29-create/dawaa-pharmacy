@@ -2381,7 +2381,7 @@ const addFollowup = async () => {
             <span className="inline-flex rounded-full border border-cyan-400/30 bg-cyan-500/15 px-3 py-1 text-xs font-black text-cyan-100">
               Customer Service Command Center
             </span>
-            <h1 className="mt-3 text-3xl font-black text-white">مركز خدمة العملاء</h1>
+            <h1 className="mt-3 text-3xl font-black text-white">متابعة العملاء</h1>
             <p className="mt-1 text-sm font-semibold text-slate-200">
               ابدأ من أهم عميل وسجل نتيجة كل متابعة بسرعة، مع ترتيب تلقائي حسب الخطورة والأولوية.
             </p>
