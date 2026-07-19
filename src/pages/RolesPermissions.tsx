@@ -119,6 +119,14 @@ export default function RolesPermissions() {
       if (username) usernameCounts.set(username, (usernameCounts.get(username) || 0) + 1);
       if (account.staff_id) staffAccountCounts.set(account.staff_id, (staffAccountCounts.get(account.staff_id) || 0) + 1);
     }
+    const rolePermissionVariants = new Map<string, Set<string>>();
+    for (const account of staffAccounts.filter((item) => item.active !== false && item.can_login !== false)) {
+      const role = normalizeRole(account.role);
+      const effective = mergePermissions(getDefaultPermissionsForRole(role), account.permissions || {});
+      const enabled = ALL_PERMISSION_KEYS.filter((key) => effective[key] === true).sort().join('|');
+      if (!rolePermissionVariants.has(role)) rolePermissionVariants.set(role, new Set());
+      rolePermissionVariants.get(role)!.add(enabled);
+    }
     const issues = staffAccounts.flatMap((account) => {
       const accountIssues: string[] = [];
       const active = account.active !== false && account.can_login !== false;
@@ -137,6 +145,11 @@ export default function RolesPermissions() {
         .filter((permission) => permission.sensitive && defaults[permission.key] !== true && effective[permission.key] === true)
         .length;
       if (extraSensitive) accountIssues.push(`${extraSensitive} صلاحية حساسة زائدة عن قالب الوظيفة`);
+      if ((rolePermissionVariants.get(normalizeRole(account.role))?.size || 0) > 1) {
+        const defaultsEnabled = ALL_PERMISSION_KEYS.filter((key) => defaults[key] === true).sort().join('|');
+        const effectiveEnabled = ALL_PERMISSION_KEYS.filter((key) => effective[key] === true).sort().join('|');
+        if (effectiveEnabled !== defaultsEnabled) accountIssues.push('صلاحيات مختلفة عن زملاء نفس الوظيفة وقالبها المعتمد');
+      }
       return accountIssues.length ? [{ account, issues: accountIssues }] : [];
     });
     return {
@@ -364,10 +377,13 @@ export default function RolesPermissions() {
         {permissionAudit.issues.length > 0 && (
           <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
             {permissionAudit.issues.map(({ account, issues }) => (
-              <button key={account.id} className="w-full rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-right" onClick={() => { setSelectedAccountId(account.id); setShowComparison(true); }}>
-                <div className="font-bold text-white">{account.name || account.staff_name || account.username || 'حساب غير مسمى'}</div>
-                <div className="mt-1 text-xs font-semibold text-amber-100">{issues.join(' · ')}</div>
-              </button>
+              <div key={account.id} className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                <button className="w-full text-right" onClick={() => { setSelectedAccountId(account.id); setShowComparison(true); }}>
+                  <div className="font-bold text-white">{account.name || account.staff_name || account.username || 'حساب غير مسمى'}</div>
+                  <div className="mt-1 text-xs font-semibold text-amber-100">{issues.join(' · ')}</div>
+                </button>
+                {canEdit && <button className="mt-2 rounded-lg bg-violet-600/20 px-3 py-1 text-xs font-black text-violet-200" onClick={() => { setSelectedAccountId(account.id); setPendingChanges(getDefaultPermissionsForRole(account.role)); setShowComparison(true); toast.info('تم تجهيز الإصلاح للمعاينة فقط؛ اضغط حفظ بعد المراجعة.'); }}>معاينة الإصلاح المقترح</button>}
+              </div>
             ))}
           </div>
         )}
