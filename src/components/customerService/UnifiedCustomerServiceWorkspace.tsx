@@ -52,7 +52,14 @@ import {
 import { buildFollowupScript, followupPriorityScore } from '@/lib/customerServiceScriptEngine';
 
 type QueueSource = 'doctor_request' | 'yesterday' | 'at_risk' | 'important';
-type WorkspaceTab = 'today' | 'doctor-requests' | 'care' | 'history' | 'performance';
+type WorkspaceTab =
+  | 'today'
+  | 'doctor-requests'
+  | 'upcoming'
+  | 'manager'
+  | 'care'
+  | 'history'
+  | 'performance';
 type HistoryPeriod = 'all' | 'today' | '7d' | 'cycle';
 
 type QueueItem = {
@@ -173,9 +180,21 @@ function sourceFromRow(row: FollowupRow): QueueSource {
 
 function followupToItem(row: FollowupRow, source = sourceFromRow(row)): QueueItem {
   const metric = row.customer_metrics || null;
-  const branch = normalizeBranchName(row.branch || metric?.branch || '');
-  const metricBranch = normalizeBranchName(metric?.branch || '');
-  const branchNeedsReview = Boolean(branch && metricBranch && branch !== metricBranch);
+  const metricData = (metric || {}) as unknown as Record<string, unknown>;
+  const requestBranch = normalizeBranchName(row.branch || '');
+  const profileBranch = normalizeBranchName(String(metric?.branch || ''));
+  const lastPurchaseBranch = normalizeBranchName(String(metricData.branch_last_purchase || ''));
+  const frequentBranch = normalizeBranchName(String(metricData.branch_most_frequent || ''));
+  const highestValueBranch = normalizeBranchName(String(metricData.branch_highest_value || ''));
+  const branch = requestBranch || lastPurchaseBranch || frequentBranch || profileBranch;
+  const evidenceBranches = [
+    profileBranch,
+    lastPurchaseBranch,
+    frequentBranch,
+    highestValueBranch,
+  ].filter(Boolean);
+  const conflictingBranches = [...new Set(evidenceBranches.filter((value) => value !== branch))];
+  const branchNeedsReview = !branch || conflictingBranches.length > 0;
   const priority = followupPriorityScore({
     source,
     priority: row.priority,
@@ -209,10 +228,12 @@ function followupToItem(row: FollowupRow, source = sourceFromRow(row)): QueueIte
     completed: isCompleted(row),
     requestedBy: row.created_by_name || row.assigned_doctor || 'غير محدد',
     branchEvidence: branchNeedsReview
-      ? `طلب المتابعة: ${branch} · ملف العميل: ${metricBranch}`
-      : branch
-        ? 'فرع طلب المتابعة ومتوافق مع ملف العميل'
-        : 'الفرع غير مؤكد',
+      ? `فرع المتابعة: ${branch || 'غير محدد'}${lastPurchaseBranch ? ` · آخر شراء: ${lastPurchaseBranch}` : ''}${frequentBranch ? ` · الأكثر تعاملًا: ${frequentBranch}` : ''}${profileBranch ? ` · ملف العميل: ${profileBranch}` : ''}`
+      : lastPurchaseBranch
+        ? `مؤكد من آخر شراء: ${lastPurchaseBranch}`
+        : branch
+          ? 'متوافق مع ملف العميل'
+          : 'الفرع غير مؤكد',
     branchNeedsReview,
     priorityScore: priority.score,
     priorityReason: priority.label,
@@ -487,7 +508,6 @@ export default function UnifiedCustomerServiceWorkspace() {
         ),
     [allFollowups]
   );
-  const selected = queue.find((item) => item.key === selectedKey) || null;
   const filteredQueue = useMemo(
     () =>
       queue.filter((item) => {
@@ -507,6 +527,48 @@ export default function UnifiedCustomerServiceWorkspace() {
         .sort((a, b) => b.priorityScore - a.priorityScore),
     [allFollowups]
   );
+  const upcomingQueue = useMemo(
+    () =>
+      allFollowups
+        .filter((row) => !isCompleted(row) && Boolean(row.next_followup_date))
+        .map((row) => followupToItem(row))
+        .sort((a, b) =>
+          String(a.row?.next_followup_date || '').localeCompare(
+            String(b.row?.next_followup_date || '')
+          )
+        ),
+    [allFollowups]
+  );
+  const managerQueue = useMemo(
+    () =>
+      allFollowups
+        .filter(
+          (row) =>
+            !isCompleted(row) &&
+            (row.needs_manager ||
+              /يحتاج.*مدير|تصعيد|شكوى/i.test(
+                `${resultOf(row)} ${row.followup_reason || ''} ${row.request_details || ''}`
+              ))
+        )
+        .map((row) => followupToItem(row))
+        .sort((a, b) => b.priorityScore - a.priorityScore),
+    [allFollowups]
+  );
+  const selected =
+    [...queue, ...doctorRequestQueue, ...upcomingQueue, ...managerQueue].find(
+      (item) => item.key === selectedKey
+    ) || null;
+  const selectedDataIssues = selected
+    ? [
+        !selected.code ? 'كود العميل غير موجود' : '',
+        !selected.phone ? 'رقم الهاتف غير موجود' : '',
+        !selected.branch ? 'الفرع غير محدد' : '',
+        selected.branchNeedsReview ? 'بيانات الفرع تحتاج مراجعة' : '',
+      ].filter(Boolean)
+    : [];
+  const dataReviewCount = allFollowups.filter(
+    (row) => !row.customer_code || !(row.customer_phone || row.phone) || !row.branch
+  ).length;
 
   const historyRows = useMemo(
     () =>
@@ -695,7 +757,15 @@ export default function UnifiedCustomerServiceWorkspace() {
     toast.success('تم نسخ السكريبت');
   }
 
-  const visibleQueue = (tab === 'doctor-requests' ? doctorRequestQueue : filteredQueue)
+  const visibleQueue = (
+    tab === 'doctor-requests'
+      ? doctorRequestQueue
+      : tab === 'upcoming'
+        ? upcomingQueue
+        : tab === 'manager'
+          ? managerQueue
+          : filteredQueue
+  )
     .filter((item) => {
       if (tab === 'care' && !['important', 'at_risk'].includes(item.source)) return false;
       if (statusFilter === 'completed' && !item.completed) return false;
@@ -704,6 +774,11 @@ export default function UnifiedCustomerServiceWorkspace() {
       return !search.trim() || haystack.includes(search.trim().toLowerCase());
     })
     .sort((a, b) => b.priorityScore - a.priorityScore);
+  useEffect(() => {
+    setSelectedKey((current) =>
+      visibleQueue.some((item) => item.key === current) ? current : visibleQueue[0]?.key || ''
+    );
+  }, [tab, branch, search, sourceFilter, statusFilter, visibleQueue.length]);
   const slaFor = (item: QueueItem) =>
     getFollowupSla({
       source: item.source,
@@ -749,6 +824,9 @@ export default function UnifiedCustomerServiceWorkspace() {
             <button className="btn-primary" onClick={() => setQuickOpen(true)}>
               إضافة متابعة
             </button>
+            <a className="btn-secondary" href="/customer-data-review">
+              مراجعة البيانات {dataReviewCount ? `(${dataReviewCount})` : ''}
+            </a>
           </div>
         </div>
       </section>
@@ -842,6 +920,12 @@ export default function UnifiedCustomerServiceWorkspace() {
         >
           طلبات الدكاترة
         </Tab>
+        <Tab active={tab === 'upcoming'} onClick={() => setTab('upcoming')} icon={Clock3}>
+          متابعة قادمة ({upcomingQueue.length})
+        </Tab>
+        <Tab active={tab === 'manager'} onClick={() => setTab('manager')} icon={AlertTriangle}>
+          يحتاج مدير ({managerQueue.length})
+        </Tab>
         <Tab active={tab === 'care'} onClick={() => setTab('care')} icon={HeartHandshake}>
           الاهتمام والاسترجاع
         </Tab>
@@ -853,7 +937,11 @@ export default function UnifiedCustomerServiceWorkspace() {
         </Tab>
       </section>
 
-      {(tab === 'today' || tab === 'doctor-requests' || tab === 'care') && (
+      {(tab === 'today' ||
+        tab === 'doctor-requests' ||
+        tab === 'upcoming' ||
+        tab === 'manager' ||
+        tab === 'care') && (
         <section className="grid gap-4 xl:grid-cols-[minmax(340px,.8fr)_minmax(0,1.2fr)]">
           <div className="stat-card min-h-[620px]">
             <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
@@ -992,9 +1080,17 @@ export default function UnifiedCustomerServiceWorkspace() {
                     }
                   />
                 </div>
-                {selected.branchNeedsReview && (
+                {selectedDataIssues.length > 0 && (
                   <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm font-black text-amber-100">
-                    ⚠ بيانات الفرع متعارضة؛ ستظل المتابعة في فرع الطلب ولن نعدّل ملف العميل تلقائيًا.
+                    <div>⚠ بيانات تحتاج مراجعة</div>
+                    <ul className="mt-2 space-y-1 text-xs font-bold">
+                      {selectedDataIssues.map((issue) => (
+                        <li key={issue}>• {issue}</li>
+                      ))}
+                    </ul>
+                    <div className="mt-2 text-xs font-bold">
+                      لن يتم تعديل ملف العميل تلقائيًا أو نقل المتابعة بين الفروع.
+                    </div>
                   </div>
                 )}
                 <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
@@ -1015,14 +1111,20 @@ export default function UnifiedCustomerServiceWorkspace() {
                       <div className="mt-3 rounded-xl bg-black/10 p-3">
                         <div className="text-xs font-black text-teal-200">أسئلة مقترحة</div>
                         <ul className="mt-2 space-y-1 text-sm font-bold text-teal-50">
-                          {scriptPackFor(selected).questions.map((question) => <li key={question}>• {question}</li>)}
+                          {scriptPackFor(selected).questions.map((question) => (
+                            <li key={question}>• {question}</li>
+                          ))}
                         </ul>
                       </div>
                       <p className="mt-3 text-sm font-bold leading-7 text-teal-50">
-                        <span className="text-teal-200">إنهاء مناسب:</span> {scriptPackFor(selected).closing}
+                        <span className="text-teal-200">إنهاء مناسب:</span>{' '}
+                        {scriptPackFor(selected).closing}
                       </p>
                     </div>
-                    <button className="btn-secondary flex shrink-0 items-center gap-1" onClick={() => copyScript(selected)}>
+                    <button
+                      className="btn-secondary flex shrink-0 items-center gap-1"
+                      onClick={() => copyScript(selected)}
+                    >
                       <Copy size={15} /> نسخ واتساب
                     </button>
                   </div>
