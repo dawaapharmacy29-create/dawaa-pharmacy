@@ -52,6 +52,7 @@ import {
 } from '@/lib/customerServiceDailyExecution';
 import { buildFollowupScript, followupPriorityScore } from '@/lib/customerServiceScriptEngine';
 import { createStaffNotification } from '@/lib/staffNotificationService';
+import { supabase } from '@/lib/supabase';
 
 type QueueSource = 'doctor_request' | 'yesterday' | 'at_risk' | 'important';
 type WorkspaceTab =
@@ -325,6 +326,7 @@ export default function UnifiedCustomerServiceWorkspace() {
   const [selectedKey, setSelectedKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | QueueSource>('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -477,6 +479,7 @@ export default function UnifiedCustomerServiceWorkspace() {
           ? current
           : finalQueue[0]?.key || ''
       );
+      setLastSyncedAt(new Date());
     } catch (error) {
       console.error(error);
       setLoadError((error as Error).message || 'تعذر تحميل البيانات');
@@ -488,6 +491,44 @@ export default function UnifiedCustomerServiceWorkspace() {
 
   useEffect(() => {
     void loadWorkspace();
+  }, [branch]);
+
+  useEffect(() => {
+    let refreshTimer: number | undefined;
+    const scheduleRefresh = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => void loadWorkspace(), 700);
+    };
+    const onLocalDataChange = (event: Event) => {
+      const table = (event as CustomEvent<{ table?: string }>).detail?.table;
+      if (!table || table === 'daily_followups') scheduleRefresh();
+    };
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') scheduleRefresh();
+    };
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') scheduleRefresh();
+    }, 90_000);
+    const channel = supabase
+      .channel(`customer-followups-live:${branch}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'daily_followups' },
+        scheduleRefresh
+      )
+      .subscribe();
+
+    window.addEventListener('dataChanged', onLocalDataChange);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.clearTimeout(refreshTimer);
+      window.clearInterval(interval);
+      window.removeEventListener('dataChanged', onLocalDataChange);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+      void supabase.removeChannel(channel);
+    };
   }, [branch]);
 
   const owner = BRANCH_OWNER[branch] || 'مسئول خدمة العملاء';
@@ -909,6 +950,10 @@ export default function UnifiedCustomerServiceWorkspace() {
             <p className="mt-2 text-sm font-bold text-slate-300">
               كل طلب له مسؤول وخطوة قادمة ونتيجة واضحة · {owner} · {branch}
             </p>
+            <p className="mt-1 text-xs font-bold text-slate-400">
+              مزامنة مباشرة بين المستخدمين
+              {lastSyncedAt ? ` · آخر تحديث ${lastSyncedAt.toLocaleTimeString('ar-EG')}` : ''}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {managerView ? (
@@ -929,8 +974,10 @@ export default function UnifiedCustomerServiceWorkspace() {
             <button
               className="btn-secondary flex items-center gap-2"
               onClick={() => void loadWorkspace()}
+              disabled={loading}
             >
-              <RefreshCw size={16} /> تحديث
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              {loading ? 'جارٍ التحديث' : 'تحديث'}
             </button>
             <button className="btn-primary" onClick={() => setQuickOpen(true)}>
               إضافة متابعة
