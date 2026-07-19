@@ -32,7 +32,15 @@ import { formatCurrency } from '@/lib/utils';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
 import QuickFollowupModal from '@/components/common/QuickFollowupModal';
 import FollowupResultModal, { type FollowupResultData } from '@/components/customerService/FollowupResultModal';
+import CustomerServiceExecutionDashboard from '@/components/customerService/CustomerServiceExecutionDashboard';
 import type { DailyFollowup } from '@/types/database';
+import { contactAttemptLabel, getFollowupSla, recordContactAttempt, type ContactAttemptType } from '@/lib/customerServiceAttempts';
+import {
+  appendFollowupEvent,
+  loadOrCreateDailyQueue,
+  notifyIncompleteDailyQueue,
+  updateDailyQueueItem,
+} from '@/lib/customerServiceDailyExecution';
 
 type QueueSource = 'doctor_request' | 'yesterday' | 'at_risk' | 'important';
 type WorkspaceTab = 'today' | 'doctor-requests' | 'care' | 'history' | 'performance';
@@ -56,6 +64,7 @@ type QueueItem = {
   avgInvoice: number;
   lastPurchase: string;
   completed: boolean;
+  queueItemId?: string | null;
 };
 
 const BRANCHES = ['فرع الشامي', 'فرع شكري'];
@@ -231,6 +240,9 @@ export default function UnifiedCustomerServiceWorkspace() {
       ]);
       setAllFollowups(followups);
       const doctorRequests = followups.filter((row) => !isCompleted(row) && sourceFromRow(row) === 'doctor_request').map((row) => followupToItem(row, 'doctor_request'));
+      const scheduledToday = followups
+        .filter((row) => !isCompleted(row) && String(row.next_followup_date || '').slice(0, 10) === todayIso())
+        .map((row) => followupToItem(row, sourceFromRow(row)));
       const yesterday = recentResult.customers
         .filter((customer) => String(customer.last_purchase || '').slice(0, 10) === yesterdayIso())
         .filter((customer) => Number(customer.avg_invoice || 0) >= 500 || Number(customer.total_spent || 0) >= 1000)
@@ -248,12 +260,58 @@ export default function UnifiedCustomerServiceWorkspace() {
           if (added >= limit || map.size >= 30) break;
         }
       };
+      add(scheduledToday, 30);
       add(doctorRequests, 10);
       add(yesterday, 10);
       add(atRisk, 10);
       add(important, 30);
-      const finalQueue = [...map.values()].slice(0, 30);
+      const proposedQueue = [...map.values()].slice(0, 30);
+      const snapshot = await loadOrCreateDailyQueue(
+        branch,
+        proposedQueue.map((item) => ({
+          key: item.key,
+          source: item.source,
+          customerId: item.customer?.customer_id || item.customer?.id || item.row?.customer_id || null,
+          code: item.code || null,
+          name: item.name,
+          phone: item.phone || null,
+          branch: item.branch,
+          priority: item.priority,
+          reason: item.reason,
+          nextFollowupDate: item.row?.next_followup_date || null,
+          linkedFollowupId: item.row?.id || null,
+        })),
+        { id: user?.id || null, name: user?.name || null }
+      );
+      const proposedByKey = new Map(proposedQueue.map((item) => [item.key, item]));
+      const finalQueue = snapshot.items.map((saved) => {
+        const original = proposedByKey.get(saved.key);
+        if (original) return { ...original, queueItemId: saved.id, completed: saved.status === 'completed' || original.completed };
+        return {
+          key: saved.key,
+          source: saved.source as QueueSource,
+          row: followups.find((row) => row.id === saved.linkedFollowupId) || null,
+          customer: null,
+          name: saved.name,
+          code: saved.code || '',
+          phone: saved.phone || '',
+          branch: saved.branch,
+          segment: 'غير مصنف',
+          status: saved.status,
+          priority: saved.priority || 'مهم',
+          reason: saved.reason || 'متابعة اليوم',
+          avgMonthly: 0,
+          totalSpent: 0,
+          avgInvoice: 0,
+          lastPurchase: '',
+          completed: saved.status === 'completed',
+          queueItemId: saved.id,
+        };
+      });
       setQueue(finalQueue);
+      const completedCount = finalQueue.filter((item) => item.completed).length;
+      const needsManagerCount = followups.filter((row) => row.needs_manager && !isCompleted(row)).length;
+      void notifyIncompleteDailyQueue({ branch, ownerName: BRANCH_OWNER[branch] || 'مسئول خدمة العملاء', total: finalQueue.length, completed: completedCount, needsManager: needsManagerCount });
       setSelectedKey((current) => current && finalQueue.some((item) => item.key === current) ? current : finalQueue[0]?.key || '');
     } catch (error) {
       console.error(error);
@@ -278,6 +336,12 @@ export default function UnifiedCustomerServiceWorkspace() {
     const haystack = `${item.name} ${item.code} ${item.phone} ${item.reason}`.toLowerCase();
     return !search.trim() || haystack.includes(search.trim().toLowerCase());
   }), [queue, search, sourceFilter, statusFilter]);
+  const doctorRequestQueue = useMemo(
+    () => allFollowups
+      .filter((row) => !isCompleted(row) && sourceFromRow(row) === 'doctor_request')
+      .map((row) => followupToItem(row, 'doctor_request')),
+    [allFollowups]
+  );
 
   const historyRows = useMemo(() => completedHistory.filter((row) => {
     const completedAt = rowValue(row, 'completed_at', 'updated_at', 'followup_date', 'date').slice(0, 10);
@@ -317,13 +381,35 @@ export default function UnifiedCustomerServiceWorkspace() {
       createdByName: user?.name || null,
       source: 'unified_customer_service_workspace',
     });
-    setQueue((current) => current.map((row) => row.key === item.key ? { ...row, row: created } : row));
+    await updateDailyQueueItem(item.queueItemId || '', { linkedFollowupId: created.id, status: 'in_progress', started: true });
+    await appendFollowupEvent({ followupId: created.id, queueItemId: item.queueItemId, eventType: 'started', status: 'in_progress', actorStaffId: user?.staffId || user?.id || null, actorName: user?.name || null });
+    setQueue((current) => current.map((row) => row.key === item.key ? { ...row, row: created, status: 'جارٍ التواصل' } : row));
     return created;
   }
 
   async function openResult(item: QueueItem) {
     try { setResultRow(await ensureFollowup(item)); }
     catch (error) { toast.error(`تعذر تجهيز المتابعة: ${(error as Error).message}`); }
+  }
+
+  async function saveContactAttempt(item: QueueItem, attemptType: ContactAttemptType) {
+    try {
+      const followup = await ensureFollowup(item);
+      const notes = attemptType === 'callback_requested' ? window.prompt('اكتب الموعد أو ملاحظة طلب العميل:') || '' : '';
+      const result = await recordContactAttempt({
+        followupId: followup.id,
+        queueItemId: item.queueItemId || null,
+        attemptType,
+        notes: notes || null,
+        actorStaffId: user?.staffId || user?.id || null,
+        actorName: user?.name || null,
+      });
+      toast.success(`تم تسجيل المحاولة رقم ${result.attemptCount}: ${result.label}`);
+      setQueue((current) => current.map((row) => row.key === item.key ? { ...row, status: result.label } : row));
+      await loadWorkspace();
+    } catch (error) {
+      toast.error(`تعذر تسجيل المحاولة: ${(error as Error).message}`);
+    }
   }
 
   async function saveResult(data: FollowupResultData) {
@@ -361,6 +447,13 @@ export default function UnifiedCustomerServiceWorkspace() {
       return;
     }
     await updateFollowupResult(resultRow.id, payload);
+    const queueItem = queue.find((item) => item.row?.id === resultRow.id || item.key === normalizeKey(resultRow.customer_code, resultRow.customer_phone, resultRow.phone, resultRow.customer_id, resultRow.customer_name));
+    await updateDailyQueueItem(queueItem?.queueItemId || '', {
+      status: completed ? 'completed' : data.result === 'يحتاج متابعة مدير' ? 'needs_manager' : 'scheduled',
+      nextFollowupDate: data.nextFollowupDate || null,
+      completed,
+    });
+    await appendFollowupEvent({ followupId: resultRow.id, queueItemId: queueItem?.queueItemId, eventType: completed ? 'completed' : 'result_saved', status: data.result, actorStaffId: user?.staffId || user?.id || null, actorName: user?.name || null, notes: data.notes, metadata: { nextFollowupDate: data.nextFollowupDate || null, purchaseAmount: data.purchaseAmount } });
     setResultRow(null);
     await loadWorkspace();
   }
@@ -370,7 +463,20 @@ export default function UnifiedCustomerServiceWorkspace() {
     toast.success('تم نسخ السكريبت');
   }
 
-  const visibleQueue = filteredQueue.filter((item) => tab === 'doctor-requests' ? item.source === 'doctor_request' : tab === 'care' ? ['important', 'at_risk'].includes(item.source) : true);
+  const visibleQueue = (tab === 'doctor-requests' ? doctorRequestQueue : filteredQueue).filter((item) => {
+    if (tab === 'care' && !['important', 'at_risk'].includes(item.source)) return false;
+    if (statusFilter === 'completed' && !item.completed) return false;
+    if (statusFilter === 'open' && item.completed) return false;
+    const haystack = `${item.name} ${item.code} ${item.phone} ${item.reason}`.toLowerCase();
+    return !search.trim() || haystack.includes(search.trim().toLowerCase());
+  });
+  const slaFor = (item: QueueItem) => getFollowupSla({
+    source: item.source,
+    priority: item.priority,
+    createdAt: item.row?.created_at || item.row?.date || item.row?.followup_date || null,
+    startedAt: rowValue(item.row, 'first_attempt_at') || null,
+    completed: item.completed,
+  });
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -384,7 +490,12 @@ export default function UnifiedCustomerServiceWorkspace() {
       {loadError && <div className="flex items-center justify-between rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-red-100"><span>تعذر تحميل البيانات: {loadError}</span><button className="btn-secondary" onClick={() => void loadWorkspace()}>إعادة المحاولة</button></div>}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Stat icon={Users} label={`قائمة ${owner}`} value={queue.length} /><Stat icon={CheckCircle2} label="مكتمل اليوم" value={stats.completed} /><Stat icon={History} label="إجمالي السجل المكتمل" value={completedHistory.length} /><Stat icon={UserRoundSearch} label="طلبات دكاترة" value={queue.filter((item) => item.source === 'doctor_request').length} /><Stat icon={HeartHandshake} label="مهددون" value={queue.filter((item) => item.source === 'at_risk').length} /><Stat icon={Sparkles} label="عملاء مهمون" value={queue.filter((item) => item.source === 'important').length} />
+        <button type="button" className="text-right" onClick={() => { setTab('today'); setSourceFilter('all'); setStatusFilter('all'); }}><Stat icon={Users} label={`قائمة ${owner}`} value={queue.length} /></button>
+        <button type="button" className="text-right" onClick={() => { setTab('today'); setSourceFilter('all'); setStatusFilter('completed'); }}><Stat icon={CheckCircle2} label="مكتمل اليوم" value={stats.completed} /></button>
+        <button type="button" className="text-right" onClick={() => setTab('history')}><Stat icon={History} label="إجمالي السجل المكتمل" value={completedHistory.length} /></button>
+        <button type="button" className="text-right" onClick={() => { setTab('doctor-requests'); setSourceFilter('doctor_request'); setStatusFilter('all'); }}><Stat icon={UserRoundSearch} label="طلبات دكاترة" value={doctorRequestQueue.length} /></button>
+        <button type="button" className="text-right" onClick={() => { setTab('care'); setSourceFilter('at_risk'); setStatusFilter('all'); }}><Stat icon={HeartHandshake} label="مهددون" value={queue.filter((item) => item.source === 'at_risk').length} /></button>
+        <button type="button" className="text-right" onClick={() => { setTab('care'); setSourceFilter('important'); setStatusFilter('all'); }}><Stat icon={Sparkles} label="عملاء مهمون" value={queue.filter((item) => item.source === 'important').length} /></button>
       </section>
 
       <section className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-[#10243d] p-2">
@@ -392,13 +503,13 @@ export default function UnifiedCustomerServiceWorkspace() {
       </section>
 
       {(tab === 'today' || tab === 'doctor-requests' || tab === 'care') && <section className="grid gap-4 xl:grid-cols-[minmax(340px,.8fr)_minmax(0,1.2fr)]">
-        <div className="stat-card min-h-[620px]"><div className="grid gap-2 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3"><div className="relative"><Search className="absolute right-3 top-3 text-slate-500" size={17} /><input className="input-dark pr-10" placeholder="اسم / كود / هاتف" value={search} onChange={(event) => setSearch(event.target.value)} /></div><select className="input-dark" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as 'all' | QueueSource)}><option value="all">كل الأنواع</option><option value="doctor_request">طلبات الدكاترة</option><option value="yesterday">اشترى أمس</option><option value="at_risk">مهدد بالتوقف</option><option value="important">عميل مهم</option></select><select className="input-dark" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">كل الحالات</option><option value="open">مفتوح</option><option value="completed">تم</option></select></div><div className="mt-4 max-h-[560px] space-y-2 overflow-y-auto pl-1">{loading ? <Empty text="جاري تجهيز قائمة اليوم..." /> : visibleQueue.map((item, index) => <button key={item.key} onClick={() => setSelectedKey(item.key)} className={`w-full rounded-2xl border p-3 text-right transition ${selectedKey === item.key ? 'border-teal-300/50 bg-teal-500/15' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}><div className="flex items-start justify-between gap-3"><div><div className="font-black text-white">{index + 1}. {item.name}</div><div className="mt-1 text-xs text-slate-400">{item.code || 'بدون كود'} · {item.phone || 'بدون رقم'}</div></div><Badge>{sourceLabel(item.source)}</Badge></div><div className="mt-2 line-clamp-2 text-xs font-bold text-slate-300">{item.reason}</div></button>)}{!loading && !visibleQueue.length && <Empty text="لا توجد نتائج مطابقة." />}</div></div>
-        <div className="stat-card min-h-[620px]">{selected ? <div className="space-y-5"><div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-black text-white">{selected.name}</h2><Badge>{sourceLabel(selected.source)}</Badge><Badge>{selected.status}</Badge><Badge>{selected.segment}</Badge></div><p className="mt-2 text-sm font-bold text-slate-400">{selected.code || 'بدون كود'} · {selected.phone || 'بدون رقم'} · {selected.branch}</p></div><div className="flex gap-2"><a className="btn-secondary" href={`/customer-360?customerId=${encodeURIComponent(selected.customer?.customer_id || selected.customer?.id || selected.row?.customer_id || '')}&code=${encodeURIComponent(selected.code)}`}>ملف 360</a><button className="btn-primary" onClick={() => void openResult(selected)}>تسجيل النتيجة</button></div></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Info label="إجمالي المشتريات" value={formatCurrency(selected.totalSpent)} /><Info label="متوسط شهري" value={formatCurrency(selected.avgMonthly)} /><Info label="متوسط الفاتورة" value={formatCurrency(selected.avgInvoice)} /><Info label="آخر شراء" value={selected.lastPurchase ? new Date(selected.lastPurchase).toLocaleDateString('ar-EG') : 'غير متاح'} /></div><div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4"><div className="text-xs font-black text-amber-200">سبب المتابعة</div><div className="mt-2 text-base font-bold leading-7 text-amber-50">{selected.reason}</div></div><div className="rounded-2xl border border-teal-400/20 bg-teal-500/10 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black text-teal-200">سكريبت ودود باسم {owner}</div><p className="mt-2 text-sm font-bold leading-7 text-teal-50">{scriptFor(selected)}</p></div><button className="btn-secondary shrink-0" onClick={() => copyScript(selected)}>نسخ</button></div></div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><button className="btn-primary" onClick={() => void openResult(selected)}>تسجيل نتيجة</button><button className="btn-secondary" disabled={!selected.phone} onClick={() => selected.phone && window.open(generateWhatsAppLink(selected.phone, scriptFor(selected)), '_blank')}>واتساب</button><a className="btn-secondary text-center" href={selected.phone ? `tel:${selected.phone}` : undefined}>اتصال</a><button className="btn-secondary" onClick={() => setQuickOpen(true)}>إضافة ملاحظة/متابعة</button></div></div> : <Empty text="اختر عميلًا من القائمة لعرض ملفه." />}</div>
+        <div className="stat-card min-h-[620px]"><div className="grid gap-2 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3"><div className="relative"><Search className="absolute right-3 top-3 text-slate-500" size={17} /><input className="input-dark pr-10" placeholder="اسم / كود / هاتف" value={search} onChange={(event) => setSearch(event.target.value)} /></div><select className="input-dark" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as 'all' | QueueSource)}><option value="all">كل الأنواع</option><option value="doctor_request">طلبات الدكاترة</option><option value="yesterday">اشترى أمس</option><option value="at_risk">مهدد بالتوقف</option><option value="important">عميل مهم</option></select><select className="input-dark" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">كل الحالات</option><option value="open">مفتوح</option><option value="completed">تم</option></select></div><div className="mt-4 max-h-[560px] space-y-2 overflow-y-auto pl-1">{loading ? <Empty text="جاري تجهيز قائمة اليوم..." /> : visibleQueue.map((item, index) => <button key={item.key} onClick={() => setSelectedKey(item.key)} className={`w-full rounded-2xl border p-3 text-right transition ${selectedKey === item.key ? 'border-teal-300/50 bg-teal-500/15' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}><div className="flex items-start justify-between gap-3"><div><div className="font-black text-white">{index + 1}. {item.name}</div><div className="mt-1 text-xs text-slate-400">{item.code || 'بدون كود'} · {item.phone || 'بدون رقم'}</div></div><div className="flex flex-col items-end gap-1"><Badge>{sourceLabel(item.source)}</Badge><span className={`rounded-lg px-2 py-1 text-[10px] font-black ${slaFor(item).state === 'overdue' ? 'bg-red-500/20 text-red-200' : slaFor(item).state === 'warning' ? 'bg-amber-500/20 text-amber-200' : slaFor(item).state === 'completed' ? 'bg-emerald-500/20 text-emerald-200' : 'bg-teal-500/15 text-teal-200'}`}>{slaFor(item).label}</span></div></div><div className="mt-2 line-clamp-2 text-xs font-bold text-slate-300">{item.reason}</div></button>)}{!loading && !visibleQueue.length && <Empty text="لا توجد نتائج مطابقة." />}</div></div>
+        <div className="stat-card min-h-[620px]">{selected ? <div className="space-y-5"><div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-black text-white">{selected.name}</h2><Badge>{sourceLabel(selected.source)}</Badge><Badge>{selected.status}</Badge><Badge>{selected.segment}</Badge></div><p className="mt-2 text-sm font-bold text-slate-400">{selected.code || 'بدون كود'} · {selected.phone || 'بدون رقم'} · {selected.branch}</p></div><div className="flex gap-2"><a className="btn-secondary" href={`/customer-360?customerId=${encodeURIComponent(selected.customer?.customer_id || selected.customer?.id || selected.row?.customer_id || '')}&code=${encodeURIComponent(selected.code)}`}>ملف 360</a><button className="btn-primary" onClick={() => void openResult(selected)}>تسجيل النتيجة</button></div></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Info label="إجمالي المشتريات" value={formatCurrency(selected.totalSpent)} /><Info label="متوسط شهري" value={formatCurrency(selected.avgMonthly)} /><Info label="متوسط الفاتورة" value={formatCurrency(selected.avgInvoice)} /><Info label="آخر شراء" value={selected.lastPurchase ? new Date(selected.lastPurchase).toLocaleDateString('ar-EG') : 'غير متاح'} /></div><div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4"><div className="text-xs font-black text-amber-200">سبب المتابعة</div><div className="mt-2 text-base font-bold leading-7 text-amber-50">{selected.reason}</div></div><div className="rounded-2xl border border-teal-400/20 bg-teal-500/10 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black text-teal-200">سكريبت ودود باسم {owner}</div><p className="mt-2 text-sm font-bold leading-7 text-teal-50">{scriptFor(selected)}</p></div><button className="btn-secondary shrink-0" onClick={() => copyScript(selected)}>نسخ</button></div></div><div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="mb-3 text-xs font-black text-slate-300">تسجيل محاولة تواصل سريعة</div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3"><button className="btn-secondary" onClick={() => void saveContactAttempt(selected, 'call_no_answer')}>اتصال ولم يرد</button><button className="btn-secondary" onClick={() => void saveContactAttempt(selected, 'whatsapp_sent')}>تم إرسال واتساب</button><button className="btn-secondary" onClick={() => void saveContactAttempt(selected, 'phone_off')}>الهاتف مغلق</button><button className="btn-secondary" onClick={() => void saveContactAttempt(selected, 'invalid_number')}>الرقم غير صحيح</button><button className="btn-secondary" onClick={() => void saveContactAttempt(selected, 'callback_requested')}>طلب التواصل لاحقًا</button><button className="btn-primary" onClick={() => void saveContactAttempt(selected, 'connected')}>تم التواصل بنجاح</button></div></div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><button className="btn-primary" onClick={() => void openResult(selected)}>تسجيل نتيجة</button><button className="btn-secondary" disabled={!selected.phone} onClick={() => selected.phone && window.open(generateWhatsAppLink(selected.phone, scriptFor(selected)), '_blank')}>واتساب</button><a className="btn-secondary text-center" href={selected.phone ? `tel:${selected.phone}` : undefined}>اتصال</a><button className="btn-secondary" onClick={() => setQuickOpen(true)}>إضافة ملاحظة/متابعة</button></div></div> : <Empty text="اختر عميلًا من القائمة لعرض ملفه." />}</div>
       </section>}
 
       {tab === 'history' && <section className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Stat icon={History} label="إجمالي النتائج" value={historySummary.total} /><Stat icon={ShoppingBag} label="اشتروا بعد المتابعة" value={historySummary.purchases} /><MoneyStat label="مبيعات المتابعات" value={historySummary.sales} /><Stat icon={AlertTriangle} label="احتاجت مدير" value={historySummary.needsManager} /><Stat icon={Clock3} label="متابعة قادمة" value={historySummary.nextFollowup} /></div><div className="stat-card"><div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><div><h2 className="text-2xl font-black text-white">سجل المتابعات المكتملة — {branch}</h2><p className="text-sm font-bold text-slate-400">تفاصيل النتيجة والتقييم والشراء والخطوة التالية.</p></div><div className="grid gap-2 sm:grid-cols-3"><div className="relative"><Search className="absolute right-3 top-3 text-slate-500" size={17} /><input className="input-dark pr-10" placeholder="اسم / كود / هاتف" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /></div><select className="input-dark" value={historyPeriod} onChange={(event) => setHistoryPeriod(event.target.value as HistoryPeriod)}><option value="cycle">الدورة الحالية 26–25</option><option value="today">اليوم</option><option value="7d">آخر 7 أيام</option><option value="all">كل السجل المحمل</option></select><select className="input-dark" value={historyResult} onChange={(event) => setHistoryResult(event.target.value)}><option value="all">كل النتائج</option>{[...new Set(completedHistory.map(resultOf))].map((result) => <option key={result}>{result}</option>)}</select></div></div><div className="overflow-x-auto rounded-2xl border border-white/10"><table className="min-w-[1180px] w-full text-sm"><thead className="sticky top-0 bg-[#173252] text-slate-300"><tr><th className="p-3 text-right">العميل</th><th className="p-3 text-right">التنفيذ</th><th className="p-3 text-right">المسؤول</th><th className="p-3 text-right">النتيجة</th><th className="p-3 text-right">الرضا</th><th className="p-3 text-right">المتابعة القادمة</th><th className="p-3 text-right">الشراء</th><th className="p-3 text-right">التقييم</th><th className="p-3 text-right">الإجراءات</th></tr></thead><tbody>{historyRows.map((row) => { const item = followupToItem(row); const completedAt = rowValue(row, 'completed_at', 'updated_at', 'followup_date', 'date'); return <tr key={row.id} className="border-t border-white/5 text-slate-200 hover:bg-white/5"><td className="p-3"><div className="font-black text-white">{item.name}</div><div className="text-xs text-slate-400">{item.code || 'بدون كود'} · {item.phone || 'بدون رقم'}</div></td><td className="p-3 whitespace-nowrap">{completedAt ? new Date(completedAt).toLocaleString('ar-EG') : '—'}</td><td className="p-3">{row.responsible_name || row.assigned_to || row.assigned_doctor || row.created_by_name || 'غير محدد'}</td><td className="p-3"><Badge>{resultOf(row)}</Badge></td><td className="p-3">{row.customer_satisfaction || 'غير واضح'}</td><td className="p-3 whitespace-nowrap">{row.next_followup_date ? new Date(row.next_followup_date).toLocaleDateString('ar-EG') : '—'}</td><td className="p-3"><div className="font-black text-emerald-200">{formatCurrency(rowNumber(row, 'purchase_amount'))}</div><div className="text-xs text-slate-400">{row.purchase_invoice_no || 'بدون فاتورة'}</div></td><td className="p-3">{row.quality_rating ?? '—'} / 5</td><td className="p-3"><div className="flex gap-2"><button className="btn-secondary flex items-center gap-1" onClick={() => setDetailsRow(row)}><Eye size={15} /> التفاصيل</button><a className="btn-secondary" href={`/customer-360?customerId=${encodeURIComponent(item.customer?.customer_id || item.customer?.id || row.customer_id || '')}&code=${encodeURIComponent(item.code)}`}>360</a></div></td></tr>; })}</tbody></table>{!historyRows.length && <Empty text="لا توجد متابعات مطابقة للفلاتر الحالية." />}</div></div></section>}
 
-      {tab === 'performance' && <section className="grid gap-4 lg:grid-cols-2">{BRANCHES.map((branchName) => { const rows = branchName === branch ? allFollowups : []; const completedRows = rows.filter(isCompleted); const purchases = completedRows.filter((row) => rowNumber(row, 'purchase_amount') > 0); return <div key={branchName} className={`stat-card ${branchName !== branch ? 'opacity-60' : ''}`}><h3 className="text-xl font-black text-white">{BRANCH_OWNER[branchName]}</h3><p className="text-sm text-slate-400">{branchName}</p><div className="mt-4 grid gap-2 sm:grid-cols-3"><Info label="مكتمل" value={String(completedRows.length)} /><Info label="شراء بعد المتابعة" value={String(purchases.length)} /><Info label="مبيعات بعد المتابعة" value={formatCurrency(purchases.reduce((sum, row) => sum + rowNumber(row, 'purchase_amount'), 0))} /></div>{branchName !== branch && <p className="mt-3 text-xs font-bold text-slate-500">اختر هذا الفرع من الفلتر لعرض أرقامه.</p>}</div>; })}</section>}
+      {tab === 'performance' && <CustomerServiceExecutionDashboard branch={branch} />}
 
       <QuickFollowupModal open={quickOpen} onClose={() => setQuickOpen(false)} onCreated={() => void loadWorkspace()} defaultBranch={branch} />
       {resultRow && <FollowupResultModal followup={resultRow as unknown as DailyFollowup} onClose={() => setResultRow(null)} onSave={saveResult} />}
