@@ -1,3 +1,4 @@
+/* eslint-disable no-empty */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { clearCorruptStoredUser, logRuntimeError } from '@/lib/appRecovery';

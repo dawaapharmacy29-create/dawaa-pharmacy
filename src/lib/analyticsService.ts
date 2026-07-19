@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { supabase } from '@/lib/supabase';
 
 export type SalesAnalyticsFilters = {

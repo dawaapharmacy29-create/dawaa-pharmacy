@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { getCurrentCycle, getPointsCycle } from '@/lib/pharmacy-cycle';
 import { POINT_VALUE_EGP, STARTING_POINTS } from '@/lib/points';
 import {

@@ -21,7 +21,7 @@ export function useDataProcessor() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const callbacksRef = useRef<Map<string, (result: unknown) => void>>(new Map());
-  let requestIdRef = useRef(0);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     // Initialize worker

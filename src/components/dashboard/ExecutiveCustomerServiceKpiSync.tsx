@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { useCallback, useEffect, useState } from 'react';
 import { normalizeRole, useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';

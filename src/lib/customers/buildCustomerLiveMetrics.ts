@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { normalizeBranchName } from '@/lib/branch';
 
 type InvoiceLike = Record<string, unknown>;

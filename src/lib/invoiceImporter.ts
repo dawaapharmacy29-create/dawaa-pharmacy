@@ -152,6 +152,11 @@ export interface ImportSummary {
   databaseTotalNet?: number;
   databaseByDay?: Array<{ date: string; count: number; total: number }>;
   databaseByBranch?: Array<{ branch: string; count: number; total: number }>;
+  verificationComplete?: boolean;
+  verificationFetchedCount?: number;
+  verificationPagesCount?: number;
+  verificationPageSize?: number;
+  verificationError?: string | null;
   postSaveVerificationRows?: Array<{
     invoice_number: string;
     branch: string;
@@ -762,6 +767,11 @@ export async function loadDatabaseDayComparison(
     databaseByBranch: [] as Array<{ branch: string; count: number; total: number }>,
     databaseInvoiceKeys: [] as string[],
     comparison: [] as NonNullable<ImportSummary['dayDatabaseComparison']>,
+    verificationComplete: false,
+    verificationFetchedCount: 0,
+    verificationPagesCount: 0,
+    verificationPageSize: 500,
+    verificationError: null as string | null,
     databaseComparisonQuery: {
       table: 'sales_invoices',
       dateColumn: 'invoice_date',
@@ -778,16 +788,41 @@ export async function loadDatabaseDayComparison(
   };
   if (!startDate || !endDate) return empty;
 
-  const { data, error } = await supabase
-    .from('sales_invoices')
-    .select(selectColumns)
-    .gte('invoice_date', startDate)
-    .lt('invoice_date', queryEndExclusive)
-    .limit(100000);
+  const verificationPageSize = 500;
+  const data: Array<Record<string, unknown>> = [];
+  let verificationPagesCount = 0;
+  let verificationError: string | null = null;
 
-  if (error)
+  for (let from = 0; ; from += verificationPageSize) {
+    const to = from + verificationPageSize - 1;
+    const page = await supabase
+      .from('sales_invoices')
+      .select(selectColumns)
+      .gte('invoice_date', startDate)
+      .lt('invoice_date', queryEndExclusive)
+      .order('invoice_date', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to);
+
+    verificationPagesCount += 1;
+
+    if (page.error) {
+      verificationError = page.error.message || String(page.error);
+      break;
+    }
+
+    const pageRows = (page.data || []) as Array<Record<string, unknown>>;
+    data.push(...pageRows);
+    if (pageRows.length < verificationPageSize) break;
+  }
+
+  if (verificationError)
     return {
       ...empty,
+      verificationFetchedCount: data.length,
+      verificationPagesCount,
+      verificationPageSize,
+      verificationError,
       databaseComparisonQuery: {
         table: 'sales_invoices',
         dateColumn: 'invoice_date',
@@ -796,7 +831,7 @@ export async function loadDatabaseDayComparison(
         fileMinDate: queryStart,
         fileMaxDate: queryEnd,
         select: selectColumns,
-        error: error.message || String(error),
+        error: verificationError,
         startDate: queryStart,
         endDate: queryEnd,
         endExclusive: queryEndExclusive,
@@ -808,7 +843,7 @@ export async function loadDatabaseDayComparison(
   const databaseInvoiceKeys = new Set<string>();
   let databaseInvoicesCount = 0;
   let databaseTotalNet = 0;
-  for (const row of (data || []) as Array<Record<string, unknown>>) {
+  for (const row of data) {
     const date = getInvoiceDay(row);
     const amount = getCoreInvoiceAmount(row);
     const branch = getCoreInvoiceBranch(row);
@@ -858,6 +893,11 @@ export async function loadDatabaseDayComparison(
     databaseByDay: dailyMapToArray(databaseDays),
     databaseByBranch: [...databaseBranches.values()].sort((a, b) => b.total - a.total),
     databaseInvoiceKeys: [...databaseInvoiceKeys],
+    verificationComplete: true,
+    verificationFetchedCount: data.length,
+    verificationPagesCount,
+    verificationPageSize,
+    verificationError: null,
     databaseComparisonQuery: {
       table: 'sales_invoices',
       dateColumn: 'invoice_date',
@@ -1787,6 +1827,36 @@ async function persistInvoiceImportBatch(_summary: ImportSummary, _status: strin
   return;
 }
 
+async function fetchExistingInvoicesByFieldPaged(
+  field: 'invoice_number' | 'invoice_no',
+  values: string[],
+  selectColumns: string,
+  pageSize = 500
+): Promise<{ data: Array<Record<string, unknown>>; error: { message?: string } | null }> {
+  const rows: Array<Record<string, unknown>> = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const to = from + pageSize - 1;
+    const page = await supabase
+      .from('sales_invoices')
+      .select(selectColumns)
+      .in(field, values)
+      .order('invoice_date', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to);
+
+    if (page.error) {
+      return { data: rows, error: page.error };
+    }
+
+    const pageRows = (page.data || []) as Array<Record<string, unknown>>;
+    rows.push(...pageRows);
+    if (pageRows.length < pageSize) break;
+  }
+
+  return { data: rows, error: null };
+}
+
 export async function importInvoicesToDB(
   rows: RawInvoiceRow[],
   branch: string,
@@ -1952,11 +2022,11 @@ export async function importInvoicesToDB(
       existingInvoices.map((row) => String(row.id || '')).filter(Boolean)
     );
 
-    const byInvoiceNumber = await supabase
-      .from('sales_invoices')
-      .select(existingSelect)
-      .in('invoice_number', numberChunk)
-      .limit(50000);
+    const byInvoiceNumber = await fetchExistingInvoicesByFieldPaged(
+      'invoice_number',
+      numberChunk,
+      existingSelect
+    );
 
     if (!byInvoiceNumber.error) {
       for (const row of (byInvoiceNumber.data || []) as Record<string, unknown>[]) {
@@ -1969,11 +2039,11 @@ export async function importInvoicesToDB(
       console.warn('[invoiceImporter] invoice_number lookup failed', byInvoiceNumber.error);
     }
 
-    const byInvoiceNo = await supabase
-      .from('sales_invoices')
-      .select(existingSelect)
-      .in('invoice_no', numberChunk)
-      .limit(50000);
+    const byInvoiceNo = await fetchExistingInvoicesByFieldPaged(
+      'invoice_no',
+      numberChunk,
+      existingSelect
+    );
 
     if (!byInvoiceNo.error) {
       for (const row of (byInvoiceNo.data || []) as Record<string, unknown>[]) {
@@ -2828,51 +2898,75 @@ export async function importInvoicesToDB(
   summary.databaseByBranch = databaseComparison.databaseByBranch;
   summary.dayDatabaseComparison = databaseComparison.comparison;
   summary.databaseComparisonQuery = databaseComparison.databaseComparisonQuery;
-  const verifiedInvoiceKeys = new Set(databaseComparison.databaseInvoiceKeys || []);
-  for (const trace of traceMap.values()) {
-    if (!trace.saveSucceeded) continue;
-    const verificationKey = invoiceDuplicateKey(trace.invoice_number, trace.branch, trace.parsed_date);
-    const postSaveFound = verifiedInvoiceKeys.has(verificationKey);
-    markTrace(traceMap, String(trace.rowNumber), {
-      postSaveFound,
-      postImportStatus: postSaveFound ? 'found_after_verification' : 'saved_but_not_found_after_verification',
-      finalStatus: postSaveFound ? trace.finalStatus || 'saved' : 'saved_but_not_found_after_verification',
-      skipReason: postSaveFound ? trace.skipReason : trace.skipReason || 'saved_but_not_found_after_verification',
-    });
-  }
-  summary.missingDaysInDatabase = summary.dayDatabaseComparison
-    .filter((row) => row.status === 'missing_in_database')
-    .map((row) => ({ date: row.date, count: row.fileCount, total: row.fileTotal }));
-  const missingDaySet = new Set(summary.missingDaysInDatabase.map((row) => row.date));
-  for (const trace of traceMap.values()) {
-    if (missingDaySet.has(trace.parsed_date)) {
-      const finalStatus = trace.saveSucceeded
-        ? 'saved_but_not_found_after_verification'
-        : trace.finalStatus || (trace.saveAttempted ? 'supabase_insert_failed' : 'save_not_attempted');
+  summary.verificationComplete = databaseComparison.verificationComplete;
+  summary.verificationFetchedCount = databaseComparison.verificationFetchedCount;
+  summary.verificationPagesCount = databaseComparison.verificationPagesCount;
+  summary.verificationPageSize = databaseComparison.verificationPageSize;
+  summary.verificationError = databaseComparison.verificationError;
+  if (databaseComparison.verificationComplete === true) {
+    const verifiedInvoiceKeys = new Set(databaseComparison.databaseInvoiceKeys || []);
+    for (const trace of traceMap.values()) {
+      if (!trace.saveSucceeded) continue;
+      const verificationKey = invoiceDuplicateKey(trace.invoice_number, trace.branch, trace.parsed_date);
+      const postSaveFound = verifiedInvoiceKeys.has(verificationKey);
       markTrace(traceMap, String(trace.rowNumber), {
-        postImportStatus: 'missing_day_in_database_after_import',
-        finalStatus,
-        skipReason: trace.skipReason || finalStatus,
+        postSaveFound,
+        postImportStatus: postSaveFound ? 'found_after_verification' : 'saved_but_not_found_after_verification',
+        finalStatus: postSaveFound ? trace.finalStatus || 'saved' : 'saved_but_not_found_after_verification',
+        skipReason: postSaveFound ? trace.skipReason : trace.skipReason || 'saved_but_not_found_after_verification',
       });
     }
+    summary.missingDaysInDatabase = summary.dayDatabaseComparison
+      .filter((row) => row.status === 'missing_in_database')
+      .map((row) => ({ date: row.date, count: row.fileCount, total: row.fileTotal }));
+    const missingDaySet = new Set(summary.missingDaysInDatabase.map((row) => row.date));
+    for (const trace of traceMap.values()) {
+      if (missingDaySet.has(trace.parsed_date)) {
+        const finalStatus = trace.saveSucceeded
+          ? 'saved_but_not_found_after_verification'
+          : trace.finalStatus || (trace.saveAttempted ? 'supabase_insert_failed' : 'save_not_attempted');
+        markTrace(traceMap, String(trace.rowNumber), {
+          postImportStatus: 'missing_day_in_database_after_import',
+          finalStatus,
+          skipReason: trace.skipReason || finalStatus,
+        });
+      }
+    }
+    const missingDaySamples = rows
+      .filter((row) => missingDaySet.has(row.date))
+      .slice(0, 20)
+      .map((row) => ({
+        invoiceNumber: row.invoiceNumber,
+        date: row.date,
+        branch: row.branch || branch,
+        amount: rawInvoiceNetValue(row),
+        reason:
+          traceMap.get(traceKey(row))?.finalStatus ||
+          traceMap.get(traceKey(row))?.skipReason ||
+          'saved_but_not_found_after_verification',
+      }));
+    summary.missingInvoicesSample = [...conflictRowsSample, ...missingDaySamples].slice(0, 30);
+    summary.missingInvoicesCount =
+      summary.missingDaysInDatabase.reduce((sum, row) => sum + row.count, 0) +
+      conflictRowsSample.length;
+  } else {
+    summary.dayDatabaseComparison = [];
+    summary.missingDaysInDatabase = [];
+    summary.missingInvoicesSample = [...conflictRowsSample].slice(0, 30);
+    summary.missingInvoicesCount = 0;
+    for (const trace of traceMap.values()) {
+      if (!trace.saveSucceeded) continue;
+      markTrace(traceMap, String(trace.rowNumber), {
+        postSaveFound: false,
+        postImportStatus: 'verification_incomplete_due_to_query_error',
+        finalStatus: 'verification_incomplete_due_to_query_error',
+        skipReason: trace.skipReason || 'verification_incomplete_due_to_query_error',
+      });
+    }
+    summary.schemaWarnings?.push(
+      'تعذر إكمال قراءة جميع صفحات التحقق من قاعدة البيانات؛ لم يتم تصنيف أي فاتورة كمفقودة.'
+    );
   }
-  const missingDaySamples = rows
-    .filter((row) => missingDaySet.has(row.date))
-    .slice(0, 20)
-    .map((row) => ({
-      invoiceNumber: row.invoiceNumber,
-      date: row.date,
-      branch: row.branch || branch,
-      amount: rawInvoiceNetValue(row),
-      reason:
-        traceMap.get(traceKey(row))?.finalStatus ||
-        traceMap.get(traceKey(row))?.skipReason ||
-        'saved_but_not_found_after_verification',
-    }));
-  summary.missingInvoicesSample = [...conflictRowsSample, ...missingDaySamples].slice(0, 30);
-  summary.missingInvoicesCount =
-    summary.missingDaysInDatabase.reduce((sum, row) => sum + row.count, 0) +
-    conflictRowsSample.length;
   summary.conflictsByReason = [...skippedByReason.values()]
     .filter((row) => row.reason.includes('different_date_or_branch'))
     .sort((a, b) => b.count - a.count);
