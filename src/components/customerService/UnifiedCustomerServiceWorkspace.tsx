@@ -397,15 +397,15 @@ export default function UnifiedCustomerServiceWorkspace() {
           if (map.has(item.key)) continue;
           map.set(item.key, item);
           added += 1;
-          if (added >= limit || map.size >= 30) break;
+          if (added >= limit) break;
         }
       };
-      add(scheduledToday, 30);
-      add(doctorRequests, 10);
+      add(scheduledToday, scheduledToday.length);
+      add(doctorRequests, doctorRequests.length);
       add(yesterday, 10);
       add(atRisk, 10);
       add(important, 30);
-      const proposedQueue = [...map.values()].slice(0, 30);
+      const proposedQueue = [...map.values()];
       const snapshot = await loadOrCreateDailyQueue(
         branch,
         proposedQueue.map((item) => ({
