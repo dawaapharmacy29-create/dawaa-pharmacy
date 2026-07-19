@@ -25,7 +25,7 @@ const INVALID_TEXT_VALUES = new Set([
   'عميل الصيدلية',
 ]);
 
-const FINAL_RESULTS = new Set([
+export const FINAL_FOLLOWUP_RESULTS = new Set([
   'تم الرد والعميل راضي',
   'تم الرد ولا يحتاج الآن',
   'تم الشراء بعد المتابعة',
@@ -38,7 +38,7 @@ const FINAL_RESULTS = new Set([
   'archived',
 ]);
 
-const OPEN_RESULTS = new Set([
+export const OPEN_FOLLOWUP_RESULTS = new Set([
   'لم تبدأ',
   'جارٍ التواصل',
   'تمت محاولة',
@@ -55,6 +55,7 @@ const OPEN_RESULTS = new Set([
   'مؤجل',
   'معلق',
   'pending',
+  'open',
   'not_started',
   'in_progress',
   'attempted',
@@ -91,6 +92,7 @@ export function normalizeCustomerName(value: unknown) {
   return text(value)
     .replace(/\++/g, ' ')
     .replace(/\(\s*p\s*\d+\s*\)/gi, ' ')
+    .replace(/\(\s*\d+\s*%\s*\)/g, ' ')
     .replace(/\bش\s*\d+\b/gi, ' ')
     .replace(/[|*_]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -120,11 +122,13 @@ export function buildCustomerIdentity(input: CustomerIdentityInput) {
 }
 
 export function isFinalFollowupResult(value: unknown) {
-  return FINAL_RESULTS.has(text(value).toLowerCase()) || FINAL_RESULTS.has(text(value));
+  const normalized = text(value);
+  return FINAL_FOLLOWUP_RESULTS.has(normalized.toLowerCase()) || FINAL_FOLLOWUP_RESULTS.has(normalized);
 }
 
 export function isOpenFollowupResult(value: unknown) {
-  return OPEN_RESULTS.has(text(value).toLowerCase()) || OPEN_RESULTS.has(text(value));
+  const normalized = text(value);
+  return !normalized || OPEN_FOLLOWUP_RESULTS.has(normalized.toLowerCase()) || OPEN_FOLLOWUP_RESULTS.has(normalized);
 }
 
 export function isCancelledFollowup(row: Record<string, unknown> | null | undefined) {
@@ -146,25 +150,11 @@ export function isCompletedFollowup(row: Record<string, unknown> | null | undefi
 
 export function getCustomerActivityState(lastPurchase: unknown, now = new Date()): CustomerActivityState {
   if (!lastPurchase) {
-    return {
-      key: 'unknown',
-      label: 'النشاط غير مؤكد',
-      daysSinceLastPurchase: null,
-      isAtRisk: false,
-      isStopped: false,
-      isCertain: false,
-    };
+    return { key: 'unknown', label: 'النشاط غير مؤكد', daysSinceLastPurchase: null, isAtRisk: false, isStopped: false, isCertain: false };
   }
   const date = new Date(String(lastPurchase));
   if (Number.isNaN(date.getTime())) {
-    return {
-      key: 'unknown',
-      label: 'النشاط غير مؤكد',
-      daysSinceLastPurchase: null,
-      isAtRisk: false,
-      isStopped: false,
-      isCertain: false,
-    };
+    return { key: 'unknown', label: 'النشاط غير مؤكد', daysSinceLastPurchase: null, isAtRisk: false, isStopped: false, isCertain: false };
   }
   const days = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86_400_000));
   if (days <= 30) return { key: 'active', label: 'نشط', daysSinceLastPurchase: days, isAtRisk: false, isStopped: false, isCertain: true };
