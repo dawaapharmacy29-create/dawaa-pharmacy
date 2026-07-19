@@ -236,6 +236,51 @@ function customerProfileUrl(item: QueueItem) {
   return `/customer-360?${params.toString()}`;
 }
 
+async function verifyAtRiskQueue(items: QueueItem[]) {
+  const checked = await Promise.all(
+    items.map(async (item) => {
+      if (item.source !== 'at_risk') return item;
+      try {
+        const profile = await getCustomerFullProfile({
+          customer_id: item.customer?.customer_id || item.customer?.id || item.row?.customer_id,
+          customer_code: item.code,
+          customer_phone: item.phone,
+          customer_name: item.name,
+        });
+        const metrics = profile.metrics;
+        const raw = profile.profile as Record<string, unknown> | null;
+        const lastPurchase =
+          metrics?.last_purchase || String(raw?.last_purchase || '') || item.lastPurchase;
+        if (lastPurchase && !activityStatus(lastPurchase).atRisk) return null;
+        const branch = normalizeBranchName(
+          metrics?.branch || String(raw?.branch || '') || item.branch
+        );
+        return {
+          ...item,
+          customer: metrics || item.customer,
+          name: metrics?.customer_name || String(raw?.name || '') || item.name,
+          code: metrics?.customer_code || String(raw?.customer_code || '') || item.code,
+          phone: normalizePhone(
+            profile.displayPhone || metrics?.customer_phone || metrics?.phone || item.phone
+          ),
+          branch,
+          segment: metrics?.segment || item.segment,
+          status: activityStatus(lastPurchase).label,
+          avgMonthly: Number(metrics?.avg_monthly || item.avgMonthly || 0),
+          totalSpent: Number(metrics?.total_spent || item.totalSpent || 0),
+          avgInvoice: Number(metrics?.avg_invoice || item.avgInvoice || 0),
+          lastPurchase,
+          branchNeedsReview: !branch,
+        } satisfies QueueItem;
+      } catch (error) {
+        console.warn('At-risk customer verification skipped', item.key, error);
+        return item;
+      }
+    })
+  );
+  return checked.filter((item): item is QueueItem => item !== null);
+}
+
 function isCompleted(row?: FollowupRow | null) {
   const result = resultOf(row);
   if (OPEN_RESULTS.has(result)) return false;
@@ -597,22 +642,24 @@ export default function UnifiedCustomerServiceWorkspace() {
           }).label,
         };
       });
-      setQueue(finalQueue);
-      const completedCount = finalQueue.filter((item) => item.completed).length;
+      const verifiedQueue = await verifyAtRiskQueue(finalQueue);
+      if (sequence !== loadSequence.current) return;
+      setQueue(verifiedQueue);
+      const completedCount = verifiedQueue.filter((item) => item.completed).length;
       const needsManagerCount = followups.filter(
         (row) => row.needs_manager && !isCompleted(row)
       ).length;
       void notifyIncompleteDailyQueue({
         branch,
         ownerName: BRANCH_OWNER[branch] || 'مسئول خدمة العملاء',
-        total: finalQueue.length,
+        total: verifiedQueue.length,
         completed: completedCount,
         needsManager: needsManagerCount,
       });
       setSelectedKey((current) =>
-        current && finalQueue.some((item) => item.key === current)
+        current && verifiedQueue.some((item) => item.key === current)
           ? current
-          : finalQueue[0]?.key || ''
+          : verifiedQueue[0]?.key || ''
       );
       setLastSyncedAt(new Date());
     } catch (error) {
