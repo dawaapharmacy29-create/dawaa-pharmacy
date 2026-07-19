@@ -6,10 +6,10 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "repair:customer-analytics": "node scripts/apply-customer-analytics-fixes.cjs && node scripts/fix-analytics-null-safety.cjs && node scripts/apply-analytics-runtime-fixes.cjs && node scripts/apply-analytics-summary-view-fixes.cjs && node scripts/apply-doctor-dashboard-sales-fix.cjs && node scripts/apply-doctor-dashboard-experience-v2.cjs && node scripts/apply-doctor-branch-target-progress.cjs && node scripts/apply-doctor-workspace-followups-navigation.cjs && node scripts/apply-doctor-home-route-fix.cjs && node scripts/apply-doctor-dashboard-stability-fix.cjs && node scripts/apply-doctor-followup-section-navigation-fix.cjs && node scripts/apply-invoice-verification-pagination-fix.cjs && node scripts/apply-doctor-stable-workspace-v3.cjs",
-    "prepare:invoice-import": "node scripts/prepare-invoice-import.cjs && node scripts/apply-dashboard-customer-service-period-fix.cjs && node scripts/apply-customer-service-daily-execution-v1.cjs && node scripts/apply-customer-service-doctor-link-v2.cjs && node scripts/apply-customer-service-day-review-v2-safe.cjs && node scripts/apply-customer-service-analytics-ui-v3.cjs && node scripts/apply-customer-service-smart-followup-v4.cjs && node scripts/apply-customer-service-attempts-sla-v5.cjs && node scripts/apply-customer-service-manager-cases-v6.cjs && node scripts/apply-followup-queue-quality-fix.cjs",
+    "prepare:invoice-import": "node scripts/prepare-invoice-import.cjs && node scripts/apply-dashboard-customer-service-period-fix.cjs && node scripts/apply-customer-service-daily-execution-v1.cjs && node scripts/apply-customer-service-doctor-link-v2.cjs && node scripts/apply-customer-service-day-review-v2-safe.cjs && node scripts/apply-customer-service-analytics-ui-v3.cjs && node scripts/apply-customer-service-smart-followup-v4.cjs && node scripts/apply-customer-service-attempts-sla-v5.cjs && node scripts/apply-customer-service-manager-cases-v6.cjs",
     "repair:invoice-import": "npm run prepare:invoice-import",
-    "dev": "node scripts/apply-followup-queue-quality-fix.cjs && vite --configLoader runner",
-    "build": "node scripts/apply-followup-queue-quality-fix.cjs && vite build --configLoader runner",
+    "dev": "vite --configLoader runner",
+    "build": "vite build --configLoader runner",
     "analyze": "ANALYZE=true vite build --configLoader runner",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit --incremental false",
