@@ -119,7 +119,20 @@ for (const ext of ['.ts', '.tsx']) {
   };
 }
 
-require(path.join(root, 'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts'));
+function collectTests(directory) {
+  const files = [];
+  if (!fs.existsSync(directory)) return files;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...collectTests(fullPath));
+    else if (/\.test\.(ts|tsx)$/.test(entry.name)) files.push(fullPath);
+  }
+  return files;
+}
+
+const testFiles = collectTests(path.join(root, 'src')).sort();
+if (!testFiles.length) throw new Error('No unit test files were found under src');
+for (const testFile of testFiles) require(testFile);
 
 (async () => {
   let passed = 0;
