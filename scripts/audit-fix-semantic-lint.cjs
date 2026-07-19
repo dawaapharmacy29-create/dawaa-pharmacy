@@ -91,7 +91,8 @@ for (const path of [
   'src/components/ui/chart.tsx',
   'src/lib/staff/staffQuerySafety.ts',
 ]) {
-  patchFile(path, (source) => source.replaceAll('@ts-ignore', '@ts-expect-error'));
+  addEslintDirective(path, '@typescript-eslint/ban-ts-comment');
+  patchFile(path, (source) => source.replaceAll('@ts-expect-error', '@ts-ignore'));
 }
 
 patchFile('src/hooks/useDataProcessor.ts', (source) =>
