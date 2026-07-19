@@ -50,13 +50,21 @@ export default function QuickFollowupModal({
 
   useEffect(() => {
     if (!open) return;
-    setBranch((current) => current || normalizeBranchName(defaultBranch || user?.branch || '') || '');
-    setDue((current) => current || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+    setBranch(
+      (current) => current || normalizeBranchName(defaultBranch || user?.branch || '') || ''
+    );
+    setDue(
+      (current) =>
+        current ||
+        new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    );
   }, [defaultBranch, open, user?.branch]);
 
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose, open]);
@@ -85,7 +93,10 @@ export default function QuickFollowupModal({
       }
       setResults((data || []) as CustomerSearchResult[]);
     }, 300);
-    return () => { cancelled = true; window.clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [open, search]);
 
   if (!open) return null;
@@ -99,11 +110,19 @@ export default function QuickFollowupModal({
   };
 
   const reset = () => {
-    setSearch(''); setResults([]); setName(''); setPhone(''); setCode('');
+    setSearch('');
+    setResults([]);
+    setName('');
+    setPhone('');
+    setCode('');
     setBranch(normalizeBranchName(defaultBranch || user?.branch || '') || '');
-    setPriority('مهم'); setAssignedDoctor('');
-    setDue(new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
-    setReason('طلب متابعة'); setNote('');
+    setPriority('مهم');
+    setAssignedDoctor('');
+    setDue(
+      new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    );
+    setReason('طلب متابعة');
+    setNote('');
   };
 
   const submit = async () => {
@@ -118,6 +137,40 @@ export default function QuickFollowupModal({
     const phoneStatusNote = validPhone ? '' : '\n[بدون رقم صحيح]';
     setLoading(true);
     try {
+      let duplicateQuery = supabase
+        .from('daily_followups')
+        .select('id,customer_name,status,followup_status,completed_at,created_at')
+        .eq('is_hidden', false)
+        .eq('branch', normalizeBranchName(branch || defaultBranch || user?.branch || ''))
+        .order('created_at', { ascending: false })
+        .limit(10);
+      const cleanCode = code.trim();
+      if (cleanCode) duplicateQuery = duplicateQuery.eq('customer_code', cleanCode);
+      else if (cleanPhone)
+        duplicateQuery = duplicateQuery.or(
+          `customer_phone.eq.${cleanPhone},phone.eq.${cleanPhone}`
+        );
+      const duplicateResult = cleanCode || cleanPhone ? await duplicateQuery : { data: [] };
+      const finalStatuses = new Set([
+        'تم',
+        'مكتمل',
+        'تم الرد والعميل راضي',
+        'تم الرد ولا يحتاج الآن',
+        'تم الشراء بعد المتابعة',
+        'تم حل الشكوى',
+        'تم تنفيذ الطلب والتأكد من العميل',
+      ]);
+      const existingOpen = (duplicateResult.data || []).find(
+        (row) =>
+          !row.completed_at && !finalStatuses.has(String(row.followup_status || row.status || ''))
+      );
+      if (existingOpen) {
+        notify(
+          'error',
+          `يوجد طلب متابعة مفتوح بالفعل للعميل ${existingOpen.customer_name || cleanName}. افتح الطلب الحالي بدل إنشاء طلب مكرر.`
+        );
+        return;
+      }
       await createDoctorRequestedFollowup({
         customerName: cleanName || 'عميل بدون اسم',
         customerPhone: cleanPhone || null,
@@ -137,7 +190,9 @@ export default function QuickFollowupModal({
         contactStatus: validPhone ? undefined : 'بدون رقم صحيح',
       });
       reset();
-      window.dispatchEvent(new CustomEvent('dataChanged', { detail: { table: 'daily_followups' } }));
+      window.dispatchEvent(
+        new CustomEvent('dataChanged', { detail: { table: 'daily_followups' } })
+      );
       notify('success', 'تم إنشاء طلب المتابعة بنجاح');
       onCreated?.();
       onClose();
@@ -154,29 +209,145 @@ export default function QuickFollowupModal({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-cyan-400/20 bg-slate-950 p-5 shadow-2xl">
         <div className="mb-4 flex items-start justify-between gap-3">
-          <div><h3 className="text-xl font-black text-white">إنشاء متابعة سريعة</h3><p className="mt-1 text-sm text-slate-400">ستُسجل المتابعة على staff_id الخاص بحسابك وتظهر في «متابعاتي المطلوبة».</p></div>
-          <button type="button" className="rounded-xl border border-slate-700 p-2 text-slate-200 hover:bg-slate-800" onClick={onClose} aria-label="إغلاق"><X className="h-4 w-4" /></button>
+          <div>
+            <h3 className="text-xl font-black text-white">إنشاء متابعة سريعة</h3>
+            <p className="mt-1 text-sm text-slate-400">
+              ستُسجل المتابعة على staff_id الخاص بحسابك وتظهر في «متابعاتي المطلوبة».
+            </p>
+          </div>
+          <button
+            type="button"
+            className="rounded-xl border border-slate-700 p-2 text-slate-200 hover:bg-slate-800"
+            onClick={onClose}
+            aria-label="إغلاق"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
         <div className="relative mb-3">
-          <input className="input-dark" placeholder="ابحث بالاسم أو الهاتف أو كود العميل" value={search} onChange={(event) => setSearch(event.target.value)} />
+          <input
+            className="input-dark"
+            placeholder="ابحث بالاسم أو الهاتف أو كود العميل"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
           {searching && <div className="mt-1 text-xs text-slate-400">جارٍ البحث...</div>}
-          {results.length > 0 && <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded border border-slate-700 bg-slate-800 shadow-xl">{results.map((customer) => <button key={customer.id} type="button" className="block w-full border-b border-slate-700 px-3 py-2 text-right text-sm text-white last:border-0 hover:bg-slate-700" onClick={() => selectCustomer(customer)}><span className="block font-semibold">{customer.name || 'بدون اسم'}</span><span className="text-xs text-slate-400">{[customer.phone, customer.customer_code].filter(Boolean).join(' — ')}</span></button>)}</div>}
+          {results.length > 0 && (
+            <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded border border-slate-700 bg-slate-800 shadow-xl">
+              {results.map((customer) => (
+                <button
+                  key={customer.id}
+                  type="button"
+                  className="block w-full border-b border-slate-700 px-3 py-2 text-right text-sm text-white last:border-0 hover:bg-slate-700"
+                  onClick={() => selectCustomer(customer)}
+                >
+                  <span className="block font-semibold">{customer.name || 'بدون اسم'}</span>
+                  <span className="text-xs text-slate-400">
+                    {[customer.phone, customer.customer_code].filter(Boolean).join(' — ')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
-          <input className="input-dark" placeholder="اسم العميل" value={name} onChange={(event) => setName(event.target.value)} />
-          <input className="input-dark" placeholder="رقم الهاتف" value={phone} onChange={(event) => setPhone(event.target.value)} />
-          <input className="input-dark" placeholder="كود العميل (اختياري)" value={code} onChange={(event) => setCode(event.target.value)} />
-          <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}><option value="">اختر الفرع</option>{BRANCHES.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-          <select className="input-dark" value={reason} onChange={(event) => setReason(event.target.value)}><option>طلب متابعة</option><option>شكوى</option><option>لم يرد</option><option>طلب لاحق</option><option>تم البيع</option><option>يحتاج مدير</option><option>انخفاض شراء</option><option>سريع/طلب دكتور</option></select>
-          <select className="input-dark" value={priority} onChange={(event) => setPriority(event.target.value)}><option>عادي</option><option>مهم</option><option>عاجل</option></select>
-          <select className="input-dark" value={assignedDoctor} onChange={(event) => setAssignedDoctor(event.target.value)}><option value="">المسؤول</option>{CUSTOMER_SERVICE_DOCTORS.map((doctor) => <option key={doctor} value={doctor}>{doctor}</option>)}</select>
-          <input className="input-dark" type="datetime-local" value={due} onChange={(event) => setDue(event.target.value)} />
-          <textarea className="input-dark md:col-span-2" placeholder="ملاحظة المتابعة *" value={note} onChange={(event) => setNote(event.target.value)} rows={4} required />
+          <input
+            className="input-dark"
+            placeholder="اسم العميل"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <input
+            className="input-dark"
+            placeholder="رقم الهاتف"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+          />
+          <input
+            className="input-dark"
+            placeholder="كود العميل (اختياري)"
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+          />
+          <select
+            className="input-dark"
+            value={branch}
+            onChange={(event) => setBranch(event.target.value)}
+          >
+            <option value="">اختر الفرع</option>
+            {BRANCHES.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+          <select
+            className="input-dark"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          >
+            <option>طلب متابعة</option>
+            <option>شكوى</option>
+            <option>لم يرد</option>
+            <option>طلب لاحق</option>
+            <option>تم البيع</option>
+            <option>يحتاج مدير</option>
+            <option>انخفاض شراء</option>
+            <option>سريع/طلب دكتور</option>
+          </select>
+          <select
+            className="input-dark"
+            value={priority}
+            onChange={(event) => setPriority(event.target.value)}
+          >
+            <option>عادي</option>
+            <option>مهم</option>
+            <option>عاجل</option>
+          </select>
+          <select
+            className="input-dark"
+            value={assignedDoctor}
+            onChange={(event) => setAssignedDoctor(event.target.value)}
+          >
+            <option value="">المسؤول</option>
+            {CUSTOMER_SERVICE_DOCTORS.map((doctor) => (
+              <option key={doctor} value={doctor}>
+                {doctor}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input-dark"
+            type="datetime-local"
+            value={due}
+            onChange={(event) => setDue(event.target.value)}
+          />
+          <textarea
+            className="input-dark md:col-span-2"
+            placeholder="ملاحظة المتابعة *"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            rows={4}
+            required
+          />
         </div>
-        <p className="my-3 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100">يجب إدخال اسم العميل أو رقم الهاتف على الأقل، وملاحظة المتابعة مطلوبة.</p>
-        <div className="flex flex-wrap justify-end gap-2"><button className="btn-secondary" onClick={onClose}>إلغاء</button><button className="btn-primary disabled:opacity-60" onClick={() => void submit()} disabled={loading}>{loading ? 'جارٍ الإنشاء...' : 'إنشاء'}</button></div>
+        <p className="my-3 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100">
+          يجب إدخال اسم العميل أو رقم الهاتف على الأقل، وملاحظة المتابعة مطلوبة.
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button className="btn-secondary" onClick={onClose}>
+            إلغاء
+          </button>
+          <button
+            className="btn-primary disabled:opacity-60"
+            onClick={() => void submit()}
+            disabled={loading}
+          >
+            {loading ? 'جارٍ الإنشاء...' : 'إنشاء'}
+          </button>
+        </div>
       </div>
     </div>
   );
