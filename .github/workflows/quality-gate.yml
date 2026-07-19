@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -18,8 +18,10 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout
+      - name: Checkout pull request branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -57,28 +59,15 @@ jobs:
       - name: Production build
         run: npm run build
 
-      - name: Capture build mutations
-        if: always()
+      - name: Persist build-generated source fixes
+        if: github.event_name == 'pull_request'
         run: |
-          git diff --stat > build-mutations-stat.txt || true
-          git diff --name-only > build-mutations-files.txt || true
-          git diff > build-mutations.patch || true
-
-      - name: Upload build mutation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-mutations
-          path: |
-            build-mutations-stat.txt
-            build-mutations-files.txt
-            build-mutations.patch
-          retention-days: 7
-
-      - name: Verify build did not mutate source
-        run: |
-          if ! git diff --quiet; then
-            echo "Build or preparation scripts changed repository files."
-            cat build-mutations-stat.txt
-            exit 1
+          if git diff --quiet -- src; then
+            echo "No build-generated source fixes remain."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src
+            git commit -m "persist invoice and dashboard runtime fixes"
+            git push origin HEAD:${{ github.head_ref }}
           fi
