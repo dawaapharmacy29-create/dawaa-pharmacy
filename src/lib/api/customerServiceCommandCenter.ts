@@ -207,8 +207,7 @@ function toNumber(value: unknown) {
 }
 function todayDay() {
   const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function isAll(value?: string | null) {
   return !value || value === ALL_FILTER || value === 'كل الفروع' || value === 'all';
