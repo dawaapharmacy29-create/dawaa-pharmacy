@@ -1,4 +1,4 @@
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   getCustomerFullProfile,
@@ -235,12 +235,14 @@ function branchAudit(
 
 export default function Customer360() {
   const [params] = useSearchParams();
+  const routeParams = useParams<{ id?: string }>();
   const navigate = useNavigate();
 
-  const customerCode = params.get('code') ?? undefined;
-  const customerId = params.get('id') ?? undefined;
-  const customerPhone = params.get('phone') ?? undefined;
-  const customerName = params.get('name') ?? undefined;
+  const cleanParam = (value: string | null | undefined) => value?.trim() || undefined;
+  const customerCode = cleanParam(params.get('code'));
+  const customerId = cleanParam(params.get('customerId')) || cleanParam(params.get('id')) || cleanParam(routeParams.id);
+  const customerPhone = cleanParam(params.get('phone'));
+  const customerName = cleanParam(params.get('name'));
 
   const [profile, setProfile] = useState<CustomerFullProfile | null>(null);
   const [loading, setLoading] = useState(true);
