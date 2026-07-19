@@ -3,6 +3,11 @@ const fs = require('node:fs');
 const filePath = 'src/components/customerService/UnifiedCustomerServiceWorkspace.tsx';
 let source = fs.readFileSync(filePath, 'utf8');
 
+if (source.includes("CustomerServiceExecutionDashboard from '@/components/customerService/CustomerServiceExecutionDashboard'") && source.includes('<CustomerServiceExecutionDashboard branch={branch} />')) {
+  console.log('Customer service analytics UI v3 already applied.');
+  process.exit(0);
+}
+
 function replaceOnce(search, replacement, label) {
   if (source.includes(replacement)) return;
   if (!source.includes(search)) throw new Error(`customer service analytics ui patch missing: ${label}`);
