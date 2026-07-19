@@ -3,6 +3,13 @@ const fs = require('node:fs');
 const filePath = 'src/lib/api/customerServiceCommandCenter.ts';
 let source = fs.readFileSync(filePath, 'utf8');
 
+// This repair script runs on every Vercel build. If the requester linkage is
+// already present, the patch has done its job and must be a safe no-op.
+if (source.includes('requestedByStaffId?: string | null;') && source.includes('requested_by_staff_id: input.requestedByStaffId')) {
+  console.log('Customer service doctor requester linkage v2 already applied.');
+  process.exit(0);
+}
+
 function replaceOnce(search, replacement, label) {
   if (source.includes(replacement)) return;
   if (!source.includes(search)) throw new Error(`doctor followup link patch missing: ${label}`);
