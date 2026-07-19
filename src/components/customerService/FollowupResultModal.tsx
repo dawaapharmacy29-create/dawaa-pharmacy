@@ -99,7 +99,9 @@ export default function FollowupResultModal({
     textValue(source, ['followup_result', 'contact_result', 'followup_status', 'status'])
   );
   const [notes, setNotes] = useState(() => textValue(source, ['followup_notes', 'notes']));
-  const [qualityRating, setQualityRating] = useState(() => numberValue(source, ['quality_rating'], 5));
+  const [qualityRating, setQualityRating] = useState(() =>
+    numberValue(source, ['quality_rating'], 5)
+  );
   const [internalRating, setInternalRating] = useState(() =>
     numberValue(source, ['internal_rating'], 0)
   );
@@ -148,6 +150,31 @@ export default function FollowupResultModal({
       toast.error('اختر نتيجة المتابعة');
       return;
     }
+    if (notes.trim().length < 10) {
+      toast.error('اكتب ملخصًا واضحًا للمتابعة لا يقل عن 10 أحرف');
+      return;
+    }
+    if (!internalRating) {
+      toast.error('تقييم جودة التواصل الداخلي مطلوب');
+      return;
+    }
+    const contactHappened = !['لم يرد', 'الرقم غير صحيح'].includes(result);
+    if (contactHappened && customerSatisfaction === 'غير واضح') {
+      toast.error('حدد هل العميل كان راضيًا');
+      return;
+    }
+    if (contactHappened && needUnderstood === null) {
+      toast.error('حدد هل تم فهم احتياج العميل');
+      return;
+    }
+    if (needsNextFollowup && !nextFollowupDate) {
+      toast.error('حدد تاريخ المتابعة القادمة');
+      return;
+    }
+    if (result === 'تم الشراء بعد المتابعة' && (!purchaseAmount || !invoiceNumber.trim())) {
+      toast.error('رقم الفاتورة وقيمة الشراء مطلوبان عند تسجيل شراء بعد المتابعة');
+      return;
+    }
     if (result === 'تم التواصل ولم يشتر' && (!internalRating || !noPurchaseReason)) {
       toast.error('التقييم الداخلي وسبب عدم الشراء مطلوبان عند اختيار تواصل ولم يشتر');
       return;
@@ -173,7 +200,9 @@ export default function FollowupResultModal({
         noPurchaseReason,
         doctorInternalNote,
       });
-      toast.success(mode === 'edit' ? 'تم تعديل نتيجة المتابعة بنجاح' : 'تم تسجيل نتيجة المتابعة بنجاح');
+      toast.success(
+        mode === 'edit' ? 'تم تعديل نتيجة المتابعة بنجاح' : 'تم تسجيل نتيجة المتابعة بنجاح'
+      );
       onClose();
     } catch (error) {
       toast.error(`تعذر حفظ النتيجة: ${(error as Error).message}`);
@@ -185,7 +214,10 @@ export default function FollowupResultModal({
   const customerName = textValue(source, ['customer_name', 'name'], 'عميل بدون اسم');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" dir="rtl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      dir="rtl"
+    >
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#2d4063] bg-[#1B2B4B]">
         <div className="sticky top-0 flex items-center justify-between border-b border-[#2d4063] bg-[#1B2B4B] p-4">
           <div>
@@ -227,7 +259,7 @@ export default function FollowupResultModal({
           </div>
 
           <label className="block space-y-2 text-sm text-slate-300">
-            <span>ملاحظات المتابعة</span>
+            <span>ملخص المتابعة والنتيجة الفعلية *</span>
             <textarea
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
@@ -237,16 +269,30 @@ export default function FollowupResultModal({
             />
           </label>
 
-          <RatingControl label="تقييم جودة المتابعة" value={qualityRating} onChange={setQualityRating} tone="text-yellow-400" />
+          <RatingControl
+            label="تقييم جودة المتابعة"
+            value={qualityRating}
+            onChange={setQualityRating}
+            tone="text-yellow-400"
+          />
 
           <div className="space-y-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
             <h3 className="font-bold text-cyan-100">تقييم داخلي للمتابعة</h3>
-            <RatingControl label="جودة التواصل مع العميل" value={internalRating} onChange={setInternalRating} tone="text-cyan-300" optional />
+            <RatingControl
+              label="جودة التواصل مع العميل *"
+              value={internalRating}
+              onChange={setInternalRating}
+              tone="text-cyan-300"
+            />
 
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-2 text-sm text-slate-300">
                 <span>هل العميل كان راضي؟</span>
-                <select className="input-dark" value={customerSatisfaction} onChange={(event) => setCustomerSatisfaction(event.target.value)}>
+                <select
+                  className="input-dark"
+                  value={customerSatisfaction}
+                  onChange={(event) => setCustomerSatisfaction(event.target.value)}
+                >
                   <option>نعم</option>
                   <option>لا</option>
                   <option>غير واضح</option>
@@ -257,7 +303,11 @@ export default function FollowupResultModal({
                 <select
                   className="input-dark"
                   value={needUnderstood === null ? '' : needUnderstood ? 'yes' : 'no'}
-                  onChange={(event) => setNeedUnderstood(event.target.value === '' ? null : event.target.value === 'yes')}
+                  onChange={(event) =>
+                    setNeedUnderstood(
+                      event.target.value === '' ? null : event.target.value === 'yes'
+                    )
+                  }
                 >
                   <option value="">غير محدد</option>
                   <option value="yes">نعم</option>
@@ -267,14 +317,30 @@ export default function FollowupResultModal({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
-              <CheckBox label="تم عرض Cross Sell" checked={crossSellOffered} onChange={setCrossSellOffered} />
-              <CheckBox label="تم عرض Up Sell" checked={upSellOffered} onChange={setUpSellOffered} />
-              <CheckBox label="محتاج متابعة لاحقة" checked={needsNextFollowup} onChange={setNeedsNextFollowup} />
+              <CheckBox
+                label="تم عرض Cross Sell"
+                checked={crossSellOffered}
+                onChange={setCrossSellOffered}
+              />
+              <CheckBox
+                label="تم عرض Up Sell"
+                checked={upSellOffered}
+                onChange={setUpSellOffered}
+              />
+              <CheckBox
+                label="محتاج متابعة لاحقة"
+                checked={needsNextFollowup}
+                onChange={setNeedsNextFollowup}
+              />
             </div>
 
             <label className="block space-y-2 text-sm text-slate-300">
               <span>سبب عدم الشراء إن وجد</span>
-              <select className="input-dark" value={noPurchaseReason} onChange={(event) => setNoPurchaseReason(event.target.value)}>
+              <select
+                className="input-dark"
+                value={noPurchaseReason}
+                onChange={(event) => setNoPurchaseReason(event.target.value)}
+              >
                 <option value="">غير محدد</option>
                 {NO_PURCHASE_REASONS.map((reason) => (
                   <option key={reason}>{reason}</option>
@@ -297,24 +363,43 @@ export default function FollowupResultModal({
           {needsNextFollowup && (
             <label className="block space-y-2 text-sm text-slate-300">
               <span>تاريخ المتابعة القادمة</span>
-              <input type="date" value={nextFollowupDate} onChange={(event) => setNextFollowupDate(event.target.value)} className="input-dark" />
+              <input
+                type="date"
+                value={nextFollowupDate}
+                onChange={(event) => setNextFollowupDate(event.target.value)}
+                className="input-dark"
+              />
             </label>
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-2 text-sm text-slate-300">
               <span>رقم الفاتورة اختياري</span>
-              <input type="text" value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} className="input-dark" />
+              <input
+                type="text"
+                value={invoiceNumber}
+                onChange={(event) => setInvoiceNumber(event.target.value)}
+                className="input-dark"
+              />
             </label>
             <label className="space-y-2 text-sm text-slate-300">
               <span>قيمة الشراء بعد المتابعة اختياري</span>
-              <input type="number" value={purchaseAmount} onChange={(event) => setPurchaseAmount(event.target.value)} className="input-dark" />
+              <input
+                type="number"
+                value={purchaseAmount}
+                onChange={(event) => setPurchaseAmount(event.target.value)}
+                className="input-dark"
+              />
             </label>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <CheckBox label="تم حل المشكلة" checked={problemSolved} onChange={setProblemSolved} />
-            <CheckBox label="العميل راضي" checked={customerSatisfied} onChange={setCustomerSatisfied} />
+            <CheckBox
+              label="العميل راضي"
+              checked={customerSatisfied}
+              onChange={setCustomerSatisfied}
+            />
           </div>
 
           <div className="flex gap-3 border-t border-white/10 pt-4">
@@ -358,7 +443,9 @@ function RatingControl({
             <Star size={24} fill={value >= rating ? 'currentColor' : 'none'} />
           </button>
         ))}
-        <span className="mr-2 text-sm text-slate-400">{value || (optional ? 'غير محدد' : 0)} / 5</span>
+        <span className="mr-2 text-sm text-slate-400">
+          {value || (optional ? 'غير محدد' : 0)} / 5
+        </span>
       </div>
     </div>
   );
@@ -375,7 +462,12 @@ function CheckBox({
 }) {
   return (
     <label className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/30 p-3 text-sm text-slate-300">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded" />
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 rounded"
+      />
       {label}
     </label>
   );
