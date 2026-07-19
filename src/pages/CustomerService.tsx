@@ -2190,7 +2190,7 @@ export default function CustomerService() {
       use_customer_name: useCustomerNameInReply,
     });
 
-  const useQuickReply = async (script: QuickReplyScript, row: FollowupRow, openWhatsapp = false) => {
+  const handleQuickReply = async (script: QuickReplyScript, row: FollowupRow, openWhatsapp = false) => {
     const message = renderReplyForRow(script, row);
     try {
       await navigator.clipboard.writeText(message);
@@ -3085,8 +3085,8 @@ const addFollowup = async () => {
           useCustomerName={useCustomerNameInReply}
           onUseCustomerNameChange={setUseCustomerNameInReply}
           renderMessage={(script) => renderReplyForRow(script, quickReplyRow)}
-          onCopy={(script) => void useQuickReply(script, quickReplyRow)}
-          onWhatsapp={(script) => void useQuickReply(script, quickReplyRow, true)}
+          onCopy={(script) => void handleQuickReply(script, quickReplyRow)}
+          onWhatsapp={(script) => void handleQuickReply(script, quickReplyRow, true)}
           onClose={() => setQuickReplyRow(null)}
         />
       )}
