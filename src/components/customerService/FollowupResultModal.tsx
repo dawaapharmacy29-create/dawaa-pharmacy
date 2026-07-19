@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   MessageSquare,
   PhoneCall,
@@ -39,31 +40,30 @@ export interface FollowupResultData {
   doctorInternalNote: string;
 }
 
+type SelectOption = { value: string; label: string };
+
 const RESULT_OPTIONS = [
-  { value: 'تم الرد والعميل راضي', icon: CheckCircle2, color: 'text-green-400' },
-  { value: 'تم الرد ولا يحتاج الآن', icon: CheckCircle2, color: 'text-teal-400' },
-  { value: 'تم الرد ويحتاج طلب', icon: ShoppingBag, color: 'text-cyan-400' },
-  { value: 'تم التواصل ولم يشتر', icon: MessageSquare, color: 'text-amber-300' },
-  { value: 'تم الرد ويوجد شكوى', icon: AlertTriangle, color: 'text-red-400' },
-  { value: 'لم يرد', icon: PhoneCall, color: 'text-amber-400' },
-  { value: 'الرقم غير صحيح', icon: AlertTriangle, color: 'text-red-300' },
-  { value: 'طلب صنف', icon: ShoppingBag, color: 'text-purple-400' },
-  { value: 'طلب توصيل', icon: ShoppingBag, color: 'text-blue-400' },
-  { value: 'يحتاج متابعة مدير', icon: UserCheck, color: 'text-orange-400' },
-  { value: 'تم الشراء بعد المتابعة', icon: CheckCircle2, color: 'text-green-300' },
+  { value: 'تم الرد والعميل راضي', icon: CheckCircle2 },
+  { value: 'تم الرد ولا يحتاج الآن', icon: CheckCircle2 },
+  { value: 'تم الرد ويحتاج طلب', icon: ShoppingBag },
+  { value: 'تم التواصل ولم يشتر', icon: MessageSquare },
+  { value: 'تم الرد ويوجد شكوى', icon: AlertTriangle },
+  { value: 'لم يرد', icon: PhoneCall },
+  { value: 'الرقم غير صحيح', icon: AlertTriangle },
+  { value: 'طلب صنف', icon: ShoppingBag },
+  { value: 'طلب توصيل', icon: ShoppingBag },
+  { value: 'يحتاج متابعة مدير', icon: UserCheck },
+  { value: 'تم الشراء بعد المتابعة', icon: CheckCircle2 },
+] as const;
+
+const NO_PURCHASE_OPTIONS: SelectOption[] = [
+  { value: '', label: 'اختر السبب' },
+  ...['السعر', 'غير محتاج الآن', 'اشترى من مكان آخر', 'لم يرد', 'يحتاج مدير', 'شكوى', 'سبب آخر'].map(
+    (value): SelectOption => ({ value, label: value })
+  ),
 ];
 
-const NO_PURCHASE_REASONS = [
-  'السعر',
-  'غير محتاج الآن',
-  'اشترى من مكان آخر',
-  'لم يرد',
-  'يحتاج مدير',
-  'شكوى',
-  'سبب آخر',
-];
-
-function textValue(record: Record<string, unknown>, keys: string[], fallback = '') {
+function valueOf(record: Record<string, unknown>, keys: string[], fallback = '') {
   for (const key of keys) {
     const value = record[key];
     if (value != null && String(value).trim()) return String(value);
@@ -71,7 +71,7 @@ function textValue(record: Record<string, unknown>, keys: string[], fallback = '
   return fallback;
 }
 
-function numberValue(record: Record<string, unknown>, keys: string[], fallback = 0) {
+function numberOf(record: Record<string, unknown>, keys: string[], fallback = 0) {
   for (const key of keys) {
     const value = Number(record[key]);
     if (Number.isFinite(value) && value > 0) return value;
@@ -79,7 +79,7 @@ function numberValue(record: Record<string, unknown>, keys: string[], fallback =
   return fallback;
 }
 
-function boolValue(record: Record<string, unknown>, keys: string[], fallback = false) {
+function boolOf(record: Record<string, unknown>, keys: string[], fallback = false) {
   for (const key of keys) {
     if (record[key] === true) return true;
     if (record[key] === false) return false;
@@ -87,109 +87,65 @@ function boolValue(record: Record<string, unknown>, keys: string[], fallback = f
   return fallback;
 }
 
-export default function FollowupResultModal({
-  followup,
-  onClose,
-  onSave,
-  mode = 'create',
-}: FollowupResultModalProps) {
+function localDateInput(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
+export default function FollowupResultModal({ followup, onClose, onSave, mode = 'create' }: FollowupResultModalProps) {
   useEscapeKey(onClose, true);
   const source = followup as unknown as Record<string, unknown>;
-  const [result, setResult] = useState(() =>
-    textValue(source, ['followup_result', 'contact_result', 'followup_status', 'status'])
-  );
-  const [notes, setNotes] = useState(() => textValue(source, ['followup_notes', 'notes']));
-  const [qualityRating, setQualityRating] = useState(() =>
-    numberValue(source, ['quality_rating'], 5)
-  );
-  const [internalRating, setInternalRating] = useState(() =>
-    numberValue(source, ['internal_rating'], 0)
-  );
-  const [needsNextFollowup, setNeedsNextFollowup] = useState(() =>
-    boolValue(source, ['needs_next_followup'], false)
-  );
-  const [nextFollowupDate, setNextFollowupDate] = useState(() =>
-    textValue(source, ['next_followup_date']).slice(0, 10)
-  );
-  const [invoiceNumber, setInvoiceNumber] = useState(() =>
-    textValue(source, ['purchase_invoice_no', 'invoice_number'])
-  );
-  const [purchaseAmount, setPurchaseAmount] = useState(() =>
-    String(numberValue(source, ['purchase_amount'], 0) || '')
-  );
-  const [problemSolved, setProblemSolved] = useState(() =>
-    boolValue(source, ['problem_solved'], false)
-  );
-  const [customerSatisfied, setCustomerSatisfied] = useState(() =>
-    boolValue(source, ['customer_satisfied'], false)
-  );
-  const [customerSatisfaction, setCustomerSatisfaction] = useState(() =>
-    textValue(source, ['customer_satisfaction'], 'غير واضح')
-  );
-  const [needUnderstood, setNeedUnderstood] = useState<boolean | null>(() => {
-    if (source.need_understood === true) return true;
-    if (source.need_understood === false) return false;
-    return null;
-  });
-  const [crossSellOffered, setCrossSellOffered] = useState(() =>
-    boolValue(source, ['cross_sell_offered'], false)
-  );
-  const [upSellOffered, setUpSellOffered] = useState(() =>
-    boolValue(source, ['up_sell_offered'], false)
-  );
-  const [noPurchaseReason, setNoPurchaseReason] = useState(() =>
-    textValue(source, ['no_purchase_reason'])
-  );
-  const [doctorInternalNote, setDoctorInternalNote] = useState(() =>
-    textValue(source, ['doctor_internal_note'])
-  );
+  const [result, setResult] = useState(() => valueOf(source, ['followup_result', 'contact_result', 'followup_status', 'status']));
+  const [notes, setNotes] = useState(() => valueOf(source, ['evaluation_summary', 'followup_notes', 'notes']));
+  const [qualityRating, setQualityRating] = useState(() => numberOf(source, ['quality_rating'], 5));
+  const [internalRating, setInternalRating] = useState(() => numberOf(source, ['internal_rating'], 0));
+  const [needsNextFollowup, setNeedsNextFollowup] = useState(() => boolOf(source, ['needs_next_followup'], false));
+  const [nextFollowupDate, setNextFollowupDate] = useState(() => valueOf(source, ['next_followup_date']).slice(0, 10));
+  const [invoiceNumber, setInvoiceNumber] = useState(() => valueOf(source, ['purchase_invoice_no', 'invoice_number']));
+  const [purchaseAmount, setPurchaseAmount] = useState(() => String(numberOf(source, ['purchase_amount'], 0) || ''));
+  const [problemSolved, setProblemSolved] = useState(() => boolOf(source, ['problem_solved'], false));
+  const [customerSatisfied, setCustomerSatisfied] = useState(() => boolOf(source, ['customer_satisfied'], false));
+  const [customerSatisfaction, setCustomerSatisfaction] = useState(() => valueOf(source, ['customer_satisfaction'], 'غير واضح'));
+  const [needUnderstood, setNeedUnderstood] = useState<boolean | null>(() => source.need_understood === true ? true : source.need_understood === false ? false : null);
+  const [crossSellOffered, setCrossSellOffered] = useState(() => boolOf(source, ['cross_sell_offered'], false));
+  const [upSellOffered, setUpSellOffered] = useState(() => boolOf(source, ['up_sell_offered'], false));
+  const [noPurchaseReason, setNoPurchaseReason] = useState(() => valueOf(source, ['no_purchase_reason']));
+  const [doctorInternalNote, setDoctorInternalNote] = useState(() => valueOf(source, ['doctor_internal_note']));
   const [saving, setSaving] = useState(false);
 
-  const handleSubmit = async () => {
-    if (!result) {
-      toast.error('اختر نتيجة المتابعة');
-      return;
+  const purchaseResult = result === 'تم الشراء بعد المتابعة';
+  const noPurchaseResult = result === 'تم التواصل ولم يشتر';
+  const contactHappened = Boolean(result) && !['لم يرد', 'الرقم غير صحيح'].includes(result);
+  const completion = useMemo(() => {
+    const checks = [Boolean(result), notes.trim().length >= 10, internalRating > 0, !contactHappened || customerSatisfaction !== 'غير واضح', !contactHappened || needUnderstood !== null, !needsNextFollowup || Boolean(nextFollowupDate), !purchaseResult || (Boolean(invoiceNumber.trim()) && Number(purchaseAmount) > 0), !noPurchaseResult || Boolean(noPurchaseReason)];
+    return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  }, [contactHappened, customerSatisfaction, internalRating, invoiceNumber, needUnderstood, needsNextFollowup, nextFollowupDate, noPurchaseReason, noPurchaseResult, notes, purchaseAmount, purchaseResult, result]);
+
+  const submit = async () => {
+    if (!result) return toast.error('اختر نتيجة المتابعة');
+    if (notes.trim().length < 10) return toast.error('اكتب ملخصًا واضحًا للمتابعة لا يقل عن 10 أحرف');
+    if (!internalRating) return toast.error('تقييم جودة التواصل الداخلي مطلوب');
+    if (contactHappened && customerSatisfaction === 'غير واضح') return toast.error('حدد رضا العميل');
+    if (contactHappened && needUnderstood === null) return toast.error('حدد هل تم فهم احتياج العميل');
+    if (needsNextFollowup) {
+      if (!nextFollowupDate) return toast.error('حدد تاريخ المتابعة القادمة');
+      const date = new Date(`${nextFollowupDate}T12:00:00`);
+      if (Number.isNaN(date.getTime())) return toast.error('تاريخ المتابعة القادمة غير صحيح');
+      if (nextFollowupDate < localDateInput()) return toast.error('تاريخ المتابعة القادمة لا يمكن أن يكون في الماضي');
     }
-    if (notes.trim().length < 10) {
-      toast.error('اكتب ملخصًا واضحًا للمتابعة لا يقل عن 10 أحرف');
-      return;
-    }
-    if (!internalRating) {
-      toast.error('تقييم جودة التواصل الداخلي مطلوب');
-      return;
-    }
-    const contactHappened = !['لم يرد', 'الرقم غير صحيح'].includes(result);
-    if (contactHappened && customerSatisfaction === 'غير واضح') {
-      toast.error('حدد هل العميل كان راضيًا');
-      return;
-    }
-    if (contactHappened && needUnderstood === null) {
-      toast.error('حدد هل تم فهم احتياج العميل');
-      return;
-    }
-    if (needsNextFollowup && !nextFollowupDate) {
-      toast.error('حدد تاريخ المتابعة القادمة');
-      return;
-    }
-    if (result === 'تم الشراء بعد المتابعة' && (!purchaseAmount || !invoiceNumber.trim())) {
-      toast.error('رقم الفاتورة وقيمة الشراء مطلوبان عند تسجيل شراء بعد المتابعة');
-      return;
-    }
-    if (result === 'تم التواصل ولم يشتر' && (!internalRating || !noPurchaseReason)) {
-      toast.error('التقييم الداخلي وسبب عدم الشراء مطلوبان عند اختيار تواصل ولم يشتر');
-      return;
-    }
+    if (purchaseResult && (!invoiceNumber.trim() || Number(purchaseAmount) <= 0)) return toast.error('رقم الفاتورة وقيمة الشراء مطلوبان');
+    if (noPurchaseResult && !noPurchaseReason) return toast.error('سبب عدم الشراء مطلوب');
 
     setSaving(true);
     try {
       await onSave({
         result,
-        notes,
+        notes: notes.trim(),
         qualityRating,
-        internalRating: internalRating || qualityRating,
+        internalRating,
         needsNextFollowup,
-        nextFollowupDate,
-        invoiceNumber,
+        nextFollowupDate: needsNextFollowup ? nextFollowupDate : '',
+        invoiceNumber: invoiceNumber.trim(),
         purchaseAmount: Number(purchaseAmount) || 0,
         problemSolved,
         customerSatisfied,
@@ -198,277 +154,63 @@ export default function FollowupResultModal({
         crossSellOffered,
         upSellOffered,
         noPurchaseReason,
-        doctorInternalNote,
+        doctorInternalNote: doctorInternalNote.trim(),
       });
-      toast.success(
-        mode === 'edit' ? 'تم تعديل نتيجة المتابعة بنجاح' : 'تم تسجيل نتيجة المتابعة بنجاح'
-      );
+      toast.success(mode === 'edit' ? 'تم تعديل نتيجة المتابعة' : 'تم تسجيل نتيجة المتابعة');
       onClose();
     } catch (error) {
-      toast.error(`تعذر حفظ النتيجة: ${(error as Error).message}`);
+      toast.error(`تعذر حفظ النتيجة: ${error instanceof Error ? error.message : 'خطأ غير متوقع'}`);
     } finally {
       setSaving(false);
     }
   };
 
-  const customerName = textValue(source, ['customer_name', 'name'], 'عميل بدون اسم');
+  const customerName = valueOf(source, ['customer_name', 'name'], 'عميل بدون اسم');
+  const customerCode = valueOf(source, ['customer_code'], 'بدون كود');
+  const branch = valueOf(source, ['branch'], 'فرع غير محدد');
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-      dir="rtl"
-    >
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#2d4063] bg-[#1B2B4B]">
-        <div className="sticky top-0 flex items-center justify-between border-b border-[#2d4063] bg-[#1B2B4B] p-4">
-          <div>
-            <h2 className="text-xl font-bold text-white">
-              {mode === 'edit' ? 'تعديل نتيجة المتابعة' : 'تسجيل نتيجة المتابعة'}
-            </h2>
-            <p className="mt-1 text-sm text-slate-400">{customerName}</p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <X size={24} />
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" dir="rtl">
+      <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-700 bg-[#101b31] shadow-2xl">
+        <header className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-700 bg-[#101b31]/95 p-5 backdrop-blur">
+          <div><h2 className="text-xl font-black text-white">{mode === 'edit' ? 'تعديل نتيجة المتابعة' : 'تسجيل نتيجة المتابعة'}</h2><p className="mt-1 text-sm font-bold text-slate-300">{customerName} · {customerCode} · {branch}</p><div className="mt-3 h-2 w-56 overflow-hidden rounded-full bg-slate-800"><div className="h-full bg-teal-400 transition-all" style={{ width: `${completion}%` }} /></div><p className="mt-1 text-xs text-slate-400">اكتمال النموذج: {completion}%</p></div>
+          <button type="button" onClick={onClose} disabled={saving} className="rounded-xl p-2 text-slate-400 hover:bg-white/10 hover:text-white"><X size={22} /></button>
+        </header>
+
+        <div className="grid gap-5 p-5 lg:grid-cols-[1.55fr_1fr]">
+          <main className="space-y-5">
+            <section><h3 className="mb-3 font-black text-white">نتيجة التواصل *</h3><div className="grid gap-2 sm:grid-cols-2">{RESULT_OPTIONS.map(({ value, icon: Icon }) => <button key={value} type="button" onClick={() => setResult(value)} className={`flex items-center gap-2 rounded-2xl border p-3 text-right text-sm font-bold transition ${result === value ? 'border-teal-400 bg-teal-500/20 text-white' : 'border-slate-700 bg-slate-900/45 text-slate-200 hover:border-slate-500'}`}><Icon size={18} />{value}</button>)}</div></section>
+            <label className="block space-y-2 text-sm font-bold text-slate-200"><span>ملخص المتابعة والنتيجة الفعلية *</span><textarea className="input-dark min-h-32 resize-y" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="اكتب ما تم مع العميل، وما المشكلة، وما النتيجة، والخطوة القادمة..." /></label>
+            <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4"><h3 className="mb-4 font-black text-cyan-100">تقييم جودة المتابعة</h3><div className="grid gap-5 md:grid-cols-2"><RatingControl label="جودة المتابعة" value={qualityRating} onChange={setQualityRating} /><RatingControl label="جودة التواصل الداخلي *" value={internalRating} onChange={setInternalRating} /></div><div className="mt-4 grid gap-3 md:grid-cols-2"><SelectField label="رضا العميل" value={customerSatisfaction} onChange={setCustomerSatisfaction} options={[{ value: 'غير واضح', label: 'غير واضح' }, { value: 'نعم', label: 'نعم' }, { value: 'لا', label: 'لا' }]} /><SelectField label="هل تم فهم احتياج العميل؟" value={needUnderstood === null ? '' : needUnderstood ? 'yes' : 'no'} onChange={(value) => setNeedUnderstood(value === '' ? null : value === 'yes')} options={[{ value: '', label: 'غير محدد' }, { value: 'yes', label: 'نعم' }, { value: 'no', label: 'لا' }]} /></div><div className="mt-4 grid gap-3 sm:grid-cols-3"><CheckBox label="تم عرض Cross Sell" checked={crossSellOffered} onChange={setCrossSellOffered} /><CheckBox label="تم عرض Up Sell" checked={upSellOffered} onChange={setUpSellOffered} /><CheckBox label="يحتاج متابعة لاحقة" checked={needsNextFollowup} onChange={setNeedsNextFollowup} /></div></section>
+          </main>
+
+          <aside className="space-y-4">
+            {needsNextFollowup && <section className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4"><div className="mb-2 flex items-center gap-2 font-black text-blue-100"><CalendarClock size={18} /> المتابعة القادمة</div><input type="date" min={localDateInput()} value={nextFollowupDate} onChange={(event) => setNextFollowupDate(event.target.value)} className="input-dark" /><div className="mt-2 flex gap-2"><button type="button" className="btn-secondary flex-1 text-xs" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); setNextFollowupDate(localDateInput(d)); }}>بكرة</button><button type="button" className="btn-secondary flex-1 text-xs" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 2); setNextFollowupDate(localDateInput(d)); }}>بعد يومين</button></div></section>}
+            {(purchaseResult || invoiceNumber || purchaseAmount) && <section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4"><h3 className="mb-3 font-black text-emerald-100">الشراء بعد المتابعة</h3><div className="space-y-3"><InputField label="رقم الفاتورة" value={invoiceNumber} onChange={setInvoiceNumber} /><InputField label="قيمة الشراء" type="number" value={purchaseAmount} onChange={setPurchaseAmount} /></div></section>}
+            {noPurchaseResult && <SelectField label="سبب عدم الشراء *" value={noPurchaseReason} onChange={setNoPurchaseReason} options={NO_PURCHASE_OPTIONS} />}
+            <section className="rounded-2xl border border-slate-700 bg-slate-900/45 p-4"><h3 className="mb-3 font-black text-white">قرارات المتابعة</h3><div className="space-y-2"><CheckBox label="تم حل المشكلة" checked={problemSolved} onChange={setProblemSolved} /><CheckBox label="العميل راضي" checked={customerSatisfied} onChange={setCustomerSatisfied} /></div></section>
+            <label className="block space-y-2 text-sm font-bold text-slate-200"><span>ملاحظة داخلية للدكتور</span><textarea className="input-dark min-h-24 resize-y" value={doctorInternalNote} onChange={(event) => setDoctorInternalNote(event.target.value)} placeholder="ملاحظات داخلية لا تُرسل للعميل" /></label>
+          </aside>
         </div>
 
-        <div className="space-y-6 p-6">
-          <div>
-            <label className="mb-3 block text-sm font-medium text-slate-300">نتيجة التواصل</label>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {RESULT_OPTIONS.map((option) => {
-                const Icon = option.icon;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setResult(option.value)}
-                    className={`rounded-xl border p-3 text-right transition-all ${
-                      result === option.value
-                        ? 'border-teal-400/50 bg-teal-500/20'
-                        : 'border-white/10 bg-white/5 hover:bg-white/10'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Icon size={18} className={option.color} />
-                      <span className="text-sm text-white">{option.value}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <label className="block space-y-2 text-sm text-slate-300">
-            <span>ملخص المتابعة والنتيجة الفعلية *</span>
-            <textarea
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              placeholder="اكتب تفاصيل المتابعة هنا..."
-              className="input-dark resize-none"
-              rows={3}
-            />
-          </label>
-
-          <RatingControl
-            label="تقييم جودة المتابعة"
-            value={qualityRating}
-            onChange={setQualityRating}
-            tone="text-yellow-400"
-          />
-
-          <div className="space-y-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
-            <h3 className="font-bold text-cyan-100">تقييم داخلي للمتابعة</h3>
-            <RatingControl
-              label="جودة التواصل مع العميل *"
-              value={internalRating}
-              onChange={setInternalRating}
-              tone="text-cyan-300"
-            />
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="space-y-2 text-sm text-slate-300">
-                <span>هل العميل كان راضي؟</span>
-                <select
-                  className="input-dark"
-                  value={customerSatisfaction}
-                  onChange={(event) => setCustomerSatisfaction(event.target.value)}
-                >
-                  <option>نعم</option>
-                  <option>لا</option>
-                  <option>غير واضح</option>
-                </select>
-              </label>
-              <label className="space-y-2 text-sm text-slate-300">
-                <span>هل تم فهم احتياج العميل؟</span>
-                <select
-                  className="input-dark"
-                  value={needUnderstood === null ? '' : needUnderstood ? 'yes' : 'no'}
-                  onChange={(event) =>
-                    setNeedUnderstood(
-                      event.target.value === '' ? null : event.target.value === 'yes'
-                    )
-                  }
-                >
-                  <option value="">غير محدد</option>
-                  <option value="yes">نعم</option>
-                  <option value="no">لا</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <CheckBox
-                label="تم عرض Cross Sell"
-                checked={crossSellOffered}
-                onChange={setCrossSellOffered}
-              />
-              <CheckBox
-                label="تم عرض Up Sell"
-                checked={upSellOffered}
-                onChange={setUpSellOffered}
-              />
-              <CheckBox
-                label="محتاج متابعة لاحقة"
-                checked={needsNextFollowup}
-                onChange={setNeedsNextFollowup}
-              />
-            </div>
-
-            <label className="block space-y-2 text-sm text-slate-300">
-              <span>سبب عدم الشراء إن وجد</span>
-              <select
-                className="input-dark"
-                value={noPurchaseReason}
-                onChange={(event) => setNoPurchaseReason(event.target.value)}
-              >
-                <option value="">غير محدد</option>
-                {NO_PURCHASE_REASONS.map((reason) => (
-                  <option key={reason}>{reason}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block space-y-2 text-sm text-slate-300">
-              <span>ملاحظة داخلية للدكتور</span>
-              <textarea
-                className="input-dark resize-none"
-                rows={3}
-                value={doctorInternalNote}
-                onChange={(event) => setDoctorInternalNote(event.target.value)}
-                placeholder="ملاحظات داخلية لا ترسل للعميل"
-              />
-            </label>
-          </div>
-
-          {needsNextFollowup && (
-            <label className="block space-y-2 text-sm text-slate-300">
-              <span>تاريخ المتابعة القادمة</span>
-              <input
-                type="date"
-                value={nextFollowupDate}
-                onChange={(event) => setNextFollowupDate(event.target.value)}
-                className="input-dark"
-              />
-            </label>
-          )}
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="space-y-2 text-sm text-slate-300">
-              <span>رقم الفاتورة اختياري</span>
-              <input
-                type="text"
-                value={invoiceNumber}
-                onChange={(event) => setInvoiceNumber(event.target.value)}
-                className="input-dark"
-              />
-            </label>
-            <label className="space-y-2 text-sm text-slate-300">
-              <span>قيمة الشراء بعد المتابعة اختياري</span>
-              <input
-                type="number"
-                value={purchaseAmount}
-                onChange={(event) => setPurchaseAmount(event.target.value)}
-                className="input-dark"
-              />
-            </label>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <CheckBox label="تم حل المشكلة" checked={problemSolved} onChange={setProblemSolved} />
-            <CheckBox
-              label="العميل راضي"
-              checked={customerSatisfied}
-              onChange={setCustomerSatisfied}
-            />
-          </div>
-
-          <div className="flex gap-3 border-t border-white/10 pt-4">
-            <button onClick={handleSubmit} disabled={saving} className="btn-primary flex-1">
-              {saving ? 'جاري الحفظ...' : mode === 'edit' ? 'حفظ تعديل النتيجة' : 'حفظ النتيجة'}
-            </button>
-            <button onClick={onClose} disabled={saving} className="btn-secondary flex-1">
-              إلغاء
-            </button>
-          </div>
-        </div>
+        <footer className="sticky bottom-0 flex gap-3 border-t border-slate-700 bg-[#101b31]/95 p-4 backdrop-blur"><button type="button" onClick={submit} disabled={saving} className="btn-primary flex-1">{saving ? 'جاري الحفظ...' : mode === 'edit' ? 'حفظ تعديل النتيجة' : 'حفظ النتيجة الكاملة'}</button><button type="button" onClick={onClose} disabled={saving} className="btn-secondary flex-1">إلغاء</button></footer>
       </div>
     </div>
   );
 }
 
-function RatingControl({
-  label,
-  value,
-  onChange,
-  tone,
-  optional = false,
-}: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  tone: string;
-  optional?: boolean;
-}) {
-  return (
-    <div>
-      <label className="mb-2 block text-sm font-medium text-slate-300">{label}</label>
-      <div className="flex items-center gap-2">
-        {[1, 2, 3, 4, 5].map((rating) => (
-          <button
-            key={rating}
-            type="button"
-            onClick={() => onChange(rating)}
-            className={`rounded-lg p-2 transition-all ${value >= rating ? tone : 'text-slate-600'}`}
-          >
-            <Star size={24} fill={value >= rating ? 'currentColor' : 'none'} />
-          </button>
-        ))}
-        <span className="mr-2 text-sm text-slate-400">
-          {value || (optional ? 'غير محدد' : 0)} / 5
-        </span>
-      </div>
-    </div>
-  );
+function RatingControl({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return <div><label className="mb-2 block text-sm font-bold text-slate-200">{label}</label><div className="flex items-center gap-1">{[1, 2, 3, 4, 5].map((rating) => <button key={rating} type="button" onClick={() => onChange(rating)} className={value >= rating ? 'p-1 text-yellow-300' : 'p-1 text-slate-600'}><Star size={22} fill={value >= rating ? 'currentColor' : 'none'} /></button>)}<span className="mr-2 text-xs text-slate-400">{value || 0}/5</span></div></div>;
 }
 
-function CheckBox({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/30 p-3 text-sm text-slate-300">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 rounded"
-      />
-      {label}
-    </label>
-  );
+function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: SelectOption[] }) {
+  return <label className="block space-y-2 text-sm font-bold text-slate-200"><span>{label}</span><select className="input-dark" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={`${option.value}-${option.label}`} value={option.value}>{option.label}</option>)}</select></label>;
+}
+
+function InputField({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return <label className="block space-y-2 text-sm font-bold text-slate-200"><span>{label}</span><input className="input-dark" type={type} value={value} min={type === 'number' ? '0' : undefined} onChange={(event) => onChange(event.target.value)} /></label>;
+}
+
+function CheckBox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return <label className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/35 p-3 text-sm font-bold text-slate-200"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded" />{label}</label>;
 }
