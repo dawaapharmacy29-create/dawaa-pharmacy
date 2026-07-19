@@ -54,43 +54,66 @@ function routeWithId(base: string, key: string, id?: string | null) {
 }
 
 function employeeTaskRoute(notification: AppNotification) {
-  const taskId = notification.target_id || String(notification.metadata?.task_id || notification.metadata?.entity_id || '');
-  const staffId = String(notification.recipient_staff_id || notification.metadata?.staff_id || notification.metadata?.staffId || '');
+  const taskId =
+    notification.target_id ||
+    String(notification.metadata?.task_id || notification.metadata?.entity_id || '');
+  const staffId = String(
+    notification.recipient_staff_id ||
+      notification.metadata?.staff_id ||
+      notification.metadata?.staffId ||
+      ''
+  );
   const type = String(notification.type || notification.target_type || '').toLowerCase();
-  if (type === 'staff_task' && staffId) return `/staff/${encodeURIComponent(staffId)}?tab=operating-system`;
+  if (type === 'staff_task' && staffId)
+    return `/staff/${encodeURIComponent(staffId)}?tab=operating-system`;
   if (type === 'cleaning_task') return '/employee-operating-system?role=cleaning';
   if (type === 'branch_manager_task') return '/employee-operating-system?role=branch_manager';
   return routeWithId('/employee-operating-system', 'taskId', taskId);
 }
 
 export function notificationRoute(notification: AppNotification) {
-  const explicit = String(notification.route || notification.target_route || notification.metadata?.route || '').trim();
+  const explicit = String(
+    notification.route || notification.target_route || notification.metadata?.route || ''
+  ).trim();
   const id =
     notification.target_id ||
-    String(notification.metadata?.entity_id || notification.metadata?.review_id || notification.metadata?.id || '');
+    String(
+      notification.metadata?.entity_id ||
+        notification.metadata?.review_id ||
+        notification.metadata?.id ||
+        ''
+    );
   if (explicit.startsWith('/')) {
     if (/^\/reviews\/?(?:\?.*)?$/.test(explicit) && id && !/[?&]id=/.test(explicit)) {
       return routeWithId(explicit, 'id', id);
     }
-    if (/^\/customer-service\/?(?:\?.*)?$/.test(explicit) && id && !/[?&]followupId=/.test(explicit)) {
+    if (
+      /^\/customer-service\/?(?:\?.*)?$/.test(explicit) &&
+      id &&
+      !/[?&]followupId=/.test(explicit)
+    ) {
       return routeWithId(explicit, 'followupId', id);
     }
     return explicit;
   }
-  const rawType = String(notification.type || notification.target_type || '').trim().toLowerCase();
+  const rawType = String(notification.type || notification.target_type || '')
+    .trim()
+    .toLowerCase();
   const typeAliases: Record<string, string> = {
     'تقييم محادثة': 'conversation_review',
     'تقييم المحادثة': 'conversation_review',
-    'conversation_sales_review': 'conversation_review',
-    'متابعة': 'customer_followup',
+    conversation_sales_review: 'conversation_review',
+    متابعة: 'customer_followup',
     'متابعة عميل': 'customer_followup',
     'طلب متابعة': 'customer_followup',
     'طلب عميل': 'customer_request',
   };
   const type = typeAliases[rawType] || rawType;
   const routes: Record<string, () => string> = {
-    customer_followup: () => routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
-    followup: () => routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
+    customer_followup: () =>
+      routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
+    followup: () =>
+      routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
     customer_request: () => routeWithId('/customer-service?tab=requests', 'requestId', id),
     conversation_review: () => routeWithId('/reviews', 'id', id),
     delivery_order: () => routeWithId('/delivery', 'orderId', id),
@@ -114,27 +137,58 @@ export function notificationRoute(notification: AppNotification) {
 }
 
 function isUnread(notification: AppNotification) {
-  return !notification.read && !notification.is_read && !['read', 'completed', 'dismissed'].includes(String(notification.status || ''));
+  return (
+    !notification.read &&
+    !notification.is_read &&
+    !['read', 'completed', 'dismissed'].includes(String(notification.status || ''))
+  );
 }
 
 function isGeneralManager(role: string) {
   return ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(role));
 }
 
-function visibleToUser(notification: AppNotification, user: { id: string; staffId?: string; role: string; branch: string }) {
+function visibleToUser(
+  notification: AppNotification,
+  user: { id: string; staffId?: string; role: string; branch: string }
+) {
   if (isGeneralManager(user.role)) return true;
   const targetUser = notification.recipient_user_id || notification.user_id;
   if (targetUser && targetUser !== user.id) return false;
-  if (notification.recipient_staff_id && notification.recipient_staff_id !== user.staffId) return false;
-  if (notification.recipient_role && normalizeRole(notification.recipient_role) !== normalizeRole(user.role)) return false;
-  if (notification.branch && normalizeBranchName(notification.branch) !== normalizeBranchName(user.branch)) return false;
-  const hasTarget = Boolean(targetUser || notification.recipient_staff_id || notification.recipient_role || notification.branch);
-  return hasTarget || (!targetUser && !notification.recipient_staff_id && !notification.recipient_role && !notification.branch);
+  if (notification.recipient_staff_id && notification.recipient_staff_id !== user.staffId)
+    return false;
+  if (
+    notification.recipient_role &&
+    normalizeRole(notification.recipient_role) !== normalizeRole(user.role)
+  )
+    return false;
+  if (
+    notification.branch &&
+    normalizeBranchName(notification.branch) !== normalizeBranchName(user.branch)
+  )
+    return false;
+  const hasTarget = Boolean(
+    targetUser ||
+    notification.recipient_staff_id ||
+    notification.recipient_role ||
+    notification.branch
+  );
+  return (
+    hasTarget ||
+    (!targetUser &&
+      !notification.recipient_staff_id &&
+      !notification.recipient_role &&
+      !notification.branch)
+  );
 }
 
 function allowedBySettings(notification: AppNotification, settings: NotificationSettings) {
   const type = String(notification.type || notification.target_type || '');
-  if (settings.highPriorityOnly && !/high|urgent|critical|عاجل|حرج/i.test(String(notification.priority || ''))) return false;
+  if (
+    settings.highPriorityOnly &&
+    !/high|urgent|critical|عاجل|حرج/i.test(String(notification.priority || ''))
+  )
+    return false;
   if (/followup|customer|welcome|manager/.test(type) && !settings.customerService) return false;
   if (/delivery/.test(type) && !settings.delivery) return false;
   if (/inventory|stock|expiry/.test(type) && !settings.inventory) return false;
@@ -145,7 +199,11 @@ function allowedBySettings(notification: AppNotification, settings: Notification
 }
 
 async function fetchTable(table: NotificationTable) {
-  const { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: false }).limit(100);
+  const { data, error } = await supabase
+    .from(table)
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(100);
   if (error) throw error;
   return (data || []).map((row) => normalizeNotification(row as Record<string, unknown>));
 }
@@ -173,12 +231,31 @@ export function useNotifications() {
         result = await fetchTable('notifications');
         tableRef.current = 'notifications';
       } catch (primaryError) {
-        if (import.meta.env.DEV) console.warn('[notifications] primary table unavailable', primaryError);
+        if (import.meta.env.DEV)
+          console.warn('[notifications] primary table unavailable', primaryError);
         result = await fetchTable('app_notifications');
         tableRef.current = 'app_notifications';
       }
       if (!mountedRef.current) return;
-      const unique = new Map(result.map((item) => [item.id, { ...item, route: notificationRoute(item) }]));
+      const unique = new Map<string, AppNotification>();
+      for (const item of result) {
+        const normalized = { ...item, route: notificationRoute(item) };
+        const semanticKey = [
+          normalized.type,
+          normalized.target_type,
+          normalized.target_id || normalized.metadata?.entity_id,
+          normalized.recipient_staff_id,
+          normalized.branch || normalized.metadata?.branch,
+          normalized.title,
+        ]
+          .map((value) =>
+            String(value || '')
+              .trim()
+              .toLowerCase()
+          )
+          .join('|');
+        if (!unique.has(semanticKey)) unique.set(semanticKey, normalized);
+      }
       setRows([...unique.values()]);
       setAvailable(true);
     } catch (error) {
@@ -238,29 +315,67 @@ export function useNotifications() {
   const notifications = useMemo(() => {
     if (!user) return [];
     const retentionStart = Date.now() - settings.retentionDays * 86400000;
-    return rows.filter((item) => visibleToUser(item, user) && allowedBySettings(item, settings) && new Date(item.created_at).getTime() >= retentionStart);
+    return rows.filter(
+      (item) =>
+        visibleToUser(item, user) &&
+        allowedBySettings(item, settings) &&
+        new Date(item.created_at).getTime() >= retentionStart
+    );
   }, [rows, settings, user?.id, user?.staffId, user?.role, user?.branch]);
 
   const unreadCount = useMemo(() => notifications.filter(isUnread).length, [notifications]);
 
-  const markAsRead = useCallback(async (id: string) => {
-    const previous = rows;
-    setRows((current) => current.map((item) => item.id === id ? { ...item, read: true, is_read: true, status: 'read', read_at: new Date().toISOString() } : item));
-    try {
-      const { error } = await supabase.from(tableRef.current).update({ read: true, is_read: true, status: 'read', read_at: new Date().toISOString() }).eq('id', id);
-      if (error) throw error;
-    } catch (error) {
-      console.warn('[notifications] mark as read failed', error);
-      setRows(previous);
-    }
-  }, [rows]);
+  const markAsRead = useCallback(
+    async (id: string) => {
+      const previous = rows;
+      setRows((current) =>
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                read: true,
+                is_read: true,
+                status: 'read',
+                read_at: new Date().toISOString(),
+              }
+            : item
+        )
+      );
+      try {
+        const { error } = await supabase
+          .from(tableRef.current)
+          .update({ read: true, is_read: true, status: 'read', read_at: new Date().toISOString() })
+          .eq('id', id);
+        if (error) throw error;
+      } catch (error) {
+        console.warn('[notifications] mark as read failed', error);
+        setRows(previous);
+      }
+    },
+    [rows]
+  );
 
   const markAllAsRead = useCallback(async () => {
     const ids = notifications.filter(isUnread).map((item) => item.id);
     if (!ids.length) return;
-    setRows((current) => current.map((item) => ids.includes(item.id) ? { ...item, read: true, is_read: true, status: 'read', read_at: new Date().toISOString() } : item));
+    setRows((current) =>
+      current.map((item) =>
+        ids.includes(item.id)
+          ? {
+              ...item,
+              read: true,
+              is_read: true,
+              status: 'read',
+              read_at: new Date().toISOString(),
+            }
+          : item
+      )
+    );
     try {
-      const { error } = await supabase.from(tableRef.current).update({ read: true, is_read: true, status: 'read', read_at: new Date().toISOString() }).in('id', ids);
+      const { error } = await supabase
+        .from(tableRef.current)
+        .update({ read: true, is_read: true, status: 'read', read_at: new Date().toISOString() })
+        .in('id', ids);
       if (error) throw error;
     } catch (error) {
       console.warn('[notifications] mark all as read failed', error);
@@ -268,13 +383,26 @@ export function useNotifications() {
     }
   }, [notifications, refreshNotifications]);
 
-  const handleNotificationClick = useCallback((notification: AppNotification) => {
-    void markAsRead(notification.id);
-    const route = notificationRoute(notification);
-    const target = route.startsWith('/') ? route : '/operations-center';
-    if (navigationGuard) navigationGuard.requestNavigation(target);
-    else navigate(target);
-  }, [markAsRead, navigate, navigationGuard]);
+  const handleNotificationClick = useCallback(
+    (notification: AppNotification) => {
+      void markAsRead(notification.id);
+      const route = notificationRoute(notification);
+      const target = route.startsWith('/') ? route : '/operations-center';
+      if (navigationGuard) navigationGuard.requestNavigation(target);
+      else navigate(target);
+    },
+    [markAsRead, navigate, navigationGuard]
+  );
 
-  return { notifications, unreadCount, loading, available, settings, refreshNotifications, markAsRead, markAllAsRead, handleNotificationClick };
+  return {
+    notifications,
+    unreadCount,
+    loading,
+    available,
+    settings,
+    refreshNotifications,
+    markAsRead,
+    markAllAsRead,
+    handleNotificationClick,
+  };
 }
