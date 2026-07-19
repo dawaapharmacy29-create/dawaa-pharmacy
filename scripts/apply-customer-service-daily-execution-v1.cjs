@@ -3,6 +3,13 @@ const fs = require('node:fs');
 const filePath = 'src/components/customerService/UnifiedCustomerServiceWorkspace.tsx';
 let source = fs.readFileSync(filePath, 'utf8');
 
+// Vercel runs this repair during every build. Once the persistent queue and
+// event tracking are present, rerunning the textual patch must be a safe no-op.
+if (source.includes('loadOrCreateDailyQueue(') && source.includes('appendFollowupEvent({') && source.includes('queueItemId?: string | null;')) {
+  console.log('Customer service daily execution v1 already applied.');
+  process.exit(0);
+}
+
 function replaceOnce(search, replacement, label) {
   if (source.includes(replacement)) return;
   if (!source.includes(search)) throw new Error(`customer service execution patch missing: ${label}`);
