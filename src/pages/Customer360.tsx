@@ -80,6 +80,16 @@ function timelineColor(type: string) {
   return 'border-slate-500/50 bg-slate-500/10';
 }
 
+function cleanFollowupNote(value: string | null | undefined, hasFinalResult: boolean) {
+  const lines = String(value || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^متابعة استثنائية$/i.test(line))
+    .filter((line) => !(hasFinalResult && /^النتيجة المبدئية\s*:/i.test(line)));
+  return lines.join('\n').replace(/^السبب\s*:\s*/i, '').trim();
+}
+
 // ─── subcomponents ───────────────────────────────────────────────────────────
 
 function KpiCard({
@@ -863,37 +873,50 @@ export default function Customer360() {
                     لا توجد متابعات
                   </div>
                 )}
-                {allFollowups.map((fu) => (
-                  <div
-                    key={fu.id}
-                    className="rounded-xl border border-purple-500/20 bg-purple-500/8 p-3 space-y-1"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Users size={14} className="text-purple-300" />
-                        <span className="font-bold text-sm text-purple-200">
-                          {fu.status ?? 'متابعة'}
+                {allFollowups.map((fu) => {
+                  const finalResult = String(fu.followup_result || '').trim();
+                  const note = cleanFollowupNote(fu.notes, Boolean(finalResult));
+                  return (
+                    <article
+                      key={fu.id}
+                      className="rounded-2xl border border-purple-500/20 bg-purple-500/8 p-4"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Users size={15} className="text-purple-300" />
+                          <span className="rounded-full border border-teal-400/20 bg-teal-500/10 px-2 py-1 text-xs font-black text-teal-200">
+                            {finalResult || fu.status || 'متابعة مفتوحة'}
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold text-[var(--theme-muted)] num">
+                          {formatDateArabic(fu.completed_at ?? fu.followup_date ?? fu.created_at ?? '')}
                         </span>
                       </div>
-                      <span className="text-xs text-[var(--theme-muted)] num">
-                        {formatDateArabic(fu.followup_date ?? fu.created_at ?? '')}
-                      </span>
-                    </div>
-                    {fu.responsible_name && (
-                      <div className="text-xs text-[var(--theme-muted)]">
-                        مسؤول: {fu.responsible_name}
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-3">
+                          <div className="text-xs font-bold text-[var(--theme-muted)]">المسؤول</div>
+                          <div className="mt-1 text-sm font-black text-[var(--theme-heading)]">
+                            {fu.responsible_name || 'غير محدد'}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-3">
+                          <div className="text-xs font-bold text-[var(--theme-muted)]">الحالة النهائية</div>
+                          <div className="mt-1 text-sm font-black text-teal-300">
+                            {finalResult || 'لم تسجل نتيجة نهائية'}
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    {fu.notes && (
-                      <div className="text-sm text-[var(--theme-heading)]">{fu.notes}</div>
-                    )}
-                    {fu.followup_result && (
-                      <div className="text-xs font-bold text-teal-300">
-                        النتيجة: {fu.followup_result}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      {note && (
+                        <div className="mt-3 rounded-xl border border-amber-400/15 bg-amber-500/5 p-3">
+                          <div className="text-xs font-bold text-amber-200">سبب المتابعة</div>
+                          <div className="mt-1 whitespace-pre-line text-sm font-bold leading-6 text-[var(--theme-heading)]">
+                            {note}
+                          </div>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </div>
