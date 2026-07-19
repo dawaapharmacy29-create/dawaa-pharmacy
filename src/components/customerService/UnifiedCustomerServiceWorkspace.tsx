@@ -407,9 +407,10 @@ export default function UnifiedCustomerServiceWorkspace() {
   const [resultRow, setResultRow] = useState<FollowupRow | null>(null);
   const [detailsRow, setDetailsRow] = useState<FollowupRow | null>(null);
 
-  async function loadWorkspace() {
-    setLoading(true);
-    setLoadError('');
+  async function loadWorkspace(options: { silent?: boolean } = {}) {
+    const silent = Boolean(options.silent && queue.length > 0);
+    if (!silent) setLoading(true);
+    if (!silent) setLoadError('');
     try {
       const [followups, importantResult, atRiskResult, recentResult] = await Promise.all([
         fetchCustomerServiceFollowups({ branch, limit: 1000 }),
@@ -548,10 +549,12 @@ export default function UnifiedCustomerServiceWorkspace() {
       setLastSyncedAt(new Date());
     } catch (error) {
       console.error(error);
-      setLoadError((error as Error).message || 'تعذر تحميل البيانات');
-      toast.error('تعذر تحميل قائمة خدمة العملاء اليومية');
+      if (!silent) {
+        setLoadError((error as Error).message || 'تعذر تحميل البيانات');
+        toast.error('تعذر تحميل قائمة خدمة العملاء اليومية');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -563,7 +566,7 @@ export default function UnifiedCustomerServiceWorkspace() {
     let refreshTimer: number | undefined;
     const scheduleRefresh = () => {
       window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => void loadWorkspace(), 700);
+      refreshTimer = window.setTimeout(() => void loadWorkspace({ silent: true }), 700);
     };
     const onLocalDataChange = (event: Event) => {
       const table = (event as CustomEvent<{ table?: string }>).detail?.table;
@@ -1046,7 +1049,10 @@ export default function UnifiedCustomerServiceWorkspace() {
             <button className="btn-primary" onClick={() => setQuickOpen(true)}>
               إضافة متابعة
             </button>
-            <a className="btn-secondary" href="/customer-data-review">
+            <a
+              className="btn-secondary"
+              href={`/customer-data-review?source=followups&branch=${encodeURIComponent(branch)}`}
+            >
               مراجعة البيانات {dataReviewCount ? `(${dataReviewCount})` : ''}
             </a>
             <button className="btn-secondary flex items-center gap-2" onClick={exportCurrentQueue}>
