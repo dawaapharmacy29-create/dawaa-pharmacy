@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  Archive,
   BarChart3,
+  Ban,
+  CalendarClock,
   CheckCircle2,
   ClipboardList,
   Clock3,
@@ -54,6 +57,7 @@ import {
 import { buildFollowupScript, followupPriorityScore } from '@/lib/customerServiceScriptEngine';
 import { createStaffNotification } from '@/lib/staffNotificationService';
 import { supabase } from '@/lib/supabase';
+import FollowupExcelImportModal from '@/components/customerService/FollowupExcelImportModal';
 
 type QueueSource = 'doctor_request' | 'yesterday' | 'at_risk' | 'important';
 type WorkspaceTab =
@@ -210,7 +214,12 @@ function isCompleted(row?: FollowupRow | null) {
 
 function sourceFromRow(row: FollowupRow): QueueSource {
   const text = `${row.request_type || ''} ${row.notes || ''} ${row.followup_reason || ''} ${rowValue(row, 'source')}`;
-  if (/doctor_requested_followup|طلب دكتور|سريع\/طلب دكتور/i.test(text)) return 'doctor_request';
+  if (
+    /doctor_requested_followup|excel_followup_command|طلب دكتور|سريع\/طلب دكتور|استثنائي|أمر متابعة/i.test(
+      text
+    )
+  )
+    return 'doctor_request';
   if (/أمس|yesterday/i.test(text)) return 'yesterday';
   if (/مهدد|قلل|استرجاع|متوقف/i.test(text)) return 'at_risk';
   return 'important';
@@ -344,7 +353,7 @@ function customerToItem(customer: CustomerMetric, source: QueueSource, reason: s
 }
 
 function sourceLabel(source: QueueSource) {
-  if (source === 'doctor_request') return 'طلب دكتور';
+  if (source === 'doctor_request') return 'طلب أو متابعة استثنائية';
   if (source === 'yesterday') return 'اشترى أمس';
   if (source === 'at_risk') return 'مهدد بالتوقف';
   return 'عميل مهم';
@@ -404,6 +413,7 @@ export default function UnifiedCustomerServiceWorkspace() {
   const [historyResult, setHistoryResult] = useState('all');
   const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('cycle');
   const [quickOpen, setQuickOpen] = useState(false);
+  const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [resultRow, setResultRow] = useState<FollowupRow | null>(null);
   const [detailsRow, setDetailsRow] = useState<FollowupRow | null>(null);
 
@@ -733,6 +743,71 @@ export default function UnifiedCustomerServiceWorkspace() {
     }),
     [historyRows]
   );
+  const doctorPerformance = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        name: string;
+        total: number;
+        completed: number;
+        exceptional: number;
+        evaluated: number;
+        qualityTotal: number;
+        sales: number;
+      }
+    >();
+    for (const row of allFollowups) {
+      const name = row.responsible_name || row.assigned_doctor || row.created_by_name || 'غير مسند';
+      const current = map.get(name) || {
+        name,
+        total: 0,
+        completed: 0,
+        exceptional: 0,
+        evaluated: 0,
+        qualityTotal: 0,
+        sales: 0,
+      };
+      current.total += 1;
+      if (isCompleted(row)) current.completed += 1;
+      if (sourceFromRow(row) === 'doctor_request') current.exceptional += 1;
+      const fullyEvaluated = Boolean(
+        row.quality_rating &&
+        row.internal_rating &&
+        row.customer_satisfaction &&
+        row.customer_satisfaction !== 'غير واضح' &&
+        row.need_understood !== null &&
+        row.need_understood !== undefined &&
+        (row.followup_summary || row.followup_notes)
+      );
+      if (fullyEvaluated) {
+        current.evaluated += 1;
+        current.qualityTotal += Number(row.quality_rating || 0);
+      }
+      current.sales += rowNumber(row, 'purchase_amount');
+      map.set(name, current);
+    }
+    return [...map.values()]
+      .map((row) => {
+        const completionRate = row.total ? Math.round((row.completed / row.total) * 100) : 0;
+        const evaluationRate = row.completed
+          ? Math.round((row.evaluated / row.completed) * 100)
+          : 0;
+        const avgQuality = row.evaluated ? row.qualityTotal / row.evaluated : 0;
+        const score = Math.round(completionRate * 0.45 + evaluationRate * 0.35 + avgQuality * 4);
+        return {
+          ...row,
+          completionRate,
+          evaluationRate,
+          avgQuality,
+          score,
+          incentiveStatus:
+            row.completed >= 5 && evaluationRate >= 90 && avgQuality >= 4
+              ? 'مؤهل للمراجعة'
+              : 'غير مكتمل الشروط',
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+  }, [allFollowups]);
 
   async function ensureFollowup(item: QueueItem) {
     if (item.row) return item.row;
@@ -895,6 +970,107 @@ export default function UnifiedCustomerServiceWorkspace() {
     await loadWorkspace();
   }
 
+  async function postponeFollowup(item: QueueItem) {
+    const date = window.prompt('اكتب موعد المتابعة القادمة بصيغة YYYY-MM-DD:');
+    if (!date) return;
+    const parsed = new Date(`${date}T10:00:00`);
+    if (Number.isNaN(parsed.getTime()) || date < todayIso()) {
+      toast.error('موعد التأجيل غير صحيح أو في الماضي');
+      return;
+    }
+    try {
+      const followup = await ensureFollowup(item);
+      await updateFollowupResult(followup.id, {
+        postponed_until: parsed.toISOString(),
+        next_followup_date: parsed.toISOString(),
+        needs_next_followup: true,
+        status: 'مؤجل',
+        followup_status: 'مؤجل',
+        updated_by: user?.id || null,
+      } as Parameters<typeof updateFollowupResult>[1]);
+      await updateDailyQueueItem(item.queueItemId || '', {
+        status: 'scheduled',
+        nextFollowupDate: parsed.toISOString(),
+      });
+      await appendFollowupEvent({
+        followupId: followup.id,
+        queueItemId: item.queueItemId,
+        eventType: 'scheduled',
+        status: 'مؤجل',
+        actorStaffId: user?.staffId || user?.id || null,
+        actorName: user?.name || null,
+        notes: `تم التأجيل إلى ${date}`,
+      });
+      toast.success(`تم تأجيل المتابعة إلى ${date}`);
+      await loadWorkspace({ silent: true });
+    } catch (error) {
+      toast.error(`تعذر تأجيل المتابعة: ${(error as Error).message}`);
+    }
+  }
+
+  async function cancelFollowup(item: QueueItem) {
+    const reason = window.prompt('اكتب سبب إلغاء المتابعة:')?.trim();
+    if (!reason) return;
+    if (!window.confirm('سيتم إغلاق المتابعة كملغاة مع الاحتفاظ بها في السجل. متابعة؟')) return;
+    try {
+      const followup = await ensureFollowup(item);
+      const now = new Date().toISOString();
+      await updateFollowupResult(followup.id, {
+        cancelled_at: now,
+        cancelled_by: user?.id || null,
+        completed_at: now,
+        status: 'ملغي',
+        followup_status: 'ملغي',
+        followup_result: 'تم إلغاء المتابعة',
+        followup_notes: reason,
+        updated_by: user?.id || null,
+      } as Parameters<typeof updateFollowupResult>[1]);
+      await updateDailyQueueItem(item.queueItemId || '', { status: 'completed', completed: true });
+      await appendFollowupEvent({
+        followupId: followup.id,
+        queueItemId: item.queueItemId,
+        eventType: 'cancelled',
+        status: 'ملغي',
+        actorStaffId: user?.staffId || user?.id || null,
+        actorName: user?.name || null,
+        notes: reason,
+      });
+      toast.success('تم إلغاء المتابعة والاحتفاظ بها في السجل');
+      await loadWorkspace({ silent: true });
+    } catch (error) {
+      toast.error(`تعذر إلغاء المتابعة: ${(error as Error).message}`);
+    }
+  }
+
+  async function archiveFollowup(item: QueueItem) {
+    const reason = window.prompt('سبب إخفاء المتابعة من القوائم:')?.trim();
+    if (!reason) return;
+    if (!window.confirm('سيتم أرشفة المتابعة وليس حذفها نهائيًا. متابعة؟')) return;
+    try {
+      const followup = await ensureFollowup(item);
+      await updateFollowupResult(followup.id, {
+        is_hidden: true,
+        hidden_at: new Date().toISOString(),
+        hidden_by: user?.id || null,
+        hidden_reason: reason,
+        updated_by: user?.id || null,
+      } as Parameters<typeof updateFollowupResult>[1]);
+      await appendFollowupEvent({
+        followupId: followup.id,
+        queueItemId: item.queueItemId,
+        eventType: 'archived',
+        status: 'مؤرشف',
+        actorStaffId: user?.staffId || user?.id || null,
+        actorName: user?.name || null,
+        notes: reason,
+      });
+      toast.success('تمت أرشفة المتابعة ويمكن استعادتها من سجل الأرشيف');
+      await loadWorkspace({ silent: true });
+    } catch (error) {
+      toast.error(`تعذر أرشفة المتابعة: ${(error as Error).message}`);
+    }
+  }
+
   function copyScript(item: QueueItem) {
     void navigator.clipboard.writeText(scriptFor(item));
     toast.success('تم نسخ السكريبت');
@@ -1049,6 +1225,9 @@ export default function UnifiedCustomerServiceWorkspace() {
             <button className="btn-primary" onClick={() => setQuickOpen(true)}>
               إضافة متابعة
             </button>
+            <button className="btn-secondary" onClick={() => setExcelImportOpen(true)}>
+              أمر متابعة Excel
+            </button>
             <a
               className="btn-secondary"
               href={`/customer-data-review?source=followups&branch=${encodeURIComponent(branch)}`}
@@ -1106,7 +1285,7 @@ export default function UnifiedCustomerServiceWorkspace() {
             setStatusFilter('all');
           }}
         >
-          <Stat icon={UserRoundSearch} label="طلبات دكاترة" value={doctorRequestQueue.length} />
+          <Stat icon={UserRoundSearch} label="طلبات واستثنائية" value={doctorRequestQueue.length} />
         </button>
         <button
           type="button"
@@ -1149,7 +1328,7 @@ export default function UnifiedCustomerServiceWorkspace() {
           onClick={() => setTab('doctor-requests')}
           icon={UserRoundSearch}
         >
-          طلبات الدكاترة
+          طلبات واستثنائية ({doctorRequestQueue.length})
         </Tab>
         <Tab active={tab === 'upcoming'} onClick={() => setTab('upcoming')} icon={Clock3}>
           متابعة قادمة ({upcomingQueue.length})
@@ -1173,7 +1352,7 @@ export default function UnifiedCustomerServiceWorkspace() {
         tab === 'upcoming' ||
         tab === 'manager' ||
         tab === 'care') && (
-        <section className="grid gap-4 xl:grid-cols-[minmax(340px,.8fr)_minmax(0,1.2fr)]">
+        <section className="grid gap-4 xl:grid-cols-[minmax(440px,1fr)_minmax(0,1.25fr)]">
           <div className="stat-card min-h-[620px]">
             <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
               <div className="relative">
@@ -1202,7 +1381,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                   onChange={(event) => setSourceFilter(event.target.value as 'all' | QueueSource)}
                 >
                   <option value="all">كل أنواع المتابعة</option>
-                  <option value="doctor_request">طلبات الدكاترة</option>
+                  <option value="doctor_request">طلبات واستثنائية</option>
                   <option value="yesterday">متابعة بعد الشراء</option>
                   <option value="at_risk">استرجاع عميل</option>
                   <option value="important">عميل مهم</option>
@@ -1314,6 +1493,19 @@ export default function UnifiedCustomerServiceWorkspace() {
                     <div className="mt-1 line-clamp-2 text-xs font-bold text-slate-300">
                       {item.reason}
                     </div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black text-slate-400">
+                      <span>شهري: {moneyOrUnavailable(item.avgMonthly)}</span>
+                      <span>·</span>
+                      <span>إجمالي: {moneyOrUnavailable(item.totalSpent)}</span>
+                      {item.lastPurchase && (
+                        <>
+                          <span>·</span>
+                          <span>
+                            آخر شراء: {new Date(item.lastPurchase).toLocaleDateString('ar-EG')}
+                          </span>
+                        </>
+                      )}
+                    </div>
                     {item.branchNeedsReview && (
                       <div className="mt-2 text-xs font-black text-amber-200">
                         ⚠ فرع العميل يحتاج مراجعة
@@ -1331,6 +1523,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <span className="w-full text-xs font-black text-teal-300">اسم العميل</span>
                       <h2 className="text-2xl font-black text-white">{selected.name}</h2>
                       <Badge>{sourceLabel(selected.source)}</Badge>
                       <Badge>{displayStatus(selected.status)}</Badge>
@@ -1357,6 +1550,10 @@ export default function UnifiedCustomerServiceWorkspace() {
                   </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <Info label="رقم الهاتف" value={selected.phone || 'غير متاح'} />
+                  <Info label="كود العميل" value={selected.code || 'غير متاح'} />
+                  <Info label="فرع العميل" value={selected.branch || 'غير مؤكد'} />
+                  <Info label="المتوسط الشهري" value={moneyOrUnavailable(selected.avgMonthly)} />
                   <Info label="مقدم الطلب" value={selected.requestedBy} />
                   <Info label="حالة الفرع" value={selected.branchEvidence} />
                   <Info label="آخر نتيجة" value={resultOf(selected.row)} />
@@ -1370,6 +1567,26 @@ export default function UnifiedCustomerServiceWorkspace() {
                         : 'غير متاح'
                     }
                   />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <button
+                    className="btn-secondary flex items-center justify-center gap-2"
+                    onClick={() => void postponeFollowup(selected)}
+                  >
+                    <CalendarClock size={16} /> تأجيل
+                  </button>
+                  <button
+                    className="btn-secondary flex items-center justify-center gap-2 text-amber-200"
+                    onClick={() => void cancelFollowup(selected)}
+                  >
+                    <Ban size={16} /> إلغاء مع حفظ السجل
+                  </button>
+                  <button
+                    className="btn-secondary flex items-center justify-center gap-2 text-slate-300"
+                    onClick={() => void archiveFollowup(selected)}
+                  >
+                    <Archive size={16} /> أرشفة
+                  </button>
                 </div>
                 {selectedDataIssues.length > 0 && (
                   <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm font-black text-amber-100">
@@ -1720,13 +1937,76 @@ export default function UnifiedCustomerServiceWorkspace() {
         </section>
       )}
 
-      {tab === 'performance' && <CustomerServiceExecutionDashboard branch={branch} />}
+      {tab === 'performance' && (
+        <div className="space-y-4">
+          <section className="stat-card">
+            <div className="mb-4">
+              <h2 className="text-2xl font-black text-white">أداء وتقييم فريق المتابعات</h2>
+              <p className="mt-1 text-sm font-bold text-slate-400">
+                الاستحقاق المعروض للمراجعة الإدارية وليس صرفًا ماليًا تلقائيًا. يشترط إغلاق 5
+                متابعات، اكتمال تقييم 90%، ومتوسط جودة 4/5.
+              </p>
+            </div>
+            <div className="overflow-x-auto rounded-2xl border border-white/10">
+              <table className="min-w-[980px] w-full text-sm">
+                <thead className="bg-[#173252] text-slate-300">
+                  <tr>
+                    {[
+                      'المسؤول',
+                      'الإجمالي',
+                      'مكتمل',
+                      'استثنائية',
+                      'اكتمال التقييم',
+                      'متوسط الجودة',
+                      'مبيعات المتابعة',
+                      'نقاط الأداء',
+                      'الحافز',
+                    ].map((label) => (
+                      <th key={label} className="p-3 text-right">
+                        {label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {doctorPerformance.map((row) => (
+                    <tr key={row.name} className="border-t border-white/5 text-slate-200">
+                      <td className="p-3 font-black text-white">{row.name}</td>
+                      <td className="p-3">{row.total}</td>
+                      <td className="p-3">
+                        {row.completed} ({row.completionRate}%)
+                      </td>
+                      <td className="p-3">{row.exceptional}</td>
+                      <td className="p-3">{row.evaluationRate}%</td>
+                      <td className="p-3">{row.avgQuality.toFixed(1)} / 5</td>
+                      <td className="p-3">{formatCurrency(row.sales)}</td>
+                      <td className="p-3 font-black text-teal-200">{row.score}</td>
+                      <td className="p-3">
+                        <Badge>{row.incentiveStatus}</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!doctorPerformance.length && <Empty text="لا توجد متابعات لحساب الأداء." />}
+            </div>
+          </section>
+          <CustomerServiceExecutionDashboard branch={branch} />
+        </div>
+      )}
 
       <QuickFollowupModal
         open={quickOpen}
         onClose={() => setQuickOpen(false)}
         onCreated={() => void loadWorkspace()}
         defaultBranch={branch}
+      />
+      <FollowupExcelImportModal
+        open={excelImportOpen}
+        onClose={() => setExcelImportOpen(false)}
+        onImported={() => void loadWorkspace({ silent: true })}
+        defaultBranch={branch}
+        allowAllBranches={managerView}
       />
       {resultRow && (
         <FollowupResultModal
