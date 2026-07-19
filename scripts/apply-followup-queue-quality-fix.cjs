@@ -1,8 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-// GitHub quality gates must be read-only. The legacy repair remains available
-// for the current local/Vercel build flow, but must never mutate an Actions checkout.
 if (process.env.GITHUB_ACTIONS === 'true') {
   console.log('✓ تخطي إصلاح قائمة المتابعات الكتابي داخل GitHub Actions');
   process.exit(0);
@@ -26,6 +24,33 @@ function replaceOnce(search, replacement, label) {
   source = source.replace(search, replacement);
   console.log(`✓ ${label}`);
 }
+
+replaceOnce(
+  `function normalizeKey(...values: Array<string | null | undefined>) {
+  return (
+    values
+      .map((value) =>
+        String(value || '')
+          .trim()
+          .toLowerCase()
+          .replace(/\\s+/g, '')
+      )
+      .find(Boolean) || crypto.randomUUID()
+  );
+}`,
+  `function normalizeKey(...values: Array<string | null | undefined>) {
+  const [customerId, customerCode, phone, customerName] = values;
+  const id = String(customerId || '').trim();
+  if (id) return \`id:\${id}\`;
+  const code = String(customerCode || '').trim();
+  if (code) return \`code:\${code}\`;
+  const normalizedPhone = normalizePhone(phone || '');
+  if (/^(010|011|012|015)\\d{8}$/.test(normalizedPhone)) return \`phone:\${normalizedPhone}\`;
+  const name = cleanCustomerName(customerName).toLowerCase().replace(/\\s+/g, ' ').trim();
+  return name ? \`name:\${name}\` : \`unknown:\${crypto.randomUUID()}\`;
+}`,
+  'تثبيت هوية العميل بمفاتيح مسبوقة ومنع تصادم الكود والهاتف'
+);
 
 replaceOnce(
   "  const [statusFilter, setStatusFilter] = useState('all');",
@@ -68,6 +93,21 @@ replaceOnce(
 );
 
 replaceOnce(
+  `    requestedBy: row.created_by_name || row.assigned_doctor || 'غير محدد',`,
+  `    requestedBy:
+      row.created_by_name ||
+      rowValue(row, 'requested_by_name') ||
+      row.assigned_doctor ||
+      row.responsible_name ||
+      (() => {
+        const source = \`\${row.followup_reason || ''} \${row.request_details || ''} \${row.notes || ''}\`;
+        return source.match(/(?:طلب\\s*من\\s*:|طلب\\s*د\\/?|requested\\s*by\\s*:?)\\s*([^|\\n]+)/i)?.[1]?.trim();
+      })() ||
+      'غير محدد',`,
+  'استكمال مقدم الطلب من الحقول والنصوص الداخلية'
+);
+
+replaceOnce(
   `      const finalQueue = snapshot.items.filter(
         (saved) =>
           saved.status === 'completed' ||
@@ -77,12 +117,14 @@ replaceOnce(
       ).map((saved) => {`,
   `      const finalQueue = snapshot.items.filter(
         (saved) =>
-          saved.status !== 'completed' &&
+          !['completed', 'cancelled', 'archived', 'closed', 'merged_duplicate'].includes(
+            String(saved.status || '').toLowerCase()
+          ) &&
           (saved.source !== 'at_risk' ||
             (!staleCodes.has(String(saved.code || '').trim()) &&
               !stalePhones.has(normalizePhone(saved.phone))))
       ).map((saved) => {`,
-  'إزالة المتابعات المكتملة من المطلوب الآن مع بقائها في السجل'
+  'إزالة المكتمل والملغي والمؤرشف والمكرر من المطلوب الآن'
 );
 
 replaceOnce(
@@ -143,15 +185,18 @@ replaceOnce(
       'عدد الطلبات المفتوحة المرتبطة',
     ];
     const rows = visibleQueue.map((item) => {
+      const normalizedPhone = normalizePhone(item.phone);
       const issues = [
         !item.code ? 'كود العميل غير موجود' : '',
         !item.phone ? 'رقم الهاتف غير موجود' : '',
-        item.phone && normalizePhone(item.phone).length < 10 ? 'رقم الهاتف غير صالح' : '',
+        item.phone && !/^(010|011|012|015)\\d{8}$/.test(normalizedPhone)
+          ? 'رقم الهاتف غير صالح'
+          : '',
         !item.branch ? 'الفرع غير محدد' : '',
         item.branchNeedsReview ? 'بيانات الفرع تحتاج مراجعة' : '',
         !item.reason || item.reason === '0' ? 'سبب المتابعة غير واضح' : '',
         !item.requestedBy || item.requestedBy === 'غير محدد' ? 'مقدم الطلب غير محدد' : '',
-        !item.completed && OPEN_RESULTS.has(resultOf(item.row)) && !item.row?.next_followup_date
+        !item.completed && !item.row?.next_followup_date && resultOf(item.row) !== 'الرقم غير صحيح'
           ? 'الحالة مفتوحة بدون موعد قادم'
           : '',
       ].filter(Boolean);
@@ -162,7 +207,7 @@ replaceOnce(
         customerId,
         item.name,
         item.code,
-        item.phone,
+        normalizedPhone,
         item.branch,
         item.branchEvidence,
         queueLabel(item),
