@@ -12,6 +12,7 @@ import {
   History,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   ShoppingBag,
   Sparkles,
   UserRoundSearch,
@@ -167,6 +168,38 @@ function resultOf(row?: FollowupRow | null) {
   );
 }
 
+function displayStatus(value?: string | null) {
+  const status = String(value || '').trim();
+  const labels: Record<string, string> = {
+    not_started: 'لم تبدأ',
+    in_progress: 'جارٍ التواصل',
+    attempted: 'تمت محاولة',
+    scheduled: 'موعد قادم',
+    needs_manager: 'تحتاج مديرًا',
+    completed: 'مكتملة',
+  };
+  return labels[status] || status || 'غير محددة';
+}
+
+function cleanCustomerName(value?: string | null) {
+  return String(value || 'عميل غير مسجل')
+    .replace(/\++/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanReason(value?: string | null) {
+  return String(value || 'متابعة العميل')
+    .replace(/\[بدون رقم صحيح\]|المصدر\s*:[^\n|]+/gi, '')
+    .replace(/[|]+/g, ' · ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function moneyOrUnavailable(value: number) {
+  return value > 0 ? formatCurrency(value) : 'لا توجد بيانات';
+}
+
 function isCompleted(row?: FollowupRow | null) {
   const result = resultOf(row);
   if (OPEN_RESULTS.has(result)) return false;
@@ -216,14 +249,14 @@ function followupToItem(row: FollowupRow, source = sourceFromRow(row)): QueueIte
     source,
     row,
     customer: metric,
-    name: row.customer_name || row.name || metric?.customer_name || 'عميل غير مسجل',
+    name: cleanCustomerName(row.customer_name || row.name || metric?.customer_name),
     code: row.customer_code || metric?.customer_code || '',
     phone: row.customer_phone || row.phone || metric?.customer_phone || metric?.phone || '',
     branch,
     segment: row.segment || row.classification || metric?.segment || 'غير مصنف',
-    status: row.customer_status || metric?.customer_status || 'غير محدد',
+    status: displayStatus(row.customer_status || row.status || metric?.customer_status),
     priority: row.priority || 'مهم',
-    reason: row.request_details || row.followup_reason || row.request_type || 'متابعة العميل',
+    reason: cleanReason(row.request_details || row.followup_reason || row.request_type),
     avgMonthly: Number(metric?.avg_monthly || 0),
     totalSpent: Number(row.total_spent || metric?.total_spent || 0),
     avgInvoice: Number(metric?.avg_invoice || 0),
@@ -265,12 +298,12 @@ function customerToItem(customer: CustomerMetric, source: QueueSource, reason: s
     source,
     row: null,
     customer,
-    name: customer.customer_name || customer.name || 'عميل غير مسجل',
+    name: cleanCustomerName(customer.customer_name || customer.name),
     code: customer.customer_code || '',
     phone: customer.customer_phone || customer.phone || '',
     branch: normalizeBranchName(customer.branch || ''),
     segment: customer.segment || customer.type || 'غير مصنف',
-    status: customer.customer_status || customer.status || 'غير محدد',
+    status: displayStatus(customer.customer_status || customer.status),
     priority: source === 'at_risk' ? 'مهم' : 'عادي',
     reason,
     avgMonthly: Number(customer.avg_monthly || 0),
@@ -339,6 +372,7 @@ export default function UnifiedCustomerServiceWorkspace() {
   const [requesterFilter, setRequesterFilter] = useState('all');
   const [dataFilter, setDataFilter] = useState('all');
   const [slaFilter, setSlaFilter] = useState('all');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
   const [historyResult, setHistoryResult] = useState('all');
   const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('cycle');
@@ -1110,7 +1144,7 @@ export default function UnifiedCustomerServiceWorkspace() {
         tab === 'care') && (
         <section className="grid gap-4 xl:grid-cols-[minmax(340px,.8fr)_minmax(0,1.2fr)]">
           <div className="stat-card min-h-[620px]">
-            <div className="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
               <div className="relative">
                 <Search className="absolute right-3 top-3 text-slate-500" size={17} />
                 <input
@@ -1120,66 +1154,78 @@ export default function UnifiedCustomerServiceWorkspace() {
                   onChange={(event) => setSearch(event.target.value)}
                 />
               </div>
-              <select
-                className="input-dark"
-                value={sourceFilter}
-                onChange={(event) => setSourceFilter(event.target.value as 'all' | QueueSource)}
+              <button
+                type="button"
+                className={`btn-secondary flex items-center justify-center gap-2 ${filtersOpen ? 'border-teal-400/40 bg-teal-500/10 text-teal-100' : ''}`}
+                onClick={() => setFiltersOpen((current) => !current)}
               >
-                <option value="all">كل أنواع المتابعة</option>
-                <option value="doctor_request">طلبات الدكاترة</option>
-                <option value="yesterday">متابعة بعد الشراء</option>
-                <option value="at_risk">استرجاع عميل</option>
-                <option value="important">عميل مهم</option>
-              </select>
-              <select
-                className="input-dark"
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-              >
-                <option value="all">كل الحالات</option>
-                <option value="open">مفتوح الآن</option>
-                <option value="completed">تم الانتهاء</option>
-              </select>
-              <select
-                className="input-dark"
-                value={priorityFilter}
-                onChange={(event) => setPriorityFilter(event.target.value)}
-              >
-                <option value="all">كل الأولويات</option>
-                <option value="عاجل">عاجل</option>
-                <option value="مهم">مهم</option>
-                <option value="عادي">عادي</option>
-              </select>
-              <select
-                className="input-dark"
-                value={requesterFilter}
-                onChange={(event) => setRequesterFilter(event.target.value)}
-              >
-                <option value="all">كل مقدمي الطلب</option>
-                {requesterOptions.map((name) => (
-                  <option key={name}>{name}</option>
-                ))}
-              </select>
-              <select
-                className="input-dark"
-                value={dataFilter}
-                onChange={(event) => setDataFilter(event.target.value)}
-              >
-                <option value="all">كل حالات البيانات</option>
-                <option value="complete">بيانات مكتملة</option>
-                <option value="issues">تحتاج مراجعة</option>
-              </select>
-              <select
-                className="input-dark"
-                value={slaFilter}
-                onChange={(event) => setSlaFilter(event.target.value)}
-              >
-                <option value="all">كل أوقات التنفيذ</option>
-                <option value="overdue">متأخرة</option>
-                <option value="warning">اقترب الموعد</option>
-                <option value="active">داخل الوقت</option>
-              </select>
+                <SlidersHorizontal size={17} />
+                {filtersOpen ? 'إخفاء الفلاتر' : 'فلاتر متقدمة'}
+              </button>
             </div>
+            {filtersOpen && (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
+                <select
+                  className="input-dark"
+                  value={sourceFilter}
+                  onChange={(event) => setSourceFilter(event.target.value as 'all' | QueueSource)}
+                >
+                  <option value="all">كل أنواع المتابعة</option>
+                  <option value="doctor_request">طلبات الدكاترة</option>
+                  <option value="yesterday">متابعة بعد الشراء</option>
+                  <option value="at_risk">استرجاع عميل</option>
+                  <option value="important">عميل مهم</option>
+                </select>
+                <select
+                  className="input-dark"
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                >
+                  <option value="all">كل الحالات</option>
+                  <option value="open">مفتوح الآن</option>
+                  <option value="completed">تم الانتهاء</option>
+                </select>
+                <select
+                  className="input-dark"
+                  value={priorityFilter}
+                  onChange={(event) => setPriorityFilter(event.target.value)}
+                >
+                  <option value="all">كل الأولويات</option>
+                  <option value="عاجل">عاجل</option>
+                  <option value="مهم">مهم</option>
+                  <option value="عادي">عادي</option>
+                </select>
+                <select
+                  className="input-dark"
+                  value={requesterFilter}
+                  onChange={(event) => setRequesterFilter(event.target.value)}
+                >
+                  <option value="all">كل مقدمي الطلب</option>
+                  {requesterOptions.map((name) => (
+                    <option key={name}>{name}</option>
+                  ))}
+                </select>
+                <select
+                  className="input-dark"
+                  value={dataFilter}
+                  onChange={(event) => setDataFilter(event.target.value)}
+                >
+                  <option value="all">كل حالات البيانات</option>
+                  <option value="complete">بيانات مكتملة</option>
+                  <option value="issues">تحتاج مراجعة</option>
+                </select>
+                <select
+                  className="input-dark"
+                  value={slaFilter}
+                  onChange={(event) => setSlaFilter(event.target.value)}
+                >
+                  <option value="all">كل أوقات التنفيذ</option>
+                  <option value="overdue">متأخرة</option>
+                  <option value="warning">اقترب الموعد</option>
+                  <option value="active">داخل الوقت</option>
+                </select>
+              </div>
+            )}
             <div className="mt-3 flex items-center justify-between text-xs font-bold text-slate-400">
               <span>{visibleQueue.length} متابعة في النطاق الحالي</span>
               <button
@@ -1251,7 +1297,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-2xl font-black text-white">{selected.name}</h2>
                       <Badge>{sourceLabel(selected.source)}</Badge>
-                      <Badge>{selected.status}</Badge>
+                      <Badge>{displayStatus(selected.status)}</Badge>
                       <Badge>{selected.segment}</Badge>
                     </div>
                     <p className="mt-2 text-sm font-bold text-slate-400">
@@ -1278,8 +1324,8 @@ export default function UnifiedCustomerServiceWorkspace() {
                   <Info label="مقدم الطلب" value={selected.requestedBy} />
                   <Info label="حالة الفرع" value={selected.branchEvidence} />
                   <Info label="آخر نتيجة" value={resultOf(selected.row)} />
-                  <Info label="إجمالي المشتريات" value={formatCurrency(selected.totalSpent)} />
-                  <Info label="متوسط الفاتورة" value={formatCurrency(selected.avgInvoice)} />
+                  <Info label="إجمالي المشتريات" value={moneyOrUnavailable(selected.totalSpent)} />
+                  <Info label="متوسط الفاتورة" value={moneyOrUnavailable(selected.avgInvoice)} />
                   <Info
                     label="آخر شراء"
                     value={
@@ -1314,6 +1360,10 @@ export default function UnifiedCustomerServiceWorkspace() {
                       <div className="text-xs font-black text-teal-200">
                         {scriptPackFor(selected).title}
                       </div>
+                      <div className="mt-2 rounded-xl border border-teal-300/15 bg-black/10 p-3 text-sm font-bold text-teal-50">
+                        <span className="text-teal-200">هدف المكالمة: </span>
+                        {scriptPackFor(selected).objective}
+                      </div>
                       <p className="mt-2 text-sm font-bold leading-7 text-teal-50">
                         {scriptPackFor(selected).opening}
                       </p>
@@ -1325,9 +1375,25 @@ export default function UnifiedCustomerServiceWorkspace() {
                           ))}
                         </ul>
                       </div>
+                      <div className="mt-3 rounded-xl bg-black/10 p-3">
+                        <div className="text-xs font-black text-teal-200">لو العميل اعترض</div>
+                        <div className="mt-2 space-y-2">
+                          {scriptPackFor(selected).objections.map((item) => (
+                            <div key={item.objection} className="text-sm font-bold text-teal-50">
+                              <span className="text-amber-200">«{item.objection}»</span>
+                              <span className="text-slate-400"> — </span>
+                              {item.response}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                       <p className="mt-3 text-sm font-bold leading-7 text-teal-50">
                         <span className="text-teal-200">إنهاء مناسب:</span>{' '}
                         {scriptPackFor(selected).closing}
+                      </p>
+                      <p className="mt-3 rounded-xl border border-cyan-400/15 bg-cyan-500/10 p-3 text-sm font-bold text-cyan-50">
+                        <span className="text-cyan-200">الخطوة التالية: </span>
+                        {scriptPackFor(selected).nextStep}
                       </p>
                     </div>
                     <button
