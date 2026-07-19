@@ -2,16 +2,19 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { createDoctorRequestedFollowup } from '@/lib/api/doctorRequestedFollowups';
+import { searchCustomerMetrics } from '@/lib/api/customerServiceCommandCenter';
 import { isValidEgyptPhone } from '@/lib/customerAnalyticsService';
 import { BRANCHES, CUSTOMER_SERVICE_DOCTORS } from '@/lib/constants';
 import { normalizeBranchName } from '@/lib/branch';
 import { X } from 'lucide-react';
+import { canViewAllBranches } from '@/lib/security/userDataScope';
 
 type CustomerSearchResult = {
   id: string;
   name: string | null;
   phone: string | null;
   customer_code: string | null;
+  branch: string | null;
 };
 
 function notify(type: 'success' | 'error', message: string) {
@@ -34,6 +37,7 @@ export default function QuickFollowupModal({
   defaultBranch?: string;
 }) {
   const { user } = useAuth();
+  const managerView = canViewAllBranches(user);
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<CustomerSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -47,6 +51,7 @@ export default function QuickFollowupModal({
   const [reason, setReason] = useState('طلب متابعة');
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedCustomerBranch, setSelectedCustomerBranch] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -79,25 +84,30 @@ export default function QuickFollowupModal({
     const timer = window.setTimeout(async () => {
       setSearching(true);
       const term = search.trim().replace(/[,%_()]/g, ' ');
-      const { data, error } = await supabase
-        .from('customers')
-        .select('id,name,phone,customer_code')
-        .or(`name.ilike.%${term}%,phone.ilike.%${term}%,customer_code.ilike.%${term}%`)
-        .limit(8);
-      if (cancelled) return;
-      setSearching(false);
-      if (error) {
-        console.error('Failed to search customers:', error);
+      const selectedBranch = normalizeBranchName(branch || defaultBranch || user?.branch || '');
+      if (!selectedBranch) {
+        setSearching(false);
         setResults([]);
         return;
       }
-      setResults((data || []) as CustomerSearchResult[]);
+      const data = await searchCustomerMetrics(term, selectedBranch);
+      if (cancelled) return;
+      setSearching(false);
+      setResults(
+        data.slice(0, 8).map((customer) => ({
+          id: customer.customer_id || customer.id,
+          name: customer.customer_name || customer.name,
+          phone: customer.displayPhone || customer.customer_phone || customer.phone,
+          customer_code: customer.customer_code,
+          branch: normalizeBranchName(customer.branch || selectedBranch),
+        }))
+      );
     }, 300);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, search]);
+  }, [branch, defaultBranch, open, search, user?.branch]);
 
   if (!open) return null;
 
@@ -105,6 +115,7 @@ export default function QuickFollowupModal({
     setName(customer.name || '');
     setPhone(customer.phone || '');
     setCode(customer.customer_code || '');
+    setSelectedCustomerBranch(normalizeBranchName(customer.branch || ''));
     setSearch('');
     setResults([]);
   };
@@ -123,14 +134,24 @@ export default function QuickFollowupModal({
     );
     setReason('طلب متابعة');
     setNote('');
+    setSelectedCustomerBranch('');
   };
 
   const submit = async () => {
     const cleanName = name.trim();
     const cleanPhone = normalizePhoneInput(phone);
     const cleanNote = note.trim();
+    const targetBranch = normalizeBranchName(branch || defaultBranch || user?.branch || '');
     if ((!cleanName && !cleanPhone) || !cleanNote) {
       notify('error', 'أدخل اسم العميل أو رقم الهاتف، وملاحظة المتابعة');
+      return;
+    }
+    if (!targetBranch) {
+      notify('error', 'اختر الفرع قبل إنشاء المتابعة');
+      return;
+    }
+    if (selectedCustomerBranch && selectedCustomerBranch !== targetBranch) {
+      notify('error', `العميل تابع ${selectedCustomerBranch} ولا يمكن تسجيله على ${targetBranch}`);
       return;
     }
     const validPhone = cleanPhone && isValidEgyptPhone(cleanPhone, code || undefined);
@@ -141,7 +162,7 @@ export default function QuickFollowupModal({
         .from('daily_followups')
         .select('id,customer_name,status,followup_status,completed_at,created_at')
         .eq('is_hidden', false)
-        .eq('branch', normalizeBranchName(branch || defaultBranch || user?.branch || ''))
+        .eq('branch', targetBranch)
         .order('created_at', { ascending: false })
         .limit(10);
       const cleanCode = code.trim();
@@ -174,7 +195,7 @@ export default function QuickFollowupModal({
       await createDoctorRequestedFollowup({
         customerName: cleanName || 'عميل بدون اسم',
         customerPhone: cleanPhone || null,
-        branch: branch || defaultBranch || user?.branch || null,
+        branch: targetBranch,
         priority,
         requestType: 'doctor_requested_followup',
         followupReason: reason || cleanNote,
@@ -244,7 +265,9 @@ export default function QuickFollowupModal({
                 >
                   <span className="block font-semibold">{customer.name || 'بدون اسم'}</span>
                   <span className="text-xs text-slate-400">
-                    {[customer.phone, customer.customer_code].filter(Boolean).join(' — ')}
+                    {[customer.phone, customer.customer_code, customer.branch]
+                      .filter(Boolean)
+                      .join(' — ')}
                   </span>
                 </button>
               ))}
@@ -257,24 +280,34 @@ export default function QuickFollowupModal({
             className="input-dark"
             placeholder="اسم العميل"
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => {
+              setName(event.target.value);
+              setSelectedCustomerBranch('');
+            }}
           />
           <input
             className="input-dark"
             placeholder="رقم الهاتف"
             value={phone}
-            onChange={(event) => setPhone(event.target.value)}
+            onChange={(event) => {
+              setPhone(event.target.value);
+              setSelectedCustomerBranch('');
+            }}
           />
           <input
             className="input-dark"
             placeholder="كود العميل (اختياري)"
             value={code}
-            onChange={(event) => setCode(event.target.value)}
+            onChange={(event) => {
+              setCode(event.target.value);
+              setSelectedCustomerBranch('');
+            }}
           />
           <select
             className="input-dark"
             value={branch}
             onChange={(event) => setBranch(event.target.value)}
+            disabled={!managerView}
           >
             <option value="">اختر الفرع</option>
             {BRANCHES.map((item) => (
