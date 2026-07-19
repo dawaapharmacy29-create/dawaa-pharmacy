@@ -2349,7 +2349,7 @@ const addFollowup = async () => {
         selectedCustomer: null,
       });
       toast.success('تمت إضافة المتابعة الاستثنائية');
-      setActiveTab('today');
+      setActiveTab('requests');
     } catch (saveError) {
       toast.error(saveError instanceof Error ? saveError.message : 'تعذر إضافة المتابعة الاستثنائية');
     }
