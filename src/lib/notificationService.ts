@@ -137,22 +137,22 @@ export function normalizeNotification(row: Record<string, unknown>): AppNotifica
       ? (row.metadata as Record<string, unknown>)
       : details;
   const message = String(row.message || row.body || row.description || '');
-  const route = String(row.target_route || row.route || metadata?.route || '');
+  const route = String(row.action_url || row.target_route || row.route || metadata?.route || '');
   const read = Boolean(row.is_read ?? row.read ?? row.status === 'read');
   return {
     id: String(row.id || ''),
     title: String(row.title || row.type || 'إشعار'),
     message,
     body: message,
-    type: String(row.type || 'system'),
+    type: String(row.notification_type || row.type || 'system'),
     priority: String(row.priority || metadata?.priority || 'normal'),
     recipient_staff_id: row.recipient_staff_id as string | null | undefined,
     recipient_user_id: (row.recipient_user_id || row.user_id) as string | null | undefined,
     recipient_role: row.recipient_role as string | null | undefined,
     user_id: (row.user_id || row.recipient_user_id) as string | null | undefined,
     branch: row.branch as string | null | undefined,
-    target_type: row.target_type as string | null | undefined,
-    target_id: row.target_id as string | null | undefined,
+    target_type: (row.entity_type || row.target_type) as string | null | undefined,
+    target_id: (row.entity_id || row.target_id) as string | null | undefined,
     target_route: route || null,
     route: route || null,
     status: (row.status as string | null | undefined) || (read ? 'read' : 'new'),
