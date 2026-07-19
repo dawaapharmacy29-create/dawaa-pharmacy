@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ShieldCheck, RefreshCw, UserRound, Save, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
+import { ShieldCheck, RefreshCw, UserRound, Save, ChevronDown, ChevronUp, ShieldAlert, Download, History, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
@@ -40,6 +40,8 @@ export default function RolesPermissions() {
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [previewRole, setPreviewRole] = useState<RoleKey | null>(null);
   const [showComparison, setShowComparison] = useState(false);
+  const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const canEdit = checkPermission('manage_permissions') || checkPermission('manage_roles');
   const canView =
@@ -52,6 +54,22 @@ export default function RolesPermissions() {
     staleTime: 60_000,
   });
   const refetchAccounts = () => queryClient.invalidateQueries({ queryKey: ['staff-accounts-safe'] });
+
+  const { data: permissionHistory = [], isFetching: historyLoading } = useQuery<Array<Record<string, unknown>>, Error>({
+    queryKey: ['permission-history'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from(TABLES.activityLog)
+        .select('id,action,user_name,details,target_id,old_value,new_value,created_at')
+        .eq('module', 'الصلاحيات')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return (data || []) as Array<Record<string, unknown>>;
+    },
+    enabled: canView,
+    staleTime: 30_000,
+  });
 
   const { data: staffList } = useSupabaseQuery<StaffMember>({
     table: TABLES.staff,
@@ -153,6 +171,64 @@ export default function RolesPermissions() {
     toast.info(`تم تطبيق القالب المقترح لدور: ${getRoleLabel(selectedAccount.role)}`);
   }
 
+  function toggleBulkAccount(accountId: string) {
+    if (!canEdit) return;
+    setSelectedForBulk((current) => {
+      const next = new Set(current);
+      if (next.has(accountId)) next.delete(accountId); else next.add(accountId);
+      return next;
+    });
+  }
+
+  async function applyRoleTemplatesToSelected() {
+    if (!canEdit || selectedForBulk.size === 0) return;
+    const targets = staffAccounts.filter((account) => selectedForBulk.has(account.id));
+    if (!window.confirm(`سيتم استبدال الصلاحيات المخصصة بقالب وظيفة كل حساب لعدد ${targets.length} حساب. هل تريد المتابعة؟`)) return;
+    setBulkSaving(true);
+    let saved = 0;
+    const failed: string[] = [];
+    try {
+      for (const account of targets) {
+        const permissions = getDefaultPermissionsForRole(account.role);
+        const { error } = await supabase.from(TABLES.staffAccounts).update({ permissions }).eq('id', account.id);
+        if (error) {
+          failed.push(account.name || account.username || account.id);
+          continue;
+        }
+        saved += 1;
+        await logActivity({
+          action: 'تطبيق قالب صلاحيات الوظيفة', module: 'الصلاحيات', target_type: 'staff_account', target_id: account.id,
+          user_id: currentUser?.id || null, user_name: currentUser?.name || 'النظام', user_role: currentUser?.role || null,
+          branch_name: currentUser?.branch || null,
+          details: { summary: `تطبيق قالب ${getRoleLabel(account.role)} على ${account.name || account.username}`, staff_id: account.staff_id },
+          old_value: { permissions: account.permissions || {} }, new_value: { permissions }, route_path: '/roles-permissions',
+        });
+      }
+      toast.success(`تم تطبيق القالب على ${saved} حساب${failed.length ? `، وتعذر تحديث ${failed.length}` : ''}`);
+      setSelectedForBulk(new Set());
+      await Promise.all([refetchAccounts(), queryClient.invalidateQueries({ queryKey: ['permission-history'] })]);
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  function exportPermissionAudit() {
+    const header = ['اسم الحساب', 'اسم المستخدم', 'الوظيفة', 'الفرع', 'الحالة', 'الملاحظات'];
+    const rows = permissionAudit.issues.map(({ account, issues }) => [
+      account.name || account.staff_name || '', account.username || '', getRoleLabel(account.role), account.branch || '',
+      account.active !== false && account.can_login !== false ? 'نشط' : 'موقوف', issues.join(' | '),
+    ]);
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = `\uFEFF${[header, ...rows].map((row) => row.map(escape).join(',')).join('\n')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `permission-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success('تم تصدير تقرير تدقيق الصلاحيات');
+  }
+
   async function handleSave() {
     if (!selectedAccount || !canEdit) return;
     if (Object.keys(pendingChanges).length === 0) {
@@ -185,12 +261,21 @@ export default function RolesPermissions() {
       await logActivity({
         action: 'تعديل الصلاحيات',
         module: 'الصلاحيات',
-        details: `تعديل صلاحيات ${selectedAccount.name} — ${Object.keys(pendingChanges).length} تغيير`,
+        target_type: 'staff_account',
+        target_id: selectedAccount.id,
+        user_id: currentUser?.id || null,
+        user_name: currentUser?.name || 'النظام',
+        user_role: currentUser?.role || null,
+        branch_name: currentUser?.branch || null,
+        details: { summary: `تعديل صلاحيات ${selectedAccount.name} — ${Object.keys(pendingChanges).length} تغيير`, staff_id: selectedAccount.staff_id },
+        old_value: { permissions: selectedAccount.permissions || {} },
+        new_value: { permissions: merged },
+        route_path: '/roles-permissions',
       });
 
       toast.success('تم حفظ الصلاحيات بنجاح ✓');
       setPendingChanges({});
-      refetchAccounts();
+      await Promise.all([refetchAccounts(), queryClient.invalidateQueries({ queryKey: ['permission-history'] })]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'خطأ غير متوقع';
       toast.error(`فشل الحفظ: ${msg}`);
@@ -262,7 +347,10 @@ export default function RolesPermissions() {
             <h2 className="font-black text-white">تدقيق الحسابات والصلاحيات</h2>
             <p className="text-xs text-slate-400">فحص تلقائي للربط والفرع والوظيفة والتكرار والصلاحيات الحساسة دون حذف أي حساب.</p>
           </div>
-          <button className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-slate-200" onClick={refetchAccounts}>تحديث التدقيق</button>
+          <div className="flex flex-wrap gap-2">
+            <button className="rounded-lg bg-emerald-600/20 px-3 py-2 text-xs font-bold text-emerald-200" onClick={exportPermissionAudit}><Download className="ml-1 inline h-4 w-4" />تصدير CSV</button>
+            <button className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-slate-200" onClick={() => void refetchAccounts()}>تحديث التدقيق</button>
+          </div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
@@ -285,6 +373,15 @@ export default function RolesPermissions() {
         )}
       </div>
 
+      {canEdit && (
+        <div className="rounded-2xl border border-violet-500/25 bg-violet-500/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2"><Users className="h-5 w-5 text-violet-300" /><div><h2 className="font-black text-white">تطبيق جماعي آمن</h2><p className="text-xs text-slate-400">حدد الحسابات من القائمة ثم طبّق قالب الوظيفة المسجلة لكل حساب.</p></div></div>
+            <button onClick={() => void applyRoleTemplatesToSelected()} disabled={!selectedForBulk.size || bulkSaving} className="rounded-lg bg-violet-600 px-4 py-2 text-xs font-black text-white disabled:opacity-40">{bulkSaving ? 'جاري التطبيق...' : `تطبيق على ${selectedForBulk.size} حساب`}</button>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Accounts List */}
         <div className="space-y-2">
@@ -295,20 +392,21 @@ export default function RolesPermissions() {
             </div>
           )}
           {staffAccounts.map((account) => (
-            <button
-              key={account.id}
-              onClick={() => {
-                setSelectedAccountId(account.id);
-                setPendingChanges({});
-                setShowComparison(false);
-              }}
-              className={`w-full rounded-xl border p-3 text-right transition ${
-                selectedAccountId === account.id
-                  ? 'border-violet-500/40 bg-violet-500/10'
-                  : 'border-slate-700/40 bg-slate-900/40 hover:border-slate-600/40'
-              }`}
-            >
-              <div className="flex items-center gap-3">
+            <div key={account.id} className="flex items-stretch gap-2">
+              {canEdit && <input type="checkbox" aria-label={`تحديد ${account.name || account.username}`} checked={selectedForBulk.has(account.id)} onChange={() => toggleBulkAccount(account.id)} className="h-5 w-5 self-center accent-violet-500" />}
+              <button
+                onClick={() => {
+                  setSelectedAccountId(account.id);
+                  setPendingChanges({});
+                  setShowComparison(false);
+                }}
+                className={`min-w-0 flex-1 rounded-xl border p-3 text-right transition ${
+                  selectedAccountId === account.id
+                    ? 'border-violet-500/40 bg-violet-500/10'
+                    : 'border-slate-700/40 bg-slate-900/40 hover:border-slate-600/40'
+                }`}
+              >
+                <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-700">
                   <UserRound className="h-4 w-4 text-slate-300" />
                 </div>
@@ -323,8 +421,9 @@ export default function RolesPermissions() {
                     مدير عام
                   </span>
                 )}
-              </div>
-            </button>
+                </div>
+              </button>
+            </div>
           ))}
         </div>
 
@@ -495,6 +594,22 @@ export default function RolesPermissions() {
               })}
             </>
           )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-700/60 bg-slate-900/60 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2"><History className="h-5 w-5 text-cyan-300" /><div><h2 className="font-black text-white">سجل تغييرات الصلاحيات</h2><p className="text-xs text-slate-400">آخر 100 عملية مع المنفذ والحساب والقيم قبل وبعد التعديل.</p></div></div>
+          <button onClick={() => void queryClient.invalidateQueries({ queryKey: ['permission-history'] })} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-slate-200"><RefreshCw className={`ml-1 inline h-4 w-4 ${historyLoading ? 'animate-spin' : ''}`} />تحديث</button>
+        </div>
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {permissionHistory.length ? permissionHistory.map((entry) => (
+            <div key={String(entry.id)} className="rounded-xl border border-slate-700/50 bg-slate-950/30 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-bold text-white">{String(entry.action || 'تعديل صلاحيات')}</span><span className="text-xs text-slate-400">{entry.created_at ? new Date(String(entry.created_at)).toLocaleString('ar-EG') : ''}</span></div>
+              <div className="mt-1 text-xs text-cyan-100">بواسطة: {String(entry.user_name || 'النظام')}</div>
+              <div className="mt-1 text-xs text-slate-300">{typeof entry.details === 'string' ? entry.details : String((entry.details as Record<string, unknown> | null)?.summary || `الحساب: ${entry.target_id || 'غير محدد'}`)}</div>
+            </div>
+          )) : <div className="rounded-xl border border-slate-700/40 p-6 text-center text-sm text-slate-500">لا توجد تغييرات صلاحيات مسجلة حتى الآن.</div>}
         </div>
       </div>
     </div>
