@@ -2311,7 +2311,9 @@ const addFollowup = async () => {
         notes: [
           'متابعة استثنائية',
           form.reason ? `السبب: ${form.reason}` : '',
-          form.result ? `النتيجة المبدئية: ${form.result}` : '',
+          form.result && form.result !== 'لم يتم التواصل بعد'
+            ? `النتيجة المبدئية: ${form.result}`
+            : '',
         ].filter(Boolean).join('\n'),
         assignedDoctor: userName,
         createdBy: userId,
