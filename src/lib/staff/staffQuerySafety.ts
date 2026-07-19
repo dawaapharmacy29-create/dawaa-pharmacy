@@ -411,9 +411,9 @@ export function getMemoryUsage(): {
   total: number;
   percentage: number;
 } {
-  // @ts-ignore - Node.js specific
+  // @ts-expect-error - Node.js specific
   const used = process.memoryUsage?.()?.heapUsed || 0;
-  // @ts-ignore - Node.js specific
+  // @ts-expect-error - Node.js specific
   const total = process.memoryUsage?.()?.heapTotal || 0;
 
   return {

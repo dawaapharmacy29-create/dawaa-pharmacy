@@ -1,3 +1,4 @@
+/* eslint-disable no-empty */
 /**
  * invoiceCache.ts
  * Cache for sales invoice data with TTL.

@@ -98,7 +98,7 @@ async function fetchAll<T = Record<string, unknown>>(
 ) {
   const rows: T[] = [];
   let from = 0;
-  while (true) {
+  for (;;) {
     let query = supabase.from(table).select(select);
     if (orderColumn) query = query.order(orderColumn, { ascending: false, nullsFirst: false });
     const { data, error } = await query.range(from, from + PAGE_SIZE - 1);

@@ -1,3 +1,4 @@
+/* eslint-disable react/display-name */
 import React, { useEffect, useState, useMemo } from 'react';
 import { useLocalCache } from '@/hooks/useLocalCache';
 import { useDataProcessor } from '@/hooks/useDataProcessor';

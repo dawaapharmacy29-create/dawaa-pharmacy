@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { CUSTOMER_FLAGS, getFlagByKey } from '@/lib/customerFlags';
 
 const EXTRA_LABELS: Record<string, string> = {

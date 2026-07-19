@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clearInvoiceCache } from '@/lib/invoiceCache';
 import {

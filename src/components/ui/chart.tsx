@@ -67,7 +67,7 @@ const ChartContainer = React.forwardRef<
       >
         <ChartStyle id={chartId} config={config} />
         {Recharts ? (
-          // @ts-ignore dynamic module
+          // @ts-expect-error dynamic module
           <Recharts.ResponsiveContainer>{children}</Recharts.ResponsiveContainer>
         ) : (
           <div className="flex w-full h-full items-center justify-center">Loading chart...</div>
