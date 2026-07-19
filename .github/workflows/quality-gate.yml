@@ -39,8 +39,24 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
 
-      - name: Lint errors only
-        run: npx eslint . --ext .ts,.tsx --ignore-path .eslintignore --quiet --format unix
+      - name: Generate lint report
+        id: lint
+        continue-on-error: true
+        run: |
+          npx eslint . --ext .ts,.tsx --ignore-path .eslintignore --quiet --format json --output-file lint-errors.json
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-errors
+          path: lint-errors.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Fail on lint errors
+        if: steps.lint.outcome == 'failure'
+        run: exit 1
 
       - name: Production build
         run: npm run build
