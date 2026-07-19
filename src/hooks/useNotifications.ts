@@ -65,11 +65,29 @@ function employeeTaskRoute(notification: AppNotification) {
 
 export function notificationRoute(notification: AppNotification) {
   const explicit = String(notification.route || notification.target_route || notification.metadata?.route || '').trim();
-  if (explicit.startsWith('/')) return explicit;
-  const type = String(notification.type || notification.target_type || '').toLowerCase();
   const id =
     notification.target_id ||
     String(notification.metadata?.entity_id || notification.metadata?.review_id || notification.metadata?.id || '');
+  if (explicit.startsWith('/')) {
+    if (/^\/reviews\/?(?:\?.*)?$/.test(explicit) && id && !/[?&]id=/.test(explicit)) {
+      return routeWithId(explicit, 'id', id);
+    }
+    if (/^\/customer-service\/?(?:\?.*)?$/.test(explicit) && id && !/[?&]followupId=/.test(explicit)) {
+      return routeWithId(explicit, 'followupId', id);
+    }
+    return explicit;
+  }
+  const rawType = String(notification.type || notification.target_type || '').trim().toLowerCase();
+  const typeAliases: Record<string, string> = {
+    'تقييم محادثة': 'conversation_review',
+    'تقييم المحادثة': 'conversation_review',
+    'conversation_sales_review': 'conversation_review',
+    'متابعة': 'customer_followup',
+    'متابعة عميل': 'customer_followup',
+    'طلب متابعة': 'customer_followup',
+    'طلب عميل': 'customer_request',
+  };
+  const type = typeAliases[rawType] || rawType;
   const routes: Record<string, () => string> = {
     customer_followup: () => routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
     followup: () => routeWithId('/customer-service?tab=today&openDetails=1&mode=edit', 'followupId', id),
