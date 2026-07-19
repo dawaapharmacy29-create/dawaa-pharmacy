@@ -8,6 +8,10 @@ export function clearCustomerServiceCommandCenterCache() {}
 
 export type FollowupRow = {
   id: string;
+  is_hidden?: boolean | null;
+  hidden_at?: string | null;
+  hidden_by?: string | null;
+  hidden_reason?: string | null;
   date: string | null;
   customer_id: string | null;
   customer_name: string | null;
@@ -496,6 +500,7 @@ export async function fetchCustomerServiceFollowups(filters: FollowupFilters = {
     let query = supabase
       .from('daily_followups')
       .select('*')
+      .eq('is_hidden', false)
       .order('created_at', { ascending: false })
       .limit(filters.limit || 60);
     if (!isAll(filters.branch)) query = query.eq('branch', filters.branch as string);
@@ -535,7 +540,7 @@ export async function fetchCustomerServiceFollowupById(id: string) {
   const normalizedId = String(id || '').trim();
   if (!normalizedId) return null;
   try {
-    const { data, error } = await supabase.from('daily_followups').select('*').eq('id', normalizedId).single();
+    const { data, error } = await supabase.from('daily_followups').select('*').eq('id', normalizedId).eq('is_hidden', false).single();
     if (error) throw new Error(error.message);
     const row = normalizeFollowup((data || {}) as Row);
     const enriched = await enrichFollowupRows([row], {});
