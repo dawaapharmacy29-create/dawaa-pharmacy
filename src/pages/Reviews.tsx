@@ -375,6 +375,11 @@ export default function Reviews() {
     improvements: '',
   });
   const [editForm, setEditForm] = useState({
+    staff_id: '',
+    staff_name: '',
+    customer_name: '',
+    customer_code: '',
+    customer_phone: '',
     final_score: '',
     point_impact: '',
     reviewer_notes: '',
@@ -975,6 +980,11 @@ export default function Reviews() {
   const openEdit = (row: ConversationReviewHistoryRow) => {
     setEditingReview(row);
     setEditForm({
+      staff_id: row.staff_id || row.doctor_id || '',
+      staff_name: row.staff_name || row.doctor_name || '',
+      customer_name: row.customer_name || '',
+      customer_code: row.customer_code || '',
+      customer_phone: row.customer_phone || '',
       final_score: String(scoreOf(row) || ''),
       point_impact: String(impactOf(row) || '0'),
       reviewer_notes: row.reviewer_notes || '',
@@ -994,6 +1004,13 @@ export default function Reviews() {
       const score = Math.max(0, Math.min(100, Number(editForm.final_score || 0)));
       const impact = Number(editForm.point_impact || 0);
       const payload = {
+        staff_id: asUuid(editForm.staff_id),
+        doctor_id: asUuid(editForm.staff_id),
+        staff_name: editForm.staff_name.trim() || null,
+        doctor_name: editForm.staff_name.trim() || null,
+        customer_name: editForm.customer_name.trim() || null,
+        customer_code: editForm.customer_code.trim() || null,
+        customer_phone: editForm.customer_phone.trim() || null,
         final_score: score,
         total_score: score,
         point_impact: impact,
@@ -1803,6 +1820,33 @@ export default function Reviews() {
 
       {editingReview && (
         <Modal title="تعديل تقييم المحادثة - المدير العام" onClose={() => setEditingReview(null)}>
+          <div className="grid md:grid-cols-2 gap-3">
+            <Field label="الدكتور / الموظف الصحيح">
+              <select
+                className="input-dark"
+                value={editForm.staff_id}
+                onChange={(e) => {
+                  const selected = staffOptions.find((item) => item.id === e.target.value);
+                  setEditForm((f) => ({ ...f, staff_id: e.target.value, staff_name: selected?.name || f.staff_name }));
+                }}
+              >
+                <option value="">اختيار بالاسم يدويًا</option>
+                {staffOptions.map((item) => <option key={item.id} value={item.id}>{item.name} — {item.branch}</option>)}
+              </select>
+            </Field>
+            <Field label="اسم الدكتور الظاهر">
+              <input className="input-dark" value={editForm.staff_name} onChange={(e) => setEditForm((f) => ({ ...f, staff_name: e.target.value }))} />
+            </Field>
+            <Field label="اسم العميل الصحيح">
+              <input className="input-dark" value={editForm.customer_name} onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))} />
+            </Field>
+            <Field label="كود العميل">
+              <input className="input-dark" value={editForm.customer_code} onChange={(e) => setEditForm((f) => ({ ...f, customer_code: e.target.value }))} />
+            </Field>
+            <Field label="هاتف العميل">
+              <input className="input-dark" value={editForm.customer_phone} onChange={(e) => setEditForm((f) => ({ ...f, customer_phone: e.target.value }))} />
+            </Field>
+          </div>
           <div className="grid md:grid-cols-2 gap-3">
             <Field label="النتيجة من 100">
               <input
