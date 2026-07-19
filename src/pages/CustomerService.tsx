@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
