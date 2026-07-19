@@ -92,6 +92,44 @@ export default function RolesPermissions() {
     return { missing, extra };
   }, [selectedAccount, suggestedRolePermissions, effectivePermissions]);
 
+  const permissionAudit = useMemo(() => {
+    const staffById = new Map((staffList || []).map((item) => [String(item.id), item]));
+    const usernameCounts = new Map<string, number>();
+    const staffAccountCounts = new Map<string, number>();
+    for (const account of staffAccounts) {
+      const username = String(account.username || '').trim().toLowerCase();
+      if (username) usernameCounts.set(username, (usernameCounts.get(username) || 0) + 1);
+      if (account.staff_id) staffAccountCounts.set(account.staff_id, (staffAccountCounts.get(account.staff_id) || 0) + 1);
+    }
+    const issues = staffAccounts.flatMap((account) => {
+      const accountIssues: string[] = [];
+      const active = account.active !== false && account.can_login !== false;
+      const staffMember = account.staff_id ? staffById.get(account.staff_id) : undefined;
+      if (active && !account.staff_id) accountIssues.push('حساب نشط غير مربوط بموظف');
+      if (active && !String(account.branch || '').trim()) accountIssues.push('حساب نشط بدون فرع/قسم');
+      if (active && !String(account.role || '').trim()) accountIssues.push('حساب نشط بدون وظيفة');
+      if (active && Object.keys(account.permissions || {}).length === 0) accountIssues.push('لا توجد صلاحيات مخصصة مسجلة');
+      if (account.username && (usernameCounts.get(account.username.trim().toLowerCase()) || 0) > 1) accountIssues.push('اسم مستخدم مكرر');
+      if (account.staff_id && (staffAccountCounts.get(account.staff_id) || 0) > 1) accountIssues.push('أكثر من حساب لنفس الموظف');
+      if (staffMember && account.branch && staffMember.branch && account.branch !== staffMember.branch) accountIssues.push('فرع الحساب مختلف عن سجل الموظف');
+      if (staffMember && normalizeRole(account.role) !== normalizeRole(staffMember.role)) accountIssues.push('وظيفة الحساب مختلفة عن سجل الموظف');
+      const defaults = getDefaultPermissionsForRole(account.role);
+      const effective = mergePermissions(defaults, account.permissions || {});
+      const extraSensitive = PERMISSION_CATEGORIES.flatMap((category) => category.permissions)
+        .filter((permission) => permission.sensitive && defaults[permission.key] !== true && effective[permission.key] === true)
+        .length;
+      if (extraSensitive) accountIssues.push(`${extraSensitive} صلاحية حساسة زائدة عن قالب الوظيفة`);
+      return accountIssues.length ? [{ account, issues: accountIssues }] : [];
+    });
+    return {
+      issues,
+      activeAccounts: staffAccounts.filter((account) => account.active !== false && account.can_login !== false).length,
+      disabledAccounts: staffAccounts.filter((account) => account.active === false || account.can_login === false).length,
+      unlinked: issues.filter((item) => item.issues.includes('حساب نشط غير مربوط بموظف')).length,
+      crossMismatch: issues.filter((item) => item.issues.some((issue) => issue.includes('مختلف'))).length,
+    };
+  }, [staffAccounts, staffList]);
+
   function toggleCategory(key: string) {
     setExpandedCategories((prev) => ({ ...prev, [key]: !prev[key] }));
   }
@@ -216,6 +254,35 @@ export default function RolesPermissions() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/60 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-black text-white">تدقيق الحسابات والصلاحيات</h2>
+            <p className="text-xs text-slate-400">فحص تلقائي للربط والفرع والوظيفة والتكرار والصلاحيات الحساسة دون حذف أي حساب.</p>
+          </div>
+          <button className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-slate-200" onClick={refetchAccounts}>تحديث التدقيق</button>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            ['نشط', permissionAudit.activeAccounts, 'text-emerald-300'],
+            ['موقوف', permissionAudit.disabledAccounts, 'text-slate-300'],
+            ['يحتاج مراجعة', permissionAudit.issues.length, 'text-amber-300'],
+            ['غير مربوط', permissionAudit.unlinked, 'text-rose-300'],
+            ['اختلاف فرع/وظيفة', permissionAudit.crossMismatch, 'text-cyan-300'],
+          ].map(([label, value, color]) => <div key={String(label)} className="rounded-xl border border-slate-700 bg-slate-950/40 p-3"><div className="text-xs text-slate-400">{label}</div><div className={`mt-1 text-2xl font-black ${color}`}>{value}</div></div>)}
+        </div>
+        {permissionAudit.issues.length > 0 && (
+          <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
+            {permissionAudit.issues.map(({ account, issues }) => (
+              <button key={account.id} className="w-full rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-right" onClick={() => { setSelectedAccountId(account.id); setShowComparison(true); }}>
+                <div className="font-bold text-white">{account.name || account.staff_name || account.username || 'حساب غير مسمى'}</div>
+                <div className="mt-1 text-xs font-semibold text-amber-100">{issues.join(' · ')}</div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
