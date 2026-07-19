@@ -169,6 +169,7 @@ function AppRoutes() {
     <Route path="/data-health" element={<ProtectedRoute>{routeSuspense(<DataHealthCenter />, 'صحة البيانات')}</ProtectedRoute>} />
     <Route path="/customers" element={<ProtectedRoute>{routeSuspense(<Customers />, 'العملاء')}</ProtectedRoute>} />
     <Route path="/customers/:id" element={<ProtectedRoute>{routeSuspense(<Customer360 />, 'ملف العميل')}</ProtectedRoute>} />
+    <Route path="/customer-360" element={<ProtectedRoute>{routeSuspense(<Customer360 />, 'ملف العميل')}</ProtectedRoute>} />
     <Route path="/customer-import" element={<ProtectedRoute>{routeSuspense(<CustomerImport />, 'استيراد العملاء')}</ProtectedRoute>} />
     <Route path="/customer-service" element={<ProtectedRoute>{routeSuspense(<CustomerService />, 'خدمة العملاء')}</ProtectedRoute>} />
     <Route path="/customer-service-classic" element={<ProtectedRoute>{routeSuspense(<CustomerServiceClassic />, 'خدمة العملاء الكلاسيكية')}</ProtectedRoute>} />
