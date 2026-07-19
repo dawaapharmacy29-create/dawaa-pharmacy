@@ -70,10 +70,28 @@ export default function OperationsCenter2027() {
     search: '',
   });
 
-  const notifications = useMemo(
-    () => rawNotifications.map((row) => normalizeNotification(row)),
-    [rawNotifications]
-  );
+  const notifications = useMemo(() => {
+    const uniqueRows = new Map<string, AppNotification>();
+    for (const row of rawNotifications) {
+      const notification = normalizeNotification(row);
+      const semanticKey = [
+        notification.type,
+        notification.target_type,
+        notification.target_id || notification.metadata?.entity_id,
+        notification.recipient_staff_id,
+        notification.branch || notification.metadata?.branch,
+        notification.title,
+      ]
+        .map((value) =>
+          String(value || '')
+            .trim()
+            .toLowerCase()
+        )
+        .join('|');
+      if (!uniqueRows.has(semanticKey)) uniqueRows.set(semanticKey, notification);
+    }
+    return [...uniqueRows.values()];
+  }, [rawNotifications]);
 
   const normalizedTasks = useMemo(
     () =>
