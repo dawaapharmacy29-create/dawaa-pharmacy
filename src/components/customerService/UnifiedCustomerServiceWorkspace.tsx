@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Clock3,
   Copy,
+  Download,
   Eye,
   HeartHandshake,
   History,
@@ -50,6 +51,7 @@ import {
   updateDailyQueueItem,
 } from '@/lib/customerServiceDailyExecution';
 import { buildFollowupScript, followupPriorityScore } from '@/lib/customerServiceScriptEngine';
+import { createStaffNotification } from '@/lib/staffNotificationService';
 
 type QueueSource = 'doctor_request' | 'yesterday' | 'at_risk' | 'important';
 type WorkspaceTab =
@@ -748,6 +750,24 @@ export default function UnifiedCustomerServiceWorkspace() {
         purchaseAmount: data.purchaseAmount,
       },
     });
+    const requesterStaffId = rowValue(resultRow, 'requested_by_staff_id');
+    if (requesterStaffId && requesterStaffId !== user?.staffId && requesterStaffId !== 'admin') {
+      try {
+        await createStaffNotification({
+          recipientStaffId: requesterStaffId,
+          type: 'doctor_followup_result',
+          title: `تحديث متابعة: ${resultRow.customer_name || resultRow.name || 'عميل'}`,
+          message: `تم تسجيل النتيجة: ${data.result}${data.notes ? ` — ${data.notes}` : ''}`,
+          priority: data.result === 'يحتاج متابعة مدير' ? 'high' : 'normal',
+          entityType: 'daily_followup',
+          entityId: resultRow.id,
+          actionUrl: `/doctor-dashboard?tab=followups&followupId=${encodeURIComponent(resultRow.id)}`,
+          metadata: { branch, result: data.result, updated_by: user?.name || null },
+        });
+      } catch (notificationError) {
+        console.warn('Doctor followup result notification skipped', notificationError);
+      }
+    }
     setResultRow(null);
     await loadWorkspace();
   }
@@ -755,6 +775,46 @@ export default function UnifiedCustomerServiceWorkspace() {
   function copyScript(item: QueueItem) {
     void navigator.clipboard.writeText(scriptFor(item));
     toast.success('تم نسخ السكريبت');
+  }
+
+  function exportCurrentQueue() {
+    const headers = [
+      'العميل',
+      'الكود',
+      'الهاتف',
+      'الفرع',
+      'حالة الفرع',
+      'النوع',
+      'الأولوية',
+      'سبب الأولوية',
+      'مقدم الطلب',
+      'سبب المتابعة',
+      'الحالة',
+      'الموعد القادم',
+    ];
+    const rows = visibleQueue.map((item) => [
+      item.name,
+      item.code,
+      item.phone,
+      item.branch,
+      item.branchEvidence,
+      sourceLabel(item.source),
+      item.priority,
+      item.priorityReason,
+      item.requestedBy,
+      item.reason,
+      resultOf(item.row),
+      item.row?.next_followup_date || '',
+    ]);
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(escape).join(',')).join('\n')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `customer-followups-${branch}-${new Date().toLocaleDateString('en-CA')}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success(`تم تصدير ${rows.length} متابعة`);
   }
 
   const visibleQueue = (
@@ -827,6 +887,9 @@ export default function UnifiedCustomerServiceWorkspace() {
             <a className="btn-secondary" href="/customer-data-review">
               مراجعة البيانات {dataReviewCount ? `(${dataReviewCount})` : ''}
             </a>
+            <button className="btn-secondary flex items-center gap-2" onClick={exportCurrentQueue}>
+              <Download size={16} /> تصدير القائمة
+            </button>
           </div>
         </div>
       </section>
