@@ -42,6 +42,7 @@ import { isValidEgyptPhone } from '@/lib/customerAnalyticsService';
 import { normalizeBranchName } from '@/lib/branch';
 import { BRANCHES, CUSTOMER_SERVICE_BRANCH_OWNERS, CUSTOMER_SERVICE_DOCTORS, SHAMY_BRANCH_PHARMACISTS, SHOKRY_BRANCH_PHARMACISTS } from '@/lib/constants';
 import { canSeeAllBranches, effectiveBranchFilter } from '@/lib/security/permissionScopes';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 import { rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { mergeStaffChoices } from '@/lib/staffFallback';
@@ -1303,6 +1304,7 @@ export default function CustomerService() {
   const serviceBranchOverride = customerServiceBranchForUser(user);
   const canAllBranches = canSeeAllBranches(userRole);
   const serviceCanAllBranches = canAllBranches && !['cs.doha', 'cs.donia'].includes(String(user?.username || '').toLowerCase());
+  const canHideFollowups = ['general_manager', 'executive_manager', 'branches_manager', 'customer_service_manager'].includes(normalizeRole(userRole));
   const [activeTab, setActiveTabState] = useState<TabId>(TABS.some(([id]) => id === requestedTab) ? requestedTab! : 'today');
   const [rows, setRows] = useState<FollowupRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -1944,6 +1946,29 @@ export default function CustomerService() {
       created_by: userId,
       created_by_name: userName,
     }).catch((notificationError) => console.warn('[customer-service] notification skipped', notificationError));
+  };
+
+  const hideFollowup = async (row: FollowupRow) => {
+    if (!canHideFollowups) return toast.error('إخفاء المتابعة متاح للمدير المسؤول فقط.');
+    const reason = window.prompt('اكتب سبب إخفاء المتابعة. ستظل محفوظة في السجل ولن تُحذف:');
+    if (reason == null) return;
+    if (!reason.trim()) return toast.error('سبب الإخفاء مطلوب.');
+    const { error } = await supabase
+      .from('daily_followups')
+      .update({
+        is_hidden: true,
+        hidden_at: new Date().toISOString(),
+        hidden_by: userId || userName || 'manager',
+        hidden_reason: reason.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id);
+    if (error) return toast.error(`تعذر إخفاء المتابعة: ${error.message}`);
+    setRows((current) => current.filter((item) => item.id !== row.id));
+    setSelectedRow((current) => (current?.id === row.id ? null : current));
+    setDetailsRow((current) => (current?.id === row.id ? null : current));
+    setResultRow((current) => (current?.id === row.id ? null : current));
+    toast.success('تم إخفاء المتابعة مع الاحتفاظ بها في السجل.');
   };
 
   const saveResult = async (result: FollowupResultData) => {
@@ -2934,6 +2959,11 @@ const addFollowup = async () => {
                 <button className="btn-secondary" onClick={() => void postpone(selectedRow)}><CalendarClock className="ml-1 inline h-4 w-4" /> تأجيل</button>
                 <button className="btn-secondary" onClick={() => void addQuickNote(selectedRow)}><Clipboard className="ml-1 inline h-4 w-4" /> إضافة ملاحظة</button>
                 <button className="btn-secondary" onClick={() => void escalateToManager(selectedRow)}><ShieldAlert className="ml-1 inline h-4 w-4" /> يحتاج مدير</button>
+                {canHideFollowups && (
+                  <button className="btn-secondary border-amber-500/40 text-amber-100" onClick={() => void hideFollowup(selectedRow)}>
+                    <Eye className="ml-1 inline h-4 w-4" /> إخفاء المتابعة
+                  </button>
+                )}
               </div>
             </div>
           )}
