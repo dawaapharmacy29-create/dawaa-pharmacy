@@ -159,6 +159,7 @@ export type CreateExceptionalFollowupInput = {
   requestDetails?: string | null;
   notes?: string | null;
   createdBy?: string | null;
+  requestedByStaffId?: string | null;
   createdByName?: string | null;
   source?: string | null;
   contactStatus?: string | null;
@@ -670,6 +671,7 @@ export async function createExceptionalFollowup(input: CreateExceptionalFollowup
     request_status: 'pending',
     notes: input.notes || null,
     created_by: input.createdBy || null,
+    requested_by_staff_id: input.requestedByStaffId || input.createdBy || null,
     created_by_name: input.createdByName || null,
     request_source: input.source || null,
   });
