@@ -328,6 +328,10 @@ export default function UnifiedCustomerServiceWorkspace() {
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | QueueSource>('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [requesterFilter, setRequesterFilter] = useState('all');
+  const [dataFilter, setDataFilter] = useState('all');
+  const [slaFilter, setSlaFilter] = useState('all');
   const [historySearch, setHistorySearch] = useState('');
   const [historyResult, setHistoryResult] = useState('all');
   const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('cycle');
@@ -571,6 +575,17 @@ export default function UnifiedCustomerServiceWorkspace() {
   const dataReviewCount = allFollowups.filter(
     (row) => !row.customer_code || !(row.customer_phone || row.phone) || !row.branch
   ).length;
+  const requesterOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          allFollowups
+            .map((row) => row.created_by_name || row.assigned_doctor || '')
+            .filter(Boolean)
+        ),
+      ].sort(),
+    [allFollowups]
+  );
 
   const historyRows = useMemo(
     () =>
@@ -830,6 +845,31 @@ export default function UnifiedCustomerServiceWorkspace() {
       if (tab === 'care' && !['important', 'at_risk'].includes(item.source)) return false;
       if (statusFilter === 'completed' && !item.completed) return false;
       if (statusFilter === 'open' && item.completed) return false;
+      if (priorityFilter !== 'all' && item.priority !== priorityFilter) return false;
+      if (requesterFilter !== 'all' && item.requestedBy !== requesterFilter) return false;
+      if (
+        dataFilter === 'issues' &&
+        !item.branchNeedsReview &&
+        item.code &&
+        item.phone &&
+        item.branch
+      )
+        return false;
+      if (
+        dataFilter === 'complete' &&
+        (item.branchNeedsReview || !item.code || !item.phone || !item.branch)
+      )
+        return false;
+      if (slaFilter !== 'all') {
+        const sla = getFollowupSla({
+          source: item.source,
+          priority: item.priority,
+          createdAt: item.row?.created_at || item.row?.date || item.row?.followup_date || null,
+          startedAt: rowValue(item.row, 'first_attempt_at') || null,
+          completed: item.completed,
+        });
+        if (sla.state !== slaFilter) return false;
+      }
       const haystack = `${item.name} ${item.code} ${item.phone} ${item.reason}`.toLowerCase();
       return !search.trim() || haystack.includes(search.trim().toLowerCase());
     })
@@ -838,7 +878,18 @@ export default function UnifiedCustomerServiceWorkspace() {
     setSelectedKey((current) =>
       visibleQueue.some((item) => item.key === current) ? current : visibleQueue[0]?.key || ''
     );
-  }, [tab, branch, search, sourceFilter, statusFilter, visibleQueue.length]);
+  }, [
+    tab,
+    branch,
+    search,
+    sourceFilter,
+    statusFilter,
+    priorityFilter,
+    requesterFilter,
+    dataFilter,
+    slaFilter,
+    visibleQueue.length,
+  ]);
   const slaFor = (item: QueueItem) =>
     getFollowupSla({
       source: item.source,
@@ -1007,7 +1058,7 @@ export default function UnifiedCustomerServiceWorkspace() {
         tab === 'care') && (
         <section className="grid gap-4 xl:grid-cols-[minmax(340px,.8fr)_minmax(0,1.2fr)]">
           <div className="stat-card min-h-[620px]">
-            <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+            <div className="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
               <div className="relative">
                 <Search className="absolute right-3 top-3 text-slate-500" size={17} />
                 <input
@@ -1037,6 +1088,45 @@ export default function UnifiedCustomerServiceWorkspace() {
                 <option value="open">مفتوح الآن</option>
                 <option value="completed">تم الانتهاء</option>
               </select>
+              <select
+                className="input-dark"
+                value={priorityFilter}
+                onChange={(event) => setPriorityFilter(event.target.value)}
+              >
+                <option value="all">كل الأولويات</option>
+                <option value="عاجل">عاجل</option>
+                <option value="مهم">مهم</option>
+                <option value="عادي">عادي</option>
+              </select>
+              <select
+                className="input-dark"
+                value={requesterFilter}
+                onChange={(event) => setRequesterFilter(event.target.value)}
+              >
+                <option value="all">كل مقدمي الطلب</option>
+                {requesterOptions.map((name) => (
+                  <option key={name}>{name}</option>
+                ))}
+              </select>
+              <select
+                className="input-dark"
+                value={dataFilter}
+                onChange={(event) => setDataFilter(event.target.value)}
+              >
+                <option value="all">كل حالات البيانات</option>
+                <option value="complete">بيانات مكتملة</option>
+                <option value="issues">تحتاج مراجعة</option>
+              </select>
+              <select
+                className="input-dark"
+                value={slaFilter}
+                onChange={(event) => setSlaFilter(event.target.value)}
+              >
+                <option value="all">كل أوقات التنفيذ</option>
+                <option value="overdue">متأخرة</option>
+                <option value="warning">اقترب الموعد</option>
+                <option value="active">داخل الوقت</option>
+              </select>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs font-bold text-slate-400">
               <span>{visibleQueue.length} متابعة في النطاق الحالي</span>
@@ -1046,6 +1136,10 @@ export default function UnifiedCustomerServiceWorkspace() {
                   setSearch('');
                   setSourceFilter('all');
                   setStatusFilter('all');
+                  setPriorityFilter('all');
+                  setRequesterFilter('all');
+                  setDataFilter('all');
+                  setSlaFilter('all');
                 }}
               >
                 مسح الفلاتر
