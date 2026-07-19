@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import {

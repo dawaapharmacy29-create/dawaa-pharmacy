@@ -527,16 +527,6 @@ export default function Invoices() {
   const canDeleteBatches = canDeleteInvoiceImportBatch(user) || isAdmin;
   const canManageBatches = canManageInvoiceImportBatches(user) || isAdmin;
 
-  if (!canAccessInvoices) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center p-6" dir="rtl">
-        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-6 py-5 text-center text-amber-100">
-          ليس لديك صلاحية للوصول إلى صفحة استيراد الفواتير.
-        </div>
-      </div>
-    );
-  }
-
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const sellerNameFilter = searchParams.get('seller_name') || '';
@@ -1339,6 +1329,16 @@ export default function Invoices() {
       : summaryRefreshState === 'manual_required' || summaryRefreshState === 'unavailable'
         ? 'border-amber-300/35 bg-amber-400/10 text-amber-50'
         : 'border-sky-300/30 bg-sky-400/10 text-sky-50';
+
+  if (!canAccessInvoices) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center p-6" dir="rtl">
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-6 py-5 text-center text-amber-100">
+          ليس لديك صلاحية للوصول إلى صفحة استيراد الفواتير.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 max-w-5xl">

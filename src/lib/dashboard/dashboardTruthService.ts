@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { normalizeBranchName } from '@/lib/branch';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 import {
