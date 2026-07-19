@@ -90,6 +90,8 @@ type QueueItem = {
   branchNeedsReview: boolean;
   priorityScore: number;
   priorityReason: string;
+  openRequestCount?: number;
+  relatedRequests?: FollowupRow[];
 };
 
 const BRANCHES = ['فرع الشامي', 'فرع شكري'];
@@ -281,6 +283,28 @@ function followupRequestToItem(row: FollowupRow, source = sourceFromRow(row)): Q
   return { ...item, key: `followup:${row.id}` };
 }
 
+function groupOpenRequests(rows: FollowupRow[], forcedSource?: QueueSource) {
+  const groups = new Map<string, FollowupRow[]>();
+  for (const row of rows) {
+    const identity = followupToItem(row).key;
+    const current = groups.get(identity) || [];
+    current.push(row);
+    groups.set(identity, current);
+  }
+  return [...groups.values()].map((related) => {
+    const sorted = [...related].sort(
+      (a, b) =>
+        new Date(b.created_at || b.followup_date || b.date || 0).getTime() -
+        new Date(a.created_at || a.followup_date || a.date || 0).getTime()
+    );
+    return {
+      ...followupRequestToItem(sorted[0], forcedSource || sourceFromRow(sorted[0])),
+      openRequestCount: sorted.length,
+      relatedRequests: sorted,
+    };
+  });
+}
+
 function customerToItem(customer: CustomerMetric, source: QueueSource, reason: string): QueueItem {
   const priority = followupPriorityScore({
     source,
@@ -373,6 +397,9 @@ export default function UnifiedCustomerServiceWorkspace() {
   const [dataFilter, setDataFilter] = useState('all');
   const [slaFilter, setSlaFilter] = useState('all');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [scriptSection, setScriptSection] = useState<
+    'call' | 'questions' | 'objections' | 'whatsapp'
+  >('call');
   const [historySearch, setHistorySearch] = useState('');
   const [historyResult, setHistoryResult] = useState('all');
   const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('cycle');
@@ -607,28 +634,27 @@ export default function UnifiedCustomerServiceWorkspace() {
   );
   const doctorRequestQueue = useMemo(
     () =>
-      allFollowups
-        .filter((row) => !isCompleted(row) && sourceFromRow(row) === 'doctor_request')
-        .map((row) => followupRequestToItem(row, 'doctor_request'))
-        .sort((a, b) => b.priorityScore - a.priorityScore),
+      groupOpenRequests(
+        allFollowups.filter((row) => !isCompleted(row) && sourceFromRow(row) === 'doctor_request'),
+        'doctor_request'
+      ).sort((a, b) => b.priorityScore - a.priorityScore),
     [allFollowups]
   );
   const upcomingQueue = useMemo(
     () =>
-      allFollowups
-        .filter((row) => !isCompleted(row) && Boolean(row.next_followup_date))
-        .map((row) => followupRequestToItem(row))
-        .sort((a, b) =>
-          String(a.row?.next_followup_date || '').localeCompare(
-            String(b.row?.next_followup_date || '')
-          )
-        ),
+      groupOpenRequests(
+        allFollowups.filter((row) => !isCompleted(row) && Boolean(row.next_followup_date))
+      ).sort((a, b) =>
+        String(a.row?.next_followup_date || '').localeCompare(
+          String(b.row?.next_followup_date || '')
+        )
+      ),
     [allFollowups]
   );
   const managerQueue = useMemo(
     () =>
-      allFollowups
-        .filter(
+      groupOpenRequests(
+        allFollowups.filter(
           (row) =>
             !isCompleted(row) &&
             (row.needs_manager ||
@@ -636,8 +662,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                 `${resultOf(row)} ${row.followup_reason || ''} ${row.request_details || ''}`
               ))
         )
-        .map((row) => followupRequestToItem(row))
-        .sort((a, b) => b.priorityScore - a.priorityScore),
+      ).sort((a, b) => b.priorityScore - a.priorityScore),
     [allFollowups]
   );
   const selected =
@@ -1265,6 +1290,11 @@ export default function UnifiedCustomerServiceWorkspace() {
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <Badge>{sourceLabel(item.source)}</Badge>
+                        {Number(item.openRequestCount || 0) > 1 && (
+                          <span className="rounded-lg bg-violet-500/20 px-2 py-1 text-[10px] font-black text-violet-100">
+                            {item.openRequestCount} طلبات مفتوحة
+                          </span>
+                        )}
                         <span
                           className={`rounded-lg px-2 py-1 text-[10px] font-black ${slaFor(item).state === 'overdue' ? 'bg-red-500/20 text-red-200' : slaFor(item).state === 'warning' ? 'bg-amber-500/20 text-amber-200' : 'bg-teal-500/15 text-teal-200'}`}
                         >
@@ -1348,6 +1378,35 @@ export default function UnifiedCustomerServiceWorkspace() {
                     </div>
                   </div>
                 )}
+                {Number(selected.openRequestCount || 0) > 1 && (
+                  <div className="rounded-2xl border border-violet-400/25 bg-violet-500/10 p-4">
+                    <div className="font-black text-violet-100">
+                      لهذا العميل {selected.openRequestCount} طلبات مفتوحة
+                    </div>
+                    <p className="mt-1 text-xs font-bold text-violet-200/80">
+                      تم تجميعها في بطاقة واحدة دون حذف أي سجل. المعروض بالأعلى هو أحدث طلب.
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      {selected.relatedRequests?.slice(0, 5).map((request) => (
+                        <div
+                          key={request.id}
+                          className="rounded-xl border border-white/10 bg-black/10 p-3 text-xs font-bold text-slate-200"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span>
+                              {cleanReason(request.request_details || request.followup_reason)}
+                            </span>
+                            <span className="text-slate-400">
+                              {request.created_at
+                                ? new Date(request.created_at).toLocaleDateString('ar-EG')
+                                : 'بدون تاريخ'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
                   <div className="text-xs font-black text-amber-200">سبب المتابعة</div>
                   <div className="mt-2 text-base font-bold leading-7 text-amber-50">
@@ -1355,11 +1414,30 @@ export default function UnifiedCustomerServiceWorkspace() {
                   </div>
                 </div>
                 <div className="rounded-2xl border border-teal-400/20 bg-teal-500/10 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-black text-teal-200">
-                        {scriptPackFor(selected).title}
-                      </div>
+                  <div className="text-xs font-black text-teal-200">
+                    دليل التواصل · {scriptPackFor(selected).title}
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {(
+                      [
+                        ['call', 'المكالمة'],
+                        ['questions', 'الأسئلة'],
+                        ['objections', 'الاعتراضات'],
+                        ['whatsapp', 'واتساب'],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setScriptSection(key)}
+                        className={`rounded-xl px-3 py-2 text-xs font-black ${scriptSection === key ? 'bg-teal-400 text-slate-950' : 'border border-white/10 bg-black/10 text-teal-50'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {scriptSection === 'call' && (
+                    <div className="mt-3">
                       <div className="mt-2 rounded-xl border border-teal-300/15 bg-black/10 p-3 text-sm font-bold text-teal-50">
                         <span className="text-teal-200">هدف المكالمة: </span>
                         {scriptPackFor(selected).objective}
@@ -1367,26 +1445,6 @@ export default function UnifiedCustomerServiceWorkspace() {
                       <p className="mt-2 text-sm font-bold leading-7 text-teal-50">
                         {scriptPackFor(selected).opening}
                       </p>
-                      <div className="mt-3 rounded-xl bg-black/10 p-3">
-                        <div className="text-xs font-black text-teal-200">أسئلة مقترحة</div>
-                        <ul className="mt-2 space-y-1 text-sm font-bold text-teal-50">
-                          {scriptPackFor(selected).questions.map((question) => (
-                            <li key={question}>• {question}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="mt-3 rounded-xl bg-black/10 p-3">
-                        <div className="text-xs font-black text-teal-200">لو العميل اعترض</div>
-                        <div className="mt-2 space-y-2">
-                          {scriptPackFor(selected).objections.map((item) => (
-                            <div key={item.objection} className="text-sm font-bold text-teal-50">
-                              <span className="text-amber-200">«{item.objection}»</span>
-                              <span className="text-slate-400"> — </span>
-                              {item.response}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
                       <p className="mt-3 text-sm font-bold leading-7 text-teal-50">
                         <span className="text-teal-200">إنهاء مناسب:</span>{' '}
                         {scriptPackFor(selected).closing}
@@ -1396,13 +1454,45 @@ export default function UnifiedCustomerServiceWorkspace() {
                         {scriptPackFor(selected).nextStep}
                       </p>
                     </div>
-                    <button
-                      className="btn-secondary flex shrink-0 items-center gap-1"
-                      onClick={() => copyScript(selected)}
-                    >
-                      <Copy size={15} /> نسخ واتساب
-                    </button>
-                  </div>
+                  )}
+                  {scriptSection === 'questions' && (
+                    <ol className="mt-3 space-y-2">
+                      {scriptPackFor(selected).questions.map((question, index) => (
+                        <li
+                          key={question}
+                          className="rounded-xl border border-white/10 bg-black/10 p-3 text-sm font-bold text-teal-50"
+                        >
+                          <span className="ml-2 text-teal-200">{index + 1}.</span> {question}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                  {scriptSection === 'objections' && (
+                    <div className="mt-3 space-y-2">
+                      {scriptPackFor(selected).objections.map((item) => (
+                        <div
+                          key={item.objection}
+                          className="rounded-xl border border-white/10 bg-black/10 p-3 text-sm font-bold text-teal-50"
+                        >
+                          <div className="text-amber-200">العميل: {item.objection}</div>
+                          <div className="mt-2">الرد: {item.response}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {scriptSection === 'whatsapp' && (
+                    <div className="mt-3">
+                      <p className="whitespace-pre-wrap rounded-xl border border-white/10 bg-black/10 p-4 text-sm font-bold leading-7 text-teal-50">
+                        {scriptPackFor(selected).whatsapp}
+                      </p>
+                      <button
+                        className="btn-secondary mt-3 flex items-center gap-1"
+                        onClick={() => copyScript(selected)}
+                      >
+                        <Copy size={15} /> نسخ رسالة واتساب
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <div className="mb-3 text-xs font-black text-slate-300">
