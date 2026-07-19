@@ -56,9 +56,8 @@ import {
 } from '@/lib/customerServiceDailyExecution';
 import { buildFollowupScript, followupPriorityScore } from '@/lib/customerServiceScriptEngine';
 import { createStaffNotification } from '@/lib/staffNotificationService';
-import { supabase } from '@/lib/supabase';
 import FollowupExcelImportModal from '@/components/customerService/FollowupExcelImportModal';
-import { getCustomerFullProfile } from '@/lib/customerProfileService';
+import { getCustomerFullProfile, normalizePhone } from '@/lib/customerProfileService';
 
 type QueueSource = 'doctor_request' | 'yesterday' | 'at_risk' | 'important';
 type WorkspaceTab =
@@ -124,14 +123,18 @@ const OPEN_RESULTS = new Set([
   'الرقم غير صحيح',
 ]);
 
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 function yesterdayIso() {
   const date = new Date();
   date.setDate(date.getDate() - 1);
-  return date.toISOString().slice(0, 10);
+  return localDateKey(date);
 }
 
 function cycleStartIso() {
@@ -139,7 +142,7 @@ function cycleStartIso() {
   const year = now.getFullYear();
   const month = now.getMonth();
   const start = now.getDate() >= 26 ? new Date(year, month, 26) : new Date(year, month - 1, 26);
-  return start.toISOString().slice(0, 10);
+  return localDateKey(start);
 }
 
 function normalizeKey(...values: Array<string | null | undefined>) {
@@ -205,6 +208,22 @@ function cleanReason(value?: string | null) {
 
 function moneyOrUnavailable(value: number) {
   return value > 0 ? formatCurrency(value) : 'لا توجد بيانات';
+}
+
+function daysSince(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86_400_000));
+}
+
+function activityStatus(lastPurchase?: string | null) {
+  const days = daysSince(lastPurchase);
+  if (days == null) return { label: 'النشاط غير مؤكد', atRisk: false, stopped: false };
+  if (days <= 30) return { label: `نشط · اشترى منذ ${days || 'أقل من'} يوم`, atRisk: false, stopped: false };
+  if (days <= 45) return { label: `يحتاج اهتمام · آخر شراء منذ ${days} يومًا`, atRisk: false, stopped: false };
+  if (days <= 90) return { label: `مهدد بالتوقف · آخر شراء منذ ${days} يومًا`, atRisk: true, stopped: false };
+  return { label: `متوقف · آخر شراء منذ ${days} يومًا`, atRisk: true, stopped: true };
 }
 
 function customerProfileUrl(item: QueueItem) {
@@ -273,7 +292,7 @@ function followupToItem(row: FollowupRow, source = sourceFromRow(row)): QueueIte
     customer: metric,
     name: cleanCustomerName(row.customer_name || row.name || metric?.customer_name),
     code: row.customer_code || metric?.customer_code || '',
-    phone: row.customer_phone || row.phone || metric?.customer_phone || metric?.phone || '',
+    phone: normalizePhone(row.customer_phone || row.phone || metric?.customer_phone || metric?.phone),
     branch,
     segment: row.segment || row.classification || metric?.segment || 'غير مصنف',
     status: displayStatus(row.customer_status || row.status || metric?.customer_status),
@@ -344,7 +363,7 @@ function customerToItem(customer: CustomerMetric, source: QueueSource, reason: s
     customer,
     name: cleanCustomerName(customer.customer_name || customer.name),
     code: customer.customer_code || '',
-    phone: customer.customer_phone || customer.phone || '',
+    phone: normalizePhone(customer.customer_phone || customer.phone),
     branch: normalizeBranchName(customer.branch || ''),
     segment: customer.segment || customer.type || 'غير مصنف',
     status: displayStatus(customer.customer_status || customer.status),
@@ -427,17 +446,23 @@ export default function UnifiedCustomerServiceWorkspace() {
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [resultRow, setResultRow] = useState<FollowupRow | null>(null);
   const [detailsRow, setDetailsRow] = useState<FollowupRow | null>(null);
+  const [selectedHydration, setSelectedHydration] = useState<Record<string, Partial<QueueItem>>>({});
   const loadSequence = useRef(0);
   const selectedProfileSequence = useRef(0);
+  const queueRef = useRef<QueueItem[]>([]);
+
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
 
   async function loadWorkspace(options: { silent?: boolean } = {}) {
     const sequence = ++loadSequence.current;
-    const silent = Boolean(options.silent && queue.length > 0);
+    const silent = Boolean(options.silent && queueRef.current.length > 0);
     if (!silent) setLoading(true);
     if (!silent) setLoadError('');
     try {
       const results = await Promise.allSettled([
-        fetchCustomerServiceFollowups({ branch, limit: 1000 }),
+        fetchCustomerServiceFollowups({ branch, limit: 1000, strict: true }),
         getCustomers({ branch, type: 'مهم جدًا', limit: 100, offset: 0 }),
         getCustomers({ branch, status: 'مهدد بالتوقف', limit: 100, offset: 0 }),
         getCustomers({ branch, limit: 100, offset: 0 }),
@@ -474,7 +499,11 @@ export default function UnifiedCustomerServiceWorkspace() {
             `متابعة شراء أمس بمتوسط فاتورة ${formatCurrency(Number(customer.avg_invoice || 0))}`
           )
         );
+      const staleAtRiskCustomers = atRiskResult.customers.filter(
+        (customer) => !activityStatus(customer.last_purchase).atRisk
+      );
       const atRisk = atRiskResult.customers
+        .filter((customer) => activityStatus(customer.last_purchase).atRisk)
         .sort((a, b) => Number(b.avg_monthly || 0) - Number(a.avg_monthly || 0))
         .map((customer) =>
           customerToItem(customer, 'at_risk', 'قلل التعامل أو مهدد بالتوقف ويحتاج متابعة استرجاع')
@@ -519,7 +548,14 @@ export default function UnifiedCustomerServiceWorkspace() {
         { id: user?.id || null, name: user?.name || null }
       );
       const proposedByKey = new Map(proposedQueue.map((item) => [item.key, item]));
-      const finalQueue = snapshot.items.map((saved) => {
+      const staleCodes = new Set(staleAtRiskCustomers.map((customer) => String(customer.customer_code || '').trim()).filter(Boolean));
+      const stalePhones = new Set(staleAtRiskCustomers.map((customer) => normalizePhone(customer.customer_phone || customer.phone)).filter(Boolean));
+      const finalQueue = snapshot.items.filter(
+        (saved) =>
+          saved.source !== 'at_risk' ||
+          (!staleCodes.has(String(saved.code || '').trim()) &&
+            !stalePhones.has(normalizePhone(saved.phone)))
+      ).map((saved) => {
         const original = proposedByKey.get(saved.key);
         if (original)
           return {
@@ -587,50 +623,13 @@ export default function UnifiedCustomerServiceWorkspace() {
         toast.error('تعذر تحميل قائمة خدمة العملاء اليومية');
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && sequence === loadSequence.current) setLoading(false);
     }
   }
 
   useEffect(() => {
+    setSelectedHydration({});
     void loadWorkspace();
-  }, [branch]);
-
-  useEffect(() => {
-    let refreshTimer: number | undefined;
-    const scheduleRefresh = () => {
-      window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => void loadWorkspace({ silent: true }), 700);
-    };
-    const onLocalDataChange = (event: Event) => {
-      const table = (event as CustomEvent<{ table?: string }>).detail?.table;
-      if (!table || table === 'daily_followups') scheduleRefresh();
-    };
-    const onFocus = () => {
-      if (document.visibilityState === 'visible') scheduleRefresh();
-    };
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') scheduleRefresh();
-    }, 90_000);
-    const channel = supabase
-      .channel(`customer-followups-live:${branch}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'daily_followups' },
-        scheduleRefresh
-      )
-      .subscribe();
-
-    window.addEventListener('dataChanged', onLocalDataChange);
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onFocus);
-    return () => {
-      window.clearTimeout(refreshTimer);
-      window.clearInterval(interval);
-      window.removeEventListener('dataChanged', onLocalDataChange);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onFocus);
-      void supabase.removeChannel(channel);
-    };
   }, [branch]);
 
   const owner = BRANCH_OWNER[branch] || 'مسئول خدمة العملاء';
@@ -701,10 +700,13 @@ export default function UnifiedCustomerServiceWorkspace() {
       ).sort((a, b) => b.priorityScore - a.priorityScore),
     [allFollowups]
   );
-  const selected =
+  const selectedBase =
     [...queue, ...doctorRequestQueue, ...upcomingQueue, ...managerQueue].find(
       (item) => item.key === selectedKey
     ) || null;
+  const selected = selectedBase
+    ? { ...selectedBase, ...(selectedHydration[selectedBase.key] || {}) }
+    : null;
 
   useEffect(() => {
     if (!selected || (!selected.code && !selected.phone && !selected.name)) return;
@@ -718,35 +720,32 @@ export default function UnifiedCustomerServiceWorkspace() {
       if (sequence !== selectedProfileSequence.current) return;
       const metrics = profile.metrics;
       const raw = profile.profile as Record<string, unknown> | null;
-      setQueue((current) =>
-        current.map((item) => {
-          if (item.key !== selected.key) return item;
-          const hydratedCustomer = metrics || item.customer;
-          const branch = normalizeBranchName(
-            metrics?.branch || String(raw?.branch || '') || item.branch
-          );
-          return {
-            ...item,
-            customer: hydratedCustomer,
-            name: metrics?.customer_name || String(raw?.name || '') || item.name,
-            code: metrics?.customer_code || String(raw?.customer_code || '') || item.code,
-            phone:
-              profile.displayPhone ||
+      const branch = normalizeBranchName(
+        metrics?.branch || String(raw?.branch || '') || selected.branch
+      );
+      setSelectedHydration((current) => ({
+        ...current,
+        [selected.key]: {
+          customer: metrics || selected.customer,
+          name: metrics?.customer_name || String(raw?.name || '') || selected.name,
+          code: metrics?.customer_code || String(raw?.customer_code || '') || selected.code,
+          phone: normalizePhone(
+            profile.displayPhone ||
               metrics?.customer_phone ||
               metrics?.phone ||
               String(raw?.phone || '') ||
-              item.phone,
-            branch,
-            segment: metrics?.segment || item.segment,
-            avgMonthly: Number(metrics?.avg_monthly || item.avgMonthly || 0),
-            totalSpent: Number(metrics?.total_spent || item.totalSpent || 0),
-            avgInvoice: Number(metrics?.avg_invoice || item.avgInvoice || 0),
-            lastPurchase: metrics?.last_purchase || item.lastPurchase,
-            branchNeedsReview: !branch,
-            branchEvidence: branch ? 'مؤكد من ملف العميل الكامل' : item.branchEvidence,
-          };
-        })
-      );
+              selected.phone
+          ),
+          branch,
+          segment: metrics?.segment || selected.segment,
+          avgMonthly: Number(metrics?.avg_monthly || selected.avgMonthly || 0),
+          totalSpent: Number(metrics?.total_spent || selected.totalSpent || 0),
+          avgInvoice: Number(metrics?.avg_invoice || selected.avgInvoice || 0),
+          lastPurchase: metrics?.last_purchase || selected.lastPurchase,
+          branchNeedsReview: !branch,
+          branchEvidence: branch ? 'مؤكد من ملف العميل الكامل' : selected.branchEvidence,
+        },
+      }));
     }).catch((error) => console.warn('Customer profile hydration failed', error));
   }, [selected?.key, selected?.code, selected?.phone, selected?.name]);
   const selectedDataIssues = selected
@@ -786,7 +785,7 @@ export default function UnifiedCustomerServiceWorkspace() {
         if (historyPeriod === '7d') {
           const start = new Date();
           start.setDate(start.getDate() - 6);
-          if (completedAt < start.toISOString().slice(0, 10)) return false;
+          if (completedAt < localDateKey(start)) return false;
         }
         if (historyPeriod === 'cycle' && completedAt < cycleStartIso()) return false;
         if (historyResult !== 'all' && resultOf(row) !== historyResult) return false;
@@ -1138,9 +1137,13 @@ export default function UnifiedCustomerServiceWorkspace() {
     }
   }
 
-  function copyScript(item: QueueItem) {
-    void navigator.clipboard.writeText(scriptFor(item));
-    toast.success('تم نسخ السكريبت');
+  async function copyScript(item: QueueItem) {
+    try {
+      await navigator.clipboard.writeText(scriptFor(item));
+      toast.success('تم نسخ رسالة الواتساب');
+    } catch {
+      toast.error('تعذر النسخ. اسمح للمتصفح باستخدام الحافظة ثم حاول مرة أخرى.');
+    }
   }
 
   function exportCurrentQueue() {
@@ -1181,6 +1184,51 @@ export default function UnifiedCustomerServiceWorkspace() {
     link.click();
     URL.revokeObjectURL(url);
     toast.success(`تم تصدير ${rows.length} متابعة`);
+  }
+
+  function exportCompletedHistory() {
+    const headers = [
+      'العميل',
+      'الكود',
+      'الهاتف',
+      'الفرع',
+      'وقت التنفيذ',
+      'المسؤول',
+      'النتيجة',
+      'رضا العميل',
+      'تقييم الجودة',
+      'قيمة الشراء',
+      'رقم الفاتورة',
+      'المتابعة القادمة',
+      'ملخص المتابعة',
+    ];
+    const rows = historyRows.map((row) => {
+      const item = followupToItem(row);
+      return [
+        item.name,
+        item.code,
+        item.phone,
+        item.branch,
+        rowValue(row, 'completed_at', 'updated_at', 'followup_date', 'date'),
+        row.responsible_name || row.assigned_to || row.assigned_doctor || row.created_by_name || '',
+        resultOf(row),
+        row.customer_satisfaction || '',
+        row.quality_rating ?? '',
+        rowNumber(row, 'purchase_amount'),
+        row.purchase_invoice_no || '',
+        row.next_followup_date || '',
+        row.followup_summary || row.followup_notes || row.notes || '',
+      ];
+    });
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(escape).join(',')).join('\n')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `completed-customer-followups-${branch}-${todayIso()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success(`تم تصدير ${rows.length} نتيجة مكتملة`);
   }
 
   const visibleQueue = (
@@ -1301,8 +1349,11 @@ export default function UnifiedCustomerServiceWorkspace() {
             >
               مراجعة البيانات {dataReviewCount ? `(${dataReviewCount})` : ''}
             </a>
-            <button className="btn-secondary flex items-center gap-2" onClick={exportCurrentQueue}>
-              <Download size={16} /> تصدير القائمة
+            <button
+              className="btn-secondary flex items-center gap-2"
+              onClick={tab === 'history' ? exportCompletedHistory : exportCurrentQueue}
+            >
+              <Download size={16} /> {tab === 'history' ? 'تصدير السجل الظاهر' : 'تصدير القائمة'}
             </button>
           </div>
         </div>
@@ -1593,8 +1644,8 @@ export default function UnifiedCustomerServiceWorkspace() {
                       <span className="w-full text-xs font-black text-teal-300">اسم العميل</span>
                       <h2 className="text-2xl font-black text-white">{selected.name}</h2>
                       <Badge>{sourceLabel(selected.source)}</Badge>
-                      <Badge>{displayStatus(selected.status)}</Badge>
-                      <Badge>{selected.segment}</Badge>
+                      <Badge>حالة النشاط: {activityStatus(selected.lastPurchase).label}</Badge>
+                      <Badge>فئة المشتريات: {selected.segment}</Badge>
                     </div>
                     <p className="mt-2 text-sm font-bold text-slate-400">
                       {selected.code || 'بدون كود'} · {selected.phone || 'بدون رقم'} ·{' '}
@@ -1736,7 +1787,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                         {scriptPackFor(selected).opening}
                       </p>
                       <p className="mt-3 text-sm font-bold leading-7 text-teal-50">
-                        <span className="text-teal-200">إنهاء مناسب:</span>{' '}
+                        <span className="text-teal-200">بعد سماع العميل، اختم بـ:</span>{' '}
                         {scriptPackFor(selected).closing}
                       </p>
                       <p className="mt-3 rounded-xl border border-cyan-400/15 bg-cyan-500/10 p-3 text-sm font-bold text-cyan-50">
@@ -1844,12 +1895,15 @@ export default function UnifiedCustomerServiceWorkspace() {
                   >
                     واتساب
                   </button>
-                  <a
-                    className="btn-secondary text-center"
-                    href={selected.phone ? `tel:${selected.phone}` : undefined}
-                  >
-                    اتصال
-                  </a>
+                  {selected.phone ? (
+                    <a className="btn-secondary text-center" href={`tel:${selected.phone}`}>
+                      اتصال
+                    </a>
+                  ) : (
+                    <button className="btn-secondary cursor-not-allowed opacity-50" disabled>
+                      لا يوجد رقم للاتصال
+                    </button>
+                  )}
                   <button className="btn-secondary" onClick={() => setQuickOpen(true)}>
                     إضافة ملاحظة/متابعة
                   </button>
@@ -1864,12 +1918,12 @@ export default function UnifiedCustomerServiceWorkspace() {
 
       {tab === 'history' && (
         <section className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Stat icon={History} label="إجمالي النتائج" value={historySummary.total} />
-            <Stat icon={ShoppingBag} label="اشتروا بعد المتابعة" value={historySummary.purchases} />
-            <MoneyStat label="مبيعات المتابعات" value={historySummary.sales} />
-            <Stat icon={AlertTriangle} label="احتاجت مدير" value={historySummary.needsManager} />
-            <Stat icon={Clock3} label="متابعة قادمة" value={historySummary.nextFollowup} />
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <Stat compact icon={History} label="إجمالي النتائج" value={historySummary.total} />
+            <Stat compact icon={ShoppingBag} label="اشتروا بعد المتابعة" value={historySummary.purchases} />
+            <MoneyStat compact label="مبيعات المتابعات" value={historySummary.sales} />
+            <Stat compact icon={AlertTriangle} label="احتاجت مدير" value={historySummary.needsManager} />
+            <Stat compact icon={Clock3} label="متابعة قادمة" value={historySummary.nextFollowup} />
           </div>
           <div className="stat-card">
             <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -1913,91 +1967,97 @@ export default function UnifiedCustomerServiceWorkspace() {
                 </select>
               </div>
             </div>
-            <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="min-w-[1180px] w-full text-sm">
-                <thead className="sticky top-0 bg-[#173252] text-slate-300">
-                  <tr>
-                    <th className="p-3 text-right">العميل</th>
-                    <th className="p-3 text-right">التنفيذ</th>
-                    <th className="p-3 text-right">المسؤول</th>
-                    <th className="p-3 text-right">النتيجة</th>
-                    <th className="p-3 text-right">الرضا</th>
-                    <th className="p-3 text-right">المتابعة القادمة</th>
-                    <th className="p-3 text-right">الشراء</th>
-                    <th className="p-3 text-right">التقييم</th>
-                    <th className="p-3 text-right">الإجراءات</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historyRows.map((row) => {
-                    const item = followupToItem(row);
-                    const completedAt = rowValue(
-                      row,
-                      'completed_at',
-                      'updated_at',
-                      'followup_date',
-                      'date'
-                    );
-                    return (
-                      <tr
-                        key={row.id}
-                        className="border-t border-white/5 text-slate-200 hover:bg-white/5"
-                      >
-                        <td className="p-3">
-                          <div className="font-black text-white">{item.name}</div>
-                          <div className="text-xs text-slate-400">
-                            {item.code || 'بدون كود'} · {item.phone || 'بدون رقم'}
-                          </div>
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          {completedAt ? new Date(completedAt).toLocaleString('ar-EG') : '—'}
-                        </td>
-                        <td className="p-3">
-                          {row.responsible_name ||
-                            row.assigned_to ||
-                            row.assigned_doctor ||
-                            row.created_by_name ||
-                            'غير محدد'}
-                        </td>
-                        <td className="p-3">
-                          <Badge>{resultOf(row)}</Badge>
-                        </td>
-                        <td className="p-3">{row.customer_satisfaction || 'غير واضح'}</td>
-                        <td className="p-3 whitespace-nowrap">
-                          {row.next_followup_date
-                            ? new Date(row.next_followup_date).toLocaleDateString('ar-EG')
-                            : '—'}
-                        </td>
-                        <td className="p-3">
-                          <div className="font-black text-emerald-200">
-                            {formatCurrency(rowNumber(row, 'purchase_amount'))}
-                          </div>
-                          <div className="text-xs text-slate-400">
-                            {row.purchase_invoice_no || 'بدون فاتورة'}
-                          </div>
-                        </td>
-                        <td className="p-3">{row.quality_rating ?? '—'} / 5</td>
-                        <td className="p-3">
-                          <div className="flex gap-2">
-                            <button
-                              className="btn-secondary flex items-center gap-1"
-                              onClick={() => setDetailsRow(row)}
-                            >
-                              <Eye size={15} /> التفاصيل
-                            </button>
-                            <a
-                              className="btn-secondary"
-                              href={customerProfileUrl(item)}
-                            >
-                              360
-                            </a>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="space-y-2">
+              {historyRows.map((row) => {
+                const item = followupToItem(row);
+                const completedAt = rowValue(
+                  row,
+                  'completed_at',
+                  'updated_at',
+                  'followup_date',
+                  'date'
+                );
+                const responsible =
+                  row.responsible_name ||
+                  row.assigned_to ||
+                  row.assigned_doctor ||
+                  row.created_by_name ||
+                  'غير محدد';
+                const purchaseAmount = rowNumber(row, 'purchase_amount');
+                return (
+                  <article
+                    key={row.id}
+                    className="rounded-2xl border border-white/10 bg-slate-950/20 p-4 transition hover:border-teal-400/25 hover:bg-white/[0.04]"
+                  >
+                    <div className="grid gap-4 xl:grid-cols-[minmax(230px,1.25fr)_minmax(180px,1fr)_minmax(260px,1.35fr)_auto] xl:items-center">
+                      <div className="min-w-0">
+                        <div className="truncate text-base font-black text-white">{item.name}</div>
+                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs font-bold text-slate-400">
+                          <span>كود: {item.code || 'غير متاح'}</span>
+                          <span>·</span>
+                          <span dir="ltr">{item.phone || 'بدون رقم'}</span>
+                        </div>
+                        <div className="mt-2 text-xs font-bold text-slate-300">
+                          المسؤول: <span className="text-white">{responsible}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Badge>{resultOf(row)}</Badge>
+                        <div className="mt-2 text-xs font-bold text-slate-400">
+                          {completedAt
+                            ? new Date(completedAt).toLocaleString('ar-EG', {
+                                dateStyle: 'medium',
+                                timeStyle: 'short',
+                              })
+                            : 'وقت التنفيذ غير مسجل'}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <Info label="رضا العميل" value={row.customer_satisfaction || 'غير واضح'} />
+                        <Info
+                          label="التقييم"
+                          value={row.quality_rating ? `${row.quality_rating} / 5` : 'غير مكتمل'}
+                        />
+                        <Info
+                          label="الشراء بعد المتابعة"
+                          value={purchaseAmount > 0 ? formatCurrency(purchaseAmount) : 'لا يوجد شراء مسجل'}
+                        />
+                        <Info
+                          label="المتابعة القادمة"
+                          value={
+                            row.next_followup_date
+                              ? new Date(row.next_followup_date).toLocaleDateString('ar-EG')
+                              : 'لا توجد'
+                          }
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 xl:flex-col">
+                        <button
+                          className="btn-primary flex flex-1 items-center justify-center gap-1 whitespace-nowrap"
+                          onClick={() => setDetailsRow(row)}
+                        >
+                          <Eye size={15} /> عرض التفاصيل
+                        </button>
+                        <button
+                          className="btn-secondary flex flex-1 items-center justify-center whitespace-nowrap"
+                          onClick={() => setResultRow(row)}
+                        >
+                          تعديل النتيجة
+                        </button>
+                        <a
+                          className="btn-secondary flex flex-1 items-center justify-center whitespace-nowrap"
+                          href={customerProfileUrl(item)}
+                        >
+                          ملف العميل 360
+                        </a>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
               {!historyRows.length && <Empty text="لا توجد متابعات مطابقة للفلاتر الحالية." />}
             </div>
           </div>
@@ -2141,7 +2201,14 @@ function FollowupDetails({ row, onClose }: { row: FollowupRow; onClose: () => vo
                 : 'لا توجد'
             }
           />
-          <Info label="قيمة الشراء" value={formatCurrency(rowNumber(row, 'purchase_amount'))} />
+          <Info
+            label="قيمة الشراء"
+            value={
+              rowNumber(row, 'purchase_amount') > 0
+                ? formatCurrency(rowNumber(row, 'purchase_amount'))
+                : 'لا يوجد شراء مسجل'
+            }
+          />
         </div>
         <div className="mt-4 space-y-4">
           <Panel title="ملخص المتابعة">
@@ -2176,13 +2243,15 @@ function Stat({
   icon: Icon,
   label,
   value,
+  compact = false,
 }: {
   icon: React.ElementType;
   label: string;
   value: number;
+  compact?: boolean;
 }) {
   return (
-    <div className="stat-card">
+    <div className={compact ? 'rounded-2xl border border-white/10 bg-[#10243d] p-3' : 'stat-card'}>
       <div className="flex items-center gap-3">
         <div className="rounded-xl bg-teal-500/15 p-2 text-teal-300">
           <Icon size={19} />
@@ -2195,9 +2264,9 @@ function Stat({
     </div>
   );
 }
-function MoneyStat({ label, value }: { label: string; value: number }) {
+function MoneyStat({ label, value, compact = false }: { label: string; value: number; compact?: boolean }) {
   return (
-    <div className="stat-card">
+    <div className={compact ? 'rounded-2xl border border-white/10 bg-[#10243d] p-3' : 'stat-card'}>
       <div className="flex items-center gap-3">
         <div className="rounded-xl bg-emerald-500/15 p-2 text-emerald-300">
           <ShoppingBag size={19} />
