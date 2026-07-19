@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Archive,
@@ -58,6 +58,7 @@ import { buildFollowupScript, followupPriorityScore } from '@/lib/customerServic
 import { createStaffNotification } from '@/lib/staffNotificationService';
 import { supabase } from '@/lib/supabase';
 import FollowupExcelImportModal from '@/components/customerService/FollowupExcelImportModal';
+import { getCustomerFullProfile } from '@/lib/customerProfileService';
 
 type QueueSource = 'doctor_request' | 'yesterday' | 'at_risk' | 'important';
 type WorkspaceTab =
@@ -204,6 +205,16 @@ function cleanReason(value?: string | null) {
 
 function moneyOrUnavailable(value: number) {
   return value > 0 ? formatCurrency(value) : 'لا توجد بيانات';
+}
+
+function customerProfileUrl(item: QueueItem) {
+  const params = new URLSearchParams();
+  const customerId = item.customer?.customer_id || item.customer?.id || item.row?.customer_id;
+  if (customerId) params.set('customerId', customerId);
+  if (item.code) params.set('code', item.code);
+  if (item.phone) params.set('phone', item.phone);
+  if (item.name) params.set('name', item.name);
+  return `/customer-360?${params.toString()}`;
 }
 
 function isCompleted(row?: FollowupRow | null) {
@@ -416,18 +427,29 @@ export default function UnifiedCustomerServiceWorkspace() {
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [resultRow, setResultRow] = useState<FollowupRow | null>(null);
   const [detailsRow, setDetailsRow] = useState<FollowupRow | null>(null);
+  const loadSequence = useRef(0);
+  const selectedProfileSequence = useRef(0);
 
   async function loadWorkspace(options: { silent?: boolean } = {}) {
+    const sequence = ++loadSequence.current;
     const silent = Boolean(options.silent && queue.length > 0);
     if (!silent) setLoading(true);
     if (!silent) setLoadError('');
     try {
-      const [followups, importantResult, atRiskResult, recentResult] = await Promise.all([
+      const results = await Promise.allSettled([
         fetchCustomerServiceFollowups({ branch, limit: 1000 }),
         getCustomers({ branch, type: 'مهم جدًا', limit: 100, offset: 0 }),
         getCustomers({ branch, status: 'مهدد بالتوقف', limit: 100, offset: 0 }),
         getCustomers({ branch, limit: 100, offset: 0 }),
       ]);
+      if (sequence !== loadSequence.current) return;
+      const [followupsResult, importantSettled, atRiskSettled, recentSettled] = results;
+      if (followupsResult.status === 'rejected') throw followupsResult.reason;
+      const followups = followupsResult.value;
+      const emptyCustomers = { customers: [] as CustomerMetric[] };
+      const importantResult = importantSettled.status === 'fulfilled' ? importantSettled.value : emptyCustomers;
+      const atRiskResult = atRiskSettled.status === 'fulfilled' ? atRiskSettled.value : emptyCustomers;
+      const recentResult = recentSettled.status === 'fulfilled' ? recentSettled.value : emptyCustomers;
       setAllFollowups(followups);
       const doctorRequests = followups
         .filter((row) => !isCompleted(row) && sourceFromRow(row) === 'doctor_request')
@@ -558,6 +580,7 @@ export default function UnifiedCustomerServiceWorkspace() {
       );
       setLastSyncedAt(new Date());
     } catch (error) {
+      if (sequence !== loadSequence.current) return;
       console.error(error);
       if (!silent) {
         setLoadError((error as Error).message || 'تعذر تحميل البيانات');
@@ -682,6 +705,50 @@ export default function UnifiedCustomerServiceWorkspace() {
     [...queue, ...doctorRequestQueue, ...upcomingQueue, ...managerQueue].find(
       (item) => item.key === selectedKey
     ) || null;
+
+  useEffect(() => {
+    if (!selected || (!selected.code && !selected.phone && !selected.name)) return;
+    const sequence = ++selectedProfileSequence.current;
+    void getCustomerFullProfile({
+      customer_id: selected.customer?.customer_id || selected.customer?.id || selected.row?.customer_id,
+      customer_code: selected.code,
+      customer_phone: selected.phone,
+      customer_name: selected.name,
+    }).then((profile) => {
+      if (sequence !== selectedProfileSequence.current) return;
+      const metrics = profile.metrics;
+      const raw = profile.profile as Record<string, unknown> | null;
+      setQueue((current) =>
+        current.map((item) => {
+          if (item.key !== selected.key) return item;
+          const hydratedCustomer = metrics || item.customer;
+          const branch = normalizeBranchName(
+            metrics?.branch || String(raw?.branch || '') || item.branch
+          );
+          return {
+            ...item,
+            customer: hydratedCustomer,
+            name: metrics?.customer_name || String(raw?.name || '') || item.name,
+            code: metrics?.customer_code || String(raw?.customer_code || '') || item.code,
+            phone:
+              profile.displayPhone ||
+              metrics?.customer_phone ||
+              metrics?.phone ||
+              String(raw?.phone || '') ||
+              item.phone,
+            branch,
+            segment: metrics?.segment || item.segment,
+            avgMonthly: Number(metrics?.avg_monthly || item.avgMonthly || 0),
+            totalSpent: Number(metrics?.total_spent || item.totalSpent || 0),
+            avgInvoice: Number(metrics?.avg_invoice || item.avgInvoice || 0),
+            lastPurchase: metrics?.last_purchase || item.lastPurchase,
+            branchNeedsReview: !branch,
+            branchEvidence: branch ? 'مؤكد من ملف العميل الكامل' : item.branchEvidence,
+          };
+        })
+      );
+    }).catch((error) => console.warn('Customer profile hydration failed', error));
+  }, [selected?.key, selected?.code, selected?.phone, selected?.name]);
   const selectedDataIssues = selected
     ? [
         !selected.code ? 'كود العميل غير موجود' : '',
@@ -1352,7 +1419,7 @@ export default function UnifiedCustomerServiceWorkspace() {
         tab === 'upcoming' ||
         tab === 'manager' ||
         tab === 'care') && (
-        <section className="grid gap-4 xl:grid-cols-[minmax(440px,1fr)_minmax(0,1.25fr)]">
+        <section className="grid items-start gap-4 xl:grid-cols-[minmax(360px,0.8fr)_minmax(0,1.4fr)]">
           <div className="stat-card min-h-[620px]">
             <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
               <div className="relative">
@@ -1461,7 +1528,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                   <button
                     key={`${item.key}-${item.row?.id || index}`}
                     onClick={() => setSelectedKey(item.key)}
-                    className={`w-full rounded-2xl border p-3 text-right transition ${selectedKey === item.key ? 'border-teal-300/50 bg-teal-500/15' : item.branchNeedsReview ? 'border-amber-400/30 bg-amber-500/5' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}
+                    className={`w-full rounded-xl border p-3 text-right shadow-sm transition ${selectedKey === item.key ? 'border-teal-300/60 bg-teal-500/15 shadow-teal-950/20' : item.branchNeedsReview ? 'border-amber-400/30 bg-amber-500/5' : 'border-white/10 bg-slate-950/20 hover:border-white/20 hover:bg-white/5'}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -1540,7 +1607,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                   <div className="flex gap-2">
                     <a
                       className="btn-secondary"
-                      href={`/customer-360?customerId=${encodeURIComponent(selected.customer?.customer_id || selected.customer?.id || selected.row?.customer_id || '')}&code=${encodeURIComponent(selected.code)}`}
+                      href={customerProfileUrl(selected)}
                     >
                       ملف العميل
                     </a>
@@ -1920,7 +1987,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                             </button>
                             <a
                               className="btn-secondary"
-                              href={`/customer-360?customerId=${encodeURIComponent(item.customer?.customer_id || item.customer?.id || row.customer_id || '')}&code=${encodeURIComponent(item.code)}`}
+                              href={customerProfileUrl(item)}
                             >
                               360
                             </a>
