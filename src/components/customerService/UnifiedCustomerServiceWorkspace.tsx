@@ -243,6 +243,11 @@ function followupToItem(row: FollowupRow, source = sourceFromRow(row)): QueueIte
   };
 }
 
+function followupRequestToItem(row: FollowupRow, source = sourceFromRow(row)): QueueItem {
+  const item = followupToItem(row, source);
+  return { ...item, key: `followup:${row.id}` };
+}
+
 function customerToItem(customer: CustomerMetric, source: QueueSource, reason: string): QueueItem {
   const priority = followupPriorityScore({
     source,
@@ -570,7 +575,7 @@ export default function UnifiedCustomerServiceWorkspace() {
     () =>
       allFollowups
         .filter((row) => !isCompleted(row) && sourceFromRow(row) === 'doctor_request')
-        .map((row) => followupToItem(row, 'doctor_request'))
+        .map((row) => followupRequestToItem(row, 'doctor_request'))
         .sort((a, b) => b.priorityScore - a.priorityScore),
     [allFollowups]
   );
@@ -578,7 +583,7 @@ export default function UnifiedCustomerServiceWorkspace() {
     () =>
       allFollowups
         .filter((row) => !isCompleted(row) && Boolean(row.next_followup_date))
-        .map((row) => followupToItem(row))
+        .map((row) => followupRequestToItem(row))
         .sort((a, b) =>
           String(a.row?.next_followup_date || '').localeCompare(
             String(b.row?.next_followup_date || '')
@@ -597,7 +602,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                 `${resultOf(row)} ${row.followup_reason || ''} ${row.request_details || ''}`
               ))
         )
-        .map((row) => followupToItem(row))
+        .map((row) => followupRequestToItem(row))
         .sort((a, b) => b.priorityScore - a.priorityScore),
     [allFollowups]
   );
