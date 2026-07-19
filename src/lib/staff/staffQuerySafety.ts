@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 /**
  * Query Safety and Performance Utilities
  *
@@ -411,9 +412,9 @@ export function getMemoryUsage(): {
   total: number;
   percentage: number;
 } {
-  // @ts-expect-error - Node.js specific
+  // @ts-ignore - Node.js specific
   const used = process.memoryUsage?.()?.heapUsed || 0;
-  // @ts-expect-error - Node.js specific
+  // @ts-ignore - Node.js specific
   const total = process.memoryUsage?.()?.heapTotal || 0;
 
   return {

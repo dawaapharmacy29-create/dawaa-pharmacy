@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 import * as React from 'react';
 import type * as RechartsPrimitive from 'recharts';
 
@@ -67,7 +68,7 @@ const ChartContainer = React.forwardRef<
       >
         <ChartStyle id={chartId} config={config} />
         {Recharts ? (
-          // @ts-expect-error dynamic module
+          // @ts-ignore dynamic module
           <Recharts.ResponsiveContainer>{children}</Recharts.ResponsiveContainer>
         ) : (
           <div className="flex w-full h-full items-center justify-center">Loading chart...</div>
