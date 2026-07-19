@@ -100,7 +100,7 @@ export default function CustomerServiceExecutionDashboard({ branch }: { branch: 
         total: today.total_count,
         completed: today.completed_count,
         needsManager: today.needs_manager_count,
-        metadata: { triggered_by: user?.staff_id || user?.id || null, triggered_by_name: user?.name || null },
+        metadata: { triggered_by: user?.staffId || user?.id || null, triggered_by_name: user?.name || null },
       });
       toast.success(saved ? 'تم تسجيل التصعيد وإرساله للمراجعة' : 'سجل التصعيد غير جاهز؛ شغّل الـSQL أولًا');
     } catch (error) {
