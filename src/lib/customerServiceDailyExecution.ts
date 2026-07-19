@@ -367,18 +367,16 @@ export async function appendFollowupEvent(input: {
   notes?: string | null;
   metadata?: Record<string, unknown>;
 }) {
-  const { error } = await supabase
-    .from('customer_service_followup_events')
-    .insert({
-      followup_id: input.followupId || null,
-      queue_item_id: input.queueItemId || null,
-      event_type: input.eventType,
-      event_status: input.status || null,
-      actor_staff_id: input.actorStaffId || null,
-      actor_name: input.actorName || null,
-      notes: input.notes || null,
-      metadata: input.metadata || {},
-    });
+  const { error } = await supabase.from('customer_service_followup_events').insert({
+    followup_id: input.followupId || null,
+    queue_item_id: input.queueItemId || null,
+    event_type: input.eventType,
+    event_status: input.status || null,
+    actor_staff_id: input.actorStaffId || null,
+    actor_name: input.actorName || null,
+    notes: input.notes || null,
+    metadata: input.metadata || {},
+  });
   if (error && !missingRelation(error.message)) throw error;
 }
 
@@ -405,13 +403,19 @@ export async function notifyIncompleteDailyQueue(input: {
     .in('role', roles)
     .limit(100);
   if (accounts.error) return;
-  const recipients = (accounts.data || []).filter((row) => {
+  const eligibleRecipients = (accounts.data || []).filter((row) => {
     if (row.active === false || text(row.status).includes('موقوف')) return false;
     const role = text(row.role);
     if (role === 'branch_manager' || role === 'customer_service_manager')
       return !row.branch || sameBranch(row.branch, input.branch);
     return true;
   });
+  const recipientsByStaffId = new Map<string, (typeof eligibleRecipients)[number]>();
+  for (const row of eligibleRecipients) {
+    const staffId = text(row.staff_id || row.id);
+    if (staffId && !recipientsByStaffId.has(staffId)) recipientsByStaffId.set(staffId, row);
+  }
+  const recipients = [...recipientsByStaffId.values()];
   const remaining = Math.max(0, input.total - input.completed);
   await Promise.allSettled(
     recipients.map((row) =>
