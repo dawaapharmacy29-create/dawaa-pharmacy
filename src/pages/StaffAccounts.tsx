@@ -287,7 +287,15 @@ export default function StaffAccounts() {
 
   async function createAccount(staff: StaffRow) {
     if (!canEdit) return toast.error('لا توجد صلاحية لإنشاء الحساب.');
-    const username = generateUsername(staff.name);
+    if (accounts.some((account) => account.staff_id === staff.id))
+      return toast.error('هذا الموظف مرتبط بحساب بالفعل. افتح الحساب الحالي بدل إنشاء حساب مكرر.');
+    const baseUsername = generateUsername(staff.name);
+    let username = baseUsername;
+    let suffix = 2;
+    while (accounts.some((account) => String(account.username || '').trim().toLowerCase() === username.toLowerCase())) {
+      username = `${baseUsername}.${suffix}`;
+      suffix += 1;
+    }
     const pin = generatePin();
     const role = normalizeRole(staff.role);
     const preset = getPresetForRole(role);
@@ -328,6 +336,11 @@ export default function StaffAccounts() {
 
     if (!name) return toast.error('اسم الموظف مطلوب.');
     if (!username) return toast.error('اسم المستخدم مطلوب.');
+    if (!branch && (editor.active || editor.canLogin)) return toast.error('لا يمكن تفعيل حساب بدون فرع أو قسم.');
+    if (accounts.some((account) => account.id !== editor.account.id && String(account.username || '').trim().toLowerCase() === username))
+      return toast.error('اسم المستخدم مستخدم في حساب آخر. اختر اسمًا مختلفًا.');
+    if (editor.account.staff_id && accounts.some((account) => account.id !== editor.account.id && account.staff_id === editor.account.staff_id))
+      return toast.error('يوجد حساب آخر مرتبط بنفس الموظف. يجب مراجعة الحساب المكرر أولًا.');
     if (editor.pin && !validatePin(editor.pin))
       return toast.error('الرقم السري يجب أن يكون 4 أرقام فقط.');
     if ((editor.active || editor.canLogin) && !editor.account.staff_id)
