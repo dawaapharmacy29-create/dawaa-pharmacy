@@ -1,6 +1,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+// GitHub quality gates must be read-only. The legacy repair remains available
+// for the current local/Vercel build flow, but must never mutate an Actions checkout.
+if (process.env.GITHUB_ACTIONS === 'true') {
+  console.log('✓ تخطي إصلاح قائمة المتابعات الكتابي داخل GitHub Actions');
+  process.exit(0);
+}
+
 const file = path.join(
   process.cwd(),
   'src/components/customerService/UnifiedCustomerServiceWorkspace.tsx'
@@ -27,26 +34,158 @@ replaceOnce(
 );
 
 replaceOnce(
-  `    key: normalizeKey(\n      row.customer_code,\n      row.customer_phone,\n      row.phone,\n      row.customer_id,\n      row.customer_name\n    ),`,
-  `    key: normalizeKey(\n      row.customer_id,\n      row.customer_code,\n      normalizePhone(row.customer_phone || row.phone),\n      row.customer_name\n    ),`,
+  `    key: normalizeKey(
+      row.customer_code,
+      row.customer_phone,
+      row.phone,
+      row.customer_id,
+      row.customer_name
+    ),`,
+  `    key: normalizeKey(
+      row.customer_id,
+      row.customer_code,
+      normalizePhone(row.customer_phone || row.phone),
+      row.customer_name
+    ),`,
   'تقديم معرف العميل على الكود والهاتف في مفتاح منع التكرار'
 );
 
 replaceOnce(
-  `    key: normalizeKey(\n      customer.customer_code,\n      customer.customer_phone,\n      customer.phone,\n      customer.customer_id,\n      customer.customer_name\n    ),`,
-  `    key: normalizeKey(\n      customer.customer_id,\n      customer.customer_code,\n      normalizePhone(customer.customer_phone || customer.phone),\n      customer.customer_name\n    ),`,
+  `    key: normalizeKey(
+      customer.customer_code,
+      customer.customer_phone,
+      customer.phone,
+      customer.customer_id,
+      customer.customer_name
+    ),`,
+  `    key: normalizeKey(
+      customer.customer_id,
+      customer.customer_code,
+      normalizePhone(customer.customer_phone || customer.phone),
+      customer.customer_name
+    ),`,
   'توحيد مفتاح العملاء القادمين من التحليلات'
 );
 
 replaceOnce(
-  `      const finalQueue = snapshot.items.filter(\n        (saved) =>\n          saved.status === 'completed' ||\n          saved.source !== 'at_risk' ||\n          (!staleCodes.has(String(saved.code || '').trim()) &&\n            !stalePhones.has(normalizePhone(saved.phone)))\n      ).map((saved) => {`,
-  `      const finalQueue = snapshot.items.filter(\n        (saved) =>\n          saved.status !== 'completed' &&\n          (saved.source !== 'at_risk' ||\n            (!staleCodes.has(String(saved.code || '').trim()) &&\n              !stalePhones.has(normalizePhone(saved.phone))))\n      ).map((saved) => {`,
+  `      const finalQueue = snapshot.items.filter(
+        (saved) =>
+          saved.status === 'completed' ||
+          saved.source !== 'at_risk' ||
+          (!staleCodes.has(String(saved.code || '').trim()) &&
+            !stalePhones.has(normalizePhone(saved.phone)))
+      ).map((saved) => {`,
+  `      const finalQueue = snapshot.items.filter(
+        (saved) =>
+          saved.status !== 'completed' &&
+          (saved.source !== 'at_risk' ||
+            (!staleCodes.has(String(saved.code || '').trim()) &&
+              !stalePhones.has(normalizePhone(saved.phone))))
+      ).map((saved) => {`,
   'إزالة المتابعات المكتملة من المطلوب الآن مع بقائها في السجل'
 );
 
 replaceOnce(
-  `    const headers = [\n      'العميل',\n      'الكود',\n      'الهاتف',\n      'الفرع',\n      'حالة الفرع',\n      'النوع',\n      'الأولوية',\n      'سبب الأولوية',\n      'مقدم الطلب',\n      'سبب المتابعة',\n      'الحالة',\n      'الموعد القادم',\n    ];\n    const rows = visibleQueue.map((item) => [\n      item.name,\n      item.code,\n      item.phone,\n      item.branch,\n      item.branchEvidence,\n      queueLabel(item),\n      item.priority,\n      item.priorityReason,\n      item.requestedBy,\n      item.reason,\n      resultOf(item.row),\n      item.row?.next_followup_date || '',\n    ]);`,
-  `    const headers = [\n      'معرف المتابعة',\n      'معرف العميل',\n      'العميل',\n      'الكود',\n      'الهاتف',\n      'الفرع',\n      'حالة الفرع',\n      'النوع',\n      'الأولوية',\n      'سبب الأولوية',\n      'مقدم الطلب',\n      'سبب المتابعة',\n      'حالة المتابعة',\n      'حالة قائمة اليوم',\n      'تاريخ إنشاء الطلب',\n      'أول محاولة',\n      'عدد المحاولات',\n      'الموعد القادم',\n      'آخر شراء',\n      'أيام منذ آخر شراء',\n      'المتوسط الشهري',\n      'متوسط الفاتورة',\n      'إجمالي المشتريات',\n      'حالة جودة البيانات',\n      'مشكلات البيانات',\n      'عدد الطلبات المفتوحة المرتبطة',\n    ];\n    const rows = visibleQueue.map((item) => {\n      const issues = [\n        !item.code ? 'كود العميل غير موجود' : '',\n        !item.phone ? 'رقم الهاتف غير موجود' : '',\n        item.phone && normalizePhone(item.phone).length < 10 ? 'رقم الهاتف غير صالح' : '',\n        !item.branch ? 'الفرع غير محدد' : '',\n        item.branchNeedsReview ? 'بيانات الفرع تحتاج مراجعة' : '',\n        !item.reason || item.reason === '0' ? 'سبب المتابعة غير واضح' : '',\n        !item.requestedBy || item.requestedBy === 'غير محدد' ? 'مقدم الطلب غير محدد' : '',\n        !item.completed && OPEN_RESULTS.has(resultOf(item.row)) && !item.row?.next_followup_date\n          ? 'الحالة مفتوحة بدون موعد قادم'\n          : '',\n      ].filter(Boolean);\n      const customerId =\n        item.customer?.customer_id || item.customer?.id || item.row?.customer_id || '';\n      return [\n        item.row?.id || item.row?.linked_followup_id || '',\n        customerId,\n        item.name,\n        item.code,\n        item.phone,\n        item.branch,\n        item.branchEvidence,\n        queueLabel(item),\n        item.priority,\n        item.priorityReason,\n        item.requestedBy,\n        item.reason,\n        resultOf(item.row),\n        item.completed ? 'مكتملة' : item.status,\n        item.row?.created_at || item.row?.date || item.row?.followup_date || '',\n        rowValue(item.row, 'first_attempt_at'),\n        rowNumber(item.row, 'attempt_count', 'contact_attempts_count'),\n        item.row?.next_followup_date || '',\n        item.lastPurchase,\n        daysSince(item.lastPurchase) ?? '',\n        item.avgMonthly,\n        item.avgInvoice,\n        item.totalSpent,\n        issues.length ? 'تحتاج مراجعة' : 'مكتملة',\n        issues.join(' | '),\n        item.openRequestCount || 1,\n      ];\n    });`,
+  `    const headers = [
+      'العميل',
+      'الكود',
+      'الهاتف',
+      'الفرع',
+      'حالة الفرع',
+      'النوع',
+      'الأولوية',
+      'سبب الأولوية',
+      'مقدم الطلب',
+      'سبب المتابعة',
+      'الحالة',
+      'الموعد القادم',
+    ];
+    const rows = visibleQueue.map((item) => [
+      item.name,
+      item.code,
+      item.phone,
+      item.branch,
+      item.branchEvidence,
+      queueLabel(item),
+      item.priority,
+      item.priorityReason,
+      item.requestedBy,
+      item.reason,
+      resultOf(item.row),
+      item.row?.next_followup_date || '',
+    ]);`,
+  `    const headers = [
+      'معرف المتابعة',
+      'معرف العميل',
+      'العميل',
+      'الكود',
+      'الهاتف',
+      'الفرع',
+      'حالة الفرع',
+      'النوع',
+      'الأولوية',
+      'سبب الأولوية',
+      'مقدم الطلب',
+      'سبب المتابعة',
+      'حالة المتابعة',
+      'حالة قائمة اليوم',
+      'تاريخ إنشاء الطلب',
+      'أول محاولة',
+      'عدد المحاولات',
+      'الموعد القادم',
+      'آخر شراء',
+      'أيام منذ آخر شراء',
+      'المتوسط الشهري',
+      'متوسط الفاتورة',
+      'إجمالي المشتريات',
+      'حالة جودة البيانات',
+      'مشكلات البيانات',
+      'عدد الطلبات المفتوحة المرتبطة',
+    ];
+    const rows = visibleQueue.map((item) => {
+      const issues = [
+        !item.code ? 'كود العميل غير موجود' : '',
+        !item.phone ? 'رقم الهاتف غير موجود' : '',
+        item.phone && normalizePhone(item.phone).length < 10 ? 'رقم الهاتف غير صالح' : '',
+        !item.branch ? 'الفرع غير محدد' : '',
+        item.branchNeedsReview ? 'بيانات الفرع تحتاج مراجعة' : '',
+        !item.reason || item.reason === '0' ? 'سبب المتابعة غير واضح' : '',
+        !item.requestedBy || item.requestedBy === 'غير محدد' ? 'مقدم الطلب غير محدد' : '',
+        !item.completed && OPEN_RESULTS.has(resultOf(item.row)) && !item.row?.next_followup_date
+          ? 'الحالة مفتوحة بدون موعد قادم'
+          : '',
+      ].filter(Boolean);
+      const customerId =
+        item.customer?.customer_id || item.customer?.id || item.row?.customer_id || '';
+      return [
+        item.row?.id || item.row?.linked_followup_id || '',
+        customerId,
+        item.name,
+        item.code,
+        item.phone,
+        item.branch,
+        item.branchEvidence,
+        queueLabel(item),
+        item.priority,
+        item.priorityReason,
+        item.requestedBy,
+        item.reason,
+        resultOf(item.row),
+        item.completed ? 'مكتملة' : item.status,
+        item.row?.created_at || item.row?.date || item.row?.followup_date || '',
+        rowValue(item.row, 'first_attempt_at'),
+        rowNumber(item.row, 'attempt_count', 'contact_attempts_count'),
+        item.row?.next_followup_date || '',
+        item.lastPurchase,
+        daysSince(item.lastPurchase) ?? '',
+        item.avgMonthly,
+        item.avgInvoice,
+        item.totalSpent,
+        issues.length ? 'تحتاج مراجعة' : 'مكتملة',
+        issues.join(' | '),
+        item.openRequestCount || 1,
+      ];
+    });`,
   'توسيع تصدير القائمة وإضافة تشخيص جودة البيانات والتكرار'
 );
 
