@@ -53,7 +53,8 @@ export async function recordContactAttempt(input: ContactAttemptInput) {
   if (!current.data?.first_attempt_at) payload.first_attempt_at = now;
 
   const updated = await supabase.from('daily_followups').update(payload).eq('id', input.followupId);
-  if (updated.error && !missingColumn(updated.error.message)) throw new Error(updated.error.message);
+  if (updated.error && !missingColumn(updated.error.message))
+    throw new Error(updated.error.message);
 
   await Promise.allSettled([
     appendFollowupEvent({
@@ -71,7 +72,10 @@ export async function recordContactAttempt(input: ContactAttemptInput) {
       },
     }),
     input.queueItemId
-      ? updateDailyQueueItem(input.queueItemId, { status: input.attemptType === 'connected' ? 'in_progress' : 'attempted', started: true })
+      ? updateDailyQueueItem(input.queueItemId, {
+          status: input.attemptType === 'connected' ? 'in_progress' : 'attempted',
+          started: true,
+        })
       : Promise.resolve(),
   ]);
 
@@ -87,7 +91,8 @@ export function getFollowupSla(input: {
   startedAt?: string | null;
   completed?: boolean;
 }) {
-  if (input.completed) return { state: 'completed' as SlaState, label: 'مكتمل', limitMinutes: 0, elapsedMinutes: 0 };
+  if (input.completed)
+    return { state: 'completed' as SlaState, label: 'مكتمل', limitMinutes: 0, elapsedMinutes: 0 };
 
   const source = text(input.source).toLowerCase();
   const priority = text(input.priority).toLowerCase();
@@ -103,6 +108,19 @@ export function getFollowupSla(input: {
   const ratio = limitMinutes ? elapsedMinutes / limitMinutes : 0;
   const state: SlaState = ratio >= 1 ? 'overdue' : ratio >= 0.75 ? 'warning' : 'safe';
   const remaining = Math.max(0, limitMinutes - elapsedMinutes);
-  const label = state === 'overdue' ? `متأخر ${elapsedMinutes - limitMinutes} د` : state === 'warning' ? `متبقي ${remaining} د` : `داخل الوقت · ${remaining} د`;
+  const duration = (minutes: number) => {
+    if (minutes < 60) return `${minutes} د`;
+    if (minutes < 1440) return `${Math.ceil(minutes / 60)} س`;
+    return `${Math.ceil(minutes / 1440)} يوم`;
+  };
+  const overdueMinutes = Math.max(0, elapsedMinutes - limitMinutes);
+  const label =
+    state === 'overdue'
+      ? overdueMinutes > 10080
+        ? 'متأخر أكثر من أسبوع'
+        : `متأخر ${duration(overdueMinutes)}`
+      : state === 'warning'
+        ? `متبقي ${duration(remaining)}`
+        : `داخل الوقت · ${duration(remaining)}`;
   return { state, label, limitMinutes, elapsedMinutes };
 }
