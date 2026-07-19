@@ -154,7 +154,7 @@ async function fetchOnePageOnce(
   const from = page * pageSize;
   const to = from + pageSize - 1;
   const endExclusive = nextDay(endDate);
-  const result = await withTimeout(
+  const result = await withTimeout<{ data: unknown[] | null; error: unknown }>(
     supabase
       .from('sales_invoices')
       .select(selectField)
@@ -168,7 +168,7 @@ async function fetchOnePageOnce(
   );
   return {
     data: (result.data || []) as unknown as SalesInvoiceQueryRow[],
-    error: result.error as Error | null,
+    error: result.error ? (result.error instanceof Error ? result.error : new Error(String((result.error as { message?: string }).message || result.error))) : null,
   };
 }
 
