@@ -132,6 +132,7 @@ const TABS = [
   ['notes', 'ملاحظات العميل'],
   ['alerts', 'تنبيهات العملاء'],
   ['history', 'سجل المتابعات'],
+  ['hidden', 'المتابعات المخفية'],
   ['welcome', 'الرسائل الترحيبية'],
   ['data-review', 'مراجعة البيانات'],
   ['scripts', 'قوالب واتساب'],
@@ -162,6 +163,7 @@ const PRIMARY_TABS: Array<[TabId, string]> = [
   ['requests', 'طلبات المتابعة'],
   ['finish', 'إنهاء متابعة'],
   ['history', 'سجل المتابعات'],
+  ['hidden', 'المتابعات المخفية'],
   ['add', 'إضافة متابعة'],
 ];
 
@@ -1307,6 +1309,8 @@ export default function CustomerService() {
   const canHideFollowups = ['general_manager', 'executive_manager', 'branches_manager', 'customer_service_manager'].includes(normalizeRole(userRole));
   const [activeTab, setActiveTabState] = useState<TabId>(TABS.some(([id]) => id === requestedTab) ? requestedTab! : 'today');
   const [rows, setRows] = useState<FollowupRow[]>([]);
+  const [hiddenRows, setHiddenRows] = useState<FollowupRow[]>([]);
+  const [hiddenLoading, setHiddenLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -1565,6 +1569,32 @@ export default function CustomerService() {
   useEffect(() => {
     void load(!firstLoadRef.current);
   }, [load]);
+
+  const loadHiddenFollowups = useCallback(async () => {
+    if (!canHideFollowups) return;
+    setHiddenLoading(true);
+    try {
+      let query = supabase
+        .from('daily_followups')
+        .select('*')
+        .eq('is_hidden', true)
+        .order('hidden_at', { ascending: false })
+        .limit(250);
+      if (!serviceCanAllBranches) query = query.eq('branch', serviceBranchOverride || userBranch);
+      else if (branch !== ALL_FILTER) query = query.eq('branch', branch);
+      const { data, error } = await query;
+      if (error) throw error;
+      setHiddenRows(((data || []) as FollowupRow[]).filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)));
+    } catch (hiddenError) {
+      toast.error(`تعذر تحميل المتابعات المخفية: ${hiddenError instanceof Error ? hiddenError.message : 'خطأ غير متوقع'}`);
+    } finally {
+      setHiddenLoading(false);
+    }
+  }, [branch, canHideFollowups, serviceBranchOverride, serviceCanAllBranches, user, userBranch]);
+
+  useEffect(() => {
+    if (activeTab === 'hidden') void loadHiddenFollowups();
+  }, [activeTab, loadHiddenFollowups]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1969,6 +1999,18 @@ export default function CustomerService() {
     setDetailsRow((current) => (current?.id === row.id ? null : current));
     setResultRow((current) => (current?.id === row.id ? null : current));
     toast.success('تم إخفاء المتابعة مع الاحتفاظ بها في السجل.');
+  };
+
+  const restoreFollowup = async (row: FollowupRow) => {
+    if (!canHideFollowups) return toast.error('استعادة المتابعة متاحة للمدير المسؤول فقط.');
+    const { error } = await supabase
+      .from('daily_followups')
+      .update({ is_hidden: false, hidden_at: null, hidden_by: null, hidden_reason: null, updated_at: new Date().toISOString() })
+      .eq('id', row.id);
+    if (error) return toast.error(`تعذر استعادة المتابعة: ${error.message}`);
+    setHiddenRows((current) => current.filter((item) => item.id !== row.id));
+    toast.success('تمت استعادة المتابعة إلى قوائم العمل.');
+    void load(true);
   };
 
   const saveResult = async (result: FollowupResultData) => {
@@ -2777,7 +2819,45 @@ const addFollowup = async () => {
             </div>
           </details>
 
-          {cardsTabs.includes(activeTab) ? (
+          {activeTab === 'hidden' ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-black text-white">المتابعات المخفية</h3>
+                  <p className="text-xs text-slate-400">سجل آمن لا يحذف البيانات، مع سبب الإخفاء والمنفذ وإمكانية الاستعادة.</p>
+                </div>
+                <button className="btn-secondary" onClick={() => void loadHiddenFollowups()} disabled={hiddenLoading}>
+                  <RefreshCw className={`ml-1 inline h-4 w-4 ${hiddenLoading ? 'animate-spin' : ''}`} /> تحديث
+                </button>
+              </div>
+              {!canHideFollowups ? (
+                <EmptyState message="هذه الصفحة متاحة للمدير المسؤول فقط." />
+              ) : hiddenRows.length ? (
+                <div className="grid gap-3 xl:grid-cols-2">
+                  {hiddenRows.map((row) => (
+                    <article key={row.id} className="rounded-2xl border border-amber-500/25 bg-amber-500/5 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <h4 className="font-black text-white">{customerName(row)}</h4>
+                          <p className="mt-1 text-xs text-slate-400">{getCustomerCodeSafe(row) || 'بدون كود'} · {row.branch || 'بدون فرع'}</p>
+                        </div>
+                        <span className="rounded-full border border-amber-400/30 px-2 py-1 text-xs font-black text-amber-100">مخفية</span>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-sm text-slate-300">
+                        <InfoRow label="سبب الإخفاء" value={row.hidden_reason || 'غير مسجل'} />
+                        <InfoRow label="تم بواسطة" value={row.hidden_by || 'غير محدد'} />
+                        <InfoRow label="وقت الإخفاء" value={formatDateTime(row.hidden_at)} />
+                        <InfoRow label="سبب المتابعة الأصلي" value={row.followup_reason || row.request_details || 'غير محدد'} />
+                      </div>
+                      <button className="btn-primary mt-4 w-full" onClick={() => void restoreFollowup(row)}>استعادة المتابعة</button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState message={hiddenLoading ? 'جاري تحميل المتابعات المخفية...' : 'لا توجد متابعات مخفية في النطاق الحالي.'} />
+              )}
+            </div>
+          ) : cardsTabs.includes(activeTab) ? (
             <>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-300">
                 <span>يتم عرض {visibleRows.length} من {operationRows.length} متابعة مرتبة حسب الأولوية والتشغيل.</span>
