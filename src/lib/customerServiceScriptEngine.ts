@@ -20,31 +20,50 @@ export type ScriptPack = {
   whatsapp: string;
 };
 
-function firstName(value: string) {
-  return value.trim().split(/\s+/)[0] || 'حضرتك';
+function customerGreeting(value: string) {
+  const cleaned = String(value || '')
+    .replace(/\++/g, ' ')
+    .replace(/^(?:أ\/?|ا\/?|د\/?|دكتور(?:ة)?|أستاذ(?:ة)?)\s*/i, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned || /^(?:غير محدد|عميل|بدون اسم|مجهول)$/i.test(cleaned)) return 'يا فندم';
+  const nameParts = cleaned.split(/\s+/);
+  if (nameParts.length > 1 && nameParts[0].length === 1) nameParts.shift();
+  const displayName = nameParts.slice(0, 2).join(' ');
+  return displayName ? `يا أستاذ ${displayName}` : 'يا فندم';
 }
 
-function reasonText(value?: string | null) {
+function publicReason(value?: string | null) {
   const reason = String(value || '')
     .replace(/\[بدون رقم صحيح\]|المصدر\s*:[^\n|]+/gi, '')
     .replace(/[|]+/g, ' · ')
     .replace(/\s+/g, ' ')
     .trim();
-  return reason && !/طلب متابعة|متابعة العميل/i.test(reason)
-    ? reason
-    : 'الاطمئنان على حضرتك والتأكد إن كل احتياجاتك تمت بشكل مناسب';
+  const looksInternal =
+    !reason ||
+    /طلب متابعة|متابعة العميل|عميل مهم|مهم جدًا|مهم جدا|يجب متابعته|متابعته كويس|أولوية|استثنائي|غير مصنف|doctor[_ -]?request/i.test(
+      reason
+    );
+  return looksInternal ? '' : reason.replace(/^(?:بخصوص|بسبب)\s*/i, '').trim();
+}
+
+function validPersonName(value?: string | null) {
+  const name = String(value || '').replace(/\s+/g, ' ').trim();
+  return name && !/^(?:غير محدد|غير معروف|لا يوجد|بدون|النظام الذكي)$/i.test(name) ? name : '';
 }
 
 export function buildFollowupScript(context: FollowupScriptContext): ScriptPack {
-  const name = firstName(context.customerName);
+  const greeting = customerGreeting(context.customerName);
   const agent = context.agentName || 'فريق خدمة العملاء';
-  const doctor = String(context.doctorName || '').trim();
-  const reason = reasonText(context.reason);
+  const doctor = validPersonName(context.doctorName);
+  const reason = publicReason(context.reason);
   const text = `${context.source || ''} ${context.reason || ''} ${context.result || ''}`;
-  const intro = `أهلًا بحضرتك يا أ/ ${name}، مع حضرتك ${agent} من خدمة عملاء صيدليات دواء.`;
+  const intro = `أهلًا بحضرتك ${greeting}، مع حضرتك ${agent} من خدمة عملاء صيدليات دواء.`;
 
   if (/شكوى|غاضب|تأخير|مشكلة|تصعيد/i.test(text)) {
-    const opening = `${intro} أنا بتواصل مع حضرتك بنفسي بخصوص ${reason}. حق حضرتك علينا إننا نفهم اللي حصل كامل ونوصل لحل يرضيك.`;
+    const subject = reason ? ` بخصوص ${reason}` : '';
+    const opening = `${intro} بتواصل مع حضرتك${subject} علشان أفهم اللي حصل بالتفصيل وأساعد حضرتك نوصل لحل مناسب.`;
     return {
       title: 'احتواء شكوى واسترجاع رضا العميل',
       objective: 'فهم المشكلة كاملة، تهدئة العميل، وتحديد حل بموعد ومسؤول واضحين.',
@@ -73,8 +92,9 @@ export function buildFollowupScript(context: FollowupScriptContext): ScriptPack 
   }
 
   if (/doctor|طلب دكتور|طلب متابعة/i.test(text) || doctor) {
-    const doctorPart = doctor ? `${doctor} طلب مننا` : 'الدكتور المسؤول طلب مننا';
-    const opening = `${intro} ${doctorPart} نتابع مع حضرتك بخصوص ${reason}، وحبيت أتواصل مع حضرتك وأتأكد إن الموضوع بيتابع لحد ما يتم بالشكل المناسب.`;
+    const requestSource = doctor ? `د/ ${doctor.replace(/^د\/?\s*/i, '')} طلب مننا نطمن على حضرتك` : 'عندنا متابعة مسجلة لحضرتك';
+    const subject = reason ? ` بخصوص ${reason}` : '';
+    const opening = `${intro} ${requestSource}${subject}. هل الموضوع تم، ولا في حاجة لسه نقدر نساعد حضرتك فيها؟`;
     return {
       title: 'متابعة بطلب من الدكتور',
       objective: 'إغلاق طلب الدكتور بنتيجة مؤكدة وإبلاغه بما تم أو بالخطوة التالية.',
@@ -87,17 +107,20 @@ export function buildFollowupScript(context: FollowupScriptContext): ScriptPack 
       objections: [
         {
           objection: 'مش فاكر الطلب',
-          response: `ولا يهم حضرتك، الطلب المسجل عندنا بخصوص ${reason}. أوضحه لحضرتك بسرعة.`,
+          response: reason
+            ? `ولا يهم حضرتك، المتابعة المسجلة عندنا بخصوص ${reason}. أوضحها لحضرتك بسرعة.`
+            : 'ولا يهم حضرتك، هراجع لحضرتك التفاصيل المسجلة عندنا بسرعة.',
         },
         {
           objection: 'الدكتور يتواصل معايا',
           response: 'أكيد، هسجل طلب حضرتك وأرسل للدكتور ملخصًا واضحًا وموعد التواصل المناسب.',
         },
       ],
-      closing:
-        'تمام يا فندم، سجلت كلام حضرتك وهبلغ الدكتور بالنتيجة، ولو محتاجين خطوة تانية هنرجع لحضرتك في الموعد المتفق عليه.',
+      closing: doctor
+        ? 'تمام يا فندم، شكرًا لوقتك. سجلت كل التفاصيل وهبلغ الدكتور بالنتيجة، ولو في خطوة تانية هنرجع لحضرتك في الموعد اللي اتفقنا عليه.'
+        : 'تمام يا فندم، شكرًا لوقتك. سجلت كل التفاصيل، ولو في خطوة تانية هنرجع لحضرتك في الموعد اللي اتفقنا عليه.',
       nextStep: 'حدّث نتيجة الطلب ثم أرسل إشعار النتيجة للدكتور مقدم الطلب.',
-      whatsapp: `${opening}\n\nممكن حضرتك تطمنا هل الموضوع تم ولا ما زال يحتاج متابعة؟`,
+      whatsapp: `${intro}\n${requestSource}${subject}، وحابين نطمن: هل الموضوع تم، ولا في حاجة لسه نقدر نساعد حضرتك فيها؟\n\nصيدليات دواء — دايمًا تحت أمر حضرتك.`,
     };
   }
 
@@ -157,7 +180,8 @@ export function buildFollowupScript(context: FollowupScriptContext): ScriptPack 
     };
   }
 
-  const opening = `${intro} حبيت أطمن على حضرتك وأعرف إذا كان في أي احتياج شهري أو استفسار نقدر نساعدك فيه، خصوصًا بخصوص ${reason}.`;
+  const subject = reason ? `، وخصوصًا بخصوص ${reason}` : '';
+  const opening = `${intro} حبيت أطمن على حضرتك وأعرف لو في أي احتياج أو استفسار نقدر نساعد حضرتك فيه${subject}.`;
   return {
     title: 'متابعة واهتمام بالعميل',
     objective: 'فهم الاحتياج الحالي وتقديم مساعدة مناسبة دون مكالمة بيعية مزعجة.',
