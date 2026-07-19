@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
@@ -18,10 +18,8 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout pull request branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -32,20 +30,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
-      - name: Apply targeted audit repairs
-        run: node scripts/audit-fix-semantic-lint.cjs
-
-      - name: Persist targeted repairs
-        if: github.event_name == 'pull_request'
+      - name: Verify targeted repairs are idempotent
         run: |
-          if git diff --quiet -- src; then
-            echo "Targeted source repairs already committed."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src
-            git commit -m "resolve semantic lint findings"
-            git push origin HEAD:${{ github.head_ref }}
+          node scripts/audit-fix-semantic-lint.cjs
+          if ! git diff --quiet -- src; then
+            echo "Targeted repair script still changes committed source files."
+            git diff --stat
+            git diff
+            exit 1
           fi
 
       - name: Environment doctor
@@ -57,26 +49,10 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
 
-      - name: Generate semantic lint report
-        id: lint
-        continue-on-error: true
+      - name: Semantic lint
         run: |
           npx eslint . --ext .ts,.tsx --ignore-path .eslintignore --quiet \
-            --rule 'prettier/prettier: off' \
-            --format json --output-file lint-errors.json
-
-      - name: Upload semantic lint report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: semantic-lint-errors
-          path: lint-errors.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Fail on semantic lint errors
-        if: steps.lint.outcome == 'failure'
-        run: exit 1
+            --rule 'prettier/prettier: off'
 
       - name: Production build
         run: npm run build
