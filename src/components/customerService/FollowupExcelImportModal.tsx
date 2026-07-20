@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import { Download, FileSpreadsheet, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
-import { createDoctorRequestedFollowup } from '@/lib/api/doctorRequestedFollowups';
 import { useAuth } from '@/hooks/useAuth';
+import {
+  buildCustomerIdentity,
+  isValidEgyptianMobile,
+  normalizeEgyptianPhone,
+} from '@/lib/customerFollowupCore';
+import { findOrCreateOpenCustomerFollowup } from '@/lib/api/findOrCreateCustomerFollowup';
 
 type ImportRow = {
   rowNumber: number;
@@ -19,6 +23,7 @@ type ImportRow = {
   notes: string;
   errors: string[];
   duplicate: boolean;
+  identity: string;
 };
 
 const text = (value: unknown) => String(value ?? '').trim();
@@ -36,7 +41,11 @@ function pick(row: Record<string, unknown>, aliases: string[]) {
 function dateValue(value: string) {
   if (!value) return '';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+}
+
+function stableRequestId(fileName: string, row: ImportRow) {
+  return `excel-followup:${fileName}:${row.rowNumber}:${row.identity}:${row.due}`;
 }
 
 export default function FollowupExcelImportModal({
@@ -94,7 +103,8 @@ export default function FollowupExcelImportModal({
       const parsed = source.map((row, index) => {
         const code = pick(row, ['كودالعميل', 'customercode', 'code']);
         const name = pick(row, ['اسمالعميل', 'customername', 'name']);
-        const phone = pick(row, ['الهاتف', 'رقمالهاتف', 'phone', 'mobile']);
+        const rawPhone = pick(row, ['الهاتف', 'رقمالهاتف', 'phone', 'mobile']);
+        const phone = normalizeEgyptianPhone(rawPhone);
         const importedBranch = normalizeBranchName(
           pick(row, ['الفرع', 'branch', 'branchname']) || defaultBranch
         );
@@ -107,10 +117,13 @@ export default function FollowupExcelImportModal({
         const notes = pick(row, ['ملاحظات', 'notes', 'details']);
         const errors: string[] = [];
         if (!code && !phone) errors.push('يلزم كود أو هاتف');
+        if (phone && !isValidEgyptianMobile(phone)) errors.push('رقم الهاتف غير صالح');
         if (!name) errors.push('اسم العميل غير موجود');
         if (!['فرع الشامي', 'فرع شكري'].includes(branch)) errors.push('الفرع غير صحيح');
         if (!due) errors.push('موعد المتابعة غير صحيح');
         if (!['عادي', 'مهم', 'عاجل'].includes(priority)) errors.push('الأولوية غير صحيحة');
+        const identity = buildCustomerIdentity({ customerCode: code, phone, name });
+        if (identity === 'unknown') errors.push('تعذر تحديد هوية العميل');
         return {
           rowNumber: index + 2,
           code,
@@ -124,30 +137,15 @@ export default function FollowupExcelImportModal({
           notes,
           errors,
           duplicate: false,
+          identity,
         };
       });
-      const codes = [...new Set(parsed.map((row) => row.code).filter(Boolean))];
-      const existingCodes = new Set<string>();
-      if (codes.length) {
-        const existing = await supabase
-          .from('daily_followups')
-          .select('customer_code,completed_at,status,followup_status')
-          .in('customer_code', codes)
-          .eq('is_hidden', false)
-          .limit(2000);
-        if (existing.error) throw existing.error;
-        for (const row of existing.data || []) {
-          const status = text(row.followup_status || row.status);
-          if (!row.completed_at && !/^(تم|مكتمل|completed|closed)$/i.test(status))
-            existingCodes.add(text(row.customer_code));
-        }
-      }
+
       const seen = new Set<string>();
       setRows(
         parsed.map((row) => {
-          const identity = row.code ? `code:${row.code}` : `phone:${row.phone.replace(/\D/g, '')}`;
-          const duplicate = existingCodes.has(row.code) || seen.has(identity);
-          seen.add(identity);
+          const duplicate = seen.has(`${row.identity}|${row.branch}|excel_followup_command`);
+          seen.add(`${row.identity}|${row.branch}|excel_followup_command`);
           return { ...row, duplicate };
         })
       );
@@ -163,12 +161,17 @@ export default function FollowupExcelImportModal({
   async function importRows() {
     const valid = rows.filter((row) => !row.errors.length && !row.duplicate);
     if (!valid.length) return toast.error('لا توجد صفوف صالحة للاستيراد');
-    if (!window.confirm(`سيتم إنشاء ${valid.length} متابعة. هل تريد المتابعة؟`)) return;
+    if (!window.confirm(`سيتم معالجة ${valid.length} طلب متابعة. هل تريد المتابعة؟`)) return;
+
+    const actorStaffId = String(user?.staffId || user?.id || '').trim();
+    if (!actorStaffId) return toast.error('تعذر تحديد حساب الموظف المنفذ');
+
     setLoading(true);
     let created = 0;
+    let linked = 0;
     try {
       for (const row of valid) {
-        await createDoctorRequestedFollowup({
+        const result = await findOrCreateOpenCustomerFollowup({
           customerName: row.name,
           customerPhone: row.phone || null,
           customerCode: row.code || null,
@@ -176,25 +179,26 @@ export default function FollowupExcelImportModal({
           priority: row.priority,
           requestType: 'excel_followup_command',
           followupReason: row.reason,
-          requestDetails: row.notes || row.reason,
-          notes: `${row.notes || row.reason}\nالمصدر: Excel followup command · الصف ${row.rowNumber}`,
-          assignedDoctor: row.doctor || undefined,
-          followupDatetime: row.due,
-          createdBy: user?.id || null,
-          createdByStaffId: user?.staffId || null,
-          createdByName: user?.name || 'مستخدم النظام',
+          requestDetails: `${row.notes || row.reason}\nالمصدر: أمر متابعة Excel · الصف ${row.rowNumber}`,
+          nextFollowupDate: row.due,
+          actorStaffId,
+          actorName: user?.name || 'مستخدم النظام',
+          clientRequestId: stableRequestId(fileName, row),
           source: 'excel_followup_command',
         });
-        created += 1;
+        if (result.created) created += 1;
+        else linked += 1;
       }
-      toast.success(`تم إنشاء ${created} متابعة من الملف`);
+      toast.success(`تم إنشاء ${created} متابعة وربط ${linked} طلب بمتابعات مفتوحة`);
       window.dispatchEvent(
         new CustomEvent('dataChanged', { detail: { table: 'daily_followups' } })
       );
       onImported();
       onClose();
     } catch (error) {
-      toast.error(`تم إنشاء ${created} ثم توقف الاستيراد: ${(error as Error).message}`);
+      toast.error(
+        `تم إنشاء ${created} وربط ${linked} ثم توقف الاستيراد: ${(error as Error).message}`
+      );
     } finally {
       setLoading(false);
     }
@@ -211,7 +215,7 @@ export default function FollowupExcelImportModal({
           <div>
             <h2 className="text-2xl font-black text-white">أمر متابعة من Excel</h2>
             <p className="mt-1 text-sm font-bold text-slate-400">
-              معاينة وتحقق من الفرع والموعد والتكرار قبل إنشاء أي متابعة.
+              معاينة وتحقق من الفرع والموعد والتكرار قبل إنشاء أي متابعة. الطلبات التي لها متابعة مفتوحة تُربط بها بدل إنشاء صف جديد.
             </p>
           </div>
           <button className="btn-secondary" onClick={onClose} disabled={loading}>
@@ -244,7 +248,7 @@ export default function FollowupExcelImportModal({
             <div className="my-4 flex flex-wrap gap-2 text-xs font-black">
               <span className="badge-success">صالح: {validCount}</span>
               <span className="badge-warning">
-                مكرر: {rows.filter((row) => row.duplicate).length}
+                مكرر داخل الملف: {rows.filter((row) => row.duplicate).length}
               </span>
               <span className="badge-danger">
                 به أخطاء: {rows.filter((row) => row.errors.length).length}
@@ -278,16 +282,16 @@ export default function FollowupExcelImportModal({
                       <td className="p-3">{row.code || row.phone || '—'}</td>
                       <td className="p-3">{row.branch || '—'}</td>
                       <td className="p-3">
-                        {row.due ? new Date(row.due).toLocaleString('ar-EG') : '—'}
+                        {row.due ? new Date(row.due).toLocaleDateString('ar-EG') : '—'}
                       </td>
                       <td className="p-3">{row.priority}</td>
                       <td className="p-3">{row.reason}</td>
                       <td className="p-3 font-black">
                         {row.duplicate
-                          ? 'مكرر — لن يُنشأ'
+                          ? 'مكرر داخل الملف — لن يعالج مرتين'
                           : row.errors.length
                             ? row.errors.join(' · ')
-                            : 'جاهز'}
+                            : 'جاهز للإنشاء أو الربط'}
                       </td>
                     </tr>
                   ))}
@@ -299,7 +303,7 @@ export default function FollowupExcelImportModal({
               disabled={loading || !validCount}
               onClick={() => void importRows()}
             >
-              {loading ? 'جارٍ إنشاء المتابعات...' : `اعتماد وإنشاء ${validCount} متابعة`}
+              {loading ? 'جارٍ معالجة المتابعات...' : `اعتماد ومعالجة ${validCount} طلب متابعة`}
             </button>
           </>
         )}

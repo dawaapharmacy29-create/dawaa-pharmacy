@@ -119,7 +119,18 @@ for (const ext of ['.ts', '.tsx']) {
   };
 }
 
-require(path.join(root, 'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts'));
+const testFiles = [
+  'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts',
+  'src/lib/__tests__/customerFollowupCore.test.ts',
+  'src/lib/__tests__/customerFollowupGuards.test.ts',
+  'src/lib/__tests__/customerFollowupStatus.integration.test.ts',
+  'src/lib/__tests__/customerFollowupExport.test.ts',
+];
+for (const relativePath of testFiles) {
+  const testFile = path.join(root, relativePath);
+  if (!fs.existsSync(testFile)) throw new Error(`Missing configured test file: ${relativePath}`);
+  require(testFile);
+}
 
 (async () => {
   let passed = 0;
