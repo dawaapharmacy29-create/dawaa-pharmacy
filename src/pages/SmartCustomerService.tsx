@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import CustomerFollowupFullExportPanel from '@/components/customerService/CustomerFollowupFullExportPanel';
 import CustomerFollowupOperationsCompletionPanel from '@/components/customerService/CustomerFollowupOperationsCompletionPanel';
+import CustomerFollowupStructuredActionsPanel from '@/components/customerService/CustomerFollowupStructuredActionsPanel';
 
 const CustomerServiceDataTools = lazy(
   () => import('@/components/customerService/CustomerServiceDataTools')
@@ -28,6 +29,7 @@ export default function SmartCustomerService() {
     <div className="customer-service-page" dir="rtl">
       <CustomerFollowupFullExportPanel />
       <CustomerFollowupOperationsCompletionPanel />
+      <CustomerFollowupStructuredActionsPanel />
       <Suspense fallback={<SectionLoader label="أدوات البيانات" />}>
         <CustomerServiceDataTools />
       </Suspense>
