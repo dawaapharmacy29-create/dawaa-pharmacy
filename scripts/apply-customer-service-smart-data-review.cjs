@@ -202,7 +202,7 @@ replaceOnce(
         </div>
         <div className="grid max-h-96 gap-2 overflow-auto md:grid-cols-2 xl:grid-cols-3">
           {filteredReviewRows.map((row) => (
-            <button key={row.id} type="button" onClick={() => selectForCorrection(row)} className={`rounded-xl border p-3 text-right transition ${correction.followupId === row.id ? 'border-cyan-300 bg-cyan-500/10' : 'border-white/10 bg-[#102b46] hover:border-cyan-300/40'}`}>
+            <button key={row.id} type="button" onClick={() => selectForCorrection(row)} className={'rounded-xl border p-3 text-right transition ' + (correction.followupId === row.id ? 'border-cyan-300 bg-cyan-500/10' : 'border-white/10 bg-[#102b46] hover:border-cyan-300/40')}>
               <div className="font-black text-white">{row.display_customer_name || row.customer_name || 'عميل غير مسجل'}</div>
               <div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {row.display_phone || row.phone || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div>
               <div className="mt-2 flex flex-wrap gap-1">{row.issue_labels.map((issue) => <span key={issue} className="rounded-full bg-amber-500/15 px-2 py-1 text-[11px] font-black text-amber-200">{issue}</span>)}</div>
