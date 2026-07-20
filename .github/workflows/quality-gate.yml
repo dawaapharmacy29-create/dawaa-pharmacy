@@ -80,6 +80,7 @@ jobs:
           git status --short > repository-mutation-status.txt
           git diff --name-only >> repository-mutation-status.txt
           git diff --stat >> repository-mutation-status.txt
+          git diff >> repository-mutation-status.txt
 
       - name: Upload repository mutation diagnostics
         if: always()
