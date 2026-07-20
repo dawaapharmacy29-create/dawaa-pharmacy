@@ -1,0 +1,2 @@
+Redeploy trigger for the merged Supabase follow-up hardening changes.
+Triggered on 2026-07-20 Africa/Cairo.
