@@ -8,6 +8,7 @@ import CustomerFollowupOperationsCompletionPanel from '@/components/customerServ
 import CustomerFollowupStructuredActionsPanel from '@/components/customerService/CustomerFollowupStructuredActionsPanel';
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
 import CustomerServiceCommandOverview from '@/components/customerService/CustomerServiceCommandOverview';
+import '@/styles/customerServiceTheme.css';
 
 const CustomerServiceDataTools = lazy(() => import('@/components/customerService/CustomerServiceDataTools'));
 const CustomerServiceScriptEditor = lazy(() => import('@/components/customerService/CustomerServiceScriptEditor'));
