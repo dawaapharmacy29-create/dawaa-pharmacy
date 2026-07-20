@@ -50,9 +50,26 @@ jobs:
         run: npm run typecheck
 
       - name: Semantic lint
+        id: semantic_lint
+        continue-on-error: true
         run: |
           npx eslint . --ext .ts,.tsx --ignore-path .eslintignore --quiet \
-            --rule 'prettier/prettier: off'
+            --rule 'prettier/prettier: off' \
+            --format json --output-file eslint-semantic-report.json
+
+      - name: Upload semantic lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semantic-lint-report
+          path: eslint-semantic-report.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce semantic lint
+        if: steps.semantic_lint.outcome == 'failure'
+        run: |
+          node -e "const fs=require('fs'); const rows=JSON.parse(fs.readFileSync('eslint-semantic-report.json','utf8')); for (const row of rows) for (const m of row.messages) console.error(`${row.filePath}:${m.line}:${m.column} ${m.ruleId} ${m.message}`); process.exit(1)"
 
       - name: Production build
         run: npm run build
