@@ -1,0 +1,223 @@
+.customer-service-page {
+  --cs-bg: #07131f;
+  --cs-surface: #0d2033;
+  --cs-surface-2: #122a42;
+  --cs-surface-3: #173550;
+  --cs-border: #2a5270;
+  --cs-border-soft: #1d3d57;
+  --cs-text: #f8fbff;
+  --cs-text-muted: #b9c9d8;
+  --cs-text-soft: #91a8bc;
+  --cs-primary: #22d3c5;
+  --cs-primary-strong: #14b8a6;
+  --cs-primary-soft: rgba(34, 211, 197, 0.14);
+  --cs-warning: #fbbf24;
+  --cs-warning-soft: rgba(251, 191, 36, 0.13);
+  --cs-danger: #fb7185;
+  --cs-danger-soft: rgba(251, 113, 133, 0.13);
+  --cs-success: #34d399;
+  --cs-success-soft: rgba(52, 211, 153, 0.13);
+  color: var(--cs-text);
+  background: radial-gradient(circle at top right, rgba(20, 184, 166, 0.08), transparent 34%), var(--cs-bg);
+  min-height: 100%;
+}
+
+.customer-service-page > section:first-child {
+  background: rgba(7, 19, 31, 0.96) !important;
+  border-color: var(--cs-border-soft) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28) !important;
+}
+
+.customer-service-page main > section,
+.customer-service-page main > div > section,
+.customer-service-page main article,
+.customer-service-page .dawaa-panel,
+.customer-service-page .stat-card {
+  border-color: var(--cs-border-soft) !important;
+}
+
+.customer-service-page main > section,
+.customer-service-page main > div > section,
+.customer-service-page .dawaa-panel {
+  background-color: var(--cs-surface) !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18) !important;
+}
+
+.customer-service-page article,
+.customer-service-page .stat-card {
+  background-color: var(--cs-surface-2) !important;
+}
+
+.customer-service-page article:hover,
+.customer-service-page .stat-card:hover {
+  border-color: var(--cs-border) !important;
+  background-color: var(--cs-surface-3) !important;
+}
+
+.customer-service-page h1,
+.customer-service-page h2,
+.customer-service-page h3,
+.customer-service-page h4,
+.customer-service-page .text-white {
+  color: var(--cs-text) !important;
+}
+
+.customer-service-page .text-slate-300,
+.customer-service-page .text-slate-400 {
+  color: var(--cs-text-muted) !important;
+}
+
+.customer-service-page .text-slate-500,
+.customer-service-page .text-slate-600 {
+  color: var(--cs-text-soft) !important;
+}
+
+.customer-service-page input,
+.customer-service-page select,
+.customer-service-page textarea,
+.customer-service-page .input-dark {
+  background-color: #091a2a !important;
+  color: var(--cs-text) !important;
+  border-color: var(--cs-border) !important;
+}
+
+.customer-service-page input::placeholder,
+.customer-service-page textarea::placeholder {
+  color: #829bb0 !important;
+  opacity: 1;
+}
+
+.customer-service-page input:focus,
+.customer-service-page select:focus,
+.customer-service-page textarea:focus {
+  outline: none !important;
+  border-color: var(--cs-primary) !important;
+  box-shadow: 0 0 0 3px rgba(34, 211, 197, 0.16) !important;
+}
+
+.customer-service-page .btn-primary {
+  background: linear-gradient(135deg, var(--cs-primary), var(--cs-primary-strong)) !important;
+  color: #03211f !important;
+  border-color: transparent !important;
+  font-weight: 900 !important;
+  box-shadow: 0 7px 18px rgba(20, 184, 166, 0.22) !important;
+}
+
+.customer-service-page .btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+.customer-service-page .btn-secondary {
+  background-color: #102a40 !important;
+  color: #e6f5ff !important;
+  border-color: #35617e !important;
+}
+
+.customer-service-page .btn-secondary:hover {
+  background-color: #183b56 !important;
+  border-color: #4f819f !important;
+}
+
+.customer-service-page button:disabled {
+  opacity: 0.52 !important;
+  cursor: not-allowed !important;
+}
+
+.customer-service-page [class*="border-cyan"],
+.customer-service-page [class*="border-teal"] {
+  border-color: rgba(34, 211, 197, 0.48) !important;
+}
+
+.customer-service-page [class*="bg-cyan-400/15"],
+.customer-service-page [class*="bg-teal-500/10"],
+.customer-service-page [class*="bg-cyan-500/15"] {
+  background-color: var(--cs-primary-soft) !important;
+}
+
+.customer-service-page [class*="text-cyan"],
+.customer-service-page [class*="text-teal"] {
+  color: #67e8df !important;
+}
+
+.customer-service-page [class*="border-amber"],
+.customer-service-page [class*="border-yellow"] {
+  border-color: rgba(251, 191, 36, 0.55) !important;
+}
+
+.customer-service-page [class*="bg-amber"],
+.customer-service-page [class*="bg-yellow"] {
+  background-color: var(--cs-warning-soft) !important;
+}
+
+.customer-service-page [class*="text-amber"],
+.customer-service-page [class*="text-yellow"] {
+  color: #fde68a !important;
+}
+
+.customer-service-page [class*="border-red"],
+.customer-service-page [class*="border-rose"] {
+  border-color: rgba(251, 113, 133, 0.55) !important;
+}
+
+.customer-service-page [class*="bg-red"],
+.customer-service-page [class*="bg-rose"] {
+  background-color: var(--cs-danger-soft) !important;
+}
+
+.customer-service-page [class*="text-red"],
+.customer-service-page [class*="text-rose"] {
+  color: #fda4af !important;
+}
+
+.customer-service-page [class*="border-emerald"],
+.customer-service-page [class*="border-green"] {
+  border-color: rgba(52, 211, 153, 0.5) !important;
+}
+
+.customer-service-page [class*="bg-emerald"],
+.customer-service-page [class*="bg-green"] {
+  background-color: var(--cs-success-soft) !important;
+}
+
+.customer-service-page [class*="text-emerald"],
+.customer-service-page [class*="text-green"] {
+  color: #6ee7b7 !important;
+}
+
+.customer-service-page table {
+  border-color: var(--cs-border-soft) !important;
+}
+
+.customer-service-page thead {
+  background-color: #0b1c2c !important;
+}
+
+.customer-service-page tbody tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.018);
+}
+
+.customer-service-page tbody tr:hover {
+  background-color: rgba(34, 211, 197, 0.06) !important;
+}
+
+.customer-service-page ::-webkit-scrollbar-thumb {
+  background: #315c78;
+  border-radius: 999px;
+}
+
+.customer-service-page ::-webkit-scrollbar-track {
+  background: #07131f;
+}
+
+@media (max-width: 768px) {
+  .customer-service-page main > section,
+  .customer-service-page main > div > section {
+    border-radius: 18px !important;
+  }
+
+  .customer-service-page button,
+  .customer-service-page input,
+  .customer-service-page select {
+    min-height: 42px;
+  }
+}
