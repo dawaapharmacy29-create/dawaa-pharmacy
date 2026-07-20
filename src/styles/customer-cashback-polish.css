@@ -1,0 +1,160 @@
+/* Customer cashback page visual polish — scoped to avoid affecting other modules. */
+.customer-service-page {
+  --cashback-card-bg: linear-gradient(145deg, rgba(17, 52, 70, 0.97), rgba(12, 39, 59, 0.97));
+  --cashback-card-border: rgba(45, 212, 191, 0.5);
+  --cashback-soft-border: rgba(148, 211, 226, 0.22);
+  --cashback-text: #f4fbfd;
+  --cashback-muted: #bdd5df;
+}
+
+.customer-service-page .dawaa-hero {
+  border: 1px solid rgba(45, 212, 191, 0.34);
+  background: linear-gradient(135deg, rgba(15, 55, 76, 0.98), rgba(10, 34, 54, 0.98));
+  box-shadow: 0 18px 48px rgba(1, 12, 25, 0.24);
+}
+
+.customer-service-page .dawaa-brand-chip {
+  background: rgba(45, 212, 191, 0.13);
+  border-color: rgba(94, 234, 212, 0.5);
+  color: #91fff0;
+}
+
+.customer-service-page .dawaa-panel {
+  border-color: var(--cashback-soft-border);
+  background: linear-gradient(145deg, rgba(15, 42, 66, 0.96), rgba(10, 31, 51, 0.96));
+  box-shadow: 0 12px 34px rgba(1, 12, 25, 0.15);
+}
+
+.customer-service-page .dawaa-input,
+.customer-service-page .btn-secondary {
+  min-height: 44px;
+  border-color: rgba(148, 211, 226, 0.28);
+  background: rgba(8, 29, 48, 0.88);
+  color: #eefbff;
+}
+
+.customer-service-page .dawaa-input:focus {
+  border-color: rgba(45, 212, 191, 0.8);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.14);
+}
+
+.customer-service-page .btn-secondary:hover {
+  border-color: rgba(94, 234, 212, 0.66);
+  background: rgba(20, 70, 87, 0.92);
+  color: #ffffff;
+}
+
+.customer-service-page > section.grid button.rounded-2xl {
+  min-height: 118px;
+  border-color: rgba(148, 211, 226, 0.25);
+  background: linear-gradient(145deg, rgba(18, 52, 78, 0.98), rgba(12, 37, 59, 0.98));
+  color: #f4fbfd;
+  box-shadow: 0 10px 28px rgba(1, 12, 25, 0.16);
+}
+
+.customer-service-page > section.grid button.rounded-2xl:hover {
+  border-color: rgba(94, 234, 212, 0.72);
+  box-shadow: 0 14px 34px rgba(1, 12, 25, 0.24);
+}
+
+.customer-service-page > section.grid button.rounded-2xl.ring-2 {
+  border-color: #5eead4;
+  background: linear-gradient(145deg, rgba(18, 86, 92, 0.98), rgba(10, 60, 70, 0.98));
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.35), 0 16px 36px rgba(3, 38, 46, 0.34);
+}
+
+.customer-service-page .cashback-responsive-card {
+  border: 1px solid var(--cashback-card-border) !important;
+  background: var(--cashback-card-bg) !important;
+  color: var(--cashback-text);
+  box-shadow: 0 16px 42px rgba(1, 12, 25, 0.22);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.customer-service-page .cashback-responsive-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(94, 234, 212, 0.82) !important;
+  box-shadow: 0 20px 48px rgba(1, 12, 25, 0.3);
+}
+
+.customer-service-page .cashback-responsive-card [class*='bg-emerald-500'],
+.customer-service-page .cashback-responsive-card [class*='bg-violet-500'],
+.customer-service-page .cashback-responsive-card [class*='bg-cyan-500'],
+.customer-service-page .cashback-responsive-card [class*='bg-sky-500'],
+.customer-service-page .cashback-responsive-card [class*='bg-amber-500'] {
+  background-color: rgba(45, 212, 191, 0.11) !important;
+}
+
+.customer-service-page .cashback-responsive-card > div:nth-child(2) > div {
+  border-color: rgba(148, 211, 226, 0.22) !important;
+  background: rgba(6, 28, 46, 0.64) !important;
+}
+
+.customer-service-page .cashback-action-grid {
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  gap: 0.55rem;
+}
+
+.customer-service-page .cashback-action-grid button,
+.customer-service-page .cashback-action-grid a {
+  min-height: 38px;
+  border-width: 1px;
+  font-weight: 900;
+  box-shadow: none;
+  opacity: 1;
+}
+
+.customer-service-page .cashback-action-grid button:hover,
+.customer-service-page .cashback-action-grid a:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.customer-service-page .cashback-action-grid button:disabled {
+  opacity: 0.5 !important;
+  color: rgba(238, 248, 251, 0.76) !important;
+  background: rgba(55, 71, 88, 0.62) !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+.customer-service-page .cashback-desktop-table {
+  background: rgba(7, 28, 47, 0.76);
+  border-color: rgba(148, 211, 226, 0.24) !important;
+}
+
+.customer-service-page .cashback-desktop-table thead {
+  background: rgba(9, 37, 60, 0.98) !important;
+}
+
+.customer-service-page .cashback-desktop-table tbody tr {
+  border-color: rgba(148, 211, 226, 0.13);
+}
+
+.customer-service-page .cashback-desktop-table tbody tr:hover {
+  background: rgba(45, 212, 191, 0.07);
+}
+
+@media (max-width: 900px) {
+  .customer-service-page {
+    gap: 0.8rem;
+  }
+
+  .customer-service-page .dawaa-hero {
+    align-items: stretch;
+  }
+
+  .customer-service-page .dawaa-hero .dawaa-button-primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .customer-service-page > section.grid button.rounded-2xl {
+    min-height: 96px;
+    padding: 0.8rem;
+  }
+
+  .customer-service-page .cashback-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
