@@ -48,6 +48,8 @@ export function buildFollowupExportRow(row: Row, exportedAt = new Date()) {
   const archived = isArchivedHistoryFollowup(row);
   const open = isOpenFollowup(row);
   const requestedBy = resolveRequestedBy(row);
+  const branchNeedsReview = row.branch_needs_review === true;
+  const needsManager = row.needs_manager === true;
   const qualityInput: FollowupQualityInput = {
     customerId,
     customerCode,
@@ -55,7 +57,7 @@ export function buildFollowupExportRow(row: Row, exportedAt = new Date()) {
     rawPhone,
     name: originalName,
     branch: String(value(row, 'branch')),
-    branchNeedsReview: row.branch_needs_review,
+    branchNeedsReview,
     requestedBy,
     reason: String(value(row, 'followup_reason', 'request_details', 'notes')),
     result,
@@ -83,7 +85,7 @@ export function buildFollowupExportRow(row: Row, exportedAt = new Date()) {
     'صلاحية الهاتف': isValidEgyptianMobile(normalizedPhone) ? 'صالح' : 'غير صالح',
     'الفرع': String(value(row, 'branch')),
     'دليل الفرع': String(value(row, 'branch_evidence')),
-    'تعارض الفرع': row.branch_needs_review ? 'نعم' : 'لا',
+    'تعارض الفرع': branchNeedsReview ? 'نعم' : 'لا',
     'المصدر': String(value(row, 'request_source', 'source')),
     'نوع المتابعة': String(value(row, 'request_type', 'followup_type')),
     'الأولوية': String(value(row, 'priority')),
@@ -124,7 +126,7 @@ export function buildFollowupExportRow(row: Row, exportedAt = new Date()) {
     'رقم الفاتورة': String(value(row, 'purchase_invoice_no')),
     'رضا العميل': String(value(row, 'customer_satisfaction')),
     'تقييم الجودة': number(row, 'quality_rating', 'evaluation_score'),
-    'تحتاج مديرًا': row.needs_manager ? 'نعم' : 'لا',
+    'تحتاج مديرًا': needsManager ? 'نعم' : 'لا',
     'حالة جودة البيانات': getFollowupDataQualityStatus(qualityInput),
     'عدد مشكلات البيانات': issues.length,
     'مشكلات البيانات': issues.join(' | '),
