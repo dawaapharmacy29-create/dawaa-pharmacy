@@ -74,10 +74,28 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Capture repository mutation diagnostics
+        if: always()
+        run: |
+          git status --short > repository-mutation-status.txt
+          git diff --name-only >> repository-mutation-status.txt
+          git diff --stat >> repository-mutation-status.txt
+          git diff >> repository-mutation-status.txt
+
+      - name: Upload repository mutation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository-mutation-status
+          path: repository-mutation-status.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Verify commands did not mutate repository files
         run: |
           if ! git diff --quiet; then
             echo "Tests, typecheck, lint, or build changed repository files."
+            git status --short
             git diff --stat
             git diff
             exit 1
