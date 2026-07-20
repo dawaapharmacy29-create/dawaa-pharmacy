@@ -1,233 +1,63 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CheckCircle2, Clock3, Loader2, MessageCircle, RefreshCw, Search } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Loader2, MessageCircle, RefreshCw, Search, Send, ShieldAlert, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { supabase } from '@/lib/supabase';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
+import { generateWhatsAppLink } from '@/lib/whatsapp';
 
-type WaitingFilter = 'waiting' | 'no_answer' | 'all';
-
+type WaitingFilter = 'waiting' | 'no_answer' | 'overdue' | 'aged' | 'manager' | 'all';
 type FollowupRow = {
-  id: string;
-  customer_name: string | null;
-  name: string | null;
-  customer_code: string | null;
-  customer_phone: string | null;
-  phone: string | null;
-  branch: string | null;
-  status: string | null;
-  followup_status: string | null;
-  contact_status: string | null;
-  followup_result: string | null;
-  next_followup_date: string | null;
-  contacted_at: string | null;
-  created_at: string | null;
-  responsible_name: string | null;
+  id: string; customer_name: string | null; name: string | null; customer_code: string | null;
+  customer_phone: string | null; phone: string | null; branch: string | null; status: string | null;
+  followup_status: string | null; contact_status: string | null; response_status: string | null;
+  followup_result: string | null; next_followup_date: string | null; contacted_at: string | null;
+  created_at: string | null; responsible_name: string | null; assigned_to: string | null;
+  assigned_doctor: string | null; attempt_count: number | null; first_attempt_at: string | null;
+  last_attempt_at: string | null; needs_manager: boolean | null; followup_notes: string | null;
 };
+const ALL_BRANCHES='كل الفروع'; const PAGE_SIZE=100;
+const WAITING_STATUSES=['في انتظار الرد','تم إرسال رسالة','message_sent','waiting_reply'];
+const NO_ANSWER_STATUSES=['لم يرد','no_answer'];
+const text=(v:unknown)=>String(v??'').trim();
+const localDateKey=(date=new Date())=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+const tomorrowKey=()=>{const d=new Date();d.setDate(d.getDate()+1);return localDateKey(d);};
+const rowStatus=(r:FollowupRow)=>text(r.contact_status||r.followup_status||r.response_status||r.status||r.followup_result);
+const customerName=(r:FollowupRow)=>text(r.customer_name||r.name||'عميل غير مسجل');
+const customerPhone=(r:FollowupRow)=>text(r.customer_phone||r.phone);
+const ownerName=(r:FollowupRow)=>text(r.responsible_name||r.assigned_to||r.assigned_doctor||'غير مسند');
+const hoursSince=(value:string|null)=>{if(!value)return 0;const ms=Date.now()-new Date(value).getTime();return Number.isFinite(ms)?Math.max(0,Math.floor(ms/3600000)):0;};
 
-const ALL_BRANCHES = 'كل الفروع';
-const WAITING_STATUSES = ['في انتظار الرد', 'تم إرسال رسالة', 'message_sent', 'waiting_reply'];
-const NO_ANSWER_STATUSES = ['لم يرد', 'no_answer'];
-
-function localDateKey(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function tomorrowKey() {
-  const date = new Date();
-  date.setDate(date.getDate() + 1);
-  return localDateKey(date);
-}
-
-function rowStatus(row: FollowupRow) {
-  return String(row.contact_status || row.followup_status || row.status || row.followup_result || '').trim();
-}
-
-function customerName(row: FollowupRow) {
-  return String(row.customer_name || row.name || 'عميل غير مسجل').trim();
-}
-
-function customerPhone(row: FollowupRow) {
-  return String(row.customer_phone || row.phone || '').trim();
-}
-
-export default function WaitingCustomerRepliesPanel() {
-  const { user } = useAuth();
-  const managerView = canViewAllBranches(user);
-  const userBranch = normalizeBranchName(user?.branch || '');
-  const [branch, setBranch] = useState(managerView ? ALL_BRANCHES : userBranch);
-  const [filter, setFilter] = useState<WaitingFilter>('waiting');
-  const [rows, setRows] = useState<FollowupRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [updatingId, setUpdatingId] = useState('');
-  const [search, setSearch] = useState('');
-
-  const load = useCallback(async () => {
-    if (!managerView && !userBranch) return;
-    setLoading(true);
-    try {
-      let query = supabase
-        .from('daily_followups')
-        .select('id,customer_name,name,customer_code,customer_phone,phone,branch,status,followup_status,contact_status,followup_result,next_followup_date,contacted_at,created_at,responsible_name')
-        .eq('is_hidden', false)
-        .is('completed_at', null)
-        .order('contacted_at', { ascending: true, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(1000);
-      if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
-      const { data, error } = await query;
-      if (error) throw error;
-      setRows((data || []) as FollowupRow[]);
-    } catch (error) {
-      toast.error(`تعذر تحميل قائمة انتظار الرد: ${(error as Error).message}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [branch, managerView, userBranch]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const waitingCount = rows.filter((row) => WAITING_STATUSES.includes(rowStatus(row))).length;
-  const noAnswerCount = rows.filter((row) => NO_ANSWER_STATUSES.includes(rowStatus(row))).length;
-
-  const visibleRows = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return rows.filter((row) => {
-      const status = rowStatus(row);
-      if (filter === 'waiting' && !WAITING_STATUSES.includes(status)) return false;
-      if (filter === 'no_answer' && !NO_ANSWER_STATUSES.includes(status)) return false;
-      if (filter === 'all' && !WAITING_STATUSES.includes(status) && !NO_ANSWER_STATUSES.includes(status)) return false;
-      if (!query) return true;
-      return `${customerName(row)} ${row.customer_code || ''} ${customerPhone(row)} ${row.branch || ''}`
-        .toLowerCase()
-        .includes(query);
-    });
-  }, [filter, rows, search]);
-
-  async function updateStatus(row: FollowupRow, action: 'waiting' | 'no_answer' | 'replied') {
-    setUpdatingId(row.id);
-    try {
-      const now = new Date().toISOString();
-      const tomorrow = tomorrowKey();
-      const payload =
-        action === 'waiting'
-          ? {
-              contact_status: 'في انتظار الرد',
-              followup_status: 'في انتظار الرد',
-              status: 'في انتظار الرد',
-              contacted_at: now,
-              next_followup_date: tomorrow,
-              needs_next_followup: true,
-              updated_by: user?.id || null,
-            }
-          : action === 'no_answer'
-            ? {
-                contact_status: 'لم يرد',
-                followup_status: 'لم يرد',
-                status: 'لم يرد',
-                contacted_at: row.contacted_at || now,
-                next_followup_date: tomorrow,
-                needs_next_followup: true,
-                updated_by: user?.id || null,
-              }
-            : {
-                contact_status: 'تم الرد',
-                followup_status: 'جارٍ التواصل',
-                status: 'جارٍ التواصل',
-                next_followup_date: localDateKey(),
-                needs_next_followup: true,
-                updated_by: user?.id || null,
-              };
-      const { error } = await supabase.from('daily_followups').update(payload).eq('id', row.id);
-      if (error) throw error;
-      await supabase.from('customer_followup_audit_log').insert({
-        followup_id: row.id,
-        customer_id: null,
-        action: action === 'waiting' ? 'message_sent_waiting_reply' : action === 'no_answer' ? 'message_sent_no_answer' : 'customer_replied',
-        actor_staff_id: user?.staffId || user?.id || null,
-        actor_name: user?.name || null,
-        branch: row.branch || branch,
-        metadata: { next_followup_date: action === 'replied' ? localDateKey() : tomorrow },
-      });
-      toast.success(
-        action === 'waiting'
-          ? 'تم تسجيل إرسال الرسالة وترحيل المتابعة للغد'
-          : action === 'no_answer'
-            ? 'تم تسجيل عدم الرد وستظل المتابعة ظاهرة للغد'
-            : 'تم تسجيل رد العميل وإعادته للمتابعة الحالية'
-      );
-      await load();
-    } catch (error) {
-      toast.error(`تعذر تحديث المتابعة: ${(error as Error).message}`);
-    } finally {
-      setUpdatingId('');
-    }
-  }
-
-  if (!managerView && !userBranch) {
-    return (
-      <section className="mx-4 mt-4 rounded-3xl border border-amber-400/30 bg-amber-500/10 p-5 text-center font-black text-amber-100" dir="rtl">
-        حساب خدمة العملاء غير مربوط بفرع. اربط الحساب بفرع الشامي أو فرع شكري أولًا.
-      </section>
-    );
-  }
-
-  return (
-    <section className="mx-4 mt-4 space-y-4 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <h2 className="flex items-center gap-2 text-xl font-black text-white"><MessageCircle className="text-cyan-300" /> انتظار رد العملاء</h2>
-          <p className="mt-1 text-sm font-bold text-slate-400">كل عميل أُرسلت له رسالة يظل ظاهرًا حتى يرد أو يتم تسجيل عدم الرد، ويُرحّل تلقائيًا لليوم التالي.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {managerView ? (
-            <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}>
-              <option>{ALL_BRANCHES}</option><option>فرع الشامي</option><option>فرع شكري</option>
-            </select>
-          ) : <div className="input-dark font-black text-cyan-100">{userBranch}</div>}
-          <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void load()} disabled={loading}>
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} تحديث
-          </button>
-        </div>
-      </div>
-
-      <div className="grid gap-2 sm:grid-cols-3">
-        <button type="button" onClick={() => setFilter('waiting')} className={`rounded-2xl border p-4 text-right ${filter === 'waiting' ? 'border-cyan-300 bg-cyan-400/15' : 'border-white/10 bg-white/[0.03]'}`}>
-          <Clock3 className="mb-2 text-cyan-300" /><div className="text-xs font-black text-slate-400">في انتظار الرد</div><div className="text-3xl font-black text-white">{waitingCount}</div>
-        </button>
-        <button type="button" onClick={() => setFilter('no_answer')} className={`rounded-2xl border p-4 text-right ${filter === 'no_answer' ? 'border-amber-300 bg-amber-400/15' : 'border-white/10 bg-white/[0.03]'}`}>
-          <CalendarClock className="mb-2 text-amber-300" /><div className="text-xs font-black text-slate-400">أُرسلت الرسالة ولم يرد</div><div className="text-3xl font-black text-white">{noAnswerCount}</div>
-        </button>
-        <button type="button" onClick={() => setFilter('all')} className={`rounded-2xl border p-4 text-right ${filter === 'all' ? 'border-emerald-300 bg-emerald-400/15' : 'border-white/10 bg-white/[0.03]'}`}>
-          <MessageCircle className="mb-2 text-emerald-300" /><div className="text-xs font-black text-slate-400">كل انتظار الرد</div><div className="text-3xl font-black text-white">{waitingCount + noAnswerCount}</div>
-        </button>
-      </div>
-
-      <div className="relative"><Search size={17} className="absolute right-3 top-3 text-slate-400" /><input className="input-dark w-full pr-10" placeholder="بحث بالاسم أو الكود أو الهاتف" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
-
-      <div className="space-y-2">
-        {visibleRows.map((row) => (
-          <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="font-black text-white">{customerName(row)}</div>
-                <div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div>
-                <div className="mt-2 inline-flex rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-black text-cyan-200">{rowStatus(row) || 'متابعة مفتوحة'}</div>
-                <div className="mt-1 text-xs text-slate-500">الموعد القادم: {row.next_followup_date ? String(row.next_followup_date).slice(0, 10) : 'غير محدد'}</div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" className="btn-secondary" disabled={updatingId === row.id} onClick={() => void updateStatus(row, 'waiting')}>تم إرسال رسالة</button>
-                <button type="button" className="btn-secondary" disabled={updatingId === row.id} onClick={() => void updateStatus(row, 'no_answer')}>لم يرد</button>
-                <button type="button" className="btn-primary flex items-center gap-1" disabled={updatingId === row.id} onClick={() => void updateStatus(row, 'replied')}><CheckCircle2 size={16} /> رد العميل</button>
-              </div>
-            </div>
-          </article>
-        ))}
-        {!loading && visibleRows.length === 0 ? <div className="rounded-2xl border border-white/10 p-8 text-center font-bold text-slate-400">لا توجد متابعات مطابقة حاليًا</div> : null}
-      </div>
-    </section>
-  );
+export default function WaitingCustomerRepliesPanel(){
+ const {user}=useAuth(); const managerView=canViewAllBranches(user); const userBranch=normalizeBranchName(user?.branch||'');
+ const [branch,setBranch]=useState(managerView?ALL_BRANCHES:userBranch); const [filter,setFilter]=useState<WaitingFilter>('waiting');
+ const [rows,setRows]=useState<FollowupRow[]>([]); const [loading,setLoading]=useState(false); const [updatingId,setUpdatingId]=useState('');
+ const [search,setSearch]=useState(''); const [owner,setOwner]=useState('الكل'); const [page,setPage]=useState(0); const [hasMore,setHasMore]=useState(false);
+ const load=useCallback(async()=>{if(!managerView&&!userBranch)return;setLoading(true);try{let q=supabase.from('daily_followups').select('id,customer_name,name,customer_code,customer_phone,phone,branch,status,followup_status,contact_status,response_status,followup_result,next_followup_date,contacted_at,created_at,responsible_name,assigned_to,assigned_doctor,attempt_count,first_attempt_at,last_attempt_at,needs_manager,followup_notes').eq('is_hidden',false).is('completed_at',null).order('contacted_at',{ascending:true,nullsFirst:false}).order('created_at',{ascending:false}).range(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);if(branch!==ALL_BRANCHES)q=q.eq('branch',branch);const{data,error}=await q;if(error)throw error;const list=(data||[]) as FollowupRow[];setRows(list.slice(0,PAGE_SIZE));setHasMore(list.length>PAGE_SIZE);}catch(e){toast.error(`تعذر تحميل قائمة انتظار الرد: ${(e as Error).message}`);}finally{setLoading(false);}},[branch,managerView,page,userBranch]);
+ useEffect(()=>{void load();},[load]); useEffect(()=>setPage(0),[branch,filter,owner,search]);
+ const today=localDateKey(); const waitingCount=rows.filter(r=>WAITING_STATUSES.includes(rowStatus(r))).length; const noAnswerCount=rows.filter(r=>NO_ANSWER_STATUSES.includes(rowStatus(r))).length;
+ const owners=useMemo(()=>['الكل',...new Set(rows.map(ownerName).filter(Boolean))],[rows]);
+ const visibleRows=useMemo(()=>{const q=search.trim().toLowerCase();return rows.filter(r=>{const status=rowStatus(r);const age=hoursSince(r.contacted_at||r.last_attempt_at||r.created_at);const overdue=Boolean(r.next_followup_date&&text(r.next_followup_date).slice(0,10)<today);if(filter==='waiting'&&!WAITING_STATUSES.includes(status))return false;if(filter==='no_answer'&&!NO_ANSWER_STATUSES.includes(status))return false;if(filter==='overdue'&&!overdue)return false;if(filter==='aged'&&age<24)return false;if(filter==='manager'&&!r.needs_manager)return false;if(filter==='all'&&!WAITING_STATUSES.includes(status)&&!NO_ANSWER_STATUSES.includes(status))return false;if(owner!=='الكل'&&ownerName(r)!==owner)return false;if(!q)return true;return `${customerName(r)} ${r.customer_code||''} ${customerPhone(r)} ${r.branch||''} ${ownerName(r)}`.toLowerCase().includes(q);});},[filter,owner,rows,search,today]);
+ async function audit(row:FollowupRow,action:string,metadata:Record<string,unknown>){await supabase.from('customer_followup_audit_log').insert({followup_id:row.id,customer_id:null,action,actor_staff_id:user?.staffId||user?.id||null,actor_name:user?.name||null,branch:row.branch||branch,metadata});}
+ async function updateStatus(row:FollowupRow,action:'waiting'|'no_answer'|'replied'|'manager'|'self'){
+  setUpdatingId(row.id);try{const now=new Date().toISOString();const attempts=Number(row.attempt_count||0)+(action==='waiting'||action==='no_answer'?1:0);let payload:Record<string,unknown>={updated_by:user?.id||null,last_attempt_at:now,attempt_count:attempts};
+   if(action==='waiting')payload={...payload,contact_status:'في انتظار الرد',followup_status:'في انتظار الرد',response_status:'waiting_reply',status:'في انتظار الرد',contacted_at:now,first_attempt_at:row.first_attempt_at||now,next_followup_date:tomorrowKey(),needs_next_followup:true};
+   if(action==='no_answer')payload={...payload,contact_status:'لم يرد',followup_status:'لم يرد',response_status:'no_answer',status:'لم يرد',contacted_at:row.contacted_at||now,first_attempt_at:row.first_attempt_at||now,next_followup_date:tomorrowKey(),needs_next_followup:true};
+   if(action==='replied')payload={...payload,contact_status:'تم الرد',followup_status:'جارٍ التواصل',response_status:'replied',status:'جارٍ التواصل',next_followup_date:today,needs_next_followup:true};
+   if(action==='manager')payload={...payload,needs_manager:true,followup_notes:[row.followup_notes,'تم التصعيد للمدير'].filter(Boolean).join(' — ')};
+   if(action==='self')payload={...payload,responsible_name:user?.name||null,assigned_to:user?.name||null,assigned_to_staff_id:user?.staffId||user?.id||null};
+   const{error}=await supabase.from('daily_followups').update(payload).eq('id',row.id);if(error)throw error;await audit(row,action==='waiting'?'message_sent_waiting_reply':action==='no_answer'?'message_sent_no_answer':action==='replied'?'customer_replied':action==='manager'?'waiting_escalated_to_manager':'waiting_assigned_to_self',{next_followup_date:payload.next_followup_date,attempt_count:attempts});toast.success(action==='manager'?'تم التصعيد للمدير':action==='self'?'تم إسناد المتابعة لك':action==='replied'?'تم تسجيل رد العميل':'تم تحديث المتابعة وترحيلها');await load();
+  }catch(e){toast.error(`تعذر تحديث المتابعة: ${(e as Error).message}`);}finally{setUpdatingId('');}
+ }
+ function openWhatsApp(row:FollowupRow){const phone=customerPhone(row);if(!phone){toast.error('رقم العميل غير متاح');return;}window.open(generateWhatsAppLink(phone,'أهلًا بحضرتك، مع حضرتك صيدليات دواء. كنا بعتنا لحضرتك رسالة للمتابعة وحابين نطمن إن كل شيء تمام، وإحنا تحت أمرك في أي وقت.'),'_blank','noopener,noreferrer');}
+ if(!managerView&&!userBranch)return <section className="mx-4 mt-4 rounded-3xl border border-amber-400/30 bg-amber-500/10 p-5 text-center font-black text-amber-100" dir="rtl">حساب خدمة العملاء غير مربوط بفرع.</section>;
+ const filterCards:[WaitingFilter,string,number,typeof Clock3][]=[['waiting','في انتظار الرد',waitingCount,Clock3],['no_answer','لم يرد',noAnswerCount,CalendarClock],['overdue','متأخر',rows.filter(r=>r.next_followup_date&&text(r.next_followup_date).slice(0,10)<today).length,AlertTriangle],['aged','أكثر من 24 ساعة',rows.filter(r=>hoursSince(r.contacted_at||r.last_attempt_at||r.created_at)>=24).length,Clock3],['manager','يحتاج مديرًا',rows.filter(r=>r.needs_manager).length,ShieldAlert],['all','الكل',waitingCount+noAnswerCount,MessageCircle]];
+ return <section className="mx-4 mt-4 space-y-4 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
+  <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between"><div><h2 className="flex items-center gap-2 text-xl font-black text-white"><MessageCircle className="text-cyan-300"/> انتظار رد العملاء</h2><p className="mt-1 text-sm font-bold text-slate-400">Pagination كاملة، عمر الانتظار، عدد المحاولات، الإسناد، واتساب مباشر وتصعيد المدير.</p></div><div className="flex flex-wrap gap-2">{managerView?<select className="input-dark" value={branch} onChange={e=>setBranch(e.target.value)}><option>{ALL_BRANCHES}</option><option>فرع الشامي</option><option>فرع شكري</option></select>:<div className="input-dark font-black text-cyan-100">{userBranch}</div>}<button className="btn-secondary flex items-center gap-2" onClick={()=>void load()} disabled={loading}>{loading?<Loader2 size={16} className="animate-spin"/>:<RefreshCw size={16}/>} تحديث</button></div></div>
+  <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">{filterCards.map(([id,label,count,Icon])=><button key={id} type="button" onClick={()=>setFilter(id)} className={`rounded-2xl border p-3 text-right ${filter===id?'border-cyan-300 bg-cyan-400/15':'border-white/10 bg-white/[0.03]'}`}><Icon className="mb-2 text-cyan-300" size={18}/><div className="text-xs font-black text-slate-400">{label}</div><div className="text-2xl font-black text-white">{count}</div></button>)}</div>
+  <div className="grid gap-2 md:grid-cols-[1fr_220px]"><div className="relative"><Search size={17} className="absolute right-3 top-3 text-slate-400"/><input className="input-dark w-full pr-10" placeholder="بحث بالاسم أو الكود أو الهاتف أو المسؤولة" value={search} onChange={e=>setSearch(e.target.value)}/></div><select className="input-dark" value={owner} onChange={e=>setOwner(e.target.value)}>{owners.map(v=><option key={v}>{v}</option>)}</select></div>
+  <div className="space-y-2">{visibleRows.map(row=>{const age=hoursSince(row.contacted_at||row.last_attempt_at||row.created_at);return <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><div><div className="font-black text-white">{customerName(row)}</div><div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code||'بدون كود'} · {customerPhone(row)||'بدون هاتف'} · {row.branch||'فرع غير محدد'}</div><div className="mt-2 flex flex-wrap gap-2 text-xs font-black"><span className="rounded-full bg-cyan-500/15 px-3 py-1 text-cyan-200">{rowStatus(row)||'متابعة مفتوحة'}</span><span className={`rounded-full px-3 py-1 ${age>=48?'bg-red-500/15 text-red-200':age>=24?'bg-amber-500/15 text-amber-200':'bg-emerald-500/15 text-emerald-200'}`}>منتظر منذ {age} ساعة</span><span className="rounded-full bg-white/5 px-3 py-1 text-slate-300">المحاولات: {row.attempt_count||0}</span><span className="rounded-full bg-white/5 px-3 py-1 text-slate-300">المسؤولة: {ownerName(row)}</span></div><div className="mt-2 text-xs text-slate-500">الموعد القادم: {row.next_followup_date?text(row.next_followup_date).slice(0,10):'غير محدد'}</div></div><div className="flex flex-wrap gap-2"><button className="btn-secondary flex items-center gap-1" onClick={()=>openWhatsApp(row)}><Send size={15}/> واتساب</button><button className="btn-secondary flex items-center gap-1" disabled={updatingId===row.id} onClick={()=>void updateStatus(row,'self')}><UserRound size={15}/> إسناد لي</button><button className="btn-secondary" disabled={updatingId===row.id} onClick={()=>void updateStatus(row,'waiting')}>تم إرسال رسالة</button><button className="btn-secondary" disabled={updatingId===row.id} onClick={()=>void updateStatus(row,'no_answer')}>لم يرد</button><button className="btn-secondary flex items-center gap-1" disabled={updatingId===row.id||row.needs_manager===true} onClick={()=>void updateStatus(row,'manager')}><ShieldAlert size={15}/> تصعيد</button><button className="btn-primary flex items-center gap-1" disabled={updatingId===row.id} onClick={()=>void updateStatus(row,'replied')}><CheckCircle2 size={16}/> رد العميل</button></div></div></article>;})}{!loading&&visibleRows.length===0?<div className="rounded-2xl border border-white/10 p-8 text-center font-bold text-slate-400">لا توجد متابعات مطابقة حاليًا</div>:null}</div>
+  <div className="flex items-center justify-between"><button className="btn-secondary flex items-center gap-1" disabled={page===0||loading} onClick={()=>setPage(v=>Math.max(0,v-1))}><ChevronRight size={16}/> السابق</button><span className="text-xs font-black text-slate-400">صفحة {page+1}</span><button className="btn-secondary flex items-center gap-1" disabled={!hasMore||loading} onClick={()=>setPage(v=>v+1)}>التالي <ChevronLeft size={16}/></button></div>
+ </section>;
 }
