@@ -5,11 +5,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { fetchAllCustomerServiceFollowups } from '@/lib/api/customerServiceFollowupPagination';
-import { buildFollowupExportRows, type FollowupExportMode } from '@/lib/customerFollowupExport';
+import { buildFollowupExportRows } from '@/lib/customerFollowupExport';
 
 const ALL_BRANCHES = 'كل الفروع';
 
 type FollowupRecord = Record<string, unknown>;
+type ExportMode = 'open' | 'completed' | 'all';
 
 function safeFilePart(value: string) {
   return value.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-');
@@ -27,7 +28,7 @@ export default function CustomerFollowupFullExportPanel() {
   const managerView = canViewAllBranches(user);
   const userBranch = normalizeBranchName(user?.branch || '') || 'فرع الشامي';
   const [branch, setBranch] = useState(managerView ? ALL_BRANCHES : userBranch);
-  const [mode, setMode] = useState<FollowupExportMode>('open');
+  const [mode, setMode] = useState<ExportMode>('open');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
@@ -55,12 +56,14 @@ export default function CustomerFollowupFullExportPanel() {
           maxRows: 50_000,
           onPage: (page) => {
             loaded += page.rows.length;
-            setProgress(`تم تحميل ${loaded.toLocaleString('ar-EG')} من ${page.total.toLocaleString('ar-EG')}`);
+            setProgress(
+              `تم تحميل ${loaded.toLocaleString('ar-EG')} من ${page.total.toLocaleString('ar-EG')}`
+            );
           },
         }
       );
 
-      const exportRows = buildFollowupExportRows(rows, mode);
+      const exportRows = buildFollowupExportRows(rows, { openOnly: mode === 'open' });
       if (!exportRows.length) {
         toast.error('لا توجد نتائج مطابقة للتصدير');
         return;
@@ -74,7 +77,8 @@ export default function CustomerFollowupFullExportPanel() {
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, sheet, 'متابعات العملاء');
 
-      const modeLabel = mode === 'open' ? 'المطلوب-الآن' : mode === 'completed' ? 'تم-الانتهاء' : 'كل-السجل';
+      const modeLabel =
+        mode === 'open' ? 'المطلوب-الآن' : mode === 'completed' ? 'تم-الانتهاء' : 'كل-السجل';
       const branchLabel = branch === ALL_BRANCHES ? 'كل-الفروع' : safeFilePart(branch);
       XLSX.writeFile(book, `متابعات-العملاء-${modeLabel}-${branchLabel}-${todayKey()}.xlsx`);
       toast.success(`تم تصدير ${exportRows.length.toLocaleString('ar-EG')} متابعة إلى Excel`);
@@ -87,7 +91,10 @@ export default function CustomerFollowupFullExportPanel() {
   }
 
   return (
-    <section className="mx-4 mt-4 rounded-3xl border border-teal-400/20 bg-[#10243d] p-4 shadow-xl" dir="rtl">
+    <section
+      className="mx-4 mt-4 rounded-3xl border border-teal-400/20 bg-[#10243d] p-4 shadow-xl"
+      dir="rtl"
+    >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="flex items-center gap-2 text-lg font-black text-white">
@@ -95,13 +102,18 @@ export default function CustomerFollowupFullExportPanel() {
             تصدير سجل متابعات العملاء الكامل
           </div>
           <p className="mt-1 text-sm font-bold text-slate-400">
-            يجلب كل الصفحات من قاعدة البيانات، وليس أول 1000 صف فقط، ويضيف حالة جودة البيانات والمعرفات.
+            يجلب كل الصفحات من قاعدة البيانات، وليس أول 1000 صف فقط، ويضيف حالة جودة البيانات
+            والمعرفات.
           </p>
         </div>
 
         <div className="grid flex-1 gap-2 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-4">
           {managerView ? (
-            <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}>
+            <select
+              className="input-dark"
+              value={branch}
+              onChange={(event) => setBranch(event.target.value)}
+            >
               <option>{ALL_BRANCHES}</option>
               <option>فرع الشامي</option>
               <option>فرع شكري</option>
@@ -113,7 +125,7 @@ export default function CustomerFollowupFullExportPanel() {
           <select
             className="input-dark"
             value={mode}
-            onChange={(event) => setMode(event.target.value as FollowupExportMode)}
+            onChange={(event) => setMode(event.target.value as ExportMode)}
           >
             <option value="open">المطلوب الآن فقط</option>
             <option value="completed">تم الانتهاء فقط</option>
