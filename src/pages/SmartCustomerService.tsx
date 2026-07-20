@@ -20,8 +20,12 @@ const CustomerServiceOperationsPanel = lazy(
 const UnifiedCustomerServiceWorkspace = lazy(
   () => import('@/components/customerService/UnifiedCustomerServiceWorkspace')
 );
+const WaitingCustomerRepliesPanel = lazy(
+  () => import('@/components/customerService/WaitingCustomerRepliesPanel')
+);
+const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
 
-type ServiceView = 'today' | 'operations' | 'data' | 'scripts' | 'export';
+type ServiceView = 'today' | 'waiting' | 'operations' | 'data' | 'scripts' | 'points' | 'export';
 
 const views: Array<{
   id: ServiceView;
@@ -32,6 +36,11 @@ const views: Array<{
     id: 'today',
     title: 'المطلوب الآن',
     description: 'قائمة العمل اليومية فقط',
+  },
+  {
+    id: 'waiting',
+    title: 'في انتظار الرد',
+    description: 'تم إرسال رسالة ولم يرد العميل بعد',
   },
   {
     id: 'operations',
@@ -47,6 +56,11 @@ const views: Array<{
     id: 'scripts',
     title: 'سكريبتات التواصل',
     description: 'إدارة نصوص المكالمات والواتساب',
+  },
+  {
+    id: 'points',
+    title: 'نقاط العملاء',
+    description: 'النقاط والكاش باك وسجل الاستحقاق',
   },
   {
     id: 'export',
@@ -96,7 +110,7 @@ export default function SmartCustomerService() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-7">
             {views.map((item) => {
               const active = item.id === view;
               return (
@@ -125,7 +139,7 @@ export default function SmartCustomerService() {
       </section>
 
       <main className="mx-auto max-w-[1800px] px-0 pb-8">
-        {!hasSafeBranchScope ? <MissingBranchGuard /> : null}
+        {!hasSafeBranchScope && view !== 'points' ? <MissingBranchGuard /> : null}
 
         {hasSafeBranchScope && view === 'today' ? (
           <div className="space-y-4">
@@ -134,6 +148,12 @@ export default function SmartCustomerService() {
               <UnifiedCustomerServiceWorkspace />
             </Suspense>
           </div>
+        ) : null}
+
+        {hasSafeBranchScope && view === 'waiting' ? (
+          <Suspense fallback={<SectionLoader label="قائمة انتظار رد العملاء" />}>
+            <WaitingCustomerRepliesPanel />
+          </Suspense>
         ) : null}
 
         {hasSafeBranchScope && view === 'operations' ? (
@@ -156,6 +176,12 @@ export default function SmartCustomerService() {
         {hasSafeBranchScope && view === 'scripts' ? (
           <Suspense fallback={<SectionLoader label="محرر السكريبتات" />}>
             <CustomerServiceScriptEditor />
+          </Suspense>
+        ) : null}
+
+        {view === 'points' ? (
+          <Suspense fallback={<SectionLoader label="نقاط العملاء والكاش باك" />}>
+            <CustomerCashback />
           </Suspense>
         ) : null}
 
