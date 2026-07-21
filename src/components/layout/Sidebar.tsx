@@ -13,6 +13,7 @@ import { LOGO_URL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
 import { isDoctorRole } from '@/lib/security/userDataScope';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 
 type NavItem = { path: string; icon: ElementType; label: string; permission?: string | string[]; adminOnly?: boolean };
 type NavGroup = { title: string; icon: ElementType; items: NavItem[] };
@@ -54,7 +55,7 @@ const GROUPS: NavGroup[] = [
   { title: 'المبيعات والتحليل', icon: BarChart3, items: [
     { path: '/analytics', icon: BarChart3, label: 'التحليلات والمبيعات', permission: 'view_analytics' },
     { path: '/invoices', icon: FileSpreadsheet, label: 'استيراد الفواتير', permission: 'view_invoices' },
-    { path: '/branch-comparison', icon: BarChart3, label: 'مقارنة الفروع', permission: 'view_branch_comparison' },
+    { path: '/branch-comparison', icon: BarChart3, label: 'ترتيب ومقارنة الفرع', permission: 'view_branch_comparison' },
     { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
     { path: '/whatsapp-analytics', icon: BarChart3, label: 'تحليلات واتساب', permission: 'view_reviews' },
     { path: '/reports', icon: FileSpreadsheet, label: 'مركز التقارير', permission: 'view_sales_reports' },
@@ -64,15 +65,18 @@ const GROUPS: NavGroup[] = [
     { path: '/shortages', icon: PackageSearch, label: 'النواقص', permission: 'view_shortages' },
     { path: '/medicine-expiry', icon: AlertTriangle, label: 'الصلاحية', permission: 'view_expiry_tracker' },
     { path: '/inventory-counts', icon: ClipboardList, label: 'الجرد', permission: 'view_inventory' },
+    { path: '/shelf-organization', icon: ClipboardList, label: 'تنظيم الأرفف وCheckpoint', permission: ['view_inventory','view_operations'] },
+    { path: '/supplies', icon: PackageSearch, label: 'Checkpoint المستلزمات', permission: ['view_supplies','view_inventory'] },
+    { path: '/accessories', icon: Package, label: 'Checkpoint الإكسسوارات', permission: ['view_operations','view_inventory'] },
+    { path: '/branch-cleaning', icon: ClipboardCheck, label: 'جدول النظافة والصور اليومية', permission: 'view_operations' },
     { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
-    { path: '/supplies', icon: PackageSearch, label: 'المستلزمات', permission: 'view_supplies' },
   ]},
   { title: 'الدليفري', icon: Truck, items: [{ path: '/delivery', icon: Truck, label: 'لوحة الدليفري', permission: 'view_delivery' }] },
   { title: 'الحوافز والرواتب', icon: Star, items: [
     { path: '/points', icon: Star, label: 'النقاط', permission: 'view_points' },
     { path: '/staff-payroll', icon: Wallet, label: 'الرواتب', permission: 'view_salary_calculator' },
     { path: '/quarterly-incentives', icon: Crown, label: 'شرح الحافز الشهري', permission: 'view_quarterly_incentives' },
-    { path: '/penalty-incentive', icon: AlertTriangle, label: 'الجزاءات والمكافآت', permission: 'view_penalty_management' },
+    { path: '/penalty-incentive', icon: AlertTriangle, label: 'جزاءات ومكافآت الفرع', permission: 'view_penalty_management' },
   ]},
 ];
 
@@ -114,13 +118,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const location = useLocation();
   const guard = useOptionalNavigationGuard();
   const pendingShiftNotes = usePendingShiftNotesCount();
-  const privileged = isAdmin || ['general_manager','executive_manager','branches_manager','branch_manager','مدير عام','مدير فرع'].includes(user?.role || '');
+  const role = normalizeRole(user?.role);
+  const privileged = isAdmin || ['general_manager','executive_manager','branches_manager'].includes(role);
   const pharmacistView = isDoctorRole(user) && !checkPermission('view_executive_dashboard');
 
   const canAccess = (item: NavItem) => {
     if (item.adminOnly && !privileged) return false;
     if (!item.permission) return true;
-    return privileged || (Array.isArray(item.permission) ? item.permission.some(checkPermission) : checkPermission(item.permission));
+    return Array.isArray(item.permission) ? item.permission.some(checkPermission) : checkPermission(item.permission);
   };
   const groups = useMemo(() => (pharmacistView ? PHARMACIST_GROUPS : GROUPS)
     .filter((group) => group.title !== 'الدليفري' || ENABLE_INTERNAL_DELIVERY_MODULE)
