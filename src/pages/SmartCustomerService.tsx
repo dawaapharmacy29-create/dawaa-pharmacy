@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
@@ -7,6 +7,7 @@ import CustomerFollowupFullExportPanel from '@/components/customerService/Custom
 import CustomerFollowupOperationsCompletionPanel from '@/components/customerService/CustomerFollowupOperationsCompletionPanel';
 import CustomerFollowupStructuredActionsPanel from '@/components/customerService/CustomerFollowupStructuredActionsPanel';
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
+import CustomerFollowupCompactQueuePanel from '@/components/customerService/CustomerFollowupCompactQueuePanel';
 import CustomerServiceCommandOverview from '@/components/customerService/CustomerServiceCommandOverview';
 import CustomerBranchTransferPanel from '@/components/customerService/CustomerBranchTransferPanel';
 import '@/styles/customerServiceTheme.css';
@@ -20,7 +21,7 @@ const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
 
 type ServiceView = 'today' | 'waiting' | 'operations' | 'data' | 'scripts' | 'points' | 'export';
 const views: Array<{ id: ServiceView; title: string; description: string }> = [
-  { id: 'today', title: 'المطلوب الآن', description: 'قائمة العمل اليومية فقط' },
+  { id: 'today', title: 'المطلوب الآن', description: 'قائمة مختصرة بفلاتر قوية' },
   { id: 'waiting', title: 'في انتظار الرد', description: 'الرسائل المرسلة والمتأخرة' },
   { id: 'operations', title: 'المتابعات والسجل', description: 'المتأخر والمؤجل والمكتمل والأرشيف' },
   { id: 'data', title: 'تصحيح البيانات', description: 'الهواتف والأكواد والفروع والتكرارات' },
@@ -40,6 +41,7 @@ export default function SmartCustomerService() {
   const { user } = useAuth();
   const [view, setView] = useState<ServiceView>('today');
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
+  const [fullTodayView, setFullTodayView] = useState(false);
   const managerView = canViewAllBranches(user);
   const normalizedUserBranch = useMemo(() => normalizeBranchName(user?.branch || ''), [user?.branch]);
   const hasSafeBranchScope = managerView || Boolean(normalizedUserBranch);
@@ -52,13 +54,26 @@ export default function SmartCustomerService() {
 
   return <div className="customer-service-page space-y-4" dir="rtl">
     <section className="sticky top-0 z-30 border-b border-cyan-300/15 bg-[#071827]/95 px-3 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl md:px-5">
-      <div className="mx-auto max-w-[1800px]"><div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between"><div><p className="text-xs font-black text-cyan-300">مركز خدمة العملاء</p><h1 className="text-xl font-black text-white md:text-2xl">تشغيل يومي سريع ومتابعة بدون فقد أي عميل</h1></div><p className="text-xs font-bold text-slate-400">ملخص حي، قائمة اليوم، انتظار الرد، السجل، البيانات، السكريبتات والنقاط</p></div>
+      <div className="mx-auto max-w-[1800px]"><div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between"><div><p className="text-xs font-black text-cyan-300">مركز خدمة العملاء</p><h1 className="text-xl font-black text-white md:text-2xl">تشغيل يومي سريع ومتابعة بدون فقد أي عميل</h1></div><p className="text-xs font-bold text-slate-400">الوضع المختصر هو الافتراضي، والتفاصيل الكاملة تفتح عند الحاجة</p></div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">{views.map((item)=>{const active=item.id===view;return <button key={item.id} type="button" onClick={()=>setView(item.id)} className={`rounded-2xl border px-3 py-3 text-right transition ${active?'border-cyan-300/60 bg-cyan-400/15 shadow-lg shadow-cyan-950/30':'border-white/10 bg-white/[0.035] hover:border-cyan-300/30 hover:bg-white/[0.06]'}`} aria-pressed={active}><span className={`block text-sm font-black ${active?'text-cyan-200':'text-white'}`}>{item.title}</span><span className="mt-1 hidden text-[11px] font-bold text-slate-400 md:block">{item.description}</span></button>;})}</div></div>
     </section>
     <main className="mx-auto max-w-[1800px] px-0 pb-8">
       {!hasSafeBranchScope && view !== 'points' ? <MissingBranchGuard/> : null}
-      {hasSafeBranchScope && (view === 'today' || view === 'waiting' || view === 'operations') ? <CustomerServiceCommandOverview key={`overview-${workspaceVersion}`}/> : null}
-      {hasSafeBranchScope && view === 'today' ? <div className="space-y-4"><CustomerBranchTransferPanel key={`transfer-${workspaceVersion}`}/><CustomerFollowupStructuredActionsPanel key={`actions-${workspaceVersion}`}/><Suspense fallback={<SectionLoader label="قائمة المتابعات اليومية"/>}><UnifiedCustomerServiceWorkspace key={`workspace-${workspaceVersion}`}/></Suspense></div> : null}
+      {hasSafeBranchScope && (view === 'waiting' || view === 'operations') ? <CustomerServiceCommandOverview key={`overview-${workspaceVersion}`}/> : null}
+      {hasSafeBranchScope && view === 'today' ? <div className="space-y-4">
+        <CustomerFollowupCompactQueuePanel key={`compact-${workspaceVersion}`} onOpenFull={() => setFullTodayView(true)} />
+        <div className="mx-4">
+          <button type="button" className="btn-secondary flex w-full items-center justify-center gap-2" onClick={() => setFullTodayView((current) => !current)}>
+            {fullTodayView ? <ChevronUp size={17}/> : <ChevronDown size={17}/>} {fullTodayView ? 'إخفاء الأدوات والعرض الكامل' : 'إظهار الأدوات والعرض الكامل'}
+          </button>
+        </div>
+        {fullTodayView ? <div className="space-y-4">
+          <CustomerServiceCommandOverview key={`today-overview-${workspaceVersion}`}/>
+          <CustomerBranchTransferPanel key={`transfer-${workspaceVersion}`}/>
+          <CustomerFollowupStructuredActionsPanel key={`actions-${workspaceVersion}`}/>
+          <Suspense fallback={<SectionLoader label="قائمة المتابعات اليومية الكاملة"/>}><UnifiedCustomerServiceWorkspace key={`workspace-${workspaceVersion}`}/></Suspense>
+        </div> : null}
+      </div> : null}
       {hasSafeBranchScope && view === 'waiting' ? <Suspense fallback={<SectionLoader label="قائمة انتظار رد العملاء"/>}><WaitingCustomerRepliesPanel key={`waiting-${workspaceVersion}`}/></Suspense> : null}
       {hasSafeBranchScope && view === 'operations' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><CustomerBranchTransferPanel key={`operations-transfer-${workspaceVersion}`}/><CustomerFollowupStructuredActionsPanel/><Suspense fallback={<SectionLoader label="سجل العمليات"/>}><CustomerServiceOperationsPanel/></Suspense></div> : null}
       {hasSafeBranchScope && view === 'data' ? <Suspense fallback={<SectionLoader label="أدوات تصحيح البيانات"/>}><CustomerServiceDataTools/></Suspense> : null}
