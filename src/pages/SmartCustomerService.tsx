@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
@@ -8,6 +8,7 @@ import CustomerFollowupOperationsCompletionPanel from '@/components/customerServ
 import CustomerFollowupStructuredActionsPanel from '@/components/customerService/CustomerFollowupStructuredActionsPanel';
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
 import CustomerServiceCommandOverview from '@/components/customerService/CustomerServiceCommandOverview';
+import CustomerBranchTransferPanel from '@/components/customerService/CustomerBranchTransferPanel';
 import '@/styles/customerServiceTheme.css';
 
 const CustomerServiceDataTools = lazy(() => import('@/components/customerService/CustomerServiceDataTools'));
@@ -38,9 +39,17 @@ function MissingBranchGuard() {
 export default function SmartCustomerService() {
   const { user } = useAuth();
   const [view, setView] = useState<ServiceView>('today');
+  const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const managerView = canViewAllBranches(user);
   const normalizedUserBranch = useMemo(() => normalizeBranchName(user?.branch || ''), [user?.branch]);
   const hasSafeBranchScope = managerView || Boolean(normalizedUserBranch);
+
+  useEffect(() => {
+    const refresh = () => setWorkspaceVersion((current) => current + 1);
+    window.addEventListener('customer-followup-branch-transferred', refresh);
+    return () => window.removeEventListener('customer-followup-branch-transferred', refresh);
+  }, []);
+
   return <div className="customer-service-page space-y-4" dir="rtl">
     <section className="sticky top-0 z-30 border-b border-cyan-300/15 bg-[#071827]/95 px-3 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl md:px-5">
       <div className="mx-auto max-w-[1800px]"><div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between"><div><p className="text-xs font-black text-cyan-300">مركز خدمة العملاء</p><h1 className="text-xl font-black text-white md:text-2xl">تشغيل يومي سريع ومتابعة بدون فقد أي عميل</h1></div><p className="text-xs font-bold text-slate-400">ملخص حي، قائمة اليوم، انتظار الرد، السجل، البيانات، السكريبتات والنقاط</p></div>
@@ -48,10 +57,10 @@ export default function SmartCustomerService() {
     </section>
     <main className="mx-auto max-w-[1800px] px-0 pb-8">
       {!hasSafeBranchScope && view !== 'points' ? <MissingBranchGuard/> : null}
-      {hasSafeBranchScope && (view === 'today' || view === 'waiting' || view === 'operations') ? <CustomerServiceCommandOverview/> : null}
-      {hasSafeBranchScope && view === 'today' ? <div className="space-y-4"><CustomerFollowupStructuredActionsPanel/><Suspense fallback={<SectionLoader label="قائمة المتابعات اليومية"/>}><UnifiedCustomerServiceWorkspace/></Suspense></div> : null}
-      {hasSafeBranchScope && view === 'waiting' ? <Suspense fallback={<SectionLoader label="قائمة انتظار رد العملاء"/>}><WaitingCustomerRepliesPanel/></Suspense> : null}
-      {hasSafeBranchScope && view === 'operations' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><CustomerFollowupStructuredActionsPanel/><Suspense fallback={<SectionLoader label="سجل العمليات"/>}><CustomerServiceOperationsPanel/></Suspense></div> : null}
+      {hasSafeBranchScope && (view === 'today' || view === 'waiting' || view === 'operations') ? <CustomerServiceCommandOverview key={`overview-${workspaceVersion}`}/> : null}
+      {hasSafeBranchScope && view === 'today' ? <div className="space-y-4"><CustomerBranchTransferPanel key={`transfer-${workspaceVersion}`}/><CustomerFollowupStructuredActionsPanel key={`actions-${workspaceVersion}`}/><Suspense fallback={<SectionLoader label="قائمة المتابعات اليومية"/>}><UnifiedCustomerServiceWorkspace key={`workspace-${workspaceVersion}`}/></Suspense></div> : null}
+      {hasSafeBranchScope && view === 'waiting' ? <Suspense fallback={<SectionLoader label="قائمة انتظار رد العملاء"/>}><WaitingCustomerRepliesPanel key={`waiting-${workspaceVersion}`}/></Suspense> : null}
+      {hasSafeBranchScope && view === 'operations' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><CustomerBranchTransferPanel key={`operations-transfer-${workspaceVersion}`}/><CustomerFollowupStructuredActionsPanel/><Suspense fallback={<SectionLoader label="سجل العمليات"/>}><CustomerServiceOperationsPanel/></Suspense></div> : null}
       {hasSafeBranchScope && view === 'data' ? <Suspense fallback={<SectionLoader label="أدوات تصحيح البيانات"/>}><CustomerServiceDataTools/></Suspense> : null}
       {hasSafeBranchScope && view === 'scripts' ? <Suspense fallback={<SectionLoader label="محرر السكريبتات"/>}><CustomerServiceScriptEditor/></Suspense> : null}
       {view === 'points' ? <Suspense fallback={<SectionLoader label="نقاط العملاء والكاش باك"/>}><CustomerCashback/></Suspense> : null}
