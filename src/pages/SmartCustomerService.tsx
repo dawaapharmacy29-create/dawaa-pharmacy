@@ -27,7 +27,7 @@ function SectionLoader({ label }: { label: string }) {
 }
 
 function MissingBranchGuard() {
-  return <section className="mx-4 mt-4 rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 text-center" dir="rtl"><AlertTriangle className="mx-auto text-amber-300" size={34}/><h2 className="mt-3 text-xl font-black text-white">لا يمكن فتح قائمة المتابعات بدون فرع محدد</h2><p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-amber-100/80">حساب خدمة العملاء الحالي غير مربوط بفرع الشامي أو فرع شكري. تم إيقاف تحميل القائمة بدل فتح فرع افتراضي بالخطأ.</p></section>;
+  return <section className="mx-4 mt-4 rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 text-center" dir="rtl"><AlertTriangle className="mx-auto text-amber-300" size={34}/><h2 className="mt-3 text-xl font-black text-white">لا يمكن فتح قائمة المتابعات بدون فرع محدد</h2><p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-amber-100/80">الحساب الحالي غير مربوط بفرع الشامي أو فرع شكري. تم إيقاف تحميل البيانات بدل فتح فرع افتراضي أو إظهار بيانات فرع آخر.</p></section>;
 }
 
 export default function SmartCustomerService() {
@@ -40,14 +40,20 @@ export default function SmartCustomerService() {
 
   useEffect(() => {
     const refresh = () => setWorkspaceVersion((current) => current + 1);
-    window.addEventListener('customer-followup-branch-transferred', refresh);
-    return () => window.removeEventListener('customer-followup-branch-transferred', refresh);
+    const events = [
+      'customer-followup-updated',
+      'customer-followup-branch-transferred',
+      'customer-followup-data-corrected',
+      'customer-followup-imported',
+    ];
+    events.forEach((eventName) => window.addEventListener(eventName, refresh));
+    return () => events.forEach((eventName) => window.removeEventListener(eventName, refresh));
   }, []);
 
-  return <div className="customer-service-page space-y-4" dir="rtl">
-    <section className="sticky top-0 z-30 border-b border-cyan-300/15 bg-[#071827]/95 px-3 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl md:px-5">
+  return <div className="customer-service-page min-h-screen space-y-4" dir="rtl">
+    <section className="sticky top-0 z-40 border-b border-cyan-300/15 bg-[#071827]/95 px-3 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl md:px-5">
       <div className="mx-auto max-w-[1800px]">
-        <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between"><div><p className="text-xs font-black text-cyan-300">مركز خدمة العملاء</p><h1 className="text-xl font-black text-white md:text-2xl">مساحة واحدة لكل متابعة وقرار</h1></div><p className="text-xs font-bold text-slate-400">أربع مساحات واضحة بدل تكرار الأدوات واللوحات</p></div>
+        <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between"><div><p className="text-xs font-black text-cyan-300">مركز خدمة العملاء</p><h1 className="text-xl font-black text-white md:text-2xl">مساحة واحدة لكل متابعة وقرار</h1></div><p className="text-xs font-bold text-slate-400">كل مساحة مستقلة لمنع تكرار القوائم وتداخل الأدوات</p></div>
         <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">{views.map(({ id, title, description, icon: Icon })=>{const active=id===view;return <button key={id} type="button" onClick={()=>setView(id)} className={`rounded-2xl border px-3 py-3 text-right transition ${active?'border-cyan-300/60 bg-cyan-400/15 shadow-lg shadow-cyan-950/30':'border-white/10 bg-white/[0.035] hover:border-cyan-300/30 hover:bg-white/[0.06]'}`} aria-pressed={active}><span className="flex items-center gap-2"><Icon size={17} className="text-cyan-300"/><span className={`block text-sm font-black ${active?'text-cyan-200':'text-white'}`}>{title}</span></span><span className="mt-1 hidden text-[11px] font-bold text-slate-400 md:block">{description}</span></button>;})}</div>
       </div>
     </section>
