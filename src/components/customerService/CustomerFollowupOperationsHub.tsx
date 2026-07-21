@@ -1,9 +1,12 @@
 import { lazy, Suspense, useState } from 'react';
 import { ChevronDown, ChevronUp, History, Inbox, Wrench } from 'lucide-react';
+import CustomerFollowupBranchReviewPanel from '@/components/customerService/CustomerFollowupBranchReviewPanel';
 import CustomerFollowupCockpitPanel from '@/components/customerService/CustomerFollowupCockpitPanel';
 import CustomerBranchTransferPanel from '@/components/customerService/CustomerBranchTransferPanel';
 import CustomerFollowupStructuredActionsPanel from '@/components/customerService/CustomerFollowupStructuredActionsPanel';
 import CustomerServiceCommandOverview from '@/components/customerService/CustomerServiceCommandOverview';
+import { useAuth } from '@/hooks/useAuth';
+import { canViewAllBranches } from '@/lib/security/userDataScope';
 
 const CustomerServiceOperationsPanel = lazy(() => import('@/components/customerService/CustomerServiceOperationsPanel'));
 const UnifiedCustomerServiceWorkspace = lazy(() => import('@/components/customerService/UnifiedCustomerServiceWorkspace'));
@@ -15,6 +18,8 @@ function Loader({ label }: { label: string }) {
 }
 
 export default function CustomerFollowupOperationsHub({ version }: { version: number }) {
+  const { user } = useAuth();
+  const managerView = canViewAllBranches(user);
   const [mode, setMode] = useState<Mode>('cockpit');
   const [toolsOpen, setToolsOpen] = useState(false);
   const [legacyDetailsOpen, setLegacyDetailsOpen] = useState(false);
@@ -49,6 +54,7 @@ export default function CustomerFollowupOperationsHub({ version }: { version: nu
       </section>
 
       {toolsOpen ? <div className="space-y-4">
+        {managerView ? <div className="mx-4"><CustomerFollowupBranchReviewPanel/></div> : null}
         <CustomerServiceCommandOverview key={`overview-${version}`}/>
         <CustomerBranchTransferPanel key={`transfer-${version}`}/>
         <CustomerFollowupStructuredActionsPanel key={`actions-${version}`}/>
