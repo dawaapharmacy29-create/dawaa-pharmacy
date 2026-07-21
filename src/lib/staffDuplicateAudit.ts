@@ -47,10 +47,15 @@ async function safeCount(table: string, column: string, staffId: string): Promis
   return count || 0;
 }
 
-async function loadStaffAccountsByStaffId() {
+async function loadStaffAccountsByStaffId(): Promise<Map<string, string>> {
   const { data, error } = await supabase.from('staff_accounts').select('id,staff_id');
   if (error) return new Map<string, string>();
-  return new Map((data || []).filter((row) => row.staff_id).map((row) => [String(row.staff_id), String(row.id)]));
+  const rows = (data || []) as Array<{ id: unknown; staff_id: unknown }>;
+  return new Map<string, string>(
+    rows
+      .filter((row) => Boolean(row.staff_id))
+      .map((row): [string, string] => [String(row.staff_id), String(row.id)])
+  );
 }
 
 export async function fetchAllStaffWithCounts(): Promise<StaffDuplicateRecord[]> {
@@ -119,8 +124,7 @@ export async function fetchAllStaffWithCounts(): Promise<StaffDuplicateRecord[]>
   }));
 }
 
-export async function findStaffDuplicates(): Promise<StaffDuplicateGroup[]> {
-  const allStaff = await fetchAllStaffWithCounts();
+function groupDuplicateStaff(allStaff: StaffDuplicateRecord[]): StaffDuplicateGroup[] {
   const groups = new Map<string, StaffDuplicateRecord[]>();
   for (const staff of allStaff) {
     if (!staff.normalized_name) continue;
@@ -128,28 +132,21 @@ export async function findStaffDuplicates(): Promise<StaffDuplicateGroup[]> {
     current.push(staff);
     groups.set(staff.normalized_name, current);
   }
-  return [...groups.entries()]
+  return Array.from(groups.entries())
     .filter(([, staff]) => staff.length > 1)
-    .map(([normalized_name, staff]) => ({ normalized_name, staff }))
-    .sort((a, b) => b.staff.length - a.staff.length);
+    .map(([normalized_name, staff]) => ({ normalized_name, staff }));
+}
+
+export async function findStaffDuplicates(): Promise<StaffDuplicateGroup[]> {
+  return groupDuplicateStaff(await fetchAllStaffWithCounts());
 }
 
 export async function getDuplicateStatistics() {
   const allStaff = await fetchAllStaffWithCounts();
-  const groups = new Map<string, StaffDuplicateRecord[]>();
-  for (const staff of allStaff) {
-    if (!staff.normalized_name) continue;
-    const current = groups.get(staff.normalized_name) || [];
-    current.push(staff);
-    groups.set(staff.normalized_name, current);
-  }
-  const duplicateGroups = [...groups.entries()]
-    .filter(([, staff]) => staff.length > 1)
-    .map(([normalized_name, staff]) => ({ normalized_name, staff }))
-    .sort((a, b) => b.staff.length - a.staff.length);
+  const duplicateGroups = groupDuplicateStaff(allStaff);
   return {
     totalStaff: allStaff.length,
-    totalDuplicates: duplicateGroups.reduce((sum, group) => sum + group.staff.length, 0),
+    totalDuplicates: duplicateGroups.reduce((total, group) => total + group.staff.length, 0),
     uniqueDuplicateNames: duplicateGroups.length,
     duplicateGroups,
   };

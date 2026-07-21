@@ -167,8 +167,67 @@ function mapLegacyEvent(row: RawRow): DoctorFollowupEvent {
   };
 }
 
+function mapAuditEvent(row: RawRow): DoctorFollowupEvent {
+  const action = text(row.action) || 'updated';
+  const metadata = (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, unknown>;
+  const newValues = (row.new_values && typeof row.new_values === 'object' ? row.new_values : {}) as Record<string, unknown>;
+  const titles: Record<string, string> = {
+    created: 'تم إنشاء المتابعة',
+    message_sent: 'تم إرسال رسالة للعميل',
+    no_answer: 'تم تسجيل عدم رد العميل',
+    replied: 'تم تسجيل رد العميل',
+    scheduled: 'تم تحديد موعد متابعة قادم',
+    completed: 'تم إكمال المتابعة',
+    cancelled: 'تم إلغاء المتابعة',
+    archived: 'تم أرشفة المتابعة',
+    customer_data_corrected: 'تم تصحيح بيانات العميل',
+    transferred: 'تم تحويل المتابعة',
+    updated: 'تم تحديث المتابعة',
+  };
+  const status = text(
+    newValues.contact_status ||
+    newValues.followup_status ||
+    newValues.response_status ||
+    newValues.status ||
+    metadata.status
+  );
+  const notes = text(metadata.notes || metadata.note || metadata.reason);
+
+  return {
+    id: `audit-${text(row.id)}`,
+    followup_id: text(row.followup_id),
+    event_type: action,
+    title: titles[action] || 'تم تحديث المتابعة',
+    status: status || null,
+    notes: notes || null,
+    result: text(newValues.followup_result || metadata.result) || null,
+    customer_response: null,
+    responsible_name: text(row.actor_name) || null,
+    actor_name: text(row.actor_name) || null,
+    metadata: {
+      ...metadata,
+      old_values: row.old_values ?? null,
+      new_values: row.new_values ?? null,
+    },
+    created_at: text(row.created_at),
+  };
+}
+
+function dedupeAuditEvents(events: DoctorFollowupEvent[]) {
+  return events.filter((event, index, all) => {
+    if (event.event_type !== 'updated') return true;
+    const eventTime = new Date(event.created_at).getTime();
+    return !all.some((candidate, candidateIndex) => {
+      if (candidateIndex === index || candidate.event_type === 'updated') return false;
+      if (candidate.followup_id !== event.followup_id) return false;
+      const candidateTime = new Date(candidate.created_at).getTime();
+      return Number.isFinite(eventTime) && Number.isFinite(candidateTime) && Math.abs(candidateTime - eventTime) <= 5000;
+    });
+  });
+}
+
 export async function fetchFollowupEvents(followupId: string): Promise<DoctorFollowupEvent[]> {
-  const [execution, legacy] = await Promise.all([
+  const [execution, legacy, audit] = await Promise.all([
     supabase
       .from('customer_service_followup_events')
       .select('*')
@@ -181,6 +240,12 @@ export async function fetchFollowupEvents(followupId: string): Promise<DoctorFol
       .eq('followup_id', followupId)
       .order('edited_at', { ascending: true })
       .limit(500),
+    supabase
+      .from('customer_followup_audit_log')
+      .select('id,followup_id,action,actor_name,old_values,new_values,metadata,created_at')
+      .eq('followup_id', followupId)
+      .order('created_at', { ascending: true })
+      .limit(500),
   ]);
 
   const executionRows = execution.error && !/does not exist|schema cache/i.test(execution.error.message)
@@ -191,7 +256,11 @@ export async function fetchFollowupEvents(followupId: string): Promise<DoctorFol
     ? []
     : ((legacy.data || []) as RawRow[]).map(mapLegacyEvent);
 
-  return [...executionRows, ...legacyRows]
+  const auditRows = audit.error && !/does not exist|schema cache/i.test(audit.error.message)
+    ? []
+    : ((audit.data || []) as RawRow[]).map(mapAuditEvent);
+
+  return dedupeAuditEvents([...executionRows, ...legacyRows, ...auditRows])
     .filter((row) => row.id)
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
