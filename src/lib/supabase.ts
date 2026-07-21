@@ -4,7 +4,6 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function readStoredUserId(): string | null {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
@@ -12,8 +11,12 @@ function readStoredUserId(): string | null {
   try {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { id?: unknown };
-    return typeof parsed.id === 'string' && UUID_PATTERN.test(parsed.id) ? parsed.id : null;
+    const parsed = JSON.parse(raw) as { id?: unknown; username?: unknown; staff_id?: unknown };
+    const candidate = [parsed.id, parsed.staff_id, parsed.username]
+      .find((value) => typeof value === 'string' && value.trim().length > 0);
+    if (typeof candidate !== 'string') return null;
+    const normalized = candidate.trim();
+    return normalized.length <= 160 ? normalized : null;
   } catch {
     return null;
   }
