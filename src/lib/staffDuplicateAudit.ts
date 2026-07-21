@@ -124,8 +124,7 @@ export async function fetchAllStaffWithCounts(): Promise<StaffDuplicateRecord[]>
   }));
 }
 
-export async function findStaffDuplicates(): Promise<StaffDuplicateGroup[]> {
-  const allStaff = await fetchAllStaffWithCounts();
+function groupDuplicateStaff(allStaff: StaffDuplicateRecord[]): StaffDuplicateGroup[] {
   const groups = new Map<string, StaffDuplicateRecord[]>();
   for (const staff of allStaff) {
     if (!staff.normalized_name) continue;
@@ -136,4 +135,19 @@ export async function findStaffDuplicates(): Promise<StaffDuplicateGroup[]> {
   return Array.from(groups.entries())
     .filter(([, staff]) => staff.length > 1)
     .map(([normalized_name, staff]) => ({ normalized_name, staff }));
+}
+
+export async function findStaffDuplicates(): Promise<StaffDuplicateGroup[]> {
+  return groupDuplicateStaff(await fetchAllStaffWithCounts());
+}
+
+export async function getDuplicateStatistics() {
+  const allStaff = await fetchAllStaffWithCounts();
+  const duplicateGroups = groupDuplicateStaff(allStaff);
+  return {
+    totalStaff: allStaff.length,
+    totalDuplicates: duplicateGroups.reduce((total, group) => total + group.staff.length, 0),
+    uniqueDuplicateNames: duplicateGroups.length,
+    duplicateGroups,
+  };
 }
