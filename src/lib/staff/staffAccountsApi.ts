@@ -23,7 +23,8 @@ const STAFF_ACCOUNT_SELECTS = [
   'id,staff_id,username,password_status,name,staff_name,role,branch,active,can_login,visible_in_admin,permissions,last_login_at,updated_at,created_at',
   'id,staff_id,username,name,staff_name,role,branch,active,can_login,permissions,last_login_at,updated_at,created_at',
   'id,staff_id,username,name,role,branch,active,can_login,permissions,updated_at,created_at',
-  'id,username,name,role,branch,active,can_login,permissions,updated_at,created_at',
+  'id,staff_id,username,name,role,branch,active,can_login,permissions',
+  'id,username,name,role,branch,active,can_login,permissions',
   '*',
 ];
 
@@ -34,16 +35,10 @@ function normalizeAccount(row: Record<string, unknown>): SafeStaffAccountRow {
     username: (row.username as string | null | undefined) ?? null,
     password_status: (row.password_status as string | null | undefined) ?? null,
     name: (row.name as string | null | undefined) ?? null,
-    staff_name:
-      (row.staff_name as string | null | undefined) ??
-      (row.name as string | null | undefined) ??
-      null,
+    staff_name: (row.staff_name as string | null | undefined) ?? (row.name as string | null | undefined) ?? null,
     role: (row.role as string | null | undefined) ?? null,
     branch: (row.branch as string | null | undefined) ?? null,
-    active:
-      (row.active as boolean | null | undefined) ??
-      (row.is_active as boolean | null | undefined) ??
-      null,
+    active: (row.active as boolean | null | undefined) ?? (row.is_active as boolean | null | undefined) ?? null,
     can_login: (row.can_login as boolean | null | undefined) ?? null,
     visible_in_admin: (row.visible_in_admin as boolean | null | undefined) ?? true,
     permissions: (row.permissions as Record<string, boolean> | null | undefined) ?? null,
@@ -58,73 +53,49 @@ function sortAccounts(rows: SafeStaffAccountRow[]) {
     const aDate = Date.parse(String(a.updated_at || a.created_at || '')) || 0;
     const bDate = Date.parse(String(b.updated_at || b.created_at || '')) || 0;
     if (aDate !== bDate) return bDate - aDate;
-    return String(a.staff_name || a.name || a.username || '').localeCompare(
-      String(b.staff_name || b.name || b.username || ''),
-      'ar'
-    );
+    return String(a.staff_name || a.name || a.username || '').localeCompare(String(b.staff_name || b.name || b.username || ''), 'ar');
   });
 }
 
 async function listStaffAccountsDirect(): Promise<SafeStaffAccountRow[]> {
   let lastError: unknown = null;
-
   for (const select of STAFF_ACCOUNT_SELECTS) {
     const { data, error } = await supabase.from(TABLES.staffAccounts).select(select);
     if (!error) {
-      return sortAccounts(
-        ((data || []) as Record<string, unknown>[])
-          .map(normalizeAccount)
-          .filter((row) => row.id)
-      );
+      return sortAccounts(((data || []) as Record<string, unknown>[]).map(normalizeAccount).filter((row) => row.id));
     }
     lastError = error;
   }
-
   throw lastError;
 }
 
 export async function listStaffAccountsSafe(): Promise<SafeStaffAccountRow[]> {
+  let rpcRows: SafeStaffAccountRow[] = [];
   try {
     const { data, error } = await supabase.rpc('list_staff_accounts_safe');
     if (!error && Array.isArray(data)) {
-      return sortAccounts(
-        (data as Record<string, unknown>[])
-          .map(normalizeAccount)
-          .filter((row) => row.id)
-      );
+      rpcRows = sortAccounts((data as Record<string, unknown>[]).map(normalizeAccount).filter((row) => row.id));
+      if (rpcRows.length > 0) return rpcRows;
     }
   } catch {
-    // Direct fallback below keeps the admin screen useful if the RPC is missing or stale.
+    // Continue to direct fallback.
   }
 
-  return listStaffAccountsDirect();
+  const directRows = await listStaffAccountsDirect();
+  return directRows.length > 0 ? directRows : rpcRows;
 }
 
 export async function resolveStaffAccountSafe(identifier: string): Promise<SafeStaffAccountRow[]> {
   const term = identifier.trim();
   try {
-    const { data, error } = await supabase.rpc('resolve_staff_account_safe', {
-      p_identifier: term,
-    });
-    if (!error && Array.isArray(data) && data.length > 0) {
-      return (data as Record<string, unknown>[])
-        .map(normalizeAccount)
-        .filter((row) => row.id);
-    }
+    const { data, error } = await supabase.rpc('resolve_staff_account_safe', { p_identifier: term });
+    if (!error && Array.isArray(data) && data.length > 0) return (data as Record<string, unknown>[]).map(normalizeAccount).filter((row) => row.id);
   } catch {
     // Fall back to direct lookup.
   }
-
   if (!term) return [];
-  const { data } = await supabase
-    .from(TABLES.staffAccounts)
-    .select('*')
-    .or(`username.ilike.%${term}%,name.ilike.%${term}%,staff_name.ilike.%${term}%`)
-    .limit(20);
-
-  return ((data || []) as Record<string, unknown>[])
-    .map(normalizeAccount)
-    .filter((row) => row.id);
+  const { data } = await supabase.from(TABLES.staffAccounts).select('*').or(`username.ilike.%${term}%,name.ilike.%${term}%,staff_name.ilike.%${term}%`).limit(20);
+  return ((data || []) as Record<string, unknown>[]).map(normalizeAccount).filter((row) => row.id);
 }
 
 export async function countStaffAccountsWithoutStaffSafe(): Promise<number | null> {
@@ -134,12 +105,7 @@ export async function countStaffAccountsWithoutStaffSafe(): Promise<number | nul
   } catch {
     // Fallback below.
   }
-
-  const { count, error } = await supabase
-    .from(TABLES.staffAccounts)
-    .select('id', { count: 'exact', head: true })
-    .is('staff_id', null);
-
+  const { count, error } = await supabase.from(TABLES.staffAccounts).select('id', { count: 'exact', head: true }).is('staff_id', null);
   if (error) return null;
   return count ?? null;
 }
