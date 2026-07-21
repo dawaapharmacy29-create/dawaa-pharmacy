@@ -28,186 +28,129 @@ export interface StaffDuplicateRecord {
   stagnant_list_records_count: number;
 }
 
-/**
- * تطبيع الاسم العربي للكشف عن التكرارات
- */
 export function normalizeStaffName(name: string): string {
   if (!name) return '';
-
-  const normalized = name
-    // إزالة البادئات الشائعة
+  return name
     .replace(/^(د|د\/|د\.|دكتور|أ|أ\/|أ\.|أستاذ|م|م\/|م\.|مهندس)/i, '')
-    // إزالة المسافات الزائدة
     .trim()
-    // توحيد الحروف المتشابهة
     .replace(/[أإآ]/g, 'ا')
     .replace(/[ة]/g, 'ه')
     .replace(/[ي]/g, 'ى')
-    // إزالة علامات الترقيم
     .replace(/[.,،\-_]/g, '')
-    // إزالة المسافات الداخلية
     .replace(/\s+/g, '')
-    // تحويل إلى أحرف صغيرة
     .toLowerCase();
-
-  return normalized;
 }
 
-/**
- * جلب جميع الموظفين مع بياناتهم
- */
+async function safeCount(table: string, column: string, staffId: string): Promise<number> {
+  const { count, error } = await supabase.from(table).select('*', { count: 'exact', head: true }).eq(column, staffId);
+  if (error) return 0;
+  return count || 0;
+}
+
+async function loadStaffAccountsByStaffId() {
+  const { data, error } = await supabase.from('staff_accounts').select('id,staff_id');
+  if (error) return new Map<string, string>();
+  return new Map((data || []).filter((row) => row.staff_id).map((row) => [String(row.staff_id), String(row.id)]));
+}
+
 export async function fetchAllStaffWithCounts(): Promise<StaffDuplicateRecord[]> {
-  const { data: staffData, error: staffError } = await supabase
-    .from('staff')
-    .select('id, name, role, branch, active, created_at, user_id');
+  const staffSelects = [
+    'id,name,role,branch,active,created_at',
+    'id,name,role,branch,is_active,created_at',
+    'id,name,role,branch,active',
+    'id,name,role,branch,is_active',
+    'id,name,role,branch',
+  ];
 
-  if (staffError) throw new Error(staffError.message);
-
-  const staffRecords: StaffDuplicateRecord[] = [];
-
-  for (const staff of staffData || []) {
-    const display_name = staff.name || '';
-    const normalized_name = normalizeStaffName(display_name);
-
-    // جلب العدادات لكل جدول
-    const [
-      { count: sales_invoice_count },
-      { count: staff_sales_summary_count },
-      { count: employee_transactions_count },
-      { count: points_transactions_count },
-      { count: point_records_count },
-      { count: conversation_reviews_count },
-      { count: daily_followups_count },
-      { count: shift_schedule_count },
-      { count: attendance_count },
-      { count: time_off_count },
-      { count: stagnant_list_records_count },
-    ] = await Promise.all([
-      supabase
-        .from('sales_invoices')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('staff_sales_summary')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('employee_transactions')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('points_transactions')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('point_records')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('conversation_sales_reviews')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('daily_followups')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('shift_schedules')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('attendance')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('time_off')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-      supabase
-        .from('stagnant_medicine_dispenses')
-        .select('*', { count: 'exact', head: true })
-        .eq('staff_id', staff.id),
-    ]);
-
-    staffRecords.push({
-      staff_id: staff.id,
-      staff_account_id: staff.user_id || undefined,
-      display_name,
-      normalized_name,
-      role: staff.role || '',
-      branch: staff.branch || '',
-      active: staff.active || false,
-      created_at: staff.created_at || '',
-      linked_user_id: staff.user_id || undefined,
-      sales_invoice_count: sales_invoice_count || 0,
-      staff_sales_summary_count: staff_sales_summary_count || 0,
-      employee_transactions_count: employee_transactions_count || 0,
-      points_transactions_count: points_transactions_count || 0,
-      point_records_count: point_records_count || 0,
-      conversation_reviews_count: conversation_reviews_count || 0,
-      daily_followups_count: daily_followups_count || 0,
-      shift_schedule_count: shift_schedule_count || 0,
-      attendance_count: attendance_count || 0,
-      time_off_count: time_off_count || 0,
-      stagnant_list_records_count: stagnant_list_records_count || 0,
-    });
+  let staffData: Record<string, unknown>[] = [];
+  let lastError: unknown = null;
+  for (const select of staffSelects) {
+    const { data, error } = await supabase.from('staff').select(select);
+    if (!error) {
+      staffData = (data || []) as Record<string, unknown>[];
+      lastError = null;
+      break;
+    }
+    lastError = error;
   }
+  if (lastError) throw new Error(String((lastError as { message?: string })?.message || lastError));
 
-  return staffRecords;
+  const accountsByStaff = await loadStaffAccountsByStaffId();
+
+  return Promise.all(staffData.map(async (staff) => {
+    const staffId = String(staff.id || '');
+    const displayName = String(staff.name || '');
+    const counts = await Promise.all([
+      safeCount('sales_invoices', 'staff_id', staffId),
+      safeCount('staff_sales_summary', 'staff_id', staffId),
+      safeCount('employee_transactions', 'staff_id', staffId),
+      safeCount('points_transactions', 'staff_id', staffId),
+      safeCount('point_records', 'staff_id', staffId),
+      safeCount('conversation_sales_reviews', 'staff_id', staffId),
+      safeCount('daily_followups', 'staff_id', staffId),
+      safeCount('shift_schedules', 'staff_id', staffId),
+      safeCount('attendance', 'staff_id', staffId),
+      safeCount('time_off', 'staff_id', staffId),
+      safeCount('stagnant_medicine_dispenses', 'staff_id', staffId),
+    ]);
+    const accountId = accountsByStaff.get(staffId);
+    return {
+      staff_id: staffId,
+      staff_account_id: accountId,
+      display_name: displayName,
+      normalized_name: normalizeStaffName(displayName),
+      role: String(staff.role || ''),
+      branch: String(staff.branch || ''),
+      active: Boolean(staff.active ?? staff.is_active ?? true),
+      created_at: String(staff.created_at || ''),
+      linked_user_id: accountId,
+      sales_invoice_count: counts[0],
+      staff_sales_summary_count: counts[1],
+      employee_transactions_count: counts[2],
+      points_transactions_count: counts[3],
+      point_records_count: counts[4],
+      conversation_reviews_count: counts[5],
+      daily_followups_count: counts[6],
+      shift_schedule_count: counts[7],
+      attendance_count: counts[8],
+      time_off_count: counts[9],
+      stagnant_list_records_count: counts[10],
+    };
+  }));
 }
 
-/**
- * العثور على الموظفين المكررين
- */
 export async function findStaffDuplicates(): Promise<StaffDuplicateGroup[]> {
   const allStaff = await fetchAllStaffWithCounts();
-
-  // تجميع حسب الاسم الموحد
   const groups = new Map<string, StaffDuplicateRecord[]>();
-
   for (const staff of allStaff) {
-    const normalized = staff.normalized_name;
-    if (!normalized) continue;
-
-    if (!groups.has(normalized)) {
-      groups.set(normalized, []);
-    }
-    groups.get(normalized)!.push(staff);
+    if (!staff.normalized_name) continue;
+    const current = groups.get(staff.normalized_name) || [];
+    current.push(staff);
+    groups.set(staff.normalized_name, current);
   }
-
-  // تصفية المجموعات التي تحتوي على أكثر من موظف واحد
-  const duplicateGroups: StaffDuplicateGroup[] = [];
-
-  for (const [normalized_name, staff] of groups) {
-    if (staff.length > 1) {
-      duplicateGroups.push({
-        normalized_name,
-        staff,
-      });
-    }
-  }
-
-  // ترتيب حسب عدد الموظفين في المجموعة (الأكثر تكراراً أولاً)
-  duplicateGroups.sort((a, b) => b.staff.length - a.staff.length);
-
-  return duplicateGroups;
+  return [...groups.entries()]
+    .filter(([, staff]) => staff.length > 1)
+    .map(([normalized_name, staff]) => ({ normalized_name, staff }))
+    .sort((a, b) => b.staff.length - a.staff.length);
 }
 
-/**
- * الحصول على إحصائيات التكرار
- */
 export async function getDuplicateStatistics() {
-  const duplicateGroups = await findStaffDuplicates();
-
-  const totalStaff =
-    (await supabase.from('staff').select('*', { count: 'exact', head: true })).count || 0;
-  const totalDuplicates = duplicateGroups.reduce((sum, group) => sum + group.staff.length, 0);
-  const uniqueDuplicateNames = duplicateGroups.length;
-
+  const allStaff = await fetchAllStaffWithCounts();
+  const groups = new Map<string, StaffDuplicateRecord[]>();
+  for (const staff of allStaff) {
+    if (!staff.normalized_name) continue;
+    const current = groups.get(staff.normalized_name) || [];
+    current.push(staff);
+    groups.set(staff.normalized_name, current);
+  }
+  const duplicateGroups = [...groups.entries()]
+    .filter(([, staff]) => staff.length > 1)
+    .map(([normalized_name, staff]) => ({ normalized_name, staff }))
+    .sort((a, b) => b.staff.length - a.staff.length);
   return {
-    totalStaff,
-    totalDuplicates,
-    uniqueDuplicateNames,
+    totalStaff: allStaff.length,
+    totalDuplicates: duplicateGroups.reduce((sum, group) => sum + group.staff.length, 0),
+    uniqueDuplicateNames: duplicateGroups.length,
     duplicateGroups,
   };
 }
