@@ -15,10 +15,11 @@ concurrency:
 jobs:
   backup:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       TZ: Africa/Cairo
       BACKUP_NAME: pharmacy
+      SUPABASE_PROJECT_REF: jkjqeqkshllustwlzzbf
       DRIVE_FOLDER_ID: 1Tj0tIQhGlHGVHrBDJ2UsDwOX2cNL2zki
 
     steps:
@@ -41,6 +42,7 @@ jobs:
         env:
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
         run: |
+          set -euo pipefail
           if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
@@ -61,35 +63,76 @@ jobs:
           curl -fsSL https://rclone.org/install.sh | sudo bash
           rclone version
 
-      - name: Create logical database backup
+      - name: Create and validate logical database backup
+        id: create_backup
         shell: bash
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -euo pipefail
+
+          retry() {
+            local attempts="$1"
+            shift
+            local n=1
+            until "$@"; do
+              if [ "$n" -ge "$attempts" ]; then
+                echo "Command failed after $n attempts: $*" >&2
+                return 1
+              fi
+              echo "Attempt $n failed. Retrying in $((n * 20)) seconds..." >&2
+              sleep $((n * 20))
+              n=$((n + 1))
+            done
+          }
+
           stamp="$(date +'%Y-%m-%d_%H-%M-%S')"
+          year="$(date +'%Y')"
+          month="$(date +'%m')"
           dir="backup/${BACKUP_NAME}_${stamp}"
+          archive="backup/${BACKUP_NAME}_${stamp}.tar.gz"
           mkdir -p "$dir"
 
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/roles.sql" --role-only
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/schema.sql"
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/data.sql" --use-copy --data-only
+          retry 3 supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/roles.sql" --role-only
+          retry 3 supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/schema.sql"
+          retry 3 supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/data.sql" --use-copy --data-only
 
           git bundle create "$dir/repository.bundle" --all
+          git bundle verify "$dir/repository.bundle"
           git rev-parse HEAD > "$dir/git-commit.txt"
           printf '%s\n' "$stamp" > "$dir/backup-created-at.txt"
           printf '%s\n' "$GITHUB_REPOSITORY" > "$dir/repository.txt"
-          printf '%s\n' "jkjqeqkshllustwlzzbf" > "$dir/supabase-project-ref.txt"
+          printf '%s\n' "$SUPABASE_PROJECT_REF" > "$dir/supabase-project-ref.txt"
+
+          test -s "$dir/roles.sql"
+          test -s "$dir/schema.sql"
+          test -s "$dir/data.sql"
+          test -s "$dir/repository.bundle"
 
           sha256sum "$dir"/* > "$dir/SHA256SUMS.txt"
-          tar -C backup -czf "backup/${BACKUP_NAME}_${stamp}.tar.gz" "${BACKUP_NAME}_${stamp}"
-          echo "BACKUP_FILE=backup/${BACKUP_NAME}_${stamp}.tar.gz" >> "$GITHUB_ENV"
+          (cd "$dir" && sha256sum -c SHA256SUMS.txt)
+
+          tar -C backup -czf "$archive" "${BACKUP_NAME}_${stamp}"
+          tar -tzf "$archive" >/dev/null
+          test -s "$archive"
+
+          archive_size="$(stat -c%s "$archive")"
+          archive_sha256="$(sha256sum "$archive" | awk '{print $1}')"
+          printf '%s  %s\n' "$archive_sha256" "$(basename "$archive")" > "${archive}.sha256"
+
+          echo "BACKUP_FILE=$archive" >> "$GITHUB_ENV"
+          echo "BACKUP_SHA_FILE=${archive}.sha256" >> "$GITHUB_ENV"
+          echo "DRIVE_PATH=${BACKUP_NAME}/${year}/${month}/$(basename "$archive")" >> "$GITHUB_ENV"
+          echo "archive_size=$archive_size" >> "$GITHUB_OUTPUT"
+          echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Upload protected GitHub artifact
         uses: actions/upload-artifact@v4
         with:
           name: pharmacy-backup-${{ github.run_id }}
-          path: ${{ env.BACKUP_FILE }}
+          path: |
+            ${{ env.BACKUP_FILE }}
+            ${{ env.BACKUP_SHA_FILE }}
           retention-days: 30
           if-no-files-found: error
 
@@ -105,16 +148,29 @@ jobs:
           chmod 600 "$HOME/.config/rclone/rclone.conf"
           rclone lsd gdrive: --max-depth 1 >/dev/null
 
-      - name: Upload backup to Google Drive
+      - name: Upload and verify backup on Google Drive
         if: steps.drive.outputs.enabled == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          rclone copyto "$BACKUP_FILE" "gdrive:$(basename "$BACKUP_FILE")" \
+          remote="gdrive:${DRIVE_PATH}"
+          remote_sha="${remote}.sha256"
+
+          rclone copyto "$BACKUP_FILE" "$remote" \
             --drive-root-folder-id "$DRIVE_FOLDER_ID" \
             --checksum \
-            --retries 3 \
-            --low-level-retries 10
+            --retries 5 \
+            --low-level-retries 20
+
+          rclone copyto "$BACKUP_SHA_FILE" "$remote_sha" \
+            --drive-root-folder-id "$DRIVE_FOLDER_ID" \
+            --checksum \
+            --retries 5 \
+            --low-level-retries 20
+
+          local_size="$(stat -c%s "$BACKUP_FILE")"
+          remote_size="$(rclone size "$remote" --drive-root-folder-id "$DRIVE_FOLDER_ID" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["bytes"])')"
+          test "$local_size" = "$remote_size" || { echo "Google Drive size verification failed"; exit 1; }
 
       - name: Write workflow summary
         if: always()
@@ -123,8 +179,15 @@ jobs:
           {
             echo "## DAWAA Pharmacy backup"
             echo "- Repository: $GITHUB_REPOSITORY"
-            echo "- Supabase project: jkjqeqkshllustwlzzbf"
+            echo "- Supabase project: $SUPABASE_PROJECT_REF"
             echo "- Run ID: $GITHUB_RUN_ID"
             echo "- GitHub artifact retention: 30 days"
+            echo "- Archive size: ${{ steps.create_backup.outputs.archive_size || 'not created' }} bytes"
+            echo "- Archive SHA256: ${{ steps.create_backup.outputs.archive_sha256 || 'not created' }}"
             echo "- Google Drive enabled: ${{ steps.drive.outputs.enabled }}"
+            if [ "${{ steps.drive.outputs.enabled }}" = "true" ]; then
+              echo "- Google Drive path: $DRIVE_PATH"
+            else
+              echo "- Action required: add repository secret RCLONE_CONFIG_GDRIVE to enable Drive upload"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
