@@ -109,7 +109,7 @@ jobs:
           test -s "$dir/data.sql"
           test -s "$dir/repository.bundle"
 
-          sha256sum "$dir"/* > "$dir/SHA256SUMS.txt"
+          (cd "$dir" && sha256sum ./* > SHA256SUMS.txt)
           (cd "$dir" && sha256sum -c SHA256SUMS.txt)
 
           tar -C backup -czf "$archive" "${BACKUP_NAME}_${stamp}"
