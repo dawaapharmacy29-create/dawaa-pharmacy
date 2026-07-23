@@ -1,0 +1,117 @@
+name: Supabase and repository backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 1 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-backup-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TZ: Africa/Cairo
+      BACKUP_NAME: pharmacy
+      DRIVE_FOLDER_ID: 1Tj0tIQhGlHGVHrBDJ2UsDwOX2cNL2zki
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate required secrets
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_DB_URL" || { echo "Missing SUPABASE_DB_URL"; exit 1; }
+          test -n "$RCLONE_CONFIG_GDRIVE" || { echo "Missing RCLONE_CONFIG_GDRIVE"; exit 1; }
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Install rclone
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          rclone version
+
+      - name: Create logical database backup
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          stamp="$(date +'%Y-%m-%d_%H-%M-%S')"
+          dir="backup/${BACKUP_NAME}_${stamp}"
+          mkdir -p "$dir"
+
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/roles.sql" --role-only
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/schema.sql"
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/data.sql" --use-copy --data-only
+
+          git bundle create "$dir/repository.bundle" --all
+          git rev-parse HEAD > "$dir/git-commit.txt"
+          printf '%s\n' "$stamp" > "$dir/backup-created-at.txt"
+          printf '%s\n' "$GITHUB_REPOSITORY" > "$dir/repository.txt"
+          printf '%s\n' "jkjqeqkshllustwlzzbf" > "$dir/supabase-project-ref.txt"
+
+          sha256sum "$dir"/* > "$dir/SHA256SUMS.txt"
+          tar -C backup -czf "backup/${BACKUP_NAME}_${stamp}.tar.gz" "${BACKUP_NAME}_${stamp}"
+          echo "BACKUP_FILE=backup/${BACKUP_NAME}_${stamp}.tar.gz" >> "$GITHUB_ENV"
+          echo "BACKUP_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Upload protected GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pharmacy-backup-${{ github.run_id }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Configure Google Drive remote
+        shell: bash
+        env:
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.config/rclone"
+          printf '%s' "$RCLONE_CONFIG_GDRIVE" > "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
+          rclone lsd gdrive: --max-depth 1 >/dev/null
+
+      - name: Upload backup to Google Drive
+        shell: bash
+        run: |
+          set -euo pipefail
+          rclone copyto "$BACKUP_FILE" "gdrive:{${DRIVE_FOLDER_ID}}/$(basename "$BACKUP_FILE")" \
+            --drive-root-folder-id "$DRIVE_FOLDER_ID" \
+            --checksum \
+            --retries 3 \
+            --low-level-retries 10
+
+      - name: Write workflow summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## DAWAA Pharmacy backup"
+            echo "- Repository: $GITHUB_REPOSITORY"
+            echo "- Supabase project: jkjqeqkshllustwlzzbf"
+            echo "- Run ID: $GITHUB_RUN_ID"
+            echo "- Google Drive folder ID: $DRIVE_FOLDER_ID"
+            echo "- GitHub artifact retention: 30 days"
+          } >> "$GITHUB_STEP_SUMMARY"
