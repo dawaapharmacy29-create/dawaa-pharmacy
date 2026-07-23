@@ -27,15 +27,26 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate required secrets
+      - name: Validate database secret
         shell: bash
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
         run: |
           set -euo pipefail
           test -n "$SUPABASE_DB_URL" || { echo "Missing SUPABASE_DB_URL"; exit 1; }
-          test -n "$RCLONE_CONFIG_GDRIVE" || { echo "Missing RCLONE_CONFIG_GDRIVE"; exit 1; }
+
+      - name: Detect optional Google Drive configuration
+        id: drive
+        shell: bash
+        env:
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+        run: |
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Google Drive secret is not configured; backup will remain available as a GitHub artifact."
+          fi
 
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
@@ -43,6 +54,7 @@ jobs:
           version: latest
 
       - name: Install rclone
+        if: steps.drive.outputs.enabled == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -82,6 +94,7 @@ jobs:
           if-no-files-found: error
 
       - name: Configure Google Drive remote
+        if: steps.drive.outputs.enabled == 'true'
         shell: bash
         env:
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
@@ -93,6 +106,7 @@ jobs:
           rclone lsd gdrive: --max-depth 1 >/dev/null
 
       - name: Upload backup to Google Drive
+        if: steps.drive.outputs.enabled == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -111,6 +125,6 @@ jobs:
             echo "- Repository: $GITHUB_REPOSITORY"
             echo "- Supabase project: jkjqeqkshllustwlzzbf"
             echo "- Run ID: $GITHUB_RUN_ID"
-            echo "- Google Drive folder ID: $DRIVE_FOLDER_ID"
             echo "- GitHub artifact retention: 30 days"
+            echo "- Google Drive enabled: ${{ steps.drive.outputs.enabled }}"
           } >> "$GITHUB_STEP_SUMMARY"
