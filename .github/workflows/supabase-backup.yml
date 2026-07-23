@@ -72,7 +72,6 @@ jobs:
           sha256sum "$dir"/* > "$dir/SHA256SUMS.txt"
           tar -C backup -czf "backup/${BACKUP_NAME}_${stamp}.tar.gz" "${BACKUP_NAME}_${stamp}"
           echo "BACKUP_FILE=backup/${BACKUP_NAME}_${stamp}.tar.gz" >> "$GITHUB_ENV"
-          echo "BACKUP_DIR=$dir" >> "$GITHUB_ENV"
 
       - name: Upload protected GitHub artifact
         uses: actions/upload-artifact@v4
@@ -97,7 +96,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rclone copyto "$BACKUP_FILE" "gdrive:{${DRIVE_FOLDER_ID}}/$(basename "$BACKUP_FILE")" \
+          rclone copyto "$BACKUP_FILE" "gdrive:$(basename "$BACKUP_FILE")" \
             --drive-root-folder-id "$DRIVE_FOLDER_ID" \
             --checksum \
             --retries 3 \
