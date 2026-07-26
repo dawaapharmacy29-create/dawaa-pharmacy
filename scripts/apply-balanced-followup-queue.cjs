@@ -186,5 +186,64 @@ for (const [before, after] of replacements) {
   source = source.split(before).join(after);
 }
 
+const insightReplacements = [
+  [
+    "  return score;\n}\n\nconst actionLabels",
+    `  return score;
+}
+
+function suggestedFollowupScript(row: FollowupRow, kind: 'general' | 'inactive' | 'missing' | 'thanks') {
+  const name = customerName(row);
+  if (kind === 'inactive') return \`أهلًا أ/ \${name}، مع حضرتك صيدليات دواء. لاحظنا إن زيارات حضرتك قلت الفترة الأخيرة وحبينا نطمن إن كل احتياجاتك متوفرة. هل في صنف أو خدمة نقدر نساعد حضرتك فيها؟\`;
+  if (kind === 'missing') return \`أهلًا أ/ \${name}، مع حضرتك صيدليات دواء. بنراجع احتياجات حضرتك وعايزين نتأكد إن الأصناف المطلوبة متوفرة، ولو في صنف ناقص نسجله ونوفره لحضرتك في أسرع وقت.\`;
+  if (kind === 'thanks') return \`أهلًا أ/ \${name}، بنشكرك على ثقتك في صيدليات دواء. حابين نطمن إن آخر طلب وصل بشكل سليم وإن كل الأصناف مناسبة لحضرتك.\`;
+  return \`أهلًا أ/ \${name}، مع حضرتك صيدليات دواء. حابين نطمن على حضرتك ونعرف هل في أي احتياج أو ملاحظة نقدر نساعد فيها؟\`;
+}
+
+const actionLabels`,
+  ],
+  [
+    "      {historyOpen ?",
+    `      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">الأهمية</div><div className="mt-1 font-black text-white">{importance(selected).label}</div></div>
+        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">حالة النشاط</div><div className="mt-1 font-black text-white">{activity(selected).label}</div></div>
+        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">آخر شراء</div><div className="mt-1 font-black text-white">{lastPurchase(selected) || 'غير معروف'}</div></div>
+        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">المتوسط الشهري</div><div className="mt-1 font-black text-white">{formatCurrency(monthlyAverage(selected))}</div></div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">إجمالي المشتريات</div><div className="mt-1 font-black text-white">{formatCurrency(Number(selected.total_spent || metricNumber(selected, 'total_spent')))}</div></div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">عدد مرات الشراء</div><div className="mt-1 font-black text-white">{metricNumber(selected, 'invoices_count')}</div></div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">متوسط الفاتورة</div><div className="mt-1 font-black text-white">{formatCurrency(metricNumber(selected, 'avg_invoice'))}</div></div>
+        <button type="button" className="rounded-2xl border border-emerald-300/30 bg-emerald-400/15 p-3 text-right" onClick={() => setDetailsOpen(true)}><div className="text-xs font-black text-emerald-200">الملف الكامل</div><div className="mt-1 font-black text-white">ملف العميل 360</div></button>
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+        <div className="text-xs font-black text-slate-400">سبب المتابعة</div>
+        <div className="mt-1 text-sm font-bold leading-7 text-white">{selected.followup_reason || selected.request_details || selected.notes || 'غير مسجل'}</div>
+        <div className="mt-3 text-xs font-black text-slate-400">آخر نتيجة مسجلة</div>
+        <div className="mt-1 text-sm font-bold leading-7 text-white">{selected.followup_result || selected.contact_result || selected.followup_summary || 'لم تسجل نتيجة بعد'}</div>
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4">
+        <div className="font-black text-amber-100">سكريبتات تواصل مقترحة</div>
+        <p className="mt-1 text-xs font-bold text-amber-50/70">اختاري السكريبت ثم عدّليه حسب حالة العميل قبل الإرسال.</p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'general'))}>اطمئنان عام</button>
+          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'inactive'))}>استعادة عميل متوقف</button>
+          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'missing'))}>متابعة صنف أو طلب</button>
+          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'thanks'))}>شكر بعد الشراء</button>
+        </div>
+      </div>
+
+      {historyOpen ?`,
+  ],
+];
+
+for (const [before, after] of insightReplacements) {
+  if (source.includes(after)) continue;
+  if (!source.includes(before)) {
+    throw new Error(`Expected customer insight snippet was not found: ${before}`);
+  }
+  source = source.replace(before, after);
+}
+
 fs.writeFileSync(target, source, 'utf8');
-console.log('Customer follow-up workflow applied: balanced 25-per-branch queue, management execution permissions, and review/approval stage.');
+console.log('Customer follow-up workflow applied with balanced queue, review stage, full customer insights, scripts, and customer 360 access.');
