@@ -30,6 +30,36 @@ export type CustomerPointsLedgerRow = CustomerIdentity & {
   created_by: string | null;
   created_by_name: string | null;
   created_at: string | null;
+  calculation_mode?: 'manual' | 'automatic' | null;
+  purchase_total?: number | null;
+  reward_rate?: number | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  invoice_count?: number | null;
+  cycle_key?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type CustomerLoyaltySetting = CustomerIdentity & {
+  id: string;
+  reward_rate: number;
+  cycle_months: number;
+  calculation_mode: 'automatic' | 'manual';
+  cycle_start_date: string;
+  last_calculated_at: string | null;
+  last_period_start: string | null;
+  last_period_end: string | null;
+  next_due_date: string;
+  active: boolean;
+  created_by: string | null;
+  created_by_name: string | null;
+};
+
+export type CustomerInvoicePeriodSummary = {
+  purchase_total: number;
+  invoice_count: number;
+  period_start: string;
+  period_end: string;
 };
 
 export type WelcomeMessageLogRow = CustomerIdentity & {
@@ -80,7 +110,7 @@ export async function fetchCustomerPointsLedger(identity: CustomerIdentity) {
     .select('*')
     .or(filter)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(200);
   if (error) throw new Error(error.message);
   return (data || []) as CustomerPointsLedgerRow[];
 }
@@ -95,15 +125,73 @@ export function totalCustomerPoints(rows: CustomerPointsLedgerRow[]) {
 }
 
 export async function addCustomerPoints(payload: Partial<CustomerPointsLedgerRow>) {
-  if (!payload.customer_name && !payload.customer_phone) {
-    throw new Error('اكتب اسم العميل أو رقم الهاتف على الأقل قبل احتساب النقاط.');
-  }
+  if (!payload.customer_name && !payload.customer_phone) throw new Error('اكتب اسم العميل أو رقم الهاتف على الأقل قبل احتساب النقاط.');
   if (!Number(payload.points_amount)) throw new Error('اكتب عدد النقاط.');
-  const { data, error } = await supabase.rpc('insert_customer_points_ledger', {
-    p_payload: payload,
-  });
+  const { data, error } = await supabase.rpc('insert_customer_points_ledger', { p_payload: payload });
   if (error) throw new Error(error.message || 'تعذر احتساب نقاط العميل.');
   return data as CustomerPointsLedgerRow;
+}
+
+export async function fetchCustomerLoyaltySetting(identity: CustomerIdentity) {
+  const filter = customerOrFilter(identity);
+  if (!filter) return null;
+  const { data, error } = await supabase
+    .from('customer_loyalty_settings')
+    .select('*')
+    .or(filter)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data as CustomerLoyaltySetting | null;
+}
+
+export async function saveCustomerLoyaltySetting(payload: Partial<CustomerLoyaltySetting> & { created_by?: string | null; created_by_name?: string | null }) {
+  const { data, error } = await supabase.rpc('upsert_customer_loyalty_setting', { p_payload: payload });
+  if (error) throw new Error(error.message || 'تعذر حفظ إعداد نقاط العميل.');
+  return data as CustomerLoyaltySetting;
+}
+
+export async function previewCustomerInvoicePeriod(identity: CustomerIdentity, periodStart: string, periodEnd: string) {
+  const { data, error } = await supabase.rpc('customer_invoice_period_summary', {
+    p_customer_code: identity.customer_code || null,
+    p_customer_phone: identity.customer_phone || null,
+    p_customer_id: identity.customer_id || null,
+    p_branch: identity.branch || null,
+    p_from: periodStart,
+    p_to: periodEnd,
+  });
+  if (error) throw new Error(error.message || 'تعذر حساب مشتريات العميل للفترة.');
+  return data as CustomerInvoicePeriodSummary;
+}
+
+export async function calculateCustomerLoyaltyCycle(input: {
+  settingId: string;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  manualPurchaseTotal?: number | null;
+  actorId?: string | null;
+  actorName?: string | null;
+}) {
+  const { data, error } = await supabase.rpc('calculate_customer_loyalty_cycle', {
+    p_setting_id: input.settingId,
+    p_period_start: input.periodStart || null,
+    p_period_end: input.periodEnd || null,
+    p_manual_purchase_total: input.manualPurchaseTotal ?? null,
+    p_actor_id: input.actorId || null,
+    p_actor_name: input.actorName || null,
+  });
+  if (error) throw new Error(error.message || 'تعذر احتساب دورة نقاط العميل.');
+  return data as CustomerPointsLedgerRow;
+}
+
+export async function runDueCustomerLoyaltyCycles(actorId?: string | null, actorName?: string | null) {
+  const { data, error } = await supabase.rpc('run_due_customer_loyalty_cycles', {
+    p_actor_id: actorId || null,
+    p_actor_name: actorName || 'النظام',
+  });
+  if (error) throw new Error(error.message || 'تعذر تشغيل الاستحقاقات التلقائية.');
+  return data as { calculated: number; errors: number };
 }
 
 export async function fetchWelcomeMessageLogs(identity: CustomerIdentity, filters: WelcomeMessageFilters = {}) {
@@ -125,9 +213,7 @@ export async function fetchWelcomeMessageLogs(identity: CustomerIdentity, filter
 
 export async function addWelcomeMessageLog(payload: Partial<WelcomeMessageLogRow>) {
   if (!payload.message_body?.trim()) throw new Error('اكتب نص الرسالة الترحيبية.');
-  const { data, error } = await supabase.rpc('insert_customer_welcome_message_log', {
-    p_payload: payload,
-  });
+  const { data, error } = await supabase.rpc('insert_customer_welcome_message_log', { p_payload: payload });
   if (error) throw new Error(error.message || 'تعذر تسجيل الرسالة الترحيبية.');
   return data as WelcomeMessageLogRow;
 }
