@@ -136,7 +136,7 @@ create trigger daily_followups_refresh_customer_metrics_after_insert
 after insert on public.daily_followups
 for each row execute function public.refresh_new_daily_followup_metrics();
 
--- Refresh the affected customer after imported or edited invoices.
+-- Refresh the affected customer after imported, edited or deleted invoices.
 create or replace function public.refresh_followup_metrics_after_sales_invoice()
 returns trigger
 language plpgsql
@@ -146,21 +146,40 @@ as $$
 declare
   v_code text;
 begin
-  v_code := coalesce(new.customer_code::text, old.customer_code::text);
+  if tg_op = 'DELETE' then
+    v_code := old.customer_code::text;
+  else
+    v_code := new.customer_code::text;
+  end if;
+
   if nullif(trim(v_code), '') is not null then
     perform public.refresh_daily_followup_customer_metrics(v_code);
   end if;
-  return coalesce(new, old);
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
 end;
 $$;
 
 do $$
 begin
   if to_regclass('public.sales_invoices') is not null then
-    execute 'drop trigger if exists sales_invoices_refresh_followup_metrics on public.sales_invoices';
-    execute 'create trigger sales_invoices_refresh_followup_metrics
-      after insert or update of customer_code, invoice_date, net_amount, discounted_amount, amount, gross_amount or delete
-      on public.sales_invoices
+    execute 'drop trigger if exists sales_invoices_refresh_followup_metrics_insert on public.sales_invoices';
+    execute 'drop trigger if exists sales_invoices_refresh_followup_metrics_update on public.sales_invoices';
+    execute 'drop trigger if exists sales_invoices_refresh_followup_metrics_delete on public.sales_invoices';
+
+    execute 'create trigger sales_invoices_refresh_followup_metrics_insert
+      after insert on public.sales_invoices
+      for each row execute function public.refresh_followup_metrics_after_sales_invoice()';
+
+    execute 'create trigger sales_invoices_refresh_followup_metrics_update
+      after update on public.sales_invoices
+      for each row execute function public.refresh_followup_metrics_after_sales_invoice()';
+
+    execute 'create trigger sales_invoices_refresh_followup_metrics_delete
+      after delete on public.sales_invoices
       for each row execute function public.refresh_followup_metrics_after_sales_invoice()';
   end if;
 end;
