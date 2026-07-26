@@ -1,0 +1,51 @@
+name: One-time balance follow-up queue
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-balance-followup-queue.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update smart queue to 25 customers per branch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/components/customerService/CustomerFollowupCockpitPanel.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = {
+              "const DAILY_QUEUE_LIMIT = 45;": "const PER_BRANCH_QUEUE_LIMIT = 25;\nconst TOTAL_DAILY_QUEUE_LIMIT = PER_BRANCH_QUEUE_LIMIT * 2;",
+              "const smartQueue = useMemo(() => queueCandidates.slice(0, DAILY_QUEUE_LIMIT), [queueCandidates]);": "const smartQueue = useMemo(() => {\n    if (branch !== ALL_BRANCHES) return queueCandidates.slice(0, PER_BRANCH_QUEUE_LIMIT);\n\n    const shamy = queueCandidates\n      .filter((row) => normalizeBranchName(row.branch || '').includes('الشامي'))\n      .slice(0, PER_BRANCH_QUEUE_LIMIT);\n    const shokry = queueCandidates\n      .filter((row) => normalizeBranchName(row.branch || '').includes('شكري'))\n      .slice(0, PER_BRANCH_QUEUE_LIMIT);\n\n    return [...shamy, ...shokry].sort((a, b) => smartScore(b) - smartScore(a));\n  }, [branch, queueCandidates]);",
+              "45 عميلًا فقط أمام الموظفة — والباقي محفوظ في الانتظار": "50 عميلًا يوميًا — 25 لفرع الشامي و25 لفرع شكري",
+              "{smartQueue.length} / {DAILY_QUEUE_LIMIT}": "{smartQueue.length} / {branch === ALL_BRANCHES ? TOTAL_DAILY_QUEUE_LIMIT : PER_BRANCH_QUEUE_LIMIT}",
+          }
+
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'Missing expected snippet: {old}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8')
+
+          workflow = Path('.github/workflows/one-time-balance-followup-queue.yml')
+          workflow.unlink()
+
+      - name: Commit queue update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/customerService/CustomerFollowupCockpitPanel.tsx .github/workflows/one-time-balance-followup-queue.yml
+          git commit -m "Balance follow-up queue to 25 customers per branch"
+          git push
