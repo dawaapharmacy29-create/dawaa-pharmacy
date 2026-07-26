@@ -37,6 +37,7 @@ const FETCH_BATCH = 1000;
 type WorkflowStatus = 'open' | 'waiting_reply' | 'no_answer' | 'scheduled' | 'needs_manager';
 type QueueFilter = 'all' | WorkflowStatus | 'urgent' | 'overdue' | 'missing_data';
 type QuickAction = 'message_sent' | 'no_answer' | 'replied' | 'scheduled' | 'completed';
+type ContactChannel = 'whatsapp' | 'phone' | 'message' | 'other';
 
 type FollowupRow = {
   id: string;
@@ -74,11 +75,22 @@ type FollowupRow = {
   customer_metrics: Record<string, unknown> | null;
 };
 
+type AuditMetadata = {
+  channel?: string | null;
+  result?: string | null;
+  note?: string | null;
+  attempt_count?: number | null;
+  next_followup_date?: string | null;
+  previous_status?: string | null;
+  new_status?: string | null;
+};
+
 type AuditEvent = {
   id: string;
   action: string;
   actor_name: string | null;
   created_at: string;
+  metadata: AuditMetadata | null;
 };
 
 const text = (value: unknown) => String(value ?? '').trim();
@@ -131,6 +143,13 @@ const actionLabels: Record<string, string> = {
   created: 'تم إنشاء المتابعة',
 };
 
+const channelLabels: Record<string, string> = {
+  whatsapp: 'واتساب',
+  phone: 'اتصال هاتفي',
+  message: 'رسالة',
+  other: 'وسيلة أخرى',
+};
+
 function dedupeRows(rows: FollowupRow[]) {
   const seen = new Set<string>();
   return rows.filter((row) => {
@@ -163,6 +182,8 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [scheduledDate, setScheduledDate] = useState('');
+  const [attemptNote, setAttemptNote] = useState('');
+  const [contactChannel, setContactChannel] = useState<ContactChannel>('whatsapp');
 
   const load = useCallback(async () => {
     if (!managerView && !userBranch) return;
@@ -226,7 +247,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const pageRows = filteredRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const hasMore = (page + 1) * PAGE_SIZE < filteredRows.length;
 
-  const audit = async (row: FollowupRow, action: string, metadata: Record<string, unknown>) => {
+  const audit = async (row: FollowupRow, action: string, metadata: AuditMetadata) => {
     const { error } = await supabase.from('customer_followup_audit_log').insert({
       followup_id: row.id,
       customer_id: row.customer_id || null,
@@ -245,7 +266,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     try {
       const { data, error } = await supabase
         .from('customer_followup_audit_log')
-        .select('id,action,actor_name,created_at')
+        .select('id,action,actor_name,created_at,metadata')
         .eq('followup_id', row.id)
         .order('created_at', { ascending: false })
         .limit(200);
@@ -259,36 +280,70 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     }
   };
 
+  const openCustomer = (row: FollowupRow, showHistory = false) => {
+    setSelected(row);
+    setScheduledDate(dayKey(row.next_followup_date));
+    setAttemptNote('');
+    setContactChannel('whatsapp');
+    setHistoryOpen(false);
+    if (showHistory) void loadHistory(row);
+  };
+
   const executeAction = async (action: QuickAction) => {
     if (!selected) return;
     setSaving(true);
     try {
       const now = new Date().toISOString();
-      const attempts = Number(selected.attempt_count || 0) + (action === 'message_sent' || action === 'no_answer' ? 1 : 0);
+      const isAttempt = action === 'message_sent' || action === 'no_answer' || action === 'replied';
+      const attempts = Number(selected.attempt_count || 0) + (isAttempt ? 1 : 0);
       let payload: Record<string, unknown> = { updated_by: user?.id || null };
       let successMessage = '';
+      let result = '';
+
       if (action === 'message_sent') {
+        result = 'في انتظار رد العميل';
         payload = { ...payload, contact_status: 'في انتظار الرد', followup_status: 'في انتظار الرد', response_status: 'waiting_reply', status: 'في انتظار الرد', contacted_at: now, first_attempt_at: selected.first_attempt_at || now, last_attempt_at: now, attempt_count: attempts, next_followup_date: tomorrowKey(), needs_next_followup: true };
         successMessage = 'تم تسجيل إرسال الرسالة وترحيل المتابعة للغد';
       } else if (action === 'no_answer') {
+        result = 'لم يرد العميل';
         payload = { ...payload, contact_status: 'لم يرد', followup_status: 'لم يرد', response_status: 'no_answer', status: 'لم يرد', contacted_at: selected.contacted_at || now, first_attempt_at: selected.first_attempt_at || now, last_attempt_at: now, attempt_count: attempts, next_followup_date: tomorrowKey(), needs_next_followup: true };
         successMessage = 'تم تسجيل عدم الرد وترحيل المتابعة للغد';
       } else if (action === 'replied') {
-        payload = { ...payload, contact_status: 'تم الرد', followup_status: 'جارٍ التواصل', response_status: 'replied', status: 'جارٍ التواصل', last_attempt_at: now, next_followup_date: localDayKey(), needs_next_followup: true };
+        result = 'تم الرد ويحتاج استكمال التواصل';
+        payload = { ...payload, contact_status: 'تم الرد', followup_status: 'جارٍ التواصل', response_status: 'replied', status: 'جارٍ التواصل', contacted_at: selected.contacted_at || now, first_attempt_at: selected.first_attempt_at || now, last_attempt_at: now, attempt_count: attempts, next_followup_date: localDayKey(), needs_next_followup: true };
         successMessage = 'تم تسجيل رد العميل';
       } else if (action === 'scheduled') {
+        result = 'تم تحديد موعد متابعة جديد';
         payload = { ...payload, next_followup_date: scheduledDate, followup_status: 'scheduled', status: 'open', needs_next_followup: true };
         successMessage = 'تم تحديد موعد المتابعة';
       } else {
+        result = 'تم إكمال المتابعة';
         payload = { ...payload, completed_at: now, status: 'completed', followup_status: 'completed', needs_next_followup: false, is_hidden: true, hidden_at: now, hidden_by: user?.name || user?.id || null, hidden_reason: 'تم إكمال المتابعة من مركز المتابعات' };
         successMessage = 'تم إكمال المتابعة ونقلها للسجل التاريخي';
       }
+
+      if (attemptNote.trim()) {
+        payload.followup_summary = attemptNote.trim();
+        payload.contact_result = result;
+      }
+
       const { error } = await supabase.from('daily_followups').update(payload).eq('id', selected.id);
       if (error) throw error;
-      await audit(selected, action, { next_followup_date: payload.next_followup_date || null, attempt_count: attempts });
+
+      await audit(selected, action, {
+        channel: isAttempt ? contactChannel : null,
+        result,
+        note: attemptNote.trim() || null,
+        attempt_count: attempts,
+        next_followup_date: String(payload.next_followup_date || '') || null,
+        previous_status: rawStatus(selected) || null,
+        new_status: String(payload.status || payload.followup_status || '') || null,
+      });
+
       toast.success(successMessage);
       setSelected(null);
       setScheduledDate('');
+      setAttemptNote('');
       await load();
       window.dispatchEvent(new CustomEvent('customer-followup-updated'));
     } catch (error) {
@@ -333,7 +388,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
           const state = activity(row);
           return <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 transition hover:border-cyan-300/40 hover:bg-white/[0.06]">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <button type="button" onClick={() => { setSelected(row); setScheduledDate(dayKey(row.next_followup_date)); setHistoryOpen(false); }} className="min-w-0 flex-1 text-right">
+              <button type="button" onClick={() => openCustomer(row)} className="min-w-0 flex-1 text-right">
                 <div className="font-black text-white">{customerName(row)}</div>
                 <div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs font-black">
@@ -346,7 +401,10 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
                 </div>
                 <div className="mt-2 text-xs font-bold text-slate-500">آخر تعامل: {lastPurchase(row) || 'غير معروف'} · المتوسط الشهري: {formatCurrency(monthlyAverage(row))}</div>
               </button>
-              <div className="flex items-center gap-2"><div className="text-xs font-bold text-slate-400">الموعد: {dayKey(row.next_followup_date) || 'غير محدد'} · المحاولات: {row.attempt_count || 0}</div><button type="button" title="فتح ملف العميل الكامل" className="btn-secondary p-2" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={18}/></button></div>
+              <div className="flex items-center gap-2">
+                <button type="button" className="rounded-xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-black text-cyan-100 hover:bg-cyan-400/15" onClick={() => openCustomer(row, true)} title="عرض تفاصيل المحاولات">الموعد: {dayKey(row.next_followup_date) || 'غير محدد'} · المحاولات: {row.attempt_count || 0}</button>
+                <button type="button" title="فتح ملف العميل الكامل" className="btn-secondary p-2" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={18}/></button>
+              </div>
             </div>
           </article>;
         })}
@@ -363,13 +421,37 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
         <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-bold text-slate-400">آخر تعامل</div><div className="mt-1 font-black text-white">{lastPurchase(selected) || 'غير معروف'}</div><div className="text-xs text-slate-500">{activity(selected).days === null ? '' : `منذ ${activity(selected).days} يوم`}</div></div>
         <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-bold text-slate-400">المتوسط الشهري</div><div className="mt-1 font-black text-white">{formatCurrency(monthlyAverage(selected))}</div></div>
         <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-bold text-slate-400">حالة المتابعة</div><div className="mt-1 font-black text-cyan-200">{labels[workflowStatus(selected)]}</div></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-bold text-slate-400">المحاولات</div><div className="mt-1 font-black text-white">{selected.attempt_count || 0}</div></div>
+        <button type="button" onClick={() => void loadHistory(selected)} className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-3 text-right hover:bg-cyan-400/15"><div className="text-xs font-bold text-cyan-200">المحاولات — اضغط للتفاصيل</div><div className="mt-1 text-xl font-black text-white">{selected.attempt_count || 0}</div></button>
         <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-bold text-slate-400">إجمالي المشتريات</div><div className="mt-1 font-black text-white">{formatCurrency(Number(selected.total_spent || metricNumber(selected, 'total_spent')))}</div></div>
         <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-bold text-slate-400">متوسط مرات الشراء</div><div className="mt-1 font-black text-white">{selected.average_monthly_purchase_count || metricNumber(selected, 'average_monthly_purchase_count')}</div></div>
       </div>
       <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-sm leading-7 text-slate-300"><div><b className="text-white">سبب المتابعة:</b> {selected.followup_reason || selected.request_details || selected.notes || 'غير مسجل'}</div><div><b className="text-white">آخر نتيجة:</b> {selected.followup_result || selected.contact_result || selected.followup_summary || 'لم تسجل نتيجة بعد'}</div></div>
       <div className="mt-4 grid gap-2 sm:grid-cols-2"><button className="btn-primary flex items-center justify-center gap-2" onClick={() => setDetailsOpen(true)}><Eye size={17}/> ملف العميل الكامل</button><button className="btn-secondary flex items-center justify-center gap-2" onClick={() => void loadHistory(selected)}><History size={17}/> تاريخ المتابعات</button></div>
-      {historyOpen ? <div className="mt-4 rounded-2xl border border-cyan-400/20 bg-black/15 p-4"><div className="mb-3 font-black text-white">تاريخ المتابعة</div>{historyLoading ? <div className="flex items-center gap-2 text-slate-300"><Loader2 size={16} className="animate-spin"/> جاري التحميل...</div> : history.length ? <div className="space-y-2">{history.map((event) => <div key={event.id} className="rounded-xl border border-white/10 bg-white/[0.035] p-3"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div><div className="mt-1 text-xs text-slate-400">{event.actor_name || 'النظام'} · {formatDateTime(event.created_at)}</div></div>)}</div> : <div className="text-sm font-bold text-slate-400">لا توجد أحداث مسجلة لهذه المتابعة حتى الآن.</div>}</div> : null}
+
+      {historyOpen ? <div className="mt-4 rounded-2xl border border-cyan-400/20 bg-black/15 p-4"><div className="mb-3 flex items-center justify-between"><div className="font-black text-white">تفاصيل المحاولات والمتابعات</div><span className="text-xs font-bold text-cyan-200">{history.length} حدث</span></div>{historyLoading ? <div className="flex items-center gap-2 text-slate-300"><Loader2 size={16} className="animate-spin"/> جاري التحميل...</div> : history.length ? <div className="space-y-3">{history.map((event) => {
+        const meta = event.metadata || {};
+        return <div key={event.id} className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div>{meta.attempt_count ? <span className="rounded-full bg-cyan-400/10 px-2 py-1 text-xs font-black text-cyan-200">المحاولة رقم {meta.attempt_count}</span> : null}</div>
+          <div className="mt-1 text-xs text-slate-400">{event.actor_name || 'النظام'} · {formatDateTime(event.created_at)}</div>
+          <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+            {meta.channel ? <div className="rounded-lg bg-black/15 p-2"><span className="font-bold text-slate-400">وسيلة التواصل: </span><span className="font-black text-white">{channelLabels[meta.channel] || meta.channel}</span></div> : null}
+            {meta.result ? <div className="rounded-lg bg-black/15 p-2"><span className="font-bold text-slate-400">النتيجة: </span><span className="font-black text-white">{meta.result}</span></div> : null}
+            {meta.next_followup_date ? <div className="rounded-lg bg-black/15 p-2"><span className="font-bold text-slate-400">الموعد التالي: </span><span className="font-black text-white">{dayKey(meta.next_followup_date)}</span></div> : null}
+            {meta.new_status ? <div className="rounded-lg bg-black/15 p-2"><span className="font-bold text-slate-400">الحالة الجديدة: </span><span className="font-black text-white">{meta.new_status}</span></div> : null}
+          </div>
+          {meta.note ? <div className="mt-2 rounded-lg border border-amber-300/10 bg-amber-400/5 p-3 text-sm leading-6 text-amber-50"><span className="font-black">ملاحظات المحاولة: </span>{meta.note}</div> : <div className="mt-2 text-xs font-bold text-slate-500">لم تُسجل ملاحظات تفصيلية لهذه المحاولة.</div>}
+        </div>;
+      })}</div> : <div className="text-sm font-bold text-slate-400">لا توجد أحداث مسجلة لهذه المتابعة حتى الآن.</div>}</div> : null}
+
+      <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+        <label className="text-sm font-black text-white">تفاصيل المحاولة الحالية</label>
+        <p className="mt-1 text-xs font-bold text-slate-400">اكتب ملخصًا واضحًا لما حدث مع العميل قبل تسجيل الإجراء.</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <select className="input-dark" value={contactChannel} onChange={(event) => setContactChannel(event.target.value as ContactChannel)}><option value="whatsapp">واتساب</option><option value="phone">اتصال هاتفي</option><option value="message">رسالة</option><option value="other">وسيلة أخرى</option></select>
+          <textarea className="input-dark min-h-24 sm:col-span-2" value={attemptNote} onChange={(event) => setAttemptNote(event.target.value)} placeholder="مثال: تم التواصل مع العميل، وطلب توفير صنف معين، وسيتم الرد عليه غدًا..." />
+        </div>
+      </div>
+
       <div className="mt-5 grid gap-2 sm:grid-cols-2"><button className="btn-secondary flex items-center justify-center gap-2" disabled={saving} onClick={() => void executeAction('message_sent')}><Send size={16}/> أرسلت رسالة</button><button className="btn-secondary flex items-center justify-center gap-2" disabled={saving} onClick={() => void executeAction('no_answer')}><PhoneOff size={16}/> لم يرد</button><button className="btn-secondary flex items-center justify-center gap-2" disabled={saving} onClick={() => void executeAction('replied')}><MessageCircle size={16}/> تم الرد</button>{customerPhone(selected) ? <a className="btn-secondary flex items-center justify-center gap-2" href={generateWhatsAppLink(customerPhone(selected), 'أهلًا بحضرتك، مع حضرتك صيدليات دواء. حابين نطمن إن كل شيء تمام، وإحنا تحت أمرك في أي وقت.')} target="_blank" rel="noreferrer"><MessageCircle size={16}/> واتساب</a> : <button className="btn-secondary" disabled>لا يوجد هاتف صالح</button>}</div>
       <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.025] p-4"><label className="text-sm font-black text-white">تحديد موعد المتابعة التالي</label><div className="mt-2 flex gap-2"><input type="date" className="input-dark flex-1" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)}/><button className="btn-primary" disabled={saving || !scheduledDate} onClick={() => void executeAction('scheduled')}>حفظ الموعد</button></div></div>
       <div className="mt-5 grid gap-2 sm:grid-cols-2"><button className="btn-primary" disabled={saving} onClick={() => void executeAction('completed')}><CheckCircle2 size={16} className="inline ms-2"/> إكمال المتابعة</button>{onOpenTools ? <button className="btn-secondary" onClick={() => { setSelected(null); onOpenTools(); }}><Wrench size={16} className="inline ms-2"/> التحويل والتصحيح والإجراءات</button> : null}</div>
