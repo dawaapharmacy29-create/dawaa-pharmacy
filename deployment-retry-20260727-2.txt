@@ -1,2 +1,0 @@
-Force Vercel redeploy after dependency lock alignment and customer points search fixes.
-Timestamp: 2026-07-27
