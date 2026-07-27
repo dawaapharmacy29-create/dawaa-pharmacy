@@ -18,7 +18,13 @@ const replaceOnce = (before, after, label) => {
 // Use unambiguous English thousands separators while preserving the requested EGP label.
 if (!source.includes('const formatLoyaltyMoney =')) {
   const anchor = "const formatDate = (value?: string | null) => value ? new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString('ar-EG') : 'لم يتم';";
-  const helper = `${anchor}\nconst formatLoyaltyMoney = (value?: number | string | null) => {\n  const amount = Number(value || 0);\n  return `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0)} ج.م`;\n};`;
+  const helper = [
+    anchor,
+    'const formatLoyaltyMoney = (value?: number | string | null) => {',
+    '  const amount = Number(value || 0);',
+    "  return new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0) + ' ج.م';",
+    '};',
+  ].join('\n');
   replaceOnce(anchor, helper, 'money formatter');
 }
 
