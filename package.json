@@ -9,7 +9,7 @@
     "prepare:invoice-import": "node scripts/prepare-invoice-import.cjs && node scripts/apply-dashboard-customer-service-period-fix.cjs && node scripts/apply-customer-service-daily-execution-v1.cjs && node scripts/apply-customer-service-doctor-link-v2.cjs && node scripts/apply-customer-service-day-review-v2-safe.cjs && node scripts/apply-customer-service-analytics-ui-v3.cjs && node scripts/apply-customer-service-smart-followup-v4.cjs && node scripts/apply-customer-service-attempts-sla-v5.cjs && node scripts/apply-customer-service-manager-cases-v6.cjs",
     "repair:invoice-import": "npm run prepare:invoice-import",
     "dev": "vite --configLoader runner",
-    "prebuild": "node scripts/apply-balanced-followup-queue.cjs && node scripts/apply-customer-points-search-safety.cjs",
+    "prebuild": "node scripts/apply-balanced-followup-queue.cjs && node scripts/apply-customer-points-search-safety.cjs && node scripts/apply-customer-points-approval-workflow.cjs",
     "build": "vite build --configLoader runner",
     "analyze": "ANALYZE=true vite build --configLoader runner",
     "preview": "vite preview",
