@@ -7,6 +7,7 @@ import CustomerFollowupFullExportPanel from '@/components/customerService/Custom
 import CustomerFollowupOperationsCompletionPanel from '@/components/customerService/CustomerFollowupOperationsCompletionPanel';
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
 import CustomerFollowupOperationsHub from '@/components/customerService/CustomerFollowupOperationsHub';
+import ExceptionalFollowupRequestsPanel from '@/components/customerService/ExceptionalFollowupRequestsPanel';
 import QuickFollowupModal from '@/components/common/QuickFollowupModal';
 import ExceptionalFollowupModal from '@/components/customerService/ExceptionalFollowupModal';
 import '@/styles/customerServiceTheme.css';
@@ -15,10 +16,11 @@ const CustomerServiceDataTools = lazy(() => import('@/components/customerService
 const CustomerServiceScriptEditor = lazy(() => import('@/components/customerService/CustomerServiceScriptEditor'));
 const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
 
-type MainView = 'operations' | 'data' | 'content' | 'reports';
+type MainView = 'operations' | 'exceptional' | 'data' | 'content' | 'reports';
 
 const views: Array<{ id: MainView; title: string; description: string; icon: typeof Workflow }> = [
   { id: 'operations', title: 'التشغيل اليومي', description: 'قائمة اليوم وانتظار الرد والسجل', icon: Workflow },
+  { id: 'exceptional', title: 'طلبات المتابعات الاستثنائية', description: 'طلبات الدكاترة للعملاء المهمين', icon: Sparkles },
   { id: 'data', title: 'البيانات والجودة', description: 'التصحيح والفروع والتكرارات', icon: Database },
   { id: 'content', title: 'سكريبتات التواصل', description: 'نصوص المكالمات والواتساب', icon: MessageSquareText },
   { id: 'reports', title: 'التقارير والنقاط', description: 'التصدير والكاش باك والاستحقاق', icon: BarChart3 },
@@ -49,12 +51,7 @@ export default function SmartCustomerService() {
 
   useEffect(() => {
     const refresh = () => setWorkspaceVersion((current) => current + 1);
-    const events = [
-      'customer-followup-updated',
-      'customer-followup-branch-transferred',
-      'customer-followup-data-corrected',
-      'customer-followup-imported',
-    ];
+    const events = ['customer-followup-updated', 'customer-followup-branch-transferred', 'customer-followup-data-corrected', 'customer-followup-imported'];
     events.forEach((eventName) => window.addEventListener(eventName, refresh));
     return () => events.forEach((eventName) => window.removeEventListener(eventName, refresh));
   }, []);
@@ -71,28 +68,20 @@ export default function SmartCustomerService() {
             <button type="button" onClick={() => setExceptionalOpen(true)} className="rounded-xl border-2 border-amber-200 bg-amber-500 px-4 py-2 text-sm font-black text-slate-950 shadow-lg hover:bg-amber-400"><Sparkles className="ml-1 inline" size={16}/> إضافة متابعة استثنائية</button>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">{views.map(({ id, title, description, icon: Icon })=>{const active=id===view;return <button key={id} type="button" onClick={()=>setView(id)} className={`rounded-2xl border px-3 py-3 text-right transition ${active?'border-cyan-300/60 bg-cyan-400/15 shadow-lg shadow-cyan-950/30':'border-white/10 bg-white/[0.035] hover:border-cyan-300/30 hover:bg-white/[0.06]'}`} aria-pressed={active}><span className="flex items-center gap-2"><Icon size={17} className="text-cyan-300"/><span className={`block text-sm font-black ${active?'text-cyan-200':'text-white'}`}>{title}</span></span><span className="mt-1 hidden text-[11px] font-bold text-slate-400 md:block">{description}</span></button>;})}</div>
+        <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">{views.map(({ id, title, description, icon: Icon })=>{const active=id===view;return <button key={id} type="button" onClick={()=>setView(id)} className={`rounded-2xl border px-3 py-3 text-right transition ${active?'border-cyan-300/60 bg-cyan-400/15 shadow-lg shadow-cyan-950/30':'border-white/10 bg-white/[0.035] hover:border-cyan-300/30 hover:bg-white/[0.06]'}`} aria-pressed={active}><span className="flex items-center gap-2"><Icon size={17} className={id === 'exceptional' ? 'text-amber-300' : 'text-cyan-300'}/><span className={`block text-sm font-black ${active?'text-cyan-200':'text-white'}`}>{title}</span></span><span className="mt-1 hidden text-[11px] font-bold text-slate-400 md:block">{description}</span></button>;})}</div>
       </div>
     </section>
 
     <main className="mx-auto max-w-[1800px] px-0 pb-8">
       {!hasSafeBranchScope && view !== 'reports' ? <MissingBranchGuard/> : null}
       {hasSafeBranchScope && view === 'operations' ? <CustomerFollowupOperationsHub version={workspaceVersion}/> : null}
+      {hasSafeBranchScope && view === 'exceptional' ? <ExceptionalFollowupRequestsPanel key={`exceptional-${workspaceVersion}`} onCreate={() => setExceptionalOpen(true)} /> : null}
       {hasSafeBranchScope && view === 'data' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><Suspense fallback={<SectionLoader label="أدوات تصحيح البيانات"/>}><CustomerServiceDataTools/></Suspense></div> : null}
       {hasSafeBranchScope && view === 'content' ? <Suspense fallback={<SectionLoader label="محرر السكريبتات"/>}><CustomerServiceScriptEditor/></Suspense> : null}
       {view === 'reports' ? <div className="space-y-4"><CustomerFollowupFullExportPanel/>{hasSafeBranchScope ? <Suspense fallback={<SectionLoader label="نقاط العملاء والكاش باك"/>}><CustomerCashback/></Suspense> : null}</div> : null}
     </main>
 
-    <QuickFollowupModal
-      open={quickOpen}
-      onClose={() => setQuickOpen(false)}
-      onCreated={refreshWorkspace}
-      defaultBranch={normalizedUserBranch}
-    />
-    <ExceptionalFollowupModal
-      open={exceptionalOpen}
-      onClose={() => setExceptionalOpen(false)}
-      onCreated={refreshWorkspace}
-    />
+    <QuickFollowupModal open={quickOpen} onClose={() => setQuickOpen(false)} onCreated={refreshWorkspace} defaultBranch={normalizedUserBranch} />
+    <ExceptionalFollowupModal open={exceptionalOpen} onClose={() => setExceptionalOpen(false)} onCreated={() => { refreshWorkspace(); setView('exceptional'); }} />
   </div>;
 }
