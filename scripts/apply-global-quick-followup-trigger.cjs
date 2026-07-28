@@ -4,9 +4,11 @@ const path = require('node:path');
 const sidebarPath = path.join(process.cwd(), 'src/components/layout/Sidebar.tsx');
 const pagePath = path.join(process.cwd(), 'src/pages/SmartCustomerService.tsx');
 const appPath = path.join(process.cwd(), 'src/App.tsx');
+const evaluationPagePath = path.join(process.cwd(), 'src/pages/StaffMonthlyEvaluation.tsx');
 let sidebar = fs.readFileSync(sidebarPath, 'utf8');
 let page = fs.readFileSync(pagePath, 'utf8');
 let app = fs.readFileSync(appPath, 'utf8');
+let evaluationPage = fs.readFileSync(evaluationPagePath, 'utf8');
 
 const oldButton = "<button onClick={() => go(pharmacistView ? '/doctor-dashboard?tab=followups' : '/customer-service?quickFollowup=1')} className=\"flex-1 rounded-lg bg-teal-500/10 px-3 py-2 text-xs font-bold text-teal-200\">متابعة سريعة</button>";
 const newButton = "<button onClick={() => { const target = `/customer-service?quickFollowup=1&open=${Date.now()}`; if (location.pathname === '/customer-service') { window.dispatchEvent(new CustomEvent('open-quick-followup')); } else { go(target); } }} className=\"flex-1 rounded-lg bg-teal-500/10 px-3 py-2 text-xs font-bold text-teal-200\">متابعة سريعة</button>";
@@ -62,17 +64,30 @@ if (!sidebar.includes('Award,') && !sidebar.includes(', Award')) {
   sidebar = sidebar.replace('Activity, ActivitySquare, AlertTriangle, BarChart3,', 'Activity, ActivitySquare, AlertTriangle, Award, BarChart3,');
 }
 
+if (!evaluationPage.includes('type Dispatch')) {
+  evaluationPage = evaluationPage.replace("import { useEffect, useMemo, useRef, useState } from 'react';", "import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';");
+}
+if (!evaluationPage.includes('function nextMonthStart')) {
+  evaluationPage = evaluationPage.replace("function monthStart(value: string) { return `${value}-01`; }", "function monthStart(value: string) { return `${value}-01`; }\nfunction nextMonthStart(value: string) { const [year, month] = value.split('-').map(Number); return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10); }");
+}
+evaluationPage = evaluationPage.replaceAll("`${month}-32`", 'nextMonthStart(month)');
+evaluationPage = evaluationPage.replace("row.id === user?.staff_id", "row.id === (user as any)?.staff_id");
+evaluationPage = evaluationPage.replace('React.Dispatch<React.SetStateAction<string[]>>', 'Dispatch<SetStateAction<string[]>>');
+
 fs.writeFileSync(sidebarPath, sidebar, 'utf8');
 fs.writeFileSync(pagePath, page, 'utf8');
 fs.writeFileSync(appPath, app, 'utf8');
+fs.writeFileSync(evaluationPagePath, evaluationPage, 'utf8');
 
 sidebar = fs.readFileSync(sidebarPath, 'utf8');
 page = fs.readFileSync(pagePath, 'utf8');
 app = fs.readFileSync(appPath, 'utf8');
+evaluationPage = fs.readFileSync(evaluationPagePath, 'utf8');
 
 if (!sidebar.includes("open-quick-followup") && !sidebar.includes('quickFollowup=1')) throw new Error('[global-quick-followup] sidebar verification failed');
 if (!page.includes(listenerMarker) && !page.includes("params.get('quickFollowup') === '1'")) throw new Error('[global-quick-followup] page verification failed');
 if (!app.includes('/staff-monthly-evaluation') || !sidebar.includes("label: 'تقييم الدكاترة الشهري'")) throw new Error('[staff-evaluation] route or manager navigation verification failed');
 if (!sidebar.includes("label: 'تقييمي الشهري'")) throw new Error('[staff-evaluation] doctor navigation verification failed');
+if (evaluationPage.includes('`${month}-32`') || evaluationPage.includes('React.Dispatch')) throw new Error('[staff-evaluation] page hardening verification failed');
 
 console.log('Global quick followup and monthly staff evaluation navigation verified safely.');
