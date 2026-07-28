@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BarChart3, Database, History, MessageSquareText, Plus, Sparkles, Workflow } from 'lucide-react';
+import { AlertTriangle, BarChart3, Clock3, Database, History, MessageSquareText, PhoneMissed, Plus, Sparkles, Workflow } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
@@ -16,12 +16,14 @@ const CustomerServiceDataTools = lazy(() => import('@/components/customerService
 const CustomerServiceScriptEditor = lazy(() => import('@/components/customerService/CustomerServiceScriptEditor'));
 const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
 
-type MainView = 'operations' | 'exceptional' | 'completed' | 'performance' | 'data' | 'content' | 'reports';
+type MainView = 'operations' | 'waiting' | 'no_answer' | 'exceptional' | 'completed' | 'performance' | 'data' | 'content' | 'reports';
 
 const views: Array<{ id: MainView; title: string; description: string; icon: typeof Workflow }> = [
-  { id: 'operations', title: 'قائمة اليوم', description: 'المطلوب الآن وانتظار الرد والمواعيد', icon: Workflow },
-  { id: 'exceptional', title: 'المتابعات الاستثنائية المطلوبة', description: 'طلبات الدكاترة والعملاء المهمون', icon: Sparkles },
-  { id: 'completed', title: 'سجل المتابعات المكتملة', description: 'بحث وتفاصيل كل ما تم مع العملاء', icon: History },
+  { id: 'operations', title: 'قائمة اليوم', description: 'المطلوب الآن والمواعيد القادمة', icon: Workflow },
+  { id: 'waiting', title: 'في انتظار الرد', description: 'تم الإرسال وننتظر العميل', icon: Clock3 },
+  { id: 'no_answer', title: 'لم يرد العميل', description: 'محاولات تواصل بدون رد', icon: PhoneMissed },
+  { id: 'exceptional', title: 'المتابعات الاستثنائية', description: 'طلبات الدكاترة والعملاء المهمون', icon: Sparkles },
+  { id: 'completed', title: 'سجل المكتمل', description: 'المتابعات المنفذة فقط', icon: History },
   { id: 'performance', title: 'أداء خدمة العملاء', description: 'تقييم شهري وحافز حتى 500 جنيه', icon: BarChart3 },
   { id: 'data', title: 'البيانات والجودة', description: 'التصحيح والفروع والتكرارات', icon: Database },
   { id: 'content', title: 'سكريبتات التواصل', description: 'نصوص المكالمات والواتساب', icon: MessageSquareText },
@@ -67,19 +69,21 @@ export default function SmartCustomerService() {
     <section className="sticky top-0 z-40 border-b border-cyan-300/15 bg-[#071827]/95 px-3 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl md:px-5">
       <div className="mx-auto max-w-[1800px]">
         <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-          <div><p className="text-xs font-black text-cyan-300">مركز خدمة العملاء</p><h1 className="text-xl font-black text-white md:text-2xl">مساحة واحدة لكل متابعة وقرار</h1><p className="mt-1 text-xs font-bold text-slate-400">الأرقام المعروضة هنا سجلات حقيقية، وكل تبويب يوضح مصدره بدل خلط المجاميع.</p></div>
+          <div><p className="text-xs font-black text-cyan-300">مركز خدمة العملاء</p><h1 className="text-xl font-black text-white md:text-2xl">كل متابعة في مكانها الصحيح</h1><p className="mt-1 text-xs font-bold text-slate-400">فصلنا انتظار الرد وعدم الرد والمكتمل، عشان كل رقم يبقى مفهوم وكل حالة لها الإجراء المناسب.</p></div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setQuickOpen(true)} className="rounded-xl border border-cyan-300/30 bg-cyan-400/15 px-4 py-2 text-sm font-black text-cyan-100 hover:bg-cyan-400/20"><Plus className="ml-1 inline" size={16}/> متابعة سريعة</button>
             <button type="button" onClick={() => setExceptionalOpen(true)} className="rounded-xl border-2 border-amber-200 bg-amber-500 px-4 py-2 text-sm font-black text-slate-950 shadow-lg hover:bg-amber-400"><Sparkles className="ml-1 inline" size={16}/> إضافة متابعة استثنائية</button>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-7">{views.map(({ id, title, description, icon: Icon })=>{const active=id===view;return <button key={id} type="button" onClick={()=>setView(id)} className={`rounded-2xl border px-3 py-3 text-right transition ${active?'border-cyan-300/60 bg-cyan-400/15 shadow-lg shadow-cyan-950/30':'border-white/10 bg-white/[0.035] hover:border-cyan-300/30 hover:bg-white/[0.06]'}`} aria-pressed={active}><span className="flex items-center gap-2"><Icon size={17} className={id === 'exceptional' ? 'text-amber-300' : 'text-cyan-300'}/><span className={`block text-sm font-black ${active?'text-cyan-200':'text-white'}`}>{title}</span></span><span className="mt-1 hidden text-[11px] font-bold text-slate-400 md:block">{description}</span></button>;})}</div>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9">{views.map(({ id, title, description, icon: Icon })=>{const active=id===view;return <button key={id} type="button" onClick={()=>setView(id)} className={`rounded-2xl border px-3 py-3 text-right transition ${active?'border-cyan-300/60 bg-cyan-400/15 shadow-lg shadow-cyan-950/30':'border-white/10 bg-white/[0.035] hover:border-cyan-300/30 hover:bg-white/[0.06]'}`} aria-pressed={active}><span className="flex items-center gap-2"><Icon size={17} className={id === 'exceptional' ? 'text-amber-300' : id === 'no_answer' ? 'text-rose-300' : id === 'waiting' ? 'text-amber-200' : 'text-cyan-300'}/><span className={`block text-sm font-black ${active?'text-cyan-200':'text-white'}`}>{title}</span></span><span className="mt-1 hidden text-[11px] font-bold text-slate-400 md:block">{description}</span></button>;})}</div>
       </div>
     </section>
 
     <main className="mx-auto max-w-[1800px] px-0 pb-8">
       {!hasSafeBranchScope && view !== 'reports' ? <MissingBranchGuard/> : null}
       {hasSafeBranchScope && view === 'operations' ? <CustomerFollowupOperationsHub version={workspaceVersion}/> : null}
+      {hasSafeBranchScope && view === 'waiting' ? <CustomerFollowupRecordsAndPerformance key={`waiting-${workspaceVersion}`} mode="waiting" /> : null}
+      {hasSafeBranchScope && view === 'no_answer' ? <CustomerFollowupRecordsAndPerformance key={`no-answer-${workspaceVersion}`} mode="no_answer" /> : null}
       {hasSafeBranchScope && view === 'exceptional' ? <CustomerFollowupRecordsAndPerformance key={`exceptional-${workspaceVersion}`} mode="exceptional" /> : null}
       {hasSafeBranchScope && view === 'completed' ? <CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /> : null}
       {hasSafeBranchScope && view === 'performance' ? <CustomerFollowupRecordsAndPerformance key={`performance-${workspaceVersion}`} mode="performance" /> : null}
