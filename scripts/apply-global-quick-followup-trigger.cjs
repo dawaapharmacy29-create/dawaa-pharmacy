@@ -54,15 +54,15 @@ if (!sidebar.includes("label: 'تقييم الدكاترة الشهري'")) {
   sidebar = sidebar.replace(managerAnchor, `${managerAnchor}\n    ${managerNav}`);
 }
 
-const doctorNav = "{ path: '/staff-monthly-evaluation', icon: Award, label: 'تقييمي الشهري', permission: 'view_doctor_dashboard' },";
+const doctorNav = "{ path: '/staff-monthly-evaluation', icon: Star, label: 'تقييمي الشهري', permission: 'view_doctor_dashboard' },";
 if (!sidebar.includes("label: 'تقييمي الشهري'")) {
   const doctorAnchor = "{ path: '/doctor-dashboard?tab=reviews', icon: ClipboardCheck, label: 'تقييماتي الشخصية', permission: 'view_doctor_dashboard' },";
   if (!sidebar.includes(doctorAnchor)) throw new Error('[staff-evaluation] doctor sidebar anchor not found');
   sidebar = sidebar.replace(doctorAnchor, `${doctorAnchor}\n    ${doctorNav}`);
 }
-if (!sidebar.includes('Award,') && !sidebar.includes(', Award')) {
-  sidebar = sidebar.replace('Activity, ActivitySquare, AlertTriangle, BarChart3,', 'Activity, ActivitySquare, AlertTriangle, Award, BarChart3,');
-}
+
+// Clean up any previous build-time insertion that referenced Award without importing it.
+sidebar = sidebar.replaceAll('icon: Award', 'icon: Star');
 
 if (!evaluationPage.includes('type Dispatch')) {
   evaluationPage = evaluationPage.replace("import { useEffect, useMemo, useRef, useState } from 'react';", "import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';");
@@ -88,6 +88,7 @@ if (!sidebar.includes("open-quick-followup") && !sidebar.includes('quickFollowup
 if (!page.includes(listenerMarker) && !page.includes("params.get('quickFollowup') === '1'")) throw new Error('[global-quick-followup] page verification failed');
 if (!app.includes('/staff-monthly-evaluation') || !sidebar.includes("label: 'تقييم الدكاترة الشهري'")) throw new Error('[staff-evaluation] route or manager navigation verification failed');
 if (!sidebar.includes("label: 'تقييمي الشهري'")) throw new Error('[staff-evaluation] doctor navigation verification failed');
+if (sidebar.includes('icon: Award')) throw new Error('[staff-evaluation] unsafe Award reference still exists');
 if (evaluationPage.includes('`${month}-32`') || evaluationPage.includes('React.Dispatch')) throw new Error('[staff-evaluation] page hardening verification failed');
 
 console.log('Global quick followup and monthly staff evaluation navigation verified safely.');
