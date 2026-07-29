@@ -8,6 +8,7 @@ import CustomerFollowupOperationsCompletionPanel from '@/components/customerServ
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
 import CustomerFollowupOperationsHub from '@/components/customerService/CustomerFollowupOperationsHub';
 import CustomerFollowupRecordsAndPerformance from '@/components/customerService/CustomerFollowupRecordsAndPerformance';
+import ExceptionalFollowupCenter from '@/components/customerService/ExceptionalFollowupCenter';
 import QuickFollowupModal from '@/components/common/QuickFollowupModal';
 import ExceptionalFollowupModal from '@/components/customerService/ExceptionalFollowupModal';
 import '@/styles/customerServiceTheme.css';
@@ -22,7 +23,7 @@ const views: Array<{ id: MainView; title: string; description: string; icon: typ
   { id: 'operations', title: 'قائمة اليوم', description: 'المطلوب الآن والمواعيد القادمة', icon: Workflow },
   { id: 'waiting', title: 'في انتظار الرد', description: 'تم الإرسال وننتظر العميل', icon: Clock3 },
   { id: 'no_answer', title: 'لم يرد العميل', description: 'محاولات تواصل بدون رد', icon: PhoneMissed },
-  { id: 'exceptional', title: 'المتابعات الاستثنائية', description: 'طلبات الدكاترة والعملاء المهمون', icon: Sparkles },
+  { id: 'exceptional', title: 'المتابعات الاستثنائية', description: 'المنفذ وطلبات دكاترة الفرع', icon: Sparkles },
   { id: 'completed', title: 'سجل المكتمل', description: 'المتابعات المنفذة فقط', icon: History },
   { id: 'performance', title: 'أداء خدمة العملاء', description: 'تقييم شهري وحافز حتى 500 جنيه', icon: BarChart3 },
   { id: 'data', title: 'البيانات والجودة', description: 'التصحيح والفروع والتكرارات', icon: Database },
@@ -84,7 +85,7 @@ export default function SmartCustomerService() {
       {hasSafeBranchScope && view === 'operations' ? <CustomerFollowupOperationsHub version={workspaceVersion}/> : null}
       {hasSafeBranchScope && view === 'waiting' ? <CustomerFollowupRecordsAndPerformance key={`waiting-${workspaceVersion}`} mode="waiting" /> : null}
       {hasSafeBranchScope && view === 'no_answer' ? <CustomerFollowupRecordsAndPerformance key={`no-answer-${workspaceVersion}`} mode="no_answer" /> : null}
-      {hasSafeBranchScope && view === 'exceptional' ? <CustomerFollowupRecordsAndPerformance key={`exceptional-${workspaceVersion}`} mode="exceptional" /> : null}
+      {hasSafeBranchScope && view === 'exceptional' ? <ExceptionalFollowupCenter key={`exceptional-${workspaceVersion}`} /> : null}
       {hasSafeBranchScope && view === 'completed' ? <CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /> : null}
       {hasSafeBranchScope && view === 'performance' ? <CustomerFollowupRecordsAndPerformance key={`performance-${workspaceVersion}`} mode="performance" /> : null}
       {hasSafeBranchScope && view === 'data' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><Suspense fallback={<SectionLoader label="أدوات تصحيح البيانات"/>}><CustomerServiceDataTools/></Suspense></div> : null}
