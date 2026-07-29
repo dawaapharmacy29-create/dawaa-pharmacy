@@ -95,7 +95,7 @@ const targetPanelReplacement = `            <Panel title="تحديد تارجت 
                     <div className="mb-2 flex items-center justify-between gap-3">
                       <span className="font-black text-slate-900">{row.branch}</span>
                       <span className="text-xs font-bold text-teal-700">
-                        {row.percent === null ? 'لم يتم تحديد هدف' : `إنجاز ${row.percent}%`}
+                        {row.percent === null ? 'لم يتم تحديد هدف' : 'إنجاز ' + row.percent + '%'}
                       </span>
                     </div>
                     <div className="flex gap-2">
