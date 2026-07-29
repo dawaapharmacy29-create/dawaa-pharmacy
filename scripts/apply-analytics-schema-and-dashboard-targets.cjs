@@ -7,7 +7,8 @@ let analytics = fs.readFileSync(analyticsPath, 'utf8');
 let dashboard = fs.readFileSync(dashboardPath, 'utf8');
 
 // 1) Analytics: tolerate real summary schemas by selecting all small summary rows
-// and normalizing aliases in the browser.
+// and normalizing aliases in the browser. The current Analytics page may instead
+// use sales_invoices directly; keep this migration script safe and idempotent.
 analytics = analytics.replace(
   ".select('sale_date,branch,net_total,invoices_count,invoice_count,unique_customers,customers_count')",
   ".select('*')"
@@ -109,7 +110,14 @@ fs.writeFileSync(dashboardPath, dashboard, 'utf8');
 
 analytics = fs.readFileSync(analyticsPath, 'utf8');
 dashboard = fs.readFileSync(dashboardPath, 'utf8');
-if (!analytics.includes(".from('sales_daily_summary')") || !analytics.includes(".select('*')")) throw new Error('[analytics-schema] summary select fix missing');
+const usesSummarySource = analytics.includes(".from('sales_daily_summary')");
+const usesDirectInvoiceSource = analytics.includes(".from('sales_invoices')") && analytics.includes(".select('*')");
+if (usesSummarySource && !analytics.includes(".select('*')")) {
+  throw new Error('[analytics-schema] summary select fix missing');
+}
+if (!usesSummarySource && !usesDirectInvoiceSource) {
+  throw new Error('[analytics-schema] no supported analytics sales source found');
+}
 if (analytics.includes('sales_daily_summary.invoice_count') || analytics.includes("doctor_name.eq.")) throw new Error('[analytics-schema] stale column dependency remains');
 if (!dashboard.includes("supabase.from('branch_sales_targets').select('*')")) throw new Error('[dashboard-targets] saved target fetch missing');
 if (!dashboard.includes("navigate('/analytics#branch-targets')")) throw new Error('[dashboard-targets] edit target action missing');
