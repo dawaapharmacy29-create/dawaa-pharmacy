@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import { PageSectionsPreview } from '@/components/security/PermissionGate';
 import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
+import BranchTargetEditor from '@/components/dashboard/BranchTargetEditor';
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'لوحة القيادة 2027',
@@ -50,11 +51,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const title = PAGE_TITLES[location.pathname] || 'صيدليات دواء';
   const mainRef = useRef<HTMLElement>(null);
   const hasChildren = Children.count(children) > 0;
+  const showTargetEditor = location.pathname === '/' || location.pathname === '/executive-2027';
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== 'dawaa_invoice_import_refresh' || !event.newValue) return;
-      // لا نعمل reload كامل للتطبيق؛ نرسل حدث داخلي للصفحات التي تحتاج تحديث بياناتها فقط.
       window.dispatchEvent(
         new CustomEvent('dawaa:data-refresh', { detail: { source: 'invoice-import' } })
       );
@@ -95,8 +96,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <Header onMobileMenuOpen={() => setMobileOpen(true)} title={title} />
           <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="animate-fade-in mx-auto min-h-[calc(100vh-120px)] max-w-[1720px]">
+            <div className="animate-fade-in mx-auto min-h-[calc(100vh-120px)] max-w-[1720px] space-y-4">
               <PageSectionsPreview path={location.pathname} />
+              {showTargetEditor ? <BranchTargetEditor compact /> : null}
               {hasChildren ? (
                 children
               ) : (
