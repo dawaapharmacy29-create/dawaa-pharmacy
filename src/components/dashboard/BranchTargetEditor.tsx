@@ -69,16 +69,20 @@ export default function BranchTargetEditor({ compact = false }: { compact?: bool
       toast.error('اكتب تارجت صحيح أكبر من صفر');
       return;
     }
+
     setSaving(branch);
     const minimalPayload = { branch_name: branch, target_amount: targetAmount };
     let writeError: { message?: string } | null = null;
+    let returnedRows: TargetRow[] = [];
 
     if (existing?.id) {
       const result = await supabase
         .from('branch_sales_targets')
         .update({ target_amount: targetAmount })
-        .eq('id', String(existing.id));
+        .eq('id', String(existing.id))
+        .select('*');
       writeError = result.error;
+      returnedRows = Array.isArray(result.data) ? (result.data as TargetRow[]) : [];
     } else {
       const updateByBranch = await supabase
         .from('branch_sales_targets')
@@ -86,9 +90,12 @@ export default function BranchTargetEditor({ compact = false }: { compact?: bool
         .eq('branch_name', branch)
         .select('*');
       writeError = updateByBranch.error;
-      if (!writeError && (!updateByBranch.data || updateByBranch.data.length === 0)) {
+      returnedRows = Array.isArray(updateByBranch.data) ? (updateByBranch.data as TargetRow[]) : [];
+
+      if (!writeError && returnedRows.length === 0) {
         const inserted = await supabase.from('branch_sales_targets').insert(minimalPayload).select('*');
         writeError = inserted.error;
+        returnedRows = Array.isArray(inserted.data) ? (inserted.data as TargetRow[]) : [];
       }
     }
 
@@ -98,24 +105,37 @@ export default function BranchTargetEditor({ compact = false }: { compact?: bool
       return;
     }
 
-    const verification = await supabase
-      .from('branch_sales_targets')
-      .select('*')
-      .eq('branch_name', branch)
-      .limit(5);
-    const verifiedRows = Array.isArray(verification.data) ? (verification.data as TargetRow[]) : [];
-    const verified = verifiedRows.find((item) => rowBranch(item) === branch);
-    const verifiedAmount = amount(verified?.target_amount ?? verified?.monthly_target ?? verified?.target);
-    setSaving(null);
+    let verified = returnedRows.find((item) => rowBranch(item) === branch);
 
-    if (verification.error || verifiedAmount !== targetAmount) {
-      toast.error('تم إرسال التعديل لكن تعذر تأكيد حفظ القيمة. راجع صلاحيات Supabase.');
+    if (!verified) {
+      const verification = existing?.id
+        ? await supabase.from('branch_sales_targets').select('*').eq('id', String(existing.id)).limit(1)
+        : await supabase.from('branch_sales_targets').select('*').limit(100);
+
+      if (!verification.error && Array.isArray(verification.data)) {
+        verified = (verification.data as TargetRow[]).find((item) => rowBranch(item) === branch);
+      }
+    }
+
+    setSaving(null);
+    const verifiedAmount = amount(verified?.target_amount ?? verified?.monthly_target ?? verified?.target);
+
+    if (verified && verifiedAmount !== targetAmount) {
+      toast.error('تم الحفظ لكن القيمة المقروءة لا تطابق التعديل. اضغط تحديث وأعد المحاولة.');
       return;
     }
 
     clearDashboardCache();
     localStorage.setItem('dawaa_branch_target_refresh', String(Date.now()));
     window.dispatchEvent(new CustomEvent('dawaa:branch-target-updated', { detail: { branch, targetAmount } }));
+
+    setRows((current) => {
+      const nextRow = verified || { ...(existing || {}), ...minimalPayload };
+      const index = current.findIndex((item) => rowBranch(item) === branch);
+      if (index === -1) return [...current, nextRow];
+      return current.map((item, itemIndex) => itemIndex === index ? { ...item, ...nextRow, target_amount: targetAmount } : item);
+    });
+
     toast.success(`تم حفظ تارجت ${branch}: ${targetAmount.toLocaleString('ar-EG')} جنيه`);
     await load();
   };
