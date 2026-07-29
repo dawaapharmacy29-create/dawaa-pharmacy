@@ -61,7 +61,6 @@ if (!sidebar.includes("label: 'تقييمي الشهري'")) {
   sidebar = sidebar.replace(doctorAnchor, `${doctorAnchor}\n    ${doctorNav}`);
 }
 
-// Clean up any previous build-time insertion that referenced Award without importing it.
 sidebar = sidebar.replaceAll('icon: Award', 'icon: Star');
 
 if (!evaluationPage.includes('type Dispatch')) {
@@ -91,4 +90,5 @@ if (!sidebar.includes("label: 'تقييمي الشهري'")) throw new Error('[s
 if (sidebar.includes('icon: Award')) throw new Error('[staff-evaluation] unsafe Award reference still exists');
 if (evaluationPage.includes('`${month}-32`') || evaluationPage.includes('React.Dispatch')) throw new Error('[staff-evaluation] page hardening verification failed');
 
+require('./apply-staff-evaluation-weighted-stars-pdf.cjs');
 console.log('Global quick followup and monthly staff evaluation navigation verified safely.');
