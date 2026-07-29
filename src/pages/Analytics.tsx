@@ -1,27 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarDays, RefreshCw, Save, Store, TrendingUp, Users } from 'lucide-react';
-import { toast } from 'sonner';
+import { AlertTriangle, CalendarDays, RefreshCw, Store, TrendingUp, Users } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCycleDate, getCurrentCycle, getPreviousCycle } from '@/lib/pharmacy-cycle';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
-import {
-  DASHBOARD_ALL_BRANCHES,
-  fetchDashboardSalesTruth,
-} from '@/lib/dashboard/dashboardTruthService';
+import { dashboardInvoiceAmount } from '@/lib/dashboard/dashboardTruthService';
+import BranchTargetEditor from '@/components/dashboard/BranchTargetEditor';
 
 const ALL = 'الكل';
-const TARGET_BRANCHES = ['فرع الشامي', 'فرع شكري'] as const;
+const BRANCHES = ['فرع الشامي', 'فرع شكري'] as const;
 type PeriodType = 'cycle' | 'previous_cycle' | 'month' | 'last_30_days' | 'custom';
-type BranchTarget = { id?: string; branch_name: string; target_amount: number };
-type DailyRow = { date: string; branch: string; netSales: number; invoicesCount: number };
-type DoctorRow = { doctor: string; branch: string; netSales: number; invoicesCount: number; uniqueCustomers: number };
+type InvoiceRow = Record<string, unknown>;
+type DailyRow = { date: string; branch: string; sales: number; invoiceIds: Set<string>; customers: Set<string> };
+type DoctorRow = { doctor: string; branch: string; sales: number; invoiceIds: Set<string>; customers: Set<string> };
 
 function n(value: unknown) {
-  const result = Number(value ?? 0);
-  return Number.isFinite(result) ? result : 0;
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function money(value: unknown) {
@@ -32,14 +29,71 @@ function count(value: unknown) {
   return n(value).toLocaleString('ar-EG', { maximumFractionDigits: 0 });
 }
 
-function safeBranch(value: unknown) {
+function validBranch(value: unknown) {
   const normalized = normalizeBranchName(String(value || ''));
-  return TARGET_BRANCHES.includes(normalized as (typeof TARGET_BRANCHES)[number]) ? normalized : ALL;
+  return BRANCHES.includes(normalized as (typeof BRANCHES)[number]) ? normalized : ALL;
 }
 
-function validDoctor(value: unknown) {
-  const text = String(value || '').trim();
-  return text && text !== 'غير محدد' ? text : ALL;
+function invoiceDate(row: InvoiceRow) {
+  return String(row.invoice_date ?? row.sale_date ?? row.date ?? row.created_at ?? '').slice(0, 10);
+}
+
+function invoiceBranch(row: InvoiceRow) {
+  return normalizeBranchName(String(row.branch_name ?? row.branch ?? '')) || 'غير محدد';
+}
+
+function invoiceDoctor(row: InvoiceRow) {
+  return String(row.normalized_seller_name ?? row.seller_name ?? row.staff_name ?? row.doctor_name ?? '').trim();
+}
+
+function invoiceId(row: InvoiceRow, index: number) {
+  return String(row.invoice_no ?? row.invoice_number ?? row.id ?? `${invoiceDate(row)}-${index}`);
+}
+
+function customerId(row: InvoiceRow) {
+  return String(row.customer_code ?? row.customer_phone ?? row.customer_name ?? '').trim();
+}
+
+async function fetchInvoicePages(start: string, end: string) {
+  const pageSize = 1000;
+  const maxPages = 12;
+  const rows: InvoiceRow[] = [];
+  const errors: string[] = [];
+
+  const run = async (dateColumn: 'invoice_date' | 'sale_date') => {
+    const collected: InvoiceRow[] = [];
+    for (let page = 0; page < maxPages; page += 1) {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+      const query = supabase
+        .from('sales_invoices')
+        .select('*')
+        .gte(dateColumn, start)
+        .lte(dateColumn, `${end}T23:59:59`)
+        .range(from, to);
+      const { data, error } = await query;
+      if (error) return { rows: collected, error: error.message };
+      const batch = Array.isArray(data) ? (data as InvoiceRow[]) : [];
+      collected.push(...batch);
+      if (batch.length < pageSize) break;
+    }
+    return { rows: collected, error: null as string | null };
+  };
+
+  const primary = await run('invoice_date');
+  rows.push(...primary.rows);
+  if (primary.error) errors.push(`invoice_date: ${primary.error}`);
+
+  if (!rows.length) {
+    const fallback = await run('sale_date');
+    rows.push(...fallback.rows);
+    if (fallback.error) errors.push(`sale_date: ${fallback.error}`);
+  }
+
+  if (rows.length >= pageSize * maxPages) {
+    errors.push(`تم تحميل أول ${rows.length.toLocaleString('ar-EG')} فاتورة فقط. استخدم فترة أقصر لعرض أدق.`);
+  }
+  return { rows, errors };
 }
 
 export default function Analytics() {
@@ -48,22 +102,17 @@ export default function Analytics() {
   const cycle = getCurrentCycle();
   const previousCycle = getPreviousCycle();
   const canAll = canSeeAllBranches(user?.role);
-  const ownBranch = safeBranch(user?.branch);
-
+  const ownBranch = validBranch(user?.branch);
   const [periodType, setPeriodType] = useState<PeriodType>('cycle');
   const [start, setStart] = useState(() => params.get('start') || formatCycleDate(cycle.start));
   const [end, setEnd] = useState(() => params.get('end') || formatCycleDate(cycle.end));
-  const [branch, setBranch] = useState(() => {
-    const requested = safeBranch(params.get('branch'));
-    return canAll ? requested : ownBranch !== ALL ? ownBranch : requested;
+  const [branch, setBranch] = useState(() => canAll ? validBranch(params.get('branch')) : ownBranch);
+  const [doctor, setDoctor] = useState(() => {
+    const value = String(params.get('doctor') || ALL).trim();
+    return !value || value === 'غير محدد' ? ALL : value;
   });
-  const [doctor, setDoctor] = useState(() => validDoctor(params.get('doctor')));
-  const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
-  const [doctorRows, setDoctorRows] = useState<DoctorRow[]>([]);
-  const [targets, setTargets] = useState<BranchTarget[]>([]);
-  const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({});
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [savingTarget, setSavingTarget] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
@@ -81,238 +130,152 @@ export default function Analytics() {
       setEnd(formatCycleDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)));
     } else if (type === 'last_30_days') {
       const now = new Date();
-      setEnd(formatCycleDate(now));
       setStart(formatCycleDate(new Date(now.getTime() - 29 * 86400000)));
+      setEnd(formatCycleDate(now));
     }
   };
 
-  const load = useCallback(async (noCache = false) => {
+  const load = useCallback(async () => {
     setLoading(true);
     setErrors([]);
-    const nextErrors: string[] = [];
     try {
-      const salesBranch = branch === ALL ? DASHBOARD_ALL_BRANCHES : branch;
-      const [truthResult, targetResult] = await Promise.allSettled([
-        fetchDashboardSalesTruth({
-          startDate: start,
-          endDate: end,
-          branch: salesBranch,
-          errors: nextErrors,
-          noCache,
-        }),
-        supabase.from('branch_sales_targets').select('id,branch_name,target_amount').limit(100),
-      ]);
-
-      if (truthResult.status === 'fulfilled') {
-        const truth = truthResult.value as any;
-        const daily = Array.isArray(truth.dailySales) ? truth.dailySales : [];
-        setDailyRows(
-          daily
-            .map((row: any) => ({
-              date: String(row.sale_date || row.date || '').slice(0, 10),
-              branch: normalizeBranchName(row.branch || '') || 'غير محدد',
-              netSales: n(row.daily_sales ?? row.sales_total ?? row.net_total),
-              invoicesCount: n(row.invoices_count ?? row.invoice_count),
-            }))
-            .filter((row: DailyRow) => row.date)
-        );
-
-        const doctors = Array.isArray(truth.doctorSales) ? truth.doctorSales : [];
-        setDoctorRows(
-          doctors
-            .map((row: any) => ({
-              doctor: String(row.doctor_name || row.seller_name || row.staff_name || '').trim(),
-              branch: normalizeBranchName(row.branch || '') || 'غير محدد',
-              netSales: n(row.sales_total ?? row.net_total),
-              invoicesCount: n(row.invoices_count ?? row.invoice_count),
-              uniqueCustomers: n(row.unique_customers ?? row.customers_count),
-            }))
-            .filter((row: DoctorRow) => row.doctor)
-            .sort((a: DoctorRow, b: DoctorRow) => b.netSales - a.netSales)
-        );
-      } else {
-        setDailyRows([]);
-        setDoctorRows([]);
-        nextErrors.push(truthResult.reason instanceof Error ? truthResult.reason.message : String(truthResult.reason));
-      }
-
-      if (targetResult.status === 'fulfilled' && !targetResult.value.error) {
-        const loaded = (targetResult.value.data || []) as BranchTarget[];
-        setTargets(loaded);
-        setTargetDrafts((current) => {
-          const next = { ...current };
-          for (const target of loaded) {
-            const key = normalizeBranchName(target.branch_name);
-            if (key) next[key] = String(target.target_amount || '');
-          }
-          return next;
-        });
-      } else {
-        const message = targetResult.status === 'rejected'
-          ? String(targetResult.reason)
-          : targetResult.value.error?.message || 'تعذر تحميل تارجت الفروع';
-        nextErrors.push(message);
-      }
-
-      setErrors([...new Set(nextErrors.filter(Boolean))]);
+      const result = await fetchInvoicePages(start, end);
+      setInvoices(result.rows);
+      setErrors(result.errors);
       setLastUpdated(new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }));
     } catch (error) {
-      setDailyRows([]);
-      setDoctorRows([]);
-      setErrors([error instanceof Error ? error.message : 'تعذر تحميل التحليلات']);
+      setInvoices([]);
+      setErrors([error instanceof Error ? error.message : 'تعذر تحميل فواتير المبيعات']);
     } finally {
       setLoading(false);
     }
-  }, [branch, end, start]);
+  }, [end, start]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(false), 200);
+    const timer = window.setTimeout(() => void load(), 150);
     return () => window.clearTimeout(timer);
   }, [load]);
 
   useEffect(() => {
-    const cleanBranch = safeBranch(branch);
-    const cleanDoctor = validDoctor(doctor);
+    const cleanBranch = canAll ? validBranch(branch) : ownBranch;
     if (cleanBranch !== branch) setBranch(cleanBranch);
-    if (cleanDoctor !== doctor) setDoctor(cleanDoctor);
-    setParams({ period: periodType, start, end, branch: cleanBranch, doctor: cleanDoctor }, { replace: true });
-  }, [branch, doctor, end, periodType, setParams, start]);
+    setParams({ period: periodType, start, end, branch: cleanBranch, doctor }, { replace: true });
+  }, [branch, canAll, doctor, end, ownBranch, periodType, setParams, start]);
 
-  const filteredDoctors = useMemo(
-    () => doctor === ALL ? doctorRows : doctorRows.filter((row) => row.doctor === doctor),
-    [doctor, doctorRows]
-  );
+  const scopedInvoices = useMemo(() => invoices.filter((row) => {
+    const rowBranch = invoiceBranch(row);
+    const rowDoctor = invoiceDoctor(row);
+    if (branch !== ALL && rowBranch !== branch) return false;
+    if (doctor !== ALL && rowDoctor !== doctor) return false;
+    return dashboardInvoiceAmount(row as any) > 0 && Boolean(invoiceDate(row));
+  }), [branch, doctor, invoices]);
+
+  const dailyRows = useMemo(() => {
+    const map = new Map<string, DailyRow>();
+    scopedInvoices.forEach((row, index) => {
+      const date = invoiceDate(row);
+      const rowBranch = invoiceBranch(row);
+      const key = `${date}|${rowBranch}`;
+      const current = map.get(key) || { date, branch: rowBranch, sales: 0, invoiceIds: new Set<string>(), customers: new Set<string>() };
+      current.sales += dashboardInvoiceAmount(row as any);
+      current.invoiceIds.add(invoiceId(row, index));
+      const customer = customerId(row);
+      if (customer) current.customers.add(customer);
+      map.set(key, current);
+    });
+    return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }, [scopedInvoices]);
+
+  const doctorRows = useMemo(() => {
+    const map = new Map<string, DoctorRow>();
+    scopedInvoices.forEach((row, index) => {
+      const name = invoiceDoctor(row);
+      if (!name) return;
+      const rowBranch = invoiceBranch(row);
+      const key = `${name}|${rowBranch}`;
+      const current = map.get(key) || { doctor: name, branch: rowBranch, sales: 0, invoiceIds: new Set<string>(), customers: new Set<string>() };
+      current.sales += dashboardInvoiceAmount(row as any);
+      current.invoiceIds.add(invoiceId(row, index));
+      const customer = customerId(row);
+      if (customer) current.customers.add(customer);
+      map.set(key, current);
+    });
+    return [...map.values()].sort((a, b) => b.sales - a.sales);
+  }, [scopedInvoices]);
+
+  const doctors = useMemo(() => [...new Set(invoices.map(invoiceDoctor).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar')), [invoices]);
 
   const kpis = useMemo(() => {
-    const netSales = dailyRows.reduce((sum, row) => sum + row.netSales, 0);
-    const invoicesCount = dailyRows.reduce((sum, row) => sum + row.invoicesCount, 0);
-    return {
-      netSales,
-      invoicesCount,
-      avgInvoice: invoicesCount ? netSales / invoicesCount : 0,
-      uniqueCustomers: filteredDoctors.reduce((sum, row) => sum + row.uniqueCustomers, 0),
-    };
-  }, [dailyRows, filteredDoctors]);
+    const invoiceIds = new Set<string>();
+    const customers = new Set<string>();
+    let sales = 0;
+    scopedInvoices.forEach((row, index) => {
+      sales += dashboardInvoiceAmount(row as any);
+      invoiceIds.add(invoiceId(row, index));
+      const customer = customerId(row);
+      if (customer) customers.add(customer);
+    });
+    return { sales, invoices: invoiceIds.size, customers: customers.size, average: invoiceIds.size ? sales / invoiceIds.size : 0 };
+  }, [scopedInvoices]);
 
-  const branches = useMemo(() => {
-    const grouped = new Map<string, { branch: string; netSales: number; invoicesCount: number }>();
-    for (const row of dailyRows) {
-      const current = grouped.get(row.branch) || { branch: row.branch, netSales: 0, invoicesCount: 0 };
-      current.netSales += row.netSales;
-      current.invoicesCount += row.invoicesCount;
-      grouped.set(row.branch, current);
-    }
-    return [...grouped.values()].sort((a, b) => b.netSales - a.netSales);
+  const branchRows = useMemo(() => {
+    const map = new Map<string, { branch: string; sales: number; invoiceIds: Set<string> }>();
+    dailyRows.forEach((row) => {
+      const current = map.get(row.branch) || { branch: row.branch, sales: 0, invoiceIds: new Set<string>() };
+      current.sales += row.sales;
+      row.invoiceIds.forEach((id) => current.invoiceIds.add(id));
+      map.set(row.branch, current);
+    });
+    return [...map.values()].sort((a, b) => b.sales - a.sales);
   }, [dailyRows]);
 
   const dailyTrend = useMemo(() => {
-    const grouped = new Map<string, { date: string; netSales: number; invoicesCount: number }>();
-    for (const row of dailyRows) {
-      const current = grouped.get(row.date) || { date: row.date, netSales: 0, invoicesCount: 0 };
-      current.netSales += row.netSales;
-      current.invoicesCount += row.invoicesCount;
-      grouped.set(row.date, current);
-    }
-    return [...grouped.values()].sort((a, b) => a.date.localeCompare(b.date));
+    const map = new Map<string, { date: string; sales: number; invoiceIds: Set<string> }>();
+    dailyRows.forEach((row) => {
+      const current = map.get(row.date) || { date: row.date, sales: 0, invoiceIds: new Set<string>() };
+      current.sales += row.sales;
+      row.invoiceIds.forEach((id) => current.invoiceIds.add(id));
+      map.set(row.date, current);
+    });
+    return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
   }, [dailyRows]);
-
-  const doctorNames = useMemo(() => [...new Set(doctorRows.map((row) => row.doctor))].sort(), [doctorRows]);
-  const targetRows = useMemo(() => TARGET_BRANCHES.map((branchName) => {
-    const target = targets.find((row) => normalizeBranchName(row.branch_name) === branchName);
-    const sales = branches.find((row) => row.branch === branchName)?.netSales || 0;
-    const targetAmount = n(target?.target_amount);
-    return {
-      branch: branchName,
-      targetId: target?.id,
-      sales,
-      targetAmount,
-      percent: targetAmount ? Math.round((sales / targetAmount) * 1000) / 10 : 0,
-      remaining: Math.max(0, targetAmount - sales),
-    };
-  }), [branches, targets]);
-
-  const saveTarget = async (row: (typeof targetRows)[number]) => {
-    const targetAmount = n(targetDrafts[row.branch]);
-    if (targetAmount <= 0) {
-      toast.error('اكتب تارجت صحيح أكبر من صفر');
-      return;
-    }
-    setSavingTarget(row.branch);
-    const payload = {
-      branch_name: row.branch,
-      target_amount: targetAmount,
-      cycle_start_day: 26,
-      active: true,
-      updated_at: new Date().toISOString(),
-    };
-    const result = row.targetId
-      ? await supabase.from('branch_sales_targets').update(payload).eq('id', row.targetId)
-      : await supabase.from('branch_sales_targets').insert(payload);
-    setSavingTarget(null);
-    if (result.error) {
-      toast.error(`تعذر حفظ التارجت: ${result.error.message}`);
-      return;
-    }
-    toast.success(`تم حفظ تارجت ${row.branch}`);
-    await load(true);
-  };
 
   return (
     <div className="space-y-5" dir="rtl">
       <section className="rounded-3xl border border-cyan-300/20 bg-slate-900/80 p-5 text-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-black">التحليلات والمبيعات</h1>
-            <p className="mt-1 text-sm font-bold text-slate-300">مرتبطة بنفس مصدر المبيعات المعتمد في الداشبورد التنفيذي.</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-400">آخر تحديث: {lastUpdated || '—'}</span>
-            <button onClick={() => void load(true)} disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50">
-              <RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> تحديث
-            </button>
-          </div>
+          <div><h1 className="text-2xl font-black">التحليلات والمبيعات</h1><p className="mt-1 text-sm font-bold text-slate-300">قراءة مباشرة من فواتير المبيعات الفعلية، بدون Views وسيطة.</p></div>
+          <div className="flex items-center gap-3"><span className="text-xs text-slate-400">آخر تحديث: {lastUpdated || '—'}</span><button onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> تحديث</button></div>
         </div>
       </section>
 
       <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-4 text-white">
         <div className="grid gap-3 md:grid-cols-5">
-          <Filter label="نوع الفترة"><select className="input-dark" value={periodType} onChange={(e) => applyPeriod(e.target.value as PeriodType)}><option value="cycle">الدورة الحالية</option><option value="previous_cycle">الدورة السابقة</option><option value="month">هذا الشهر</option><option value="last_30_days">آخر 30 يوم</option><option value="custom">مخصص</option></select></Filter>
-          <Filter label="بداية الفترة"><input className="input-dark" type="date" value={start} onChange={(e) => { setStart(e.target.value); setPeriodType('custom'); }} /></Filter>
-          <Filter label="نهاية الفترة"><input className="input-dark" type="date" value={end} onChange={(e) => { setEnd(e.target.value); setPeriodType('custom'); }} /></Filter>
-          <Filter label="الفرع"><select className="input-dark" value={branch} disabled={!canAll} onChange={(e) => setBranch(safeBranch(e.target.value))}><option value={ALL}>{ALL}</option>{TARGET_BRANCHES.map((item) => <option key={item} value={item}>{item}</option>)}</select></Filter>
-          <Filter label="الدكتور"><select className="input-dark" value={doctor} onChange={(e) => setDoctor(validDoctor(e.target.value))}><option value={ALL}>{ALL}</option>{doctorNames.map((item) => <option key={item} value={item}>{item}</option>)}</select></Filter>
+          <Filter label="نوع الفترة"><select className="input-dark" value={periodType} onChange={(event) => applyPeriod(event.target.value as PeriodType)}><option value="cycle">الدورة الحالية</option><option value="previous_cycle">الدورة السابقة</option><option value="month">هذا الشهر</option><option value="last_30_days">آخر 30 يوم</option><option value="custom">مخصص</option></select></Filter>
+          <Filter label="بداية الفترة"><input className="input-dark" type="date" value={start} onChange={(event) => { setStart(event.target.value); setPeriodType('custom'); }} /></Filter>
+          <Filter label="نهاية الفترة"><input className="input-dark" type="date" value={end} onChange={(event) => { setEnd(event.target.value); setPeriodType('custom'); }} /></Filter>
+          <Filter label="الفرع"><select className="input-dark" value={branch} disabled={!canAll} onChange={(event) => setBranch(validBranch(event.target.value))}><option value={ALL}>{ALL}</option>{BRANCHES.map((item) => <option key={item} value={item}>{item}</option>)}</select></Filter>
+          <Filter label="الدكتور"><select className="input-dark" value={doctor} onChange={(event) => setDoctor(event.target.value)}><option value={ALL}>{ALL}</option>{doctors.map((item) => <option key={item} value={item}>{item}</option>)}</select></Filter>
         </div>
       </section>
 
-      {errors.length > 0 && <section className="rounded-2xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100"><div className="flex gap-2"><AlertTriangle size={18} /><div><div>تم عرض البيانات المتاحة، وهذه ملاحظات المصادر:</div>{errors.map((item, index) => <div key={`${item}-${index}`} className="mt-1 text-xs text-amber-200">• {item}</div>)}</div></div></section>}
+      {errors.length > 0 ? <section className="rounded-2xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100"><div className="flex gap-2"><AlertTriangle size={18} /><div><div>ملاحظات التحميل:</div>{errors.map((item, index) => <div key={`${item}-${index}`} className="mt-1 text-xs text-amber-200">• {item}</div>)}</div></div></section> : null}
 
       <section className="grid gap-3 md:grid-cols-4">
-        <Kpi icon={TrendingUp} title="صافي المبيعات" value={money(kpis.netSales)} />
-        <Kpi icon={CalendarDays} title="عدد الفواتير" value={count(kpis.invoicesCount)} />
-        <Kpi icon={Store} title="متوسط الفاتورة" value={money(kpis.avgInvoice)} />
-        <Kpi icon={Users} title="العملاء المشترون" value={count(kpis.uniqueCustomers)} />
+        <Kpi icon={TrendingUp} title="صافي المبيعات" value={money(kpis.sales)} />
+        <Kpi icon={CalendarDays} title="عدد الفواتير" value={count(kpis.invoices)} />
+        <Kpi icon={Store} title="متوسط الفاتورة" value={money(kpis.average)} />
+        <Kpi icon={Users} title="العملاء المشترون" value={count(kpis.customers)} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <Panel title="تطور المبيعات اليومي">
-          <div className="space-y-2">{dailyTrend.slice(-31).map((row) => {
-            const max = Math.max(1, ...dailyTrend.map((item) => item.netSales));
-            return <div key={row.date} className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><div className="flex justify-between gap-3 text-sm font-bold"><span>{row.date}</span><span>{money(row.netSales)} · {count(row.invoicesCount)} فاتورة</span></div><div className="mt-2 h-2 rounded-full bg-slate-800"><div className="h-2 rounded-full bg-teal-400" style={{ width: `${Math.max(2, (row.netSales / max) * 100)}%` }} /></div></div>;
-          })}{!dailyTrend.length && <Empty text={loading ? 'جارٍ تحميل بيانات المبيعات...' : 'لا توجد بيانات مبيعات للفترة المحددة'} />}</div>
-        </Panel>
-        <Panel title="أداء الفروع">
-          <div className="space-y-3">{branches.map((row) => <div key={row.branch} className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><div className="flex items-center justify-between"><span className="font-black">{row.branch}</span><span className="font-black text-teal-300">{money(row.netSales)}</span></div><div className="mt-2 text-xs text-slate-400">{count(row.invoicesCount)} فاتورة · متوسط {money(row.invoicesCount ? row.netSales / row.invoicesCount : 0)}</div></div>)}{!branches.length && <Empty text={loading ? 'جارٍ تحميل بيانات الفروع...' : 'لا توجد بيانات فروع'} />}</div>
-        </Panel>
+        <Panel title="تطور المبيعات اليومي"><div className="space-y-2">{dailyTrend.slice(-31).map((row) => { const max = Math.max(1, ...dailyTrend.map((item) => item.sales)); return <div key={row.date} className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><div className="flex justify-between gap-3 text-sm font-bold"><span>{row.date}</span><span>{money(row.sales)} · {count(row.invoiceIds.size)} فاتورة</span></div><div className="mt-2 h-2 rounded-full bg-slate-800"><div className="h-2 rounded-full bg-teal-400" style={{ width: `${Math.max(2, (row.sales / max) * 100)}%` }} /></div></div>; })}{!dailyTrend.length ? <Empty text={loading ? 'جارٍ تحميل الفواتير...' : 'لا توجد بيانات في الفترة المحددة'} /> : null}</div></Panel>
+        <Panel title="أداء الفروع"><div className="space-y-3">{branchRows.map((row) => <div key={row.branch} className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><div className="flex items-center justify-between"><span className="font-black">{row.branch}</span><span className="font-black text-teal-300">{money(row.sales)}</span></div><div className="mt-2 text-xs text-slate-400">{count(row.invoiceIds.size)} فاتورة · متوسط {money(row.invoiceIds.size ? row.sales / row.invoiceIds.size : 0)}</div></div>)}{!branchRows.length ? <Empty text="لا توجد بيانات فروع" /> : null}</div></Panel>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
-        <Panel title="أفضل الدكاترة">
-          <div className="space-y-2">{filteredDoctors.slice(0, 15).map((row, index) => <div key={`${row.doctor}-${row.branch}`} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] p-3"><div><div className="font-black">{index + 1}. {row.doctor}</div><div className="mt-1 text-xs text-slate-400">{row.branch} · {count(row.invoicesCount)} فاتورة · {count(row.uniqueCustomers)} عميل</div></div><div className="font-black text-teal-300">{money(row.netSales)}</div></div>)}{!filteredDoctors.length && <Empty text={loading ? 'جارٍ تحميل بيانات الدكاترة...' : 'لا توجد بيانات دكاترة'} />}</div>
-        </Panel>
-        <Panel title="تحديد تارجت الفروع يدويًا">
-          <div className="space-y-3">{targetRows.map((row) => <div key={row.branch} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div className="flex items-center justify-between"><div className="font-black">{row.branch}</div><div className="text-sm font-black text-teal-300">{row.targetAmount ? `إنجاز ${row.percent}%` : 'لم يتم تحديد هدف'}</div></div><div className="mt-3 flex gap-2"><input type="number" min="1" step="1000" value={targetDrafts[row.branch] ?? ''} onChange={(e) => setTargetDrafts((current) => ({ ...current, [row.branch]: e.target.value }))} placeholder="اكتب تارجت الدورة بالجنيه" className="input-dark min-w-0 flex-1" /><button disabled={savingTarget === row.branch} onClick={() => void saveTarget(row)} className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2 font-black text-slate-950 disabled:opacity-50"><Save size={16} />{savingTarget === row.branch ? 'حفظ...' : 'حفظ'}</button></div><div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-slate-300"><span>المبيعات: {money(row.sales)}</span><span>المتبقي: {row.targetAmount ? money(row.remaining) : '—'}</span></div>{row.targetAmount > 0 && <div className="mt-3 h-2 rounded-full bg-slate-800"><div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, row.percent)}%` }} /></div>}</div>)}</div>
-        </Panel>
-      </section>
+      <Panel title="أفضل الدكاترة"><div className="space-y-2">{doctorRows.slice(0, 20).map((row, index) => <div key={`${row.doctor}-${row.branch}`} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] p-3"><div><div className="font-black">{index + 1}. {row.doctor}</div><div className="mt-1 text-xs text-slate-400">{row.branch} · {count(row.invoiceIds.size)} فاتورة · {count(row.customers.size)} عميل</div></div><div className="font-black text-teal-300">{money(row.sales)}</div></div>)}{!doctorRows.length ? <Empty text="لا توجد بيانات دكاترة" /> : null}</div></Panel>
+
+      <BranchTargetEditor />
     </div>
   );
 }
