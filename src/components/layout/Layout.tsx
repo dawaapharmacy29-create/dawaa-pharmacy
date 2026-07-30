@@ -53,8 +53,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const mainRef = useRef<HTMLElement>(null);
   const hasChildren = Children.count(children) > 0;
   const showTargetEditor = location.pathname === '/' || location.pathname === '/executive-2027';
-  const reviewsMode = new URLSearchParams(location.search).get('mode');
-  const showReviewsHub = location.pathname === '/reviews' && reviewsMode !== 'new';
+  const showReviewsHub = location.pathname === '/reviews';
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
