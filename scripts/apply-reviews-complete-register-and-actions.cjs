@@ -49,11 +49,29 @@ const hubChanged = update('src/components/reviews/ReviewsInsightsHub.tsx', (inpu
   let source = input;
   source = source.replace(
 `function doctorIdentity(row: ReviewRow) {\n  const raw = String(row.staff_name || row.doctor_name || 'غير محدد');\n  const id = String(row.staff_id || row.doctor_id || '');\n  const normalized = normalizeName(raw);\n  return { key: id ? \`id:\${id}\` : \`name:\${normalized || 'unknown'}\`, name: raw };\n}`,
-`function doctorIdentity(row: ReviewRow) {\n  const raw = String(row.staff_name || row.doctor_name || 'غير محدد').trim();\n  const id = String(row.staff_id || row.doctor_id || '').trim();\n  const normalized = normalizeName(raw);\n  // الاسم المنظف هو المفتاح الأساسي حتى تندمج السجلات القديمة التي لا تحتوي staff_id\n  // مع السجلات الجديدة لنفس الدكتور. نستخدم المعرّف فقط عندما لا يوجد اسم صالح.\n  return { key: normalized ? \`name:\${normalized}\` : id ? \`id:\${id}\` : 'unknown', name: raw || 'غير محدد' };\n}`
+`function doctorIdentity(row: ReviewRow) {\n  const raw = String(row.staff_name || row.doctor_name || 'غير محدد').trim();\n  const id = String(row.staff_id || row.doctor_id || '').trim();\n  const normalized = normalizeName(raw);\n  return { key: normalized ? \`name:\${normalized}\` : id ? \`id:\${id}\` : 'unknown', name: raw || 'غير محدد' };\n}`
   );
+
   source = source.replace(/>تقييم جديد<\/div><div className="mt-1 text-xs font-bold text-slate-300">فتح نموذج تقييم محادثة أو عملية بيع/g, '>إضافة تقييم جديد</div><div className="mt-1 text-xs font-bold text-slate-300">فتح نموذج التقييم أسفل لوحة التقارير');
   source = source.replace('const doctors = useMemo(() => [ALL, ...Array.from(new Set(reviews.map((row) => doctorIdentity(row).name).filter((name) => name !== \'غير محدد\')))], [reviews]);', "const doctors = useMemo(() => [ALL, ...Array.from(new Map(reviews.map((row) => { const identity = doctorIdentity(row); return [identity.key, identity.name] as const; })).values()).filter((name) => name !== 'غير محدد')], [reviews]);");
   source = source.replace('if (doctor !== ALL && doctorIdentity(row).name !== doctor) return false;', 'if (doctor !== ALL && normalizeName(doctorIdentity(row).name) !== normalizeName(doctor)) return false;');
+
+  if (!source.includes("const [scoreFilter, setScoreFilter]")) {
+    source = source.replace(
+      "  const [doctor, setDoctor] = useState(ALL);",
+      "  const [doctor, setDoctor] = useState(ALL);\n  const [scoreFilter, setScoreFilter] = useState(ALL);\n  const [pointsFilter, setPointsFilter] = useState(ALL);"
+    );
+  }
+
+  source = source.replace(
+`    if (doctor !== ALL && normalizeName(doctorIdentity(row).name) !== normalizeName(doctor)) return false;\n    return true;\n  }), [branch, doctor, month, reviews]);`,
+`    if (doctor !== ALL && normalizeName(doctorIdentity(row).name) !== normalizeName(doctor)) return false;\n    const score = scoreOf(row);\n    if (scoreFilter === '95-100' && score < 95) return false;\n    if (scoreFilter === '85-94' && (score < 85 || score >= 95)) return false;\n    if (scoreFilter === '70-84' && (score < 70 || score >= 85)) return false;\n    if (scoreFilter === 'under-70' && score >= 70) return false;\n    const impact = impactOf(row);\n    if (pointsFilter === 'positive' && impact <= 0) return false;\n    if (pointsFilter === 'zero' && impact !== 0) return false;\n    if (pointsFilter === 'negative' && impact >= 0) return false;\n    if (pointsFilter === 'plus-5' && impact < 5) return false;\n    if (pointsFilter === 'minus-5' && impact > -5) return false;\n    return true;\n  }), [branch, doctor, month, pointsFilter, reviews, scoreFilter]);`
+  );
+
+  source = source.replace(
+`        <div className="mt-3 grid gap-3 md:grid-cols-3">\n          <input type="month" className="input-dark" value={month} onChange={(event) => setMonth(event.target.value)} />\n          <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}>{branches.map((item) => <option key={item}>{item}</option>)}</select>\n          <select className="input-dark" value={doctor} onChange={(event) => setDoctor(event.target.value)}>{doctors.map((item) => <option key={item}>{item}</option>)}</select>\n        </div>`,
+`        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">\n          <input type="month" className="input-dark" value={month} onChange={(event) => setMonth(event.target.value)} />\n          <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}>{branches.map((item) => <option key={item}>{item}</option>)}</select>\n          <select className="input-dark" value={doctor} onChange={(event) => setDoctor(event.target.value)}>{doctors.map((item) => <option key={item}>{item}</option>)}</select>\n          <select className="input-dark" value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}>\n            <option value={ALL}>كل التقييمات</option><option value="95-100">ممتاز 95–100</option><option value="85-94">جيد جدًا 85–94</option><option value="70-84">جيد 70–84</option><option value="under-70">أقل من 70</option>\n          </select>\n          <select className="input-dark" value={pointsFilter} onChange={(event) => setPointsFilter(event.target.value)}>\n            <option value={ALL}>كل تأثيرات النقاط</option><option value="positive">حافز موجب</option><option value="plus-5">حافز 5+ فأكثر</option><option value="zero">بدون تأثير</option><option value="negative">خصم</option><option value="minus-5">خصم 5- فأكثر</option>\n          </select>\n        </div>\n        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-bold text-slate-300">\n          <span>النتائج المطابقة: <b className="text-white">{filtered.length}</b> من <b className="text-white">{reviews.length}</b> تقييم</span>\n          <button type="button" className="text-cyan-300 hover:text-cyan-200" onClick={() => { setBranch(ALL); setDoctor(ALL); setScoreFilter(ALL); setPointsFilter(ALL); }}>مسح الفلاتر</button>\n        </div>`
+  );
 
   const oldTriggerPattern = /  const triggerNewReview = \(\) => \{[\s\S]*?\n  \};/;
   const newTrigger = `  const triggerNewReview = () => {\n    window.location.assign('/reviews?mode=new');\n  };`;
@@ -64,9 +82,9 @@ const hubChanged = update('src/components/reviews/ReviewsInsightsHub.tsx', (inpu
     "onClick={() => { if (new URLSearchParams(window.location.search).get('mode') === 'new') window.location.assign('/reviews'); else scrollToHeading('سجل تقييم المحادثات'); }}"
   );
 
-  if (!source.includes('الاسم المنظف هو المفتاح الأساسي')) throw new Error('[reviews-hub] canonical doctor identity was not installed');
-  if (!source.includes("window.location.assign('/reviews?mode=new')")) throw new Error('[reviews-hub] new review action was not connected');
-  if (!source.includes("window.location.assign('/reviews'); else scrollToHeading('سجل تقييم المحادثات')")) throw new Error('[reviews-hub] history navigation was not connected');
+  if (!source.includes('const [scoreFilter, setScoreFilter]')) throw new Error('[reviews-filters] score filter state missing');
+  if (!source.includes('كل تأثيرات النقاط')) throw new Error('[reviews-filters] points filter UI missing');
+  if (!source.includes('النتائج المطابقة')) throw new Error('[reviews-filters] filtered result count missing');
   return source;
 });
 
