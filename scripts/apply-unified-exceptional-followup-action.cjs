@@ -20,14 +20,14 @@ function patchFile(file, transforms) {
 
 const modalChanged = patchFile('src/components/common/QuickFollowupModal.tsx', [
   {
-    label: 'mode prop',
+    label: 'followup kind prop',
     before: `  defaultBranch,\n}: {\n  open: boolean;\n  onClose: () => void;\n  onCreated?: () => void;\n  defaultBranch?: string;\n}) {`,
-    after: `  defaultBranch,\n  mode = 'doctor_request',\n}: {\n  open: boolean;\n  onClose: () => void;\n  onCreated?: () => void;\n  defaultBranch?: string;\n  mode?: 'doctor_request' | 'exceptional';\n}) {`,
+    after: `  defaultBranch,\n  followupKind = 'doctor_request',\n}: {\n  open: boolean;\n  onClose: () => void;\n  onCreated?: () => void;\n  defaultBranch?: string;\n  followupKind?: 'doctor_request' | 'exceptional';\n}) {`,
   },
   {
     label: 'exceptional mode flag',
     before: `  const { user } = useAuth();\n  const managerView = canViewAllBranches(user);`,
-    after: `  const { user } = useAuth();\n  const managerView = canViewAllBranches(user);\n  const exceptionalMode = mode === 'exceptional';`,
+    after: `  const { user } = useAuth();\n  const managerView = canViewAllBranches(user);\n  const exceptionalMode = followupKind === 'exceptional';`,
   },
   {
     label: 'dynamic initial values',
@@ -90,7 +90,7 @@ const workspaceChanged = patchFile('src/components/customerService/UnifiedCustom
   {
     label: 'doctor modal mode',
     before: `      <QuickFollowupModal\n        open={quickOpen}\n        onClose={() => setQuickOpen(false)}\n        onCreated={() => void loadWorkspace()}\n        defaultBranch={branch}\n      />`,
-    after: `      <QuickFollowupModal\n        open={quickOpen}\n        mode="doctor_request"\n        onClose={() => setQuickOpen(false)}\n        onCreated={() => {\n          setTab('doctor-requests');\n          setSourceFilter('doctor_request');\n          void loadWorkspace();\n        }}\n        defaultBranch={branch}\n      />\n      <QuickFollowupModal\n        open={exceptionalOpen}\n        mode="exceptional"\n        onClose={() => setExceptionalOpen(false)}\n        onCreated={() => {\n          setTab('doctor-requests');\n          setSourceFilter('doctor_request');\n          void loadWorkspace();\n        }}\n        defaultBranch={branch}\n      />`,
+    after: `      <QuickFollowupModal\n        open={quickOpen}\n        followupKind="doctor_request"\n        onClose={() => setQuickOpen(false)}\n        onCreated={() => {\n          setTab('doctor-requests');\n          setSourceFilter('doctor_request');\n          void loadWorkspace();\n        }}\n        defaultBranch={branch}\n      />\n      <QuickFollowupModal\n        open={exceptionalOpen}\n        followupKind="exceptional"\n        onClose={() => setExceptionalOpen(false)}\n        onCreated={() => {\n          setTab('doctor-requests');\n          setSourceFilter('doctor_request');\n          void loadWorkspace();\n        }}\n        defaultBranch={branch}\n      />`,
   },
 ]);
 
