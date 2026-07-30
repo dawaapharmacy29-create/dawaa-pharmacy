@@ -39,3 +39,5 @@ if (source !== before) {
 } else {
   console.log('[quick-followup-mode-fix] already applied');
 }
+
+require('./apply-followup-continuation-action.cjs');
