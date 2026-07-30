@@ -17,7 +17,11 @@ source = source
   )
   .replace(/\bsetMode\(/g, 'setActionMode(')
   .replace(/\bmode === 'execute'/g, "actionMode === 'execute'")
-  .replace(/\bmode === 'request'/g, "actionMode === 'request'");
+  .replace(/\bmode === 'request'/g, "actionMode === 'request'")
+  .replace(
+    /const exceptionalMode = followupKind === ['\"]exceptional['\"];?/g,
+    'const exceptionalMode = true;'
+  );
 
 if (!source.includes("const [actionMode, setActionMode] = useState<FollowupMode>('execute');")) {
   throw new Error('[quick-followup-mode-fix] actionMode state was not found after patch');
@@ -25,10 +29,13 @@ if (!source.includes("const [actionMode, setActionMode] = useState<FollowupMode>
 if (/const \[mode, setMode\] = useState<FollowupMode>/.test(source)) {
   throw new Error('[quick-followup-mode-fix] duplicate FollowupMode state still exists');
 }
+if (/\bfollowupKind\b/.test(source)) {
+  throw new Error('[quick-followup-mode-fix] undefined followupKind reference still exists');
+}
 
 if (source !== before) {
   fs.writeFileSync(file, source);
-  console.log('[quick-followup-mode-fix] renamed FollowupMode state to actionMode');
+  console.log('[quick-followup-mode-fix] normalized actionMode and removed undefined followupKind');
 } else {
   console.log('[quick-followup-mode-fix] already applied');
 }
