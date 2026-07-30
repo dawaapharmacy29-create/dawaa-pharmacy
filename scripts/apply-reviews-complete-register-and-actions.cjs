@@ -19,7 +19,7 @@ const reviewsChanged = update('src/pages/Reviews.tsx', (input) => {
   const newActions = `  return (\n    <div className="flex min-w-[132px] flex-col gap-1.5" onClick={(event) => event.stopPropagation()}>\n      <button type="button" className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2 py-1.5 text-[11px] font-black text-cyan-100 hover:bg-cyan-500/20" onClick={() => onDetails(row)}>\n        <Eye size={13} /> التفاصيل\n      </button>\n      {canManage ? (\n        <div className="grid grid-cols-2 gap-1">\n          <button type="button" title="تعديل التقييم" className="inline-flex items-center justify-center gap-1 rounded-lg border border-violet-400/25 bg-violet-500/10 px-1.5 py-1.5 text-[10px] font-black text-violet-100 hover:bg-violet-500/20" onClick={() => onEdit(row)}>\n            <Pencil size={12} /> تعديل\n          </button>\n          <button type="button" title="تقييم المراجع" className="inline-flex items-center justify-center gap-1 rounded-lg border border-amber-400/25 bg-amber-500/10 px-1.5 py-1.5 text-[10px] font-black text-amber-100 hover:bg-amber-500/20" onClick={() => onManagerReview(row)}>\n            <UserCheck size={12} /> المراجع\n          </button>\n        </div>\n      ) : null}\n    </div>\n  );`;
 
   if (source.includes(oldActions)) source = source.replace(oldActions, newActions);
-  if (!source.includes(".limit(3000)")) throw new Error('[reviews-register] history limit was not upgraded');
+  if (!source.includes('.limit(3000)')) throw new Error('[reviews-register] history limit was not upgraded');
   if (source.includes('reviewHistory.slice(0, 30)')) throw new Error('[reviews-register] visible history still limited to 30');
   if (!source.includes('> التفاصيل')) throw new Error('[reviews-register] inline actions were not installed');
   return source;
@@ -34,7 +34,13 @@ const hubChanged = update('src/components/reviews/ReviewsInsightsHub.tsx', (inpu
   source = source.replace(/>تقييم جديد<\/div><div className="mt-1 text-xs font-bold text-slate-300">فتح نموذج تقييم محادثة أو عملية بيع/g, '>إضافة تقييم جديد</div><div className="mt-1 text-xs font-bold text-slate-300">فتح مساحة مستقلة لتسجيل تقييم محادثة أو عملية بيع');
   source = source.replace('const doctors = useMemo(() => [ALL, ...Array.from(new Set(reviews.map((row) => doctorIdentity(row).name).filter((name) => name !== \'غير محدد\')))], [reviews]);', "const doctors = useMemo(() => [ALL, ...Array.from(new Map(reviews.map((row) => { const identity = doctorIdentity(row); return [identity.key, identity.name] as const; })).values()).filter((name) => name !== 'غير محدد')], [reviews]);");
   source = source.replace('if (doctor !== ALL && doctorIdentity(row).name !== doctor) return false;', 'if (doctor !== ALL && normalizeName(doctorIdentity(row).name) !== normalizeName(doctor)) return false;');
+
+  const oldTrigger = `  const triggerNewReview = () => {\n    const button = Array.from(document.querySelectorAll('button')).find((item) => String(item.textContent || '').includes('تقييم جديد')) as HTMLButtonElement | undefined;\n    if (button && !button.closest('[data-reviews-hub]')) button.click();\n    window.setTimeout(() => scrollToHeading('بيانات التقييم'), 100);\n  };`;
+  const newTrigger = `  const triggerNewReview = () => {\n    const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];\n    const originalButton = buttons.find((item) => {\n      const label = String(item.textContent || '').trim();\n      return !item.closest('[data-reviews-hub]') && (label.includes('تقييم جديد') || label.includes('إضافة تقييم'));\n    });\n\n    if (!originalButton) {\n      toast.error('تعذر فتح نموذج التقييم. اضغط تحديث ثم حاول مرة أخرى.');\n      return;\n    }\n\n    originalButton.click();\n    window.setTimeout(() => {\n      const opened = scrollToHeading('بيانات التقييم') || scrollToHeading('اختيار الدكتور') || scrollToHeading('تقييم المحادثات وعمليات البيع');\n      if (!opened) originalButton.scrollIntoView({ behavior: 'smooth', block: 'center' });\n    }, 180);\n  };`;
+  if (source.includes(oldTrigger)) source = source.replace(oldTrigger, newTrigger);
+
   if (!source.includes('الاسم المنظف هو المفتاح الأساسي')) throw new Error('[reviews-hub] canonical doctor identity was not installed');
+  if (!source.includes("!item.closest('[data-reviews-hub]')")) throw new Error('[reviews-hub] new review action was not connected');
   return source;
 });
 
