@@ -5,6 +5,7 @@ import Header from './Header';
 import { PageSectionsPreview } from '@/components/security/PermissionGate';
 import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
 import BranchTargetEditor from '@/components/dashboard/BranchTargetEditor';
+import ReviewsInsightsHub from '@/components/reviews/ReviewsInsightsHub';
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'لوحة القيادة 2027',
@@ -52,6 +53,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const mainRef = useRef<HTMLElement>(null);
   const hasChildren = Children.count(children) > 0;
   const showTargetEditor = location.pathname === '/' || location.pathname === '/executive-2027';
+  const showReviewsHub = location.pathname === '/reviews';
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -99,6 +101,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="animate-fade-in mx-auto min-h-[calc(100vh-120px)] max-w-[1720px] space-y-4">
               <PageSectionsPreview path={location.pathname} />
               {showTargetEditor ? <BranchTargetEditor compact /> : null}
+              {showReviewsHub ? <ReviewsInsightsHub /> : null}
               {hasChildren ? (
                 children
               ) : (
