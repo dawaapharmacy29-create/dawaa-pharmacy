@@ -40,7 +40,7 @@ const reviewsChanged = update('src/pages/Reviews.tsx', (input) => {
   if (!source.includes('.limit(3000)')) throw new Error('[reviews-register] history limit was not upgraded');
   if (source.includes('reviewHistory.slice(0, 30)')) throw new Error('[reviews-register] visible history still limited to 30');
   if (!source.includes('> التفاصيل')) throw new Error('[reviews-register] inline actions were not installed');
-  if (!source.includes('newOnlyMode')) throw new Error('[reviews-new-mode] isolated mode was not installed');
+  if (!source.includes('newOnlyMode')) throw new Error('[reviews-new-mode] focused mode was not installed');
   if (!source.includes('الرجوع لسجل التقييمات')) throw new Error('[reviews-new-mode] back action was not installed');
   return source;
 });
@@ -51,7 +51,7 @@ const hubChanged = update('src/components/reviews/ReviewsInsightsHub.tsx', (inpu
 `function doctorIdentity(row: ReviewRow) {\n  const raw = String(row.staff_name || row.doctor_name || 'غير محدد');\n  const id = String(row.staff_id || row.doctor_id || '');\n  const normalized = normalizeName(raw);\n  return { key: id ? \`id:\${id}\` : \`name:\${normalized || 'unknown'}\`, name: raw };\n}`,
 `function doctorIdentity(row: ReviewRow) {\n  const raw = String(row.staff_name || row.doctor_name || 'غير محدد').trim();\n  const id = String(row.staff_id || row.doctor_id || '').trim();\n  const normalized = normalizeName(raw);\n  // الاسم المنظف هو المفتاح الأساسي حتى تندمج السجلات القديمة التي لا تحتوي staff_id\n  // مع السجلات الجديدة لنفس الدكتور. نستخدم المعرّف فقط عندما لا يوجد اسم صالح.\n  return { key: normalized ? \`name:\${normalized}\` : id ? \`id:\${id}\` : 'unknown', name: raw || 'غير محدد' };\n}`
   );
-  source = source.replace(/>تقييم جديد<\/div><div className="mt-1 text-xs font-bold text-slate-300">فتح نموذج تقييم محادثة أو عملية بيع/g, '>إضافة تقييم جديد</div><div className="mt-1 text-xs font-bold text-slate-300">فتح مساحة مستقلة لتسجيل تقييم محادثة أو عملية بيع');
+  source = source.replace(/>تقييم جديد<\/div><div className="mt-1 text-xs font-bold text-slate-300">فتح نموذج تقييم محادثة أو عملية بيع/g, '>إضافة تقييم جديد</div><div className="mt-1 text-xs font-bold text-slate-300">فتح نموذج التقييم أسفل لوحة التقارير');
   source = source.replace('const doctors = useMemo(() => [ALL, ...Array.from(new Set(reviews.map((row) => doctorIdentity(row).name).filter((name) => name !== \'غير محدد\')))], [reviews]);', "const doctors = useMemo(() => [ALL, ...Array.from(new Map(reviews.map((row) => { const identity = doctorIdentity(row); return [identity.key, identity.name] as const; })).values()).filter((name) => name !== 'غير محدد')], [reviews]);");
   source = source.replace('if (doctor !== ALL && doctorIdentity(row).name !== doctor) return false;', 'if (doctor !== ALL && normalizeName(doctorIdentity(row).name) !== normalizeName(doctor)) return false;');
 
@@ -59,8 +59,14 @@ const hubChanged = update('src/components/reviews/ReviewsInsightsHub.tsx', (inpu
   const newTrigger = `  const triggerNewReview = () => {\n    window.location.assign('/reviews?mode=new');\n  };`;
   source = source.replace(oldTriggerPattern, newTrigger);
 
+  source = source.replace(
+    "onClick={() => scrollToHeading('سجل تقييم المحادثات')}",
+    "onClick={() => { if (new URLSearchParams(window.location.search).get('mode') === 'new') window.location.assign('/reviews'); else scrollToHeading('سجل تقييم المحادثات'); }}"
+  );
+
   if (!source.includes('الاسم المنظف هو المفتاح الأساسي')) throw new Error('[reviews-hub] canonical doctor identity was not installed');
-  if (!source.includes("window.location.assign('/reviews?mode=new')")) throw new Error('[reviews-hub] isolated new review action was not connected');
+  if (!source.includes("window.location.assign('/reviews?mode=new')")) throw new Error('[reviews-hub] new review action was not connected');
+  if (!source.includes("window.location.assign('/reviews'); else scrollToHeading('سجل تقييم المحادثات')")) throw new Error('[reviews-hub] history navigation was not connected');
   return source;
 });
 
