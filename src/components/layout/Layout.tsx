@@ -53,7 +53,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const mainRef = useRef<HTMLElement>(null);
   const hasChildren = Children.count(children) > 0;
   const showTargetEditor = location.pathname === '/' || location.pathname === '/executive-2027';
-  const showReviewsHub = location.pathname === '/reviews';
+  const reviewsMode = new URLSearchParams(location.search).get('mode');
+  const showReviewsHub = location.pathname === '/reviews' && reviewsMode !== 'new';
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -67,7 +68,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const key = `dawaa_scroll_${location.pathname}`;
+    const key = `dawaa_scroll_${location.pathname}${location.search}`;
     const main = mainRef.current;
     if (!main) return;
     const saved = sessionStorage.getItem(key);
@@ -84,7 +85,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       saveScroll();
       main.removeEventListener('scroll', saveScroll);
     };
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   return (
     <NavigationGuardProvider>
