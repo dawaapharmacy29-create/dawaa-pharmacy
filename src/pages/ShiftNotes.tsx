@@ -26,6 +26,7 @@ import { cleanEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
 import { matchesOrderedSegments } from '@/lib/utils';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { selectableStaffChoices } from '@/lib/staffFallback';
+import { notifyBranchDoctors } from '@/lib/staffNotificationService';
 import type { Staff } from '@/types/database';
 
 type NoteStatus =
@@ -567,6 +568,17 @@ export default function ShiftNotes() {
       editing ? 'تعديل بيانات الملحوظة' : 'إنشاء ملحوظة جديدة'
     );
     if (!editing) await createOccurrences(data.id);
+    if (!editing && data.branch) {
+      void notifyBranchDoctors(String(data.branch), {
+        type: 'shift_note',
+        title: 'ملاحظة شيفت جديدة في فرعك',
+        message: data.title || 'تم تسجيل ملاحظة شيفت جديدة في فرعك.',
+        priority: data.priority === 'urgent' || data.priority === 'high' ? 'high' : 'normal',
+        entityType: 'shift_note',
+        entityId: String(data.id),
+        actionUrl: '/shift-notes',
+      }).catch(() => null);
+    }
     toast.success(editing ? 'تم تعديل الملحوظة' : 'تم إنشاء ملحوظة الشيفت');
     resetForm();
     await loadNotes();

@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { logSupabaseError } from '@/lib/supabaseError';
 import { TABLES } from '@/lib/supabaseTables';
+import { createStaffNotification } from '@/lib/staffNotificationService';
 
 export type EmployeeTransactionType = 'penalty' | 'reward';
 
@@ -62,6 +63,20 @@ function logEmployeeTransactionsError(error: {
   });
 }
 
+async function notifyTransaction(input: EmployeeTransactionInput, id?: string | null) {
+  const isReward = input.type === 'reward';
+  await createStaffNotification({
+    recipientStaffId: input.staff_id,
+    type: isReward ? 'reward' : 'penalty',
+    title: isReward ? 'مكافأة جديدة' : 'خصم مسجل على حسابك',
+    message: input.reason || (isReward ? 'تم تسجيل مكافأة جديدة لك.' : 'تم تسجيل خصم على حسابك.'),
+    priority: isReward ? 'normal' : 'high',
+    entityType: 'employee_transaction',
+    entityId: id || undefined,
+    actionUrl: '/doctor-dashboard?tab=activity',
+  }).catch(() => null);
+}
+
 export async function createEmployeeTransaction(input: EmployeeTransactionInput) {
   const payload = {
     ...input,
@@ -72,7 +87,10 @@ export async function createEmployeeTransaction(input: EmployeeTransactionInput)
     .insert(payload)
     .select('id')
     .single();
-  if (!result.error) return result;
+  if (!result.error) {
+    if (input.staff_id) void notifyTransaction(input, result.data?.id as string | undefined);
+    return result;
+  }
 
   if (result.error.message.toLowerCase().includes('points')) {
     const { points: _points, ...withoutPoints } = payload;
@@ -84,6 +102,8 @@ export async function createEmployeeTransaction(input: EmployeeTransactionInput)
     if (retry.error) {
       logEmployeeTransactionsError(retry.error);
       logSupabaseError('create employee transaction', retry.error);
+    } else if (input.staff_id) {
+      void notifyTransaction(input, retry.data?.id as string | undefined);
     }
     return retry;
   }

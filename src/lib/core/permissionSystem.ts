@@ -770,7 +770,7 @@ export const ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = {
   ],
   customer_service: CUSTOMER_SERVICE_BASE,
   assistant: ASSISTANT_BASE,
-  cleaning_supervisor: ['view_dashboard'],
+  cleaning_supervisor: ['view_dashboard', 'view_operations', 'record_attendance', 'create_leave_request'],
   delivery: DELIVERY_BASE,
 };
 
@@ -954,7 +954,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/staff': 'view_team',
   '/staff/:id': 'view_staff_details',
   '/schedule': 'view_schedule',
-  '/time-off': ['view_attendance_leaves', 'create_leave_request'],
+  '/time-off': ['view_attendance_leaves'],
   '/attendance-report': ['view_attendance_leaves', 'record_attendance'],
   '/attendance': ['view_attendance_leaves', 'record_attendance'],
   '/shift-notes': 'view_schedule',
@@ -1012,5 +1012,10 @@ export function getRoutePermissions(pathname: string): string[] | undefined {
   const exact = ROUTE_PERMISSION_MAP[pathname];
   if (exact) return Array.isArray(exact) ? exact : [exact];
   if (pathname.startsWith('/staff/')) return ['view_staff_details'];
+  // كانت /customers/:id و /customer-health/:id بدون أي فحص صلاحية (مطابقة الاستثناء
+  // فقط، ولا يوجد مسار ثابت /customer-health أصلًا) — أي حساب مسجّل دخول كان يقدر
+  // يفتح ملف أي عميل كامل مباشرة لو عرف الرابط، بغض النظر عن دوره.
+  if (pathname.startsWith('/customers/')) return ['view_customer_360'];
+  if (pathname.startsWith('/customer-health/')) return ['view_customer_details'];
   return undefined;
 }

@@ -39,7 +39,7 @@ export function normalizeArabicName(value: unknown): string {
  * البيانات الفعلي لكل دور محكومًا بـ permissionSystem وRLS.
  */
 export function isDoctorRole(user: ScopeUser): boolean {
-  return ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(
+  return ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening', 'assistant'].includes(
     normalizeRole(user?.role)
   );
 }
