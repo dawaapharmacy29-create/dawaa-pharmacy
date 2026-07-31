@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, Award, BarChart3, Bell, Calendar, CheckCircle2, ClipboardCheck, Clock3,
-  DollarSign, ExternalLink, Gift, Headphones, Megaphone, Package, RefreshCw, ShieldCheck,
-  Star, Store, Target, TrendingUp, Users, WalletCards,
+  Activity, Award, BarChart3, Bell, CheckCircle2, ClipboardCheck, Clock3,
+  DollarSign, ExternalLink, Gift, Headphones, Megaphone, MoreHorizontal, RefreshCw, ShieldCheck,
+  Star, Store, Target, TrendingUp, WalletCards, X,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -44,9 +44,26 @@ const SCORE_RULES = [
   ['الختام والمتابعة', '5', 'أكد الطلب واسأل عن احتياج إضافي واختم باهتمام.'],
 ] as const;
 const WORK_RULE_GROUPS: Array<[string, typeof Store, string[]]> = [
-  ['داخل الصيدلية', Store, ['الوقوف واستقبال العميل باهتمام','فهم الطلب قبل إحضار المنتج','شرح الجرعة والاستخدام','عرض بديل مناسب','التأكد من رضا العميل']],
-  ['طريقة تنفيذ المطلوب', CheckCircle2, ['ابدأ المهام الجديدة في نفس اليوم','اكتب تقدمًا واضحًا','اطلب المساعدة قبل التأخير','أرسل المهمة للمراجعة بعد الإكمال']],
-  ['الالتزام بالوقت', Clock3, ['راجع المواعيد النهائية يوميًا','أنهِ المتابعات في موعدها','لا تترك مهمة متأخرة دون ملاحظة']],
+  ['داخل الصيدلية', Store, ['الوقوف واستقبال العميل باهتمام', 'فهم الطلب قبل إحضار المنتج', 'شرح الجرعة والاستخدام', 'عرض بديل مناسب', 'التأكد من رضا العميل']],
+  ['طريقة تنفيذ المطلوب', CheckCircle2, ['ابدأ المهام الجديدة في نفس اليوم', 'اكتب تقدمًا واضحًا', 'اطلب المساعدة قبل التأخير', 'أرسل المهمة للمراجعة بعد الإكمال']],
+  ['الالتزام بالوقت', Clock3, ['راجع المواعيد النهائية يوميًا', 'أنهِ المتابعات في موعدها', 'لا تترك مهمة متأخرة دون ملاحظة']],
+];
+
+// التبويبات الأساسية تظهر في شريط التنقل السفلي مباشرة (الأكثر استخدامًا يوميًا).
+// الباقي يفتح من زر "المزيد" عشان الشريط السفلي يفضل مريح على الموبايل.
+const PRIMARY_TABS: Array<[Tab, string, typeof Star]> = [
+  ['overview', 'الملخص', BarChart3],
+  ['performance', 'أدائي', TrendingUp],
+  ['reviews', 'تقييماتي', Star],
+  ['notifications', 'إشعاراتي', Bell],
+];
+const MORE_TABS: Array<[Tab, string, typeof Star]> = [
+  ['requirements', 'المطلوب مني', ClipboardCheck],
+  ['followups', 'متابعاتي', Headphones],
+  ['payroll', 'القبض والحوافز', WalletCards],
+  ['offers', 'العروض والاستوريز', Megaphone],
+  ['activity', 'سجل نشاطي', Activity],
+  ['rules', 'قواعد الخدمة', ShieldCheck],
 ];
 
 function normalizeName(value?: string | null) {
@@ -59,17 +76,74 @@ function greeting() { const hour = new Date().getHours(); return hour < 12 ? 'ص
 function branchTarget(branch: string, sales: number) { return BRANCH_TARGETS[normalizeBranchName(branch)] || BRANCH_TARGETS[branch] || Math.max(sales * 1.25, 1); }
 async function safeRows(query: PromiseLike<{ data: unknown[] | null; error: { message?: string } | null }>) { try { const result = await query; return result.error ? [] : (result.data || []) as Row[]; } catch { return []; } }
 
+// ألوان الهوية الفعلية للتطبيق (navy/teal من tailwind.config) بدل درجات الرمادي العامة.
+const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
+const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
+const mutedText = { color: 'var(--dawaa-theme-muted)' };
+
 function Metric({ label, value, hint, icon: Icon }: { label: string; value: string; hint?: string; icon: typeof DollarSign }) {
-  return <div className="rounded-2xl border border-slate-700/70 bg-slate-900/80 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-bold text-slate-300">{label}</div><div className="mt-2 text-2xl font-black text-white">{value}</div>{hint ? <div className="mt-1 text-xs text-slate-400">{hint}</div> : null}</div><div className="rounded-xl bg-teal-500/15 p-3 text-teal-300"><Icon size={20} /></div></div></div>;
+  return (
+    <div className="rounded-2xl border p-4" style={surface}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-bold" style={mutedText}>{label}</div>
+          <div className="mt-2 text-2xl font-black text-white">{value}</div>
+          {hint ? <div className="mt-1 text-xs" style={mutedText}>{hint}</div> : null}
+        </div>
+        <div className="rounded-xl bg-teal-500/15 p-3 text-teal-300"><Icon size={20} /></div>
+      </div>
+    </div>
+  );
 }
 
-function Empty({ children }: { children: string }) { return <p className="rounded-2xl border border-dashed border-slate-700 p-5 text-center text-sm font-bold text-slate-400">{children}</p>; }
+function StatChip({ label, value, hint, icon: Icon, tone = 'primary' }: { label: string; value: string; hint?: string; icon: typeof DollarSign; tone?: 'primary' | 'urgent' }) {
+  const iconTone = tone === 'urgent' ? 'bg-amber-500/15 text-amber-300' : 'bg-teal-500/15 text-teal-300';
+  return (
+    <div className="min-w-[158px] shrink-0 rounded-2xl border p-4" style={surface}>
+      <div className={`inline-flex rounded-xl p-2 ${iconTone}`}><Icon size={18} /></div>
+      <div className="mt-3 text-xl font-black text-white">{value}</div>
+      <div className="mt-1 text-xs font-bold" style={mutedText}>{label}</div>
+      {hint ? <div className="mt-1 text-[11px]" style={mutedText}>{hint}</div> : null}
+    </div>
+  );
+}
+
+function Empty({ children }: { children: string }) {
+  return <p className="rounded-2xl border border-dashed p-5 text-center text-sm font-bold" style={{ ...mutedText, borderColor: 'var(--dawaa-theme-border)' }}>{children}</p>;
+}
+
+// حلقة تقدم دائرية لتارجت الفرع — العنصر البصري المميز الوحيد في الصفحة، والباقي هادي حواليها.
+function ProgressRing({ percent }: { percent: number }) {
+  const size = 96;
+  const stroke = 9;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.max(0, Math.min(100, percent));
+  const offset = circumference * (1 - clamped / 100);
+  const color = clamped >= 100 ? '#34d399' : clamped >= 60 ? '#2dd4bf' : '#fbbf24';
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(148,211,226,0.18)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={circumference} strokeDashoffset={offset}
+          style={{ transition: 'stroke-dashoffset 0.8s ease, stroke 0.4s ease' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-lg font-black text-white">{clamped.toFixed(0)}%</span>
+        <span className="text-[9px] font-bold text-teal-300">للتارجت</span>
+      </div>
+    </div>
+  );
+}
 
 export default function DoctorDashboardStable() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
-  const validTabs: Tab[] = ['overview','requirements','performance','followups','reviews','notifications','activity','payroll','offers','rules'];
+  const validTabs: Tab[] = ['overview', 'requirements', 'performance', 'followups', 'reviews', 'notifications', 'activity', 'payroll', 'offers', 'rules'];
   const tab: Tab = validTabs.includes(requestedTab as Tab) ? requestedTab as Tab : 'overview';
   const cycle = useMemo(() => getCurrentCycle(), []);
   const [state, setState] = useState<LoadState>('idle');
@@ -84,9 +158,11 @@ export default function DoctorDashboardStable() {
   const [offers, setOffers] = useState<Row[]>([]);
   const [stories, setStories] = useState<Row[]>([]);
   const [personalState, setPersonalState] = useState<Record<string, LoadState>>({});
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const branch = text(user?.branch);
   const staffId = text(user?.staffId);
+  const username = text(user?.username);
   const doctorName = text(user?.name);
   const selectTab = (next: Tab) => setSearchParams({ tab: next }, { replace: true });
 
@@ -109,7 +185,7 @@ export default function DoctorDashboardStable() {
       queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).order('created_at', { ascending: false }).limit(100)));
     }
     const unique = new Map<string, Row>(); (await Promise.all(queries)).flat().forEach((row) => unique.set(text(row.id || `${row.created_at}-${row.doctor_name}`), row));
-    setReviews([...unique.values()].sort((a,b) => text(b.created_at).localeCompare(text(a.created_at))).map((row) => ({
+    setReviews([...unique.values()].sort((a, b) => text(b.created_at).localeCompare(text(a.created_at))).map((row) => ({
       id: text(row.id), createdAt: text(row.created_at || row.conversation_date), kind: text(row.evaluation_kind || row.conversation_type || 'تقييم محادثة'),
       score: number(row.final_score ?? row.total_score), impact: number(row.doctor_points_impact ?? row.point_impact),
       positive: text(row.main_positive_reason), negative: text(row.main_negative_reason), notes: text(row.reviewer_notes),
@@ -126,25 +202,44 @@ export default function DoctorDashboardStable() {
 
   const loadAssignments = useCallback(async () => {
     setPart('requirements', 'loading');
-    setAssignments(await safeRows(supabase.from('staff_assignments').select('*').eq('assigned_to_staff_id', staffId).order('created_at', { ascending: false }).limit(150)));
+    // ملاحظة: جدول staff_assignments مش موجود. المصدر الحقيقي المتاح دلوقتي هو stagnant_medicines
+    // (الأدوية الراكدة المسندة لدكتور مسؤول)، ومربوط غالبًا بالاسم مش بمعرف staff_id.
+    const rows = await safeRows(supabase.from('stagnant_medicines').select('*').order('nearest_expiry_date', { ascending: true }).limit(200));
+    const mine = rows.filter((row) => {
+      const idMatch = [row.responsible_doctor_id, row.doctor_id].map(text).some((value) => value && (value === staffId));
+      const nameMatch = [row.responsible_doctor_name, row.responsible_doctor].map(normalizeName).some((value) => value && value === normalizeName(doctorName));
+      return idMatch || nameMatch;
+    });
+    setAssignments(mine);
     setPart('requirements', 'success');
-  }, [staffId]);
+  }, [staffId, doctorName]);
 
   const loadPayroll = useCallback(async () => {
     setPart('payroll', 'loading');
-    const [statements, manual] = await Promise.all([
-      safeRows(supabase.from('employee_monthly_statements').select('*').eq('staff_id', staffId).order('cycle_end', { ascending: false }).limit(12)),
-      safeRows(supabase.from('staff_payroll_manual_entries').select('*').eq('staff_id', staffId).eq('visible_to_staff', true).order('created_at', { ascending: false }).limit(100)),
-    ]);
-    setPayrollRows(statements); setManualPayrollRows(manual); setPart('payroll', 'success');
-  }, [staffId]);
+    // ملاحظة: جدول employee_monthly_statements القديم مش موجود فعليًا في القاعدة.
+    // المصدر الحقيقي هو staff_payroll_summary (view)، ومربوط بـ username مش staff_id.
+    // بيفضل فاضي عن قصد لحد ما فريق الرواتب يعتمد دورة فعلية (payroll_month) للحساب ده،
+    // عشان منعرضش صفر بدل "لسه معتمدش" على الدكتور.
+    const statements = username
+      ? await safeRows(
+          supabase
+            .from('staff_payroll_summary')
+            .select('*')
+            .ilike('username', username)
+            .not('payroll_month', 'is', null)
+            .order('payroll_month', { ascending: false })
+            .limit(12)
+        )
+      : [];
+    setPayrollRows(statements); setManualPayrollRows([]); setPart('payroll', 'success');
+  }, [username]);
 
   const loadOffers = useCallback(async () => {
     setPart('offers', 'loading');
     const now = new Date().toISOString();
     const [offerRows, storyRows] = await Promise.all([
       safeRows(supabase.from('offers').select('*').or(`end_date.is.null,end_date.gte.${now}`).order('created_at', { ascending: false }).limit(50)),
-      safeRows(supabase.from('stories').select('*').or(`expires_at.is.null,expires_at.gte.${now}`).order('created_at', { ascending: false }).limit(50)),
+      safeRows(supabase.from('whatsapp_stories').select('*').order('story_date', { ascending: false }).order('created_at', { ascending: false }).limit(50)),
     ]);
     setOffers(offerRows); setStories(storyRows); setPart('offers', 'success');
   }, []);
@@ -163,54 +258,391 @@ export default function DoctorDashboardStable() {
   }, [loadActivity, loadAssignments, loadNotifications, loadOffers, loadPayroll, loadReviews, personalState, tab]);
 
   const doctorRow = useMemo<DoctorRow | null>(() => summary?.doctorRows.find((row) => row.staffId === staffId) || summary?.doctorRows.find((row) => normalizeName(row.doctor) === normalizeName(doctorName)) || null, [doctorName, staffId, summary]);
-  const ranking = useMemo(() => summary ? [...summary.doctorRows].sort((a,b) => b.netSales - a.netSales) : [], [summary]);
+  const ranking = useMemo(() => summary ? [...summary.doctorRows].sort((a, b) => b.netSales - a.netSales) : [], [summary]);
   const doctorRank = doctorRow ? ranking.findIndex((row) => row.staffId === doctorRow.staffId && row.doctor === doctorRow.doctor) + 1 : 0;
   const branchSales = summary?.kpis.netSales || 0;
   const target = branchTarget(branch, branchSales);
   const achievement = target ? branchSales / target * 100 : 0;
   const unread = notifications.filter((item) => !item.isRead).length;
-  const openAssignments = assignments.filter((item) => !['completed','cancelled'].includes(text(item.status)));
-  const overdueAssignments = openAssignments.filter((item) => item.due_at && new Date(text(item.due_at)) < new Date());
+  const openAssignments = assignments.filter((item) => number(item.remaining_quantity ?? item.quantity_available ?? item.total_quantity) > 0);
+  const overdueAssignments = openAssignments.filter((item) => {
+    const expiry = text(item.nearest_expiry_date || item.expiry_date);
+    if (!expiry) return false;
+    const days = (new Date(expiry).getTime() - Date.now()) / 86400000;
+    return Number.isFinite(days) && days <= 30;
+  });
   const reviewAverage = reviews.length ? reviews.reduce((sum, item) => sum + item.score, 0) / reviews.length : 0;
+  const moreHasAttention = openAssignments.length > 0;
+  const activeInMore = MORE_TABS.some(([key]) => key === tab);
 
-  const tabs: Array<[Tab,string,typeof Star]> = [
-    ['overview','الملخص',BarChart3],['requirements',`المطلوب مني${openAssignments.length ? ` (${openAssignments.length})` : ''}`,ClipboardCheck],['performance','أدائي وترتيبي',TrendingUp],
-    ['followups','متابعاتي',Headphones],['reviews','تقييماتي',Star],['notifications',`إشعاراتي${unread ? ` (${unread})` : ''}`,Bell],['activity','سجل نشاطي',Activity],
-    ['payroll','القبض والحوافز',WalletCards],['offers','العروض والاستوريز',Megaphone],['rules','قواعد الخدمة',ShieldCheck],
-  ];
+  return (
+    <div dir="rtl" className="space-y-5 pb-28">
+      <section className="relative overflow-hidden rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, #1B2B4B 0%, #243558 100%)', borderColor: 'var(--dawaa-theme-border)' }}>
+        <button
+          type="button" onClick={() => { void load(); void loadNotifications(); }} disabled={state === 'loading'}
+          className="absolute left-4 top-4 rounded-full p-2 text-teal-300 transition disabled:opacity-50" style={{ background: 'rgba(0,0,0,0.2)' }}
+        >
+          <RefreshCw size={16} className={state === 'loading' ? 'animate-spin' : ''} />
+        </button>
+        <div className="flex items-center gap-4">
+          <ProgressRing percent={achievement} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-black uppercase tracking-wide text-teal-300">مساحة الدكتور الشخصية</div>
+            <h1 className="mt-0.5 truncate text-xl font-black text-white">{greeting()} يا دكتور {doctorName || 'الزميل'}</h1>
+            <p className="mt-1 text-xs font-bold text-slate-300">{branch || 'الفرع غير محدد'} · الدورة {cycle.label}</p>
+          </div>
+        </div>
+        <div className="mt-4 flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold" style={{ background: 'rgba(0,0,0,0.18)' }}>
+          <span className="text-slate-300">متبقي لتارجت الفرع</span>
+          <span className="font-black text-teal-300">{formatCurrency(Math.max(0, target - branchSales))}</span>
+        </div>
+      </section>
 
-  return <div dir="rtl" className="space-y-5 pb-8">
-    <section className="rounded-3xl border border-teal-400/20 bg-gradient-to-l from-teal-500/10 via-slate-900 to-sky-500/10 p-5"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="text-sm font-black text-teal-300">مساحة الدكتور الشخصية</div><h1 className="mt-1 text-3xl font-black text-white">{greeting()} يا دكتور {doctorName || 'الزميل'}</h1><p className="mt-2 text-sm text-slate-300">{branch || 'الفرع غير محدد'} — الدورة {cycle.label}</p><p className="mt-1 text-xs font-bold text-sky-200">كل البيانات هنا مرتبطة بحسابك وstaff_id الخاص بك فقط.</p></div><button type="button" onClick={() => { void load(); void loadNotifications(); }} disabled={state === 'loading'} className="btn-primary disabled:opacity-50"><RefreshCw className={`ml-1 inline h-4 w-4 ${state === 'loading' ? 'animate-spin' : ''}`} /> تحديث البيانات</button></div>
-      <div className="mt-4"><div className="flex items-center justify-between text-xs font-bold text-slate-300"><span>تقدم فرعك نحو التارجت</span><span className="text-teal-200">{achievement.toFixed(1)}% — متبقي {formatCurrency(Math.max(0, target - branchSales))}</span></div><div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-slate-800"><div className={`h-full rounded-full ${achievement >= 100 ? 'bg-emerald-400' : achievement >= 60 ? 'bg-teal-400' : 'bg-amber-400'}`} style={{ width: `${Math.min(100, achievement)}%` }} /></div></div>
-    </section>
+      {state === 'error' ? <section className="rounded-3xl border border-red-400/25 bg-red-500/10 p-5 text-red-100">{error}</section> : null}
 
-    <nav className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 p-2 md:grid-cols-5 xl:grid-cols-10">{tabs.map(([key,label,Icon]) => <button key={key} type="button" onClick={() => selectTab(key)} className={`flex flex-col items-center gap-1.5 rounded-xl px-3 py-3 text-xs font-black transition-colors ${tab === key ? 'bg-teal-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}><Icon size={17} />{label}</button>)}</nav>
-    {state === 'error' ? <section className="rounded-3xl border border-red-400/25 bg-red-500/10 p-5 text-red-100">{error}</section> : null}
+      {tab === 'overview' ? (
+        <>
+          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
+            <StatChip icon={DollarSign} label="مبيعاتي في الدورة" value={doctorRow ? formatCurrency(doctorRow.netSales) : 'غير مرتبط'} hint={doctorRow ? `${doctorRow.invoicesCount} فاتورة` : 'راجع staff_id'} />
+            <StatChip icon={TrendingUp} label="متوسط فاتورتي" value={doctorRow ? formatCurrency(doctorRow.avgInvoice) : '—'} hint={`متوسط الفرع ${formatCurrency(summary?.kpis.avgInvoice || 0)}`} />
+            <StatChip icon={Award} label="ترتيبي في الفرع" value={doctorRank ? `${doctorRank} من ${ranking.length}` : '—'} />
+            <StatChip icon={ClipboardCheck} label="المطلوب المفتوح" value={String(openAssignments.length)} tone={overdueAssignments.length ? 'urgent' : 'primary'} hint={overdueAssignments.length ? `${overdueAssignments.length} قريب من الانتهاء` : 'لا يوجد قريب من الانتهاء'} />
+          </div>
+          <section className="grid gap-3 sm:grid-cols-3">
+            <button
+              onClick={() => selectTab('requirements')} className="rounded-2xl border p-4 text-right transition"
+              style={{ borderColor: overdueAssignments.length ? 'rgba(251,191,36,0.4)' : 'var(--dawaa-theme-border)', background: overdueAssignments.length ? 'rgba(251,191,36,0.08)' : 'var(--dawaa-theme-surface)' }}
+            >
+              <div className="flex items-center gap-2 font-black text-amber-200"><Target size={18} /> المطلوب مني الآن</div>
+              <div className="mt-2 text-2xl font-black text-white">{openAssignments.length}</div>
+              <p className="mt-1 text-xs" style={mutedText}>الأدوية الراكدة المسندة لك للتصريف.</p>
+            </button>
+            <button onClick={() => selectTab('reviews')} className="rounded-2xl border p-4 text-right transition" style={surface}>
+              <div className="flex items-center gap-2 font-black text-teal-200"><ClipboardCheck size={18} /> متوسط تقييماتي</div>
+              <div className="mt-2 text-2xl font-black text-white">{reviews.length ? `${reviewAverage.toFixed(1)}%` : 'افتح التقييمات'}</div>
+              <p className="mt-1 text-xs" style={mutedText}>كل تقييم جديد يظهر لك مع نقاط القوة والتحسين.</p>
+            </button>
+            <button
+              onClick={() => selectTab('notifications')} className="rounded-2xl border p-4 text-right transition"
+              style={{ borderColor: unread ? 'rgba(248,113,113,0.35)' : 'var(--dawaa-theme-border)', background: unread ? 'rgba(248,113,113,0.08)' : 'var(--dawaa-theme-surface)' }}
+            >
+              <div className={`flex items-center gap-2 font-black ${unread ? 'text-red-200' : 'text-teal-200'}`}><Bell size={18} /> إشعاراتي غير المقروءة</div>
+              <div className="mt-2 text-2xl font-black text-white">{unread}</div>
+              <p className="mt-1 text-xs" style={mutedText}>لا تظهر هنا إلا الأحداث الخاصة بك والإعلانات العامة.</p>
+            </button>
+          </section>
+        </>
+      ) : null}
 
-    {tab === 'overview' ? <>
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="مبيعاتي في الدورة" value={doctorRow ? formatCurrency(doctorRow.netSales) : 'غير مرتبط'} hint={doctorRow ? `${doctorRow.invoicesCount} فاتورة` : 'راجع staff_id'} icon={DollarSign} /><Metric label="متوسط فاتورتي" value={doctorRow ? formatCurrency(doctorRow.avgInvoice) : '—'} hint={`متوسط الفرع ${formatCurrency(summary?.kpis.avgInvoice || 0)}`} icon={TrendingUp} /><Metric label="ترتيبي في الفرع" value={doctorRank ? `${doctorRank} من ${ranking.length}` : '—'} icon={Award} /><Metric label="المطلوب المفتوح" value={String(openAssignments.length)} hint={overdueAssignments.length ? `${overdueAssignments.length} متأخر` : 'لا توجد مهام متأخرة'} icon={ClipboardCheck} /></section>
-      <section className="grid gap-3 lg:grid-cols-3"><button onClick={() => selectTab('requirements')} className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-5 text-right"><div className="flex items-center gap-2 font-black text-amber-100"><Target /> المطلوب مني الآن</div><div className="mt-2 text-3xl font-black text-white">{openAssignments.length}</div><p className="mt-1 text-sm text-amber-100/80">مهام، رواكد، تدريب، تحسين مبيعات ومتابعات.</p></button><button onClick={() => selectTab('reviews')} className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-5 text-right"><div className="flex items-center gap-2 font-black text-sky-100"><ClipboardCheck /> متوسط تقييماتي</div><div className="mt-2 text-3xl font-black text-white">{reviews.length ? `${reviewAverage.toFixed(1)}%` : 'افتح التقييمات'}</div><p className="mt-1 text-sm text-sky-100/80">كل تقييم جديد يظهر لك مع نقاط القوة والتحسين.</p></button><button onClick={() => selectTab('notifications')} className="rounded-2xl border border-teal-400/25 bg-teal-500/10 p-5 text-right"><div className="flex items-center gap-2 font-black text-teal-100"><Bell /> إشعاراتي غير المقروءة</div><div className="mt-2 text-3xl font-black text-white">{unread}</div><p className="mt-1 text-sm text-teal-100/80">لا تظهر هنا إلا الأحداث الخاصة بك والإعلانات العامة.</p></button></section>
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5"><h2 className="text-xl font-black text-white">الوصول السريع</h2><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{[
-        ['المطلوب مني','requirements',ClipboardCheck],['متابعاتي','followups',Headphones],['تقييماتي','reviews',Star],['القبض والحوافز','payroll',WalletCards],['العروض والاستوريز','offers',Megaphone],
-      ].map(([label,key,Icon]) => <button key={String(key)} onClick={() => selectTab(key as Tab)} className="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950/50 p-4 font-black text-slate-100 hover:border-teal-400/50"><Icon size={20} className="text-teal-300" />{String(label)}</button>)}</div></section>
-    </> : null}
+      {tab === 'requirements' ? (
+        <section className="rounded-3xl border p-5" style={surface}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black text-white">المطلوب مني</h2>
+              <p className="mt-1 text-sm" style={mutedText}>الأدوية الراكدة المسندة لك للتصريف قبل انتهاء الصلاحية.</p>
+            </div>
+            <button className="btn-secondary" onClick={() => void loadAssignments()}>تحديث</button>
+          </div>
+          <div className="mt-4 space-y-3">
+            {assignments.map((item) => {
+              const expiry = text(item.nearest_expiry_date || item.expiry_date);
+              const days = expiry ? Math.round((new Date(expiry).getTime() - Date.now()) / 86400000) : null;
+              const urgent = days !== null && Number.isFinite(days) && days <= 30;
+              const remaining = number(item.remaining_quantity ?? item.quantity_available);
+              const total = number(item.total_quantity ?? item.quantity_available);
+              return (
+                <article key={text(item.id)} className="rounded-2xl border p-4" style={urgent ? { borderColor: 'rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.06)' } : surface}>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="font-black text-white">{text(item.medicine_name || item.product_name || 'صنف راكد')}</div>
+                      <p className="mt-1 text-sm" style={mutedText}>{text(item.branch_name || item.branch || 'كل الفروع')}</p>
+                    </div>
+                    <span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surfaceSoft}>{text(item.status || 'نشط')}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold" style={mutedText}>
+                    <span>المتبقي: {remaining}{total ? ` من ${total}` : ''}</span>
+                    <span>الأولوية: {text(item.priority || 'متوسطة')}</span>
+                    {expiry ? <span className={urgent ? 'text-red-300' : ''}>الصلاحية: {formatDate(expiry)}{days !== null ? ` (${days} يوم)` : ''}</span> : null}
+                    {number(item.incentive_per_unit) ? <span>حافز الوحدة: {formatCurrency(number(item.incentive_per_unit))}</span> : null}
+                  </div>
+                  {text(item.notes) ? <p className="mt-3 rounded-xl p-3 text-sm text-amber-100" style={surfaceSoft}>ملاحظة: {text(item.notes)}</p> : null}
+                </article>
+              );
+            })}
+            {personalState.requirements === 'success' && !assignments.length ? <Empty>لا يوجد أصناف راكدة مسندة لك حاليًا.</Empty> : null}
+          </div>
+        </section>
+      ) : null}
 
-    {tab === 'requirements' ? <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5"><div className="flex items-center justify-between gap-3"><div><h2 className="text-2xl font-black text-white">المطلوب مني</h2><p className="mt-1 text-sm text-slate-400">المهام والرواكد والتدريب وتحسين الخدمة والمبيعات المسندة لك.</p></div><button className="btn-secondary" onClick={() => void loadAssignments()}>تحديث</button></div><div className="mt-4 space-y-3">{assignments.map((item) => { const status = text(item.status || 'new'); const overdue = item.due_at && new Date(text(item.due_at)) < new Date() && !['completed','cancelled'].includes(status); return <article key={text(item.id)} className={`rounded-2xl border p-4 ${overdue ? 'border-red-400/30 bg-red-500/5' : 'border-slate-700'}`}><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><div className="font-black text-white">{text(item.title || 'مطلوب جديد')}</div><p className="mt-1 text-sm text-slate-300">{text(item.description || 'افتح التفاصيل وابدأ التنفيذ.')}</p></div><span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-black text-teal-200">{status}</span></div><div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-slate-400"><span>النوع: {text(item.assignment_type || 'مهمة')}</span><span>الأولوية: {text(item.priority || 'normal')}</span><span>التقدم: {number(item.progress_percent)}%</span>{item.due_at ? <span className={overdue ? 'text-red-300' : ''}>الموعد: {formatDate(text(item.due_at))}</span> : null}{number(item.expected_points) ? <span>النقاط المتوقعة: {number(item.expected_points)}</span> : null}</div>{text(item.manager_notes) ? <p className="mt-3 rounded-xl bg-slate-950/60 p-3 text-sm text-amber-100">ملاحظة المسؤول: {text(item.manager_notes)}</p> : null}</article>; })}{personalState.requirements === 'success' && !assignments.length ? <Empty>لا يوجد مطلوب مسند لك حاليًا.</Empty> : null}</div></section> : null}
+      {tab === 'performance' ? (
+        <section className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="مبيعاتي" value={formatCurrency(doctorRow?.netSales || 0)} icon={DollarSign} />
+            <Metric label="عدد الفواتير" value={String(doctorRow?.invoicesCount || 0)} icon={BarChart3} />
+            <Metric label="متوسط البيع" value={formatCurrency(doctorRow?.avgInvoice || 0)} icon={TrendingUp} />
+            <Metric label="تقدم الفرع" value={`${achievement.toFixed(1)}%`} hint={`المتبقي ${formatCurrency(Math.max(0, target - branchSales))}`} icon={Target} />
+          </div>
+          <section className="rounded-3xl border p-5" style={surface}>
+            <h2 className="text-xl font-black text-white">ترتيب دكاترة الفرع</h2>
+            <div className="mt-4 space-y-2">
+              {ranking.map((row, index) => {
+                const isMe = doctorRow && row.doctor === doctorRow.doctor;
+                const topSales = ranking[0]?.netSales || 1;
+                const pct = Math.max(4, (row.netSales / topSales) * 100);
+                return (
+                  <div key={row.staffId || row.doctor} className="relative overflow-hidden rounded-xl border p-3" style={isMe ? { borderColor: 'rgba(45,212,191,0.5)', background: 'rgba(45,212,191,0.1)' } : surfaceSoft}>
+                    <div className="absolute inset-y-0 right-0" style={{ width: `${pct}%`, background: isMe ? 'rgba(45,212,191,0.15)' : 'rgba(148,211,226,0.06)' }} />
+                    <div className="relative flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-black ${index < 3 ? 'bg-amber-400 text-slate-950' : 'bg-slate-700 text-slate-200'}`}>{index + 1}</span>
+                        <span className="font-black text-white">{row.doctor}{isMe ? ' — أنت هنا' : ''}</span>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs font-bold" style={mutedText}>
+                        <span>{row.invoicesCount} فاتورة</span>
+                        <span>متوسط {formatCurrency(row.avgInvoice)}</span>
+                        <span className="text-sm font-black text-teal-200">{formatCurrency(row.netSales)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </section>
+      ) : null}
 
-    {tab === 'performance' ? <section className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="مبيعاتي" value={formatCurrency(doctorRow?.netSales || 0)} icon={DollarSign} /><Metric label="عدد الفواتير" value={String(doctorRow?.invoicesCount || 0)} icon={BarChart3} /><Metric label="متوسط البيع" value={formatCurrency(doctorRow?.avgInvoice || 0)} icon={TrendingUp} /><Metric label="تقدم الفرع" value={`${achievement.toFixed(1)}%`} hint={`المتبقي ${formatCurrency(Math.max(0,target-branchSales))}`} icon={Target} /></div><section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5"><h2 className="text-2xl font-black text-white">ترتيب دكاترة الفرع</h2><div className="mt-4 space-y-2">{ranking.map((row,index) => { const isMe = doctorRow && row.doctor === doctorRow.doctor; const topSales = ranking[0]?.netSales || 1; const pct = Math.max(4, (row.netSales / topSales) * 100); return <div key={row.staffId || row.doctor} className={`relative overflow-hidden rounded-xl border p-3 ${isMe ? 'border-teal-400/50 bg-teal-500/10' : 'border-slate-800'}`}><div className={`absolute inset-y-0 right-0 ${isMe ? 'bg-teal-500/15' : 'bg-slate-800/60'}`} style={{ width: `${pct}%` }} /><div className="relative flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-black ${index < 3 ? 'bg-amber-400 text-slate-950' : 'bg-slate-700 text-slate-200'}`}>{index+1}</span><span className="font-black text-white">{row.doctor}{isMe ? ' — أنت هنا' : ''}</span></div><div className="flex items-center gap-4 text-xs font-bold text-slate-300"><span>{row.invoicesCount} فاتورة</span><span>متوسط {formatCurrency(row.avgInvoice)}</span><span className="text-sm font-black text-teal-200">{formatCurrency(row.netSales)}</span></div></div></div>; })}</div></section></section> : null}
+      {tab === 'followups' ? <DoctorRequestedFollowups /> : null}
 
-    {tab === 'followups' ? <DoctorRequestedFollowups /> : null}
+      {tab === 'reviews' ? (
+        <section className="rounded-3xl border p-5" style={surface}>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-black text-white">تقييمات محادثاتي</h2>
+              <p className="mt-1 text-sm" style={mutedText}>كل تقييم مرتبط بحسابك فقط.</p>
+            </div>
+            <button className="btn-secondary" onClick={() => void loadReviews()}>تحديث</button>
+          </div>
+          {reviews.length ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <Metric label="عدد التقييمات" value={String(reviews.length)} icon={ClipboardCheck} />
+              <Metric label="متوسط التقييم" value={`${reviewAverage.toFixed(1)}%`} icon={Star} />
+              <Metric label="إجمالي تأثير النقاط" value={String(reviews.reduce((sum, item) => sum + item.impact, 0))} icon={Award} />
+            </div>
+          ) : null}
+          <div className="mt-4 space-y-3">
+            {reviews.map((review) => (
+              <article key={review.id} className="rounded-2xl border p-4" style={surfaceSoft}>
+                <div className="flex justify-between gap-3">
+                  <div className="font-black text-white">{review.kind}</div>
+                  <div className="text-xl font-black text-teal-200">{review.score}/100</div>
+                </div>
+                <div className="mt-2 text-xs" style={mutedText}>{formatDate(review.createdAt)} · {review.reviewer} · تأثير النقاط {review.impact}</div>
+                {review.positive ? <p className="mt-2 text-sm text-teal-200">نقطة قوة: {review.positive}</p> : null}
+                {review.negative ? <p className="mt-1 text-sm text-amber-200">فرصة تحسين: {review.negative}</p> : null}
+                {review.training ? <p className="mt-2 rounded-xl bg-sky-500/10 p-3 text-sm text-sky-100">المطلوب للتطوير: {review.training}</p> : null}
+                {review.notes ? <p className="mt-2 text-sm" style={mutedText}>{review.notes}</p> : null}
+              </article>
+            ))}
+            {personalState.reviews === 'success' && !reviews.length ? <Empty>لا توجد تقييمات مرتبطة بحسابك حتى الآن.</Empty> : null}
+          </div>
+        </section>
+      ) : null}
 
-    {tab === 'reviews' ? <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5"><div className="flex items-center justify-between"><div><h2 className="text-2xl font-black text-white">تقييمات محادثاتي</h2><p className="mt-1 text-sm text-slate-400">كل تقييم مرتبط بـ staff_id الخاص بك فقط.</p></div><button className="btn-secondary" onClick={() => void loadReviews()}>تحديث</button></div>{reviews.length ? <div className="mt-4 grid gap-3 sm:grid-cols-3"><Metric label="عدد التقييمات" value={String(reviews.length)} icon={ClipboardCheck} /><Metric label="متوسط التقييم" value={`${reviewAverage.toFixed(1)}%`} icon={Star} /><Metric label="إجمالي تأثير النقاط" value={String(reviews.reduce((sum,item) => sum + item.impact, 0))} icon={Award} /></div> : null}<div className="mt-4 space-y-3">{reviews.map((review) => <article key={review.id} className="rounded-2xl border border-slate-700 p-4"><div className="flex justify-between gap-3"><div className="font-black text-white">{review.kind}</div><div className="text-xl font-black text-teal-200">{review.score}/100</div></div><div className="mt-2 text-xs text-slate-400">{formatDate(review.createdAt)} · {review.reviewer} · تأثير النقاط {review.impact}</div>{review.positive ? <p className="mt-2 text-sm text-teal-200">نقطة قوة: {review.positive}</p> : null}{review.negative ? <p className="mt-1 text-sm text-amber-200">فرصة تحسين: {review.negative}</p> : null}{review.training ? <p className="mt-2 rounded-xl bg-sky-500/10 p-3 text-sm text-sky-100">المطلوب للتطوير: {review.training}</p> : null}{review.notes ? <p className="mt-2 text-sm text-slate-300">{review.notes}</p> : null}</article>)}{personalState.reviews === 'success' && !reviews.length ? <Empty>لا توجد تقييمات مرتبطة بحسابك حتى الآن.</Empty> : null}</div></section> : null}
+      {tab === 'notifications' ? (
+        <section className="rounded-3xl border p-5" style={surface}>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-black text-white">إشعاراتي الشخصية</h2>
+              <p className="mt-1 text-sm" style={mutedText}>تقييم، متابعة، إذن، خصم، مكافأة، مهمة أو إعلان يخصك.</p>
+            </div>
+            {unread ? <button className="btn-secondary" onClick={async () => { await markAllStaffNotificationsRead(staffId); await loadNotifications(); }}>تحديد الكل كمقروء</button> : null}
+          </div>
+          <div className="mt-4 space-y-3">
+            {notifications.map((item) => (
+              <button
+                key={item.id} className="block w-full rounded-2xl border p-4 text-right transition"
+                style={item.isRead ? surfaceSoft : item.priority === 'urgent' || item.priority === 'high' ? { borderColor: 'rgba(248,113,113,0.4)', background: 'rgba(248,113,113,0.08)' } : { borderColor: 'rgba(45,212,191,0.4)', background: 'rgba(45,212,191,0.08)' }}
+                onClick={async () => { if (!item.isRead) { await markStaffNotificationRead(item.id); await loadNotifications(); } if (item.actionUrl) window.location.href = item.actionUrl; }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 font-black text-white"><Bell size={18} />{item.title}</div>
+                    <p className="mt-2 text-sm" style={mutedText}>{item.message}</p>
+                  </div>
+                  {item.actionUrl ? <ExternalLink size={17} className="text-teal-300" /> : null}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold" style={mutedText}>
+                  <span>{formatDate(item.createdAt)}</span>
+                  <span>النوع: {item.type}</span>
+                  <span>الأولوية: {item.priority}</span>
+                  {!item.isRead ? <span className="text-teal-200">جديد</span> : null}
+                </div>
+              </button>
+            ))}
+            {personalState.notifications === 'success' && !notifications.length ? <Empty>لا توجد إشعارات شخصية أو عامة حاليًا.</Empty> : null}
+          </div>
+        </section>
+      ) : null}
 
-    {tab === 'notifications' ? <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-2xl font-black text-white">إشعاراتي الشخصية</h2><p className="mt-1 text-sm text-slate-400">تقييم، متابعة، إذن، خصم، مكافأة، مهمة أو إعلان يخصك.</p></div>{unread ? <button className="btn-secondary" onClick={async () => { await markAllStaffNotificationsRead(staffId); await loadNotifications(); }}>تحديد الكل كمقروء</button> : null}</div><div className="mt-4 space-y-3">{notifications.map((item) => <button key={item.id} className={`block w-full rounded-2xl border p-4 text-right transition ${item.isRead ? 'border-slate-700' : item.priority === 'urgent' || item.priority === 'high' ? 'border-red-400/40 bg-red-500/10' : 'border-teal-400/40 bg-teal-500/10'}`} onClick={async () => { if (!item.isRead) { await markStaffNotificationRead(item.id); await loadNotifications(); } if (item.actionUrl) window.location.href = item.actionUrl; }}><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2 font-black text-white"><Bell size={18} />{item.title}</div><p className="mt-2 text-sm text-slate-300">{item.message}</p></div>{item.actionUrl ? <ExternalLink size={17} className="text-teal-300" /> : null}</div><div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-slate-400"><span>{formatDate(item.createdAt)}</span><span>النوع: {item.type}</span><span>الأولوية: {item.priority}</span>{!item.isRead ? <span className="text-teal-200">جديد</span> : null}</div></button>)}{personalState.notifications === 'success' && !notifications.length ? <Empty>لا توجد إشعارات شخصية أو عامة حاليًا.</Empty> : null}</div></section> : null}
+      {tab === 'activity' ? (
+        <section className="rounded-3xl border p-5" style={surface}>
+          <h2 className="text-xl font-black text-white">سجل نشاطي</h2>
+          <div className="mt-4 space-y-3">
+            {events.map((event) => (
+              <article key={event.id} className="rounded-2xl border p-4" style={surfaceSoft}>
+                <div className="flex justify-between gap-3">
+                  <div className="font-black text-white">{event.title || event.category || 'حدث'}</div>
+                  <div className="text-xs" style={mutedText}>{formatDate(event.event_at)}</div>
+                </div>
+                {event.description ? <p className="mt-2 text-sm" style={mutedText}>{event.description}</p> : null}
+                <div className="mt-2 text-xs" style={mutedText}>بواسطة: {event.actor_name || 'النظام'} {number(event.points_delta) ? `· النقاط ${number(event.points_delta)}` : ''}</div>
+              </article>
+            ))}
+            {personalState.activity === 'success' && !events.length ? <Empty>لا توجد أحداث شخصية مسجلة بعد.</Empty> : null}
+          </div>
+        </section>
+      ) : null}
 
-    {tab === 'activity' ? <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5"><h2 className="text-2xl font-black text-white">سجل نشاطي</h2><div className="mt-4 space-y-3">{events.map((event) => <article key={event.id} className="rounded-2xl border border-slate-700 p-4"><div className="flex justify-between gap-3"><div className="font-black text-white">{event.title || event.category || 'حدث'}</div><div className="text-xs text-slate-400">{formatDate(event.event_at)}</div></div>{event.description ? <p className="mt-2 text-sm text-slate-300">{event.description}</p> : null}<div className="mt-2 text-xs text-slate-400">بواسطة: {event.actor_name || 'النظام'} {number(event.points_delta) ? `· النقاط ${number(event.points_delta)}` : ''}</div></article>)}{personalState.activity === 'success' && !events.length ? <Empty>لا توجد أحداث شخصية مسجلة بعد.</Empty> : null}</div></section> : null}
+      {tab === 'payroll' ? (
+        <section className="space-y-4">
+          <div className="rounded-3xl border p-5" style={surface}>
+            <h2 className="text-xl font-black text-white">تفاصيل القبض والحوافز</h2>
+            <p className="mt-1 text-sm" style={mutedText}>تشاهد فقط كشفك المعتمد لكل دورة.</p>
+            <div className="mt-4 space-y-3">
+              {payrollRows.map((row) => (
+                <article key={text(row.payroll_month)} className="rounded-2xl border p-4" style={surfaceSoft}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-black text-white">دورة {formatDate(text(row.payroll_month))}</div>
+                    {text(row.status) ? <span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{text(row.status)}</span> : null}
+                  </div>
+                  <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4" style={mutedText}>
+                    <span>الأساسي: {formatCurrency(number(row.base_salary))}</span>
+                    <span>الحوافز: {formatCurrency(number(row.incentives_total))}</span>
+                    <span>الحافز الربع سنوي: {formatCurrency(number(row.quarterly_bonus))}</span>
+                    <span>الخصومات: {formatCurrency(number(row.deductions_total))}</span>
+                  </div>
+                  <div className="mt-3 border-t pt-3 text-lg font-black text-teal-200" style={{ borderColor: 'var(--dawaa-theme-border)' }}>الصافي: {formatCurrency(number(row.calculated_net_salary))}</div>
+                </article>
+              ))}
+              {personalState.payroll === 'success' && !payrollRows.length ? <Empty>لسه مفيش كشف شهري معتمد لحسابك — هيظهر هنا أول ما يتم اعتماد دورة راتب فعلية.</Empty> : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
-    {tab === 'payroll' ? <section className="space-y-4"><div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5"><h2 className="text-2xl font-black text-white">تفاصيل القبض والحوافز</h2><p className="mt-1 text-sm text-slate-400">تشاهد فقط كشفك والبنود اليدوية المسموح بإظهارها لك.</p><div className="mt-4 space-y-3">{payrollRows.map((row) => <article key={text(row.id || row.cycle_end)} className="rounded-2xl border border-slate-700 p-4"><div className="font-black text-white">الدورة حتى {text(row.cycle_end || '—')}</div><div className="mt-3 grid gap-2 sm:grid-cols-3 text-sm text-slate-300"><span>الأساسي: {formatCurrency(number(row.base_salary))}</span><span>ساعات الحضور: {number(row.attendance_hours)}</span><span>الحوافز: {formatCurrency(number(row.incentive_amount))}</span><span>الخصومات: {formatCurrency(number(row.deduction_amount))}</span><span>الإضافي: {formatCurrency(number(row.overtime_amount))}</span><span className="font-black text-teal-200">الصافي: {formatCurrency(number(row.net_amount))}</span></div></article>)}{personalState.payroll === 'success' && !payrollRows.length ? <Empty>لم يتم اعتماد كشف شهري لحسابك بعد.</Empty> : null}</div></div><div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5"><h3 className="text-xl font-black text-white">تفاصيل يدوية من الإدارة</h3><div className="mt-4 space-y-3">{manualPayrollRows.map((row) => <article key={text(row.id)} className="rounded-2xl border border-slate-700 p-4"><div className="flex items-start justify-between gap-3"><div><div className="font-black text-white">{text(row.title)}</div><p className="mt-1 text-sm text-slate-300">{text(row.details)}</p></div><div className={`text-lg font-black ${text(row.entry_type) === 'deduction' ? 'text-red-300' : 'text-teal-200'}`}>{formatCurrency(number(row.amount))}</div></div><div className="mt-2 text-xs text-slate-400">{text(row.entry_type)} · {text(row.cycle_start)} إلى {text(row.cycle_end)}</div></article>)}{!manualPayrollRows.length ? <Empty>لا توجد بنود يدوية ظاهرة لك في هذه الدورة.</Empty> : null}</div></div></section> : null}
+      {tab === 'offers' ? (
+        <section className="space-y-4">
+          <div className="rounded-3xl border p-5" style={surface}>
+            <div className="flex items-center gap-2"><Megaphone className="text-teal-300" /><h2 className="text-xl font-black text-white">العروض الحالية</h2></div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {offers.map((item) => (
+                <article key={text(item.id)} className="rounded-2xl border p-4" style={surfaceSoft}>
+                  <div className="font-black text-white">{text(item.title || item.name || 'عرض جديد')}</div>
+                  <p className="mt-2 text-sm" style={mutedText}>{text(item.description || item.details)}</p>
+                  <div className="mt-3 text-xs" style={mutedText}>حتى {text(item.end_date || 'إشعار آخر')}</div>
+                </article>
+              ))}
+              {personalState.offers === 'success' && !offers.length ? <Empty>لا توجد عروض نشطة حاليًا.</Empty> : null}
+            </div>
+          </div>
+          <div className="rounded-3xl border p-5" style={surface}>
+            <div className="flex items-center gap-2"><Gift className="text-teal-300" /><h2 className="text-xl font-black text-white">الاستوريز والإعلانات</h2></div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {stories.map((item) => (
+                <article key={text(item.id)} className="rounded-2xl border p-4" style={surfaceSoft}>
+                  <div className="font-black text-white">{text(item.title || 'استوري جديدة')}</div>
+                  <p className="mt-2 text-sm" style={mutedText}>{text(item.notes)}</p>
+                  <div className="mt-3 text-xs" style={mutedText}>{formatDate(text(item.story_date || item.created_at))}</div>
+                </article>
+              ))}
+              {personalState.offers === 'success' && !stories.length ? <Empty>لا توجد استوريز نشطة حاليًا.</Empty> : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
-    {tab === 'offers' ? <section className="space-y-4"><div className="rounded-3xl border border-teal-400/20 bg-slate-900/80 p-5"><div className="flex items-center gap-2"><Megaphone className="text-teal-300" /><h2 className="text-2xl font-black text-white">العروض الحالية</h2></div><div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{offers.map((item) => <article key={text(item.id)} className="rounded-2xl border border-slate-700 p-4"><div className="font-black text-white">{text(item.title || item.name || 'عرض جديد')}</div><p className="mt-2 text-sm text-slate-300">{text(item.description || item.details)}</p><div className="mt-3 text-xs text-slate-400">حتى {text(item.end_date || 'إشعار آخر')}</div></article>)}{personalState.offers === 'success' && !offers.length ? <Empty>لا توجد عروض نشطة حاليًا.</Empty> : null}</div></div><div className="rounded-3xl border border-sky-400/20 bg-slate-900/80 p-5"><div className="flex items-center gap-2"><Gift className="text-sky-300" /><h2 className="text-2xl font-black text-white">الاستوريز والإعلانات</h2></div><div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{stories.map((item) => <article key={text(item.id)} className="rounded-2xl border border-slate-700 p-4"><div className="font-black text-white">{text(item.title || 'استوري جديدة')}</div><p className="mt-2 text-sm text-slate-300">{text(item.description || item.content)}</p><div className="mt-3 text-xs text-slate-400">{formatDate(text(item.created_at))}</div></article>)}{personalState.offers === 'success' && !stories.length ? <Empty>لا توجد استوريز نشطة حاليًا.</Empty> : null}</div></div></section> : null}
+      {tab === 'rules' ? (
+        <section className="rounded-3xl border p-5" style={surface}>
+          <div className="flex items-center gap-2"><ShieldCheck className="text-amber-300" /><h2 className="text-xl font-black text-white">قواعد الخدمة وتقييم المحادثة</h2></div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {SCORE_RULES.map(([title, score, detail]) => (
+              <div key={title} className="rounded-2xl border p-4" style={surfaceSoft}>
+                <div className="flex justify-between"><h3 className="font-black text-white">{title}</h3><span className="text-teal-300">{score} درجات</span></div>
+                <p className="mt-2 text-sm" style={mutedText}>{detail}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-3">
+            {WORK_RULE_GROUPS.map(([title, Icon, items]) => (
+              <div key={title} className="rounded-2xl border p-4" style={surfaceSoft}>
+                <div className="flex items-center gap-2 font-black text-white"><Icon className="text-teal-300" />{title}</div>
+                <ul className="mt-3 space-y-2 text-sm" style={mutedText}>{items.map((item) => <li key={item}>• {item}</li>)}</ul>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-    {tab === 'rules' ? <section className="rounded-3xl border border-amber-400/20 bg-slate-900/80 p-5"><div className="flex items-center gap-2"><ShieldCheck className="text-amber-300" /><h2 className="text-2xl font-black text-white">قواعد الخدمة وتقييم المحادثة</h2></div><div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">{SCORE_RULES.map(([title,score,detail]) => <div key={title} className="rounded-2xl border border-slate-700 p-4"><div className="flex justify-between"><h3 className="font-black text-white">{title}</h3><span className="text-teal-300">{score} درجات</span></div><p className="mt-2 text-sm text-slate-300">{detail}</p></div>)}</div><div className="mt-5 grid gap-3 lg:grid-cols-3">{WORK_RULE_GROUPS.map(([title,Icon,items]) => <div key={title} className="rounded-2xl border border-sky-400/15 p-4"><div className="flex items-center gap-2 font-black text-white"><Icon className="text-sky-300" />{title}</div><ul className="mt-3 space-y-2 text-sm text-slate-300">{items.map((item) => <li key={item}>• {item}</li>)}</ul></div>)}</div></section> : null}
-  </div>;
+      {/* شريط تنقل سفلي ثابت — أسهل بكتير على الموبايل من صف 10 تابات أفقي. */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t px-1" style={{ background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div className="mx-auto flex max-w-xl items-stretch justify-between">
+          {PRIMARY_TABS.map(([key, label, Icon]) => (
+            <button
+              key={key} type="button" onClick={() => selectTab(key)}
+              className={`relative flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-black transition-colors ${tab === key ? 'text-teal-300' : 'text-slate-400'}`}
+            >
+              <span className="relative">
+                <Icon size={20} />
+                {key === 'notifications' && unread ? <span className="absolute -left-1.5 -top-1 h-2 w-2 rounded-full bg-red-400" /> : null}
+              </span>
+              {label}
+            </button>
+          ))}
+          <button
+            type="button" onClick={() => setMoreOpen(true)}
+            className={`relative flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-black transition-colors ${activeInMore ? 'text-teal-300' : 'text-slate-400'}`}
+          >
+            <span className="relative">
+              <MoreHorizontal size={20} />
+              {moreHasAttention ? <span className="absolute -left-1.5 -top-1 h-2 w-2 rounded-full bg-amber-400" /> : null}
+            </span>
+            المزيد
+          </button>
+        </div>
+      </nav>
+
+      {moreOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end" onClick={() => setMoreOpen(false)}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative w-full rounded-t-3xl border-t p-4" onClick={(event) => event.stopPropagation()}
+            style={{ background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+          >
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-600" />
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-black text-white">كل الأقسام</h3>
+              <button type="button" onClick={() => setMoreOpen(false)} className="rounded-full p-1.5" style={surfaceSoft}><X size={18} className="text-slate-300" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {MORE_TABS.map(([key, label, Icon]) => {
+                const count = key === 'requirements' ? openAssignments.length : 0;
+                const active = tab === key;
+                return (
+                  <button
+                    key={key} type="button" onClick={() => { selectTab(key); setMoreOpen(false); }}
+                    className="flex items-center gap-2 rounded-2xl border p-3 text-sm font-black"
+                    style={active ? { borderColor: 'rgba(45,212,191,0.5)', background: 'rgba(45,212,191,0.1)', color: '#5eead4' } : { ...surfaceSoft, color: 'var(--dawaa-theme-text)' }}
+                  >
+                    <Icon size={18} className="text-teal-300" />
+                    <span className="flex-1 text-right">{label}</span>
+                    {count ? <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] text-amber-300">{count}</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
