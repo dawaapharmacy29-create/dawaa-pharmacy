@@ -380,6 +380,8 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
       { key: 'view_activity_log',         label: 'سجل الأنشطة' },
       { key: 'view_activity_logs',        label: 'كل سجلات الأنشطة' },
       { key: 'export_activity_logs',      label: 'تصدير سجل الأنشطة' },
+      { key: 'view_diagnostics',          label: 'تشخيص النظام', sensitive: true },
+      { key: 'manage_evaluation_rules',   label: 'إدارة قواعد التقييم والحوافز', sensitive: true },
     ],
   },
   {
@@ -425,6 +427,8 @@ const MANAGER_BASE = [
   'view_dashboard',
   'view_dashboard_stats',
   'view_executive_dashboard',
+  'view_diagnostics',
+  'manage_evaluation_rules',
   'view_alerts',
   'manage_alerts',
   'view_shift_performance',
@@ -993,6 +997,15 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/daily-command': 'view_dashboard',
   '/daily-target': 'view_dashboard',
   '/today-brief': 'view_dashboard',
+  '/activity-log': 'view_activity_log',
+  '/customer-import': 'import_customers',
+  '/customer-incubation': 'view_customer_incubation',
+  '/customer-points-ledger': 'view_points',
+  '/customer-service-classic': 'view_customer_service',
+  '/customer-service-credit': 'view_customer_service',
+  '/welcome-messages': 'customer_welcome_messages.view',
+  '/diagnostics': 'view_diagnostics',
+  '/evaluation-rules': 'manage_evaluation_rules',
 };
 
 export function getRoutePermissions(pathname: string): string[] | undefined {
