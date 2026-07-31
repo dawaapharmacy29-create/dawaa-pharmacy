@@ -18,19 +18,22 @@ patchFile('src/components/dashboard/BranchTargetEditor.tsx', (input) => {
   );
 
   source = source.replace(
-    /  const save = async \(branch: string, matchingRows: TargetRow\[\]\) => \{[\s\S]*?\n  \};\n\n  if \(!allowed\) return null;/,
-    `  const save = async (branch: string, _matchingRows: TargetRow[]) => {\n    const targetAmount = amount(drafts[branch]);\n    if (targetAmount <= 0) {\n      toast.error('اكتب تارجت صحيح أكبر من صفر');\n      return;\n    }\n    if (!user?.id || !allowed) {\n      toast.error('تعديل التارجت متاح فقط لمدير الفروع والمدير العام');\n      return;\n    }\n\n    setSaving(branch);\n    try {\n      const { data, error } = await supabase.rpc('save_branch_sales_target_safe', {\n        p_actor_id: user.id,\n        p_branch: branch,\n        p_target: targetAmount,\n      });\n      if (error) throw error;\n      const saved = Array.isArray(data) ? data[0] : data;\n      if (!saved || rowAmount(saved as TargetRow) !== targetAmount) {\n        throw new Error('تعذر التحقق من القيمة المحفوظة');\n      }\n      const verification = await supabase.from('branch_sales_targets').select('*').limit(200);\n      if (verification.error) throw verification.error;\n      const verifiedRows = ((verification.data || []) as TargetRow[]).filter((item) => rowBranch(item) === branch);\n      clearDashboardCache();\n      localStorage.setItem('dawaa_branch_target_refresh', String(Date.now()));\n      window.dispatchEvent(new CustomEvent('dawaa:branch-target-updated', { detail: { branch, targetAmount } }));\n      setRows((current) => [...current.filter((item) => rowBranch(item) !== branch), ...verifiedRows]);\n      setDrafts((current) => ({ ...current, [branch]: String(targetAmount) }));\n      toast.success(\`تم حفظ تارجت \${branch}: \${targetAmount.toLocaleString('ar-EG')} جنيه\`);\n    } catch (error) {\n      toast.error(\`تعذر حفظ التارجت: \${error instanceof Error ? error.message : 'خطأ غير معروف'}\`);\n    } finally {\n      setSaving(null);\n    }\n  };\n\n  if (!allowed) return null;`
+    /  const save = async \(branch: string, (?:_?matchingRows): TargetRow\[\]\) => \{[\s\S]*?\n  \};\n\n  if \(!allowed\) return null;/,
+    `  const save = async (branch: string, _matchingRows: TargetRow[]) => {\n    const targetAmount = amount(drafts[branch]);\n    if (targetAmount <= 0) {\n      toast.error('اكتب تارجت صحيح أكبر من صفر');\n      return;\n    }\n    if (!user?.id || !allowed) {\n      toast.error('تعديل التارجت متاح فقط لمدير الفروع والمدير العام');\n      return;\n    }\n\n    setSaving(branch);\n    try {\n      const { data, error } = await supabase.rpc('save_branch_sales_target_v2', {\n        p_actor_id: user.id,\n        p_branch: branch,\n        p_target: targetAmount,\n      });\n      if (error) throw error;\n      const saved = Array.isArray(data) ? data[0] : data;\n      if (!saved || rowAmount(saved as TargetRow) !== targetAmount) {\n        throw new Error('تعذر التحقق من القيمة المحفوظة');\n      }\n      const verification = await supabase.from('branch_sales_targets').select('*').limit(200);\n      if (verification.error) throw verification.error;\n      const verifiedRows = ((verification.data || []) as TargetRow[]).filter((item) => rowBranch(item) === branch);\n      clearDashboardCache();\n      localStorage.setItem('dawaa_branch_target_refresh', String(Date.now()));\n      window.dispatchEvent(new CustomEvent('dawaa:branch-target-updated', { detail: { branch, targetAmount } }));\n      setRows((current) => [...current.filter((item) => rowBranch(item) !== branch), ...verifiedRows]);\n      setDrafts((current) => ({ ...current, [branch]: String(targetAmount) }));\n      toast.success(\`تم حفظ تارجت \${branch}: \${targetAmount.toLocaleString('ar-EG')} جنيه\`);\n    } catch (error) {\n      toast.error(\`تعذر حفظ التارجت: \${error instanceof Error ? error.message : 'خطأ غير معروف'}\`);\n    } finally {\n      setSaving(null);\n    }\n  };\n\n  if (!allowed) return null;`
   );
+  if (!source.includes("save_branch_sales_target_v2")) throw new Error('[monthly-eval-fix] branch target v2 patch failed');
   return source;
 });
 
 patchFile('src/pages/StaffMonthlyEvaluation.tsx', (input) => {
   let source = input;
 
-  source = source.replace(
-    "function monthStart(value: string) { return `${value}-01`; }",
-    "function monthStart(value: string) { return `${value}-01`; }\nfunction nextMonthStart(value: string) { const [year, month] = value.split('-').map(Number); return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10); }"
-  );
+  if (!source.includes('function nextMonthStart(value: string)')) {
+    source = source.replace(
+      "function monthStart(value: string) { return `${value}-01`; }",
+      "function monthStart(value: string) { return `${value}-01`; }\nfunction nextMonthStart(value: string) { const [year, month] = value.split('-').map(Number); return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10); }"
+    );
+  }
 
   source = source.replace(
     "const managerMode = isManager(role) || canViewAllBranches(user);",
