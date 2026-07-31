@@ -44,3 +44,4 @@ require('./apply-followup-continuation-action.cjs');
 require('./fix-branch-target-save-rpc.cjs');
 require('./apply-monthly-evaluation-and-target-access.cjs');
 require('./apply-monthly-evaluation-doctor-nav.cjs');
+require('./dedupe-monthly-evaluation-helpers.cjs');
