@@ -901,7 +901,7 @@ export default function Reviews() {
           branch: selectedStaff.branch,
           target_type: 'conversation_review',
           target_id: reviewRowId || '',
-          target_route: reviewRowId ? `/reviews?id=${reviewRowId}` : '/reviews',
+          target_route: reviewRowId ? `/doctor-dashboard?tab=reviews&reviewId=${reviewRowId}` : '/doctor-dashboard?tab=reviews',
           requires_action: result.finalScore < 70,
           created_by: currentUserProfile.id,
           created_by_name: currentUserProfile.name,

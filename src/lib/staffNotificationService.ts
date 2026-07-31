@@ -81,6 +81,24 @@ export async function createStaffNotification(input: CreateStaffNotificationInpu
   return data ? mapRow(data as RawRow) : null;
 }
 
+export async function notifyBranchDoctors(
+  branch: string,
+  notification: Omit<CreateStaffNotificationInput, 'recipientStaffId'>
+): Promise<void> {
+  const branchValue = text(branch);
+  if (!branchValue) return;
+  const { data, error } = await supabase
+    .from('staff_accounts')
+    .select('staff_id')
+    .eq('branch', branchValue)
+    .eq('role', 'pharmacist')
+    .eq('active', true)
+    .eq('can_login', true);
+  if (error || !data) return;
+  const staffIds: string[] = [...new Set(data.map((row) => text((row as RawRow).staff_id)))].filter((value): value is string => Boolean(value));
+  await Promise.all(staffIds.map((recipientStaffId: string) => createStaffNotification({ ...notification, recipientStaffId }).catch(() => null)));
+}
+
 export async function listStaffNotifications(staffId: string, limit = 100): Promise<StaffNotification[]> {
   if (!staffId) return [];
   const [personal, global] = await Promise.all([

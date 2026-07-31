@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, RefreshCw, Trophy } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Download, LogOut, RefreshCw, Trophy } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   getDoctorCompetitionMetrics,
   normalizeDoctorName,
@@ -33,6 +33,10 @@ type ReviewRow = {
 function money(value: number) {
   return `${Number(value || 0).toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج`;
 }
+
+const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
+const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
+const mutedText = { color: 'var(--dawaa-theme-muted)' };
 
 function csvCell(value: unknown) {
   return `"${String(value ?? '').replace(/"/g, '""')}"`;
@@ -237,7 +241,8 @@ function applyLiveReviews(rows: DoctorCompetitionScore[], reviews: ReviewRow[]) 
 }
 
 export default function DoctorCompetition() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const requestedBranch = params.get('branch') || ALL_BRANCHES;
   const [branchFilter, setBranchFilter] = useState(requestedBranch);
@@ -365,14 +370,73 @@ export default function DoctorCompetition() {
     URL.revokeObjectURL(url);
   };
 
-  return <div className="space-y-5" dir="rtl">
-    <section className="rounded-3xl border border-amber-400/25 bg-slate-950/80 p-5"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="flex items-center gap-2 text-amber-200"><Trophy size={22} /><span className="font-black">مسابقة الدكاترة</span></div><h1 className="mt-2 text-3xl font-black text-white">ترتيب جميع الدكاترة في المسابقة</h1><p className="mt-2 text-sm text-slate-300">تقييم المحادثات يُحسب من كل التقييمات الفعلية خلال الفترة المختارة، مع المطابقة بالمعرف ثم الاسم والفرع.</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={exportCsv} disabled={!visibleRows.length} className="btn-secondary disabled:opacity-50"><Download className="ml-1 inline h-4 w-4" /> تصدير CSV</button><button type="button" onClick={() => void load()} disabled={loading} className="btn-primary disabled:opacity-50"><RefreshCw className={`ml-1 inline h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> تحديث</button></div></div></section>
+  return <div className="space-y-4 pb-4" dir="rtl">
+    <section className="relative overflow-hidden rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, #1B2B4B 0%, #243558 100%)', borderColor: 'var(--dawaa-theme-border)' }}>
+      <div className="absolute left-4 top-4 flex items-center gap-2">
+        <button type="button" onClick={() => void load()} disabled={loading} className="rounded-full p-2 text-amber-300 transition disabled:opacity-50" style={{ background: 'rgba(0,0,0,0.2)' }}>
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+        </button>
+        <button type="button" onClick={async () => { await logout(); navigate('/login'); }} className="rounded-full p-2 text-red-300 transition" style={{ background: 'rgba(0,0,0,0.2)' }} aria-label="تسجيل الخروج">
+          <LogOut size={16} />
+        </button>
+      </div>
+      <div className="flex items-center gap-2 text-amber-300"><Trophy size={20} /><span className="text-xs font-black uppercase tracking-wide">مسابقة الدكاترة</span></div>
+      <h1 className="mt-1 text-xl font-black text-white">ترتيب جميع الدكاترة</h1>
+      <p className="mt-2 text-xs font-bold text-slate-300">تقييم المحادثات محسوب من كل التقييمات الفعلية خلال الفترة المختارة.</p>
+      <button type="button" onClick={exportCsv} disabled={!visibleRows.length} className="btn-secondary mt-3 disabled:opacity-50"><Download className="ml-1 inline h-4 w-4" /> تصدير CSV</button>
+    </section>
 
-    <section className="grid gap-3 rounded-3xl border border-slate-800 bg-slate-900/70 p-4 md:grid-cols-3"><select className="input-dark" value={period} onChange={(event) => setPeriod(event.target.value as DoctorCompetitionPeriod)}><option value="cycle">الدورة الحالية 26 إلى 25</option><option value="last30">آخر 30 يومًا</option><option value="last90">آخر 3 شهور</option></select><select className="input-dark" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option value={ALL_BRANCHES}>{ALL_BRANCHES}</option>{BRANCHES.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select><select className="input-dark" value={mode} onChange={(event) => setMode(event.target.value as RankingMode)}><option value="points">الترتيب حسب نقاط المسابقة</option><option value="sales">الترتيب حسب المبيعات</option><option value="invoices">الترتيب حسب عدد الفواتير</option><option value="average">الترتيب حسب متوسط الفاتورة</option></select></section>
+    <section className="grid gap-2 rounded-3xl border p-3 sm:grid-cols-3" style={surface}>
+      <select className="input-dark" value={period} onChange={(event) => setPeriod(event.target.value as DoctorCompetitionPeriod)}><option value="cycle">الدورة الحالية 26 إلى 25</option><option value="last30">آخر 30 يومًا</option><option value="last90">آخر 3 شهور</option></select>
+      <select className="input-dark" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option value={ALL_BRANCHES}>{ALL_BRANCHES}</option>{BRANCHES.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select>
+      <select className="input-dark" value={mode} onChange={(event) => setMode(event.target.value as RankingMode)}><option value="points">الترتيب حسب نقاط المسابقة</option><option value="sales">الترتيب حسب المبيعات</option><option value="invoices">الترتيب حسب عدد الفواتير</option><option value="average">الترتيب حسب متوسط الفاتورة</option></select>
+    </section>
 
     {warning ? <div className="rounded-2xl border border-amber-300/25 bg-amber-400/10 p-4 text-sm font-bold text-amber-100">{warning}</div> : null}
     {error ? <div className="rounded-2xl border border-red-300/25 bg-red-500/10 p-4 text-sm font-bold text-red-100">{error}</div> : null}
 
-    <section className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/80"><div className="border-b border-slate-800 p-5"><h2 className="text-2xl font-black text-white">قائمة الدكاترة المؤهلين</h2><p className="mt-1 text-sm text-slate-400">{loading ? 'جارٍ التحميل…' : `${visibleRows.length} دكتور داخل المسابقة`}</p></div><div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-right text-sm"><thead className="bg-slate-950 text-slate-300"><tr><th className="p-3">الترتيب</th><th className="p-3">الدكتور</th><th className="p-3">الفرع الحالي</th><th className="p-3">المبيعات</th><th className="p-3">الفواتير</th><th className="p-3">متوسط الفاتورة</th><th className="p-3">تقييم المحادثات</th><th className="p-3">عدد التقييمات</th><th className="p-3">المتابعات المكتملة</th><th className="p-3">نقاط المسابقة</th></tr></thead><tbody>{loading && !visibleRows.length ? Array.from({ length: 6 }).map((_, index) => <tr key={index} className="border-t border-slate-800"><td colSpan={10} className="p-3"><div className="h-9 animate-pulse rounded-lg bg-slate-800" /></td></tr>) : visibleRows.map((row, index) => { const mine = currentDoctor(user, row); const review = reviewAverage(row); return <tr key={scoreKey(row)} className={`border-t border-slate-800 ${mine ? 'bg-teal-500/15 ring-1 ring-inset ring-teal-400/40' : 'hover:bg-slate-800/50'}`}><td className="p-3 text-xl font-black text-amber-200">{index + 1}</td><td className="p-3 font-black text-white">{row.name}{mine ? <span className="mr-2 rounded-full bg-teal-400 px-2 py-1 text-[11px] text-slate-950">أنت هنا</span> : null}</td><td className="p-3 text-slate-300">{row.branch}</td><td className="p-3 font-black text-white">{money(row.totalSales)}</td><td className="p-3">{row.invoices}</td><td className="p-3">{money(row.avgInvoice)}</td><td className="p-3 font-bold text-sky-200">{review === null ? 'غير متاح' : `${review.toFixed(1)}/100`}</td><td className="p-3">{row.reviewCount || '—'}</td><td className="p-3">{row.completedFollowups}</td><td className="p-3 font-black text-teal-200">{row.competitionPoints.toFixed(1)}</td></tr>; })}</tbody></table></div>{!loading && !visibleRows.length ? <div className="p-12 text-center"><div className="text-xl font-black text-white">لا توجد بيانات للمسابقة</div><p className="mt-2 text-sm text-slate-400">لا توجد فواتير مرتبطة بالفترة المختارة.</p></div> : null}</section>
+    <section className="rounded-3xl border p-4" style={surface}>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-lg font-black text-white">قائمة الدكاترة المؤهلين</h2>
+        <span className="text-xs font-bold" style={mutedText}>{loading ? 'جارٍ التحميل…' : `${visibleRows.length} دكتور`}</span>
+      </div>
+      <div className="space-y-2">
+        {loading && !visibleRows.length ? Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-20 animate-pulse rounded-2xl" style={surfaceSoft} />) : null}
+        {visibleRows.map((row, index) => {
+          const mine = currentDoctor(user, row);
+          const review = reviewAverage(row);
+          const medal = index === 0 ? '#fbbf24' : index === 1 ? '#cbd5e1' : index === 2 ? '#d97757' : null;
+          return (
+            <article
+              key={scoreKey(row)} className="rounded-2xl border p-3"
+              style={mine ? { borderColor: 'rgba(45,212,191,0.5)', background: 'rgba(45,212,191,0.1)' } : surfaceSoft}
+            >
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-black" style={{ background: medal || 'rgba(148,211,226,0.15)', color: medal ? '#1B2B4B' : 'var(--dawaa-theme-text)' }}>{index + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate font-black text-white">{row.name}</span>
+                    {mine ? <span className="rounded-full bg-teal-400 px-2 py-0.5 text-[10px] font-black text-slate-950">أنت هنا</span> : null}
+                  </div>
+                  <div className="text-xs" style={mutedText}>{row.branch}</div>
+                </div>
+                <div className="shrink-0 text-left">
+                  <div className="text-lg font-black text-amber-200">{row.competitionPoints.toFixed(1)}</div>
+                  <div className="text-[10px]" style={mutedText}>نقطة</div>
+                </div>
+              </div>
+              <div className="mt-2 -mx-1 flex gap-3 overflow-x-auto px-1 text-xs font-bold" style={mutedText}>
+                <span>المبيعات: {money(row.totalSales)}</span>
+                <span>الفواتير: {row.invoices}</span>
+                <span>متوسط: {money(row.avgInvoice)}</span>
+                <span>تقييم: {review === null ? 'غير متاح' : `${review.toFixed(1)}/100`}</span>
+                <span>متابعات: {row.completedFollowups}</span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      {!loading && !visibleRows.length ? <div className="p-8 text-center"><div className="text-lg font-black text-white">لا توجد بيانات للمسابقة</div><p className="mt-2 text-sm" style={mutedText}>لا توجد فواتير مرتبطة بالفترة المختارة.</p></div> : null}
+    </section>
   </div>;
 }

@@ -105,7 +105,7 @@ function capPermissionsToRole(role: unknown, extra?: unknown): Record<string, bo
     if (!(key in roleDefaults)) continue;
     capped[key] = value === true;
   }
-  if (roleKey === 'pharmacist' || roleKey === 'shift_supervisor_morning' || roleKey === 'shift_supervisor_evening') {
+  if (roleKey === 'pharmacist' || roleKey === 'shift_supervisor_morning' || roleKey === 'shift_supervisor_evening' || roleKey === 'assistant') {
     for (const key of DOCTOR_WORKSPACE_PERMISSIONS) capped[key] = true;
   }
   return capped;

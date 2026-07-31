@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, ExternalLink, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -26,9 +27,11 @@ function reviewItems(row: Row) {
 export default function DoctorReviewDetails() {
   const { user } = useAuth();
   const staffId = text(user?.staffId);
+  const [searchParams] = useSearchParams();
+  const focusReviewId = text(searchParams.get('reviewId'));
   const [rows, setRows] = useState<Row[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(focusReviewId || null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
@@ -57,6 +60,12 @@ export default function DoctorReviewDetails() {
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    if (!focusReviewId || !rows.some((row) => text(row.id) === focusReviewId)) return;
+    const el = document.getElementById(`review-${focusReviewId}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [focusReviewId, rows]);
+
   const grouped = useMemo(() => {
     const map = new Map<string, Attachment[]>();
     attachments.forEach((item) => map.set(item.review_id, [...(map.get(item.review_id) || []), item]));
@@ -74,7 +83,7 @@ export default function DoctorReviewDetails() {
       const items = reviewItems(row);
       const files = grouped.get(id) || [];
       const open = openId === id;
-      return <article key={id} className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
+      return <article key={id} id={`review-${id}`} className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
         <button type="button" onClick={() => setOpenId(open ? null : id)} className="flex w-full items-start justify-between gap-3 text-right">
           <div><div className="font-black text-white">{text(row.evaluation_kind || row.conversation_type || 'تقييم محادثة')} — {text(row.customer_name || 'عميل غير محدد')}</div><div className="mt-1 text-xs text-slate-400">{formatDate(row.created_at || row.conversation_date)} · بواسطة {text(row.reviewer_name || 'خدمة العملاء')} · تأثير النقاط {num(row.doctor_points_impact ?? row.point_impact)}</div></div>
           <div className="flex items-center gap-2"><span className="text-xl font-black text-teal-200">{num(row.final_score ?? row.total_score)}/100</span>{open ? <ChevronUp/> : <ChevronDown/>}</div>

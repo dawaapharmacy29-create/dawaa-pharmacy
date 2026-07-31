@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, Award, BarChart3, Bell, CheckCircle2, ClipboardCheck, Clock3,
-  DollarSign, ExternalLink, Gift, Headphones, Megaphone, MoreHorizontal, RefreshCw, ShieldCheck,
+  DollarSign, ExternalLink, Gift, Headphones, LogOut, Megaphone, MoreHorizontal, RefreshCw, ShieldCheck,
   Star, Store, Target, TrendingUp, WalletCards, X,
 } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { formatCurrency } from '@/lib/utils';
@@ -32,7 +32,9 @@ type PersonalReview = {
 };
 type EmployeeEvent = { id: string; title?: string; description?: string; category?: string; actor_name?: string; points_delta?: number; money_delta?: number; route?: string; event_at?: string };
 
-const BRANCH_TARGETS: Record<string, number> = { 'فرع الشامي': 1_000_000, الشامي: 1_000_000, 'فرع شكري': 1_500_000, شكري: 1_500_000 };
+// ملاحظة: التارجت مبيتاخدش من رقم ثابت هنا؛ بييجي حي من branch_sales_targets
+// (نفس الجدول اللي شاشة تعديل التارجت الحقيقية بتستخدمه)، عشان لو اتغيّر من
+// الإدارة يتحدث هنا أوتوماتيك من غير ما نرجع نعدل كود.
 const SCORE_RULES = [
   ['الترحيب وبداية الحوار', '10', 'ترحيب ودود واستخدام اسم العميل عند توفره.'],
   ['فهم الاحتياج', '20', 'استمع واسأل ثم لخّص الطلب قبل الترشيح.'],
@@ -73,7 +75,7 @@ function number(value: unknown) { const parsed = Number(value ?? 0); return Numb
 function text(value: unknown) { return String(value ?? '').trim(); }
 function formatDate(value?: string | null) { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value.slice(0, 16) : date.toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }); }
 function greeting() { const hour = new Date().getHours(); return hour < 12 ? 'صباح الخير' : hour < 18 ? 'نهارك سعيد' : 'مساء الخير'; }
-function branchTarget(branch: string, sales: number) { return BRANCH_TARGETS[normalizeBranchName(branch)] || BRANCH_TARGETS[branch] || Math.max(sales * 1.25, 1); }
+function branchTargetFallback(sales: number) { return Math.max(sales * 1.25, 1); }
 async function safeRows(query: PromiseLike<{ data: unknown[] | null; error: { message?: string } | null }>) { try { const result = await query; return result.error ? [] : (result.data || []) as Row[]; } catch { return []; } }
 
 // ألوان الهوية الفعلية للتطبيق (navy/teal من tailwind.config) بدل درجات الرمادي العامة.
@@ -140,7 +142,8 @@ function ProgressRing({ percent }: { percent: number }) {
 }
 
 export default function DoctorDashboardStable() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const validTabs: Tab[] = ['overview', 'requirements', 'performance', 'followups', 'reviews', 'notifications', 'activity', 'payroll', 'offers', 'rules'];
@@ -159,6 +162,7 @@ export default function DoctorDashboardStable() {
   const [stories, setStories] = useState<Row[]>([]);
   const [personalState, setPersonalState] = useState<Record<string, LoadState>>({});
   const [moreOpen, setMoreOpen] = useState(false);
+  const [branchTargetAmount, setBranchTargetAmount] = useState<number | null>(null);
 
   const branch = text(user?.branch);
   const staffId = text(user?.staffId);
@@ -167,6 +171,17 @@ export default function DoctorDashboardStable() {
   const selectTab = (next: Tab) => setSearchParams({ tab: next }, { replace: true });
 
   const setPart = (key: string, value: LoadState) => setPersonalState((current) => ({ ...current, [key]: value }));
+
+  const loadBranchTarget = useCallback(async () => {
+    if (!branch) return;
+    const normalized = normalizeBranchName(branch) || branch;
+    const rows = await safeRows(
+      supabase.from('branch_sales_targets').select('*').eq('active', true).order('updated_at', { ascending: false }).limit(50)
+    );
+    const match = rows.find((row) => (normalizeBranchName(text(row.branch_name || row.branch)) || text(row.branch_name || row.branch)) === normalized);
+    const amount = number(match?.target_amount ?? match?.monthly_target ?? match?.target);
+    setBranchTargetAmount(amount > 0 ? amount : null);
+  }, [branch]);
 
   const load = useCallback(async () => {
     if (!branch) { setState('error'); setError('الحساب غير مرتبط بفرع واضح.'); return; }
@@ -247,6 +262,7 @@ export default function DoctorDashboardStable() {
   const loadActivity = useCallback(async () => { setPart('activity', 'loading'); setEvents((await getEmployeeEvents(staffId, 200)) as EmployeeEvent[]); setPart('activity', 'success'); }, [staffId]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadBranchTarget(); }, [loadBranchTarget]);
   useEffect(() => subscribeToStaffNotifications(staffId, () => void loadNotifications()), [loadNotifications, staffId]);
   useEffect(() => {
     if (tab === 'reviews' && !personalState.reviews) void loadReviews();
@@ -261,8 +277,13 @@ export default function DoctorDashboardStable() {
   const ranking = useMemo(() => summary ? [...summary.doctorRows].sort((a, b) => b.netSales - a.netSales) : [], [summary]);
   const doctorRank = doctorRow ? ranking.findIndex((row) => row.staffId === doctorRow.staffId && row.doctor === doctorRow.doctor) + 1 : 0;
   const branchSales = summary?.kpis.netSales || 0;
-  const target = branchTarget(branch, branchSales);
+  const target = branchTargetAmount ?? branchTargetFallback(branchSales);
   const achievement = target ? branchSales / target * 100 : 0;
+  const cycleTotalDays = Math.max(1, Math.round((cycle.end.getTime() - cycle.start.getTime()) / 86400000) + 1);
+  const cycleDaysElapsed = Math.min(cycleTotalDays, Math.max(1, Math.floor((Date.now() - cycle.start.getTime()) / 86400000) + 1));
+  const dailyAveragePace = branchSales / cycleDaysElapsed;
+  const projectedTotal = dailyAveragePace * cycleTotalDays;
+  const projectedVsTarget = target ? projectedTotal / target * 100 : 0;
   const unread = notifications.filter((item) => !item.isRead).length;
   const openAssignments = assignments.filter((item) => number(item.remaining_quantity ?? item.quantity_available ?? item.total_quantity) > 0);
   const overdueAssignments = openAssignments.filter((item) => {
@@ -278,12 +299,20 @@ export default function DoctorDashboardStable() {
   return (
     <div dir="rtl" className="space-y-5 pb-28">
       <section className="relative overflow-hidden rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, #1B2B4B 0%, #243558 100%)', borderColor: 'var(--dawaa-theme-border)' }}>
-        <button
-          type="button" onClick={() => { void load(); void loadNotifications(); }} disabled={state === 'loading'}
-          className="absolute left-4 top-4 rounded-full p-2 text-teal-300 transition disabled:opacity-50" style={{ background: 'rgba(0,0,0,0.2)' }}
-        >
-          <RefreshCw size={16} className={state === 'loading' ? 'animate-spin' : ''} />
-        </button>
+        <div className="absolute left-4 top-4 flex items-center gap-2">
+          <button
+            type="button" onClick={() => { void load(); void loadNotifications(); }} disabled={state === 'loading'}
+            className="rounded-full p-2 text-teal-300 transition disabled:opacity-50" style={{ background: 'rgba(0,0,0,0.2)' }}
+          >
+            <RefreshCw size={16} className={state === 'loading' ? 'animate-spin' : ''} />
+          </button>
+          <button
+            type="button" onClick={async () => { await logout(); navigate('/login'); }}
+            className="rounded-full p-2 text-red-300 transition" style={{ background: 'rgba(0,0,0,0.2)' }} aria-label="تسجيل الخروج"
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
         <div className="flex items-center gap-4">
           <ProgressRing percent={achievement} />
           <div className="min-w-0 flex-1">
@@ -292,10 +321,27 @@ export default function DoctorDashboardStable() {
             <p className="mt-1 text-xs font-bold text-slate-300">{branch || 'الفرع غير محدد'} · الدورة {cycle.label}</p>
           </div>
         </div>
-        <div className="mt-4 flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold" style={{ background: 'rgba(0,0,0,0.18)' }}>
-          <span className="text-slate-300">متبقي لتارجت الفرع</span>
-          <span className="font-black text-teal-300">{formatCurrency(Math.max(0, target - branchSales))}</span>
+        <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl p-3 text-xs font-bold sm:grid-cols-4" style={{ background: 'rgba(0,0,0,0.18)' }}>
+          <div>
+            <div className="text-slate-400">تارجت الفرع{branchTargetAmount === null ? ' (تقديري)' : ''}</div>
+            <div className="mt-0.5 text-sm font-black text-white">{formatCurrency(target)}</div>
+          </div>
+          <div>
+            <div className="text-slate-400">المحقق حتى الآن</div>
+            <div className="mt-0.5 text-sm font-black text-teal-300">{formatCurrency(branchSales)}</div>
+          </div>
+          <div>
+            <div className="text-slate-400">المتبقي</div>
+            <div className="mt-0.5 text-sm font-black text-amber-200">{formatCurrency(Math.max(0, target - branchSales))}</div>
+          </div>
+          <div>
+            <div className="text-slate-400">لو استمرينا بنفس المعدل</div>
+            <div className={`mt-0.5 text-sm font-black ${projectedVsTarget >= 100 ? 'text-emerald-300' : 'text-red-300'}`}>{formatCurrency(projectedTotal)}</div>
+          </div>
         </div>
+        <p className="mt-2 text-[10px] font-bold text-slate-400">
+          بمعدل {formatCurrency(dailyAveragePace)}/يوم على مدار {cycleDaysElapsed} من {cycleTotalDays} يوم في الدورة — {projectedVsTarget >= 100 ? 'في الطريق لتحقيق التارجت 👍' : `أقل من التارجت بـ ${formatCurrency(Math.max(0, target - projectedTotal))} لو استمر نفس المعدل`}
+        </p>
       </section>
 
       {state === 'error' ? <section className="rounded-3xl border border-red-400/25 bg-red-500/10 p-5 text-red-100">{error}</section> : null}

@@ -29,6 +29,7 @@ import { formatCycleDate, getCurrentCycle, getPreviousCycle, getPharmacyCycleRan
 import { normalizeBranchName } from '@/lib/branch';
 import { useAuth } from '@/hooks/useAuth';
 import { getDashboardBranchOverride, isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
   type DailyChartMetric,
   type DailyChartRow,
@@ -950,6 +951,15 @@ export default function ExecutiveDashboard2027() {
     isManagerRole(user) ||
     checkPermission('view_executive_dashboard') ||
     checkPermission('view_branch_dashboard');
+  useEffect(() => {
+    if (canViewExecutive) return;
+    if (isDoctorRole(user)) { navigate('/doctor-dashboard', { replace: true }); return; }
+    const role = normalizeRole(user?.role);
+    if (role === 'delivery') { navigate('/delivery', { replace: true }); return; }
+    if (role === 'cleaning_supervisor') { navigate('/branch-cleaning', { replace: true }); return; }
+    if (role === 'inventory_assistant') { navigate('/inventory-counts', { replace: true }); return; }
+    navigate('/time-off', { replace: true });
+  }, [canViewExecutive, navigate, user]);
   const [startDate, setStartDate] = useState(() => formatCycleDate(currentCycle.start));
   const [endDate, setEndDate] = useState(() => formatCycleDate(currentCycle.end));
   const [branch, setBranch] = useState(() => {
@@ -1884,7 +1894,14 @@ export default function ExecutiveDashboard2027() {
           </p>
           <button
             type="button"
-            onClick={() => navigate(isDoctorRole(user) ? '/doctor-dashboard' : '/')}
+            onClick={() => {
+              const role = normalizeRole(user?.role);
+              if (isDoctorRole(user)) return navigate('/doctor-dashboard');
+              if (role === 'delivery') return navigate('/delivery');
+              if (role === 'cleaning_supervisor') return navigate('/branch-cleaning');
+              if (role === 'inventory_assistant') return navigate('/inventory-counts');
+              return navigate('/time-off');
+            }}
             className="mt-5 rounded-xl bg-cyan-500 px-5 py-2 text-sm font-black text-slate-950 hover:bg-cyan-400"
           >
             الانتقال الآن

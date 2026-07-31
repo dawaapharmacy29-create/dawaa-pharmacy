@@ -31,6 +31,7 @@ import {
   targetAchieved,
 } from '@/lib/medicinePerformance';
 import { persistPointsTransaction } from '@/lib/pointsPersistence';
+import { createStaffNotification } from '@/lib/staffNotificationService';
 
 interface ExpiryBatch {
   expiry_date: string;
@@ -1036,6 +1037,20 @@ export default function StagnantMedicines() {
       .eq('id', selectedMedicine.id);
     if (updateError) {
       toast.warning(`تم تسجيل الصرف، لكن تحديث كميات الصنف لم يكتمل: ${updateError.message}`);
+    }
+    if (dispenseForm.doctor_id) {
+      void createStaffNotification({
+        recipientStaffId: dispenseForm.doctor_id,
+        type: 'stagnant_sale',
+        title: 'تم تسجيل بيع صنف راكد باسمك',
+        message: totalIncentive
+          ? `${quantity} × ${productName} — حافزك ${totalIncentive.toFixed(0)} جنيه.`
+          : `${quantity} × ${productName}.`,
+        priority: 'normal',
+        entityType: 'stagnant_medicine_dispense',
+        entityId: insertedDispense?.id || undefined,
+        actionUrl: '/doctor-dashboard?tab=requirements',
+      }).catch(() => null);
     }
 
     // Log activity
