@@ -41,3 +41,4 @@ if (source !== before) {
 }
 
 require('./apply-followup-continuation-action.cjs');
+require('./fix-branch-target-save-rpc.cjs');
