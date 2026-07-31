@@ -49,3 +49,4 @@ require('./apply-monthly-evaluation-development-model.cjs');
 require('./polish-monthly-evaluation-pdf.cjs');
 require('./apply-schedule-roster-source.cjs');
 require('./apply-followup-results-excel-import.cjs');
+require('./place-followup-results-import-top-action.cjs');
