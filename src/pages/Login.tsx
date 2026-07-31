@@ -23,7 +23,7 @@ export default function Login() {
     try {
       const ok = await login(username.trim(), password);
       if (ok) {
-        navigate('/executive-2027', { replace: true });
+        navigate('/', { replace: true });
         return;
       }
       setError('اسم المستخدم أو كلمة المرور غير صحيحة.');
