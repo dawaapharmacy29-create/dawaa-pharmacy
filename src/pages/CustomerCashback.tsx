@@ -559,8 +559,13 @@ export default function CustomerCashback() {
   };
 
   const recordRedeem = async (row: CashbackRow) => {
-    const value = Number(window.prompt('قيمة السحب من الكاش باك', '0') || 0);
+    const available = remaining(row);
+    const value = Number(window.prompt(`قيمة السحب من الكاش باك (المتاح حاليًا: ${formatCurrency(available)})`, '0') || 0);
     if (!Number.isFinite(value) || value <= 0) return;
+    if (value > available) {
+      toast.error(`لا يمكن سحب أكثر من الرصيد المتاح (${formatCurrency(available)}).`);
+      return;
+    }
     const newRedeemed = Number(row.redeemed_value || 0) + value;
     await updateRow(
       row,
@@ -593,12 +598,18 @@ export default function CustomerCashback() {
     );
   };
 
+  const MULTIPLY_MARKER = '[[cashback_multiplied]]';
+
   const multiply = async (row: CashbackRow) => {
+    if ((row.notes || '').includes(MULTIPLY_MARKER)) {
+      toast.error('تم مضاعفة الكاش باك لهذا العميل من قبل — لا يمكن تكرارها في نفس الدورة.');
+      return;
+    }
     await updateRow(
       row,
       {
         cashback_value: Number(row.cashback_value || 0) * 2,
-        notes: `${row.notes || ''}\nتمت مضاعفة الكاش باك لعميل مميز`.trim(),
+        notes: `${row.notes || ''}\n${MULTIPLY_MARKER} تمت مضاعفة الكاش باك لعميل مميز`.trim(),
       },
       'multiplied',
       Number(row.cashback_value || 0),
