@@ -160,6 +160,7 @@ export default function DoctorDashboardStable() {
   const [notifications, setNotifications] = useState<StaffNotification[]>([]);
   const [events, setEvents] = useState<EmployeeEvent[]>([]);
   const [assignments, setAssignments] = useState<Row[]>([]);
+  const [incentiveAssignments, setIncentiveAssignments] = useState<Row[]>([]);
   const [payrollRows, setPayrollRows] = useState<Row[]>([]);
   const [manualPayrollRows, setManualPayrollRows] = useState<Row[]>([]);
   const [offers, setOffers] = useState<Row[]>([]);
@@ -230,6 +231,15 @@ export default function DoctorDashboardStable() {
       return idMatch || nameMatch;
     });
     setAssignments(mine);
+
+    // نفس فكرة الرواكد، بس لـ"اللستة" (incentive_medicines) — كانت مش ظاهرة للدكتور خالص قبل كده.
+    const listRows = await safeRows(supabase.from('incentive_medicines').select('*').eq('active', true).order('expiry_date', { ascending: true }).limit(200));
+    const myList = listRows.filter((row) => {
+      const idMatch = text(row.doctor_id) === staffId;
+      const nameMatch = normalizeName(text(row.responsible_doctor)) === normalizeName(doctorName);
+      return idMatch || nameMatch;
+    });
+    setIncentiveAssignments(myList);
     setPart('requirements', 'success');
   }, [staffId, doctorName]);
 
@@ -534,6 +544,74 @@ export default function DoctorDashboardStable() {
               );
             })}
             {personalState.requirements === 'success' && !assignments.length ? <Empty>لا يوجد أصناف راكدة مسندة لك حاليًا.</Empty> : null}
+          </div>
+
+          <div className="mt-8 border-t pt-6" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+            <h2 className="text-xl font-black text-white">اللستة</h2>
+            <p className="mt-1 text-sm" style={mutedText}>أصناف اللستة ذات الحافز الخاص المسندة لك، ومستهدف بيعها.</p>
+
+            {incentiveAssignments.length ? (() => {
+              const totalTarget = incentiveAssignments.reduce((sum, item) => sum + number(item.target_min_quantity), 0);
+              const totalSold = incentiveAssignments.reduce((sum, item) => sum + number(item.sold_quantity), 0);
+              const efficiency = totalTarget > 0 ? Math.round((Math.min(totalSold, totalTarget) / totalTarget) * 100) : 0;
+              return (
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border p-4" style={surface}>
+                    <div className="flex items-center gap-2 font-black text-teal-200"><Target size={16} /> كفاءة تحقيق مستهدف اللستة</div>
+                    <div className="mt-2 text-2xl font-black text-white">{efficiency}%</div>
+                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full rounded-full bg-teal-400" style={{ width: `${Math.min(efficiency, 100)}%` }} />
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border p-4" style={surface}>
+                    <div className="text-xs font-bold" style={mutedText}>تم بيعه</div>
+                    <div className="mt-2 text-2xl font-black text-white">{totalSold.toLocaleString('ar-EG')}</div>
+                  </div>
+                  <div className="rounded-2xl border p-4" style={surface}>
+                    <div className="text-xs font-bold" style={mutedText}>المستهدف الإجمالي</div>
+                    <div className="mt-2 text-2xl font-black text-white">{totalTarget.toLocaleString('ar-EG')}</div>
+                  </div>
+                </div>
+              );
+            })() : null}
+
+            <div className="mt-4 space-y-3">
+              {incentiveAssignments.map((item) => {
+                const expiry = text(item.expiry_date);
+                const days = expiry ? Math.round((new Date(expiry).getTime() - Date.now()) / 86400000) : null;
+                const urgent = days !== null && Number.isFinite(days) && days <= 30;
+                const sold = number(item.sold_quantity);
+                const target = number(item.target_min_quantity);
+                const itemPct = target > 0 ? Math.round((Math.min(sold, target) / target) * 100) : 0;
+                return (
+                  <article key={text(item.id)} className="rounded-2xl border p-4" style={urgent ? { borderColor: 'rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.06)' } : surface}>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="font-black text-white">{text(item.product_name || 'صنف لستة')}</div>
+                        <p className="mt-1 text-sm" style={mutedText}>{text(item.branch || 'كل الفروع')}</p>
+                      </div>
+                      <span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surfaceSoft}>{text(item.incentive_type || 'حافز')}</span>
+                    </div>
+                    {target > 0 ? (
+                      <div className="mt-3 flex items-center gap-2">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+                          <div className="h-full rounded-full bg-teal-400" style={{ width: `${Math.min(itemPct, 100)}%` }} />
+                        </div>
+                        <span className="text-[11px] font-black text-teal-200">{itemPct}%</span>
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold" style={mutedText}>
+                      <span>المباع: {sold}{target ? ` من مستهدف ${target}` : ''}</span>
+                      {number(item.current_quantity) ? <span>المتاح بالمخزون: {number(item.current_quantity)}</span> : null}
+                      {expiry ? <span className={urgent ? 'text-red-300' : ''}>الصلاحية: {formatDate(expiry)}{days !== null ? ` (${days} يوم)` : ''}</span> : null}
+                      {number(item.incentive_value) ? <span>الحافز: {formatCurrency(number(item.incentive_value))}</span> : number(item.incentive_percent) ? <span>الحافز: {number(item.incentive_percent)}%</span> : null}
+                    </div>
+                    {text(item.notes) ? <p className="mt-3 rounded-xl p-3 text-sm text-amber-100" style={surfaceSoft}>ملاحظة: {text(item.notes)}</p> : null}
+                  </article>
+                );
+              })}
+              {personalState.requirements === 'success' && !incentiveAssignments.length ? <Empty>لا يوجد أصناف لستة مسندة لك حاليًا.</Empty> : null}
+            </div>
           </div>
         </section>
       ) : null}
