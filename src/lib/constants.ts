@@ -14,7 +14,30 @@ export const CUSTOMER_SERVICE_BRANCH_OWNERS = {
   'فرع الشامي': 'د ضحي',
 } as const;
 
-export const CUSTOMER_SERVICE_DOCTORS = ['د دنيا', 'د ضحي'] as const;
+/**
+ * All doctors available for exceptional follow-up assignment.
+ * This list is intentionally cross-branch because doctors may rotate between
+ * Shamy and Shokry from one day to another. Customer-service users in either
+ * branch can therefore assign the request to the doctor who is actually on duty.
+ */
+export const CUSTOMER_SERVICE_DOCTORS = [
+  'د احمد حافظ',
+  'د احمد وليد',
+  'د رضا',
+  'د/ بسنت',
+  'د/ علياء',
+  'د/ وليد',
+  'د/ يوسف',
+  'د اسلام فاروق',
+  'د اميرة',
+  'د محمد شبل',
+  'د/ حسن',
+  'د/ سارة',
+  'د/ عمر',
+  'د/ ندي',
+  'د دنيا',
+  'د ضحي',
+] as const;
 
 export const ROLES = [
   'أدمن',
