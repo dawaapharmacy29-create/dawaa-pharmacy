@@ -46,8 +46,6 @@ const DOCTOR_WORKSPACE_PERMISSIONS = [
   'view_customer_service',
   'create_followup',
   'whatsapp_customer',
-  'customer_welcome_messages.view',
-  'customer_welcome_messages.create',
   'view_schedule',
   'create_leave_request',
   'record_attendance',
@@ -96,13 +94,22 @@ function normalizePermissionInput(extra: unknown): Record<string, boolean> {
 
 type SupabaseRpcResult<T> = { data: T | null; error: { message?: string } | null };
 
+// صلاحيات قليلة ومحددة يجوز منحها لموظف بعينه حتى لو مش جزء من دوره الافتراضي
+// (مثال: دكتورة بعينها مسؤولة كمان عن رسائل الترحيب). أي مفتاح غير موجود هنا لازم
+// يكون أصلاً جزء من قائمة الدور، عشان محدش يقدر يمنح نفسه صلاحية حساسة عن طريق override.
+const EXPLICIT_OVERRIDABLE_PERMISSIONS = new Set([
+  'customer_welcome_messages.view',
+  'customer_welcome_messages.create',
+  'customer_welcome_messages.update',
+]);
+
 function capPermissionsToRole(role: unknown, extra?: unknown): Record<string, boolean> {
   const roleKey = normalizeRole(safeText(role, 'assistant'));
   if (roleKey === 'general_manager') return Object.fromEntries(ALL_PERMISSION_KEYS.map((key) => [key, true]));
   const roleDefaults = getDefaultPermissionsForRole(roleKey);
   const capped: Record<string, boolean> = { ...roleDefaults };
   for (const [key, value] of Object.entries(normalizePermissionInput(extra))) {
-    if (!(key in roleDefaults)) continue;
+    if (!(key in roleDefaults) && !EXPLICIT_OVERRIDABLE_PERMISSIONS.has(key)) continue;
     capped[key] = value === true;
   }
   if (roleKey === 'pharmacist' || roleKey === 'shift_supervisor_morning' || roleKey === 'shift_supervisor_evening' || roleKey === 'assistant') {

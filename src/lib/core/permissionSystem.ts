@@ -530,6 +530,9 @@ const MANAGER_BASE = [
   'view_settings',
   'view_data_health',
   'manage_data_health',
+  'create_team_member',
+  'edit_team_member',
+  'disable_team_member',
 ];
 
 const BRANCH_MANAGER_BASE = [
@@ -701,15 +704,12 @@ const PHARMACIST_BASE = [
   'view_customer_service',
   'create_followup',
   'whatsapp_customer',
-  'customer_welcome_messages.view',
-  'customer_welcome_messages.create',
   'view_customer_360',
   'view_schedule',
   'create_leave_request',
   'record_attendance',
   'view_points',
   'view_reviews',
-  'add_reviews',
   'view_analytics_sales',
   'view_medicines',
   'view_stagnant_medicines',
@@ -748,11 +748,35 @@ const DELIVERY_BASE = ['view_dashboard', 'view_delivery', 'create_leave_request'
 
 const ASSISTANT_BASE = ['view_dashboard', 'create_leave_request', 'record_attendance'];
 
+// مدير المشتريات: نطاق تشغيلي بحت (مخزون/موردين/مشتريات/نواقص/مستلزمات وتقاريرها)،
+// وليس نسخة من صلاحيات مدير الفروع الشاملة. لا يشمل بيانات العملاء أو التقييمات
+// أو النقاط أو الرواتب أو إدارة الفريق — دي خارج نطاق دوره.
+const PROCUREMENT_MANAGER_BASE = [
+  'view_dashboard',
+  'view_dashboard_stats',
+  'view_inventory',
+  'manage_inventory',
+  'view_shortages',
+  'manage_shortages',
+  'view_supplies',
+  'manage_supplies',
+  'view_purchases',
+  'manage_purchases',
+  'view_medicines',
+  'manage_medicines',
+  'view_expiry_tracker',
+  'view_stagnant_medicines',
+  'view_operations',
+  'manage_operations',
+  'view_analytics',
+  'view_data_health',
+];
+
 export const ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = {
   general_manager: ALL,
   executive_manager: MANAGER_BASE,
   branches_manager: MANAGER_BASE,
-  procurement_manager: MANAGER_BASE,
+  procurement_manager: PROCUREMENT_MANAGER_BASE,
   branch_manager: BRANCH_MANAGER_BASE,
   customer_service_manager: CS_MANAGER_BASE,
   shift_supervisor_morning: SHIFT_SUPERVISOR_BASE,
