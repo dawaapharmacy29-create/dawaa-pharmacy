@@ -1,0 +1,169 @@
+From 3b8d79284cbb38d828b786fa0135ff0eecb46497 Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Sun, 2 Aug 2026 04:04:11 +0000
+Subject: [PATCH] feat(doctor-dashboard): add real charts + fix CS manager
+ schedule permission
+
+- DoctorDashboardStable: add personal daily sales trend (AreaChart) and
+  avg-invoice comparison (BarChart, me vs branch avg vs top performer)
+  to the overview tab, using the already-loaded sales analytics summary
+  (one extra lightweight fetch for the doctor-scoped daily trend).
+- Use a Trophy icon for the top-3 branch ranking instead of a plain number.
+- permissionSystem.ts: customer_service_manager (CS_MANAGER_BASE) was
+  missing view_schedule / view_shift_performance, so no per-account
+  permission override could ever grant it access to /schedule or
+  /shift-notes (capPermissionsToRole only allows toggling keys that
+  already exist in the role's own preset). Added both keys so CS
+  managers can see their own shift schedule and shift notes.
+---
+ src/lib/core/permissionSystem.ts    |  2 ++
+ src/pages/DoctorDashboardStable.tsx | 88 ++++++++++++++++++++++++++++-
+ 2 files changed, 88 insertions(+), 2 deletions(-)
+
+diff --git a/src/lib/core/permissionSystem.ts b/src/lib/core/permissionSystem.ts
+index f9c9bac..51da194 100644
+--- a/src/lib/core/permissionSystem.ts
++++ b/src/lib/core/permissionSystem.ts
+@@ -658,6 +658,8 @@ const CS_MANAGER_BASE = [
+   'view_analytics',
+   'view_analytics_sales',
+   'view_activity_log',
++  'view_schedule',
++  'view_shift_performance',
+ ];
+ 
+ const SHIFT_SUPERVISOR_BASE = [
+diff --git a/src/pages/DoctorDashboardStable.tsx b/src/pages/DoctorDashboardStable.tsx
+index 9762b30..4d516cf 100644
+--- a/src/pages/DoctorDashboardStable.tsx
++++ b/src/pages/DoctorDashboardStable.tsx
+@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
+ import {
+   Activity, Award, BarChart3, Bell, CheckCircle2, ClipboardCheck, Clock3,
+   DollarSign, ExternalLink, Gift, Headphones, LogOut, Megaphone, MoreHorizontal, RefreshCw, ShieldCheck,
+-  Star, Store, Target, TrendingUp, WalletCards, X,
++  Star, Store, Target, TrendingUp, Trophy, WalletCards, X,
+ } from 'lucide-react';
++import {
++  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
++} from 'recharts';
+ import { useNavigate, useSearchParams } from 'react-router-dom';
+ import { useAuth } from '@/hooks/useAuth';
+ import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
+@@ -151,6 +154,7 @@ export default function DoctorDashboardStable() {
+   const cycle = useMemo(() => getCurrentCycle(), []);
+   const [state, setState] = useState<LoadState>('idle');
+   const [summary, setSummary] = useState<SalesAnalyticsSummary | null>(null);
++  const [doctorTrend, setDoctorTrend] = useState<SalesAnalyticsSummary['dailyTrend']>([]);
+   const [error, setError] = useState('');
+   const [reviews, setReviews] = useState<PersonalReview[]>([]);
+   const [notifications, setNotifications] = useState<StaffNotification[]>([]);
+@@ -259,10 +263,26 @@ export default function DoctorDashboardStable() {
+     setOffers(offerRows); setStories(storyRows); setPart('offers', 'success');
+   }, []);
+ 
++  const loadDoctorTrend = useCallback(async () => {
++    if (!branch || !doctorName) return;
++    try {
++      const result = await loadSalesAnalyticsSummary({
++        startDate: formatCycleDate(cycle.start),
++        endDate: formatCycleDate(cycle.end),
++        branch,
++        doctor: doctorName,
++      });
++      setDoctorTrend(result.dailyTrend || []);
++    } catch {
++      setDoctorTrend([]);
++    }
++  }, [branch, cycle.end, cycle.start, doctorName]);
++
+   const loadActivity = useCallback(async () => { setPart('activity', 'loading'); setEvents((await getEmployeeEvents(staffId, 200)) as EmployeeEvent[]); setPart('activity', 'success'); }, [staffId]);
+ 
+   useEffect(() => { void load(); }, [load]);
+   useEffect(() => { void loadBranchTarget(); }, [loadBranchTarget]);
++  useEffect(() => { void loadDoctorTrend(); }, [loadDoctorTrend]);
+   useEffect(() => subscribeToStaffNotifications(staffId, () => void loadNotifications()), [loadNotifications, staffId]);
+   useEffect(() => {
+     if (tab === 'reviews' && !personalState.reviews) void loadReviews();
+@@ -354,6 +374,68 @@ export default function DoctorDashboardStable() {
+             <StatChip icon={Award} label="ترتيبي في الفرع" value={doctorRank ? `${doctorRank} من ${ranking.length}` : '—'} />
+             <StatChip icon={ClipboardCheck} label="المطلوب المفتوح" value={String(openAssignments.length)} tone={overdueAssignments.length ? 'urgent' : 'primary'} hint={overdueAssignments.length ? `${overdueAssignments.length} قريب من الانتهاء` : 'لا يوجد قريب من الانتهاء'} />
+           </div>
++
++          <section className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
++            <div className="rounded-3xl border p-4" style={surface}>
++              <div className="flex items-center gap-2 font-black text-teal-200"><BarChart3 size={18} /> مبيعاتي اليومية في الدورة</div>
++              {doctorTrend.length ? (
++                <ResponsiveContainer width="100%" height={170}>
++                  <AreaChart data={doctorTrend} margin={{ top: 10, right: 8, left: -22, bottom: 0 }}>
++                    <defs>
++                      <linearGradient id="myDailySales" x1="0" y1="0" x2="0" y2="1">
++                        <stop offset="0%" stopColor="#2dd4bf" stopOpacity={0.45} />
++                        <stop offset="100%" stopColor="#2dd4bf" stopOpacity={0} />
++                      </linearGradient>
++                    </defs>
++                    <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
++                    <XAxis dataKey="date" tickFormatter={(v: string) => v?.slice(5)} tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} />
++                    <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} width={40} />
++                    <Tooltip
++                      contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
++                      labelStyle={{ color: '#e2e8f0' }}
++                      formatter={(value: number) => [formatCurrency(value), 'مبيعاتي']}
++                    />
++                    <Area type="monotone" dataKey="netSales" stroke="#2dd4bf" strokeWidth={2.5} fill="url(#myDailySales)" />
++                  </AreaChart>
++                </ResponsiveContainer>
++              ) : (
++                <p className="mt-4 text-xs font-bold" style={mutedText}>سيظهر هنا ترند مبيعاتك اليومي بمجرد توفر فواتير كافية في الدورة الحالية.</p>
++              )}
++            </div>
++
++            <div className="rounded-3xl border p-4" style={surface}>
++              <div className="flex items-center gap-2 font-black text-teal-200"><TrendingUp size={18} /> متوسط الفاتورة — مقارنة تحفيزية</div>
++              {doctorRow ? (
++                <ResponsiveContainer width="100%" height={140}>
++                  <BarChart
++                    layout="vertical"
++                    data={[
++                      { name: 'أنا', value: doctorRow.avgInvoice, mine: true },
++                      { name: 'متوسط الفرع', value: summary?.kpis.avgInvoice || 0, mine: false },
++                      { name: ranking[0] && ranking[0].doctor !== doctorRow.doctor ? `الأعلى (${ranking[0].doctor})` : 'الأعلى في الفرع', value: ranking[0]?.avgInvoice || 0, mine: false },
++                    ]}
++                    margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
++                  >
++                    <XAxis type="number" hide />
++                    <YAxis type="category" dataKey="name" width={112} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
++                    <Tooltip
++                      cursor={{ fill: 'rgba(255,255,255,0.04)' }}
++                      contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
++                      formatter={(value: number) => [formatCurrency(value), 'متوسط الفاتورة']}
++                    />
++                    <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={18}>
++                      <Cell fill="#2dd4bf" />
++                      <Cell fill="rgba(255,255,255,0.18)" />
++                      <Cell fill="rgba(255,255,255,0.18)" />
++                    </Bar>
++                  </BarChart>
++                </ResponsiveContainer>
++              ) : (
++                <p className="mt-4 text-xs font-bold" style={mutedText}>ستظهر هنا المقارنة بمجرد ربط حسابك بفواتير الدورة الحالية.</p>
++              )}
++            </div>
++          </section>
++
+           <section className="grid gap-3 sm:grid-cols-3">
+             <button
+               onClick={() => selectTab('requirements')} className="rounded-2xl border p-4 text-right transition"
+@@ -440,7 +522,9 @@ export default function DoctorDashboardStable() {
+                     <div className="absolute inset-y-0 right-0" style={{ width: `${pct}%`, background: isMe ? 'rgba(45,212,191,0.15)' : 'rgba(148,211,226,0.06)' }} />
+                     <div className="relative flex flex-wrap items-center justify-between gap-2">
+                       <div className="flex items-center gap-2">
+-                        <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-black ${index < 3 ? 'bg-amber-400 text-slate-950' : 'bg-slate-700 text-slate-200'}`}>{index + 1}</span>
++                        <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-black ${index < 3 ? 'bg-amber-400 text-slate-950' : 'bg-slate-700 text-slate-200'}`}>
++                          {index < 3 ? <Trophy size={13} /> : index + 1}
++                        </span>
+                         <span className="font-black text-white">{row.doctor}{isMe ? ' — أنت هنا' : ''}</span>
+                       </div>
+                       <div className="flex items-center gap-4 text-xs font-bold" style={mutedText}>
+-- 
+2.43.0
