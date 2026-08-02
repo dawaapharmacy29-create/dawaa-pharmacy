@@ -86,7 +86,7 @@ const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--
 const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
 const mutedText = { color: 'var(--dawaa-theme-muted)' };
 
-function Metric({ label, value, hint, icon: Icon }: { label: string; value: string; hint?: string; icon: typeof DollarSign }) {
+function Metric({ label, value, hint, icon: Icon, progress }: { label: string; value: string; hint?: string; icon: typeof DollarSign; progress?: number }) {
   return (
     <div className="rounded-2xl border p-4" style={surface}>
       <div className="flex items-start justify-between gap-3">
@@ -97,6 +97,17 @@ function Metric({ label, value, hint, icon: Icon }: { label: string; value: stri
         </div>
         <div className="rounded-xl bg-teal-500/15 p-3 text-teal-300"><Icon size={20} /></div>
       </div>
+      {progress != null ? (
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${Math.min(Math.max(progress, 0), 100)}%`,
+              background: progress >= 100 ? '#34d399' : progress >= 60 ? '#2dd4bf' : '#f59e0b',
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -687,7 +698,7 @@ export default function DoctorDashboardStable() {
             <Metric label="مبيعاتي" value={formatCurrency(doctorRow?.netSales || 0)} icon={DollarSign} />
             <Metric label="عدد الفواتير" value={String(doctorRow?.invoicesCount || 0)} icon={BarChart3} />
             <Metric label="متوسط البيع" value={formatCurrency(doctorRow?.avgInvoice || 0)} icon={TrendingUp} />
-            <Metric label="تقدم الفرع" value={`${achievement.toFixed(1)}%`} hint={`المتبقي ${formatCurrency(Math.max(0, target - branchSales))}`} icon={Target} />
+            <Metric label="تقدم الفرع" value={`${achievement.toFixed(1)}%`} hint={`المتبقي ${formatCurrency(Math.max(0, target - branchSales))}`} icon={Target} progress={achievement} />
           </div>
           <section className="rounded-3xl border p-5" style={surface}>
             <h2 className="text-xl font-black text-white">ترتيب دكاترة الفرع</h2>
@@ -734,7 +745,7 @@ export default function DoctorDashboardStable() {
           {reviews.length ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <Metric label="عدد التقييمات" value={String(reviews.length)} icon={ClipboardCheck} />
-              <Metric label="متوسط التقييم" value={`${reviewAverage.toFixed(1)}%`} icon={Star} />
+              <Metric label="متوسط التقييم" value={`${reviewAverage.toFixed(1)}%`} icon={Star} progress={reviewAverage} />
               <Metric label="إجمالي تأثير النقاط" value={String(reviews.reduce((sum, item) => sum + item.impact, 0))} icon={Award} />
             </div>
           ) : null}
