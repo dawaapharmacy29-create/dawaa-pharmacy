@@ -825,17 +825,25 @@ export default function DoctorDashboardStable() {
       {tab === 'activity' ? (
         <section className="rounded-3xl border p-5" style={surface}>
           <h2 className="text-xl font-black text-white">سجل نشاطي</h2>
-          <div className="mt-4 space-y-3">
-            {events.map((event) => (
-              <article key={event.id} className="rounded-2xl border p-4" style={surfaceSoft}>
-                <div className="flex justify-between gap-3">
-                  <div className="font-black text-white">{event.title || event.category || 'حدث'}</div>
-                  <div className="text-xs" style={mutedText}>{formatDate(event.event_at)}</div>
-                </div>
-                {event.description ? <p className="mt-2 text-sm" style={mutedText}>{event.description}</p> : null}
-                <div className="mt-2 text-xs" style={mutedText}>بواسطة: {event.actor_name || 'النظام'} {number(event.points_delta) ? `· النقاط ${number(event.points_delta)}` : ''}</div>
-              </article>
-            ))}
+          <div className="relative mt-5 space-y-5 border-r-2 pr-5" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+            {events.map((event) => {
+              const Icon = notificationIcon(text(event.category));
+              return (
+                <article key={event.id} className="relative">
+                  <span className="absolute top-1 -right-[27px] flex h-5 w-5 items-center justify-center rounded-full bg-teal-500/20 text-teal-300 ring-4" style={{ ...surface }}>
+                    <Icon size={12} />
+                  </span>
+                  <div className="rounded-2xl border p-4" style={surfaceSoft}>
+                    <div className="flex justify-between gap-3">
+                      <div className="font-black text-white">{event.title || event.category || 'حدث'}</div>
+                      <div className="text-xs" style={mutedText}>{formatDate(event.event_at)}</div>
+                    </div>
+                    {event.description ? <p className="mt-2 text-sm" style={mutedText}>{event.description}</p> : null}
+                    <div className="mt-2 text-xs" style={mutedText}>بواسطة: {event.actor_name || 'النظام'} {number(event.points_delta) ? `· النقاط ${number(event.points_delta)}` : ''}</div>
+                  </div>
+                </article>
+              );
+            })}
             {personalState.activity === 'success' && !events.length ? <Empty>لا توجد أحداث شخصية مسجلة بعد.</Empty> : null}
           </div>
         </section>
@@ -854,10 +862,10 @@ export default function DoctorDashboardStable() {
                     {text(row.status) ? <span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{text(row.status)}</span> : null}
                   </div>
                   <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4" style={mutedText}>
-                    <span>الأساسي: {formatCurrency(number(row.base_salary))}</span>
-                    <span>الحوافز: {formatCurrency(number(row.incentives_total))}</span>
-                    <span>الحافز الربع سنوي: {formatCurrency(number(row.quarterly_bonus))}</span>
-                    <span>الخصومات: {formatCurrency(number(row.deductions_total))}</span>
+                    <span className="flex items-center gap-1.5"><WalletCards size={14} /> الأساسي: {formatCurrency(number(row.base_salary))}</span>
+                    <span className="flex items-center gap-1.5"><Gift size={14} /> الحوافز: {formatCurrency(number(row.incentives_total))}</span>
+                    <span className="flex items-center gap-1.5"><Trophy size={14} /> الحافز الربع سنوي: {formatCurrency(number(row.quarterly_bonus))}</span>
+                    <span className="flex items-center gap-1.5 text-rose-300"><TrendingDown size={14} /> الخصومات: {formatCurrency(number(row.deductions_total))}</span>
                   </div>
                   <div className="mt-3 border-t pt-3 text-lg font-black text-teal-200" style={{ borderColor: 'var(--dawaa-theme-border)' }}>الصافي: {formatCurrency(number(row.calculated_net_salary))}</div>
                 </article>
