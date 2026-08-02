@@ -1,0 +1,50 @@
+name: Apply doctor dashboard patch
+
+on:
+  push:
+    branches:
+      - feature/doctor-dashboard-charts-permission-fix
+    paths:
+      - patches/doctor-dashboard-charts-permission-fix.patch
+      - .github/workflows/apply-doctor-dashboard-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply reviewed patch
+        run: git apply --check patches/doctor-dashboard-charts-permission-fix.patch && git apply patches/doctor-dashboard-charts-permission-fix.patch
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Production build without prebuild scripts
+        run: npm run build --ignore-scripts
+
+      - name: Remove temporary patch automation
+        run: rm -f patches/doctor-dashboard-charts-permission-fix.patch .github/workflows/apply-doctor-dashboard-patch.yml
+
+      - name: Commit tested changes
+        run: |
+          git config user.name "Dawaa Pharmacy Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/pages/DoctorDashboardStable.tsx src/lib/core/permissionSystem.ts patches/doctor-dashboard-charts-permission-fix.patch .github/workflows/apply-doctor-dashboard-patch.yml
+          git commit -m "feat(doctor-dashboard): add charts and CS schedule access"
+          git push origin HEAD:feature/doctor-dashboard-charts-permission-fix
