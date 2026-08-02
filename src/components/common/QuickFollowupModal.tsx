@@ -124,7 +124,7 @@ export default function QuickFollowupModal({
           avg_monthly: Number(customer.avg_monthly || 0),
           avg_invoice: Number(customer.avg_invoice || 0),
           invoices_count: Number(customer.invoices_count || 0),
-          last_purchase: customer.last_purchase || customer.last_order_date || null,
+          last_purchase: customer.last_purchase || null,
           segment: customer.segment || customer.status || null,
         }))
       );

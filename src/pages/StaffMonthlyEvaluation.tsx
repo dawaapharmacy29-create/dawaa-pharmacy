@@ -72,7 +72,7 @@ export default function StaffMonthlyEvaluation() {
         const doctors = rows.filter((row) => /pharmac|صيدل|دكتور|doctor|shift_supervisor|branch_manager/i.test(`${row.role || ''} ${row.job_title || ''}`));
         setStaff(doctors);
         if (selfMode) {
-          const own = doctors.find((row) => row.id === user?.staff_id || row.user_id === user?.id || row.name === user?.name);
+          const own = doctors.find((row) => row.id === user?.staffId || row.user_id === user?.id || row.name === user?.name);
           setSelectedId(own?.id || '');
         } else if (!selectedId && doctors[0]) setSelectedId(doctors[0].id);
       } catch (error) {

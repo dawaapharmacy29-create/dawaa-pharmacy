@@ -162,6 +162,14 @@ function smartScore(row: FollowupRow) {
   return score;
 }
 
+function suggestedFollowupScript(row: FollowupRow, kind: 'general' | 'inactive' | 'missing' | 'thanks') {
+  const name = customerName(row);
+  if (kind === 'inactive') return `أهلًا أ/ ${name}، مع حضرتك صيدليات دواء. لاحظنا إن زيارات حضرتك قلت الفترة الأخيرة وحبينا نطمن إن كل احتياجاتك متوفرة. هل في صنف أو خدمة نقدر نساعد حضرتك فيها؟`;
+  if (kind === 'missing') return `أهلًا أ/ ${name}، مع حضرتك صيدليات دواء. بنراجع احتياجات حضرتك وعايزين نتأكد إن الأصناف المطلوبة متوفرة، ولو في صنف ناقص نسجله ونوفره لحضرتك في أسرع وقت.`;
+  if (kind === 'thanks') return `أهلًا أ/ ${name}، بنشكرك على ثقتك في صيدليات دواء. حابين نطمن إن آخر طلب وصل بشكل سليم وإن كل الأصناف مناسبة لحضرتك.`;
+  return `أهلًا أ/ ${name}، مع حضرتك صيدليات دواء. حابين نطمن على حضرتك ونعرف هل في أي احتياج أو ملاحظة نقدر نساعد فيها؟`;
+}
+
 const actionLabels: Record<string, string> = {
   message_sent: 'تم إرسال رسالة للعميل',
   no_answer: 'لم يرد العميل',
