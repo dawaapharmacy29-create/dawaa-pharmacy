@@ -59,3 +59,5 @@ jobs:
           git add src/lib/core/permissionSystem.ts .github/workflows/add-cs-login-permissions.yml
           git commit -m "fix(auth): allow CS manager leave requests and attendance login"
           git push origin HEAD:feature/doctor-dashboard-charts-permission-fix
+
+# trigger: full CS login permissions
