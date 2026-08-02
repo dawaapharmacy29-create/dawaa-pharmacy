@@ -658,6 +658,8 @@ const CS_MANAGER_BASE = [
   'view_analytics',
   'view_analytics_sales',
   'view_activity_log',
+  'view_schedule',
+  'view_shift_performance',
 ];
 
 const SHIFT_SUPERVISOR_BASE = [
