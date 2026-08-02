@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, Award, BarChart3, Bell, CheckCircle2, ClipboardCheck, Clock3,
-  DollarSign, ExternalLink, Gift, Headphones, LogOut, Megaphone, MoreHorizontal, RefreshCw, ShieldCheck,
-  Star, Store, Target, TrendingDown, TrendingUp, Trophy, WalletCards, X,
+  DollarSign, ExternalLink, Gift, Headphones, LogOut, Megaphone, MessageCircle, MoreHorizontal, RefreshCw, ShieldCheck,
+  Star, Store, Target, TrendingDown, TrendingUp, Trophy, Users, WalletCards, X,
 } from 'lucide-react';
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -141,6 +141,21 @@ function StatChip({
 
 function Empty({ children }: { children: string }) {
   return <p className="rounded-2xl border border-dashed p-5 text-center text-sm font-bold" style={{ ...mutedText, borderColor: 'var(--dawaa-theme-border)' }}>{children}</p>;
+}
+
+// أيقونة مناسبة لنوع الإشعار — عشان الدكتور يقدر يميّز نوع الإشعار من أول نظرة
+// بدل ما كل الإشعارات (تقييم، متابعة، خصم، مكافأة...) تظهر بنفس جرس الإشعار.
+function notificationIcon(type: string) {
+  const t = (type || '').toLowerCase();
+  if (t.includes('review')) return Star;
+  if (t.includes('deduction')) return TrendingDown;
+  if (t.includes('reward') || t.includes('bonus')) return Gift;
+  if (t.includes('attendance') || t.includes('leave')) return Clock3;
+  if (t.includes('followup')) return Headphones;
+  if (t.includes('customer')) return Users;
+  if (t.includes('announce')) return Megaphone;
+  if (t.includes('message') || t.includes('chat')) return MessageCircle;
+  return Bell;
 }
 
 // حلقة تقدم دائرية لتارجت الفرع — العنصر البصري المميز الوحيد في الصفحة، والباقي هادي حواليها.
@@ -786,7 +801,10 @@ export default function DoctorDashboardStable() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-2 font-black text-white"><Bell size={18} />{item.title}</div>
+                    <div className="flex items-center gap-2 font-black text-white">
+                      {(() => { const Icon = notificationIcon(item.type); return <Icon size={18} />; })()}
+                      {item.title}
+                    </div>
                     <p className="mt-2 text-sm" style={mutedText}>{item.message}</p>
                   </div>
                   {item.actionUrl ? <ExternalLink size={17} className="text-teal-300" /> : null}
