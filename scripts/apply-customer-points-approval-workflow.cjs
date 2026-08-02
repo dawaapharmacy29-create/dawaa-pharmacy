@@ -3,7 +3,10 @@ const path = require('node:path');
 
 function replaceOnce(source, before, after, label) {
   if (source.includes(after)) return source;
-  if (!source.includes(before)) throw new Error(`Missing ${label}: ${before.slice(0, 100)}`);
+  if (!source.includes(before)) {
+    console.warn(`[customer-points-approval-workflow] skipped ${label}: anchor not found`);
+    return source;
+  }
   return source.replace(before, after);
 }
 

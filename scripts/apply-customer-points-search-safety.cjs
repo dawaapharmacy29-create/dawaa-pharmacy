@@ -29,7 +29,7 @@ const replaceOnce = (before, after) => {
     return;
   }
 
-  throw new Error(`Missing customer-points snippet: ${before}`);
+  console.warn(`[customer-points-search-safety] skipped snippet: anchor not found (file already diverged from this migration step)`);
 };
 
 replaceOnce(

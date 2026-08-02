@@ -113,7 +113,7 @@ const isNoAnswer = (row: FollowupRow) => /لم يرد|no_answer/i.test(rawStatus
 const isUrgent = (row: FollowupRow) => Boolean(row.needs_manager || /عاجل|urgent|high|شكوى|تصعيد/i.test(`${row.priority || ''} ${rawStatus(row)} ${row.followup_reason || ''}`));
 const isOverdue = (row: FollowupRow) => Boolean(dayKey(row.next_followup_date) && dayKey(row.next_followup_date) < localDayKey());
 const isDueNow = (row: FollowupRow) => !dayKey(row.next_followup_date) || dayKey(row.next_followup_date) <= localDayKey();
-const isPendingReview = (row: FollowupRow) => /pending_review|Ã˜Â§Ã™â€ Ã˜ÂªÃ˜Â¸Ã˜Â§Ã˜Â± Ã™â€¦Ã˜Â±Ã˜Â§Ã˜Â¬Ã˜Â¹Ã˜Â©|Ã™ÂÃ™Å  Ã˜Â§Ã™â€ Ã˜ÂªÃ˜Â¸Ã˜Â§Ã˜Â± Ã˜Â§Ã™â€žÃ™â€¦Ã˜Â±Ã˜Â§Ã˜Â¬Ã˜Â¹Ã˜Â©/i.test(rawStatus(row));
+const isPendingReview = (row: FollowupRow) => /pending_review|انتظار مراجعة|في انتظار المراجعة/i.test(rawStatus(row));
 
 function actorProfile(name: unknown): ActorProfile {
   const normalized = normalizedActor(name);
@@ -262,11 +262,11 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     }
 
     const shamyQueue = queueCandidates
-      .filter((row) => normalizeBranchName(row.branch || '').includes('Ã˜Â§Ã™â€žÃ˜Â´Ã˜Â§Ã™â€¦Ã™Å '))
+      .filter((row) => normalizeBranchName(row.branch || '').includes('الشامي'))
       .slice(0, PER_BRANCH_QUEUE_LIMIT);
 
     const shokryQueue = queueCandidates
-      .filter((row) => normalizeBranchName(row.branch || '').includes('Ã˜Â´Ã™Æ’Ã˜Â±Ã™Å '))
+      .filter((row) => normalizeBranchName(row.branch || '').includes('شكري'))
       .slice(0, PER_BRANCH_QUEUE_LIMIT);
 
     return [...shamyQueue, ...shokryQueue].sort((a, b) => smartScore(b) - smartScore(a));
@@ -348,7 +348,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const executeAction = async (action: QuickAction) => {
     if (!selected) return;
     if (!canExecute) {
-      toast.error('التنفيذ متاح فقط لد/ ضحى لفرع الشامي ود/ دنيا لفرع شكري. حسابك للمراجعة والإشراف.');
+      toast.error('حسابك لا يملك صلاحية تنفيذ المتابعات. التنفيذ متاح لد/ ضحى ود/ دنيا ود/ علا والمدير العام.');
       return;
     }
     if (currentProfile.branch && normalizeBranchName(selected.branch || '') !== normalizeBranchName(currentProfile.branch)) {
@@ -386,7 +386,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
         payload = { ...payload, next_followup_date: nextDate, followup_status: 'scheduled', status: 'open', needs_next_followup: true };
       } else {
         result = 'تم إكمال المتابعة';
-        payload = { ...payload, completed_at: now, status: 'completed', followup_status: 'completed', followup_result: actionNote.trim(), followup_summary: actionNote.trim(), needs_next_followup: false, is_hidden: true, hidden_at: now, hidden_by: currentProfile.displayName, hidden_reason: 'تم إكمال المتابعة من قائمة التشغيل الذكية' };
+        payload = { ...payload, status: 'pending_review', followup_status: 'pending_review', contact_status: 'في انتظار المراجعة', followup_result: actionNote.trim(), followup_summary: actionNote.trim(), needs_next_followup: false, is_hidden: false };
       }
 
       const { error } = await supabase.from('daily_followups').update(payload).eq('id', selected.id);
@@ -400,7 +400,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
         customer_name: customerName(selected),
         customer_code: selected.customer_code,
       });
-      toast.success(action === 'completed' ? 'تم الإكمال وظهر العميل التالي تلقائيًا' : 'تم حفظ الإجراء');
+      toast.success(action === 'completed' ? 'تم إرسال المتابعة لمراجعة د/ علا وظهر العميل التالي تلقائيًا' : 'تم حفظ الإجراء');
       setSelected(null);
       setActionNote('');
       setScheduledDate('');
@@ -415,11 +415,11 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const executeReviewAction = async (action: ReviewAction) => {
     if (!selected || !isPendingReview(selected)) return;
     if (!['reviewer', 'general_manager'].includes(currentProfile.role)) {
-      toast.error('Ã˜Â§Ã™â€žÃ˜Â§Ã˜Â¹Ã˜ÂªÃ™â€¦Ã˜Â§Ã˜Â¯ Ã˜Â£Ã™Ë† Ã˜Â§Ã™â€žÃ˜Â¥Ã˜Â¹Ã˜Â§Ã˜Â¯Ã˜Â© Ã™â€¦Ã˜ÂªÃ˜Â§Ã˜Â­Ã˜Â§Ã™â€  Ã™â€žÃ˜Â¯/ Ã˜Â¹Ã™â€žÃ˜Â§ Ã™Ë†Ã˜Â§Ã™â€žÃ™â€¦Ã˜Â¯Ã™Å Ã˜Â± Ã˜Â§Ã™â€žÃ˜Â¹Ã˜Â§Ã™â€¦ Ã™ÂÃ™â€šÃ˜Â·.');
+      toast.error('الاعتماد أو الإعادة متاحان لد/ علا والمدير العام فقط.');
       return;
     }
     if (action !== 'approved' && actionNote.trim().length < 3) {
-      toast.error('Ã˜Â§Ã™Æ’Ã˜ÂªÃ˜Â¨ Ã˜Â³Ã˜Â¨Ã˜Â¨ Ã˜Â§Ã™â€žÃ˜Â¥Ã˜Â¹Ã˜Â§Ã˜Â¯Ã˜Â© Ã˜Â£Ã™Ë† Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¹Ã™Å Ã˜Â¯ Ã™â€šÃ˜Â¨Ã™â€ž Ã˜Â§Ã™â€žÃ˜Â­Ã™ÂÃ˜Â¸.');
+      toast.error('اكتب سبب الإعادة أو التصعيد قبل الحفظ.');
       return;
     }
 
@@ -430,25 +430,25 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       let result: string;
 
       if (action === 'approved') {
-        result = 'Ã˜ÂªÃ™â€¦ Ã˜Â§Ã˜Â¹Ã˜ÂªÃ™â€¦Ã˜Â§Ã˜Â¯ Ã˜Â§Ã™â€žÃ™â€¦Ã˜ÂªÃ˜Â§Ã˜Â¨Ã˜Â¹Ã˜Â© Ã™Ë†Ã˜Â¥Ã˜ÂºÃ™â€žÃ˜Â§Ã™â€šÃ™â€¡Ã˜Â§ Ã™â€ Ã™â€¡Ã˜Â§Ã˜Â¦Ã™Å Ã™â€¹Ã˜Â§';
+        result = 'تم اعتماد المتابعة وإغلاقها نهائيًا';
         payload = {
           completed_at: now,
           status: 'completed',
           followup_status: 'completed',
-          contact_status: 'Ã˜ÂªÃ™â€¦ Ã˜Â§Ã™â€žÃ˜Â§Ã˜Â¹Ã˜ÂªÃ™â€¦Ã˜Â§Ã˜Â¯',
+          contact_status: 'تم الاعتماد',
           needs_next_followup: false,
           is_hidden: true,
           hidden_at: now,
           hidden_by: currentProfile.displayName,
-          hidden_reason: 'Ã˜ÂªÃ™â€¦ Ã˜Â§Ã˜Â¹Ã˜ÂªÃ™â€¦Ã˜Â§Ã˜Â¯ Ã˜Â§Ã™â€žÃ™â€¦Ã˜ÂªÃ˜Â§Ã˜Â¨Ã˜Â¹Ã˜Â© Ã˜Â¨Ã˜Â¹Ã˜Â¯ Ã˜Â§Ã™â€žÃ™â€¦Ã˜Â±Ã˜Â§Ã˜Â¬Ã˜Â¹Ã˜Â©',
+          hidden_reason: 'تم اعتماد المتابعة بعد المراجعة',
           updated_by: user?.id || null,
         };
       } else if (action === 'returned_for_completion') {
-        result = 'Ã˜Â£Ã™ÂÃ˜Â¹Ã™Å Ã˜Â¯Ã˜Âª Ã˜Â§Ã™â€žÃ™â€¦Ã˜ÂªÃ˜Â§Ã˜Â¨Ã˜Â¹Ã˜Â© Ã™â€žÃ™â€žÃ™â€¦Ã™â€ Ã™ÂÃ˜Â°Ã˜Â© Ã™â€žÃ˜Â§Ã˜Â³Ã˜ÂªÃ™Æ’Ã™â€¦Ã˜Â§Ã™â€ž Ã˜Â§Ã™â€žÃ˜Â¨Ã™Å Ã˜Â§Ã™â€ Ã˜Â§Ã˜Âª Ã˜Â£Ã™Ë† Ã˜Â§Ã™â€žÃ˜ÂªÃ™Ë†Ã˜Â§Ã˜ÂµÃ™â€ž';
+        result = 'أُعيدت المتابعة للمنفذة لاستكمال البيانات أو التواصل';
         payload = {
           status: 'open',
           followup_status: 'returned_for_completion',
-          contact_status: 'Ã˜Â£Ã™ÂÃ˜Â¹Ã™Å Ã˜Â¯Ã˜Âª Ã™â€žÃ™â€žÃ˜Â§Ã˜Â³Ã˜ÂªÃ™Æ’Ã™â€¦Ã˜Â§Ã™â€ž',
+          contact_status: 'أُعيدت للاستكمال',
           needs_next_followup: true,
           next_followup_date: localDayKey(),
           is_hidden: false,
@@ -456,11 +456,11 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
           updated_by: user?.id || null,
         };
       } else {
-        result = 'Ã˜ÂªÃ™â€¦ Ã˜ÂªÃ˜ÂµÃ˜Â¹Ã™Å Ã˜Â¯ Ã˜Â§Ã™â€žÃ˜Â­Ã˜Â§Ã™â€žÃ˜Â© Ã™â€žÃ™â€žÃ˜Â¥Ã˜Â¯Ã˜Â§Ã˜Â±Ã˜Â©';
+        result = 'تم تصعيد الحالة للإدارة';
         payload = {
           status: 'pending_review',
           followup_status: 'pending_review',
-          contact_status: 'Ã˜ÂªÃ™â€¦ Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¹Ã™Å Ã˜Â¯',
+          contact_status: 'تم التصعيد',
           needs_manager: true,
           is_hidden: false,
           followup_summary: actionNote.trim(),
@@ -482,7 +482,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       setActionNote('');
       await load();
     } catch (error) {
-      toast.error(`Ã˜ÂªÃ˜Â¹Ã˜Â°Ã˜Â± Ã˜Â­Ã™ÂÃ˜Â¸ Ã™â€šÃ˜Â±Ã˜Â§Ã˜Â± Ã˜Â§Ã™â€žÃ™â€¦Ã˜Â±Ã˜Â§Ã˜Â¬Ã˜Â¹Ã˜Â©: ${(error as Error).message}`);
+      toast.error(`تعذر حفظ قرار المراجعة: ${(error as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -491,6 +491,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const tabs: Array<[WorkspaceTab, string, number, typeof Inbox]> = [
     ['queue', 'قائمة اليوم', smartQueue.length, Inbox],
     ['waiting', 'انتظار الرد', waitingRows.length, Clock3],
+    ['review', 'انتظار مراجعة د/ علا', reviewRows.length, ShieldCheck],
     ['contacted', 'سجل التواصل', contactedEvents.length, History],
     ['performance', 'أداء خدمة العملاء', 2, BarChart3],
   ];
@@ -554,40 +555,40 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     {selected && !detailsOpen ? <div className="fixed inset-0 z-[100] flex justify-end bg-black/65" dir="rtl"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-[#091b2d] p-5">
       <div className="flex justify-between"><div><p className="text-xs font-black text-cyan-300">بطاقة المتابعة · المسؤول {assignedExecutor(selected.branch)}</p><h3 className="text-2xl font-black text-white">{customerName(selected)}</h3><p className="text-sm text-slate-400">{selected.branch}</p></div><button className="btn-secondary" onClick={() => setSelected(null)}><X size={18}/></button></div>
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">Ã˜Â§Ã™â€žÃ˜Â£Ã™â€¡Ã™â€¦Ã™Å Ã˜Â©</div><div className="mt-1 font-black text-white">{importance(selected).label}</div></div>
-        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">Ã˜Â­Ã˜Â§Ã™â€žÃ˜Â© Ã˜Â§Ã™â€žÃ™â€ Ã˜Â´Ã˜Â§Ã˜Â·</div><div className="mt-1 font-black text-white">{activity(selected).label}</div></div>
-        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">Ã˜Â¢Ã˜Â®Ã˜Â± Ã˜Â´Ã˜Â±Ã˜Â§Ã˜Â¡</div><div className="mt-1 font-black text-white">{lastPurchase(selected) || 'Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã˜Â¹Ã˜Â±Ã™Ë†Ã™Â'}</div></div>
-        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">Ã˜Â§Ã™â€žÃ™â€¦Ã˜ÂªÃ™Ë†Ã˜Â³Ã˜Â· Ã˜Â§Ã™â€žÃ˜Â´Ã™â€¡Ã˜Â±Ã™Å </div><div className="mt-1 font-black text-white">{formatCurrency(monthlyAverage(selected))}</div></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">Ã˜Â¥Ã˜Â¬Ã™â€¦Ã˜Â§Ã™â€žÃ™Å  Ã˜Â§Ã™â€žÃ™â€¦Ã˜Â´Ã˜ÂªÃ˜Â±Ã™Å Ã˜Â§Ã˜Âª</div><div className="mt-1 font-black text-white">{formatCurrency(Number(selected.total_spent || metricNumber(selected, 'total_spent')))}</div></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">Ã˜Â¹Ã˜Â¯Ã˜Â¯ Ã™â€¦Ã˜Â±Ã˜Â§Ã˜Âª Ã˜Â§Ã™â€žÃ˜Â´Ã˜Â±Ã˜Â§Ã˜Â¡</div><div className="mt-1 font-black text-white">{metricNumber(selected, 'invoices_count')}</div></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">Ã™â€¦Ã˜ÂªÃ™Ë†Ã˜Â³Ã˜Â· Ã˜Â§Ã™â€žÃ™ÂÃ˜Â§Ã˜ÂªÃ™Ë†Ã˜Â±Ã˜Â©</div><div className="mt-1 font-black text-white">{formatCurrency(metricNumber(selected, 'avg_invoice'))}</div></div>
-        <button type="button" className="rounded-2xl border border-emerald-300/30 bg-emerald-400/15 p-3 text-right" onClick={() => setDetailsOpen(true)}><div className="text-xs font-black text-emerald-200">Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â Ã˜Â§Ã™â€žÃ™Æ’Ã˜Â§Ã™â€¦Ã™â€ž</div><div className="mt-1 font-black text-white">Ã™â€¦Ã™â€žÃ™Â Ã˜Â§Ã™â€žÃ˜Â¹Ã™â€¦Ã™Å Ã™â€ž 360</div></button>
+        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">الأهمية</div><div className="mt-1 font-black text-white">{importance(selected).label}</div></div>
+        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">حالة النشاط</div><div className="mt-1 font-black text-white">{activity(selected).label}</div></div>
+        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">آخر شراء</div><div className="mt-1 font-black text-white">{lastPurchase(selected) || 'غير معروف'}</div></div>
+        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">المتوسط الشهري</div><div className="mt-1 font-black text-white">{formatCurrency(monthlyAverage(selected))}</div></div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">إجمالي المشتريات</div><div className="mt-1 font-black text-white">{formatCurrency(Number(selected.total_spent || metricNumber(selected, 'total_spent')))}</div></div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">عدد مرات الشراء</div><div className="mt-1 font-black text-white">{metricNumber(selected, 'invoices_count')}</div></div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">متوسط الفاتورة</div><div className="mt-1 font-black text-white">{formatCurrency(metricNumber(selected, 'avg_invoice'))}</div></div>
+        <button type="button" className="rounded-2xl border border-emerald-300/30 bg-emerald-400/15 p-3 text-right" onClick={() => setDetailsOpen(true)}><div className="text-xs font-black text-emerald-200">الملف الكامل</div><div className="mt-1 font-black text-white">ملف العميل 360</div></button>
       </div>
 
       <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-        <div className="text-xs font-black text-slate-400">Ã˜Â³Ã˜Â¨Ã˜Â¨ Ã˜Â§Ã™â€žÃ™â€¦Ã˜ÂªÃ˜Â§Ã˜Â¨Ã˜Â¹Ã˜Â©</div>
-        <div className="mt-1 text-sm font-bold leading-7 text-white">{selected.followup_reason || selected.request_details || selected.notes || 'Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã˜Â³Ã˜Â¬Ã™â€ž'}</div>
-        <div className="mt-3 text-xs font-black text-slate-400">Ã˜Â¢Ã˜Â®Ã˜Â± Ã™â€ Ã˜ÂªÃ™Å Ã˜Â¬Ã˜Â© Ã™â€¦Ã˜Â³Ã˜Â¬Ã™â€žÃ˜Â©</div>
-        <div className="mt-1 text-sm font-bold leading-7 text-white">{selected.followup_result || selected.contact_result || selected.followup_summary || 'Ã™â€žÃ™â€¦ Ã˜ÂªÃ˜Â³Ã˜Â¬Ã™â€ž Ã™â€ Ã˜ÂªÃ™Å Ã˜Â¬Ã˜Â© Ã˜Â¨Ã˜Â¹Ã˜Â¯'}</div>
+        <div className="text-xs font-black text-slate-400">سبب المتابعة</div>
+        <div className="mt-1 text-sm font-bold leading-7 text-white">{selected.followup_reason || selected.request_details || selected.notes || 'غير مسجل'}</div>
+        <div className="mt-3 text-xs font-black text-slate-400">آخر نتيجة مسجلة</div>
+        <div className="mt-1 text-sm font-bold leading-7 text-white">{selected.followup_result || selected.contact_result || selected.followup_summary || 'لم تسجل نتيجة بعد'}</div>
       </div>
 
       <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4">
-        <div className="font-black text-amber-100">Ã˜Â³Ã™Æ’Ã˜Â±Ã™Å Ã˜Â¨Ã˜ÂªÃ˜Â§Ã˜Âª Ã˜ÂªÃ™Ë†Ã˜Â§Ã˜ÂµÃ™â€ž Ã™â€¦Ã™â€šÃ˜ÂªÃ˜Â±Ã˜Â­Ã˜Â©</div>
-        <p className="mt-1 text-xs font-bold text-amber-50/70">Ã˜Â§Ã˜Â®Ã˜ÂªÃ˜Â§Ã˜Â±Ã™Å  Ã˜Â§Ã™â€žÃ˜Â³Ã™Æ’Ã˜Â±Ã™Å Ã˜Â¨Ã˜Âª Ã˜Â«Ã™â€¦ Ã˜Â¹Ã˜Â¯Ã™â€˜Ã™â€žÃ™Å Ã™â€¡ Ã˜Â­Ã˜Â³Ã˜Â¨ Ã˜Â­Ã˜Â§Ã™â€žÃ˜Â© Ã˜Â§Ã™â€žÃ˜Â¹Ã™â€¦Ã™Å Ã™â€ž Ã™â€šÃ˜Â¨Ã™â€ž Ã˜Â§Ã™â€žÃ˜Â¥Ã˜Â±Ã˜Â³Ã˜Â§Ã™â€ž.</p>
+        <div className="font-black text-amber-100">سكريبتات تواصل مقترحة</div>
+        <p className="mt-1 text-xs font-bold text-amber-50/70">اختاري السكريبت ثم عدّليه حسب حالة العميل قبل الإرسال.</p>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'general'))}>Ã˜Â§Ã˜Â·Ã™â€¦Ã˜Â¦Ã™â€ Ã˜Â§Ã™â€  Ã˜Â¹Ã˜Â§Ã™â€¦</button>
-          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'inactive'))}>Ã˜Â§Ã˜Â³Ã˜ÂªÃ˜Â¹Ã˜Â§Ã˜Â¯Ã˜Â© Ã˜Â¹Ã™â€¦Ã™Å Ã™â€ž Ã™â€¦Ã˜ÂªÃ™Ë†Ã™â€šÃ™Â</button>
-          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'missing'))}>Ã™â€¦Ã˜ÂªÃ˜Â§Ã˜Â¨Ã˜Â¹Ã˜Â© Ã˜ÂµÃ™â€ Ã™Â Ã˜Â£Ã™Ë† Ã˜Â·Ã™â€žÃ˜Â¨</button>
-          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'thanks'))}>Ã˜Â´Ã™Æ’Ã˜Â± Ã˜Â¨Ã˜Â¹Ã˜Â¯ Ã˜Â§Ã™â€žÃ˜Â´Ã˜Â±Ã˜Â§Ã˜Â¡</button>
+          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'general'))}>اطمئنان عام</button>
+          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'inactive'))}>استعادة عميل متوقف</button>
+          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'missing'))}>متابعة صنف أو طلب</button>
+          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'thanks'))}>شكر بعد الشراء</button>
         </div>
       </div>
 
       {historyOpen ? <div className="mt-4 space-y-2 rounded-2xl bg-black/20 p-4">{history.map((event) => <div key={event.id} className="rounded-xl border border-white/10 p-3"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div><div className="text-xs text-slate-400">{actorProfile(event.actor_name).displayName} · {formatDateTime(event.created_at)}</div><div className="mt-2 text-sm text-white">{text(event.metadata?.notes) || text(event.metadata?.result) || 'بدون تفاصيل'}</div></div>)}</div> : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-black text-white">وسيلة التواصل<select className="input-dark mt-2 w-full" value={contactChannel} onChange={(event) => setContactChannel(event.target.value)}><option>واتساب</option><option>اتصال هاتفي</option><option>رسالة SMS</option><option>زيارة داخل الفرع</option></select></label><label className="text-sm font-black text-white">الموعد التالي<input type="date" className="input-dark mt-2 w-full" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)}/></label></div>
       <textarea className="input-dark mt-3 min-h-28 w-full" value={actionNote} onChange={(event) => setActionNote(event.target.value)} placeholder="اكتب تفاصيل المحاولة والنتيجة..."/>
-      {!canExecute ? <div className="mt-3 rounded-xl bg-amber-400/10 p-3 text-sm font-bold text-amber-100">حسابك للمراجعة أو الإدارة؛ أزرار التنفيذ موقوفة.</div> : null}
+      {!canExecute ? <div className="mt-3 rounded-xl bg-amber-400/10 p-3 text-sm font-bold text-amber-100">حسابك للعرض فقط؛ أزرار التنفيذ موقوفة.</div> : null}
       <div className="mt-4 grid gap-2 sm:grid-cols-2"><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('message_sent')}><Send size={16} className="inline ms-2"/> أرسلت رسالة</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('no_answer')}><PhoneOff size={16} className="inline ms-2"/> لم يرد</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('replied')}><MessageCircle size={16} className="inline ms-2"/> تم الرد</button>{customerPhone(selected) ? <a className="btn-secondary text-center" href={generateWhatsAppLink(customerPhone(selected), 'أهلًا بحضرتك، مع حضرتك صيدليات دواء. حابين نطمن إن كل شيء تمام.')} target="_blank" rel="noreferrer">فتح واتساب</a> : null}<button className="btn-secondary" disabled={saving || !canExecute || !scheduledDate} onClick={() => void executeAction('scheduled')}>حفظ الموعد</button><button className="btn-primary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('completed')}><CheckCircle2 size={16} className="inline ms-2"/> إكمال المتابعة</button></div>
-{isPendingReview(selected) && ['reviewer', 'general_manager'].includes(currentProfile.role) ? <div className="mt-5 rounded-2xl border border-violet-400/20 bg-violet-400/10 p-4"><div className="mb-3 font-black text-violet-100">Ã™â€šÃ˜Â±Ã˜Â§Ã˜Â± Ã˜Â§Ã™â€žÃ™â€¦Ã˜Â±Ã˜Â§Ã˜Â¬Ã˜Â¹Ã˜Â©</div><div className="grid gap-2 sm:grid-cols-3"><button className="btn-primary" disabled={saving} onClick={() => void executeReviewAction('approved')}>Ã˜Â§Ã˜Â¹Ã˜ÂªÃ™â€¦Ã˜Â§Ã˜Â¯ Ã™Ë†Ã˜Â¥Ã˜ÂºÃ™â€žÃ˜Â§Ã™â€š</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('returned_for_completion')}>Ã˜Â¥Ã˜Â¹Ã˜Â§Ã˜Â¯Ã˜Â© Ã™â€žÃ™â€žÃ˜Â§Ã˜Â³Ã˜ÂªÃ™Æ’Ã™â€¦Ã˜Â§Ã™â€ž</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('escalated')}>Ã˜ÂªÃ˜ÂµÃ˜Â¹Ã™Å Ã˜Â¯ Ã™â€žÃ™â€žÃ˜Â¥Ã˜Â¯Ã˜Â§Ã˜Â±Ã˜Â©</button></div></div> : null}
+{isPendingReview(selected) && ['reviewer', 'general_manager'].includes(currentProfile.role) ? <div className="mt-5 rounded-2xl border border-violet-400/20 bg-violet-400/10 p-4"><div className="mb-3 font-black text-violet-100">قرار المراجعة</div><div className="grid gap-2 sm:grid-cols-3"><button className="btn-primary" disabled={saving} onClick={() => void executeReviewAction('approved')}>اعتماد وإغلاق</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('returned_for_completion')}>إعادة للاستكمال</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('escalated')}>تصعيد للإدارة</button></div></div> : null}
     </aside></div> : null}
 
     {detailsOpen && selected ? <Suspense fallback={<div className="fixed inset-0 z-[110] grid place-items-center bg-black/70"><Loader2 className="animate-spin text-cyan-300"/></div>}><CustomerQuickDetailsModal followupId={selected.id} customerId={selected.customer_id} customerCode={selected.customer_code} customerPhone={customerPhone(selected)} customerName={customerName(selected)} branch={selected.branch} fallbackMetric={{ ...selected.customer_metrics, total_spent: selected.total_spent, avg_monthly: monthlyAverage(selected), last_purchase: lastPurchase(selected) }} onClose={() => setDetailsOpen(false)}/></Suspense> : null}
