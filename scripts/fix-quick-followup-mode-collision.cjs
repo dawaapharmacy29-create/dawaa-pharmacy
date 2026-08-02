@@ -51,5 +51,11 @@ require('./apply-schedule-roster-source.cjs');
 require('./apply-followup-results-excel-import.cjs');
 require('./place-followup-results-import-top-action.cjs');
 require('./mount-followup-results-import-visible-action.cjs');
-require('./apply-doctor-dashboard-smart-merge.cjs');
+
+// The doctor smart-merge patch has already been applied to source files.
+// Do not execute it during every Vercel build: the legacy generator contains
+// nested template literals that Node parses before it can run and was blocking
+// production deployment with "SyntaxError: Unexpected identifier '$'".
+console.log('[doctor-smart-merge] skipped during prebuild; source changes are already committed');
+
 require('./apply-permission-routing-fixes.cjs');
