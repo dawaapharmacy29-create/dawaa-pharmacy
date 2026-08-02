@@ -660,6 +660,8 @@ const CS_MANAGER_BASE = [
   'view_activity_log',
   'view_schedule',
   'view_shift_performance',
+  'create_leave_request',
+  'record_attendance',
 ];
 
 const SHIFT_SUPERVISOR_BASE = [
