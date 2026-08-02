@@ -333,6 +333,7 @@ function isGeneralManager(user: any) {
 
 export default function Reviews() {
   const { user } = useAuth();
+  const newOnlyMode = new URLSearchParams(window.location.search).get('mode') === 'new';
   const [saving, setSaving] = useState(false);
   const [reviewState, setReviewState] = useState<ConversationReviewState>(defaultReviewState());
   const [severeErrors, setSevereErrors] = useState<SevereErrorsState>(defaultSevereErrors());
@@ -400,20 +401,28 @@ export default function Reviews() {
   });
   const staffOptions = useMemo(() => {
     const choices = mergeStaffChoices(staff);
-    if (canViewAllBranches(user)) return choices;
+    // أمان: مفيش حد (دكتور أو حتى مدير) يظهر كخيار "الدكتور المقصود بالتقييم" لنفسه.
+    // مفيش داعي شرعي لأي مستخدم يقيّم نفسه، فالاستبعاد ده عام مش مربوط بدور الدكتور بس.
+    const withoutSelf = (rows: StaffOpt[]) =>
+      rows.filter((row) => row.id !== (user?.staffId || user?.id) && row.name !== user?.name);
+    if (canViewAllBranches(user)) return withoutSelf(choices);
     if (isDoctorRole(user)) {
-      return choices.filter(
-        (row) =>
-          row.id === (user?.staffId || user?.id) ||
-          row.name === user?.name ||
-          rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
+      return withoutSelf(
+        choices.filter(
+          (row) =>
+            row.id === (user?.staffId || user?.id) ||
+            row.name === user?.name ||
+            rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
+        )
       );
     }
-    return choices.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>));
+    return withoutSelf(choices.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)));
   }, [staff, user]);
   const reviewers = useMemo(() => {
     const choices = reviewerChoices(staff);
-    if (user && !choices.some((row) => row.id === user.id)) {
+    const REVIEW_CREATOR_ROLES = ['branch_manager', 'branches_manager', 'customer_service', 'customer_service_manager', 'general_manager', 'executive_manager'];
+    const currentUserCanReview = REVIEW_CREATOR_ROLES.includes(normalizeRole(user?.role));
+    if (user && currentUserCanReview && !choices.some((row) => row.id === user.id)) {
       return [
         {
           id: user.id,
@@ -528,7 +537,7 @@ export default function Reviews() {
         .from('conversation_sales_reviews')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(120);
+        .limit(3000);
       if (error) throw error;
       const rows = ((data || []) as ConversationReviewHistoryRow[]).filter((row) =>
         canUserSeeConversationReviewBranch(user, row.branch)
@@ -1140,7 +1149,7 @@ export default function Reviews() {
   });
 
   return (
-    <div className="w-full max-w-full space-y-5 overflow-hidden" dir="rtl">
+    <div className="w-full max-w-full space-y-5 overflow-visible" dir="rtl">
       <div className="rounded-3xl border border-teal-500/30 bg-gradient-to-l from-slate-950 via-slate-900 to-teal-950/40 p-5 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -1158,28 +1167,41 @@ export default function Reviews() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={loadReviewHistory}
-              disabled={historyLoading}
-              className="btn-secondary flex items-center gap-2"
-            >
-              <RefreshCw size={16} className={historyLoading ? 'animate-spin' : ''} />
-              تحديث السجل
-            </button>
-            <button
-              type="button"
-              onClick={startNewReview}
-              className="btn-primary flex items-center gap-2"
-            >
-              <Star size={16} />
-              تقييم جديد
-            </button>
+            {newOnlyMode ? (
+              <button
+                type="button"
+                onClick={() => window.location.assign('/reviews')}
+                className="btn-secondary flex items-center gap-2"
+              >
+                <ListChecks size={16} />
+                الرجوع لسجل التقييمات
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={loadReviewHistory}
+                  disabled={historyLoading}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <RefreshCw size={16} className={historyLoading ? 'animate-spin' : ''} />
+                  تحديث السجل
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.location.assign('/reviews?mode=new')}
+                  className="btn-primary flex items-center gap-2"
+                >
+                  <Star size={16} />
+                  إضافة تقييم جديد
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      <section className="stat-card border border-teal-500/20 bg-teal-500/5 space-y-4">
+      <section className={`${newOnlyMode ? 'hidden' : ''} stat-card border border-teal-500/20 bg-teal-500/5 space-y-4`}> 
         <div className="flex items-center gap-2">
           <ListChecks className="text-teal-400" size={20} />
           <div>
@@ -1246,7 +1268,7 @@ export default function Reviews() {
         )}
 
         <div className="grid gap-3 min-[1100px]:hidden">
-          {reviewHistory.slice(0, 30).map((row, index) => {
+          {reviewHistory.map((row, index) => {
             const score = scoreOf(row);
             const impact = impactOf(row);
             return (
@@ -1293,7 +1315,7 @@ export default function Reviews() {
               </tr>
             </thead>
             <tbody>
-              {reviewHistory.slice(0, 30).map((row, index) => {
+              {reviewHistory.map((row, index) => {
                 const score = scoreOf(row);
                 const impact = impactOf(row);
                 return (
@@ -2162,26 +2184,21 @@ function ReviewActions({
   onManagerReview: (row: ConversationReviewHistoryRow) => void;
 }) {
   return (
-    <details className="relative" onClick={(event) => event.stopPropagation()}>
-      <summary className="list-none rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-center text-xs font-black text-cyan-100 hover:bg-slate-800 [&::-webkit-details-marker]:hidden">
-        الإجراءات
-      </summary>
-      <div className="absolute left-0 z-40 mt-2 w-44 overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl">
-        <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-right text-xs font-bold text-slate-100 hover:bg-slate-800" onClick={() => onDetails(row)}>
-          <Eye size={14} /> عرض التفاصيل
-        </button>
-        {canManage ? (
-          <>
-            <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-right text-xs font-bold text-slate-100 hover:bg-slate-800" onClick={() => onEdit(row)}>
-              <Pencil size={14} /> تعديل التقييم
-            </button>
-            <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-right text-xs font-bold text-slate-100 hover:bg-slate-800" onClick={() => onManagerReview(row)}>
-              <UserCheck size={14} /> تقييم المراجع
-            </button>
-          </>
-        ) : null}
-      </div>
-    </details>
+    <div className="flex min-w-[132px] flex-col gap-1.5" onClick={(event) => event.stopPropagation()}>
+      <button type="button" className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2 py-1.5 text-[11px] font-black text-cyan-100 hover:bg-cyan-500/20" onClick={() => onDetails(row)}>
+        <Eye size={13} /> التفاصيل
+      </button>
+      {canManage ? (
+        <div className="grid grid-cols-2 gap-1">
+          <button type="button" title="تعديل التقييم" className="inline-flex items-center justify-center gap-1 rounded-lg border border-violet-400/25 bg-violet-500/10 px-1.5 py-1.5 text-[10px] font-black text-violet-100 hover:bg-violet-500/20" onClick={() => onEdit(row)}>
+            <Pencil size={12} /> تعديل
+          </button>
+          <button type="button" title="تقييم المراجع" className="inline-flex items-center justify-center gap-1 rounded-lg border border-amber-400/25 bg-amber-500/10 px-1.5 py-1.5 text-[10px] font-black text-amber-100 hover:bg-amber-500/20" onClick={() => onManagerReview(row)}>
+            <UserCheck size={12} /> المراجع
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
