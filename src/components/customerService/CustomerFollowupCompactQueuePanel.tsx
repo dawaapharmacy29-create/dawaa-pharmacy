@@ -6,7 +6,9 @@ import {
   ChevronDown,
   ChevronUp,
   Clock3,
+  FileSpreadsheet,
   Filter,
+  Link2,
   Loader2,
   PhoneOff,
   RefreshCw,
@@ -29,6 +31,7 @@ const PAGE_SIZE = 50;
 
 type QuickFilter =
   | 'now'
+  | 'excel_scheduled'
   | 'urgent'
   | 'waiting'
   | 'no_answer'
@@ -52,9 +55,16 @@ type Row = {
   contact_status: string | null;
   response_status: string | null;
   followup_result: string | null;
+  followup_reason: string | null;
+  request_type: string | null;
+  request_details: string | null;
+  notes: string | null;
+  followup_date: string | null;
   next_followup_date: string | null;
   created_at: string | null;
   needs_manager: boolean | null;
+  source_batch_id: string | null;
+  canonical_followup_id: string | null;
   customer_metrics?: Record<string, unknown> | null;
 };
 
@@ -70,6 +80,7 @@ const customerPhone = (row: Row) => normalizeEgyptianPhone(text(row.customer_pho
 const isWaiting = (row: Row) => /في انتظار الرد|تم إرسال رسالة|message_sent|waiting_reply/i.test(rowStatus(row));
 const isNoAnswer = (row: Row) => /لم يرد|no_answer/i.test(rowStatus(row));
 const isUrgent = (row: Row) => /عاجل|urgent|high|شكوى|تصعيد/i.test(`${row.priority || ''} ${rowStatus(row)}`);
+const isExcelScheduled = (row: Row) => text(row.request_type) === 'excel_scheduled_followup';
 const isBranchReview = (row: Row) => {
   const metrics = row.customer_metrics || {};
   const current = normalizeBranchName(row.branch || '');
@@ -80,7 +91,16 @@ const isBranchReview = (row: Row) => {
   ].filter(Boolean);
   return !current || evidence.some((value) => value !== current);
 };
-const dueKey = (row: Row) => text(row.next_followup_date).slice(0, 10);
+const dueKey = (row: Row) => text(row.next_followup_date || row.followup_date).slice(0, 10);
+const metricText = (row: Row, key: string) => text(row.customer_metrics?.[key]);
+const sourceFile = (row: Row) => {
+  const match = text(row.notes).match(/ملف خدمة العملاء:\s*([^·]+)/i);
+  return text(match?.[1]) || 'ملف خدمة العملاء';
+};
+const previousContactDate = (row: Row) => metricText(row, 'invoice_date') || 'غير محدد';
+const previousResponse = (row: Row) => metricText(row, 'response_raw') || 'تم الرد';
+const intendedDate = (row: Row) => metricText(row, 'intended_followup_date') || metricText(row, 'scheduled_followup_date') || dueKey(row);
+const parentCompletedId = (row: Row) => metricText(row, 'parent_completed_followup_id') || text(row.canonical_followup_id);
 
 export default function CustomerFollowupCompactQueuePanel({ onOpenFull }: { onOpenFull?: () => void }) {
   const { user } = useAuth();
@@ -104,10 +124,11 @@ export default function CustomerFollowupCompactQueuePanel({ onOpenFull }: { onOp
       let query = supabase
         .from('daily_followups')
         .select(
-          'id,customer_name,name,customer_code,customer_phone,phone,branch,priority,status,followup_status,contact_status,response_status,followup_result,next_followup_date,created_at,needs_manager,customer_metrics'
+          'id,customer_name,name,customer_code,customer_phone,phone,branch,priority,status,followup_status,contact_status,response_status,followup_result,followup_reason,request_type,request_details,notes,followup_date,next_followup_date,created_at,needs_manager,source_batch_id,canonical_followup_id,customer_metrics'
         )
         .eq('is_hidden', false)
         .is('completed_at', null)
+        .order('next_followup_date', { ascending: true, nullsFirst: false })
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
       if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
@@ -131,9 +152,16 @@ export default function CustomerFollowupCompactQueuePanel({ onOpenFull }: { onOp
     setPage(0);
   }, [branch, filter, priority, dataState, search]);
 
+  useEffect(() => {
+    const handler = () => void load();
+    window.addEventListener('dataChanged', handler);
+    return () => window.removeEventListener('dataChanged', handler);
+  }, [load]);
+
   const today = todayKey();
   const counts = useMemo(() => ({
     now: rows.length,
+    excel_scheduled: rows.filter(isExcelScheduled).length,
     urgent: rows.filter(isUrgent).length,
     waiting: rows.filter(isWaiting).length,
     no_answer: rows.filter(isNoAnswer).length,
@@ -147,6 +175,7 @@ export default function CustomerFollowupCompactQueuePanel({ onOpenFull }: { onOp
   const visibleRows = useMemo(() => {
     const query = search.trim().toLowerCase();
     return rows.filter((row) => {
+      if (filter === 'excel_scheduled' && !isExcelScheduled(row)) return false;
       if (filter === 'urgent' && !isUrgent(row)) return false;
       if (filter === 'waiting' && !isWaiting(row)) return false;
       if (filter === 'no_answer' && !isNoAnswer(row)) return false;
@@ -160,7 +189,7 @@ export default function CustomerFollowupCompactQueuePanel({ onOpenFull }: { onOp
       if (dataState === 'بدون هاتف' && isValidEgyptianMobile(customerPhone(row))) return false;
       if (dataState === 'بيانات سليمة' && (!text(row.customer_code) || !isValidEgyptianMobile(customerPhone(row)))) return false;
       if (!query) return true;
-      return `${customerName(row)} ${row.customer_code || ''} ${customerPhone(row)} ${row.branch || ''} ${rowStatus(row)}`
+      return `${customerName(row)} ${row.customer_code || ''} ${customerPhone(row)} ${row.branch || ''} ${rowStatus(row)} ${row.request_details || ''} ${row.notes || ''}`
         .toLowerCase()
         .includes(query);
     });
@@ -168,6 +197,7 @@ export default function CustomerFollowupCompactQueuePanel({ onOpenFull }: { onOp
 
   const cards: Array<[QuickFilter, string, number, typeof Sparkles]> = [
     ['now', 'المطلوب الآن', counts.now, Sparkles],
+    ['excel_scheduled', 'متابعات Excel القادمة', counts.excel_scheduled, FileSpreadsheet],
     ['urgent', 'عاجل', counts.urgent, AlertTriangle],
     ['waiting', 'انتظار رد', counts.waiting, Clock3],
     ['no_answer', 'لم يرد', counts.no_answer, PhoneOff],
@@ -266,21 +296,41 @@ export default function CustomerFollowupCompactQueuePanel({ onOpenFull }: { onOp
       <div className="space-y-2">
         {visibleRows.map((row) => {
           const status = rowStatus(row) || 'متابعة مفتوحة';
+          const scheduledFromExcel = isExcelScheduled(row);
           return (
-            <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+            <article key={row.id} className={`rounded-2xl border p-4 ${scheduledFromExcel ? 'border-violet-300/30 bg-violet-500/[0.08]' : 'border-white/10 bg-white/[0.035]'}`}>
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="font-black text-white">{customerName(row)}</div>
                   <div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div>
                   <div className="mt-2 flex flex-wrap gap-2 text-xs font-black">
                     <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-cyan-200">{status}</span>
+                    {scheduledFromExcel ? <span className="rounded-full bg-violet-500/20 px-3 py-1 text-violet-100"><FileSpreadsheet className="ml-1 inline" size={13}/> متابعة قادمة من ملف خدمة العملاء</span> : null}
                     {row.needs_manager ? <span className="rounded-full bg-red-500/15 px-3 py-1 text-red-200">يحتاج مديرًا</span> : null}
                     {isUrgent(row) ? <span className="rounded-full bg-amber-500/15 px-3 py-1 text-amber-200">أولوية عالية</span> : null}
                     {isBranchReview(row) ? <span className="rounded-full bg-fuchsia-500/15 px-3 py-1 text-fuchsia-200">راجع الفرع</span> : null}
                     {!text(row.customer_code) || !isValidEgyptianMobile(customerPhone(row)) ? <span className="rounded-full bg-amber-500/15 px-3 py-1 text-amber-200">بيانات ناقصة</span> : null}
                   </div>
+
+                  {scheduledFromExcel ? (
+                    <div className="mt-3 rounded-2xl border border-violet-300/20 bg-black/15 p-3 text-xs font-bold text-slate-200">
+                      <div className="mb-2 flex flex-wrap items-center gap-2 text-violet-100">
+                        <Link2 size={14}/>
+                        <span>التواصل السابق تم حفظه في سجل المكتمل، وهذه متابعة جديدة مستقلة.</span>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                        <div><span className="text-slate-500">تاريخ التواصل السابق:</span> {previousContactDate(row)}</div>
+                        <div><span className="text-slate-500">الرد السابق:</span> {previousResponse(row)}</div>
+                        <div><span className="text-slate-500">الموعد المطلوب:</span> {intendedDate(row) || 'غير محدد'}</div>
+                        <div><span className="text-slate-500">المصدر:</span> {sourceFile(row)}</div>
+                      </div>
+                      {text(row.followup_reason) ? <div className="mt-2 text-violet-100">السبب: {row.followup_reason}</div> : null}
+                      {text(row.request_details) ? <div className="mt-2 whitespace-pre-line text-slate-300">{row.request_details}</div> : null}
+                      {parentCompletedId(row) ? <div className="mt-2 text-[11px] text-slate-500">مرتبطة بسجل مكتمل سابق محفوظ في النظام.</div> : null}
+                    </div>
+                  ) : null}
                 </div>
-                <div className="text-xs font-bold text-slate-400">الموعد: {dueKey(row) || 'غير محدد'}</div>
+                <div className="shrink-0 rounded-xl bg-black/15 px-3 py-2 text-xs font-bold text-slate-300">الموعد: {dueKey(row) || 'غير محدد'}</div>
               </div>
             </article>
           );
