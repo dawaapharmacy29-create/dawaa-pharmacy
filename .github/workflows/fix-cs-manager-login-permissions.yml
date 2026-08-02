@@ -53,3 +53,5 @@ jobs:
           git add src/lib/core/permissionSystem.ts .github/workflows/fix-cs-manager-login-permissions.yml
           git commit -m "fix(auth): complete customer service manager login permissions"
           git push origin HEAD:feature/doctor-dashboard-charts-permission-fix
+
+# trigger
