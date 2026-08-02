@@ -62,23 +62,26 @@ export function calculateMonthlyIncentive(args: {
   pendingDeductionPoints?: number;
   pendingRewardPoints?: number;
 }): MonthlyIncentiveCalculation {
-  const startingPoints = args.startingPoints ?? MONTHLY_STARTING_POINTS;
+  // startingPoints هنا هدف الدورة (target) مش رصيد افتتاحي — كل موظف يبدأ الدورة من صفر
+  // نقاط فعلية، ويجمع نقاطه بالمكافآت، وتُخصم منه نقاط المخالفات. الوصول لهدف الـ 500
+  // نقطة (القيمة الافتراضية) هو اللي بيدّي الحافز الأقصى، مش نقطة بداية مجانية.
+  const targetPoints = args.startingPoints ?? MONTHLY_STARTING_POINTS;
   const approvedDeductionPoints = Math.max(0, args.approvedDeductionPoints ?? 0);
   const approvedExceptionalRewardPoints = Math.max(0, args.approvedExceptionalRewardPoints ?? 0);
   const pendingDeductionPoints = Math.max(0, args.pendingDeductionPoints ?? 0);
   const pendingRewardPoints = Math.max(0, args.pendingRewardPoints ?? 0);
   const finalPoints = Math.max(
     0,
-    startingPoints - approvedDeductionPoints + approvedExceptionalRewardPoints
+    approvedExceptionalRewardPoints - approvedDeductionPoints
   );
-  const paidPoints = Math.min(finalPoints, MONTHLY_STARTING_POINTS);
+  const paidPoints = Math.min(finalPoints, targetPoints);
   const monthlyIncentiveValue = Math.min(
     MONTHLY_MAX_INCENTIVE_EGP,
-    (paidPoints / MONTHLY_STARTING_POINTS) * MONTHLY_MAX_INCENTIVE_EGP
+    (paidPoints / targetPoints) * MONTHLY_MAX_INCENTIVE_EGP
   );
-  const distinctionPointsAbove500 = Math.max(0, finalPoints - MONTHLY_STARTING_POINTS);
+  const distinctionPointsAbove500 = Math.max(0, finalPoints - targetPoints);
   return {
-    startingPoints,
+    startingPoints: targetPoints,
     approvedDeductionPoints,
     approvedExceptionalRewardPoints,
     pendingDeductionPoints,
@@ -86,7 +89,7 @@ export function calculateMonthlyIncentive(args: {
     finalPoints,
     monthlyIncentiveValue,
     distinctionPointsAbove500,
-    progressPercent: Math.min(100, (finalPoints / MONTHLY_STARTING_POINTS) * 100),
+    progressPercent: Math.min(100, (finalPoints / targetPoints) * 100),
   };
 }
 

@@ -216,7 +216,7 @@ export function calculateStaffCycleIncentiveFromRows(args: {
 }): StaffCycleIncentive {
   const cycle = args.cycle || getCurrentCycle();
   const staff = args.staff;
-  const startingPoints = STARTING_POINTS; // دائماً 500 نقطة بداية الدورة
+  const startingPoints = STARTING_POINTS; // هدف نقاط الدورة (500) — مش رصيد افتتاحي، الموظف بيبدأ من صفر ويجمّع لحد الهدف ده
   const warnings: string[] = [];
 
   // منع التكرار
