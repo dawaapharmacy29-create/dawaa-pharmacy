@@ -167,6 +167,7 @@ export type CreateExceptionalFollowupInput = {
 };
 export type FollowupResultPayload = {
   contact_method?: string | null;
+  contacted_at?: string | null;
   contact_status?: string | null;
   contact_result?: string | null;
   followup_result?: string | null;

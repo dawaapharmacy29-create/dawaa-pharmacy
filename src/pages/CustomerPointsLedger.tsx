@@ -49,6 +49,7 @@ export default function CustomerPointsLedger() {
   const [query, setQuery] = useState(initialCustomer.customer_code || initialCustomer.customer_phone || initialCustomer.customer_name || '');
   const [matches, setMatches] = useState<CustomerIdentity[]>([]);
   const [customer, setCustomer] = useState<CustomerIdentity>(initialCustomer);
+  const [customerConfirmed, setCustomerConfirmed] = useState(Boolean(initialCustomer.customer_id || initialCustomer.customer_code || initialCustomer.customer_phone));
   const [rows, setRows] = useState<CustomerPointsLedgerRow[]>([]);
   const [setting, setSetting] = useState<CustomerLoyaltySetting | null>(null);
   const [preview, setPreview] = useState<CustomerInvoicePeriodSummary | null>(null);
@@ -61,6 +62,11 @@ export default function CustomerPointsLedger() {
   const [manualTotal, setManualTotal] = useState('');
   const [cycleStartDate, setCycleStartDate] = useState(todayKey());
   const [adjustment, setAdjustment] = useState({ points_amount: '', transaction_type: 'credit' as 'credit' | 'debit' | 'correction', points_reason: '', notes: '' });
+
+  const normalizedCustomerPhone = String(customer.customer_phone || '').replace(/\D/g, '');
+  const validNewCustomerPhone = /^(?:01\d{9}|1\d{9}|201\d{9})$/.test(normalizedCustomerPhone);
+  const newCustomerReady = Boolean(customer.customer_name?.trim() && validNewCustomerPhone);
+  const canUseCustomer = customerConfirmed || newCustomerReady;
 
   const loyaltyRows = useMemo(() => rows.filter((row) => row.source_type === 'quarterly_loyalty'), [rows]);
   const lastCycle = loyaltyRows[0] || null;
@@ -119,11 +125,24 @@ export default function CustomerPointsLedger() {
       setMatches(found);
       if (found[0]) {
         setCustomer(found[0]);
+        setCustomerConfirmed(true);
         await loadCustomerData(found[0]);
       } else {
-        setCustomer((current) => ({ ...current, customer_phone: /^\d/.test(query) ? query : current.customer_phone, customer_name: /^\d/.test(query) ? current.customer_name : query }));
+        const trimmed = query.trim();
+        const digits = trimmed.replace(/\D/g, '');
+        const fullPhone = /^(?:01\d{9}|1\d{9}|201\d{9})$/.test(digits);
+        setCustomer({
+          customer_id: null,
+          customer_code: null,
+          customer_phone: fullPhone ? trimmed : null,
+          customer_name: fullPhone ? null : (/^\D/.test(trimmed) ? trimmed : null),
+          branch: user?.branch || BRANCHES[0],
+        });
+        setCustomerConfirmed(false);
         setRows([]); setSetting(null); setPreview(null);
-        toast.info('لم يتم العثور على العميل. يمكن تسجيله برقم الهاتف ثم إعداد نظام النقاط.');
+        toast.info(fullPhone
+          ? 'لم يتم العثور على العميل. اكتب اسمه ثم يمكن تسجيله كعميل جديد بهذا الهاتف.'
+          : 'لم يتم العثور على العميل. لم يتم الاحتفاظ ببيانات العميل السابق؛ ابحث بكود أو هاتف صحيح.');
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر البحث عن العميل');
@@ -131,6 +150,7 @@ export default function CustomerPointsLedger() {
   };
 
   const previewPeriod = async () => {
+    if (!canUseCustomer) return toast.error('اختر عميلًا موجودًا أو اكتب اسمًا ورقم هاتف مصريًا صحيحًا أولًا.');
     if (!periodStart || !periodEnd) return toast.error('حدد بداية ونهاية الفترة');
     setLoading(true);
     try {
@@ -142,6 +162,7 @@ export default function CustomerPointsLedger() {
   };
 
   const saveSetting = async () => {
+    if (!canUseCustomer) return toast.error('لا يمكن حفظ إعداد النقاط قبل تأكيد العميل أو إدخال اسم ورقم هاتف صحيحين.');
     setSaving(true);
     try {
       const saved = await saveCustomerLoyaltySetting({
@@ -184,6 +205,7 @@ export default function CustomerPointsLedger() {
   };
 
   const saveAdjustment = async () => {
+    if (!canUseCustomer) return toast.error('اختر العميل الصحيح قبل تعديل رصيد النقاط.');
     setSaving(true);
     try {
       const saved = await addCustomerPoints({ ...customer, points_amount: Number(adjustment.points_amount), transaction_type: adjustment.transaction_type, source_type: 'manual_adjustment', points_reason: adjustment.points_reason || null, notes: adjustment.notes || null, created_by: user?.id || null, created_by_name: user?.name || null });
@@ -203,14 +225,15 @@ export default function CustomerPointsLedger() {
     <section className="dawaa-panel grid gap-3 lg:grid-cols-[1fr_auto]">
       <input className="input-dark" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث بالكود أو الهاتف أو الاسم"/>
       <button className="btn-primary" onClick={() => void runSearch()} disabled={loading}>{loading ? <RefreshCw className="ml-1 inline h-4 w-4 animate-spin"/> : <Search className="ml-1 inline h-4 w-4"/>} بحث</button>
-      {matches.length > 1 && <div className="flex flex-wrap gap-2 lg:col-span-2">{matches.map((item) => <button key={`${item.customer_code || item.customer_phone}-${item.customer_name}`} className="btn-secondary text-xs" onClick={() => { setCustomer(item); void loadCustomerData(item); }}>{item.customer_name || 'عميل'} - {item.customer_code || item.customer_phone}</button>)}</div>}
+      {matches.length > 1 && <div className="flex flex-wrap gap-2 lg:col-span-2">{matches.map((item) => <button key={`${item.customer_code || item.customer_phone}-${item.customer_name}`} className="btn-secondary text-xs" onClick={() => { setCustomer(item); setCustomerConfirmed(true); void loadCustomerData(item); }}>{item.customer_name || 'عميل'} - {item.customer_code || item.customer_phone}</button>)}</div>}
     </section>
 
     <section className="dawaa-panel grid gap-3 lg:grid-cols-4">
-      <input className="input-dark" placeholder="اسم العميل" value={customer.customer_name || ''} onChange={(e) => setCustomer((c) => ({...c,customer_name:e.target.value}))}/>
-      <input className="input-dark" placeholder="الهاتف" value={customer.customer_phone || ''} onChange={(e) => setCustomer((c) => ({...c,customer_phone:e.target.value}))}/>
-      <input className="input-dark" placeholder="الكود" value={customer.customer_code || ''} onChange={(e) => setCustomer((c) => ({...c,customer_code:e.target.value}))}/>
+      <input className="input-dark" placeholder="اسم العميل" value={customer.customer_name || ''} onChange={(e) => { setCustomerConfirmed(false); setCustomer((c) => ({...c,customer_name:e.target.value})); }}/>
+      <input className="input-dark" placeholder="الهاتف" value={customer.customer_phone || ''} onChange={(e) => { setCustomerConfirmed(false); setCustomer((c) => ({...c,customer_phone:e.target.value})); }}/>
+      <input className="input-dark" placeholder="الكود" value={customer.customer_code || ''} onChange={(e) => { setCustomerConfirmed(false); setCustomer((c) => ({...c,customer_code:e.target.value})); }}/>
       <select className="input-dark" value={customer.branch || ''} onChange={(e) => setCustomer((c) => ({...c,branch:e.target.value}))}><option value="">بدون فرع</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select>
+      {!canUseCustomer ? <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm font-bold text-amber-100 lg:col-span-4">لم يتم تأكيد هوية العميل. اختر نتيجة بحث صحيحة، أو أدخل اسم العميل مع رقم هاتف مصري صحيح لتسجيل عميل جديد. لن يتم حفظ أي نقاط قبل التأكيد.</div> : null}
     </section>
 
     <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

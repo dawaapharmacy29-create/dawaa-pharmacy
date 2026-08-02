@@ -50,7 +50,7 @@ export default function CustomerFollowupPerformancePanel() {
   const [data, setData] = useState<PerformanceData | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const actorId = String(user?.id || user?.staff_id || user?.username || '');
+  const actorId = String(user?.id || user?.staffId || user?.username || '');
 
   async function load() {
     if (!actorId) return;

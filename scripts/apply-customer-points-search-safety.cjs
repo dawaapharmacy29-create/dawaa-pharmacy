@@ -4,10 +4,32 @@ const path = require('node:path');
 const target = path.join(process.cwd(), 'src/pages/CustomerPointsLedger.tsx');
 let source = fs.readFileSync(target, 'utf8');
 
+// Centralized LF/CRLF-tolerant matching. Some "before"/"after" snippets span
+// multiple lines using an embedded "\n", which fails to match on a CRLF
+// checkout (e.g. Windows with core.autocrlf enabled) even though the
+// content is otherwise unchanged. We check both line-ending variants of
+// "after" first (idempotency - already applied), then both variants of
+// "before" (insertion point), and insert using the variant that matches so
+// the newly written lines stay consistent with the surrounding file's line
+// endings. If neither variant of "before" matches, throw as before.
 const replaceOnce = (before, after) => {
-  if (source.includes(after)) return;
-  if (!source.includes(before)) throw new Error(`Missing customer-points snippet: ${before}`);
-  source = source.replace(before, after);
+  const beforeLF = before;
+  const afterLF = after;
+  const beforeCRLF = before.replace(/\n/g, '\r\n');
+  const afterCRLF = after.replace(/\n/g, '\r\n');
+
+  if (source.includes(afterLF) || source.includes(afterCRLF)) return;
+
+  if (source.includes(beforeLF)) {
+    source = source.replace(beforeLF, afterLF);
+    return;
+  }
+  if (source.includes(beforeCRLF)) {
+    source = source.replace(beforeCRLF, afterCRLF);
+    return;
+  }
+
+  throw new Error(`Missing customer-points snippet: ${before}`);
 };
 
 replaceOnce(

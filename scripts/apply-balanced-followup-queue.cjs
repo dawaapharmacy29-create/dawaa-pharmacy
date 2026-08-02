@@ -178,18 +178,46 @@ const replacements = [
   ],
 ];
 
+// Scoped idempotency guard for the balanced follow-up queue block only.
+// If the feature's semantic markers (stable English identifiers, unaffected
+// by any prior Arabic-text mojibake corruption) are already present, treat
+// the smartQueue rewrite as already applied and skip just that one
+// before/after pair instead of throwing. Every other replacement below is
+// left untouched and will still throw on a genuine mismatch.
+const BALANCED_FOLLOWUP_MARKERS = [
+  'PER_BRANCH_QUEUE_LIMIT',
+  'TOTAL_DAILY_QUEUE_LIMIT',
+  'reviewRows',
+  'executeReviewAction',
+  'isPendingReview',
+];
+const balancedFollowupAlreadyApplied = BALANCED_FOLLOWUP_MARKERS.every((marker) => source.includes(marker));
+const SMART_QUEUE_BEFORE = "const smartQueue = useMemo(() => queueCandidates.slice(0, DAILY_QUEUE_LIMIT), [queueCandidates]);";
+
 for (const [before, after] of replacements) {
   if (source.includes(after)) continue;
+  if (balancedFollowupAlreadyApplied && before === SMART_QUEUE_BEFORE) {
+    console.warn('[apply-balanced-followup-queue] smartQueue block already applied (semantic markers found) - skipping this replacement only.');
+    continue;
+  }
   if (!source.includes(before)) {
     throw new Error(`Expected follow-up workflow snippet was not found: ${before}`);
   }
   source = source.split(before).join(after);
 }
 
-const insightReplacements = [
-  [
-    "  return score;\n}\n\nconst actionLabels",
-    `  return score;
+// Scoped LF/CRLF-tolerant handling for the suggestedFollowupScript insertion
+// only. This snippet spans multiple lines, so a literal "\n"-only match
+// fails on a CRLF checkout (e.g. Windows with core.autocrlf enabled) even
+// though the surrounding content is otherwise unchanged. We try the LF
+// variant first, then an explicit CRLF variant, for this one before/after
+// pair only. No other replacement is touched and the file is not
+// normalized as a whole - only this inserted block's line endings match
+// whichever variant was found.
+const SUGGESTED_SCRIPT_MARKER = 'function suggestedFollowupScript(';
+if (!source.includes(SUGGESTED_SCRIPT_MARKER)) {
+  const suggestedScriptBeforeLF = "  return score;\n}\n\nconst actionLabels";
+  const suggestedScriptAfterLF = `  return score;
 }
 
 function suggestedFollowupScript(row: FollowupRow, kind: 'general' | 'inactive' | 'missing' | 'thanks') {
@@ -200,11 +228,32 @@ function suggestedFollowupScript(row: FollowupRow, kind: 'general' | 'inactive' 
   return \`أهلًا أ/ \${name}، مع حضرتك صيدليات دواء. حابين نطمن على حضرتك ونعرف هل في أي احتياج أو ملاحظة نقدر نساعد فيها؟\`;
 }
 
-const actionLabels`,
-  ],
-  [
-    "      {historyOpen ?",
-    `      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+const actionLabels`;
+  const suggestedScriptBeforeCRLF = suggestedScriptBeforeLF.replace(/\n/g, '\r\n');
+  const suggestedScriptAfterCRLF = suggestedScriptAfterLF.replace(/\n/g, '\r\n');
+
+  if (source.includes(suggestedScriptBeforeLF)) {
+    source = source.replace(suggestedScriptBeforeLF, suggestedScriptAfterLF);
+  } else if (source.includes(suggestedScriptBeforeCRLF)) {
+    source = source.replace(suggestedScriptBeforeCRLF, suggestedScriptAfterCRLF);
+  } else {
+    throw new Error(`Expected customer insight snippet was not found: ${suggestedScriptBeforeLF}`);
+  }
+}
+
+// Scoped idempotency + LF/CRLF-tolerant handling for the {historyOpen ?
+// customer-insight panel block only. Its "after" text is multi-line (LF),
+// so on a CRLF checkout the old "if (source.includes(after)) continue"
+// idempotency check would falsely report "not applied yet" and duplicate
+// the whole block via before/replace. Instead we detect already-applied
+// state using a stable, single-line semantic marker that only exists
+// inside this inserted block, independent of line-ending style. If the
+// marker is missing, we try the "before" anchor in its LF and CRLF forms.
+// No other replacement is touched.
+const HISTORY_OPEN_MARKER = "suggestedFollowupScript(selected, 'general')";
+if (!source.includes(HISTORY_OPEN_MARKER)) {
+  const historyOpenBeforeLF = "      {historyOpen ?";
+  const historyOpenAfterLF = `      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">الأهمية</div><div className="mt-1 font-black text-white">{importance(selected).label}</div></div>
         <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">حالة النشاط</div><div className="mt-1 font-black text-white">{activity(selected).label}</div></div>
         <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">آخر شراء</div><div className="mt-1 font-black text-white">{lastPurchase(selected) || 'غير معروف'}</div></div>
@@ -233,9 +282,20 @@ const actionLabels`,
         </div>
       </div>
 
-      {historyOpen ?`,
-  ],
-];
+      {historyOpen ?`;
+  const historyOpenBeforeCRLF = historyOpenBeforeLF.replace(/\n/g, '\r\n');
+  const historyOpenAfterCRLF = historyOpenAfterLF.replace(/\n/g, '\r\n');
+
+  if (source.includes(historyOpenBeforeLF)) {
+    source = source.replace(historyOpenBeforeLF, historyOpenAfterLF);
+  } else if (source.includes(historyOpenBeforeCRLF)) {
+    source = source.replace(historyOpenBeforeCRLF, historyOpenAfterCRLF);
+  } else {
+    throw new Error(`Expected customer insight snippet was not found: ${historyOpenBeforeLF}`);
+  }
+}
+
+const insightReplacements = [];
 
 for (const [before, after] of insightReplacements) {
   if (source.includes(after)) continue;
