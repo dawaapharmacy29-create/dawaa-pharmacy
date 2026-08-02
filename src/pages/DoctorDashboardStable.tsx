@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, Award, BarChart3, Bell, CheckCircle2, ClipboardCheck, Clock3,
   DollarSign, ExternalLink, Gift, Headphones, LogOut, Megaphone, MoreHorizontal, RefreshCw, ShieldCheck,
-  Star, Store, Target, TrendingUp, Trophy, WalletCards, X,
+  Star, Store, Target, TrendingDown, TrendingUp, Trophy, WalletCards, X,
 } from 'lucide-react';
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -101,11 +101,26 @@ function Metric({ label, value, hint, icon: Icon }: { label: string; value: stri
   );
 }
 
-function StatChip({ label, value, hint, icon: Icon, tone = 'primary' }: { label: string; value: string; hint?: string; icon: typeof DollarSign; tone?: 'primary' | 'urgent' }) {
+function StatChip({
+  label, value, hint, icon: Icon, tone = 'primary', trend,
+}: {
+  label: string; value: string; hint?: string; icon: typeof DollarSign; tone?: 'primary' | 'urgent';
+  trend?: { direction: 'up' | 'down' | 'flat'; text: string };
+}) {
   const iconTone = tone === 'urgent' ? 'bg-amber-500/15 text-amber-300' : 'bg-teal-500/15 text-teal-300';
+  const trendTone =
+    trend?.direction === 'up' ? 'text-emerald-300' : trend?.direction === 'down' ? 'text-rose-300' : 'text-slate-400';
+  const TrendIcon = trend?.direction === 'down' ? TrendingDown : TrendingUp;
   return (
     <div className="min-w-[158px] shrink-0 rounded-2xl border p-4" style={surface}>
-      <div className={`inline-flex rounded-xl p-2 ${iconTone}`}><Icon size={18} /></div>
+      <div className="flex items-center justify-between">
+        <div className={`inline-flex rounded-xl p-2 ${iconTone}`}><Icon size={18} /></div>
+        {trend && trend.direction !== 'flat' ? (
+          <span className={`flex items-center gap-0.5 text-[11px] font-black ${trendTone}`}>
+            <TrendIcon size={12} /> {trend.text}
+          </span>
+        ) : null}
+      </div>
       <div className="mt-3 text-xl font-black text-white">{value}</div>
       <div className="mt-1 text-xs font-bold" style={mutedText}>{label}</div>
       {hint ? <div className="mt-1 text-[11px]" style={mutedText}>{hint}</div> : null}
@@ -415,8 +430,23 @@ export default function DoctorDashboardStable() {
         <>
           <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
             <StatChip icon={DollarSign} label="مبيعاتي في الدورة" value={doctorRow ? formatCurrency(doctorRow.netSales) : 'غير مرتبط'} hint={doctorRow ? `${doctorRow.invoicesCount} فاتورة` : 'راجع staff_id'} />
-            <StatChip icon={TrendingUp} label="متوسط فاتورتي" value={doctorRow ? formatCurrency(doctorRow.avgInvoice) : '—'} hint={`متوسط الفرع ${formatCurrency(summary?.kpis.avgInvoice || 0)}`} />
-            <StatChip icon={Award} label="ترتيبي في الفرع" value={doctorRank ? `${doctorRank} من ${ranking.length}` : '—'} />
+            <StatChip
+              icon={TrendingUp}
+              label="متوسط فاتورتي"
+              value={doctorRow ? formatCurrency(doctorRow.avgInvoice) : '—'}
+              hint={`متوسط الفرع ${formatCurrency(summary?.kpis.avgInvoice || 0)}`}
+              trend={
+                doctorRow && summary?.kpis.avgInvoice
+                  ? (() => {
+                      const diff = doctorRow.avgInvoice - summary.kpis.avgInvoice;
+                      const pct = Math.round((diff / summary.kpis.avgInvoice) * 100);
+                      if (Math.abs(pct) < 1) return { direction: 'flat' as const, text: '' };
+                      return { direction: diff >= 0 ? ('up' as const) : ('down' as const), text: `${Math.abs(pct)}%` };
+                    })()
+                  : undefined
+              }
+            />
+            <StatChip icon={Trophy} label="ترتيبي في الفرع" value={doctorRank ? `${doctorRank} من ${ranking.length}` : '—'} />
             <StatChip icon={ClipboardCheck} label="المطلوب المفتوح" value={String(openAssignments.length)} tone={overdueAssignments.length ? 'urgent' : 'primary'} hint={overdueAssignments.length ? `${overdueAssignments.length} قريب من الانتهاء` : 'لا يوجد قريب من الانتهاء'} />
           </div>
 
