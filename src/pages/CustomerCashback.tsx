@@ -586,6 +586,27 @@ export default function CustomerCashback() {
   const addVoucher = async (row: CashbackRow) => {
     const value = Number(window.prompt('قيمة الفاوتشر أو الهدية الإضافية', '0') || 0);
     if (!Number.isFinite(value) || value <= 0) return;
+    if (row.customer_code) {
+      // لازم نحفظ الفاوتشر في customer_cashback_accounts كمان، لأن الدالة اللي بتحسب
+      // الكاش باك (calculate_customer_cashback_cycle_v6) بتقرأ منها في كل إعادة حساب —
+      // من غير ده، أي إعادة حساب هتمسح الفاوتشر اللي اتضاف من هنا من غير ما حد ياخد باله.
+      const { data: existing } = await supabase
+        .from('customer_cashback_accounts')
+        .select('voucher_value')
+        .eq('customer_code', row.customer_code)
+        .maybeSingle();
+      await supabase.from('customer_cashback_accounts').upsert(
+        {
+          customer_code: row.customer_code,
+          customer_name: row.customer_name,
+          customer_phone: row.customer_phone,
+          branch: row.branch,
+          voucher_value: Number(existing?.voucher_value || 0) + value,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'customer_code' }
+      );
+    }
     await updateRow(
       row,
       {
@@ -604,6 +625,21 @@ export default function CustomerCashback() {
     if ((row.notes || '').includes(MULTIPLY_MARKER)) {
       toast.error('تم مضاعفة الكاش باك لهذا العميل من قبل — لا يمكن تكرارها في نفس الدورة.');
       return;
+    }
+    if (row.customer_code) {
+      // نفس مشكلة الفاوتشر: cashback_multiplier في customer_cashback_accounts هي اللي
+      // بتتقرأ عند أي إعادة حساب، فلازم نحدّثها هنا وإلا المضاعفة هتتمسح تلقائيًا.
+      await supabase.from('customer_cashback_accounts').upsert(
+        {
+          customer_code: row.customer_code,
+          customer_name: row.customer_name,
+          customer_phone: row.customer_phone,
+          branch: row.branch,
+          cashback_multiplier: 2,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'customer_code' }
+      );
     }
     await updateRow(
       row,
