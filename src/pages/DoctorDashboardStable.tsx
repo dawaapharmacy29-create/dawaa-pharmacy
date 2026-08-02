@@ -289,13 +289,35 @@ export default function DoctorDashboardStable() {
   const loadDoctorTrend = useCallback(async () => {
     if (!branch || !doctorName) return;
     try {
-      const result = await loadSalesAnalyticsSummary({
-        startDate: formatCycleDate(cycle.start),
-        endDate: formatCycleDate(cycle.end),
-        branch,
-        doctor: doctorName,
+      // مش بنستخدم فلتر الدكتور في loadSalesAnalyticsSummary لأنه بيعمل مطابقة حرفية
+      // (seller_name = الاسم بالظبط)، وده بيفشل لو اسم الحساب فيه اختلاف بسيط عن اسم
+      // البائع في الفاتورة (زي "د/ بسنت" في الحساب مقابل "د بسنت" في الفواتير).
+      // بنجيب فواتير الفرع كلها للدورة، وبنطابق بنفس دالة normalizeName المستخدمة
+      // في باقي الصفحة (الرواكد واللستة)، اللي بتشيل "د/" والمسافات والرموز.
+      const { data, error } = await supabase
+        .from('sales_invoices')
+        .select('invoice_date,sale_date,net_total,net_amount,discounted_amount,total_amount,amount,branch,seller_name,normalized_seller_name,staff_name')
+        .eq('branch', branch)
+        .gte('invoice_date', formatCycleDate(cycle.start))
+        .lt('invoice_date', formatCycleDate(cycle.end))
+        .limit(5000);
+      if (error) throw error;
+      const target = normalizeName(doctorName);
+      const mine = (data || []).filter((row: Row) => {
+        const candidates = [row.seller_name, row.normalized_seller_name, row.staff_name].map((v) => normalizeName(text(v)));
+        return candidates.includes(target);
       });
-      setDoctorTrend(result.dailyTrend || []);
+      const byDay = new Map<string, number>();
+      for (const row of mine) {
+        const day = text(row.invoice_date || row.sale_date).slice(0, 10);
+        if (!day) continue;
+        const amount = number(row.net_total) || number(row.net_amount) || number(row.discounted_amount) || number(row.total_amount) || number(row.amount);
+        byDay.set(day, (byDay.get(day) || 0) + amount);
+      }
+      const trend = [...byDay.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, netSales]) => ({ date, netSales, invoicesCount: 0, avgInvoice: 0, uniqueCustomers: 0 }));
+      setDoctorTrend(trend);
     } catch {
       setDoctorTrend([]);
     }
