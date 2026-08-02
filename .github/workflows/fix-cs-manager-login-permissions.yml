@@ -1,0 +1,55 @@
+name: Fix CS manager login permissions
+
+on:
+  push:
+    branches:
+      - feature/doctor-dashboard-charts-permission-fix
+    paths:
+      - .github/workflows/fix-cs-manager-login-permissions.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add leave and attendance permissions inside CS manager preset
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('src/lib/core/permissionSystem.ts')
+          s = p.read_text()
+          match = re.search(r"const CS_MANAGER_BASE = \[(.*?)\n\];", s, re.S)
+          if not match:
+              raise SystemExit('CS_MANAGER_BASE not found')
+          block = match.group(1)
+          for permission in ["create_leave_request", "record_attendance"]:
+              if f"'{permission}'" not in block:
+                  block += f"\n  '{permission}',"
+          s = s[:match.start(1)] + block + s[match.end(1):]
+          p.write_text(s)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build --ignore-scripts
+
+      - name: Remove temporary workflow and commit
+        run: |
+          rm -f .github/workflows/fix-cs-manager-login-permissions.yml
+          git config user.name "Dawaa Pharmacy Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/lib/core/permissionSystem.ts .github/workflows/fix-cs-manager-login-permissions.yml
+          git commit -m "fix(auth): complete customer service manager login permissions"
+          git push origin HEAD:feature/doctor-dashboard-charts-permission-fix
