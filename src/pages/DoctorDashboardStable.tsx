@@ -471,6 +471,33 @@ export default function DoctorDashboardStable() {
             </div>
             <button className="btn-secondary" onClick={() => void loadAssignments()}>تحديث</button>
           </div>
+
+          {assignments.length ? (() => {
+            const totalAssigned = assignments.reduce((sum, item) => sum + number(item.total_quantity ?? item.quantity_available), 0);
+            const totalRemaining = assignments.reduce((sum, item) => sum + number(item.remaining_quantity ?? item.quantity_available), 0);
+            const dispensed = Math.max(totalAssigned - totalRemaining, 0);
+            const efficiency = totalAssigned > 0 ? Math.round((dispensed / totalAssigned) * 100) : 0;
+            return (
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border p-4" style={surface}>
+                  <div className="flex items-center gap-2 font-black text-teal-200"><Target size={16} /> كفاءة صرف الراكد</div>
+                  <div className="mt-2 text-2xl font-black text-white">{efficiency}%</div>
+                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full bg-teal-400" style={{ width: `${Math.min(efficiency, 100)}%` }} />
+                  </div>
+                </div>
+                <div className="rounded-2xl border p-4" style={surface}>
+                  <div className="text-xs font-bold" style={mutedText}>تم تصريفه</div>
+                  <div className="mt-2 text-2xl font-black text-white">{dispensed.toLocaleString('ar-EG')}</div>
+                </div>
+                <div className="rounded-2xl border p-4" style={surface}>
+                  <div className="text-xs font-bold" style={mutedText}>الباقي من إجمالي {totalAssigned.toLocaleString('ar-EG')}</div>
+                  <div className="mt-2 text-2xl font-black text-white">{totalRemaining.toLocaleString('ar-EG')}</div>
+                </div>
+              </div>
+            );
+          })() : null}
+
           <div className="mt-4 space-y-3">
             {assignments.map((item) => {
               const expiry = text(item.nearest_expiry_date || item.expiry_date);
@@ -478,6 +505,7 @@ export default function DoctorDashboardStable() {
               const urgent = days !== null && Number.isFinite(days) && days <= 30;
               const remaining = number(item.remaining_quantity ?? item.quantity_available);
               const total = number(item.total_quantity ?? item.quantity_available);
+              const itemPct = total > 0 ? Math.round(((total - remaining) / total) * 100) : 0;
               return (
                 <article key={text(item.id)} className="rounded-2xl border p-4" style={urgent ? { borderColor: 'rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.06)' } : surface}>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -487,6 +515,14 @@ export default function DoctorDashboardStable() {
                     </div>
                     <span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surfaceSoft}>{text(item.status || 'نشط')}</span>
                   </div>
+                  {total > 0 ? (
+                    <div className="mt-3 flex items-center gap-2">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+                        <div className="h-full rounded-full bg-teal-400" style={{ width: `${Math.min(itemPct, 100)}%` }} />
+                      </div>
+                      <span className="text-[11px] font-black text-teal-200">{itemPct}%</span>
+                    </div>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold" style={mutedText}>
                     <span>المتبقي: {remaining}{total ? ` من ${total}` : ''}</span>
                     <span>الأولوية: {text(item.priority || 'متوسطة')}</span>
