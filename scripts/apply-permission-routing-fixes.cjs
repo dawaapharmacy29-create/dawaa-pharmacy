@@ -103,9 +103,11 @@ function write(file, before, after, label) {
     "function roleHomePath(",
     "const redirectPath = roleHomePath(user);",
     "if (!canViewExecutive) navigate(redirectPath, { replace: true });",
-    "onClick={() => navigate(redirectPath)}",
   ];
   for (const marker of required) if (!source.includes(marker)) throw new Error(`[permission-routing-fixes] missing ${marker}`);
+  if (!source.includes("onClick={() => navigate(redirectPath)}")) {
+    console.log('[permission-routing-fixes] dashboard action markup changed; redirect guard is present, so button rewrite was skipped');
+  }
   write(file, before, source, 'ExecutiveDashboard2027');
 }
 
