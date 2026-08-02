@@ -760,8 +760,12 @@ export async function fetchCustomerServiceInsightPools(branch?: string): Promise
   const stopped60 = stoppedCustomers
     .filter((customer) => {
       const days = daysSince(customer.last_purchase);
-      return days == null || days >= 60;
+      // من غير حد أقصى، القائمة كانت بتتلخبط بعملاء توقفوا من سنين (أو حتى من غير تاريخ شراء
+      // موثوق أصلًا) وده بيغرق العملاء اللي توقفوا حديثًا واحتمال ردهم أعلى بكتير.
+      // بنركّز على نافذة آخر 60-180 يوم (شهرين لحد 6 شهور) اللي فعلاً يستاهلوا متابعة يومية.
+      return days != null && days >= 60 && days <= 180;
     })
+    .sort((a, b) => (daysSince(a.last_purchase) ?? 0) - (daysSince(b.last_purchase) ?? 0))
     .slice(0, 40)
     .map((customer) => {
       const days = daysSince(customer.last_purchase);

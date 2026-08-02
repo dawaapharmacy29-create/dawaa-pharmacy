@@ -87,11 +87,13 @@ export async function notifyBranchDoctors(
 ): Promise<void> {
   const branchValue = text(branch);
   if (!branchValue) return;
+  // لازم تشمل الدكاترة (pharmacist) والمساعدين (assistant) مع بعض — التنبيه الخاص
+  // بفرع معين المفروض يوصل لكل فريق الفرع ده، مش الصيادلة بس.
   const { data, error } = await supabase
     .from('staff_accounts')
     .select('staff_id')
     .eq('branch', branchValue)
-    .eq('role', 'pharmacist')
+    .in('role', ['pharmacist', 'assistant'])
     .eq('active', true)
     .eq('can_login', true);
   if (error || !data) return;

@@ -204,7 +204,20 @@ export default function DoctorDashboardStable() {
       queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staffId).order('created_at', { ascending: false }).limit(100)));
       queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).order('created_at', { ascending: false }).limit(100)));
     }
-    const unique = new Map<string, Row>(); (await Promise.all(queries)).flat().forEach((row) => unique.set(text(row.id || `${row.created_at}-${row.doctor_name}`), row));
+    // بعض التقييمات (خصوصًا القديمة) اتسجلت بالاسم بس من غير staff_id/doctor_id،
+    // فمينفعش نعتمد على المطابقة بالـ ID لوحدها — لازم fallback بالاسم زي الرواكد واللستة.
+    if (doctorName) {
+      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_name', doctorName).order('created_at', { ascending: false }).limit(100)));
+    }
+    const rows = (await Promise.all(queries)).flat();
+    const mine = staffId
+      ? rows.filter((row) => {
+          const hasId = text(row.staff_id) || text(row.doctor_id);
+          if (hasId) return text(row.staff_id) === staffId || text(row.doctor_id) === staffId;
+          return normalizeName(text(row.doctor_name)) === normalizeName(doctorName);
+        })
+      : rows;
+    const unique = new Map<string, Row>(); mine.forEach((row) => unique.set(text(row.id || `${row.created_at}-${row.doctor_name}`), row));
     setReviews([...unique.values()].sort((a, b) => text(b.created_at).localeCompare(text(a.created_at))).map((row) => ({
       id: text(row.id), createdAt: text(row.created_at || row.conversation_date), kind: text(row.evaluation_kind || row.conversation_type || 'تقييم محادثة'),
       score: number(row.final_score ?? row.total_score), impact: number(row.doctor_points_impact ?? row.point_impact),
@@ -212,7 +225,7 @@ export default function DoctorDashboardStable() {
       training: text(row.training_recommendation), reviewer: text(row.reviewer_name || 'مراجع خدمة العملاء'),
     })));
     setPart('reviews', 'success');
-  }, [staffId]);
+  }, [staffId, doctorName]);
 
   const loadNotifications = useCallback(async () => {
     setPart('notifications', 'loading');
