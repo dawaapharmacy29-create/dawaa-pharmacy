@@ -60,6 +60,7 @@ const Reviews = lazy(() => import('@/pages/ReviewsEnhanced'));
 const ShiftPerformance = lazy(() => import('@/pages/ShiftPerformance'));
 const ShiftNotes = lazy(() => import('@/pages/ShiftNotes'));
 const StaffDetail = lazy(() => import('@/pages/StaffDetail'));
+const StaffMonthlyEvaluation = lazy(() => import('@/pages/StaffMonthlyEvaluation'));
 const TimeOff = lazy(() => import('@/pages/TimeOff'));
 const DoctorDashboard = lazy(() => import('@/pages/DoctorDashboardEnhanced'));
 const StagnantMedicines = lazy(() => import('@/pages/StagnantMedicines'));
@@ -68,6 +69,7 @@ const StaffAccounts = lazy(() => import('@/pages/StaffAccounts'));
 const StaffDuplicateAudit = lazy(() => import('@/pages/StaffDuplicateAudit'));
 const PenaltyIncentiveManagement = lazy(() => import('@/pages/PenaltyIncentiveManagement'));
 const StaffDashboard = lazy(() => import('@/pages/StaffDashboard'));
+const CustomerServiceManagerDashboard = lazy(() => import('@/pages/CustomerServiceManagerDashboard'));
 const RolesPermissions = lazy(() => import('@/pages/RolesPermissions'));
 const ShelfOrganization = lazy(() => import('@/pages/ShelfOrganization'));
 const BranchCleaning = lazy(() => import('@/pages/BranchCleaning'));
@@ -160,6 +162,7 @@ function AppRoutes() {
     <Route path="/login" element={routeSuspense(<Login />, 'تسجيل الدخول')} />
     <Route path="/" element={<ProtectedRoute><ExecutiveDashboardRoute /></ProtectedRoute>} />
     <Route path="/executive-2027" element={<ProtectedRoute>{routeSuspense(<ExecutiveDashboardRoute />, 'لوحة القيادة')}</ProtectedRoute>} />
+    <Route path="/customer-service-dashboard" element={<ProtectedRoute>{routeSuspense(<CustomerServiceManagerDashboard />, 'لوحة مديرة خدمة العملاء')}</ProtectedRoute>} />
     <Route path="/doctor-dashboard" element={<ProtectedRoute>{routeSuspense(<DoctorDashboard />, 'لوحة الدكتور')}</ProtectedRoute>} />
     <Route path="/branch-comparison" element={<ProtectedRoute>{routeSuspense(<BranchComparison />, 'مقارنة الفروع')}</ProtectedRoute>} />
     <Route path="/branch-inspection" element={<ProtectedRoute>{routeSuspense(<BranchInspection />, 'مرور مدير الفروع')}</ProtectedRoute>} />
@@ -194,6 +197,7 @@ function AppRoutes() {
     <Route path="/activity-log" element={<ProtectedRoute>{routeSuspense(<ActivityLog />, 'سجل الأنشطة')}</ProtectedRoute>} />
     <Route path="/reviews" element={<ProtectedRoute>{routeSuspense(<Reviews />, 'التقييمات')}</ProtectedRoute>} />
     <Route path="/shift-performance" element={<ProtectedRoute>{routeSuspense(<ShiftPerformance />, 'تقييم الشيفت')}</ProtectedRoute>} />
+    <Route path="/staff-monthly-evaluation" element={<ProtectedRoute>{routeSuspense(<StaffMonthlyEvaluation />, 'تقييم الدكاترة الشهري')}</ProtectedRoute>} />
     <Route path="/shift-notes" element={<ProtectedRoute>{routeSuspense(<ShiftNotes />, 'ملاحظات الشيفت')}</ProtectedRoute>} />
     <Route path="/staff/:id" element={<ProtectedRoute>{routeSuspense(<StaffDetail />, 'تفاصيل الموظف')}</ProtectedRoute>} />
     <Route path="/time-off" element={<ProtectedRoute>{routeSuspense(<TimeOff />, 'الأذونات')}</ProtectedRoute>} />

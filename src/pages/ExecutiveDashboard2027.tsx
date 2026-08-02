@@ -98,6 +98,8 @@ type BranchDistribution = {
   linked_customers?: number | string | null;
 };
 
+type SavedBranchTargetRow = { branch_name?: string | null; branch?: string | null; target_amount?: number | string | null };
+
 type TargetRow = {
   branch?: string | null;
   target_amount?: number | string | null;
@@ -746,7 +748,8 @@ function createTargets(
   branches: BranchDistribution[],
   daysCount: number,
   startDate: string,
-  endDate: string
+  endDate: string,
+  savedTargets: SavedBranchTargetRow[] = []
 ): TargetRow[] {
   const targetDefaults: Record<string, number> = {
     'فرع الشامي': 1000000,
@@ -755,7 +758,8 @@ function createTargets(
 
   return branches.map((row) => {
     const branch = branchName(row.branch);
-    const target = targetDefaults[branch] || Math.max(n(row.sales_total) * 1.25, 1);
+    const savedTarget = savedTargets.find((item) => branchName(item.branch_name || item.branch) === branch);
+    const target = n(savedTarget?.target_amount) || targetDefaults[branch] || Math.max(n(row.sales_total) * 1.25, 1);
     const achieved = n(row.sales_total);
     const projected = daysCount > 0 ? (achieved / daysCount) * 31 : achieved;
     const percent = target ? (achieved / target) * 100 : 0;
@@ -942,6 +946,17 @@ function HealthSummaryBox({
   );
 }
 
+function roleHomePath(user: { role?: unknown } | null | undefined): string {
+  if (isDoctorRole(user as any)) return '/doctor-dashboard';
+  const role = normalizeRole(user?.role);
+  if (role === 'delivery') return '/delivery';
+  if (role === 'cleaning_supervisor') return '/branch-cleaning';
+  if (role === 'inventory_assistant') return '/inventory-counts';
+  if (role === 'customer_service' || role === 'customer_service_manager') return '/customer-service';
+  if (['general_manager','executive_manager','branches_manager','branch_manager'].includes(role)) return '/';
+  return '/schedule';
+}
+
 export default function ExecutiveDashboard2027() {
   const { user, checkPermission } = useAuth();
   const navigate = useNavigate();
@@ -951,7 +966,15 @@ export default function ExecutiveDashboard2027() {
     isManagerRole(user) ||
     checkPermission('view_executive_dashboard') ||
     checkPermission('view_branch_dashboard');
+  const redirectPath = roleHomePath(user);
   useEffect(() => {
+    if (!canViewExecutive) navigate(redirectPath, { replace: true });
+  }, [canViewExecutive, navigate, redirectPath]);
+  useEffect(() => {
+    if (normalizeRole(user?.role) === 'customer_service_manager') {
+      navigate('/customer-service-dashboard', { replace: true });
+      return;
+    }
     if (canViewExecutive) return;
     if (isDoctorRole(user)) { navigate('/doctor-dashboard', { replace: true }); return; }
     const role = normalizeRole(user?.role);
@@ -1326,7 +1349,19 @@ export default function ExecutiveDashboard2027() {
         const daysCount = new Set(
           (effectiveDailySales || []).map((row: any) => String(row.sale_date || '').slice(0, 10)).filter(Boolean)
         ).size || 1;
-        const targets = createTargets(effectiveBranchDistribution, daysCount, startDate, endDate);
+        let savedTargetRows: SavedBranchTargetRow[] = [];
+        try {
+          const targetResult = await withTimeout<SupabaseQueryResult<SavedBranchTargetRow[]>>(
+            supabase.from('branch_sales_targets').select('*').limit(100) as PromiseLike<SupabaseQueryResult<SavedBranchTargetRow[]>>,
+            5000,
+            'branch-sales-targets'
+          );
+          if (!targetResult.error) savedTargetRows = targetResult.data || [];
+          else errors.push('branch_sales_targets: ' + (targetResult.error.message || 'تعذر تحميل التارجت'));
+        } catch (targetError) {
+          errors.push('branch_sales_targets: ' + (targetError instanceof Error ? targetError.message : String(targetError)));
+        }
+        const targets = createTargets(effectiveBranchDistribution, daysCount, startDate, endDate, savedTargetRows);
         setState((prev) => ({
           ...prev,
           summary,
@@ -1897,6 +1932,7 @@ export default function ExecutiveDashboard2027() {
             onClick={() => {
               const role = normalizeRole(user?.role);
               if (isDoctorRole(user)) return navigate('/doctor-dashboard');
+              if (role === 'customer_service_manager') return navigate('/customer-service-dashboard');
               if (role === 'delivery') return navigate('/delivery');
               if (role === 'cleaning_supervisor') return navigate('/branch-cleaning');
               if (role === 'inventory_assistant') return navigate('/inventory-counts');
@@ -1986,6 +2022,13 @@ export default function ExecutiveDashboard2027() {
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={() => navigate('/analytics#branch-targets')}
+                className="rounded-2xl border border-emerald-300/30 bg-emerald-500/15 px-4 py-3 text-sm font-black text-emerald-100 hover:bg-emerald-500/25"
+              >
+                تعديل تارجت الفروع
+              </button>
               <button
                 onClick={() => {
                   setStartDate(formatCycleDate(currentCycle.start));

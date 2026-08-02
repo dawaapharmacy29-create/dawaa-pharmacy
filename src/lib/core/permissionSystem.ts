@@ -957,6 +957,7 @@ const LEGACY_ALIASES: Record<string, string[]> = {
 export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/': 'view_dashboard',
   '/executive-2027': ['view_executive_dashboard', 'view_branch_dashboard'],
+  '/customer-service-dashboard': ['view_branch_dashboard', 'view_executive_dashboard'],
   '/data-health': 'view_data_health',
   '/operations-center': 'view_operations',
   '/quarterly-incentives': 'view_quarterly_incentives',
