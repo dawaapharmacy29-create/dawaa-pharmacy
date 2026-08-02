@@ -423,7 +423,7 @@ export default function BranchInspection() {
             .filter((ev) => ev.staff_id && Number(ev.points_delta || 0) !== 0)
             .map((ev) => ({
               staff_id: ev.staff_id,
-              staff_name: ev.name,
+              employee_name: ev.name,
               branch: ev.branch || form.branch,
               points_delta: ev.points_delta || 0,
               points: ev.points_delta || 0,
@@ -436,10 +436,10 @@ export default function BranchInspection() {
               created_by_name: form.inspector_name || user?.name || null,
             }));
           if (pointRows.length) {
-            await supabase
-              .from('points_transactions')
-              .insert(pointRows)
-              .then(() => undefined);
+            const { error: pointsError } = await supabase.from('employee_transactions').insert(pointRows);
+            if (pointsError) {
+              toast.error(`تم حفظ نموذج المرور، لكن تعذر تسجيل نقاط الموظفين: ${pointsError.message}`);
+            }
           }
         }
       }
