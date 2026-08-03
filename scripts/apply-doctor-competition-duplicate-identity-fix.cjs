@@ -54,8 +54,7 @@ function buildUniqueStaffLookup(rows: Array<Pick<DoctorCompetitionScore, 'staffI
 
   const lookup: IdentityLookup = new Map();
   candidates.forEach((staffIds, key) => {
-    // عند وجود حسابين لنفس الاسم داخل نفس الفرع نستخدم هوية واحدة ثابتة
-    // ثم mergeRows يجمع المبيعات والفواتير والتقييمات في صف واحد فقط.
+    // عند وجود حسابين لنفس الاسم داخل نفس الفرع نستخدم هوية واحدة ثابتة.
     const canonicalStaffId = [...staffIds].sort()[0];
     if (canonicalStaffId) lookup.set(key, canonicalStaffId);
   });
@@ -74,15 +73,75 @@ function identityKey(
   return \`name:\${branch}:\${normalizedName}\`;
 }`;
 
-if (source.includes(newLookup)) {
-  console.log('[doctor-competition-duplicate-identity] already applied');
-} else if (!source.includes(oldLookup)) {
-  throw new Error('[doctor-competition-duplicate-identity] expected identity helpers were not found');
-} else {
+if (!source.includes(newLookup)) {
+  if (!source.includes(oldLookup)) {
+    throw new Error('[doctor-competition-duplicate-identity] expected identity helpers were not found');
+  }
   source = source.replace(oldLookup, newLookup);
+}
+
+const oldMergeStart = `function mergeRows(existing: DoctorCompetitionScore | undefined, incoming: DoctorCompetitionScore) {
+  if (!existing) return { ...incoming };
+  const totalSales = existing.totalSales + incoming.totalSales;
+  const invoices = existing.invoices + incoming.invoices;
+  const preferred = incoming.staffId && !existing.staffId ? incoming : existing;`;
+
+const newMergeStart = `function mergeRows(existing: DoctorCompetitionScore | undefined, incoming: DoctorCompetitionScore) {
+  if (!existing) return { ...incoming };
+  const duplicateIdentity = Boolean(
+    existing.staffId &&
+    incoming.staffId &&
+    existing.staffId !== incoming.staffId &&
+    normalizedIdentityName(existing.name) === normalizedIdentityName(incoming.name) &&
+    (normalizeBranchName(existing.branch) || existing.branch) ===
+      (normalizeBranchName(incoming.branch) || incoming.branch)
+  );
+  // الحسابان المكرران قد يشيران لنفس فواتير المبيعات؛ لذلك نستخدم القيمة الأكبر
+  // بدل جمعها حتى لا تتضاعف مبيعات الدكتور بعد الدمج.
+  const totalSales = duplicateIdentity
+    ? Math.max(existing.totalSales, incoming.totalSales)
+    : existing.totalSales + incoming.totalSales;
+  const invoices = duplicateIdentity
+    ? Math.max(existing.invoices, incoming.invoices)
+    : existing.invoices + incoming.invoices;
+  const preferred = incoming.staffId && !existing.staffId ? incoming : existing;`;
+
+if (!source.includes(newMergeStart)) {
+  if (!source.includes(oldMergeStart)) {
+    throw new Error('[doctor-competition-duplicate-identity] mergeRows anchor was not found');
+  }
+  source = source.replace(oldMergeStart, newMergeStart);
+}
+
+const sumFields = [
+  'listItems',
+  'stagnantItems',
+  'incentiveValue',
+  'totalQuantity',
+  'linkedInvoiceCount',
+  'reviewCount',
+  'reviewTotal',
+  'excellentReviews',
+  'negativeReviews',
+  'followups',
+  'completedFollowups',
+  'recoveredCustomers',
+  'followupSales',
+  'satisfactionTotal',
+  'satisfactionCount',
+];
+
+for (const field of sumFields) {
+  const oldExpression = `${field}: existing.${field} + incoming.${field},`;
+  const newExpression = `${field}: duplicateIdentity ? Math.max(existing.${field}, incoming.${field}) : existing.${field} + incoming.${field},`;
+  if (!source.includes(newExpression) && source.includes(oldExpression)) {
+    source = source.replace(oldExpression, newExpression);
+  }
 }
 
 if (source !== before) {
   fs.writeFileSync(filePath, source);
   console.log('[doctor-competition-duplicate-identity] applied');
+} else {
+  console.log('[doctor-competition-duplicate-identity] already applied');
 }
