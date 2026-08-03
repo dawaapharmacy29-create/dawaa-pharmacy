@@ -2851,6 +2851,9 @@ export async function importInvoicesToDB(
   clearCustomerServiceCommandCenterCache();
   clearCustomerProfileCache();
   clearStaffPerformanceProfileCache();
+  // مهم: استيراد الفواتير (بعكس استيراد ملف العملاء) كان بيسيب customer_metrics_summary
+  // من غير تحديث خالص. مش بننتظر النتيجة عشان الاستيراد يفضل سريع، بس لازم تتبعت.
+  void supabase.rpc('rebuild_customer_metrics_summary');
   await refreshImportSummaries(summary);
   const rebuilt = { customers: summary.updatedCustomers };
   summary.updatedCustomers = Math.max(summary.updatedCustomers, rebuilt.customers);

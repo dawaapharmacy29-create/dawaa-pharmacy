@@ -914,6 +914,7 @@ export default function Invoices() {
         branch
       );
       if (importKind === 'sales') {
+        clearInvoiceLinkedViews();
         await queryClient.invalidateQueries({ queryKey: ['supabase'] });
         await loadManagedInvoices();
         await loadInvoiceSummarySnapshot();
@@ -1174,6 +1175,8 @@ export default function Invoices() {
       if (affectedIdentifiers.length > 0) {
         await supabase.from('customer_analysis').delete().in('customer_code', affectedIdentifiers);
       }
+      clearInvoiceLinkedViews();
+      await queryClient.invalidateQueries({ queryKey: ['supabase'] });
       await logInvoiceAdminAction('مسح دفعة فواتير', `مسح دفعة ${batch}`, { import_batch: batch });
       await loadManagedInvoices();
     }
