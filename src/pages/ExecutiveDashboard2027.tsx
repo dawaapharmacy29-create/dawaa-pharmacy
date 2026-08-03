@@ -952,7 +952,7 @@ function roleHomePath(user: { role?: unknown } | null | undefined): string {
   if (role === 'delivery') return '/delivery';
   if (role === 'cleaning_supervisor') return '/branch-cleaning';
   if (role === 'inventory_assistant') return '/inventory-counts';
-  if (role === 'customer_service' || role === 'customer_service_manager') return '/customer-service';
+  if (role === 'customer_service' || role === 'customer_service_manager') return '/customer-service-dashboard';
   if (['general_manager','executive_manager','branches_manager','branch_manager'].includes(role)) return '/';
   return '/schedule';
 }

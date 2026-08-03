@@ -2854,6 +2854,33 @@ export async function importInvoicesToDB(
   // مهم: استيراد الفواتير (بعكس استيراد ملف العملاء) كان بيسيب customer_metrics_summary
   // من غير تحديث خالص. مش بننتظر النتيجة عشان الاستيراد يفضل سريع، بس لازم تتبعت.
   void supabase.rpc('rebuild_customer_metrics_summary');
+  // كاش باك العملاء كان محتاج ضغطة يدوية منفصلة كل مرة تستورد فواتير جديدة —
+  // بنحسب الربع (Quarter) اللي فواتير الدفعة دي واقعة فيه، ونشغّل نفس دالة
+  // الحساب اللي بيستخدمها الزرار اليدوي، تلقائيًا وبدون ما نستنى النتيجة.
+  const importedDates = invoiceRecords
+    .map((record) => String(record.invoice_date || ''))
+    .filter((value) => /^\d{4}-\d{2}-\d{2}/.test(value));
+  if (importedDates.length > 0) {
+    const quarterKeys = new Set(
+      importedDates.map((value) => {
+        const year = Number(value.slice(0, 4));
+        const month = Number(value.slice(5, 7));
+        const qStartMonth = Math.floor((month - 1) / 3) * 3;
+        return `${year}-${qStartMonth}`;
+      })
+    );
+    for (const key of quarterKeys) {
+      const [yearStr, startMonthStr] = key.split('-');
+      const year = Number(yearStr);
+      const startMonth = Number(startMonthStr);
+      const cycleStart = new Date(Date.UTC(year, startMonth, 1)).toISOString().slice(0, 10);
+      const cycleEnd = new Date(Date.UTC(year, startMonth + 3, 0)).toISOString().slice(0, 10);
+      void supabase.rpc('calculate_customer_cashback_cycle_v6', {
+        p_cycle_start: cycleStart,
+        p_cycle_end: cycleEnd,
+      });
+    }
+  }
   await refreshImportSummaries(summary);
   const rebuilt = { customers: summary.updatedCustomers };
   summary.updatedCustomers = Math.max(summary.updatedCustomers, rebuilt.customers);
