@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, AlertTriangle, Award, Bell, CheckCircle2, ClipboardList, Filter, Headphones,
-  MessageCircle, RefreshCw, Star, Timer, Users,
+  MessageCircle, PieChart as PieChartIcon, RefreshCw, Star, Timer, Trophy, Users,
 } from 'lucide-react';
+import {
+  Bar, BarChart, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from 'recharts';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
@@ -179,6 +182,58 @@ export default function CustomerServiceManagerDashboard() {
         <KpiCard icon={Timer} label="نسبة رد العملاء على الترحيب" value={`${welcomeResponseRate}%`} />
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-3xl border p-5" style={surface}>
+          <div className="flex items-center gap-2 font-black text-teal-200"><PieChartIcon size={18} /> توزيع حالات المتابعات</div>
+          {stats.totalToday ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: 'مكتملة', value: stats.completed, color: '#34d399' },
+                    { name: 'متأخرة', value: stats.overdue, color: '#fb7185' },
+                    { name: 'تحتاج مدير', value: stats.needsManager, color: '#f59e0b' },
+                    { name: 'لا يوجد رد', value: stats.noAnswer, color: '#94a3b8' },
+                    { name: 'مؤجلة', value: stats.postponed, color: '#38bdf8' },
+                  ].filter((d) => d.value > 0)}
+                  dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}
+                >
+                  {[{ color: '#34d399' }, { color: '#fb7185' }, { color: '#f59e0b' }, { color: '#94a3b8' }, { color: '#38bdf8' }].map((d, i) => (
+                    <Cell key={i} fill={d.color} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }} />
+                <Legend formatter={(value) => <span style={{ color: '#cbd5e1', fontSize: 12 }}>{value}</span>} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="mt-4 text-sm" style={mutedText}>مفيش متابعات كافية للفترة أو الفلاتر المختارة عشان نعرض التوزيع.</p>
+          )}
+        </div>
+
+        <div className="rounded-3xl border p-5" style={surface}>
+          <div className="flex items-center gap-2 font-black text-teal-200"><Award size={18} /> نسبة الإنجاز لكل موظف</div>
+          {team.length ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={team.slice(0, 8)} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
+                <XAxis type="number" domain={[0, 100]} hide />
+                <YAxis type="category" dataKey="responsible" width={90} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                  contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
+                  formatter={(value: number) => [`${value}%`, 'نسبة الإنجاز']}
+                />
+                <Bar dataKey="completionRate" radius={[0, 8, 8, 0]} barSize={16}>
+                  {team.slice(0, 8).map((_, i) => <Cell key={i} fill={i === 0 ? '#2dd4bf' : 'rgba(255,255,255,0.18)'} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="mt-4 text-sm" style={mutedText}>لا توجد بيانات كافية للفترة أو الفلاتر المختارة.</p>
+          )}
+        </div>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <div className="rounded-3xl border p-5" style={surface}>
           <div className="flex items-center gap-2 font-black text-teal-200"><Award size={18} /> أداء فريق خدمة العملاء</div>
@@ -186,9 +241,12 @@ export default function CustomerServiceManagerDashboard() {
             <div className="mt-3 space-y-2">
               {team.slice(0, 10).map((row, index) => (
                 <div key={`${row.responsible}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border p-3 text-sm" style={surfaceSoft}>
-                  <div>
-                    <div className="font-black text-white">{row.responsible || 'غير محدد'}</div>
-                    <div className="mt-0.5 text-xs" style={mutedText}>{row.branch} · {row.assigned} متابعة مسندة</div>
+                  <div className="flex items-center gap-2">
+                    {index === 0 ? <Trophy size={16} className="text-amber-300" /> : <span className="w-4 text-center text-xs" style={mutedText}>{index + 1}</span>}
+                    <div>
+                      <div className="font-black text-white">{row.responsible || 'غير محدد'}</div>
+                      <div className="mt-0.5 text-xs" style={mutedText}>{row.branch} · {row.assigned} متابعة مسندة</div>
+                    </div>
                   </div>
                   <div className="flex items-center gap-4 text-xs font-bold">
                     <span className="text-emerald-300">{row.completionRate}% إنجاز</span>
