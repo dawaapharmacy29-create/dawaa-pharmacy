@@ -4,6 +4,7 @@ import {
   Upload,
   FileSpreadsheet,
   AlertCircle,
+  AlertTriangle,
   CheckCircle,
   Download,
   Loader2,
@@ -48,6 +49,7 @@ import {
   type CustomerParseResult,
   type ImportSummary,
   type ParseResult,
+  type RawInvoiceRow,
 } from '@/lib/invoiceImporter';
 import {
   applyCustomerPhoneUpdate,
@@ -538,6 +540,8 @@ export default function Invoices() {
   const [dragging, setDragging] = useState(false);
   const [fileName, setFileName] = useState('');
   const [parseResult, setParseResult] = useState<ParseResult | CustomerParseResult | null>(null);
+  const [branchMismatchWarning, setBranchMismatchWarning] = useState<string | null>(null);
+  const [branchMismatchAcknowledged, setBranchMismatchAcknowledged] = useState(false);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [progress, setProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -746,6 +750,51 @@ export default function Invoices() {
       reader.readAsArrayBuffer(file);
     });
 
+  const checkBranchMismatch = useCallback(
+    async (rows: RawInvoiceRow[], selectedBranch: string) => {
+      setBranchMismatchWarning(null);
+      setBranchMismatchAcknowledged(false);
+      const numbers = rows
+        .map((row) => Number(String(row.invoiceNumber || '').replace(/[^\d]/g, '')))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      if (numbers.length < 10) return; // عيّنة صغيرة جدًا مش كافية نبني عليها قرار
+      const min = Math.min(...numbers);
+      const max = Math.max(...numbers);
+      const { data, error } = await supabase
+        .from('sales_invoices')
+        .select('branch, invoice_no')
+        .neq('branch', selectedBranch)
+        .not('invoice_no', 'is', null)
+        .limit(20000);
+      if (error || !data) return;
+      const otherBranchRanges = new Map<string, { min: number; max: number; count: number }>();
+      for (const row of data as Array<{ branch: string | null; invoice_no: string | null }>) {
+        const n = Number(String(row.invoice_no || '').replace(/[^\d]/g, ''));
+        if (!Number.isFinite(n) || n <= 0 || !row.branch) continue;
+        const current = otherBranchRanges.get(row.branch) || { min: n, max: n, count: 0 };
+        current.min = Math.min(current.min, n);
+        current.max = Math.max(current.max, n);
+        current.count += 1;
+        otherBranchRanges.set(row.branch, current);
+      }
+      for (const [otherBranch, range] of otherBranchRanges) {
+        if (range.count < 20) continue; // نطاق مبني على بيانات قليلة جدًا
+        const overlapStart = Math.max(min, range.min);
+        const overlapEnd = Math.min(max, range.max);
+        const overlapSize = Math.max(0, overlapEnd - overlapStart);
+        const fileSpan = Math.max(1, max - min);
+        if (overlapSize / fileSpan > 0.6) {
+          setBranchMismatchWarning(
+            `أرقام الفواتير في الملف ده (من ${min} لـ ${max}) قريبة جدًا من نطاق أرقام فواتير "${otherBranch}" المسجل قبل كده (${range.min}–${range.max})، ` +
+              `مش نطاق "${selectedBranch}" المختار حاليًا. ده بالظبط نفس نوع الخطأ اللي سبب مشكلة الفروع قبل كده — راجع اختيار الفرع قبل ما تكمل.`
+          );
+          return;
+        }
+      }
+    },
+    []
+  );
+
   const processFile = useCallback(
     async (file: File) => {
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -772,6 +821,10 @@ export default function Invoices() {
 
         if (result.rows.length === 0) toast.error('لم يتم العثور على صفوف صالحة في الملف');
         else toast.success(`تم تحليل الملف: ${result.rows.length.toLocaleString('ar-EG')} صف صالح`);
+
+        if (importKind === 'sales' && result.rows.length > 0) {
+          void checkBranchMismatch((result as ParseResult).rows, branch);
+        }
       } catch (error) {
         toast.error(`فشل قراءة الملف: ${(error as Error).message}`);
         setStep('idle');
@@ -1085,16 +1138,39 @@ export default function Invoices() {
           .filter(Boolean)
       )
     );
-    const query = supabase.from('sales_invoices').delete();
-    const { error } =
-      batch === 'بدون رقم دفعة'
-        ? await query.is('import_batch', null)
-        : await query.eq('import_batch', batch);
+
+    // مسح على دفعات صغيرة (مش استعلام واحد ضخم) — دفعة فيها مئات الصفوف بتشغّل تريجر
+    // تحديث مقاييس المتابعة مرة لكل صف، ولو اتعمل الحذف كله في استعلام واحد ممكن ياخد وقت
+    // أطول من مهلة الـ API ويفشل بالكامل من غير ما يمسح حاجة. بنجيب المعرّفات الأول،
+    // وبعدين نمسحهم على دفعات من 150، عشان أي فشل يوقف عند نقطة واضحة وتقدر تكمل منها.
+    const idQuery = supabase.from('sales_invoices').select('id');
+    const { data: idRows, error: idError } =
+      batch === 'بدون رقم دفعة' ? await idQuery.is('import_batch', null) : await idQuery.eq('import_batch', batch);
+
+    if (idError) {
+      toast.error(`تعذر تجهيز قائمة الفواتير للمسح: ${idError.message}`);
+      setAdminBusy(false);
+      return;
+    }
+
+    const ids = (idRows || []).map((row) => row.id).filter(Boolean);
+    const CHUNK_SIZE = 150;
+    let deletedCount = 0;
+    let lastError: { message: string } | null = null;
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + CHUNK_SIZE);
+      const { error } = await supabase.from('sales_invoices').delete().in('id', chunk);
+      if (error) { lastError = error; break; }
+      deletedCount += chunk.length;
+      toast.info(`جاري المسح… ${deletedCount} من ${ids.length}`, { id: 'batch-delete-progress' });
+    }
+
+    const error = lastError;
 
     if (error) {
-      toast.error(`تعذر مسح الدفعة: ${error.message}`);
+      toast.error(`تعذر مسح الدفعة بعد حذف ${deletedCount} من ${ids.length} فاتورة: ${error.message}. أعد المحاولة — الباقي فقط هيتمسح.`);
     } else {
-      toast.success('تم مسح دفعة الفواتير');
+      toast.success(`تم مسح دفعة الفواتير (${deletedCount} فاتورة)`);
       if (affectedIdentifiers.length > 0) {
         await supabase.from('customer_analysis').delete().in('customer_code', affectedIdentifiers);
       }
@@ -2072,9 +2148,30 @@ export default function Invoices() {
             </div>
           )}
 
+          {step === 'preview' && branchMismatchWarning && (
+            <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm">
+              <div className="flex items-start gap-2 font-bold text-red-300">
+                <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                <span>{branchMismatchWarning}</span>
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-xs text-red-200">
+                <input
+                  type="checkbox"
+                  checked={branchMismatchAcknowledged}
+                  onChange={(e) => setBranchMismatchAcknowledged(e.target.checked)}
+                />
+                متأكد إن الفرع المختار ({branch}) صح، وعايز أكمل الاستيراد رغم التحذير.
+              </label>
+            </div>
+          )}
+
           {step === 'preview' && validCount > 0 && (
             <div className="flex gap-3">
-              <button onClick={handleConfirmImport} className="btn-primary flex items-center gap-2">
+              <button
+                onClick={handleConfirmImport}
+                disabled={Boolean(branchMismatchWarning) && !branchMismatchAcknowledged}
+                className="btn-primary flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
                 <CheckCircle size={16} /> تأكيد استيراد {validCount.toLocaleString('ar-EG')}{' '}
                 {importKind === 'sales' ? 'فاتورة' : 'عميل'}
               </button>
