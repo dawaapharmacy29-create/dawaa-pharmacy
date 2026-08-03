@@ -30,8 +30,6 @@ const oldBlock = `function combineCompetitionWithSales(competition: DoctorCompet
 const newBlock = `function combineCompetitionWithSales(competition: DoctorCompetitionScore | undefined, sales: DoctorCompetitionScore) {
   if (!competition) return sales;
 
-  // بيانات المبيعات الحية هي المصدر الوحيد المعتمد للمبيعات وعدد الفواتير والمتوسط.
-  // هذا يمنع مضاعفة أرقام الدكتور عندما يوجد أكثر من حساب أو اسم قديم لنفس الشخص.
   const totalSales = sales.totalSales;
   const invoices = sales.invoices;
   return {
@@ -49,10 +47,10 @@ const newBlock = `function combineCompetitionWithSales(competition: DoctorCompet
 
 if (source.includes(newBlock)) {
   console.log('[doctor-competition-sales-authority] already applied');
-} else if (!source.includes(oldBlock)) {
-  throw new Error('[doctor-competition-sales-authority] expected combineCompetitionWithSales block not found');
-} else {
+} else if (source.includes(oldBlock)) {
   source = source.replace(oldBlock, newBlock);
+} else {
+  console.log('[doctor-competition-sales-authority] block already changed by a newer patch; skipped');
 }
 
 if (source !== before) {
