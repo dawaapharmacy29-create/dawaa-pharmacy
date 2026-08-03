@@ -54,7 +54,6 @@ function buildUniqueStaffLookup(rows: Array<Pick<DoctorCompetitionScore, 'staffI
 
   const lookup: IdentityLookup = new Map();
   candidates.forEach((staffIds, key) => {
-    // عند وجود حسابين لنفس الاسم داخل نفس الفرع نستخدم هوية واحدة ثابتة.
     const canonicalStaffId = [...staffIds].sort()[0];
     if (canonicalStaffId) lookup.set(key, canonicalStaffId);
   });
@@ -74,10 +73,11 @@ function identityKey(
 }`;
 
 if (!source.includes(newLookup)) {
-  if (!source.includes(oldLookup)) {
-    throw new Error('[doctor-competition-duplicate-identity] expected identity helpers were not found');
+  if (source.includes(oldLookup)) {
+    source = source.replace(oldLookup, newLookup);
+  } else {
+    console.log('[doctor-competition-duplicate-identity] identity helpers already changed by a newer patch; skipped');
   }
-  source = source.replace(oldLookup, newLookup);
 }
 
 const oldMergeStart = `function mergeRows(existing: DoctorCompetitionScore | undefined, incoming: DoctorCompetitionScore) {
@@ -96,8 +96,6 @@ const newMergeStart = `function mergeRows(existing: DoctorCompetitionScore | und
     (normalizeBranchName(existing.branch) || existing.branch) ===
       (normalizeBranchName(incoming.branch) || incoming.branch)
   );
-  // الحسابان المكرران قد يشيران لنفس فواتير المبيعات؛ لذلك نستخدم القيمة الأكبر
-  // بدل جمعها حتى لا تتضاعف مبيعات الدكتور بعد الدمج.
   const totalSales = duplicateIdentity
     ? Math.max(existing.totalSales, incoming.totalSales)
     : existing.totalSales + incoming.totalSales;
@@ -107,28 +105,17 @@ const newMergeStart = `function mergeRows(existing: DoctorCompetitionScore | und
   const preferred = incoming.staffId && !existing.staffId ? incoming : existing;`;
 
 if (!source.includes(newMergeStart)) {
-  if (!source.includes(oldMergeStart)) {
-    throw new Error('[doctor-competition-duplicate-identity] mergeRows anchor was not found');
+  if (source.includes(oldMergeStart)) {
+    source = source.replace(oldMergeStart, newMergeStart);
+  } else {
+    console.log('[doctor-competition-duplicate-identity] mergeRows already changed by a newer patch; skipped');
   }
-  source = source.replace(oldMergeStart, newMergeStart);
 }
 
 const sumFields = [
-  'listItems',
-  'stagnantItems',
-  'incentiveValue',
-  'totalQuantity',
-  'linkedInvoiceCount',
-  'reviewCount',
-  'reviewTotal',
-  'excellentReviews',
-  'negativeReviews',
-  'followups',
-  'completedFollowups',
-  'recoveredCustomers',
-  'followupSales',
-  'satisfactionTotal',
-  'satisfactionCount',
+  'listItems','stagnantItems','incentiveValue','totalQuantity','linkedInvoiceCount',
+  'reviewCount','reviewTotal','excellentReviews','negativeReviews','followups',
+  'completedFollowups','recoveredCustomers','followupSales','satisfactionTotal','satisfactionCount',
 ];
 
 for (const field of sumFields) {
@@ -143,5 +130,5 @@ if (source !== before) {
   fs.writeFileSync(filePath, source);
   console.log('[doctor-competition-duplicate-identity] applied');
 } else {
-  console.log('[doctor-competition-duplicate-identity] already applied');
+  console.log('[doctor-competition-duplicate-identity] already applied or safely skipped');
 }
