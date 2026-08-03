@@ -12,7 +12,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
 import { rowMatchesCurrentDoctor } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
-import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import { supabase } from '@/lib/supabase';
 
@@ -51,6 +50,10 @@ function normalizedIdentityName(name: string) {
   return normalizeDoctorName(name || '').trim();
 }
 
+function normalizedRowBranch(row: Pick<DoctorCompetitionScore, 'branch'>, fallback = '') {
+  return normalizeBranchName(row.branch || fallback) || row.branch || fallback;
+}
+
 function buildUniqueStaffLookup(rows: Array<Pick<DoctorCompetitionScore, 'staffId' | 'name'>>) {
   const candidates = new Map<string, Set<string>>();
   rows.forEach((row) => {
@@ -61,6 +64,7 @@ function buildUniqueStaffLookup(rows: Array<Pick<DoctorCompetitionScore, 'staffI
     set.add(row.staffId);
     candidates.set(name, set);
   });
+
   const lookup: IdentityLookup = new Map();
   candidates.forEach((staffIds, name) => {
     if (staffIds.size === 1) lookup.set(name, [...staffIds][0]);
@@ -68,15 +72,22 @@ function buildUniqueStaffLookup(rows: Array<Pick<DoctorCompetitionScore, 'staffI
   return lookup;
 }
 
-function identityKey(row: Pick<DoctorCompetitionScore, 'staffId' | 'name'>, lookup: IdentityLookup) {
-  if (row.staffId) return `staff:${row.staffId}`;
+function identityKey(
+  row: Pick<DoctorCompetitionScore, 'staffId' | 'name' | 'branch'>,
+  lookup: IdentityLookup,
+  mergeAllBranches: boolean,
+  branchFallback = ''
+) {
   const normalizedName = normalizedIdentityName(row.name);
-  const resolvedStaffId = lookup.get(normalizedName);
-  return resolvedStaffId ? `staff:${resolvedStaffId}` : `name:${normalizedName}`;
+  const resolvedStaffId = row.staffId || lookup.get(normalizedName) || '';
+  const personKey = resolvedStaffId ? `staff:${resolvedStaffId}` : `name:${normalizedName}`;
+  if (mergeAllBranches) return personKey;
+  return `${personKey}|branch:${normalizedRowBranch(row, branchFallback)}`;
 }
 
-function scoreKey(row: Pick<DoctorCompetitionScore, 'staffId' | 'name'>) {
-  return row.staffId ? `staff:${row.staffId}` : `name:${normalizedIdentityName(row.name)}`;
+function scoreKey(row: Pick<DoctorCompetitionScore, 'staffId' | 'name' | 'branch'>) {
+  const personKey = row.staffId ? `staff:${row.staffId}` : `name:${normalizedIdentityName(row.name)}`;
+  return `${personKey}|${row.branch}`;
 }
 
 function emptyCompetitionRow(input: {
@@ -121,15 +132,23 @@ function emptyCompetitionRow(input: {
   };
 }
 
-function mergeRows(existing: DoctorCompetitionScore | undefined, incoming: DoctorCompetitionScore) {
-  if (!existing) return { ...incoming };
+function mergeRows(
+  existing: DoctorCompetitionScore | undefined,
+  incoming: DoctorCompetitionScore,
+  mergeAllBranches: boolean
+) {
+  if (!existing) {
+    return { ...incoming, branch: mergeAllBranches ? ALL_BRANCHES : incoming.branch };
+  }
+
   const totalSales = existing.totalSales + incoming.totalSales;
   const invoices = existing.invoices + incoming.invoices;
   const preferred = incoming.staffId && !existing.staffId ? incoming : existing;
+
   return {
     ...existing,
     name: preferred.name,
-    branch: preferred.branch,
+    branch: mergeAllBranches ? ALL_BRANCHES : preferred.branch,
     staffId: existing.staffId || incoming.staffId || null,
     totalSales,
     invoices,
@@ -156,14 +175,21 @@ function mergeRows(existing: DoctorCompetitionScore | undefined, incoming: Docto
   };
 }
 
-function combineCompetitionWithSales(competition: DoctorCompetitionScore | undefined, sales: DoctorCompetitionScore) {
-  if (!competition) return sales;
+function combineCompetitionWithSales(
+  competition: DoctorCompetitionScore | undefined,
+  sales: DoctorCompetitionScore,
+  mergeAllBranches: boolean
+) {
+  if (!competition) return { ...sales, branch: mergeAllBranches ? ALL_BRANCHES : sales.branch };
+
   const totalSales = Math.max(competition.totalSales, sales.totalSales);
   const invoices = Math.max(competition.invoices, sales.invoices);
+  const preferredName = competition.staffId ? competition.name : sales.name;
+
   return {
     ...competition,
-    name: competition.staffId ? competition.name : sales.name,
-    branch: competition.staffId ? competition.branch : sales.branch,
+    name: preferredName,
+    branch: mergeAllBranches ? ALL_BRANCHES : sales.branch || competition.branch,
     staffId: competition.staffId || sales.staffId || null,
     totalSales,
     invoices,
@@ -177,6 +203,7 @@ function recalculatePoints(rows: DoctorCompetitionScore[]) {
   const maxSales = Math.max(1, ...rows.map((row) => row.totalSales));
   const maxAverage = Math.max(1, ...rows.map((row) => row.avgInvoice));
   const maxIncentive = Math.max(1, ...rows.map((row) => row.incentiveValue + row.listItems * 20 + row.stagnantItems * 20));
+
   return rows.map((row) => {
     const salesScore = row.totalSales / maxSales * 50;
     const averageScore = row.avgInvoice / maxAverage * 20;
@@ -201,10 +228,11 @@ function applyLiveReviews(rows: DoctorCompetitionScore[], reviews: ReviewRow[]) 
   rows.forEach((row, index) => {
     if (row.staffId) byStaff.set(row.staffId, index);
     const name = normalizedIdentityName(row.name);
-    const branch = normalizeBranchName(row.branch) || row.branch;
+    const branch = normalizedRowBranch(row);
     byBranchAndName.set(`${branch}|${name}`, index);
     nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
   });
+
   rows.forEach((row, index) => {
     const name = normalizedIdentityName(row.name);
     if (nameCounts.get(name) === 1) byUniqueName.set(name, index);
@@ -217,8 +245,10 @@ function applyLiveReviews(rows: DoctorCompetitionScore[], reviews: ReviewRow[]) 
     const branch = normalizeBranchName(review.branch || '') || String(review.branch || '').trim();
     const index = (directId && byStaff.get(directId)) ?? byBranchAndName.get(`${branch}|${name}`) ?? byUniqueName.get(name);
     if (index === undefined) return;
+
     const score = Number(review.final_score ?? review.total_score ?? review.score ?? 0);
     if (!Number.isFinite(score) || score <= 0) return;
+
     const current = aggregates.get(index) || { count: 0, total: 0, excellent: 0, negative: 0 };
     current.count += 1;
     current.total += score;
@@ -254,14 +284,24 @@ export default function DoctorCompetition() {
   const [warning, setWarning] = useState('');
 
   const effectiveBranch = branchFilter === ALL_BRANCHES ? '' : normalizeBranchName(branchFilter);
+  const mergeAllBranches = !effectiveBranch;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     setWarning('');
+
     try {
-      const cycle = getCurrentCycle();
       const competitionRange = rangeForDoctorCompetition(period);
+      let reviewQuery = supabase
+        .from('conversation_sales_reviews')
+        .select('staff_id,doctor_id,staff_name,doctor_name,branch,final_score,total_score')
+        .gte('conversation_date', competitionRange.start)
+        .lte('conversation_date', `${competitionRange.end}T23:59:59`)
+        .limit(10000);
+
+      if (effectiveBranch) reviewQuery = reviewQuery.eq('branch', effectiveBranch);
+
       const [competition, reviewResponse] = await Promise.all([
         getDoctorCompetitionMetrics({
           period,
@@ -269,20 +309,15 @@ export default function DoctorCompetition() {
           userBranch: user?.branch,
           canSeeAllBranches: true,
         }),
-        supabase
-          .from('conversation_sales_reviews')
-          .select('staff_id,doctor_id,staff_name,doctor_name,branch,final_score,total_score')
-          .gte('conversation_date', competitionRange.start)
-          .lte('conversation_date', `${competitionRange.end}T23:59:59`)
-          .limit(10000),
+        reviewQuery,
       ]);
 
       const branchesToLoad = effectiveBranch ? [effectiveBranch] : BRANCHES;
       const summaries = await Promise.all(branchesToLoad.map(async (branch) => {
         try {
           return await loadSalesAnalyticsSummary({
-            startDate: formatCycleDate(cycle.start),
-            endDate: formatCycleDate(cycle.end),
+            startDate: competitionRange.start,
+            endDate: competitionRange.end,
             branch,
           }, true);
         } catch {
@@ -290,10 +325,10 @@ export default function DoctorCompetition() {
         }
       }));
 
-      const salesRows = summaries.flatMap((summary) => summary?.doctorRows.map((doctor) => emptyCompetitionRow({
+      const salesRows = summaries.flatMap((summary, summaryIndex) => summary?.doctorRows.map((doctor) => emptyCompetitionRow({
         staffId: doctor.staffId,
         name: doctor.doctor,
-        branch: doctor.branch || effectiveBranch || user?.branch || '',
+        branch: doctor.branch || branchesToLoad[summaryIndex] || effectiveBranch || user?.branch || '',
         totalSales: doctor.netSales,
         invoices: doctor.invoicesCount,
         avgInvoice: doctor.avgInvoice,
@@ -302,22 +337,25 @@ export default function DoctorCompetition() {
       const identityLookup = buildUniqueStaffLookup([...competition.rows, ...salesRows]);
       const competitionMerged = new Map<string, DoctorCompetitionScore>();
       competition.rows.forEach((row) => {
-        const key = identityKey(row, identityLookup);
-        competitionMerged.set(key, mergeRows(competitionMerged.get(key), row));
+        const key = identityKey(row, identityLookup, mergeAllBranches, effectiveBranch);
+        competitionMerged.set(key, mergeRows(competitionMerged.get(key), row, mergeAllBranches));
       });
 
       const salesMerged = new Map<string, DoctorCompetitionScore>();
       salesRows.forEach((row) => {
-        const key = identityKey(row, identityLookup);
-        salesMerged.set(key, mergeRows(salesMerged.get(key), row));
+        const key = identityKey(row, identityLookup, mergeAllBranches, effectiveBranch);
+        salesMerged.set(key, mergeRows(salesMerged.get(key), row, mergeAllBranches));
       });
 
       const merged = new Map(competitionMerged);
       salesMerged.forEach((salesRow, key) => {
-        merged.set(key, combineCompetitionWithSales(merged.get(key), salesRow));
+        merged.set(key, combineCompetitionWithSales(merged.get(key), salesRow, mergeAllBranches));
       });
 
-      const mergedRows = [...merged.values()].filter((row) => row.name && row.name !== 'غير محدد');
+      const mergedRows = [...merged.values()]
+        .filter((row) => row.name && row.name !== 'غير محدد')
+        .map((row) => ({ ...row, branch: mergeAllBranches ? ALL_BRANCHES : effectiveBranch || row.branch }));
+
       const reviewRows = reviewResponse.error ? [] : (reviewResponse.data || []) as ReviewRow[];
       const rowsWithLiveReviews = applyLiveReviews(mergedRows, reviewRows);
       setRows(recalculatePoints(rowsWithLiveReviews));
@@ -333,7 +371,7 @@ export default function DoctorCompetition() {
     } finally {
       setLoading(false);
     }
-  }, [effectiveBranch, period, user?.branch]);
+  }, [effectiveBranch, mergeAllBranches, period, user?.branch]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -347,7 +385,7 @@ export default function DoctorCompetition() {
 
   const exportCsv = () => {
     const lines = [
-      ['الترتيب', 'اسم الدكتور', 'الفرع الحالي', 'إجمالي المبيعات', 'عدد الفواتير', 'متوسط الفاتورة', 'تقييم المحادثات', 'عدد التقييمات', 'المتابعات المكتملة', 'نقاط المسابقة'].map(csvCell).join(','),
+      ['الترتيب', 'اسم الدكتور', 'نطاق الفرع', 'إجمالي المبيعات', 'عدد الفواتير', 'متوسط الفاتورة', 'تقييم المحادثات', 'عدد التقييمات', 'المتابعات المكتملة', 'نقاط المسابقة'].map(csvCell).join(','),
       ...visibleRows.map((row, index) => [
         index + 1,
         row.name,
@@ -361,6 +399,7 @@ export default function DoctorCompetition() {
         row.competitionPoints.toFixed(1),
       ].map(csvCell).join(',')),
     ];
+
     const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -382,7 +421,7 @@ export default function DoctorCompetition() {
       </div>
       <div className="flex items-center gap-2 text-amber-300"><Trophy size={20} /><span className="text-xs font-black uppercase tracking-wide">مسابقة الدكاترة</span></div>
       <h1 className="mt-1 text-xl font-black text-white">ترتيب جميع الدكاترة</h1>
-      <p className="mt-2 text-xs font-bold text-slate-300">تقييم المحادثات محسوب من كل التقييمات الفعلية خلال الفترة المختارة.</p>
+      <p className="mt-2 text-xs font-bold text-slate-300">{mergeAllBranches ? 'يتم دمج مبيعات وفواتير نفس الدكتور في جميع الفروع ويظهر مرة واحدة.' : `يتم احتساب أداء كل دكتور داخل ${effectiveBranch} فقط.`}</p>
       <button type="button" onClick={exportCsv} disabled={!visibleRows.length} className="btn-secondary mt-3 disabled:opacity-50"><Download className="ml-1 inline h-4 w-4" /> تصدير CSV</button>
     </section>
 
@@ -407,10 +446,7 @@ export default function DoctorCompetition() {
           const review = reviewAverage(row);
           const medal = index === 0 ? '#fbbf24' : index === 1 ? '#cbd5e1' : index === 2 ? '#d97757' : null;
           return (
-            <article
-              key={scoreKey(row)} className="rounded-2xl border p-3"
-              style={mine ? { borderColor: 'rgba(45,212,191,0.5)', background: 'rgba(45,212,191,0.1)' } : surfaceSoft}
-            >
+            <article key={scoreKey(row)} className="rounded-2xl border p-3" style={mine ? { borderColor: 'rgba(45,212,191,0.5)', background: 'rgba(45,212,191,0.1)' } : surfaceSoft}>
               <div className="flex items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-black" style={{ background: medal || 'rgba(148,211,226,0.15)', color: medal ? '#1B2B4B' : 'var(--dawaa-theme-text)' }}>{index + 1}</span>
                 <div className="min-w-0 flex-1">
