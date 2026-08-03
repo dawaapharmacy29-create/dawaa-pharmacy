@@ -53,6 +53,7 @@ require('./place-followup-results-import-top-action.cjs');
 require('./mount-followup-results-import-visible-action.cjs');
 require('./apply-doctor-average-items-card.cjs');
 require('./apply-doctor-competition-duplicate-identity-fix.cjs');
+require('./apply-doctor-competition-sales-authority-fix.cjs');
 
 // The doctor smart-merge patch has already been applied to source files.
 // Do not execute it during every Vercel build: the legacy generator contains
