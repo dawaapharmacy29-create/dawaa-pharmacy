@@ -399,8 +399,56 @@ export default function Reviews() {
     filters: isActiveStaffFilter(),
     realtimeEnabled: false,
   });
+  const [coverageDoctors, setCoverageDoctors] = useState<StaffOpt[]>([]);
+  useEffect(() => {
+    const ownBranch = normalizeBranchName(user?.branch || '');
+    if (!ownBranch || canViewAllBranches(user)) { setCoverageDoctors([]); return; }
+    let cancelled = false;
+    supabase.rpc('get_active_coverage_doctors', { p_branch: ownBranch }).then(({ data: rows, error: err }) => {
+      if (cancelled || err) return;
+      setCoverageDoctors((rows as StaffOpt[]) || []);
+    }).catch(() => { if (!cancelled) setCoverageDoctors([]); });
+    return () => { cancelled = true; };
+  }, [user?.branch, user]);
   const [reviewTargetType, setReviewTargetType] = useState<'staff' | 'delivery'>('staff');
   const isDeliveryRole = (role: string) => /توصيل|دليفري|delivery|rider|مندوب/i.test(role || '');
+  const canManageCoverage = isGeneralManager(user) || ['customer_service_manager', 'branch_manager', 'branches_manager'].includes(normalizeRole(user?.role));
+  const [showCoveragePanel, setShowCoveragePanel] = useState(false);
+  const [coverageList, setCoverageList] = useState<any[]>([]);
+  const [coverageForm, setCoverageForm] = useState({ staffId: '', endDate: '' });
+  const refreshCoverageList = () => {
+    const ownBranch = normalizeBranchName(user?.branch || '');
+    if (!ownBranch) return;
+    supabase.rpc('list_branch_coverage', { p_branch: ownBranch }).then(({ data: rows }) => setCoverageList((rows as any[]) || []));
+  };
+  useEffect(() => { if (showCoveragePanel) refreshCoverageList(); }, [showCoveragePanel]);
+  const otherBranchDoctors = useMemo(() => {
+    const ownBranch = normalizeBranchName(user?.branch || '');
+    return mergeStaffChoices(staff).filter((row) => normalizeBranchName(row.branch) !== ownBranch && !isDeliveryRole(row.role));
+  }, [staff, user?.branch]);
+  const submitCoverage = async () => {
+    const doctor = otherBranchDoctors.find((row) => row.id === coverageForm.staffId);
+    const ownBranch = normalizeBranchName(user?.branch || '');
+    if (!doctor || !ownBranch) { toast.error('اختر الدكتور اللي هيغطي'); return; }
+    const { error: err } = await supabase.rpc('add_branch_coverage', {
+      p_staff_id: doctor.id, p_staff_name: doctor.name, p_role: doctor.role,
+      p_home_branch: doctor.branch, p_covering_branch: ownBranch,
+      p_start_date: new Date().toISOString().slice(0, 10),
+      p_end_date: coverageForm.endDate || null,
+      p_notes: null, p_created_by_name: user?.name || '',
+    });
+    if (err) { toast.error('تعذر تسجيل التغطية'); return; }
+    toast.success('اتسجلت التغطية، الدكتور هيظهر في قايمة التقييم دلوقتي');
+    setCoverageForm({ staffId: '', endDate: '' });
+    refreshCoverageList();
+    supabase.rpc('get_active_coverage_doctors', { p_branch: ownBranch }).then(({ data: rows }) => setCoverageDoctors((rows as StaffOpt[]) || []));
+  };
+  const endCoverage = async (id: string) => {
+    await supabase.rpc('end_branch_coverage', { p_id: id, p_ended_by_name: user?.name || '' });
+    refreshCoverageList();
+    const ownBranch = normalizeBranchName(user?.branch || '');
+    supabase.rpc('get_active_coverage_doctors', { p_branch: ownBranch }).then(({ data: rows }) => setCoverageDoctors((rows as StaffOpt[]) || []));
+  };
   const staffOptions = useMemo(() => {
     const choices = mergeStaffChoices(staff);
     // أمان: مفيش حد (دكتور أو حتى مدير) يظهر كخيار "الدكتور المقصود بالتقييم" لنفسه.
@@ -413,17 +461,23 @@ export default function Reviews() {
     if (isDoctorRole(user)) {
       return byTargetType(
         withoutSelf(
-          choices.filter(
-            (row) =>
-              row.id === (user?.staffId || user?.id) ||
-              row.name === user?.name ||
-              rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
-          )
+          [
+            ...choices.filter(
+              (row) =>
+                row.id === (user?.staffId || user?.id) ||
+                row.name === user?.name ||
+                rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
+            ),
+            ...coverageDoctors,
+          ]
         )
       );
     }
-    return byTargetType(withoutSelf(choices.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>))));
-  }, [staff, user, reviewTargetType]);
+    return byTargetType(withoutSelf([
+      ...choices.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)),
+      ...coverageDoctors,
+    ]));
+  }, [staff, user, reviewTargetType, coverageDoctors]);
   const reviewers = useMemo(() => {
     const choices = reviewerChoices(staff);
     const REVIEW_CREATOR_ROLES = ['branch_manager', 'branches_manager', 'customer_service', 'customer_service_manager', 'general_manager', 'executive_manager'];
@@ -1423,6 +1477,63 @@ export default function Reviews() {
           tone="slate"
         />
       </div>
+
+      {canManageCoverage ? (
+        <section className="stat-card space-y-3 border border-violet-500/20 bg-violet-500/5">
+          <button
+            type="button"
+            onClick={() => setShowCoveragePanel((v) => !v)}
+            className="flex w-full items-center justify-between text-sm font-black text-violet-200"
+          >
+            <span>تغطية الفروع (دكتور من فرع تاني بيغطي هنا مؤقتًا)</span>
+            <span className="text-xs">{showCoveragePanel ? 'إخفاء' : 'إدارة'}</span>
+          </button>
+          {showCoveragePanel ? (
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-3">
+                <Field label="الدكتور القادم من فرع تاني">
+                  <select
+                    className="input-dark"
+                    value={coverageForm.staffId}
+                    onChange={(e) => setCoverageForm((f) => ({ ...f, staffId: e.target.value }))}
+                  >
+                    <option value="">اختر الدكتور</option>
+                    {otherBranchDoctors.map((row) => (
+                      <option key={row.id} value={row.id}>{row.name} - {row.branch}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="لحد تاريخ (اختياري)">
+                  <input
+                    type="date"
+                    className="input-dark"
+                    value={coverageForm.endDate}
+                    onChange={(e) => setCoverageForm((f) => ({ ...f, endDate: e.target.value }))}
+                  />
+                </Field>
+                <div className="flex items-end">
+                  <button type="button" onClick={() => void submitCoverage()} className="btn-primary w-full">تسجيل التغطية</button>
+                </div>
+              </div>
+              {coverageList.length ? (
+                <div className="space-y-1.5 text-xs">
+                  {coverageList.map((row) => (
+                    <div key={row.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <span className="font-bold text-white">{row.staff_name} — من {row.home_branch} إلى {row.covering_branch}</span>
+                      <span className="flex items-center gap-2" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                        {row.start_date} → {row.end_date || 'بدون تاريخ نهاية'}
+                        {row.active ? (
+                          <button type="button" onClick={() => void endCoverage(row.id)} className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-2 py-1 text-rose-200">إنهاء</button>
+                        ) : <span className="text-slate-500">منتهية</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>مفيش تغطيات مسجلة لحد دلوقتي.</p>}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="stat-card space-y-4">
         <div className="section-title text-sm">بيانات المحادثة</div>
