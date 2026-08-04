@@ -110,6 +110,14 @@ const metricNumber = (row: FollowupRow, key: string, fallback = 0) => {
 };
 const monthlyAverage = (row: FollowupRow) => metricNumber(row, 'avg_monthly', metricNumber(row, 'monthly_average'));
 const lastPurchase = (row: FollowupRow) => dayKey(row.last_purchase_date) || dayKey(text(row.customer_metrics?.last_purchase));
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+const isStaleCustomer = (row: FollowupRow) => {
+  const last = lastPurchase(row);
+  if (!last) return false; // مفيش تاريخ شراء معروف — سيبها تظهر، مش نستبعدها على أساس بيانات ناقصة
+  const lastDate = new Date(`${last}T12:00:00`);
+  if (Number.isNaN(lastDate.getTime())) return false;
+  return Date.now() - lastDate.getTime() > NINETY_DAYS_MS;
+};
 const importance = (row: FollowupRow) => classifyCustomer(monthlyAverage(row));
 const activity = (row: FollowupRow) => customerStatus(lastPurchase(row));
 const isWaiting = (row: FollowupRow) => /في انتظار الرد|تم إرسال رسالة|message_sent|waiting_reply/i.test(rawStatus(row));
@@ -302,7 +310,8 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
 
   const waitingRows = useMemo(() => rows.filter(isWaiting).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
   const reviewRows = useMemo(() => rows.filter(isPendingReview).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
-  const queueCandidates = useMemo(() => rows.filter((row) => !isWaiting(row) && !isPendingReview(row) && isDueNow(row)).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
+  const queueCandidates = useMemo(() => rows.filter((row) => !isWaiting(row) && !isPendingReview(row) && isDueNow(row) && !isStaleCustomer(row)).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
+  const staleBacklogCount = useMemo(() => rows.filter((row) => !isWaiting(row) && !isPendingReview(row) && isDueNow(row) && isStaleCustomer(row)).length, [rows]);
   const smartQueue = useMemo(() => {
     if (branch !== ALL_BRANCHES) {
       return queueCandidates.slice(0, PER_BRANCH_QUEUE_LIMIT);
@@ -377,7 +386,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       actor_staff_id: user?.staffId || user?.id || null,
       actor_name: profile.displayName,
       branch: row.branch || branch,
-      metadata: { ...metadata, actor_role: profile.role, assigned_executor: assignedExecutor(row.branch) },
+      metadata: { ...metadata, actor_role: profile.role, assigned_executor: assignedExecutor(row.branch, csDirectory) },
     });
     if (error) throw error;
   };
@@ -401,7 +410,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       return;
     }
     if (currentProfile.branch && normalizeBranchName(selected.branch || '') !== normalizeBranchName(currentProfile.branch)) {
-      toast.error(`هذه الحالة مخصصة لـ ${assignedExecutor(selected.branch)} وليست ضمن فرعك.`);
+      toast.error(`هذه الحالة مخصصة لـ ${assignedExecutor(selected.branch, csDirectory)} وليست ضمن فرعك.`);
       return;
     }
     if ((action === 'replied' || action === 'completed') && actionNote.trim().length < 3) {
@@ -565,10 +574,16 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
         {tabs.map(([id, label, count, Icon]) => <button key={id} type="button" onClick={() => setTab(id)} className={`rounded-2xl border p-3 text-right ${tab === id ? 'border-cyan-300 bg-cyan-400/15' : 'border-white/10 bg-white/[0.03]'}`}><Icon size={18} className="mb-2 text-cyan-300"/><div className="text-xs font-black text-slate-400">{label}</div><div className="text-2xl font-black text-white">{count}</div></button>)}
       </div>
 
-      {tab === 'queue' ? <div className="grid gap-2 sm:grid-cols-3">
+      {tab === 'queue' ? <div className="grid gap-2 sm:grid-cols-4">
         <div className="rounded-2xl bg-emerald-400/10 p-3"><div className="text-xs font-black text-emerald-200">المعروض للتنفيذ</div><div className="text-2xl font-black text-white">{smartQueue.length} / {branch === ALL_BRANCHES ? TOTAL_DAILY_QUEUE_LIMIT : PER_BRANCH_QUEUE_LIMIT}</div></div>
         <div className="rounded-2xl bg-amber-400/10 p-3"><div className="text-xs font-black text-amber-200">قائمة الانتظار</div><div className="text-2xl font-black text-white">{backlogCount}</div></div>
         <div className="rounded-2xl bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">منفذ الفرع</div><div className="text-lg font-black text-white">{branch === ALL_BRANCHES ? executorList.map((e) => e.name).join(' + ') || 'غير محدد' : assignedExecutor(branch, csDirectory)}</div></div>
+        {staleBacklogCount > 0 ? (
+          <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3" title="عملاء آخر شراء ليهم أقدم من 3 شهور — مستبعدين من قائمة التنفيذ اليومية ومحتاجين مراجعة/إغلاق بدل ما يفضلوا معلقين">
+            <div className="text-xs font-black text-rose-200">قديمة (أقدم من 3 شهور)</div>
+            <div className="text-2xl font-black text-white">{staleBacklogCount}</div>
+          </div>
+        ) : null}
       </div> : null}
 
       {(tab === 'queue' || tab === 'waiting' || tab === 'review') ? <>
@@ -579,7 +594,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
           return <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <button type="button" onClick={() => { setSelected(row); setScheduledDate(dayKey(row.next_followup_date)); setActionNote(''); setHistoryOpen(false); }} className="min-w-0 flex-1 text-right">
-                <div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span><div className="font-black text-white">{customerName(row)}</div><span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">{assignedExecutor(row.branch)}</span></div>
+                <div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span><div className="font-black text-white">{customerName(row)}</div><span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">{assignedExecutor(row.branch, csDirectory)}</span></div>
                 <div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs font-black"><span className={`rounded-full border px-3 py-1 ${tier.bg} ${tier.color}`}>{tier.label}</span><span className={`rounded-full bg-white/5 px-3 py-1 ${state.color}`}>{state.label}</span>{isOverdue(row) ? <span className="rounded-full bg-red-500/15 px-3 py-1 text-red-200">متأخر</span> : null}</div>
                 <div className="mt-2 text-xs font-bold text-slate-500">سبب المتابعة: {row.followup_reason || row.request_details || row.notes || 'غير مسجل'} · آخر شراء: {lastPurchase(row) || 'غير معروف'} · المتوسط: {formatCurrency(monthlyAverage(row))}</div>
@@ -603,7 +618,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     </section>
 
     {selected && !detailsOpen ? <div className="fixed inset-0 z-[100] flex justify-end bg-black/65" dir="rtl"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-[#091b2d] p-5">
-      <div className="flex justify-between"><div><p className="text-xs font-black text-cyan-300">بطاقة المتابعة · المسؤول {assignedExecutor(selected.branch)}</p><h3 className="text-2xl font-black text-white">{customerName(selected)}</h3><p className="text-sm text-slate-400">{selected.branch}</p></div><button className="btn-secondary" onClick={() => setSelected(null)}><X size={18}/></button></div>
+      <div className="flex justify-between"><div><p className="text-xs font-black text-cyan-300">بطاقة المتابعة · المسؤول {assignedExecutor(selected.branch, csDirectory)}</p><h3 className="text-2xl font-black text-white">{customerName(selected)}</h3><p className="text-sm text-slate-400">{selected.branch}</p></div><button className="btn-secondary" onClick={() => setSelected(null)}><X size={18}/></button></div>
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">الأهمية</div><div className="mt-1 font-black text-white">{importance(selected).label}</div></div>
         <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">حالة النشاط</div><div className="mt-1 font-black text-white">{activity(selected).label}</div></div>
