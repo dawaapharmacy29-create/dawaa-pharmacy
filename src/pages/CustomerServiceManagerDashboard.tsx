@@ -18,6 +18,7 @@ import {
   type FollowupStats,
   type FollowupPerformanceRow,
 } from '@/lib/api/customerServiceCommandCenter';
+import CustomerServicePersonalDashboard from '@/components/customerService/CustomerServicePersonalDashboard';
 
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
@@ -148,6 +149,10 @@ export default function CustomerServiceManagerDashboard() {
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
         </button>
       </div>
+
+      {user?.name && !allBranches ? (
+        <CustomerServicePersonalDashboard branch={ownBranch} staffName={user.name} />
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border p-3" style={surfaceSoft}>
         <Filter size={16} className="text-teal-300" />
