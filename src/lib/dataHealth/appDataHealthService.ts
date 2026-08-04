@@ -104,7 +104,7 @@ export async function loadAppDataHealthSummary() {
     safeCount('customers', (query) => query.or('branch.is.null,branch.eq.')),
     safeCount('customers', (query) => query.or('phone.is.null,phone.eq.')),
     staffAccountsWithoutStaffPromise,
-    safeCount('conversation_sales_reviews', (query) => query.is('points_transaction_id', null)),
+    safeCount('conversation_sales_reviews', (query) => query.eq('impact_status', 'pending')),
     ...[
       'customers',
       'sales_invoices',
@@ -233,11 +233,11 @@ export async function loadAppDataHealthSummary() {
     }),
     issue({
       key: 'reviews-without-points',
-      label: 'تقييمات محادثات بدون ربط نقاط',
+      label: 'تقييمات محادثات محتاجة اعتماد تأثير النقاط',
       count: reviewsWithoutPoints.count,
       severity: severityForCount(reviewsWithoutPoints.count, 10),
       source: 'conversation_sales_reviews',
-      suggestedFix: 'راجع تكامل التقييمات مع سجل النقاط قبل اعتماد الحافز.',
+      suggestedFix: 'راجع التقييمات دي واعتمد أو ارفض تأثيرها على نقاط الدكتور.',
       affectedPages: ['/reviews', '/points'],
       error: reviewsWithoutPoints.error,
     }),
