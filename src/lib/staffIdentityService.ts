@@ -10,6 +10,7 @@ export type StaffIdentityRow = {
   name: string | null;
   branch: string | null;
   role: string | null;
+  active: boolean;
 };
 
 export type GroupedStaffSalesPerformance = {
@@ -53,13 +54,14 @@ function read(row: Row, keys: string[], fallback: unknown = null) {
 
 export async function fetchStaffIdentityRows(): Promise<StaffIdentityRow[]> {
   if (!isSupabaseConfigured) return [];
-  const { data, error } = await supabase.from('staff').select('id,name,branch,role').limit(800);
+  const { data, error } = await supabase.from('staff').select('id,name,branch,role,active,is_active').limit(800);
   if (error) return [];
   return ((data ?? []) as Row[]).map((row) => ({
     id: text(read(row, ['id'], '')) || null,
     name: text(read(row, ['name'], '')) || null,
     branch: normalizeBranchName(read(row, ['branch'], null)) || null,
     role: text(read(row, ['role'], '')) || null,
+    active: read(row, ['active'], true) !== false && read(row, ['is_active'], true) !== false,
   }));
 }
 
@@ -92,6 +94,7 @@ export function findStaffIdentityForSalesRow(
 }
 
 function isSalesIdentityRole(staff: StaffIdentityRow) {
+  if (staff.active === false) return false;
   const role = normalizeRole(staff.role);
   return !['delivery', 'cleaning_supervisor', 'inventory_assistant', 'assistant'].includes(role);
 }

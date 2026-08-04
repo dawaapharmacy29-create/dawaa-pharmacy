@@ -409,6 +409,24 @@ export default function DoctorCompetition() {
     URL.revokeObjectURL(url);
   };
 
+  const exportXlsx = async () => {
+    const rows = visibleRows.map((row, index) => ({
+      الترتيب: index + 1,
+      'اسم الدكتور': row.name,
+      'نطاق الفرع': row.branch,
+      'إجمالي المبيعات': Number(row.totalSales.toFixed(2)),
+      'عدد الفواتير': row.invoices,
+      'متوسط الفاتورة': Number(row.avgInvoice.toFixed(2)),
+      'تقييم المحادثات': reviewAverage(row)?.toFixed(1) ?? 'غير متاح',
+      'عدد التقييمات': row.reviewCount,
+      'المتابعات المكتملة': row.completedFollowups,
+      'نقاط المسابقة': Number(row.competitionPoints.toFixed(1)),
+    }));
+    if (!rows.length) return;
+    const { exportToExcel } = await import('@/lib/exportExcel');
+    await exportToExcel(rows, `مسابقة_الدكاترة_${effectiveBranch || 'كل_الفروع'}_${period}`, 'الترتيب');
+  };
+
   return <div className="space-y-4 pb-4" dir="rtl">
     <section className="relative overflow-hidden rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, #1B2B4B 0%, #243558 100%)', borderColor: 'var(--dawaa-theme-border)' }}>
       <div className="absolute left-4 top-4 flex items-center gap-2">
@@ -422,7 +440,10 @@ export default function DoctorCompetition() {
       <div className="flex items-center gap-2 text-amber-300"><Trophy size={20} /><span className="text-xs font-black uppercase tracking-wide">مسابقة الدكاترة</span></div>
       <h1 className="mt-1 text-xl font-black text-white">ترتيب جميع الدكاترة</h1>
       <p className="mt-2 text-xs font-bold text-slate-300">{mergeAllBranches ? 'يتم دمج مبيعات وفواتير نفس الدكتور في جميع الفروع ويظهر مرة واحدة.' : `يتم احتساب أداء كل دكتور داخل ${effectiveBranch} فقط.`}</p>
-      <button type="button" onClick={exportCsv} disabled={!visibleRows.length} className="btn-secondary mt-3 disabled:opacity-50"><Download className="ml-1 inline h-4 w-4" /> تصدير CSV</button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={exportCsv} disabled={!visibleRows.length} className="btn-secondary disabled:opacity-50"><Download className="ml-1 inline h-4 w-4" /> تصدير CSV</button>
+        <button type="button" onClick={() => void exportXlsx()} disabled={!visibleRows.length} className="btn-secondary disabled:opacity-50"><Download className="ml-1 inline h-4 w-4" /> تصدير Excel</button>
+      </div>
     </section>
 
     <section className="grid gap-2 rounded-3xl border p-3 sm:grid-cols-3" style={surface}>
