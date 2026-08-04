@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, Award, BarChart3, Bell, CheckCircle2, ClipboardCheck, Clock3,
-  DollarSign, ExternalLink, Gift, Headphones, LogOut, Megaphone, MessageCircle, MoreHorizontal, RefreshCw, ShieldCheck,
+  Activity, Award, BarChart3, Bell, CheckCircle2, ChevronDown, ChevronUp, ClipboardCheck, Clock3,
+  DollarSign, ExternalLink, Eye, Gift, Headphones, LogOut, Megaphone, MessageCircle, MoreHorizontal, RefreshCw, ShieldCheck,
   Star, Store, Target, TrendingDown, TrendingUp, Trophy, Users, WalletCards, X,
 } from 'lucide-react';
 import {
@@ -243,6 +243,7 @@ export default function DoctorDashboardStable() {
   const [personalState, setPersonalState] = useState<Record<string, LoadState>>({});
   const [moreOpen, setMoreOpen] = useState(false);
   const [branchTargetAmount, setBranchTargetAmount] = useState<number | null>(null);
+  const [openReviewId, setOpenReviewId] = useState<string | null>(null);
   const [invoiceQuality, setInvoiceQuality] = useState<{
     my_metrics: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number; invoices: number; items_rank: number | null; invoice_rank: number | null; customers_rank: number | null; branch_doctor_count: number };
     branch_avg: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number };
@@ -835,19 +836,32 @@ export default function DoctorDashboardStable() {
             </div>
           ) : null}
           <div className="mt-4 space-y-3">
-            {reviews.map((review) => (
-              <article key={review.id} className="rounded-2xl border p-4" style={surfaceSoft}>
-                <div className="flex justify-between gap-3">
-                  <div className="font-black text-white">{review.kind}</div>
-                  <div className="text-xl font-black text-teal-200">{review.score}/100</div>
-                </div>
-                <div className="mt-2 text-xs" style={mutedText}>{formatDate(review.createdAt)} · {review.reviewer} · تأثير النقاط {review.impact}</div>
-                {review.positive ? <p className="mt-2 text-sm text-teal-200">نقطة قوة: {review.positive}</p> : null}
-                {review.negative ? <p className="mt-1 text-sm text-amber-200">فرصة تحسين: {review.negative}</p> : null}
-                {review.training ? <p className="mt-2 rounded-xl bg-sky-500/10 p-3 text-sm text-sky-100">المطلوب للتطوير: {review.training}</p> : null}
-                {review.notes ? <p className="mt-2 text-sm" style={mutedText}>{review.notes}</p> : null}
-              </article>
-            ))}
+            {reviews.map((review) => {
+              const open = openReviewId === review.id;
+              return (
+                <article key={review.id} className="rounded-2xl border p-4" style={surfaceSoft}>
+                  <button type="button" onClick={() => setOpenReviewId(open ? null : review.id)} className="flex w-full items-start justify-between gap-3 text-right">
+                    <div>
+                      <div className="font-black text-white">{review.kind}</div>
+                      <div className="mt-1 text-xs" style={mutedText}>{formatDate(review.createdAt)} · {review.reviewer} · تأثير النقاط {review.impact}</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl font-black text-teal-200">{review.score}/100</span>
+                      <span className="flex items-center gap-1 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1.5 text-xs font-black text-cyan-200"><Eye size={15} /> التفاصيل</span>
+                      {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                    </div>
+                  </button>
+                  {open ? (
+                    <div className="mt-3 border-t pt-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                      {review.positive ? <p className="mt-2 text-sm text-teal-200">نقطة قوة: {review.positive}</p> : null}
+                      {review.negative ? <p className="mt-1 text-sm text-amber-200">فرصة تحسين: {review.negative}</p> : null}
+                      {review.training ? <p className="mt-2 rounded-xl bg-sky-500/10 p-3 text-sm text-sky-100">المطلوب للتطوير: {review.training}</p> : null}
+                      {review.notes ? <p className="mt-2 text-sm" style={mutedText}>{review.notes}</p> : null}
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
             {personalState.reviews === 'success' && !reviews.length ? <Empty>لا توجد تقييمات مرتبطة بحسابك حتى الآن.</Empty> : null}
           </div>
         </section>
