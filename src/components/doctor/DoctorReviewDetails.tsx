@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, ExternalLink, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -86,7 +86,13 @@ export default function DoctorReviewDetails() {
       return <article key={id} id={`review-${id}`} className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
         <button type="button" onClick={() => setOpenId(open ? null : id)} className="flex w-full items-start justify-between gap-3 text-right">
           <div><div className="font-black text-white">{text(row.evaluation_kind || row.conversation_type || 'تقييم محادثة')} — {text(row.customer_name || 'عميل غير محدد')}</div><div className="mt-1 text-xs text-slate-400">{formatDate(row.created_at || row.conversation_date)} · بواسطة {text(row.reviewer_name || 'خدمة العملاء')} · تأثير النقاط {num(row.doctor_points_impact ?? row.point_impact)}</div></div>
-          <div className="flex items-center gap-2"><span className="text-xl font-black text-teal-200">{num(row.final_score ?? row.total_score)}/100</span>{open ? <ChevronUp/> : <ChevronDown/>}</div>
+          <div className="flex items-center gap-3">
+            <span className="text-xl font-black text-teal-200">{num(row.final_score ?? row.total_score)}/100</span>
+            <span className="flex items-center gap-1 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1.5 text-xs font-black text-cyan-200">
+              <Eye size={15} /> التفاصيل
+            </span>
+            {open ? <ChevronUp/> : <ChevronDown/>}
+          </div>
         </button>
 
         {open ? <div className="mt-4 space-y-4 border-t border-slate-800 pt-4">
@@ -96,7 +102,37 @@ export default function DoctorReviewDetails() {
           {text(row.reviewer_notes) ? <div className="rounded-xl bg-slate-900 p-3 text-sm text-slate-200"><b className="text-amber-200">ملاحظات المراجع:</b> {text(row.reviewer_notes)}</div> : null}
           {text(row.training_recommendation) ? <div className="rounded-xl bg-sky-500/10 p-3 text-sm text-sky-100"><b>المطلوب للتطوير:</b> {text(row.training_recommendation)}</div> : null}
 
-          {items.length ? <div><h3 className="mb-3 font-black text-white">بنود التقييم بالتفصيل</h3><div className="grid gap-2">{items.map((item: Row, index: number) => <div key={`${item.key || index}`} className="rounded-xl border border-slate-800 bg-slate-900/70 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><b className="text-white">{text(item.label || item.key)}</b><span className="font-black text-teal-200">{num(item.pointsEarned)}/{num(item.maxPoints)}</span></div><div className="mt-1 text-sm text-slate-300">الاختيار: {text(item.selectedOption || '—')}</div>{text(item.notes) ? <div className="mt-2 text-sm text-amber-100">ملاحظة: {text(item.notes)}</div> : null}</div>)}</div></div> : null}
+          {items.length ? (() => {
+            const applicable = items.filter((item: Row) => item.applies !== false);
+            const notApplicable = items.filter((item: Row) => item.applies === false);
+            return <div>
+              <h3 className="mb-3 font-black text-white">بنود التقييم بالتفصيل ({applicable.length} من {items.length})</h3>
+              <div className="grid gap-2">
+                {applicable.map((item: Row, index: number) => (
+                  <div key={`${item.key || index}`} className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2"><b className="text-white">{text(item.label || item.key)}</b><span className="font-black text-teal-200">{num(item.pointsEarned)}/{num(item.maxPoints)}</span></div>
+                    <div className="mt-1 text-sm text-slate-300">الاختيار: {text(item.selectedOption || '—')}</div>
+                    {text(item.notes) ? <div className="mt-2 text-sm text-amber-100">ملاحظة: {text(item.notes)}</div> : null}
+                  </div>
+                ))}
+              </div>
+              {notApplicable.length ? (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-bold text-slate-500">بنود غير مطبقة على هذه المحادثة (مش داخلة في حساب التقييم):</p>
+                  <div className="grid gap-2 opacity-40">
+                    {notApplicable.map((item: Row, index: number) => (
+                      <div key={`na-${item.key || index}`} className="rounded-xl border border-dashed border-slate-700 bg-slate-900/30 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <b className="text-slate-400 line-through">{text(item.label || item.key)}</b>
+                          <span className="rounded-full bg-slate-700/40 px-2 py-0.5 text-[11px] font-black text-slate-400">لا ينطبق</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>;
+          })() : null}
 
           {files.length ? <div><h3 className="mb-3 flex items-center gap-2 font-black text-white"><ImageIcon/> صور المحادثة</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{files.map((file) => <a key={file.id} href={file.signedUrl} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-2xl border border-slate-700 bg-slate-900"><img src={file.signedUrl} alt={file.file_name || 'صورة المحادثة'} className="h-64 w-full object-cover"/><div className="flex items-center justify-between p-3 text-sm font-black text-teal-200">فتح الصورة كاملة <ExternalLink size={16}/></div></a>)}</div></div> : null}
         </div> : null}
