@@ -185,6 +185,40 @@ function ProgressRing({ percent }: { percent: number }) {
   );
 }
 
+function MiniPerfColumn({
+  accent, label, mineValue, branchValue, topValue, topName, topIsMe, rankLabel, formatValue,
+}: {
+  accent: string; label: string; mineValue: number; branchValue: number; topValue: number;
+  topName: string | null; topIsMe?: boolean; rankLabel: string | null; formatValue: (v: number) => string;
+}) {
+  const max = Math.max(mineValue, branchValue, topValue, 1);
+  const rows = [
+    { key: 'mine', label: 'أنا', value: mineValue, color: accent },
+    { key: 'branch', label: 'متوسط الفرع', value: branchValue, color: 'rgba(255,255,255,0.16)' },
+    { key: 'top', label: topIsMe ? 'الأعلى في الفرع' : topName ? `الأعلى (${topName})` : 'الأعلى في الفرع', value: topValue, color: 'rgba(255,255,255,0.16)' },
+  ];
+  return (
+    <div className="rounded-2xl border border-white/5 bg-black/10 p-3">
+      <p className="text-[11px] font-black" style={{ color: accent }}>{label}</p>
+      <p className="mt-1 text-2xl font-black text-white">{formatValue(mineValue)}</p>
+      <div className="mt-3 space-y-2">
+        {rows.map((row) => (
+          <div key={row.key}>
+            <div className="mb-0.5 flex items-center justify-between text-[10px] font-bold text-slate-400">
+              <span className="truncate">{row.label}</span>
+              <span className="shrink-0 text-white/80">{formatValue(row.value)}</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-white/5">
+              <div className="h-full rounded-full" style={{ width: `${Math.max(4, (row.value / max) * 100)}%`, background: row.color }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      {rankLabel ? <p className="mt-2 text-[10px] font-bold text-slate-400">{rankLabel}</p> : null}
+    </div>
+  );
+}
+
 export default function DoctorDashboardStable() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -210,9 +244,13 @@ export default function DoctorDashboardStable() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [branchTargetAmount, setBranchTargetAmount] = useState<number | null>(null);
   const [invoiceQuality, setInvoiceQuality] = useState<{
-    my_metrics: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number; invoices: number; items_rank: number | null; branch_doctor_count: number };
+    my_metrics: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number; invoices: number; items_rank: number | null; invoice_rank: number | null; customers_rank: number | null; branch_doctor_count: number };
     branch_avg: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number };
-    top_doctor: { name: string | null; avg_items_per_invoice: number; is_me: boolean };
+    top: {
+      items: { name: string | null; value: number; is_me: boolean };
+      invoice: { name: string | null; value: number; is_me: boolean };
+      customers: { name: string | null; value: number; is_me: boolean };
+    };
   } | null>(null);
 
   const branch = text(user?.branch);
@@ -525,73 +563,44 @@ export default function DoctorDashboardStable() {
               )}
             </div>
 
-            <div className="rounded-3xl border p-4" style={surface}>
-              <div className="flex items-center gap-2 font-black text-teal-200"><TrendingUp size={18} /> متوسط الفاتورة — مقارنة تحفيزية</div>
-              {doctorRow ? (
-                <ResponsiveContainer width="100%" height={140}>
-                  <BarChart
-                    layout="vertical"
-                    data={[
-                      { name: 'أنا', value: doctorRow.avgInvoice, mine: true },
-                      { name: 'متوسط الفرع', value: summary?.kpis.avgInvoice || 0, mine: false },
-                      { name: ranking[0] && ranking[0].doctor !== doctorRow.doctor ? `الأعلى (${ranking[0].doctor})` : 'الأعلى في الفرع', value: ranking[0]?.avgInvoice || 0, mine: false },
-                    ]}
-                    margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
-                  >
-                    <XAxis type="number" hide />
-                    <YAxis type="category" dataKey="name" width={112} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <Tooltip
-                      cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                      contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
-                      formatter={(value: number) => [formatCurrency(value), 'متوسط الفاتورة']}
-                    />
-                    <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={18}>
-                      <Cell fill="#2dd4bf" />
-                      <Cell fill="rgba(255,255,255,0.18)" />
-                      <Cell fill="rgba(255,255,255,0.18)" />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="mt-4 text-xs font-bold" style={mutedText}>ستظهر هنا المقارنة بمجرد ربط حسابك بفواتير الدورة الحالية.</p>
-              )}
-            </div>
-
-            <div className="rounded-3xl border p-4" style={surface}>
-              <div className="flex items-center gap-2 font-black text-teal-200"><TrendingUp size={18} /> متوسط عدد الأصناف بالفاتورة — مقارنة تحفيزية</div>
-              {invoiceQuality ? (
-                <>
-                  <ResponsiveContainer width="100%" height={140}>
-                    <BarChart
-                      layout="vertical"
-                      data={[
-                        { name: 'أنا', value: invoiceQuality.my_metrics.avg_items_per_invoice, mine: true },
-                        { name: 'متوسط الفرع', value: invoiceQuality.branch_avg.avg_items_per_invoice, mine: false },
-                        { name: invoiceQuality.top_doctor.is_me ? 'الأعلى في الفرع' : `الأعلى (${invoiceQuality.top_doctor.name || '—'})`, value: invoiceQuality.top_doctor.avg_items_per_invoice, mine: false },
-                      ]}
-                      margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
-                    >
-                      <XAxis type="number" hide />
-                      <YAxis type="category" dataKey="name" width={112} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <Tooltip
-                        cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                        contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
-                        formatter={(value: number) => [value.toFixed(2), 'متوسط الأصناف بالفاتورة']}
-                      />
-                      <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={18}>
-                        <Cell fill="#a78bfa" />
-                        <Cell fill="rgba(255,255,255,0.18)" />
-                        <Cell fill="rgba(255,255,255,0.18)" />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <div className="mt-2 flex items-center justify-between text-xs font-bold" style={mutedText}>
-                    <span>عملاء تم التعامل معهم: <span className="text-white">{invoiceQuality.my_metrics.unique_customers}</span></span>
-                    {invoiceQuality.my_metrics.items_rank ? (
-                      <span>ترتيبي بعدد الأصناف: <span className="text-white">#{invoiceQuality.my_metrics.items_rank} من {invoiceQuality.my_metrics.branch_doctor_count}</span></span>
-                    ) : null}
-                  </div>
-                </>
+            <div className="rounded-3xl border p-4 lg:col-span-2" style={surface}>
+              <div className="flex items-center gap-2 font-black text-teal-200"><TrendingUp size={18} /> أدائي في الدورة الحالية — مقارنة تحفيزية</div>
+              {invoiceQuality || doctorRow ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                  <MiniPerfColumn
+                    accent="#38bdf8"
+                    label="عملاء تم التعامل معهم"
+                    mineValue={invoiceQuality?.my_metrics.unique_customers ?? 0}
+                    branchValue={invoiceQuality?.branch_avg.unique_customers ?? 0}
+                    topValue={invoiceQuality?.top.customers.value ?? 0}
+                    topName={invoiceQuality?.top.customers.name || null}
+                    topIsMe={invoiceQuality?.top.customers.is_me}
+                    rankLabel={invoiceQuality?.my_metrics.customers_rank ? `ترتيبي: #${invoiceQuality.my_metrics.customers_rank} من ${invoiceQuality.my_metrics.branch_doctor_count}` : null}
+                    formatValue={(v) => String(Math.round(v))}
+                  />
+                  <MiniPerfColumn
+                    accent="#a78bfa"
+                    label="متوسط عدد الأصناف بالفاتورة"
+                    mineValue={invoiceQuality?.my_metrics.avg_items_per_invoice ?? 0}
+                    branchValue={invoiceQuality?.branch_avg.avg_items_per_invoice ?? 0}
+                    topValue={invoiceQuality?.top.items.value ?? 0}
+                    topName={invoiceQuality?.top.items.name || null}
+                    topIsMe={invoiceQuality?.top.items.is_me}
+                    rankLabel={invoiceQuality?.my_metrics.items_rank ? `ترتيبي: #${invoiceQuality.my_metrics.items_rank} من ${invoiceQuality.my_metrics.branch_doctor_count}` : null}
+                    formatValue={(v) => v.toFixed(2)}
+                  />
+                  <MiniPerfColumn
+                    accent="#2dd4bf"
+                    label="متوسط الفاتورة"
+                    mineValue={doctorRow?.avgInvoice ?? invoiceQuality?.my_metrics.avg_invoice ?? 0}
+                    branchValue={summary?.kpis.avgInvoice ?? invoiceQuality?.branch_avg.avg_invoice ?? 0}
+                    topValue={(ranking[0]?.avgInvoice) ?? invoiceQuality?.top.invoice.value ?? 0}
+                    topName={(ranking[0] && ranking[0].doctor !== doctorRow?.doctor ? ranking[0].doctor : null) ?? invoiceQuality?.top.invoice.name ?? null}
+                    topIsMe={invoiceQuality?.top.invoice.is_me}
+                    rankLabel={invoiceQuality?.my_metrics.invoice_rank ? `ترتيبي: #${invoiceQuality.my_metrics.invoice_rank} من ${invoiceQuality.my_metrics.branch_doctor_count}` : null}
+                    formatValue={(v) => formatCurrency(v)}
+                  />
+                </div>
               ) : (
                 <p className="mt-4 text-xs font-bold" style={mutedText}>ستظهر هنا المقارنة بمجرد توفر بيانات كافية من فواتير الدورة الحالية.</p>
               )}
