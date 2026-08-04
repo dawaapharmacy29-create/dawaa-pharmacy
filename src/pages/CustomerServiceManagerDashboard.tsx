@@ -139,20 +139,27 @@ export default function CustomerServiceManagerDashboard() {
 
   return (
     <div className="space-y-5 p-4 md:p-6" dir="rtl">
-      <div className="flex flex-col gap-3 rounded-3xl border p-5 md:flex-row md:items-center md:justify-between" style={surface}>
-        <div>
-          <div className="flex items-center gap-2 text-teal-200"><Headphones size={18} /><span className="text-xs font-black">لوحة مديرة خدمة العملاء</span></div>
-          <h1 className="mt-1 text-2xl font-black text-white">أهلًا يا {user?.name || 'مديرة خدمة العملاء'}</h1>
-          <p className="mt-1 text-sm" style={mutedText}>{allBranches ? 'كل الفروع' : ownBranch} · نظرة شاملة على المتابعات وأداء الفريق</p>
-        </div>
-        <button onClick={() => void load()} className="btn-secondary flex items-center gap-2" disabled={loading}>
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
-        </button>
-      </div>
-
       {user?.name && !allBranches ? (
         <CustomerServicePersonalDashboard branch={ownBranch} staffName={user.name} />
-      ) : null}
+      ) : (
+        <div className="flex flex-col gap-3 rounded-3xl border p-5 md:flex-row md:items-center md:justify-between" style={surface}>
+          <div>
+            <div className="flex items-center gap-2 text-teal-200"><Headphones size={18} /><span className="text-xs font-black">لوحة مديرة خدمة العملاء</span></div>
+            <h1 className="mt-1 text-2xl font-black text-white">أهلًا يا {user?.name || 'مديرة خدمة العملاء'}</h1>
+            <p className="mt-1 text-sm" style={mutedText}>{allBranches ? 'كل الفروع' : ownBranch} · نظرة شاملة على المتابعات وأداء الفريق</p>
+          </div>
+          <button onClick={() => void load()} className="btn-secondary flex items-center gap-2" disabled={loading}>
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between rounded-2xl border p-3" style={surfaceSoft}>
+        <span className="text-xs font-bold" style={mutedText}>نظرة عامة على أداء الفرع والمتابعات</span>
+        <button onClick={() => void load()} className="btn-secondary flex items-center gap-2 text-xs" disabled={loading}>
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث أرقام الفرع
+        </button>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border p-3" style={surfaceSoft}>
         <Filter size={16} className="text-teal-300" />

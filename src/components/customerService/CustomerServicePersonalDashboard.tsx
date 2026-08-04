@@ -20,20 +20,20 @@ const CONFETTI_COLORS = ['#f472b6', '#2dd4bf', '#fbbf24', '#a78bfa', '#38bdf8', 
 
 function ConfettiBurst() {
   const pieces = useMemo(
-    () => Array.from({ length: 40 }, (_, i) => ({
+    () => Array.from({ length: 70 }, (_, i) => ({
       id: i,
       left: Math.random() * 100,
       color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-      delay: Math.random() * 0.4,
-      duration: 1.8 + Math.random() * 1.2,
-      size: 6 + Math.random() * 6,
+      delay: Math.random() * 0.6,
+      duration: 2.2 + Math.random() * 1.6,
+      size: 7 + Math.random() * 8,
       rotate: Math.random() * 360,
     })),
     []
   );
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', borderRadius: '1.5rem' }}>
-      <style>{`@keyframes csConfettiFall { 0% { transform: translateY(-20px) rotate(0deg); opacity: 1; } 100% { transform: translateY(180px) rotate(360deg); opacity: 0; } }`}</style>
+      <style>{`@keyframes csConfettiFall { 0% { transform: translateY(-30px) rotate(0deg); opacity: 1; } 85% { opacity: 1; } 100% { transform: translateY(260px) rotate(420deg); opacity: 0; } }`}</style>
       {pieces.map((p) => (
         <span
           key={p.id}
@@ -218,26 +218,31 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
 
   return (
     <div className="space-y-4" dir="rtl">
-      <div className="relative overflow-hidden rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, rgba(244,114,182,0.08), rgba(45,212,191,0.06))', borderColor: 'var(--dawaa-theme-border)' }}>
+      <div className="relative overflow-hidden rounded-3xl border" style={{ background: 'linear-gradient(135deg, rgba(244,114,182,0.1), rgba(45,212,191,0.08))', borderColor: 'var(--dawaa-theme-border)' }}>
         {showConfetti ? <ConfettiBurst /> : null}
-        <div className="inline-flex items-center gap-2 rounded-full border px-4 py-1.5" style={{ borderColor: 'rgba(244,114,182,0.3)', background: 'rgba(244,114,182,0.08)' }}>
-          <Sparkles size={14} className="text-pink-300" />
-          <span className="text-xs font-bold text-pink-100">{todaysVerse}</span>
+        <div className="border-b p-4 text-center" style={{ borderColor: 'rgba(244,114,182,0.2)' }}>
+          <div className="flex items-center justify-center gap-2">
+            <Sparkles size={18} className="text-pink-300" />
+            <span className="text-base font-black leading-relaxed text-white sm:text-lg">{todaysVerse}</span>
+            <Sparkles size={18} className="text-pink-300" />
+          </div>
         </div>
-        <h2 className="mt-3 text-xl font-black text-white">أهلًا يا {staffName} 🌸</h2>
-        <p className="mt-1 text-xs font-bold" style={mutedText}>الدورة الحالية: {data.cycle.start} — {data.cycle.end}</p>
+        <div className="p-5">
+          <h2 className="text-xl font-black text-white">أهلًا يا {staffName} 🌸</h2>
+          <p className="mt-1 text-xs font-bold" style={mutedText}>الدورة الحالية: {data.cycle.start} — {data.cycle.end}</p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="grid grid-cols-4 gap-2.5 sm:gap-3 lg:grid-cols-7">
         {QUICK_LINKS.map((link) => (
           <button
             key={link.path}
             type="button"
             onClick={() => navigate(link.path)}
-            className="flex flex-col items-center gap-2 rounded-2xl p-3 text-center transition hover:brightness-110 active:scale-95"
+            className="flex flex-col items-center gap-2 rounded-2xl px-2 py-4 text-center transition hover:brightness-110 active:scale-95"
             style={{ background: link.color }}
           >
-            <link.icon size={20} className="text-white" />
+            <link.icon size={28} className="text-white" strokeWidth={2} />
             <span className="text-[11px] font-black leading-tight text-white">{link.label}</span>
           </button>
         ))}
