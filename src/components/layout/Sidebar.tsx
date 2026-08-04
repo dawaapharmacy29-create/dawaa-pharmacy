@@ -53,7 +53,7 @@ const GROUPS: NavGroup[] = [
     { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
     { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages.view' },
-    { path: '/staff-monthly-evaluation', icon: Star, label: 'تقييم الدكاترة الشهري', permission: 'view_shift_performance' },
+    { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري (دكاترة وخدمة عملاء)', permission: 'view_shift_performance' },
   ]},
   { title: 'المبيعات والتحليل', icon: BarChart3, items: [
     { path: '/analytics', icon: BarChart3, label: 'التحليلات والمبيعات', permission: 'view_analytics' },

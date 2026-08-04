@@ -198,7 +198,7 @@ function AppRoutes() {
     <Route path="/activity-log" element={<ProtectedRoute>{routeSuspense(<ActivityLog />, 'سجل الأنشطة')}</ProtectedRoute>} />
     <Route path="/reviews" element={<ProtectedRoute>{routeSuspense(<Reviews />, 'التقييمات')}</ProtectedRoute>} />
     <Route path="/shift-performance" element={<ProtectedRoute>{routeSuspense(<ShiftPerformance />, 'تقييم الشيفت')}</ProtectedRoute>} />
-    <Route path="/staff-monthly-evaluation" element={<ProtectedRoute>{routeSuspense(<StaffMonthlyEvaluation />, 'تقييم الدكاترة الشهري')}</ProtectedRoute>} />
+    <Route path="/staff-monthly-evaluation" element={<ProtectedRoute>{routeSuspense(<StaffMonthlyEvaluation />, 'التقييم الشهري')}</ProtectedRoute>} />
     <Route path="/shift-notes" element={<ProtectedRoute>{routeSuspense(<ShiftNotes />, 'ملاحظات الشيفت')}</ProtectedRoute>} />
     <Route path="/staff/:id" element={<ProtectedRoute>{routeSuspense(<StaffDetail />, 'تفاصيل الموظف')}</ProtectedRoute>} />
     <Route path="/time-off" element={<ProtectedRoute>{routeSuspense(<TimeOff />, 'الأذونات')}</ProtectedRoute>} />

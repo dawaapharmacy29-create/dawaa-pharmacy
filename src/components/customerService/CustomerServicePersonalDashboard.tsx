@@ -57,6 +57,7 @@ const QUICK_LINKS = [
   { label: 'نقاط العملاء', icon: Gift, color: '#a78bfa', path: '/customer-points-ledger' },
   { label: 'جدولي', icon: Calendar, color: '#fb7185', path: '/schedule' },
   { label: 'كريدت خدمة العملاء', icon: CreditCard, color: '#22c55e', path: '/customer-service-credit' },
+  { label: 'تقييمي الشهري', icon: Award, color: '#eab308', path: '/staff-monthly-evaluation' },
 ];
 
 const card = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
