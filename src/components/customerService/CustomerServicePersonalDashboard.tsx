@@ -4,6 +4,7 @@ import {
   Award, Calendar, ClipboardList, CreditCard, Gift, Heart, MessageCircle, Package,
   Sparkles, Star, TrendingDown, TrendingUp, Trophy, Users, Wand2, AlertTriangle,
 } from 'lucide-react';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { supabase } from '@/lib/supabase';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 
@@ -297,11 +298,35 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-pink-400/40" style={card} onClick={() => navigate('/customer-service')}>
           <SectionTitle icon={ClipboardList} accent="#f472b6">تفصيل متابعاتي</SectionTitle>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-            <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>استثنائية</div><div className="font-black text-white">{f.exceptional_count}</div></div>
-            <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>محددة من التطبيق</div><div className="font-black text-white">{f.app_assigned_count}</div></div>
-            <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>بطلب من دكتور</div><div className="font-black text-white">{f.doctor_requested_count}</div></div>
-            <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>بمبادرتي</div><div className="font-black text-white">{f.self_initiated_count}</div></div>
+          <div className="mt-3 flex items-center gap-4">
+            {f.total_count > 0 ? (
+              <div className="h-[110px] w-[110px] shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: 'استثنائية', value: f.exceptional_count, color: '#f472b6' },
+                        { name: 'محددة من التطبيق', value: f.app_assigned_count, color: '#a78bfa' },
+                        { name: 'بطلب من دكتور', value: f.doctor_requested_count, color: '#38bdf8' },
+                        { name: 'بمبادرتي', value: f.self_initiated_count, color: '#2dd4bf' },
+                      ].filter((d) => d.value > 0)}
+                      dataKey="value" nameKey="name" innerRadius={32} outerRadius={52} paddingAngle={3} stroke="none"
+                    >
+                      {[
+                        { color: '#f472b6' }, { color: '#a78bfa' }, { color: '#38bdf8' }, { color: '#2dd4bf' },
+                      ].map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            ) : null}
+            <div className="grid flex-1 grid-cols-2 gap-2 text-sm">
+              <div className="rounded-xl border p-3" style={softCard}><div className="flex items-center gap-1.5 text-xs" style={mutedText}><span className="h-2 w-2 rounded-full" style={{ background: '#f472b6' }} />استثنائية</div><div className="font-black text-white">{f.exceptional_count}</div></div>
+              <div className="rounded-xl border p-3" style={softCard}><div className="flex items-center gap-1.5 text-xs" style={mutedText}><span className="h-2 w-2 rounded-full" style={{ background: '#a78bfa' }} />محددة من التطبيق</div><div className="font-black text-white">{f.app_assigned_count}</div></div>
+              <div className="rounded-xl border p-3" style={softCard}><div className="flex items-center gap-1.5 text-xs" style={mutedText}><span className="h-2 w-2 rounded-full" style={{ background: '#38bdf8' }} />بطلب من دكتور</div><div className="font-black text-white">{f.doctor_requested_count}</div></div>
+              <div className="rounded-xl border p-3" style={softCard}><div className="flex items-center gap-1.5 text-xs" style={mutedText}><span className="h-2 w-2 rounded-full" style={{ background: '#2dd4bf' }} />بمبادرتي</div><div className="font-black text-white">{f.self_initiated_count}</div></div>
+            </div>
           </div>
         </div>
 
