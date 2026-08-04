@@ -11,7 +11,7 @@ import './styles/customer-cashback-polish.css';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
 import { logRuntimeError } from '@/lib/appRecovery';
 
-const APP_IMPORT_TIMEOUT_MS = 8000;
+const APP_IMPORT_TIMEOUT_MS = 25000;
 
 declare global {
   interface Window {
@@ -65,6 +65,11 @@ async function loadRescueRoute() {
   return null;
 }
 
+function isStaleChunkImportError(error: unknown) {
+  const message = String((error as Error)?.message || '');
+  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
+}
+
 const SafeApp = lazy(async () => {
   console.info('[Dawaa bootstrap] start');
   try {
@@ -75,6 +80,15 @@ const SafeApp = lazy(async () => {
   } catch (error) {
     console.error('[Dawaa bootstrap] App import failed', error);
     logRuntimeError('bootstrap App import failed', error);
+    if (isStaleChunkImportError(error)) {
+      const key = 'dawaa_stale_chunk_reload_at';
+      const last = Number(sessionStorage.getItem(key) || 0);
+      if (Date.now() - last > 15000) {
+        sessionStorage.setItem(key, String(Date.now()));
+        window.location.reload();
+        return { default: BootstrapShell };
+      }
+    }
     const rescueRoute = await loadRescueRoute().catch((rescueError) => {
       logRuntimeError('bootstrap rescue route failed', rescueError);
       return null;

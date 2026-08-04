@@ -147,11 +147,30 @@ function AdminRoute({ children, permission }: { children: ReactNode; permission?
   return <>{children}</>;
 }
 
+function isStaleChunkError(error: Error | undefined) {
+  const message = String(error?.message || '');
+  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
+}
+
 type ErrorBoundaryState = { hasError: boolean; message?: string; isIOS?: boolean };
 class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
   state: ErrorBoundaryState = { hasError: false, isIOS: false };
   static getDerivedStateFromError(error: Error) { return { hasError: true, message: error?.message || 'unknown error', isIOS: isIOSWebKit() }; }
-  componentDidCatch(error: Error, info: unknown) { console.error('App error boundary caught error:', error, info); logRuntimeError('App error boundary caught error', error); }
+  componentDidCatch(error: Error, info: unknown) {
+    console.error('App error boundary caught error:', error, info);
+    logRuntimeError('App error boundary caught error', error);
+    // بعد نشر جديد على Vercel، أي تاب قديم فاتح ممكن يحاول يحمّل ملف JS بمسار
+    // قديم اتشال فعليًا. الحل هو تحديث الصفحة مرة واحدة (مش شاشة خطأ مخيفة)
+    // عشان يجيب index.html الجديد اللي بيشاور على الملفات الصح.
+    if (isStaleChunkError(error)) {
+      const key = 'dawaa_stale_chunk_reload_at';
+      const last = Number(sessionStorage.getItem(key) || 0);
+      if (Date.now() - last > 15000) {
+        sessionStorage.setItem(key, String(Date.now()));
+        window.location.reload();
+      }
+    }
+  }
   render() {
     if (this.state.hasError) return <AppRecoveryScreen reason="app_error_boundary" />;
     return this.props.children;
