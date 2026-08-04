@@ -1418,7 +1418,7 @@ export default function ExecutiveDashboard2027() {
         }>(
           supabase
             .from('staff')
-            .select('id,staff_id,name,staff_name,role,branch,status,active,is_active')
+            .select('id,name,staff_name,role,branch,status,active,is_active')
             .limit(700) as PromiseLike<{
               data: StaffDirectoryRow[] | null;
               error: { message?: string } | null;

@@ -207,7 +207,7 @@ export default function EmployeeOperatingSystem() {
     if (!isSupabaseConfigured) return [] as StaffRow[];
     let query = supabase
       .from('staff')
-      .select('id,staff_id,name,staff_name,role,branch,status,active,is_active')
+      .select('id,name,staff_name,role,branch,status,active,is_active')
       .limit(200);
     if (scopedBranch && scopedBranch !== ALL) query = query.eq('branch', scopedBranch);
     if (role && role !== ALL) query = query.eq('role', role);
