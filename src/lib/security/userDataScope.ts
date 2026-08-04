@@ -65,9 +65,8 @@ function getDashboardBranchOverrideForUser(user: ScopeUser): string | null {
 }
 
 function getReviewBranchOverride(user: ScopeUser): string[] | null {
-  const username = String(user?.username || '').trim().toLowerCase();
-  const name = String(user?.name || '').trim().toLowerCase();
-  if (username === 'cs.doha' || name.includes('ضحي') || username === 'cs.donia' || name.includes('دنيا')) {
+  // مسؤولو خدمة العملاء بيقيّموا دكاترة الفرعين، لأن نفس الدكتور ممكن يغطي فرع تاني مؤقتًا.
+  if (normalizeRole(user?.role) === 'customer_service_manager') {
     return ['فرع الشامي', 'فرع شكري'];
   }
   return null;

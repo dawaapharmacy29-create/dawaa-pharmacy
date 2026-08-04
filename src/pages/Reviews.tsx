@@ -31,7 +31,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { normalizeRole } from '@/lib/core/permissionSystem';
-import { canViewAllBranches, isDoctorRole, normalizeArabicName, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
+import { canViewAllBranches, getReviewAllowedBranches, isDoctorRole, normalizeArabicName, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { persistPointsTransaction, applyStaffDelta } from '@/lib/pointsPersistence';
@@ -412,6 +412,9 @@ export default function Reviews() {
   }, [user?.branch, user]);
   const [reviewTargetType, setReviewTargetType] = useState<'staff' | 'delivery'>('staff');
   const isDeliveryRole = (role: string) => /توصيل|دليفري|delivery|rider|مندوب/i.test(role || '');
+  const reviewAllowedBranches = useMemo(() => getReviewAllowedBranches(user), [user]);
+  const canPickTargetBranch = reviewAllowedBranches.length > 1;
+  const [targetBranch, setTargetBranch] = useState<string>(() => normalizeBranchName(user?.branch || '') || reviewAllowedBranches[0] || '');
   const canManageCoverage = isGeneralManager(user) || ['customer_service_manager', 'branch_manager', 'branches_manager'].includes(normalizeRole(user?.role));
   const [showCoveragePanel, setShowCoveragePanel] = useState(false);
   const [coverageList, setCoverageList] = useState<any[]>([]);
@@ -474,10 +477,10 @@ export default function Reviews() {
       );
     }
     return byTargetType(withoutSelf([
-      ...choices.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)),
+      ...choices.filter((row) => reviewAllowedBranches.includes(normalizeBranchName(row.branch)) && (!canPickTargetBranch || normalizeBranchName(row.branch) === targetBranch)),
       ...coverageDoctors,
     ]));
-  }, [staff, user, reviewTargetType, coverageDoctors]);
+  }, [staff, user, reviewTargetType, coverageDoctors, canPickTargetBranch, targetBranch, reviewAllowedBranches]);
   const reviewers = useMemo(() => {
     const choices = reviewerChoices(staff);
     const REVIEW_CREATOR_ROLES = ['branch_manager', 'branches_manager', 'customer_service', 'customer_service_manager', 'general_manager', 'executive_manager'];
@@ -1539,20 +1542,38 @@ export default function Reviews() {
         <div className="section-title text-sm">بيانات المحادثة</div>
         <div className="grid md:grid-cols-3 gap-3">
           <Field label="من يقيم؟">
-            <select
-              className="input-dark"
-              value={form.reviewerId}
-              onChange={(e) => setForm((f) => ({ ...f, reviewerId: e.target.value }))}
-            >
-              <option value="">اختر المراجع</option>
-              {reviewers.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.name} - {row.role}
-                </option>
-              ))}
-            </select>
+            {canManageReviews ? (
+              <select
+                className="input-dark"
+                value={form.reviewerId}
+                onChange={(e) => setForm((f) => ({ ...f, reviewerId: e.target.value }))}
+              >
+                <option value="">اختر المراجع</option>
+                {reviewers.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.name} - {row.role}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="input-dark flex items-center text-slate-200">{user?.name || 'أنا'}</div>
+            )}
           </Field>
           <Field label="الدكتور / الموظف المقيم">
+            {canPickTargetBranch ? (
+              <div className="mb-2 flex gap-2 text-xs font-bold">
+                {reviewAllowedBranches.map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => { setTargetBranch(b); setForm((f) => ({ ...f, staffId: '' })); }}
+                    className={`rounded-lg px-3 py-1.5 transition ${targetBranch === b ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40' : 'bg-white/5 text-slate-400 border border-white/10'}`}
+                  >
+                    {b}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="mb-2 flex gap-2 text-xs font-bold">
               <button
                 type="button"
