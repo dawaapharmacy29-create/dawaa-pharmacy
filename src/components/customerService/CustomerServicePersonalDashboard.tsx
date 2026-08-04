@@ -138,6 +138,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
   const [data, setData] = useState<PersonalDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const [showConfetti] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -152,6 +153,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setErrorDetail(null);
     const cycle = getPharmacyCycleRange(new Date());
 
     const timeoutId = window.setTimeout(() => {
@@ -171,6 +173,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
         if (rpcError) {
           console.error('[CustomerServicePersonalDashboard] rpc error', rpcError);
           setError('تعذر تحميل لوحتك الشخصية دلوقتي.');
+          setErrorDetail(rpcError.message || rpcError.code || JSON.stringify(rpcError).slice(0, 200));
           setLoading(false);
           return;
         }
@@ -182,6 +185,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
         window.clearTimeout(timeoutId);
         console.error('[CustomerServicePersonalDashboard] rpc rejected', err);
         setError('تعذر تحميل لوحتك الشخصية دلوقتي.');
+        setErrorDetail(err instanceof Error ? `${err.name}: ${err.message}` : String(err).slice(0, 200));
         setLoading(false);
       });
 
@@ -195,6 +199,9 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
     return (
       <div className="rounded-3xl border p-6 text-center" style={card}>
         <p className="text-sm font-bold text-rose-300">{error || 'لا توجد بيانات كافية بعد.'}</p>
+        {errorDetail ? (
+          <p className="mt-1 break-words font-mono text-[10px]" style={{ color: 'var(--dawaa-theme-muted)' }} dir="ltr">{errorDetail}</p>
+        ) : null}
         {error ? (
           <button
             type="button"
