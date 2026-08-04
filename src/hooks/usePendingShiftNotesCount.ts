@@ -4,7 +4,7 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 const DONE_PATTERN = /completed|done|closed|cancelled|deleted|تم|مغلق|ملغي|محذوف/i;
 
 function isPendingShiftNote(row: Record<string, unknown>) {
-  if (row.deleted_at || row.is_deleted === true) return false;
+  if (row.deleted_at) return false;
   if (row.completed_at) return false;
   const status = String(row.status || '').trim();
   if (!status) return true;
@@ -23,7 +23,7 @@ export function usePendingShiftNotesCount() {
     try {
       const { data, error } = await supabase
         .from('shift_notes')
-        .select('id,status,deleted_at,is_deleted,completed_at')
+        .select('id,status,deleted_at,completed_at')
         .is('deleted_at', null)
         .limit(500);
       if (error) throw error;
