@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Award, Calendar, ClipboardList, CreditCard, Gift, Heart, MessageCircle, Package,
-  Sparkles, Star, TrendingDown, TrendingUp, Trophy, Users, Wand2,
+  Sparkles, Star, TrendingDown, TrendingUp, Trophy, Users, Wand2, AlertTriangle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
@@ -89,6 +89,7 @@ interface PersonalDashboardData {
   team_ranking: TeamRow[];
   active_customers: { last_3_months: number; previous_3_months: number; trend: number | null };
   recovery_stats: { total_followups: number; recovered_count: number; recovery_rate: number | null };
+  risk_alerts: { spend_decline_count: number; spend_decline_top: Array<{ customer_name: string; decline_pct: number; prior_avg_monthly_spend: number }>; cycle_churn_count: number };
 }
 
 function StatPill({ icon: Icon, label, value, accent }: { icon: any; label: string; value: string | number; accent: string }) {
@@ -256,6 +257,35 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
         ))}
       </div>
 
+      {(data.risk_alerts.spend_decline_count > 0 || data.risk_alerts.cycle_churn_count > 0) ? (
+        <div
+          className="cursor-pointer rounded-3xl border-2 p-5 transition hover:brightness-110"
+          style={{ borderColor: 'rgba(251,113,133,0.5)', background: 'linear-gradient(135deg, rgba(251,113,133,0.14), rgba(251,146,60,0.08))' }}
+          onClick={() => navigate('/customer-service')}
+        >
+          <div className="flex items-center gap-2 font-black text-rose-200"><AlertTriangle size={20} /> عملاء محتاجين متابعة عاجلة النهارده</div>
+          <div className="mt-3 flex flex-wrap gap-4">
+            <div>
+              <div className="text-3xl font-black text-white">{data.risk_alerts.spend_decline_count}</div>
+              <p className="text-xs font-bold text-rose-200">عميل بيقلل مسحوباته بشكل واضح</p>
+            </div>
+            <div>
+              <div className="text-3xl font-black text-white">{data.risk_alerts.cycle_churn_count}</div>
+              <p className="text-xs font-bold text-amber-200">اشترى دورتين وتوقف الأخيرة</p>
+            </div>
+          </div>
+          {data.risk_alerts.spend_decline_top.length ? (
+            <div className="mt-4 space-y-1.5 border-t pt-3" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+              {data.risk_alerts.spend_decline_top.map((c) => (
+                <div key={c.customer_name} className="flex items-center justify-between text-xs font-bold">
+                  <span className="text-white">{c.customer_name}</span>
+                  <span className="text-rose-200">كان بيصرف {Math.round(c.prior_avg_monthly_spend)} ج.م شهريًا · نزل {c.decline_pct}%</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatPill icon={ClipboardList} label="متابعاتي هذه الدورة" value={f.total_count} accent="#f472b6" />
