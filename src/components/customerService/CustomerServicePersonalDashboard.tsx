@@ -1,11 +1,63 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Award, Calendar, ClipboardList, Gift, Heart, MessageCircle, Package,
+  Award, Calendar, ClipboardList, CreditCard, Gift, Heart, MessageCircle, Package,
   Sparkles, Star, TrendingDown, TrendingUp, Trophy, Users, Wand2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
+
+const WORK_VERSES = [
+  'وَقُلِ اعْمَلُوا فَسَيَرَى اللَّهُ عَمَلَكُمْ وَرَسُولُهُ وَالْمُؤْمِنُونَ',
+  'إِنَّ اللَّهَ يُحِبُّ إِذَا عَمِلَ أَحَدُكُمْ عَمَلًا أَنْ يُتْقِنَهُ',
+  'وَأَن لَّيْسَ لِلْإِنسَانِ إِلَّا مَا سَعَىٰ',
+  'فَإِذَا فَرَغْتَ فَانصَبْ',
+  'مَنْ سَلَكَ طَرِيقًا يَلْتَمِسُ فِيهِ عِلْمًا سَهَّلَ اللَّهُ لَهُ بِهِ طَرِيقًا إِلَى الْجَنَّةِ',
+  'خَيْرُ النَّاسِ أَنْفَعُهُمْ لِلنَّاسِ',
+];
+
+const CONFETTI_COLORS = ['#f472b6', '#2dd4bf', '#fbbf24', '#a78bfa', '#38bdf8', '#fb7185'];
+
+function ConfettiBurst() {
+  const pieces = useMemo(
+    () => Array.from({ length: 40 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      delay: Math.random() * 0.4,
+      duration: 1.8 + Math.random() * 1.2,
+      size: 6 + Math.random() * 6,
+      rotate: Math.random() * 360,
+    })),
+    []
+  );
+  return (
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', borderRadius: '1.5rem' }}>
+      <style>{`@keyframes csConfettiFall { 0% { transform: translateY(-20px) rotate(0deg); opacity: 1; } 100% { transform: translateY(180px) rotate(360deg); opacity: 0; } }`}</style>
+      {pieces.map((p) => (
+        <span
+          key={p.id}
+          style={{
+            position: 'absolute', top: 0, left: `${p.left}%`, width: p.size, height: p.size * 0.5,
+            background: p.color, borderRadius: 2,
+            animation: `csConfettiFall ${p.duration}s ease-in ${p.delay}s forwards`,
+            transform: `rotate(${p.rotate}deg)`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+const QUICK_LINKS = [
+  { label: 'متابعة العملاء', icon: ClipboardList, color: '#f472b6', path: '/customer-service' },
+  { label: 'تقييم المحادثات', icon: Star, color: '#fbbf24', path: '/reviews' },
+  { label: 'رسائل الترحيب', icon: MessageCircle, color: '#2dd4bf', path: '/welcome-messages' },
+  { label: 'طلبات العملاء', icon: Package, color: '#38bdf8', path: '/customer-requests' },
+  { label: 'نقاط العملاء', icon: Gift, color: '#a78bfa', path: '/customer-points-ledger' },
+  { label: 'جدولي', icon: Calendar, color: '#fb7185', path: '/schedule' },
+  { label: 'كريدت خدمة العملاء', icon: CreditCard, color: '#22c55e', path: '/customer-service-credit' },
+];
 
 const card = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const softCard = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
@@ -86,6 +138,13 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [showConfetti] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const key = `cs_dashboard_welcomed_${new Date().toISOString().slice(0, 10)}_${staffName}`;
+    if (sessionStorage.getItem(key)) return false;
+    sessionStorage.setItem(key, '1');
+    return true;
+  });
 
   useEffect(() => {
     if (!branch || !staffName) { setLoading(false); return; }
@@ -153,14 +212,36 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
   const completionRate = f.total_count ? Math.round((f.completed_count / f.total_count) * 100) : 0;
   const tips = generateTips(data, staffName);
   const trend = data.active_customers.trend;
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+  const todaysVerse = WORK_VERSES[dayOfYear % WORK_VERSES.length];
 
   return (
     <div className="space-y-4" dir="rtl">
-      <div className="rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, rgba(244,114,182,0.08), rgba(45,212,191,0.06))', borderColor: 'var(--dawaa-theme-border)' }}>
-        <div className="flex items-center gap-2 text-pink-300"><Sparkles size={18} /><span className="text-xs font-black">لوحتي الشخصية</span></div>
-        <h2 className="mt-1 text-xl font-black text-white">أهلًا يا {staffName} 🌸</h2>
+      <div className="relative overflow-hidden rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, rgba(244,114,182,0.08), rgba(45,212,191,0.06))', borderColor: 'var(--dawaa-theme-border)' }}>
+        {showConfetti ? <ConfettiBurst /> : null}
+        <div className="inline-flex items-center gap-2 rounded-full border px-4 py-1.5" style={{ borderColor: 'rgba(244,114,182,0.3)', background: 'rgba(244,114,182,0.08)' }}>
+          <Sparkles size={14} className="text-pink-300" />
+          <span className="text-xs font-bold text-pink-100">{todaysVerse}</span>
+        </div>
+        <h2 className="mt-3 text-xl font-black text-white">أهلًا يا {staffName} 🌸</h2>
         <p className="mt-1 text-xs font-bold" style={mutedText}>الدورة الحالية: {data.cycle.start} — {data.cycle.end}</p>
       </div>
+
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        {QUICK_LINKS.map((link) => (
+          <button
+            key={link.path}
+            type="button"
+            onClick={() => navigate(link.path)}
+            className="flex flex-col items-center gap-2 rounded-2xl p-3 text-center transition hover:brightness-110 active:scale-95"
+            style={{ background: link.color }}
+          >
+            <link.icon size={20} className="text-white" />
+            <span className="text-[11px] font-black leading-tight text-white">{link.label}</span>
+          </button>
+        ))}
+      </div>
+
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatPill icon={ClipboardList} label="متابعاتي هذه الدورة" value={f.total_count} accent="#f472b6" />
