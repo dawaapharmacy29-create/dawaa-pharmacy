@@ -117,6 +117,7 @@ const EMPTY_INSIGHTS: CustomerServiceInsightPools = {
   stopped60: [],
   strong: [],
   cycleChurn: [],
+  spendDecline: [],
   source: 'not_loaded',
   warnings: [],
 };

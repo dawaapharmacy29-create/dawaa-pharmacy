@@ -114,6 +114,7 @@ export type CustomerServiceInsightPools = {
   stopped60: FollowupRow[];
   strong: FollowupRow[];
   cycleChurn: FollowupRow[];
+  spendDecline: FollowupRow[];
   source: string;
   warnings: string[];
 };
@@ -777,7 +778,41 @@ export async function fetchCustomerServiceInsightPools(branch?: string): Promise
       );
     });
 
-  return { important, reduced, stopped60, strong: await fetchTopActive3mPool(scopedBranch, warnings), cycleChurn: await fetchCycleChurnRiskPool(scopedBranch, warnings), source: 'dawaa_customer_metrics_app_view', warnings };
+  return { important, reduced, stopped60, strong: await fetchTopActive3mPool(scopedBranch, warnings), cycleChurn: await fetchCycleChurnRiskPool(scopedBranch, warnings), spendDecline: await fetchSpendDeclinePool(scopedBranch, warnings), source: 'dawaa_customer_metrics_app_view', warnings };
+}
+
+async function fetchSpendDeclinePool(branch: string, warnings: string[]): Promise<FollowupRow[]> {
+  if (isAll(branch)) return [];
+  try {
+    const { data, error } = await supabase.rpc('get_customer_spend_decline_alerts', { p_branch: branch });
+    if (error) throw error;
+    const rows = ((data as Row[]) || []);
+    return rows.slice(0, 30).map((row) => {
+      const declinePct = Number(row.decline_pct || 0);
+      const priorAvg = Number(row.prior_avg_monthly_spend || 0);
+      return normalizeFollowup({
+        id: `spend-decline-${row.customer_code}`,
+        date: todayDay(),
+        customer_code: row.customer_code,
+        customer_name: row.customer_name,
+        name: row.customer_name,
+        customer_phone: row.customer_phone || '',
+        phone: row.customer_phone || '',
+        branch,
+        total_spent: row.recent_30d_spend || 0,
+        priority: declinePct >= 70 ? 'عاجل' : 'مهم',
+        followup_reason: `كان بيصرف حوالي ${priorAvg} ج.م شهريًا وقل بنسبة ${declinePct}% آخر 30 يوم — لسه بيشتري بس بكمية أقل بكتير، يحتاج متابعة قبل ما يتوقف تمامًا`,
+        request_type: 'انخفاض ملحوظ في المسحوبات',
+        status: 'معلق',
+        followup_status: 'معلق',
+        followup_date: new Date().toISOString(),
+        followup_datetime: new Date().toISOString(),
+      });
+    });
+  } catch (error) {
+    warnings.push(error instanceof Error ? `انخفاض المسحوبات: ${error.message}` : 'انخفاض المسحوبات: تعذر التحميل');
+    return [];
+  }
 }
 
 async function fetchTopActive3mPool(branch: string, warnings: string[]): Promise<FollowupRow[]> {
@@ -899,7 +934,7 @@ export async function generateTodayFollowupsSmartReport(
   for (const branchName of branches) {
     const existingKeys = await fetchOpenFollowupKeys(branchName);
     const pools = await fetchCustomerServiceInsightPools(branchName);
-    const candidates = [...pools.strong, ...pools.cycleChurn, ...pools.stopped60, ...pools.reduced, ...pools.important];
+    const candidates = [...pools.spendDecline, ...pools.strong, ...pools.cycleChurn, ...pools.stopped60, ...pools.reduced, ...pools.important];
     report.candidate_count += candidates.length;
     const unique = new Map<string, FollowupRow>();
 
