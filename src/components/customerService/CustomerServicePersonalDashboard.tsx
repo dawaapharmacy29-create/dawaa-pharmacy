@@ -88,6 +88,7 @@ interface PersonalDashboardData {
   my_upcoming_shifts: ShiftRow[];
   team_ranking: TeamRow[];
   active_customers: { last_3_months: number; previous_3_months: number; trend: number | null };
+  recovery_stats: { total_followups: number; recovered_count: number; recovery_rate: number | null };
 }
 
 function StatPill({ icon: Icon, label, value, accent }: { icon: any; label: string; value: string | number; accent: string }) {
@@ -286,6 +287,23 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
           </div>
           <p className="mt-1 text-xs" style={mutedText}>مقارنة بـ {data.active_customers.previous_3_months} عميل في الـ3 شهور اللي قبلها</p>
         </div>
+      </div>
+
+      <div className="rounded-3xl border p-5" style={card}>
+        <SectionTitle icon={Heart} accent="#f472b6">فعالية متابعتي للعملاء المهددين بالتوقف</SectionTitle>
+        {data.recovery_stats.total_followups > 0 ? (
+          <div className="mt-3 flex items-center gap-4">
+            <div>
+              <div className="text-3xl font-black text-white">{data.recovery_stats.recovery_rate}%</div>
+              <p className="mt-1 text-xs" style={mutedText}>نسبة رجوع العملاء للشراء خلال 14 يوم من متابعتي</p>
+            </div>
+            <div className="text-xs font-bold" style={mutedText}>
+              رجع منهم <span className="text-emerald-300">{data.recovery_stats.recovered_count}</span> من أصل <span className="text-white">{data.recovery_stats.total_followups}</span> عميل تابعتهم
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm" style={mutedText}>لسه معنديش متابعات مكتملة لعملاء مهددين بالتوقف في الدورة دي — أول ما تنفذي متابعة هتظهر النتيجة هنا.</p>
+        )}
       </div>
 
       <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-amber-400/40" style={card} onClick={() => navigate('/reviews')}>

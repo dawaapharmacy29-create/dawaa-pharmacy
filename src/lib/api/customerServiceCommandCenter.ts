@@ -790,6 +790,8 @@ async function fetchSpendDeclinePool(branch: string, warnings: string[]): Promis
     return rows.slice(0, 30).map((row) => {
       const declinePct = Number(row.decline_pct || 0);
       const priorAvg = Number(row.prior_avg_monthly_spend || 0);
+      const recoveryScore = Number(row.recovery_score || 0);
+      const lifetimeInvoices = Number(row.lifetime_invoices || 0);
       return normalizeFollowup({
         id: `spend-decline-${row.customer_code}`,
         date: todayDay(),
@@ -801,7 +803,7 @@ async function fetchSpendDeclinePool(branch: string, warnings: string[]): Promis
         branch,
         total_spent: row.recent_30d_spend || 0,
         priority: declinePct >= 70 ? 'عاجل' : 'مهم',
-        followup_reason: `كان بيصرف حوالي ${priorAvg} ج.م شهريًا وقل بنسبة ${declinePct}% آخر 30 يوم — لسه بيشتري بس بكمية أقل بكتير، يحتاج متابعة قبل ما يتوقف تمامًا`,
+        followup_reason: `كان بيصرف حوالي ${priorAvg} ج.م شهريًا وقل بنسبة ${declinePct}% آخر 30 يوم (عميل من ${lifetimeInvoices} فاتورة تاريخيًا، درجة قابلية الاسترجاع ${recoveryScore}/100) — يحتاج متابعة قبل ما يتوقف تمامًا`,
         request_type: 'انخفاض ملحوظ في المسحوبات',
         status: 'معلق',
         followup_status: 'معلق',
