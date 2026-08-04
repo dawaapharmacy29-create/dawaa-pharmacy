@@ -13,11 +13,13 @@ import {
   Search,
   Send,
   ShieldCheck,
+  Sparkles,
   UserRoundCheck,
   Wrench,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { generateTodayFollowupsSmartReport } from '@/lib/api/customerServiceCommandCenter';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { normalizeEgyptianPhone } from '@/lib/customerFollowupCore';
@@ -92,6 +94,8 @@ type ActorProfile = {
   branch: string | null;
 };
 
+type StaffDirectoryEntry = { name: string; normalized: string; branch: string | null; role: ActorProfile['role'] };
+
 const text = (value: unknown) => String(value ?? '').trim();
 const dayKey = (value?: string | null) => text(value).slice(0, 10);
 const localDayKey = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -115,18 +119,19 @@ const isOverdue = (row: FollowupRow) => Boolean(dayKey(row.next_followup_date) &
 const isDueNow = (row: FollowupRow) => !dayKey(row.next_followup_date) || dayKey(row.next_followup_date) <= localDayKey();
 const isPendingReview = (row: FollowupRow) => /pending_review|انتظار مراجعة|في انتظار المراجعة/i.test(rawStatus(row));
 
-function actorProfile(name: unknown): ActorProfile {
+function actorProfile(name: unknown, directory: StaffDirectoryEntry[] = []): ActorProfile {
   const normalized = normalizedActor(name);
-  if (normalized.includes('ضحى') || normalized.includes('ضحي')) return { role: 'executor', displayName: 'د/ ضحى', branch: 'فرع الشامي' };
-  if (normalized.includes('دنيا')) return { role: 'executor', displayName: 'د/ دنيا', branch: 'فرع شكري' };
-  if (normalized.includes('علا')) return { role: 'reviewer', displayName: 'د/ علا', branch: null };
+  if (!normalized) return { role: 'other', displayName: 'النظام / غير محدد', branch: null };
+  const match = directory.find((entry) => normalized.includes(entry.normalized) || entry.normalized.includes(normalized));
+  if (match) return { role: match.role, displayName: match.name, branch: match.branch };
   if (normalized.includes('المدير العام') || normalized.includes('معاذ')) return { role: 'general_manager', displayName: 'المدير العام', branch: null };
   return { role: 'other', displayName: text(name) || 'النظام / غير محدد', branch: null };
 }
 
-function assignedExecutor(branch: string | null | undefined) {
+function assignedExecutor(branch: string | null | undefined, directory: StaffDirectoryEntry[] = []) {
   const normalized = normalizeBranchName(branch || '');
-  return normalized.includes('الشامي') ? 'د/ ضحى' : normalized.includes('شكري') ? 'د/ دنيا' : 'غير محدد';
+  const match = directory.find((entry) => entry.role === 'executor' && entry.branch && normalizeBranchName(entry.branch) === normalized);
+  return match?.name || 'غير محدد';
 }
 
 function formatDateTime(value: string) {
@@ -187,8 +192,6 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const { user } = useAuth();
   const managerView = canViewAllBranches(user);
   const userBranch = normalizeBranchName(user?.branch || '');
-  const currentProfile = actorProfile(user?.name);
-  const canExecute = ['executor', 'reviewer', 'general_manager'].includes(currentProfile.role);
   const [branch, setBranch] = useState(managerView ? ALL_BRANCHES : userBranch);
   const [rows, setRows] = useState<FollowupRow[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
@@ -204,6 +207,50 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const [actionNote, setActionNote] = useState('');
   const [contactChannel, setContactChannel] = useState('واتساب');
   const [performanceDays, setPerformanceDays] = useState(7);
+  const [csDirectory, setCsDirectory] = useState<StaffDirectoryEntry[]>([]);
+  const [generatingSmart, setGeneratingSmart] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('staff_accounts')
+      .select('name, branch, role')
+      .eq('active', true)
+      .eq('can_login', true)
+      .in('role', ['customer_service_manager', 'branches_manager', 'general_manager'])
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const entries: StaffDirectoryEntry[] = (data as Array<{ name: string; branch: string | null; role: string }>).map((row) => ({
+          name: text(row.name),
+          normalized: normalizedActor(row.name),
+          branch: row.role === 'customer_service_manager' ? normalizeBranchName(row.branch || '') : null,
+          role: row.role === 'customer_service_manager' ? 'executor' : row.role === 'branches_manager' ? 'reviewer' : 'general_manager',
+        }));
+        setCsDirectory(entries);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const currentProfile = actorProfile(user?.name, csDirectory);
+  const canExecute = ['executor', 'reviewer', 'general_manager'].includes(currentProfile.role);
+
+  const generateSmartFollowups = async () => {
+    setGeneratingSmart(true);
+    try {
+      const targetBranches = branch === ALL_BRANCHES ? ['فرع الشامي', 'فرع شكري'] : [branch];
+      let created = 0;
+      for (const targetBranch of targetBranches) {
+        const report = await generateTodayFollowupsSmartReport(targetBranch, user?.name || null);
+        created += report.created_count;
+      }
+      toast.success(created > 0 ? `اتضافت ${created} متابعة ذكية جديدة (عملاء مهمين، انخفاض مسحوبات، مهددين بالتوقف)` : 'مفيش متابعات ذكية جديدة دلوقتي — كل الفرص المتاحة مسجلة أصلاً');
+      await load();
+    } catch (error) {
+      toast.error(`تعذر توليد المتابعات الذكية: ${(error as Error).message}`);
+    } finally {
+      setGeneratingSmart(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!managerView && !userBranch) return;
@@ -284,11 +331,13 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     return events.filter((event) => new Date(event.created_at) >= since);
   }, [events, performanceDays]);
 
-  const executionEvents = useMemo(() => periodEvents.filter((event) => EXECUTION_ACTIONS.has(event.action) && actorProfile(event.actor_name).role === 'executor'), [periodEvents]);
+  const executionEvents = useMemo(() => periodEvents.filter((event) => EXECUTION_ACTIONS.has(event.action) && actorProfile(event.actor_name, csDirectory).role === 'executor'), [periodEvents]);
   const contactedEvents = useMemo(() => events.filter((event) => EXECUTION_ACTIONS.has(event.action)), [events]);
 
-  const performance = useMemo(() => ['د/ ضحى', 'د/ دنيا'].map((executor) => {
-    const relevant = executionEvents.filter((event) => actorProfile(event.actor_name).displayName === executor);
+  const executorList = useMemo(() => csDirectory.filter((entry) => entry.role === 'executor'), [csDirectory]);
+
+  const performance = useMemo(() => executorList.map((executor) => {
+    const relevant = executionEvents.filter((event) => actorProfile(event.actor_name, csDirectory).displayName === executor.name);
     const customers = new Set(relevant.map((event) => text(event.metadata?.customer_code) || event.followup_id).filter(Boolean));
     const attempts = relevant.filter((event) => ['message_sent', 'no_answer', 'replied'].includes(event.action)).length;
     const messages = relevant.filter((event) => event.action === 'message_sent').length;
@@ -296,8 +345,8 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     const replied = relevant.filter((event) => event.action === 'replied').length;
     const completed = relevant.filter((event) => event.action === 'completed').length;
     return {
-      actor: executor,
-      branch: executor === 'د/ ضحى' ? 'فرع الشامي' : 'فرع شكري',
+      actor: executor.name,
+      branch: executor.branch || 'غير محدد',
       customers: customers.size,
       attempts,
       messages,
@@ -307,10 +356,10 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       responseRate: attempts ? replied / attempts : 0,
       completionRate: customers.size ? completed / customers.size : 0,
     };
-  }), [executionEvents]);
+  }), [executionEvents, executorList, csDirectory]);
 
   const reviewSummary = useMemo(() => {
-    const reviewEvents = periodEvents.filter((event) => REVIEW_ACTIONS.has(event.action) && actorProfile(event.actor_name).role === 'reviewer');
+    const reviewEvents = periodEvents.filter((event) => REVIEW_ACTIONS.has(event.action) && actorProfile(event.actor_name, csDirectory).role === 'reviewer');
     return {
       reviewed: reviewEvents.length,
       approved: reviewEvents.filter((event) => event.action === 'approved').length,
@@ -320,7 +369,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   }, [periodEvents]);
 
   const audit = async (row: FollowupRow, action: string, metadata: Record<string, unknown>) => {
-    const profile = actorProfile(user?.name);
+    const profile = actorProfile(user?.name, csDirectory);
     const { error } = await supabase.from('customer_followup_audit_log').insert({
       followup_id: row.id,
       customer_id: row.customer_id || null,
@@ -501,12 +550,13 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <p className="text-xs font-black text-cyan-300">تشغيل ومراجعة منفصلان</p>
-          <h2 className="text-xl font-black text-white">د/ ضحى للشامي · د/ دنيا لشكري · د/ علا للمراجعة · المدير العام للمتابعة العليا</h2>
+          <h2 className="text-xl font-black text-white">تنفيذ ومراجعة المتابعات — كل مسؤولة بفرعها، ومراجعة مركزية</h2>
           <p className="mt-1 text-sm font-bold text-slate-400">لا تُحتسب الإنشاءات أو المشاهدات أو التصحيحات الإدارية ضمن أداء التنفيذ.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {managerView ? <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}><option>{ALL_BRANCHES}</option><option>فرع الشامي</option><option>فرع شكري</option></select> : <div className="input-dark font-black text-cyan-100">{userBranch}</div>}
           <button className="btn-secondary flex items-center gap-2" onClick={() => void load()} disabled={loading}>{loading ? <Loader2 size={16} className="animate-spin"/> : <RefreshCw size={16}/>} تحديث</button>
+          <button className="flex items-center gap-2 rounded-xl border-2 border-amber-200 bg-amber-500 px-4 py-2 text-sm font-black text-slate-950 hover:bg-amber-400 disabled:opacity-50" onClick={() => void generateSmartFollowups()} disabled={generatingSmart}>{generatingSmart ? <Loader2 size={16} className="animate-spin"/> : <Sparkles size={16}/>} توليد متابعات ذكية اليوم</button>
           {onOpenTools ? <button className="btn-secondary flex items-center gap-2" onClick={onOpenTools}><Wrench size={16}/> الإدارة والتصحيح</button> : null}
         </div>
       </div>
@@ -518,7 +568,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       {tab === 'queue' ? <div className="grid gap-2 sm:grid-cols-3">
         <div className="rounded-2xl bg-emerald-400/10 p-3"><div className="text-xs font-black text-emerald-200">المعروض للتنفيذ</div><div className="text-2xl font-black text-white">{smartQueue.length} / {branch === ALL_BRANCHES ? TOTAL_DAILY_QUEUE_LIMIT : PER_BRANCH_QUEUE_LIMIT}</div></div>
         <div className="rounded-2xl bg-amber-400/10 p-3"><div className="text-xs font-black text-amber-200">قائمة الانتظار</div><div className="text-2xl font-black text-white">{backlogCount}</div></div>
-        <div className="rounded-2xl bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">منفذ الفرع</div><div className="text-lg font-black text-white">{branch === ALL_BRANCHES ? 'ضحى + دنيا' : assignedExecutor(branch)}</div></div>
+        <div className="rounded-2xl bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">منفذ الفرع</div><div className="text-lg font-black text-white">{branch === ALL_BRANCHES ? executorList.map((e) => e.name).join(' + ') || 'غير محدد' : assignedExecutor(branch, csDirectory)}</div></div>
       </div> : null}
 
       {(tab === 'queue' || tab === 'waiting' || tab === 'review') ? <>
@@ -540,7 +590,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
         })}</div>
       </> : null}
 
-      {tab === 'contacted' ? <div className="space-y-2">{contactedEvents.slice(0, 500).map((event) => <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex justify-between gap-2"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div><div className="text-xs text-slate-400">{formatDateTime(event.created_at)}</div></div><div className="mt-2 font-bold text-white">{text(event.metadata?.customer_name) || 'عميل غير محدد'} · {actorProfile(event.actor_name).displayName}</div><div className="mt-1 text-xs text-slate-400">{event.branch || 'فرع غير محدد'} · {text(event.metadata?.result) || 'غير مسجلة'}</div></div>)}</div> : null}
+      {tab === 'contacted' ? <div className="space-y-2">{contactedEvents.slice(0, 500).map((event) => <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex justify-between gap-2"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div><div className="text-xs text-slate-400">{formatDateTime(event.created_at)}</div></div><div className="mt-2 font-bold text-white">{text(event.metadata?.customer_name) || 'عميل غير محدد'} · {actorProfile(event.actor_name, csDirectory).displayName}</div><div className="mt-1 text-xs text-slate-400">{event.branch || 'فرع غير محدد'} · {text(event.metadata?.result) || 'غير مسجلة'}</div></div>)}</div> : null}
 
       {tab === 'performance' ? <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-black text-white">أداء التنفيذ الفعلي</h3><p className="text-xs font-bold text-slate-400">التنفيذ محسوب على د/ ضحى ود/ دنيا فقط.</p></div><select className="input-dark" value={performanceDays} onChange={(event) => setPerformanceDays(Number(event.target.value))}><option value={7}>آخر 7 أيام</option><option value={14}>آخر 14 يومًا</option><option value={30}>آخر 30 يومًا</option></select></div>
@@ -583,7 +633,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
         </div>
       </div>
 
-      {historyOpen ? <div className="mt-4 space-y-2 rounded-2xl bg-black/20 p-4">{history.map((event) => <div key={event.id} className="rounded-xl border border-white/10 p-3"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div><div className="text-xs text-slate-400">{actorProfile(event.actor_name).displayName} · {formatDateTime(event.created_at)}</div><div className="mt-2 text-sm text-white">{text(event.metadata?.notes) || text(event.metadata?.result) || 'بدون تفاصيل'}</div></div>)}</div> : null}
+      {historyOpen ? <div className="mt-4 space-y-2 rounded-2xl bg-black/20 p-4">{history.map((event) => <div key={event.id} className="rounded-xl border border-white/10 p-3"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div><div className="text-xs text-slate-400">{actorProfile(event.actor_name, csDirectory).displayName} · {formatDateTime(event.created_at)}</div><div className="mt-2 text-sm text-white">{text(event.metadata?.notes) || text(event.metadata?.result) || 'بدون تفاصيل'}</div></div>)}</div> : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-black text-white">وسيلة التواصل<select className="input-dark mt-2 w-full" value={contactChannel} onChange={(event) => setContactChannel(event.target.value)}><option>واتساب</option><option>اتصال هاتفي</option><option>رسالة SMS</option><option>زيارة داخل الفرع</option></select></label><label className="text-sm font-black text-white">الموعد التالي<input type="date" className="input-dark mt-2 w-full" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)}/></label></div>
       <textarea className="input-dark mt-3 min-h-28 w-full" value={actionNote} onChange={(event) => setActionNote(event.target.value)} placeholder="اكتب تفاصيل المحاولة والنتيجة..."/>
       {!canExecute ? <div className="mt-3 rounded-xl bg-amber-400/10 p-3 text-sm font-bold text-amber-100">حسابك للعرض فقط؛ أزرار التنفيذ موقوفة.</div> : null}
