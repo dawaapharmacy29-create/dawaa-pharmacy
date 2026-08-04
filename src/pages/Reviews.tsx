@@ -323,10 +323,7 @@ function isGeneralManager(user: any) {
   const role = String(user?.role || '').toLowerCase();
   const name = String(user?.name || '');
   return (
-    role.includes('admin') ||
-    role.includes('manager') ||
-    role.includes('general') ||
-    role.includes('owner') ||
+    ['general_manager', 'branches_manager', 'executive_manager', 'admin'].includes(role) ||
     name.includes('معاذ')
   );
 }
