@@ -55,6 +55,7 @@ const EMPTY_INSIGHTS: CustomerServiceInsightPools = {
   reduced: [],
   stopped60: [],
   strong: [],
+  cycleChurn: [],
   source: 'not_loaded',
   warnings: [],
 };

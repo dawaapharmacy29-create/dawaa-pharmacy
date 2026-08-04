@@ -113,6 +113,7 @@ export type CustomerServiceInsightPools = {
   reduced: FollowupRow[];
   stopped60: FollowupRow[];
   strong: FollowupRow[];
+  cycleChurn: FollowupRow[];
   source: string;
   warnings: string[];
 };
@@ -776,7 +777,72 @@ export async function fetchCustomerServiceInsightPools(branch?: string): Promise
       );
     });
 
-  return { important, reduced, stopped60, strong: [], source: 'dawaa_customer_metrics_app_view', warnings };
+  return { important, reduced, stopped60, strong: await fetchTopActive3mPool(scopedBranch, warnings), cycleChurn: await fetchCycleChurnRiskPool(scopedBranch, warnings), source: 'dawaa_customer_metrics_app_view', warnings };
+}
+
+async function fetchTopActive3mPool(branch: string, warnings: string[]): Promise<FollowupRow[]> {
+  if (isAll(branch)) return [];
+  try {
+    const { data, error } = await supabase.rpc('get_daily_smart_followup_candidates', { p_branch: branch });
+    if (error) throw error;
+    const rows = (data as { top_active_customers?: Row[] } | null)?.top_active_customers || [];
+    return rows.slice(0, 20).map((row) => {
+      const phone = String(row.customer_phone || '');
+      return normalizeFollowup({
+        id: `top-active-${row.customer_code}`,
+        date: todayDay(),
+        customer_code: row.customer_code,
+        customer_name: row.customer_name,
+        name: row.customer_name,
+        customer_phone: phone.startsWith('code:') ? '' : phone,
+        phone: phone.startsWith('code:') ? '' : phone,
+        branch,
+        total_spent: row.total_spent || 0,
+        priority: 'مهم',
+        followup_reason: `من أهم العملاء آخر 3 شهور (${row.invoices || 0} فاتورة) — يستاهل متابعة اهتمام`,
+        request_type: 'أهم العملاء آخر 3 شهور',
+        status: 'معلق',
+        followup_status: 'معلق',
+        followup_date: new Date().toISOString(),
+        followup_datetime: new Date().toISOString(),
+      });
+    });
+  } catch (error) {
+    warnings.push(error instanceof Error ? `أهم العملاء آخر 3 شهور: ${error.message}` : 'أهم العملاء آخر 3 شهور: تعذر التحميل');
+    return [];
+  }
+}
+
+async function fetchCycleChurnRiskPool(branch: string, warnings: string[]): Promise<FollowupRow[]> {
+  if (isAll(branch)) return [];
+  try {
+    const { data, error } = await supabase.rpc('get_daily_smart_followup_candidates', { p_branch: branch });
+    if (error) throw error;
+    const rows = (data as { cycle_churn_risk?: Row[] } | null)?.cycle_churn_risk || [];
+    return rows.slice(0, 30).map((row) => {
+      const phone = String(row.customer_phone || '');
+      return normalizeFollowup({
+        id: `cycle-churn-${row.customer_code}`,
+        date: todayDay(),
+        customer_code: row.customer_code,
+        customer_name: row.customer_name,
+        name: row.customer_name,
+        customer_phone: phone.startsWith('code:') ? '' : phone,
+        phone: phone.startsWith('code:') ? '' : phone,
+        branch,
+        priority: 'مهم',
+        followup_reason: 'اشترى في الدورة اللي فاتت بشهرين وماشتراش في الدورة الأخيرة — يحتاج متابعة قبل ما يتوقف تمامًا',
+        request_type: 'مهددون بالتوقف (مقارنة دورتين)',
+        status: 'معلق',
+        followup_status: 'معلق',
+        followup_date: new Date().toISOString(),
+        followup_datetime: new Date().toISOString(),
+      });
+    });
+  } catch (error) {
+    warnings.push(error instanceof Error ? `عملاء مهددون بالتوقف (دورتين): ${error.message}` : 'عملاء مهددون بالتوقف (دورتين): تعذر التحميل');
+    return [];
+  }
 }
 
 async function fetchOpenFollowupKeys(branch?: string) {
@@ -833,7 +899,7 @@ export async function generateTodayFollowupsSmartReport(
   for (const branchName of branches) {
     const existingKeys = await fetchOpenFollowupKeys(branchName);
     const pools = await fetchCustomerServiceInsightPools(branchName);
-    const candidates = [...pools.strong, ...pools.stopped60, ...pools.reduced, ...pools.important];
+    const candidates = [...pools.strong, ...pools.cycleChurn, ...pools.stopped60, ...pools.reduced, ...pools.important];
     report.candidate_count += candidates.length;
     const unique = new Map<string, FollowupRow>();
 
