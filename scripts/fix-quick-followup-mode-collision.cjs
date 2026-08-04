@@ -52,7 +52,12 @@ require('./apply-followup-results-excel-import.cjs');
 require('./place-followup-results-import-top-action.cjs');
 require('./mount-followup-results-import-visible-action.cjs');
 require('./apply-doctor-average-items-card.cjs');
-require('./apply-doctor-competition-duplicate-identity-fix.cjs');
+
+// DoctorCompetition already contains the newer branch-aware identity merge in source.
+// Do not run the legacy build-time patch: on the newer mergeRows signature it could
+// inject duplicateIdentity references without declaring the variable, crashing the page.
+console.log('[doctor-competition-duplicate-identity] skipped during prebuild; source implementation is authoritative');
+
 require('./apply-doctor-competition-sales-authority-fix.cjs');
 require('./apply-cross-branch-evaluation-and-inspection-history-fix.cjs');
 require('./apply-customer-service-all-doctors-evaluation.cjs');
