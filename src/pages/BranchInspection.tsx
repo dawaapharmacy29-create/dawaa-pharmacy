@@ -74,10 +74,15 @@ interface PastInspection {
   id: string;
   branch: string;
   date: string;
+  time?: string;
   inspector_name: string;
   overall_score: number;
   overall_notes: string;
   created_at: string;
+  sections: RatingSection[];
+  staff_evals: StaffEval[];
+  action_items: ActionItem[];
+  next_visit_date?: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -256,6 +261,7 @@ export default function BranchInspection() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>('cleanliness');
   const [showHistory, setShowHistory] = useState(false);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
   const overallScore = form.sections.filter((s) => s.rating > 0).length
     ? form.sections.filter((s) => s.rating > 0).reduce((sum, s) => sum + s.rating, 0) /
@@ -270,12 +276,18 @@ export default function BranchInspection() {
     setLoadingHistory(true);
     supabase
       .from('branch_inspections')
-      .select('id, branch, date, inspector_name, overall_score, overall_notes, created_at')
+      .select('id, branch, date, time, inspector_name, overall_score, overall_notes, created_at, sections, staff_evals, action_items, next_visit_date')
       .eq('branch', form.branch)
       .order('created_at', { ascending: false })
       .limit(10)
       .then(({ data }) => {
-        setPastInspections((data || []) as PastInspection[]);
+        const normalized = ((data || []) as Array<Record<string, any>>).map((row) => ({
+          ...row,
+          sections: Array.isArray(row.sections) ? row.sections : [],
+          staff_evals: Array.isArray(row.staff_evals) ? row.staff_evals : [],
+          action_items: Array.isArray(row.action_items) ? row.action_items : [],
+        })) as PastInspection[];
+        setPastInspections(normalized);
         setLoadingHistory(false);
       });
   }, [showHistory, form.branch]);
@@ -902,18 +914,81 @@ export default function BranchInspection() {
               لا توجد مرورات سابقة مسجلة لهذا الفرع
             </p>
           )}
-          {pastInspections.map((p) => (
-            <div key={p.id} className="rounded-2xl border border-slate-700/40 bg-slate-900/50 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-black text-white">{p.date}</span>
-                  <span className="text-xs text-slate-400">بواسطة {p.inspector_name}</span>
-                </div>
-                <ScoreBadge score={p.overall_score} />
+          {pastInspections.map((p) => {
+            const expanded = expandedHistoryId === p.id;
+            const ratedSections = p.sections.filter((s) => s.rating > 0 || s.notes);
+            return (
+              <div key={p.id} className="rounded-2xl border border-slate-700/40 bg-slate-900/50 p-4">
+                <button
+                  type="button"
+                  onClick={() => setExpandedHistoryId(expanded ? null : p.id)}
+                  className="flex w-full flex-wrap items-center justify-between gap-2 text-right"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-black text-white">{p.date}</span>
+                    {p.time && <span className="text-xs text-slate-500">{p.time}</span>}
+                    <span className="text-xs text-slate-400">بواسطة {p.inspector_name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <ScoreBadge score={p.overall_score} />
+                    {expanded ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                  </div>
+                </button>
+                {p.overall_notes && <p className="mt-2 text-sm text-slate-300">{p.overall_notes}</p>}
+
+                {expanded && (
+                  <div className="mt-4 space-y-4 border-t border-slate-700/40 pt-4">
+                    {ratedSections.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-black text-cyan-300">تفاصيل الأقسام</p>
+                        {ratedSections.map((s) => (
+                          <div key={s.key} className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-bold text-white">{s.icon} {s.label}</span>
+                              {s.rating > 0 && <ScoreBadge score={s.rating} />}
+                            </div>
+                            {s.notes && <p className="mt-1.5 text-xs text-slate-400">{s.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {p.staff_evals.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-black text-cyan-300">تقييم الموظفين وقت المرور</p>
+                        {p.staff_evals.map((ev) => (
+                          <div key={ev.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 text-xs">
+                            <span className="font-bold text-white">{ev.name} {ev.role ? `· ${ev.role}` : ''}</span>
+                            <span className="text-slate-400">{ev.rating}{ev.note ? ` — ${ev.note}` : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {p.action_items.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-black text-cyan-300">المهام المطلوبة من هذا المرور</p>
+                        {p.action_items.map((item) => (
+                          <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 text-xs">
+                            <span className="text-white">{item.text}</span>
+                            <span className="text-slate-400">{item.priority}{item.assigned_to ? ` · ${item.assigned_to}` : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {p.next_visit_date && (
+                      <p className="text-xs text-slate-400">موعد المرور القادم: <span className="font-bold text-white">{p.next_visit_date}</span></p>
+                    )}
+
+                    {!ratedSections.length && !p.staff_evals.length && !p.action_items.length && (
+                      <p className="text-xs italic text-slate-500">مفيش تفاصيل إضافية مسجلة لهذا المرور غير الملاحظة العامة.</p>
+                    )}
+                  </div>
+                )}
               </div>
-              {p.overall_notes && <p className="text-sm text-slate-300">{p.overall_notes}</p>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
