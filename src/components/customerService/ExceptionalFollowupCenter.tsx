@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Download, FileSpreadsheet, Filter, RefreshCw, Search, Sparkles, Upload } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarDays, Download, Eye, FileSpreadsheet, Filter, RefreshCw, Search, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
@@ -10,6 +10,10 @@ import {
   updateFollowupResult,
   type FollowupRow,
 } from '@/lib/api/customerServiceCommandCenter';
+import type { FollowupResultData } from '@/components/customerService/FollowupResultModal';
+
+const FollowupResultModal = lazy(() => import('@/components/customerService/FollowupResultModal'));
+const CustomerQuickDetailsModal = lazy(() => import('@/components/customers/CustomerQuickDetailsModal'));
 
 const BRANCHES = ['فرع الشامي', 'فرع شكري'];
 const OWNERS: Record<string, string> = { 'فرع الشامي': 'د/ ضحى', 'فرع شكري': 'د/ دنيا' };
@@ -83,6 +87,42 @@ export default function ExceptionalFollowupCenter() {
   const [to, setTo] = useState(localDate());
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [importing, setImporting] = useState(false);
+  const [executeRow, setExecuteRow] = useState<FollowupRow | null>(null);
+  const [detailsRow, setDetailsRow] = useState<FollowupRow | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const saveExecution = async (result: FollowupResultData) => {
+    if (!executeRow) return;
+    setSaving(true);
+    try {
+      const purchase = result.result === 'تم الشراء بعد المتابعة';
+      await updateFollowupResult(executeRow.id, {
+        followup_status: result.result,
+        status: result.result,
+        contact_result: result.result,
+        followup_result: result.result,
+        followup_notes: result.notes,
+        quality_rating: result.qualityRating,
+        internal_rating: result.internalRating,
+        needs_next_followup: result.needsNextFollowup,
+        next_followup_date: result.needsNextFollowup ? result.nextFollowupDate : null,
+        purchase_after_followup: purchase,
+        purchase_amount: result.purchaseAmount,
+        purchase_invoice_no: result.invoiceNumber,
+        customer_satisfaction: result.customerSatisfaction || (result.customerSatisfied ? 'راضي' : null),
+        contacted_at: new Date().toISOString(),
+        evaluated_by_name: user?.name || null,
+        evaluated_at: new Date().toISOString(),
+      });
+      toast.success('تم تسجيل تنفيذ المتابعة');
+      setExecuteRow(null);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ نتيجة المتابعة');
+    } finally {
+      setSaving(false);
+    }
+  };
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   async function load() {
@@ -263,7 +303,18 @@ export default function ExceptionalFollowupCenter() {
 
     <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">{[['الإجمالي',stats.total],['تمت',stats.done],['لم يرد',stats.noAnswer],['مؤجل',stats.postponed],['شراء بعد المتابعة',stats.purchase],['بدون تفاصيل',stats.missing]].map(([label,count])=><div key={String(label)} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">{label}</div><div className="mt-1 text-2xl font-black text-white">{count}</div></div>)}</div>
 
-    <div className="mt-4 space-y-3">{loading ? <div className="p-8 text-center font-black text-slate-300">جارٍ التحميل...</div> : filtered.length === 0 ? <div className="p-8 text-center font-black text-slate-400">لا توجد سجلات مطابقة للفلاتر.</div> : filtered.map((row)=><article key={row.id} className="rounded-2xl border border-white/10 bg-[#102a45] p-4"><div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between"><div><h3 className="text-lg font-black text-white">{row.customer_name || row.name || 'عميل غير مسجل'}</h3><p className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {row.customer_phone || row.phone || 'بدون هاتف'} · {normalizeBranchName(row.branch || '') || 'فرع غير محدد'}</p></div><div className="flex flex-wrap gap-2"><span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">{rowDate(row) || 'بدون تاريخ'}</span><span className="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-black text-amber-200">{rowStatus(row)}</span></div></div><div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4"><div><div className="text-[11px] font-black text-slate-500">مقدم الطلب</div><div className="text-sm font-bold text-slate-200">{value(row,'created_by_name','assigned_doctor') || 'غير محدد'}</div></div><div><div className="text-[11px] font-black text-slate-500">المسؤولة</div><div className="text-sm font-bold text-slate-200">{value(row,'responsible_name','assigned_doctor') || OWNERS[normalizeBranchName(row.branch || '')] || 'غير محددة'}</div></div><div><div className="text-[11px] font-black text-slate-500">سبب المتابعة</div><div className="text-sm font-bold text-slate-200">{row.followup_reason || row.request_details || 'غير مسجل'}</div></div><div><div className="text-[11px] font-black text-slate-500">طريقة التواصل</div><div className="text-sm font-bold text-slate-200">{row.contact_method || 'لم تبدأ'}</div></div></div>{mode === 'executed' ? <div className="mt-4 grid gap-3 md:grid-cols-3"><div className="rounded-xl bg-black/15 p-3"><div className="text-[11px] font-black text-slate-500">ما تم مع العميل</div><div className="mt-1 text-sm font-bold leading-6 text-slate-200">{row.followup_summary || row.followup_notes || row.notes || 'لم تُكتب التفاصيل'}</div></div><div className="rounded-xl bg-black/15 p-3"><div className="text-[11px] font-black text-slate-500">رد العميل والنتيجة</div><div className="mt-1 text-sm font-bold leading-6 text-slate-200">{row.contact_result || row.followup_result || 'لم تُسجل النتيجة'}</div></div><div className="rounded-xl bg-black/15 p-3"><div className="text-[11px] font-black text-slate-500">الإجراء القادم</div><div className="mt-1 text-sm font-bold leading-6 text-slate-200">{row.next_followup_date ? `متابعة في ${String(row.next_followup_date).slice(0,10)}` : row.purchase_after_followup ? `تم شراء بقيمة ${row.purchase_amount || 0}` : 'لا يوجد إجراء قادم'}</div></div></div> : null}</article>)}</div>
+    <div className="mt-4 space-y-3">{loading ? <div className="p-8 text-center font-black text-slate-300">جارٍ التحميل...</div> : filtered.length === 0 ? <div className="p-8 text-center font-black text-slate-400">لا توجد سجلات مطابقة للفلاتر.</div> : filtered.map((row)=><article key={row.id} className="rounded-2xl border border-white/10 bg-[#102a45] p-4"><div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between"><div><h3 className="text-lg font-black text-white">{row.customer_name || row.name || 'عميل غير مسجل'}</h3><p className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {row.customer_phone || row.phone || 'بدون هاتف'} · {normalizeBranchName(row.branch || '') || 'فرع غير محدد'}</p></div><div className="flex flex-wrap gap-2"><span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">{rowDate(row) || 'بدون تاريخ'}</span><span className="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-black text-amber-200">{rowStatus(row)}</span></div></div><div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4"><div><div className="text-[11px] font-black text-slate-500">مقدم الطلب</div><div className="text-sm font-bold text-slate-200">{value(row,'created_by_name','assigned_doctor') || 'غير محدد'}</div></div><div><div className="text-[11px] font-black text-slate-500">المسؤولة</div><div className="text-sm font-bold text-slate-200">{value(row,'responsible_name','assigned_doctor') || OWNERS[normalizeBranchName(row.branch || '')] || 'غير محددة'}</div></div><div><div className="text-[11px] font-black text-slate-500">سبب المتابعة</div><div className="text-sm font-bold text-slate-200">{row.followup_reason || row.request_details || 'غير مسجل'}</div></div><div><div className="text-[11px] font-black text-slate-500">طريقة التواصل</div><div className="text-sm font-bold text-slate-200">{row.contact_method || 'لم تبدأ'}</div></div></div>{mode === 'requests' ? <div className="mt-4 flex flex-wrap gap-2"><button onClick={() => setDetailsRow(row)} className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-xs font-black text-cyan-100"><Eye className="ml-1 inline" size={14}/>تفاصيل العميل</button><button onClick={() => setExecuteRow(row)} className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-black text-slate-950">تنفيذ المتابعة</button></div> : null}{mode === 'executed' ? <div className="mt-4 grid gap-3 md:grid-cols-3"><div className="rounded-xl bg-black/15 p-3"><div className="text-[11px] font-black text-slate-500">ما تم مع العميل</div><div className="mt-1 text-sm font-bold leading-6 text-slate-200">{row.followup_summary || row.followup_notes || row.notes || 'لم تُكتب التفاصيل'}</div></div><div className="rounded-xl bg-black/15 p-3"><div className="text-[11px] font-black text-slate-500">رد العميل والنتيجة</div><div className="mt-1 text-sm font-bold leading-6 text-slate-200">{row.contact_result || row.followup_result || 'لم تُسجل النتيجة'}</div></div><div className="rounded-xl bg-black/15 p-3"><div className="text-[11px] font-black text-slate-500">الإجراء القادم</div><div className="mt-1 text-sm font-bold leading-6 text-slate-200">{row.next_followup_date ? `متابعة في ${String(row.next_followup_date).slice(0,10)}` : row.purchase_after_followup ? `تم شراء بقيمة ${row.purchase_amount || 0}` : 'لا يوجد إجراء قادم'}</div></div></div> : null}</article>)}</div>
+
+    {executeRow ? <Suspense fallback={null}><FollowupResultModal followup={executeRow as never} onClose={() => setExecuteRow(null)} onSave={saveExecution} mode="create" /></Suspense> : null}
+    {detailsRow ? <Suspense fallback={null}><CustomerQuickDetailsModal
+      followupId={detailsRow.id}
+      customerCode={detailsRow.customer_code || null}
+      customerPhone={detailsRow.customer_phone || detailsRow.phone || null}
+      customerName={detailsRow.customer_name || detailsRow.name || null}
+      branch={detailsRow.branch || null}
+      onEditFollowup={() => { setExecuteRow(detailsRow); setDetailsRow(null); }}
+      onClose={() => setDetailsRow(null)}
+    /></Suspense> : null}
 
     {preview ? <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-2xl rounded-3xl border border-amber-300/30 bg-[#0b2035] p-6"><div className="flex items-center gap-2 text-amber-300"><FileSpreadsheet/><h3 className="text-xl font-black text-white">معاينة ملف الاستيراد</h3></div><div className="mt-4 grid grid-cols-3 gap-3"><div className="rounded-xl bg-white/5 p-3 text-center"><div className="text-xs text-slate-400">إجمالي</div><div className="text-xl font-black text-white">{preview.rows.length}</div></div><div className="rounded-xl bg-emerald-400/10 p-3 text-center"><div className="text-xs text-emerald-200">صحيح</div><div className="text-xl font-black text-white">{preview.valid}</div></div><div className="rounded-xl bg-rose-400/10 p-3 text-center"><div className="text-xs text-rose-200">خاطئ</div><div className="text-xl font-black text-white">{preview.invalid}</div></div></div>{preview.errors.length ? <div className="mt-4 max-h-44 overflow-auto rounded-xl border border-rose-300/20 bg-rose-400/5 p-3 text-sm font-bold text-rose-100">{preview.errors.map((error)=><div key={error}>{error}</div>)}</div> : null}<div className="mt-5 flex justify-end gap-2"><button onClick={()=>setPreview(null)} className="rounded-xl border border-white/10 px-4 py-2 font-black text-white">إلغاء</button><button disabled={importing || preview.valid === 0} onClick={()=>void importRows()} className="rounded-xl bg-amber-500 px-5 py-2 font-black text-slate-950 disabled:opacity-50">{importing ? 'جارٍ الاستيراد...' : `استيراد ${preview.valid} صف`}</button></div></div></div> : null}
   </section>;
