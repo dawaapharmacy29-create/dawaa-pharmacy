@@ -399,25 +399,31 @@ export default function Reviews() {
     filters: isActiveStaffFilter(),
     realtimeEnabled: false,
   });
+  const [reviewTargetType, setReviewTargetType] = useState<'staff' | 'delivery'>('staff');
+  const isDeliveryRole = (role: string) => /توصيل|دليفري|delivery|rider|مندوب/i.test(role || '');
   const staffOptions = useMemo(() => {
     const choices = mergeStaffChoices(staff);
     // أمان: مفيش حد (دكتور أو حتى مدير) يظهر كخيار "الدكتور المقصود بالتقييم" لنفسه.
     // مفيش داعي شرعي لأي مستخدم يقيّم نفسه، فالاستبعاد ده عام مش مربوط بدور الدكتور بس.
     const withoutSelf = (rows: StaffOpt[]) =>
       rows.filter((row) => row.id !== (user?.staffId || user?.id) && row.name !== user?.name);
-    if (canViewAllBranches(user)) return withoutSelf(choices);
+    const byTargetType = (rows: StaffOpt[]) =>
+      rows.filter((row) => (reviewTargetType === 'delivery' ? isDeliveryRole(row.role) : !isDeliveryRole(row.role)));
+    if (canViewAllBranches(user)) return byTargetType(withoutSelf(choices));
     if (isDoctorRole(user)) {
-      return withoutSelf(
-        choices.filter(
-          (row) =>
-            row.id === (user?.staffId || user?.id) ||
-            row.name === user?.name ||
-            rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
+      return byTargetType(
+        withoutSelf(
+          choices.filter(
+            (row) =>
+              row.id === (user?.staffId || user?.id) ||
+              row.name === user?.name ||
+              rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
+          )
         )
       );
     }
-    return withoutSelf(choices.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)));
-  }, [staff, user]);
+    return byTargetType(withoutSelf(choices.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>))));
+  }, [staff, user, reviewTargetType]);
   const reviewers = useMemo(() => {
     const choices = reviewerChoices(staff);
     const REVIEW_CREATOR_ROLES = ['branch_manager', 'branches_manager', 'customer_service', 'customer_service_manager', 'general_manager', 'executive_manager'];
@@ -1436,12 +1442,28 @@ export default function Reviews() {
             </select>
           </Field>
           <Field label="الدكتور / الموظف المقيم">
+            <div className="mb-2 flex gap-2 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => { setReviewTargetType('staff'); setForm((f) => ({ ...f, staffId: '' })); }}
+                className={`rounded-lg px-3 py-1.5 transition ${reviewTargetType === 'staff' ? 'bg-teal-500/20 text-teal-200 border border-teal-400/40' : 'bg-white/5 text-slate-400 border border-white/10'}`}
+              >
+                دكتور / موظف صيدلية
+              </button>
+              <button
+                type="button"
+                onClick={() => { setReviewTargetType('delivery'); setForm((f) => ({ ...f, staffId: '' })); }}
+                className={`rounded-lg px-3 py-1.5 transition ${reviewTargetType === 'delivery' ? 'bg-teal-500/20 text-teal-200 border border-teal-400/40' : 'bg-white/5 text-slate-400 border border-white/10'}`}
+              >
+                مندوب توصيل
+              </button>
+            </div>
             <select
               className="input-dark"
               value={form.staffId}
               onChange={(e) => setForm((f) => ({ ...f, staffId: e.target.value }))}
             >
-              <option value="">اختر الدكتور أو الموظف</option>
+              <option value="">{reviewTargetType === 'delivery' ? 'اختر مندوب التوصيل' : 'اختر الدكتور أو الموظف'}</option>
               {staffOptions.map((row) => (
                 <option key={row.id} value={row.id}>
                   {row.name} - {row.role} - {row.branch}
