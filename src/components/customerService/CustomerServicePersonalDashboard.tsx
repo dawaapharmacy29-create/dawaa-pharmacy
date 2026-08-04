@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Award, Calendar, ClipboardList, Gift, Heart, MessageCircle, Package,
   Sparkles, Star, TrendingDown, TrendingUp, Trophy, Users, Wand2,
@@ -80,9 +81,11 @@ function generateTips(data: PersonalDashboardData, myName: string): string[] {
 }
 
 export default function CustomerServicePersonalDashboard({ branch, staffName }: { branch: string; staffName: string }) {
+  const navigate = useNavigate();
   const [data, setData] = useState<PersonalDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (!branch || !staffName) { setLoading(false); return; }
@@ -90,24 +93,60 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
     setLoading(true);
     setError(null);
     const cycle = getPharmacyCycleRange(new Date());
+
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled) return;
+      cancelled = true;
+      setError('اللوحة الشخصية بتاخد وقت أطول من المتوقع. جرّبي تحدّثي الصفحة.');
+      setLoading(false);
+    }, 15000);
+
     supabase
       .rpc('get_cs_personal_dashboard', {
         p_branch: branch, p_staff_name: staffName, p_cycle_start: cycle.start, p_cycle_end: cycle.end,
       })
       .then(({ data: rpcData, error: rpcError }) => {
         if (cancelled) return;
-        if (rpcError) { setError('تعذر تحميل لوحتك الشخصية دلوقتي.'); setLoading(false); return; }
+        window.clearTimeout(timeoutId);
+        if (rpcError) {
+          console.error('[CustomerServicePersonalDashboard] rpc error', rpcError);
+          setError('تعذر تحميل لوحتك الشخصية دلوقتي.');
+          setLoading(false);
+          return;
+        }
         setData(rpcData as PersonalDashboardData);
         setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        window.clearTimeout(timeoutId);
+        console.error('[CustomerServicePersonalDashboard] rpc rejected', err);
+        setError('تعذر تحميل لوحتك الشخصية دلوقتي.');
+        setLoading(false);
       });
-    return () => { cancelled = true; };
-  }, [branch, staffName]);
+
+    return () => { cancelled = true; window.clearTimeout(timeoutId); };
+  }, [branch, staffName, retryKey]);
 
   if (loading) {
     return <div className="rounded-3xl border p-6 text-center text-sm font-bold" style={{ ...card, color: 'var(--dawaa-theme-muted)' }}>جارٍ تحميل لوحتك الشخصية...</div>;
   }
   if (error || !data) {
-    return <div className="rounded-3xl border p-6 text-center text-sm font-bold text-rose-300" style={card}>{error || 'لا توجد بيانات كافية بعد.'}</div>;
+    return (
+      <div className="rounded-3xl border p-6 text-center" style={card}>
+        <p className="text-sm font-bold text-rose-300">{error || 'لا توجد بيانات كافية بعد.'}</p>
+        {error ? (
+          <button
+            type="button"
+            onClick={() => setRetryKey((v) => v + 1)}
+            className="mt-3 rounded-xl border px-4 py-2 text-xs font-black text-teal-200"
+            style={softCard}
+          >
+            إعادة المحاولة
+          </button>
+        ) : null}
+      </div>
+    );
   }
 
   const f = data.my_followups;
@@ -131,7 +170,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-3xl border p-5" style={card}>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-pink-400/40" style={card} onClick={() => navigate('/customer-service')}>
           <SectionTitle icon={ClipboardList} accent="#f472b6">تفصيل متابعاتي</SectionTitle>
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>استثنائية</div><div className="font-black text-white">{f.exceptional_count}</div></div>
@@ -155,7 +194,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
         </div>
       </div>
 
-      <div className="rounded-3xl border p-5" style={card}>
+      <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-amber-400/40" style={card} onClick={() => navigate('/reviews')}>
         <SectionTitle icon={Trophy} accent="#fbbf24">تقييم وحافز كل دكتور من خدمة العملاء</SectionTitle>
         {data.doctor_ratings.length ? (
           <div className="mt-3 space-y-2">
@@ -176,7 +215,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-3xl border p-5" style={card}>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-pink-400/40" style={card} onClick={() => navigate('/customer-service')}>
           <SectionTitle icon={Heart} accent="#f472b6">أكتر العملاء متابعة</SectionTitle>
           <div className="mt-3 flex flex-wrap gap-2">
             {data.top_followed_customers.length
@@ -188,7 +227,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
               : <p className="text-sm" style={mutedText}>لا يوجد بعد.</p>}
           </div>
         </div>
-        <div className="rounded-3xl border p-5" style={card}>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-violet-400/40" style={card} onClick={() => navigate('/customer-service?quickFollowup=1')}>
           <SectionTitle icon={Wand2} accent="#a78bfa">أكتر دكتور بيطلب متابعات</SectionTitle>
           <div className="mt-3 space-y-2">
             {data.top_doctor_requesters.length
@@ -204,21 +243,21 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-3xl border p-5" style={card}>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-teal-400/40" style={card} onClick={() => navigate('/welcome-messages')}>
           <SectionTitle icon={MessageCircle} accent="#2dd4bf">الرسائل الترحيبية</SectionTitle>
           <div className="mt-3 space-y-1 text-sm">
             <div className="flex justify-between"><span style={mutedText}>مُرسلة</span><span className="font-black text-white">{data.my_welcome_messages.sent_count}</span></div>
             <div className="flex justify-between"><span style={mutedText}>وصلت</span><span className="font-black text-teal-300">{data.my_welcome_messages.delivered_count}</span></div>
           </div>
         </div>
-        <div className="rounded-3xl border p-5" style={card}>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-sky-400/40" style={card} onClick={() => navigate('/customer-requests')}>
           <SectionTitle icon={Package} accent="#38bdf8">طلبات العملاء</SectionTitle>
           <div className="mt-3 space-y-1 text-sm">
             <div className="flex justify-between"><span style={mutedText}>سجلتها</span><span className="font-black text-white">{data.my_customer_requests.logged_count}</span></div>
             <div className="flex justify-between"><span style={mutedText}>لسه مفتوحة</span><span className="font-black text-amber-300">{data.my_customer_requests.open_count}</span></div>
           </div>
         </div>
-        <div className="rounded-3xl border p-5" style={card}>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-amber-400/40" style={card} onClick={() => navigate('/customer-points-ledger')}>
           <SectionTitle icon={Gift} accent="#fbbf24">نقاط العملاء (الفرع)</SectionTitle>
           <div className="mt-3 space-y-1 text-sm">
             <div className="flex justify-between"><span style={mutedText}>مكتسبة</span><span className="font-black text-emerald-300">{data.points_summary.points_earned ?? 0}</span></div>
@@ -228,7 +267,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-3xl border p-5" style={card}>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-pink-400/40" style={card} onClick={() => navigate('/schedule')}>
           <SectionTitle icon={Calendar} accent="#f472b6">جدولي القادم</SectionTitle>
           {data.my_upcoming_shifts.length ? (
             <div className="mt-3 space-y-2 text-sm">
@@ -241,7 +280,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
             </div>
           ) : <p className="mt-3 text-sm" style={mutedText}>مفيش جدول مسجل قدام حاليًا.</p>}
         </div>
-        <div className="rounded-3xl border p-5" style={card}>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-amber-400/40" style={card} onClick={() => navigate('/reviews')}>
           <SectionTitle icon={Trophy} accent="#fbbf24">ترتيبي بين الزميلات (بعدد المراجعات)</SectionTitle>
           <div className="mt-3 space-y-2 text-sm">
             {data.team_ranking.map((t, i) => (
