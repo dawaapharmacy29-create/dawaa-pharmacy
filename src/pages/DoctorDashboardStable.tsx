@@ -209,6 +209,11 @@ export default function DoctorDashboardStable() {
   const [personalState, setPersonalState] = useState<Record<string, LoadState>>({});
   const [moreOpen, setMoreOpen] = useState(false);
   const [branchTargetAmount, setBranchTargetAmount] = useState<number | null>(null);
+  const [invoiceQuality, setInvoiceQuality] = useState<{
+    my_metrics: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number; invoices: number; items_rank: number | null; branch_doctor_count: number };
+    branch_avg: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number };
+    top_doctor: { name: string | null; avg_items_per_invoice: number; is_me: boolean };
+  } | null>(null);
 
   const branch = text(user?.branch);
   const staffId = text(user?.staffId);
@@ -237,6 +242,22 @@ export default function DoctorDashboardStable() {
       setSummary(result); setState('success');
     } catch (loadError) { setState('error'); setError(loadError instanceof Error ? loadError.message : 'تعذر تحميل بيانات لوحة الدكتور.'); }
   }, [branch, cycle.end, cycle.start]);
+
+  useEffect(() => {
+    if (!branch || !doctorName) return;
+    let cancelled = false;
+    supabase
+      .rpc('get_doctor_invoice_quality_metrics', {
+        p_branch: branch, p_doctor_name: doctorName,
+        p_cycle_start: formatCycleDate(cycle.start), p_cycle_end: formatCycleDate(cycle.end),
+      })
+      .then(({ data, error: rpcError }) => {
+        if (cancelled || rpcError) return;
+        setInvoiceQuality(data as typeof invoiceQuality);
+      })
+      .catch(() => { if (!cancelled) setInvoiceQuality(null); });
+    return () => { cancelled = true; };
+  }, [branch, doctorName, cycle.end, cycle.start]);
 
   const loadReviews = useCallback(async () => {
     setPart('reviews', 'loading');
@@ -533,6 +554,46 @@ export default function DoctorDashboardStable() {
                 </ResponsiveContainer>
               ) : (
                 <p className="mt-4 text-xs font-bold" style={mutedText}>ستظهر هنا المقارنة بمجرد ربط حسابك بفواتير الدورة الحالية.</p>
+              )}
+            </div>
+
+            <div className="rounded-3xl border p-4" style={surface}>
+              <div className="flex items-center gap-2 font-black text-teal-200"><TrendingUp size={18} /> متوسط عدد الأصناف بالفاتورة — مقارنة تحفيزية</div>
+              {invoiceQuality ? (
+                <>
+                  <ResponsiveContainer width="100%" height={140}>
+                    <BarChart
+                      layout="vertical"
+                      data={[
+                        { name: 'أنا', value: invoiceQuality.my_metrics.avg_items_per_invoice, mine: true },
+                        { name: 'متوسط الفرع', value: invoiceQuality.branch_avg.avg_items_per_invoice, mine: false },
+                        { name: invoiceQuality.top_doctor.is_me ? 'الأعلى في الفرع' : `الأعلى (${invoiceQuality.top_doctor.name || '—'})`, value: invoiceQuality.top_doctor.avg_items_per_invoice, mine: false },
+                      ]}
+                      margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
+                    >
+                      <XAxis type="number" hide />
+                      <YAxis type="category" dataKey="name" width={112} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <Tooltip
+                        cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                        contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
+                        formatter={(value: number) => [value.toFixed(2), 'متوسط الأصناف بالفاتورة']}
+                      />
+                      <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={18}>
+                        <Cell fill="#a78bfa" />
+                        <Cell fill="rgba(255,255,255,0.18)" />
+                        <Cell fill="rgba(255,255,255,0.18)" />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-2 flex items-center justify-between text-xs font-bold" style={mutedText}>
+                    <span>عملاء تم التعامل معهم: <span className="text-white">{invoiceQuality.my_metrics.unique_customers}</span></span>
+                    {invoiceQuality.my_metrics.items_rank ? (
+                      <span>ترتيبي بعدد الأصناف: <span className="text-white">#{invoiceQuality.my_metrics.items_rank} من {invoiceQuality.my_metrics.branch_doctor_count}</span></span>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-4 text-xs font-bold" style={mutedText}>ستظهر هنا المقارنة بمجرد توفر بيانات كافية من فواتير الدورة الحالية.</p>
               )}
             </div>
           </section>
