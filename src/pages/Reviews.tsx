@@ -1,5 +1,6 @@
 /* eslint-disable no-empty */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   BarChart3,
@@ -324,8 +325,10 @@ function isGeneralManager(user: any) {
 
 export default function Reviews() {
   const { user } = useAuth();
-  const newOnlyMode = new URLSearchParams(window.location.search).get('mode') === 'new';
-  const historyOnlyMode = new URLSearchParams(window.location.search).get('section') === 'history';
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const newOnlyMode = searchParams.get('mode') === 'new';
+  const historyOnlyMode = searchParams.get('section') === 'history';
   const [saving, setSaving] = useState(false);
   const [reviewState, setReviewState] = useState<ConversationReviewState>(defaultReviewState());
   const [severeErrors, setSevereErrors] = useState<SevereErrorsState>(defaultSevereErrors());
@@ -1225,7 +1228,7 @@ export default function Reviews() {
             {newOnlyMode ? (
               <button
                 type="button"
-                onClick={() => window.location.assign('/reviews')}
+                onClick={() => navigate('/reviews')}
                 className="btn-secondary flex items-center gap-2"
               >
                 <ListChecks size={16} />
@@ -1246,7 +1249,7 @@ export default function Reviews() {
                 ) : null}
                 <button
                   type="button"
-                  onClick={() => window.location.assign('/reviews?mode=new')}
+                  onClick={() => navigate('/reviews?mode=new')}
                   className="btn-primary flex items-center gap-2"
                 >
                   <Star size={16} />
@@ -1272,7 +1275,7 @@ export default function Reviews() {
           </div>
           <button
             type="button"
-            onClick={() => window.location.assign('/reviews')}
+            onClick={() => navigate('/reviews')}
             className="btn-secondary flex items-center gap-2"
           >
             <ListChecks size={16} />
@@ -1984,6 +1987,8 @@ export default function Reviews() {
           {saving ? 'جاري حفظ التقييم...' : 'حفظ التقييم'}
         </button>
       </section>
+      </>
+      ) : null}
 
       {selectedReview && (
         <ReviewDetailsModal
@@ -2144,8 +2149,6 @@ export default function Reviews() {
           </button>
         </Modal>
       )}
-      </>
-      ) : null}
     </div>
   );
 }
