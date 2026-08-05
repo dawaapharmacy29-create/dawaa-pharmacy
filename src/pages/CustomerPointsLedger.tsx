@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Calculator, CalendarClock, CheckCircle2, Gift, History, MessageCircle, Phone, Plus, RefreshCw, Search, Settings2, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { Calculator, CalendarClock, CheckCircle2, Download, Gift, History, MessageCircle, Phone, Plus, RefreshCw, Search, Settings2, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import { BRANCHES } from '@/lib/constants';
@@ -7,6 +8,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
+import { exportToExcel } from '@/lib/exportExcel';
+import { supabase } from '@/lib/supabase';
 import {
   addCustomerPoints,
   calculateCustomerLoyaltyCycle,
@@ -55,6 +58,9 @@ export default function CustomerPointsLedger() {
   const [runningBatch, setRunningBatch] = useState(false);
   const [contactFilter, setContactFilter] = useState<'all' | 'uncontacted'>('uncontacted');
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importSummary, setImportSummary] = useState<{ matched: number; unmatched: number } | null>(null);
+
   const loadPendingCustomers = async (branch: string) => {
     setPendingLoading(true);
     try {
@@ -71,6 +77,42 @@ export default function CustomerPointsLedger() {
     void loadPendingCustomers(workBranch);
     void fetchCashbackQuarterBounds().then(setQuarterBounds);
   }, [workBranch]);
+
+  const exportPendingExcel = async () => {
+    if (!visiblePendingCustomers.length) { toast.error('مفيش عملاء يتصدروا دلوقتي.'); return; }
+    const sheetRows = visiblePendingCustomers.map((c) => ({
+      'الكود': c.customer_code,
+      'الاسم': c.customer_name,
+      'الهاتف': c.customer_phone || '',
+      'الرصيد الحالي': c.total_points,
+      'آخر احتساب': c.last_earned_at ? c.last_earned_at.slice(0, 10) : '',
+      'تم التواصل': c.uncontacted_count > 0 ? 'لا' : 'نعم',
+    }));
+    await exportToExcel(sheetRows, `نقاط_العملاء_${workBranch}`, 'نقاط العملاء');
+  };
+
+  const handleImportFile = async (file: File) => {
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+      const codes = rows
+        .map((row) => String(row['الكود'] ?? row['customer_code'] ?? '').trim())
+        .filter(Boolean);
+      const knownCodes = new Set(pendingCustomers.map((c) => c.customer_code));
+      const matchedCodes = codes.filter((code) => knownCodes.has(code));
+      const unmatchedCount = codes.length - matchedCodes.length;
+      for (const code of matchedCodes) {
+        await markCustomerPointsContacted(code, workBranch, user?.name);
+      }
+      setImportSummary({ matched: matchedCodes.length, unmatched: unmatchedCount });
+      toast.success(`اتسجل تواصل ${matchedCodes.length} عميل من الملف`);
+      await loadPendingCustomers(workBranch);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر قراءة الملف. تأكد إنه ملف Excel صحيح بعمود "الكود".');
+    }
+  };
 
   const visiblePendingCustomers = useMemo(
     () => contactFilter === 'uncontacted' ? pendingCustomers.filter((c) => c.uncontacted_count > 0) : pendingCustomers,
@@ -311,8 +353,21 @@ export default function CustomerPointsLedger() {
           <button className="btn-secondary text-xs" onClick={() => void loadPendingCustomers(workBranch)} disabled={pendingLoading}>
             <RefreshCw className={`ml-1 inline h-4 w-4 ${pendingLoading ? 'animate-spin' : ''}`}/> تحديث
           </button>
+          <button className="btn-secondary text-xs" onClick={() => void exportPendingExcel()}>
+            <Download className="ml-1 inline h-4 w-4"/> تصدير Excel
+          </button>
+          <button className="btn-secondary text-xs" onClick={() => fileInputRef.current?.click()}>
+            <Upload className="ml-1 inline h-4 w-4"/> استيراد Excel
+          </button>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void handleImportFile(file); e.target.value = ''; }} />
         </div>
       </div>
+
+      {importSummary ? (
+        <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/5 p-3 text-xs font-bold text-cyan-100">
+          تم تحديد {importSummary.matched} عميل بالكود من الملف وتسجيلهم "تم التواصل"، و{importSummary.unmatched} كود مش موجود في القائمة الحالية.
+        </div>
+      ) : null}
 
       {visiblePendingCustomers.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
