@@ -159,39 +159,68 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
     setError(null);
     setErrorDetail(null);
     const cycle = getPharmacyCycleRange(new Date());
+    const args = { p_branch: branch, p_staff_name: staffName, p_cycle_start: cycle.start, p_cycle_end: cycle.end };
 
     const timeoutId = window.setTimeout(() => {
       if (cancelled) return;
       cancelled = true;
       setError('اللوحة الشخصية بتاخد وقت أطول من المتوقع. جرّبي تحدّثي الصفحة.');
       setLoading(false);
-    }, 15000);
+    }, 20000);
 
-    supabase
-      .rpc('get_cs_personal_dashboard', {
-        p_branch: branch, p_staff_name: staffName, p_cycle_start: cycle.start, p_cycle_end: cycle.end,
-      })
-      .then(({ data: rpcData, error: rpcError }) => {
-        if (cancelled) return;
-        window.clearTimeout(timeoutId);
-        if (rpcError) {
-          console.error('[CustomerServicePersonalDashboard] rpc error', rpcError);
-          setError('تعذر تحميل لوحتك الشخصية دلوقتي.');
-          setErrorDetail(rpcError.message || rpcError.code || JSON.stringify(rpcError).slice(0, 200));
-          setLoading(false);
-          return;
-        }
-        setData(rpcData as PersonalDashboardData);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        window.clearTimeout(timeoutId);
-        console.error('[CustomerServicePersonalDashboard] rpc rejected', err);
+    // 3 نداءات متوازية بدل نداء واحد ضخم: لو واحد منهم بطيء أو فشل مؤقتًا
+    // (زي بطء عرضي في السيرفر)، الاتنين التانيين بيكملوا عادي والصفحة
+    // بتظهر بأغلب بياناتها بدل ما تقف كلها بسبب جزء واحد بس.
+    Promise.allSettled([
+      supabase.rpc('get_cs_dashboard_followups', args),
+      supabase.rpc('get_cs_dashboard_reviews', args),
+      supabase.rpc('get_cs_dashboard_ops', args),
+    ]).then((results) => {
+      if (cancelled) return;
+      window.clearTimeout(timeoutId);
+
+      const [followupsRes, reviewsRes, opsRes] = results;
+      const errors: string[] = [];
+      const part = (res: typeof followupsRes, label: string): Record<string, unknown> => {
+        if (res.status === 'fulfilled' && !res.value.error) return (res.value.data as Record<string, unknown>) || {};
+        errors.push(label);
+        console.error(`[CustomerServicePersonalDashboard] ${label} failed`, res.status === 'fulfilled' ? res.value.error : res.reason);
+        return {};
+      };
+
+      const followups = part(followupsRes, 'followups');
+      const reviews = part(reviewsRes, 'reviews');
+      const ops = part(opsRes, 'ops');
+
+      if (errors.length === 3) {
         setError('تعذر تحميل لوحتك الشخصية دلوقتي.');
-        setErrorDetail(err instanceof Error ? `${err.name}: ${err.message}` : String(err).slice(0, 200));
+        setErrorDetail(`فشلت كل الأجزاء: ${errors.join(', ')}`);
         setLoading(false);
+        return;
+      }
+
+      setData({
+        cycle: { start: cycle.start, end: cycle.end },
+        my_followups: (followups.my_followups as PersonalDashboardData['my_followups']) || { exceptional_count: 0, app_assigned_count: 0, doctor_requested_count: 0, self_initiated_count: 0, completed_count: 0, total_count: 0 },
+        top_followed_customers: (followups.top_followed_customers as PersonalDashboardData['top_followed_customers']) || [],
+        top_doctor_requesters: (followups.top_doctor_requesters as PersonalDashboardData['top_doctor_requesters']) || [],
+        my_reviews_this_cycle: (reviews.my_reviews_this_cycle as PersonalDashboardData['my_reviews_this_cycle']) || { review_count: 0, avg_score_given: null },
+        doctor_ratings: (reviews.doctor_ratings as PersonalDashboardData['doctor_ratings']) || [],
+        branch_reviews: (reviews.branch_reviews as PersonalDashboardData['branch_reviews']) || { branch_avg_score: null, branch_review_count: 0 },
+        branch_sales: (ops.branch_sales as PersonalDashboardData['branch_sales']) || { invoices: 0, total_sales: 0 },
+        points_summary: (ops.points_summary as PersonalDashboardData['points_summary']) || { points_earned: 0, points_redeemed: 0 },
+        my_welcome_messages: (ops.my_welcome_messages as PersonalDashboardData['my_welcome_messages']) || { sent_count: 0, delivered_count: 0 },
+        my_customer_requests: (ops.my_customer_requests as PersonalDashboardData['my_customer_requests']) || { logged_count: 0, open_count: 0 },
+        my_upcoming_shifts: (ops.my_upcoming_shifts as PersonalDashboardData['my_upcoming_shifts']) || [],
+        team_ranking: (reviews.team_ranking as PersonalDashboardData['team_ranking']) || [],
+        recovery_stats: (reviews.recovery_stats as PersonalDashboardData['recovery_stats']) || { total_followups: 0, recovered_count: 0, recovery_rate: null },
+        active_customers: (ops.active_customers as PersonalDashboardData['active_customers']) || { last_3_months: 0, previous_3_months: 0, trend: null },
       });
+      if (errors.length) {
+        setErrorDetail(`تحميل جزئي — تعذر تحميل: ${errors.join(', ')}`);
+      }
+      setLoading(false);
+    });
 
     return () => { cancelled = true; window.clearTimeout(timeoutId); };
   }, [branch, staffName, retryKey]);
