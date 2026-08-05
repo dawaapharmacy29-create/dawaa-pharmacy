@@ -3,6 +3,7 @@ import { CalendarClock, CheckCircle2, Clock3, Headphones, Loader2, Phone, Refres
 import { useAuth } from '@/hooks/useAuth';
 import QuickFollowupModal from '@/components/common/QuickFollowupModal';
 import { CustomerFlagChips } from '@/lib/customerDisplay';
+import { formatCycleDate, getCurrentCycle, getCycleForDate } from '@/lib/pharmacy-cycle';
 import {
   fetchFollowupEvents,
   fetchMyRequestedFollowups,
@@ -55,8 +56,22 @@ export default function DoctorRequestedFollowups() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [closure, setClosure] = useState<'all' | 'open' | 'closed'>('all');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const cyclesForFilter = useMemo(() => {
+    const current = getCurrentCycle();
+    const prevDate = new Date(current.start); prevDate.setDate(prevDate.getDate() - 1);
+    const previous = getCycleForDate(prevDate);
+    const beforeDate = new Date(previous.start); beforeDate.setDate(beforeDate.getDate() - 1);
+    const beforePrevious = getCycleForDate(beforeDate);
+    return [current, previous, beforePrevious];
+  }, []);
+  const [cycleIndex, setCycleIndex] = useState(0);
+  const [from, setFrom] = useState(() => formatCycleDate(cyclesForFilter[0].start));
+  const [to, setTo] = useState(() => formatCycleDate(cyclesForFilter[0].end));
+  const applyCycleFilter = (index: number) => {
+    setCycleIndex(index);
+    setFrom(formatCycleDate(cyclesForFilter[index].start));
+    setTo(formatCycleDate(cyclesForFilter[index].end));
+  };
   const [selected, setSelected] = useState<FollowupRow | null>(null);
   const [timeline, setTimeline] = useState<DoctorFollowupEvent[]>([]);
   const [timelineState, setTimelineState] = useState<LoadState>('idle');
@@ -138,11 +153,25 @@ export default function DoctorRequestedFollowups() {
           <div className="rounded-2xl border border-teal-400/20 bg-teal-500/5 p-4"><div className="text-xs text-teal-200">تم حلها أو إغلاقها</div><div className="mt-1 text-2xl font-black text-teal-100">{rows.length - openCount}</div></div>
         </div>
 
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {cyclesForFilter.map((cycle, i) => (
+            <button
+              key={cycle.shortLabel}
+              type="button"
+              onClick={() => applyCycleFilter(i)}
+              className={`rounded-2xl border p-3 text-center transition ${cycleIndex === i ? 'border-teal-400/60 bg-teal-400/10' : 'border-slate-700 bg-slate-950/40'}`}
+            >
+              <div className="text-xs font-bold text-slate-400">{i === 0 ? 'الدورة الحالية' : i === 1 ? 'الدورة اللي فاتت' : 'اللي قبلها'}</div>
+              <div className="mt-1 text-sm font-black text-white">{cycle.shortLabel}</div>
+            </button>
+          ))}
+        </div>
+
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <label className="relative xl:col-span-2"><Search className="absolute right-3 top-3.5 h-4 w-4 text-slate-500" /><input className="input-dark pr-10" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="اسم العميل أو الكود أو الهاتف" /></label>
           <select className="input-dark" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">كل الحالات</option>{['جديدة','تم استلامها','جارٍ التواصل','لم يرد العميل','تم التواصل','تم الحل','تحتاج متابعة أخرى','مغلقة'].map((item) => <option key={item} value={item}>{item}</option>)}</select>
           <select className="input-dark" value={closure} onChange={(event) => setClosure(event.target.value as 'all' | 'open' | 'closed')}><option value="all">مفتوحة ومغلقة</option><option value="open">المفتوحة فقط</option><option value="closed">المغلقة فقط</option></select>
-          <div className="grid grid-cols-2 gap-2"><input className="input-dark" type="date" value={from} onChange={(event) => setFrom(event.target.value)} title="من تاريخ" /><input className="input-dark" type="date" value={to} onChange={(event) => setTo(event.target.value)} title="إلى تاريخ" /></div>
+          <div className="grid grid-cols-2 gap-2"><input className="input-dark" type="date" value={from} onChange={(event) => { setFrom(event.target.value); setCycleIndex(-1); }} title="من تاريخ" /><input className="input-dark" type="date" value={to} onChange={(event) => { setTo(event.target.value); setCycleIndex(-1); }} title="إلى تاريخ" /></div>
         </div>
 
         {state === 'loading' ? <div className="mt-6 flex items-center gap-2 text-slate-300"><Loader2 className="animate-spin" /> جاري تحميل متابعاتك…</div> : null}

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, Eye, ExternalLink, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, ExternalLink, Image as ImageIcon, RefreshCw, TrendingUp } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { getCurrentCycle, getCycleForDate, isDateInCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
 
 type Row = Record<string, any>;
 
@@ -23,6 +24,15 @@ function reviewItems(row: Row) {
   const raw = typeof row.raw_scores === 'string' ? (() => { try { return JSON.parse(row.raw_scores); } catch { return null; } })() : row.raw_scores;
   return Array.isArray(raw?.result?.reviewItems) ? raw.result.reviewItems : [];
 }
+function rowDate(row: Row) { return row.conversation_date || row.created_at; }
+function threeCycles(): PharmacyCycle[] {
+  const current = getCurrentCycle();
+  const prevDate = new Date(current.start); prevDate.setDate(prevDate.getDate() - 1);
+  const previous = getCycleForDate(prevDate);
+  const beforeDate = new Date(previous.start); beforeDate.setDate(beforeDate.getDate() - 1);
+  const beforePrevious = getCycleForDate(beforeDate);
+  return [current, previous, beforePrevious];
+}
 
 export default function DoctorReviewDetails() {
   const { user } = useAuth();
@@ -38,8 +48,8 @@ export default function DoctorReviewDetails() {
     if (!staffId) return;
     setLoading(true);
     const [byStaff, byDoctor] = await Promise.all([
-      supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staffId).order('created_at', { ascending: false }).limit(100),
-      supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).order('created_at', { ascending: false }).limit(100),
+      supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staffId).order('created_at', { ascending: false }).limit(500),
+      supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).order('created_at', { ascending: false }).limit(500),
     ]);
     const unique = new Map<string, Row>();
     [...(byStaff.data || []), ...(byDoctor.data || [])].forEach((row: Row) => unique.set(text(row.id), row));
@@ -72,6 +82,26 @@ export default function DoctorReviewDetails() {
     return map;
   }, [attachments]);
 
+  const cycles = useMemo(() => threeCycles(), []);
+  const [cycleIndex, setCycleIndex] = useState(0);
+  const selectedCycle = cycles[cycleIndex];
+
+  const rowsByCycle = useMemo(() => cycles.map((cycle) => rows.filter((row) => {
+    const d = rowDate(row);
+    if (!d) return false;
+    const parsed = new Date(d);
+    return !Number.isNaN(parsed.getTime()) && isDateInCycle(parsed, cycle);
+  })), [rows, cycles]);
+
+  const visibleRows = rowsByCycle[cycleIndex] || [];
+
+  const cycleStats = useMemo(() => cycles.map((cycle, i) => {
+    const list = rowsByCycle[i] || [];
+    const avg = list.length ? list.reduce((sum, row) => sum + num(row.final_score ?? row.total_score), 0) / list.length : null;
+    const impact = list.reduce((sum, row) => sum + num(row.doctor_points_impact ?? row.point_impact), 0);
+    return { cycle, count: list.length, avg, impact };
+  }), [cycles, rowsByCycle]);
+
   return <section dir="rtl" className="mt-5 rounded-3xl border border-cyan-400/20 bg-slate-900/85 p-5">
     <div className="flex items-center justify-between gap-3">
       <div><h2 className="text-2xl font-black text-white">تقييماتي وتفاصيل محادثاتي</h2><p className="mt-1 text-sm text-slate-400">لا تظهر هنا إلا التقييمات المرتبطة بمعرف حسابك، مع بنود التقييم ورسالة خدمة العملاء وصور المحادثة.</p></div>
@@ -79,14 +109,50 @@ export default function DoctorReviewDetails() {
     </div>
 
     {rows.length ? (
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 text-center"><div className="text-2xl font-black text-white">{rows.length}</div><div className="mt-1 text-xs font-bold text-slate-400">عدد التقييمات</div></div>
-        <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 text-center"><div className="text-2xl font-black text-teal-200">{(rows.reduce((sum, row) => sum + num(row.final_score ?? row.total_score), 0) / rows.length).toFixed(1)}%</div><div className="mt-1 text-xs font-bold text-slate-400">متوسط التقييم</div></div>
-        <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 text-center"><div className="text-2xl font-black text-amber-200">{rows.reduce((sum, row) => sum + num(row.doctor_points_impact ?? row.point_impact), 0)}</div><div className="mt-1 text-xs font-bold text-slate-400">إجمالي تأثير النقاط</div></div>
+      <div className="mt-4 space-y-3">
+        <div className="grid gap-2 sm:grid-cols-3">
+          {cycles.map((cycle, i) => (
+            <button
+              key={cycle.shortLabel}
+              type="button"
+              onClick={() => setCycleIndex(i)}
+              className={`rounded-2xl border p-3 text-center transition ${cycleIndex === i ? 'border-cyan-400/60 bg-cyan-400/10' : 'border-slate-700 bg-slate-950/40'}`}
+            >
+              <div className="text-xs font-bold text-slate-400">{i === 0 ? 'الدورة الحالية' : i === 1 ? 'الدورة اللي فاتت' : 'اللي قبلها'}</div>
+              <div className="mt-1 text-lg font-black text-white">{cycle.shortLabel}</div>
+              <div className="mt-1 text-2xl font-black text-cyan-200">{cycleStats[i].count} تقييم</div>
+            </button>
+          ))}
+        </div>
+
+        <div className="rounded-2xl border border-violet-400/20 bg-violet-500/5 p-4">
+          <div className="mb-3 flex items-center gap-2 font-black text-violet-200"><TrendingUp size={18} /> تحليل الأداء عبر آخر 3 دورات</div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {cycleStats.map((s, i) => (
+              <div key={s.cycle.shortLabel} className="rounded-xl bg-slate-950/40 p-3 text-sm">
+                <div className="font-bold text-white">{s.cycle.shortLabel}</div>
+                <div className="mt-1 flex justify-between text-slate-300"><span>متوسط التقييم</span><span className="font-black text-teal-200">{s.avg != null ? `${s.avg.toFixed(1)}%` : '—'}</span></div>
+                <div className="mt-1 flex justify-between text-slate-300"><span>عدد المحادثات</span><span className="font-black text-white">{s.count}</span></div>
+                <div className="mt-1 flex justify-between text-slate-300"><span>تأثير النقاط</span><span className={`font-black ${s.impact >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{s.impact >= 0 ? '+' : ''}{s.impact}</span></div>
+                {i > 0 && cycleStats[i - 1].avg != null && s.avg != null ? (
+                  <div className="mt-2 text-xs font-bold" style={{ color: s.avg >= (cycleStats[i - 1].avg as number) ? '#6ee7b7' : '#fda4af' }}>
+                    {s.avg >= (cycleStats[i - 1].avg as number) ? '▲' : '▼'} مقارنة بالدورة اللي بعدها
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 text-center"><div className="text-2xl font-black text-white">{visibleRows.length}</div><div className="mt-1 text-xs font-bold text-slate-400">عدد التقييمات — {selectedCycle.shortLabel}</div></div>
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 text-center"><div className="text-2xl font-black text-teal-200">{visibleRows.length ? (visibleRows.reduce((sum, row) => sum + num(row.final_score ?? row.total_score), 0) / visibleRows.length).toFixed(1) : '0'}%</div><div className="mt-1 text-xs font-bold text-slate-400">متوسط التقييم</div></div>
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 text-center"><div className="text-2xl font-black text-amber-200">{visibleRows.reduce((sum, row) => sum + num(row.doctor_points_impact ?? row.point_impact), 0)}</div><div className="mt-1 text-xs font-bold text-slate-400">إجمالي تأثير النقاط</div></div>
+        </div>
       </div>
     ) : null}
 
-    <div className="mt-4 space-y-3">{rows.map((row) => {
+    <div className="mt-4 space-y-3">{visibleRows.map((row) => {
       const id = text(row.id);
       const items = reviewItems(row);
       const files = grouped.get(id) || [];
@@ -145,6 +211,6 @@ export default function DoctorReviewDetails() {
           {files.length ? <div><h3 className="mb-3 flex items-center gap-2 font-black text-white"><ImageIcon/> صور المحادثة</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{files.map((file) => <a key={file.id} href={file.signedUrl} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-2xl border border-slate-700 bg-slate-900"><img src={file.signedUrl} alt={file.file_name || 'صورة المحادثة'} className="h-64 w-full object-cover"/><div className="flex items-center justify-between p-3 text-sm font-black text-teal-200">فتح الصورة كاملة <ExternalLink size={16}/></div></a>)}</div></div> : null}
         </div> : null}
       </article>;
-    })}{!loading && !rows.length ? <div className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">لا توجد تقييمات مرتبطة بحسابك.</div> : null}</div>
+    })}{!loading && !visibleRows.length ? <div className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">{rows.length ? `مفيش تقييمات في ${selectedCycle.shortLabel}.` : 'لا توجد تقييمات مرتبطة بحسابك.'}</div> : null}</div>
   </section>;
 }
