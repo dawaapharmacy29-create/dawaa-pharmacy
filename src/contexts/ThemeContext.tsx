@@ -16,7 +16,7 @@ const LEGACY_PALETTE_KEY = 'dawaa_palette';
 const ALLOWED_THEMES = ['light', 'dark', 'pharmacy-green'] as const satisfies readonly AppTheme[];
 const THEME_CLASS_MAP: Record<AppTheme, string[]> = {
   light: ['light-mode', 'theme-light'],
-  dark: ['dark-mode', 'theme-dark'],
+  dark: ['dark-mode', 'theme-dark', 'dark'],
   'pharmacy-green': ['light-mode', 'theme-pharmacy-green'],
 };
 const ALL_THEME_CLASSES = Array.from(new Set(Object.values(THEME_CLASS_MAP).flat()));

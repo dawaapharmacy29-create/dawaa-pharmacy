@@ -78,17 +78,35 @@ const SCRIPT_TEMPLATES = [
 ];
 
 function quarterBounds(date = new Date()) {
-  const month = date.getMonth();
-  const startMonth = Math.floor(month / 3) * 3;
-  const start = new Date(date.getFullYear(), startMonth, 1);
-  const end = new Date(date.getFullYear(), startMonth + 3, 0);
+  const month = date.getMonth() + 1;
+  const year = date.getFullYear();
+  // نفس منطق الدورات في صفحة نقاط العملاء من الفواتير بالظبط: الاحتساب بيحصل
+  // في فبراير/مايو/أغسطس/نوفمبر، عن الدورة اللي فاتت (نوفمبر-يناير،
+  // فبراير-أبريل، مايو-يوليو، أغسطس-أكتوبر) — عشان الصفحتين يتفقوا على نفس
+  // مواعيد الدورات بالظبط.
+  let start: Date;
+  let end: Date;
+  if (month >= 2 && month <= 4) {
+    start = new Date(year - 1, 10, 1);
+    end = new Date(year, 0, 31);
+  } else if (month >= 5 && month <= 7) {
+    start = new Date(year, 1, 1);
+    end = new Date(year, 3, 30);
+  } else if (month >= 8 && month <= 10) {
+    start = new Date(year, 4, 1);
+    end = new Date(year, 6, 31);
+  } else {
+    start = new Date(year, 7, 1);
+    end = new Date(year, 9, 31);
+  }
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
 function previousQuarterBounds() {
-  const date = new Date();
-  date.setMonth(date.getMonth() - 3);
-  return quarterBounds(date);
+  const current = quarterBounds();
+  const start = new Date(current.start);
+  start.setMonth(start.getMonth() - 3);
+  return quarterBounds(start);
 }
 
 function remaining(row: CashbackRow) {
