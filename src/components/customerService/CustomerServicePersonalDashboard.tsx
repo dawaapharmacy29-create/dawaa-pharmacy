@@ -139,6 +139,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
   const navigate = useNavigate();
   const [data, setData] = useState<PersonalDashboardData | null>(null);
   const [riskAlerts, setRiskAlerts] = useState<{ spend_decline_count: number; spend_decline_top: Array<{ customer_name: string; decline_pct: number; prior_avg_monthly_spend: number }>; cycle_churn_count: number } | null>(null);
+  const [pointsFollowup, setPointsFollowup] = useState<Array<{ customer_code: string; customer_name: string; customer_phone: string; total_points: number; uncontacted_count: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
@@ -217,6 +218,18 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
       .catch((err) => {
         console.error('[CustomerServicePersonalDashboard] risk alerts fetch failed', err);
       });
+    return () => { cancelled = true; };
+  }, [branch]);
+
+  useEffect(() => {
+    if (!branch) { setPointsFollowup([]); return; }
+    let cancelled = false;
+    supabase.rpc('get_customers_with_points_for_followup', { p_branch: branch })
+      .then(({ data: rows, error: err }) => {
+        if (cancelled || err) return;
+        setPointsFollowup(((rows as typeof pointsFollowup) || []).filter((r) => r.uncontacted_count > 0).slice(0, 5));
+      })
+      .catch((err) => console.error('[CustomerServicePersonalDashboard] points followup fetch failed', err));
     return () => { cancelled = true; };
   }, [branch]);
 
@@ -457,6 +470,23 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
           </div>
         </div>
       </div>
+
+      {pointsFollowup.length ? (
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-amber-400/40" style={card} onClick={() => navigate('/customer-points-ledger')}>
+          <SectionTitle icon={Gift} accent="#fbbf24">عملاء عندهم نقاط جاهزة ومحتاجين تواصل</SectionTitle>
+          <div className="mt-3 space-y-2">
+            {pointsFollowup.map((c) => (
+              <div key={c.customer_code} className="flex items-center justify-between rounded-xl border p-3 text-sm" style={softCard}>
+                <div>
+                  <span className="font-bold text-white">{c.customer_name}</span>
+                  {c.customer_phone ? <span className="mr-2 text-xs" style={mutedText} dir="ltr">{c.customer_phone}</span> : null}
+                </div>
+                <span className="font-black text-amber-300">{c.total_points.toLocaleString('ar-EG')} نقطة</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-pink-400/40" style={card} onClick={() => navigate('/schedule')}>
