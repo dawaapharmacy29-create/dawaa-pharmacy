@@ -99,12 +99,27 @@ function usernameFromName(name: string) {
     .toLowerCase();
 }
 
-function firstWorkingShift(item: ParsedStaffShifts) {
-  return Object.values(item.shifts).find((shift) => !shift.isOff && shift.start && shift.end);
+async function uniqueUsername(table: string, preferred: string) {
+  const base = preferred || 'staff';
+
+  for (let suffix = 0; suffix < 1000; suffix++) {
+    const candidate = suffix === 0 ? base : `${base}.${suffix + 1}`;
+    const { data, error } = await supabase
+      .from(table)
+      .select('id')
+      .eq('username', candidate)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data?.id) return candidate;
+  }
+
+  throw new Error('تعذر إنشاء اسم مستخدم فريد للموظف الجديد.');
 }
 
-function firstOffDay(item: ParsedStaffShifts) {
-  return Object.entries(item.shifts).find(([, shift]) => shift.isOff)?.[0] || null;
+function firstWorkingShift(item: ParsedStaffShifts) {
+  return Object.values(item.shifts).find((shift) => !shift.isOff && shift.start && shift.end);
 }
 
 function staffWithSavableShifts(staff: ParsedStaffShifts[]) {
@@ -137,17 +152,25 @@ async function saveStaffRows(table: string, staff: ParsedStaffShifts[]) {
 
   let saved = 0;
   for (const row of rows) {
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from(table)
       .select('id')
       .eq('name', row.name)
       .limit(1)
       .maybeSingle();
+
+    if (existingError) throw existingError;
+
     if (existing?.id) {
-      const ok = await updateFlexible(table, String(existing.id), row);
+      // لا نحدّث username أو phone عند استيراد الشيفتات؛ لأنهما بيانات حساب مستقلة
+      // وقد يؤدي توليد username من الاسم إلى الاصطدام بحساب موظف آخر.
+      const { username: _username, phone: _phone, ...safeUpdate } = row;
+      const ok = await updateFlexible(table, String(existing.id), safeUpdate);
       if (ok) saved += 1;
     } else {
-      saved += await insertFlexible(table, [row]);
+      // الموظف الجديد فقط يحصل على username، مع ضمان عدم تكراره.
+      const username = await uniqueUsername(table, row.username);
+      saved += await insertFlexible(table, [{ ...row, username }]);
     }
   }
   return saved;
@@ -172,8 +195,7 @@ function scheduleRows(staff: ParsedStaffShifts[]) {
       }))
   );
 
-  // Deduplicate by staff_name + branch + day_name, keep the last occurrence
-  const map = new Map<string, typeof rows[number]>();
+  const map = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
     const key = `${r.staff_name}|${r.branch}|${r.day_name}`;
     map.set(key, r);
@@ -197,8 +219,7 @@ function leaveRows(staff: ParsedStaffShifts[]) {
       }))
   );
 
-  // Deduplicate by staff_name + branch + day_name, keep the last occurrence
-  const map = new Map<string, typeof rows[number]>();
+  const map = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
     const key = `${r.staff_name}|${r.branch}|${r.day_name}`;
     map.set(key, r);
@@ -227,7 +248,6 @@ export async function saveScheduleImport(
   const scheduleTable = await detectTable(['shift_schedules']);
   if (scheduleTable) {
     try {
-      // Remove previously imported schedules from this source only
       try {
         const { error: delError } = await supabase
           .from(scheduleTable)
@@ -251,7 +271,6 @@ export async function saveScheduleImport(
   const exceptionTable = await detectTable(['shift_exceptions']);
   if (exceptionTable) {
     try {
-      // Remove previously imported exceptions from this source only
       try {
         const { error: delError } = await supabase
           .from(exceptionTable)
