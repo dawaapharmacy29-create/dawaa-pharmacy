@@ -1857,6 +1857,61 @@ async function fetchExistingInvoicesByFieldPaged(
   return { data: rows, error: null };
 }
 
+async function detectBranchInvoiceNumberMismatch(
+  rows: RawInvoiceRow[],
+  branch: string
+): Promise<string | null> {
+  const numbers = rows
+    .map((row) => Number(String(row.invoiceNumber || '').trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (numbers.length < 5) return null;
+
+  const incomingMin = Math.min(...numbers);
+  const incomingMax = Math.max(...numbers);
+
+  const { data: branchRows } = await supabase.from('sales_invoices').select('branch').limit(2000);
+  const otherBranches = Array.from(
+    new Set((branchRows || []).map((r: Record<string, unknown>) => String(r.branch || '')).filter((b) => b && b !== branch))
+  );
+
+  const { data: selfRecent } = await supabase
+    .from('sales_invoices')
+    .select('invoice_no')
+    .eq('branch', branch)
+    .order('invoice_date', { ascending: false })
+    .limit(50);
+  const selfNumbers = ((selfRecent || []) as Record<string, unknown>[])
+    .map((r) => Number(String(r.invoice_no || '').trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  if (!selfNumbers.length) return null;
+
+  const selfMax = Math.max(...selfNumbers);
+  const selfMin = Math.min(...selfNumbers);
+  const selfRange = Math.max(selfMax - selfMin, 200);
+  const closeToSelf = incomingMin >= selfMin - selfRange && incomingMax <= selfMax + selfRange * 3;
+  if (closeToSelf) return null;
+
+  for (const other of otherBranches) {
+    const { data: otherRecent } = await supabase
+      .from('sales_invoices')
+      .select('invoice_no')
+      .eq('branch', other)
+      .order('invoice_date', { ascending: false })
+      .limit(50);
+    const otherNumbers = ((otherRecent || []) as Record<string, unknown>[])
+      .map((r) => Number(String(r.invoice_no || '').trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (!otherNumbers.length) continue;
+    const otherMin = Math.min(...otherNumbers);
+    const otherMax = Math.max(...otherNumbers);
+    if (incomingMin >= otherMin - 500 && incomingMax <= otherMax + 500) {
+      return `تنبيه مهم: أرقام الفواتير في الملف ده (من ${incomingMin} إلى ${incomingMax}) قريبة من تسلسل أرقام فواتير "${other}" مش "${branch}". يمكن يكون اختيار الفرع غلط وقت الاستيراد. راجعي الفرع المختار قبل ما تأكدي الحفظ.`;
+    }
+  }
+  return null;
+}
+
 export async function importInvoicesToDB(
   rows: RawInvoiceRow[],
   branch: string,
@@ -1977,6 +2032,11 @@ export async function importInvoicesToDB(
     duplicateRowsInFileSample: [],
     dayDatabaseComparison: [],
   };
+  const branchMismatchWarning = await detectBranchInvoiceNumberMismatch(rows, branch);
+  if (branchMismatchWarning) {
+    summary.errors.push({ row: 0, field: 'الفرع', message: branchMismatchWarning });
+  }
+
   if (rows.length === 0) {
     summary.rowSaveTrace = [];
     await persistInvoiceImportBatch(summary, 'imported');

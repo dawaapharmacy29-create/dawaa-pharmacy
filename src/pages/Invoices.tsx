@@ -873,6 +873,11 @@ export default function Invoices() {
           : await importCustomersToDB((parseResult as CustomerParseResult).rows, batch);
 
       setImportSummary(summary);
+
+      const branchMismatch = (summary.errors || []).find((error) => error.field === 'الفرع');
+      if (branchMismatch) {
+        toast.error(branchMismatch.message, { duration: 15000 });
+      }
       setSummaryRangeStart(summary.firstInvoiceDate || '');
       setSummaryRangeEnd(summary.lastInvoiceDate || '');
       setStep('done');
