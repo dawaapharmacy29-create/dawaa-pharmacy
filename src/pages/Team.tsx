@@ -18,6 +18,8 @@ import { calculateStaffCycleIncentiveFromRows } from '@/lib/staffIncentiveServic
 import { normalizeStaffName } from '@/lib/staffIdentityService';
 import { BRANCHES, DAYS_AR, ROLES, INITIAL_POINTS } from '@/lib/constants';
 import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
+import { canViewAllBranches } from '@/lib/security/userDataScope';
+import { normalizeBranchName } from '@/lib/branch';
 import { toast } from 'sonner';
 import type { User } from '@/types';
 import { Link } from 'react-router-dom';
@@ -209,7 +211,7 @@ export default function Team() {
     const q = searchParams.get('search') || '';
     setSearch(q);
   }, [searchParams]);
-  const [branchFilter, setBranchFilter] = useState('الكل');
+  const [branchFilter, setBranchFilter] = useState(() => canViewAllBranches(user) ? 'الكل' : (normalizeBranchName(user?.branch || '') || 'الكل'));
   const [roleFilter, setRoleFilter] = useState('الكل');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
@@ -311,7 +313,7 @@ export default function Team() {
   const assistants = onShiftNow.filter((e) => e.role === 'مساعد');
   const deliveryNow = onShiftNow.filter((e) => e.role === 'توصيل');
 
-  const liveCards = livePresence?.total
+  const liveCards = (livePresence?.total
     ? [
         { title: 'صيادلة على الشيفت', list: livePresence.doctors, color: 'teal' },
         { title: 'مساعدون على الشيفت', list: livePresence.assistants, color: 'blue' },
@@ -321,12 +323,20 @@ export default function Team() {
         { title: 'صيادلة على الشيفت', list: doctors as LiveShiftRow[], color: 'teal' },
         { title: 'مساعدون على الشيفت', list: assistants as LiveShiftRow[], color: 'blue' },
         { title: 'توصيل على الشيفت', list: deliveryNow as LiveShiftRow[], color: 'amber' },
-      ];
+      ]
+  ).map((card) => ({
+    ...card,
+    list: canViewAllBranches(user) ? card.list : card.list.filter((row) => normalizeBranchName(row.branch) === normalizeBranchName(user?.branch || '')),
+  }));
 
   const roles = [...new Set(employees.map((e) => e.role))];
+  const visibleBranches = useMemo(
+    () => canViewAllBranches(user) ? BRANCHES : BRANCHES.filter((b) => normalizeBranchName(b) === normalizeBranchName(user?.branch || '')),
+    [user]
+  );
   const branchRankings = useMemo(() => {
     const uniqueEmployees = uniqueEmployeesByIdentity(employees);
-    return BRANCHES.map((branch) => {
+    return visibleBranches.map((branch) => {
       const branchEmployees = uniqueEmployees
         .filter((employee) => employee.branch === branch)
         .map((employee) => ({
@@ -348,7 +358,7 @@ export default function Team() {
         ),
       };
     }).filter((group) => group.doctors.length || group.delivery.length);
-  }, [cycle, employees, pointRecords]);
+  }, [cycle, employees, pointRecords, visibleBranches]);
 
   if (loading || schedulesLoading) return <LoadingState />;
 
@@ -422,16 +432,20 @@ export default function Team() {
             className="input-dark pr-10"
           />
         </div>
-        <select
-          value={branchFilter}
-          onChange={(e) => setBranchFilter(e.target.value)}
-          className="input-dark md:w-40"
-        >
-          <option value="الكل">كل الفروع</option>
-          {BRANCHES.map((b) => (
-            <option key={b}>{b}</option>
-          ))}
-        </select>
+        {canViewAllBranches(user) ? (
+          <select
+            value={branchFilter}
+            onChange={(e) => setBranchFilter(e.target.value)}
+            className="input-dark md:w-40"
+          >
+            <option value="الكل">كل الفروع</option>
+            {BRANCHES.map((b) => (
+              <option key={b}>{b}</option>
+            ))}
+          </select>
+        ) : (
+          <div className="input-dark md:w-40 flex items-center text-slate-200">{branchFilter}</div>
+        )}
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
