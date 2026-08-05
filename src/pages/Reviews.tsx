@@ -1462,6 +1462,8 @@ export default function Reviews() {
         </div>
       </section>
 
+      {newOnlyMode ? (
+      <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Metric
           label="تقييم المحادثة"
@@ -2142,6 +2144,8 @@ export default function Reviews() {
           </button>
         </Modal>
       )}
+      </>
+      ) : null}
     </div>
   );
 }
