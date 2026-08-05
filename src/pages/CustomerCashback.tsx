@@ -3,7 +3,9 @@ import {
   Calculator,
   CheckCircle2,
   Clipboard,
+  Download,
   Eye,
+  FilePlus2,
   Gift,
   MessageSquare,
   Percent,
@@ -19,7 +21,9 @@ import { BRANCHES } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
 import { cashbackStatusLabel } from '@/lib/api/customerLoyalty';
 import { cleanEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
+import { normalizeBranchName } from '@/lib/branch';
 import CustomerQuickDetailsModal from '@/components/customers/CustomerQuickDetailsModal';
+import { exportToExcel } from '@/lib/exportExcel';
 
 type CashbackRow = {
   id: string;
@@ -43,13 +47,6 @@ type CashbackRow = {
 };
 
 const ALL = '__all__';
-const RESPONSIBLES: Record<string, string> = {
-  'فرع الشامي': 'د ضحى',
-  الشامي: 'د ضحى',
-  'فرع شكري': 'د دنيا',
-  شكري: 'د دنيا',
-};
-
 const SCRIPT_TEMPLATES = [
   {
     key: 'friendly',
@@ -444,6 +441,37 @@ export default function CustomerCashback() {
   const [status, setStatus] = useState(ALL);
   const [quickFilter, setQuickFilter] = useState<string>('pending');
   const [selected, setSelected] = useState<CashbackRow | null>(null);
+  const [responsiblesMap, setResponsiblesMap] = useState<Record<string, string>>({});
+  const [showManualEntry, setShowManualEntry] = useState(false);
+  const [manualEntry, setManualEntry] = useState<{ customer_code: string; customer_name: string; customer_phone: string; branch: string; total_spent: string; cashback_rate: string }>({
+    customer_code: '', customer_name: '', customer_phone: '', branch: BRANCHES[0],
+    total_spent: '', cashback_rate: '5',
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('staff_accounts')
+      .select('name, branch')
+      .eq('role', 'customer_service_manager')
+      .eq('active', true)
+      .eq('can_login', true)
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const map: Record<string, string> = {};
+        (data as Array<{ name: string; branch: string | null }>).forEach((row) => {
+          const normalized = normalizeBranchName(row.branch || '');
+          if (normalized) map[normalized] = row.name;
+        });
+        setResponsiblesMap(map);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const getResponsible = useCallback(
+    (branchName: string | null) => responsiblesMap[normalizeBranchName(branchName || '')] || 'غير محدد',
+    [responsiblesMap]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -490,6 +518,66 @@ export default function CustomerCashback() {
           ? error.message
           : 'تعذر احتساب الكاش باك. تأكد من تشغيل SQL الخاص بالكاش باك.'
       );
+    } finally {
+      setCalculating(false);
+    }
+  };
+
+  const exportCashbackExcel = async () => {
+    if (!searched.length) { toast.error('مفيش بيانات تتصدر دلوقتي.'); return; }
+    const sheetRows = searched.map((row) => ({
+      'الكود': row.customer_code || '',
+      'الاسم': row.customer_name || '',
+      'الهاتف': row.customer_phone || '',
+      'الفرع': row.branch || '',
+      'المسؤول': getResponsible(row.branch),
+      'الدورة': row.cycle_label || `${row.cycle_start || ''} - ${row.cycle_end || ''}`,
+      'إجمالي المشتريات': Number(row.total_spent || 0),
+      'نسبة الكاش باك': Number(row.cashback_rate || 0),
+      'قيمة الكاش باك': Number(row.cashback_value || 0),
+      'المسحوب': Number(row.redeemed_value || 0),
+      'المتبقي': remaining(row),
+      'الحالة': cashbackStatusLabel(row.status),
+      'تم التبليغ': row.notified_at ? formatDate(row.notified_at) : '',
+      'تحديث بي كونكت': row.bconnect_updated_at ? formatDate(row.bconnect_updated_at) : '',
+      'تمت التسوية': row.settled_at ? formatDate(row.settled_at) : '',
+      'ملاحظات': row.notes || '',
+    }));
+    await exportToExcel(sheetRows, `كاش_باك_العملاء_${cycleStart}_${cycleEnd}`, 'الكاش باك');
+  };
+
+  const saveManualEntry = async () => {
+    if (!manualEntry.customer_code.trim() || !manualEntry.total_spent) {
+      toast.error('لازم كود العميل وإجمالي المشتريات على الأقل.');
+      return;
+    }
+    setCalculating(true);
+    try {
+      const rate = Number(manualEntry.cashback_rate);
+      const totalSpent = Number(manualEntry.total_spent);
+      const cashbackValue = Math.round(totalSpent * (rate / 100) * 100) / 100;
+      const { error } = await supabase.from('customer_cashback_cycles').upsert({
+        customer_code: manualEntry.customer_code.trim(),
+        customer_name: manualEntry.customer_name.trim() || null,
+        customer_phone: manualEntry.customer_phone.trim() || null,
+        branch: manualEntry.branch,
+        cycle_label: `يدوي ${cycleStart} - ${cycleEnd}`,
+        cycle_start: cycleStart,
+        cycle_end: cycleEnd,
+        total_spent: totalSpent,
+        cashback_rate: rate,
+        cashback_value: cashbackValue,
+        redeemed_value: 0,
+        status: 'pending',
+        notes: 'اتضاف يدويًا من صفحة كاش باك العملاء',
+      });
+      if (error) throw error;
+      toast.success('اتحفظ الاحتساب اليدوي');
+      setManualEntry({ customer_code: '', customer_name: '', customer_phone: '', branch: BRANCHES[0], total_spent: '', cashback_rate: '5' });
+      setShowManualEntry(false);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ الاحتساب اليدوي');
     } finally {
       setCalculating(false);
     }
@@ -675,7 +763,7 @@ export default function CustomerCashback() {
     () =>
       rows.filter((row) => {
         const needle = search.trim();
-        const responsible = RESPONSIBLES[row.branch || ''] || 'غير محدد';
+        const responsible = getResponsible(row.branch);
         if (responsibleFilter !== ALL && responsible !== responsibleFilter) return false;
         if (!needle) return true;
         return [
@@ -755,7 +843,7 @@ export default function CustomerCashback() {
     { spent: 0, cashback: 0, remaining: 0 }
   );
 
-  const responsibleOptions = useMemo(() => [ALL, ...new Set(Object.values(RESPONSIBLES))], []);
+  const responsibleOptions = useMemo(() => [ALL, ...new Set(Object.values(responsiblesMap))], [responsiblesMap]);
 
   return (
     <div className="customer-service-page space-y-5" dir="rtl">
@@ -770,20 +858,47 @@ export default function CustomerCashback() {
             عميل.
           </p>
         </div>
-        <button
-          type="button"
-          className="dawaa-button-primary"
-          onClick={calculate}
-          disabled={calculating}
-        >
-          {calculating ? (
-            <RefreshCw className="h-4 w-4 animate-spin" />
-          ) : (
-            <Calculator className="h-4 w-4" />
-          )}
-          احتساب الكاش باك للدورة
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="dawaa-button-primary"
+            onClick={calculate}
+            disabled={calculating}
+          >
+            {calculating ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Calculator className="h-4 w-4" />
+            )}
+            احتساب الكاش باك للدورة
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => void exportCashbackExcel()}>
+            <Download className="ml-1 inline h-4 w-4" /> تصدير Excel
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => setShowManualEntry((v) => !v)}>
+            <FilePlus2 className="ml-1 inline h-4 w-4" /> إضافة يدوية
+          </button>
+        </div>
       </section>
+
+      {showManualEntry ? (
+        <section className="dawaa-panel space-y-3 border border-amber-400/30 bg-amber-500/5">
+          <h2 className="flex items-center gap-2 font-black text-white"><FilePlus2 className="text-amber-300" size={18}/> احتساب كاش باك يدوي لعميل واحد</h2>
+          <p className="text-xs font-bold text-slate-400">لعميل استثنائي مش داخل في الاحتساب التلقائي، أو تصحيح رقم بعينه بدون التأثير على باقي القائمة.</p>
+          <div className="grid gap-3 lg:grid-cols-6">
+            <input className="input-dark" placeholder="كود العميل" value={manualEntry.customer_code} onChange={(e) => setManualEntry((c) => ({ ...c, customer_code: e.target.value }))}/>
+            <input className="input-dark" placeholder="اسم العميل" value={manualEntry.customer_name} onChange={(e) => setManualEntry((c) => ({ ...c, customer_name: e.target.value }))}/>
+            <input className="input-dark" placeholder="الهاتف" value={manualEntry.customer_phone} onChange={(e) => setManualEntry((c) => ({ ...c, customer_phone: e.target.value }))}/>
+            <select className="input-dark" value={manualEntry.branch} onChange={(e) => setManualEntry((c) => ({ ...c, branch: e.target.value }))}>{BRANCHES.map((b) => <option key={b} value={b}>{b}</option>)}</select>
+            <input className="input-dark" type="number" placeholder="إجمالي المشتريات" value={manualEntry.total_spent} onChange={(e) => setManualEntry((c) => ({ ...c, total_spent: e.target.value }))}/>
+            <select className="input-dark" value={manualEntry.cashback_rate} onChange={(e) => setManualEntry((c) => ({ ...c, cashback_rate: e.target.value }))}><option value="5">5%</option><option value="3">3%</option></select>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-sm font-bold text-emerald-200">قيمة الكاش باك: {formatCurrency(Math.round(Number(manualEntry.total_spent || 0) * (Number(manualEntry.cashback_rate) / 100) * 100) / 100)}</div>
+            <button type="button" className="dawaa-button-primary mr-auto" onClick={() => void saveManualEntry()} disabled={calculating}>حفظ الاحتساب اليدوي</button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="dawaa-panel grid gap-3 lg:grid-cols-7">
         <button
@@ -907,7 +1022,7 @@ export default function CustomerCashback() {
             </div>
           ) : filtered.length ? (
             filtered.map((row) => {
-              const responsible = RESPONSIBLES[row.branch || ''] || 'غير محدد';
+              const responsible = getResponsible(row.branch);
               const wa = whatsappScriptLink(row);
               return (
                 <CashbackMobileCard
@@ -959,7 +1074,7 @@ export default function CustomerCashback() {
                 </tr>
               ) : (
                 filtered.map((row) => {
-                  const responsible = RESPONSIBLES[row.branch || ''] || 'غير محدد';
+                  const responsible = getResponsible(row.branch);
                   const wa = whatsappScriptLink(row);
                   return (
                     <tr
