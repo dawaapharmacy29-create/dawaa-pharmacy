@@ -1,20 +1,27 @@
 import * as XLSX from 'xlsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   Calculator,
   CheckCircle2,
   Clipboard,
+  Clock3,
+  Coins,
+  Database,
   Download,
   Eye,
   FilePlus2,
   Gift,
   MessageSquare,
   Percent,
+  PiggyBank,
   RefreshCw,
+  Scissors,
   Search,
   Send,
   Smartphone,
   Upload,
+  Users,
   WalletCards,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -186,6 +193,10 @@ function summaryTone(kind: string, active: boolean) {
     return `border-slate-300/60 bg-slate-500/10 text-slate-700 dark:text-slate-100 ${activeCls}`;
   if (kind === 'available')
     return `border-teal-300/60 bg-teal-500/10 text-teal-700 dark:text-teal-100 ${activeCls}`;
+  if (kind === 'all')
+    return `border-sky-300/60 bg-sky-500/10 text-sky-700 dark:text-sky-100 ${activeCls}`;
+  if (kind === 'pending')
+    return `border-orange-300/60 bg-orange-500/10 text-orange-700 dark:text-orange-100 ${activeCls}`;
   return `border-amber-300/60 bg-amber-500/10 text-amber-700 dark:text-amber-100 ${activeCls}`;
 }
 
@@ -1086,16 +1097,16 @@ export default function CustomerCashback() {
 
       <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-10">
         {[
-          { key: 'all', label: 'إجمالي العملاء', value: summary.total },
-          { key: 'pending', label: 'لم يتم التعامل', value: summary.pending },
-          { key: 'available', label: 'لهم نقاط', value: summary.available },
-          { key: 'notified', label: 'تم تبليغهم', value: summary.notified },
-          { key: 'bconnect', label: 'اتغيروا على بي كونكت', value: summary.bconnect },
-          { key: 'partial', label: 'سحبوا جزء', value: summary.partial },
-          { key: 'settled', label: 'تمت التسوية', value: summary.settled },
-          { key: 'rate5', label: 'عملاء 5%', value: summary.rate5 },
-          { key: 'rate3', label: 'عملاء 3%', value: summary.rate3 },
-          { key: 'systemLog', label: 'سجل السيستم', value: summary.systemLog },
+          { key: 'all', label: 'إجمالي العملاء', value: summary.total, icon: Users, accent: '#38bdf8' },
+          { key: 'pending', label: 'لم يتم التعامل', value: summary.pending, icon: Clock3, accent: '#fb923c' },
+          { key: 'available', label: 'لهم نقاط', value: summary.available, icon: Coins, accent: '#2dd4bf' },
+          { key: 'notified', label: 'تم تبليغهم', value: summary.notified, icon: Send, accent: '#34d399' },
+          { key: 'bconnect', label: 'اتغيروا على بي كونكت', value: summary.bconnect, icon: Smartphone, accent: '#a78bfa' },
+          { key: 'partial', label: 'سحبوا جزء', value: summary.partial, icon: Scissors, accent: '#22d3ee' },
+          { key: 'settled', label: 'تمت التسوية', value: summary.settled, icon: CheckCircle2, accent: '#0ea5e9' },
+          { key: 'rate5', label: 'عملاء 5%', value: summary.rate5, icon: Percent, accent: '#facc15' },
+          { key: 'rate3', label: 'عملاء 3%', value: summary.rate3, icon: Percent, accent: '#a3e635' },
+          { key: 'systemLog', label: 'سجل السيستم', value: summary.systemLog, icon: Database, accent: '#94a3b8' },
         ].map((item) => (
           <button
             key={item.key}
@@ -1103,18 +1114,20 @@ export default function CustomerCashback() {
             onClick={() => setQuickFilter(item.key)}
             className={`rounded-2xl border p-4 text-right transition hover:-translate-y-0.5 ${summaryTone(item.key, quickFilter === item.key)}`}
           >
-            <div className="text-xs font-bold">{item.label}</div>
-            <div className="mt-2 text-2xl font-black">{item.value.toLocaleString('ar-EG')}</div>
-            <div className="mt-1 text-xs font-bold opacity-80">اضغط لعرض هذه القائمة</div>
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: `${item.accent}22`, color: item.accent }}>
+              <item.icon size={18} />
+            </span>
+            <div className="mt-3 text-xs font-bold">{item.label}</div>
+            <div className="mt-1 text-2xl font-black">{item.value.toLocaleString('ar-EG')}</div>
           </button>
         ))}
       </section>
 
       <section className="grid gap-3 md:grid-cols-4">
-        <Kpi label="عدد العملاء في القائمة" value={filtered.length.toLocaleString('ar-EG')} />
-        <Kpi label="إجمالي مشتريات القائمة" value={formatCurrency(totals.spent)} />
-        <Kpi label="قيمة الكاش باك" value={formatCurrency(totals.cashback)} />
-        <Kpi label="المتبقي للعملاء" value={formatCurrency(totals.remaining)} />
+        <Kpi label="عدد العملاء في القائمة" value={filtered.length.toLocaleString('ar-EG')} icon={Users} accent="#38bdf8" />
+        <Kpi label="إجمالي مشتريات القائمة" value={formatCurrency(totals.spent)} icon={WalletCards} accent="#a78bfa" />
+        <Kpi label="قيمة الكاش باك" value={formatCurrency(totals.cashback)} icon={Coins} accent="#facc15" />
+        <Kpi label="المتبقي للعملاء" value={formatCurrency(totals.remaining)} icon={PiggyBank} accent="#34d399" />
       </section>
 
       <section className="dawaa-panel space-y-4">
@@ -1284,10 +1297,13 @@ export default function CustomerCashback() {
   );
 }
 
-function Kpi({ label, value }: { label: string; value: string }) {
+function Kpi({ label, value, icon: Icon, accent }: { label: string; value: string; icon?: LucideIcon; accent?: string }) {
   return (
     <div className="rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-4 shadow-sm">
-      <div className="text-sm font-bold text-[var(--theme-muted)]">{label}</div>
+      <div className="flex items-center gap-2">
+        {Icon ? <span className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: `${accent || '#38bdf8'}22`, color: accent || '#38bdf8' }}><Icon size={16} /></span> : null}
+        <div className="text-sm font-bold text-[var(--theme-muted)]">{label}</div>
+      </div>
       <div className="mt-2 text-2xl font-black text-[var(--theme-heading)]">{value}</div>
     </div>
   );
