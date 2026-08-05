@@ -10,7 +10,7 @@ import {
 } from '@/lib/doctorCompetitionMetrics';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
-import { rowMatchesCurrentDoctor } from '@/lib/security/userDataScope';
+import { rowMatchesCurrentDoctor, canViewAllBranches } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
 import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import { supabase } from '@/lib/supabase';
@@ -274,7 +274,7 @@ export default function DoctorCompetition() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const requestedBranch = params.get('branch') || ALL_BRANCHES;
+  const requestedBranch = params.get('branch') || (canViewAllBranches(user) ? ALL_BRANCHES : (normalizeBranchName(user?.branch || '') || ALL_BRANCHES));
   const [branchFilter, setBranchFilter] = useState(requestedBranch);
   const [period, setPeriod] = useState<DoctorCompetitionPeriod>('cycle');
   const [mode, setMode] = useState<RankingMode>('points');
@@ -448,7 +448,11 @@ export default function DoctorCompetition() {
 
     <section className="grid gap-2 rounded-3xl border p-3 sm:grid-cols-3" style={surface}>
       <select className="input-dark" value={period} onChange={(event) => setPeriod(event.target.value as DoctorCompetitionPeriod)}><option value="cycle">الدورة الحالية 26 إلى 25</option><option value="last30">آخر 30 يومًا</option><option value="last90">آخر 3 شهور</option></select>
-      <select className="input-dark" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option value={ALL_BRANCHES}>{ALL_BRANCHES}</option>{BRANCHES.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select>
+      {canViewAllBranches(user) ? (
+        <select className="input-dark" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option value={ALL_BRANCHES}>{ALL_BRANCHES}</option>{BRANCHES.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select>
+      ) : (
+        <div className="input-dark flex items-center text-slate-200">{branchFilter}</div>
+      )}
       <select className="input-dark" value={mode} onChange={(event) => setMode(event.target.value as RankingMode)}><option value="points">الترتيب حسب نقاط المسابقة</option><option value="sales">الترتيب حسب المبيعات</option><option value="invoices">الترتيب حسب عدد الفواتير</option><option value="average">الترتيب حسب متوسط الفاتورة</option></select>
     </section>
 
