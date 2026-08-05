@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { AppTheme } from '@/context/ThemeContext';
-import { isAllowedTheme } from '@/context/ThemeContext';
+import type { AppTheme } from '@/contexts/ThemeContext';
+import { isAllowedTheme } from '@/contexts/ThemeContext';
 
 const THEME_KEY = 'dawaa_theme';
 const LEGACY_PALETTE_KEY = 'dawaa_palette';
