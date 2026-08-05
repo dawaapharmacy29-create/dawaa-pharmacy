@@ -21,7 +21,7 @@ export default function DoctorDashboardEnhanced() {
       doctorName={String(user?.name || '')}
       onNavigate={(next) => setParams({ tab: next })}
     /> : null}
-    <DoctorDashboardStable />
+    <DoctorDashboardStable hideReviews={tab === 'reviews'} />
     {tab === 'reviews' ? <DoctorReviewDetails /> : null}
   </div>;
 }

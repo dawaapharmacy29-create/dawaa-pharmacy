@@ -219,7 +219,7 @@ function MiniPerfColumn({
   );
 }
 
-export default function DoctorDashboardStable() {
+export default function DoctorDashboardStable({ hideReviews = false }: { hideReviews?: boolean } = {}) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -819,7 +819,7 @@ export default function DoctorDashboardStable() {
 
       {tab === 'followups' ? <DoctorRequestedFollowups /> : null}
 
-      {tab === 'reviews' ? (
+      {tab === 'reviews' && !hideReviews ? (
         <section className="rounded-3xl border p-5" style={surface}>
           <div className="flex items-center justify-between">
             <div>

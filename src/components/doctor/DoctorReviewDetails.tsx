@@ -74,9 +74,17 @@ export default function DoctorReviewDetails() {
 
   return <section dir="rtl" className="mt-5 rounded-3xl border border-cyan-400/20 bg-slate-900/85 p-5">
     <div className="flex items-center justify-between gap-3">
-      <div><h2 className="text-2xl font-black text-white">التفاصيل الكاملة لتقييمات محادثاتي</h2><p className="mt-1 text-sm text-slate-400">لا تظهر هنا إلا التقييمات المرتبطة بمعرف حسابك، مع بنود التقييم ورسالة خدمة العملاء وصور المحادثة.</p></div>
+      <div><h2 className="text-2xl font-black text-white">تقييماتي وتفاصيل محادثاتي</h2><p className="mt-1 text-sm text-slate-400">لا تظهر هنا إلا التقييمات المرتبطة بمعرف حسابك، مع بنود التقييم ورسالة خدمة العملاء وصور المحادثة.</p></div>
       <button type="button" onClick={() => void load()} className="btn-secondary"><RefreshCw className={`ml-1 inline h-4 w-4 ${loading ? 'animate-spin' : ''}`}/> تحديث</button>
     </div>
+
+    {rows.length ? (
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 text-center"><div className="text-2xl font-black text-white">{rows.length}</div><div className="mt-1 text-xs font-bold text-slate-400">عدد التقييمات</div></div>
+        <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 text-center"><div className="text-2xl font-black text-teal-200">{(rows.reduce((sum, row) => sum + num(row.final_score ?? row.total_score), 0) / rows.length).toFixed(1)}%</div><div className="mt-1 text-xs font-bold text-slate-400">متوسط التقييم</div></div>
+        <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 text-center"><div className="text-2xl font-black text-amber-200">{rows.reduce((sum, row) => sum + num(row.doctor_points_impact ?? row.point_impact), 0)}</div><div className="mt-1 text-xs font-bold text-slate-400">إجمالي تأثير النقاط</div></div>
+      </div>
+    ) : null}
 
     <div className="mt-4 space-y-3">{rows.map((row) => {
       const id = text(row.id);
