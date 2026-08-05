@@ -325,6 +325,7 @@ function isGeneralManager(user: any) {
 export default function Reviews() {
   const { user } = useAuth();
   const newOnlyMode = new URLSearchParams(window.location.search).get('mode') === 'new';
+  const historyOnlyMode = new URLSearchParams(window.location.search).get('section') === 'history';
   const [saving, setSaving] = useState(false);
   const [reviewState, setReviewState] = useState<ConversationReviewState>(defaultReviewState());
   const [severeErrors, setSevereErrors] = useState<SevereErrorsState>(defaultSevereErrors());
@@ -1232,15 +1233,17 @@ export default function Reviews() {
               </button>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={loadReviewHistory}
-                  disabled={historyLoading}
-                  className="btn-secondary flex items-center gap-2"
-                >
-                  <RefreshCw size={16} className={historyLoading ? 'animate-spin' : ''} />
-                  تحديث السجل
-                </button>
+                {historyOnlyMode ? (
+                  <button
+                    type="button"
+                    onClick={loadReviewHistory}
+                    disabled={historyLoading}
+                    className="btn-secondary flex items-center gap-2"
+                  >
+                    <RefreshCw size={16} className={historyLoading ? 'animate-spin' : ''} />
+                    تحديث السجل
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => window.location.assign('/reviews?mode=new')}
@@ -1255,16 +1258,26 @@ export default function Reviews() {
         </div>
       </div>
 
-      <section className={`${newOnlyMode ? 'hidden' : ''} stat-card border border-teal-500/20 bg-teal-500/5 space-y-4`}> 
-        <div className="flex items-center gap-2">
-          <ListChecks className="text-teal-400" size={20} />
-          <div>
-            <h2 className="text-white font-bold text-lg">سجل تقييم المحادثات</h2>
-            <p className="text-slate-300 text-sm">
-              اضغط على أي محادثة لفتح تفاصيل التقييم كاملة، أو استخدم أزرار المدير العام للتعديل
-              والتقييم.
-            </p>
+      <section className={`${newOnlyMode || !historyOnlyMode ? 'hidden' : ''} stat-card border border-teal-500/20 bg-teal-500/5 space-y-4`}> 
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ListChecks className="text-teal-400" size={20} />
+            <div>
+              <h2 className="text-white font-bold text-lg">سجل تقييم المحادثات</h2>
+              <p className="text-slate-300 text-sm">
+                اضغط على أي محادثة لفتح تفاصيل التقييم كاملة، أو استخدم أزرار المدير العام للتعديل
+                والتقييم.
+              </p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={() => window.location.assign('/reviews')}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <ListChecks size={16} />
+            الرجوع للتحليل والتقارير
+          </button>
         </div>
 
         {historyError && (

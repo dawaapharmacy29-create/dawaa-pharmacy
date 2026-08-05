@@ -258,7 +258,7 @@ export default function ReviewsInsightsHub() {
         <button type="button" onClick={triggerNewReview} className="rounded-2xl border border-teal-300/30 bg-teal-500/15 p-4 text-right hover:bg-teal-500/20">
           <Star className="h-5 w-5 text-teal-300" /><div className="mt-3 font-black text-white">تقييم جديد</div><div className="mt-1 text-xs font-bold text-slate-300">فتح نموذج تقييم محادثة أو عملية بيع</div>
         </button>
-        <button type="button" onClick={() => scrollToHeading('سجل تقييم المحادثات')} className="rounded-2xl border border-sky-300/25 bg-sky-500/10 p-4 text-right hover:bg-sky-500/15">
+        <button type="button" onClick={() => window.location.assign('/reviews?section=history')} className="rounded-2xl border border-sky-300/25 bg-sky-500/10 p-4 text-right hover:bg-sky-500/15">
           <ClipboardCheck className="h-5 w-5 text-sky-300" /><div className="mt-3 font-black text-white">سجل التقييمات</div><div className="mt-1 text-xs font-bold text-slate-300">عرض التقييمات والتفاصيل والإجراءات</div>
         </button>
         <button type="button" onClick={() => setActiveView('doctors')} className="rounded-2xl border border-violet-300/25 bg-violet-500/10 p-4 text-right hover:bg-violet-500/15">
