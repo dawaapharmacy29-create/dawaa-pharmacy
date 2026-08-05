@@ -186,18 +186,16 @@ function matchImportedStaff(
   for (const item of imported) {
     const importedName = normalizeArabic(item.name);
     const importedBranch = normalizeBranch(item.branch);
-
-    const exactCandidates = existing.filter(
-      (staff) => normalizeArabic(staff.name) === importedName
-    );
+    const exactCandidates = existing.filter((staff) => normalizeArabic(staff.name) === importedName);
 
     let selected: ExistingStaffRow | undefined;
     if (exactCandidates.length === 1) {
       selected = exactCandidates[0];
     } else if (exactCandidates.length > 1) {
-      selected = exactCandidates.find(
+      const sameBranch = exactCandidates.filter(
         (staff) => normalizeBranch(staff.branch) === importedBranch
       );
+      if (sameBranch.length === 1) selected = sameBranch[0];
     }
 
     if (!selected) {
@@ -232,7 +230,32 @@ function matchImportedStaff(
     });
   }
 
-  return matched;
+  return mergeMatchedStaff(matched, skipped);
+}
+
+function mergeMatchedStaff(items: MatchedStaff[], skipped: string[]) {
+  const byStaff = new Map<string, MatchedStaff>();
+
+  for (const item of items) {
+    const current = byStaff.get(item.staffId);
+    if (!current) {
+      byStaff.set(item.staffId, { ...item, shifts: { ...item.shifts } });
+      continue;
+    }
+
+    skipped.push(`تم دمج التكرار في الملف للموظف "${item.canonicalName}" بدل إنشاء صف إضافي.`);
+    for (const [day, shift] of Object.entries(item.shifts)) {
+      const oldShift = current.shifts[day];
+      const oldIsValidWork = oldShift && !oldShift.isOff && oldShift.start && oldShift.end;
+      const newIsValidWork = !shift.isOff && shift.start && shift.end;
+
+      if (!oldShift || newIsValidWork || !oldIsValidWork) {
+        current.shifts[day] = shift;
+      }
+    }
+  }
+
+  return [...byStaff.values()];
 }
 
 async function updateMatchedStaffBaseShifts(table: string, staff: MatchedStaff[]) {
@@ -241,7 +264,6 @@ async function updateMatchedStaffBaseShifts(table: string, staff: MatchedStaff[]
     const shift = firstWorkingShift(item);
     if (!shift) continue;
 
-    // استيراد الجدول لا ينشئ حسابات ولا يغيّر username أو الهاتف أو كلمة المرور.
     const ok = await updateFlexible(table, item.staffId, {
       shift_start: shift.start,
       shift_end: shift.end,
@@ -267,6 +289,7 @@ function scheduleRows(staff: MatchedStaff[]) {
         shift_end: shift.end,
         hours: shift.hours,
         is_off: shift.isOff,
+        is_day_off: shift.isOff,
         raw_shift: shift.raw,
         source: 'attendance_report.xlsx',
       }))
@@ -275,7 +298,10 @@ function scheduleRows(staff: MatchedStaff[]) {
   const map = new Map<string, (typeof rows)[number]>();
   for (const row of rows) {
     const key = `${row.staff_id}|${row.day_name}`;
-    map.set(key, row);
+    const current = map.get(key);
+    const currentIsWork = current && !current.is_off && current.shift_start && current.shift_end;
+    const nextIsWork = !row.is_off && row.shift_start && row.shift_end;
+    if (!current || nextIsWork || !currentIsWork) map.set(key, row);
   }
   return Array.from(map.values());
 }
@@ -298,11 +324,16 @@ function leaveRows(staff: MatchedStaff[]) {
   );
 
   const map = new Map<string, (typeof rows)[number]>();
-  for (const row of rows) {
-    const key = `${row.staff_id}|${row.day_name}`;
-    map.set(key, row);
-  }
+  for (const row of rows) map.set(`${row.staff_id}|${row.day_name}`, row);
   return Array.from(map.values());
+}
+
+async function deleteExistingRowsForMatchedStaff(table: string, staff: MatchedStaff[]) {
+  const ids = [...new Set(staff.map((item) => item.staffId))];
+  if (ids.length === 0) return;
+
+  const { error } = await supabase.from(table).delete().in('staff_id', ids);
+  if (error) throw error;
 }
 
 export async function saveScheduleImport(
@@ -329,17 +360,10 @@ export async function saveScheduleImport(
   const scheduleTable = await detectTable(['shift_schedules']);
   if (scheduleTable && matchedStaff.length > 0) {
     try {
-      const { error: delError } = await supabase
-        .from(scheduleTable)
-        .delete()
-        .eq('source', 'attendance_report.xlsx');
-      if (delError) {
-        skipped.push(`تعذر حذف الشيفتات القديمة في ${scheduleTable}: ${delError.message}`);
-      }
-
+      await deleteExistingRowsForMatchedStaff(scheduleTable, matchedStaff);
       shiftsSaved = await insertFlexible(scheduleTable, scheduleRows(matchedStaff));
     } catch (error) {
-      skipped.push(`تعذر حفظ الشيفتات في shift_schedules: ${(error as Error).message}`);
+      skipped.push(`تعذر استبدال الشيفتات في shift_schedules: ${(error as Error).message}`);
     }
   } else if (!scheduleTable) {
     skipped.push('جدول shift_schedules غير موجود، لذلك لم يتم حفظ الشيفتات.');
@@ -348,17 +372,10 @@ export async function saveScheduleImport(
   const exceptionTable = await detectTable(['shift_exceptions']);
   if (exceptionTable && matchedStaff.length > 0) {
     try {
-      const { error: delError } = await supabase
-        .from(exceptionTable)
-        .delete()
-        .eq('source', 'attendance_report.xlsx');
-      if (delError) {
-        skipped.push(`تعذر حذف الإجازات القديمة في ${exceptionTable}: ${delError.message}`);
-      }
-
+      await deleteExistingRowsForMatchedStaff(exceptionTable, matchedStaff);
       leavesSaved = await insertFlexible(exceptionTable, leaveRows(matchedStaff));
     } catch (error) {
-      skipped.push(`تعذر حفظ الإجازات في shift_exceptions: ${(error as Error).message}`);
+      skipped.push(`تعذر استبدال الإجازات في shift_exceptions: ${(error as Error).message}`);
     }
   } else if (!exceptionTable) {
     skipped.push('جدول shift_exceptions غير موجود، لذلك لم يتم حفظ الإجازات كاستثناءات مستقلة.');
@@ -367,9 +384,9 @@ export async function saveScheduleImport(
   await supabase.from('activity_log').insert({
     user_id: 'system',
     user_name: 'النظام',
-    action: 'استيراد الشيفتات للموظفين الموجودين',
+    action: 'استيراد واستبدال شيفتات الموظفين الموجودين',
     module: 'الفريق والجدول',
-    details: `تمت قراءة ${importData.staffCount} اسم، ومطابقة ${matchedStaff.length} موظف موجود، وحفظ ${shiftsSaved} شيفت. لم يتم إنشاء أي حسابات.`,
+    details: `تمت قراءة ${importData.staffCount} اسم، ومطابقة ${matchedStaff.length} موظف موجود، واستبدال جدولهم بـ ${shiftsSaved} شيفت بدون تكرار. لم يتم إنشاء أي حسابات.`,
     branch: 'كل الفروع',
   });
 
