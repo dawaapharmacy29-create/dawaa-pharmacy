@@ -3,6 +3,8 @@ import { Stethoscope, Truck } from 'lucide-react';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { DAYS_AR, BRANCHES } from '@/lib/constants';
 import { replaceStaffShiftSchedules } from '@/services/shiftScheduleService';
+import { useAuth } from '@/hooks/useAuth';
+import { canViewAllBranches } from '@/lib/security/userDataScope';
 import {
   isActiveStaffFilter,
   staffRowIsActive,
@@ -70,7 +72,9 @@ function normalizeBranch(branch?: string | null) {
 }
 
 export default function Schedule() {
-  const [branchFilter, setBranchFilter] = useState('الكل');
+  const { user } = useAuth();
+  const managerView = canViewAllBranches(user);
+  const [branchFilter, setBranchFilter] = useState(managerView ? 'الكل' : normalizeBranch(user?.branch || ''));
   const [roleFilter, setRoleFilter] = useState('الكل');
   const [preview, setPreview] = useState<ParsedScheduleImport | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -282,10 +286,11 @@ export default function Schedule() {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="section-title">الجدول الأسبوعي</div>
         <div className="mr-auto flex gap-2 flex-wrap">
-          {['الكل', ...BRANCHES].map((b) => (
+          {(managerView ? ['الكل', ...BRANCHES] : [branchFilter]).map((b) => (
             <button
               key={b}
-              onClick={() => setBranchFilter(b)}
+              onClick={() => managerView && setBranchFilter(b)}
+              disabled={!managerView}
               className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${branchFilter === b ? 'bg-teal-500/15 border-teal-500/30 text-teal-400' : 'border-[#2d4063] text-slate-400 hover:border-teal-500/20'}`}
             >
               {b}
