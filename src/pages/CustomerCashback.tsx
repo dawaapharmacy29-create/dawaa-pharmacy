@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Calculator,
   CheckCircle2,
@@ -13,6 +14,7 @@ import {
   Search,
   Send,
   Smartphone,
+  Upload,
   WalletCards,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -447,6 +449,14 @@ export default function CustomerCashback() {
     customer_code: '', customer_name: '', customer_phone: '', branch: BRANCHES[0],
     total_spent: '', cashback_rate: '5',
   });
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importPreview, setImportPreview] = useState<Array<{
+    id: string; customer_code: string; customer_name: string;
+    before: { status: string; redeemed_value: number; notes: string };
+    after: { status: string; redeemed_value: number; notes: string };
+    matched: boolean;
+  }>>([]);
+  const [applyingImport, setApplyingImport] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -580,6 +590,79 @@ export default function CustomerCashback() {
       toast.error(error instanceof Error ? error.message : 'تعذر حفظ الاحتساب اليدوي');
     } finally {
       setCalculating(false);
+    }
+  };
+
+  const STATUS_LABEL_TO_VALUE: Record<string, string> = {
+    'تم احتساب النقاط': 'calculated',
+    'تم تبليغ العميل': 'notified',
+    'تم تحديث بي كونكت': 'bconnect_updated',
+    'تم سحب جزء': 'partially_redeemed',
+    'تمت التسوية': 'settled',
+  };
+
+  const handleImportFile = async (file: File) => {
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const sheetRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+
+      const byCode = new Map(rows.map((row) => [String(row.customer_code || '').trim(), row]));
+      const preview = sheetRows
+        .map((sheetRow) => {
+          const code = String(sheetRow['الكود'] ?? sheetRow['customer_code'] ?? '').trim();
+          const existing = byCode.get(code);
+          if (!existing) {
+            return {
+              id: '', customer_code: code, customer_name: String(sheetRow['الاسم'] || ''),
+              before: { status: '', redeemed_value: 0, notes: '' },
+              after: { status: '', redeemed_value: 0, notes: '' },
+              matched: false,
+            };
+          }
+          const statusRaw = String(sheetRow['الحالة'] ?? '').trim();
+          const newStatus = STATUS_LABEL_TO_VALUE[statusRaw] || String(existing.status || '');
+          const redeemedRaw = sheetRow['المسحوب'];
+          const newRedeemed = redeemedRaw !== undefined && redeemedRaw !== '' ? Number(redeemedRaw) : Number(existing.redeemed_value || 0);
+          const newNotes = sheetRow['ملاحظات'] !== undefined && sheetRow['ملاحظات'] !== '' ? String(sheetRow['ملاحظات']) : String(existing.notes || '');
+          return {
+            id: existing.id, customer_code: code, customer_name: existing.customer_name || '',
+            before: { status: String(existing.status || ''), redeemed_value: Number(existing.redeemed_value || 0), notes: String(existing.notes || '') },
+            after: { status: newStatus, redeemed_value: newRedeemed, notes: newNotes },
+            matched: true,
+          };
+        })
+        .filter((item) => item.customer_code);
+      setImportPreview(preview);
+      if (!preview.length) toast.error('الملف فاضي أو مفيش عمود "الكود" فيه.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر قراءة الملف. تأكد إنه ملف Excel صحيح.');
+    }
+  };
+
+  const applyImport = async () => {
+    const changed = importPreview.filter((item) => item.matched && (
+      item.after.status !== item.before.status ||
+      item.after.redeemed_value !== item.before.redeemed_value ||
+      item.after.notes !== item.before.notes
+    ));
+    if (!changed.length) { toast.error('مفيش أي تعديل حقيقي يتطبق.'); return; }
+    setApplyingImport(true);
+    try {
+      for (const item of changed) {
+        const { error } = await supabase.from('customer_cashback_cycles').update({
+          status: item.after.status, redeemed_value: item.after.redeemed_value, notes: item.after.notes,
+        }).eq('id', item.id);
+        if (error) throw error;
+      }
+      toast.success(`اتحدّث ${changed.length} صف بنجاح`);
+      setImportPreview([]);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تطبيق كل التعديلات');
+    } finally {
+      setApplyingImport(false);
     }
   };
 
@@ -875,11 +958,45 @@ export default function CustomerCashback() {
           <button type="button" className="btn-secondary" onClick={() => void exportCashbackExcel()}>
             <Download className="ml-1 inline h-4 w-4" /> تصدير Excel
           </button>
+          <button type="button" className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
+            <Upload className="ml-1 inline h-4 w-4" /> استيراد Excel
+          </button>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void handleImportFile(file); e.target.value = ''; }} />
           <button type="button" className="btn-secondary" onClick={() => setShowManualEntry((v) => !v)}>
             <FilePlus2 className="ml-1 inline h-4 w-4" /> إضافة يدوية
           </button>
         </div>
       </section>
+
+      {importPreview.length ? (
+        <section className="dawaa-panel space-y-3 border border-cyan-400/30 bg-cyan-500/5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 font-black text-white"><Upload className="text-cyan-300" size={18}/> معاينة التعديلات قبل التطبيق ({importPreview.length} صف في الملف)</h2>
+            <div className="flex gap-2">
+              <button type="button" className="btn-secondary text-xs" onClick={() => setImportPreview([])}>إلغاء</button>
+              <button type="button" className="dawaa-button-primary text-xs" onClick={() => void applyImport()} disabled={applyingImport}>
+                {applyingImport ? <RefreshCw className="ml-1 inline h-4 w-4 animate-spin"/> : <CheckCircle2 className="ml-1 inline h-4 w-4"/>} تطبيق التعديلات
+              </button>
+            </div>
+          </div>
+          <p className="text-xs font-bold text-amber-200">التعديل بيمس بس الحالة/المسحوب/الملاحظات — إجمالي المشتريات ونسبة وقيمة الكاش باك محميين، مبيتغيروش من الاستيراد.</p>
+          <div className="max-h-96 space-y-1.5 overflow-y-auto">
+            {importPreview.map((item, i) => (
+              <div key={`${item.customer_code}-${i}`} className={`rounded-xl border p-3 text-xs ${item.matched ? 'border-slate-700 bg-slate-950/40' : 'border-rose-400/30 bg-rose-500/10'}`}>
+                {!item.matched ? (
+                  <span className="font-bold text-rose-200">كود "{item.customer_code}" مش موجود في القائمة المحملة حاليًا — اتجاهل.</span>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold text-white">{item.customer_name} ({item.customer_code})</span>
+                    <span className="text-slate-400">{cashbackStatusLabel(item.before.status)} ← <b className="text-cyan-200">{cashbackStatusLabel(item.after.status)}</b></span>
+                    <span className="text-slate-400">مسحوب: {item.before.redeemed_value} ← <b className="text-cyan-200">{item.after.redeemed_value}</b></span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {showManualEntry ? (
         <section className="dawaa-panel space-y-3 border border-amber-400/30 bg-amber-500/5">
