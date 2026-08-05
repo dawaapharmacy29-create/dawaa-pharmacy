@@ -249,9 +249,7 @@ export default function ReviewsInsightsHub() {
   };
 
   const triggerNewReview = () => {
-    const button = Array.from(document.querySelectorAll('button')).find((item) => String(item.textContent || '').includes('تقييم جديد')) as HTMLButtonElement | undefined;
-    if (button && !button.closest('[data-reviews-hub]')) button.click();
-    window.setTimeout(() => scrollToHeading('بيانات التقييم'), 100);
+    window.location.assign('/reviews?mode=new');
   };
 
   return (
@@ -268,7 +266,9 @@ export default function ReviewsInsightsHub() {
         </button>
         {showService ? <button type="button" onClick={() => setActiveView('service')} className="rounded-2xl border border-amber-300/25 bg-amber-500/10 p-4 text-right hover:bg-amber-500/15">
           <Users className="h-5 w-5 text-amber-300" /><div className="mt-3 font-black text-white">أداء خدمة العملاء</div><div className="mt-1 text-xs font-bold text-slate-300">خاص بالمدير العام ومديرة الفروع</div>
-        </button> : <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><MessageSquareText className="h-5 w-5 text-slate-400" /><div className="mt-3 font-black text-slate-300">تحليل الفرعين</div><div className="mt-1 text-xs font-bold text-slate-500">متاح من تقرير أداء الدكاترة</div></div>}
+        </button> : <button type="button" onClick={() => setActiveView('overview')} className="rounded-2xl border border-slate-300/20 bg-white/[0.03] p-4 text-right hover:bg-white/[0.06]">
+          <MessageSquareText className="h-5 w-5 text-slate-300" /><div className="mt-3 font-black text-white">تحليل الفرعين</div><div className="mt-1 text-xs font-bold text-slate-300">مقارنة أداء الفرعين والمتوسطات</div>
+        </button>}
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">

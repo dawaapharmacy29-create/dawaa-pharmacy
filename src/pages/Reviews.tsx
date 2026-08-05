@@ -160,14 +160,12 @@ function canUserSeeConversationReviewBranch(
 
   const normalizedBranch = normalizeBranchName(branch || '');
   const allowedReviewBranches = new Set(['فرع الشامي', 'فرع شكري']);
-  const normalizedName = normalizeArabicName(user.name || user.username || '');
-  const normalizedUsername = normalizeArabicName(user.username || '');
-  const explicitReviewUsers = new Set(['ضحى', 'دنيا']);
-  const isExplicitReviewUser = explicitReviewUsers.has(normalizedName) || explicitReviewUsers.has(normalizedUsername);
   const isCustomerServiceManager = normalizeRole(user.role) === 'customer_service_manager';
 
-  // استثناء آمن لعرض تقييم المحادثات في فرعي الشامي وشكري فقط لهؤلاء المستخدمين.
-  if ((isExplicitReviewUser || isCustomerServiceManager) && allowedReviewBranches.has(normalizedBranch)) {
+  // مسؤولو خدمة العملاء بيشوفوا تقييمات محادثات الفرعين، لأن نفس الدكتور
+  // ممكن يغطي فرع تاني مؤقتًا. الفحص ده بالدور مش بالاسم، فبيشتغل تلقائيًا
+  // لأي مسؤولة جديدة تنضم بعد كده من غير ما نحتاج نعدل الكود.
+  if (isCustomerServiceManager && allowedReviewBranches.has(normalizedBranch)) {
     return true;
   }
 
@@ -321,11 +319,7 @@ function rowReviewItems(row: ConversationReviewHistoryRow) {
 
 function isGeneralManager(user: any) {
   const role = String(user?.role || '').toLowerCase();
-  const name = String(user?.name || '');
-  return (
-    ['general_manager', 'branches_manager', 'executive_manager', 'admin'].includes(role) ||
-    name.includes('معاذ')
-  );
+  return ['general_manager', 'branches_manager', 'executive_manager', 'admin'].includes(role);
 }
 
 export default function Reviews() {
