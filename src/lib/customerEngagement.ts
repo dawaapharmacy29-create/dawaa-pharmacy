@@ -194,6 +194,43 @@ export async function runDueCustomerLoyaltyCycles(actorId?: string | null, actor
   return data as { calculated: number; errors: number };
 }
 
+export type CashbackQuarterBounds = { period_start: string; period_end: string; quarter_label: string };
+export async function fetchCashbackQuarterBounds(): Promise<CashbackQuarterBounds | null> {
+  const { data, error } = await supabase.rpc('get_cashback_quarter_bounds');
+  if (error) return null;
+  return (data as CashbackQuarterBounds[] | null)?.[0] || null;
+}
+
+export type CustomerWithPendingPoints = {
+  customer_code: string;
+  customer_name: string;
+  customer_phone: string;
+  total_points: number;
+  last_earned_at: string;
+  fully_contacted: boolean;
+  uncontacted_count: number;
+};
+export async function fetchCustomersWithPendingPoints(branch: string): Promise<CustomerWithPendingPoints[]> {
+  const { data, error } = await supabase.rpc('get_customers_with_points_for_followup', { p_branch: branch });
+  if (error) throw new Error(error.message || 'تعذر تحميل قائمة العملاء.');
+  return (data as CustomerWithPendingPoints[]) || [];
+}
+
+export async function markCustomerPointsContacted(customerCode: string, branch: string, actorName?: string | null) {
+  const { error } = await supabase.rpc('mark_customer_points_contacted', {
+    p_customer_code: customerCode, p_branch: branch, p_actor_name: actorName || 'غير محدد',
+  });
+  if (error) throw new Error(error.message || 'تعذر تسجيل التواصل.');
+}
+
+export async function runQuarterlyCashbackBatch(actorName?: string | null) {
+  const { data, error } = await supabase.rpc('run_quarterly_cashback_batch', {
+    p_period_start: null, p_period_end: null, p_reward_rate: 0.05, p_actor_name: actorName || 'يدوي من الصفحة',
+  });
+  if (error) throw new Error(error.message || 'تعذر تشغيل الاحتساب الربع سنوي.');
+  return data as { period_start: string; period_end: string; customers_credited: number; total_points: number };
+}
+
 export async function fetchWelcomeMessageLogs(identity: CustomerIdentity, filters: WelcomeMessageFilters = {}) {
   const { data, error } = await supabase.rpc('fetch_customer_welcome_message_logs', {
     p_actor_id: filters.actor_id || null,

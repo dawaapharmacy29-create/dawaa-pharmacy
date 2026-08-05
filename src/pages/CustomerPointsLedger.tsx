@@ -1,24 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calculator, CalendarClock, Gift, History, Plus, RefreshCw, Search, Settings2, Sparkles } from 'lucide-react';
+import { Calculator, CalendarClock, CheckCircle2, Gift, History, MessageCircle, Phone, Plus, RefreshCw, Search, Settings2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import { BRANCHES } from '@/lib/constants';
 import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency } from '@/lib/utils';
+import { normalizeBranchName } from '@/lib/branch';
+import { canViewAllBranches } from '@/lib/security/userDataScope';
 import {
   addCustomerPoints,
   calculateCustomerLoyaltyCycle,
+  fetchCashbackQuarterBounds,
   fetchCustomerLoyaltySetting,
   fetchCustomerPointsLedger,
+  fetchCustomersWithPendingPoints,
+  markCustomerPointsContacted,
   previewCustomerInvoicePeriod,
   runDueCustomerLoyaltyCycles,
+  runQuarterlyCashbackBatch,
   saveCustomerLoyaltySetting,
   searchCustomerIdentity,
   totalCustomerPoints,
+  whatsappWelcomeUrl,
+  type CashbackQuarterBounds,
   type CustomerIdentity,
   type CustomerInvoicePeriodSummary,
   type CustomerLoyaltySetting,
   type CustomerPointsLedgerRow,
+  type CustomerWithPendingPoints,
 } from '@/lib/customerEngagement';
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
@@ -38,6 +47,58 @@ const formatDate = (value?: string | null) => value ? new Date(`${value.slice(0,
 export default function CustomerPointsLedger() {
   const { user } = useAuth();
   const [params] = useSearchParams();
+  const managerView = canViewAllBranches(user);
+  const [workBranch, setWorkBranch] = useState(() => normalizeBranchName(user?.branch || '') || BRANCHES[0]);
+  const [pendingCustomers, setPendingCustomers] = useState<CustomerWithPendingPoints[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [quarterBounds, setQuarterBounds] = useState<CashbackQuarterBounds | null>(null);
+  const [runningBatch, setRunningBatch] = useState(false);
+  const [contactFilter, setContactFilter] = useState<'all' | 'uncontacted'>('uncontacted');
+
+  const loadPendingCustomers = async (branch: string) => {
+    setPendingLoading(true);
+    try {
+      const list = await fetchCustomersWithPendingPoints(branch);
+      setPendingCustomers(list);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تحميل قائمة العملاء.');
+    } finally {
+      setPendingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadPendingCustomers(workBranch);
+    void fetchCashbackQuarterBounds().then(setQuarterBounds);
+  }, [workBranch]);
+
+  const visiblePendingCustomers = useMemo(
+    () => contactFilter === 'uncontacted' ? pendingCustomers.filter((c) => c.uncontacted_count > 0) : pendingCustomers,
+    [pendingCustomers, contactFilter]
+  );
+
+  const markContacted = async (customerCode: string) => {
+    try {
+      await markCustomerPointsContacted(customerCode, workBranch, user?.name);
+      toast.success('اتسجل إنك تواصلتي مع العميل');
+      void loadPendingCustomers(workBranch);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تسجيل التواصل.');
+    }
+  };
+
+  const runBatchNow = async () => {
+    setRunningBatch(true);
+    try {
+      const result = await runQuarterlyCashbackBatch(user?.name);
+      toast.success(`تم احتساب نقاط ${result.customers_credited} عميل بإجمالي ${formatCurrency(result.total_points)} نقطة`);
+      void loadPendingCustomers(workBranch);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تشغيل الاحتساب الربع سنوي.');
+    } finally {
+      setRunningBatch(false);
+    }
+  };
   const initialCustomer = useMemo<CustomerIdentity>(() => ({
     customer_id: params.get('customerId'),
     customer_code: params.get('code'),
@@ -219,7 +280,78 @@ export default function CustomerPointsLedger() {
   return <div className="space-y-5" dir="rtl">
     <section className="rounded-3xl border border-emerald-500/30 bg-slate-950/50 p-5">
       <h1 className="flex items-center gap-2 text-2xl font-black text-white"><Gift className="text-emerald-300"/> نظام نقاط وولاء العملاء الذكي</h1>
-      <p className="mt-2 text-sm text-slate-300">احتساب يدوي أو تلقائي من الفواتير بنسبة 3% أو 5%، ودورة افتراضية كل 3 شهور مع سجل تاريخي كامل.</p>
+      <p className="mt-2 text-sm text-slate-300">كاش باك تلقائي كل ربع سنة (فبراير / مايو / أغسطس / نوفمبر) بنسبة 5% من مشتريات العميل في الدورة اللي فاتت.</p>
+      {quarterBounds ? (
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-500/5 p-3 text-sm">
+          <CalendarClock className="text-cyan-300" size={18}/>
+          <span className="font-bold text-white">آخر دورة محسوبة: {quarterBounds.quarter_label}</span>
+          <span className="text-slate-400">({quarterBounds.period_start} — {quarterBounds.period_end})</span>
+          {managerView ? (
+            <button className="btn-secondary mr-auto text-xs" onClick={() => void runBatchNow()} disabled={runningBatch}>
+              {runningBatch ? <RefreshCw className="ml-1 inline h-4 w-4 animate-spin"/> : <Sparkles className="ml-1 inline h-4 w-4"/>} إعادة تشغيل الاحتساب يدويًا
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+
+    <section className="dawaa-panel space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 font-black text-white"><Phone className="text-amber-300"/> عملاء عندهم نقاط جاهزة ومحتاجين تواصل</h2>
+        <div className="flex items-center gap-2">
+          {managerView ? (
+            <select className="input-dark text-sm" value={workBranch} onChange={(e) => setWorkBranch(e.target.value)}>
+              {BRANCHES.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          ) : <span className="rounded-xl border border-slate-700 px-3 py-2 text-sm font-bold text-slate-300">{workBranch}</span>}
+          <select className="input-dark text-sm" value={contactFilter} onChange={(e) => setContactFilter(e.target.value as typeof contactFilter)}>
+            <option value="uncontacted">لسه محتاجين تواصل</option>
+            <option value="all">كل العملاء اللي معاهم نقاط</option>
+          </select>
+          <button className="btn-secondary text-xs" onClick={() => void loadPendingCustomers(workBranch)} disabled={pendingLoading}>
+            <RefreshCw className={`ml-1 inline h-4 w-4 ${pendingLoading ? 'animate-spin' : ''}`}/> تحديث
+          </button>
+        </div>
+      </div>
+
+      {visiblePendingCustomers.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
+          {pendingLoading ? 'جارٍ التحميل...' : contactFilter === 'uncontacted' ? 'كل العملاء اتم التواصل معاهم بالفعل 🎉' : 'مفيش عملاء عندهم نقاط في الفرع ده حاليًا.'}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {visiblePendingCustomers.map((c) => (
+            <div key={c.customer_code} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
+              <div>
+                <div className="font-black text-white">{c.customer_name} <span className="mr-2 text-xs font-bold text-slate-500">{c.customer_code}</span></div>
+                <div className="mt-1 text-xs text-slate-400" dir="ltr">{c.customer_phone || 'بدون رقم'}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-black text-emerald-300">{formatCurrency(c.total_points)}</div>
+                <div className="text-[11px] font-bold text-slate-500">نقطة</div>
+              </div>
+              <div className="flex items-center gap-2">
+                {c.customer_phone ? (
+                  <a
+                    href={whatsappWelcomeUrl(c.customer_phone, `أهلاً ${c.customer_name || ''} 🎁 عندك رصيد ${formatCurrency(c.total_points)} نقطة كاش باك جاهز، تحب تستخدمه إزاي؟`)}
+                    target="_blank" rel="noreferrer"
+                    className="btn-secondary flex items-center gap-1 text-xs"
+                  >
+                    <MessageCircle size={14}/> واتساب
+                  </a>
+                ) : null}
+                {c.uncontacted_count > 0 ? (
+                  <button className="btn-primary flex items-center gap-1 text-xs" onClick={() => void markContacted(c.customer_code)}>
+                    <CheckCircle2 size={14}/> اتم التواصل
+                  </button>
+                ) : (
+                  <span className="flex items-center gap-1 rounded-xl bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300"><CheckCircle2 size={14}/> اتم التواصل</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
 
     <section className="dawaa-panel grid gap-3 lg:grid-cols-[1fr_auto]">
