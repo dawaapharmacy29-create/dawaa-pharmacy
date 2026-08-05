@@ -261,12 +261,12 @@ export default function ReviewsInsightsHub() {
         <button type="button" onClick={() => window.location.assign('/reviews?section=history')} className="rounded-2xl border border-sky-300/25 bg-sky-500/10 p-4 text-right hover:bg-sky-500/15">
           <ClipboardCheck className="h-5 w-5 text-sky-300" /><div className="mt-3 font-black text-white">سجل التقييمات</div><div className="mt-1 text-xs font-bold text-slate-300">عرض التقييمات والتفاصيل والإجراءات</div>
         </button>
-        <button type="button" onClick={() => setActiveView('doctors')} className="rounded-2xl border border-violet-300/25 bg-violet-500/10 p-4 text-right hover:bg-violet-500/15">
+        <button type="button" onClick={() => setActiveView('doctors')} className={`rounded-2xl border border-violet-300/25 bg-violet-500/10 p-4 text-right hover:bg-violet-500/15 ${activeView === 'doctors' ? 'ring-2 ring-violet-300 ring-offset-2 ring-offset-slate-950' : ''}`}>
           <BarChart3 className="h-5 w-5 text-violet-300" /><div className="mt-3 font-black text-white">تقرير أداء الدكاترة</div><div className="mt-1 text-xs font-bold text-slate-300">ترتيب وتوصيات وخطة تطوير لكل دكتور</div>
         </button>
-        {showService ? <button type="button" onClick={() => setActiveView('service')} className="rounded-2xl border border-amber-300/25 bg-amber-500/10 p-4 text-right hover:bg-amber-500/15">
+        {showService ? <button type="button" onClick={() => setActiveView('service')} className={`rounded-2xl border border-amber-300/25 bg-amber-500/10 p-4 text-right hover:bg-amber-500/15 ${activeView === 'service' ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-slate-950' : ''}`}>
           <Users className="h-5 w-5 text-amber-300" /><div className="mt-3 font-black text-white">أداء خدمة العملاء</div><div className="mt-1 text-xs font-bold text-slate-300">خاص بالمدير العام ومديرة الفروع</div>
-        </button> : <button type="button" onClick={() => setActiveView('overview')} className="rounded-2xl border border-slate-300/20 bg-white/[0.03] p-4 text-right hover:bg-white/[0.06]">
+        </button> : <button type="button" onClick={() => setActiveView('overview')} className={`rounded-2xl border border-slate-300/20 bg-white/[0.03] p-4 text-right hover:bg-white/[0.06] ${activeView === 'overview' ? 'ring-2 ring-slate-300 ring-offset-2 ring-offset-slate-950' : ''}`}>
           <MessageSquareText className="h-5 w-5 text-slate-300" /><div className="mt-3 font-black text-white">تحليل الفرعين</div><div className="mt-1 text-xs font-bold text-slate-300">مقارنة أداء الفرعين والمتوسطات</div>
         </button>}
       </div>
