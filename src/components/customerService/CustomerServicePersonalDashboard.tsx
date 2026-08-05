@@ -90,7 +90,6 @@ interface PersonalDashboardData {
   team_ranking: TeamRow[];
   active_customers: { last_3_months: number; previous_3_months: number; trend: number | null };
   recovery_stats: { total_followups: number; recovered_count: number; recovery_rate: number | null };
-  risk_alerts: { spend_decline_count: number; spend_decline_top: Array<{ customer_name: string; decline_pct: number; prior_avg_monthly_spend: number }>; cycle_churn_count: number };
 }
 
 function StatPill({ icon: Icon, label, value, accent }: { icon: any; label: string; value: string | number; accent: string }) {
@@ -139,6 +138,7 @@ function generateTips(data: PersonalDashboardData, myName: string): string[] {
 export default function CustomerServicePersonalDashboard({ branch, staffName }: { branch: string; staffName: string }) {
   const navigate = useNavigate();
   const [data, setData] = useState<PersonalDashboardData | null>(null);
+  const [riskAlerts, setRiskAlerts] = useState<{ spend_decline_count: number; spend_decline_top: Array<{ customer_name: string; decline_pct: number; prior_avg_monthly_spend: number }>; cycle_churn_count: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
@@ -194,6 +194,31 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
 
     return () => { cancelled = true; window.clearTimeout(timeoutId); };
   }, [branch, staffName, retryKey]);
+
+  // مفصولة عن الداشبورد الرئيسي عمدًا: لو حصل فيها بطء أو خطأ، متأخرش
+  // أو توقف تحميل باقي اللوحة، هي بس اللي مش هتظهر.
+  useEffect(() => {
+    if (!branch) { setRiskAlerts(null); return; }
+    let cancelled = false;
+    Promise.all([
+      supabase.rpc('get_customer_spend_decline_alerts', { p_branch: branch }),
+      supabase.rpc('get_daily_smart_followup_candidates', { p_branch: branch }),
+    ])
+      .then(([decline, candidates]) => {
+        if (cancelled) return;
+        const declineList = (decline.data as Array<{ customer_name: string; decline_pct: number; prior_avg_monthly_spend: number }>) || [];
+        const churnCount = (candidates.data as { cycle_churn_risk?: unknown[] } | null)?.cycle_churn_risk?.length || 0;
+        setRiskAlerts({
+          spend_decline_count: declineList.length,
+          spend_decline_top: declineList.slice(0, 3),
+          cycle_churn_count: churnCount,
+        });
+      })
+      .catch((err) => {
+        console.error('[CustomerServicePersonalDashboard] risk alerts fetch failed', err);
+      });
+    return () => { cancelled = true; };
+  }, [branch]);
 
   if (loading) {
     return <div className="rounded-3xl border p-6 text-center text-sm font-bold" style={{ ...card, color: 'var(--dawaa-theme-muted)' }}>جارٍ تحميل لوحتك الشخصية...</div>;
@@ -258,7 +283,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
         ))}
       </div>
 
-      {(data.risk_alerts.spend_decline_count > 0 || data.risk_alerts.cycle_churn_count > 0) ? (
+      {((riskAlerts?.spend_decline_count ?? 0) > 0 || (riskAlerts?.cycle_churn_count ?? 0) > 0) ? (
         <div
           className="cursor-pointer rounded-3xl border-2 p-5 transition hover:brightness-110"
           style={{ borderColor: 'rgba(251,113,133,0.5)', background: 'linear-gradient(135deg, rgba(251,113,133,0.14), rgba(251,146,60,0.08))' }}
@@ -267,17 +292,17 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
           <div className="flex items-center gap-2 font-black text-rose-200"><AlertTriangle size={20} /> عملاء محتاجين متابعة عاجلة النهارده</div>
           <div className="mt-3 flex flex-wrap gap-4">
             <div>
-              <div className="text-3xl font-black text-white">{data.risk_alerts.spend_decline_count}</div>
+              <div className="text-3xl font-black text-white">{riskAlerts?.spend_decline_count ?? 0}</div>
               <p className="text-xs font-bold text-rose-200">عميل بيقلل مسحوباته بشكل واضح</p>
             </div>
             <div>
-              <div className="text-3xl font-black text-white">{data.risk_alerts.cycle_churn_count}</div>
+              <div className="text-3xl font-black text-white">{riskAlerts?.cycle_churn_count ?? 0}</div>
               <p className="text-xs font-bold text-amber-200">اشترى دورتين وتوقف الأخيرة</p>
             </div>
           </div>
-          {data.risk_alerts.spend_decline_top.length ? (
+          {(riskAlerts?.spend_decline_top ?? []).length ? (
             <div className="mt-4 space-y-1.5 border-t pt-3" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
-              {data.risk_alerts.spend_decline_top.map((c) => (
+              {(riskAlerts?.spend_decline_top ?? []).map((c) => (
                 <div key={c.customer_name} className="flex items-center justify-between text-xs font-bold">
                   <span className="text-white">{c.customer_name}</span>
                   <span className="text-rose-200">كان بيصرف {Math.round(c.prior_avg_monthly_spend)} ج.م شهريًا · نزل {c.decline_pct}%</span>
