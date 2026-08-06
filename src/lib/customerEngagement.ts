@@ -213,7 +213,11 @@ export type CustomerWithPendingPoints = {
 export async function fetchCustomersWithPendingPoints(branch: string): Promise<CustomerWithPendingPoints[]> {
   const { data, error } = await supabase.rpc('get_customers_with_points_for_followup', { p_branch: branch });
   if (error) throw new Error(error.message || 'تعذر تحميل قائمة العملاء.');
-  return (data as CustomerWithPendingPoints[]) || [];
+  // الدالة بترجع {total_customers, rows} من بعد migration raise_points_followup_limit_add_total_count
+  // (مش مصفوفة مباشرة زي ما كانت قبل كده) — لازم نفك التغليف هنا.
+  const payload = data as { total_customers?: number; rows?: CustomerWithPendingPoints[] } | CustomerWithPendingPoints[] | null;
+  if (Array.isArray(payload)) return payload; // توافق رجعي لو الدالة رجعت لشكلها القديم يومًا
+  return payload?.rows || [];
 }
 
 export async function markCustomerPointsContacted(customerCode: string, branch: string, actorName?: string | null) {
