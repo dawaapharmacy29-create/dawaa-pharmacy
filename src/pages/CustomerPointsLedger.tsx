@@ -456,6 +456,39 @@ export default function CustomerPointsLedger() {
       <div className="grid gap-3 lg:grid-cols-3"><input className="input-dark" type="number" placeholder="قيمة الإضافة أو الخصم" value={adjustment.points_amount} onChange={(e) => setAdjustment((c) => ({...c,points_amount:e.target.value}))}/><select className="input-dark" value={adjustment.transaction_type} onChange={(e) => setAdjustment((c) => ({...c,transaction_type:e.target.value as typeof c.transaction_type}))}><option value="credit">إضافة</option><option value="debit">خصم</option><option value="correction">تصحيح</option></select><input className="input-dark" placeholder="سبب التعديل" value={adjustment.points_reason} onChange={(e) => setAdjustment((c) => ({...c,points_reason:e.target.value}))}/><textarea className="input-dark lg:col-span-2" placeholder="ملاحظات" value={adjustment.notes} onChange={(e) => setAdjustment((c) => ({...c,notes:e.target.value}))}/><button className="btn-secondary" onClick={() => void saveAdjustment()} disabled={saving}>حفظ التعديل</button></div>
     </section>
 
+    {loyaltyRows.length ? (
+      <section className="dawaa-panel space-y-3">
+        <h2 className="flex items-center gap-2 font-black text-white"><History className="text-violet-300"/> تحليل أداء العميل عبر الدورات</h2>
+        <p className="text-xs font-bold text-slate-400">مقارنة مشتريات العميل كل دورة بالدورة اللي قبلها، عشان نعرف هل بيزيد أو بيقل مع الوقت.</p>
+        <div className="space-y-2">
+          {loyaltyRows.map((row, index) => {
+            const prior = loyaltyRows[index + 1];
+            const current = Number(row.purchase_total || 0);
+            const previous = prior ? Number(prior.purchase_total || 0) : null;
+            const change = previous && previous > 0 ? Math.round(((current - previous) / previous) * 100) : null;
+            return (
+              <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950/40 p-3">
+                <div>
+                  <div className="text-xs font-bold text-slate-400">{formatDate(row.period_start)} — {formatDate(row.period_end)}</div>
+                  <div className="mt-1 font-black text-white">{formatCurrency(current)} <span className="text-xs font-bold text-slate-500">مشتريات</span></div>
+                </div>
+                <div className="text-left">
+                  <div className="font-black text-emerald-300">{formatCurrency(row.points_amount)} نقطة</div>
+                  {change !== null ? (
+                    <div className={`text-xs font-bold ${change >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                      {change >= 0 ? '▲' : '▼'} {Math.abs(change)}% عن الدورة السابقة
+                    </div>
+                  ) : (
+                    <div className="text-xs font-bold text-slate-500">أول دورة محسوبة</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    ) : null}
+
     <section className="space-y-3">
       <div className="flex items-center gap-2 text-lg font-black text-white"><History className="text-cyan-300"/> التاريخ الكامل لنقاط العميل</div>
       {rows.length === 0 ? <div className="dawaa-panel text-center text-slate-400">لا توجد حركات نقاط مسجلة لهذا العميل.</div> : rows.map((row) => <article key={row.id} className="rounded-2xl border border-slate-700 bg-slate-950/50 p-4 text-slate-200">
