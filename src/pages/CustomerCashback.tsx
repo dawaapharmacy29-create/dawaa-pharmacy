@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { friendlySupabaseError } from '@/lib/supabaseError';
 import { BRANCHES } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
 import { cashbackStatusLabel } from '@/lib/api/customerLoyalty';
@@ -550,7 +551,7 @@ export default function CustomerCashback() {
       }
       setRows(allRows);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر تحميل الكاش باك');
+      toast.error(friendlySupabaseError(error as any) || 'تعذر تحميل الكاش باك');
       setRows([]);
     } finally {
       setLoading(false);
@@ -572,11 +573,7 @@ export default function CustomerCashback() {
       toast.success(`تم احتساب الكاش باك لعدد ${Number(data || 0).toLocaleString('ar-EG')} عميل`);
       await load();
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : 'تعذر احتساب الكاش باك. تأكد من تشغيل SQL الخاص بالكاش باك.'
-      );
+      toast.error(friendlySupabaseError(error as any) || 'تعذر احتساب الكاش باك. تأكد من تشغيل SQL الخاص بالكاش باك.');
     } finally {
       setCalculating(false);
     }
@@ -613,7 +610,7 @@ export default function CustomerCashback() {
       setManualSearchResults(results);
       if (!results.length) toast.error('مفيش عميل بالبيانات دي.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر البحث عن العميل.');
+      toast.error(friendlySupabaseError(error as any) || 'تعذر البحث عن العميل.');
     } finally {
       setManualSearching(false);
     }
@@ -650,7 +647,7 @@ export default function CustomerCashback() {
       setManualPeriodPreview(summary);
       setManualEntry((c) => ({ ...c, total_spent: String(summary?.purchase_total || 0) }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر قراءة فواتير الفترة دي.');
+      toast.error(friendlySupabaseError(error as any) || 'تعذر قراءة فواتير الفترة دي.');
     } finally {
       setManualLookingUp(false);
     }
@@ -687,7 +684,7 @@ export default function CustomerCashback() {
       setShowManualEntry(false);
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر حفظ الاحتساب اليدوي');
+      toast.error(friendlySupabaseError(error as any) || 'تعذر حفظ الاحتساب اليدوي');
     } finally {
       setCalculating(false);
     }
@@ -737,7 +734,7 @@ export default function CustomerCashback() {
       setImportPreview(preview);
       if (!preview.length) toast.error('الملف فاضي أو مفيش عمود "الكود" فيه.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر قراءة الملف. تأكد إنه ملف Excel صحيح.');
+      toast.error(friendlySupabaseError(error as any) || 'تعذر قراءة الملف. تأكد إنه ملف Excel صحيح.');
     }
   };
 
@@ -760,7 +757,7 @@ export default function CustomerCashback() {
       setImportPreview([]);
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر تطبيق كل التعديلات');
+      toast.error(friendlySupabaseError(error as any) || 'تعذر تطبيق كل التعديلات');
     } finally {
       setApplyingImport(false);
     }
