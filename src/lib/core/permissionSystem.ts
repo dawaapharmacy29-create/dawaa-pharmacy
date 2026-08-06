@@ -778,7 +778,7 @@ const PROCUREMENT_MANAGER_BASE = [
 export const ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = {
   general_manager: ALL,
   executive_manager: MANAGER_BASE,
-  branches_manager: MANAGER_BASE,
+  branches_manager: ALL,
   procurement_manager: PROCUREMENT_MANAGER_BASE,
   branch_manager: BRANCH_MANAGER_BASE,
   customer_service_manager: CS_MANAGER_BASE,
