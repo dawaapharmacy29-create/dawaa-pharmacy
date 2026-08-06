@@ -33,6 +33,7 @@ import { cleanEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
 import { normalizeBranchName } from '@/lib/branch';
 import CustomerQuickDetailsModal from '@/components/customers/CustomerQuickDetailsModal';
 import { exportToExcel } from '@/lib/exportExcel';
+import { searchCustomerIdentity, previewCustomerInvoicePeriod, type CustomerIdentity, type CustomerInvoicePeriodSummary } from '@/lib/customerEngagement';
 
 type CashbackRow = {
   id: string;
@@ -478,6 +479,13 @@ export default function CustomerCashback() {
     customer_code: '', customer_name: '', customer_phone: '', branch: BRANCHES[0],
     total_spent: '', cashback_rate: '5',
   });
+  const [manualSearchQuery, setManualSearchQuery] = useState('');
+  const [manualSearchResults, setManualSearchResults] = useState<CustomerIdentity[]>([]);
+  const [manualSearching, setManualSearching] = useState(false);
+  const [manualPeriodStart, setManualPeriodStart] = useState('');
+  const [manualPeriodEnd, setManualPeriodEnd] = useState('');
+  const [manualPeriodPreview, setManualPeriodPreview] = useState<CustomerInvoicePeriodSummary | null>(null);
+  const [manualLookingUp, setManualLookingUp] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [importPreview, setImportPreview] = useState<Array<{
     id: string; customer_code: string; customer_name: string;
@@ -583,6 +591,57 @@ export default function CustomerCashback() {
       'ملاحظات': row.notes || '',
     }));
     await exportToExcel(sheetRows, `كاش_باك_العملاء_${cycleStart}_${cycleEnd}`, 'الكاش باك');
+  };
+
+  const searchManualCustomer = async () => {
+    if (!manualSearchQuery.trim()) return;
+    setManualSearching(true);
+    try {
+      const results = await searchCustomerIdentity(manualSearchQuery.trim());
+      setManualSearchResults(results);
+      if (!results.length) toast.error('مفيش عميل بالبيانات دي.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر البحث عن العميل.');
+    } finally {
+      setManualSearching(false);
+    }
+  };
+
+  const pickManualCustomer = (identity: CustomerIdentity) => {
+    setManualEntry((c) => ({
+      ...c,
+      customer_code: identity.customer_code || '',
+      customer_name: identity.customer_name || '',
+      customer_phone: identity.customer_phone || '',
+      branch: identity.branch || c.branch,
+    }));
+    setManualSearchResults([]);
+    setManualPeriodPreview(null);
+  };
+
+  const lookupManualPeriod = async () => {
+    if (!manualEntry.customer_code.trim() && !manualEntry.customer_phone.trim()) {
+      toast.error('لازم تختاري عميل من نتيجة البحث الأول.');
+      return;
+    }
+    if (!manualPeriodStart || !manualPeriodEnd) {
+      toast.error('حددي تاريخ البداية والنهاية.');
+      return;
+    }
+    setManualLookingUp(true);
+    try {
+      const summary = await previewCustomerInvoicePeriod(
+        { customer_code: manualEntry.customer_code, customer_phone: manualEntry.customer_phone, branch: manualEntry.branch },
+        manualPeriodStart,
+        manualPeriodEnd
+      );
+      setManualPeriodPreview(summary);
+      setManualEntry((c) => ({ ...c, total_spent: String(summary?.purchase_total || 0) }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر قراءة فواتير الفترة دي.');
+    } finally {
+      setManualLookingUp(false);
+    }
   };
 
   const saveManualEntry = async () => {
@@ -1030,7 +1089,24 @@ export default function CustomerCashback() {
       {showManualEntry ? (
         <section className="dawaa-panel space-y-3 border border-amber-400/30 bg-amber-500/5">
           <h2 className="flex items-center gap-2 font-black text-white"><FilePlus2 className="text-amber-300" size={18}/> احتساب كاش باك يدوي لعميل واحد</h2>
-          <p className="text-xs font-bold text-slate-400">لعميل استثنائي مش داخل في الاحتساب التلقائي، أو تصحيح رقم بعينه بدون التأثير على باقي القائمة.</p>
+          <p className="text-xs font-bold text-slate-400">دوري على العميل، حددي فترة معينة (مش لازم الدورة الحالية) واقرأي فواتيره الحقيقية منها تلقائيًا، أو أدخلي المبلغ يدويًا.</p>
+
+          <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+            <input className="input-dark" placeholder="بحث بالكود أو الهاتف أو الاسم" value={manualSearchQuery} onChange={(e) => setManualSearchQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void searchManualCustomer(); }}/>
+            <button type="button" className="btn-secondary" onClick={() => void searchManualCustomer()} disabled={manualSearching}>
+              {manualSearching ? <RefreshCw className="ml-1 inline h-4 w-4 animate-spin"/> : <Search className="ml-1 inline h-4 w-4"/>} بحث
+            </button>
+          </div>
+          {manualSearchResults.length ? (
+            <div className="flex flex-wrap gap-2">
+              {manualSearchResults.map((item) => (
+                <button key={`${item.customer_code || item.customer_phone}-${item.customer_name}`} type="button" className="btn-secondary text-xs" onClick={() => pickManualCustomer(item)}>
+                  {item.customer_name || 'عميل'} - {item.customer_code || item.customer_phone}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           <div className="grid gap-3 lg:grid-cols-6">
             <input className="input-dark" placeholder="كود العميل" value={manualEntry.customer_code} onChange={(e) => setManualEntry((c) => ({ ...c, customer_code: e.target.value }))}/>
             <input className="input-dark" placeholder="اسم العميل" value={manualEntry.customer_name} onChange={(e) => setManualEntry((c) => ({ ...c, customer_name: e.target.value }))}/>
@@ -1039,8 +1115,25 @@ export default function CustomerCashback() {
             <input className="input-dark" type="number" placeholder="إجمالي المشتريات" value={manualEntry.total_spent} onChange={(e) => setManualEntry((c) => ({ ...c, total_spent: e.target.value }))}/>
             <select className="input-dark" value={manualEntry.cashback_rate} onChange={(e) => setManualEntry((c) => ({ ...c, cashback_rate: e.target.value }))}><option value="5">5%</option><option value="3">3%</option></select>
           </div>
+
+          <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/5 p-3">
+            <p className="mb-2 text-xs font-black text-cyan-200">أو حددي فترة معينة واقرأي فواتيرها الحقيقية بدل الإدخال اليدوي</p>
+            <div className="grid gap-3 lg:grid-cols-3">
+              <label className="text-xs font-bold text-slate-300">من<input type="date" className="input-dark mt-1 w-full" value={manualPeriodStart} onChange={(e) => setManualPeriodStart(e.target.value)}/></label>
+              <label className="text-xs font-bold text-slate-300">إلى<input type="date" className="input-dark mt-1 w-full" value={manualPeriodEnd} onChange={(e) => setManualPeriodEnd(e.target.value)}/></label>
+              <button type="button" className="btn-secondary self-end" onClick={() => void lookupManualPeriod()} disabled={manualLookingUp}>
+                {manualLookingUp ? <RefreshCw className="ml-1 inline h-4 w-4 animate-spin"/> : <RefreshCw className="ml-1 inline h-4 w-4"/>} قراءة فواتير الفترة
+              </button>
+            </div>
+            {manualPeriodPreview ? (
+              <p className="mt-2 text-xs font-bold text-emerald-200">
+                لقينا {manualPeriodPreview.invoice_count} فاتورة بإجمالي {formatCurrency(manualPeriodPreview.purchase_total)} في الفترة من {manualPeriodPreview.period_start} إلى {manualPeriodPreview.period_end}.
+              </p>
+            ) : null}
+          </div>
+
           <div className="flex items-center gap-3">
-            <div className="text-sm font-bold text-emerald-200">قيمة الكاش باك: {formatCurrency(Math.round(Number(manualEntry.total_spent || 0) * (Number(manualEntry.cashback_rate) / 100) * 100) / 100)}</div>
+            <div className="text-sm font-bold text-emerald-200">القيمة المستحقة: {formatCurrency(Math.round(Number(manualEntry.total_spent || 0) * (Number(manualEntry.cashback_rate) / 100) * 100) / 100)}</div>
             <button type="button" className="dawaa-button-primary mr-auto" onClick={() => void saveManualEntry()} disabled={calculating}>حفظ الاحتساب اليدوي</button>
           </div>
         </section>
