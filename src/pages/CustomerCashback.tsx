@@ -254,14 +254,14 @@ function CashbackActionButtons({
     <div className="cashback-action-grid">
       <button
         type="button"
-        className={`${base} border-slate-400/50 bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white`}
+        className={`${base} border-slate-400/40 bg-slate-500/15 text-slate-100`}
         onClick={() => setSelected(row)}
       >
         <Eye className="h-4 w-4" /> عرض
       </button>
       {wa ? (
         <a
-          className={`${base} border-emerald-300/70 bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-50`}
+          className={`${base} border-emerald-400/40 bg-emerald-500/15 text-emerald-100`}
           href={wa}
           target="_blank"
           rel="noreferrer"
@@ -271,14 +271,14 @@ function CashbackActionButtons({
       ) : null}
       <button
         type="button"
-        className={`${base} border-teal-300/70 bg-teal-100 text-teal-900 dark:bg-teal-500/20 dark:text-teal-50`}
+        className={`${base} border-teal-400/40 bg-teal-500/15 text-teal-100`}
         onClick={() => notifyCustomer(row)}
       >
         <Send className="h-4 w-4" /> تم تبليغه
       </button>
       <button
         type="button"
-        className={`${base} border-violet-300/70 bg-violet-100 text-violet-900 dark:bg-violet-500/20 dark:text-violet-50`}
+        className={`${base} border-violet-400/40 bg-violet-500/15 text-violet-100`}
         onClick={() =>
           updateRow(
             row,
@@ -291,42 +291,42 @@ function CashbackActionButtons({
       </button>
       <button
         type="button"
-        className={`${base} border-amber-300/70 bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-50`}
+        className={`${base} border-amber-400/40 bg-amber-500/15 text-amber-100`}
         onClick={() => recordRedeem(row)}
       >
         <WalletCards className="h-4 w-4" /> سحب جزء
       </button>
       <button
         type="button"
-        className={`${base} border-lime-300/70 bg-lime-100 text-lime-900 dark:bg-lime-500/20 dark:text-lime-50`}
+        className={`${base} border-lime-400/40 bg-lime-500/15 text-lime-100`}
         onClick={() => setCustomerCashbackRate(row, 3)}
       >
         <Percent className="h-4 w-4" /> نظام 3%
       </button>
       <button
         type="button"
-        className={`${base} border-cyan-300/70 bg-cyan-100 text-cyan-900 dark:bg-cyan-500/20 dark:text-cyan-50`}
+        className={`${base} border-cyan-400/40 bg-cyan-500/15 text-cyan-100`}
         onClick={() => setCustomerCashbackRate(row, 5)}
       >
         <Percent className="h-4 w-4" /> نظام 5%
       </button>
       <button
         type="button"
-        className={`${base} border-fuchsia-300/70 bg-fuchsia-100 text-fuchsia-900 dark:bg-fuchsia-500/20 dark:text-fuchsia-50`}
+        className={`${base} border-fuchsia-400/40 bg-fuchsia-500/15 text-fuchsia-100`}
         onClick={() => multiply(row)}
       >
         مضاعفة
       </button>
       <button
         type="button"
-        className={`${base} border-indigo-300/70 bg-indigo-100 text-indigo-900 dark:bg-indigo-500/20 dark:text-indigo-50`}
+        className={`${base} border-indigo-400/40 bg-indigo-500/15 text-indigo-100`}
         onClick={() => addVoucher(row)}
       >
         <Gift className="h-4 w-4" /> فاوتشر
       </button>
       <button
         type="button"
-        className={`${base} border-sky-300/70 bg-sky-100 text-sky-900 dark:bg-sky-500/20 dark:text-sky-50`}
+        className={`${base} border-sky-400/40 bg-sky-500/15 text-sky-100`}
         onClick={() =>
           updateRow(
             row,
@@ -343,21 +343,21 @@ function CashbackActionButtons({
       </button>
       <button
         type="button"
-        className={`${base} border-slate-300/70 bg-slate-100 text-slate-900 dark:bg-slate-700 dark:text-white`}
+        className={`${base} border-slate-400/40 bg-slate-500/15 text-slate-100`}
         onClick={() => copyScript(row, 'friendly')}
       >
         <Clipboard className="h-4 w-4" /> سكريبت 1
       </button>
       <button
         type="button"
-        className={`${base} border-slate-300/70 bg-slate-100 text-slate-900 dark:bg-slate-700 dark:text-white`}
+        className={`${base} border-slate-400/40 bg-slate-500/15 text-slate-100`}
         onClick={() => copyScript(row, 'detailed')}
       >
         <Clipboard className="h-4 w-4" /> سكريبت 2
       </button>
       <button
         type="button"
-        className={`${base} border-slate-300/70 bg-slate-100 text-slate-900 dark:bg-slate-700 dark:text-white`}
+        className={`${base} border-slate-400/40 bg-slate-500/15 text-slate-100`}
         onClick={() => copyScript(row, 'vip')}
       >
         <Clipboard className="h-4 w-4" /> VIP
@@ -523,20 +523,32 @@ export default function CustomerCashback() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from('customer_cashback_cycles')
-        .select(
-          'id,customer_code,customer_name,customer_phone,branch,cycle_label,cycle_start,cycle_end,total_spent,cashback_rate,cashback_value,redeemed_value,remaining_value,status,notified_at,bconnect_updated_at,settled_at,notes'
-        )
-        .gte('cycle_start', cycleStart)
-        .lte('cycle_end', cycleEnd)
-        .order('cashback_value', { ascending: false })
-        .limit(1200);
-      if (branch !== ALL) query = query.eq('branch', branch);
-      if (status !== ALL) query = query.eq('status', status);
-      const { data, error } = await query;
-      if (error) throw error;
-      setRows((data || []) as CashbackRow[]);
+      // ملحوظة مهمة: أي طلب واحد لـ Supabase بيتقطع عند حد أقصى (غالبًا 1000 صف) مهما
+      // كان الـ .limit() المطلوب من الكود، فأي فرع أو دورة فيها سجلات أكتر من الحد ده كانت
+      // بتظهر بعدد ناقص وغير متسق مع باقي الفلاتر (فرع بعينه ممكن يطلع أكبر من "كل الفروع"
+      // لو "كل الفروع" هي اللي اتقطعت). الحل: نجيب كل الصفوف على دفعات (pagination) لحد
+      // ما نتأكد إننا جبنا كل حاجة تطابق الفلتر، مش أول 1000/1200 بس.
+      const PAGE_SIZE = 1000;
+      const allRows: CashbackRow[] = [];
+      for (let page = 0; page < 20; page += 1) {
+        let query = supabase
+          .from('customer_cashback_cycles')
+          .select(
+            'id,customer_code,customer_name,customer_phone,branch,cycle_label,cycle_start,cycle_end,total_spent,cashback_rate,cashback_value,redeemed_value,remaining_value,status,notified_at,bconnect_updated_at,settled_at,notes'
+          )
+          .gte('cycle_start', cycleStart)
+          .lte('cycle_end', cycleEnd)
+          .order('cashback_value', { ascending: false })
+          .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+        if (branch !== ALL) query = query.eq('branch', branch);
+        if (status !== ALL) query = query.eq('status', status);
+        const { data, error } = await query;
+        if (error) throw error;
+        const chunk = (data || []) as CashbackRow[];
+        allRows.push(...chunk);
+        if (chunk.length < PAGE_SIZE) break; // آخر صفحة
+      }
+      setRows(allRows);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر تحميل الكاش باك');
       setRows([]);

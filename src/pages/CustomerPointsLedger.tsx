@@ -165,6 +165,7 @@ export default function CustomerPointsLedger() {
   const [manualTotal, setManualTotal] = useState('');
   const [cycleStartDate, setCycleStartDate] = useState(todayKey());
   const [adjustment, setAdjustment] = useState({ points_amount: '', transaction_type: 'credit' as 'credit' | 'debit' | 'correction', points_reason: '', notes: '' });
+  const [pageTab, setPageTab] = useState<'manual' | 'analysis'>('manual');
 
   const normalizedCustomerPhone = String(customer.customer_phone || '').replace(/\D/g, '');
   const validNewCustomerPhone = /^(?:01\d{9}|1\d{9}|201\d{9})$/.test(normalizedCustomerPhone);
@@ -337,6 +338,25 @@ export default function CustomerPointsLedger() {
       ) : null}
     </section>
 
+    <div className="flex gap-2 rounded-2xl border border-slate-700 bg-slate-950/40 p-1.5">
+      <button
+        type="button"
+        onClick={() => setPageTab('manual')}
+        className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-black transition ${pageTab === 'manual' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300 hover:bg-white/5'}`}
+      >
+        <Calculator className="ml-1 inline h-4 w-4"/> الحساب اليدوي للنقاط
+      </button>
+      <button
+        type="button"
+        onClick={() => setPageTab('analysis')}
+        className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-black transition ${pageTab === 'analysis' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300 hover:bg-white/5'}`}
+      >
+        <History className="ml-1 inline h-4 w-4"/> تحليل أداء الفروع والعملاء
+      </button>
+    </div>
+
+    {pageTab === 'analysis' ? (
+    <>
     <section className="dawaa-panel space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 font-black text-white"><Phone className="text-amber-300"/> عملاء عندهم نقاط جاهزة ومحتاجين تواصل</h2>
@@ -376,13 +396,13 @@ export default function CustomerPointsLedger() {
       ) : (
         <div className="space-y-2">
           {visiblePendingCustomers.map((c) => (
-            <div key={c.customer_code} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
-              <div>
+            <div key={c.customer_code} className="grid grid-cols-[1fr_140px_auto] items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
+              <div className="min-w-0">
                 <div className="font-black text-white">{c.customer_name} <span className="mr-2 text-xs font-bold text-slate-500">{c.customer_code}</span></div>
                 <div className="mt-1 text-xs text-slate-400" dir="ltr">{c.customer_phone || 'بدون رقم'}</div>
               </div>
-              <div className="text-center">
-                <div className="text-lg font-black text-emerald-300">{formatCurrency(c.total_points)}</div>
+              <div className="text-left">
+                <div className="text-lg font-black tabular-nums text-emerald-300" dir="ltr">{formatCurrency(c.total_points)}</div>
                 <div className="text-[11px] font-bold text-slate-500">نقطة</div>
               </div>
               <div className="flex items-center gap-2">
@@ -409,6 +429,41 @@ export default function CustomerPointsLedger() {
       )}
     </section>
 
+    {loyaltyRows.length ? (
+      <section className="dawaa-panel space-y-3">
+        <h2 className="flex items-center gap-2 font-black text-white"><History className="text-violet-300"/> تحليل أداء العميل عبر الدورات</h2>
+        <p className="text-xs font-bold text-slate-400">مقارنة مشتريات العميل كل دورة بالدورة اللي قبلها، عشان نعرف هل بيزيد أو بيقل مع الوقت. اختر عميل من تاب "الحساب اليدوي" الأول عشان يظهر تحليله هنا.</p>
+        <div className="space-y-2">
+          {loyaltyRows.map((row, index) => {
+            const prior = loyaltyRows[index + 1];
+            const current = Number(row.purchase_total || 0);
+            const previous = prior ? Number(prior.purchase_total || 0) : null;
+            const change = previous && previous > 0 ? Math.round(((current - previous) / previous) * 100) : null;
+            return (
+              <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950/40 p-3">
+                <div>
+                  <div className="text-xs font-bold text-slate-400">{formatDate(row.period_start)} — {formatDate(row.period_end)}</div>
+                  <div className="mt-1 font-black text-white">{formatCurrency(current)} <span className="text-xs font-bold text-slate-500">مشتريات</span></div>
+                </div>
+                <div className="text-left">
+                  <div className="font-black text-emerald-300">{formatCurrency(row.points_amount)} نقطة</div>
+                  {change !== null ? (
+                    <div className={`text-xs font-bold ${change >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                      {change >= 0 ? '▲' : '▼'} {Math.abs(change)}% عن الدورة السابقة
+                    </div>
+                  ) : (
+                    <div className="text-xs font-bold text-slate-500">أول دورة محسوبة</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    ) : null}
+    </>
+    ) : (
+    <>
     <section className="dawaa-panel grid gap-3 lg:grid-cols-[1fr_auto]">
       <input className="input-dark" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث بالكود أو الهاتف أو الاسم"/>
       <button className="btn-primary" onClick={() => void runSearch()} disabled={loading}>{loading ? <RefreshCw className="ml-1 inline h-4 w-4 animate-spin"/> : <Search className="ml-1 inline h-4 w-4"/>} بحث</button>
@@ -456,39 +511,6 @@ export default function CustomerPointsLedger() {
       <div className="grid gap-3 lg:grid-cols-3"><input className="input-dark" type="number" placeholder="قيمة الإضافة أو الخصم" value={adjustment.points_amount} onChange={(e) => setAdjustment((c) => ({...c,points_amount:e.target.value}))}/><select className="input-dark" value={adjustment.transaction_type} onChange={(e) => setAdjustment((c) => ({...c,transaction_type:e.target.value as typeof c.transaction_type}))}><option value="credit">إضافة</option><option value="debit">خصم</option><option value="correction">تصحيح</option></select><input className="input-dark" placeholder="سبب التعديل" value={adjustment.points_reason} onChange={(e) => setAdjustment((c) => ({...c,points_reason:e.target.value}))}/><textarea className="input-dark lg:col-span-2" placeholder="ملاحظات" value={adjustment.notes} onChange={(e) => setAdjustment((c) => ({...c,notes:e.target.value}))}/><button className="btn-secondary" onClick={() => void saveAdjustment()} disabled={saving}>حفظ التعديل</button></div>
     </section>
 
-    {loyaltyRows.length ? (
-      <section className="dawaa-panel space-y-3">
-        <h2 className="flex items-center gap-2 font-black text-white"><History className="text-violet-300"/> تحليل أداء العميل عبر الدورات</h2>
-        <p className="text-xs font-bold text-slate-400">مقارنة مشتريات العميل كل دورة بالدورة اللي قبلها، عشان نعرف هل بيزيد أو بيقل مع الوقت.</p>
-        <div className="space-y-2">
-          {loyaltyRows.map((row, index) => {
-            const prior = loyaltyRows[index + 1];
-            const current = Number(row.purchase_total || 0);
-            const previous = prior ? Number(prior.purchase_total || 0) : null;
-            const change = previous && previous > 0 ? Math.round(((current - previous) / previous) * 100) : null;
-            return (
-              <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950/40 p-3">
-                <div>
-                  <div className="text-xs font-bold text-slate-400">{formatDate(row.period_start)} — {formatDate(row.period_end)}</div>
-                  <div className="mt-1 font-black text-white">{formatCurrency(current)} <span className="text-xs font-bold text-slate-500">مشتريات</span></div>
-                </div>
-                <div className="text-left">
-                  <div className="font-black text-emerald-300">{formatCurrency(row.points_amount)} نقطة</div>
-                  {change !== null ? (
-                    <div className={`text-xs font-bold ${change >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                      {change >= 0 ? '▲' : '▼'} {Math.abs(change)}% عن الدورة السابقة
-                    </div>
-                  ) : (
-                    <div className="text-xs font-bold text-slate-500">أول دورة محسوبة</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-    ) : null}
-
     <section className="space-y-3">
       <div className="flex items-center gap-2 text-lg font-black text-white"><History className="text-cyan-300"/> التاريخ الكامل لنقاط العميل</div>
       {rows.length === 0 ? <div className="dawaa-panel text-center text-slate-400">لا توجد حركات نقاط مسجلة لهذا العميل.</div> : rows.map((row) => <article key={row.id} className="rounded-2xl border border-slate-700 bg-slate-950/50 p-4 text-slate-200">
@@ -498,5 +520,7 @@ export default function CustomerPointsLedger() {
         <div className="mt-2 text-xs text-slate-500">تم بواسطة: {row.created_by_name || 'النظام'} · طريقة الحساب: {row.calculation_mode === 'automatic' ? 'تلقائي من الفواتير' : row.calculation_mode === 'manual' ? 'إجمالي يدوي' : 'تعديل مباشر'}</div>
       </article>)}
     </section>
+    </>
+    )}
   </div>;
 }

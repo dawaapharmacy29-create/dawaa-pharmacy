@@ -78,14 +78,6 @@
   box-shadow: 0 20px 48px rgba(1, 12, 25, 0.3);
 }
 
-.customer-service-page .cashback-responsive-card [class*='bg-emerald-500'],
-.customer-service-page .cashback-responsive-card [class*='bg-violet-500'],
-.customer-service-page .cashback-responsive-card [class*='bg-cyan-500'],
-.customer-service-page .cashback-responsive-card [class*='bg-sky-500'],
-.customer-service-page .cashback-responsive-card [class*='bg-amber-500'] {
-  background-color: rgba(45, 212, 191, 0.11) !important;
-}
-
 .customer-service-page .cashback-responsive-card > div:nth-child(2) > div {
   border-color: rgba(148, 211, 226, 0.22) !important;
   background: rgba(6, 28, 46, 0.64) !important;
