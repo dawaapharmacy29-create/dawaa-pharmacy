@@ -93,10 +93,25 @@ function customerOrFilter(identity: CustomerIdentity) {
 export async function searchCustomerIdentity(query: string): Promise<CustomerIdentity[]> {
   const q = query.trim();
   if (!q) return [];
+
+  // أول حاجة: تطابق تام بالكود أو الهاتف أو الاسم. ده أهم من أي بحث جزئي، لأن مفيش
+  // ضمانة ترتيب في نتائج ILIKE مع limit — لو أكتر من 20 عميل مشتركين في نفس الأرقام
+  // كجزء من كود أطول (زي 850 جوه 10850 و11850 و8502...)، العميل اللي كوده مطابق
+  // تمامًا ممكن ميظهرش أصلًا ضمن أول 20 نتيجة عشوائية. التطابق التام بيضمن إنه يتلقى
+  // دايمًا، أيًا كان عدد التطابقات الجزئية التانية.
+  const exactResult = await supabase
+    .from('customer_metrics_summary')
+    .select('customer_id,customer_code,customer_name,customer_phone,branch')
+    .or(`customer_code.eq.${q},customer_phone.eq.${q},customer_name.eq.${q}`)
+    .limit(20);
+  if (exactResult.error) throw new Error(exactResult.error.message);
+  if (exactResult.data && exactResult.data.length) return exactResult.data as CustomerIdentity[];
+
   const { data, error } = await supabase
     .from('customer_metrics_summary')
     .select('customer_id,customer_code,customer_name,customer_phone,branch')
     .or(`customer_code.ilike.%${q}%,customer_phone.ilike.%${q}%,customer_name.ilike.%${q}%`)
+    .order('customer_code', { ascending: true })
     .limit(20);
   if (error) throw new Error(error.message);
   return (data || []) as CustomerIdentity[];
