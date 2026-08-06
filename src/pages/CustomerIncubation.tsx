@@ -544,6 +544,16 @@ export default function CustomerIncubation() {
     setSearching(true);
     try {
       const safeTerm = term.replace(/[%_]/g, '');
+      const exactResult = await supabase
+        .from('dawaa_customer_purchase_frequency_v2')
+        .select('*')
+        .or(`customer_name.eq.${safeTerm},customer_code.eq.${safeTerm},customer_phone.eq.${safeTerm}`)
+        .limit(20);
+      if (exactResult.error) throw exactResult.error;
+      if (exactResult.data && exactResult.data.length) {
+        setSearchRows(exactResult.data as CandidateRow[]);
+        return;
+      }
       const { data, error } = await supabase
         .from('dawaa_customer_purchase_frequency_v2')
         .select('*')

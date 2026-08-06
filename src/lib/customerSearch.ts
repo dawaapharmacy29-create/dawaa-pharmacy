@@ -64,6 +64,25 @@ export async function searchCustomers(query: string, limit = 30): Promise<Custom
   if (!raw) return [];
   const pattern = wildcardToIlikePattern(raw);
   const phone = normalizePhone(raw);
+
+  // تطابق تام بالكود أو الاسم أو الهاتف الأول، عشان بحث بكود أو رقم محدد يلاقي
+  // صاحبه دايمًا حتى لو فيه عشرات العملاء التانيين مشتركين في نفس الأرقام كجزء من
+  // كود أو اسم أو رقم أطول — استعلام substring وحده من غير ترتيب مش بيضمن كده.
+  if (!raw.includes('*')) {
+    const exactAttempts = [
+      `customer_name.eq.${raw},name.eq.${raw},customer_code.eq.${raw},code.eq.${raw},customer_phone.eq.${phone},phone.eq.${phone}`,
+      `customer_name.eq.${raw},customer_code.eq.${raw},customer_phone.eq.${phone}`,
+      `name.eq.${raw},code.eq.${raw},phone.eq.${phone}`,
+    ];
+    for (const filter of exactAttempts) {
+      const { data, error } = await supabase.from('customers').select('*').or(filter).limit(limit);
+      if (!error && data && data.length) {
+        return data.map((row) => normalizeCustomerRow(row as Record<string, unknown>));
+      }
+      if (!error) break; // الأعمدة موجودة لكن مفيش تطابق تام؛ منكملش نجرب صيغ تانية، نروح لبحث substring
+    }
+  }
+
   const attempts = [
     `customer_name.ilike.${pattern},name.ilike.${pattern},customer_code.ilike.${pattern},code.ilike.${pattern},customer_phone.ilike.%${phone}%,phone.ilike.%${phone}%`,
     `customer_name.ilike.${pattern},customer_code.ilike.${pattern},customer_phone.ilike.%${phone}%`,
@@ -71,7 +90,7 @@ export async function searchCustomers(query: string, limit = 30): Promise<Custom
   ];
 
   for (const filter of attempts) {
-    const { data, error } = await supabase.from('customers').select('*').or(filter).limit(limit);
+    const { data, error } = await supabase.from('customers').select('*').or(filter).order('customer_code', { ascending: true, nullsFirst: false }).limit(limit);
     if (!error)
       return (data || []).map((row) => normalizeCustomerRow(row as Record<string, unknown>));
   }

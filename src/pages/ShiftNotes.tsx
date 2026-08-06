@@ -299,6 +299,17 @@ export default function ShiftNotes() {
         .replace(/[%,()]/g, '')
         .replace(/\*/g, '%');
       const ilikePattern = pattern.includes('%') ? pattern : `%${pattern}%`;
+      const rawQuery = query.trim();
+      const exactResult = await supabase
+        .from('customers')
+        .select('*')
+        .or(`name.eq.${rawQuery},customer_code.eq.${rawQuery},phone.eq.${rawQuery},whatsapp_phone.eq.${rawQuery}`)
+        .limit(10);
+      if (exactResult.error) throw exactResult.error;
+      if (exactResult.data && exactResult.data.length) {
+        setCustomerSearchResults(exactResult.data);
+        return;
+      }
       const { data, error } = await supabase
         .from('customers')
         .select('*')
