@@ -53,12 +53,43 @@ function normalizeName(value: unknown) {
     .toLowerCase();
 }
 
-function doctorIdentity(row: ReviewRow) {
-  const raw = String(row.staff_name || row.doctor_name || 'غير محدد');
-  const id = String(row.staff_id || row.doctor_id || '');
-  const normalized = normalizeName(raw);
-  return { key: id ? `id:${id}` : `name:${normalized || 'unknown'}`, name: raw };
+type StaffRow = { id: string; name: string; branch: string | null; active: boolean | null; is_active: boolean | null };
+
+// نفس المشكلة اللي ظهرت في الجدول: تقييمات قديمة كتير متسجلة بالاسم النصي بس من غير
+// staff_id (169 من 736 تقييم)، فلو حد اسمه اتكتب بشكلين مختلفين ("د اميرة"/"د/ اميرة")
+// كان بيتقسم لسطرين منفصلين في كل تقرير. الحل: نربط كل تقييم بحساب الموظف الحقيقي
+// النشط من قائمة الموظفين (staff) وقت العرض، بدل ما نعتمد على الاسم أو staff_id
+// المخزّن وقت إنشاء التقييم، ونستبعد أي موظف اتأرشف من التقارير الحالية.
+function buildStaffResolver(staffRows: StaffRow[]) {
+  const byId = new Map(staffRows.map((row) => [row.id, row]));
+  const byNormalizedName = new Map<string, StaffRow[]>();
+  staffRows.forEach((row) => {
+    const key = normalizeName(row.name);
+    if (!key) return;
+    byNormalizedName.set(key, [...(byNormalizedName.get(key) || []), row]);
+  });
+
+  return function resolve(row: ReviewRow): { key: string; name: string; active: boolean } {
+    const rawName = String(row.staff_name || row.doctor_name || 'غير محدد');
+    const storedId = String(row.staff_id || '');
+    const byIdMatch = storedId ? byId.get(storedId) : undefined;
+    if (byIdMatch) {
+      const isActive = byIdMatch.active !== false && byIdMatch.is_active !== false;
+      return { key: `id:${byIdMatch.id}`, name: byIdMatch.name, active: isActive };
+    }
+    const candidates = byNormalizedName.get(normalizeName(rawName));
+    if (candidates?.length === 1) {
+      const isActive = candidates[0].active !== false && candidates[0].is_active !== false;
+      return { key: `id:${candidates[0].id}`, name: candidates[0].name, active: isActive };
+    }
+    // مفيش تطابق مؤكد (اسم مش موجود حاليًا في قائمة الموظفين، أو نفس الاسم لأكتر من
+    // شخص) — نسيبه بهويته النصية القديمة بدل ما نخمّن، ونعتبره "نشط" افتراضيًا عشان
+    // منخفيش بيانات حقيقية لمجرد إننا معرفناش نربطها.
+    return { key: `name:${normalizeName(rawName) || 'unknown'}`, name: rawName, active: true };
+  };
 }
+
+const EXCLUDED_BRANCHES_FROM_RANKING = new Set(['المخزن']);
 
 function monthKey(row: ReviewRow) {
   return String(row.conversation_date || row.created_at || '').slice(0, 7);
@@ -115,6 +146,7 @@ export default function ReviewsInsightsHub() {
   const navigate = useNavigate();
   const [reviews, setReviews] = useState<ReviewRow[]>([]);
   const [followups, setFollowups] = useState<FollowupRow[]>([]);
+  const [staffRows, setStaffRows] = useState<StaffRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [branch, setBranch] = useState(ALL);
@@ -125,13 +157,17 @@ export default function ReviewsInsightsHub() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const reviewResult = await supabase
-        .from('conversation_sales_reviews')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(3000);
+      const [reviewResult, staffResult] = await Promise.all([
+        supabase
+          .from('conversation_sales_reviews')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(3000),
+        supabase.from('staff').select('id,name,branch,active,is_active'),
+      ]);
       if (reviewResult.error) throw reviewResult.error;
       setReviews((reviewResult.data || []) as ReviewRow[]);
+      if (!staffResult.error) setStaffRows((staffResult.data || []) as StaffRow[]);
 
       if (showService) {
         const sources = ['customer_followups', 'customer_service_followups'];
@@ -154,24 +190,33 @@ export default function ReviewsInsightsHub() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const branches = useMemo(() => [ALL, ...Array.from(new Set(reviews.map((row) => normalizeBranchName(row.branch || '')).filter(Boolean)))], [reviews]);
-  const doctors = useMemo(() => [ALL, ...Array.from(new Set(reviews.map((row) => doctorIdentity(row).name).filter((name) => name !== 'غير محدد')))], [reviews]);
+  const resolveStaff = useMemo(() => buildStaffResolver(staffRows), [staffRows]);
+
+  const branches = useMemo(
+    () => [ALL, ...Array.from(new Set(reviews.map((row) => normalizeBranchName(row.branch || '')).filter((name) => Boolean(name) && !EXCLUDED_BRANCHES_FROM_RANKING.has(name))))],
+    [reviews]
+  );
+  const doctors = useMemo(
+    () => [ALL, ...Array.from(new Set(reviews.map((row) => resolveStaff(row)).filter((identity) => identity.active && identity.name !== 'غير محدد').map((identity) => identity.name)))],
+    [reviews, resolveStaff]
+  );
 
   const filtered = useMemo(() => reviews.filter((row) => {
     if (month && monthKey(row) !== month) return false;
     if (branch !== ALL && normalizeBranchName(row.branch || '') !== branch) return false;
-    if (doctor !== ALL && doctorIdentity(row).name !== doctor) return false;
+    if (doctor !== ALL && resolveStaff(row).name !== doctor) return false;
     return true;
-  }), [branch, doctor, month, reviews]);
+  }), [branch, doctor, month, reviews, resolveStaff]);
 
   const doctorSummaries = useMemo<DoctorSummary[]>(() => {
     const grouped = new Map<string, ReviewRow[]>();
     filtered.forEach((row) => {
-      const identity = doctorIdentity(row);
+      const identity = resolveStaff(row);
+      if (!identity.active) return; // نستبعد الموظفين المؤرشفين من تقرير الأداء الحالي
       grouped.set(identity.key, [...(grouped.get(identity.key) || []), row]);
     });
     return [...grouped.entries()].map(([key, rows]) => {
-      const identity = doctorIdentity(rows[0]);
+      const identity = resolveStaff(rows[0]);
       const count = rows.length;
       const average = count ? rows.reduce((sum, row) => sum + scoreOf(row), 0) / count : 0;
       const bayesian = (average * count + 80 * 3) / (count + 3);
@@ -194,23 +239,24 @@ export default function ReviewsInsightsHub() {
         recommendation: recommendationFor(rows, average),
       };
     }).sort((a, b) => b.weightedScore - a.weightedScore || b.reviews - a.reviews);
-  }, [filtered]);
+  }, [filtered, resolveStaff]);
 
   const branchSummaries = useMemo(() => {
     const grouped = new Map<string, ReviewRow[]>();
     filtered.forEach((row) => {
       const key = normalizeBranchName(row.branch || '') || 'غير محدد';
+      if (EXCLUDED_BRANCHES_FROM_RANKING.has(key)) return; // المخزن مستبعد من تقييم/ترتيب الفروع
       grouped.set(key, [...(grouped.get(key) || []), row]);
     });
     return [...grouped.entries()].map(([name, rows]) => ({
       name,
       reviews: rows.length,
-      doctors: new Set(rows.map((row) => doctorIdentity(row).key)).size,
+      doctors: new Set(rows.map((row) => resolveStaff(row).key)).size,
       customers: new Set(rows.map((row) => row.customer_id || row.customer_code || row.customer_phone).filter(Boolean)).size,
       average: Math.round(rows.reduce((sum, row) => sum + scoreOf(row), 0) / Math.max(1, rows.length)),
       weak: rows.filter((row) => scoreOf(row) < 70).length,
     })).sort((a, b) => b.average - a.average);
-  }, [filtered]);
+  }, [filtered, resolveStaff]);
 
   const serviceSummary = useMemo(() => {
     const monthRows = followups.filter((row) => String(row.completed_at || row.updated_at || row.created_at || '').slice(0, 7) === month);
