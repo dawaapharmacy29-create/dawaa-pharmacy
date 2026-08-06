@@ -221,6 +221,15 @@ function roleFromText(text: string): ParsedStaffShifts['role'] {
   return 'staff';
 }
 
+// عناوين الأقسام أحيانًا بتكون مدمجة زي "الدكاترة والمساعدين" فتخلي roleFromText
+// يرجع 'assistant' لكل الأعمدة اللي تحتها حتى لو بعضها دكاترة فعليًا. الاسم الشخصي
+// (لو بادئ بـ "د" أو "دكتور") أدق مصدر لتحديد الدور من عنوان القسم العام.
+function roleForPerson(rawName: string, headerRole: ParsedStaffShifts['role']): ParsedStaffShifts['role'] {
+  const trimmed = String(rawName || '').trim();
+  if (/^(د\s*[/.]?\s|دكتور\s|dr\.?\s)/i.test(trimmed)) return 'doctor';
+  return headerRole;
+}
+
 function cleanStaffName(value: unknown) {
   return String(value ?? '')
     .replace(/\s+/g, ' ')
@@ -266,9 +275,10 @@ export function parseExcelShifts(rows: unknown[][], branch = 'غير محدد'):
       row.slice(headerStartIndex).forEach((cell) => {
         const name = cleanStaffName(cell);
         if (!name || name === 'NaN') return;
-        const key = staffKey(branch, headerRole, name);
+        const role = roleForPerson(name, headerRole);
+        const key = staffKey(branch, role, name);
         if (!staff.has(key)) {
-          staff.set(key, { name, role: headerRole, branch, shifts: {} });
+          staff.set(key, { name, role, branch, shifts: {} });
         }
       });
       continue;
@@ -286,8 +296,9 @@ export function parseExcelShifts(rows: unknown[][], branch = 'غير محدد'):
       if (!name || name === 'NaN') return;
       const shift = parseShiftTime(row[columnIndex]);
       if (!shift) return;
-      const key = staffKey(branch, headerRole, name);
-      const current = staff.get(key) || { name, role: headerRole, branch, shifts: {} };
+      const role = roleForPerson(name, headerRole);
+      const key = staffKey(branch, role, name);
+      const current = staff.get(key) || { name, role, branch, shifts: {} };
       if (current.shifts[day]) {
         current.shifts[day].warnings = [
           ...(current.shifts[day].warnings || []),

@@ -8,6 +8,7 @@ export interface StaffingSaveReport {
   shiftsSaved: number;
   leavesSaved: number;
   skipped: string[];
+  archivedStaff: string[];
 }
 
 interface ExistingStaffRow {
@@ -21,6 +22,7 @@ interface MatchedStaff extends ParsedStaffShifts {
   staffId: string;
   canonicalName: string;
   canonicalBranch: string;
+  canonicalRole: string | null;
 }
 
 const STAFF_TABLES = [TABLES.staff];
@@ -151,6 +153,20 @@ function tokenSimilarity(left: string, right: string) {
   return tokenScore * 0.8 + prefixScore * 0.2;
 }
 
+// أسماء زي "اسلام" (من ملف الإكسل) مقابل "اسلام فاروق" (الاسم الكامل في قائمة الموظفين)
+// هي فعليًا نفس الشخص، لكن tokenSimilarity وحدها بتديها درجة منخفضة (Jaccard بيعاقب
+// الفرق في عدد الكلمات). لو كلمات الاسم الأقصر كلها بادئة مطابقة لكلمات الاسم الأطول
+// بنفس الترتيب، ده مؤشر قوي إنه نفس الاسم مختصر، فنضيف بونص واضح.
+function subsetContainmentBoost(left: string, right: string) {
+  if (!left || !right || left === right) return 0;
+  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+  const shortTokens = shorter.split(' ').filter(Boolean);
+  const longTokens = longer.split(' ').filter(Boolean);
+  if (!shortTokens.length || shortTokens.length >= longTokens.length) return 0;
+  const isPrefixSubset = shortTokens.every((token, index) => longTokens[index] === token);
+  return isPrefixSubset ? 0.4 : 0;
+}
+
 function firstWorkingShift(item: ParsedStaffShifts) {
   return Object.values(item.shifts).find((shift) => !shift.isOff && shift.start && shift.end);
 }
@@ -176,6 +192,50 @@ async function loadExistingStaff(table: string): Promise<ExistingStaffRow[]> {
   return (data || []) as ExistingStaffRow[];
 }
 
+function findBestMatch(
+  item: ParsedStaffShifts,
+  pool: ExistingStaffRow[],
+  importedName: string,
+  importedBranch: string
+): ExistingStaffRow | undefined {
+  const exactCandidates = pool.filter((staff) => normalizeArabic(staff.name) === importedName);
+  if (exactCandidates.length === 1) return exactCandidates[0];
+  if (exactCandidates.length > 1) {
+    const sameBranch = exactCandidates.filter((staff) => normalizeBranch(staff.branch) === importedBranch);
+    if (sameBranch.length === 1) return sameBranch[0];
+    return undefined; // أكتر من موظف نشط بنفس الاسم في نفس الفرع؛ ده تكرار في قاعدة البيانات نفسها ومحتاج مراجعة يدوية بدل تخمين.
+  }
+
+  const ranked = pool
+    .map((staff) => {
+      const staffName = normalizeArabic(staff.name);
+      let score = tokenSimilarity(importedName, staffName);
+      score += subsetContainmentBoost(importedName, staffName);
+      if (importedBranch && normalizeBranch(staff.branch) === importedBranch) score += 0.12;
+      if (appRole(item.role) === staff.role) score += 0.04;
+      return { staff, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const best = ranked[0];
+  const second = ranked[1];
+  if (best && best.score >= 0.86 && (!second || best.score - second.score >= 0.1)) {
+    return best.staff;
+  }
+  return undefined;
+}
+
+// في البيانات الحقيقية، معظم الصيادلة والمديرين والمشرفين هنا بيتلقبوا بـ"د" بغض
+// النظر عن دورهم الوظيفي الفعلي (صيدلاني/مدير فرع/مسؤولة خدمة عملاء...)، فمينفعش
+// نقصر المطابقة على appRole() بالظبط. لكن موظفي الدليفري لوحدهم مختلفون بوضوح، وهما
+// مصدر التلخبط الوحيد اللي شفناه فعليًا (زي "اسلام" الدليفري مقابل "اسلام فاروق"
+// الصيدلي). فبنفصل بس بين "دليفري" و"أي حاجة تانية" بدل التصنيف الدقيق بالدور.
+function isDeliveryCompatible(itemRole: ParsedStaffShifts['role'], staffRole: string | null | undefined) {
+  const isDeliveryStaff = staffRole === 'توصيل';
+  const isDeliveryItem = itemRole === 'delivery';
+  return isDeliveryStaff === isDeliveryItem;
+}
+
 function matchImportedStaff(
   imported: ParsedStaffShifts[],
   existing: ExistingStaffRow[],
@@ -186,34 +246,10 @@ function matchImportedStaff(
   for (const item of imported) {
     const importedName = normalizeArabic(item.name);
     const importedBranch = normalizeBranch(item.branch);
-    const exactCandidates = existing.filter((staff) => normalizeArabic(staff.name) === importedName);
+    const compatiblePool = existing.filter((staff) => isDeliveryCompatible(item.role, staff.role));
+    const pool = compatiblePool.length ? compatiblePool : existing; // خطة احتياطية لو تصنيف الدور في القائمة غير متوقع
 
-    let selected: ExistingStaffRow | undefined;
-    if (exactCandidates.length === 1) {
-      selected = exactCandidates[0];
-    } else if (exactCandidates.length > 1) {
-      const sameBranch = exactCandidates.filter(
-        (staff) => normalizeBranch(staff.branch) === importedBranch
-      );
-      if (sameBranch.length === 1) selected = sameBranch[0];
-    }
-
-    if (!selected) {
-      const ranked = existing
-        .map((staff) => {
-          let score = tokenSimilarity(importedName, normalizeArabic(staff.name));
-          if (importedBranch && normalizeBranch(staff.branch) === importedBranch) score += 0.12;
-          if (appRole(item.role) === staff.role) score += 0.04;
-          return { staff, score };
-        })
-        .sort((a, b) => b.score - a.score);
-
-      const best = ranked[0];
-      const second = ranked[1];
-      if (best && best.score >= 0.86 && (!second || best.score - second.score >= 0.1)) {
-        selected = best.staff;
-      }
-    }
+    const selected = findBestMatch(item, pool, importedName, importedBranch);
 
     if (!selected) {
       skipped.push(
@@ -227,6 +263,7 @@ function matchImportedStaff(
       staffId: String(selected.id),
       canonicalName: selected.name,
       canonicalBranch: selected.branch || item.branch,
+      canonicalRole: selected.role || null,
     });
   }
 
@@ -282,7 +319,7 @@ function scheduleRows(staff: MatchedStaff[]) {
         staff_id: item.staffId,
         staff_name: item.canonicalName,
         employee_name: item.canonicalName,
-        role: appRole(item.role),
+        role: item.canonicalRole || appRole(item.role),
         branch: item.canonicalBranch,
         day_name: day,
         shift_start: shift.start,
@@ -311,7 +348,6 @@ function leaveRows(staff: MatchedStaff[]) {
     Object.entries(item.shifts)
       .filter(([, shift]) => shift.isOff)
       .map(([day, shift]) => ({
-        staff_id: item.staffId,
         staff_name: item.canonicalName,
         employee_name: item.canonicalName,
         type: 'weekly_off',
@@ -324,11 +360,73 @@ function leaveRows(staff: MatchedStaff[]) {
   );
 
   const map = new Map<string, (typeof rows)[number]>();
-  for (const row of rows) map.set(`${row.staff_id}|${row.day_name}`, row);
+  for (const row of rows) map.set(`${row.staff_name}|${row.branch}|${row.day_name}`, row);
   return Array.from(map.values());
 }
 
-async function deleteExistingRowsForMatchedStaff(table: string, staff: MatchedStaff[]) {
+// shift_exceptions مفيهوش عمود staff_id في السكيمة الحالية (الصفحة نفسها بتقرأه بالاسم +
+// الفرع، مش بالـ id)، فأي حذف/مطابقة عليه لازم يكون بالاسم مش بالـ id، عكس shift_schedules.
+async function deleteExceptionRowsByNameBranch(
+  table: string,
+  pairs: Array<{ name: string; branch: string }>
+) {
+  for (const { name, branch } of pairs) {
+    await supabase.from(table).delete().eq('staff_name', name).eq('branch', branch);
+  }
+}
+
+async function archiveMissingStaff(
+  staffTable: string,
+  scheduleTable: string | null,
+  exceptionTable: string | null,
+  existing: ExistingStaffRow[],
+  imported: ParsedStaffShifts[],
+  matchedStaff: MatchedStaff[]
+): Promise<string[]> {
+  // نحدد إيه الفروع/الأدوار اللي "غطاها" الملف فعليًا (مثلًا: دكاترة + دليفري لفرع الشامي).
+  // أي موظف نشط حاليًا في نفس (الفرع، الدور) دول ومش موجود في الملف، معناها إنه سايب
+  // الشغل ولازم يتشال من الجدول — لكن من غير ما نلمس فروع/أدوار مش موجودة في الملف أصلًا
+  // (زي المساعدين أو خدمة العملاء لو الملف بيغطي الدكاترة والدليفري بس).
+  const coveredCombos = new Set(
+    imported.map((item) => `${normalizeBranch(item.branch)}|${appRole(item.role)}`)
+  );
+  const matchedIds = new Set(matchedStaff.map((item) => item.staffId));
+
+  const missing = existing.filter((staff) => {
+    if (matchedIds.has(String(staff.id))) return false;
+    const combo = `${normalizeBranch(staff.branch)}|${staff.role}`;
+    return coveredCombos.has(combo);
+  });
+
+  if (!missing.length) return [];
+
+  const archivedNames: string[] = [];
+  for (const staff of missing) {
+    const ok = await updateFlexible(staffTable, String(staff.id), {
+      active: false,
+      is_active: false,
+      visible_in_schedule: false,
+      status: 'غير نشط',
+      notes: `تمت الأرشفة تلقائيًا لعدم وجوده في آخر ملف حضور مستورد بتاريخ ${new Date().toISOString().slice(0, 10)}`,
+    });
+    if (ok) archivedNames.push(staff.name);
+  }
+
+  const archivedIds = missing.map((staff) => String(staff.id));
+  if (scheduleTable && archivedIds.length) {
+    await supabase.from(scheduleTable).delete().in('staff_id', archivedIds);
+  }
+  if (exceptionTable && missing.length) {
+    await deleteExceptionRowsByNameBranch(
+      exceptionTable,
+      missing.map((staff) => ({ name: staff.name, branch: staff.branch || '' }))
+    );
+  }
+
+  return archivedNames;
+}
+
+async function deleteExistingScheduleRows(table: string, staff: MatchedStaff[]) {
   const ids = [...new Set(staff.map((item) => item.staffId))];
   if (ids.length === 0) return;
 
@@ -348,11 +446,13 @@ export async function saveScheduleImport(
   let shiftsSaved = 0;
   let leavesSaved = 0;
   let matchedStaff: MatchedStaff[] = [];
+  let archivedStaff: string[] = [];
+  let existingStaff: ExistingStaffRow[] = [];
 
   if (!staffTable) {
     skipped.push('لم يتم العثور على جدول staff، لذلك لم يتم حفظ أي بيانات.');
   } else {
-    const existingStaff = await loadExistingStaff(staffTable);
+    existingStaff = await loadExistingStaff(staffTable);
     matchedStaff = matchImportedStaff(savableStaff, existingStaff, skipped);
     staffSaved = await updateMatchedStaffBaseShifts(staffTable, matchedStaff);
   }
@@ -360,7 +460,7 @@ export async function saveScheduleImport(
   const scheduleTable = await detectTable(['shift_schedules']);
   if (scheduleTable && matchedStaff.length > 0) {
     try {
-      await deleteExistingRowsForMatchedStaff(scheduleTable, matchedStaff);
+      await deleteExistingScheduleRows(scheduleTable, matchedStaff);
       shiftsSaved = await insertFlexible(scheduleTable, scheduleRows(matchedStaff));
     } catch (error) {
       skipped.push(`تعذر استبدال الشيفتات في shift_schedules: ${(error as Error).message}`);
@@ -372,7 +472,10 @@ export async function saveScheduleImport(
   const exceptionTable = await detectTable(['shift_exceptions']);
   if (exceptionTable && matchedStaff.length > 0) {
     try {
-      await deleteExistingRowsForMatchedStaff(exceptionTable, matchedStaff);
+      await deleteExceptionRowsByNameBranch(
+        exceptionTable,
+        matchedStaff.map((item) => ({ name: item.canonicalName, branch: item.canonicalBranch }))
+      );
       leavesSaved = await insertFlexible(exceptionTable, leaveRows(matchedStaff));
     } catch (error) {
       skipped.push(`تعذر استبدال الإجازات في shift_exceptions: ${(error as Error).message}`);
@@ -381,14 +484,29 @@ export async function saveScheduleImport(
     skipped.push('جدول shift_exceptions غير موجود، لذلك لم يتم حفظ الإجازات كاستثناءات مستقلة.');
   }
 
+  if (staffTable && existingStaff.length && matchedStaff.length) {
+    try {
+      archivedStaff = await archiveMissingStaff(
+        staffTable,
+        scheduleTable,
+        exceptionTable,
+        existingStaff,
+        savableStaff,
+        matchedStaff
+      );
+    } catch (error) {
+      skipped.push(`تعذر أرشفة الموظفين الغير موجودين في الملف: ${(error as Error).message}`);
+    }
+  }
+
   await supabase.from('activity_log').insert({
     user_id: 'system',
     user_name: 'النظام',
     action: 'استيراد واستبدال شيفتات الموظفين الموجودين',
     module: 'الفريق والجدول',
-    details: `تمت قراءة ${importData.staffCount} اسم، ومطابقة ${matchedStaff.length} موظف موجود، واستبدال جدولهم بـ ${shiftsSaved} شيفت بدون تكرار. لم يتم إنشاء أي حسابات.`,
+    details: `تمت قراءة ${importData.staffCount} اسم، ومطابقة ${matchedStaff.length} موظف موجود، واستبدال جدولهم بـ ${shiftsSaved} شيفت بدون تكرار، وأرشفة ${archivedStaff.length} موظف مش موجود في الملف الجديد. لم يتم إنشاء أي حسابات.`,
     branch: 'كل الفروع',
   });
 
-  return { staffTable, staffSaved, shiftsSaved, leavesSaved, skipped };
+  return { staffTable, staffSaved, shiftsSaved, leavesSaved, skipped, archivedStaff };
 }
