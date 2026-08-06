@@ -170,16 +170,19 @@ export default function ReviewsInsightsHub() {
       if (!staffResult.error) setStaffRows((staffResult.data || []) as StaffRow[]);
 
       if (showService) {
-        const sources = ['customer_followups', 'customer_service_followups'];
-        let loaded: FollowupRow[] = [];
-        for (const table of sources) {
-          const result = await supabase.from(table).select('*').order('created_at', { ascending: false }).limit(2500);
-          if (!result.error) {
-            loaded = (result.data || []) as FollowupRow[];
-            break;
-          }
-        }
-        setFollowups(loaded);
+        // 'customer_followups' و'customer_service_followups' مش موجودين في السكيمة
+        // الفعلية خالص، فالكويري كانت دايمًا بترجع فاضية بصمت (كل الاستعلامات فشلت
+        // فـ loaded فضلت []) بغض النظر عن الشهر أو الفلتر. الجدول الحقيقي اللي فيه
+        // كل بيانات المتابعات هو daily_followups.
+        const result = await supabase
+          .from('daily_followups')
+          .select('*')
+          .eq('is_hidden', false)
+          .eq('is_duplicate', false)
+          .order('created_at', { ascending: false })
+          .limit(2500);
+        if (result.error) toast.error(`تعذر تحميل بيانات متابعات خدمة العملاء: ${result.error.message}`);
+        setFollowups((result.data || []) as FollowupRow[]);
       }
     } catch (error) {
       toast.error(`تعذر تحميل تقارير التقييمات: ${(error as Error).message}`);
@@ -262,13 +265,13 @@ export default function ReviewsInsightsHub() {
     const monthRows = followups.filter((row) => String(row.completed_at || row.updated_at || row.created_at || '').slice(0, 7) === month);
     const grouped = new Map<string, FollowupRow[]>();
     monthRows.forEach((row) => {
-      const name = String(row.responsible_name || row.assigned_to_name || row.assigned_doctor || row.completed_by_name || 'غير محدد');
+      const name = String(row.responsible_name || row.assigned_to || row.assigned_doctor || row.completed_by || 'غير محدد');
       grouped.set(name, [...(grouped.get(name) || []), row]);
     });
     return [...grouped.entries()].map(([name, rows]) => {
       const completed = rows.filter((row) => /completed|done|closed|تم|مكتمل/i.test(String(row.status || row.followup_status || '')) || row.completed_at).length;
-      const positive = rows.filter((row) => /شراء|طلب|راضي|حل|روشته|استمر/i.test(String(row.result || row.outcome || row.notes || ''))).length;
-      const documented = rows.filter((row) => String(row.result || row.outcome || row.notes || '').trim().length >= 10).length;
+      const positive = rows.filter((row) => /شراء|طلب|راضي|حل|روشته|استمر/i.test(String(row.contact_result || row.followup_result || row.notes || ''))).length;
+      const documented = rows.filter((row) => String(row.contact_result || row.followup_result || row.notes || '').trim().length >= 10).length;
       const quality = Math.round((completed / Math.max(1, rows.length)) * 45 + (positive / Math.max(1, completed)) * 35 + (documented / Math.max(1, rows.length)) * 20);
       return { name, total: rows.length, completed, positive, documented, quality };
     }).sort((a, b) => b.quality - a.quality || b.completed - a.completed);
