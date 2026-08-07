@@ -1,0 +1,6 @@
+-- توثيق للتغييرات اللي اتعملت مباشرة على قاعدة البيانات الحية عبر Supabase MCP بتاريخ 7 أغسطس 2026:
+-- 1) dawaa_normalize_doctor_name(text): توحيد اسم الدكتور (مطابق لـ normalizeDoctorName في doctorCompetitionMetrics.ts)
+-- 2) apply_followup_incentive_points(): توسيع محرك مطابقة الدكتور بطبقة احتياطية بالاسم الموحّد (فوق requested_by_staff_id)
+-- 3) notify_manager_checklist_gaps(): تنبيه مدير الفروع لو مدير فرع معملش أي مهمة يومية 3 أيام على التوالي (يوميًا 10 صباحًا)
+-- 4) notify_doctor_performance_drop(): تنبيه مدير الفرع لو صافي نقاط دكتور نزل لـ -30 أو أقل خلال آخر 7 أيام (يوميًا 11 صباحًا)
+-- الكود الكامل لكل دالة موجود ومطبّق فعليًا على مشروع jkjqeqkshllustwlzzbf.
