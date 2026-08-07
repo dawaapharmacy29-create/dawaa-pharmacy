@@ -24,13 +24,18 @@ export default function DailyManagerChecklist() {
   const { user } = useAuth();
   const role = normalizeRole(user?.role) as EligibleRole;
   const isAssistant = role === 'assistant';
-  const isEligible = role === 'branch_manager' || role === 'branches_manager' || isAssistant;
+  const isCsManager = role === 'customer_service_manager';
+  const isEligible = role === 'branch_manager' || role === 'branches_manager' || isCsManager || isAssistant;
   const tasks = isAssistant
     ? ASSISTANT_DAILY_TASKS
     : isEligible
       ? MANAGER_DAILY_TASKS[role as ManagerDailyRole]
       : [];
-  const pageTitle = isAssistant ? 'مهام مساعد الصيدلي اليومية' : 'المهام والمتابعة اليومية';
+  const pageTitle = isAssistant
+    ? 'مهام مساعد الصيدلي اليومية'
+    : isCsManager
+      ? 'المهام اليومية لمسئول خدمة العملاء'
+      : 'المهام والمتابعة اليومية';
   const pageSubtitle = isAssistant
     ? 'سجّل إنجازك للمهام كل يوم — معدل الالتزام بيتحوّل لحافزك الشهري تلقائيًا عند إغلاق الدورة.'
     : 'سجّل إنك راجعت كل جانب من عملك اليوم — الالتزام هنا بيغذّي تقييمك الأسبوعي.';
@@ -143,7 +148,7 @@ export default function DailyManagerChecklist() {
   if (!isEligible) {
     return (
       <div dir="rtl" className="p-6 text-sm text-slate-400">
-        هذه الصفحة متاحة لمدير الفرع، مدير الفروع، ومساعد الصيدلي فقط.
+        هذه الصفحة متاحة لمدير الفرع، مدير الفروع، مسئول خدمة العملاء، ومساعد الصيدلي فقط.
       </div>
     );
   }

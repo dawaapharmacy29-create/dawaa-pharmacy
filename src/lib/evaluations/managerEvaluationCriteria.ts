@@ -16,6 +16,11 @@ export type WeeklyAutoMetrics = {
   vip_customers: number;
   vip_customers_still_active: number;
   vip_retention_rate: number | null;
+  conversation_reviews_count: number;
+  conversation_reviews_avg_score: number | null;
+  points_transactions_total: number;
+  points_transactions_contacted: number;
+  new_customers_count: number;
 };
 
 export type EvaluationCriterion = {
@@ -60,6 +65,33 @@ function weekOverWeekImprovementScore(current: WeeklyAutoMetrics, previous: Week
   const previousClosure = ratio(previous.followups_closed, previous.followups_total);
   const delta = (currentClosure - previousClosure) * 100;
   return Math.max(0, Math.min(10, 5 + delta / 4));
+}
+
+/**
+ * تقييم المحادثات وتحسين أداء الدكاترة: نصف الدرجة من مدى نشاط المراجعة نفسها
+ * (هل مسئول خدمة العملاء بيراجع محادثات كفاية؟ هدف مرجعي 10 مراجعات/أسبوع)،
+ * ونصها التاني من متوسط درجة المحادثات (هل الدكاترة فعلًا بيتحسنوا؟).
+ */
+function conversationQualityScore(current: WeeklyAutoMetrics): number {
+  const activityScore = Math.max(0, Math.min(10, (current.conversation_reviews_count / 10) * 10));
+  const qualityScore =
+    current.conversation_reviews_avg_score !== null
+      ? Math.max(0, Math.min(10, current.conversation_reviews_avg_score / 10))
+      : 5;
+  return activityScore * 0.4 + qualityScore * 0.6;
+}
+
+/** متابعة نقاط العملاء وإبلاغهم: نسبة معاملات النقاط اللي اتبلّغ فيها العميل فعليًا. */
+function pointsCommunicationScore(current: WeeklyAutoMetrics): number {
+  if (!current.points_transactions_total) return 5; // مفيش معاملات نقاط الأسبوع ده أصلًا — محايد
+  return Math.max(0, Math.min(10, ratio(current.points_transactions_contacted, current.points_transactions_total) * 10));
+}
+
+/** نمو عدد العملاء: مقارنة عدد العملاء الجدد بالأسبوع اللي فات. */
+function customerGrowthScore(current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null): number {
+  if (!previous || !previous.new_customers_count) return 5;
+  const growthPct = ((current.new_customers_count - previous.new_customers_count) / previous.new_customers_count) * 100;
+  return Math.max(0, Math.min(10, 5 + growthPct / 10));
 }
 
 export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> = {
@@ -199,40 +231,67 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
   ],
   customer_service: [
     {
-      key: 'closure_rate',
-      label: 'نسبة إغلاق المتابعات',
-      weight: 0.25,
-      mode: 'auto',
-      autoScore: followupClosureScore,
-    },
-    {
-      key: 'expired_control',
-      label: 'التحكم في المتابعات المنتهية بدون رد',
+      key: 'conversation_quality',
+      label: 'تقييم المحادثات وتحسين تعامل الدكاترة',
       weight: 0.2,
       mode: 'auto',
-      autoScore: (c) => Math.max(0, Math.min(10, 10 - ratio(c.followups_expired, c.followups_total) * 20)),
+      autoScore: conversationQualityScore,
+      hint: 'محسوبة من عدد مراجعات المحادثات المنجزة + متوسط درجتها خلال الأسبوع.',
+    },
+    {
+      key: 'customer_requests_logging',
+      label: 'تسجيل ومتابعة طلبات العملاء على التطبيق',
+      weight: 0.1,
+      mode: 'checklist',
+      checklistTaskKey: 'customer_requests_tracking',
+      hint: 'محسوبة من نسبة أيام الأسبوع اللي اتسجّلت فيها متابعة طلبات العملاء فعليًا.',
+    },
+    {
+      key: 'doctor_followup_audit',
+      label: 'التأكد من توثيق الدكاترة لمتابعاتهم',
+      weight: 0.1,
+      mode: 'checklist',
+      checklistTaskKey: 'doctor_followup_audit',
+      hint: 'محسوبة من نسبة أيام الأسبوع اللي اتراجعت فيها متابعات الدكاترة المسجّلة فعليًا.',
+    },
+    {
+      key: 'points_communication',
+      label: 'متابعة نقاط العملاء وإبلاغهم بالتفاصيل',
+      weight: 0.1,
+      mode: 'auto',
+      autoScore: pointsCommunicationScore,
+      hint: 'محسوبة تلقائيًا من نسبة معاملات نقاط العملاء اللي اتبلّغ فيها العميل فعليًا.',
+    },
+    {
+      key: 'followups_execution',
+      label: 'تنفيذ المتابعات المطلوبة (نظام ودكاترة)',
+      weight: 0.15,
+      mode: 'auto',
+      autoScore: followupClosureScore,
+      hint: 'محسوبة تلقائيًا من نسبة إغلاق كل المتابعات المطلوبة، سواء حدّدها النظام أو طلبها الدكتور.',
+    },
+    {
+      key: 'doctor_coaching',
+      label: 'تطوير وتوجيه الدكاترة في الفرع',
+      weight: 0.1,
+      mode: 'checklist',
+      checklistTaskKey: 'doctor_coaching',
+      hint: 'محسوبة من نسبة أيام الأسبوع اللي اترسل فيها توجيه/تدريب موثّق لدكتور.',
+    },
+    {
+      key: 'customer_growth',
+      label: 'نمو عدد العملاء الشهري',
+      weight: 0.1,
+      mode: 'auto',
+      autoScore: customerGrowthScore,
+      hint: 'محسوبة تلقائيًا من عدد العملاء الجدد مقارنة بالأسبوع اللي فات.',
     },
     {
       key: 'vip_retention',
-      label: 'الاحتفاظ بكبار العملاء',
-      weight: 0.25,
+      label: 'الحفاظ على كبار العملاء والمهمين جدًا',
+      weight: 0.15,
       mode: 'auto',
       autoScore: vipRetentionScore,
-    },
-    {
-      key: 'week_over_week',
-      label: 'التحسن أسبوع عن أسبوع',
-      weight: 0.15,
-      mode: 'auto',
-      autoScore: weekOverWeekImprovementScore,
-      hint: 'محسوبة تلقائيًا من مقارنة نسبة إغلاق المتابعات بالأسبوع اللي فات.',
-    },
-    {
-      key: 'communication_quality',
-      label: 'جودة التواصل والتعامل مع الشكاوى',
-      weight: 0.15,
-      mode: 'manual',
-      hint: 'تقييم كيفي من واقع مراجعة المحادثات — يدوي.',
     },
   ],
 };

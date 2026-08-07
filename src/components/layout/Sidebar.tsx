@@ -44,6 +44,7 @@ const GROUPS: NavGroup[] = [
   ]},
   { title: 'العملاء وخدمة العملاء', icon: HeadphonesIcon, items: [
     { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة العملاء', permission: 'view_customer_service' },
+    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهامي اليومية' },
     { path: '/customer-coding', icon: UserPlus, label: 'تكويد العملاء', permission: 'view_customer_service' },
     { path: '/customers', icon: Users, label: 'قاعدة العملاء', permission: 'view_customers' },
     { path: '/customer-data-review', icon: ClipboardCheck, label: 'مراجعة بيانات العملاء', permission: 'view_customer_details' },

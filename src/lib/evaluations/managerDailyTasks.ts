@@ -1,4 +1,4 @@
-export type ManagerDailyRole = 'branch_manager' | 'branches_manager';
+export type ManagerDailyRole = 'branch_manager' | 'branches_manager' | 'customer_service_manager';
 
 export type DailyTaskDefinition = {
   key: string;
@@ -107,6 +107,43 @@ export const MANAGER_DAILY_TASKS: Record<ManagerDailyRole, DailyTaskDefinition[]
       key: 'team_development_review',
       label: 'تابعت تطوير وتدريب مديري الفروع',
       hint: 'متابعة خطط التطوير والتدريب المتفق عليها مع كل مدير فرع.',
+    },
+  ],
+  customer_service_manager: [
+    {
+      key: 'conversations_reviewed',
+      label: 'راجعت وقيّمت محادثات الدكاترة اليوم',
+      hint: 'تقييم محادثات فعلي بيؤثر على تحسين تعامل الدكاترة مع العملاء.',
+    },
+    {
+      key: 'customer_requests_tracking',
+      label: 'سجّلت وتابعت طلبات العملاء على التطبيق',
+      hint: 'متابعة تسجيل الطلبات الجديدة وتحقيق (تنفيذ) الطلبات المفتوحة.',
+    },
+    {
+      key: 'doctor_followup_audit',
+      label: 'راجعت متابعات الدكاترة المسجّلة',
+      hint: 'التأكد إن كل دكتور سجّل محادثاته ومتابعاته زي المطلوب.',
+    },
+    {
+      key: 'points_tracking',
+      label: 'تابعت نقاط العملاء وأبلغتهم بالتفاصيل',
+      hint: 'تسجيل نقاط العملاء ومراجعتها، وإبلاغ العميل برصيده الفعلي.',
+    },
+    {
+      key: 'followups_execution_review',
+      label: 'نفّذت المتابعات المطلوبة (نظام ودكاترة)',
+      hint: 'سواء متابعة حددها النظام تلقائيًا أو طلبها دكتور بنفسه.',
+    },
+    {
+      key: 'doctor_coaching',
+      label: 'أرسلت توجيه أو تدريب لدكتور',
+      hint: 'رسالة توجيهية أو صورة توضيحية لتطوير أداء دكتور معيّن — سجّل التفاصيل في الملاحظة.',
+    },
+    {
+      key: 'customer_growth_check',
+      label: 'راجعت عدد العملاء الجدد والمهمين اليوم',
+      hint: 'متابعة نمو قاعدة العملاء والحفاظ على كبار العملاء.',
     },
   ],
 };
