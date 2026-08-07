@@ -281,8 +281,8 @@ export function approvalAuthorityFor(severity: IncentiveSeverity): {
 export type PointAppealStatus = 'pending' | 'under_review' | 'upheld' | 'overturned';
 export const POINT_APPEAL_WINDOW_DAYS = 5;
 
-export const EXCEPTIONAL_FOLLOWUP_BASE_POINTS = 8;
-export const EXCEPTIONAL_FOLLOWUP_FULL_REWARD_PER_CYCLE = 10;
+export const EXCEPTIONAL_FOLLOWUP_BASE_POINTS = 5;
+export const EXCEPTIONAL_FOLLOWUP_FULL_REWARD_PER_CYCLE = 15;
 export const EXCEPTIONAL_FOLLOWUP_REDUCED_REWARD_PER_CYCLE = 5;
 
 /**
