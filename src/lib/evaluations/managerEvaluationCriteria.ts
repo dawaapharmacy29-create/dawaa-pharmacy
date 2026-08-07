@@ -199,6 +199,16 @@ export const EVALUATION_TYPE_LABELS: Record<EvaluationType, string> = {
   customer_service: 'تقييم أداء خدمة العملاء الأسبوعي',
 };
 
+/**
+ * سقف الحافز الشهري بالجنيه عند متوسط تقييم 100/100 خلال الدورة — الحافز
+ * الفعلي = (متوسط درجات التقييمات المعتمدة في الدورة / 100) × السقف.
+ * customer_service مفيش ليها حافز مالي منفصل هنا (خارج نطاق هذه المرحلة).
+ */
+export const EVALUATION_MAX_MONTHLY_INCENTIVE_EGP: Partial<Record<EvaluationType, number>> = {
+  branch_manager: 3000,
+  branches_manager: 4000,
+};
+
 export function computeTotalScore(
   type: EvaluationType,
   current: WeeklyAutoMetrics,

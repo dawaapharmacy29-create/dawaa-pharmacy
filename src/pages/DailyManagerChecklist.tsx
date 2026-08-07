@@ -5,6 +5,7 @@ import { TABLES } from '@/lib/supabaseTables';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import { MANAGER_DAILY_TASKS, type ManagerDailyRole } from '@/lib/evaluations/managerDailyTasks';
+import { ASSISTANT_DAILY_TASKS, ASSISTANT_TASKS_TOTAL_WEIGHT } from '@/lib/evaluations/assistantDailyTasks';
 
 function todayInput() {
   return new Date().toISOString().slice(0, 10);
@@ -17,11 +18,22 @@ type ChecklistRow = {
   note: string | null;
 };
 
+type EligibleRole = ManagerDailyRole | 'assistant';
+
 export default function DailyManagerChecklist() {
   const { user } = useAuth();
-  const role = normalizeRole(user?.role) as ManagerDailyRole;
-  const isEligible = role === 'branch_manager' || role === 'branches_manager';
-  const tasks = isEligible ? MANAGER_DAILY_TASKS[role] : [];
+  const role = normalizeRole(user?.role) as EligibleRole;
+  const isAssistant = role === 'assistant';
+  const isEligible = role === 'branch_manager' || role === 'branches_manager' || isAssistant;
+  const tasks = isAssistant
+    ? ASSISTANT_DAILY_TASKS
+    : isEligible
+      ? MANAGER_DAILY_TASKS[role as ManagerDailyRole]
+      : [];
+  const pageTitle = isAssistant ? 'مهام مساعد الصيدلي اليومية' : 'المهام والمتابعة اليومية';
+  const pageSubtitle = isAssistant
+    ? 'سجّل إنجازك للمهام كل يوم — معدل الالتزام بيتحوّل لحافزك الشهري تلقائيًا عند إغلاق الدورة.'
+    : 'سجّل إنك راجعت كل جانب من عملك اليوم — الالتزام هنا بيغذّي تقييمك الأسبوعي.';
 
   const [taskDate, setTaskDate] = useState(todayInput());
   const [rows, setRows] = useState<Record<string, ChecklistRow>>({});
@@ -61,6 +73,12 @@ export default function DailyManagerChecklist() {
 
   const completedCount = tasks.filter((t) => rows[t.key]?.completed).length;
   const completionPercent = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
+  const completedWeight = isAssistant
+    ? ASSISTANT_DAILY_TASKS.filter((t) => rows[t.key]?.completed).reduce((sum, t) => sum + t.weight, 0)
+    : 0;
+  const estimatedMonthlyIncentive = isAssistant
+    ? Math.round((completedWeight / ASSISTANT_TASKS_TOTAL_WEIGHT) * 1000)
+    : 0;
 
   const toggleTask = async (taskKey: string) => {
     if (!staffId) return;
@@ -77,7 +95,7 @@ export default function DailyManagerChecklist() {
           staff_id: staffId,
           staff_name: user?.name || null,
           role,
-          branch: role === 'branch_manager' ? user?.branch || null : null,
+          branch: role === 'branches_manager' ? null : (user?.branch || null),
           task_date: taskDate,
           task_key: taskKey,
           completed: nextCompleted,
@@ -112,7 +130,7 @@ export default function DailyManagerChecklist() {
         staff_id: staffId,
         staff_name: user?.name || null,
         role,
-        branch: role === 'branch_manager' ? user?.branch || null : null,
+        branch: role === 'branches_manager' ? null : (user?.branch || null),
         task_date: taskDate,
         task_key: taskKey,
         completed: current?.completed || false,
@@ -125,7 +143,7 @@ export default function DailyManagerChecklist() {
   if (!isEligible) {
     return (
       <div dir="rtl" className="p-6 text-sm text-slate-400">
-        هذه الصفحة متاحة لمدير الفرع ومدير الفروع فقط.
+        هذه الصفحة متاحة لمدير الفرع، مدير الفروع، ومساعد الصيدلي فقط.
       </div>
     );
   }
@@ -135,8 +153,8 @@ export default function DailyManagerChecklist() {
       <div className="flex items-center gap-3">
         <ListChecks className="h-6 w-6 text-teal-300" />
         <div>
-          <h1 className="text-xl font-black text-white">المهام والمتابعة اليومية</h1>
-          <p className="text-sm text-slate-400">سجّل إنك راجعت كل جانب من عملك اليوم — الالتزام هنا بيغذّي تقييمك الأسبوعي.</p>
+          <h1 className="text-xl font-black text-white">{pageTitle}</h1>
+          <p className="text-sm text-slate-400">{pageSubtitle}</p>
         </div>
       </div>
 
@@ -152,6 +170,12 @@ export default function DailyManagerChecklist() {
         </div>
         <span className="text-sm font-black text-white">{completedCount} / {tasks.length}</span>
       </div>
+
+      {isAssistant && (
+        <p className="text-xs text-slate-400">
+          لو استمريت بنفس معدل النهاردة طول الدورة، الحافز الشهري التقديري ≈ <span className="font-black text-emerald-300">{estimatedMonthlyIncentive} جنيه</span> من أصل 1000 — الرقم النهائي بيتحسب من معدل كل الأيام مجمّعة، مش يوم واحد بس.
+        </p>
+      )}
 
       {error && <p className="text-sm text-red-300">{error}</p>}
       {loading && <p className="text-sm text-slate-400">جارٍ التحميل...</p>}
