@@ -14,6 +14,8 @@ import { rowMatchesCurrentDoctor, canViewAllBranches } from '@/lib/security/user
 import { normalizeBranchName } from '@/lib/branch';
 import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import { supabase } from '@/lib/supabase';
+import { calculateCompositeScore } from '@/lib/incentives/compositeScoreService';
+import { monthCycleFromDate } from '@/lib/conversationReviews';
 
 const ALL_BRANCHES = 'كل الفروع';
 type RankingMode = 'points' | 'sales' | 'invoices' | 'average';
@@ -282,6 +284,7 @@ export default function DoctorCompetition() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
+  const [compositeScores, setCompositeScores] = useState<Record<string, number>>({});
 
   const effectiveBranch = branchFilter === ALL_BRANCHES ? '' : normalizeBranchName(branchFilter);
   const mergeAllBranches = !effectiveBranch;
@@ -358,7 +361,28 @@ export default function DoctorCompetition() {
 
       const reviewRows = reviewResponse.error ? [] : (reviewResponse.data || []) as ReviewRow[];
       const rowsWithLiveReviews = applyLiveReviews(mergedRows, reviewRows);
-      setRows(recalculatePoints(rowsWithLiveReviews));
+      const finalRows = recalculatePoints(rowsWithLiveReviews);
+      setRows(finalRows);
+
+      // الدرجة المركّبة (5 محاور موزونة) محسوبة على أساس شهري (month_cycle)، فبتتوفر
+      // بس لما الفترة المختارة = الدورة الحالية، عشان النطاق الزمني يتطابق فعليًا.
+      if (period === 'cycle') {
+        const cycleLabel = monthCycleFromDate(new Date());
+        const staffIds = [...new Set(finalRows.map((r) => r.staffId).filter((id): id is string => Boolean(id)))];
+        const scores = await Promise.all(
+          staffIds.map(async (id) => {
+            try {
+              const result = await calculateCompositeScore(id, cycleLabel);
+              return [id, result.compositeScore] as const;
+            } catch {
+              return [id, null] as const;
+            }
+          })
+        );
+        setCompositeScores(Object.fromEntries(scores.filter(([, score]) => score !== null)) as Record<string, number>);
+      } else {
+        setCompositeScores({});
+      }
 
       const warnings: string[] = [];
       if (competition.status === 'partial') warnings.push('تم استكمال قائمة الدكاترة من بيانات المبيعات.');
@@ -440,6 +464,12 @@ export default function DoctorCompetition() {
       <div className="flex items-center gap-2 text-amber-300"><Trophy size={20} /><span className="text-xs font-black uppercase tracking-wide">مسابقة الدكاترة</span></div>
       <h1 className="mt-1 text-xl font-black text-white">ترتيب جميع الدكاترة</h1>
       <p className="mt-2 text-xs font-bold text-slate-300">{mergeAllBranches ? 'يتم دمج مبيعات وفواتير نفس الدكتور في جميع الفروع ويظهر مرة واحدة.' : `يتم احتساب أداء كل دكتور داخل ${effectiveBranch} فقط.`}</p>
+      {period === 'cycle' && (
+        <p className="mt-1 text-xs font-bold text-teal-300">
+          "الدرجة المركّبة" الظاهرة تحت نقاط كل دكتور توزيع أدائه على 5 محاور (مبيعات، محادثات، خدمة عملاء، تصنيف بيانات، انضباط) —
+          <button type="button" onClick={() => navigate('/performance-pillars')} className="mr-1 underline">التفاصيل الكاملة هنا</button>.
+        </p>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={exportCsv} disabled={!visibleRows.length} className="btn-secondary disabled:opacity-50"><Download className="ml-1 inline h-4 w-4" /> تصدير CSV</button>
         <button type="button" onClick={() => void exportXlsx()} disabled={!visibleRows.length} className="btn-secondary disabled:opacity-50"><Download className="ml-1 inline h-4 w-4" /> تصدير Excel</button>
@@ -484,6 +514,27 @@ export default function DoctorCompetition() {
                 <div className="shrink-0 text-left">
                   <div className="text-lg font-black text-amber-200">{row.competitionPoints.toFixed(1)}</div>
                   <div className="text-[10px]" style={mutedText}>نقطة</div>
+                  {row.staffId && compositeScores[row.staffId] !== undefined && (
+                    <div
+                      className="mt-1 rounded-full px-2 py-0.5 text-[10px] font-black"
+                      style={{
+                        background:
+                          compositeScores[row.staffId] >= 80
+                            ? 'rgba(52,211,153,0.15)'
+                            : compositeScores[row.staffId] >= 60
+                              ? 'rgba(251,191,36,0.15)'
+                              : 'rgba(248,113,113,0.15)',
+                        color:
+                          compositeScores[row.staffId] >= 80
+                            ? '#34d399'
+                            : compositeScores[row.staffId] >= 60
+                              ? '#fbbf24'
+                              : '#f87171',
+                      }}
+                    >
+                      الدرجة المركّبة: {compositeScores[row.staffId]}/100
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-2 -mx-1 flex gap-3 overflow-x-auto px-1 text-xs font-bold" style={mutedText}>
