@@ -1,4 +1,5 @@
 import { getCurrentCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
+import type { CustomerType } from '@/lib/constants';
 
 export const MONTHLY_STARTING_POINTS = 500;
 export const MONTHLY_MAX_INCENTIVE_EGP = 1500;
@@ -6,6 +7,38 @@ export const QUARTERLY_BASE_BONUS_EGP = 2000;
 export const QUARTERLY_MIN_INCENTIVE_EGP = 500;
 export const QUARTERLY_MAX_INCENTIVE_EGP = 2600;
 export const FREE_PERMISSIONS_PER_CYCLE = 3;
+
+/**
+ * مضاعف أهمية العميل — يُطبَّق على أي حدث نقاط (مكافأة أو خصم) مرتبط بعميل،
+ * عشان التعامل مع عميل "مهم جدًا" يفرق فعليًا عن التعامل مع عميل "عادي"
+ * سواء كان الحدث إيجابي (تفوق) أو سلبي (إهمال) — الاتنين بيتضاعفوا بنفس القيمة.
+ *
+ * مهم: لازم يتحسب ويتخزن مع الحدث وقت وقوعه (snapshot)، مش يُحسب live وقت
+ * العرض، عشان لو تصنيف العميل اتغيّر بعدين الحافز التاريخي يفضل صحيح.
+ */
+export const CUSTOMER_WEIGHT_MULTIPLIERS: Record<CustomerType, number> = {
+  'عادي': 1,
+  'متوسط': 1.25,
+  'مهم': 1.5,
+  'مهم جدًا': 2,
+};
+
+export const DEFAULT_CUSTOMER_WEIGHT_MULTIPLIER = 1;
+
+export function customerWeightMultiplier(customerType?: CustomerType | string | null): number {
+  if (!customerType) return DEFAULT_CUSTOMER_WEIGHT_MULTIPLIER;
+  return CUSTOMER_WEIGHT_MULTIPLIERS[customerType as CustomerType] ?? DEFAULT_CUSTOMER_WEIGHT_MULTIPLIER;
+}
+
+/**
+ * يطبّق مضاعف أهمية العميل على نقاط قاعدة أساسية (base rule)، ويرجع النقاط
+ * النهائية بعد التقريب لأقرب رقم عشري واحد. يُستخدم وقت تسجيل الحدث نفسه
+ * (مش وقت العرض) عشان يتحفظ كـ snapshot داخل points_delta.
+ */
+export function applyCustomerWeight(basePoints: number, customerType?: CustomerType | string | null): number {
+  const multiplier = customerWeightMultiplier(customerType);
+  return Math.round(basePoints * multiplier * 10) / 10;
+}
 
 export type IncentiveImpactType =
   | 'monthly_points_deduction'
@@ -61,11 +94,20 @@ export function calculateMonthlyIncentive(args: {
   approvedExceptionalRewardPoints?: number;
   pendingDeductionPoints?: number;
   pendingRewardPoints?: number;
+  /**
+   * سقف الحافز الشهري بالجنيه — يُفترض إنه جاي من بروفايل الموظف
+   * (employee_compensation_profiles.monthly_incentive_base) عشان الفئات
+   * المختلفة (جدد / أساسيين / متميزين) تاخد سقف مختلف بدل الرقم الثابت
+   * للجميع. لو الموظف مالوش بروفايل، بيرجع للقيمة الافتراضية العامة.
+   */
+  maxIncentiveEgp?: number;
 }): MonthlyIncentiveCalculation {
   // startingPoints هنا هدف الدورة (target) مش رصيد افتتاحي — كل موظف يبدأ الدورة من صفر
-  // نقاط فعلية، ويجمع نقاطه بالمكافآت، وتُخصم منه نقاط المخالفات. الوصول لهدف الـ 500
-  // نقطة (القيمة الافتراضية) هو اللي بيدّي الحافز الأقصى، مش نقطة بداية مجانية.
+  // نقاط فعلية، ويجمع نقاطه بالمكافآت، وتُخصم منه نقاط المخالفات. الوصول للهدف
+  // (500 نقطة للفئات العادية، 1000 للفئة المتميزة) هو اللي بيدّي الحافز الأقصى،
+  // مش نقطة بداية مجانية.
   const targetPoints = args.startingPoints ?? MONTHLY_STARTING_POINTS;
+  const maxIncentiveEgp = args.maxIncentiveEgp ?? MONTHLY_MAX_INCENTIVE_EGP;
   const approvedDeductionPoints = Math.max(0, args.approvedDeductionPoints ?? 0);
   const approvedExceptionalRewardPoints = Math.max(0, args.approvedExceptionalRewardPoints ?? 0);
   const pendingDeductionPoints = Math.max(0, args.pendingDeductionPoints ?? 0);
@@ -76,8 +118,8 @@ export function calculateMonthlyIncentive(args: {
   );
   const paidPoints = Math.min(finalPoints, targetPoints);
   const monthlyIncentiveValue = Math.min(
-    MONTHLY_MAX_INCENTIVE_EGP,
-    (paidPoints / targetPoints) * MONTHLY_MAX_INCENTIVE_EGP
+    maxIncentiveEgp,
+    (paidPoints / targetPoints) * maxIncentiveEgp
   );
   const distinctionPointsAbove500 = Math.max(0, finalPoints - targetPoints);
   return {
@@ -91,6 +133,23 @@ export function calculateMonthlyIncentive(args: {
     distinctionPointsAbove500,
     progressPercent: Math.min(100, (finalPoints / targetPoints) * 100),
   };
+}
+
+/**
+ * يحوّل بروفايل تعويض الموظف (employee_compensation_profiles) لمدخلات جاهزة
+ * لـ calculateMonthlyIncentive — targetPoints = monthly_incentive_base / point_value.
+ * لو الموظف مالوش بروفايل، بيرجع القيم الافتراضية العامة (500 نقطة / 1500 جنيه).
+ */
+export function monthlyIncentiveInputsFromProfile(profile?: {
+  monthly_incentive_base?: number | null;
+  point_value?: number | null;
+} | null): { targetPoints: number; maxIncentiveEgp: number } {
+  const pointValue = profile?.point_value && profile.point_value > 0 ? profile.point_value : null;
+  const base = profile?.monthly_incentive_base && profile.monthly_incentive_base > 0
+    ? profile.monthly_incentive_base
+    : MONTHLY_MAX_INCENTIVE_EGP;
+  if (!pointValue) return { targetPoints: MONTHLY_STARTING_POINTS, maxIncentiveEgp: base };
+  return { targetPoints: Math.round(base / pointValue), maxIncentiveEgp: base };
 }
 
 export function calculateQuarterlyIncentive(args: {
