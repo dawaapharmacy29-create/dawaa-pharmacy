@@ -1,3 +1,6 @@
+import type { CustomerType } from '@/lib/constants';
+import { applyCustomerWeight, customerWeightMultiplier } from '@/lib/incentives/incentiveRulesEngine';
+
 export type ReviewErrorType =
   | 'forgotten_customer'
   | 'missing_greeting'
@@ -11,7 +14,9 @@ export type ReviewErrorType =
   | 'wrong_price'
   | 'promised_unavailable'
   | 'poor_order_delay_handling'
-  | 'unregistered_customer_request';
+  | 'unregistered_customer_request'
+  | 'missed_exceptional_followup'
+  | 'ignored_purchase_history';
 
 export type ReviewCriterionKey =
   | 'first_response_speed'
@@ -30,6 +35,8 @@ export type ReviewCriterionKey =
   | 'order_confirmation'
   | 'order_delay_handling'
   | 'customer_request_registration'
+  | 'exceptional_followup_recognition'
+  | 'purchase_history_usage'
   | 'closing_message';
 
 export type SevereErrorKey =
@@ -91,6 +98,7 @@ export interface ConversationReviewResult {
   baseDoctorImpact: number;
   extraPenaltyPoints: number;
   doctorPointsImpact: number;
+  appliedCustomerWeightMultiplier: number;
   impactStatus: 'approved' | 'pending';
   impactLabel: string;
   impactReason: string;
@@ -354,6 +362,32 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     ],
   },
   {
+    key: 'exceptional_followup_recognition',
+    label: 'التعرف على فرصة متابعة استثنائية وتسجيلها',
+    hint: 'ينطبق لو المحادثة فيها حالة تستاهل اهتمام خاص (روشتة جديدة، مريض مزمن، عميل مهم) — هل لاحظها الدكتور وسجّلها كطلب متابعة استثنائية؟',
+    maxPoints: 10,
+    defaultApplies: false,
+    defaultChoice: 'registered_correctly',
+    choices: [
+      { value: 'registered_correctly', label: 'لاحظ الحالة وسجّلها كمتابعة استثنائية بسبب واضح ومفصّل', pointsEarned: 10, excellentCase: true },
+      { value: 'registered_generic', label: 'سجّلها لكن بسبب عام غير مفصّل', pointsEarned: 6, training: 'تدريب على توثيق سبب واضح ومفيد عند تسجيل متابعة استثنائية.' },
+      { value: 'missed_opportunity', label: 'الحالة كانت واضحة ولم يسجّلها', pointsEarned: 0, errorType: 'missed_exceptional_followup', training: 'تدريب على التعرف على الحالات المستحقة متابعة استثنائية (مريض مزمن / روشتة جديدة / عميل مهم) وتسجيلها فورًا.' },
+    ],
+  },
+  {
+    key: 'purchase_history_usage',
+    label: 'استخدام تاريخ الشراء السابق للعميل',
+    hint: 'ينطبق لو تاريخ شراء العميل متاح في النظام — هل استخدمه الدكتور في الترشيح أو التذكير بموعد دواء متكرر؟',
+    maxPoints: 10,
+    defaultApplies: false,
+    defaultChoice: 'used_well',
+    choices: [
+      { value: 'used_well', label: 'استخدم تاريخ الشراء لترشيح مناسب أو تذكير بموعد الدواء', pointsEarned: 10 },
+      { value: 'used_partial', label: 'أشار لتاريخ الشراء لكن بدون استفادة كاملة منه', pointsEarned: 6 },
+      { value: 'ignored', label: 'تجاهل تاريخ الشراء رغم توفره ووضوح فائدته', pointsEarned: 0, errorType: 'ignored_purchase_history', training: 'تدريب على مراجعة تاريخ شراء العميل قبل الترشيح أو الرد.' },
+    ],
+  },
+  {
     key: 'closing_message',
     label: 'رسالة الختام',
     hint: 'إغلاق محترم يحافظ على علاقة العميل بالصيدلية.',
@@ -396,6 +430,8 @@ const repeatPriority: ReviewErrorType[] = [
   'missing_doctor_name',
   'wrong_price',
   'promised_unavailable',
+  'missed_exceptional_followup',
+  'ignored_purchase_history',
 ];
 
 export function defaultReviewState(): ConversationReviewState {
@@ -422,9 +458,14 @@ export function clampScore(value: number) {
 }
 
 export function baseDoctorImpactFromScore(score: number) {
-  if (score >= 95) return 5;
-  if (score >= 90) return 3;
-  if (score >= 85) return 0;
+  // إعادة توازن (7 أغسطس 2026): كانت المكافأة القصوى +5 مقابل خصم أقصى -20 (أساسي)
+  // أو -45 مع الأخطاء الجسيمة — فجوة كبيرة جدًا بين التميز والإهمال. رفعنا سقف
+  // المكافأة لـ+10 وأضفنا مكافأة حقيقية لمنطقة "جيد" (85-89) بدل ما تكون صفر تأثير،
+  // من غير ما نلمس جانب الخصم (كان متوازن أصلًا لأن سلامة المريض وجودة الخدمة
+  // بتستاهل ردع قوي بغض النظر عن جانب المكافأة).
+  if (score >= 95) return 10;
+  if (score >= 90) return 6;
+  if (score >= 85) return 2;
   if (score >= 80) return -5;
   if (score >= 70) return -10;
   if (score >= 60) return -15;
@@ -462,7 +503,8 @@ function scoreReason(score: number) {
 
 export function evaluateConversationReview(
   state: ConversationReviewState,
-  severeErrors: SevereErrorsState
+  severeErrors: SevereErrorsState,
+  customerType?: CustomerType | string | null
 ): ConversationReviewResult {
   const reviewItems: ReviewItemSummary[] = [];
   let earnedPoints = 0;
@@ -518,7 +560,12 @@ export function evaluateConversationReview(
   const baseDoctorImpact = baseDoctorImpactFromScore(finalScore);
   const extraPenalties = Array.from(extraPenaltyMap.values());
   const extraPenaltyPoints = extraPenalties.reduce((sum, penalty) => sum + penalty.points, 0);
-  const doctorPointsImpact = baseDoctorImpact + extraPenaltyPoints;
+  const rawDoctorPointsImpact = baseDoctorImpact + extraPenaltyPoints;
+  // مضاعف أهمية العميل (عادي ×1 / متوسط ×1.25 / مهم ×1.5 / مهم جدًا ×2) يُطبَّق على
+  // التأثير النهائي (مكافأة أو خصم) عشان محادثة ممتازة أو مهملة مع عميل VIP توزن
+  // فعليًا أكتر من نفس المحادثة مع عميل عادي — بدل ما الاتنين ياخدوا نفس القيمة بالظبط.
+  const appliedCustomerWeightMultiplier = customerWeightMultiplier(customerType);
+  const doctorPointsImpact = Math.round(applyCustomerWeight(rawDoctorPointsImpact, customerType));
   const impactStatus: 'approved' | 'pending' = doctorPointsImpact < 0 || hasSevereError ? 'pending' : 'approved';
   const impactLabel = doctorPointsImpact > 0 ? `+${doctorPointsImpact} نقاط حافز` : doctorPointsImpact < 0 ? `${doctorPointsImpact} نقاط خصم` : '0 — لا يوجد تأثير على النقاط';
 
@@ -551,6 +598,7 @@ export function evaluateConversationReview(
     baseDoctorImpact,
     extraPenaltyPoints,
     doctorPointsImpact,
+    appliedCustomerWeightMultiplier,
     impactStatus,
     impactLabel,
     impactReason: scoreReason(finalScore),
@@ -602,6 +650,8 @@ export function trainingByErrorType(type: ReviewErrorType) {
     promised_unavailable: 'تأكيد التوفر من السيستم أو الفرع قبل إبلاغ العميل.',
     poor_order_delay_handling: 'تدريب على بروتوكول تأخير الأوردر: إبلاغ، اعتذار، وقت واقعي، متابعة حتى التنفيذ.',
     unregistered_customer_request: 'تدريب على تسجيل طلب العميل كاملًا وعدم الوعد بتوفير صنف بدون تسجيله.',
+    missed_exceptional_followup: 'تدريب على التعرف على الحالات المستحقة متابعة استثنائية (مريض مزمن / روشتة جديدة / عميل مهم) وتسجيلها فورًا.',
+    ignored_purchase_history: 'تدريب على مراجعة تاريخ شراء العميل قبل الترشيح أو الرد.',
   };
   return map[type];
 }

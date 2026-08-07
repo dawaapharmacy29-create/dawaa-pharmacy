@@ -138,6 +138,7 @@ const emptyReviewForm = {
   customerCode: '',
   customerName: '',
   customerPhone: '',
+  customerType: '',
   evaluationKind: 'واتساب',
   evaluationReason: 'مراجعة عشوائية',
   invoiceNo: '',
@@ -510,7 +511,7 @@ export default function Reviews() {
   const result = useMemo(
     () => {
       try {
-        return evaluateConversationReview(reviewState, severeErrors);
+        return evaluateConversationReview(reviewState, severeErrors, form.customerType);
       } catch (err) {
         console.warn('[reviews] evaluateConversationReview failed', err);
         return {
@@ -522,6 +523,7 @@ export default function Reviews() {
           baseDoctorImpact: 0,
           extraPenaltyPoints: 0,
           doctorPointsImpact: 0,
+          appliedCustomerWeightMultiplier: 1,
           impactStatus: 'pending',
           impactLabel: '',
           impactReason: '',
@@ -541,7 +543,7 @@ export default function Reviews() {
         } as any;
       }
     },
-    [reviewState, severeErrors]
+    [reviewState, severeErrors, form.customerType]
   );
   const finalTraining = form.trainingRecommendationManual || result.trainingRecommendation;
   const conversationDate = form.conversationDate || isoInputNow();
@@ -1684,6 +1686,7 @@ export default function Reviews() {
                     customerCode: customer.customer_code || '',
                     customerName: customer.name || '',
                     customerPhone: customer.phone || '',
+                    customerType: customer.segment || '',
                   }));
                   setCustSearch(customer.name || customer.customer_code || '');
                   setCustHits([]);
