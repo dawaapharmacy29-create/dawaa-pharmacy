@@ -25,6 +25,7 @@ export const TABLES = {
   rewardRules: 'reward_rules',
   deductionRules: 'deduction_rules',
   evaluationRules: 'evaluation_rules',
+  pointAppeals: 'point_appeals',
 
   // العملاء
   customers: 'customers',
