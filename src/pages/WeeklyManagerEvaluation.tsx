@@ -6,6 +6,7 @@ import { TABLES } from '@/lib/supabaseTables';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
 import { useAuth } from '@/hooks/useAuth';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
   EVALUATION_CRITERIA,
   EVALUATION_TYPE_LABELS,
@@ -39,6 +40,9 @@ export default function WeeklyManagerEvaluation() {
   const { type } = useParams<{ type: EvaluationType }>();
   const evaluationType = (type && EVALUATION_CRITERIA[type as EvaluationType] ? type : 'branch_manager') as EvaluationType;
   const { user } = useAuth();
+  const canEvaluate = ['general_manager', 'executive_manager', 'branches_manager'].includes(
+    normalizeRole(user?.role)
+  );
 
   const { data: staff = [] } = useSupabaseQuery<StaffChoice & { role?: string; branch?: string }>({
     table: TABLES.staff,
@@ -147,6 +151,14 @@ export default function WeeklyManagerEvaluation() {
       setSaving(false);
     }
   };
+
+  if (!canEvaluate) {
+    return (
+      <div dir="rtl" className="p-6 text-sm text-slate-400">
+        هذه الصفحة متاحة لمدير الفروع والمدير العام فقط.
+      </div>
+    );
+  }
 
   return (
     <div dir="rtl" className="space-y-6 p-4 md:p-6">

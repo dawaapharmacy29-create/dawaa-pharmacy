@@ -80,6 +80,12 @@ const GROUPS: NavGroup[] = [
     { path: '/staff-payroll', icon: Wallet, label: 'الرواتب', permission: 'view_salary_calculator' },
     { path: '/quarterly-incentives', icon: Crown, label: 'شرح الحافز الشهري', permission: 'view_quarterly_incentives' },
     { path: '/penalty-incentive', icon: AlertTriangle, label: 'جزاءات ومكافآت الفرع', permission: 'view_penalty_management' },
+    { path: '/performance-pillars', icon: BarChart3, label: 'الدرجة المركّبة للأداء' },
+    { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضات النقاط' },
+    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'المهام اليومية' },
+    { path: '/weekly-evaluation/branch_manager', icon: ClipboardCheck, label: 'تقييم مدير الفرع' },
+    { path: '/weekly-evaluation/branches_manager', icon: ClipboardCheck, label: 'تقييم مدير الفروع' },
+    { path: '/weekly-evaluation/customer_service', icon: ClipboardCheck, label: 'تقييم خدمة العملاء الأسبوعي' },
   ]},
 ];
 
@@ -96,6 +102,9 @@ const PHARMACIST_GROUPS: NavGroup[] = [{
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
     { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages.view' },
     { path: '/points', icon: Star, label: 'النقاط والحافز', permission: 'view_points' },
+    { path: '/performance-pillars', icon: BarChart3, label: 'الدرجة المركّبة لأدائي' },
+    { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضاتي على النقاط' },
+    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهامي اليومية' },
     { path: '/stagnant-medicines', icon: Package, label: 'الرواكد', permission: 'view_stagnant_medicines' },
     { path: '/incentive-medicines', icon: Sparkles, label: 'اللستة', permission: 'view_incentive_medicines' },
     { path: '/schedule', icon: Calendar, label: 'الجدول', permission: 'view_schedule' },
