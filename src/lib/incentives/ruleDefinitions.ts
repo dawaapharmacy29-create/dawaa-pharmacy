@@ -51,15 +51,27 @@ export function canonicalCategory(rawCategory: string): string {
  * المحاور الخمسة الموزونة للأداء الشهري — كل فئة موحّدة بتتبع محور واحد،
  * والوزن ده بيتحدد بيه نصيب كل محور من الدرجة المركّبة الشهرية (composite score).
  */
-export const PERFORMANCE_PILLAR_WEIGHTS: Record<string, number> = {
-  'جودة البيع والصرف': 0.30,
-  'قوائم النواقص': 0.30, // جزء من محور المبيعات وجودة الفاتورة
-  'جودة المحادثات': 0.20,
-  'خدمة العملاء': 0.25,
-  'تصنيف البيانات': 0.10,
-  'الالتزام والانضباط': 0.15,
-  'الالتزام بالتطبيق': 0.15, // جزء من محور الانضباط
-};
+/**
+ * المحاور الخمسة الموزونة للأداء الشهري. تصحيح مهم (7 أغسطس 2026): الإصدار
+ * الأول من الخريطة دي كان بيدّي وزن مستقل لكل فئة فرعية (30% + 30% + ...) وده
+ * كان بيخلي المجموع أكتر من 100%. الصح: كل فئة موحّدة تتبع محور واحد بس من
+ * الخمسة، والمحور نفسه له وزن واحد، ومجموع أوزان الخمس محاور = 1.0 بالظبط.
+ */
+export const PERFORMANCE_PILLARS = [
+  { key: 'sales', label: 'المبيعات وجودة الفاتورة', weight: 0.30, categories: ['جودة البيع والصرف', 'قوائم النواقص'] },
+  { key: 'conversations', label: 'جودة المحادثات', weight: 0.20, categories: ['جودة المحادثات'] },
+  { key: 'customer_service', label: 'خدمة العملاء والمتابعات', weight: 0.25, categories: ['خدمة العملاء'] },
+  { key: 'data_quality', label: 'تصنيف وجودة البيانات', weight: 0.10, categories: ['تصنيف البيانات'] },
+  { key: 'discipline', label: 'الالتزام والانضباط', weight: 0.15, categories: ['الالتزام والانضباط', 'الالتزام بالتطبيق'] },
+] as const;
+
+export type PerformancePillarKey = (typeof PERFORMANCE_PILLARS)[number]['key'];
+
+/** يرجّع مفتاح المحور اللي فئة موحّدة معينة بتتبعله؛ لو مش معروفة بترجع null. */
+export function pillarForCanonicalCategory(canonical: string): PerformancePillarKey | null {
+  const pillar = PERFORMANCE_PILLARS.find((p) => (p.categories as readonly string[]).includes(canonical));
+  return pillar ? pillar.key : null;
+}
 
 function rule(
   rule_code: string,
