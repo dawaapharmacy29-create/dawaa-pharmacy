@@ -71,6 +71,7 @@ const PayrollManagement = lazy(() => import('@/pages/PayrollManagement'));
 const PenaltyIncentiveManagement = lazy(() => import('@/pages/PenaltyIncentiveManagement'));
 const PointAppeals = lazy(() => import('@/pages/PointAppeals'));
 const DoctorPerformancePillars = lazy(() => import('@/pages/DoctorPerformancePillars'));
+const WeeklyManagerEvaluation = lazy(() => import('@/pages/WeeklyManagerEvaluation'));
 const CustomerServiceWeeklyReport = lazy(() => import('@/pages/CustomerServiceWeeklyReport'));
 const StaffDashboard = lazy(() => import('@/pages/StaffDashboard'));
 const CustomerServiceManagerDashboard = lazy(() => import('@/pages/CustomerServiceManagerDashboard'));
@@ -192,6 +193,7 @@ function AppRoutes() {
     <Route path="/evaluation-rules" element={<ProtectedRoute>{routeSuspense(<EvaluationRules2027 />, 'قواعد التقييم')}</ProtectedRoute>} />
     <Route path="/point-appeals" element={<ProtectedRoute>{routeSuspense(<PointAppeals />, 'اعتراضات النقاط')}</ProtectedRoute>} />
     <Route path="/performance-pillars" element={<ProtectedRoute>{routeSuspense(<DoctorPerformancePillars />, 'الدرجة المركّبة للأداء')}</ProtectedRoute>} />
+    <Route path="/weekly-evaluation/:type" element={<ProtectedRoute>{routeSuspense(<WeeklyManagerEvaluation />, 'التقييم الأسبوعي')}</ProtectedRoute>} />
     <Route path="/customer-service-weekly-report" element={<ProtectedRoute>{routeSuspense(<CustomerServiceWeeklyReport />, 'تقرير خدمة العملاء الأسبوعي')}</ProtectedRoute>} />
     <Route path="/quarterly-incentives" element={<ProtectedRoute>{routeSuspense(<QuarterlyIncentives2027 />, 'الحافز الشهري')}</ProtectedRoute>} />
     <Route path="/operations-center" element={<ProtectedRoute>{routeSuspense(<OperationsCenter2027 />, 'مركز العمليات')}</ProtectedRoute>} />
