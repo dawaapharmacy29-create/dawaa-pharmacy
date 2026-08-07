@@ -27,9 +27,6 @@ export const TABLES = {
   evaluationRules: 'evaluation_rules',
   pointAppeals: 'point_appeals',
   managerWeeklyEvaluations: 'manager_weekly_evaluations',
-  branchManagerWeeklyEvaluations: 'branch_manager_weekly_evaluations',
-  branchesManagerWeeklyEvaluations: 'branches_manager_weekly_evaluations',
-  customerServiceWeeklyReports: 'customer_service_weekly_reports',
 
   // العملاء
   customers: 'customers',
