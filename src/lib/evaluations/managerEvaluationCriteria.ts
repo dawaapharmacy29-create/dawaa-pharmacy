@@ -132,14 +132,14 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
     {
       key: 'sales',
       label: 'أداء المبيعات الكلي (الفرعين معًا)',
-      weight: 0.2,
+      weight: 0.15,
       mode: 'auto',
       autoScore: salesGrowthScore,
     },
     {
       key: 'customer_service',
       label: 'جودة خدمة العملاء الكلية',
-      weight: 0.2,
+      weight: 0.15,
       mode: 'auto',
       autoScore: followupClosureScore,
     },
@@ -155,6 +155,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       label: 'جودة سير العمل والتنسيق بين الفروع',
       weight: 0.1,
       mode: 'manual',
+      hint: 'تقييم كيفي من المدير العام لجودة التنسيق بين الفرعين والمخزن.',
     },
     {
       key: 'warehouse',
@@ -175,16 +176,25 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
     {
       key: 'supplier_relations',
       label: 'متابعة علاقات الموردين الاستراتيجيين',
-      weight: 0.05,
+      weight: 0.1,
       mode: 'checklist',
       checklistTaskKey: 'supplier_relations_review',
       hint: 'محسوبة من نسبة أيام الأسبوع اللي اتابعت فيها علاقات الموردين فعليًا.',
     },
     {
+      key: 'team_development',
+      label: 'تطوير وتدريب مديري الفروع',
+      weight: 0.1,
+      mode: 'checklist',
+      checklistTaskKey: 'team_development_review',
+      hint: 'محسوبة من نسبة أيام الأسبوع اللي اتابعت فيها خطط تطوير وتدريب مديري الفروع فعليًا.',
+    },
+    {
       key: 'leadership',
       label: 'القدرة على القيادة واتخاذ القرار',
-      weight: 0.15,
+      weight: 0.1,
       mode: 'manual',
+      hint: 'تقييم كيفي من المدير العام — الحسم في القرارات، إدارة الأزمات، والتأثير على الفريق.',
     },
   ],
   customer_service: [
