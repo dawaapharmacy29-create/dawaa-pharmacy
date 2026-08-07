@@ -47,6 +47,23 @@ export const MANAGER_DAILY_TASKS: Record<ManagerDailyRole, DailyTaskDefinition[]
       label: 'عملت جولة ميدانية داخل الفرع',
       hint: 'تفقد النظافة والترتيب وعرض المنتجات.',
     },
+    {
+      key: 'cash_reconciliation',
+      label: 'طابقت الكاش والعهدة اليومية',
+      hint: 'مطابقة كاش الدرج/الماكينة مع تقرير المبيعات — أهم ضبط مالي يومي.',
+      linkedEvaluationCriterion: 'cash_integrity',
+    },
+    {
+      key: 'complaints_escalation',
+      label: 'راجعت الشكاوى المتصاعدة وتابعت حلها',
+      hint: 'أي شكوى وصلتلك من خدمة العملاء أو مباشرة من عميل — لازم رد وحل موثّق.',
+      linkedEvaluationCriterion: 'complaints_handling',
+    },
+    {
+      key: 'team_briefing',
+      label: 'عملت تجميعة سريعة مع الفريق (تسليم الشيفت)',
+      hint: 'مراجعة أولويات اليوم مع الفريق وملاحظات الشيفت السابق.',
+    },
   ],
   branches_manager: [
     {
@@ -56,6 +73,7 @@ export const MANAGER_DAILY_TASKS: Record<ManagerDailyRole, DailyTaskDefinition[]
     {
       key: 'warehouse_review',
       label: 'تابعت المخزن المركزي',
+      linkedEvaluationCriterion: 'warehouse',
     },
     {
       key: 'branch_managers_reports_review',
@@ -72,6 +90,23 @@ export const MANAGER_DAILY_TASKS: Record<ManagerDailyRole, DailyTaskDefinition[]
     {
       key: 'standards_compliance_review',
       label: 'تابعت الالتزام بمعايير التشغيل في الفرعين',
+    },
+    {
+      key: 'budget_expense_review',
+      label: 'راجعت المصروفات التشغيلية والميزانية',
+      hint: 'مقارنة المصروفات الفعلية بالميزانية المعتمدة للفرعين والمخزن.',
+      linkedEvaluationCriterion: 'budget_control',
+    },
+    {
+      key: 'supplier_relations_review',
+      label: 'تابعت علاقات الموردين الاستراتيجيين',
+      hint: 'التفاوض على الأسعار، مواعيد التوريد، وحل أي مشكلة توريد.',
+      linkedEvaluationCriterion: 'supplier_relations',
+    },
+    {
+      key: 'team_development_review',
+      label: 'تابعت تطوير وتدريب مديري الفروع',
+      hint: 'متابعة خطط التطوير والتدريب المتفق عليها مع كل مدير فرع.',
     },
   ],
 };
