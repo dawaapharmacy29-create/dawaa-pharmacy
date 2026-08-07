@@ -19,6 +19,7 @@ import {
   previousWeekOf,
   saveWeeklyEvaluation,
   fetchEvaluationHistory,
+  fetchWeeklyChecklistCompletion,
   type ManagerWeeklyEvaluation,
 } from '@/lib/evaluations/managerEvaluationService';
 
@@ -66,6 +67,7 @@ export default function WeeklyManagerEvaluation() {
 
   const [currentMetrics, setCurrentMetrics] = useState<WeeklyAutoMetrics | null>(null);
   const [previousMetrics, setPreviousMetrics] = useState<WeeklyAutoMetrics | null>(null);
+  const [checklistRates, setChecklistRates] = useState<Record<string, number>>({});
   const [manualScores, setManualScores] = useState<Record<string, number>>({});
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
@@ -85,12 +87,14 @@ export default function WeeklyManagerEvaluation() {
       fetchWeeklyAutoMetrics(evaluationType, branchForMetrics, weekStart, weekEnd),
       fetchWeeklyAutoMetrics(evaluationType, branchForMetrics, prev.start, prev.end),
       fetchEvaluationHistory(evaluationType, subjectStaffId),
+      fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd),
     ])
-      .then(([cur, prevMetrics, hist]) => {
+      .then(([cur, prevMetrics, hist, checklist]) => {
         if (cancelled) return;
         setCurrentMetrics(cur);
         setPreviousMetrics(prevMetrics);
         setHistory(hist as Array<{ week_start: string; total_score: number; status: string }>);
+        setChecklistRates(checklist);
       })
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : 'تعذر تحميل البيانات'))
       .finally(() => !cancelled && setLoading(false));
@@ -102,8 +106,8 @@ export default function WeeklyManagerEvaluation() {
   const criteria = EVALUATION_CRITERIA[evaluationType];
   const totalScore = useMemo(() => {
     if (!currentMetrics) return 0;
-    return computeTotalScore(evaluationType, currentMetrics, previousMetrics, manualScores);
-  }, [evaluationType, currentMetrics, previousMetrics, manualScores]);
+    return computeTotalScore(evaluationType, currentMetrics, previousMetrics, manualScores, checklistRates);
+  }, [evaluationType, currentMetrics, previousMetrics, manualScores, checklistRates]);
 
   const manualComplete = criteria
     .filter((c) => c.mode === 'manual')
@@ -192,6 +196,10 @@ export default function WeeklyManagerEvaluation() {
                 criterion.mode === 'auto' && criterion.autoScore
                   ? criterion.autoScore(currentMetrics, previousMetrics)
                   : null;
+              const checklistScore =
+                criterion.mode === 'checklist' && criterion.checklistTaskKey
+                  ? (checklistRates[criterion.checklistTaskKey] ?? 0) / 10
+                  : null;
               return (
                 <div key={criterion.key} className="stat-card space-y-2">
                   <div className="flex items-center justify-between">
@@ -199,7 +207,7 @@ export default function WeeklyManagerEvaluation() {
                     <span className="text-xs font-bold text-slate-400">وزن {Math.round(criterion.weight * 100)}%</span>
                   </div>
                   {criterion.hint && <p className="text-xs text-slate-500">{criterion.hint}</p>}
-                  {criterion.mode === 'auto' ? (
+                  {criterion.mode === 'auto' && (
                     <div className="flex items-center gap-2">
                       <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>
                         {(autoScore || 0).toFixed(1)} / 10
@@ -214,7 +222,18 @@ export default function WeeklyManagerEvaluation() {
                         </span>
                       )}
                     </div>
-                  ) : (
+                  )}
+                  {criterion.mode === 'checklist' && (
+                    <div className="flex items-center gap-2">
+                      <span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>
+                        {(checklistScore || 0).toFixed(1)} / 10
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        ({(checklistRates[criterion.checklistTaskKey || ''] ?? 0).toFixed(0)}% من أيام الأسبوع مسجّلة كمكتملة في المهام اليومية)
+                      </span>
+                    </div>
+                  )}
+                  {criterion.mode === 'manual' && (
                     <div className="flex items-center gap-2">
                       <input
                         type="range"

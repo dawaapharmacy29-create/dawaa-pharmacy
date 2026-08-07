@@ -36,6 +36,20 @@ export async function fetchWeeklyAutoMetrics(
   return data as WeeklyAutoMetrics;
 }
 
+export async function fetchWeeklyChecklistCompletion(
+  staffId: string,
+  weekStart: string,
+  weekEnd: string
+): Promise<Record<string, number>> {
+  const { data, error } = await supabase.rpc('calculate_weekly_checklist_completion', {
+    p_staff_id: staffId,
+    p_week_start: weekStart,
+    p_week_end: weekEnd,
+  });
+  if (error) throw new Error(error.message);
+  return (data as Record<string, number>) || {};
+}
+
 export type ManagerWeeklyEvaluation = {
   id?: string;
   evaluation_type: EvaluationType;

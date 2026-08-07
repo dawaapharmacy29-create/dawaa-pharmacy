@@ -22,10 +22,12 @@ export type EvaluationCriterion = {
   key: string;
   label: string;
   weight: number;
-  mode: 'auto' | 'manual';
+  mode: 'auto' | 'manual' | 'checklist';
   hint?: string;
   /** لعناصر auto فقط — بيحسب درجة من 0-10 من المقاييس (الحالية + السابقة للمقارنة). */
   autoScore?: (current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null) => number;
+  /** لعناصر checklist فقط — مفتاح المهمة اليومية اللي معدل إنجازها الأسبوعي بيحدد الدرجة. */
+  checklistTaskKey?: string;
 };
 
 function ratio(part: number, total: number): number {
@@ -88,17 +90,19 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
     },
     {
       key: 'purchases',
-      label: 'المشتريات وإدارة الموردين',
+      label: 'مراجعة المشتريات وإدارة الموردين',
       weight: 0.15,
-      mode: 'manual',
-      hint: 'لسه مش متتبّعة تلقائيًا في النظام — تقييم يدوي من مدير الفروع.',
+      mode: 'checklist',
+      checklistTaskKey: 'purchases_review',
+      hint: 'محسوبة من نسبة أيام الأسبوع اللي سجّل فيها المدير مراجعة المشتريات فعليًا في المهام اليومية.',
     },
     {
       key: 'inventory',
-      label: 'الجرد والمخزون',
+      label: 'متابعة الجرد والمخزون',
       weight: 0.15,
-      mode: 'manual',
-      hint: 'لسه مش متتبّعة تلقائيًا في النظام — تقييم يدوي من مدير الفروع.',
+      mode: 'checklist',
+      checklistTaskKey: 'inventory_review',
+      hint: 'محسوبة من نسبة أيام الأسبوع اللي سجّل فيها المدير متابعة الجرد فعليًا في المهام اليومية.',
     },
     {
       key: 'attendance',
@@ -199,15 +203,20 @@ export function computeTotalScore(
   type: EvaluationType,
   current: WeeklyAutoMetrics,
   previous: WeeklyAutoMetrics | null,
-  manualScores: Record<string, number>
+  manualScores: Record<string, number>,
+  checklistRates: Record<string, number> = {}
 ): number {
   const criteria = EVALUATION_CRITERIA[type];
   let total = 0;
   for (const criterion of criteria) {
-    const score =
-      criterion.mode === 'auto' && criterion.autoScore
-        ? criterion.autoScore(current, previous)
-        : manualScores[criterion.key] ?? 0;
+    let score: number;
+    if (criterion.mode === 'auto' && criterion.autoScore) {
+      score = criterion.autoScore(current, previous);
+    } else if (criterion.mode === 'checklist' && criterion.checklistTaskKey) {
+      score = (checklistRates[criterion.checklistTaskKey] ?? 0) / 10;
+    } else {
+      score = manualScores[criterion.key] ?? 0;
+    }
     total += score * criterion.weight;
   }
   // الدرجة النهائية من 100 (كل معيار من 10 × وزنه، مجموع الأوزان = 1، فالمجموع من 10 × 10 = 100)

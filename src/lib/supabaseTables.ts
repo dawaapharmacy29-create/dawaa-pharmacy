@@ -27,6 +27,7 @@ export const TABLES = {
   evaluationRules: 'evaluation_rules',
   pointAppeals: 'point_appeals',
   managerWeeklyEvaluations: 'manager_weekly_evaluations',
+  managerDailyChecklist: 'manager_daily_checklist',
 
   // العملاء
   customers: 'customers',
