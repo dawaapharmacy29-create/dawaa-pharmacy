@@ -56,7 +56,7 @@ export async function calculateCompositeScore(
 ): Promise<CompositeScoreResult> {
   const { data, error } = await supabase
     .from(TABLES.employeeTransactions)
-    .select('points_delta, description, reason, status, source')
+    .select('points_delta, description, reason, status, source, category')
     .eq('staff_id', staffId)
     .eq('month_cycle', monthCycle)
     .eq('status', 'active');
@@ -78,16 +78,24 @@ export async function calculateCompositeScore(
     if (!delta) continue;
     const source = String(row.source || '');
     const reason = String(row.reason || '');
-    // معاملات تقييم المحادثات (conversationReviews.ts) بتتحط مباشرة من غير كود
-    // قاعدة (CHAT-XXX) في النص — لازم تتعرف بمصدرها/سببها مش بمطابقة كود.
     if (source.startsWith('conversation_') || reason.includes('تقييم محادثة')) {
       pillarTotals.conversations += delta;
       continue;
     }
-    const text = `${row.description || ''} ${reason}`;
-    const ruleCode = text.match(RULE_CODE_PATTERN)?.[0];
-    const rawCategory = ruleCode ? RULE_CATEGORY_BY_CODE[ruleCode] : null;
-    const pillarKey = rawCategory ? pillarForCanonicalCategory(canonicalCategory(rawCategory)) : null;
+    // الفئة المخزّنة وقت إنشاء المعاملة (لو موجودة) بتتفضّل على أي استنتاج حي —
+    // كده تعديل فئة قاعدة في المستقبل (CANONICAL_CATEGORY_MAP) مايأثرش بأثر رجعي
+    // على المعاملات اللي اتسجّلت قبله. لو مخزّنش (معاملات قديمة قبل التحديث)، بترجع
+    // للاستنتاج من كود القاعدة زي الأول.
+    const storedCategory = (row as { category?: string | null }).category;
+    let pillarKey: PerformancePillarKey | null = storedCategory
+      ? pillarForCanonicalCategory(canonicalCategory(storedCategory))
+      : null;
+    if (!pillarKey) {
+      const text = `${row.description || ''} ${reason}`;
+      const ruleCode = text.match(RULE_CODE_PATTERN)?.[0];
+      const rawCategory = ruleCode ? RULE_CATEGORY_BY_CODE[ruleCode] : null;
+      pillarKey = rawCategory ? pillarForCanonicalCategory(canonicalCategory(rawCategory)) : null;
+    }
     if (pillarKey) {
       pillarTotals[pillarKey] += delta;
     } else {
