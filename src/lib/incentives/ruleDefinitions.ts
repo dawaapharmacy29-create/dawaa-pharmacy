@@ -469,6 +469,15 @@ export const MONTHLY_EXCEPTIONAL_REWARD_RULES: IncentiveRuleDefinition[] = [
     approval_required: false,
     source_module: 'daily_followups',
   }),
+  rule('CHAT-REW-001', 'تقييم محادثة ممتاز (85-94/100)', 'واتساب وجودة المحادثات', 8, {
+    approval_required: false,
+    source_module: 'conversation_reviews',
+    description_ar: 'مكافأة فورية على مستوى المحادثة نفسها، مش بس على متوسط الدورة كلها — عشان الالتزام اليومي بالجودة يتكافئ وقته مش بعد شهر.',
+  }),
+  rule('CHAT-REW-002', 'تقييم محادثة استثنائي (95-100/100)', 'واتساب وجودة المحادثات', 12, {
+    approval_required: false,
+    source_module: 'conversation_reviews',
+  }),
 ];
 
 export const QUARTERLY_RULES: IncentiveRuleDefinition[] = [

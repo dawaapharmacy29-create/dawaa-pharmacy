@@ -200,6 +200,17 @@ export function conversationScoreDeductionRule(score: number) {
   return null;
 }
 
+/**
+ * مقابل conversationScoreDeductionRule لكن للمكافآت — بتغطي المنطقة اللي كانت
+ * فاضية تمامًا قبل كده (70-100 كان مفيهاش أي مكافأة على مستوى المحادثة نفسها،
+ * بس خصومات تحت 70). 70-84 منطقة محايدة (أداء عادي، لا خصم ولا مكافأة).
+ */
+export function conversationScoreRewardRule(score: number) {
+  if (score >= 95) return 'CHAT-REW-002';
+  if (score >= 85) return 'CHAT-REW-001';
+  return null;
+}
+
 export function calculateRepeatDeduction(args: {
   basePoints: number;
   previousOccurrences: number;
@@ -237,6 +248,38 @@ export function calculatePermissionPolicy(approvedPermissionsInCycle: number) {
     requiresManagerReview: penalizedPermissionNumber >= 3,
   };
 }
+
+export type ApprovalRole = 'shift_supervisor' | 'branch_manager' | 'branches_manager' | 'general_manager';
+
+/**
+ * مصفوفة اعتماد الصلاحيات حسب خطورة الحدث — كل قاعدة نقاط عندها severity
+ * محسوبة تلقائيًا في ruleDefinitions.ts (حسب حجم النقاط)، والدالة دي بتحدد
+ * مين لازم يعتمد الحدث فعليًا قبل ما يتفعّل، ومين ينفع يضيفه من الأساس.
+ *
+ * فصل الأدوار (separation of duties): في low/medium الاعتماد تلقائي أو خلال
+ * مهلة، وفي high/critical لازم اعتماد صريح من دور أعلى من اللي أضاف الحدث.
+ */
+export function approvalAuthorityFor(severity: IncentiveSeverity): {
+  addedBy: ApprovalRole;
+  approvedBy: ApprovalRole | 'auto';
+  autoApproveAfterHours: number | null;
+} {
+  switch (severity) {
+    case 'low':
+      return { addedBy: 'shift_supervisor', approvedBy: 'auto', autoApproveAfterHours: 0 };
+    case 'medium':
+      return { addedBy: 'shift_supervisor', approvedBy: 'branch_manager', autoApproveAfterHours: 48 };
+    case 'high':
+      return { addedBy: 'branch_manager', approvedBy: 'branches_manager', autoApproveAfterHours: null };
+    case 'critical':
+      return { addedBy: 'branch_manager', approvedBy: 'general_manager', autoApproveAfterHours: null };
+    default:
+      return { addedBy: 'shift_supervisor', approvedBy: 'auto', autoApproveAfterHours: 0 };
+  }
+}
+
+export type PointAppealStatus = 'pending' | 'under_review' | 'upheld' | 'overturned';
+export const POINT_APPEAL_WINDOW_DAYS = 5;
 
 export function getQuarterRange(date = new Date()) {
   const month = date.getMonth();
