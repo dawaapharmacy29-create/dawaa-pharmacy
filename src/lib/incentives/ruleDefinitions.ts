@@ -39,6 +39,7 @@ export const CANONICAL_CATEGORY_MAP: Record<string, string> = {
   'مكافآت الضغط والتشغيل': 'الضغط والتشغيل',
   'مكافآت تلقائية': 'مكافآت تلقائية',
   'الحافز الربع سنوي': 'الحافز الربع سنوي',
+  'مهام مساعد الصيدلي': 'مهام مساعد الصيدلي',
 };
 
 /** يرجّع الفئة الموحّدة لأي اسم فئة خام؛ لو الاسم مش معروف بيرجع زي ما هو. */
@@ -590,10 +591,80 @@ export const QUARTERLY_RULES: IncentiveRuleDefinition[] = [
   }),
 ];
 
+/**
+ * قواعد مساعد الصيدلي — نظام منفصل عن نظام نقاط الدكاترة (بيع/محادثات/متابعات)
+ * لأن دور مساعد الصيدلي تشغيلي بالأساس (رص، جرد، فواتير مشتريات، نواكد).
+ * الهدف 100 نقطة مهام = 100% من الحافز الشهري (1000 جنيه لكل مساعد حسب
+ * employee_compensation_profiles.monthly_incentive_base = 1000, point_value = 10).
+ */
+export const ASSISTANT_TASK_RULES: IncentiveRuleDefinition[] = [
+  rule('ASSIST-001', 'تنفيذ الجرد الدوري كامل وفي موعده', 'مهام مساعد الصيدلي', 20, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'inventory',
+  }),
+  rule('ASSIST-002', 'إدخال فواتير المشتريات كاملة وصحيحة ومطابقة للمستلم فعليًا', 'مهام مساعد الصيدلي', 20, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'purchase_invoices',
+  }),
+  rule('ASSIST-003', 'رص وترتيب الأصناف والرفوف بالتزام يومي', 'مهام مساعد الصيدلي', 15, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'shelving',
+  }),
+  rule('ASSIST-004', 'متابعة تواريخ الصلاحية والإبلاغ عن أي صنف قريب من الانتهاء', 'مهام مساعد الصيدلي', 15, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'expiry_tracking',
+  }),
+  rule('ASSIST-005', 'تجهيز طلبات النواقص قبل نفاذ الصنف فعليًا', 'مهام مساعد الصيدلي', 10, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'stock_requests',
+  }),
+  rule('ASSIST-006', 'نظافة وتنظيم مكان التخزين', 'مهام مساعد الصيدلي', 10, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'storage',
+  }),
+  rule('ASSIST-007', 'دعم الصيدلي في أوقات الزحام بدون تقصير في مهامه الأساسية', 'مهام مساعد الصيدلي', 10, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'peak_support',
+  }),
+  rule('ASSIST-D001', 'تأخير أو إهمال الجرد الدوري عن موعده', 'مهام مساعد الصيدلي', -20, {
+    role_scope: 'assistant',
+    approval_required: true,
+    source_module: 'inventory',
+  }),
+  rule('ASSIST-D002', 'خطأ في إدخال فاتورة مشتريات (كمية أو سعر غير مطابق)', 'مهام مساعد الصيدلي', -15, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'purchase_invoices',
+  }),
+  rule('ASSIST-D003', 'إهمال متابعة تواريخ الصلاحية أدى لاكتشاف صنف قريب من الانتهاء متأخرًا', 'مهام مساعد الصيدلي', -20, {
+    role_scope: 'assistant',
+    approval_required: true,
+    source_module: 'expiry_tracking',
+  }),
+  rule('ASSIST-D004', 'إهمال متكرر في رص وترتيب الرفوف', 'مهام مساعد الصيدلي', -10, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'shelving',
+  }),
+  rule('ASSIST-D005', 'إهمال نظافة أو تنظيم مكان التخزين', 'مهام مساعد الصيدلي', -10, {
+    role_scope: 'assistant',
+    approval_required: false,
+    source_module: 'storage',
+  }),
+];
+
 export const ALL_INCENTIVE_RULES = [
   ...MONTHLY_DEDUCTION_RULES,
   ...MONTHLY_EXCEPTIONAL_REWARD_RULES,
   ...QUARTERLY_RULES,
+  ...ASSISTANT_TASK_RULES,
 ];
 
 export const STAFF_OPERATING_POLICY_SECTIONS = [
