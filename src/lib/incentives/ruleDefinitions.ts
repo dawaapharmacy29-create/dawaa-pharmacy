@@ -469,6 +469,19 @@ export const MONTHLY_EXCEPTIONAL_REWARD_RULES: IncentiveRuleDefinition[] = [
     approval_required: false,
     source_module: 'daily_followups',
   }),
+  rule('FUP-EXCEPT-001', 'تسجيل طلب متابعة استثنائية موثّق من دكتور', 'المتابعات', 8, {
+    approval_required: false,
+    source_module: 'daily_followups',
+    description_ar:
+      'مكافأة على تسجيل طلب متابعة استثنائية ببيانات كاملة (سبب واضح + تقييم أهمية العميل) عبر ExceptionalFollowupModal. ' +
+      'القيمة الفعلية تُحسب ديناميكيًا وقت التسجيل عبر exceptionalFollowupPointsPolicy() (تناقص تدريجي بعد 10 طلبات في الدورة عشان نمنع الفرملة)، ' +
+      'ثم تُضرب في مضاعف أهمية العميل (customerWeightMultiplier) حسب تقييم الدكتور نفسه (1-4) وقت الطلب — القيمة هنا (8) هي الأساس عند التسجيل الأول في الدورة لعميل عادي.',
+  }),
+  rule('FUP-EXCEPT-D001', 'طلب متابعة استثنائية رفضته خدمة العملاء (غير مبرر أو مكرر)', 'المتابعات', -10, {
+    approval_required: false,
+    source_module: 'daily_followups',
+    description_ar: 'خصم رادع لو خدمة العملاء صنّفت الطلب كغير مبرر/مكرر/بيانات وهمية — يمنع استغلال FUP-EXCEPT-001 لتجميع نقاط بطلبات شكلية.',
+  }),
   rule('CHAT-REW-001', 'تقييم محادثة ممتاز (85-94/100)', 'واتساب وجودة المحادثات', 8, {
     approval_required: false,
     source_module: 'conversation_reviews',

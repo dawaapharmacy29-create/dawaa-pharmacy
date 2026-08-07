@@ -281,6 +281,35 @@ export function approvalAuthorityFor(severity: IncentiveSeverity): {
 export type PointAppealStatus = 'pending' | 'under_review' | 'upheld' | 'overturned';
 export const POINT_APPEAL_WINDOW_DAYS = 5;
 
+export const EXCEPTIONAL_FOLLOWUP_BASE_POINTS = 8;
+export const EXCEPTIONAL_FOLLOWUP_FULL_REWARD_PER_CYCLE = 10;
+export const EXCEPTIONAL_FOLLOWUP_REDUCED_REWARD_PER_CYCLE = 5;
+
+/**
+ * سياسة نقاط "طلب متابعة استثنائية" — نفس منطق calculatePermissionPolicy
+ * (مكافأة كاملة لحد سقف معقول في الدورة، وبعدها تناقص، مش صفر فجأة ولا
+ * استمرار مفتوح) عشان نمنع إغراء الدكتور إنه يسجل طلبات وهمية كتير علشان
+ * يجمع نقاط. الرقم النهائي هنا هو الأساس (base) قبل ما يتضرب في مضاعف
+ * أهمية العميل — applyCustomerWeight بيتطبق بعد الدالة دي مش بدالها.
+ *
+ * countInCycleSoFar = عدد الطلبات الاستثنائية الموثّقة (مش المرفوضة) اللي
+ * سجّلها نفس الدكتور في نفس الدورة الشهرية، قبل الطلب الحالي.
+ */
+export function exceptionalFollowupPointsPolicy(countInCycleSoFar: number): {
+  requestNumber: number;
+  basePoints: number;
+  tier: 'full' | 'reduced' | 'none';
+} {
+  const requestNumber = Math.max(0, countInCycleSoFar) + 1;
+  if (requestNumber <= EXCEPTIONAL_FOLLOWUP_FULL_REWARD_PER_CYCLE) {
+    return { requestNumber, basePoints: EXCEPTIONAL_FOLLOWUP_BASE_POINTS, tier: 'full' };
+  }
+  if (requestNumber <= EXCEPTIONAL_FOLLOWUP_FULL_REWARD_PER_CYCLE + EXCEPTIONAL_FOLLOWUP_REDUCED_REWARD_PER_CYCLE) {
+    return { requestNumber, basePoints: Math.round(EXCEPTIONAL_FOLLOWUP_BASE_POINTS / 2), tier: 'reduced' };
+  }
+  return { requestNumber, basePoints: 0, tier: 'none' };
+}
+
 export function getQuarterRange(date = new Date()) {
   const month = date.getMonth();
   const qStartMonth = Math.floor(month / 3) * 3;
