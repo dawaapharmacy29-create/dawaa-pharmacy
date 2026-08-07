@@ -90,7 +90,9 @@ export function notificationRoute(notification: AppNotification) {
     if (
       /^\/customer-service\/?(?:\?.*)?$/.test(explicit) &&
       id &&
-      !/[?&]followupId=/.test(explicit)
+      !/[?&]followupId=/.test(explicit) &&
+      !/[?&]quickFollowup=/.test(explicit) &&
+      !/[?&]code=/.test(explicit)
     ) {
       return routeWithId(explicit, 'followupId', id);
     }

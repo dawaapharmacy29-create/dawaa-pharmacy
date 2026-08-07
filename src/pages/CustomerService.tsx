@@ -3098,6 +3098,7 @@ const addFollowup = async () => {
       <QuickFollowupModal
         open={quickFollowupOpen}
         onClose={closeQuickFollowup}
+        initialCustomerCode={requestedCustomerFallback.customer_code}
         onCreated={() => {
           void load(true);
           setActiveTab('requests');

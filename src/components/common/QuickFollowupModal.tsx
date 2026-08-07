@@ -47,11 +47,17 @@ export default function QuickFollowupModal({
   onClose,
   onCreated,
   defaultBranch,
+  initialCustomerCode,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated?: () => void;
   defaultBranch?: string;
+  /**
+   * كود عميل جاي من إشعار (زي "عميل مهم ساكت") — لو موجود، النافذة تبحث
+   * وتحدد العميل ده تلقائيًا بدل ما تفتح فاضية وتسيب المستخدم يدور بنفسه.
+   */
+  initialCustomerCode?: string | null;
 }) {
   const { user } = useAuth();
   const managerView = canViewAllBranches(user);
@@ -134,6 +140,29 @@ export default function QuickFollowupModal({
       window.clearTimeout(timer);
     };
   }, [branch, defaultBranch, open, search, user?.branch]);
+
+  useEffect(() => {
+    if (!open || !initialCustomerCode) return;
+    let cancelled = false;
+    searchCustomerMetrics(initialCustomerCode)
+      .then((found) => {
+        if (cancelled || !found.length) return;
+        const exact =
+          found.find((c) => String(c.customer_code || '').trim() === String(initialCustomerCode).trim()) ||
+          found[0];
+        setSelectedCustomer(exact);
+        setName(exact.name || '');
+        setPhone(exact.phone || '');
+        setCode(exact.customer_code || '');
+        setSelectedCustomerBranch(normalizeBranchName(exact.branch || ''));
+      })
+      .catch(() => {
+        // فشل البحث التلقائي مش لازم يمنع فتح النافذة — المستخدم يقدر يبحث يدويًا
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, initialCustomerCode]);
 
   if (!open) return null;
 
