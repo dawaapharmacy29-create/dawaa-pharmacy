@@ -141,7 +141,7 @@ export default function CustomerMonthlyPerformance() {
       </div>
 
       {error && <p className="text-sm text-red-300">{error}</p>}
-      {loading && <p className="text-sm text-slate-400">جارٍ الحساب...</p>}
+      {loading && <p className="text-sm text-slate-400">جارٍ الحساب... (ممكن ياخد لحد 10-15 ثانية لكل التاريخ المطلوب مراجعته)</p>}
 
       {summary && !loading && (
         <>
