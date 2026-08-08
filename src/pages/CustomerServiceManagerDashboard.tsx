@@ -154,9 +154,13 @@ export default function CustomerServiceManagerDashboard() {
         </div>
       )}
 
-      <div className="flex items-center justify-between rounded-2xl border p-3" style={surfaceSoft}>
-        <span className="text-xs font-bold" style={mutedText}>نظرة عامة على أداء الفرع والمتابعات</span>
-        <button onClick={() => void load()} className="btn-secondary flex items-center gap-2 text-xs" disabled={loading}>
+      <div className="flex items-center gap-3 rounded-2xl border-2 border-teal-400/30 bg-teal-500/10 p-4">
+        <Users size={20} className="text-teal-300 shrink-0" />
+        <div className="flex-1">
+          <div className="text-sm font-black text-white">نظرة عامة على الفرع بالكامل (كل الفريق)</div>
+          <div className="text-xs" style={mutedText}>الأرقام من هنا لتحت بتخص فريق الفرع كله، مش بياناتك الشخصية بس اللي فوق.</div>
+        </div>
+        <button onClick={() => void load()} className="btn-secondary flex items-center gap-2 text-xs shrink-0" disabled={loading}>
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث أرقام الفرع
         </button>
       </div>

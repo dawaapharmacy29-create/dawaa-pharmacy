@@ -295,6 +295,18 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
 
   return (
     <div className="space-y-4" dir="rtl">
+      {errorDetail ? (
+        <div className="flex items-center justify-between rounded-2xl border border-amber-400/40 bg-amber-500/10 p-3 text-xs font-bold text-amber-200">
+          <span>⚠️ جزء من أرقام لوحتك الشخصية معرضش (فشل تحميل جزئي) — الأرقام الظاهرة ممكن تكون ناقصة. جرّبي تحدّثي.</span>
+          <button
+            type="button"
+            onClick={() => setRetryKey((v) => v + 1)}
+            className="shrink-0 rounded-lg border border-amber-400/40 px-3 py-1 text-amber-100"
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      ) : null}
       <div className="relative overflow-hidden rounded-3xl border" style={{ background: 'linear-gradient(135deg, rgba(244,114,182,0.1), rgba(45,212,191,0.08))', borderColor: 'var(--dawaa-theme-border)' }}>
         {showConfetti ? <ConfettiBurst /> : null}
         <div className="border-b p-4 text-center" style={{ borderColor: 'rgba(244,114,182,0.2)' }}>
@@ -307,6 +319,9 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
         <div className="p-5">
           <h2 className="text-xl font-black text-white">أهلًا يا {staffName} 🌸</h2>
           <p className="mt-1 text-xs font-bold" style={mutedText}>الدورة الحالية: {data.cycle.start} — {data.cycle.end}</p>
+          <p className="mt-2 inline-block rounded-full bg-pink-500/15 px-3 py-1 text-[11px] font-black text-pink-200">
+            📍 لوحتك الشخصية — أرقامك إنتِ بس، مش الفرع كله
+          </p>
         </div>
       </div>
 

@@ -84,10 +84,10 @@ const GROUPS: NavGroup[] = [
     { path: '/staff-payroll', icon: Wallet, label: 'الرواتب', permission: 'view_salary_calculator' },
   ]},
   { title: 'تقييم الأداء الإداري', icon: ClipboardCheck, items: [
-    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'المهام اليومية (مدراء ومساعدين)' },
-    { path: '/weekly-evaluation/branch_manager', icon: ClipboardCheck, label: 'تقييم مدير الفرع' },
-    { path: '/weekly-evaluation/branches_manager', icon: ClipboardCheck, label: 'تقييم مدير الفروع' },
-    { path: '/weekly-evaluation/customer_service', icon: ClipboardCheck, label: 'تقييم خدمة العملاء الأسبوعي' },
+    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'المهام اليومية (مدراء ومساعدين)', excludeRoles: ['general_manager', 'executive_manager'] },
+    { path: '/weekly-evaluation/branch_manager', icon: ClipboardCheck, label: 'تقييم مدير الفرع', excludeRoles: ['branch_manager', 'customer_service_manager'] },
+    { path: '/weekly-evaluation/branches_manager', icon: ClipboardCheck, label: 'تقييم مدير الفروع', excludeRoles: ['branch_manager', 'customer_service_manager'] },
+    { path: '/weekly-evaluation/customer_service', icon: ClipboardCheck, label: 'تقييم خدمة العملاء الأسبوعي', excludeRoles: ['branch_manager', 'customer_service_manager'] },
     { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري (دكاترة وخدمة عملاء)', permission: 'view_shift_performance' },
   ]},
 ];
@@ -104,7 +104,7 @@ const PHARMACIST_GROUPS: NavGroup[] = [{
     { path: '/points', icon: Star, label: 'النقاط والحافز', permission: 'view_points' },
     { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضاتي على النقاط' },
     { path: '/doctor-dashboard?tab=payroll', icon: WalletCards, label: 'حسابي والقبض', permission: 'view_doctor_dashboard' },
-    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهامي اليومية' },
+    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهامي اليومية', excludeRoles: ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening'] },
     { path: '/doctor-dashboard?tab=notifications', icon: BellRing, label: 'إشعاراتي', permission: 'view_doctor_dashboard' },
     { path: '/doctor-dashboard?tab=activity', icon: Activity, label: 'سجل نشاطي', permission: 'view_doctor_dashboard' },
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
