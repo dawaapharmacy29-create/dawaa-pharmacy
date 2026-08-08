@@ -40,17 +40,39 @@ export async function fetchMonthlyCustomerPerformance(
   periodStart: string,
   periodEnd: string,
   prevPeriodStart: string,
-  prevPeriodEnd: string
-): Promise<MonthlyPerformanceSummary> {
-  const { data, error } = await supabase.rpc('calculate_customer_monthly_performance', {
-    p_branch: branch,
-    p_period_start: periodStart,
-    p_period_end: periodEnd,
-    p_prev_period_start: prevPeriodStart,
-    p_prev_period_end: prevPeriodEnd,
-  });
-  if (error) throw new Error(error.message);
-  const rows = (data || []) as CustomerMonthlyRow[];
+  prevPeriodEnd: string,
+  mode: 'cycle' | 'calendar' = 'cycle'
+): Promise<MonthlyPerformanceSummary & { computedAt: string | null; fromCache: boolean }> {
+  // القراءة الأولى من الكاش اليومي (سريع جدًا، بيتحدّث كل يوم 3 الفجر) —
+  // fallback للحساب الحي بس لو الكاش لسه ما اتحسبش (أول مرة، أو يوم جديد لسه
+  // الـ cron ماشتغلش فيه).
+  const cacheResult = await supabase
+    .from('customer_monthly_performance_snapshots')
+    .select('rows, computed_at')
+    .eq('mode', mode)
+    .eq('period_start', periodStart)
+    .filter('branch', branch === null ? 'is' : 'eq', branch)
+    .maybeSingle();
+
+  let rows: CustomerMonthlyRow[];
+  let computedAt: string | null = null;
+  let fromCache = false;
+
+  if (cacheResult.data?.rows) {
+    rows = cacheResult.data.rows as CustomerMonthlyRow[];
+    computedAt = cacheResult.data.computed_at;
+    fromCache = true;
+  } else {
+    const { data, error } = await supabase.rpc('calculate_customer_monthly_performance', {
+      p_branch: branch,
+      p_period_start: periodStart,
+      p_period_end: periodEnd,
+      p_prev_period_start: prevPeriodStart,
+      p_prev_period_end: prevPeriodEnd,
+    });
+    if (error) throw new Error(error.message);
+    rows = (data || []) as CustomerMonthlyRow[];
+  }
 
   const count = (state: string) => rows.filter((r) => r.customer_state === state).length;
   const totalSales = rows.reduce((sum, r) => sum + (Number(r.sales_amount) || 0), 0);
@@ -96,5 +118,7 @@ export async function fetchMonthlyCustomerPerformance(
     revenueAtRisk,
     needsAttention,
     improving,
+    computedAt,
+    fromCache,
   };
 }

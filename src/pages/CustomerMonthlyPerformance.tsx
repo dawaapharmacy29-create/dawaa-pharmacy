@@ -54,7 +54,9 @@ export default function CustomerMonthlyPerformance() {
   const [branch, setBranch] = useState<string>(() =>
     canSeeAllBranches ? ALL_BRANCHES_VALUE : user?.branch || BRANCHES?.[0] || 'فرع شكري'
   );
-  const [summary, setSummary] = useState<MonthlyPerformanceSummary | null>(null);
+  const [summary, setSummary] = useState<
+    (MonthlyPerformanceSummary & { computedAt: string | null; fromCache: boolean }) | null
+  >(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -73,7 +75,8 @@ export default function CustomerMonthlyPerformance() {
         period.start,
         period.end,
         prevPeriod.start,
-        prevPeriod.end
+        prevPeriod.end,
+        mode
       );
       setSummary(result);
     } catch (err) {
@@ -135,13 +138,18 @@ export default function CustomerMonthlyPerformance() {
         <span className="text-xs text-slate-400">
           {period.start} إلى {period.end} — مقارنة بـ {prevPeriod.start} إلى {prevPeriod.end}
         </span>
+        {summary?.computedAt && (
+          <span className="rounded-full bg-teal-500/10 px-3 py-1 text-xs font-bold text-teal-300">
+            آخر تحديث: {new Date(summary.computedAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          </span>
+        )}
         <button type="button" onClick={() => void load()} className="btn-secondary flex items-center gap-2 text-xs" disabled={loading}>
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
         </button>
       </div>
 
       {error && <p className="text-sm text-red-300">{error}</p>}
-      {loading && <p className="text-sm text-slate-400">جارٍ الحساب... (ممكن ياخد لحد 10-15 ثانية لكل التاريخ المطلوب مراجعته)</p>}
+      {loading && <p className="text-sm text-slate-400">جارٍ التحميل...</p>}
 
       {summary && !loading && (
         <>
