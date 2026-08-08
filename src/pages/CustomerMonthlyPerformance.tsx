@@ -228,6 +228,45 @@ export default function CustomerMonthlyPerformance() {
               </div>
             )}
           </div>
+          <div className="stat-card space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-black text-white">
+                عملاء متحسنين محتاجين شكر واهتمام ({summary.improving.length})
+              </h2>
+              <span className="text-xs text-slate-500">مرتبين حسب أعلى زيادة في المبيعات</span>
+            </div>
+            {summary.improving.length === 0 ? (
+              <p className="text-sm text-slate-400">مفيش عملاء مهمين بيتحسنوا بشكل ملحوظ في الفترة دي دلوقتي.</p>
+            ) : (
+              <div className="space-y-2">
+                {summary.improving.slice(0, 30).map((c, i) => (
+                  <div key={`${c.customer_code}-${i}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-3">
+                    <div>
+                      <div className="font-bold text-white">{c.customer_name || 'غير معروف'} <span className="text-xs text-slate-500">({c.current_segment})</span></div>
+                      <div className="text-xs text-slate-400">
+                        آخر شراء: {c.last_purchase_date || '—'} · دلوقتي بيصرف {fmtMoney(c.sales_amount)}
+                        {c.sales_change_amount > 0 && <span className="text-emerald-300"> (+{fmtMoney(c.sales_change_amount)})</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-sm font-black ${STATE_COLORS[c.customer_state] || 'text-slate-300'}`}>{c.customer_state}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/customer-service?quickFollowup=1&code=${encodeURIComponent(c.customer_code || '')}&name=${encodeURIComponent(c.customer_name || '')}`
+                          )
+                        }
+                        className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-black text-slate-950"
+                      >
+                        اتصال شكر
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>

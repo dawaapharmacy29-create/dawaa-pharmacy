@@ -32,6 +32,7 @@ export type MonthlyPerformanceSummary = {
   previousTotalSales: number;
   revenueAtRisk: number; // مبيعات آخر فترة للعملاء اللي دلوقتي متراجعين بقوة أو مختفيين
   needsAttention: CustomerMonthlyRow[]; // مهم/مهم جدًا + تراجع قوي/مختفي — الأولوية
+  improving: CustomerMonthlyRow[]; // مهم/مهم جدًا (أو أي حد) بينمو أو اترقّى — عشان نشكرهم ونستثمر فيهم
 };
 
 export async function fetchMonthlyCustomerPerformance(
@@ -67,6 +68,18 @@ export async function fetchMonthlyCustomerPerformance(
     )
     .sort((a, b) => (Number(b.previous_month_sales) || 0) - (Number(a.previous_month_sales) || 0));
 
+  // العملاء المتحسنين: نمو قوي/نمو/مستعاد — الأولوية لمن كان مهم أو مهم جدًا أصلًا
+  // أو بقى مهم/مهم جدًا دلوقتي (ترقّى لفئة أعلى)، عشان دول أصحاب أكبر أثر مالي فعلي.
+  const growthStates = ['نمو قوي', 'نمو', 'مستعاد'];
+  const importantNow = ['مهم', 'مهم جدًا'];
+  const improving = rows
+    .filter(
+      (r) =>
+        growthStates.includes(r.customer_state) &&
+        (importantSegments.includes(r.previous_segment) || importantNow.includes(r.current_segment))
+    )
+    .sort((a, b) => (Number(b.sales_change_amount) || 0) - (Number(a.sales_change_amount) || 0));
+
   return {
     rows,
     newCount: count('جديد'),
@@ -82,5 +95,6 @@ export async function fetchMonthlyCustomerPerformance(
     previousTotalSales,
     revenueAtRisk,
     needsAttention,
+    improving,
   };
 }
