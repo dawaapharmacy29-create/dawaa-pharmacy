@@ -37,6 +37,13 @@ export type MonthlyPerformanceSummary = {
   improving: CustomerMonthlyRow[]; // مهم/مهم جدًا (أو أي حد) بينمو أو اترقّى — عشان نشكرهم ونستثمر فيهم
 };
 
+const GENERIC_CUSTOMER_NAMES = ['عميل الصيدلية', 'عميل نقدي', 'عميل عابر', 'كاش', 'عميل'];
+
+function isGenericCustomer(name: string | null): boolean {
+  if (!name) return false;
+  return GENERIC_CUSTOMER_NAMES.some((g) => name.trim() === g);
+}
+
 export async function fetchMonthlyCustomerPerformance(
   branch: string | null,
   periodStart: string,
@@ -87,6 +94,7 @@ export async function fetchMonthlyCustomerPerformance(
   const needsAttention = rows
     .filter(
       (r) =>
+        !isGenericCustomer(r.customer_name) &&
         importantSegments.includes(r.previous_segment) &&
         (r.customer_state === 'تراجع قوي' || r.customer_state === 'مختفي هذا الشهر')
     )
@@ -99,6 +107,7 @@ export async function fetchMonthlyCustomerPerformance(
   const improving = rows
     .filter(
       (r) =>
+        !isGenericCustomer(r.customer_name) &&
         growthStates.includes(r.customer_state) &&
         (importantSegments.includes(r.previous_segment) || importantNow.includes(r.current_segment))
     )

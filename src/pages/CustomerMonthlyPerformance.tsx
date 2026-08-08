@@ -271,7 +271,11 @@ export default function CustomerMonthlyPerformance() {
                         <tr key={`${c.customer_code}-${i}`} className="border-t border-white/5">
                           <td className="py-2">
                             <div className="font-bold text-white">{c.customer_name || 'غير معروف'}</div>
-                            <div className="text-[11px] text-slate-500">({c.previous_segment}) · آخر شراء: {c.last_purchase_date || '—'}</div>
+                            <div className="text-[11px] text-slate-500">
+                              ({c.previous_segment}) · آخر شراء: {c.last_purchase_date || '—'}
+                              {branch === ALL_BRANCHES_VALUE && <span className="text-teal-400"> · {c.branch}</span>}
+                              {c.customer_code && <span> · كود {c.customer_code}</span>}
+                            </div>
                           </td>
                           <td className="py-2 text-slate-300">{fmtMoney(c.month_3_ago_sales)}</td>
                           <td className="py-2 text-slate-300">{fmtMoney(c.month_2_ago_sales)}</td>
@@ -313,6 +317,8 @@ export default function CustomerMonthlyPerformance() {
                       <div className="text-xs text-slate-400">
                         آخر شراء: {c.last_purchase_date || '—'} · دلوقتي بيصرف {fmtMoney(c.sales_amount)}
                         {c.sales_change_amount > 0 && <span className="text-emerald-300"> (+{fmtMoney(c.sales_change_amount)})</span>}
+                        {branch === ALL_BRANCHES_VALUE && <span className="text-teal-400"> · {c.branch}</span>}
+                        {c.customer_code && <span> · كود {c.customer_code}</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">

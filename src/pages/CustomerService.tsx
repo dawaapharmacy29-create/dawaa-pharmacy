@@ -3096,6 +3096,7 @@ const addFollowup = async () => {
         />
       )}
       <QuickFollowupModal
+        key={`${quickFollowupOpen}-${requestedCustomerFallback.customer_code || ''}`}
         open={quickFollowupOpen}
         onClose={closeQuickFollowup}
         initialCustomerCode={requestedCustomerFallback.customer_code}

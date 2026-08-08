@@ -72,9 +72,9 @@ export default function QuickFollowupModal({
   const [results, setResults] = useState<CustomerSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSearchResult | null>(null);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [code, setCode] = useState('');
+  const [name, setName] = useState(() => initialCustomerName || '');
+  const [phone, setPhone] = useState(() => initialCustomerPhone || '');
+  const [code, setCode] = useState(() => initialCustomerCode || '');
   const [branch, setBranch] = useState('');
   const [priority, setPriority] = useState('مهم');
   const [assignedDoctor, setAssignedDoctor] = useState('');
