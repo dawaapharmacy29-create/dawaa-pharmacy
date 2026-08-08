@@ -1,3 +1,5 @@
+require('./apply-shamy-apr-jul-cashback-exception.cjs');
+
 const fs = require('node:fs');
 
 const importerPath = 'src/lib/invoiceImporter.ts';
