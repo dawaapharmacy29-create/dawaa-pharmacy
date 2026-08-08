@@ -73,6 +73,7 @@ const PointAppeals = lazy(() => import('@/pages/PointAppeals'));
 const DoctorPerformancePillars = lazy(() => import('@/pages/DoctorPerformancePillars'));
 const WeeklyManagerEvaluation = lazy(() => import('@/pages/WeeklyManagerEvaluation'));
 const DailyManagerChecklist = lazy(() => import('@/pages/DailyManagerChecklist'));
+const CustomerMonthlyPerformance = lazy(() => import('@/pages/CustomerMonthlyPerformance'));
 const StaffDashboard = lazy(() => import('@/pages/StaffDashboard'));
 const CustomerServiceManagerDashboard = lazy(() => import('@/pages/CustomerServiceManagerDashboard'));
 const RolesPermissions = lazy(() => import('@/pages/RolesPermissions'));
@@ -195,6 +196,7 @@ function AppRoutes() {
     <Route path="/performance-pillars" element={<ProtectedRoute>{routeSuspense(<DoctorPerformancePillars />, 'الدرجة المركّبة للأداء')}</ProtectedRoute>} />
     <Route path="/weekly-evaluation/:type" element={<ProtectedRoute>{routeSuspense(<WeeklyManagerEvaluation />, 'التقييم الأسبوعي')}</ProtectedRoute>} />
     <Route path="/daily-manager-checklist" element={<ProtectedRoute>{routeSuspense(<DailyManagerChecklist />, 'المهام اليومية')}</ProtectedRoute>} />
+    <Route path="/customer-monthly-performance" element={<ProtectedRoute>{routeSuspense(<CustomerMonthlyPerformance />, 'أداء العملاء الشهري')}</ProtectedRoute>} />
     <Route path="/quarterly-incentives" element={<ProtectedRoute>{routeSuspense(<QuarterlyIncentives2027 />, 'الحافز الشهري')}</ProtectedRoute>} />
     <Route path="/operations-center" element={<ProtectedRoute>{routeSuspense(<OperationsCenter2027 />, 'مركز العمليات')}</ProtectedRoute>} />
     <Route path="/data-health" element={<ProtectedRoute>{routeSuspense(<DataHealthCenter />, 'صحة البيانات')}</ProtectedRoute>} />
