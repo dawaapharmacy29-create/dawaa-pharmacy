@@ -15,7 +15,7 @@ import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
 import { isDoctorRole } from '@/lib/security/userDataScope';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 
-type NavItem = { path: string; icon: ElementType; label: string; permission?: string | string[]; adminOnly?: boolean };
+type NavItem = { path: string; icon: ElementType; label: string; permission?: string | string[]; adminOnly?: boolean; excludeRoles?: string[] };
 type NavGroup = { title: string; icon: ElementType; items: NavItem[] };
 
 const ENABLE_INTERNAL_DELIVERY_MODULE = false;
@@ -77,7 +77,7 @@ const GROUPS: NavGroup[] = [
   { title: 'الدليفري', icon: Truck, items: [{ path: '/delivery', icon: Truck, label: 'لوحة الدليفري', permission: 'view_delivery' }] },
   { title: 'الحوافز والرواتب', icon: Star, items: [
     { path: '/points', icon: Star, label: 'النقاط', permission: 'view_points' },
-    { path: '/performance-pillars', icon: BarChart3, label: 'الدرجة المركّبة للأداء' },
+    { path: '/performance-pillars', icon: BarChart3, label: 'الدرجة المركّبة للأداء', excludeRoles: ['customer_service_manager'] },
     { path: '/penalty-incentive', icon: AlertTriangle, label: 'جزاءات ومكافآت الفرع', permission: 'view_penalty_management' },
     { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضات النقاط' },
     { path: '/quarterly-incentives', icon: Crown, label: 'شرح الحافز الشهري', permission: 'view_quarterly_incentives' },
@@ -140,6 +140,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
 
   const canAccess = (item: NavItem) => {
     if (item.adminOnly && !privileged) return false;
+    if (item.excludeRoles?.includes(role)) return false;
     if (!item.permission) return true;
     return Array.isArray(item.permission) ? item.permission.some(checkPermission) : checkPermission(item.permission);
   };
