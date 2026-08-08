@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TrendingUp, TrendingDown, Users, UserPlus, UserCheck, UserX, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
+import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import {
   fetchMonthlyCustomerPerformance,
@@ -9,6 +11,8 @@ import {
 import { BRANCHES } from '@/lib/constants';
 
 type PeriodMode = 'cycle' | 'calendar';
+
+const ALL_BRANCHES_VALUE = 'كل الفروع';
 
 function calendarMonthRange(date: Date): { start: string; end: string } {
   const start = new Date(date.getFullYear(), date.getMonth(), 1);
@@ -44,8 +48,12 @@ const STATE_COLORS: Record<string, string> = {
 
 export default function CustomerMonthlyPerformance() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canSeeAllBranches = canViewAllBranches(user);
   const [mode, setMode] = useState<PeriodMode>('cycle');
-  const [branch, setBranch] = useState<string>(BRANCHES?.[0] || 'فرع شكري');
+  const [branch, setBranch] = useState<string>(() =>
+    canSeeAllBranches ? ALL_BRANCHES_VALUE : user?.branch || BRANCHES?.[0] || 'فرع شكري'
+  );
   const [summary, setSummary] = useState<MonthlyPerformanceSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -61,7 +69,7 @@ export default function CustomerMonthlyPerformance() {
     setError('');
     try {
       const result = await fetchMonthlyCustomerPerformance(
-        branch,
+        branch === ALL_BRANCHES_VALUE ? null : branch,
         period.start,
         period.end,
         prevPeriod.start,
@@ -112,11 +120,18 @@ export default function CustomerMonthlyPerformance() {
             الشهر الميلادي
           </button>
         </div>
-        <select className="input-dark" value={branch} onChange={(e) => setBranch(e.target.value)}>
-          {(BRANCHES || ['فرع شكري', 'فرع الشامي']).map((b) => (
-            <option key={b} value={b}>{b}</option>
-          ))}
-        </select>
+        {canSeeAllBranches ? (
+          <select className="input-dark" value={branch} onChange={(e) => setBranch(e.target.value)}>
+            <option value={ALL_BRANCHES_VALUE}>{ALL_BRANCHES_VALUE}</option>
+            {(BRANCHES || ['فرع شكري', 'فرع الشامي']).map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white">
+            {branch}
+          </span>
+        )}
         <span className="text-xs text-slate-400">
           {period.start} إلى {period.end} — مقارنة بـ {prevPeriod.start} إلى {prevPeriod.end}
         </span>
