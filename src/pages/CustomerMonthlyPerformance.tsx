@@ -52,17 +52,17 @@ function followupUrl(c: CustomerMonthlyRow) {
   if (c.customer_code) params.set('code', c.customer_code);
   if (c.customer_name) params.set('name', c.customer_name);
   if (c.phone) params.set('phone', c.phone);
-  // نخزّن نفس البيانات في sessionStorage كمان كطبقة أضمن — قراءة مباشرة ومتزامنة
-  // في الصفحة الجاية، مستقلة تمامًا عن أي توقيت لقراءة رابط الصفحة أو الـ React Router.
+  const payload = { code: c.customer_code || '', name: c.customer_name || '', phone: c.phone || '' };
+  console.log('[dawaa-debug] followupUrl building for customer:', payload);
   try {
-    sessionStorage.setItem(
-      'dawaa_pending_followup_customer',
-      JSON.stringify({ code: c.customer_code || '', name: c.customer_name || '', phone: c.phone || '' })
-    );
-  } catch {
-    // sessionStorage ممكن يكون مش متاح في بعض السياقات — الرابط نفسه يفضل يشتغل كـ fallback
+    sessionStorage.setItem('dawaa_pending_followup_customer', JSON.stringify(payload));
+    console.log('[dawaa-debug] sessionStorage write OK, readback:', sessionStorage.getItem('dawaa_pending_followup_customer'));
+  } catch (err) {
+    console.log('[dawaa-debug] sessionStorage write FAILED:', err);
   }
-  return `/customer-service?${params.toString()}`;
+  const url = `/customer-service?${params.toString()}`;
+  console.log('[dawaa-debug] navigating to:', url);
+  return url;
 }
 
 const STATE_FILTER_OPTIONS = ['الكل', 'تراجع قوي', 'مختفي هذا الشهر', 'تراجع'];

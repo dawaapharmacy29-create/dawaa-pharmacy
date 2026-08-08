@@ -72,9 +72,15 @@ export default function QuickFollowupModal({
   const [results, setResults] = useState<CustomerSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSearchResult | null>(null);
-  const [name, setName] = useState(() => initialCustomerName || '');
+  const [name, setName] = useState(() => {
+    console.log('[dawaa-debug] QuickFollowupModal lazy init - initialCustomerName:', initialCustomerName);
+    return initialCustomerName || '';
+  });
   const [phone, setPhone] = useState(() => initialCustomerPhone || '');
-  const [code, setCode] = useState(() => initialCustomerCode || '');
+  const [code, setCode] = useState(() => {
+    console.log('[dawaa-debug] QuickFollowupModal lazy init - initialCustomerCode:', initialCustomerCode);
+    return initialCustomerCode || '';
+  });
   const [branch, setBranch] = useState('');
   const [priority, setPriority] = useState('مهم');
   const [assignedDoctor, setAssignedDoctor] = useState('');

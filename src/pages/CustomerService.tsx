@@ -1297,10 +1297,12 @@ export default function CustomerService() {
     // عشان مايفضلش يأثر على فتحات تانية للنافذة من غير عميل محدد.
     try {
       const stored = sessionStorage.getItem('dawaa_pending_followup_customer');
+      console.log('[dawaa-debug] CustomerService reading sessionStorage:', stored);
       if (stored) {
         sessionStorage.removeItem('dawaa_pending_followup_customer');
         const parsed = JSON.parse(stored) as { code?: string; name?: string; phone?: string };
         if (parsed.code || parsed.name || parsed.phone) {
+          console.log('[dawaa-debug] using sessionStorage data:', parsed);
           return {
             customer_code: parsed.code || null,
             customer_phone: parsed.phone || null,
@@ -1309,15 +1311,17 @@ export default function CustomerService() {
           };
         }
       }
-    } catch {
-      // تجاهل أي خطأ قراءة/تحليل — نكمل على الرابط كـ fallback
+    } catch (err) {
+      console.log('[dawaa-debug] sessionStorage read FAILED:', err);
     }
-    return {
+    const fallback = {
       customer_code: params.get('code') || null,
       customer_phone: params.get('phone') || null,
       customer_name: params.get('name') || null,
       customer_id: params.get('customerId') || null,
     };
+    console.log('[dawaa-debug] using URL params fallback:', fallback);
+    return fallback;
   }, [params]);
   const quickFollowupRequested =
     params.get('quickFollowup') === '1' || params.get('action') === 'quick-followup';
@@ -3114,6 +3118,15 @@ const addFollowup = async () => {
           onClose={() => setQuickReplyRow(null)}
         />
       )}
+      {(() => {
+        console.log('[dawaa-debug] rendering QuickFollowupModal with:', {
+          open: quickFollowupOpen,
+          code: requestedCustomerFallback.customer_code,
+          name: requestedCustomerFallback.customer_name,
+          phone: requestedCustomerFallback.customer_phone,
+        });
+        return null;
+      })()}
       <QuickFollowupModal
         key={`${quickFollowupOpen}-${requestedCustomerFallback.customer_code || ''}`}
         open={quickFollowupOpen}
