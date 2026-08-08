@@ -57,3 +57,13 @@
 -- 3) حل جذري لنافذة المتابعة الفاضية: تخزين بيانات العميل في sessionStorage
 --    وقت الضغط على "متابعة الآن"/"اتصال شكر"، وقراءتها كأولوية أولى في
 --    CustomerService.tsx — مستقل تمامًا عن أي تعقيد توقيت في رابط الصفحة.
+
+-- الاكتشاف الحاسم (8 أغسطس 2026): كل التعديلات السابقة على نافذة المتابعة
+-- كانت بتتم على src/pages/CustomerService.tsx — لكن الصفحة الفعلية المستخدمة
+-- على رابط /customer-service هي src/pages/SmartCustomerService.tsx (ملف مختلف
+-- تمامًا، بمسمّى استيراد مربك في App.tsx: `const CustomerService = lazy(()
+-- => import('@/pages/SmartCustomerService'))`). CustomerService.tsx الحقيقي
+-- شغال بس على /customer-service-classic (رابط قديم منفصل).
+-- الإصلاح الحقيقي: SmartCustomerService.tsx بقى يقرأ sessionStorage/بارامترات
+-- الرابط ويمرّرها لـ QuickFollowupModal (initialCustomerCode/Name/Phone) —
+-- ده كان ناقص من الأساس، مش باگ توقيت زي ما كنا نفترض.

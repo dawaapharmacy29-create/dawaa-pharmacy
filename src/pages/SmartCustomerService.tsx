@@ -45,6 +45,7 @@ export default function SmartCustomerService() {
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [quickOpen, setQuickOpen] = useState(false);
   const [exceptionalOpen, setExceptionalOpen] = useState(false);
+  const [pendingCustomer, setPendingCustomer] = useState<{ code: string; name: string; phone: string } | null>(null);
   const managerView = canViewAllBranches(user);
   const normalizedUserBranch = useMemo(() => normalizeBranchName(user?.branch || ''), [user?.branch]);
   const hasSafeBranchScope = managerView || Boolean(normalizedUserBranch);
@@ -52,7 +53,31 @@ export default function SmartCustomerService() {
   useEffect(() => {
     const openQuick = () => setQuickOpen(true);
     const params = new URLSearchParams(window.location.search);
-    if (params.get('quickFollowup') === '1') setQuickOpen(true);
+    if (params.get('quickFollowup') === '1') {
+      // أولوية أولى: sessionStorage (مصدر موثوق ومتزامن جاي من صفحات زي "أداء
+      // العملاء الشهري")، وإلا نرجع لبارامترات الرابط نفسه كـ fallback.
+      let customer: { code: string; name: string; phone: string } | null = null;
+      try {
+        const stored = sessionStorage.getItem('dawaa_pending_followup_customer');
+        if (stored) {
+          sessionStorage.removeItem('dawaa_pending_followup_customer');
+          const parsed = JSON.parse(stored) as { code?: string; name?: string; phone?: string };
+          if (parsed.code || parsed.name || parsed.phone) {
+            customer = { code: parsed.code || '', name: parsed.name || '', phone: parsed.phone || '' };
+          }
+        }
+      } catch {
+        // تجاهل أي خطأ قراءة — نكمل على بارامترات الرابط
+      }
+      if (!customer) {
+        const code = params.get('code') || '';
+        const name = params.get('name') || '';
+        const phone = params.get('phone') || '';
+        if (code || name || phone) customer = { code, name, phone };
+      }
+      setPendingCustomer(customer);
+      setQuickOpen(true);
+    }
     window.addEventListener('open-quick-followup', openQuick);
     return () => window.removeEventListener('open-quick-followup', openQuick);
   }, []);
@@ -93,7 +118,16 @@ export default function SmartCustomerService() {
       {view === 'reports' ? <div className="space-y-4"><CustomerFollowupFullExportPanel/>{hasSafeBranchScope ? <Suspense fallback={<SectionLoader label="نقاط العملاء والكاش باك"/>}><CustomerCashback/></Suspense> : null}</div> : null}
     </main>
 
-    <QuickFollowupModal open={quickOpen} onClose={() => setQuickOpen(false)} onCreated={refreshWorkspace} defaultBranch={normalizedUserBranch} />
+    <QuickFollowupModal
+      key={`${quickOpen}-${pendingCustomer?.code || ''}`}
+      open={quickOpen}
+      onClose={() => { setQuickOpen(false); setPendingCustomer(null); }}
+      onCreated={refreshWorkspace}
+      defaultBranch={normalizedUserBranch}
+      initialCustomerCode={pendingCustomer?.code || null}
+      initialCustomerName={pendingCustomer?.name || null}
+      initialCustomerPhone={pendingCustomer?.phone || null}
+    />
     <ExceptionalFollowupModal open={exceptionalOpen} onClose={() => setExceptionalOpen(false)} onCreated={() => { refreshWorkspace(); setView('exceptional'); }} />
   </div>;
 }
