@@ -15,6 +15,8 @@ export type CustomerMonthlyRow = {
   sales_change_pct: number | null;
   customer_state: string;
   last_purchase_date: string | null;
+  month_2_ago_sales: number;
+  month_3_ago_sales: number;
 };
 
 export type MonthlyPerformanceSummary = {

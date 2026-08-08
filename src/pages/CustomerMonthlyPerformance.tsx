@@ -7,6 +7,7 @@ import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import {
   fetchMonthlyCustomerPerformance,
   type MonthlyPerformanceSummary,
+  type CustomerMonthlyRow,
 } from '@/lib/customerMonthlyPerformanceService';
 import { BRANCHES } from '@/lib/constants';
 
@@ -46,11 +47,27 @@ const STATE_COLORS: Record<string, string> = {
   'مختفي هذا الشهر': 'text-red-500',
 };
 
+function followupUrl(c: CustomerMonthlyRow) {
+  const params = new URLSearchParams({ quickFollowup: '1' });
+  if (c.customer_code) params.set('code', c.customer_code);
+  if (c.customer_name) params.set('name', c.customer_name);
+  if (c.phone) params.set('phone', c.phone);
+  return `/customer-service?${params.toString()}`;
+}
+
+const STATE_FILTER_OPTIONS = ['الكل', 'تراجع قوي', 'مختفي هذا الشهر', 'تراجع'];
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function CustomerMonthlyPerformance() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const canSeeAllBranches = canViewAllBranches(user);
   const [mode, setMode] = useState<PeriodMode>('cycle');
+  const [refDate, setRefDate] = useState<string>(() => todayStr());
+  const [stateFilter, setStateFilter] = useState<string>('الكل');
   const [branch, setBranch] = useState<string>(() =>
     canSeeAllBranches ? ALL_BRANCHES_VALUE : user?.branch || BRANCHES?.[0] || 'فرع شكري'
   );
@@ -61,10 +78,11 @@ export default function CustomerMonthlyPerformance() {
   const [error, setError] = useState('');
 
   const period = useMemo(
-    () => (mode === 'cycle' ? getPharmacyCycleRange(new Date()) : calendarMonthRange(new Date())),
-    [mode]
+    () => (mode === 'cycle' ? getPharmacyCycleRange(new Date(refDate)) : calendarMonthRange(new Date(refDate))),
+    [mode, refDate]
   );
   const prevPeriod = useMemo(() => previousPeriod(mode, period.start), [mode, period.start]);
+  const isCurrentPeriod = refDate === todayStr();
 
   const load = async () => {
     setLoading(true);
@@ -89,7 +107,7 @@ export default function CustomerMonthlyPerformance() {
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branch, mode]);
+  }, [branch, mode, refDate]);
 
   const salesChangePct =
     summary && summary.previousTotalSales > 0
@@ -135,6 +153,20 @@ export default function CustomerMonthlyPerformance() {
             {branch}
           </span>
         )}
+        <div className="flex items-center gap-1">
+          <input
+            type="date"
+            className="input-dark"
+            value={refDate}
+            max={todayStr()}
+            onChange={(e) => setRefDate(e.target.value || todayStr())}
+          />
+          {!isCurrentPeriod && (
+            <button type="button" onClick={() => setRefDate(todayStr())} className="btn-secondary text-xs">
+              الفترة الحالية
+            </button>
+          )}
+        </div>
         <span className="text-xs text-slate-400">
           {period.start} إلى {period.end} — مقارنة بـ {prevPeriod.start} إلى {prevPeriod.end}
         </span>
@@ -149,7 +181,11 @@ export default function CustomerMonthlyPerformance() {
       </div>
 
       {error && <p className="text-sm text-red-300">{error}</p>}
-      {loading && <p className="text-sm text-slate-400">جارٍ التحميل...</p>}
+      {loading && (
+        <p className="text-sm text-slate-400">
+          جارٍ التحميل...{!isCurrentPeriod && ' (فترة تاريخية مش مخزّنة، ممكن تاخد لحد 10-15 ثانية)'}
+        </p>
+      )}
 
       {summary && !loading && (
         <>
@@ -199,42 +235,65 @@ export default function CustomerMonthlyPerformance() {
           </div>
 
           <div className="stat-card space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-black text-white">
-                عملاء يحتاجون متابعتك النهاردة ({summary.needsAttention.length})
+                عملاء يحتاجون متابعتك النهاردة ({summary.needsAttention.filter((c) => stateFilter === 'الكل' || c.customer_state === stateFilter).length})
               </h2>
-              <span className="text-xs text-slate-500">مرتبين حسب قيمة الخطر — الأعلى قيمة الأول</span>
-            </div>
-            {summary.needsAttention.length === 0 ? (
-              <p className="text-sm text-slate-400">مفيش عملاء مهمين محتاجين تدخّل فوري دلوقتي — 🎉</p>
-            ) : (
-              <div className="space-y-2">
-                {summary.needsAttention.slice(0, 30).map((c, i) => (
-                  <div key={`${c.customer_code}-${i}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                    <div>
-                      <div className="font-bold text-white">{c.customer_name || 'غير معروف'} <span className="text-xs text-slate-500">({c.previous_segment})</span></div>
-                      <div className="text-xs text-slate-400">
-                        آخر شراء: {c.last_purchase_date || '—'} · كان بيصرف {fmtMoney(c.previous_month_sales)}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`text-sm font-black ${STATE_COLORS[c.customer_state] || 'text-slate-300'}`}>{c.customer_state}</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate(
-                            `/customer-service?quickFollowup=1&code=${encodeURIComponent(c.customer_code || '')}&name=${encodeURIComponent(c.customer_name || '')}`
-                          )
-                        }
-                        className="rounded-lg bg-teal-500 px-3 py-1.5 text-xs font-black text-slate-950"
-                      >
-                        متابعة الآن
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex items-center gap-2">
+                <select className="input-dark text-xs" value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
+                  {STATE_FILTER_OPTIONS.map((s) => (
+                    <option key={s} value={s}>{s === 'الكل' ? 'كل الحالات' : s}</option>
+                  ))}
+                </select>
+                <span className="text-xs text-slate-500">مرتبين حسب قيمة الخطر</span>
               </div>
-            )}
+            </div>
+            {(() => {
+              const filtered = summary.needsAttention.filter((c) => stateFilter === 'الكل' || c.customer_state === stateFilter);
+              return filtered.length === 0 ? (
+                <p className="text-sm text-slate-400">مفيش عملاء مطابقين للفلتر ده دلوقتي — 🎉</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-right text-xs text-slate-500">
+                        <th className="pb-2 font-bold">العميل</th>
+                        <th className="pb-2 font-bold">قبل 3 شهور</th>
+                        <th className="pb-2 font-bold">قبل شهرين</th>
+                        <th className="pb-2 font-bold">الشهر السابق</th>
+                        <th className="pb-2 font-bold">الشهر الحالي</th>
+                        <th className="pb-2 font-bold">الحالة</th>
+                        <th className="pb-2 font-bold"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.slice(0, 30).map((c, i) => (
+                        <tr key={`${c.customer_code}-${i}`} className="border-t border-white/5">
+                          <td className="py-2">
+                            <div className="font-bold text-white">{c.customer_name || 'غير معروف'}</div>
+                            <div className="text-[11px] text-slate-500">({c.previous_segment}) · آخر شراء: {c.last_purchase_date || '—'}</div>
+                          </td>
+                          <td className="py-2 text-slate-300">{fmtMoney(c.month_3_ago_sales)}</td>
+                          <td className="py-2 text-slate-300">{fmtMoney(c.month_2_ago_sales)}</td>
+                          <td className="py-2 text-slate-300">{fmtMoney(c.previous_month_sales)}</td>
+                          <td className="py-2 text-slate-300">{fmtMoney(c.sales_amount)}</td>
+                          <td className="py-2"><span className={`text-xs font-black ${STATE_COLORS[c.customer_state] || 'text-slate-300'}`}>{c.customer_state}</span></td>
+                          <td className="py-2">
+                            <button
+                              type="button"
+                              onClick={() => navigate(followupUrl(c))}
+                              className="rounded-lg bg-teal-500 px-3 py-1.5 text-xs font-black text-slate-950"
+                            >
+                              متابعة الآن
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
           <div className="stat-card space-y-3">
             <div className="flex items-center justify-between">
@@ -261,9 +320,7 @@ export default function CustomerMonthlyPerformance() {
                       <button
                         type="button"
                         onClick={() =>
-                          navigate(
-                            `/customer-service?quickFollowup=1&code=${encodeURIComponent(c.customer_code || '')}&name=${encodeURIComponent(c.customer_name || '')}`
-                          )
+                          navigate(followupUrl(c))
                         }
                         className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-black text-slate-950"
                       >
