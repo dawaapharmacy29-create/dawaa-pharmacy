@@ -52,6 +52,16 @@ function followupUrl(c: CustomerMonthlyRow) {
   if (c.customer_code) params.set('code', c.customer_code);
   if (c.customer_name) params.set('name', c.customer_name);
   if (c.phone) params.set('phone', c.phone);
+  // نخزّن نفس البيانات في sessionStorage كمان كطبقة أضمن — قراءة مباشرة ومتزامنة
+  // في الصفحة الجاية، مستقلة تمامًا عن أي توقيت لقراءة رابط الصفحة أو الـ React Router.
+  try {
+    sessionStorage.setItem(
+      'dawaa_pending_followup_customer',
+      JSON.stringify({ code: c.customer_code || '', name: c.customer_name || '', phone: c.phone || '' })
+    );
+  } catch {
+    // sessionStorage ممكن يكون مش متاح في بعض السياقات — الرابط نفسه يفضل يشتغل كـ fallback
+  }
   return `/customer-service?${params.toString()}`;
 }
 
@@ -68,6 +78,7 @@ export default function CustomerMonthlyPerformance() {
   const [mode, setMode] = useState<PeriodMode>('cycle');
   const [refDate, setRefDate] = useState<string>(() => todayStr());
   const [stateFilter, setStateFilter] = useState<string>('الكل');
+  const [listTab, setListTab] = useState<'declining' | 'improving'>('declining');
   const [branch, setBranch] = useState<string>(() =>
     canSeeAllBranches ? ALL_BRANCHES_VALUE : user?.branch || BRANCHES?.[0] || 'فرع شكري'
   );
@@ -234,6 +245,24 @@ export default function CustomerMonthlyPerformance() {
             </div>
           </div>
 
+          <div className="flex overflow-hidden rounded-xl border border-white/10 w-fit">
+            <button
+              type="button"
+              onClick={() => setListTab('declining')}
+              className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold ${listTab === 'declining' ? 'bg-red-500 text-slate-950' : 'text-slate-300'}`}
+            >
+              <TrendingDown size={16} /> العملاء المتراجعين ({summary.needsAttention.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setListTab('improving')}
+              className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold ${listTab === 'improving' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300'}`}
+            >
+              <TrendingUp size={16} /> العملاء المتحسنين ({summary.improving.length})
+            </button>
+          </div>
+
+          {listTab === 'declining' && (
           <div className="stat-card space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-black text-white">
@@ -299,6 +328,8 @@ export default function CustomerMonthlyPerformance() {
               );
             })()}
           </div>
+          )}
+          {listTab === 'improving' && (
           <div className="stat-card space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-black text-white">
@@ -338,6 +369,7 @@ export default function CustomerMonthlyPerformance() {
               </div>
             )}
           </div>
+          )}
         </>
       )}
     </div>

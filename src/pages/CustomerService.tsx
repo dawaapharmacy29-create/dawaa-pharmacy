@@ -1291,15 +1291,34 @@ export default function CustomerService() {
   const requestedFollowupId = params.get('followupId') || params.get('requestId') || params.get('taskId') || '';
   const requestedOpenDetails = params.get('openDetails') === '1' || Boolean(requestedFollowupId);
   const requestedMode = params.get('mode') || '';
-  const requestedCustomerFallback = useMemo(
-    () => ({
+  const requestedCustomerFallback = useMemo(() => {
+    // sessionStorage أولوية أولى — قراءة متزامنة ومضمونة، مستقلة عن أي تعقيد
+    // في توقيت React Router أو ترميز الرابط. بيتقرا مرة واحدة بس وبعدين يتمسح
+    // عشان مايفضلش يأثر على فتحات تانية للنافذة من غير عميل محدد.
+    try {
+      const stored = sessionStorage.getItem('dawaa_pending_followup_customer');
+      if (stored) {
+        sessionStorage.removeItem('dawaa_pending_followup_customer');
+        const parsed = JSON.parse(stored) as { code?: string; name?: string; phone?: string };
+        if (parsed.code || parsed.name || parsed.phone) {
+          return {
+            customer_code: parsed.code || null,
+            customer_phone: parsed.phone || null,
+            customer_name: parsed.name || null,
+            customer_id: null as string | null,
+          };
+        }
+      }
+    } catch {
+      // تجاهل أي خطأ قراءة/تحليل — نكمل على الرابط كـ fallback
+    }
+    return {
       customer_code: params.get('code') || null,
       customer_phone: params.get('phone') || null,
       customer_name: params.get('name') || null,
       customer_id: params.get('customerId') || null,
-    }),
-    [params]
-  );
+    };
+  }, [params]);
   const quickFollowupRequested =
     params.get('quickFollowup') === '1' || params.get('action') === 'quick-followup';
   const userId = user?.id || '';
