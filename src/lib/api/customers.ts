@@ -388,11 +388,12 @@ function normalizeSegmentLabel(value?: string | null) {
 function applySegmentFilter<T>(query: T, segment?: string): T {
   if (isAll(segment)) return query;
   const normalized = normalizeSegmentLabel(segment);
-  if (normalized === 'مهم جدًا') return (query as any).gt('avg_monthly', 8000);
-  if (normalized === 'مهم') return (query as any).gt('avg_monthly', 4000).lte('avg_monthly', 8000);
+  // القاعدة الذهبية الموحّدة (7 أغسطس 2026): >= مش > — لازم تطابق normalizeCustomerSegment بالظبط.
+  if (normalized === 'مهم جدًا') return (query as any).gte('avg_monthly', 8000);
+  if (normalized === 'مهم') return (query as any).gte('avg_monthly', 4000).lt('avg_monthly', 8000);
   if (normalized === 'متوسط')
-    return (query as any).gt('avg_monthly', 1500).lte('avg_monthly', 4000);
-  return (query as any).lte('avg_monthly', 1500);
+    return (query as any).gte('avg_monthly', 1500).lt('avg_monthly', 4000);
+  return (query as any).lt('avg_monthly', 1500);
 }
 
 function applyStatusFilter<T>(query: T, status?: string): T {

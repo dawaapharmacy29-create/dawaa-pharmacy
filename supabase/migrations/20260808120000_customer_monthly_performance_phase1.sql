@@ -1,0 +1,25 @@
+-- المرحلة 1 من نظام "تحليل أداء العملاء الشهري" — تم تطبيقها مباشرة على قاعدة
+-- البيانات الحية (jkjqeqkshllustwlzzbf) بتاريخ 8 أغسطس 2026 عبر Supabase MCP:
+--
+-- 1) توحيد القاعدة الذهبية للتصنيف (>= بدل > في 1500/4000/8000) في:
+--    - normalizeCustomerSegment (src/lib/customerAnalyticsService.ts)
+--    - applySegmentFilter (src/lib/api/customers.ts)
+--
+-- 2) calculate_customer_monthly_performance(branch, period_start, period_end,
+--    prev_period_start, prev_period_end): يحسب أداء كل عميل لفترة معينة مقارنة
+--    بالسابقة، شامل: sales_amount, invoice_count, items_count, avg_invoice,
+--    cash/delivery ratio, current/previous segment, customer_state (تصنيف
+--    الحركة الشهرية: جديد/مستعاد/نمو قوي/نمو/مستقر/تراجع/تراجع قوي/مختفي هذا الشهر).
+--    ملاحظة: تصنيف نوع المشتريات (روشتات/أطفال/كوزمو..) لم يُنفَّذ لأن عمود
+--    invoice_category غير مُعبَّأ في البيانات الحالية (0 صف) — تنفيذه لاحقًا
+--    يحتاج تفعيل تسجيل هذا العمود وقت إدخال الفواتير أولًا.
+--
+-- 3) notify_customers_needing_attention(): تنبيه يومي (8 صباحًا) لمسؤول خدمة
+--    العملاء بكل فرع، بيقارن آخر 14 يوم بالـ14 يوم اللي قبلهم، ويلخّص عدد
+--    العملاء المهمين/المهمين جدًا اللي اختفوا تمامًا أو تراجعوا بقوة (30%+).
+--    مجدولة عبر pg_cron: dawaa-daily-customer-attention-digest.
+--
+-- الكود الكامل لكل دالة مطبّق فعليًا. باقي الطلب (لوحة أداء العملاء الشهري
+-- الكاملة، Top 50، Watchlist، Segment Migration، Wallet Leakage، Customer
+-- Service Incentive Score، Branch Health Score، الملخص التنفيذي التلقائي،
+-- التصدير) لم يُنفَّذ بعد — يحتاج جلسات عمل إضافية مخصصة نظرًا لحجمه (29 قسم).
