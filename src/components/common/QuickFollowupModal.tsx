@@ -48,6 +48,8 @@ export default function QuickFollowupModal({
   onCreated,
   defaultBranch,
   initialCustomerCode,
+  initialCustomerName,
+  initialCustomerPhone,
 }: {
   open: boolean;
   onClose: () => void;
@@ -58,6 +60,10 @@ export default function QuickFollowupModal({
    * وتحدد العميل ده تلقائيًا بدل ما تفتح فاضية وتسيب المستخدم يدور بنفسه.
    */
   initialCustomerCode?: string | null;
+  /** اسم العميل من رابط الإشعار — يتملى فورًا حتى لو البحث الحي فشل أو اتأخر. */
+  initialCustomerName?: string | null;
+  /** هاتف العميل من رابط الإشعار — نفس فكرة الاسم، fallback فوري. */
+  initialCustomerPhone?: string | null;
 }) {
   const { user } = useAuth();
   const managerView = canViewAllBranches(user);
@@ -142,27 +148,36 @@ export default function QuickFollowupModal({
   }, [branch, defaultBranch, open, search, user?.branch]);
 
   useEffect(() => {
-    if (!open || !initialCustomerCode) return;
+    if (!open || (!initialCustomerCode && !initialCustomerName)) return;
+    // تعبئة فورية من بيانات الإشعار نفسها — مش مستنيين نتيجة البحث الحي عشان
+    // النافذة توري بيانات على طول، حتى لو الشبكة بطيئة أو البحث فشل لاحقًا.
+    if (initialCustomerName) setName(initialCustomerName);
+    if (initialCustomerPhone) setPhone(initialCustomerPhone);
+    if (initialCustomerCode) setCode(initialCustomerCode);
+
+    if (!initialCustomerCode) return;
     let cancelled = false;
     searchCustomerMetrics(initialCustomerCode)
       .then((found) => {
         if (cancelled || !found.length) return;
+        const target = String(initialCustomerCode).trim().toLowerCase();
         const exact =
-          found.find((c) => String(c.customer_code || '').trim() === String(initialCustomerCode).trim()) ||
-          found[0];
+          found.find((c) => String(c.customer_code || '').trim().toLowerCase() === target) || found[0];
         setSelectedCustomer(exact);
-        setName(exact.name || '');
-        setPhone(exact.phone || '');
-        setCode(exact.customer_code || '');
+        setName(exact.name || initialCustomerName || '');
+        setPhone(exact.phone || initialCustomerPhone || '');
+        setCode(exact.customer_code || initialCustomerCode || '');
         setSelectedCustomerBranch(normalizeBranchName(exact.branch || ''));
       })
-      .catch(() => {
-        // فشل البحث التلقائي مش لازم يمنع فتح النافذة — المستخدم يقدر يبحث يدويًا
+      .catch((err) => {
+        // البحث التلقائي فشل — البيانات الأساسية (الاسم/الهاتف) اتملت فعلًا فوق
+        // كـ fallback، فالمستخدم مش هيشوف نافذة فاضية تمامًا حتى لو ده حصل.
+        console.warn('[QuickFollowupModal] auto search by code failed', err);
       });
     return () => {
       cancelled = true;
     };
-  }, [open, initialCustomerCode]);
+  }, [open, initialCustomerCode, initialCustomerName, initialCustomerPhone]);
 
   if (!open) return null;
 
