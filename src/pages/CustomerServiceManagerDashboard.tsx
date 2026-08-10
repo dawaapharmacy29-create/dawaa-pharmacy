@@ -19,6 +19,7 @@ import {
   type FollowupPerformanceRow,
 } from '@/lib/api/customerServiceCommandCenter';
 import CustomerServicePersonalDashboard from '@/components/customerService/CustomerServicePersonalDashboard';
+import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
@@ -140,7 +141,10 @@ export default function CustomerServiceManagerDashboard() {
   return (
     <div className="space-y-5 p-4 md:p-6" dir="rtl">
       {user?.name && !allBranches ? (
-        <CustomerServicePersonalDashboard branch={ownBranch} staffName={user.name} />
+        <>
+          <CustomerServicePersonalDashboard branch={ownBranch} staffName={user.name} />
+          <ManagerLiveIncentiveCard evaluationType="customer_service" staffId={user.staffId || user.id} branch={ownBranch} />
+        </>
       ) : (
         <div className="flex flex-col gap-3 rounded-3xl border p-5 md:flex-row md:items-center md:justify-between" style={surface}>
           <div>

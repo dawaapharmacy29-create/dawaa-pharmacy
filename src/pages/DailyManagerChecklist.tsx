@@ -6,6 +6,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import { MANAGER_DAILY_TASKS, type ManagerDailyRole } from '@/lib/evaluations/managerDailyTasks';
 import { ASSISTANT_DAILY_TASKS, ASSISTANT_TASKS_TOTAL_WEIGHT } from '@/lib/evaluations/assistantDailyTasks';
+import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
+import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
+
+const ROLE_TO_EVALUATION_TYPE: Record<ManagerDailyRole, EvaluationType> = {
+  branch_manager: 'branch_manager',
+  branches_manager: 'branches_manager',
+  customer_service_manager: 'customer_service',
+};
 
 function todayInput() {
   return new Date().toISOString().slice(0, 10);
@@ -180,6 +188,14 @@ export default function DailyManagerChecklist() {
         <p className="text-xs text-slate-400">
           لو استمريت بنفس معدل النهاردة طول الدورة، الحافز الشهري التقديري ≈ <span className="font-black text-emerald-300">{estimatedMonthlyIncentive} جنيه</span> من أصل 1000 — الرقم النهائي بيتحسب من معدل كل الأيام مجمّعة، مش يوم واحد بس.
         </p>
+      )}
+
+      {isEligible && !isAssistant && (
+        <ManagerLiveIncentiveCard
+          evaluationType={ROLE_TO_EVALUATION_TYPE[role as ManagerDailyRole]}
+          staffId={staffId}
+          branch={role === 'branches_manager' ? null : (user?.branch || null)}
+        />
       )}
 
       {error && <p className="text-sm text-red-300">{error}</p>}
