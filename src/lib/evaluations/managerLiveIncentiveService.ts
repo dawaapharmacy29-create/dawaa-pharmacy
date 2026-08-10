@@ -44,7 +44,7 @@ export async function fetchManagerLiveIncentiveSnapshot(
   activeGates: CriticalGateType[] = []
 ): Promise<ManagerLiveIncentiveSnapshot | null> {
   const maxIncentiveEgp = EVALUATION_MAX_MONTHLY_INCENTIVE_EGP[evaluationType];
-  if (!maxIncentiveEgp) return null; // customer_service مفيش ليها سقف مالي منفصل لسه
+  if (!maxIncentiveEgp) return null;
 
   const { start: weekStart, end: weekEnd } = weekBoundsOf(new Date());
   const previous = previousWeekOf(weekStart);
@@ -98,5 +98,5 @@ export async function fetchManagerLiveIncentiveSnapshot(
 export const EVALUATION_TYPE_TO_ROLE_LABEL: Record<EvaluationType, string> = {
   branch_manager: 'مدير الفرع',
   branches_manager: 'مدير الفروع',
-  customer_service: 'مسؤول خدمة العملاء',
+  customer_service: 'مدير خدمة العملاء',
 };
