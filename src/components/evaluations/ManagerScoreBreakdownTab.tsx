@@ -104,7 +104,12 @@ export function ManagerScoreBreakdownTab({
                       <Icon size={14} className={meta.tone} />
                       <span className="text-sm font-black text-white">{row.label}</span>
                     </div>
-                    <span className="text-xs text-slate-400">وزن {Math.round(row.weight * 100)}%</span>
+                    <span className="text-xs text-slate-400">
+                      الوزن الأصلي {Math.round(row.weight * 100)}%
+                      {row.coverageState !== 'neutral_missing_data' && Math.abs(row.effectiveWeight - row.weight) > 0.001
+                        ? ` ← الفعلي ${Math.round(row.effectiveWeight * 100)}%`
+                        : ''}
+                    </span>
                   </div>
                   <div className="mt-2 flex items-center gap-3">
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
@@ -113,7 +118,7 @@ export function ManagerScoreBreakdownTab({
                         style={{ width: `${(row.score10 / 10) * 100}%` }}
                       />
                     </div>
-                    <span className="w-16 shrink-0 text-left text-xs font-black text-emerald-300">{row.score10}/10</span>
+                    <span className="w-20 shrink-0 text-left text-xs font-black text-emerald-300">{row.coverageState === 'neutral_missing_data' ? 'مستبعد' : `${row.score10}/10`}</span>
                   </div>
                   <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
                     <span>{meta.label}</span>
