@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { ClipboardList, TrendingUp, TrendingDown, Save, Send } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
+import { ClipboardList, TrendingUp, TrendingDown, Save, Send, ExternalLink } from 'lucide-react';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { TABLES } from '@/lib/supabaseTables';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
@@ -82,7 +82,6 @@ export default function WeeklyManagerEvaluation() {
   const [currentMetrics, setCurrentMetrics] = useState<WeeklyAutoMetrics | null>(null);
   const [previousMetrics, setPreviousMetrics] = useState<WeeklyAutoMetrics | null>(null);
   const [checklistRates, setChecklistRates] = useState<Record<string, number>>({});
-  const [manualScores, setManualScores] = useState<Record<string, number>>({});
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -120,12 +119,8 @@ export default function WeeklyManagerEvaluation() {
   const criteria = EVALUATION_CRITERIA[evaluationType];
   const totalScore = useMemo(() => {
     if (!currentMetrics) return 0;
-    return computeTotalScore(evaluationType, currentMetrics, previousMetrics, manualScores, checklistRates);
-  }, [evaluationType, currentMetrics, previousMetrics, manualScores, checklistRates]);
-
-  const manualComplete = criteria
-    .filter((c) => c.mode === 'manual')
-    .every((c) => manualScores[c.key] !== undefined);
+    return computeTotalScore(evaluationType, currentMetrics, previousMetrics, {}, checklistRates);
+  }, [evaluationType, currentMetrics, previousMetrics, checklistRates]);
 
   const handleSave = async (status: 'draft' | 'submitted') => {
     if (!subjectStaffId || !currentMetrics) return;
@@ -146,7 +141,7 @@ export default function WeeklyManagerEvaluation() {
         week_start: weekStart,
         week_end: weekEnd,
         auto_metrics: currentMetrics,
-        manual_scores: manualScores,
+        manual_scores: {},
         manual_note: note || null,
         total_score: totalScore,
         status,
@@ -180,7 +175,7 @@ export default function WeeklyManagerEvaluation() {
         <ClipboardList className="h-6 w-6 text-teal-300" />
         <div>
           <h1 className="text-xl font-black text-white">{EVALUATION_TYPE_LABELS[evaluationType]}</h1>
-          <p className="text-sm text-slate-400">نموذج أسبوعي: بنود محسوبة تلقائيًا من بيانات حقيقية + بنود تقييم يدوي.</p>
+          <p className="text-sm text-slate-400">نموذج أسبوعي موضوعي: كل بند محسوب من بيانات التطبيق أو مهمة موثقة، بدون درجات رأي شخصي.</p>
         </div>
       </div>
 
@@ -211,9 +206,7 @@ export default function WeeklyManagerEvaluation() {
                 <span className="text-lg text-slate-500"> / 100</span>
               </div>
             </div>
-            {!manualComplete && (
-              <span className="text-xs text-amber-300">محتاج تكمّل كل البنود اليدوية قبل الاعتماد</span>
-            )}
+            <span className="text-xs text-emerald-300">100% بيانات موثقة داخل التطبيق</span>
           </div>
 
           <ManagerLiveIncentiveCard
@@ -240,6 +233,11 @@ export default function WeeklyManagerEvaluation() {
                     <span className="text-xs font-bold text-slate-400">وزن {Math.round(criterion.weight * 100)}%</span>
                   </div>
                   {criterion.hint && <p className="text-xs text-slate-500">{criterion.hint}</p>}
+                  {criterion.sourceRoute && (
+                    <Link to={criterion.sourceRoute} className="inline-flex items-center gap-1 text-xs font-bold text-teal-300 hover:text-teal-200">
+                      <ExternalLink className="h-3 w-3" /> فتح مصدر البيانات: {criterion.sourceLabel || 'التفاصيل'}
+                    </Link>
+                  )}
                   {criterion.mode === 'auto' && (
                     <div className="flex items-center gap-2">
                       <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>
@@ -269,24 +267,6 @@ export default function WeeklyManagerEvaluation() {
                       </span>
                     </div>
                   )}
-                  {criterion.mode === 'manual' && (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={0}
-                        max={10}
-                        step={1}
-                        value={manualScores[criterion.key] ?? 5}
-                        onChange={(e) =>
-                          setManualScores((prev) => ({ ...prev, [criterion.key]: Number(e.target.value) }))
-                        }
-                        className="flex-1"
-                      />
-                      <span className="w-10 text-center font-black text-white">
-                        {manualScores[criterion.key] ?? 5}
-                      </span>
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -299,14 +279,18 @@ export default function WeeklyManagerEvaluation() {
               <div><span className="text-slate-500">متابعات: </span><span className="font-bold text-white">{currentMetrics.followups_total}</span></div>
               <div><span className="text-slate-500">منتهية بدون رد: </span><span className="font-bold text-red-300">{currentMetrics.followups_expired}</span></div>
               <div><span className="text-slate-500">نسبة الاحتفاظ بـ VIP: </span><span className="font-bold text-white">{currentMetrics.vip_retention_rate ?? '—'}%</span></div>
+              <div><span className="text-slate-500">طلبات العملاء: </span><span className="font-bold text-white">{currentMetrics.customer_requests_total ?? 0}</span></div>
+              <div><span className="text-slate-500">طلبات متأخرة: </span><span className="font-bold text-red-300">{currentMetrics.customer_requests_overdue ?? 0}</span></div>
+              <div><span className="text-slate-500">قيمة شراء بعد المتابعة: </span><span className="font-bold text-emerald-300">{(currentMetrics.followups_purchase_amount ?? 0).toLocaleString('ar-EG')} ج.م</span></div>
+              <div><span className="text-slate-500">تكويد الفواتير: </span><span className="font-bold text-white">{currentMetrics.sales_coding_rate ?? '—'}%</span></div>
             </div>
           </div>
 
           <div className="stat-card space-y-2">
-            <label className="text-sm font-bold text-white">ملاحظة تقييم نصية (اختياري لكن موصى بيها)</label>
+            <label className="text-sm font-bold text-white">ملاحظة إدارية (للتوثيق فقط — لا تغيّر الدرجة أو الحافز)</label>
             <textarea
               className="input-dark w-full min-h-[100px]"
-              placeholder="اكتب تقييمك الكيفي هنا — أي حاجة الأرقام مش بتوضحها..."
+              placeholder="اكتب سياقًا أو إجراءً تصحيحيًا؛ الدرجة تظل محسوبة تلقائيًا..."
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
@@ -323,7 +307,7 @@ export default function WeeklyManagerEvaluation() {
             </button>
             <button
               type="button"
-              disabled={saving || !manualComplete}
+              disabled={saving}
               onClick={() => handleSave('submitted')}
               className="flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-2 font-black text-slate-950 disabled:opacity-50"
             >

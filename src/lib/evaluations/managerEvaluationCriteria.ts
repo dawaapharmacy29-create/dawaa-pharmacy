@@ -21,14 +21,31 @@ export type WeeklyAutoMetrics = {
   points_transactions_total: number;
   points_transactions_contacted: number;
   new_customers_count: number;
+  sales_invoices_count?: number;
+  coded_sales_invoices_count?: number;
+  sales_coding_rate?: number | null;
+  sales_target_amount?: number;
+  sales_target_achievement_rate?: number | null;
+  followups_purchase_amount?: number;
+  customer_requests_total?: number;
+  customer_requests_closed?: number;
+  customer_requests_closed_on_time?: number;
+  customer_requests_overdue?: number;
+  shift_notes_total?: number;
+  shift_notes_completed?: number;
+  shift_notes_overdue?: number;
+  attendance_days_count?: number;
+  data_coverage?: Record<string, boolean>;
 };
 
 export type EvaluationCriterion = {
   key: string;
   label: string;
   weight: number;
-  mode: 'auto' | 'manual' | 'checklist';
+  mode: 'auto' | 'checklist';
   hint?: string;
+  sourceRoute?: string;
+  sourceLabel?: string;
   /** لعناصر auto فقط — بيحسب درجة من 0-10 من المقاييس (الحالية + السابقة للمقارنة). */
   autoScore?: (current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null) => number;
   /** لعناصر checklist فقط — مفتاح المهمة اليومية اللي معدل إنجازها الأسبوعي بيحدد الدرجة. */
@@ -49,11 +66,41 @@ function ratio(part: number, total: number): number {
   return part / total;
 }
 
+function covered(current: WeeklyAutoMetrics, key: string): boolean {
+  return current.data_coverage?.[key] !== false;
+}
+
 /** نمو المبيعات مقارنة بالأسبوع السابق — 5 نقطة أساس + مكافأة/خصم حسب نسبة النمو. */
 function salesGrowthScore(current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null): number {
+  if (current.sales_target_achievement_rate !== null && current.sales_target_achievement_rate !== undefined) {
+    return Math.max(0, Math.min(10, current.sales_target_achievement_rate / 10));
+  }
   if (!previous || !previous.sales_total) return 5;
   const growthPct = ((current.sales_total - previous.sales_total) / previous.sales_total) * 100;
   return Math.max(0, Math.min(10, 5 + growthPct / 5));
+}
+
+function attendanceScore(current: WeeklyAutoMetrics): number {
+  if (!covered(current, 'attendance') || !current.attendance_days_count) return 5;
+  const latePenalty = Math.min(5, current.attendance_late_minutes / Math.max(1, current.attendance_days_count) / 12);
+  const punchPenalty = Math.min(5, current.attendance_missing_punch / Math.max(1, current.attendance_days_count) * 5);
+  return Math.max(0, 10 - latePenalty - punchPenalty);
+}
+
+function customerRequestsScore(current: WeeklyAutoMetrics): number {
+  if (!covered(current, 'customer_requests') || !current.customer_requests_total) return 5;
+  const onTime = ratio(current.customer_requests_closed_on_time || 0, current.customer_requests_total);
+  const overdue = ratio(current.customer_requests_overdue || 0, current.customer_requests_total);
+  return Math.max(0, Math.min(10, onTime * 10 - overdue * 5));
+}
+
+function coordinationScore(current: WeeklyAutoMetrics): number {
+  const scores: number[] = [];
+  if (covered(current, 'shift_notes') && current.shift_notes_total) {
+    scores.push(Math.max(0, ratio(current.shift_notes_completed || 0, current.shift_notes_total) * 10 - ratio(current.shift_notes_overdue || 0, current.shift_notes_total) * 5));
+  }
+  if (covered(current, 'customer_requests') && current.customer_requests_total) scores.push(customerRequestsScore(current));
+  return scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 5;
 }
 
 /** جودة إغلاق المتابعات: نسبة المغلق من الإجمالي، بعد خصم وزن المنتهي بدون رد. */
@@ -112,6 +159,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: salesGrowthScore,
       hint: 'محسوبة تلقائيًا من إجمالي مبيعات الفرع مقارنة بالأسبوع اللي فات.',
+      sourceRoute: '/daily-target', sourceLabel: 'المبيعات والتارجت',
     },
     {
       key: 'customer_service',
@@ -120,6 +168,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: followupClosureScore,
       hint: 'محسوبة تلقائيًا من نسبة إغلاق المتابعات مقابل المنتهي بدون رد.',
+      sourceRoute: '/customer-service', sourceLabel: 'المتابعات والعملاء',
     },
     {
       key: 'vip_retention',
@@ -128,6 +177,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: vipRetentionScore,
       hint: 'محسوبة تلقائيًا من نسبة كبار العملاء اللي فضلوا نشطين.',
+      sourceRoute: '/customers', sourceLabel: 'العملاء',
     },
     {
       key: 'cash_integrity',
@@ -136,14 +186,15 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'checklist',
       checklistTaskKey: 'cash_reconciliation',
       hint: 'محسوبة من نسبة أيام الأسبوع اللي اتسجّلت فيها مطابقة الكاش والعهدة فعليًا.',
+      sourceRoute: '/daily-manager-checklist', sourceLabel: 'المهام الموثقة',
     },
     {
       key: 'complaints_handling',
       label: 'التعامل مع الشكاوى المتصاعدة',
       weight: 0.1,
-      mode: 'checklist',
-      checklistTaskKey: 'complaints_escalation',
-      hint: 'محسوبة من نسبة أيام الأسبوع اللي اتراجعت فيها الشكاوى المتصاعدة وحلولها.',
+      mode: 'auto', autoScore: customerRequestsScore,
+      hint: 'محسوبة من الطلبات المغلقة في موعدها والمتأخرة، بدون تقدير شخصي.',
+      sourceRoute: '/customer-requests', sourceLabel: 'طلبات العملاء',
     },
     {
       key: 'purchases',
@@ -152,6 +203,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'checklist',
       checklistTaskKey: 'purchases_review',
       hint: 'محسوبة من نسبة أيام الأسبوع اللي سجّل فيها المدير مراجعة المشتريات فعليًا في المهام اليومية.',
+      sourceRoute: '/purchases', sourceLabel: 'المشتريات',
     },
     {
       key: 'inventory',
@@ -160,6 +212,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'checklist',
       checklistTaskKey: 'inventory_review',
       hint: 'محسوبة من نسبة أيام الأسبوع اللي سجّل فيها المدير متابعة الجرد فعليًا في المهام اليومية.',
+      sourceRoute: '/inventory-counts', sourceLabel: 'الجرد',
     },
     {
       key: 'shortages_handling',
@@ -168,6 +221,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'checklist',
       checklistTaskKey: 'shortages_handling',
       hint: 'محسوبة من نسبة أيام الأسبوع اللي اتسجّل فيها التعامل مع النواقص فعليًا.',
+      sourceRoute: '/shortages', sourceLabel: 'النواقص',
     },
     {
       key: 'expiry_compliance',
@@ -176,6 +230,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'checklist',
       checklistTaskKey: 'expiry_check',
       hint: 'محسوبة من نسبة أيام الأسبوع اللي اتسجّلت فيها مراجعة الإكسباير فعليًا.',
+      sourceRoute: '/medicine-expiry', sourceLabel: 'الصلاحية',
     },
     {
       key: 'shift_briefing',
@@ -183,13 +238,15 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.03,
       mode: 'checklist',
       checklistTaskKey: 'team_briefing',
+      sourceRoute: '/shift-notes', sourceLabel: 'ملاحظات الشيفت',
     },
     {
       key: 'attendance',
       label: 'الحضور والانضباط لفريق الفرع + الزي واستخدام PConnect الشخصي',
       weight: 0.07,
-      mode: 'manual',
-      hint: 'لسه مش متتبّعة تلقائيًا في النظام — تقييم يدوي من مدير الفروع.',
+      mode: 'auto', autoScore: attendanceScore,
+      hint: 'محسوبة من دقائق التأخير والبصمات الناقصة. عند غياب بيانات الحضور تكون محايدة ولا تُعاقب الموظف.',
+      sourceRoute: '/attendance-report', sourceLabel: 'الحضور',
     },
   ],
   branches_manager: [
@@ -199,6 +256,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.19,
       mode: 'auto',
       autoScore: salesGrowthScore,
+      sourceRoute: '/branch-comparison', sourceLabel: 'مقارنة الفروع',
     },
     {
       key: 'customer_service',
@@ -206,6 +264,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.17,
       mode: 'auto',
       autoScore: followupClosureScore,
+      sourceRoute: '/customer-service-dashboard', sourceLabel: 'خدمة العملاء',
     },
     {
       key: 'vip_retention',
@@ -213,13 +272,15 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.1,
       mode: 'auto',
       autoScore: vipRetentionScore,
+      sourceRoute: '/customers', sourceLabel: 'العملاء',
     },
     {
       key: 'coordination',
       label: 'جودة سير العمل والتنسيق بين الفروع',
       weight: 0.08,
-      mode: 'manual',
-      hint: 'تقييم كيفي من المدير العام لجودة التنسيق بين الفرعين والمخزن.',
+      mode: 'auto', autoScore: coordinationScore,
+      hint: 'محسوبة من إغلاق ملاحظات الشيفت وطلبات العملاء في موعدها على مستوى الفروع.',
+      sourceRoute: '/operations-center', sourceLabel: 'مركز العمليات',
     },
     {
       key: 'warehouse',
@@ -228,6 +289,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'checklist',
       checklistTaskKey: 'warehouse_review',
       hint: 'محسوبة من نسبة أيام الأسبوع اللي اتسجّلت فيها متابعة المخزن المركزي فعليًا.',
+      sourceRoute: '/inventory-counts', sourceLabel: 'الجرد والمخزن',
     },
     {
       key: 'top20_customers',
@@ -235,6 +297,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.08,
       mode: 'checklist',
       checklistTaskKey: 'top20_customers_retention_review',
+      sourceRoute: '/customers', sourceLabel: 'أهم العملاء',
     },
     {
       key: 'purchases_speed',
@@ -242,6 +305,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.07,
       mode: 'checklist',
       checklistTaskKey: 'purchases_speed_availability_review',
+      sourceRoute: '/purchases', sourceLabel: 'المشتريات',
     },
     {
       key: 'shift_notes_compliance',
@@ -249,6 +313,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.05,
       mode: 'checklist',
       checklistTaskKey: 'shift_notes_compliance_review',
+      sourceRoute: '/shift-notes', sourceLabel: 'ملاحظات الشيفت',
     },
     {
       key: 'infrastructure',
@@ -275,8 +340,9 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       key: 'leadership',
       label: 'القدرة على القيادة واتخاذ القرار',
       weight: 0.06,
-      mode: 'manual',
-      hint: 'تقييم كيفي من المدير العام — الحسم في القرارات، إدارة الأزمات، والتأثير على الفريق.',
+      mode: 'auto', autoScore: coordinationScore,
+      hint: 'محسوبة من سرعة إغلاق المشكلات والطلبات وملاحظات التشغيل الموثقة، وليست رأيًا شخصيًا.',
+      sourceRoute: '/operations-center', sourceLabel: 'القرارات والتشغيل',
     },
   ],
   customer_service: [
@@ -287,6 +353,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: conversationQualityScore,
       hint: 'محسوبة من عدد مراجعات المحادثات المنجزة + متوسط درجتها خلال الأسبوع.',
+      sourceRoute: '/reviews', sourceLabel: 'تقييمات الدكاترة',
     },
     {
       key: 'followups_execution',
@@ -295,6 +362,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: followupClosureScore,
       hint: 'محسوبة تلقائيًا من نسبة إغلاق كل المتابعات الاستثنائية (دكاترة، أبلكيشن، شكاوى، قائمة مدير الفروع) بنتيجة فعلية موثّقة، مش مجرد "تم الاتصال".',
+      sourceRoute: '/customer-service', sourceLabel: 'المتابعات',
     },
     {
       key: 'points_communication',
@@ -303,6 +371,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: pointsCommunicationScore,
       hint: 'محسوبة تلقائيًا من نسبة معاملات نقاط العملاء اللي اتبلّغ فيها العميل فعليًا.',
+      sourceRoute: '/customer-points-ledger', sourceLabel: 'سجل النقاط',
     },
     {
       key: 'customer_growth',
@@ -311,6 +380,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: customerGrowthScore,
       hint: 'محسوبة تلقائيًا من عدد العملاء الجدد مقارنة بالأسبوع اللي فات.',
+      sourceRoute: '/customers', sourceLabel: 'العملاء الجدد',
     },
     {
       key: 'vip_retention',
@@ -319,6 +389,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: vipRetentionScore,
       hint: 'تقريب مبدئي من نسبة الاحتفاظ بكبار العملاء لحد ما نضيف مقياس رضا مخصص لقائمة أهم 20 عميل.',
+      sourceRoute: '/customers', sourceLabel: 'أهم العملاء',
     },
     {
       key: 'classification_accuracy',
@@ -326,6 +397,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.1,
       mode: 'checklist',
       checklistTaskKey: 'classification_accuracy_review',
+      sourceRoute: '/customer-coding', sourceLabel: 'تكويد العملاء',
     },
     {
       key: 'doctor_coaching',
@@ -334,6 +406,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'checklist',
       checklistTaskKey: 'doctor_coaching',
       hint: 'محسوبة من نسبة أيام الأسبوع اللي اترسل فيها توجيه/تدريب موثّق لدكتور.',
+      sourceRoute: '/training', sourceLabel: 'تدريب الدكاترة',
     },
     {
       key: 'sales_quality',
@@ -341,6 +414,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.08,
       mode: 'checklist',
       checklistTaskKeys: ['cross_selling_review', 'up_selling_review'],
+      sourceRoute: '/reviews', sourceLabel: 'جودة البيع',
     },
     {
       key: 'branches_manager_alignment',
@@ -348,6 +422,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       weight: 0.05,
       mode: 'checklist',
       checklistTaskKey: 'branches_manager_notes_followup',
+      sourceRoute: '/shift-notes', sourceLabel: 'ملاحظات الإدارة',
     },
   ],
 };

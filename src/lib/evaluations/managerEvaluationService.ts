@@ -32,14 +32,17 @@ export async function fetchWeeklyAutoMetrics(
   weekStart: string,
   weekEnd: string
 ): Promise<WeeklyAutoMetrics> {
-  const { data, error } = await supabase.rpc('calculate_weekly_manager_metrics', {
+  const args = {
     p_evaluation_type: evaluationType,
     p_branch: branch,
     p_week_start: weekStart,
     p_week_end: weekEnd,
-  });
-  if (error) throw new Error(error.message);
-  return data as WeeklyAutoMetrics;
+  };
+  const { data, error } = await supabase.rpc('calculate_weekly_manager_metrics_v2', args);
+  if (!error) return data as WeeklyAutoMetrics;
+  const { data: legacyData, error: legacyError } = await supabase.rpc('calculate_weekly_manager_metrics', args);
+  if (legacyError) throw new Error(legacyError.message || error.message);
+  return legacyData as WeeklyAutoMetrics;
 }
 
 export async function fetchWeeklyChecklistCompletion(

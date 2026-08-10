@@ -20,11 +20,13 @@ import {
 export type CriterionBreakdownRow = {
   key: string;
   label: string;
-  mode: 'auto' | 'checklist' | 'manual';
+  mode: 'auto' | 'checklist';
   weight: number;
   score10: number; // من 0-10
   contribution: number; // من 0-100 (score10 * weight * 10)
   hint?: string;
+  sourceRoute?: string;
+  sourceLabel?: string;
 };
 
 export type ManagerScoreBreakdown = {
@@ -58,8 +60,6 @@ export async function fetchManagerScoreBreakdown(
       const rates = keys.map((k) => checklistRates[k] ?? 0);
       const avgRate = rates.length ? rates.reduce((sum, r) => sum + r, 0) / rates.length : 0;
       score10 = avgRate / 10;
-    } else {
-      score10 = 0; // manual — لسه محتاج اعتماد المدير الأعلى، تقديريًا صفر لحد الاعتماد
     }
     score10 = Math.max(0, Math.min(10, score10));
     return {
@@ -70,6 +70,8 @@ export async function fetchManagerScoreBreakdown(
       score10: Math.round(score10 * 10) / 10,
       contribution: Math.round(score10 * criterion.weight * 10 * 10) / 10,
       hint: criterion.hint,
+      sourceRoute: criterion.sourceRoute,
+      sourceLabel: criterion.sourceLabel,
     };
   });
 

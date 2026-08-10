@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Loader2, ListChecks, CheckCircle2, Sparkles, UserCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Loader2, ListChecks, CheckCircle2, Sparkles, ExternalLink } from 'lucide-react';
 import { fetchManagerScoreBreakdown, type ManagerScoreBreakdown } from '@/lib/evaluations/managerScoreBreakdown';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
@@ -7,7 +8,6 @@ import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria
 const MODE_META: Record<string, { label: string; icon: any; tone: string }> = {
   auto: { label: 'تلقائي من البيانات', icon: Sparkles, tone: 'text-teal-300' },
   checklist: { label: 'من المهام اليومية', icon: ListChecks, tone: 'text-blue-300' },
-  manual: { label: 'تقييم مدير أعلى', icon: UserCheck, tone: 'text-amber-300' },
 };
 
 export function ManagerScoreBreakdownTab({
@@ -55,7 +55,7 @@ export function ManagerScoreBreakdownTab({
       <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
         <h3 className="text-base font-black text-white">تقييم كل جزء — الأسبوع الجاري</h3>
         <p className="mt-1 text-xs text-slate-400">
-          كل بند بيوضح مصدره: تلقائي من بيانات التطبيق، من المهام اليومية اللي بتسجّلها، أو تقييم يدوي من مديرك الأعلى (بيتحسب بعد الاعتماد).
+          كل بند بيوضح مصدره: تلقائي من بيانات التطبيق أو من مهمة تشغيلية موثقة؛ لا توجد درجة مبنية على رأي شخصي.
         </p>
 
         {loading ? (
@@ -94,6 +94,11 @@ export function ManagerScoreBreakdownTab({
                     </span>
                   </div>
                   {row.hint && <div className="mt-1 text-[11px] text-slate-500">{row.hint}</div>}
+                  {row.sourceRoute && (
+                    <Link to={row.sourceRoute} className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-teal-300 hover:text-teal-200">
+                      <ExternalLink size={11} /> فتح {row.sourceLabel || 'مصدر البيانات'}
+                    </Link>
+                  )}
                 </div>
               );
             })}
