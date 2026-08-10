@@ -30,6 +30,7 @@ export type ManagerMonthlyReportRow = {
   conversationReviewsAverage: number | null;
   scoreChangeFromPrevious: number | null;
   isCurrentCycle: boolean;
+  operationalDataAvailable: boolean;
 };
 
 export type ManagerMonthlyReport = {
@@ -121,8 +122,7 @@ export async function fetchManagerMonthlyReport(
   const oldestStart = formatCycleDate(cycles[cycles.length - 1].start);
   const maxIncentive = EVALUATION_MAX_MONTHLY_INCENTIVE_EGP[evaluationType] || 0;
 
-  const currentCycle = cycles[0];
-  const [evaluationResult, settlementResult, liveSnapshot, currentCycleMetrics] = await Promise.all([
+  const [evaluationResult, settlementResult, liveSnapshot, cycleMetrics] = await Promise.all([
     supabase
       .from('manager_weekly_evaluations')
       .select('week_start,week_end,total_score,status,auto_metrics')
@@ -138,12 +138,12 @@ export async function fetchManagerMonthlyReport(
       .eq('source', 'manager_evaluation_settlement')
       .order('created_at', { ascending: false }),
     fetchManagerLiveIncentiveSnapshot(evaluationType, subjectStaffId, branch).catch(() => null),
-    fetchWeeklyAutoMetrics(
+    Promise.all(cycles.map((cycle, index) => fetchWeeklyAutoMetrics(
       evaluationType,
       branch,
-      formatCycleDate(currentCycle.start),
-      formatCycleDate(new Date())
-    ).catch(() => null),
+      formatCycleDate(cycle.start),
+      index === 0 ? formatCycleDate(new Date()) : formatCycleDate(cycle.end)
+    ).catch(() => null))),
   ]);
 
   if (evaluationResult.error) throw new Error(evaluationResult.error.message);
@@ -169,6 +169,10 @@ export async function fetchManagerMonthlyReport(
       ? { tier: { label: 'لا توجد بيانات' }, payoutPercent: 0, incentiveValue: 0 }
       : calculateTieredIncentiveValue(averageScore, maxIncentive);
     const settlement = matchingSettlement(settlements, cycleStart);
+    const operationalMetrics = cycleMetrics[index];
+    const operationalDataAvailable = Boolean(
+      operationalMetrics && Object.values(operationalMetrics.data_coverage || {}).some(Boolean)
+    );
 
     return {
       cycleStart,
@@ -182,21 +186,19 @@ export async function fetchManagerMonthlyReport(
       estimatedIncentiveEgp: incentive.incentiveValue,
       settledIncentiveEgp: settlement ? Number(settlement.amount || 0) : null,
       settlementStatus: settlement ? 'settled' : averageScore === null ? 'no_data' : 'estimated',
-      dataCoveragePercent: isCurrentCycle
-        ? metricCoverage(currentCycleMetrics) ?? liveSnapshot?.dataCoveragePercent ?? null
-        : coverageOf(cycleEvaluations),
-      salesTotal: isCurrentCycle ? Number(currentCycleMetrics?.sales_total || 0) : sumMetric(cycleEvaluations, 'sales_total'),
-      followupsTotal: isCurrentCycle ? Number(currentCycleMetrics?.followups_total || 0) : sumMetric(cycleEvaluations, 'followups_total'),
-      followupsClosed: isCurrentCycle ? Number(currentCycleMetrics?.followups_closed || 0) : sumMetric(cycleEvaluations, 'followups_closed'),
-      customerRequestsTotal: isCurrentCycle ? Number(currentCycleMetrics?.customer_requests_total || 0) : sumMetric(cycleEvaluations, 'customer_requests_total'),
-      customerRequestsClosed: isCurrentCycle ? Number(currentCycleMetrics?.customer_requests_closed || 0) : sumMetric(cycleEvaluations, 'customer_requests_closed'),
-      recoveredSalesEgp: isCurrentCycle ? Number(currentCycleMetrics?.followups_purchase_amount || 0) : sumMetric(cycleEvaluations, 'followups_purchase_amount'),
-      conversationReviewsCount: isCurrentCycle ? Number(currentCycleMetrics?.conversation_reviews_count || 0) : sumMetric(cycleEvaluations, 'conversation_reviews_count'),
-      conversationReviewsAverage: isCurrentCycle
-        ? currentCycleMetrics?.conversation_reviews_avg_score ?? null
-        : reviewsAverage(cycleEvaluations),
+      dataCoveragePercent: metricCoverage(operationalMetrics)
+        ?? (isCurrentCycle ? liveSnapshot?.dataCoveragePercent ?? null : coverageOf(cycleEvaluations)),
+      salesTotal: operationalMetrics ? Number(operationalMetrics.sales_total || 0) : sumMetric(cycleEvaluations, 'sales_total'),
+      followupsTotal: operationalMetrics ? Number(operationalMetrics.followups_total || 0) : sumMetric(cycleEvaluations, 'followups_total'),
+      followupsClosed: operationalMetrics ? Number(operationalMetrics.followups_closed || 0) : sumMetric(cycleEvaluations, 'followups_closed'),
+      customerRequestsTotal: operationalMetrics ? Number(operationalMetrics.customer_requests_total || 0) : sumMetric(cycleEvaluations, 'customer_requests_total'),
+      customerRequestsClosed: operationalMetrics ? Number(operationalMetrics.customer_requests_closed || 0) : sumMetric(cycleEvaluations, 'customer_requests_closed'),
+      recoveredSalesEgp: operationalMetrics ? Number(operationalMetrics.followups_purchase_amount || 0) : sumMetric(cycleEvaluations, 'followups_purchase_amount'),
+      conversationReviewsCount: operationalMetrics ? Number(operationalMetrics.conversation_reviews_count || 0) : sumMetric(cycleEvaluations, 'conversation_reviews_count'),
+      conversationReviewsAverage: operationalMetrics?.conversation_reviews_avg_score ?? reviewsAverage(cycleEvaluations),
       scoreChangeFromPrevious: null,
       isCurrentCycle,
+      operationalDataAvailable,
     };
   });
 
