@@ -4,10 +4,12 @@ import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
-import { MANAGER_DAILY_TASKS, MANAGER_DAILY_TASK_GROUPS, type ManagerDailyRole } from '@/lib/evaluations/managerDailyTasks';
+import { MANAGER_DAILY_TASKS, MANAGER_DAILY_TASK_GROUPS, getManagerTaskCadence, type ManagerDailyRole } from '@/lib/evaluations/managerDailyTasks';
 import { ASSISTANT_DAILY_TASKS, ASSISTANT_TASKS_TOTAL_WEIGHT } from '@/lib/evaluations/assistantDailyTasks';
 import { ManagerScoreBreakdownTab } from '@/components/evaluations/ManagerScoreBreakdownTab';
 import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
+import { weekBoundsOf } from '@/lib/evaluations/managerEvaluationService';
+import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 
 const ROLE_TO_EVALUATION_TYPE: Record<ManagerDailyRole, EvaluationType> = {
   branch_manager: 'branch_manager',
@@ -26,6 +28,7 @@ function todayInput() {
 type ChecklistRow = {
   id?: string;
   task_key: string;
+  task_date?: string;
   completed: boolean;
   note: string | null;
 };
@@ -71,9 +74,10 @@ export default function DailyManagerChecklist() {
     setError('');
     supabase
       .from(TABLES.managerDailyChecklist)
-      .select('id, task_key, completed, note')
+      .select('id, task_key, task_date, completed, note')
       .eq('staff_id', staffId)
-      .eq('task_date', taskDate)
+      .gte('task_date', getPharmacyCycleRange(taskDate).start)
+      .lte('task_date', getPharmacyCycleRange(taskDate).end)
       .then(({ data, error: err }) => {
         if (cancelled) return;
         if (err) {
@@ -81,8 +85,20 @@ export default function DailyManagerChecklist() {
           return;
         }
         const map: Record<string, ChecklistRow> = {};
-        (data || []).forEach((row) => {
-          map[row.task_key] = row as ChecklistRow;
+        const selectedWeek = weekBoundsOf(new Date(`${taskDate}T12:00:00`));
+        (data || []).forEach((rawRow) => {
+          const row = rawRow as ChecklistRow;
+          const cadence = isAssistant ? 'daily' : getManagerTaskCadence(row.task_key);
+          const rowDate = String(row.task_date || '').slice(0, 10);
+          const isRelevant =
+            cadence === 'daily'
+              ? rowDate === taskDate
+              : cadence === 'weekly'
+                ? rowDate >= selectedWeek.start && rowDate <= selectedWeek.end
+                : true;
+          if (!isRelevant) return;
+          const current = map[row.task_key];
+          if (!current || row.completed || rowDate === taskDate) map[row.task_key] = row;
         });
         setRows(map);
         if (groups.length) {
@@ -108,8 +124,9 @@ export default function DailyManagerChecklist() {
     });
   };
 
-  const completedCount = tasks.filter((t) => rows[t.key]?.completed).length;
-  const completionPercent = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
+  const progressTasks = isAssistant ? tasks : tasks.filter((t) => getManagerTaskCadence(t.key) === 'daily');
+  const completedCount = progressTasks.filter((t) => rows[t.key]?.completed).length;
+  const completionPercent = progressTasks.length ? Math.round((completedCount / progressTasks.length) * 100) : 0;
   const completedWeight = isAssistant
     ? ASSISTANT_DAILY_TASKS.filter((t) => rows[t.key]?.completed).reduce((sum, t) => sum + t.weight, 0)
     : 0;
@@ -236,7 +253,7 @@ export default function DailyManagerChecklist() {
                 />
               </div>
             </div>
-            <span className="text-sm font-black text-white">{completedCount} / {tasks.length}</span>
+            <span className="text-sm font-black text-white">{completedCount} / {progressTasks.length} يومي</span>
           </div>
 
           {isAssistant && (
@@ -285,6 +302,8 @@ export default function DailyManagerChecklist() {
                         {group.subtasks.map((task) => {
                           const row = rows[task.key];
                           const completed = row?.completed || false;
+                          const cadence = getManagerTaskCadence(task.key);
+                          const cadenceLabel = cadence === 'daily' ? 'يومية' : cadence === 'weekly' ? 'أسبوعية' : 'شهرية';
                           return (
                             <div
                               key={task.key}
@@ -304,7 +323,10 @@ export default function DailyManagerChecklist() {
                                   <Circle className="h-5 w-5 shrink-0 text-slate-500" />
                                 )}
                                 <div className="flex-1">
-                                  <div className={`text-sm font-bold ${completed ? 'text-emerald-200' : 'text-slate-200'}`}>{task.label}</div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <div className={`text-sm font-bold ${completed ? 'text-emerald-200' : 'text-slate-200'}`}>{task.label}</div>
+                                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-bold text-slate-400">{cadenceLabel}</span>
+                                  </div>
                                   {task.hint && <div className="text-[11px] text-slate-500">{task.hint}</div>}
                                 </div>
                               </button>
