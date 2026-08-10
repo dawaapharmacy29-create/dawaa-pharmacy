@@ -8,6 +8,7 @@ import {
 import { calculateTieredIncentiveValue } from '@/lib/evaluations/incentiveTiers';
 import { fetchManagerLiveIncentiveSnapshot } from '@/lib/evaluations/managerLiveIncentiveService';
 import { fetchWeeklyAutoMetrics } from '@/lib/evaluations/managerEvaluationService';
+import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievementBonus';
 
 export type ManagerMonthlyReportRow = {
   cycleStart: string;
@@ -17,6 +18,11 @@ export type ManagerMonthlyReportRow = {
   tierLabel: string;
   payoutPercent: number;
   estimatedIncentiveEgp: number;
+  targetAmount: number;
+  targetAchievementPercent: number | null;
+  targetBonusEgp: number | null;
+  targetBonusTierLabel: string;
+  totalEstimatedIncentiveEgp: number;
   settledIncentiveEgp: number | null;
   settlementStatus: 'estimated' | 'settled' | 'no_data';
   dataCoveragePercent: number | null;
@@ -173,6 +179,13 @@ export async function fetchManagerMonthlyReport(
     const operationalDataAvailable = Boolean(
       operationalMetrics && Object.values(operationalMetrics.data_coverage || {}).some(Boolean)
     );
+    const salesTotal = operationalMetrics ? Number(operationalMetrics.sales_total || 0) : sumMetric(cycleEvaluations, 'sales_total');
+    const targetAmount = operationalMetrics ? Number(operationalMetrics.sales_target_amount || 0) : sumMetric(cycleEvaluations, 'sales_target_amount');
+    const targetBonus = calculateTargetAchievementBonus(
+      salesTotal,
+      targetAmount,
+      evaluationType === 'customer_service' ? 'not_eligible' : 'manager'
+    );
 
     return {
       cycleStart,
@@ -184,11 +197,16 @@ export async function fetchManagerMonthlyReport(
       tierLabel: incentive.tier.label,
       payoutPercent: incentive.payoutPercent,
       estimatedIncentiveEgp: incentive.incentiveValue,
+      targetAmount,
+      targetAchievementPercent: targetBonus.achievementPercent,
+      targetBonusEgp: targetBonus.amountEgp,
+      targetBonusTierLabel: targetBonus.tierLabel,
+      totalEstimatedIncentiveEgp: incentive.incentiveValue + Number(targetBonus.amountEgp || 0),
       settledIncentiveEgp: settlement ? Number(settlement.amount || 0) : null,
       settlementStatus: settlement ? 'settled' : averageScore === null ? 'no_data' : 'estimated',
       dataCoveragePercent: metricCoverage(operationalMetrics)
         ?? (isCurrentCycle ? liveSnapshot?.dataCoveragePercent ?? null : coverageOf(cycleEvaluations)),
-      salesTotal: operationalMetrics ? Number(operationalMetrics.sales_total || 0) : sumMetric(cycleEvaluations, 'sales_total'),
+      salesTotal,
       followupsTotal: operationalMetrics ? Number(operationalMetrics.followups_total || 0) : sumMetric(cycleEvaluations, 'followups_total'),
       followupsClosed: operationalMetrics ? Number(operationalMetrics.followups_closed || 0) : sumMetric(cycleEvaluations, 'followups_closed'),
       customerRequestsTotal: operationalMetrics ? Number(operationalMetrics.customer_requests_total || 0) : sumMetric(cycleEvaluations, 'customer_requests_total'),
