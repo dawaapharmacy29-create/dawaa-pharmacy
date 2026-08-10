@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Circle, ListChecks } from 'lucide-react';
+import { CheckCircle2, Circle, ChevronDown, ListChecks } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
-import { MANAGER_DAILY_TASKS, type ManagerDailyRole } from '@/lib/evaluations/managerDailyTasks';
+import { MANAGER_DAILY_TASKS, MANAGER_DAILY_TASK_GROUPS, type ManagerDailyRole } from '@/lib/evaluations/managerDailyTasks';
 import { ASSISTANT_DAILY_TASKS, ASSISTANT_TASKS_TOTAL_WEIGHT } from '@/lib/evaluations/assistantDailyTasks';
 import { ManagerScoreBreakdownTab } from '@/components/evaluations/ManagerScoreBreakdownTab';
 import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
@@ -54,6 +54,9 @@ export default function DailyManagerChecklist() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [expandedGroups, setExpandedGroups] = useState<Set<string> | null>(null);
+
+  const groups = !isAssistant && isEligible ? MANAGER_DAILY_TASK_GROUPS[role as ManagerDailyRole] : [];
 
   const staffId = user?.staffId || user?.id || '';
 
@@ -78,12 +81,28 @@ export default function DailyManagerChecklist() {
           map[row.task_key] = row as ChecklistRow;
         });
         setRows(map);
+        if (groups.length) {
+          const stillOpen = new Set(
+            groups.filter((g) => g.subtasks.some((t) => !map[t.key]?.completed)).map((g) => g.groupKey)
+          );
+          setExpandedGroups(stillOpen);
+        }
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staffId, taskDate, isEligible]);
+
+  const toggleGroup = (groupKey: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev || []);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  };
 
   const completedCount = tasks.filter((t) => rows[t.key]?.completed).length;
   const completionPercent = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
@@ -225,7 +244,86 @@ export default function DailyManagerChecklist() {
           {error && <p className="text-sm text-red-300">{error}</p>}
           {loading && <p className="text-sm text-slate-400">جارٍ التحميل...</p>}
 
-          {!loading && (
+          {!loading && groups.length > 0 && (
+            <div className="space-y-3">
+              {groups.map((group) => {
+                const groupDone = group.subtasks.filter((t) => rows[t.key]?.completed).length;
+                const groupTotal = group.subtasks.length;
+                const groupComplete = groupDone === groupTotal;
+                const isOpen = expandedGroups?.has(group.groupKey) ?? false;
+                return (
+                  <div
+                    key={group.groupKey}
+                    className={`overflow-hidden rounded-2xl border transition ${
+                      groupComplete ? 'border-emerald-400/30 bg-emerald-500/5' : 'border-white/10 bg-slate-900/30'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.groupKey)}
+                      className="flex w-full items-center gap-3 p-4 text-right"
+                    >
+                      {groupComplete ? (
+                        <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-400" />
+                      ) : (
+                        <Circle className="h-6 w-6 shrink-0 text-slate-500" />
+                      )}
+                      <div className="flex-1">
+                        <div className={`font-black ${groupComplete ? 'text-emerald-200' : 'text-white'}`}>{group.groupLabel}</div>
+                        {group.groupHint && <div className="text-xs text-slate-500">{group.groupHint}</div>}
+                      </div>
+                      <span className="shrink-0 text-xs font-black text-slate-400">{groupDone} / {groupTotal}</span>
+                      <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isOpen && (
+                      <div className="space-y-2 border-t border-white/10 p-3 pt-3">
+                        {group.subtasks.map((task) => {
+                          const row = rows[task.key];
+                          const completed = row?.completed || false;
+                          return (
+                            <div
+                              key={task.key}
+                              className={`space-y-2 rounded-xl border p-3 transition ${
+                                completed ? 'border-emerald-400/20 bg-emerald-500/5' : 'border-white/5 bg-black/10'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleTask(task.key)}
+                                disabled={saving === task.key}
+                                className="flex w-full items-center gap-3 text-right"
+                              >
+                                {completed ? (
+                                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+                                ) : (
+                                  <Circle className="h-5 w-5 shrink-0 text-slate-500" />
+                                )}
+                                <div className="flex-1">
+                                  <div className={`text-sm font-bold ${completed ? 'text-emerald-200' : 'text-slate-200'}`}>{task.label}</div>
+                                  {task.hint && <div className="text-[11px] text-slate-500">{task.hint}</div>}
+                                </div>
+                              </button>
+                              <input
+                                type="text"
+                                className="input-dark w-full text-xs"
+                                placeholder="ملاحظة سريعة (اختياري)..."
+                                value={row?.note || ''}
+                                onChange={(e) => updateNote(task.key, e.target.value)}
+                                onBlur={() => saveNote(task.key)}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!loading && isAssistant && (
             <div className="space-y-3">
               {tasks.map((task) => {
                 const row = rows[task.key];

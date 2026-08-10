@@ -33,7 +33,16 @@ export type EvaluationCriterion = {
   autoScore?: (current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null) => number;
   /** لعناصر checklist فقط — مفتاح المهمة اليومية اللي معدل إنجازها الأسبوعي بيحدد الدرجة. */
   checklistTaskKey?: string;
+  /** لعناصر checklist اللي بتتغذى من أكتر من بند فرعي — بيتاخد متوسط معدلات الإنجاز لكل المفاتيح. له أولوية على checklistTaskKey لو الاتنين موجودين. */
+  checklistTaskKeys?: string[];
 };
+
+/** بيرجع كل مفاتيح الـ Checklist المرتبطة بمعيار معيّن (سواء مفتاح واحد أو أكتر). */
+export function criterionChecklistKeys(criterion: EvaluationCriterion): string[] {
+  if (criterion.checklistTaskKeys?.length) return criterion.checklistTaskKeys;
+  if (criterion.checklistTaskKey) return [criterion.checklistTaskKey];
+  return [];
+}
 
 function ratio(part: number, total: number): number {
   if (!total) return 0;
@@ -331,7 +340,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       label: 'جودة عمليات البيع (Cross/Up-selling)',
       weight: 0.08,
       mode: 'checklist',
-      checklistTaskKey: 'sales_quality_cross_upsell_review',
+      checklistTaskKeys: ['cross_selling_review', 'up_selling_review'],
     },
     {
       key: 'branches_manager_alignment',
@@ -372,8 +381,11 @@ export function computeTotalScore(
     let score: number;
     if (criterion.mode === 'auto' && criterion.autoScore) {
       score = criterion.autoScore(current, previous);
-    } else if (criterion.mode === 'checklist' && criterion.checklistTaskKey) {
-      score = (checklistRates[criterion.checklistTaskKey] ?? 0) / 10;
+    } else if (criterion.mode === 'checklist') {
+      const keys = criterionChecklistKeys(criterion);
+      const rates = keys.map((k) => checklistRates[k] ?? 0);
+      const avgRate = rates.length ? rates.reduce((sum, r) => sum + r, 0) / rates.length : 0;
+      score = avgRate / 10;
     } else {
       score = manualScores[criterion.key] ?? 0;
     }

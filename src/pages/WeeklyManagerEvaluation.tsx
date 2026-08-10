@@ -11,6 +11,7 @@ import {
   EVALUATION_CRITERIA,
   EVALUATION_TYPE_LABELS,
   computeTotalScore,
+  criterionChecklistKeys,
   type EvaluationType,
   type WeeklyAutoMetrics,
 } from '@/lib/evaluations/managerEvaluationCriteria';
@@ -215,9 +216,10 @@ export default function WeeklyManagerEvaluation() {
                 criterion.mode === 'auto' && criterion.autoScore
                   ? criterion.autoScore(currentMetrics, previousMetrics)
                   : null;
+              const checklistKeys = criterionChecklistKeys(criterion);
               const checklistScore =
-                criterion.mode === 'checklist' && criterion.checklistTaskKey
-                  ? (checklistRates[criterion.checklistTaskKey] ?? 0) / 10
+                criterion.mode === 'checklist' && checklistKeys.length
+                  ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length / 10
                   : null;
               return (
                 <div key={criterion.key} className="stat-card space-y-2">
@@ -248,7 +250,10 @@ export default function WeeklyManagerEvaluation() {
                         {(checklistScore || 0).toFixed(1)} / 10
                       </span>
                       <span className="text-xs text-slate-500">
-                        ({(checklistRates[criterion.checklistTaskKey || ''] ?? 0).toFixed(0)}% من أيام الأسبوع مسجّلة كمكتملة في المهام اليومية)
+                        ({(checklistKeys.length
+                          ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length
+                          : 0
+                        ).toFixed(0)}% من أيام الأسبوع مسجّلة كمكتملة في المهام اليومية)
                       </span>
                     </div>
                   )}

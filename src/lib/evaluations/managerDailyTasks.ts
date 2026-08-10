@@ -1,242 +1,260 @@
 export type ManagerDailyRole = 'branch_manager' | 'branches_manager' | 'customer_service_manager';
 
-export type DailyTaskDefinition = {
+export type DailySubTask = {
   key: string;
   label: string;
   hint?: string;
-  /** لو موجود، معدل الإنجاز الأسبوعي للمهمة دي بيغذّي معيار في التقييم الأسبوعي بنفس المفتاح. */
-  linkedEvaluationCriterion?: string;
 };
 
-export const MANAGER_DAILY_TASKS: Record<ManagerDailyRole, DailyTaskDefinition[]> = {
+export type DailyTaskGroup = {
+  groupKey: string;
+  groupLabel: string;
+  groupHint?: string;
+  subtasks: DailySubTask[];
+};
+
+/**
+ * كل دور عنده مجموعة قليلة من المحاور الرئيسية، وكل محور جواه بنود دقيقة قابلة للتحديد
+ * لوحدها. ده بيقلل عدد القرارات اللي المدير محتاج يتخذها وهو بيفتح الصفحة (يشوف 6-9 محاور
+ * بس بدل 17-24 بند مفرود)، وفي نفس الوقت بيحافظ على نفس الدقة اللي كانت موجودة قبل كده —
+ * كل بند فرعي لسه له مفتاحه المستقل في manager_daily_checklist.
+ */
+export const MANAGER_DAILY_TASK_GROUPS: Record<ManagerDailyRole, DailyTaskGroup[]> = {
   branch_manager: [
     {
-      key: 'pconnect_personal_account',
-      label: 'الدكاترة استخدموا حسابهم الشخصي على PConnect وقت البيع',
-      hint: 'التزام سياسة الحسابات الفردية أثناء التعامل مع العملاء — مفيش مصدر بيانات آلي، تقييم مباشر.',
+      groupKey: 'cash_and_complaints',
+      groupLabel: 'الضبط المالي والشكاوى',
+      subtasks: [
+        {
+          key: 'cash_reconciliation',
+          label: 'مطابقة الكاش والعهدة اليومية',
+          hint: 'مطابقة كاش الدرج/الماكينة مع تقرير المبيعات — أهم ضبط مالي يومي.',
+        },
+        {
+          key: 'complaints_escalation',
+          label: 'مراجعة الشكاوى المتصاعدة ومتابعة حلها',
+          hint: 'أي شكوى وصلتلك من خدمة العملاء أو مباشرة من عميل — لازم رد وحل موثّق.',
+        },
+      ],
     },
     {
-      key: 'dress_code',
-      label: 'التزام الدكاترة بالزي الرسمي',
-      hint: 'جولة بصرية سريعة على الفريق.',
+      groupKey: 'purchases_and_supply',
+      groupLabel: 'المشتريات والتوريد',
+      subtasks: [
+        { key: 'purchases_review', label: 'مراجعة فواتير المشتريات والموردين' },
+        { key: 'purchase_orders_preparation', label: 'تحضير طلبيات الدواء والإكسسوار والمستلزمات' },
+      ],
     },
     {
-      key: 'purchases_review',
-      label: 'راجعت فواتير المشتريات والموردين اليوم',
-      hint: 'التأكد من دقة الفواتير المسجلة ومطابقتها للمستلم فعليًا.',
-      linkedEvaluationCriterion: 'purchases',
+      groupKey: 'inventory_and_stock',
+      groupLabel: 'الجرد والمخزون',
+      subtasks: [
+        { key: 'inventory_review', label: 'متابعة الجرد والنواقص' },
+        { key: 'stock_shelf_refill', label: 'مراجعة الاستوكات وإعادة ملء الأرفف' },
+        { key: 'stagnant_items_followup', label: 'متابعة الرواكد والتزام الدكاترة بصرفها' },
+      ],
     },
     {
-      key: 'purchase_orders_preparation',
-      label: 'جهّزت طلبيات الدواء والإكسسوار والمستلزمات',
-      hint: 'تحضير الطلبيات الناقصة قبل ما تتحول لنواقص فعلية.',
+      groupKey: 'shortages_and_expiry',
+      groupLabel: 'النواقص والإكسباير',
+      subtasks: [
+        { key: 'shortages_handling', label: 'التصرف السليم في النواقص ووجود مكان مخصص لها' },
+        { key: 'expiry_check', label: 'التأكد من عدم وجود أصناف إكسباير' },
+      ],
     },
     {
-      key: 'doctor_classification_audit',
-      label: 'راجعت تسجيل الدكاترة لتصنيف العملاء على الفواتير في PConnect',
-      hint: 'دقة التصنيف وقت البيع — بيغذي معيار دقة التصنيف عند مسؤول خدمة العملاء كمان.',
+      groupKey: 'customers',
+      groupLabel: 'العملاء',
+      subtasks: [
+        { key: 'customer_requests_fulfillment', label: 'تسجيل وتحقيق طلبات العملاء' },
+        { key: 'vip_customers_followup', label: 'متابعة أهم عملاء VIP بالفرع' },
+        {
+          key: 'daily_high_value_customers_review',
+          label: 'مراجعة عملاء اليوم اللي فاتورتهم ≥ 500ج',
+          hint: 'من صفحة متابعة العملاء — مصدرها RPC: get_daily_high_value_customers.',
+        },
+      ],
     },
     {
-      key: 'customer_requests_fulfillment',
-      label: 'تابعت طلبات العملاء: تسجيل، تحقيق، وتوفير',
-      hint: 'Request → Fulfilled — مش بس تسجيل الطلب.',
+      groupKey: 'doctors_compliance',
+      groupLabel: 'الدكاترة والالتزام',
+      subtasks: [
+        { key: 'pconnect_personal_account', label: 'استخدام الدكاترة لحسابهم الشخصي على PConnect' },
+        { key: 'dress_code', label: 'الالتزام بالزي الرسمي' },
+        { key: 'doctor_classification_audit', label: 'دقة تصنيف الدكاترة للعملاء على الفواتير' },
+        { key: 'policy_compliance', label: 'الالتزام بسياسات الخصومات والمرتجعات والأذونات والمواعيد' },
+      ],
     },
     {
-      key: 'vip_customers_followup',
-      label: 'تابعت أهم عملاء VIP بالفرع',
+      groupKey: 'internal_communication',
+      groupLabel: 'المتابعة والتواصل الداخلي',
+      subtasks: [
+        { key: 'conversations_review', label: 'مراجعة محادثات الواتساب' },
+        { key: 'shift_notes_followup', label: 'متابعة ملاحظات الشيفتات وتنفيذها' },
+        { key: 'branches_manager_notes_followup', label: 'متابعة ملاحظات مدير الفروع وتنفيذها' },
+        { key: 'cs_manager_notes_followup', label: 'متابعة ملاحظات مسؤول خدمة العملاء وتوجيه الدكاترة' },
+        { key: 'team_briefing', label: 'تسليم الشيفت وتجميعة سريعة مع الفريق' },
+      ],
     },
     {
-      key: 'daily_high_value_customers_review',
-      label: 'راجعت قائمة عملاء اليوم اللي فاتورتهم (أو مجموع فواتيرهم) ≥ 500ج',
-      hint: 'من صفحة متابعة العملاء — مصدرها RPC: get_daily_high_value_customers.',
-    },
-    {
-      key: 'transfers_error_correction',
-      label: 'صحّحت أخطاء التحويلات',
-    },
-    {
-      key: 'floor_cleanliness',
-      label: 'النظافة',
-    },
-    {
-      key: 'shelf_arrangement',
-      label: 'الرص',
-    },
-    {
-      key: 'inventory_review',
-      label: 'تابعت الجرد والمخزون (نواقص ورواكد)',
-      hint: 'مراجعة حالة الجرد وقوائم النواقص والرواكد.',
-      linkedEvaluationCriterion: 'inventory',
-    },
-    {
-      key: 'conversations_review',
-      label: 'راجعت محادثات الواتساب',
-      hint: 'الاطلاع على تقييمات المحادثات وأي شكاوى محتاجة تدخّل.',
-    },
-    {
-      key: 'shift_notes_followup',
-      label: 'تابعت ملاحظات الشيفتات والتأكدت من تنفيذها',
-    },
-    {
-      key: 'branches_manager_notes_followup',
-      label: 'تابعت ملاحظات مدير الفروع ونفّذتها',
-    },
-    {
-      key: 'cs_manager_notes_followup',
-      label: 'تابعت ملاحظات مسؤول خدمة العملاء عن المحادثات والدكاترة ووجّهتهم',
-    },
-    {
-      key: 'policy_compliance',
-      label: 'الالتزام بسياسات الخصومات والمرتجعات والأذونات والمواعيد لكل الدكاترة',
-    },
-    {
-      key: 'shortages_handling',
-      label: 'التأكدت من التصرف السليم في النواقص + وجود مكان مرتب ومخصص لها',
-    },
-    {
-      key: 'stock_shelf_refill',
-      label: 'راجعت الاستوكات وأعدت ملء الأرفف من الأصناف',
-    },
-    {
-      key: 'stagnant_items_followup',
-      label: 'تابعت الرواكد واللستة والتزام الدكاترة بصرفهم',
-    },
-    {
-      key: 'expiry_check',
-      label: 'تأكدت من عدم وجود أصناف إكسباير في الصيدلية',
-    },
-    {
-      key: 'returns_to_suppliers_followup',
-      label: 'تابعت المرتجعات للشركات والمخازن',
-    },
-    {
-      key: 'cash_reconciliation',
-      label: 'طابقت الكاش والعهدة اليومية',
-      hint: 'مطابقة كاش الدرج/الماكينة مع تقرير المبيعات — أهم ضبط مالي يومي.',
-      linkedEvaluationCriterion: 'cash_integrity',
-    },
-    {
-      key: 'complaints_escalation',
-      label: 'راجعت الشكاوى المتصاعدة وتابعت حلها',
-      hint: 'أي شكوى وصلتلك من خدمة العملاء أو مباشرة من عميل — لازم رد وحل موثّق.',
-      linkedEvaluationCriterion: 'complaints_handling',
-    },
-    {
-      key: 'team_briefing',
-      label: 'عملت تجميعة سريعة مع الفريق (تسليم الشيفت)',
-      hint: 'مراجعة أولويات اليوم مع الفريق وملاحظات الشيفت السابق.',
+      groupKey: 'daily_operations',
+      groupLabel: 'التشغيل اليومي',
+      subtasks: [
+        { key: 'floor_cleanliness', label: 'النظافة' },
+        { key: 'shelf_arrangement', label: 'الرص' },
+        { key: 'transfers_error_correction', label: 'تصحيح أخطاء التحويلات' },
+        { key: 'returns_to_suppliers_followup', label: 'متابعة المرتجعات للشركات والمخازن' },
+      ],
     },
   ],
+
   branches_manager: [
     {
-      key: 'branch_appearance_cleanliness_audit',
-      label: 'راجعت الشكل العام والنظافة في الفرعين',
+      groupKey: 'appearance_and_infrastructure',
+      groupLabel: 'الشكل العام والبنية التحتية',
+      subtasks: [
+        { key: 'branch_appearance_cleanliness_audit', label: 'الشكل العام والنظافة في الفرعين' },
+        { key: 'infrastructure_check', label: 'الكاميرات والخط الأرضي والنت' },
+        { key: 'consumables_check', label: 'الأكياس وبكر الريسيت والباركود' },
+      ],
     },
     {
-      key: 'previous_day_high_value_customers_list',
-      label: 'عملت قائمة عملاء اليوم السابق اللي اشتروا فواتير ≥ 500ج',
-      hint: 'مصدرها نفس RPC: get_daily_high_value_customers، تاريخ اليوم السابق.',
+      groupKey: 'sales_and_reporting',
+      groupLabel: 'المبيعات والتقارير',
+      subtasks: [
+        { key: 'daily_sales_file_upload', label: 'رفع ملف المبيعات اليومي' },
+        {
+          key: 'previous_day_high_value_customers_list',
+          label: 'قائمة عملاء اليوم السابق اللي اشتروا فواتير ≥ 500ج',
+          hint: 'مصدرها RPC: get_daily_high_value_customers، تاريخ اليوم السابق.',
+        },
+      ],
     },
     {
-      key: 'infrastructure_check',
-      label: 'راجعت الكاميرات والخط الأرضي والنت وسلامتهم',
-      hint: 'مفيش مصدر بيانات آلي — Checklist يدوي بالكامل.',
+      groupKey: 'discipline_and_compliance',
+      groupLabel: 'الالتزام والانضباط',
+      subtasks: [
+        { key: 'dress_pconnect_audit', label: 'الالتزام بالزي واستخدام الدكاترة لحسابهم الشخصي على PConnect' },
+        { key: 'doctor_classification_accuracy_review', label: 'التزام الدكاترة بالتصنيف ودقته' },
+        { key: 'shift_notes_compliance_review', label: 'الالتزام بمتابعة ملاحظات الشيفتات' },
+      ],
     },
     {
-      key: 'consumables_check',
-      label: 'راجعت توافر الأكياس وبكر الريسيت وبكر الباركود',
+      groupKey: 'purchases_and_customers',
+      groupLabel: 'المشتريات والعملاء',
+      subtasks: [
+        { key: 'purchases_speed_availability_review', label: 'سرعة المشتريات وتوافر الأصناف' },
+        { key: 'customer_requests_speed_review', label: 'سرعة تسجيل طلبات العملاء وتحقيقها' },
+        {
+          key: 'top20_customers_retention_review',
+          label: 'أهم 20 عميل بكل فرع — الاستمرارية وجودة الخدمة',
+          hint: 'مصدرها RPC: get_top_customers_per_branch(branch, 20).',
+        },
+      ],
     },
     {
-      key: 'daily_sales_file_upload',
-      label: 'رفعت ملف المبيعات اليومي على التطبيق',
+      groupKey: 'customer_service_oversight',
+      groupLabel: 'الإشراف على خدمة العملاء',
+      subtasks: [
+        { key: 'cs_oversight_conversations_review', label: 'تقييم المحادثات' },
+        { key: 'cs_oversight_followup_list_review', label: 'متابعة القائمة المجهزة للمتابعة' },
+        { key: 'cs_oversight_points_review', label: 'نظام النقاط' },
+        { key: 'cs_oversight_sales_quality_review', label: 'جودة البيع (Cross/Up-selling)' },
+      ],
     },
     {
-      key: 'dress_pconnect_audit',
-      label: 'راجعت الالتزام بالزي واستخدام الدكاترة لحسابهم الشخصي على PConnect',
+      groupKey: 'inventory_and_warehouse',
+      groupLabel: 'الجرد والمخزن',
+      subtasks: [
+        { key: 'inventory_shelf_review', label: 'الجرد والرص' },
+        { key: 'warehouse_review', label: 'أداء المخزن: مواعيد الطلبيات، أذونات التحويل، الباركود' },
+      ],
     },
     {
-      key: 'purchases_speed_availability_review',
-      label: 'راجعت سرعة المشتريات وتوافر الأصناف',
-    },
-    {
-      key: 'customer_requests_speed_review',
-      label: 'راجعت الالتزام بتسجيل طلبات العملاء وسرعة تحقيقها وتوفيرها',
-    },
-    {
-      key: 'top20_customers_retention_review',
-      label: 'راجعت قائمة أهم 20 عميل بكل فرع — الاستمرارية وجودة الخدمة',
-      hint: 'مصدرها RPC: get_top_customers_per_branch(branch, 20).',
-    },
-    {
-      key: 'doctor_classification_accuracy_review',
-      label: 'راجعت التزام الدكاترة بالتصنيف ودقته',
-    },
-    {
-      key: 'shift_notes_compliance_review',
-      label: 'راجعت الالتزام بمتابعة ملاحظات الشيفتات',
-    },
-    {
-      key: 'customer_service_oversight',
-      label: 'راجعت خدمة العملاء: تقييم المحادثات، متابعة القائمة المجهزة، نظام النقاط، جودة البيع (Cross/Up-selling)',
-    },
-    {
-      key: 'inventory_shelf_review',
-      label: 'راجعت الجرد والرص',
-    },
-    {
-      key: 'warehouse_review',
-      label: 'راجعت أداء المخزن: مواعيد الطلبيات، أذونات التحويل، الباركود على كل الأصناف',
-      linkedEvaluationCriterion: 'warehouse',
-    },
-    {
-      key: 'shortages_conduct_review',
-      label: 'راجعت النواقص وحسن التصرف فيها',
-    },
-    {
-      key: 'stock_movement_review',
-      label: 'راجعت أماكن الاستوك والتأكد من تحريك الأصناف اللي خلصت من الرف',
-    },
-    {
-      key: 'stagnant_compliance_review',
-      label: 'راجعت أداء الدكاترة والتزامهم بالرواكد واللستة',
+      groupKey: 'shortages_and_stagnant',
+      groupLabel: 'النواقص والرواكد',
+      subtasks: [
+        { key: 'shortages_conduct_review', label: 'النواقص وحسن التصرف فيها' },
+        { key: 'stock_movement_review', label: 'تحريك الأصناف اللي خلصت من الرف' },
+        { key: 'stagnant_compliance_review', label: 'التزام الدكاترة بالرواكد واللستة' },
+      ],
     },
   ],
+
   customer_service_manager: [
     {
-      key: 'conversations_reviewed',
-      label: 'راجعت تقييم المحادثات',
-      hint: 'تقييم محادثات فعلي بيؤثر على تحسين تعامل الدكاترة مع العملاء.',
+      groupKey: 'conversation_quality',
+      groupLabel: 'جودة المحادثات والتصنيف',
+      subtasks: [
+        {
+          key: 'conversations_reviewed',
+          label: 'تقييم المحادثات',
+          hint: 'تقييم محادثات فعلي بيؤثر على تحسين تعامل الدكاترة مع العملاء.',
+        },
+        { key: 'classification_accuracy_review', label: 'الالتزام بالتصنيف ودقته' },
+      ],
     },
     {
-      key: 'classification_accuracy_review',
-      label: 'راجعت الالتزام بالتصنيف ودقته',
+      groupKey: 'branches_manager_alignment',
+      groupLabel: 'ملاحظات مدير الفروع',
+      subtasks: [{ key: 'branches_manager_notes_followup', label: 'تنفيذ ملاحظات مدير الفروع' }],
     },
     {
-      key: 'branches_manager_notes_followup',
-      label: 'ملاحظات مدير الفروع',
+      groupKey: 'exceptional_followup',
+      groupLabel: 'المتابعة الاستثنائية',
+      groupHint: 'مطلوب → تم التواصل → تم الرد → النتيجة → عاد للشراء أم لا — مش مجرد "تم الاتصال".',
+      subtasks: [
+        { key: 'doctor_requests_followup', label: 'طلبات الدكاترة' },
+        { key: 'app_requests_followup', label: 'الطلبات المسجّلة على الأبلكيشن' },
+        { key: 'complaints_followup', label: 'شكاوى العملاء' },
+        { key: 'branches_manager_list_followup', label: 'القائمة المجهزة من مدير الفروع' },
+      ],
     },
     {
-      key: 'exceptional_followup_execution',
-      label: 'متابعة الاستثنائية: طلبات الدكاترة + المسجّلة على الأبلكيشن + شكاوى العملاء + القائمة المجهزة من مدير الفروع',
-      hint: 'مطلوب → تم التواصل → تم الرد → النتيجة → عاد للشراء أم لا — مش مجرد "تم الاتصال".',
+      groupKey: 'points_and_loyalty',
+      groupLabel: 'النقاط ونظام الولاء',
+      subtasks: [
+        { key: 'points_communication_review', label: 'التزام الدكاترة بتبليغ العملاء بالنقاط ونظام النقاط عمومًا' },
+      ],
     },
     {
-      key: 'points_communication_review',
-      label: 'راجعت التزام الدكاترة بتبليغ العملاء بالنقاط ونظام النقاط عمومًا',
+      groupKey: 'top20_customers',
+      groupLabel: 'متابعة أهم 20 عميل بالفرع',
+      groupHint: 'مصدرها RPC: get_top_customers_per_branch(branch, 20).',
+      subtasks: [
+        { key: 'top20_purchases_followup', label: 'متابعة مشترياتهم' },
+        { key: 'top20_satisfaction_followup', label: 'التواصل معهم ورضاهم' },
+        { key: 'top20_new_customers_growth', label: 'زيادة عدد العملاء الجدد' },
+      ],
     },
     {
-      key: 'top20_customers_satisfaction_growth',
-      label: 'متابعة أهم 20 عميل بالفرع: الرضا، زيادة المشتريات، زيادة عدد العملاء',
-      hint: 'مصدرها RPC: get_top_customers_per_branch(branch, 20).',
+      groupKey: 'sales_quality',
+      groupLabel: 'جودة البيع',
+      subtasks: [
+        { key: 'cross_selling_review', label: 'Cross-selling' },
+        { key: 'up_selling_review', label: 'Up-selling' },
+      ],
     },
     {
-      key: 'sales_quality_cross_upsell_review',
-      label: 'التأكد من جودة عمليات البيع والـ Cross-selling والـ Up-selling',
-    },
-    {
-      key: 'doctor_coaching',
-      label: 'أرسلت توجيه أو تدريب لدكتور',
-      hint: 'رسالة توجيهية أو صورة توضيحية لتطوير أداء دكتور معيّن — سجّل التفاصيل في الملاحظة.',
+      groupKey: 'doctor_development',
+      groupLabel: 'تطوير الدكاترة',
+      subtasks: [
+        {
+          key: 'doctor_coaching',
+          label: 'أرسلت توجيه أو تدريب لدكتور',
+          hint: 'رسالة توجيهية أو صورة توضيحية لتطوير أداء دكتور معيّن — سجّل التفاصيل في الملاحظة.',
+        },
+      ],
     },
   ],
 };
+
+/** توافقًا مع أي كود قديم لسه بيستخدم قائمة مفرودة — بيرجع كل الـ subtasks من كل المجموعات في سطر واحد. */
+export type DailyTaskDefinition = DailySubTask & { linkedEvaluationCriterion?: string };
+
+export const MANAGER_DAILY_TASKS: Record<ManagerDailyRole, DailyTaskDefinition[]> = Object.fromEntries(
+  (Object.keys(MANAGER_DAILY_TASK_GROUPS) as ManagerDailyRole[]).map((role) => [
+    role,
+    MANAGER_DAILY_TASK_GROUPS[role].flatMap((group) => group.subtasks),
+  ])
+) as Record<ManagerDailyRole, DailyTaskDefinition[]>;

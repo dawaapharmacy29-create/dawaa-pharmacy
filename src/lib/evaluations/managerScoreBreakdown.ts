@@ -6,6 +6,7 @@
  */
 import {
   EVALUATION_CRITERIA,
+  criterionChecklistKeys,
   type EvaluationType,
   type WeeklyAutoMetrics,
 } from '@/lib/evaluations/managerEvaluationCriteria';
@@ -52,8 +53,11 @@ export async function fetchManagerScoreBreakdown(
     let score10 = 0;
     if (criterion.mode === 'auto' && criterion.autoScore) {
       score10 = criterion.autoScore(current, prev);
-    } else if (criterion.mode === 'checklist' && criterion.checklistTaskKey) {
-      score10 = (checklistRates[criterion.checklistTaskKey] ?? 0) / 10;
+    } else if (criterion.mode === 'checklist') {
+      const keys = criterionChecklistKeys(criterion);
+      const rates = keys.map((k) => checklistRates[k] ?? 0);
+      const avgRate = rates.length ? rates.reduce((sum, r) => sum + r, 0) / rates.length : 0;
+      score10 = avgRate / 10;
     } else {
       score10 = 0; // manual — لسه محتاج اعتماد المدير الأعلى، تقديريًا صفر لحد الاعتماد
     }
