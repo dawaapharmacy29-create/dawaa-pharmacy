@@ -462,6 +462,60 @@ export const EVALUATION_MAX_MONTHLY_INCENTIVE_EGP: Partial<Record<EvaluationType
   customer_service: 2500,
 };
 
+export function criterionHasData(
+  criterion: EvaluationCriterion,
+  current: WeeklyAutoMetrics,
+  checklistRates: Record<string, number>
+): boolean {
+  if (criterion.mode === 'checklist') {
+    const keys = criterionChecklistKeys(criterion);
+    return keys.length > 0 && keys.every((key) => Object.prototype.hasOwnProperty.call(checklistRates, key));
+  }
+  const keys = criterion.coverageKeys || [];
+  return keys.length === 0 || keys.every((key) => current.data_coverage?.[key] === true);
+}
+
+export type WeightedCriterionScore = {
+  criterion: EvaluationCriterion;
+  score10: number;
+  originalWeight: number;
+  effectiveWeight: number;
+  included: boolean;
+  contribution: number;
+};
+
+/** يستبعد المصادر غير المتاحة ويعيد توزيع وزنها نسبيًا على البنود المثبتة فقط. */
+export function computeWeightedCriterionScores(
+  type: EvaluationType,
+  current: WeeklyAutoMetrics,
+  previous: WeeklyAutoMetrics | null,
+  manualScores: Record<string, number>,
+  checklistRates: Record<string, number> = {}
+): WeightedCriterionScore[] {
+  const raw = EVALUATION_CRITERIA[type].map((criterion) => {
+    const included = criterionHasData(criterion, current, checklistRates);
+    let score10 = 0;
+    if (included && criterion.mode === 'auto' && criterion.autoScore) score10 = criterion.autoScore(current, previous);
+    else if (included && criterion.mode === 'checklist') {
+      const rates = criterionChecklistKeys(criterion).map((key) => checklistRates[key]);
+      score10 = rates.reduce((sum, rate) => sum + rate, 0) / rates.length / 10;
+    } else if (included) score10 = manualScores[criterion.key] ?? 0;
+    return { criterion, included, score10: Math.max(0, Math.min(10, score10)) };
+  });
+  const availableWeight = raw.filter((row) => row.included).reduce((sum, row) => sum + row.criterion.weight, 0);
+  return raw.map((row) => {
+    const effectiveWeight = row.included && availableWeight > 0 ? row.criterion.weight / availableWeight : 0;
+    return {
+      criterion: row.criterion,
+      score10: Math.round(row.score10 * 10) / 10,
+      originalWeight: row.criterion.weight,
+      effectiveWeight,
+      included: row.included,
+      contribution: Math.round(row.score10 * effectiveWeight * 10 * 10) / 10,
+    };
+  });
+}
+
 export function computeTotalScore(
   type: EvaluationType,
   current: WeeklyAutoMetrics,
@@ -469,22 +523,6 @@ export function computeTotalScore(
   manualScores: Record<string, number>,
   checklistRates: Record<string, number> = {}
 ): number {
-  const criteria = EVALUATION_CRITERIA[type];
-  let total = 0;
-  for (const criterion of criteria) {
-    let score: number;
-    if (criterion.mode === 'auto' && criterion.autoScore) {
-      score = criterion.autoScore(current, previous);
-    } else if (criterion.mode === 'checklist') {
-      const keys = criterionChecklistKeys(criterion);
-      const rates = keys.map((k) => checklistRates[k] ?? 0);
-      const avgRate = rates.length ? rates.reduce((sum, r) => sum + r, 0) / rates.length : 0;
-      score = avgRate / 10;
-    } else {
-      score = manualScores[criterion.key] ?? 0;
-    }
-    total += score * criterion.weight;
-  }
-  // الدرجة النهائية من 100 (كل معيار من 10 × وزنه، مجموع الأوزان = 1، فالمجموع من 10 × 10 = 100)
-  return Math.round(total * 10 * 10) / 10;
+  return Math.round(computeWeightedCriterionScores(type, current, previous, manualScores, checklistRates)
+    .reduce((sum, row) => sum + row.contribution, 0) * 10) / 10;
 }

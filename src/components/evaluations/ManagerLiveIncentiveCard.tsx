@@ -87,6 +87,9 @@ export function ManagerLiveIncentiveCard({
               <div className="rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-2"><div className="text-[11px] text-emerald-300">إجمالي الحافز المتوقع</div><div className="mt-1 font-black text-emerald-200">{formatCurrency(snapshot.totalEstimatedIncentiveEgp)}</div></div>
             </div>
             <div className="mt-2 flex items-center gap-1.5 font-black text-teal-200"><Gift size={14} /> حافز الأداء من أصل {formatCurrency(snapshot.maxIncentiveEgp)}، وحافز التارجت مستقل وإضافي.</div>
+            <div className={`mt-2 rounded-lg border p-2 text-xs font-bold ${snapshot.payoutEligible ? 'border-emerald-500/20 bg-emerald-950/20 text-emerald-300' : 'border-amber-500/20 bg-amber-950/20 text-amber-200'}`}>
+              {snapshot.payoutEligible ? 'مؤهل لتسوية حافز الأداء عند إغلاق الدورة.' : `غير مؤهل للصرف حاليًا: ${snapshot.eligibilityReasons.join(' ')}`}
+            </div>
             <p className="mt-1 text-xs text-slate-400">
               الدورة: {snapshot.cycleStart} إلى {snapshot.cycleEnd}.{' '}
               شريحة الأداء: {snapshot.tierLabel} → {snapshot.payoutPercent}% من السقف

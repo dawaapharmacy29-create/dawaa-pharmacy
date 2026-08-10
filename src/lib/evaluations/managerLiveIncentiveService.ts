@@ -22,6 +22,7 @@ import {
 import { calculateTieredIncentiveValue, type CriticalGateType } from '@/lib/evaluations/incentiveTiers';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievementBonus';
+import { evaluatePerformanceIncentiveEligibility } from '@/lib/evaluations/incentiveEligibility';
 
 export type ManagerLiveIncentiveSnapshot = {
   evaluationType: EvaluationType;
@@ -38,6 +39,8 @@ export type ManagerLiveIncentiveSnapshot = {
   targetBonusEgp: number | null;
   targetBonusTierLabel: string;
   totalEstimatedIncentiveEgp: number;
+  payoutEligible: boolean;
+  eligibilityReasons: string[];
   approvedWeeksInCycle: number;
   cycleStart: string;
   cycleEnd: string;
@@ -102,7 +105,7 @@ export async function fetchManagerLiveIncentiveSnapshot(
     maxIncentiveEgp,
     activeGates
   );
-  const coverage = current.data_coverage || {};
+  const coverage = cycleMetrics.data_coverage || {};
   const coverageEntries = Object.entries(coverage);
   const dataCoveragePercent = coverageEntries.length
     ? Math.round((coverageEntries.filter(([, available]) => available).length / coverageEntries.length) * 100)
@@ -113,6 +116,7 @@ export async function fetchManagerLiveIncentiveSnapshot(
     Number(cycleMetrics.sales_target_amount || 0),
     evaluationType === 'customer_service' ? 'not_eligible' : 'manager'
   );
+  const eligibility = evaluatePerformanceIncentiveEligibility(submittedThisCycle.length, dataCoveragePercent);
 
   return {
     evaluationType,
@@ -129,6 +133,8 @@ export async function fetchManagerLiveIncentiveSnapshot(
     targetBonusEgp: targetBonus.amountEgp,
     targetBonusTierLabel: targetBonus.tierLabel,
     totalEstimatedIncentiveEgp: incentiveValue + Number(targetBonus.amountEgp || 0),
+    payoutEligible: eligibility.eligible,
+    eligibilityReasons: eligibility.reasons,
     approvedWeeksInCycle: submittedThisCycle.length,
     cycleStart,
     cycleEnd,

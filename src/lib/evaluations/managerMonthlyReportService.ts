@@ -9,6 +9,7 @@ import { calculateTieredIncentiveValue } from '@/lib/evaluations/incentiveTiers'
 import { fetchManagerLiveIncentiveSnapshot } from '@/lib/evaluations/managerLiveIncentiveService';
 import { fetchWeeklyAutoMetrics } from '@/lib/evaluations/managerEvaluationService';
 import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievementBonus';
+import { evaluatePerformanceIncentiveEligibility } from '@/lib/evaluations/incentiveEligibility';
 
 export type ManagerMonthlyReportRow = {
   cycleStart: string;
@@ -37,6 +38,8 @@ export type ManagerMonthlyReportRow = {
   scoreChangeFromPrevious: number | null;
   isCurrentCycle: boolean;
   operationalDataAvailable: boolean;
+  payoutEligible: boolean;
+  eligibilityReasons: string[];
 };
 
 export type ManagerMonthlyReport = {
@@ -186,6 +189,9 @@ export async function fetchManagerMonthlyReport(
       targetAmount,
       evaluationType === 'customer_service' ? 'not_eligible' : 'manager'
     );
+    const dataCoveragePercent = metricCoverage(operationalMetrics)
+      ?? (isCurrentCycle ? liveSnapshot?.dataCoveragePercent ?? null : coverageOf(cycleEvaluations));
+    const eligibility = evaluatePerformanceIncentiveEligibility(cycleEvaluations.length, dataCoveragePercent);
 
     return {
       cycleStart,
@@ -204,8 +210,7 @@ export async function fetchManagerMonthlyReport(
       totalEstimatedIncentiveEgp: incentive.incentiveValue + Number(targetBonus.amountEgp || 0),
       settledIncentiveEgp: settlement ? Number(settlement.amount || 0) : null,
       settlementStatus: settlement ? 'settled' : averageScore === null ? 'no_data' : 'estimated',
-      dataCoveragePercent: metricCoverage(operationalMetrics)
-        ?? (isCurrentCycle ? liveSnapshot?.dataCoveragePercent ?? null : coverageOf(cycleEvaluations)),
+      dataCoveragePercent,
       salesTotal,
       followupsTotal: operationalMetrics ? Number(operationalMetrics.followups_total || 0) : sumMetric(cycleEvaluations, 'followups_total'),
       followupsClosed: operationalMetrics ? Number(operationalMetrics.followups_closed || 0) : sumMetric(cycleEvaluations, 'followups_closed'),
@@ -217,6 +222,8 @@ export async function fetchManagerMonthlyReport(
       scoreChangeFromPrevious: null,
       isCurrentCycle,
       operationalDataAvailable,
+      payoutEligible: eligibility.eligible,
+      eligibilityReasons: eligibility.reasons,
     };
   });
 

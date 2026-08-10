@@ -220,6 +220,7 @@ export function ManagerMonthlyPerformanceReport({
                       <span className={`flex items-center gap-1 font-bold ${row.settlementStatus === 'settled' ? 'text-emerald-300' : 'text-slate-500'}`}>
                         <WalletCards size={12} /> {row.settlementStatus === 'no_data' ? 'لا توجد بيانات' : currency(row.settledIncentiveEgp)}
                       </span>
+                      {!row.payoutEligible && row.averageScore !== null ? <div className="mt-1 max-w-52 text-[9px] leading-4 text-amber-300">غير مؤهل: {row.eligibilityReasons.join(' ')}</div> : null}
                     </td>
                   </tr>
                 ))}
