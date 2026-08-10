@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import { MANAGER_DAILY_TASKS, type ManagerDailyRole } from '@/lib/evaluations/managerDailyTasks';
 import { ASSISTANT_DAILY_TASKS, ASSISTANT_TASKS_TOTAL_WEIGHT } from '@/lib/evaluations/assistantDailyTasks';
-import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
+import { ManagerScoreBreakdownTab } from '@/components/evaluations/ManagerScoreBreakdownTab';
 import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
 
 const ROLE_TO_EVALUATION_TYPE: Record<ManagerDailyRole, EvaluationType> = {
@@ -49,6 +49,7 @@ export default function DailyManagerChecklist() {
     : 'سجّل إنك راجعت كل جانب من عملك اليوم — الالتزام هنا بيغذّي تقييمك الأسبوعي.';
 
   const [taskDate, setTaskDate] = useState(todayInput());
+  const [activeTab, setActiveTab] = useState<'tasks' | 'score'>('tasks');
   const [rows, setRows] = useState<Record<string, ChecklistRow>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -171,71 +172,96 @@ export default function DailyManagerChecklist() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <input type="date" className="input-dark" value={taskDate} max={todayInput()} onChange={(e) => setTaskDate(e.target.value)} />
-        <div className="flex-1">
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/10">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-teal-400 to-emerald-500 transition-all"
-              style={{ width: `${completionPercent}%` }}
-            />
-          </div>
+      {isEligible && !isAssistant && (
+        <div className="flex gap-2 border-b border-white/10">
+          <button
+            type="button"
+            onClick={() => setActiveTab('tasks')}
+            className={`px-4 py-2 text-sm font-black transition ${
+              activeTab === 'tasks' ? 'border-b-2 border-teal-400 text-teal-300' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            المهام اليومية
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('score')}
+            className={`px-4 py-2 text-sm font-black transition ${
+              activeTab === 'score' ? 'border-b-2 border-teal-400 text-teal-300' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            الحافز والتقييم بالتفصيل
+          </button>
         </div>
-        <span className="text-sm font-black text-white">{completedCount} / {tasks.length}</span>
-      </div>
-
-      {isAssistant && (
-        <p className="text-xs text-slate-400">
-          لو استمريت بنفس معدل النهاردة طول الدورة، الحافز الشهري التقديري ≈ <span className="font-black text-emerald-300">{estimatedMonthlyIncentive} جنيه</span> من أصل 1000 — الرقم النهائي بيتحسب من معدل كل الأيام مجمّعة، مش يوم واحد بس.
-        </p>
       )}
 
-      {isEligible && !isAssistant && (
-        <ManagerLiveIncentiveCard
+      {isEligible && !isAssistant && activeTab === 'score' ? (
+        <ManagerScoreBreakdownTab
           evaluationType={ROLE_TO_EVALUATION_TYPE[role as ManagerDailyRole]}
           staffId={staffId}
           branch={role === 'branches_manager' ? null : (user?.branch || null)}
         />
-      )}
-
-      {error && <p className="text-sm text-red-300">{error}</p>}
-      {loading && <p className="text-sm text-slate-400">جارٍ التحميل...</p>}
-
-      {!loading && (
-        <div className="space-y-3">
-          {tasks.map((task) => {
-            const row = rows[task.key];
-            const completed = row?.completed || false;
-            return (
-              <div key={task.key} className={`stat-card space-y-2 transition ${completed ? 'border-emerald-400/30' : ''}`}>
-                <button
-                  type="button"
-                  onClick={() => toggleTask(task.key)}
-                  disabled={saving === task.key}
-                  className="flex w-full items-center gap-3 text-right"
-                >
-                  {completed ? (
-                    <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-400" />
-                  ) : (
-                    <Circle className="h-6 w-6 shrink-0 text-slate-500" />
-                  )}
-                  <div className="flex-1">
-                    <div className={`font-black ${completed ? 'text-emerald-200' : 'text-white'}`}>{task.label}</div>
-                    {task.hint && <div className="text-xs text-slate-500">{task.hint}</div>}
-                  </div>
-                </button>
-                <input
-                  type="text"
-                  className="input-dark w-full text-sm"
-                  placeholder="ملاحظة سريعة (اختياري)..."
-                  value={row?.note || ''}
-                  onChange={(e) => updateNote(task.key, e.target.value)}
-                  onBlur={() => saveNote(task.key)}
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <input type="date" className="input-dark" value={taskDate} max={todayInput()} onChange={(e) => setTaskDate(e.target.value)} />
+            <div className="flex-1">
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-teal-400 to-emerald-500 transition-all"
+                  style={{ width: `${completionPercent}%` }}
                 />
               </div>
-            );
-          })}
-        </div>
+            </div>
+            <span className="text-sm font-black text-white">{completedCount} / {tasks.length}</span>
+          </div>
+
+          {isAssistant && (
+            <p className="text-xs text-slate-400">
+              لو استمريت بنفس معدل النهاردة طول الدورة، الحافز الشهري التقديري ≈ <span className="font-black text-emerald-300">{estimatedMonthlyIncentive} جنيه</span> من أصل 1000 — الرقم النهائي بيتحسب من معدل كل الأيام مجمّعة، مش يوم واحد بس.
+            </p>
+          )}
+
+          {error && <p className="text-sm text-red-300">{error}</p>}
+          {loading && <p className="text-sm text-slate-400">جارٍ التحميل...</p>}
+
+          {!loading && (
+            <div className="space-y-3">
+              {tasks.map((task) => {
+                const row = rows[task.key];
+                const completed = row?.completed || false;
+                return (
+                  <div key={task.key} className={`stat-card space-y-2 transition ${completed ? 'border-emerald-400/30' : ''}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleTask(task.key)}
+                      disabled={saving === task.key}
+                      className="flex w-full items-center gap-3 text-right"
+                    >
+                      {completed ? (
+                        <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-400" />
+                      ) : (
+                        <Circle className="h-6 w-6 shrink-0 text-slate-500" />
+                      )}
+                      <div className="flex-1">
+                        <div className={`font-black ${completed ? 'text-emerald-200' : 'text-white'}`}>{task.label}</div>
+                        {task.hint && <div className="text-xs text-slate-500">{task.hint}</div>}
+                      </div>
+                    </button>
+                    <input
+                      type="text"
+                      className="input-dark w-full text-sm"
+                      placeholder="ملاحظة سريعة (اختياري)..."
+                      value={row?.note || ''}
+                      onChange={(e) => updateNote(task.key, e.target.value)}
+                      onBlur={() => saveNote(task.key)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
