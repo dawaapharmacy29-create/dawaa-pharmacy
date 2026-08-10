@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import type { EvaluationType, WeeklyAutoMetrics } from '@/lib/evaluations/managerEvaluationCriteria';
+import { MANAGER_DAILY_TASKS, getManagerTaskCadence } from '@/lib/evaluations/managerDailyTasks';
 
 export function weekBoundsOf(date: Date): { start: string; end: string } {
   // الأسبوع من السبت للجمعة (مطابق لطبيعة أسبوع العمل في مصر)
@@ -10,7 +11,12 @@ export function weekBoundsOf(date: Date): { start: string; end: string } {
   start.setDate(date.getDate() - diffToSaturday);
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const fmt = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const dayOfMonth = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${dayOfMonth}`;
+  };
   return { start: fmt(start), end: fmt(end) };
 }
 
@@ -41,12 +47,31 @@ export async function fetchWeeklyChecklistCompletion(
   weekStart: string,
   weekEnd: string
 ): Promise<Record<string, number>> {
+  const allManagerTaskKeys = [...new Set(Object.values(MANAGER_DAILY_TASKS).flat().map((task) => task.key))];
+  const cadencePayload = Object.fromEntries(
+    allManagerTaskKeys.map((key) => [key, getManagerTaskCadence(key)])
+  );
+
+  // V2 يعرف إن المهمة الأسبوعية مطلوبة مرة واحدة فقط. نحتفظ بالـRPC القديم
+  // كـfallback أثناء فترة نشر الـmigration، عشان الواجهة ما تتعطلش لو الكود
+  // اتنشر قبل قاعدة البيانات بدقائق.
+  const { data: cadenceData, error: cadenceError } = await supabase.rpc(
+    'calculate_weekly_checklist_completion_v2',
+    {
+      p_staff_id: staffId,
+      p_week_start: weekStart,
+      p_week_end: weekEnd,
+      p_task_cadences: cadencePayload,
+    }
+  );
+  if (!cadenceError) return (cadenceData as Record<string, number>) || {};
+
   const { data, error } = await supabase.rpc('calculate_weekly_checklist_completion', {
     p_staff_id: staffId,
     p_week_start: weekStart,
     p_week_end: weekEnd,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(error.message || cadenceError.message);
   return (data as Record<string, number>) || {};
 }
 

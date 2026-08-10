@@ -4,8 +4,8 @@
  */
 import {
   normalizeRole,
-  isPrivilegedRole,
   getRoleLabel,
+  getRoleLevel,
   type RoleKey,
 } from '@/lib/core/permissionSystem';
 
@@ -21,13 +21,16 @@ export const APPROVER_ROLES: RoleKey[] = [
 
 export function isApproverRole(role?: string | null): boolean {
   const key = normalizeRole(role);
-  return APPROVER_ROLES.includes(key) || isPrivilegedRole(key);
+  return APPROVER_ROLES.includes(key);
 }
 
 export function canApproveFor(approverRole?: string | null, targetRole?: string | null): boolean {
   if (!isApproverRole(approverRole)) return false;
-  if (normalizeRole(approverRole) === 'general_manager') return true;
-  return true;
+  const approver = normalizeRole(approverRole);
+  const target = normalizeRole(targetRole);
+  if (approver === 'general_manager') return target !== 'general_manager';
+  // الاعتماد لازم يكون من مستوى إداري أعلى رقميًا، وليس من نفس المستوى أو مستوى أقل.
+  return getRoleLevel(approver) < getRoleLevel(target);
 }
 
 export function userCanApprove(
@@ -36,7 +39,7 @@ export function userCanApprove(
 ): boolean {
   if (!isApproverRole(userRole)) return false;
   const normalizedUserRole = normalizeRole(userRole);
-  if (normalizedUserRole === 'general_manager' || isPrivilegedRole(normalizedUserRole)) return true;
+  if (normalizedUserRole === 'general_manager') return true;
 
   if (!allowedRoles || (Array.isArray(allowedRoles) && allowedRoles.length === 0)) {
     return isApproverRole(normalizedUserRole);

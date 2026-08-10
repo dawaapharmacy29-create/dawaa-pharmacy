@@ -20,6 +20,7 @@ import {
   fetchEvaluationHistory,
 } from '@/lib/evaluations/managerEvaluationService';
 import { calculateTieredIncentiveValue, type CriticalGateType } from '@/lib/evaluations/incentiveTiers';
+import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 
 export type ManagerLiveIncentiveSnapshot = {
   evaluationType: EvaluationType;
@@ -43,7 +44,7 @@ export async function fetchManagerLiveIncentiveSnapshot(
   activeGates: CriticalGateType[] = []
 ): Promise<ManagerLiveIncentiveSnapshot | null> {
   const maxIncentiveEgp = EVALUATION_MAX_MONTHLY_INCENTIVE_EGP[evaluationType];
-  if (!maxIncentiveEgp) return null; // customer_service مفيش ليها سقف مالي منفصل لسه
+  if (!maxIncentiveEgp) return null;
 
   const { start: weekStart, end: weekEnd } = weekBoundsOf(new Date());
   const previous = previousWeekOf(weekStart);
@@ -59,14 +60,27 @@ export async function fetchManagerLiveIncentiveSnapshot(
   // عشان الرقم يفضل تقديري ومحافظ ومايديش انطباع أعلى من الحقيقي قبل مراجعة المدير الأعلى).
   const liveScore = computeTotalScore(evaluationType, current, prev, {}, checklistRates);
 
-  // متوسط الدورة الحالية = تقييمات معتمدة (submitted) خلال الشهر الحالي + الدرجة الحية للأسبوع الجاري كتقدير له.
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const submittedThisMonth = (history || []).filter(
-    (row: any) => row.status === 'submitted' && String(row.week_start || '').startsWith(monthKey)
+  // دورة صيدليات دواء ثابتة من يوم 26 إلى 25، وليست الشهر الميلادي.
+  const cycle = getCurrentCycle();
+  const cycleStart = formatCycleDate(cycle.start);
+  const cycleEnd = formatCycleDate(cycle.end);
+  const submittedThisCycle = (history || []).filter((row: any) => {
+    if (row.status !== 'submitted') return false;
+    const evaluationDate = String(row.week_start || '').slice(0, 10);
+    return evaluationDate >= cycleStart && evaluationDate <= cycleEnd;
+  });
+  // لو الأسبوع الجاري اتعمد بالفعل، نستخدم الدرجة المعتمدة بدل إضافة الدرجة الحية
+  // مرة ثانية؛ كده كل أسبوع يدخل في متوسط الدورة مرة واحدة فقط.
+  const currentWeekSubmitted = submittedThisCycle.find(
+    (row: any) => String(row.week_start || '').slice(0, 10) === weekStart
   );
-  const approvedScores = submittedThisMonth.map((row: any) => Number(row.total_score) || 0);
-  const allScoresForCycle = [...approvedScores, liveScore];
+  const approvedHistoricalScores = submittedThisCycle
+    .filter((row: any) => String(row.week_start || '').slice(0, 10) !== weekStart)
+    .map((row: any) => Number(row.total_score) || 0);
+  const currentWeekScore = currentWeekSubmitted
+    ? Number(currentWeekSubmitted.total_score) || 0
+    : liveScore;
+  const allScoresForCycle = [...approvedHistoricalScores, currentWeekScore];
   const cycleAverageScore =
     allScoresForCycle.reduce((sum, s) => sum + s, 0) / (allScoresForCycle.length || 1);
 
@@ -86,7 +100,7 @@ export async function fetchManagerLiveIncentiveSnapshot(
     tierLabel: tier.label,
     payoutPercent,
     estimatedIncentiveEgp: incentiveValue,
-    approvedWeeksInCycle: approvedScores.length,
+    approvedWeeksInCycle: submittedThisCycle.length,
     isEstimate: true,
   };
 }
@@ -94,5 +108,5 @@ export async function fetchManagerLiveIncentiveSnapshot(
 export const EVALUATION_TYPE_TO_ROLE_LABEL: Record<EvaluationType, string> = {
   branch_manager: 'مدير الفرع',
   branches_manager: 'مدير الفروع',
-  customer_service: 'مسؤول خدمة العملاء',
+  customer_service: 'مدير خدمة العملاء',
 };

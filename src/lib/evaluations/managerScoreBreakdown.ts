@@ -68,7 +68,7 @@ export async function fetchManagerScoreBreakdown(
       mode: criterion.mode,
       weight: criterion.weight,
       score10: Math.round(score10 * 10) / 10,
-      contribution: Math.round(score10 * criterion.weight * 100 * 10) / 10,
+      contribution: Math.round(score10 * criterion.weight * 10 * 10) / 10,
       hint: criterion.hint,
     };
   });

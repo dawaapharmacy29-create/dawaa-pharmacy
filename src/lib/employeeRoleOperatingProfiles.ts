@@ -2,6 +2,7 @@ import { normalizeRole } from '@/lib/core/permissionSystem';
 
 export type EmployeeOperatingRoleKey =
   | 'general_manager'
+  | 'branches_manager'
   | 'branch_manager'
   | 'customer_service_manager'
   | 'customer_service'
@@ -91,11 +92,73 @@ function checklist(
   }));
 }
 
+const branchesManager: EmployeeRoleOperatingProfile = {
+  role_key: 'branches_manager',
+  role_name_ar: 'مدير الفروع',
+  mission: 'قيادة الفروع كوحدة تشغيلية واحدة، وتحقيق التارجت، وتقليل فروق الأداء، وتطوير مديري الفروع مع ضبط المخزون والخدمة والرقابة.',
+  manager_role: 'general_manager',
+  daily_responsibilities: [
+    'مراجعة مبيعات كل فرع ونسبة تحقيق التارجت والانحراف عن الخطة.',
+    'متابعة المشكلات الحرجة والتأكد من وجود مسؤول وموعد إغلاق لكل مشكلة.',
+    'مراجعة توافر الأصناف والنواقص الحرجة وسرعة المشتريات والتحويلات.',
+    'متابعة أداء مديري الفروع وجودة تنفيذ ملاحظات الشيفت.',
+    'مراجعة مؤشرات خدمة العملاء والعملاء المهمين على مستوى الفروع.',
+  ],
+  weekly_responsibilities: [
+    'مقارنة أداء الفروع وتحديد أسباب الفجوة وخطة علاجها.',
+    'اجتماع تطوير موثق مع كل مدير فرع.',
+    'مراجعة المخزون والرواكد والإكسباير وسرعة التوريد.',
+    'اعتماد تقييمات مديري الفروع ومراجعة الأدلة.',
+  ],
+  monthly_responsibilities: [
+    'اعتماد نتيجة دورة 26 إلى 25 لكل فرع.',
+    'رفع تقرير تنفيذي للمدير العام بالمخاطر والفرص.',
+    'اعتماد خطط تطوير مديري الفروع ومتابعة تنفيذها.',
+    'مراجعة استمرارية أهم العملاء وجودة الخدمة بين الفروع.',
+  ],
+  daily_checklist: checklist('branches_manager', [
+    ['branch_targets', 'مراجعة أداء الفروع', 'راجع المبيعات والتارجت والفجوة بين الفروع.', 'high', '/branch-comparison'],
+    ['critical_issues', 'مراجعة المشكلات الحرجة', 'تأكد من المسؤول والموعد والتصعيد المناسب.', 'urgent', '/operations-center'],
+    ['availability', 'مراجعة التوافر والنواقص', 'راجع النواقص الحرجة والمشتريات والتحويلات.', 'high', '/shortages'],
+    ['manager_execution', 'متابعة تنفيذ مديري الفروع', 'راجع المهام المتأخرة وملاحظات الشيفت.', 'high', '/daily-manager-checklist'],
+    ['customer_health', 'مراجعة جودة خدمة العملاء', 'راجع المتابعات المتأخرة والعملاء المهمين.', 'normal', '/customer-service-dashboard'],
+    ['infrastructure', 'استمرارية التشغيل', 'راجع أي أعطال تؤثر على الكاميرات أو النت أو نقاط البيع.', 'normal', '/branch-inspection'],
+  ]),
+  kpis: [
+    'تحقيق تارجت الفروع وجودة النمو',
+    'تقليل فجوة الأداء بين الفروع',
+    'تطوير ومحاسبة مديري الفروع',
+    'توافر الأصناف وسرعة التوريد',
+    'الاحتفاظ بالعملاء المهمين',
+    'إغلاق المشكلات التشغيلية في موعدها',
+  ],
+  scoring_weights: [
+    { label: 'تحقيق تارجت الفروع وجودة النمو', weight: 20 },
+    { label: 'ثبات الأداء وتقليل الفجوة بين الفروع', weight: 15 },
+    { label: 'تطوير ومحاسبة مديري الفروع', weight: 15 },
+    { label: 'المخزون والمشتريات والتوافر', weight: 15 },
+    { label: 'خدمة العملاء والاحتفاظ بكبار العملاء', weight: 15 },
+    { label: 'الرقابة المالية والتشغيلية', weight: 10 },
+    { label: 'البنية التحتية واستمرارية التشغيل', weight: 5 },
+    { label: 'مشروعات التطوير وإغلاق المشكلات', weight: 5 },
+  ],
+  required_followups: ['تارجت الفروع', 'المشكلات الحرجة', 'النواقص', 'أداء مديري الفروع', 'أهم العملاء'],
+  policies: COMMON_POLICIES,
+  escalation_rules: [
+    'العجز المالي أو التلاعب أو الخطر على العميل يصعد للمدير العام فورًا.',
+    'أي مشكلة حرجة بلا مالك أو موعد إغلاق تعتبر غير مصعدة.',
+  ],
+  forbidden_actions: ['اعتماد تقييمه الشخصي', 'إغلاق مشكلة حرجة بدون دليل', 'تعديل نتيجة فرع بدون سبب موثق'],
+  notifications_to_receive: ['branch_manager_task', 'sales_target', 'attendance', 'customer_request', 'inventory'],
+  dashboard_widgets: ['branch_comparison', 'sales_target', 'manager_performance', 'critical_issues', 'inventory'],
+  recommended_actions: ['ابدأ بأكبر فجوة أداء', 'حدد مسؤولًا وموعدًا لكل مشكلة', 'راجع الأدلة قبل اعتماد التقييم'],
+};
+
 const branchManager: EmployeeRoleOperatingProfile = {
   role_key: 'branch_manager',
   role_name_ar: 'مدير فرع',
   mission: 'قيادة الفرع يوميًا لتحقيق هدف المبيعات مع ضبط الحضور والخدمة والنظافة والمتابعات.',
-  manager_role: 'general_manager',
+  manager_role: 'branches_manager',
   daily_responsibilities: [
     'متابعة مبيعات الفرع يوميًا وتحقيق هدف الدورة.',
     'متابعة حضور وانصراف الفريق وأداء الصيادلة والمساعدين.',
@@ -346,6 +409,7 @@ export const EMPLOYEE_ROLE_OPERATING_PROFILES: Record<EmployeeOperatingRoleKey, 
     ['مراجعة داشبورد اليوم', 'متابعة الفروع المتأخرة', 'مراجعة المهام عالية الأولوية', 'متابعة المديرين', 'اعتماد قرارات التصعيد'],
     ['تحقيق الأهداف', 'انضباط الفروع', 'حل التصعيدات', 'صحة البيانات']
   ),
+  branches_manager: branchesManager,
   branch_manager: branchManager,
   customer_service_manager: customerServiceManager,
   customer_service: simpleProfile(
