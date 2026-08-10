@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Loader2, ListChecks, CheckCircle2, Sparkles, ExternalLink, Database, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { fetchManagerScoreBreakdown, type ManagerScoreBreakdown } from '@/lib/evaluations/managerScoreBreakdown';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
+import { ManagerMonthlyPerformanceReport } from '@/components/evaluations/ManagerMonthlyPerformanceReport';
 import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
 
 const MODE_META: Record<string, { label: string; icon: any; tone: string }> = {
@@ -51,6 +52,7 @@ export function ManagerScoreBreakdownTab({
   return (
     <div className="space-y-4">
       <ManagerLiveIncentiveCard evaluationType={evaluationType} staffId={staffId} branch={branch} />
+      <ManagerMonthlyPerformanceReport evaluationType={evaluationType} staffId={staffId} branch={branch} />
 
       <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
         <h3 className="text-base font-black text-white">تقييم كل جزء — الأسبوع الجاري</h3>
