@@ -84,4 +84,4 @@ comment on function public.calculate_weekly_checklist_completion_v2(text, date, 
 is 'Returns cadence-aware manager checklist percentages to the employee or an authorized higher manager.';
 
 grant execute on function public.calculate_weekly_checklist_completion_v2(text, date, date, jsonb)
-to authenticated;
+to anon, authenticated;
