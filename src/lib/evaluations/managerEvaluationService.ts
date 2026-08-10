@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import type { EvaluationType, WeeklyAutoMetrics } from '@/lib/evaluations/managerEvaluationCriteria';
+import { MANAGER_TASK_CADENCE_BY_KEY } from '@/lib/evaluations/managerDailyTasks';
 
 export function weekBoundsOf(date: Date): { start: string; end: string } {
   // الأسبوع من السبت للجمعة (مطابق لطبيعة أسبوع العمل في مصر)
@@ -46,12 +47,30 @@ export async function fetchWeeklyChecklistCompletion(
   weekStart: string,
   weekEnd: string
 ): Promise<Record<string, number>> {
+  const cadencePayload = Object.fromEntries(
+    Object.entries(MANAGER_TASK_CADENCE_BY_KEY).map(([key, cadence]) => [key, cadence])
+  );
+
+  // V2 يعرف إن المهمة الأسبوعية مطلوبة مرة واحدة فقط. نحتفظ بالـRPC القديم
+  // كـfallback أثناء فترة نشر الـmigration، عشان الواجهة ما تتعطلش لو الكود
+  // اتنشر قبل قاعدة البيانات بدقائق.
+  const { data: cadenceData, error: cadenceError } = await supabase.rpc(
+    'calculate_weekly_checklist_completion_v2',
+    {
+      p_staff_id: staffId,
+      p_week_start: weekStart,
+      p_week_end: weekEnd,
+      p_task_cadences: cadencePayload,
+    }
+  );
+  if (!cadenceError) return (cadenceData as Record<string, number>) || {};
+
   const { data, error } = await supabase.rpc('calculate_weekly_checklist_completion', {
     p_staff_id: staffId,
     p_week_start: weekStart,
     p_week_end: weekEnd,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(error.message || cadenceError.message);
   return (data as Record<string, number>) || {};
 }
 
