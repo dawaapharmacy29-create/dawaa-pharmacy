@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Loader2, ListChecks, CheckCircle2, Sparkles, ExternalLink } from 'lucide-react';
+import { Loader2, ListChecks, CheckCircle2, Sparkles, ExternalLink, Database, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { fetchManagerScoreBreakdown, type ManagerScoreBreakdown } from '@/lib/evaluations/managerScoreBreakdown';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
@@ -65,7 +65,33 @@ export function ManagerScoreBreakdownTab({
         ) : error ? (
           <p className="mt-3 text-sm text-red-400">{error}</p>
         ) : !data ? null : (
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-4">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-black text-white">
+                  <Database size={15} className="text-teal-300" /> تغطية مصادر بيانات الحافز
+                </div>
+                <span className={data.coveragePercent === 100 ? 'text-emerald-300' : 'text-amber-300'}>
+                  {data.coveragePercent}% متاح هذا الأسبوع
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                المصدر غير المتاح لا يُحسب صفرًا ولا يُقدّر بالرأي؛ يظهر كمحايد لحين تسجيل بيانات فعلية.
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {data.coverage.map((item) => (
+                  <Link key={item.key} to={item.route} className="flex items-center justify-between rounded-lg border border-white/5 bg-slate-950/40 px-2.5 py-2 text-xs hover:border-teal-500/30">
+                    <span className="text-slate-200">{item.label}</span>
+                    <span className={`flex items-center gap-1 font-bold ${item.available ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {item.available ? <ShieldCheck size={12} /> : <AlertTriangle size={12} />}
+                      {item.available ? 'متاح' : 'محايد'}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
             {data.rows.map((row) => {
               const meta = MODE_META[row.mode];
               const Icon = meta.icon;
@@ -93,6 +119,12 @@ export function ManagerScoreBreakdownTab({
                       <CheckCircle2 size={11} /> مساهمة {row.contribution} نقطة من 100
                     </span>
                   </div>
+                  <div className={`mt-2 flex items-center gap-1 text-[11px] font-bold ${
+                    row.coverageState === 'neutral_missing_data' ? 'text-amber-300' : 'text-emerald-300'
+                  }`}>
+                    {row.coverageState === 'neutral_missing_data' ? <AlertTriangle size={11} /> : <ShieldCheck size={11} />}
+                    {row.coverageMessage}
+                  </div>
                   {row.hint && <div className="mt-1 text-[11px] text-slate-500">{row.hint}</div>}
                   {row.sourceRoute && (
                     <Link to={row.sourceRoute} className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-teal-300 hover:text-teal-200">
@@ -102,6 +134,7 @@ export function ManagerScoreBreakdownTab({
                 </div>
               );
             })}
+            </div>
           </div>
         )}
       </div>
