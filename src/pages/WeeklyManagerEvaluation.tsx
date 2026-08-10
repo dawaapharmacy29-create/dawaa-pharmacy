@@ -23,6 +23,7 @@ import {
   fetchWeeklyChecklistCompletion,
   type ManagerWeeklyEvaluation,
 } from '@/lib/evaluations/managerEvaluationService';
+import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 
 const SUBJECT_ROLE_BY_TYPE: Record<EvaluationType, string[]> = {
   branch_manager: ['branch_manager'],
@@ -201,6 +202,12 @@ export default function WeeklyManagerEvaluation() {
               <span className="text-xs text-amber-300">محتاج تكمّل كل البنود اليدوية قبل الاعتماد</span>
             )}
           </div>
+
+          <ManagerLiveIncentiveCard
+            evaluationType={evaluationType}
+            staffId={subjectStaffId}
+            branch={branchForMetrics}
+          />
 
           <div className="grid gap-3 md:grid-cols-2">
             {criteria.map((criterion) => {
