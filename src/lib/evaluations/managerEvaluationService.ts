@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import type { EvaluationType, WeeklyAutoMetrics } from '@/lib/evaluations/managerEvaluationCriteria';
-import { MANAGER_TASK_CADENCE_BY_KEY } from '@/lib/evaluations/managerDailyTasks';
+import { MANAGER_DAILY_TASKS, getManagerTaskCadence } from '@/lib/evaluations/managerDailyTasks';
 
 export function weekBoundsOf(date: Date): { start: string; end: string } {
   // الأسبوع من السبت للجمعة (مطابق لطبيعة أسبوع العمل في مصر)
@@ -47,8 +47,9 @@ export async function fetchWeeklyChecklistCompletion(
   weekStart: string,
   weekEnd: string
 ): Promise<Record<string, number>> {
+  const allManagerTaskKeys = [...new Set(Object.values(MANAGER_DAILY_TASKS).flat().map((task) => task.key))];
   const cadencePayload = Object.fromEntries(
-    Object.entries(MANAGER_TASK_CADENCE_BY_KEY).map(([key, cadence]) => [key, cadence])
+    allManagerTaskKeys.map((key) => [key, getManagerTaskCadence(key)])
   );
 
   // V2 يعرف إن المهمة الأسبوعية مطلوبة مرة واحدة فقط. نحتفظ بالـRPC القديم
