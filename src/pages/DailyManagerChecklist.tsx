@@ -16,7 +16,11 @@ const ROLE_TO_EVALUATION_TYPE: Record<ManagerDailyRole, EvaluationType> = {
 };
 
 function todayInput() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 type ChecklistRow = {
@@ -42,7 +46,7 @@ export default function DailyManagerChecklist() {
   const pageTitle = isAssistant
     ? 'مهام مساعد الصيدلي اليومية'
     : isCsManager
-      ? 'المهام اليومية لمسئول خدمة العملاء'
+      ? 'المهام اليومية لمدير خدمة العملاء'
       : 'المهام والمتابعة اليومية';
   const pageSubtitle = isAssistant
     ? 'سجّل إنجازك للمهام كل يوم — معدل الالتزام بيتحوّل لحافزك الشهري تلقائيًا عند إغلاق الدورة.'
@@ -176,7 +180,7 @@ export default function DailyManagerChecklist() {
   if (!isEligible) {
     return (
       <div dir="rtl" className="p-6 text-sm text-slate-400">
-        هذه الصفحة متاحة لمدير الفرع، مدير الفروع، مسئول خدمة العملاء، ومساعد الصيدلي فقط.
+        هذه الصفحة متاحة لمدير الفرع، مدير الفروع، مدير خدمة العملاء، ومساعد الصيدلي فقط.
       </div>
     );
   }
