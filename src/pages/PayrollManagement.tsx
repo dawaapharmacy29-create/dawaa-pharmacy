@@ -10,13 +10,14 @@ import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCurrency } from '@/lib/utils';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
+import { fetchPayrollIncentiveTruth, type PayrollIncentiveTruth } from '@/lib/incentives/payrollIncentiveTruthService';
 
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
 const mutedText = { color: 'var(--dawaa-theme-muted)' };
 
 type Row = Record<string, unknown>;
-type StaffRow = { id: string; username: string; name: string; branch: string; role: string; active: boolean };
+type StaffRow = { id: string; staffId: string; username: string; name: string; branch: string; role: string; active: boolean };
 type Profile = {
   staff_username: string; staff_name?: string; role?: string; branch?: string;
   base_salary: number; hourly_rate: number; target_bonus_amount: number; quarterly_bonus_amount: number;
@@ -56,16 +57,17 @@ export default function PayrollManagement() {
   const [selected, setSelected] = useState<StaffRow | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [monthly, setMonthly] = useState<MonthlyRow | null>(null);
+  const [automatedTruth, setAutomatedTruth] = useState<PayrollIncentiveTruth | null>(null);
   const [history, setHistory] = useState<MonthlyRow[]>([]);
   const [month, setMonth] = useState(currentMonth);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const loadStaff = useCallback(async () => {
-    let query = supabase.from('staff_accounts').select('id,username,name,staff_name,branch,role,active').eq('active', true).order('name');
+    let query = supabase.from('staff_accounts').select('id,staff_id,username,name,staff_name,branch,role,active').eq('active', true).order('name');
     if (!allBranches && ownBranch) query = query.eq('branch', ownBranch);
     const { data } = await query;
-    setStaff(((data || []) as Row[]).map((r: any) => ({ id: r.id, username: r.username, name: r.name || r.staff_name || r.username, branch: r.branch || '', role: r.role || '', active: r.active !== false })));
+    setStaff(((data || []) as Row[]).map((r: any) => ({ id: r.id, staffId: String(r.staff_id || ''), username: r.username, name: r.name || r.staff_name || r.username, branch: r.branch || '', role: r.role || '', active: r.active !== false })));
   }, [allBranches, ownBranch]);
 
   useEffect(() => { void loadStaff(); }, [loadStaff]);
@@ -73,14 +75,16 @@ export default function PayrollManagement() {
   const loadPerson = useCallback(async (person: StaffRow, m: string) => {
     setLoading(true);
     try {
-      const [{ data: p }, { data: cur }, { data: hist }] = await Promise.all([
+      const [{ data: p }, { data: cur }, { data: hist }, truth] = await Promise.all([
         supabase.from('staff_payroll_profiles_v13').select('*').eq('staff_username', person.username).maybeSingle(),
         supabase.from('staff_payroll_monthly_v13').select('*').eq('staff_username', person.username).eq('payroll_month', m).maybeSingle(),
         supabase.from('staff_payroll_monthly_v13').select('*').eq('staff_username', person.username).order('payroll_month', { ascending: false }).limit(6),
+        person.staffId ? fetchPayrollIncentiveTruth(person.staffId, m.slice(0, 7)).catch(() => []) : Promise.resolve([]),
       ]);
       setProfile((p as Profile) || emptyProfile(person.username));
       setMonthly((cur as MonthlyRow) || emptyMonthly(person.username, m));
       setHistory((hist || []) as MonthlyRow[]);
+      setAutomatedTruth(truth[0] || null);
     } finally {
       setLoading(false);
     }
@@ -94,13 +98,13 @@ export default function PayrollManagement() {
       num(profile.base_salary) +
       num(monthly.worked_hours) * num(profile.hourly_rate) +
       num(monthly.overtime_hours) * num(profile.hourly_rate) +
-      num(monthly.target_bonus) +
+      (automatedTruth?.targetRecords ? automatedTruth.targetBonus : num(monthly.target_bonus)) +
       num(monthly.quarterly_bonus) +
-      num(monthly.incentives_total) +
+      num(monthly.incentives_total) + num(automatedTruth?.performanceIncentive) +
       num(monthly.manual_adjustment) -
       num(monthly.deductions_total)
     );
-  }, [profile, monthly]);
+  }, [profile, monthly, automatedTruth]);
 
   const saveProfile = async () => {
     if (!profile) return;
@@ -126,7 +130,7 @@ export default function PayrollManagement() {
     setSaving(true);
     try {
       const { error } = await supabase.from('staff_payroll_monthly_v13').upsert(
-        { ...monthly, net_salary: netSalaryPreview, updated_at: new Date().toISOString() },
+        { ...monthly, target_bonus: automatedTruth?.targetRecords ? automatedTruth.targetBonus : monthly.target_bonus, net_salary: netSalaryPreview, updated_at: new Date().toISOString() },
         { onConflict: 'staff_username,payroll_month' }
       );
       if (error) throw error;
@@ -209,7 +213,12 @@ export default function PayrollManagement() {
                   <input type="number" className="input mt-1 w-full" value={monthly?.overtime_hours ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, overtime_hours: num(e.target.value) })} />
                 </label>
                 <label className="text-xs font-bold" style={mutedText}>حافز التارجت
-                  <input type="number" className="input mt-1 w-full" value={monthly?.target_bonus ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, target_bonus: num(e.target.value) })} />
+                  <input type="number" className="input mt-1 w-full" readOnly={Boolean(automatedTruth?.targetRecords)} value={automatedTruth?.targetRecords ? automatedTruth.targetBonus : monthly?.target_bonus ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, target_bonus: num(e.target.value) })} />
+                  {automatedTruth?.targetRecords ? <span className="mt-1 block text-[10px] text-emerald-300">محسوب آليًا ومقفول ضد التعديل اليدوي</span> : null}
+                </label>
+                <label className="text-xs font-bold" style={mutedText}>حافز الأداء الآلي
+                  <input type="number" className="input mt-1 w-full" readOnly value={automatedTruth?.performanceIncentive ?? 0} />
+                  <span className="mt-1 block text-[10px] text-slate-500">من التقييمات المعتمدة وشروط التغطية</span>
                 </label>
                 <label className="text-xs font-bold" style={mutedText}>الحافز الربع سنوي
                   <input type="number" className="input mt-1 w-full" value={monthly?.quarterly_bonus ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, quarterly_bonus: num(e.target.value) })} />
