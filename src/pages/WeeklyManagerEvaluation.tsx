@@ -32,6 +32,12 @@ const SUBJECT_ROLE_BY_TYPE: Record<EvaluationType, string[]> = {
   customer_service: ['customer_service_manager'],
 };
 
+const EVALUATOR_ROLES_BY_TYPE: Record<EvaluationType, string[]> = {
+  branch_manager: ['general_manager', 'executive_manager', 'branches_manager'],
+  branches_manager: ['general_manager'],
+  customer_service: ['general_manager', 'executive_manager', 'branches_manager'],
+};
+
 function scoreTone(score: number) {
   if (score >= 80) return 'text-emerald-300';
   if (score >= 60) return 'text-amber-300';
@@ -42,9 +48,9 @@ export default function WeeklyManagerEvaluation() {
   const { type } = useParams<{ type: EvaluationType }>();
   const evaluationType = (type && EVALUATION_CRITERIA[type as EvaluationType] ? type : 'branch_manager') as EvaluationType;
   const { user } = useAuth();
-  const canEvaluate = ['general_manager', 'executive_manager', 'branches_manager'].includes(
-    normalizeRole(user?.role)
-  );
+  const evaluatorRole = normalizeRole(user?.role);
+  const canEvaluate = EVALUATOR_ROLES_BY_TYPE[evaluationType].includes(evaluatorRole);
+  const evaluatorStaffId = String(user?.staffId || user?.id || '');
 
   const { data: staff = [] } = useSupabaseQuery<StaffChoice & { role?: string; branch?: string }>({
     table: TABLES.staff,
@@ -58,9 +64,11 @@ export default function WeeklyManagerEvaluation() {
 
   const eligibleRoles = SUBJECT_ROLE_BY_TYPE[evaluationType];
   const subjectChoices = useMemo(() => {
-    const roleByStaffId = new Map(staffAccounts.map((sa) => [sa.staff_id, sa.role]));
-    return mergeStaffChoices(staff).filter((s) => eligibleRoles.includes(roleByStaffId.get(s.id) || ''));
-  }, [staff, staffAccounts, eligibleRoles]);
+    const roleByStaffId = new Map(staffAccounts.map((sa) => [sa.staff_id, normalizeRole(sa.role)]));
+    return mergeStaffChoices(staff).filter(
+      (s) => eligibleRoles.includes(roleByStaffId.get(s.id) || '') && String(s.id) !== evaluatorStaffId
+    );
+  }, [staff, staffAccounts, eligibleRoles, evaluatorStaffId]);
 
   const [subjectStaffId, setSubjectStaffId] = useState('');
   const subject = useMemo(
@@ -121,6 +129,10 @@ export default function WeeklyManagerEvaluation() {
 
   const handleSave = async (status: 'draft' | 'submitted') => {
     if (!subjectStaffId || !currentMetrics) return;
+    if (!canEvaluate || String(subjectStaffId) === evaluatorStaffId) {
+      setError('لا يمكن اعتماد هذا التقييم: يجب أن يكون المُقيِّم مديرًا أعلى ومختلفًا عن الشخص المُقيَّم.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -129,7 +141,7 @@ export default function WeeklyManagerEvaluation() {
         subject_staff_id: subjectStaffId,
         subject_name: subject?.name || null,
         branch: branchForMetrics,
-        evaluator_staff_id: user?.staffId || user?.id || null,
+        evaluator_staff_id: evaluatorStaffId || null,
         evaluator_name: user?.name || null,
         week_start: weekStart,
         week_end: weekEnd,
@@ -157,7 +169,7 @@ export default function WeeklyManagerEvaluation() {
   if (!canEvaluate) {
     return (
       <div dir="rtl" className="p-6 text-sm text-slate-400">
-        هذه الصفحة متاحة لمدير الفروع والمدير العام فقط.
+        ليس لديك مستوى الاعتماد المطلوب لهذا النوع من التقييم. تقييم مدير الفروع متاح للمدير العام فقط.
       </div>
     );
   }
