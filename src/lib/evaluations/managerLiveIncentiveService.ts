@@ -33,6 +33,10 @@ export type ManagerLiveIncentiveSnapshot = {
   payoutPercent: number;
   estimatedIncentiveEgp: number;
   approvedWeeksInCycle: number;
+  cycleStart: string;
+  cycleEnd: string;
+  dataCoveragePercent: number;
+  neutralDataSources: string[];
   isEstimate: true;
 };
 
@@ -66,7 +70,9 @@ export async function fetchManagerLiveIncentiveSnapshot(
   const cycleEnd = formatCycleDate(cycle.end);
   const submittedThisCycle = (history || []).filter((row: any) => {
     if (row.status !== 'submitted') return false;
-    const evaluationDate = String(row.week_start || '').slice(0, 10);
+    // الأسبوع يُنسب للدورة التي يقع فيها يوم إقفاله (الجمعة)، حتى لا ينقسم
+    // أسبوع واحد بين دورتين أو يدخل في التسويتين عند حد 26/25.
+    const evaluationDate = String(row.week_end || row.week_start || '').slice(0, 10);
     return evaluationDate >= cycleStart && evaluationDate <= cycleEnd;
   });
   // لو الأسبوع الجاري اتعمد بالفعل، نستخدم الدرجة المعتمدة بدل إضافة الدرجة الحية
@@ -89,6 +95,12 @@ export async function fetchManagerLiveIncentiveSnapshot(
     maxIncentiveEgp,
     activeGates
   );
+  const coverage = current.data_coverage || {};
+  const coverageEntries = Object.entries(coverage);
+  const dataCoveragePercent = coverageEntries.length
+    ? Math.round((coverageEntries.filter(([, available]) => available).length / coverageEntries.length) * 100)
+    : 0;
+  const neutralDataSources = coverageEntries.filter(([, available]) => !available).map(([key]) => key);
 
   return {
     evaluationType,
@@ -101,6 +113,10 @@ export async function fetchManagerLiveIncentiveSnapshot(
     payoutPercent,
     estimatedIncentiveEgp: incentiveValue,
     approvedWeeksInCycle: submittedThisCycle.length,
+    cycleStart,
+    cycleEnd,
+    dataCoveragePercent,
+    neutralDataSources,
     isEstimate: true,
   };
 }
