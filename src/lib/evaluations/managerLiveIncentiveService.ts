@@ -69,8 +69,18 @@ export async function fetchManagerLiveIncentiveSnapshot(
     const evaluationDate = String(row.week_start || '').slice(0, 10);
     return evaluationDate >= cycleStart && evaluationDate <= cycleEnd;
   });
-  const approvedScores = submittedThisCycle.map((row: any) => Number(row.total_score) || 0);
-  const allScoresForCycle = [...approvedScores, liveScore];
+  // لو الأسبوع الجاري اتعمد بالفعل، نستخدم الدرجة المعتمدة بدل إضافة الدرجة الحية
+  // مرة ثانية؛ كده كل أسبوع يدخل في متوسط الدورة مرة واحدة فقط.
+  const currentWeekSubmitted = submittedThisCycle.find(
+    (row: any) => String(row.week_start || '').slice(0, 10) === weekStart
+  );
+  const approvedHistoricalScores = submittedThisCycle
+    .filter((row: any) => String(row.week_start || '').slice(0, 10) !== weekStart)
+    .map((row: any) => Number(row.total_score) || 0);
+  const currentWeekScore = currentWeekSubmitted
+    ? Number(currentWeekSubmitted.total_score) || 0
+    : liveScore;
+  const allScoresForCycle = [...approvedHistoricalScores, currentWeekScore];
   const cycleAverageScore =
     allScoresForCycle.reduce((sum, s) => sum + s, 0) / (allScoresForCycle.length || 1);
 
@@ -90,7 +100,7 @@ export async function fetchManagerLiveIncentiveSnapshot(
     tierLabel: tier.label,
     payoutPercent,
     estimatedIncentiveEgp: incentiveValue,
-    approvedWeeksInCycle: approvedScores.length,
+    approvedWeeksInCycle: submittedThisCycle.length,
     isEstimate: true,
   };
 }
