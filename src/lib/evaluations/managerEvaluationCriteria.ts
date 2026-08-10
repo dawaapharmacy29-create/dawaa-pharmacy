@@ -361,11 +361,13 @@ export const EVALUATION_TYPE_LABELS: Record<EvaluationType, string> = {
 /**
  * سقف الحافز الشهري بالجنيه عند متوسط تقييم 100/100 خلال الدورة — الحافز
  * الفعلي = (متوسط درجات التقييمات المعتمدة في الدورة / 100) × السقف.
- * customer_service مفيش ليها حافز مالي منفصل هنا (خارج نطاق هذه المرحلة).
+ * الأرقام تمثل الحافز الأساسي عند الأداء الكامل، ويمكن لشريحة التميز 95–100
+ * الوصول إلى 110% وفق incentiveTiers.
  */
 export const EVALUATION_MAX_MONTHLY_INCENTIVE_EGP: Partial<Record<EvaluationType, number>> = {
   branch_manager: 3000,
   branches_manager: 4000,
+  customer_service: 2500,
 };
 
 export function computeTotalScore(
