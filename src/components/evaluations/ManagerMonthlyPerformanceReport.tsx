@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, CalendarDays, Loader2, TrendingDown, TrendingUp, WalletCards } from 'lucide-react';
+import { BarChart3, CalendarDays, FileDown, Lightbulb, Loader2, TrendingDown, TrendingUp, WalletCards } from 'lucide-react';
 import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
 import {
   fetchManagerMonthlyReport,
@@ -16,6 +16,42 @@ function scoreTone(score: number | null) {
   if (score >= 80) return 'text-emerald-300';
   if (score >= 60) return 'text-amber-300';
   return 'text-red-300';
+}
+
+function csvCell(value: string | number | null) {
+  const text = value === null ? '' : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function exportReport(report: ManagerMonthlyReport) {
+  const headers = ['بداية الدورة','نهاية الدورة','الدرجة','التغير','الأسابيع المعتمدة','تغطية البيانات','الشريحة','نسبة الصرف','الحافز المتوقع','الحافز المسوى','المبيعات','المتابعات','المتابعات المغلقة','طلبات العملاء','الطلبات المغلقة','شراء بعد المتابعة','مراجعات الدكاترة','متوسط المراجعات'];
+  const rows = report.rows.map((row) => [
+    row.cycleStart,row.cycleEnd,row.averageScore,row.scoreChangeFromPrevious,row.approvedWeeks,
+    row.dataCoveragePercent,row.tierLabel,row.payoutPercent,row.estimatedIncentiveEgp,
+    row.settledIncentiveEgp,row.salesTotal,row.followupsTotal,row.followupsClosed,
+    row.customerRequestsTotal,row.customerRequestsClosed,row.recoveredSalesEgp,
+    row.conversationReviewsCount,row.conversationReviewsAverage,
+  ]);
+  const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `manager-performance-${report.rows[0]?.cycleStart || 'report'}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function recommendations(report: ManagerMonthlyReport): string[] {
+  const current = report.rows[0];
+  if (!current) return [];
+  const items: string[] = [];
+  if (!current.approvedWeeks) items.push('اعتماد تقييم أسبوعي واحد على الأقل حتى يتحول الأداء التشغيلي إلى درجة حافز قابلة للتسوية.');
+  if ((current.dataCoveragePercent ?? 0) < 80) items.push(`رفع تغطية البيانات من ${current.dataCoveragePercent ?? 0}%، خصوصًا الحضور والمشتريات والتارجت وملاحظات الشيفت.`);
+  if (current.followupsTotal > 0 && current.followupsClosed / current.followupsTotal < 0.6) items.push('نسبة إغلاق المتابعات أقل من 60%؛ الأولوية لإغلاق الحالات بنتيجة شراء أو سبب نهائي موثق.');
+  if (current.customerRequestsTotal > 0 && current.customerRequestsClosed / current.customerRequestsTotal < 0.8) items.push('نسبة إغلاق طلبات العملاء أقل من 80%؛ راجع المتأخر والمسؤول عن الشراء والتواصل مع العميل.');
+  if (current.averageScore !== null && current.averageScore < 60) items.push('الدرجة الحالية دون حد استحقاق الحافز؛ ركّز على أعلى البنود وزنًا قبل نهاية الدورة.');
+  if (!items.length) items.push('الأداء والتغطية في وضع جيد؛ استمر على نفس معدل التنفيذ حتى إغلاق الدورة.');
+  return items.slice(0, 4);
 }
 
 export function ManagerMonthlyPerformanceReport({
@@ -63,18 +99,25 @@ export function ManagerMonthlyPerformanceReport({
             كل شهر هو دورة صيدليات دواء من يوم 26 إلى 25، والأسبوع يتبع الدورة التي يقع فيها يوم إغلاقه.
           </p>
         </div>
-        <label className="flex items-center gap-2 text-xs font-bold text-slate-300">
-          عرض
-          <select
-            value={cycleCount}
-            onChange={(event) => setCycleCount(Number(event.target.value) as 3 | 6 | 12)}
-            className="rounded-lg border border-white/10 bg-slate-950 px-2 py-1.5 text-white"
-          >
-            <option value={3}>آخر 3 شهور</option>
-            <option value={6}>آخر 6 شهور</option>
-            <option value={12}>آخر 12 شهر</option>
-          </select>
-        </label>
+        <div className="flex items-center gap-2">
+          {report && (
+            <button type="button" onClick={() => exportReport(report)} className="flex items-center gap-1 rounded-lg border border-teal-500/30 px-2.5 py-1.5 text-xs font-bold text-teal-200 hover:bg-teal-500/10">
+              <FileDown size={13} /> تصدير التقرير
+            </button>
+          )}
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-300">
+            عرض
+            <select
+              value={cycleCount}
+              onChange={(event) => setCycleCount(Number(event.target.value) as 3 | 6 | 12)}
+              className="rounded-lg border border-white/10 bg-slate-950 px-2 py-1.5 text-white"
+            >
+              <option value={3}>آخر 3 شهور</option>
+              <option value={6}>آخر 6 شهور</option>
+              <option value={12}>آخر 12 شهر</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       {loading ? (
@@ -106,6 +149,31 @@ export function ManagerMonthlyPerformanceReport({
             </div>
           </div>
 
+          <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+            <div className="rounded-xl border border-white/5 bg-black/20 p-3">
+              <div className="text-xs font-black text-white">اتجاه المبيعات حسب الدورة</div>
+              <div className="mt-3 flex h-36 items-end gap-2">
+                {[...report.rows].reverse().map((row) => {
+                  const maxSales = Math.max(1, ...report.rows.map((item) => item.salesTotal));
+                  const height = row.operationalDataAvailable ? Math.max(4, Math.round((row.salesTotal / maxSales) * 100)) : 2;
+                  return (
+                    <div key={`chart-${row.cycleStart}`} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1">
+                      <span className="text-[9px] font-bold text-slate-400">{row.salesTotal ? Math.round(row.salesTotal / 1000).toLocaleString('ar-EG') + 'ك' : '—'}</span>
+                      <div className={`w-full max-w-10 rounded-t-md ${row.isCurrentCycle ? 'bg-teal-400' : 'bg-blue-500/70'}`} style={{ height: `${height}%` }} />
+                      <span className="max-w-full truncate text-[8px] text-slate-500">{row.cycleStart.slice(5)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="rounded-xl border border-amber-400/15 bg-amber-950/10 p-3">
+              <div className="flex items-center gap-1.5 text-xs font-black text-amber-200"><Lightbulb size={14} /> ملخص تنفيذي آلي</div>
+              <ul className="mt-2 space-y-2 text-[11px] leading-5 text-slate-300">
+                {recommendations(report).map((item) => <li key={item}>• {item}</li>)}
+              </ul>
+            </div>
+          </div>
+
           <div className="overflow-x-auto rounded-xl border border-white/5">
             <table className="w-full min-w-[920px] text-right text-xs">
               <thead className="bg-slate-950/70 text-slate-400">
@@ -126,6 +194,9 @@ export function ManagerMonthlyPerformanceReport({
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1 font-bold text-white"><CalendarDays size={12} /> {row.cycleStart}</div>
                       <div className="mt-0.5 text-[10px] text-slate-500">إلى {row.cycleEnd}{row.isCurrentCycle ? ' — جارية' : ''}</div>
+                      <div className={`mt-1 text-[9px] font-bold ${row.operationalDataAvailable ? 'text-emerald-300' : 'text-slate-600'}`}>
+                        {row.operationalDataAvailable ? 'بيانات التشغيل متاحة' : 'لا توجد بيانات تشغيل'}
+                      </div>
                     </td>
                     <td className={`px-3 py-3 font-black ${scoreTone(row.averageScore)}`}>{row.averageScore ?? '—'}{row.averageScore !== null ? '/100' : ''}</td>
                     <td className="px-3 py-3">
@@ -152,7 +223,7 @@ export function ManagerMonthlyPerformanceReport({
           </div>
 
           <div className="space-y-2">
-            {report.rows.filter((row) => row.averageScore !== null).map((row) => (
+            {report.rows.filter((row) => row.operationalDataAvailable || row.averageScore !== null).map((row) => (
               <details key={`details-${row.cycleStart}`} className="rounded-xl border border-white/5 bg-black/15 p-3">
                 <summary className="cursor-pointer text-xs font-black text-white">
                   تفاصيل التشغيل للدورة {row.cycleStart} إلى {row.cycleEnd}
