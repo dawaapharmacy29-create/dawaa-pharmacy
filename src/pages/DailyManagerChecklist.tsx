@@ -144,20 +144,24 @@ export default function DailyManagerChecklist() {
       [taskKey]: { task_key: taskKey, completed: nextCompleted, note: current?.note || null },
     }));
     try {
-      const { error: err } = await supabase.from(TABLES.managerDailyChecklist).upsert(
-        {
-          staff_id: staffId,
-          staff_name: user?.name || null,
-          role,
-          branch: role === 'branches_manager' ? null : (user?.branch || null),
-          task_date: taskDate,
-          task_key: taskKey,
-          completed: nextCompleted,
-          completed_at: nextCompleted ? new Date().toISOString() : null,
-        },
-        { onConflict: 'staff_id,task_date,task_key' }
-      );
-      if (err) throw new Error(err.message);
+      const cadence = isAssistant ? 'daily' : getManagerTaskCadence(taskKey);
+      const payload = {
+        staff_id: staffId,
+        staff_name: user?.name || null,
+        role,
+        branch: role === 'branches_manager' ? null : (user?.branch || null),
+        task_date: current?.task_date || taskDate,
+        task_key: taskKey,
+        completed: nextCompleted,
+        completed_at: nextCompleted ? new Date().toISOString() : null,
+      };
+      const result =
+        current?.id && cadence !== 'daily'
+          ? await supabase.from(TABLES.managerDailyChecklist).update(payload).eq('id', current.id)
+          : await supabase.from(TABLES.managerDailyChecklist).upsert(payload, {
+              onConflict: 'staff_id,task_date,task_key',
+            });
+      if (result.error) throw new Error(result.error.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر الحفظ');
       setRows((prev) => ({
@@ -179,19 +183,24 @@ export default function DailyManagerChecklist() {
   const saveNote = async (taskKey: string) => {
     if (!staffId) return;
     const current = rows[taskKey];
-    await supabase.from(TABLES.managerDailyChecklist).upsert(
-      {
-        staff_id: staffId,
-        staff_name: user?.name || null,
-        role,
-        branch: role === 'branches_manager' ? null : (user?.branch || null),
-        task_date: taskDate,
-        task_key: taskKey,
-        completed: current?.completed || false,
-        note: current?.note || null,
-      },
-      { onConflict: 'staff_id,task_date,task_key' }
-    );
+    const cadence = isAssistant ? 'daily' : getManagerTaskCadence(taskKey);
+    const payload = {
+      staff_id: staffId,
+      staff_name: user?.name || null,
+      role,
+      branch: role === 'branches_manager' ? null : (user?.branch || null),
+      task_date: current?.task_date || taskDate,
+      task_key: taskKey,
+      completed: current?.completed || false,
+      note: current?.note || null,
+    };
+    if (current?.id && cadence !== 'daily') {
+      await supabase.from(TABLES.managerDailyChecklist).update(payload).eq('id', current.id);
+      return;
+    }
+    await supabase.from(TABLES.managerDailyChecklist).upsert(payload, {
+      onConflict: 'staff_id,task_date,task_key',
+    });
   };
 
   if (!isEligible) {
