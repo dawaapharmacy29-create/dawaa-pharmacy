@@ -20,6 +20,7 @@ import {
   fetchEvaluationHistory,
 } from '@/lib/evaluations/managerEvaluationService';
 import { calculateTieredIncentiveValue, type CriticalGateType } from '@/lib/evaluations/incentiveTiers';
+import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 
 export type ManagerLiveIncentiveSnapshot = {
   evaluationType: EvaluationType;
@@ -59,13 +60,16 @@ export async function fetchManagerLiveIncentiveSnapshot(
   // عشان الرقم يفضل تقديري ومحافظ ومايديش انطباع أعلى من الحقيقي قبل مراجعة المدير الأعلى).
   const liveScore = computeTotalScore(evaluationType, current, prev, {}, checklistRates);
 
-  // متوسط الدورة الحالية = تقييمات معتمدة (submitted) خلال الشهر الحالي + الدرجة الحية للأسبوع الجاري كتقدير له.
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const submittedThisMonth = (history || []).filter(
-    (row: any) => row.status === 'submitted' && String(row.week_start || '').startsWith(monthKey)
-  );
-  const approvedScores = submittedThisMonth.map((row: any) => Number(row.total_score) || 0);
+  // دورة صيدليات دواء ثابتة من يوم 26 إلى 25، وليست الشهر الميلادي.
+  const cycle = getCurrentCycle();
+  const cycleStart = formatCycleDate(cycle.start);
+  const cycleEnd = formatCycleDate(cycle.end);
+  const submittedThisCycle = (history || []).filter((row: any) => {
+    if (row.status !== 'submitted') return false;
+    const evaluationDate = String(row.week_start || '').slice(0, 10);
+    return evaluationDate >= cycleStart && evaluationDate <= cycleEnd;
+  });
+  const approvedScores = submittedThisCycle.map((row: any) => Number(row.total_score) || 0);
   const allScoresForCycle = [...approvedScores, liveScore];
   const cycleAverageScore =
     allScoresForCycle.reduce((sum, s) => sum + s, 0) / (allScoresForCycle.length || 1);
