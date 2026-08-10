@@ -18,6 +18,7 @@ import {
   monthlyIncentiveInputsFromProfile,
 } from '@/lib/incentives/incentiveRulesEngine';
 import { monthCycleFromDate } from '@/lib/conversationReviews';
+import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievementBonus';
 import { normalizeBranchName } from '@/lib/branch';
 import { loadSalesAnalyticsSummary, type SalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import DoctorRequestedFollowups from '@/components/doctor/DoctorRequestedFollowups';
@@ -504,6 +505,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
   const branchSales = summary?.kpis.netSales || 0;
   const target = branchTargetAmount ?? branchTargetFallback(branchSales);
   const achievement = target ? branchSales / target * 100 : 0;
+  const doctorTargetBonus = calculateTargetAchievementBonus(branchSales, branchTargetAmount ?? 0, 'doctor');
   const cycleTotalDays = Math.max(1, Math.round((cycle.end.getTime() - cycle.start.getTime()) / 86400000) + 1);
   const cycleDaysElapsed = Math.min(cycleTotalDays, Math.max(1, Math.floor((Date.now() - cycle.start.getTime()) / 86400000) + 1));
   const dailyAveragePace = branchSales / cycleDaysElapsed;
@@ -839,11 +841,12 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
 
       {tab === 'performance' ? (
         <section className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <Metric label="مبيعاتي" value={formatCurrency(doctorRow?.netSales || 0)} icon={DollarSign} />
             <Metric label="عدد الفواتير" value={String(doctorRow?.invoicesCount || 0)} icon={BarChart3} />
             <Metric label="متوسط البيع" value={formatCurrency(doctorRow?.avgInvoice || 0)} icon={TrendingUp} />
             <Metric label="تقدم الفرع" value={`${achievement.toFixed(1)}%`} hint={`المتبقي ${formatCurrency(Math.max(0, target - branchSales))}`} icon={Target} progress={achievement} />
+            <Metric label="حافز التارجت الإضافي" value={doctorTargetBonus.amountEgp === null ? 'غير قابل للحساب' : formatCurrency(doctorTargetBonus.amountEgp)} hint={`${doctorTargetBonus.tierLabel} — منفصل عن حافز الأداء`} icon={Trophy} progress={achievement} />
           </div>
           <section className="rounded-3xl border p-5" style={surface}>
             <h2 className="text-xl font-black text-white">ترتيب دكاترة الفرع</h2>
@@ -1007,8 +1010,10 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
                   <span className="flex items-center gap-1.5"><Target size={14} /> الهدف: {liveIncentive.targetPoints} نقطة</span>
                   <span className="flex items-center gap-1.5"><Star size={14} /> صافي النقاط: {liveIncentive.finalPoints}</span>
                 </div>
-                <div className="mt-3 border-t pt-3 text-lg font-black text-teal-200" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                  الحافز التقديري لو الدورة قفلت النهاردة: {formatCurrency(liveIncentive.incentiveValue)} من أصل {formatCurrency(liveIncentive.maxIncentiveEgp)}
+                <div className="mt-3 grid gap-2 border-t pt-3 sm:grid-cols-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                  <div className="rounded-xl bg-black/20 p-3"><div className="text-xs" style={mutedText}>حافز الأداء</div><div className="mt-1 font-black text-teal-200">{formatCurrency(liveIncentive.incentiveValue)}</div></div>
+                  <div className="rounded-xl bg-black/20 p-3"><div className="text-xs" style={mutedText}>حافز التارجت</div><div className="mt-1 font-black text-amber-200">{doctorTargetBonus.amountEgp === null ? 'غير قابل للحساب' : formatCurrency(doctorTargetBonus.amountEgp)}</div><div className="mt-1 text-[11px]" style={mutedText}>{achievement.toFixed(1)}% من تارجت الفرع</div></div>
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/20 p-3"><div className="text-xs text-emerald-300">الإجمالي المتوقع</div><div className="mt-1 font-black text-emerald-200">{formatCurrency(liveIncentive.incentiveValue + Number(doctorTargetBonus.amountEgp || 0))}</div></div>
                 </div>
                 <p className="mt-2 text-xs" style={mutedText}>
                   مبني على {liveIncentive.transactionCount} معاملة نقاط معتمدة في دورة {liveIncentive.cycle}. الرقم ده تقديري وقابل للتغيير لحد قفل الدورة رسميًا.

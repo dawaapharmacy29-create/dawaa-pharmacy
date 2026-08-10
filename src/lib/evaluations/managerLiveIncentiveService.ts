@@ -21,6 +21,7 @@ import {
 } from '@/lib/evaluations/managerEvaluationService';
 import { calculateTieredIncentiveValue, type CriticalGateType } from '@/lib/evaluations/incentiveTiers';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievementBonus';
 
 export type ManagerLiveIncentiveSnapshot = {
   evaluationType: EvaluationType;
@@ -32,6 +33,11 @@ export type ManagerLiveIncentiveSnapshot = {
   tierLabel: string;
   payoutPercent: number;
   estimatedIncentiveEgp: number;
+  performanceIncentiveEgp: number;
+  targetAchievementPercent: number | null;
+  targetBonusEgp: number | null;
+  targetBonusTierLabel: string;
+  totalEstimatedIncentiveEgp: number;
   approvedWeeksInCycle: number;
   cycleStart: string;
   cycleEnd: string;
@@ -52,12 +58,16 @@ export async function fetchManagerLiveIncentiveSnapshot(
 
   const { start: weekStart, end: weekEnd } = weekBoundsOf(new Date());
   const previous = previousWeekOf(weekStart);
+  const cycle = getCurrentCycle();
+  const cycleStart = formatCycleDate(cycle.start);
+  const cycleEnd = formatCycleDate(cycle.end);
 
-  const [current, prev, checklistRates, history] = await Promise.all([
+  const [current, prev, checklistRates, history, cycleMetrics] = await Promise.all([
     fetchWeeklyAutoMetrics(evaluationType, branch, weekStart, weekEnd),
     fetchWeeklyAutoMetrics(evaluationType, branch, previous.start, previous.end).catch(() => null),
     fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd),
     fetchEvaluationHistory(evaluationType, subjectStaffId),
+    fetchWeeklyAutoMetrics(evaluationType, branch, cycleStart, formatCycleDate(new Date())),
   ]);
 
   // الدرجة الحية: نفس محرك computeTotalScore، بمعايير auto+checklist بس (manual = 0 لحد ما المدير يعتمدها فعليًا،
@@ -65,9 +75,6 @@ export async function fetchManagerLiveIncentiveSnapshot(
   const liveScore = computeTotalScore(evaluationType, current, prev, {}, checklistRates);
 
   // دورة صيدليات دواء ثابتة من يوم 26 إلى 25، وليست الشهر الميلادي.
-  const cycle = getCurrentCycle();
-  const cycleStart = formatCycleDate(cycle.start);
-  const cycleEnd = formatCycleDate(cycle.end);
   const submittedThisCycle = (history || []).filter((row: any) => {
     if (row.status !== 'submitted') return false;
     // الأسبوع يُنسب للدورة التي يقع فيها يوم إقفاله (الجمعة)، حتى لا ينقسم
@@ -101,6 +108,11 @@ export async function fetchManagerLiveIncentiveSnapshot(
     ? Math.round((coverageEntries.filter(([, available]) => available).length / coverageEntries.length) * 100)
     : 0;
   const neutralDataSources = coverageEntries.filter(([, available]) => !available).map(([key]) => key);
+  const targetBonus = calculateTargetAchievementBonus(
+    Number(cycleMetrics.sales_total || 0),
+    Number(cycleMetrics.sales_target_amount || 0),
+    evaluationType === 'customer_service' ? 'not_eligible' : 'manager'
+  );
 
   return {
     evaluationType,
@@ -112,6 +124,11 @@ export async function fetchManagerLiveIncentiveSnapshot(
     tierLabel: tier.label,
     payoutPercent,
     estimatedIncentiveEgp: incentiveValue,
+    performanceIncentiveEgp: incentiveValue,
+    targetAchievementPercent: targetBonus.achievementPercent,
+    targetBonusEgp: targetBonus.amountEgp,
+    targetBonusTierLabel: targetBonus.tierLabel,
+    totalEstimatedIncentiveEgp: incentiveValue + Number(targetBonus.amountEgp || 0),
     approvedWeeksInCycle: submittedThisCycle.length,
     cycleStart,
     cycleEnd,
