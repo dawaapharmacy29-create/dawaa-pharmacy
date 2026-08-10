@@ -35,6 +35,8 @@ import {
   type DailyChartRow,
 } from '@/components/dashboard/DailySalesChart';
 import MonthlySalesChart from '@/components/dashboard/MonthlySalesChart';
+import { BranchesManagerExceptionsPanel } from '@/components/evaluations/BranchesManagerExceptionsPanel';
+import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 import { canSeeAllBranches, effectiveBranchFilter } from '@/lib/security/permissionScopes';
 import { DAYS_AR } from '@/lib/constants';
 import { isCurrentlyOnShift } from '@/lib/utils';
@@ -966,6 +968,7 @@ export default function ExecutiveDashboard2027() {
     isManagerRole(user) ||
     checkPermission('view_executive_dashboard') ||
     checkPermission('view_branch_dashboard');
+  const role = normalizeRole(user?.role);
   const redirectPath = roleHomePath(user);
   useEffect(() => {
     if (!canViewExecutive) navigate(redirectPath, { replace: true });
@@ -1982,6 +1985,18 @@ export default function ExecutiveDashboard2027() {
             </div>
           </Panel>
         ) : null}
+
+        {['branch_manager', 'branches_manager'].includes(role) && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <BranchesManagerExceptionsPanel branchScope={scopedBranch === ALL_BRANCHES ? null : scopedBranch} />
+            <ManagerLiveIncentiveCard
+              evaluationType={role === 'branches_manager' ? 'branches_manager' : 'branch_manager'}
+              staffId={user?.staffId || user?.id}
+              branch={role === 'branches_manager' ? null : (scopedBranch === ALL_BRANCHES ? user?.branch || null : scopedBranch)}
+            />
+          </div>
+        )}
+
         <Panel className="p-5">
           <div className="grid gap-5 xl:grid-cols-[1.3fr_1fr] xl:items-center">
             <div className="order-2 grid gap-3 md:grid-cols-2 xl:order-1 xl:grid-cols-6">
