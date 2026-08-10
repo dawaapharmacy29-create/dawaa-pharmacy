@@ -9,6 +9,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
   EVALUATION_CRITERIA,
+  criterionHasData,
+  computeWeightedCriterionScores,
   EVALUATION_TYPE_LABELS,
   computeTotalScore,
   criterionChecklistKeys,
@@ -122,6 +124,11 @@ export default function WeeklyManagerEvaluation() {
     if (!currentMetrics) return 0;
     return computeTotalScore(evaluationType, currentMetrics, previousMetrics, {}, checklistRates);
   }, [evaluationType, currentMetrics, previousMetrics, checklistRates]);
+  const weightedCriteria = useMemo(() => currentMetrics
+    ? computeWeightedCriterionScores(evaluationType, currentMetrics, previousMetrics, {}, checklistRates)
+    : [], [evaluationType, currentMetrics, previousMetrics, checklistRates]);
+  const availableCriteriaPercent = Math.round(weightedCriteria.filter((row) => row.included)
+    .reduce((sum, row) => sum + row.originalWeight, 0) * 100);
 
   const handleSave = async (status: 'draft' | 'submitted') => {
     if (!subjectStaffId || !currentMetrics) return;
@@ -207,7 +214,7 @@ export default function WeeklyManagerEvaluation() {
                 <span className="text-lg text-slate-500"> / 100</span>
               </div>
             </div>
-            <span className="text-xs text-emerald-300">100% بيانات موثقة داخل التطبيق</span>
+            <span className={availableCriteriaPercent >= 80 ? 'text-xs text-emerald-300' : 'text-xs text-amber-300'}>{availableCriteriaPercent}% من أوزان البنود لها بيانات موثقة</span>
           </div>
 
           <ManagerLiveIncentiveCard
@@ -224,6 +231,8 @@ export default function WeeklyManagerEvaluation() {
 
           <div className="grid gap-3 md:grid-cols-2">
             {criteria.map((criterion) => {
+              const hasData = criterionHasData(criterion, currentMetrics, checklistRates);
+              const weighted = weightedCriteria.find((row) => row.criterion.key === criterion.key);
               const autoScore =
                 criterion.mode === 'auto' && criterion.autoScore
                   ? criterion.autoScore(currentMetrics, previousMetrics)
@@ -237,7 +246,7 @@ export default function WeeklyManagerEvaluation() {
                 <div key={criterion.key} className="stat-card space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-black text-white">{criterion.label}</span>
-                    <span className="text-xs font-bold text-slate-400">وزن {Math.round(criterion.weight * 100)}%</span>
+                    <span className="text-xs font-bold text-slate-400">وزن {Math.round(criterion.weight * 100)}%{hasData && weighted && Math.abs(weighted.effectiveWeight - criterion.weight) > 0.001 ? ` ← فعلي ${Math.round(weighted.effectiveWeight * 100)}%` : ''}</span>
                   </div>
                   {criterion.hint && <p className="text-xs text-slate-500">{criterion.hint}</p>}
                   {criterion.sourceRoute && (
@@ -247,6 +256,7 @@ export default function WeeklyManagerEvaluation() {
                   )}
                   {criterion.mode === 'auto' && (
                     <div className="flex items-center gap-2">
+                      {!hasData ? <span className="rounded-full border border-amber-500/20 bg-amber-950/20 px-2 py-1 text-xs font-bold text-amber-300">مستبعد لعدم اكتمال المصدر — لا صفر ولا درجة افتراضية</span> : <>
                       <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>
                         {(autoScore || 0).toFixed(1)} / 10
                       </span>
@@ -259,6 +269,7 @@ export default function WeeklyManagerEvaluation() {
                           )}
                         </span>
                       )}
+                      </>}
                     </div>
                   )}
                   {criterion.mode === 'checklist' && (
