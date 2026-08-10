@@ -5,8 +5,7 @@
  * بدل رقم إجمالي واحد بس.
  */
 import {
-  EVALUATION_CRITERIA,
-  criterionChecklistKeys,
+  computeWeightedCriterionScores,
   type EvaluationType,
   type WeeklyAutoMetrics,
 } from '@/lib/evaluations/managerEvaluationCriteria';
@@ -24,6 +23,7 @@ export type CriterionBreakdownRow = {
   weight: number;
   score10: number; // من 0-10
   contribution: number; // من 0-100 (score10 * weight * 10)
+  effectiveWeight: number;
   hint?: string;
   sourceRoute?: string;
   sourceLabel?: string;
@@ -75,20 +75,10 @@ export async function fetchManagerScoreBreakdown(
     fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd),
   ]);
 
-  const criteria = EVALUATION_CRITERIA[evaluationType];
-  const rows: CriterionBreakdownRow[] = criteria.map((criterion) => {
-    let score10 = 0;
-    if (criterion.mode === 'auto' && criterion.autoScore) {
-      score10 = criterion.autoScore(current, prev);
-    } else if (criterion.mode === 'checklist') {
-      const keys = criterionChecklistKeys(criterion);
-      const rates = keys.map((k) => checklistRates[k] ?? 0);
-      const avgRate = rates.length ? rates.reduce((sum, r) => sum + r, 0) / rates.length : 0;
-      score10 = avgRate / 10;
-    }
-    score10 = Math.max(0, Math.min(10, score10));
+  const weightedRows = computeWeightedCriterionScores(evaluationType, current, prev, {}, checklistRates);
+  const rows: CriterionBreakdownRow[] = weightedRows.map(({ criterion, score10, contribution, effectiveWeight, included }) => {
     const coverageValues = (criterion.coverageKeys || []).map((key) => current.data_coverage?.[key] === true);
-    const hasOperationalData = coverageValues.some(Boolean);
+    const hasOperationalData = included && coverageValues.every(Boolean);
     const coverageState = criterion.mode === 'checklist'
       ? 'documented_task'
       : hasOperationalData
@@ -99,8 +89,9 @@ export async function fetchManagerScoreBreakdown(
       label: criterion.label,
       mode: criterion.mode,
       weight: criterion.weight,
+      effectiveWeight,
       score10: Math.round(score10 * 10) / 10,
-      contribution: Math.round(score10 * criterion.weight * 10 * 10) / 10,
+      contribution,
       hint: criterion.hint,
       sourceRoute: criterion.sourceRoute,
       sourceLabel: criterion.sourceLabel,
@@ -109,7 +100,7 @@ export async function fetchManagerScoreBreakdown(
         ? 'الدرجة من إنجاز مهمة مسجلة باسم الموظف وتاريخها.'
         : coverageState === 'available'
           ? 'بيانات المصدر متاحة ودخلت في الحساب.'
-          : 'بيانات المصدر غير متاحة في الفترة؛ طُبّقت الدرجة المحايدة بدون تخمين.',
+          : 'بيانات المصدر غير متاحة؛ استُبعد وزن البند وأُعيد توزيعه على البنود المثبتة بدون درجة افتراضية.',
     };
   });
 
