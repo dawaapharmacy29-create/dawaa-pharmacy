@@ -24,10 +24,11 @@ function csvCell(value: string | number | null) {
 }
 
 function exportReport(report: ManagerMonthlyReport) {
-  const headers = ['بداية الدورة','نهاية الدورة','الدرجة','التغير','الأسابيع المعتمدة','تغطية البيانات','الشريحة','نسبة الصرف','الحافز المتوقع','الحافز المسوى','المبيعات','المتابعات','المتابعات المغلقة','طلبات العملاء','الطلبات المغلقة','شراء بعد المتابعة','مراجعات الدكاترة','متوسط المراجعات'];
+  const headers = ['بداية الدورة','نهاية الدورة','الدرجة','التغير','الأسابيع المعتمدة','تغطية البيانات','الشريحة','نسبة الصرف','حافز الأداء','التارجت','نسبة تحقيق التارجت','حافز التارجت','إجمالي الحافز المتوقع','الحافز المسوى','المبيعات','المتابعات','المتابعات المغلقة','طلبات العملاء','الطلبات المغلقة','شراء بعد المتابعة','مراجعات الدكاترة','متوسط المراجعات'];
   const rows = report.rows.map((row) => [
     row.cycleStart,row.cycleEnd,row.averageScore,row.scoreChangeFromPrevious,row.approvedWeeks,
     row.dataCoveragePercent,row.tierLabel,row.payoutPercent,row.estimatedIncentiveEgp,
+    row.targetAmount,row.targetAchievementPercent,row.targetBonusEgp,row.totalEstimatedIncentiveEgp,
     row.settledIncentiveEgp,row.salesTotal,row.followupsTotal,row.followupsClosed,
     row.customerRequestsTotal,row.customerRequestsClosed,row.recoveredSalesEgp,
     row.conversationReviewsCount,row.conversationReviewsAverage,
@@ -184,7 +185,9 @@ export function ManagerMonthlyPerformanceReport({
                   <th className="px-3 py-2.5">الأسابيع</th>
                   <th className="px-3 py-2.5">تغطية البيانات</th>
                   <th className="px-3 py-2.5">الشريحة</th>
-                  <th className="px-3 py-2.5">الحافز المتوقع</th>
+                  <th className="px-3 py-2.5">حافز الأداء</th>
+                  <th className="px-3 py-2.5">حافز التارجت</th>
+                  <th className="px-3 py-2.5">الإجمالي المتوقع</th>
                   <th className="px-3 py-2.5">الحافز المسوّى</th>
                 </tr>
               </thead>
@@ -211,6 +214,8 @@ export function ManagerMonthlyPerformanceReport({
                     <td className="px-3 py-3">{row.dataCoveragePercent === null ? '—' : `${row.dataCoveragePercent}%`}</td>
                     <td className="px-3 py-3">{row.tierLabel} {row.averageScore !== null ? `(${row.payoutPercent}%)` : ''}</td>
                     <td className="px-3 py-3 font-bold text-teal-200">{row.averageScore === null ? '—' : currency(row.estimatedIncentiveEgp)}</td>
+                    <td className="px-3 py-3"><div className="font-bold text-amber-200">{row.targetBonusEgp === null ? 'غير قابل للحساب' : currency(row.targetBonusEgp)}</div><div className="mt-0.5 text-[9px] text-slate-500">{row.targetAchievementPercent === null ? row.targetBonusTierLabel : `${row.targetAchievementPercent}%`}</div></td>
+                    <td className="px-3 py-3 font-black text-emerald-300">{currency(row.totalEstimatedIncentiveEgp)}</td>
                     <td className="px-3 py-3">
                       <span className={`flex items-center gap-1 font-bold ${row.settlementStatus === 'settled' ? 'text-emerald-300' : 'text-slate-500'}`}>
                         <WalletCards size={12} /> {row.settlementStatus === 'no_data' ? 'لا توجد بيانات' : currency(row.settledIncentiveEgp)}
