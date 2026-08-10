@@ -141,7 +141,7 @@ export default function DailyManagerChecklist() {
     setSaving(taskKey);
     setRows((prev) => ({
       ...prev,
-      [taskKey]: { task_key: taskKey, completed: nextCompleted, note: current?.note || null },
+      [taskKey]: { ...current, task_key: taskKey, completed: nextCompleted, note: current?.note || null },
     }));
     try {
       const cadence = isAssistant ? 'daily' : getManagerTaskCadence(taskKey);
@@ -166,7 +166,7 @@ export default function DailyManagerChecklist() {
       setError(err instanceof Error ? err.message : 'تعذر الحفظ');
       setRows((prev) => ({
         ...prev,
-        [taskKey]: { task_key: taskKey, completed: !nextCompleted, note: current?.note || null },
+        [taskKey]: { ...current, task_key: taskKey, completed: !nextCompleted, note: current?.note || null },
       }));
     } finally {
       setSaving(null);
