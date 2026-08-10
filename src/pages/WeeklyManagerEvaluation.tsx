@@ -25,6 +25,7 @@ import {
   type ManagerWeeklyEvaluation,
 } from '@/lib/evaluations/managerEvaluationService';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
+import { ManagerMonthlyPerformanceReport } from '@/components/evaluations/ManagerMonthlyPerformanceReport';
 
 const SUBJECT_ROLE_BY_TYPE: Record<EvaluationType, string[]> = {
   branch_manager: ['branch_manager'],
@@ -210,6 +211,12 @@ export default function WeeklyManagerEvaluation() {
           </div>
 
           <ManagerLiveIncentiveCard
+            evaluationType={evaluationType}
+            staffId={subjectStaffId}
+            branch={branchForMetrics}
+          />
+
+          <ManagerMonthlyPerformanceReport
             evaluationType={evaluationType}
             staffId={subjectStaffId}
             branch={branchForMetrics}
