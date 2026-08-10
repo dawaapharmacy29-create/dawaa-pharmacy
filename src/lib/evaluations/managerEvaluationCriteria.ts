@@ -46,6 +46,8 @@ export type EvaluationCriterion = {
   hint?: string;
   sourceRoute?: string;
   sourceLabel?: string;
+  /** مفاتيح وحدات البيانات التي يعتمد عليها البند لإظهار حالة التغطية والحياد بوضوح. */
+  coverageKeys?: string[];
   /** لعناصر auto فقط — بيحسب درجة من 0-10 من المقاييس (الحالية + السابقة للمقارنة). */
   autoScore?: (current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null) => number;
   /** لعناصر checklist فقط — مفتاح المهمة اليومية اللي معدل إنجازها الأسبوعي بيحدد الدرجة. */
@@ -160,6 +162,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       autoScore: salesGrowthScore,
       hint: 'محسوبة تلقائيًا من إجمالي مبيعات الفرع مقارنة بالأسبوع اللي فات.',
       sourceRoute: '/daily-target', sourceLabel: 'المبيعات والتارجت',
+      coverageKeys: ['sales', 'targets'],
     },
     {
       key: 'customer_service',
@@ -169,6 +172,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       autoScore: followupClosureScore,
       hint: 'محسوبة تلقائيًا من نسبة إغلاق المتابعات مقابل المنتهي بدون رد.',
       sourceRoute: '/customer-service', sourceLabel: 'المتابعات والعملاء',
+      coverageKeys: ['followups'],
     },
     {
       key: 'vip_retention',
@@ -178,6 +182,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       autoScore: vipRetentionScore,
       hint: 'محسوبة تلقائيًا من نسبة كبار العملاء اللي فضلوا نشطين.',
       sourceRoute: '/customers', sourceLabel: 'العملاء',
+      coverageKeys: ['customers'],
     },
     {
       key: 'cash_integrity',
@@ -195,6 +200,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto', autoScore: customerRequestsScore,
       hint: 'محسوبة من الطلبات المغلقة في موعدها والمتأخرة، بدون تقدير شخصي.',
       sourceRoute: '/customer-requests', sourceLabel: 'طلبات العملاء',
+      coverageKeys: ['customer_requests'],
     },
     {
       key: 'purchases',
@@ -247,6 +253,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto', autoScore: attendanceScore,
       hint: 'محسوبة من دقائق التأخير والبصمات الناقصة. عند غياب بيانات الحضور تكون محايدة ولا تُعاقب الموظف.',
       sourceRoute: '/attendance-report', sourceLabel: 'الحضور',
+      coverageKeys: ['attendance'],
     },
   ],
   branches_manager: [
@@ -257,6 +264,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: salesGrowthScore,
       sourceRoute: '/branch-comparison', sourceLabel: 'مقارنة الفروع',
+      coverageKeys: ['sales', 'targets'],
     },
     {
       key: 'customer_service',
@@ -265,6 +273,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: followupClosureScore,
       sourceRoute: '/customer-service-dashboard', sourceLabel: 'خدمة العملاء',
+      coverageKeys: ['followups'],
     },
     {
       key: 'vip_retention',
@@ -273,6 +282,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto',
       autoScore: vipRetentionScore,
       sourceRoute: '/customers', sourceLabel: 'العملاء',
+      coverageKeys: ['customers'],
     },
     {
       key: 'coordination',
@@ -281,6 +291,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto', autoScore: coordinationScore,
       hint: 'محسوبة من إغلاق ملاحظات الشيفت وطلبات العملاء في موعدها على مستوى الفروع.',
       sourceRoute: '/operations-center', sourceLabel: 'مركز العمليات',
+      coverageKeys: ['shift_notes', 'customer_requests'],
     },
     {
       key: 'warehouse',
@@ -343,6 +354,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       mode: 'auto', autoScore: coordinationScore,
       hint: 'محسوبة من سرعة إغلاق المشكلات والطلبات وملاحظات التشغيل الموثقة، وليست رأيًا شخصيًا.',
       sourceRoute: '/operations-center', sourceLabel: 'القرارات والتشغيل',
+      coverageKeys: ['shift_notes', 'customer_requests'],
     },
   ],
   customer_service: [
@@ -354,6 +366,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       autoScore: conversationQualityScore,
       hint: 'محسوبة من عدد مراجعات المحادثات المنجزة + متوسط درجتها خلال الأسبوع.',
       sourceRoute: '/reviews', sourceLabel: 'تقييمات الدكاترة',
+      coverageKeys: ['reviews'],
     },
     {
       key: 'followups_execution',
@@ -363,6 +376,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       autoScore: followupClosureScore,
       hint: 'محسوبة تلقائيًا من نسبة إغلاق كل المتابعات الاستثنائية (دكاترة، أبلكيشن، شكاوى، قائمة مدير الفروع) بنتيجة فعلية موثّقة، مش مجرد "تم الاتصال".',
       sourceRoute: '/customer-service', sourceLabel: 'المتابعات',
+      coverageKeys: ['followups'],
     },
     {
       key: 'points_communication',
@@ -372,6 +386,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       autoScore: pointsCommunicationScore,
       hint: 'محسوبة تلقائيًا من نسبة معاملات نقاط العملاء اللي اتبلّغ فيها العميل فعليًا.',
       sourceRoute: '/customer-points-ledger', sourceLabel: 'سجل النقاط',
+      coverageKeys: ['points'],
     },
     {
       key: 'customer_growth',
@@ -381,6 +396,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       autoScore: customerGrowthScore,
       hint: 'محسوبة تلقائيًا من عدد العملاء الجدد مقارنة بالأسبوع اللي فات.',
       sourceRoute: '/customers', sourceLabel: 'العملاء الجدد',
+      coverageKeys: ['customers'],
     },
     {
       key: 'vip_retention',
@@ -390,6 +406,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       autoScore: vipRetentionScore,
       hint: 'تقريب مبدئي من نسبة الاحتفاظ بكبار العملاء لحد ما نضيف مقياس رضا مخصص لقائمة أهم 20 عميل.',
       sourceRoute: '/customers', sourceLabel: 'أهم العملاء',
+      coverageKeys: ['customers'],
     },
     {
       key: 'classification_accuracy',

@@ -27,6 +27,15 @@ export type CriterionBreakdownRow = {
   hint?: string;
   sourceRoute?: string;
   sourceLabel?: string;
+  coverageState: 'available' | 'neutral_missing_data' | 'documented_task';
+  coverageMessage: string;
+};
+
+export type ManagerDataCoverageItem = {
+  key: string;
+  label: string;
+  available: boolean;
+  route: string;
 };
 
 export type ManagerScoreBreakdown = {
@@ -34,6 +43,22 @@ export type ManagerScoreBreakdown = {
   weekEnd: string;
   rows: CriterionBreakdownRow[];
   totalScore: number;
+  coveragePercent: number;
+  coverage: ManagerDataCoverageItem[];
+};
+
+const COVERAGE_META: Record<string, { label: string; route: string }> = {
+  sales: { label: 'المبيعات والفواتير', route: '/invoices' },
+  targets: { label: 'تارجت الدورة', route: '/daily-target' },
+  purchases: { label: 'المشتريات', route: '/purchases' },
+  inventory: { label: 'الجرد والمخزون', route: '/inventory-counts' },
+  followups: { label: 'متابعات العملاء', route: '/customer-service' },
+  attendance: { label: 'الحضور والبصمة', route: '/attendance-report' },
+  customers: { label: 'بيانات العملاء', route: '/customers' },
+  reviews: { label: 'تقييمات الدكاترة', route: '/reviews' },
+  points: { label: 'نقاط العملاء', route: '/customer-points-ledger' },
+  customer_requests: { label: 'طلبات العملاء', route: '/customer-requests' },
+  shift_notes: { label: 'ملاحظات الشيفت', route: '/shift-notes' },
 };
 
 export async function fetchManagerScoreBreakdown(
@@ -62,6 +87,13 @@ export async function fetchManagerScoreBreakdown(
       score10 = avgRate / 10;
     }
     score10 = Math.max(0, Math.min(10, score10));
+    const coverageValues = (criterion.coverageKeys || []).map((key) => current.data_coverage?.[key] === true);
+    const hasOperationalData = coverageValues.some(Boolean);
+    const coverageState = criterion.mode === 'checklist'
+      ? 'documented_task'
+      : hasOperationalData
+        ? 'available'
+        : 'neutral_missing_data';
     return {
       key: criterion.key,
       label: criterion.label,
@@ -72,10 +104,24 @@ export async function fetchManagerScoreBreakdown(
       hint: criterion.hint,
       sourceRoute: criterion.sourceRoute,
       sourceLabel: criterion.sourceLabel,
+      coverageState,
+      coverageMessage: coverageState === 'documented_task'
+        ? 'الدرجة من إنجاز مهمة مسجلة باسم الموظف وتاريخها.'
+        : coverageState === 'available'
+          ? 'بيانات المصدر متاحة ودخلت في الحساب.'
+          : 'بيانات المصدر غير متاحة في الفترة؛ طُبّقت الدرجة المحايدة بدون تخمين.',
     };
   });
 
   const totalScore = Math.round(rows.reduce((sum, r) => sum + r.contribution, 0) * 10) / 10;
 
-  return { weekStart, weekEnd, rows, totalScore };
+  const coverage = Object.entries(COVERAGE_META).map(([key, meta]) => ({
+    key,
+    label: meta.label,
+    route: meta.route,
+    available: current.data_coverage?.[key] === true,
+  }));
+  const coveragePercent = Math.round((coverage.filter((item) => item.available).length / coverage.length) * 100);
+
+  return { weekStart, weekEnd, rows, totalScore, coveragePercent, coverage };
 }

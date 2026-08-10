@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Star, Gift, Loader2 } from 'lucide-react';
+import { Star, Gift, Loader2, Database, AlertTriangle } from 'lucide-react';
 import {
   fetchManagerLiveIncentiveSnapshot,
   EVALUATION_TYPE_TO_ROLE_LABEL,
@@ -76,18 +76,28 @@ export function ManagerLiveIncentiveCard({
             <span className="flex items-center gap-1.5">
               <Star size={14} /> متوسط الدورة الحالية: {snapshot.cycleAverageScore}/100
             </span>
+            <span className="flex items-center gap-1.5">
+              <Database size={14} /> تغطية البيانات: {snapshot.dataCoveragePercent}%
+            </span>
           </div>
           <div className="rounded-xl bg-black/20 p-3">
             <div className="flex items-center gap-1.5 font-black text-teal-200">
               <Gift size={14} /> الحافز التقديري لو الدورة قفلت النهاردة: {formatCurrency(snapshot.estimatedIncentiveEgp)} من أصل {formatCurrency(snapshot.maxIncentiveEgp)}
             </div>
             <p className="mt-1 text-xs text-slate-400">
+              الدورة: {snapshot.cycleStart} إلى {snapshot.cycleEnd}.{' '}
               شريحة الأداء: {snapshot.tierLabel} → {snapshot.payoutPercent}% من السقف
               {snapshot.approvedWeeksInCycle > 0
                 ? ` — مبني على ${snapshot.approvedWeeksInCycle} تقييم أسبوعي معتمد + الأسبوع الجاري`
                 : ' — مفيش تقييم أسبوعي معتمد لسه هذا الشهر، الرقم من الأسبوع الجاري فقط'}
               . الرقم ده تقديري وقابل للتغيير لحد قفل الدورة رسميًا.
             </p>
+            {snapshot.neutralDataSources.length > 0 && (
+              <p className="mt-2 flex items-start gap-1 text-xs text-amber-300">
+                <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                توجد {snapshot.neutralDataSources.length} وحدات بلا بيانات كافية؛ احتُسبت بصورة محايدة ولم تُستبدل بتقدير شخصي.
+              </p>
+            )}
           </div>
         </div>
       )}
