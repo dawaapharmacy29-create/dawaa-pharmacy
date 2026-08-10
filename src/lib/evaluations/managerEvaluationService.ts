@@ -10,7 +10,12 @@ export function weekBoundsOf(date: Date): { start: string; end: string } {
   start.setDate(date.getDate() - diffToSaturday);
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const fmt = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const dayOfMonth = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${dayOfMonth}`;
+  };
   return { start: fmt(start), end: fmt(end) };
 }
 
