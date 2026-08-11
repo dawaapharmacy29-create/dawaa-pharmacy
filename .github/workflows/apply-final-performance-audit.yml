@@ -30,15 +30,15 @@ jobs:
       - name: Validate build
         run: npm run build
 
-      - name: Commit optimized page loading
+      - name: Commit data health v2 integration
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/pages/Customers.tsx src/lib/api/customers.ts src/pages/Invoices.tsx
+          git add src/lib/dataHealth/appDataHealthService.ts
           if git diff --cached --quiet; then
             echo "No source changes to commit"
             exit 0
           fi
-          git commit -m "perf: optimize customer and invoice page loading"
+          git commit -m "perf: use consolidated data health and regression monitor"
           git push origin HEAD:main
