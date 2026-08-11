@@ -385,7 +385,7 @@ export default function CustomerPointsLedger() {
 
       {importSummary ? (
         <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/5 p-3 text-xs font-bold text-cyan-100">
-          تم تحديد {importSummary.matched} عميل بالكود من الملف وتسجيلهم "تم التواصل"، و{importSummary.unmatched} كود مش موجود في القائمة الحالية.
+          تم تحديد {importSummary.matched} عميل بالكود من الملف وتسجيلهم «تم التواصل»، و{importSummary.unmatched} كود مش موجود في القائمة الحالية.
         </div>
       ) : null}
 
@@ -432,7 +432,7 @@ export default function CustomerPointsLedger() {
     {loyaltyRows.length ? (
       <section className="dawaa-panel space-y-3">
         <h2 className="flex items-center gap-2 font-black text-white"><History className="text-violet-300"/> تحليل أداء العميل عبر الدورات</h2>
-        <p className="text-xs font-bold text-slate-400">مقارنة مشتريات العميل كل دورة بالدورة اللي قبلها، عشان نعرف هل بيزيد أو بيقل مع الوقت. اختر عميل من تاب "الحساب اليدوي" الأول عشان يظهر تحليله هنا.</p>
+        <p className="text-xs font-bold text-slate-400">مقارنة مشتريات العميل كل دورة بالدورة اللي قبلها، عشان نعرف هل بيزيد أو بيقل مع الوقت. اختر عميل من تاب «الحساب اليدوي» الأول عشان يظهر تحليله هنا.</p>
         <div className="space-y-2">
           {loyaltyRows.map((row, index) => {
             const prior = loyaltyRows[index + 1];

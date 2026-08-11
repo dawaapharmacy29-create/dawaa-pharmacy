@@ -187,7 +187,7 @@ export default function StaffMonthlyEvaluation() {
       if (index > 0) pdf.addPage();
       pdf.addImage(image, 'PNG', 0, 0, 210, 297);
     }
-    const safeName = selected.name.replace(/[\/:*?"<>|]/g, '-');
+    const safeName = selected.name.replace(/[/:*?"<>|]/g, '-');
     pdf.save(`تقييم-تطوير-${safeName}-${month}.pdf`);
     toast.success('تم إصدار تقرير التقييم التفصيلي');
   }

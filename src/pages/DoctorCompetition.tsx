@@ -466,7 +466,7 @@ export default function DoctorCompetition() {
       <p className="mt-2 text-xs font-bold text-slate-300">{mergeAllBranches ? 'يتم دمج مبيعات وفواتير نفس الدكتور في جميع الفروع ويظهر مرة واحدة.' : `يتم احتساب أداء كل دكتور داخل ${effectiveBranch} فقط.`}</p>
       {period === 'cycle' && (
         <p className="mt-1 text-xs font-bold text-teal-300">
-          "الدرجة المركّبة" الظاهرة تحت نقاط كل دكتور توزيع أدائه على 5 محاور (مبيعات، محادثات، خدمة عملاء، تصنيف بيانات، انضباط) —
+          «الدرجة المركّبة» الظاهرة تحت نقاط كل دكتور توزيع أدائه على 5 محاور (مبيعات، محادثات، خدمة عملاء، تصنيف بيانات، انضباط) —
           <button type="button" onClick={() => navigate('/performance-pillars')} className="mr-1 underline">التفاصيل الكاملة هنا</button>.
         </p>
       )}

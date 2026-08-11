@@ -1081,7 +1081,7 @@ export default function CustomerCashback() {
             {importPreview.map((item, i) => (
               <div key={`${item.customer_code}-${i}`} className={`rounded-xl border p-3 text-xs ${item.matched ? 'border-slate-700 bg-slate-950/40' : 'border-rose-400/30 bg-rose-500/10'}`}>
                 {!item.matched ? (
-                  <span className="font-bold text-rose-200">كود "{item.customer_code}" مش موجود في القائمة المحملة حاليًا — اتجاهل.</span>
+                  <span className="font-bold text-rose-200">كود «{item.customer_code}» مش موجود في القائمة المحملة حاليًا — اتجاهل.</span>
                 ) : (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-bold text-white">{item.customer_name} ({item.customer_code})</span>

@@ -103,7 +103,7 @@ const tomorrowKey = () => { const date = new Date(); date.setDate(date.getDate()
 const customerName = (row: FollowupRow) => text(row.customer_name || row.name || 'عميل غير مسجل');
 const customerPhone = (row: FollowupRow) => normalizeEgyptianPhone(text(row.customer_phone || row.phone));
 const rawStatus = (row: FollowupRow) => text(row.contact_status || row.followup_status || row.response_status || row.status || row.followup_result);
-const normalizedActor = (value: unknown) => text(value).toLowerCase().replace(/[\/._-]/g, ' ').replace(/\s+/g, ' ').trim();
+const normalizedActor = (value: unknown) => text(value).toLowerCase().replace(/[/._-]/g, ' ').replace(/\s+/g, ' ').trim();
 const metricNumber = (row: FollowupRow, key: string, fallback = 0) => {
   const number = Number(row.customer_metrics?.[key] ?? fallback ?? 0);
   return Number.isFinite(number) ? number : 0;
