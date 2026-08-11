@@ -1,16 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 
-export type CustomerRequestQuickFilter =
-  | 'all'
-  | 'today'
-  | 'recent'
-  | 'attention'
-  | 'overdue'
-  | 'urgent'
-  | 'unassigned'
-  | 'unlinked'
-  | 'backlog';
+export type CustomerRequestQuickFilter = 'all' | 'today' | 'recent' | 'attention' | 'overdue' | 'urgent' | 'unassigned' | 'unlinked' | 'backlog';
 
 export interface CustomerRequestCommandSummary {
   total: number;
@@ -44,6 +35,8 @@ export interface CustomerRequestPageOptions {
   sourceSystem?: string;
   sourceChannel?: string;
   assignee?: string;
+  dateFrom?: string;
+  dateTo?: string;
   search?: string;
   quickFilter?: CustomerRequestQuickFilter;
 }
@@ -80,9 +73,7 @@ export async function getCustomerRequestsCommandSummary(branch = 'all') {
   return (data || {}) as CustomerRequestCommandSummary;
 }
 
-export async function getCustomerRequestsPage(
-  options: CustomerRequestPageOptions = {}
-): Promise<CustomerRequestPageResult> {
+export async function getCustomerRequestsPage(options: CustomerRequestPageOptions = {}): Promise<CustomerRequestPageResult> {
   const page = Math.max(1, options.page || 1);
   const pageSize = Math.min(100, Math.max(10, options.pageSize || 30));
   const from = (page - 1) * pageSize;
@@ -100,12 +91,7 @@ export async function getCustomerRequestsPage(
     }
   }
 
-  let query = supabase
-    .from('customer_requests')
-    .select('*', { count: 'exact' })
-    .order('is_urgent', { ascending: false })
-    .order('updated_at', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false, nullsFirst: false });
+  let query = supabase.from('customer_requests').select('*', { count: 'exact' }).order('is_urgent', { ascending: false }).order('updated_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false, nullsFirst: false });
 
   if (options.status && options.status !== 'all') query = query.eq('status', options.status);
   if (options.branch && options.branch !== 'all') query = query.eq('branch', options.branch);
@@ -131,6 +117,8 @@ export async function getCustomerRequestsPage(
       query = query.or(`purchasing_assignee.ilike.%${term}%,source_assigned_employee.ilike.%${term}%`);
     }
   }
+  if (options.dateFrom) query = query.gte('requested_at', `${options.dateFrom}T00:00:00+02:00`);
+  if (options.dateTo) query = query.lte('requested_at', `${options.dateTo}T23:59:59+02:00`);
 
   const quick = options.quickFilter || 'all';
   if (quick === 'today') query = query.gte('requested_at', startOfTodayIso());
@@ -150,19 +138,7 @@ export async function getCustomerRequestsPage(
 
   const search = safeSearch(options.search || '');
   if (search) {
-    query = query.or(
-      [
-        `customer_name.ilike.%${search}%`,
-        `customer_code.ilike.%${search}%`,
-        `customer_phone.ilike.%${search}%`,
-        `medicine_name.ilike.%${search}%`,
-        `product_code.ilike.%${search}%`,
-        `doctor_name.ilike.%${search}%`,
-        `supplier_hint.ilike.%${search}%`,
-        `source_order_number.ilike.%${search}%`,
-        `source_assigned_employee.ilike.%${search}%`,
-      ].join(',')
-    );
+    query = query.or([`customer_name.ilike.%${search}%`, `customer_code.ilike.%${search}%`, `customer_phone.ilike.%${search}%`, `medicine_name.ilike.%${search}%`, `product_code.ilike.%${search}%`, `doctor_name.ilike.%${search}%`, `supplier_hint.ilike.%${search}%`, `source_order_number.ilike.%${search}%`, `source_assigned_employee.ilike.%${search}%`].join(','));
   }
 
   const { data, error, count } = await query.range(from, to);
@@ -180,7 +156,10 @@ export async function getCustomerRequestsPage(
 
   const exactCount = count || 0;
   return {
-    rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? segmentById.get(row.customer_id) || null : null })),
+    rows: rows.map((row) => ({
+      ...row,
+      customer_segment: row.customer_id ? segmentById.get(row.customer_id) || null : null,
+    })),
     count: exactCount,
     page,
     pageSize,
@@ -207,11 +186,7 @@ export function customerRequestIsClosed(request: CustomerRequest) {
 }
 
 export function customerRequestIsUrgent(request: CustomerRequest) {
-  return Boolean(
-    request.is_urgent ||
-      ['urgent', 'high', 'عاجل', 'مهم'].includes(String(request.urgency || '')) ||
-      request.priority === 'high'
-  );
+  return Boolean(request.is_urgent || ['urgent', 'high', 'عاجل', 'مهم'].includes(String(request.urgency || '')) || request.priority === 'high');
 }
 
 export function customerRequestSlaHours(request: CustomerRequest) {
