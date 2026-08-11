@@ -1,13 +1,8 @@
 /**
  * "نقاطي وحافزي الحالي" لمدير الفرع / مدير الفروع / مسؤول خدمة العملاء.
- * نفس فلسفة اللي شغالة بالفعل للدكتور في DoctorDashboardStable: رقم تقديري بيتحدث
- * أول بأول من بيانات الأسبوع الجاري، مش لازم ننتظر قفل الدورة أو التقييم الرسمي.
- *
- * بيعتمد بالكامل على البنية الموجودة (managerEvaluationCriteria + managerEvaluationService)
- * — مفيش Backend جديد هنا، غير قراءة نفس الـ RPCs الموجودة زائد شرائح الحافز الجديدة.
+ * يعرض الدرجة الحية، متوسط الدورة، وسجل قيمة كل أسبوع معتمد داخل دورة 26→25.
  */
 import {
-  EVALUATION_CRITERIA,
   EVALUATION_MAX_MONTHLY_INCENTIVE_EGP,
   computeTotalScore,
   type EvaluationType,
@@ -20,9 +15,20 @@ import {
   fetchEvaluationHistory,
 } from '@/lib/evaluations/managerEvaluationService';
 import { calculateTieredIncentiveValue, type CriticalGateType } from '@/lib/evaluations/incentiveTiers';
-import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { formatCycleDate, getCurrentCycle, getCycleForDate } from '@/lib/pharmacy-cycle';
 import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievementBonus';
 import { evaluatePerformanceIncentiveEligibility } from '@/lib/evaluations/incentiveEligibility';
+
+export type ManagerWeeklyIncentiveBreakdown = {
+  weekStart: string;
+  weekEnd: string;
+  score: number;
+  tierLabel: string;
+  payoutPercent: number;
+  weeklyBaseEgp: number;
+  weeklyIncentiveEgp: number;
+  status: 'submitted' | 'live';
+};
 
 export type ManagerLiveIncentiveSnapshot = {
   evaluationType: EvaluationType;
@@ -42,6 +48,10 @@ export type ManagerLiveIncentiveSnapshot = {
   payoutEligible: boolean;
   eligibilityReasons: string[];
   approvedWeeksInCycle: number;
+  cycleWeekCount: number;
+  weeklyBaseEgp: number;
+  weeklyBreakdown: ManagerWeeklyIncentiveBreakdown[];
+  approvedWeeklyIncentiveEgp: number;
   cycleStart: string;
   cycleEnd: string;
   dataCoveragePercent: number;
@@ -49,7 +59,43 @@ export type ManagerLiveIncentiveSnapshot = {
   isEstimate: true;
 };
 
-/** متوسط الدرجات المعتمدة (status = submitted) في نفس الدورة (الشهر الحالي)، + الدرجة الحية للأسبوع الجاري. */
+function dateOnly(date: Date) {
+  return formatCycleDate(date);
+}
+
+/**
+ * الأسبوع يتبع الدورة التي يقع فيها يوم إقفاله (الجمعة).
+ * عدد أنصبة الحافز الأسبوعية = عدد أيام الجمعة الواقعة داخل الدورة 26→25.
+ */
+export function countEvaluationWeeksInCycle(cycleStart: Date, cycleEnd: Date): number {
+  const cursor = new Date(cycleStart);
+  cursor.setHours(12, 0, 0, 0);
+  const end = new Date(cycleEnd);
+  end.setHours(12, 0, 0, 0);
+  let count = 0;
+  while (cursor <= end) {
+    if (cursor.getDay() === 5) count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return Math.max(1, count);
+}
+
+export function calculateWeeklyIncentiveForScore(
+  evaluationType: EvaluationType,
+  score: number,
+  weekEnd: string,
+  activeGates: CriticalGateType[] = []
+) {
+  const maxMonthly = EVALUATION_MAX_MONTHLY_INCENTIVE_EGP[evaluationType] || 0;
+  const cycle = getCycleForDate(new Date(`${weekEnd.slice(0, 10)}T12:00:00`));
+  const cycleWeekCount = countEvaluationWeeksInCycle(cycle.start, cycle.end);
+  const weeklyBaseEgp = maxMonthly / cycleWeekCount;
+  const { tier, payoutPercent } = calculateTieredIncentiveValue(score, weeklyBaseEgp, activeGates);
+  const weeklyIncentiveEgp = Math.round((weeklyBaseEgp * payoutPercent) / 100);
+  return { tier, payoutPercent, weeklyBaseEgp, weeklyIncentiveEgp, cycleWeekCount };
+}
+
+/** متوسط الدرجات المعتمدة في نفس الدورة + الدرجة الحية للأسبوع الجاري إن لم يُعتمد بعد. */
 export async function fetchManagerLiveIncentiveSnapshot(
   evaluationType: EvaluationType,
   subjectStaffId: string,
@@ -62,8 +108,10 @@ export async function fetchManagerLiveIncentiveSnapshot(
   const { start: weekStart, end: weekEnd } = weekBoundsOf(new Date());
   const previous = previousWeekOf(weekStart);
   const cycle = getCurrentCycle();
-  const cycleStart = formatCycleDate(cycle.start);
-  const cycleEnd = formatCycleDate(cycle.end);
+  const cycleStart = dateOnly(cycle.start);
+  const cycleEnd = dateOnly(cycle.end);
+  const cycleWeekCount = countEvaluationWeeksInCycle(cycle.start, cycle.end);
+  const weeklyBaseEgp = maxIncentiveEgp / cycleWeekCount;
 
   const [current, prev, checklistRates, history, cycleMetrics] = await Promise.all([
     fetchWeeklyAutoMetrics(evaluationType, branch, weekStart, weekEnd),
@@ -73,20 +121,14 @@ export async function fetchManagerLiveIncentiveSnapshot(
     fetchWeeklyAutoMetrics(evaluationType, branch, cycleStart, formatCycleDate(new Date())),
   ]);
 
-  // الدرجة الحية: نفس محرك computeTotalScore، بمعايير auto+checklist بس (manual = 0 لحد ما المدير يعتمدها فعليًا،
-  // عشان الرقم يفضل تقديري ومحافظ ومايديش انطباع أعلى من الحقيقي قبل مراجعة المدير الأعلى).
   const liveScore = computeTotalScore(evaluationType, current, prev, {}, checklistRates);
 
-  // دورة صيدليات دواء ثابتة من يوم 26 إلى 25، وليست الشهر الميلادي.
   const submittedThisCycle = (history || []).filter((row: any) => {
     if (row.status !== 'submitted') return false;
-    // الأسبوع يُنسب للدورة التي يقع فيها يوم إقفاله (الجمعة)، حتى لا ينقسم
-    // أسبوع واحد بين دورتين أو يدخل في التسويتين عند حد 26/25.
     const evaluationDate = String(row.week_end || row.week_start || '').slice(0, 10);
     return evaluationDate >= cycleStart && evaluationDate <= cycleEnd;
   });
-  // لو الأسبوع الجاري اتعمد بالفعل، نستخدم الدرجة المعتمدة بدل إضافة الدرجة الحية
-  // مرة ثانية؛ كده كل أسبوع يدخل في متوسط الدورة مرة واحدة فقط.
+
   const currentWeekSubmitted = submittedThisCycle.find(
     (row: any) => String(row.week_start || '').slice(0, 10) === weekStart
   );
@@ -99,6 +141,42 @@ export async function fetchManagerLiveIncentiveSnapshot(
   const allScoresForCycle = [...approvedHistoricalScores, currentWeekScore];
   const cycleAverageScore =
     allScoresForCycle.reduce((sum, s) => sum + s, 0) / (allScoresForCycle.length || 1);
+
+  const weeklyBreakdown: ManagerWeeklyIncentiveBreakdown[] = submittedThisCycle
+    .map((row: any) => {
+      const score = Math.round((Number(row.total_score) || 0) * 10) / 10;
+      const end = String(row.week_end || row.week_start || '').slice(0, 10);
+      const weekly = calculateWeeklyIncentiveForScore(evaluationType, score, end, activeGates);
+      return {
+        weekStart: String(row.week_start || '').slice(0, 10),
+        weekEnd: end,
+        score,
+        tierLabel: weekly.tier.label,
+        payoutPercent: weekly.payoutPercent,
+        weeklyBaseEgp: Math.round(weekly.weeklyBaseEgp * 100) / 100,
+        weeklyIncentiveEgp: weekly.weeklyIncentiveEgp,
+        status: 'submitted' as const,
+      };
+    })
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+
+  if (!currentWeekSubmitted) {
+    const weekly = calculateWeeklyIncentiveForScore(evaluationType, liveScore, weekEnd, activeGates);
+    weeklyBreakdown.push({
+      weekStart,
+      weekEnd,
+      score: Math.round(liveScore * 10) / 10,
+      tierLabel: weekly.tier.label,
+      payoutPercent: weekly.payoutPercent,
+      weeklyBaseEgp: Math.round(weekly.weeklyBaseEgp * 100) / 100,
+      weeklyIncentiveEgp: weekly.weeklyIncentiveEgp,
+      status: 'live',
+    });
+  }
+
+  const approvedWeeklyIncentiveEgp = weeklyBreakdown
+    .filter((row) => row.status === 'submitted')
+    .reduce((sum, row) => sum + row.weeklyIncentiveEgp, 0);
 
   const { tier, payoutPercent, incentiveValue } = calculateTieredIncentiveValue(
     cycleAverageScore,
@@ -136,6 +214,10 @@ export async function fetchManagerLiveIncentiveSnapshot(
     payoutEligible: eligibility.eligible,
     eligibilityReasons: eligibility.reasons,
     approvedWeeksInCycle: submittedThisCycle.length,
+    cycleWeekCount,
+    weeklyBaseEgp: Math.round(weeklyBaseEgp * 100) / 100,
+    weeklyBreakdown,
+    approvedWeeklyIncentiveEgp,
     cycleStart,
     cycleEnd,
     dataCoveragePercent,
