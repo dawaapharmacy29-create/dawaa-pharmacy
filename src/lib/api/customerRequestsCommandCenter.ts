@@ -144,6 +144,7 @@ export async function getCustomerRequestsPage(
         `customer_code.ilike.%${search}%`,
         `customer_phone.ilike.%${search}%`,
         `medicine_name.ilike.%${search}%`,
+        `product_code.ilike.%${search}%`,
         `doctor_name.ilike.%${search}%`,
         `supplier_hint.ilike.%${search}%`,
         `source_order_number.ilike.%${search}%`,

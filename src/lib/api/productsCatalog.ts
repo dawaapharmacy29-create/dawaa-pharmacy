@@ -27,15 +27,10 @@ function normalizeName(value: unknown) {
 function meaningfulName(value: string) {
   const normalized = normalizeName(value);
   if (!normalized) return false;
-
-  // نستبعد القيم الواضح أنها بيانات تالفة: أرقام فقط، أو حرف واحد محاط بنقاط/رموز.
   if (/^\d+$/.test(normalized)) return false;
   if (/^[A-Za-z\u0600-\u06FF][\s._\-–—/\\|:;,*%#@!؟?]*$/.test(normalized)) return false;
-
   const core = normalized.replace(/[^A-Za-z0-9\u0600-\u06FF]/g, '');
   if (core.length < 2) return false;
-
-  // يجب وجود حرف حقيقي واحد على الأقل؛ الأرقام وحدها ليست اسم صنف.
   return /[A-Za-z\u0600-\u06FF]/.test(core);
 }
 
@@ -59,7 +54,6 @@ function scoreLayout(rows: unknown[][], layout: Layout) {
 }
 
 function detectLayout(rows: unknown[][]): Layout {
-  // ندعم الشكل المبسط (كود الصنف / اسم الصنف / سعر البيع) وتقارير B-Connect الأصلية.
   const candidates: Layout[] = [
     { code: 0, name: 1, price: 2 },
     { code: 9, name: 8, price: 3 },
@@ -74,7 +68,6 @@ function detectLayout(rows: unknown[][]): Layout {
     const priceIndex = normalized.findIndex((cell) => /(س\.البيع|سعر البيع|سعر الصنف|sale price|selling price|price)/i.test(cell));
     if (codeIndex >= 0 && nameIndex >= 0 && priceIndex >= 0) {
       candidates.push({ code: codeIndex, name: nameIndex, price: priceIndex });
-      // بعض تقارير B-Connect يكون صف العناوين مزاحًا خلية واحدة عن صفوف البيانات.
       if (codeIndex > 0 && nameIndex > 0 && priceIndex > 0) {
         candidates.push({ code: codeIndex - 1, name: nameIndex - 1, price: priceIndex - 1 });
       }
@@ -105,7 +98,6 @@ export async function parseProductsCatalogFile(file: File): Promise<CatalogProdu
     const name = normalizeName(row?.[layout.name]);
     const price = numeric(row?.[layout.price]);
     if (!code || !name || !meaningfulName(name)) continue;
-    // يمنع صفوف الإجماليات والعناوين من الدخول كأصناف.
     if (/^(الكود|كود|كود الصنف|product code|item code|code|عدد الأصناف|الإجمالى|الاجمالي)$/i.test(code)) continue;
     if (/^(الإسم|الاسم|اسم الصنف|الصنف|اسم الدواء|product name|item name)$/i.test(name)) continue;
     unique.set(code, { code, name, price });
@@ -141,6 +133,36 @@ export async function searchProductsCatalog(query: string, limit = 20) {
   return ((data || []) as Array<{ id: string; product_code: string; name: string; price: number | null }>).map(
     (row) => ({ id: row.id, code: row.product_code, name: row.name, price: row.price })
   );
+}
+
+export async function createProductCatalogItem(input: { code: string; name: string; price?: number | null }) {
+  const code = normalizeCode(input.code);
+  const name = normalizeName(input.name);
+  if (!code) throw new Error('اكتب كود الصنف');
+  if (!meaningfulName(name)) throw new Error('اكتب اسم صنف صالح');
+  const { data, error } = await supabase.rpc('create_product_catalog_item', {
+    p_code: code,
+    p_name: name,
+    p_price: input.price ?? null,
+  });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error('تعذر إضافة الصنف');
+  return {
+    id: row.id as string,
+    code: row.product_code as string,
+    name: row.name as string,
+    price: row.price === null || row.price === undefined ? null : Number(row.price),
+  } satisfies CatalogProduct;
+}
+
+export async function linkCustomerRequestProduct(requestId: string, productId: string) {
+  const { data, error } = await supabase.rpc('link_customer_request_product', {
+    p_request_id: requestId,
+    p_product_id: productId,
+  });
+  if (error) throw new Error(error.message);
+  return data as { linked?: boolean; product_id?: string; product_code?: string; price?: number | null } | null;
 }
 
 export async function getProductsCatalogSummary(): Promise<CatalogSummary> {
