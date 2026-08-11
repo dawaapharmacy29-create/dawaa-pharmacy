@@ -1,3 +1,4 @@
+export type EvaluationType = 'branch_manager' | 'branches_manager' | 'customer_service';
 
 export type WeeklyAutoMetrics = {
   sales_total: number;

@@ -527,78 +527,50 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
               <div key={c.customer_code} className="flex items-center justify-between rounded-xl border p-3 text-sm" style={softCard}>
                 <div>
                   <span className="font-bold text-white">{c.customer_name}</span>
-                  {c.customer_phone ? <span className="mr-2…10996 tokens truncated…0641.
- * الأرقام تمثل الحافز الأساسي عند الأداء الكامل، ويمكن لشريحة التميز 95–100
- * الوصول إلى 110% وفق incentiveTiers.
- */
-export const EVALUATION_MAX_MONTHLY_INCENTIVE_EGP: Partial<Record<EvaluationType, number>> = {
-  branch_manager: 3000,
-  branches_manager: 4000,
-  customer_service: 2500,
-};
+                  {c.customer_phone ? <span className="mr-2 text-xs" style={mutedText} dir="ltr">{c.customer_phone}</span> : null}
+                </div>
+                <span className="font-black text-amber-300">{c.total_points.toLocaleString('ar-EG')} نقطة</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
-export function criterionHasData(
-  criterion: EvaluationCriterion,
-  current: WeeklyAutoMetrics,
-  checklistRates: Record<string, number>
-): boolean {
-  if (criterion.requiredOperational) return true;
-  if (criterion.mode === 'checklist') {
-    const keys = criterionChecklistKeys(criterion);
-    return keys.length > 0 && keys.every((key) => Object.prototype.hasOwnProperty.call(checklistRates, key));
-  }
-  const keys = criterion.coverageKeys || [];
-  return keys.length === 0 || keys.every((key) => current.data_coverage?.[key] === true);
-}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-pink-400/40" style={card} onClick={() => navigate('/schedule')}>
+          <SectionTitle icon={Calendar} accent="#f472b6">جدولي القادم</SectionTitle>
+          {data.my_upcoming_shifts.length ? (
+            <div className="mt-3 space-y-2 text-sm">
+              {data.my_upcoming_shifts.map((s) => (
+                <div key={`${s.shift_date}-${s.start_time}`} className="flex justify-between rounded-xl border p-2" style={softCard}>
+                  <span className="font-bold text-white">{s.day_name || s.shift_date}</span>
+                  <span style={mutedText}>{s.start_time?.slice(0, 5)} — {s.end_time?.slice(0, 5)}</span>
+                </div>
+              ))}
+            </div>
+          ) : <p className="mt-3 text-sm" style={mutedText}>مفيش جدول مسجل قدام حاليًا.</p>}
+        </div>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-amber-400/40" style={card} onClick={() => navigate('/reviews')}>
+          <SectionTitle icon={Trophy} accent="#fbbf24">ترتيبي بين الزميلات (بعدد المراجعات)</SectionTitle>
+          <div className="mt-3 space-y-2 text-sm">
+            {data.team_ranking.map((t, i) => (
+              <div key={t.rep_name} className={`flex items-center justify-between rounded-xl border p-2 ${t.rep_name === staffName ? 'ring-1 ring-pink-400/40' : ''}`} style={softCard}>
+                <span className="flex items-center gap-2 font-bold text-white">{i === 0 ? <Trophy size={14} className="text-amber-300" /> : <span className="w-3.5 text-center text-xs" style={mutedText}>{i + 1}</span>} {t.rep_name}</span>
+                <span style={mutedText}>{t.review_count} مراجعة · {t.avg_score_given}/100</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
-export type WeightedCriterionScore = {
-  criterion: EvaluationCriterion;
-  score10: number;
-  originalWeight: number;
-  effectiveWeight: number;
-  included: boolean;
-  contribution: number;
-};
-
-/** يستبعد المصادر غير المتاحة ويعيد توزيع وزنها نسبيًا على البنود المثبتة فقط. */
-export function computeWeightedCriterionScores(
-  type: EvaluationType,
-  current: WeeklyAutoMetrics,
-  previous: WeeklyAutoMetrics | null,
-  manualScores: Record<string, number>,
-  checklistRates: Record<string, number> = {}
-): WeightedCriterionScore[] {
-  const raw = EVALUATION_CRITERIA[type].map((criterion) => {
-    const included = criterionHasData(criterion, current, checklistRates);
-    let score10 = 0;
-    if (included && criterion.mode === 'auto' && criterion.autoScore) score10 = criterion.autoScore(current, previous);
-    else if (included && criterion.mode === 'checklist') {
-      const rates = criterionChecklistKeys(criterion).map((key) => checklistRates[key]);
-      score10 = rates.reduce((sum, rate) => sum + rate, 0) / rates.length / 10;
-    } else if (included) score10 = manualScores[criterion.key] ?? 0;
-    return { criterion, included, score10: Math.max(0, Math.min(10, score10)) };
-  });
-  const availableWeight = raw.filter((row) => row.included).reduce((sum, row) => sum + row.criterion.weight, 0);
-  return raw.map((row) => {
-    const effectiveWeight = row.included && availableWeight > 0 ? row.criterion.weight / availableWeight : 0;
-    return {
-      criterion: row.criterion,
-      score10: Math.round(row.score10 * 10) / 10,
-      originalWeight: row.criterion.weight,
-      effectiveWeight,
-      included: row.included,
-      contribution: Math.round(row.score10 * effectiveWeight * 10 * 10) / 10,
-    };
-  });
-}
-
-export function computeTotalScore(
-  type: EvaluationType,
-  current: WeeklyAutoMetrics,
-  previous: WeeklyAutoMetrics | null,
-  manualScores: Record<string, number>,
-  checklistRates: Record<string, number> = {}
-): number {
-  return Math.round(computeWeightedCriterionScores(type, current, previous, manualScores, checklistRates)
-    .reduce((sum, row) => sum + row.contribution, 0) * 10) / 10;
+      <div className="rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, rgba(167,139,250,0.08), rgba(244,114,182,0.06))', borderColor: 'var(--dawaa-theme-border)' }}>
+        <SectionTitle icon={Sparkles} accent="#a78bfa">نصايح ذكية ليكي</SectionTitle>
+        <ul className="mt-3 space-y-2">
+          {tips.map((tip) => (
+            <li key={tip} className="flex items-start gap-2 text-sm font-bold text-white/90"><span className="mt-1 text-violet-300">•</span>{tip}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
 }

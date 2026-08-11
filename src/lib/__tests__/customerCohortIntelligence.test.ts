@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { normalizeWatchlistRows } from '@/lib/customerService/customerCohortIntelligenceService';
 import {
   computeWeightedCriterionScores,

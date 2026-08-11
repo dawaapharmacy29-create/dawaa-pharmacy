@@ -1,3 +1,4 @@
+import { supabase } from '@/lib/supabase';
 
 export type CustomerCycleCohort = {
   offset: number;
