@@ -8,6 +8,7 @@ import './styles/dawaa-design-system.css';
 import './styles/v3-polish.css';
 import './styles/customer-service-followups.css';
 import './styles/customer-cashback-polish.css';
+import './styles/reviews-modal-polish.css';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
 import { logRuntimeError } from '@/lib/appRecovery';
 
