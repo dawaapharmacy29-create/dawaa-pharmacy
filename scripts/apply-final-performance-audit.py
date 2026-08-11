@@ -1,220 +1,95 @@
 from pathlib import Path
 import re
 
+path = Path('src/lib/dataHealth/appDataHealthService.ts')
+text = path.read_text(encoding='utf-8')
+text = text.replace("import { countStaffAccountsWithoutStaffSafe } from '@/lib/staff/staffAccountsApi';\n", '')
 
-def replace_once(text: str, old: str, new: str, label: str, required: bool = True) -> str:
-    if new in text:
-        print(f"{label}: already applied")
-        return text
-    if old not in text:
-        if required:
-            raise SystemExit(f"{label}: source block not found")
-        print(f"{label}: skipped; source block changed")
-        return text
-    print(f"{label}: applied")
-    return text.replace(old, new, 1)
-
-
-# Customers page: prevent duplicate list request after first load.
-page = Path("src/pages/Customers.tsx")
-text = page.read_text(encoding="utf-8")
-text = replace_once(
-    text,
-    "  const requestIdRef = useRef(0);\n",
-    "  const requestIdRef = useRef(0);\n  const hasLoadedCustomersRef = useRef(false);\n",
-    "customers loaded ref",
-)
-text = replace_once(
-    text,
-    "    if (customers.length) setRefreshing(true);\n    else setLoading(true);\n",
-    "    if (hasLoadedCustomersRef.current) setRefreshing(true);\n    else setLoading(true);\n",
-    "customers duplicate-load guard",
-)
-text = replace_once(
-    text,
-    "      setCustomers(result.customers);\n      setTotalCount(result.count);\n",
-    "      setCustomers(result.customers);\n      setTotalCount(result.count);\n      hasLoadedCustomersRef.current = true;\n",
-    "customers loaded flag",
-)
-text = replace_once(
-    text,
-    "    branchFilter,\n    customers.length,\n    debouncedSearch,\n",
-    "    branchFilter,\n    debouncedSearch,\n",
-    "remove customer length dependency",
-)
-page.write_text(text, encoding="utf-8")
-
-
-# Customer monthly analytics: 36 exact-count requests -> one RPC.
-api = Path("src/lib/api/customers.ts")
-text = api.read_text(encoding="utf-8")
 pattern = re.compile(
-    r"export async function getCustomerMonthlyAnalytics\(months = 6\): Promise<CustomerMonthlyAnalytics> \{.*?\n\}\n\nexport async function getCustomerStats",
+    r"export async function loadAppDataHealthSummary\(\) \{.*?\n\}\n\nexport function summarizeDataHealth",
     re.S,
 )
-replacement = """export async function getCustomerMonthlyAnalytics(months = 6): Promise<CustomerMonthlyAnalytics> {
-  if (!isSupabaseConfigured) {
-    throw new Error('إعدادات Supabase غير موجودة.');
+replacement = r'''export async function loadAppDataHealthSummary() {
+  const [healthResult, performanceResult] = await Promise.allSettled([
+    supabase.rpc('get_app_data_health_v2'),
+    supabase.rpc('get_app_performance_health_v2'),
+  ]);
+
+  const healthResponse = healthResult.status === 'fulfilled' ? healthResult.value : null;
+  const performanceResponse = performanceResult.status === 'fulfilled' ? performanceResult.value : null;
+  const healthError = healthResponse?.error?.message || (healthResult.status === 'rejected' ? String(healthResult.reason) : null);
+  const performanceError = performanceResponse?.error?.message || (performanceResult.status === 'rejected' ? String(performanceResult.reason) : null);
+  const health = (healthResponse?.data || {}) as Record<string, unknown>;
+  const performance = (performanceResponse?.data || {}) as Record<string, unknown>;
+  const num = (key: string) => {
+    const value = Number(health[key] ?? 0);
+    return Number.isFinite(value) ? value : 0;
+  };
+  const perfNum = (key: string) => {
+    const value = Number(performance[key] ?? 0);
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  if (healthError) {
+    return [
+      issue({
+        key: 'data-health-rpc',
+        label: 'تعذر تحميل فحص سلامة البيانات',
+        count: null,
+        severity: 'warning',
+        source: 'get_app_data_health_v2',
+        suggestedFix: 'أعد المحاولة وتحقق من RPC الخاصة بفحص سلامة البيانات.',
+        affectedPages: ['/'],
+        error: healthError,
+      }),
+    ];
   }
 
-  const safeMonths = Math.min(Math.max(months, 3), 12);
-  const { data, error } = await supabase.rpc('get_customer_monthly_analytics_v2', {
-    p_months: safeMonths,
-  });
-  if (error) throw new Error(`customer monthly analytics: ${error.message}`);
+  const rows: DataHealthIssue[] = [
+    issue({ key: 'invoices-without-customer', label: 'فواتير بدون عميل', count: num('invoices_without_customer'), severity: severityForCount(num('invoices_without_customer'), 500), source: 'sales_invoices', suggestedFix: 'راجع ربط customer_code/customer_id بعد الاستيراد.', affectedPages: ['/invoices', '/customers', '/customer-service', '/'] }),
+    issue({ key: 'invoices-without-doctor', label: 'فواتير بدون دكتور/موظف', count: num('invoices_without_doctor'), severity: severityForCount(num('invoices_without_doctor'), 25), source: 'sales_invoices', suggestedFix: 'اربط seller_name بالموظف الصحيح.', affectedPages: ['/invoices', '/analytics', '/'] }),
+    issue({ key: 'invoices-without-branch', label: 'فواتير بدون فرع', count: num('invoices_without_branch'), severity: severityForCount(num('invoices_without_branch'), 25), source: 'sales_invoices', suggestedFix: 'راجع الفرع في ملف الاستيراد.', affectedPages: ['/invoices', '/analytics', '/'] }),
+    issue({ key: 'duplicate-invoice-groups', label: 'مجموعات فواتير مكررة', count: num('duplicate_invoice_groups'), severity: severityForCount(num('duplicate_invoice_groups'), 1), source: 'sales_invoices', suggestedFix: 'راجع الفرع + التاريخ + رقم الفاتورة قبل أي حذف.', affectedPages: ['/invoices', '/'] }),
+    issue({ key: 'invalid-customer-phones', label: 'عملاء بدون رقم صالح', count: num('invalid_customer_phones'), severity: severityForCount(num('invalid_customer_phones'), 300), source: 'customer_metrics_summary', suggestedFix: 'استكمل أرقام العملاء قبل حملات واتساب والمتابعات.', affectedPages: ['/customers', '/customer-service'] }),
+    issue({ key: 'customers-without-branch', label: 'عملاء بدون فرع', count: num('customers_without_branch'), severity: severityForCount(num('customers_without_branch'), 100), source: 'customers', suggestedFix: 'حدد الفرع الرئيسي للعميل.', affectedPages: ['/customers'] }),
+    issue({ key: 'customers-without-phone', label: 'عملاء بدون رقم هاتف', count: num('customers_without_phone'), severity: severityForCount(num('customers_without_phone'), 100), source: 'customers', suggestedFix: 'استكمل الهاتف الصحيح للعميل.', affectedPages: ['/customers'] }),
+    issue({ key: 'accounts-without-staff', label: 'حسابات بدون موظف مربوط', count: num('accounts_without_staff'), severity: severityForCount(num('accounts_without_staff'), 5), source: 'staff_accounts', suggestedFix: 'اربط كل حساب دخول بسجل موظف صحيح.', affectedPages: ['/staff-accounts', '/team'] }),
+    issue({ key: 'points-without-staff', label: 'سجلات نقاط بدون staff_id', count: num('points_without_staff'), severity: severityForCount(num('points_without_staff'), 10), source: 'employee_transactions', suggestedFix: 'اربط سجلات النقاط بالموظف.', affectedPages: ['/points'] }),
+    issue({ key: 'reviews-without-points', label: 'تقييمات محادثات تنتظر اعتماد تأثير النقاط', count: num('reviews_without_points'), severity: severityForCount(num('reviews_without_points'), 10), source: 'conversation_sales_reviews', suggestedFix: 'راجع واعتمد تأثير التقييمات المعلقة.', affectedPages: ['/reviews', '/points'] }),
+    issue({ key: 'unassigned-customer-requests', label: 'طلبات عملاء مفتوحة بدون مسؤول', count: num('unassigned_customer_requests'), severity: severityForCount(num('unassigned_customer_requests'), 5), source: 'customer_requests', suggestedFix: 'اسند كل طلب مفتوح لمسؤول واضح.', affectedPages: ['/customer-requests'] }),
+    issue({ key: 'overdue-customer-requests', label: 'طلبات عملاء متأخرة عن الموعد', count: num('overdue_customer_requests'), severity: severityForCount(num('overdue_customer_requests'), 5), source: 'customer_requests', suggestedFix: 'راجع الطلبات المتأخرة وحدّث الموعد أو مرحلة التنفيذ.', affectedPages: ['/customer-requests'] }),
+    issue({ key: 'rls-coverage', label: 'جداول public بدون RLS', count: num('public_tables_without_rls'), severity: severityForCount(num('public_tables_without_rls'), 1), source: 'PostgreSQL RLS', suggestedFix: 'أي جدول جديد في public يجب تأمينه بسياسات RLS قبل الاعتماد.', affectedPages: ['/'] }),
+    issue({ key: 'invoice-volume-review', label: 'حجم الفواتير المقروءة', count: num('invoice_volume'), severity: 'info', source: 'sales_invoices', suggestedFix: 'مؤشر جاهزية مصدر الفواتير.', affectedPages: ['/invoices', '/analytics', '/'] }),
+  ];
 
-  const rows = ((data || []) as Array<Record<string, unknown>>).map((row) => {
-    const monthStartValue = String(row.month_start || '').slice(0, 10);
-    const monthDate = monthStartValue ? new Date(`${monthStartValue}T12:00:00`) : new Date();
-    return {
-      month: monthStartValue.slice(0, 7),
-      label: monthLabel(monthDate),
-      registeredCustomers: toNumber(row.registered_customers),
-      purchasedCustomers: toNumber(row.purchased_customers),
-      veryImportant: toNumber(row.very_important),
-      important: toNumber(row.important),
-      medium: toNumber(row.medium),
-      normal: toNumber(row.normal),
-    };
-  });
+  if (!performanceError) {
+    const slow = perfNum('slow_query_groups');
+    const verySlow = perfNum('very_slow_query_groups');
+    rows.push(
+      issue({
+        key: 'performance-regression-monitor',
+        label: 'استعلامات بطيئة منذ آخر Baseline',
+        count: slow,
+        severity: verySlow > 0 ? 'danger' : slow > 0 ? 'warning' : 'info',
+        source: 'pg_stat_statements delta baseline',
+        suggestedFix: slow > 0 ? 'راجع الاستعلامات الجديدة التي تجاوز متوسطها 500ms منذ آخر Baseline.' : 'لا يوجد تراجع أداء جديد مسجل منذ آخر Baseline.',
+        affectedPages: ['/'],
+      })
+    );
+  }
 
-  return {
-    rows,
-    source: 'customers + customer_metrics_summary (optimized RPC)',
-    warnings: [],
-  };
+  return rows;
 }
 
-export async function getCustomerStats"""
+export function summarizeDataHealth'''
 new_text, count = pattern.subn(replacement, text, count=1)
 if count != 1:
-    if "get_customer_monthly_analytics_v2" not in text:
-        raise SystemExit("customer monthly analytics function block not found")
-    print("customer monthly analytics RPC: already applied")
+    if "get_app_data_health_v2" in text:
+        print('data health v2: already applied')
+    else:
+        raise SystemExit('loadAppDataHealthSummary block not found')
 else:
-    print("customer monthly analytics RPC: applied")
     text = new_text
-api.write_text(text, encoding="utf-8")
+    print('data health v2: applied')
 
-
-# Invoices: summarize/audit in DB instead of transferring 5k/3k rows.
-invoices = Path("src/pages/Invoices.tsx")
-text = invoices.read_text(encoding="utf-8")
-summary_pattern = re.compile(
-    r"  const loadInvoiceSummarySnapshot = useCallback\(async \(\) => \{.*?\n  \}, \[\]\);\n\n  const loadDuplicateAudit",
-    re.S,
-)
-summary_replacement = """  const loadInvoiceSummarySnapshot = useCallback(async () => {
-    setSummarySnapshotBusy(true);
-    setSummarySnapshotMessage(null);
-    try {
-      const { data, error } = await supabase.rpc('get_invoice_management_summary_v1', {
-        p_limit: 5000,
-      });
-      if (error) throw error;
-      const snapshot = (data || {}) as {
-        totalInvoices?: number;
-        totalSales?: number;
-        latestUpdatedAt?: string | null;
-        latestBatchStatus?: string | null;
-        branchRows?: Array<{ branch_name: string; invoices_count: number; net_total: number; updated_at: string | null }>;
-        dailyRows?: Array<{ summary_date: string; invoices_count: number; net_total: number; updated_at: string | null }>;
-      };
-      setSummarySnapshot({
-        totalInvoices: Number(snapshot.totalInvoices || 0),
-        totalSales: Number(snapshot.totalSales || 0),
-        latestUpdatedAt: snapshot.latestUpdatedAt || null,
-        latestBatchStatus: snapshot.latestBatchStatus || null,
-        branchRows: snapshot.branchRows || [],
-        dailyRows: snapshot.dailyRows || [],
-      });
-      setSummarySnapshotMessage('ملخص سريع محسوب مباشرة داخل قاعدة البيانات.');
-    } catch (error) {
-      setSummarySnapshotMessage(`تعذر تحميل ملخصات الفواتير: ${(error as Error).message}`);
-      setSummarySnapshot(null);
-    } finally {
-      setSummarySnapshotBusy(false);
-    }
-  }, []);
-
-  const loadDuplicateAudit"""
-text2, count = summary_pattern.subn(summary_replacement, text, count=1)
-if count != 1:
-    if "get_invoice_management_summary_v1" not in text:
-        raise SystemExit("invoice summary block not found")
-    print("invoice server summary: already applied")
-else:
-    print("invoice server summary: applied")
-    text = text2
-
-duplicate_pattern = re.compile(
-    r"  const loadDuplicateAudit = useCallback\(async \(\) => \{.*?\n  \}, \[isAdmin\]\);",
-    re.S,
-)
-duplicate_replacement = """  const loadDuplicateAudit = useCallback(async () => {
-    if (!canManageBatches) return;
-    setDuplicateAuditLoading(true);
-    const { data, error } = await supabase.rpc('get_invoice_duplicate_audit_v1', {
-      p_limit: 3000,
-    });
-    if (error) {
-      toast.error(`تعذر فحص التكرارات: ${error.message}`);
-      setDuplicateAudit([]);
-    } else {
-      setDuplicateAudit(
-        ((data || []) as Array<Record<string, unknown>>).map((row) => ({
-          invoice_number: String(row.invoice_number || ''),
-          branch: String(row.branch || 'غير محدد'),
-          sale_date: String(row.sale_date || '').slice(0, 10),
-          count: Number(row.count || 0),
-          latest_created_at: row.latest_created_at ? String(row.latest_created_at) : null,
-        }))
-      );
-    }
-    setDuplicateAuditLoading(false);
-  }, [canManageBatches]);"""
-text2, count = duplicate_pattern.subn(duplicate_replacement, text, count=1)
-if count != 1:
-    if "get_invoice_duplicate_audit_v1" not in text:
-        raise SystemExit("invoice duplicate audit block not found")
-    print("invoice duplicate RPC: already applied")
-else:
-    print("invoice duplicate RPC: applied")
-    text = text2
-
-old_branch = """      const { data, error } = await supabase
-        .from('sales_invoices')
-        .select('branch, invoice_no')
-        .neq('branch', selectedBranch)
-        .not('invoice_no', 'is', null)
-        .limit(20000);
-      if (error || !data) return;
-      const otherBranchRanges = new Map<string, { min: number; max: number; count: number }>();
-      for (const row of data as Array<{ branch: string | null; invoice_no: string | null }>) {
-        const n = Number(String(row.invoice_no || '').replace(/[^\\d]/g, ''));
-        if (!Number.isFinite(n) || n <= 0 || !row.branch) continue;
-        const current = otherBranchRanges.get(row.branch) || { min: n, max: n, count: 0 };
-        current.min = Math.min(current.min, n);
-        current.max = Math.max(current.max, n);
-        current.count += 1;
-        otherBranchRanges.set(row.branch, current);
-      }
-"""
-new_branch = """      const { data, error } = await supabase.rpc('get_other_branch_invoice_number_ranges_v1', {
-        p_selected_branch: selectedBranch,
-      });
-      if (error || !data) return;
-      const otherBranchRanges = new Map<string, { min: number; max: number; count: number }>();
-      for (const row of data as Array<{ branch: string | null; min_invoice: number | string | null; max_invoice: number | string | null; invoice_count: number | string | null }>) {
-        if (!row.branch) continue;
-        const minValue = Number(row.min_invoice || 0);
-        const maxValue = Number(row.max_invoice || 0);
-        const countValue = Number(row.invoice_count || 0);
-        if (!Number.isFinite(minValue) || !Number.isFinite(maxValue) || countValue <= 0) continue;
-        otherBranchRanges.set(row.branch, { min: minValue, max: maxValue, count: countValue });
-      }
-"""
-text = replace_once(text, old_branch, new_branch, "branch mismatch range RPC")
-invoices.write_text(text, encoding="utf-8")
-
-print("final performance patches prepared")
+path.write_text(text, encoding='utf-8')
