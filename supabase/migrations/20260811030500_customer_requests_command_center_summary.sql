@@ -91,5 +91,6 @@ select jsonb_build_object(
 from aggregated;
 $$;
 
-revoke all on function public.get_customer_requests_command_center_summary(text) from public;
+revoke execute on function public.get_customer_requests_command_center_summary(text) from public;
+revoke execute on function public.get_customer_requests_command_center_summary(text) from anon;
 grant execute on function public.get_customer_requests_command_center_summary(text) to authenticated, service_role;
