@@ -1,0 +1,44 @@
+name: Apply customer request sync review queue
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-customer-request-sync-queue.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-customer-request-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Apply sync review queue patch
+        run: python3 scripts/apply-customer-request-sync-queue.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate build
+        run: npm run build
+
+      - name: Commit sync review queue
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/api/customerRequestsCommandCenter.ts src/pages/CustomerRequests.tsx
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+            exit 0
+          fi
+          git commit -m "feat: add customer request branch review queue"
+          git push origin HEAD:main
