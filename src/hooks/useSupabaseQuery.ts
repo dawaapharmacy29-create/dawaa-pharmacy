@@ -13,6 +13,10 @@ interface QueryOptions {
   limit?: number;
   realtimeEnabled?: boolean; // default: false — enable only where live updates are truly needed
   timeoutMs?: number;
+  /** Cache lifetime before a navigation back to the same page triggers a new network request. */
+  staleTimeMs?: number;
+  /** How long unused query data stays reusable in memory. */
+  gcTimeMs?: number;
 }
 
 type QueryBuilder = ReturnType<ReturnType<typeof supabase.from>['select']>;
@@ -110,8 +114,10 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   const { data = [], isLoading: loading, error } = useQuery<T[], Error>({
     queryKey,
     queryFn: fetcher,
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
+    // 60 seconds caused repeated reloads while navigating between operational pages.
+    // Two minutes is a conservative shared default; truly live pages still use Realtime invalidation.
+    staleTime: options.staleTimeMs ?? 2 * 60_000,
+    gcTime: options.gcTimeMs ?? 10 * 60_000,
     refetchOnWindowFocus: false,
     retry: 1,
     retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 5000),
