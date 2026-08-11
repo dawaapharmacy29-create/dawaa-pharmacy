@@ -50,12 +50,16 @@ export default function CustomerCycleCohortPanel({ branch }: { branch: string })
       fetchWatchlistPerformance(branch, asOfDate),
     ]);
     if (cohortResult.status === 'fulfilled') setCohorts(cohortResult.value);
-    else
+    else {
+      const rawMessage =
+        cohortResult.reason instanceof Error ? cohortResult.reason.message : '';
+      const isTimeout = /timeout|statement/i.test(rawMessage);
       setError(
-        cohortResult.reason instanceof Error
-          ? cohortResult.reason.message
-          : 'تعذر تحميل مقارنة الدورات'
+        isTimeout
+          ? 'المقارنة دي بتاخد وقت أطول من المتوقع لازدحام السيرفر مؤقتًا. جرّبي تضغطي تحديث تاني بعد شوية.'
+          : 'تعذر تحميل مقارنة الدورات. جرّبي تحدّثي.'
       );
+    }
     if (watchlistResult.status === 'fulfilled') setWatchlist(watchlistResult.value);
     setLoading(false);
   }, [asOfDate, branch]);
