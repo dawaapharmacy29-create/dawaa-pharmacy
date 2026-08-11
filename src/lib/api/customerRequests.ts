@@ -32,6 +32,7 @@ export interface CustomerRequest {
   needed_by_date?: string | null;
   expected_fulfillment_days?: number | null;
   potential_source_id?: string | null;
+  potential_source_name?: string | null;
   potential_source_text?: string | null;
   quantity: number | null;
   urgency: string | null;
@@ -44,15 +45,45 @@ export interface CustomerRequest {
   purchasing_assignee: string | null;
   doctor_notes: string | null;
   supplier_hint: string | null;
+  supplier_notes?: string | null;
   purchasing_notes: string | null;
   customer_confirmation_status: string | null;
   contact_summary: string | null;
   expected_arrival_date: string | null;
+  expected_price?: number | null;
   closed_at: string | null;
   created_by: string | null;
   created_by_name: string | null;
   created_at: string | null;
   updated_at: string | null;
+  current_stage?: string | null;
+  assigned_to?: string | null;
+  due_date?: string | null;
+  last_action_at?: string | null;
+  priority?: string | null;
+  is_urgent?: boolean | null;
+  purchasing_received_by_name?: string | null;
+  searching_by_name?: string | null;
+  provided_by_name?: string | null;
+  customer_contacted_by_name?: string | null;
+  delivered_by_name?: string | null;
+  unavailable_since?: string | null;
+  shortage_item_id?: string | null;
+  moved_to_shortage_at?: string | null;
+  source_system?: string | null;
+  source_entity?: string | null;
+  source_record_id?: string | null;
+  source_order_number?: string | null;
+  source_status?: string | null;
+  source_updated_at?: string | null;
+  source_last_seen_at?: string | null;
+  source_request_channel?: string | null;
+  source_assigned_employee?: string | null;
+  source_notes?: string | null;
+  source_selling_price?: number | null;
+  source_payload?: Record<string, unknown> | null;
+  sync_conflict?: boolean | null;
+  sync_conflict_reason?: string | null;
 }
 
 export interface CustomerRequestEvent {
@@ -379,79 +410,10 @@ export async function updateCustomerRequestStatus(
       medicine_name: request.medicine_name,
       old_status: request.status,
       new_status: input.status,
+      notes: input.notes || null,
     },
   });
   return updated;
-}
-
-export async function moveCustomerRequestToShortage(
-  request: CustomerRequest,
-  input: { user_id?: string | null; user_name?: string | null; notes?: string | null } = {}
-) {
-  requireSupabaseConfig();
-  const now = new Date().toISOString();
-  const shortagePayload: Record<string, unknown> = {
-    item_name: request.medicine_name,
-    branch: request.branch || null,
-    current_qty: 0,
-    min_qty: 1,
-    max_qty: null,
-    requested_qty: Number(request.quantity || 1),
-    average_sales: null,
-    priority: ['urgent', 'high', 'عاجل', 'مهم'].includes(String(request.urgency || ''))
-      ? 'high'
-      : 'medium',
-    category: 'طلب عميل',
-    status: 'purchase_required',
-    responsible_staff_id: null,
-    notes:
-      input.notes ||
-      `طلب عميل منقول للنواقص: ${request.customer_name || 'عميل غير محدد'} - كود ${request.customer_code || 'بدون كود'} - هاتف ${request.customer_phone || 'بدون رقم'} - الصنف ${request.medicine_name}`,
-    source_customer_request_id: request.id,
-    source_customer_name: request.customer_name || null,
-    source_customer_code: request.customer_code || null,
-    source_customer_phone: request.customer_phone || null,
-    source_request_status: request.status || null,
-    source_request_details: {
-      customer_id: request.customer_id,
-      customer_name: request.customer_name,
-      customer_code: request.customer_code,
-      customer_phone: request.customer_phone,
-      medicine_name: request.medicine_name,
-      quantity: request.quantity,
-      urgency: request.urgency,
-      doctor_name: request.doctor_name,
-      doctor_notes: request.doctor_notes,
-      supplier_hint: request.supplier_hint,
-      needed_by_date: request.needed_by_date,
-      created_at: request.created_at,
-    },
-    moved_from_customer_request_at: now,
-    created_at: now,
-    updated_at: now,
-  };
-
-  const shortage = await insertResilient('shortage_items', shortagePayload);
-  await updateResilient('customer_requests', request.id, {
-    shortage_item_id: (shortage as { id?: string }).id || null,
-    moved_to_shortage_at: now,
-    updated_at: now,
-  });
-  const updated = await updateCustomerRequestStatus(request, {
-    status: 'not_available',
-    notes: input.notes || 'تم نقل الطلب إلى صفحة النواقص للمتابعة مع المشتريات.',
-    user_id: input.user_id,
-    user_name: input.user_name,
-  });
-  await addCustomerRequestEvent(request.id, {
-    old_status: request.status,
-    new_status: 'not_available',
-    action: 'نقل الطلب إلى النواقص',
-    notes: `تم إنشاء سجل نواقص للصنف: ${request.medicine_name}`,
-    created_by: input.user_id || null,
-    created_by_name: input.user_name || null,
-  });
-  return { shortage, request: updated };
 }
 
 export async function addCustomerRequestEvent(
@@ -465,7 +427,8 @@ export async function addCustomerRequestEvent(
     created_by_name?: string | null;
   }
 ) {
-  const payload: Record<string, unknown> = {
+  requireSupabaseConfig();
+  const payload = {
     request_id: requestId,
     old_status: input.old_status || null,
     new_status: input.new_status || null,
@@ -475,10 +438,64 @@ export async function addCustomerRequestEvent(
     created_by_name: input.created_by_name || null,
     created_at: new Date().toISOString(),
   };
+  await insertResilient('customer_request_events', payload);
+}
 
-  try {
-    return (await insertResilient('customer_request_events', payload)) as CustomerRequestEvent;
-  } catch {
-    return null;
+export async function moveCustomerRequestToShortage(
+  request: CustomerRequest,
+  input: { user_id?: string | null; user_name?: string | null }
+) {
+  requireSupabaseConfig();
+  const now = new Date().toISOString();
+  const shortagePayload: Record<string, unknown> = {
+    medicine_name: request.medicine_name,
+    item_name: request.medicine_name,
+    quantity: Number(request.quantity || 1),
+    branch: request.branch || null,
+    status: 'open',
+    priority: request.priority || request.urgency || 'medium',
+    notes: [
+      `طلب عميل: ${request.customer_name || 'بدون اسم'}`,
+      request.customer_code ? `كود العميل: ${request.customer_code}` : '',
+      request.customer_phone ? `الهاتف: ${request.customer_phone}` : '',
+      request.doctor_notes || '',
+      request.purchasing_notes || '',
+    ]
+      .filter(Boolean)
+      .join(' | '),
+    customer_request_id: request.id,
+    created_at: now,
+    updated_at: now,
+  };
+
+  let shortage: Record<string, unknown> | null = null;
+  const shortageTables = ['shortage_items', 'shortages'];
+  let lastError: Error | null = null;
+  for (const table of shortageTables) {
+    try {
+      shortage = await insertResilient(table, shortagePayload);
+      if (shortage) break;
+    } catch (error) {
+      lastError = error as Error;
+    }
   }
+  if (!shortage) throw lastError || new Error('تعذر إضافة الطلب إلى النواقص');
+
+  const updated = (await updateResilient('customer_requests', request.id, {
+    shortage_item_id: shortage.id || null,
+    moved_to_shortage_at: now,
+    status: request.status === 'new' ? 'searching_suppliers' : request.status,
+    updated_at: now,
+  })) as CustomerRequest;
+
+  await addCustomerRequestEvent(request.id, {
+    old_status: request.status,
+    new_status: updated.status,
+    action: 'نقل طلب العميل إلى النواقص',
+    notes: `تم ربط الطلب بقائمة النواقص${shortage.id ? ` - ${shortage.id}` : ''}`,
+    created_by: input.user_id || null,
+    created_by_name: input.user_name || null,
+  });
+
+  return { request: updated, shortage };
 }
