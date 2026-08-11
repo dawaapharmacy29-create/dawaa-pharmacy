@@ -5,7 +5,7 @@ import { MANAGER_DAILY_TASKS, getManagerTaskCadence } from '@/lib/evaluations/ma
 
 export function weekBoundsOf(date: Date): { start: string; end: string } {
   // الأسبوع من السبت للجمعة (مطابق لطبيعة أسبوع العمل في مصر)
-  const day = date.getDay(); // 0=Sunday ... 6=Saturday
+  const day = date.getDay();
   const diffToSaturday = (day + 1) % 7;
   const start = new Date(date);
   start.setDate(date.getDate() - diffToSaturday);
@@ -38,12 +38,20 @@ export async function fetchWeeklyAutoMetrics(
     p_week_start: weekStart,
     p_week_end: weekEnd,
   };
+
+  // v4 هو المصدر الحالي: مبيعات آمنة باستثناء أكواد التحويل الداخلي +
+  // التارجت الحي من branch_sales_targets مع احتساب نصيب الأسبوع من دورة 26→25.
+  const { data: v4Data, error: v4Error } = await supabase.rpc('calculate_weekly_manager_metrics_v4', args);
+  if (!v4Error) return v4Data as WeeklyAutoMetrics;
+
   const { data: v3Data, error: v3Error } = await supabase.rpc('calculate_weekly_manager_metrics_v3', args);
   if (!v3Error) return v3Data as WeeklyAutoMetrics;
+
   const { data, error } = await supabase.rpc('calculate_weekly_manager_metrics_v2', args);
   if (!error) return data as WeeklyAutoMetrics;
+
   const { data: legacyData, error: legacyError } = await supabase.rpc('calculate_weekly_manager_metrics', args);
-  if (legacyError) throw new Error(legacyError.message || error.message);
+  if (legacyError) throw new Error(legacyError.message || error.message || v4Error.message);
   return legacyData as WeeklyAutoMetrics;
 }
 
@@ -57,9 +65,6 @@ export async function fetchWeeklyChecklistCompletion(
     allManagerTaskKeys.map((key) => [key, getManagerTaskCadence(key)])
   );
 
-  // V2 يعرف إن المهمة الأسبوعية مطلوبة مرة واحدة فقط. نحتفظ بالـRPC القديم
-  // كـfallback أثناء فترة نشر الـmigration، عشان الواجهة ما تتعطلش لو الكود
-  // اتنشر قبل قاعدة البيانات بدقائق.
   const { data: cadenceData, error: cadenceError } = await supabase.rpc(
     'calculate_weekly_checklist_completion_v2',
     {
