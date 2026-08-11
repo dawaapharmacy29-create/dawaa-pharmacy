@@ -33,36 +33,31 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
-        // More granular chunks = better caching + smaller initial load
+        // Granular chunks improve caching and keep route-only tools out of the first load.
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            // Core React runtime
             if (id.includes('react-dom') || id.includes('react/') || id.includes('scheduler'))
               return 'react-core';
-            // Router
             if (id.includes('react-router')) return 'router';
-            // Supabase — separate to avoid blocking initial load
             if (id.includes('@supabase')) return 'supabase';
-            // Data fetching cache
             if (id.includes('@tanstack/react-query')) return 'query';
-            // Charts — lazy-loaded on component mount
             if (id.includes('recharts') || id.includes('d3-')) return 'charts';
-            // Forms
             if (id.includes('react-hook-form') || id.includes('@hookform') || id.includes('zod'))
               return 'forms';
-            // Date utilities
             if (id.includes('date-fns')) return 'date-fns';
-            // Radix UI primitives
             if (id.includes('@radix-ui')) return 'radix';
-            // Icons
             if (id.includes('lucide-react') || id.includes('react-icons')) return 'icons';
-            // Framer motion (animations)
             if (id.includes('framer-motion')) return 'motion';
-            // Map libs (load only when needed)
-            if (id.includes('leaflet')) return 'maps';
-            // Excel export — lazy-loaded on export action
+            if (id.includes('leaflet') || id.includes('react-leaflet')) return 'maps';
             if (id.includes('xlsx') || id.includes('exceljs')) return 'excel';
-            // Everything else vendor
+            if (id.includes('jspdf') || id.includes('html2canvas')) return 'pdf';
+            if (id.includes('/qrcode/')) return 'qrcode';
+            if (id.includes('react-calendar') || id.includes('react-day-picker')) return 'calendar';
+            if (id.includes('react-dropzone')) return 'upload';
+            if (id.includes('react-window')) return 'virtual-list';
+            if (id.includes('embla-carousel')) return 'carousel';
+            if (id.includes('zustand')) return 'state';
+            if (id.includes('sonner') || id.includes('vaul') || id.includes('cmdk')) return 'ui-feedback';
             return 'vendor';
           }
         },
