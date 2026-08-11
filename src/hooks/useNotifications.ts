@@ -274,9 +274,15 @@ export function useNotifications() {
   useEffect(() => {
     mountedRef.current = true;
     void refreshNotifications();
-    const polling = window.setInterval(() => void refreshNotifications(), 60_000);
+    // Realtime is the primary path. Polling is only a resilient fallback, so it does not need
+    // to hit the database every minute on every page in the app.
+    const polling = window.setInterval(() => void refreshNotifications(), 120_000);
     const onSettings = () => setSettings(readSettings());
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshNotifications();
+    };
     window.addEventListener('dawaa:notification-settings', onSettings);
+    document.addEventListener('visibilitychange', onVisibility);
 
     let channel: ReturnType<typeof supabase.channel> | null = null;
     if (isSupabaseConfigured) {
@@ -304,6 +310,7 @@ export function useNotifications() {
       mountedRef.current = false;
       window.clearInterval(polling);
       window.removeEventListener('dawaa:notification-settings', onSettings);
+      document.removeEventListener('visibilitychange', onVisibility);
       if (channel) {
         try {
           void supabase.removeChannel(channel);
