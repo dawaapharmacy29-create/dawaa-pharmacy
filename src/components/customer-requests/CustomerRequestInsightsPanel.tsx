@@ -1,5 +1,21 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, ChevronDown, ChevronUp, Clock3, PackageCheck, PackageSearch, PhoneCall, UsersRound } from 'lucide-react';
+import {
+  AlertTriangle,
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
+  Clock3,
+  PackageCheck,
+  PackageSearch,
+  PhoneCall,
+  ShoppingBag,
+  SlidersHorizontal,
+  Sparkles,
+  TrendingUp,
+  UserRound,
+  UsersRound,
+} from 'lucide-react';
+import { requestStatusLabel } from '@/lib/api/customerRequests';
 import { getCustomerRequestOperationalInsights, type CustomerRequestInsights } from '@/lib/api/customerRequestInsights';
 import CustomerRequestActionQueue from '@/components/customer-requests/CustomerRequestActionQueue';
 
@@ -7,9 +23,31 @@ function n(value: number | null | undefined) {
   return Number(value || 0).toLocaleString('ar-EG');
 }
 
-export default function CustomerRequestInsightsPanel({ branch = 'all' }: { branch?: string }) {
+function pct(value: number | null | undefined) {
+  return `${Number(value || 0).toLocaleString('ar-EG', { maximumFractionDigits: 1 })}%`;
+}
+
+function hours(value: number | null | undefined) {
+  if (value === null || value === undefined) return '—';
+  return `${Number(value).toLocaleString('ar-EG', { maximumFractionDigits: 1 })} س`;
+}
+
+type AnalyticsAction = {
+  quickFilter?: 'all' | 'overdue' | 'unassigned';
+  status?: string;
+  assignee?: string;
+  search?: string;
+};
+
+export default function CustomerRequestInsightsPanel({
+  branch = 'all',
+  onAction,
+}: {
+  branch?: string;
+  onAction?: (action: AnalyticsAction) => void;
+}) {
   const [open, setOpen] = useState(true);
-  const [tab, setTab] = useState<'queue' | 'analytics'>('queue');
+  const [tab, setTab] = useState<'queue' | 'analytics'>('analytics');
   const [days, setDays] = useState(30);
   const [data, setData] = useState<CustomerRequestInsights | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,41 +74,46 @@ export default function CustomerRequestInsightsPanel({ branch = 'all' }: { branc
   }, [branch, days, tab]);
 
   const k = data?.kpis;
+  const generatedAt = data?.generated_at
+    ? new Intl.DateTimeFormat('ar-EG', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date(data.generated_at))
+    : null;
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 rounded-3xl border border-slate-700 bg-[#102640] p-3">
+      <div className="grid grid-cols-2 gap-3 rounded-3xl border border-slate-700 bg-[#102640] p-3 shadow-lg">
+        <button type="button" onClick={() => setTab('analytics')} className={`rounded-2xl px-4 py-4 text-sm font-black ${tab === 'analytics' ? 'bg-violet-500/20 text-violet-100 ring-1 ring-violet-400/40' : 'bg-slate-900/60 text-slate-300'}`}>
+          التحليلات والقرارات التشغيلية
+        </button>
         <button type="button" onClick={() => setTab('queue')} className={`rounded-2xl px-4 py-4 text-sm font-black ${tab === 'queue' ? 'bg-cyan-500/20 text-cyan-100 ring-1 ring-cyan-400/40' : 'bg-slate-900/60 text-slate-300'}`}>
           قائمة التنفيذ والمتابعة
-        </button>
-        <button type="button" onClick={() => setTab('analytics')} className={`rounded-2xl px-4 py-4 text-sm font-black ${tab === 'analytics' ? 'bg-violet-500/20 text-violet-100 ring-1 ring-violet-400/40' : 'bg-slate-900/60 text-slate-300'}`}>
-          تحليل سرعة تلبية الطلبات
         </button>
       </div>
 
       {tab === 'queue' ? <CustomerRequestActionQueue branch={branch} /> : null}
 
       {tab === 'analytics' ? (
-        <section className="overflow-hidden rounded-3xl border border-slate-700 bg-[#102640] shadow-lg">
-          <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between gap-4 p-4 text-right">
+        <section className="overflow-hidden rounded-3xl border border-slate-700 bg-[#102640] shadow-xl">
+          <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between gap-4 p-5 text-right">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-cyan-500/15 text-cyan-200">
-                <BarChart3 size={20} />
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-200">
+                <BarChart3 size={22} />
               </div>
               <div className="min-w-0">
-                <div className="font-black text-white">تحليلات التشغيل وقرارات المشتريات</div>
-                <div className="mt-1 text-xs text-slate-400">الأصناف المتكررة، التأخير، الطلبات الجاهزة بدون تواصل، وأداء المسئولين</div>
+                <div className="text-lg font-black text-white">لوحة تحليل طلبات العملاء</div>
+                <div className="mt-1 text-xs leading-6 text-slate-400">سرعة التنفيذ، الاختناقات، أداء الفروع والمسئولين، الأصناف والعملاء المتكررين، والقنوات والأولويات.</div>
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {generatedAt && <span className="hidden text-[11px] text-slate-500 lg:inline">آخر تحديث {generatedAt}</span>}
               {k && <span className="hidden rounded-full bg-amber-500/15 px-3 py-1 text-xs font-bold text-amber-200 md:inline">{n(k.ready_not_contacted)} جاهز بدون تواصل</span>}
               {open ? <ChevronUp size={18} className="text-slate-300" /> : <ChevronDown size={18} className="text-slate-300" />}
             </div>
           </button>
 
           {open && (
-            <div className="border-t border-slate-700 p-4">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="text-xs font-bold text-slate-400">الفترة التحليلية</div>
+            <div className="border-t border-slate-700 p-4 md:p-5">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-400"><SlidersHorizontal size={15} /> الفترة التحليلية</div>
                 <div className="flex gap-2">
                   {[7, 30, 90].map((value) => (
                     <button key={value} type="button" onClick={() => setDays(value)} className={`rounded-xl px-3 py-2 text-xs font-black ${days === value ? 'bg-cyan-500/20 text-cyan-100 ring-1 ring-cyan-400/40' : 'bg-slate-800 text-slate-300'}`}>
@@ -81,124 +124,149 @@ export default function CustomerRequestInsightsPanel({ branch = 'all' }: { branc
               </div>
 
               {loading ? (
-                <div className="py-10 text-center text-sm text-slate-400">جاري حساب التحليلات...</div>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  {Array.from({ length: 8 }).map((_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl bg-slate-800/70" />)}
+                </div>
               ) : error ? (
                 <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>
               ) : data ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-                    {[
-                      ['طلبات الفترة', data.kpis.total, PackageSearch, 'text-cyan-200'],
-                      ['مفتوحة', data.kpis.open, Clock3, 'text-amber-200'],
-                      ['متأخرة', data.kpis.overdue, AlertTriangle, 'text-red-300'],
-                      ['جاهز بدون تواصل', data.kpis.ready_not_contacted, PhoneCall, 'text-orange-200'],
-                      ['مرتبطة بأصناف', data.kpis.linked_products, PackageCheck, 'text-emerald-300'],
-                      ['نسبة التوفير', `${data.kpis.fulfillment_rate ?? 0}%`, BarChart3, 'text-teal-200'],
-                    ].map(([label, value, Icon, tone]) => {
-                      const I = Icon as typeof PackageSearch;
-                      return (
-                        <div key={String(label)} className="rounded-2xl border border-slate-700 bg-slate-900/50 p-3">
-                          <div className="flex items-center justify-between">
-                            <I size={16} className={String(tone)} />
-                            <strong className={`num text-lg ${String(tone)}`}>{typeof value === 'number' ? n(value) : String(value)}</strong>
-                          </div>
-                          <div className="mt-2 text-[11px] font-bold text-slate-400">{String(label)}</div>
-                        </div>
-                      );
-                    })}
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+                    <Kpi label="طلبات الفترة" value={n(data.kpis.total)} icon={PackageSearch} tone="text-cyan-200" onClick={() => onAction?.({ quickFilter: 'all' })} />
+                    <Kpi label="مفتوحة الآن" value={n(data.kpis.open)} icon={Clock3} tone="text-amber-200" />
+                    <Kpi label="متأخرة" value={n(data.kpis.overdue)} icon={AlertTriangle} tone="text-red-300" onClick={() => onAction?.({ quickFilter: 'overdue' })} />
+                    <Kpi label="جاهز بدون تواصل" value={n(data.kpis.ready_not_contacted)} icon={PhoneCall} tone="text-orange-200" onClick={() => onAction?.({ status: 'available' })} />
+                    <Kpi label="تم التسليم" value={n(data.kpis.delivered)} icon={PackageCheck} tone="text-emerald-300" onClick={() => onAction?.({ status: 'delivered' })} />
+                    <Kpi label="نسبة ربط الأصناف" value={pct(data.kpis.linked_products_rate)} icon={ShoppingBag} tone="text-teal-200" />
+                    <Kpi label="نسبة التوفير" value={pct(data.kpis.fulfillment_rate)} icon={TrendingUp} tone="text-cyan-200" />
+                    <Kpi label="متوسط الإغلاق" value={hours(data.kpis.avg_close_hours)} icon={Clock3} tone="text-violet-200" />
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                    <div className="rounded-2xl border border-slate-700 bg-slate-900/45 p-4 xl:col-span-1">
-                      <div className="mb-3 flex items-center gap-2 font-black text-white">
-                        <PackageSearch size={17} className="text-cyan-300" /> أكثر الأصناف طلبًا
-                      </div>
-                      <div className="space-y-2">
-                        {data.top_products.slice(0, 8).map((item, index) => (
-                          <div key={`${item.product_code}-${item.medicine_name}-${index}`} className="rounded-xl bg-slate-800/70 p-3">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="truncate text-xs font-black text-white">{item.medicine_name}</div>
-                                <div className="mt-1 text-[10px] text-slate-400">كود {item.product_code}</div>
-                              </div>
-                              <span className="num rounded-lg bg-cyan-500/15 px-2 py-1 text-xs font-black text-cyan-200">{item.requests_count}</span>
-                            </div>
-                            <div className="mt-2 text-[10px] text-slate-500">
-                              تم توفير {item.fulfilled_count} · غير متوفر {item.not_available_count}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-700 bg-slate-900/45 p-4 xl:col-span-1">
-                      <div className="mb-3 flex items-center gap-2 font-black text-white">
-                        <UsersRound size={17} className="text-violet-300" /> أداء المسئولين
-                      </div>
-                      <div className="space-y-2">
-                        {data.owners.slice(0, 8).map((item) => (
-                          <div key={item.owner_name} className="rounded-xl bg-slate-800/70 p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <strong className="truncate text-xs text-white">{item.owner_name}</strong>
-                              <span className="num text-xs text-slate-300">
-                                {item.completed_count}/{item.assigned_count}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
-                              <span className="text-red-300">متأخر {item.overdue_count}</span>
-                              {item.avg_close_hours !== null && <span className="text-cyan-300">متوسط الإغلاق {item.avg_close_hours}س</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-700 bg-slate-900/45 p-4 xl:col-span-1">
-                      <div className="mb-3 font-black text-white">سرعة وكفاءة الفروع</div>
+                    <Panel title="سرعة وكفاءة الفروع" icon={BarChart3} className="xl:col-span-1">
                       <div className="space-y-3">
-                        {data.branches.map((item) => {
-                          const completion = item.total ? Math.round((item.completed / item.total) * 100) : 0;
-                          return (
-                            <div key={item.branch} className="rounded-xl bg-slate-800/70 p-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <strong className="text-xs text-white">{item.branch}</strong>
-                                <span className="num text-xs text-cyan-200">{item.total}</span>
-                              </div>
-                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-700">
-                                <div className="h-full rounded-full bg-cyan-400" style={{ width: `${Math.min(100, completion)}%` }} />
-                              </div>
-                              <div className="mt-2 grid grid-cols-2 gap-1 text-[10px] text-slate-400">
-                                <span>مكتمل {item.completed}</span>
-                                <span className="text-red-300">متأخر {item.overdue}</span>
-                                <span className="text-emerald-300">توفير {item.fulfillment_rate || completion}%</span>
-                                <span className="text-cyan-300">متوسط {item.avg_fulfillment_hours ?? '—'}س</span>
-                              </div>
+                        {data.branches.map((item) => (
+                          <button type="button" key={item.branch} onClick={() => onAction?.({ quickFilter: 'all' })} className="w-full rounded-2xl border border-slate-700 bg-slate-800/55 p-4 text-right transition hover:border-cyan-400/50">
+                            <div className="flex items-center justify-between gap-3">
+                              <strong className="text-sm text-white">{item.branch}</strong>
+                              <span className="num rounded-lg bg-cyan-500/15 px-2 py-1 text-xs font-black text-cyan-200">{n(item.total)} طلب</span>
                             </div>
-                          );
-                        })}
+                            <div className="mt-3 grid grid-cols-3 gap-2 text-[10px]">
+                              <Mini label="مفتوح" value={n(item.open)} />
+                              <Mini label="تم التسليم" value={n(item.delivered)} tone="text-emerald-300" />
+                              <Mini label="متأخر" value={n(item.overdue)} tone="text-red-300" />
+                              <Mini label="جاهز" value={n(item.ready)} tone="text-amber-200" />
+                              <Mini label="نسبة التوفير" value={pct(item.fulfillment_rate)} tone="text-teal-300" />
+                              <Mini label="متوسط الإغلاق" value={hours(item.avg_fulfillment_hours)} tone="text-cyan-300" />
+                            </div>
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-700">
+                              <div className="h-full rounded-full bg-cyan-400" style={{ width: `${Math.min(100, Number(item.fulfillment_rate || 0))}%` }} />
+                            </div>
+                          </button>
+                        ))}
                       </div>
-                    </div>
+                    </Panel>
+
+                    <Panel title="أداء المسئولين" icon={UsersRound} className="xl:col-span-1">
+                      <div className="max-h-[500px] space-y-2 overflow-y-auto pr-1">
+                        {data.owners.map((item, index) => (
+                          <button type="button" key={`${item.owner_name}-${index}`} onClick={() => onAction?.({ assignee: item.owner_name })} className="w-full rounded-2xl border border-slate-700 bg-slate-800/55 p-3 text-right transition hover:border-violet-400/50">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex min-w-0 items-center gap-2"><span className="num flex h-7 w-7 items-center justify-center rounded-full bg-violet-500/15 text-[11px] font-black text-violet-200">{index + 1}</span><strong className="truncate text-xs text-white">{item.owner_name}</strong></div>
+                              <span className="num text-xs font-black text-emerald-300">{pct(item.completion_rate)}</span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-3 gap-1 text-[10px]">
+                              <Mini label="مسند" value={n(item.assigned_count)} />
+                              <Mini label="مغلق" value={n(item.completed_count)} tone="text-emerald-300" />
+                              <Mini label="متأخر" value={n(item.overdue_count)} tone="text-red-300" />
+                              <Mini label="جاهز بلا تواصل" value={n(item.ready_not_contacted_count)} tone="text-orange-200" />
+                              <Mini label="توفير" value={pct(item.fulfillment_rate)} tone="text-teal-300" />
+                              <Mini label="متوسط الإغلاق" value={hours(item.avg_close_hours)} tone="text-cyan-300" />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </Panel>
+
+                    <Panel title="أكثر الأصناف طلبًا" icon={PackageSearch} className="xl:col-span-1">
+                      <div className="max-h-[500px] space-y-2 overflow-y-auto pr-1">
+                        {data.top_products.map((item, index) => (
+                          <button type="button" key={`${item.product_code}-${item.medicine_name}-${index}`} onClick={() => onAction?.({ search: item.medicine_name })} className="w-full rounded-2xl border border-slate-700 bg-slate-800/55 p-3 text-right transition hover:border-cyan-400/50">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0"><div className="truncate text-xs font-black text-white">{item.medicine_name}</div><div className="mt-1 text-[10px] text-slate-400">كود {item.product_code} · الأكثر في {item.top_branch || 'غير محدد'}</div></div>
+                              <span className="num rounded-lg bg-cyan-500/15 px-2 py-1 text-xs font-black text-cyan-200">{n(item.requests_count)}</span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-3 gap-1 text-[10px]">
+                              <Mini label="تم توفيره" value={n(item.fulfilled_count)} tone="text-emerald-300" />
+                              <Mini label="غير متوفر" value={n(item.not_available_count)} tone="text-red-300" />
+                              <Mini label="نسبة التوفير" value={pct(item.fulfillment_rate)} tone="text-teal-300" />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </Panel>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <Ranking
-                      title="أكثر دكتور/موظف تسجيلًا للطلبات"
-                      rows={(data.registrars || []).map((item) => ({
-                        name: item.staff_name,
-                        primary: item.requests_count,
-                        secondary: `تم توفير ${item.fulfilled_count}`,
-                      }))}
-                    />
-                    <Ranking
-                      title="أكثر دكتور/موظف متابعةً للطلبات"
-                      rows={(data.followers || [])
-                        .filter((item) => !/dawaawael|sync|system|النظام/i.test(item.staff_name))
-                        .map((item) => ({
-                          name: item.staff_name,
-                          primary: item.actions_count,
-                          secondary: `${item.requests_count} طلب مختلف`,
-                        }))}
-                    />
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-4">
+                    <Panel title="مراحل الطلبات" icon={Sparkles}>
+                      <div className="space-y-2">
+                        {data.stages.map((item) => (
+                          <button type="button" key={item.status} onClick={() => onAction?.({ status: item.status })} className="flex w-full items-center justify-between gap-3 rounded-xl bg-slate-800/60 p-3 text-right hover:bg-slate-800">
+                            <div><div className="text-xs font-black text-white">{requestStatusLabel(item.status)}</div><div className="mt-1 text-[10px] text-slate-500">متوسط البقاء {hours(item.avg_stage_hours)}</div></div>
+                            <strong className="num text-cyan-200">{n(item.requests_count)}</strong>
+                          </button>
+                        ))}
+                      </div>
+                    </Panel>
+
+                    <Panel title="أسباب التأخير الحالية" icon={AlertTriangle}>
+                      <div className="space-y-2">
+                        {data.delay_reasons.length ? data.delay_reasons.map((item) => (
+                          <button type="button" key={item.reason} onClick={() => onAction?.({ quickFilter: 'overdue' })} className="flex w-full items-center justify-between gap-3 rounded-xl bg-red-500/[0.06] p-3 text-right hover:bg-red-500/10">
+                            <span className="text-xs font-bold leading-5 text-slate-200">{item.reason}</span>
+                            <strong className="num text-red-300">{n(item.requests_count)}</strong>
+                          </button>
+                        )) : <Empty />}
+                      </div>
+                    </Panel>
+
+                    <Panel title="القنوات" icon={PhoneCall}>
+                      <div className="space-y-2">
+                        {data.channels.map((item) => (
+                          <div key={item.channel} className="rounded-xl bg-slate-800/60 p-3">
+                            <div className="flex items-center justify-between gap-2"><strong className="text-xs text-white">{item.channel}</strong><span className="num text-cyan-200">{n(item.requests_count)}</span></div>
+                            <div className="mt-2 grid grid-cols-2 gap-1 text-[10px]"><Mini label="نسبة التوفير" value={pct(item.fulfillment_rate)} tone="text-emerald-300" /><Mini label="متوسط الإغلاق" value={hours(item.avg_close_hours)} tone="text-cyan-300" /></div>
+                          </div>
+                        ))}
+                      </div>
+                    </Panel>
+
+                    <Panel title="الأولويات" icon={AlertTriangle}>
+                      <div className="space-y-2">
+                        {data.priorities.map((item) => (
+                          <div key={item.priority} className="rounded-xl bg-slate-800/60 p-3">
+                            <div className="flex items-center justify-between gap-2"><strong className="text-xs text-white">{item.priority}</strong><span className="num text-cyan-200">{n(item.requests_count)}</span></div>
+                            <div className="mt-2 grid grid-cols-2 gap-1 text-[10px]"><Mini label="متأخر" value={n(item.overdue_count)} tone="text-red-300" /><Mini label="نسبة الإغلاق" value={pct(item.completion_rate)} tone="text-emerald-300" /></div>
+                          </div>
+                        ))}
+                      </div>
+                    </Panel>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <Panel title="أكثر العملاء طلبًا" icon={UserRound}>
+                      <div className="space-y-2">
+                        {data.top_customers.map((item, index) => (
+                          <button type="button" key={`${item.customer_key}-${index}`} onClick={() => onAction?.({ search: item.customer_code || item.customer_name })} className="flex w-full items-center gap-3 rounded-xl bg-slate-800/60 p-3 text-right hover:bg-slate-800">
+                            <span className="num flex h-8 w-8 items-center justify-center rounded-full bg-cyan-500/15 text-xs font-black text-cyan-200">{index + 1}</span>
+                            <div className="min-w-0 flex-1"><div className="truncate text-xs font-black text-white">{item.customer_name}</div><div className="mt-1 text-[10px] text-slate-400">كود {item.customer_code || '—'} · متأخر {item.overdue_count}</div></div>
+                            <strong className="num text-cyan-200">{n(item.requests_count)}</strong>
+                          </button>
+                        ))}
+                      </div>
+                    </Panel>
+                    <Ranking title="الأكثر تسجيلًا للطلبات" rows={(data.registrars || []).map((item) => ({ name: item.staff_name, primary: item.requests_count, secondary: `تم توفير ${item.fulfilled_count}` }))} />
+                    <Ranking title="الأكثر متابعة للطلبات" rows={(data.followers || []).filter((item) => !/dawaawael|sync|system|النظام/i.test(item.staff_name)).map((item) => ({ name: item.staff_name, primary: item.actions_count, secondary: `${item.requests_count} طلب مختلف` }))} />
                   </div>
                 </div>
               ) : null}
@@ -210,26 +278,35 @@ export default function CustomerRequestInsightsPanel({ branch = 'all' }: { branc
   );
 }
 
+function Kpi({ label, value, icon: Icon, tone, onClick }: { label: string; value: string; icon: typeof PackageSearch; tone: string; onClick?: () => void }) {
+  const content = <><div className="flex items-center justify-between"><Icon size={17} className={tone} /><strong className={`num text-xl ${tone}`}>{value}</strong></div><div className="mt-3 text-[11px] font-black text-slate-300">{label}</div></>;
+  return onClick ? <button type="button" onClick={onClick} className="min-h-24 rounded-2xl border border-slate-700 bg-slate-900/50 p-3 text-right transition hover:-translate-y-0.5 hover:border-cyan-400/50">{content}</button> : <div className="min-h-24 rounded-2xl border border-slate-700 bg-slate-900/50 p-3">{content}</div>;
+}
+
+function Panel({ title, icon: Icon, children, className = '' }: { title: string; icon: typeof BarChart3; children: React.ReactNode; className?: string }) {
+  return <div className={`rounded-2xl border border-slate-700 bg-slate-900/45 p-4 ${className}`}><div className="mb-3 flex items-center gap-2 font-black text-white"><Icon size={17} className="text-cyan-300" />{title}</div>{children}</div>;
+}
+
+function Mini({ label, value, tone = 'text-slate-200' }: { label: string; value: string; tone?: string }) {
+  return <div className="rounded-lg bg-slate-900/55 px-2 py-1.5"><div className="text-slate-500">{label}</div><div className={`mt-0.5 font-black ${tone}`}>{value}</div></div>;
+}
+
+function Empty() {
+  return <div className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-xs text-slate-500">لا توجد بيانات في الفترة.</div>;
+}
+
 function Ranking({ title, rows }: { title: string; rows: Array<{ name: string; primary: number; secondary: string }> }) {
   return (
-    <div className="rounded-2xl border border-slate-700 bg-slate-900/45 p-4">
-      <div className="mb-3 font-black text-white">{title}</div>
+    <Panel title={title} icon={UsersRound}>
       <div className="space-y-2">
-        {rows.length ? (
-          rows.slice(0, 10).map((row, index) => (
-            <div key={`${row.name}-${index}`} className="flex items-center gap-3 rounded-xl bg-slate-800/70 p-3">
-              <span className="num flex h-8 w-8 items-center justify-center rounded-full bg-violet-500/15 font-black text-violet-200">{index + 1}</span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-black text-white">{row.name}</div>
-                <div className="mt-1 text-[10px] text-slate-400">{row.secondary}</div>
-              </div>
-              <strong className="num text-lg text-cyan-200">{row.primary}</strong>
-            </div>
-          ))
-        ) : (
-          <div className="text-xs text-slate-400">لا توجد بيانات موثقة في الفترة.</div>
-        )}
+        {rows.length ? rows.slice(0, 10).map((row, index) => (
+          <div key={`${row.name}-${index}`} className="flex items-center gap-3 rounded-xl bg-slate-800/70 p-3">
+            <span className="num flex h-8 w-8 items-center justify-center rounded-full bg-violet-500/15 font-black text-violet-200">{index + 1}</span>
+            <div className="min-w-0 flex-1"><div className="truncate text-xs font-black text-white">{row.name}</div><div className="mt-1 text-[10px] text-slate-400">{row.secondary}</div></div>
+            <strong className="num text-lg text-cyan-200">{row.primary}</strong>
+          </div>
+        )) : <Empty />}
       </div>
-    </div>
+    </Panel>
   );
 }
