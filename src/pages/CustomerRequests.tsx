@@ -102,6 +102,7 @@ const QUICK_FILTERS: Array<{ value: CustomerRequestQuickFilter; label: string; d
   { value: 'overdue', label: 'المتأخرة', description: 'تجاوزت وقت المرحلة' },
   { value: 'unassigned', label: 'بدون مسئول', description: 'تحتاج إسناد' },
   { value: 'unlinked', label: 'عميل غير مربوط', description: 'جودة بيانات' },
+  { value: 'sync_review', label: 'يحتاج تحديد فرع', description: 'طلبات مزامنة لم يُحسم فرعها' },
   { value: 'backlog', label: 'الطلبات القديمة', description: 'أقدم من 7 أيام' },
   { value: 'all', label: 'كل الطلبات', description: 'عرض كامل' },
 ];

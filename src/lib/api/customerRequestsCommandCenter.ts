@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 
-export type CustomerRequestQuickFilter = 'all' | 'today' | 'recent' | 'attention' | 'overdue' | 'urgent' | 'unassigned' | 'unlinked' | 'backlog';
+export type CustomerRequestQuickFilter = 'all' | 'today' | 'recent' | 'attention' | 'overdue' | 'urgent' | 'unassigned' | 'unlinked' | 'sync_review' | 'backlog';
 
 export interface CustomerRequestCommandSummary {
   total: number;
@@ -126,6 +126,7 @@ export async function getCustomerRequestsPage(options: CustomerRequestPageOption
   if (quick === 'urgent') query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
   if (quick === 'unlinked') query = query.is('customer_id', null);
   if (quick === 'unassigned') query = query.is('purchasing_assignee', null).is('source_assigned_employee', null);
+  if (quick === 'sync_review') query = query.eq('sync_conflict', true).eq('sync_conflict_reason', 'branch_unresolved_after_customer_match');
   if (quick === 'backlog') {
     query = query.not('status', 'in', `(${CLOSED.join(',')})`).lt('requested_at', daysAgoIso(7));
   }
