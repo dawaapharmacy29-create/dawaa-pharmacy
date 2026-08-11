@@ -14,7 +14,12 @@ with scoped as (
     lower(trim(coalesce(cr.status, 'new'))) as status_key,
     lower(trim(coalesce(cr.urgency, ''))) as urgency_key,
     lower(trim(coalesce(cr.priority, ''))) as priority_key,
-    regexp_replace(coalesce(cr.customer_phone, ''), '\\D', '', 'g') as phone_digits
+    regexp_replace(coalesce(cr.customer_phone, ''), '[^0-9]', '', 'g') as phone_digits,
+    (
+      coalesce(cr.is_urgent, false)
+      or lower(trim(coalesce(cr.urgency, ''))) in ('urgent','high','عاجل','مهم')
+      or lower(trim(coalesce(cr.priority, ''))) = 'high'
+    ) as urgent_flag
   from public.customer_requests cr
   where p_branch is null or p_branch = '' or p_branch = 'all' or cr.branch = p_branch
 ), aggregated as (
@@ -22,16 +27,12 @@ with scoped as (
     count(*)::int as total,
     count(*) filter (where request_ts >= date_trunc('day', now()))::int as today,
     count(*) filter (where status_key not in ('closed','delivered','cancelled','not_available'))::int as open,
-    count(*) filter (
-      where coalesce(is_urgent, false)
-        or urgency_key in ('urgent','high','عاجل','مهم')
-        or priority_key = 'high'
-    )::int as urgent,
+    count(*) filter (where urgent_flag)::int as urgent,
     count(*) filter (
       where status_key not in ('closed','delivered','cancelled','not_available')
         and (
-          (coalesce(is_urgent, false) and request_ts < now() - interval '6 hours')
-          or (not coalesce(is_urgent, false) and request_ts < now() - interval '24 hours')
+          (urgent_flag and request_ts < now() - interval '6 hours')
+          or (not urgent_flag and request_ts < now() - interval '24 hours')
         )
     )::int as overdue,
     count(*) filter (where status_key in ('purchasing_review','searching_suppliers','sourcing'))::int as searching,
