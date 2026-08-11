@@ -7,6 +7,7 @@ import {
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { supabase } from '@/lib/supabase';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
+import CustomerCycleCohortPanel from '@/components/customerService/CustomerCycleCohortPanel';
 
 const WORK_VERSES = [
   'وَقُلِ اعْمَلُوا فَسَيَرَى اللَّهُ عَمَلَكُمْ وَرَسُولُهُ وَالْمُؤْمِنُونَ',
@@ -426,6 +427,8 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
         </div>
       </div>
 
+      <CustomerCycleCohortPanel branch={branch} />
+
       <div className="rounded-3xl border p-5" style={card}>
         <SectionTitle icon={Heart} accent="#f472b6">فعالية متابعتي للعملاء المهددين بالتوقف</SectionTitle>
         {data.recovery_stats.total_followups > 0 ? (
@@ -466,12 +469,13 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-pink-400/40" style={card} onClick={() => navigate('/customer-service')}>
           <SectionTitle icon={Heart} accent="#f472b6">أكتر العملاء متابعة</SectionTitle>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 space-y-2">
             {data.top_followed_customers.length
-              ? data.top_followed_customers.map((c) => (
-                <span key={c.customer_name} className="rounded-full border px-3 py-1 text-xs font-bold text-pink-200" style={{ borderColor: 'rgba(244,114,182,0.3)', background: 'rgba(244,114,182,0.1)' }}>
-                  {c.customer_name} · {c.followups_count}
-                </span>
+              ? [...data.top_followed_customers].sort((a, b) => Number(b.followups_count || 0) - Number(a.followups_count || 0)).map((c, index) => (
+                <div key={`${c.customer_name}-${index}`} className="flex items-center justify-between rounded-xl border px-3 py-2 text-xs" style={{ borderColor: 'rgba(244,114,182,0.3)', background: 'rgba(244,114,182,0.1)' }}>
+                  <span className="font-bold text-white"><span className="ml-2 text-pink-300">#{index + 1}</span>{c.customer_name || 'عميل غير مسجل الاسم'}</span>
+                  <span className="rounded-full bg-pink-400/15 px-2 py-1 font-black text-pink-200">{Number(c.followups_count || 0).toLocaleString('ar-EG')} متابعة</span>
+                </div>
               ))
               : <p className="text-sm" style={mutedText}>لا يوجد بعد.</p>}
           </div>

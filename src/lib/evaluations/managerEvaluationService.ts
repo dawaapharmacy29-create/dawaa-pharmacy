@@ -38,6 +38,8 @@ export async function fetchWeeklyAutoMetrics(
     p_week_start: weekStart,
     p_week_end: weekEnd,
   };
+  const { data: v3Data, error: v3Error } = await supabase.rpc('calculate_weekly_manager_metrics_v3', args);
+  if (!v3Error) return v3Data as WeeklyAutoMetrics;
   const { data, error } = await supabase.rpc('calculate_weekly_manager_metrics_v2', args);
   if (!error) return data as WeeklyAutoMetrics;
   const { data: legacyData, error: legacyError } = await supabase.rpc('calculate_weekly_manager_metrics', args);

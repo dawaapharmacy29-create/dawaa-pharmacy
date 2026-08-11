@@ -54,6 +54,8 @@ export type EvaluationCriterion = {
   checklistTaskKey?: string;
   /** لعناصر checklist اللي بتتغذى من أكتر من بند فرعي — بيتاخد متوسط معدلات الإنجاز لكل المفاتيح. له أولوية على checklistTaskKey لو الاتنين موجودين. */
   checklistTaskKeys?: string[];
+  /** بند جوهري للدور: صفر نشاط يدخل التقييم ولا يُستبعد كمصدر مفقود. */
+  requiredOperational?: boolean;
 };
 
 /** بيرجع كل مفاتيح الـ Checklist المرتبطة بمعيار معيّن (سواء مفتاح واحد أو أكتر). */
@@ -113,16 +115,8 @@ function followupClosureScore(current: WeeklyAutoMetrics): number {
 }
 
 function vipRetentionScore(current: WeeklyAutoMetrics): number {
-  if (current.vip_retention_rate === null) return 5;
+  if (current.vip_retention_rate === null || current.vip_retention_rate === undefined) return 0;
   return Math.max(0, Math.min(10, current.vip_retention_rate / 10));
-}
-
-function weekOverWeekImprovementScore(current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null): number {
-  if (!previous) return 5;
-  const currentClosure = ratio(current.followups_closed, current.followups_total);
-  const previousClosure = ratio(previous.followups_closed, previous.followups_total);
-  const delta = (currentClosure - previousClosure) * 100;
-  return Math.max(0, Math.min(10, 5 + delta / 4));
 }
 
 /**
@@ -131,6 +125,7 @@ function weekOverWeekImprovementScore(current: WeeklyAutoMetrics, previous: Week
  * ونصها التاني من متوسط درجة المحادثات (هل الدكاترة فعلًا بيتحسنوا؟).
  */
 function conversationQualityScore(current: WeeklyAutoMetrics): number {
+  if (!current.conversation_reviews_count) return 0;
   const activityScore = Math.max(0, Math.min(10, (current.conversation_reviews_count / 10) * 10));
   const qualityScore =
     current.conversation_reviews_avg_score !== null
@@ -141,13 +136,13 @@ function conversationQualityScore(current: WeeklyAutoMetrics): number {
 
 /** متابعة نقاط العملاء وإبلاغهم: نسبة معاملات النقاط اللي اتبلّغ فيها العميل فعليًا. */
 function pointsCommunicationScore(current: WeeklyAutoMetrics): number {
-  if (!current.points_transactions_total) return 5; // مفيش معاملات نقاط الأسبوع ده أصلًا — محايد
+  if (!current.points_transactions_total) return 0;
   return Math.max(0, Math.min(10, ratio(current.points_transactions_contacted, current.points_transactions_total) * 10));
 }
 
 /** نمو عدد العملاء: مقارنة عدد العملاء الجدد بالأسبوع اللي فات. */
 function customerGrowthScore(current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null): number {
-  if (!previous || !previous.new_customers_count) return 5;
+  if (!previous || !previous.new_customers_count) return current.new_customers_count > 0 ? 5 : 0;
   const growthPct = ((current.new_customers_count - previous.new_customers_count) / previous.new_customers_count) * 100;
   return Math.max(0, Math.min(10, 5 + growthPct / 10));
 }
@@ -367,6 +362,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       hint: 'محسوبة من عدد مراجعات المحادثات المنجزة + متوسط درجتها خلال الأسبوع.',
       sourceRoute: '/reviews', sourceLabel: 'تقييمات الدكاترة',
       coverageKeys: ['reviews'],
+      requiredOperational: true,
     },
     {
       key: 'followups_execution',
@@ -377,6 +373,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       hint: 'محسوبة تلقائيًا من نسبة إغلاق كل المتابعات الاستثنائية (دكاترة، أبلكيشن، شكاوى، قائمة مدير الفروع) بنتيجة فعلية موثّقة، مش مجرد "تم الاتصال".',
       sourceRoute: '/customer-service', sourceLabel: 'المتابعات',
       coverageKeys: ['followups'],
+      requiredOperational: true,
     },
     {
       key: 'points_communication',
@@ -387,6 +384,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       hint: 'محسوبة تلقائيًا من نسبة معاملات نقاط العملاء اللي اتبلّغ فيها العميل فعليًا.',
       sourceRoute: '/customer-points-ledger', sourceLabel: 'سجل النقاط',
       coverageKeys: ['points'],
+      requiredOperational: true,
     },
     {
       key: 'customer_growth',
@@ -397,6 +395,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       hint: 'محسوبة تلقائيًا من عدد العملاء الجدد مقارنة بالأسبوع اللي فات.',
       sourceRoute: '/customers', sourceLabel: 'العملاء الجدد',
       coverageKeys: ['customers'],
+      requiredOperational: true,
     },
     {
       key: 'vip_retention',
@@ -407,6 +406,7 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       hint: 'تقريب مبدئي من نسبة الاحتفاظ بكبار العملاء لحد ما نضيف مقياس رضا مخصص لقائمة أهم 20 عميل.',
       sourceRoute: '/customers', sourceLabel: 'أهم العملاء',
       coverageKeys: ['customers'],
+      requiredOperational: true,
     },
     {
       key: 'classification_accuracy',
@@ -467,6 +467,7 @@ export function criterionHasData(
   current: WeeklyAutoMetrics,
   checklistRates: Record<string, number>
 ): boolean {
+  if (criterion.requiredOperational) return true;
   if (criterion.mode === 'checklist') {
     const keys = criterionChecklistKeys(criterion);
     return keys.length > 0 && keys.every((key) => Object.prototype.hasOwnProperty.call(checklistRates, key));

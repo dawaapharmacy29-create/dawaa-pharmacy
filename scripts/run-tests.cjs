@@ -122,6 +122,7 @@ for (const ext of ['.ts', '.tsx']) {
 const testFiles = [
   'src/lib/__tests__/targetAchievementBonus.test.ts',
   'src/lib/__tests__/incentiveEligibility.test.ts',
+  'src/lib/__tests__/customerCohortIntelligence.test.ts',
   'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts',
   'src/lib/__tests__/customerFollowupCore.test.ts',
   'src/lib/__tests__/customerFollowupGuards.test.ts',
