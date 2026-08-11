@@ -48,7 +48,9 @@ function scoreLayout(rows: unknown[][], layout: Layout) {
 }
 
 function detectLayout(rows: unknown[][]): Layout {
+  // ندعم الشكل المبسط (كود الصنف / اسم الصنف / سعر البيع) وتقارير B-Connect الأصلية.
   const candidates: Layout[] = [
+    { code: 0, name: 1, price: 2 },
     { code: 9, name: 8, price: 3 },
     { code: 10, name: 9, price: 4 },
   ];
@@ -56,9 +58,9 @@ function detectLayout(rows: unknown[][]): Layout {
   const headerRows = rows.slice(0, 15);
   for (const row of headerRows) {
     const normalized = row.map((cell) => normalizeName(cell));
-    const codeIndex = normalized.findIndex((cell) => /^(الكود|كود|code)$/i.test(cell));
-    const nameIndex = normalized.findIndex((cell) => /^(الإسم|الاسم|اسم الصنف|الصنف|name)$/i.test(cell));
-    const priceIndex = normalized.findIndex((cell) => /(س\.البيع|سعر البيع|sale price|price)/i.test(cell));
+    const codeIndex = normalized.findIndex((cell) => /^(الكود|كود|كود الصنف|الصنف كود|product code|item code|code)$/i.test(cell));
+    const nameIndex = normalized.findIndex((cell) => /^(الإسم|الاسم|اسم الصنف|الصنف|اسم الدواء|product name|item name|name)$/i.test(cell));
+    const priceIndex = normalized.findIndex((cell) => /(س\.البيع|سعر البيع|سعر الصنف|sale price|selling price|price)/i.test(cell));
     if (codeIndex >= 0 && nameIndex >= 0 && priceIndex >= 0) {
       candidates.push({ code: codeIndex, name: nameIndex, price: priceIndex });
       // بعض تقارير B-Connect يكون صف العناوين مزاحًا خلية واحدة عن صفوف البيانات.
@@ -93,8 +95,8 @@ export async function parseProductsCatalogFile(file: File): Promise<CatalogProdu
     const price = numeric(row?.[layout.price]);
     if (!code || !name || !meaningfulName(name)) continue;
     // يمنع صفوف الإجماليات والعناوين من الدخول كأصناف.
-    if (/^(الكود|code|عدد الأصناف|الإجمالى|الاجمالي)$/i.test(code)) continue;
-    if (/^(الإسم|الاسم|اسم الصنف|الصنف)$/i.test(name)) continue;
+    if (/^(الكود|كود|كود الصنف|product code|item code|code|عدد الأصناف|الإجمالى|الاجمالي)$/i.test(code)) continue;
+    if (/^(الإسم|الاسم|اسم الصنف|الصنف|اسم الدواء|product name|item name)$/i.test(name)) continue;
     unique.set(code, { code, name, price });
   }
 
