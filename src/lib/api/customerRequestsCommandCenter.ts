@@ -88,6 +88,18 @@ export async function getCustomerRequestsPage(
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
+  let overdueIds: string[] | null = null;
+  if ((options.quickFilter || 'all') === 'overdue') {
+    const { data, error } = await supabase.rpc('get_customer_request_overdue_ids', {
+      p_branch: options.branch && options.branch !== 'all' ? options.branch : null,
+    });
+    if (error) throw new Error(error.message);
+    overdueIds = Array.isArray(data) ? (data as string[]) : [];
+    if (overdueIds.length === 0) {
+      return { rows: [], count: 0, page: 1, pageSize, pages: 1 };
+    }
+  }
+
   let query = supabase
     .from('customer_requests')
     .select('*', { count: 'exact' })
@@ -132,8 +144,8 @@ export async function getCustomerRequestsPage(
   if (quick === 'attention') {
     query = query.not('status', 'in', `(${CLOSED.join(',')})`).gte('requested_at', daysAgoIso(7));
   }
-  if (quick === 'overdue') {
-    query = query.not('status', 'in', `(${CLOSED.join(',')})`).lt('requested_at', new Date(Date.now() - 24 * 3600000).toISOString());
+  if (quick === 'overdue' && overdueIds) {
+    query = query.in('id', overdueIds);
   }
 
   const search = safeSearch(options.search || '');
@@ -173,6 +185,13 @@ export function customerRequestAgeHours(request: CustomerRequest) {
   return Number.isFinite(timestamp) ? Math.max(0, (Date.now() - timestamp) / 3600000) : 0;
 }
 
+export function customerRequestStageAgeHours(request: CustomerRequest) {
+  const raw = request.last_action_at || request.updated_at || request.requested_at || request.created_at;
+  if (!raw) return 0;
+  const timestamp = new Date(raw).getTime();
+  return Number.isFinite(timestamp) ? Math.max(0, (Date.now() - timestamp) / 3600000) : 0;
+}
+
 export function customerRequestIsClosed(request: CustomerRequest) {
   return CLOSED.includes(String(request.status || 'new'));
 }
@@ -185,10 +204,21 @@ export function customerRequestIsUrgent(request: CustomerRequest) {
   );
 }
 
+export function customerRequestSlaHours(request: CustomerRequest) {
+  const status = String(request.status || 'new').toLowerCase();
+  const urgent = customerRequestIsUrgent(request);
+  if (customerRequestIsClosed(request)) return 0;
+  if (['new', 'purchasing_review'].includes(status)) return urgent ? 2 : 4;
+  if (['searching_suppliers', 'sourcing'].includes(status)) return urgent ? 6 : 24;
+  if (['needs_customer_confirmation', 'customer_confirmed'].includes(status)) return urgent ? 4 : 12;
+  if (['available', 'arrived'].includes(status)) return urgent ? 1 : 2;
+  if (status === 'customer_contacted') return urgent ? 12 : 24;
+  return urgent ? 6 : 24;
+}
+
 export function customerRequestIsOverdue(request: CustomerRequest) {
   if (customerRequestIsClosed(request)) return false;
-  const hours = customerRequestAgeHours(request);
-  return customerRequestIsUrgent(request) ? hours > 6 : hours > 24;
+  return customerRequestStageAgeHours(request) > customerRequestSlaHours(request);
 }
 
 export function customerRequestQualityIssues(request: CustomerRequest) {
