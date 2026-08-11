@@ -32,6 +32,7 @@ import { displayEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
 import ImageUploadBox from '@/components/ImageUploadBox';
 import CustomerSmartSearch, { type CustomerSearchResult } from '@/components/CustomerSmartSearch';
 import ProductSmartSearch from '@/components/ProductSmartSearch';
+import CustomerRequestInsightsPanel from '@/components/customer-requests/CustomerRequestInsightsPanel';
 import {
   createCustomerRequest,
   getCustomerRequestEvents,
@@ -263,6 +264,7 @@ export default function CustomerRequests() {
     <div className="space-y-5" dir="rtl">
       <CommandHeader summary={summary} onCreate={() => setShowCreate((value) => !value)} onRefresh={load} loading={loading} />
       <QuickQueues value={quickFilter} onChange={setQuickFilter} summary={summary} />
+      <CustomerRequestInsightsPanel branch={branchFilter} />
 
       {showCreate && (
         <CreateRequestPanel
