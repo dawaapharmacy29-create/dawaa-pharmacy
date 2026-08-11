@@ -68,6 +68,7 @@ const IncentiveMedicines = lazy(() => import('@/pages/IncentiveMedicines'));
 const StaffAccounts = lazy(() => import('@/pages/StaffAccounts'));
 const StaffDuplicateAudit = lazy(() => import('@/pages/StaffDuplicateAudit'));
 const PayrollManagement = lazy(() => import('@/pages/PayrollManagement'));
+const IncentiveGovernance = lazy(() => import('@/pages/IncentiveGovernance'));
 const PenaltyIncentiveManagement = lazy(() => import('@/pages/PenaltyIncentiveManagement'));
 const PointAppeals = lazy(() => import('@/pages/PointAppeals'));
 const DoctorPerformancePillars = lazy(() => import('@/pages/DoctorPerformancePillars'));
@@ -236,6 +237,7 @@ function AppRoutes() {
     <Route path="/staff-accounts" element={<ProtectedRoute>{routeSuspense(<StaffAccounts />, 'حسابات الموظفين')}</ProtectedRoute>} />
     <Route path="/staff-duplicate-audit" element={<ProtectedRoute>{routeSuspense(<StaffDuplicateAudit />, 'مراجعة التكرار')}</ProtectedRoute>} />
     <Route path="/staff-payroll" element={<ProtectedRoute>{routeSuspense(<PayrollManagement />, 'إدارة الرواتب')}</ProtectedRoute>} />
+    <Route path="/incentive-governance" element={<ProtectedRoute permission="manage_payroll">{routeSuspense(<IncentiveGovernance />, 'اعتماد الحوافز')}</ProtectedRoute>} />
     <Route path="/penalty-incentive" element={<ProtectedRoute>{routeSuspense(<PenaltyIncentiveManagement />, 'الجزاءات والمكافآت')}</ProtectedRoute>} />
     <Route path="/staff-dashboard" element={<ProtectedRoute>{routeSuspense(<StaffDashboard />, 'لوحة الموظف')}</ProtectedRoute>} />
     <Route path="/roles-permissions" element={<ProtectedRoute>{routeSuspense(<RolesPermissions />, 'الأدوار والصلاحيات')}</ProtectedRoute>} />

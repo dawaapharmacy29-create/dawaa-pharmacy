@@ -24,12 +24,14 @@ export function calculateTargetAchievementBonus(
   if (!Number.isFinite(targetAmount) || targetAmount <= 0 || !Number.isFinite(salesAmount) || salesAmount < 0) {
     return { achievementPercent: null, amountEgp: null, tierLabel: 'غير قابل للحساب', isCalculable: false };
   }
-  const achievementPercent = Math.round((salesAmount / targetAmount) * 1000) / 10;
+  const rawAchievementPercent = (salesAmount / targetAmount) * 100;
+  const achievementPercent = Math.round(rawAchievementPercent * 100) / 100;
   const amounts = AMOUNTS[role];
-  if (achievementPercent >= 100) {
+  // The financial boundary must use the unrounded ratio: 99.99% is not 100%.
+  if (rawAchievementPercent >= 100) {
     return { achievementPercent, amountEgp: amounts.full, tierLabel: 'تحقيق 100% فأكثر', isCalculable: true };
   }
-  if (achievementPercent >= 90) {
+  if (rawAchievementPercent >= 90) {
     return { achievementPercent, amountEgp: amounts.near, tierLabel: 'تحقيق من 90% إلى أقل من 100%', isCalculable: true };
   }
   return { achievementPercent, amountEgp: 0, tierLabel: 'أقل من 90%', isCalculable: true };

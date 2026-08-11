@@ -1,0 +1,4 @@
+export type ApprovalFacts={cycleClosed:boolean;openAppeals:number;approvedWeeks:number;coverage:number|null;targetRequired:boolean;targetAmount:number;duplicateSettlements:boolean;payrollConflict:boolean};
+export function finalApprovalBlockers(f:ApprovalFacts){const r:string[]=[];if(!f.cycleClosed)r.push('cycle_not_closed');if(f.openAppeals>0)r.push('open_appeal');if(f.approvedWeeks<3)r.push('insufficient_weeks');if(f.coverage==null||f.coverage<80)r.push('insufficient_coverage');if(f.targetRequired&&f.targetAmount<=0)r.push('missing_target');if(f.duplicateSettlements)r.push('duplicate_settlement');if(f.payrollConflict)r.push('payroll_truth_conflict');return r;}
+export function netIncentive(performance:number,target:number,other:number,deductions:number){return performance+target+other-deductions;}
+export function validReopenReason(reason:string){return reason.trim().length>=10;}

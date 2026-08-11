@@ -4,6 +4,7 @@ import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievem
 describe('target achievement bonus', () => {
   it('applies manager tiers at the exact boundaries', () => {
     expect(calculateTargetAchievementBonus(1000, 1000, 'manager').amountEgp).toBe(1000);
+    expect(calculateTargetAchievementBonus(999.9, 1000, 'manager').amountEgp).toBe(750);
     expect(calculateTargetAchievementBonus(900, 1000, 'manager').amountEgp).toBe(750);
     expect(calculateTargetAchievementBonus(899, 1000, 'manager').amountEgp).toBe(0);
   });

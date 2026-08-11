@@ -1004,6 +1004,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/supplier-performance': 'view_purchases',
   '/purchases': 'view_purchases',
   '/staff-payroll': 'manage_payroll',
+  '/incentive-governance': 'manage_payroll',
   '/payroll': 'view_salary_calculator',
   '/invoices': ['view_invoices', 'view_invoice_import'],
   '/returns': 'view_invoices',
