@@ -32,7 +32,11 @@ export type CustomerRequestInsights = {
     completed: number;
     not_available: number;
     overdue: number;
+    fulfillment_rate: number;
+    avg_fulfillment_hours: number | null;
   }>;
+  registrars: Array<{ staff_name: string; requests_count: number; fulfilled_count: number }>;
+  followers: Array<{ staff_name: string; actions_count: number; requests_count: number }>;
 };
 
 export async function getCustomerRequestOperationalInsights(branch = 'all', days = 30) {
