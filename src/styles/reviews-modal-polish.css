@@ -1,0 +1,94 @@
+/* Conversation review details: use the available screen space and keep dense data readable. */
+
+@media (min-width: 768px) {
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] {
+    padding: 1.25rem 1.75rem;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] > div {
+    width: min(96vw, 1500px) !important;
+    max-width: 96vw !important;
+    max-height: 92vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 1.5rem 1.75rem;
+    scrollbar-gutter: stable;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] > div > div:first-child {
+    position: sticky;
+    top: -1.5rem;
+    z-index: 20;
+    margin: -1.5rem -1.75rem 0;
+    padding: 1.25rem 1.75rem 1rem;
+    background: rgba(15, 27, 46, 0.97);
+    backdrop-filter: blur(12px);
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table {
+    min-width: 1120px !important;
+    table-layout: fixed;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table thead {
+    position: sticky;
+    top: 3.8rem;
+    z-index: 15;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table th,
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table td {
+    padding: 0.9rem 1rem;
+    line-height: 1.65;
+    vertical-align: top;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table th:nth-child(1),
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table td:nth-child(1) {
+    width: 23%;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table th:nth-child(2),
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table td:nth-child(2) {
+    width: 11%;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table th:nth-child(3),
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table td:nth-child(3) {
+    width: 34%;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table th:nth-child(4),
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table td:nth-child(4) {
+    width: 10%;
+    white-space: nowrap;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table th:nth-child(5),
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table td:nth-child(5) {
+    width: 22%;
+  }
+}
+
+@media (max-width: 767px) {
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] {
+    padding: 0.5rem;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] > div {
+    max-width: 100% !important;
+    min-height: calc(100dvh - 1rem);
+    max-height: calc(100dvh - 1rem);
+    overflow-y: auto;
+    border-radius: 1rem;
+    padding: 1rem;
+  }
+
+  div.fixed.inset-0.z-\[100\][role='dialog'][dir='rtl'] table {
+    min-width: 920px !important;
+  }
+}
