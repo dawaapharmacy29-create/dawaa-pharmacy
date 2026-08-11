@@ -1,25 +1,33 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  BarChart3,
   CheckCircle2,
   Clock3,
-  ClipboardList,
+  Database,
   History,
+  Link2,
   Loader2,
+  MessageCircle,
+  PackageCheck,
   PackageSearch,
   Phone,
   Plus,
   RefreshCw,
   Search,
   ShoppingCart,
+  Sparkles,
   Truck,
   UserRound,
+  UsersRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
-import { supabase } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
 import { displayEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
 import ImageUploadBox from '@/components/ImageUploadBox';
@@ -27,110 +35,117 @@ import CustomerSmartSearch, { type CustomerSearchResult } from '@/components/Cus
 import {
   createCustomerRequest,
   getCustomerRequestEvents,
-  getCustomerRequests,
   moveCustomerRequestToShortage,
-  requestNeedsAttention,
   requestStatusLabel,
   REQUEST_STATUS_FLOW,
   updateCustomerRequestStatus,
   type CustomerRequest,
   type CustomerRequestEvent,
 } from '@/lib/api/customerRequests';
-
-type CustomerRow = {
-  id?: string;
-  customer_code?: string | null;
-  code?: string | null;
-  name?: string | null;
-  customer_name?: string | null;
-  phone?: string | null;
-  customer_phone?: string | null;
-  branch?: string | null;
-};
+import {
+  customerRequestAgeHours,
+  customerRequestIsClosed,
+  customerRequestIsOverdue,
+  customerRequestIsUrgent,
+  customerRequestQualityIssues,
+  getCustomerRequestsCommandSummary,
+  getCustomerRequestsPage,
+  type CustomerRequestCommandSummary,
+  type CustomerRequestQuickFilter,
+} from '@/lib/api/customerRequestsCommandCenter';
 
 type StaffOption = { id: string; name: string; role: string | null; branch: string | null };
 
-const statusGroups = [
-  { key: 'all', label: 'كل الطلبات' },
-  { key: 'new', label: 'طلبات جديدة' },
-  { key: 'purchasing_review', label: 'مراجعة المشتريات' },
-  { key: 'searching_suppliers', label: 'بحث عند الموردين' },
-  { key: 'needs_customer_confirmation', label: 'تحتاج تأكيد العميل' },
-  { key: 'available', label: 'تم توفيرها' },
-  { key: 'arrived', label: 'وصلت للصيدلية' },
-  { key: 'delivered', label: 'تم التسليم' },
+const EMPTY_SUMMARY: CustomerRequestCommandSummary = {
+  total: 0,
+  today: 0,
+  open: 0,
+  urgent: 0,
+  overdue: 0,
+  searching: 0,
+  waiting_customer: 0,
+  ready: 0,
+  delivered: 0,
+  not_available: 0,
+  cancelled: 0,
+  from_dawaawael: 0,
+  unlinked_customer: 0,
+  no_branch: 0,
+  invalid_phone: 0,
+  unassigned: 0,
+  sync_conflicts: 0,
+  moved_to_shortage: 0,
+  fulfillment_rate: 0,
+  avg_fulfillment_hours: 0,
+};
+
+const QUICK_FILTERS: Array<{
+  value: CustomerRequestQuickFilter;
+  label: string;
+  description: string;
+}> = [
+  { value: 'attention', label: 'يحتاج تدخل الآن', description: 'طلبات حديثة ومفتوحة' },
+  { value: 'today', label: 'طلبات اليوم', description: 'المسجلة اليوم' },
+  { value: 'urgent', label: 'العاجلة', description: 'أولوية قصوى' },
+  { value: 'overdue', label: 'المتأخرة', description: 'تجاوزت SLA' },
+  { value: 'unassigned', label: 'بدون مسئول', description: 'تحتاج إسناد' },
+  { value: 'unlinked', label: 'غير مربوط بعميل', description: 'جودة بيانات' },
+  { value: 'backlog', label: 'Backlog تاريخي', description: 'أقدم من 7 أيام' },
+  { value: 'all', label: 'كل الطلبات', description: 'بدون فلتر سريع' },
 ];
 
-function valueOf(row: Record<string, unknown>, keys: string[], fallback = '') {
-  for (const key of keys) {
-    const value = row[key];
-    if (value !== null && value !== undefined && String(value).trim()) return String(value).trim();
-  }
-  return fallback;
+function ageLabel(request: CustomerRequest) {
+  const hours = customerRequestAgeHours(request);
+  if (hours < 1) return 'أقل من ساعة';
+  if (hours < 24) return `${Math.floor(hours)} ساعة`;
+  const days = Math.floor(hours / 24);
+  return `${days} يوم`;
 }
 
-function customerLabel(c: CustomerRow) {
-  const row = c as Record<string, unknown>;
-  const name = valueOf(row, ['name', 'customer_name'], 'عميل بدون اسم');
-  const code = valueOf(row, ['customer_code', 'code']);
-  const phone = valueOf(row, ['phone', 'customer_phone']);
-  return `${name}${code ? ` - كود ${code}` : ''}${phone ? ` - ${phone}` : ''}`;
+function progressValue(status?: string | null) {
+  const stages = ['new', 'purchasing_review', 'searching_suppliers', 'sourcing', 'available', 'arrived', 'customer_contacted', 'delivered'];
+  const index = stages.indexOf(String(status || 'new'));
+  if (status === 'cancelled' || status === 'not_available') return 100;
+  if (index < 0) return 12;
+  return Math.round(((index + 1) / stages.length) * 100);
 }
 
-function normalizeCustomer(c: CustomerRow) {
-  const row = c as Record<string, unknown>;
-  return {
-    id: valueOf(row, ['id', 'customer_code', 'code']),
-    code: valueOf(row, ['customer_code', 'code']),
-    name: valueOf(row, ['name', 'customer_name'], ''),
-    phone: valueOf(row, ['phone', 'customer_phone'], ''),
-    branch: valueOf(row, ['branch'], ''),
-  };
+function sourceLabel(request: CustomerRequest) {
+  if (request.source_system === 'dawaawael') return 'dawaawael';
+  return 'تسجيل الإدارة';
 }
 
-const CLOSED_REQUEST_STATUSES = new Set(['closed', 'delivered', 'cancelled', 'not_available']);
-
-function requestAgeDays(request: CustomerRequest) {
-  const created = request.requested_at || request.created_at;
-  if (!created) return 0;
-  const timestamp = new Date(created).getTime();
-  return Number.isFinite(timestamp) ? Math.max(0, Math.floor((Date.now() - timestamp) / 86400000)) : 0;
-}
-
-function requestPriority(request: CustomerRequest) {
-  let score = 0;
-  if (requestNeedsAttention(request)) score += 1000;
-  if (/urgent|عاجل/i.test(String(request.urgency || ''))) score += 700;
-  if (/high|مهم/i.test(String(request.urgency || ''))) score += 400;
-  if (request.status === 'needs_customer_confirmation') score += 350;
-  if (!CLOSED_REQUEST_STATUSES.has(String(request.status || ''))) score += requestAgeDays(request) * 10;
-  return score;
-}
-
-function requestProgress(status?: string | null) {
-  const visibleFlow = REQUEST_STATUS_FLOW.filter((item) => !['cancelled', 'not_available'].includes(item.value));
-  const index = visibleFlow.findIndex((item) => item.value === status);
-  return index < 0 ? 8 : Math.max(8, Math.round(((index + 1) / visibleFlow.length) * 100));
+function currentOwner(request: CustomerRequest) {
+  if (request.purchasing_assignee?.trim()) return request.purchasing_assignee;
+  if (request.source_assigned_employee?.trim()) return request.source_assigned_employee;
+  if (request.searching_by_name?.trim()) return request.searching_by_name;
+  return 'غير مسند';
 }
 
 export default function CustomerRequests() {
   const { user } = useAuth();
   const [requests, setRequests] = useState<CustomerRequest[]>([]);
+  const [summary, setSummary] = useState<CustomerRequestCommandSummary>(EMPTY_SUMMARY);
   const [selected, setSelected] = useState<CustomerRequest | null>(null);
   const [events, setEvents] = useState<CustomerRequestEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [branchFilter, setBranchFilter] = useState('all');
-  const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [statusNote, setStatusNote] = useState('');
   const [newStatus, setNewStatus] = useState('');
+  const [search, setSearch] = useState('');
+  const [branchFilter, setBranchFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [urgencyFilter, setUrgencyFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [channelFilter, setChannelFilter] = useState('all');
+  const [assigneeFilter, setAssigneeFilter] = useState('all');
+  const [quickFilter, setQuickFilter] = useState<CustomerRequestQuickFilter>('attention');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
+  const [totalRows, setTotalRows] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const { data: customers } = useSupabaseQuery<CustomerRow>({
-    table: 'customers',
-    realtimeEnabled: false,
-  });
   const { data: staff } = useSupabaseQuery<StaffOption>({
     table: 'staff',
     filters: isActiveStaffFilter(),
@@ -147,31 +162,53 @@ export default function CustomerRequests() {
     [staff]
   );
 
-  const loadRequests = useCallback(async () => {
+  const assignees = useMemo(
+    () => Array.from(new Set((staff || []).map((item) => item.name).filter(Boolean))).sort(),
+    [staff]
+  );
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getCustomerRequests({
-        status: statusFilter,
-        branch: branchFilter,
-        search,
+      const [summaryData, pageData] = await Promise.all([
+        getCustomerRequestsCommandSummary(branchFilter),
+        getCustomerRequestsPage({
+          page,
+          pageSize,
+          status: statusFilter,
+          branch: branchFilter,
+          urgency: urgencyFilter,
+          sourceSystem: sourceFilter,
+          sourceChannel: channelFilter,
+          assignee: assigneeFilter,
+          search,
+          quickFilter,
+        }),
+      ]);
+      setSummary(summaryData);
+      setRequests(pageData.rows);
+      setTotalRows(pageData.count);
+      setTotalPages(pageData.pages);
+      setSelected((current) => {
+        if (!pageData.rows.length) return null;
+        if (current) return pageData.rows.find((item) => item.id === current.id) || pageData.rows[0];
+        return pageData.rows[0];
       });
-      setRequests(data);
-      setSelected((current) =>
-        current ? data.find((item) => item.id === current.id) || data[0] || null : data[0] || null
-      );
     } catch (error) {
-      toast.error(`تعذر تحميل طلبات العملاء: ${(error as Error).message}`);
+      toast.error(`تعذر تحميل مركز طلبات العملاء: ${(error as Error).message}`);
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, branchFilter, search]);
+  }, [assigneeFilter, branchFilter, channelFilter, page, pageSize, quickFilter, search, sourceFilter, statusFilter, urgencyFilter]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadRequests();
-    }, 250);
+    const timer = window.setTimeout(() => void load(), search ? 350 : 50);
     return () => window.clearTimeout(timer);
-  }, [loadRequests]);
+  }, [load, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [assigneeFilter, branchFilter, channelFilter, quickFilter, search, sourceFilter, statusFilter, urgencyFilter]);
 
   useEffect(() => {
     if (!selected) {
@@ -180,44 +217,17 @@ export default function CustomerRequests() {
       return;
     }
     setNewStatus(selected.status || 'new');
-    getCustomerRequestEvents(selected.id).then(setEvents);
+    void getCustomerRequestEvents(selected.id).then(setEvents);
   }, [selected]);
 
-  const stats = useMemo(() => {
-    const open = requests.filter(
-      (item) => !CLOSED_REQUEST_STATUSES.has(String(item.status))
-    ).length;
-    return {
-      total: requests.length,
-      open,
-      urgent: requests.filter((item) =>
-        ['urgent', 'high', 'عاجل', 'مهم'].includes(String(item.urgency))
-      ).length,
-      needsConfirm: requests.filter((item) => item.status === 'needs_customer_confirmation').length,
-      arrived: requests.filter((item) => ['available', 'arrived'].includes(String(item.status)))
-        .length,
-    };
-  }, [requests]);
-
-  const sortedRequests = useMemo(
-    () => [...requests].sort((a, b) => requestPriority(b) - requestPriority(a) || new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()),
-    [requests]
-  );
-
   const handleStatusUpdate = async () => {
-    if (!selected || !newStatus) return;
+    if (!selected || !newStatus || newStatus === selected.status) return;
     setSaving(true);
     try {
       const updated = await updateCustomerRequestStatus(selected, {
         status: newStatus,
         notes: statusNote,
-        purchasing_notes: [
-          'purchasing_review',
-          'searching_suppliers',
-          'sourcing',
-          'available',
-          'arrived',
-        ].includes(newStatus)
+        purchasing_notes: ['purchasing_review', 'searching_suppliers', 'sourcing', 'available', 'arrived'].includes(newStatus)
           ? statusNote
           : undefined,
         contact_summary: ['customer_contacted', 'delivered', 'closed'].includes(newStatus)
@@ -227,13 +237,31 @@ export default function CustomerRequests() {
         user_id: user?.id,
         user_name: user?.name,
       });
-      setSelected(updated);
-      setRequests((items) => items.map((item) => (item.id === updated.id ? updated : item)));
       setStatusNote('');
-      setEvents(await getCustomerRequestEvents(updated.id));
-      toast.success('تم تحديث حالة طلب العميل');
+      setSelected(updated);
+      toast.success('تم تحديث حالة الطلب');
+      await load();
     } catch (error) {
       toast.error(`تعذر تحديث الطلب: ${(error as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMoveToShortage = async () => {
+    if (!selected) return;
+    if (!window.confirm('سيتم ربط الطلب بقائمة النواقص مع الاحتفاظ بكل بيانات العميل والتتبع. هل تريد المتابعة؟')) return;
+    setSaving(true);
+    try {
+      const result = await moveCustomerRequestToShortage(selected, {
+        user_id: user?.id,
+        user_name: user?.name,
+      });
+      setSelected(result.request);
+      toast.success('تم ربط الطلب بالنواقص');
+      await load();
+    } catch (error) {
+      toast.error(`تعذر نقل الطلب للنواقص: ${(error as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -242,415 +270,471 @@ export default function CustomerRequests() {
   const openWhatsApp = () => {
     if (!selected?.customer_phone) return toast.error('لا يوجد رقم هاتف صالح للعميل');
     const message = `أهلاً ${selected.customer_name || 'حضرتك'}، مع حضرتك صيدليات دواء بخصوص طلب صنف ${selected.medicine_name}.`;
-    window.open(
-      generateWhatsAppLink(selected.customer_phone, message),
-      '_blank',
-      'noopener,noreferrer'
-    );
+    window.open(generateWhatsAppLink(selected.customer_phone, message), '_blank', 'noopener,noreferrer');
   };
-
-  const handleMoveToShortage = async () => {
-    if (!selected) return;
-    const confirmed = window.confirm(
-      'سيتم نقل الطلب إلى صفحة النواقص مع الاحتفاظ ببيانات العميل والطلب. هل تريد المتابعة؟'
-    );
-    if (!confirmed) return;
-    setSaving(true);
-    try {
-      const result = await moveCustomerRequestToShortage(selected, {
-        user_id: user?.id,
-        user_name: user?.name,
-      });
-      setSelected(result.request);
-      setRequests((items) =>
-        items.map((item) => (item.id === selected.id ? result.request : item))
-      );
-      setEvents(await getCustomerRequestEvents(selected.id));
-      toast.success('تم نقل الطلب إلى النواقص وربطه بطلب العميل');
-    } catch (error) {
-      toast.error(`تعذر نقل الطلب للنواقص: ${(error as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleClearFollowupHistory = async () => {
-    const confirmed = window.confirm(
-      '⚠️ تحذير شديد: سيتم حذف سجل المتابعات بالكامل من الجداول التالية:\n\n• customer_request_events\n• customer_requests\n• customer_notes\n• customer_flags\n\nلن يتم حذف بيانات العملاء من جدول customers.\n\nهل أنت متأكد تمامًا من أنك تريد مسح سجل المتابعات؟'
-    );
-    if (!confirmed) return;
-    setSaving(true);
-    try {
-      const { error: eventsError } = await supabase
-        .from('customer_request_events')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
-      if (eventsError) throw new Error(eventsError.message);
-
-      const { error: requestsError } = await supabase
-        .from('customer_requests')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
-      if (requestsError) throw new Error(requestsError.message);
-
-      const { error: notesError } = await supabase
-        .from('customer_notes')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
-      if (notesError) throw new Error(notesError.message);
-
-      const { error: flagsError } = await supabase
-        .from('customer_flags')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
-      if (flagsError) throw new Error(flagsError.message);
-
-      toast.success('تم مسح سجل المتابعات بالكامل');
-      await loadRequests();
-    } catch (error) {
-      toast.error(`تعذر مسح سجل المتابعات: ${(error as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="section-title">طلبات العملاء</div>
-        {[1, 2, 3].map((item) => (
-          <div key={item} className="stat-card h-24 animate-pulse bg-white/5" />
-        ))}
-      </div>
-    );
-  }
 
   return (
-    <div className="w-full max-w-full space-y-5 overflow-hidden" dir="rtl">
-      <section className="rounded-3xl border border-cyan-500/25 bg-gradient-to-l from-[#12304d] via-[#102640] to-slate-950 p-5 text-slate-100 shadow-xl">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 text-2xl font-black text-white">
-            <PackageSearch size={24} className="text-teal-300" /> طلبات العملاء
-          </div>
-          <div className="mt-2 max-w-3xl text-sm font-semibold leading-7 text-slate-200">
-            تتبع الأصناف المطلوبة من العملاء من لحظة تسجيل الدكتور حتى البحث والتوفير والتواصل
-            والتسليم.
-          </div>
-        </div>
-        <button
-          onClick={() => setShowCreate((value) => !value)}
-          className="btn-primary flex items-center justify-center gap-2 whitespace-nowrap"
-        >
-          <Plus size={16} /> تسجيل طلب عميل
-        </button>
-        <button onClick={loadRequests} className="btn-secondary flex items-center justify-center gap-2 whitespace-nowrap">
-          <RefreshCw size={16} /> تحديث
-        </button>
-        {user?.role === 'مدير عام' && (
-          <button
-            onClick={handleClearFollowupHistory}
-            disabled={saving}
-            className="btn-danger flex items-center gap-2"
-          >
-            <AlertTriangle size={16} /> مسح سجل المتابعات
-          </button>
-        )}
-      </div>
-      </section>
+    <div className="space-y-5" dir="rtl">
+      <CommandHeader
+        summary={summary}
+        onCreate={() => setShowCreate((value) => !value)}
+        onRefresh={load}
+        loading={loading}
+      />
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Stat label="إجمالي الطلبات" value={stats.total} />
-        <Stat label="طلبات مفتوحة" value={stats.open} color="text-amber-300" />
-        <Stat label="طلبات عاجلة" value={stats.urgent} color="text-red-300" />
-        <Stat label="تحتاج تأكيد" value={stats.needsConfirm} color="text-purple-300" />
-        <Stat label="تم توفيرها/وصلت" value={stats.arrived} color="text-green-300" />
-      </div>
-
-      <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg">
-      <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="font-black text-white">مسار تنفيذ الطلبات</h2><p className="mt-1 text-xs text-slate-300">اضغط على أي مرحلة لعرض طلباتها مباشرة</p></div><button type="button" onClick={() => setStatusFilter('all')} className="shrink-0 rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-bold text-slate-100 hover:border-cyan-400">عرض الكل</button></div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        {REQUEST_STATUS_FLOW.slice(0, 7).map((stage, idx) => {
-          const count = requests.filter(
-            (item) => String(item.status || 'new') === stage.value
-          ).length;
-          return (
-            <button
-              key={stage.value}
-              type="button"
-              onClick={() => setStatusFilter(stage.value)}
-              className={`min-h-[104px] rounded-2xl border p-3 text-right transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${statusFilter === stage.value ? 'border-cyan-300 bg-cyan-500/20 shadow-lg' : 'border-slate-600 bg-slate-900/70 hover:border-cyan-400/60 hover:bg-slate-800'}`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="w-7 h-7 rounded-xl bg-teal-500/15 text-teal-300 flex items-center justify-center font-black num">
-                  {idx + 1}
-                </span>
-                <span className="badge-info">{count}</span>
-              </div>
-              <div className="mt-2 text-sm font-bold text-white leading-6">{stage.label}</div>
-            </button>
-          );
-        })}
-      </div>
-      </section>
+      <QuickQueues value={quickFilter} onChange={setQuickFilter} summary={summary} />
 
       {showCreate && (
         <CreateRequestPanel
-          customers={customers || []}
           doctors={doctors}
           user={user}
-          onCreated={(request) => {
-            setRequests((items) => [request, ...items]);
-            setSelected(request);
+          onCreated={async (request) => {
             setShowCreate(false);
-            toast.success('تم تسجيل طلب العميل وإرساله للمتابعة');
+            setSelected(request);
+            setQuickFilter('today');
+            setPage(1);
+            toast.success('تم تسجيل طلب العميل');
+            await load();
           }}
         />
       )}
 
-      <div className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-700 bg-[#102640] p-4 lg:grid-cols-4">
-        <div className="relative lg:col-span-2">
-          <Search size={16} className="absolute left-3 top-3 text-slate-400" />
-          <input
-            className="input-dark pl-9"
-            placeholder="بحث باسم العميل أو الكود أو الصنف أو الدكتور... مثال: *ا*س*لا*م"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </div>
-        <select
-          className="input-dark"
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-        >
-          {statusGroups.map((item) => (
-            <option key={item.key} value={item.key}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-        <select
-          className="input-dark"
-          value={branchFilter}
-          onChange={(event) => setBranchFilter(event.target.value)}
-        >
-          <option value="all">كل الفروع</option>
-          <option value="فرع شكري">فرع شكري</option>
-          <option value="فرع الشامي">فرع الشامي</option>
-        </select>
-      </div>
+      <Filters
+        search={search}
+        setSearch={setSearch}
+        branch={branchFilter}
+        setBranch={setBranchFilter}
+        status={statusFilter}
+        setStatus={setStatusFilter}
+        urgency={urgencyFilter}
+        setUrgency={setUrgencyFilter}
+        source={sourceFilter}
+        setSource={setSourceFilter}
+        channel={channelFilter}
+        setChannel={setChannelFilter}
+        assignee={assigneeFilter}
+        setAssignee={setAssigneeFilter}
+        assignees={assignees}
+      />
 
-      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(300px,0.9fr)_minmax(0,2.1fr)]">
-        <div className="max-h-[calc(100vh-230px)] space-y-2 overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950/40 p-3 [scrollbar-color:#22d3ee_#0f172a] [scrollbar-width:thin]">
-          {requests.length === 0 ? (
-            <div className="stat-card text-center py-12 text-slate-400">
-              لا توجد متابعات مسجلة حاليًا
+      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(340px,0.95fr)_minmax(0,2.05fr)]">
+        <section className="min-w-0 rounded-3xl border border-slate-700 bg-slate-950/50 p-3 shadow-xl">
+          <div className="mb-3 flex items-center justify-between gap-3 px-1">
+            <div>
+              <div className="font-black text-white">قائمة التشغيل</div>
+              <div className="mt-1 text-xs text-slate-400">
+                {totalRows.toLocaleString('ar-EG')} طلب مطابق للفلاتر
+              </div>
+            </div>
+            <select
+              className="input-dark w-auto min-w-24 text-xs"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+            >
+              <option value={20}>20</option>
+              <option value={30}>30</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+
+          {loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="h-32 animate-pulse rounded-2xl bg-slate-800/80" />
+              ))}
+            </div>
+          ) : requests.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-700 p-10 text-center text-sm text-slate-400">
+              لا توجد طلبات مطابقة للفلاتر الحالية.
             </div>
           ) : (
-            sortedRequests.map((request) => (
-              <button
-                key={request.id}
-                onClick={() => setSelected(request)}
-                className={`w-full rounded-2xl border p-4 text-right transition-all ${selected?.id === request.id ? 'border-cyan-300 bg-cyan-500/15 shadow-lg' : 'border-slate-700 bg-[#132946] hover:border-cyan-400/50 hover:bg-[#173452]'}`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center text-teal-300">
-                    <PackageSearch size={19} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-white font-bold truncate">{request.medicine_name}</div>
-                      <span
-                        className={requestNeedsAttention(request) ? 'badge-warning' : 'badge-info'}
-                      >
-                        {requestStatusLabel(request.status)}
-                      </span>
-                    </div>
-                    <div className="text-slate-400 text-xs mt-1 truncate">
-                      {request.customer_name || 'عميل غير محدد'} — كود{' '}
-                      {request.customer_code || 'غير محدد'} —{' '}
-                      {displayEgyptianPhone(request.customer_phone || '')}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-300">
-                      <span>الكمية: {request.quantity || 1}</span>
-                      <span>الدكتور: {request.doctor_name || 'غير محدد'}</span>
-                      <span>{request.branch || 'كل الفروع'}</span>
-                      <span className="inline-flex items-center gap-1 text-cyan-200"><Clock3 size={12} /> منذ {requestAgeDays(request)} يوم</span>
-                    </div>
-                  </div>
-                </div>
-              </button>
-            ))
+            <div className="max-h-[calc(100vh-245px)] space-y-2 overflow-y-auto pe-1 [scrollbar-color:#22d3ee_#0f172a] [scrollbar-width:thin]">
+              {requests.map((request) => (
+                <RequestCard
+                  key={request.id}
+                  request={request}
+                  selected={selected?.id === request.id}
+                  onSelect={() => setSelected(request)}
+                />
+              ))}
+            </div>
           )}
-        </div>
 
-        <div className="min-w-0">
+          <Pagination page={page} pages={totalPages} onPage={setPage} />
+        </section>
+
+        <section className="min-w-0">
           {selected ? (
-            <div className="space-y-4">
-              <div className="rounded-3xl border border-cyan-500/25 bg-[#102640] p-5 shadow-xl">
-                <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                  {(selected.medicine_image_url || selected.item_image_url) ? <img src={selected.medicine_image_url || selected.item_image_url || ''} alt={selected.medicine_name} className="h-20 w-20 shrink-0 rounded-2xl border border-cyan-400/30 bg-slate-900 object-cover" /> : <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-teal-400/25 bg-teal-500/15 text-teal-300"><ShoppingCart size={26} /></div>}
-                  <div className="flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-white text-xl font-bold">{selected.medicine_name}</h2>
-                      <span
-                        className={requestNeedsAttention(selected) ? 'badge-warning' : 'badge-info'}
-                      >
-                        {requestStatusLabel(selected.status)}
-                      </span>
-                      {selected.is_expensive_or_special && (
-                        <span className="badge-danger">صنف غالي/خاص</span>
-                      )}
-                      {selected.needs_customer_confirmation && (
-                        <span className="badge-warning">يحتاج تأكيد العميل</span>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-                      <Detail
-                        icon={UserRound}
-                        label="العميل"
-                        value={`${selected.customer_name || 'غير محدد'} — كود ${selected.customer_code || 'غير محدد'}`}
-                      />
-                      <Detail
-                        icon={Phone}
-                        label="الهاتف"
-                        value={displayEgyptianPhone(selected.customer_phone || '')}
-                      />
-                      <Detail
-                        icon={Truck}
-                        label="الفرع/الكمية"
-                        value={`${selected.branch || 'غير محدد'} — ${selected.quantity || 1} علبة`}
-                      />
-                    </div>
-                    <div className="mt-4"><div className="mb-1 flex items-center justify-between text-xs font-bold text-slate-300"><span>تقدم تنفيذ الطلب</span><span className="num text-cyan-200">{requestProgress(selected.status)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-l from-cyan-400 to-teal-500 transition-all" style={{ width: `${requestProgress(selected.status)}%` }} /></div></div>
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
-                    <button onClick={openWhatsApp} className="btn-primary">
-                      واتساب العميل
-                    </button>
-                    <button
-                      onClick={handleMoveToShortage}
-                      disabled={saving || selected.status === 'not_available'}
-                      className="btn-secondary text-sm"
-                    >
-                      نقل للنواقص
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <InfoCard title="ملاحظات الدكتور ومصدر البحث">
-                  <Line label="الدكتور الذي سجل الطلب" value={selected.doctor_name || 'غير محدد'} />
-                  <Line label="ملاحظة الدكتور" value={selected.doctor_notes || 'لا توجد ملاحظات'} />
-                  <Line label="مورد/صيدلية محتملة" value={selected.supplier_hint || 'غير محدد'} />
-                  <Line
-                    label="تاريخ التسجيل"
-                    value={selected.created_at ? formatDate(selected.created_at) : 'غير محدد'}
-                  />
-                  <Line label="موعد احتياج العميل" value={selected.needed_by_date ? formatDate(selected.needed_by_date) : selected.expected_fulfillment_days ? `خلال ${selected.expected_fulfillment_days} يوم` : 'غير محدد'} />
-                  <Line label="عمر الطلب" value={`${requestAgeDays(selected)} يوم`} />
-                </InfoCard>
-
-                <InfoCard title="إدارة الحالة والمتابعة">
-                  <select
-                    className="input-dark"
-                    value={newStatus}
-                    onChange={(event) => setNewStatus(event.target.value)}
-                  >
-                    {REQUEST_STATUS_FLOW.map((status) => (
-                      <option key={status.value} value={status.value}>
-                        {status.label}
-                      </option>
-                    ))}
-                  </select>
-                  <textarea
-                    className="input-dark min-h-[92px] mt-3"
-                    value={statusNote}
-                    onChange={(event) => setStatusNote(event.target.value)}
-                    placeholder="اكتب نتيجة البحث، رد المورد، تأكيد العميل، أو ملخص التواصل..."
-                  />
-                  <button
-                    onClick={handleStatusUpdate}
-                    disabled={saving || newStatus === selected.status}
-                    className="btn-primary mt-3 w-full flex items-center justify-center gap-2"
-                  >
-                    {saving && <Loader2 size={16} className="animate-spin" />} تحديث حالة الطلب
-                  </button>
-                </InfoCard>
-              </div>
-
-              <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
-                <div className="section-title flex items-center gap-2 mb-4">
-                  <History size={20} /> سجل تتبع الطلب
-                </div>
-                {events.length === 0 ? (
-                  <div className="text-slate-400 text-sm">لا توجد أحداث مسجلة لهذا الطلب بعد.</div>
-                ) : (
-                  <div className="relative space-y-3 before:absolute before:bottom-3 before:right-[11px] before:top-3 before:w-px before:bg-cyan-500/30">
-                    {events.map((event) => (
-                      <div
-                        key={event.id}
-                        className="relative mr-6 rounded-xl border border-slate-700 bg-slate-900/70 p-3 before:absolute before:-right-[31px] before:top-4 before:h-3 before:w-3 before:rounded-full before:border-2 before:border-[#102640] before:bg-cyan-400"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-white font-semibold">
-                            {event.action || 'تحديث طلب'}
-                          </div>
-                          <div className="text-slate-400 text-xs">
-                            {event.created_at ? formatDate(event.created_at) : ''}
-                          </div>
-                        </div>
-                        <div className="text-slate-300 text-sm mt-1">
-                          {event.notes || 'بدون ملاحظات'}
-                        </div>
-                        <div className="text-slate-500 text-xs mt-1">
-                          {event.old_status ? requestStatusLabel(event.old_status) : 'بداية'} ←{' '}
-                          {requestStatusLabel(event.new_status)} — بواسطة{' '}
-                          {event.created_by_name || 'النظام'}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <RequestDetail
+              request={selected}
+              events={events}
+              newStatus={newStatus}
+              setNewStatus={setNewStatus}
+              note={statusNote}
+              setNote={setStatusNote}
+              saving={saving}
+              onStatus={handleStatusUpdate}
+              onWhatsApp={openWhatsApp}
+              onShortage={handleMoveToShortage}
+            />
           ) : (
-            <div className="stat-card text-center py-16 text-slate-400">
-              اختر طلبًا لعرض التفاصيل.
+            <div className="rounded-3xl border border-slate-700 bg-[#102640] p-12 text-center text-slate-400">
+              اختر طلبًا من القائمة لعرض مركز تفاصيله.
             </div>
           )}
-        </div>
+        </section>
       </div>
     </div>
   );
 }
 
+function CommandHeader({
+  summary,
+  onCreate,
+  onRefresh,
+  loading,
+}: {
+  summary: CustomerRequestCommandSummary;
+  onCreate: () => void;
+  onRefresh: () => void;
+  loading: boolean;
+}) {
+  const kpis = [
+    { label: 'إجمالي الطلبات', value: summary.total, icon: Database, tone: 'text-cyan-200' },
+    { label: 'مفتوحة', value: summary.open, icon: PackageSearch, tone: 'text-amber-200' },
+    { label: 'عاجلة', value: summary.urgent, icon: AlertTriangle, tone: 'text-red-300' },
+    { label: 'جاري البحث', value: summary.searching, icon: Search, tone: 'text-indigo-200' },
+    { label: 'جاهزة/متوفرة', value: summary.ready, icon: PackageCheck, tone: 'text-emerald-300' },
+    { label: 'تم التسليم', value: summary.delivered, icon: CheckCircle2, tone: 'text-green-300' },
+  ];
+
+  return (
+    <>
+      <section className="overflow-hidden rounded-3xl border border-cyan-400/25 bg-gradient-to-l from-[#113656] via-[#102640] to-[#071526] p-5 shadow-2xl">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-center">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 text-2xl font-black text-white">
+              <Sparkles className="text-cyan-300" size={24} /> مركز تشغيل طلبات العملاء
+            </div>
+            <p className="mt-2 max-w-4xl text-sm font-semibold leading-7 text-slate-300">
+              شاشة واحدة لمتابعة الطلب من التسجيل حتى التوفير والتواصل والتسليم، مع أولوية ذكية وجودة بيانات ومصدر الطلب والمسئول الحالي.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
+              <span className="rounded-full bg-emerald-500/15 px-3 py-1.5 text-emerald-200">نسبة التوفير {summary.fulfillment_rate}%</span>
+              <span className="rounded-full bg-cyan-500/15 px-3 py-1.5 text-cyan-200">متوسط دورة الطلب {summary.avg_fulfillment_hours} ساعة</span>
+              <span className="rounded-full bg-slate-700/70 px-3 py-1.5 text-slate-200">{summary.from_dawaawael} من dawaawael</span>
+              {summary.sync_conflicts > 0 && <span className="rounded-full bg-red-500/15 px-3 py-1.5 text-red-200">{summary.sync_conflicts} تعارض مزامنة</span>}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-primary flex items-center gap-2" onClick={onCreate}><Plus size={16} /> تسجيل طلب</button>
+            <button className="btn-secondary flex items-center gap-2" onClick={onRefresh} disabled={loading}>
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {kpis.map(({ label, value, icon: Icon, tone }) => (
+          <div key={label} className="rounded-2xl border border-slate-700 bg-[#102640] p-4 shadow-lg">
+            <div className="flex items-center justify-between gap-2">
+              <Icon size={18} className={tone} />
+              <span className={`num text-2xl font-black ${tone}`}>{value.toLocaleString('ar-EG')}</span>
+            </div>
+            <div className="mt-2 text-xs font-bold text-slate-300">{label}</div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function QuickQueues({
+  value,
+  onChange,
+  summary,
+}: {
+  value: CustomerRequestQuickFilter;
+  onChange: (value: CustomerRequestQuickFilter) => void;
+  summary: CustomerRequestCommandSummary;
+}) {
+  const counts: Partial<Record<CustomerRequestQuickFilter, number>> = {
+    today: summary.today,
+    urgent: summary.urgent,
+    overdue: summary.overdue,
+    unassigned: summary.unassigned,
+    unlinked: summary.unlinked_customer,
+    all: summary.total,
+  };
+
+  return (
+    <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg">
+      <div className="mb-3 flex items-center gap-2 text-sm font-black text-white">
+        <BarChart3 size={18} className="text-cyan-300" /> قوائم العمل الذكية
+      </div>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+        {QUICK_FILTERS.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            onClick={() => onChange(item.value)}
+            className={`rounded-2xl border p-3 text-right transition ${value === item.value ? 'border-cyan-300 bg-cyan-500/15 shadow-lg' : 'border-slate-700 bg-slate-900/60 hover:border-cyan-400/50'}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-black text-white">{item.label}</span>
+              {counts[item.value] !== undefined && <span className="num text-xs font-black text-cyan-200">{counts[item.value]}</span>}
+            </div>
+            <div className="mt-1 text-[11px] leading-5 text-slate-400">{item.description}</div>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Filters(props: {
+  search: string;
+  setSearch: (value: string) => void;
+  branch: string;
+  setBranch: (value: string) => void;
+  status: string;
+  setStatus: (value: string) => void;
+  urgency: string;
+  setUrgency: (value: string) => void;
+  source: string;
+  setSource: (value: string) => void;
+  channel: string;
+  setChannel: (value: string) => void;
+  assignee: string;
+  setAssignee: (value: string) => void;
+  assignees: string[];
+}) {
+  return (
+    <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7">
+        <div className="relative md:col-span-2 xl:col-span-2">
+          <Search size={16} className="absolute left-3 top-3.5 text-slate-400" />
+          <input
+            className="input-dark pl-9"
+            placeholder="اسم العميل، الكود، الهاتف، الصنف، رقم الطلب..."
+            value={props.search}
+            onChange={(event) => props.setSearch(event.target.value)}
+          />
+        </div>
+        <select className="input-dark" value={props.branch} onChange={(event) => props.setBranch(event.target.value)}>
+          <option value="all">كل الفروع</option>
+          <option value="فرع شكري">فرع شكري</option>
+          <option value="فرع الشامي">فرع الشامي</option>
+        </select>
+        <select className="input-dark" value={props.status} onChange={(event) => props.setStatus(event.target.value)}>
+          <option value="all">كل الحالات</option>
+          {REQUEST_STATUS_FLOW.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
+        <select className="input-dark" value={props.urgency} onChange={(event) => props.setUrgency(event.target.value)}>
+          <option value="all">كل الأولويات</option>
+          <option value="urgent">عاجل/مهم</option>
+          <option value="normal">عادي</option>
+        </select>
+        <select className="input-dark" value={props.source} onChange={(event) => props.setSource(event.target.value)}>
+          <option value="all">كل المصادر</option>
+          <option value="dawaawael">dawaawael</option>
+          <option value="manual">تسجيل الإدارة</option>
+        </select>
+        <select className="input-dark" value={props.channel} onChange={(event) => props.setChannel(event.target.value)}>
+          <option value="all">كل قنوات الطلب</option>
+          <option value="واتساب">واتساب</option>
+          <option value="داخل الصيدلية">داخل الصيدلية</option>
+          <option value="مكالمة هاتفية">مكالمة هاتفية</option>
+        </select>
+        <select className="input-dark xl:col-start-6 xl:col-span-2" value={props.assignee} onChange={(event) => props.setAssignee(event.target.value)}>
+          <option value="all">كل المسئولين</option>
+          <option value="unassigned">بدون مسئول</option>
+          {props.assignees.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+      </div>
+    </section>
+  );
+}
+
+function RequestCard({ request, selected, onSelect }: { request: CustomerRequest; selected: boolean; onSelect: () => void }) {
+  const issues = customerRequestQualityIssues(request);
+  const overdue = customerRequestIsOverdue(request);
+  const urgent = customerRequestIsUrgent(request);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full rounded-2xl border p-4 text-right transition ${selected ? 'border-cyan-300 bg-cyan-500/15 shadow-lg' : overdue ? 'border-amber-500/35 bg-amber-500/[0.06] hover:border-amber-300/60' : 'border-slate-700 bg-[#132946] hover:border-cyan-400/50'}`}
+    >
+      <div className="flex items-start gap-3">
+        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${urgent ? 'bg-red-500/15 text-red-300' : 'bg-teal-500/15 text-teal-300'}`}>
+          <PackageSearch size={19} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="max-w-full truncate font-black text-white">{request.medicine_name}</div>
+            <span className={overdue ? 'badge-warning' : customerRequestIsClosed(request) ? 'badge-success' : 'badge-info'}>{requestStatusLabel(request.status)}</span>
+          </div>
+          <div className="mt-1 truncate text-xs text-slate-400">
+            {request.customer_name || 'عميل غير محدد'} · كود {request.customer_code || '—'} · {displayEgyptianPhone(request.customer_phone || '') || 'بدون هاتف'}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-bold">
+            <span className="rounded-lg bg-slate-800 px-2 py-1 text-slate-200">{request.branch || 'بدون فرع'}</span>
+            <span className="rounded-lg bg-slate-800 px-2 py-1 text-cyan-200"><Clock3 size={11} className="inline ms-1" />{ageLabel(request)}</span>
+            <span className="rounded-lg bg-slate-800 px-2 py-1 text-slate-200">{sourceLabel(request)}</span>
+            {request.source_order_number && <span className="rounded-lg bg-slate-800 px-2 py-1 text-slate-300">#{request.source_order_number}</span>}
+            {urgent && <span className="rounded-lg bg-red-500/15 px-2 py-1 text-red-200">عاجل</span>}
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+            <span>المسئول: <strong className="text-slate-200">{currentOwner(request)}</strong></span>
+            {issues.length > 0 && <span className="text-amber-300">{issues.length} ملاحظة بيانات</span>}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function RequestDetail(props: {
+  request: CustomerRequest;
+  events: CustomerRequestEvent[];
+  newStatus: string;
+  setNewStatus: (value: string) => void;
+  note: string;
+  setNote: (value: string) => void;
+  saving: boolean;
+  onStatus: () => void;
+  onWhatsApp: () => void;
+  onShortage: () => void;
+}) {
+  const request = props.request;
+  const issues = customerRequestQualityIssues(request);
+  const progress = progressValue(request.status);
+  return (
+    <div className="space-y-4">
+      <div className="rounded-3xl border border-cyan-500/25 bg-[#102640] p-5 shadow-xl">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+          {(request.medicine_image_url || request.item_image_url) ? (
+            <img src={request.medicine_image_url || request.item_image_url || ''} alt={request.medicine_name} className="h-24 w-24 shrink-0 rounded-2xl border border-cyan-400/30 bg-slate-900 object-cover" />
+          ) : (
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-teal-500/15 text-teal-300"><ShoppingCart size={26} /></div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-black text-white">{request.medicine_name}</h2>
+              <span className="badge-info">{requestStatusLabel(request.status)}</span>
+              {customerRequestIsUrgent(request) && <span className="badge-danger">عاجل</span>}
+              {customerRequestIsOverdue(request) && <span className="badge-warning">متأخر</span>}
+              {request.shortage_item_id && <span className="badge-info">مرتبط بالنواقص</span>}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
+              <span className="rounded-full bg-slate-800 px-3 py-1.5 text-slate-200">المصدر: {sourceLabel(request)}</span>
+              {request.source_request_channel && <span className="rounded-full bg-slate-800 px-3 py-1.5 text-slate-200">القناة: {request.source_request_channel}</span>}
+              {request.source_order_number && <span className="rounded-full bg-slate-800 px-3 py-1.5 text-cyan-200">رقم المصدر: {request.source_order_number}</span>}
+              <span className="rounded-full bg-slate-800 px-3 py-1.5 text-slate-200">المسئول: {currentOwner(request)}</span>
+            </div>
+            <div className="mt-4">
+              <div className="mb-1 flex items-center justify-between text-xs font-bold text-slate-300"><span>تقدم تنفيذ الطلب</span><span className="num text-cyan-200">{progress}%</span></div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-l from-cyan-400 to-teal-500" style={{ width: `${progress}%` }} /></div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 lg:w-44 lg:flex-col">
+            <button className="btn-primary flex flex-1 items-center justify-center gap-2" onClick={props.onWhatsApp}><MessageCircle size={15} /> واتساب</button>
+            <button className="btn-secondary flex flex-1 items-center justify-center gap-2" onClick={props.onShortage} disabled={props.saving}><PackageSearch size={15} /> للنواقص</button>
+            {request.customer_id && <Link to={`/customers/${request.customer_id}`} className="btn-secondary flex flex-1 items-center justify-center gap-2"><UserRound size={15} /> ملف العميل</Link>}
+          </div>
+        </div>
+      </div>
+
+      {issues.length > 0 && (
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
+          <div className="flex items-center gap-2 font-black text-amber-200"><AlertTriangle size={17} /> مراجعة جودة البيانات</div>
+          <div className="mt-2 flex flex-wrap gap-2">{issues.map((issue) => <span key={issue} className="rounded-full bg-amber-500/15 px-3 py-1 text-xs font-bold text-amber-100">{issue}</span>)}</div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <InfoCard title="بيانات العميل والطلب" icon={UsersRound}>
+          <Line label="العميل" value={request.customer_name || 'غير محدد'} />
+          <Line label="الكود" value={request.customer_code || 'غير محدد'} />
+          <Line label="الهاتف" value={displayEgyptianPhone(request.customer_phone || '') || 'غير محدد'} />
+          <Line label="الفرع" value={request.branch || 'غير محدد'} />
+          <Line label="الكمية" value={String(request.quantity || 1)} />
+          <Line label="تاريخ الطلب" value={request.requested_at ? formatDate(request.requested_at) : request.created_at ? formatDate(request.created_at) : 'غير محدد'} />
+          <Line label="عمر الطلب" value={ageLabel(request)} />
+        </InfoCard>
+
+        <InfoCard title="المشتريات والتوفير" icon={Truck}>
+          <Line label="المسئول الحالي" value={currentOwner(request)} />
+          <Line label="بدأ البحث بواسطة" value={request.searching_by_name || 'غير محدد'} />
+          <Line label="تم التوفير بواسطة" value={request.provided_by_name || 'غير محدد'} />
+          <Line label="المورد/المصدر" value={request.supplier_hint || request.potential_source_text || 'غير محدد'} />
+          <Line label="السعر المتوقع" value={request.expected_price ? `${request.expected_price} ج` : 'غير محدد'} />
+          <Line label="موعد الوصول" value={request.expected_arrival_date ? formatDate(request.expected_arrival_date) : 'غير محدد'} />
+          <Line label="ملاحظات المشتريات" value={request.purchasing_notes || request.source_notes || 'لا توجد'} />
+        </InfoCard>
+
+        <InfoCard title="التواصل والنتيجة" icon={Phone}>
+          <Line label="تم التواصل بواسطة" value={request.customer_contacted_by_name || 'غير محدد'} />
+          <Line label="ملخص التواصل" value={request.contact_summary || 'لا يوجد'} />
+          <Line label="حالة تأكيد العميل" value={request.customer_confirmation_status || 'غير محدد'} />
+          <Line label="تم التسليم بواسطة" value={request.delivered_by_name || 'غير محدد'} />
+          <Line label="تاريخ الإغلاق" value={request.closed_at ? formatDate(request.closed_at) : 'ما زال مفتوحًا'} />
+        </InfoCard>
+
+        <InfoCard title="تحديث الحالة" icon={RefreshCw}>
+          <select className="input-dark" value={props.newStatus} onChange={(event) => props.setNewStatus(event.target.value)}>
+            {REQUEST_STATUS_FLOW.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+          </select>
+          <textarea className="input-dark mt-3 min-h-24" value={props.note} onChange={(event) => props.setNote(event.target.value)} placeholder="نتيجة البحث، رد المورد، تأكيد العميل، أو ملخص التواصل..." />
+          <button className="btn-primary mt-3 flex w-full items-center justify-center gap-2" disabled={props.saving || props.newStatus === request.status} onClick={props.onStatus}>
+            {props.saving && <Loader2 size={16} className="animate-spin" />} حفظ التحديث
+          </button>
+        </InfoCard>
+      </div>
+
+      <InfoCard title="سجل الحركة الكامل" icon={History}>
+        {props.events.length === 0 ? (
+          <div className="text-sm text-slate-400">لا توجد أحداث مسجلة.</div>
+        ) : (
+          <div className="space-y-3">
+            {props.events.map((event) => (
+              <div key={event.id} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm text-white">{event.action || 'تحديث'}</strong><span className="text-xs text-slate-400">{event.created_at ? formatDate(event.created_at) : ''}</span></div>
+                <div className="mt-1 text-sm text-slate-300">{event.notes || 'بدون ملاحظات'}</div>
+                <div className="mt-1 text-xs text-slate-500">{event.old_status ? requestStatusLabel(event.old_status) : 'بداية'} ← {requestStatusLabel(event.new_status)} · {event.created_by_name || 'النظام'}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </InfoCard>
+    </div>
+  );
+}
+
 function CreateRequestPanel({
-  customers,
   doctors,
   user,
   onCreated,
 }: {
-  customers: CustomerRow[];
   doctors: StaffOption[];
   user: { id?: string; name?: string } | null;
-  onCreated: (request: CustomerRequest) => void;
+  onCreated: (request: CustomerRequest) => void | Promise<void>;
 }) {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSearchResult | null>(null);
   const [medicineName, setMedicineName] = useState('');
   const [image, setImage] = useState({ publicUrl: '', path: '' });
   const [quantity, setQuantity] = useState(1);
-  const [requestedAt, setRequestedAt] = useState(new Date().toISOString().slice(0, 16));
-  const [neededByDate, setNeededByDate] = useState('');
-  const [expectedDays, setExpectedDays] = useState(0);
   const [urgency, setUrgency] = useState('normal');
   const [doctorId, setDoctorId] = useState('');
   const [doctorNotes, setDoctorNotes] = useState('');
   const [supplierHint, setSupplierHint] = useState('');
-  const [special, setSpecial] = useState(false);
   const [saving, setSaving] = useState(false);
-
   const selectedDoctor = doctors.find((item) => item.id === doctorId);
 
   const submit = async (event: FormEvent) => {
@@ -671,20 +755,14 @@ function CreateRequestPanel({
         item_image_path: image.path || null,
         quantity,
         urgency,
-        is_expensive_or_special: special,
-        needs_customer_confirmation: special,
         doctor_id: selectedDoctor?.id || null,
         doctor_name: selectedDoctor?.name || null,
-        doctor_notes: doctorNotes,
-        supplier_hint: supplierHint,
-        requested_at: requestedAt ? new Date(requestedAt).toISOString() : new Date().toISOString(),
-        needed_by_date: neededByDate || null,
-        expected_fulfillment_days: expectedDays || null,
-        potential_source_text: supplierHint || null,
+        doctor_notes: doctorNotes || null,
+        supplier_hint: supplierHint || null,
         created_by: user?.id,
         created_by_name: user?.name,
       });
-      onCreated(created);
+      await onCreated(created);
     } catch (error) {
       toast.error(`تعذر تسجيل الطلب: ${(error as Error).message}`);
     } finally {
@@ -693,199 +771,43 @@ function CreateRequestPanel({
   };
 
   return (
-    <form
-      onSubmit={submit}
-      className="bg-[#1B2B4B] border border-teal-400/25 rounded-2xl p-5 space-y-4"
-    >
-      <div className="section-title flex items-center gap-2">
-        <ClipboardList size={20} /> تسجيل طلب صنف غير متوفر
+    <form onSubmit={submit} className="space-y-4 rounded-3xl border border-teal-400/25 bg-[#102640] p-5 shadow-xl">
+      <div className="flex items-center gap-2 text-lg font-black text-white"><Plus size={19} className="text-teal-300" /> تسجيل طلب جديد</div>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div className="lg:col-span-3"><CustomerSmartSearch value={selectedCustomer} onSelect={setSelectedCustomer} placeholder="ابحث باسم العميل أو الكود أو الهاتف" disabled={saving} allowCreate /></div>
+        <input className="input-dark" value={medicineName} onChange={(event) => setMedicineName(event.target.value)} placeholder="اسم الصنف المطلوب *" />
+        <input className="input-dark" type="number" min={1} value={quantity} onChange={(event) => setQuantity(Number(event.target.value || 1))} placeholder="الكمية" />
+        <select className="input-dark" value={urgency} onChange={(event) => setUrgency(event.target.value)}><option value="normal">عادي</option><option value="high">مهم</option><option value="urgent">عاجل</option></select>
+        <select className="input-dark" value={doctorId} onChange={(event) => setDoctorId(event.target.value)}><option value="">الدكتور/الموظف المسجل</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} - {doctor.branch || ''}</option>)}</select>
+        <input className="input-dark" value={supplierHint} onChange={(event) => setSupplierHint(event.target.value)} placeholder="مورد/مصدر محتمل" />
+        <textarea className="input-dark min-h-20 lg:col-span-1" value={doctorNotes} onChange={(event) => setDoctorNotes(event.target.value)} placeholder="ملاحظات الطلب" />
+        <div className="lg:col-span-3"><ImageUploadBox bucket="customer-request-images" folder="customer-requests" label="صورة الصنف (اختياري)" valueUrl={image.publicUrl} valuePath={image.path} onUploaded={setImage} disabled={saving} /></div>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div className="lg:col-span-3">
-          <label className="text-slate-300 text-xs">بحث عن العميل</label>
-          <div className="mt-1">
-            <CustomerSmartSearch
-              value={selectedCustomer}
-              onSelect={setSelectedCustomer}
-              placeholder="ابحث باسم العميل أو الكود أو الهاتف، مثال: محمد* أو 010*"
-              disabled={saving}
-              allowCreate
-            />
-          </div>
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">اسم الصنف المطلوب *</label>
-          <input
-            className="input-dark mt-1"
-            value={medicineName}
-            onChange={(event) => setMedicineName(event.target.value)}
-            placeholder="مثال: كرومكس 30 قرص"
-          />
-        </div>
-        <div className="lg:col-span-3">
-          <ImageUploadBox
-            bucket="customer-request-images"
-            folder="customer-requests"
-            label="رفع صورة الصنف"
-            valueUrl={image.publicUrl}
-            valuePath={image.path}
-            onUploaded={setImage}
-            disabled={saving}
-          />
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">الكمية المطلوبة</label>
-          <input
-            className="input-dark mt-1"
-            type="number"
-            min={1}
-            value={quantity}
-            onChange={(event) => setQuantity(Number(event.target.value || 1))}
-          />
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">درجة الاستعجال</label>
-          <select
-            className="input-dark mt-1"
-            value={urgency}
-            onChange={(event) => setUrgency(event.target.value)}
-          >
-            <option value="normal">عادي</option>
-            <option value="high">مهم</option>
-            <option value="urgent">عاجل</option>
-          </select>
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">تاريخ تسجيل الطلب</label>
-          <input
-            className="input-dark mt-1"
-            type="datetime-local"
-            value={requestedAt}
-            onChange={(event) => setRequestedAt(event.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">العميل يحتاج الصنف في تاريخ</label>
-          <input
-            className="input-dark mt-1"
-            type="date"
-            value={neededByDate}
-            onChange={(event) => setNeededByDate(event.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">أو يحتاجه خلال كام يوم</label>
-          <input
-            className="input-dark mt-1"
-            type="number"
-            min={0}
-            value={expectedDays}
-            onChange={(event) => setExpectedDays(Number(event.target.value || 0))}
-          />
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">الدكتور الذي سجل الطلب</label>
-          <select
-            className="input-dark mt-1"
-            value={doctorId}
-            onChange={(event) => setDoctorId(event.target.value)}
-          >
-            <option value="">اختر الدكتور</option>
-            {doctors.map((doctor) => (
-              <option key={doctor.id} value={doctor.id}>
-                {doctor.name} - {doctor.branch || ''}
-              </option>
-            ))}
-          </select>
-        </div>
-        <label className="flex items-center gap-2 text-slate-200 bg-white/5 rounded-xl px-3 py-3 mt-5">
-          <input
-            type="checkbox"
-            checked={special}
-            onChange={(event) => setSpecial(event.target.checked)}
-          />
-          صنف غالي/خاص ويحتاج تأكيد العميل قبل التوفير
-        </label>
-        <div className="lg:col-span-2">
-          <label className="text-slate-300 text-xs">ملاحظة الدكتور</label>
-          <textarea
-            className="input-dark mt-1 min-h-[84px]"
-            value={doctorNotes}
-            onChange={(event) => setDoctorNotes(event.target.value)}
-            placeholder="مثال: العميل محتاج علبتين / سأل عليه في مورد معين / يفضل المستورد"
-          />
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">مصدر محتمل للصنف</label>
-          <textarea
-            className="input-dark mt-1 min-h-[84px]"
-            value={supplierHint}
-            onChange={(event) => setSupplierHint(event.target.value)}
-            placeholder="مورد / صيدلية / مندوب محتمل"
-          />
-        </div>
-      </div>
-      <button
-        disabled={saving}
-        className="btn-primary flex items-center justify-center gap-2 min-w-52"
-      >
-        {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} حفظ طلب
-        العميل
-      </button>
+      <button className="btn-primary flex min-w-44 items-center justify-center gap-2" disabled={saving}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} حفظ الطلب</button>
     </form>
   );
 }
 
-function Stat({
-  label,
-  value,
-  color = 'text-white',
-}: {
-  label: string;
-  value: number;
-  color?: string;
-}) {
+function InfoCard({ title, icon: Icon, children }: { title: string; icon: typeof History; children: React.ReactNode }) {
   return (
-    <div className="stat-card text-center">
-      <div className={`text-2xl font-bold num ${color}`}>{value.toLocaleString('ar-EG')}</div>
-      <div className="text-slate-400 text-xs mt-1">{label}</div>
-    </div>
-  );
-}
-
-function Detail({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof UserRound;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-      <div className="flex items-center gap-2 text-slate-400 text-xs">
-        <Icon size={14} /> {label}
-      </div>
-      <div className="text-white font-semibold mt-1 break-words">{value || 'غير محدد'}</div>
-    </div>
-  );
-}
-
-function InfoCard({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
-      <div className="section-title mb-4">{title}</div>
+    <div className="rounded-3xl border border-slate-700 bg-[#102640] p-5 shadow-lg">
+      <div className="mb-4 flex items-center gap-2 font-black text-white"><Icon size={18} className="text-cyan-300" />{title}</div>
       <div className="space-y-3">{children}</div>
     </div>
   );
 }
 
 function Line({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-start justify-between gap-4 border-b border-slate-700/60 pb-2 text-sm last:border-0"><span className="shrink-0 text-slate-400">{label}</span><span className="break-words text-left font-semibold text-slate-100">{value}</span></div>;
+}
+
+function Pagination({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
+  if (pages <= 1) return null;
   return (
-    <div className="bg-white/5 rounded-xl p-3">
-      <div className="text-slate-400 text-xs">{label}</div>
-      <div className="text-slate-100 text-sm mt-1 whitespace-pre-line">{value || 'غير محدد'}</div>
+    <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-700 pt-3">
+      <button className="btn-secondary flex items-center gap-1 px-3 py-2 text-xs" disabled={page <= 1} onClick={() => onPage(Math.max(1, page - 1))}><ArrowRight size={14} /> السابق</button>
+      <div className="text-xs font-bold text-slate-300">صفحة <span className="num text-cyan-200">{page}</span> من <span className="num">{pages}</span></div>
+      <button className="btn-secondary flex items-center gap-1 px-3 py-2 text-xs" disabled={page >= pages} onClick={() => onPage(Math.min(pages, page + 1))}>التالي <ArrowLeft size={14} /></button>
     </div>
   );
 }
