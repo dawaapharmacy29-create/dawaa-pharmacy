@@ -25,7 +25,9 @@ with scoped as (
 ), aggregated as (
   select
     count(*)::int as total,
-    count(*) filter (where request_ts >= date_trunc('day', now()))::int as today,
+    count(*) filter (
+      where (request_ts at time zone 'Africa/Cairo')::date = (now() at time zone 'Africa/Cairo')::date
+    )::int as today,
     count(*) filter (where status_key not in ('closed','delivered','cancelled','not_available'))::int as open,
     count(*) filter (where urgent_flag)::int as urgent,
     count(*) filter (
