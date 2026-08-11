@@ -20,6 +20,7 @@ import {
   ShoppingCart,
   Sparkles,
   Truck,
+  UserRound,
   UsersRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -104,6 +105,26 @@ const QUICK_ACTIONS = [
   { status: 'delivered', label: 'تم التسليم', icon: CheckCircle2 },
 ] as const;
 
+function requestTimestamp(request: CustomerRequest) {
+  return request.requested_at || request.created_at || null;
+}
+
+function exactRequestTime(request: CustomerRequest) {
+  const raw = requestTimestamp(request);
+  if (!raw) return 'وقت غير محدد';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return 'وقت غير محدد';
+  return new Intl.DateTimeFormat('ar-EG', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
 function ageLabel(request: CustomerRequest) {
   const hours = customerRequestAgeHours(request);
   if (hours < 1) return 'أقل من ساعة';
@@ -116,6 +137,39 @@ function currentOwner(request: CustomerRequest) {
     || request.source_assigned_employee?.trim()
     || request.searching_by_name?.trim()
     || 'غير مسند';
+}
+
+function registrarName(request: CustomerRequest) {
+  return request.doctor_name?.trim()
+    || request.created_by_name?.trim()
+    || request.source_assigned_employee?.trim()
+    || 'غير محدد';
+}
+
+function importanceLabel(request: CustomerRequest) {
+  const value = String(request.urgency || request.priority || '').toLowerCase();
+  if (request.is_urgent || value === 'urgent' || value === 'عاجل') return { label: 'عاجل', className: 'bg-red-500/15 text-red-200 border-red-400/25' };
+  if (value === 'high' || value === 'مهم') return { label: 'مهم', className: 'bg-amber-500/15 text-amber-200 border-amber-400/25' };
+  return { label: 'عادي', className: 'bg-slate-700/70 text-slate-200 border-slate-600' };
+}
+
+function nextAction(request: CustomerRequest) {
+  switch (request.status) {
+    case 'new':
+    case 'purchasing_review': return 'ابدأ البحث عن الصنف';
+    case 'searching_suppliers': return 'تابع الموردين وسجل النتيجة';
+    case 'needs_customer_confirmation': return 'تواصل مع العميل للتأكيد';
+    case 'customer_confirmed':
+    case 'sourcing': return 'أكمل التوفير وحدد موعد الوصول';
+    case 'available':
+    case 'arrived': return 'الصنف جاهز — تواصل مع العميل الآن';
+    case 'customer_contacted': return 'تابع الاستلام وسجل التسليم';
+    case 'delivered':
+    case 'closed': return 'الطلب مكتمل';
+    case 'not_available': return 'راجع بديل أو أغلق الطلب';
+    case 'cancelled': return 'الطلب ملغي';
+    default: return 'راجع حالة الطلب وحدد الخطوة التالية';
+  }
 }
 
 function progressValue(status?: string | null) {
@@ -149,38 +203,16 @@ export default function CustomerRequests() {
   const [totalRows, setTotalRows] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
-  const { data: staff } = useSupabaseQuery<StaffOption>({
-    table: 'staff',
-    filters: isActiveStaffFilter(),
-    realtimeEnabled: false,
-  });
-
-  const doctors = useMemo(() => (staff || []).filter((item) =>
-    [item.name, item.role].filter(Boolean).some((value) => /د\/|دكتور|صيدلي|صيدلاني|doctor|pharmacist/i.test(String(value)))
-  ), [staff]);
-
-  const assignees = useMemo(
-    () => Array.from(new Set((staff || []).map((item) => item.name).filter(Boolean))).sort(),
-    [staff]
-  );
+  const { data: staff } = useSupabaseQuery<StaffOption>({ table: 'staff', filters: isActiveStaffFilter(), realtimeEnabled: false });
+  const doctors = useMemo(() => (staff || []).filter((item) => [item.name, item.role].filter(Boolean).some((value) => /د\/|دكتور|صيدلي|صيدلاني|doctor|pharmacist/i.test(String(value)))), [staff]);
+  const assignees = useMemo(() => Array.from(new Set((staff || []).map((item) => item.name).filter(Boolean))).sort(), [staff]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [summaryData, pageData] = await Promise.all([
         getCustomerRequestsCommandSummary(branchFilter),
-        getCustomerRequestsPage({
-          page,
-          pageSize,
-          status: statusFilter,
-          branch: branchFilter,
-          urgency: urgencyFilter,
-          sourceSystem: sourceFilter,
-          sourceChannel: channelFilter,
-          assignee: assigneeFilter,
-          search,
-          quickFilter,
-        }),
+        getCustomerRequestsPage({ page, pageSize, status: statusFilter, branch: branchFilter, urgency: urgencyFilter, sourceSystem: sourceFilter, sourceChannel: channelFilter, assignee: assigneeFilter, search, quickFilter }),
       ]);
       setSummary(summaryData);
       setRequests(pageData.rows);
@@ -211,7 +243,7 @@ export default function CustomerRequests() {
       return;
     }
     setNewStatus(selected.status || 'new');
-    void getCustomerRequestEvents(selected.id).then(setEvents);
+    void getCustomerRequestEvents(selected.id).then(setEvents).catch(() => setEvents([]));
   }, [selected]);
 
   const saveStatus = async (status: string, note = statusNote) => {
@@ -266,50 +298,23 @@ export default function CustomerRequests() {
       <QuickQueues value={quickFilter} onChange={setQuickFilter} summary={summary} />
       <CustomerRequestInsightsPanel branch={branchFilter} />
 
-      {showCreate && (
-        <CreateRequestPanel
-          doctors={doctors}
-          user={user}
-          onCreated={async (request) => {
-            setShowCreate(false);
-            setSelected(request);
-            setQuickFilter('today');
-            setPage(1);
-            toast.success('تم تسجيل طلب العميل');
-            await load();
-          }}
-        />
-      )}
+      {showCreate && <CreateRequestPanel doctors={doctors} user={user} onCreated={async (request) => { setShowCreate(false); setSelected(request); setQuickFilter('today'); setPage(1); toast.success('تم تسجيل طلب العميل'); await load(); }} />}
 
-      <Filters
-        search={search} setSearch={setSearch}
-        branch={branchFilter} setBranch={setBranchFilter}
-        status={statusFilter} setStatus={setStatusFilter}
-        urgency={urgencyFilter} setUrgency={setUrgencyFilter}
-        source={sourceFilter} setSource={setSourceFilter}
-        channel={channelFilter} setChannel={setChannelFilter}
-        assignee={assigneeFilter} setAssignee={setAssigneeFilter}
-        assignees={assignees}
-      />
+      <Filters search={search} setSearch={setSearch} branch={branchFilter} setBranch={setBranchFilter} status={statusFilter} setStatus={setStatusFilter} urgency={urgencyFilter} setUrgency={setUrgencyFilter} source={sourceFilter} setSource={setSourceFilter} channel={channelFilter} setChannel={setChannelFilter} assignee={assigneeFilter} setAssignee={setAssigneeFilter} assignees={assignees} />
 
-      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(350px,0.92fr)_minmax(0,2.08fr)]">
-        <section className="min-w-0 rounded-3xl border border-slate-700 bg-slate-950/50 p-3 shadow-xl">
+      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(390px,0.95fr)_minmax(0,2.05fr)]">
+        <section className="min-w-0 rounded-3xl border border-slate-700 bg-slate-950/50 p-3 shadow-xl xl:sticky xl:top-4 xl:self-start">
           <div className="mb-3 flex items-center justify-between gap-3 px-1">
-            <div>
-              <div className="font-black text-white">قائمة التنفيذ</div>
-              <div className="mt-1 text-xs text-slate-400">{totalRows.toLocaleString('ar-EG')} طلب مطابق</div>
-            </div>
-            <select className="input-dark w-auto min-w-24 text-xs" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
-              <option value={20}>20</option><option value={30}>30</option><option value={50}>50</option><option value={100}>100</option>
-            </select>
+            <div><div className="font-black text-white">قائمة التنفيذ</div><div className="mt-1 text-xs text-slate-400">{totalRows.toLocaleString('ar-EG')} طلب مطابق</div></div>
+            <select className="input-dark w-auto min-w-24 text-xs" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={20}>20</option><option value={30}>30</option><option value={50}>50</option><option value={100}>100</option></select>
           </div>
 
           {loading ? (
-            <div className="space-y-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-32 animate-pulse rounded-2xl bg-slate-800/80" />)}</div>
+            <div className="space-y-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-40 animate-pulse rounded-2xl bg-slate-800/80" />)}</div>
           ) : requests.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-700 p-10 text-center text-sm text-slate-400">لا توجد طلبات مطابقة.</div>
           ) : (
-            <div className="max-h-[calc(100vh-245px)] space-y-2 overflow-y-auto pe-1 [scrollbar-color:#22d3ee_#0f172a] [scrollbar-width:thin]">
+            <div className="max-h-[calc(100vh-180px)] space-y-2 overflow-y-auto pe-1 [scrollbar-color:#22d3ee_#0f172a] [scrollbar-width:thin]">
               {requests.map((request) => <RequestCard key={request.id} request={request} selected={selected?.id === request.id} onSelect={() => setSelected(request)} />)}
             </div>
           )}
@@ -317,24 +322,7 @@ export default function CustomerRequests() {
         </section>
 
         <section className="min-w-0">
-          {selected ? (
-            <RequestDetail
-              request={selected as RequestWithProduct}
-              events={events}
-              newStatus={newStatus}
-              setNewStatus={setNewStatus}
-              note={statusNote}
-              setNote={setStatusNote}
-              saving={saving}
-              onStatus={() => void saveStatus(newStatus)}
-              onQuickStatus={(status) => void saveStatus(status, '')}
-              onWhatsApp={openWhatsApp}
-              onShortage={moveToShortage}
-              onProductLinked={load}
-            />
-          ) : (
-            <div className="rounded-3xl border border-slate-700 bg-[#102640] p-12 text-center text-slate-400">اختر طلبًا من القائمة.</div>
-          )}
+          {selected ? <RequestDetail request={selected as RequestWithProduct} events={events} newStatus={newStatus} setNewStatus={setNewStatus} note={statusNote} setNote={setStatusNote} saving={saving} onStatus={() => void saveStatus(newStatus)} onQuickStatus={(status) => void saveStatus(status, '')} onWhatsApp={openWhatsApp} onShortage={moveToShortage} onProductLinked={load} /> : <div className="rounded-3xl border border-slate-700 bg-[#102640] p-12 text-center text-slate-400">اختر طلبًا من القائمة.</div>}
         </section>
       </div>
     </div>
@@ -356,72 +344,44 @@ function CommandHeader({ summary, onCreate, onRefresh, loading }: { summary: Cus
         <div className="flex flex-col gap-5 xl:flex-row xl:items-center">
           <div className="flex-1">
             <div className="flex items-center gap-2 text-2xl font-black text-white"><Sparkles className="text-cyan-300" size={24} /> مركز طلبات العملاء الذكي</div>
-            <p className="mt-2 max-w-4xl text-sm font-semibold leading-7 text-slate-300">تسجيل بالصنف والكود، متابعة واضحة، تنبيه المتأخر، ربط بالنواقص والمشتريات، وسجل كامل لكل حركة.</p>
-            <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
-              <span className="rounded-full bg-emerald-500/15 px-3 py-1.5 text-emerald-200">نسبة التوفير {summary.fulfillment_rate}%</span>
-              <span className="rounded-full bg-cyan-500/15 px-3 py-1.5 text-cyan-200">متوسط الدورة {summary.avg_fulfillment_hours} ساعة</span>
-              <span className="rounded-full bg-slate-700/70 px-3 py-1.5 text-slate-200">{summary.from_dawaawael} من dawaawael</span>
-            </div>
+            <p className="mt-2 max-w-4xl text-sm font-semibold leading-7 text-slate-300">كل طلب واضح: وقت التسجيل، الأهمية، المسجل، الحالة الحالية، والخطوة التالية المطلوبة.</p>
+            <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold"><span className="rounded-full bg-emerald-500/15 px-3 py-1.5 text-emerald-200">نسبة التوفير {summary.fulfillment_rate}%</span><span className="rounded-full bg-cyan-500/15 px-3 py-1.5 text-cyan-200">متوسط الدورة {summary.avg_fulfillment_hours} ساعة</span><span className="rounded-full bg-slate-700/70 px-3 py-1.5 text-slate-200">{summary.from_dawaawael} من dawaawael</span></div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button className="btn-primary flex items-center gap-2" onClick={onCreate}><Plus size={16} /> تسجيل طلب جديد</button>
-            <button className="btn-secondary flex items-center gap-2" onClick={onRefresh} disabled={loading}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث</button>
-          </div>
+          <div className="flex flex-wrap gap-2"><button className="btn-primary flex items-center gap-2" onClick={onCreate}><Plus size={16} /> تسجيل طلب جديد</button><button className="btn-secondary flex items-center gap-2" onClick={onRefresh} disabled={loading}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث</button></div>
         </div>
       </section>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {kpis.map(({ label, value, icon: Icon, tone }) => <div key={label} className="rounded-2xl border border-slate-700 bg-[#102640] p-4 shadow-lg"><div className="flex items-center justify-between gap-2"><Icon size={18} className={tone} /><span className={`num text-2xl font-black ${tone}`}>{value.toLocaleString('ar-EG')}</span></div><div className="mt-2 text-xs font-bold text-slate-300">{label}</div></div>)}
-      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{kpis.map(({ label, value, icon: Icon, tone }) => <div key={label} className="rounded-2xl border border-slate-700 bg-[#102640] p-4 shadow-lg"><div className="flex items-center justify-between gap-2"><Icon size={18} className={tone} /><span className={`num text-2xl font-black ${tone}`}>{value.toLocaleString('ar-EG')}</span></div><div className="mt-2 text-xs font-bold text-slate-300">{label}</div></div>)}</div>
     </>
   );
 }
 
 function QuickQueues({ value, onChange, summary }: { value: CustomerRequestQuickFilter; onChange: (value: CustomerRequestQuickFilter) => void; summary: CustomerRequestCommandSummary }) {
   const counts: Partial<Record<CustomerRequestQuickFilter, number>> = { today: summary.today, urgent: summary.urgent, overdue: summary.overdue, unassigned: summary.unassigned, unlinked: summary.unlinked_customer, all: summary.total };
-  return (
-    <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg">
-      <div className="mb-3 flex items-center gap-2 text-sm font-black text-white"><BarChart3 size={18} className="text-cyan-300" /> قوائم العمل الذكية</div>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-        {QUICK_FILTERS.map((item) => <button key={item.value} type="button" onClick={() => onChange(item.value)} className={`rounded-2xl border p-3 text-right transition ${value === item.value ? 'border-cyan-300 bg-cyan-500/15 shadow-lg' : 'border-slate-700 bg-slate-900/60 hover:border-cyan-400/50'}`}><div className="flex items-center justify-between gap-2"><span className="text-xs font-black text-white">{item.label}</span>{counts[item.value] !== undefined && <span className="num text-xs font-black text-cyan-200">{counts[item.value]}</span>}</div><div className="mt-1 text-[11px] leading-5 text-slate-400">{item.description}</div></button>)}
-      </div>
-    </section>
-  );
+  return <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg"><div className="mb-3 flex items-center gap-2 text-sm font-black text-white"><BarChart3 size={18} className="text-cyan-300" /> قوائم العمل الذكية</div><div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">{QUICK_FILTERS.map((item) => <button key={item.value} type="button" onClick={() => onChange(item.value)} className={`rounded-2xl border p-3 text-right transition ${value === item.value ? 'border-cyan-300 bg-cyan-500/15 shadow-lg' : 'border-slate-700 bg-slate-900/60 hover:border-cyan-400/50'}`}><div className="flex items-center justify-between gap-2"><span className="text-xs font-black text-white">{item.label}</span>{counts[item.value] !== undefined && <span className="num text-xs font-black text-cyan-200">{counts[item.value]}</span>}</div><div className="mt-1 text-[11px] leading-5 text-slate-400">{item.description}</div></button>)}</div></section>;
 }
 
 function Filters(props: { search: string; setSearch: (v: string) => void; branch: string; setBranch: (v: string) => void; status: string; setStatus: (v: string) => void; urgency: string; setUrgency: (v: string) => void; source: string; setSource: (v: string) => void; channel: string; setChannel: (v: string) => void; assignee: string; setAssignee: (v: string) => void; assignees: string[] }) {
-  return (
-    <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7">
-        <div className="relative md:col-span-2 xl:col-span-2"><Search size={16} className="absolute left-3 top-3.5 text-slate-400" /><input className="input-dark pl-9" placeholder="عميل، كود عميل، هاتف، صنف، كود صنف، رقم الطلب..." value={props.search} onChange={(e) => props.setSearch(e.target.value)} /></div>
-        <select className="input-dark" value={props.branch} onChange={(e) => props.setBranch(e.target.value)}><option value="all">كل الفروع</option><option value="فرع شكري">فرع شكري</option><option value="فرع الشامي">فرع الشامي</option></select>
-        <select className="input-dark" value={props.status} onChange={(e) => props.setStatus(e.target.value)}><option value="all">كل الحالات</option>{REQUEST_STATUS_FLOW.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-        <select className="input-dark" value={props.urgency} onChange={(e) => props.setUrgency(e.target.value)}><option value="all">كل الأولويات</option><option value="urgent">عاجل/مهم</option><option value="normal">عادي</option></select>
-        <select className="input-dark" value={props.source} onChange={(e) => props.setSource(e.target.value)}><option value="all">كل المصادر</option><option value="dawaawael">dawaawael</option><option value="manual">تسجيل الإدارة</option></select>
-        <select className="input-dark" value={props.channel} onChange={(e) => props.setChannel(e.target.value)}><option value="all">كل القنوات</option><option value="واتساب">واتساب</option><option value="داخل الصيدلية">داخل الصيدلية</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select>
-        <select className="input-dark xl:col-start-6 xl:col-span-2" value={props.assignee} onChange={(e) => props.setAssignee(e.target.value)}><option value="all">كل المسئولين</option><option value="unassigned">بدون مسئول</option>{props.assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select>
-      </div>
-    </section>
-  );
+  return <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg"><div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7"><div className="relative md:col-span-2 xl:col-span-2"><Search size={16} className="absolute left-3 top-3.5 text-slate-400" /><input className="input-dark pl-9" placeholder="عميل، كود، هاتف، صنف، كود صنف، رقم الطلب..." value={props.search} onChange={(e) => props.setSearch(e.target.value)} /></div><select className="input-dark" value={props.branch} onChange={(e) => props.setBranch(e.target.value)}><option value="all">كل الفروع</option><option value="فرع شكري">فرع شكري</option><option value="فرع الشامي">فرع الشامي</option></select><select className="input-dark" value={props.status} onChange={(e) => props.setStatus(e.target.value)}><option value="all">كل الحالات</option>{REQUEST_STATUS_FLOW.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><select className="input-dark" value={props.urgency} onChange={(e) => props.setUrgency(e.target.value)}><option value="all">كل الأولويات</option><option value="urgent">عاجل/مهم</option><option value="normal">عادي</option></select><select className="input-dark" value={props.source} onChange={(e) => props.setSource(e.target.value)}><option value="all">كل المصادر</option><option value="dawaawael">dawaawael</option><option value="manual">تسجيل الإدارة</option></select><select className="input-dark" value={props.channel} onChange={(e) => props.setChannel(e.target.value)}><option value="all">كل القنوات</option><option value="واتساب">واتساب</option><option value="داخل الصيدلية">داخل الصيدلية</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select><select className="input-dark xl:col-start-6 xl:col-span-2" value={props.assignee} onChange={(e) => props.setAssignee(e.target.value)}><option value="all">كل المسئولين</option><option value="unassigned">بدون مسئول</option>{props.assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select></div></section>;
 }
 
 function RequestCard({ request, selected, onSelect }: { request: RequestWithProduct; selected: boolean; onSelect: () => void }) {
   const issues = customerRequestQualityIssues(request);
   const overdue = customerRequestIsOverdue(request);
-  const urgent = customerRequestIsUrgent(request);
+  const importance = importanceLabel(request);
   return (
     <button type="button" onClick={onSelect} className={`w-full rounded-2xl border p-4 text-right transition ${selected ? 'border-cyan-300 bg-cyan-500/15 shadow-lg' : overdue ? 'border-amber-500/35 bg-amber-500/[0.06]' : 'border-slate-700 bg-[#132946] hover:border-cyan-400/50'}`}>
       <div className="flex items-start gap-3">
-        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${urgent ? 'bg-red-500/15 text-red-300' : 'bg-teal-500/15 text-teal-300'}`}><PackageSearch size={19} /></div>
+        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${importance.label === 'عاجل' ? 'bg-red-500/15 text-red-300' : 'bg-teal-500/15 text-teal-300'}`}><PackageSearch size={19} /></div>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-2"><div className="max-w-full truncate font-black text-white">{request.medicine_name}</div><span className={overdue ? 'badge-warning' : customerRequestIsClosed(request) ? 'badge-success' : 'badge-info'}>{requestStatusLabel(request.status)}</span></div>
-          <div className="mt-1 truncate text-xs text-slate-400">{request.customer_name || 'عميل غير محدد'} · كود {request.customer_code || '—'} · {displayEgyptianPhone(request.customer_phone || '') || 'بدون هاتف'}</div>
-          <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-bold">
-            {request.product_code && <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-emerald-200">صنف #{request.product_code}</span>}
-            <span className="rounded-lg bg-slate-800 px-2 py-1 text-slate-200">{request.branch || 'بدون فرع'}</span>
-            <span className="rounded-lg bg-slate-800 px-2 py-1 text-cyan-200"><Clock3 size={11} className="inline ms-1" />{ageLabel(request)}</span>
-            {urgent && <span className="rounded-lg bg-red-500/15 px-2 py-1 text-red-200">عاجل</span>}
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-400"><span>المسئول: <strong className="text-slate-200">{currentOwner(request)}</strong></span>{issues.length > 0 && <span className="text-amber-300">{issues.length} ملاحظة</span>}</div>
+          <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-[15px] font-black text-white">{request.medicine_name}</div><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-bold text-slate-400"><span className="inline-flex items-center gap-1"><Clock3 size={11} /> {exactRequestTime(request)}</span><span className="inline-flex items-center gap-1"><UserRound size={11} /> مسجل بواسطة: <strong className="text-slate-200">{registrarName(request)}</strong></span></div></div><span className={overdue ? 'badge-warning' : customerRequestIsClosed(request) ? 'badge-success' : 'badge-info'}>{requestStatusLabel(request.status)}</span></div>
+
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-bold"><span className={`rounded-lg border px-2 py-1 ${importance.className}`}>الأهمية: {importance.label}</span>{request.product_code && <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-emerald-200">كود الصنف #{request.product_code}</span>}<span className="rounded-lg bg-slate-800 px-2 py-1 text-slate-200">{request.branch || 'بدون فرع'}</span><span className="rounded-lg bg-slate-800 px-2 py-1 text-cyan-200">العمر: {ageLabel(request)}</span></div>
+
+          <div className="mt-2 truncate text-[11px] text-slate-400">العميل: <strong className="text-slate-200">{request.customer_name || 'غير محدد'}</strong> · كود {request.customer_code || '—'} · {displayEgyptianPhone(request.customer_phone || '') || 'بدون هاتف'}</div>
+
+          <div className={`mt-3 rounded-xl border px-3 py-2 text-[11px] font-black ${overdue ? 'border-amber-400/25 bg-amber-500/10 text-amber-200' : 'border-cyan-400/20 bg-cyan-500/[0.07] text-cyan-100'}`}>الخطوة التالية: {nextAction(request)}</div>
+
+          <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-slate-400"><span>المسئول الحالي: <strong className="text-slate-200">{currentOwner(request)}</strong></span>{issues.length > 0 && <span className="text-amber-300">{issues.length} ملاحظة بيانات</span>}</div>
         </div>
       </div>
     </button>
@@ -431,6 +391,7 @@ function RequestCard({ request, selected, onSelect }: { request: RequestWithProd
 function RequestDetail(props: { request: RequestWithProduct; events: CustomerRequestEvent[]; newStatus: string; setNewStatus: (v: string) => void; note: string; setNote: (v: string) => void; saving: boolean; onStatus: () => void; onQuickStatus: (status: string) => void; onWhatsApp: () => void; onShortage: () => void; onProductLinked: () => void | Promise<void> }) {
   const request = props.request;
   const issues = customerRequestQualityIssues(request);
+  const importance = importanceLabel(request);
   const [editingProduct, setEditingProduct] = useState(!request.product_id);
   const [pickedProduct, setPickedProduct] = useState<CatalogProduct | null>(null);
   const [linking, setLinking] = useState(false);
@@ -459,56 +420,28 @@ function RequestDetail(props: { request: RequestWithProduct; events: CustomerReq
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-black text-white">{request.medicine_name}</h2><span className="badge-info">{requestStatusLabel(request.status)}</span>{customerRequestIsOverdue(request) && <span className="badge-warning">متأخر</span>}</div>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold text-slate-300">
-              {request.product_code && <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-emerald-200">كود الصنف: {request.product_code}</span>}
-              {request.product_price !== null && request.product_price !== undefined && <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-emerald-200">السعر: {request.product_price} ج</span>}
-              <span className="rounded-lg bg-slate-800 px-2 py-1">الكمية: {request.quantity || 1}</span>
-              <span className="rounded-lg bg-slate-800 px-2 py-1">العمر: {ageLabel(request)}</span>
-            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold"><span className="rounded-lg bg-slate-800 px-2 py-1 text-cyan-100"><Clock3 size={12} className="inline ms-1" /> تم التسجيل: {exactRequestTime(request)}</span><span className={`rounded-lg border px-2 py-1 ${importance.className}`}>الأهمية: {importance.label}</span><span className="rounded-lg bg-slate-800 px-2 py-1 text-slate-100"><UserRound size={12} className="inline ms-1" /> المسجل: {registrarName(request)}</span>{request.product_code && <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-emerald-200">كود الصنف: {request.product_code}</span>}{request.product_price !== null && request.product_price !== undefined && <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-emerald-200">السعر: {request.product_price} ج</span>}</div>
+            <div className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.07] p-3 text-sm font-black text-cyan-100">الخطوة التالية المقترحة: {nextAction(request)}</div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-l from-cyan-400 to-emerald-400" style={{ width: `${progressValue(request.status)}%` }} /></div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button className="btn-secondary flex items-center gap-2" onClick={props.onWhatsApp}><MessageCircle size={16} /> واتساب</button>
-            <button className="btn-secondary flex items-center gap-2" onClick={props.onShortage} disabled={props.saving || !!request.shortage_item_id}><ShoppingCart size={16} /> {request.shortage_item_id ? 'مربوط بالنواقص' : 'إلى النواقص'}</button>
-            {request.customer_id && <Link className="btn-secondary flex items-center gap-2" to={`/customers/${request.customer_id}`}><UsersRound size={16} /> ملف العميل</Link>}
-          </div>
+          <div className="flex flex-wrap gap-2"><button className="btn-secondary flex items-center gap-2" onClick={props.onWhatsApp}><MessageCircle size={16} /> واتساب</button><button className="btn-secondary flex items-center gap-2" onClick={props.onShortage} disabled={props.saving || !!request.shortage_item_id}><ShoppingCart size={16} /> {request.shortage_item_id ? 'مربوط بالنواقص' : 'إلى النواقص'}</button>{request.customer_id && <Link className="btn-secondary flex items-center gap-2" to={`/customers/${request.customer_id}`}><UsersRound size={16} /> ملف العميل</Link>}</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        {QUICK_ACTIONS.map(({ status, label, icon: Icon }) => <button key={status} type="button" disabled={props.saving || request.status === status} onClick={() => props.onQuickStatus(status)} className="rounded-2xl border border-slate-700 bg-[#102640] p-3 text-sm font-black text-slate-100 hover:border-cyan-400/50 disabled:opacity-45"><Icon size={17} className="mx-auto mb-2 text-cyan-300" />{label}</button>)}
-      </div>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">{QUICK_ACTIONS.map(({ status, label, icon: Icon }) => <button key={status} type="button" disabled={props.saving || request.status === status} onClick={() => props.onQuickStatus(status)} className="rounded-2xl border border-slate-700 bg-[#102640] p-3 text-sm font-black text-slate-100 hover:border-cyan-400/50 disabled:opacity-45"><Icon size={17} className="mx-auto mb-2 text-cyan-300" />{label}</button>)}</div>
 
       {issues.length > 0 && <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4"><div className="flex items-center gap-2 font-black text-amber-200"><AlertTriangle size={17} /> مراجعة جودة البيانات</div><div className="mt-2 flex flex-wrap gap-2">{issues.map((issue) => <span key={issue} className="rounded-full bg-amber-500/15 px-3 py-1 text-xs font-bold text-amber-100">{issue}</span>)}</div></div>}
 
-      <InfoCard title="الصنف والكود" icon={PackagePlus}>
-        {request.product_id && !editingProduct ? (
-          <div className="flex flex-col gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4 md:flex-row md:items-center md:justify-between"><div><div className="font-black text-white">{request.medicine_name}</div><div className="mt-1 text-xs font-bold text-emerald-200">كود {request.product_code || '—'} · {request.product_price ?? 'بدون سعر'} ج</div></div><button className="btn-secondary text-xs" onClick={() => setEditingProduct(true)}>تغيير/مراجعة الصنف</button></div>
-        ) : (
-          <div className="space-y-3"><ProductSmartSearch value={pickedProduct} onSelect={setPickedProduct} disabled={linking} />{pickedProduct?.id && <button className="btn-primary flex w-full items-center justify-center gap-2" onClick={linkProduct} disabled={linking}>{linking ? <Loader2 size={16} className="animate-spin" /> : <PackageCheck size={16} />} ربط هذا الصنف بالطلب</button>}</div>
-        )}
-      </InfoCard>
+      <InfoCard title="الصنف والكود" icon={PackagePlus}>{request.product_id && !editingProduct ? <div className="flex flex-col gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4 md:flex-row md:items-center md:justify-between"><div><div className="font-black text-white">{request.medicine_name}</div><div className="mt-1 text-xs font-bold text-emerald-200">كود {request.product_code || '—'} · {request.product_price ?? 'بدون سعر'} ج</div></div><button className="btn-secondary text-xs" onClick={() => setEditingProduct(true)}>تغيير/مراجعة الصنف</button></div> : <div className="space-y-3"><ProductSmartSearch value={pickedProduct} onSelect={setPickedProduct} disabled={linking} />{pickedProduct?.id && <button className="btn-primary flex w-full items-center justify-center gap-2" onClick={linkProduct} disabled={linking}>{linking ? <Loader2 size={16} className="animate-spin" /> : <PackageCheck size={16} />} ربط هذا الصنف بالطلب</button>}</div>}</InfoCard>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <InfoCard title="العميل والطلب" icon={UsersRound}>
-          <Line label="العميل" value={request.customer_name || 'غير محدد'} /><Line label="كود العميل" value={request.customer_code || 'غير محدد'} /><Line label="الهاتف" value={displayEgyptianPhone(request.customer_phone || '') || 'غير محدد'} /><Line label="الفرع" value={request.branch || 'غير محدد'} /><Line label="تاريخ الطلب" value={request.requested_at ? formatDate(request.requested_at) : request.created_at ? formatDate(request.created_at) : 'غير محدد'} />
-        </InfoCard>
-        <InfoCard title="المشتريات والتوفير" icon={Truck}>
-          <Line label="المسئول الحالي" value={currentOwner(request)} /><Line label="بدأ البحث بواسطة" value={request.searching_by_name || 'غير محدد'} /><Line label="تم التوفير بواسطة" value={request.provided_by_name || 'غير محدد'} /><Line label="المورد/المصدر" value={request.supplier_hint || request.potential_source_text || 'غير محدد'} /><Line label="موعد الوصول" value={request.expected_arrival_date ? formatDate(request.expected_arrival_date) : 'غير محدد'} />
-        </InfoCard>
-        <InfoCard title="التواصل والنتيجة" icon={Phone}>
-          <Line label="تم التواصل بواسطة" value={request.customer_contacted_by_name || 'غير محدد'} /><Line label="ملخص التواصل" value={request.contact_summary || 'لا يوجد'} /><Line label="تأكيد العميل" value={request.customer_confirmation_status || 'غير محدد'} /><Line label="تم التسليم بواسطة" value={request.delivered_by_name || 'غير محدد'} />
-        </InfoCard>
-        <InfoCard title="تحديث الحالة" icon={RefreshCw}>
-          <select className="input-dark" value={props.newStatus} onChange={(e) => props.setNewStatus(e.target.value)}>{REQUEST_STATUS_FLOW.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select>
-          <textarea className="input-dark mt-3 min-h-24" value={props.note} onChange={(e) => props.setNote(e.target.value)} placeholder="نتيجة البحث، رد المورد، تأكيد العميل أو ملاحظة مهمة..." />
-          <button className="btn-primary mt-3 flex w-full items-center justify-center gap-2" disabled={props.saving || props.newStatus === request.status} onClick={props.onStatus}>{props.saving && <Loader2 size={16} className="animate-spin" />} حفظ التحديث</button>
-        </InfoCard>
+        <InfoCard title="العميل والطلب" icon={UsersRound}><Line label="العميل" value={request.customer_name || 'غير محدد'} /><Line label="كود العميل" value={request.customer_code || 'غير محدد'} /><Line label="الهاتف" value={displayEgyptianPhone(request.customer_phone || '') || 'غير محدد'} /><Line label="الفرع" value={request.branch || 'غير محدد'} /><Line label="وقت التسجيل" value={exactRequestTime(request)} /><Line label="الأهمية" value={importance.label} /><Line label="الدكتور/الموظف المسجل" value={registrarName(request)} /></InfoCard>
+        <InfoCard title="المشتريات والتوفير" icon={Truck}><Line label="المسئول الحالي" value={currentOwner(request)} /><Line label="بدأ البحث بواسطة" value={request.searching_by_name || 'غير محدد'} /><Line label="تم التوفير بواسطة" value={request.provided_by_name || 'غير محدد'} /><Line label="المورد/المصدر" value={request.supplier_hint || request.potential_source_text || 'غير محدد'} /><Line label="موعد الوصول" value={request.expected_arrival_date ? formatDate(request.expected_arrival_date) : 'غير محدد'} /></InfoCard>
+        <InfoCard title="التواصل والنتيجة" icon={Phone}><Line label="تم التواصل بواسطة" value={request.customer_contacted_by_name || 'غير محدد'} /><Line label="ملخص التواصل" value={request.contact_summary || 'لا يوجد'} /><Line label="تأكيد العميل" value={request.customer_confirmation_status || 'غير محدد'} /><Line label="تم التسليم بواسطة" value={request.delivered_by_name || 'غير محدد'} /></InfoCard>
+        <InfoCard title="تحديث الحالة" icon={RefreshCw}><select className="input-dark" value={props.newStatus} onChange={(e) => props.setNewStatus(e.target.value)}>{REQUEST_STATUS_FLOW.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select><textarea className="input-dark mt-3 min-h-24" value={props.note} onChange={(e) => props.setNote(e.target.value)} placeholder="نتيجة البحث، رد المورد، تأكيد العميل أو ملاحظة مهمة..." /><button className="btn-primary mt-3 flex w-full items-center justify-center gap-2" disabled={props.saving || props.newStatus === request.status} onClick={props.onStatus}>{props.saving && <Loader2 size={16} className="animate-spin" />} حفظ التحديث</button></InfoCard>
       </div>
 
-      <InfoCard title="سجل الحركة الكامل" icon={History}>
-        {props.events.length === 0 ? <div className="text-sm text-slate-400">لا توجد أحداث مسجلة.</div> : <div className="space-y-3">{props.events.map((event) => <div key={event.id} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm text-white">{event.action || 'تحديث'}</strong><span className="text-xs text-slate-400">{event.created_at ? formatDate(event.created_at) : ''}</span></div><div className="mt-1 text-sm text-slate-300">{event.notes || 'بدون ملاحظات'}</div><div className="mt-1 text-xs text-slate-500">{event.old_status ? requestStatusLabel(event.old_status) : 'بداية'} ← {requestStatusLabel(event.new_status)} · {event.created_by_name || 'النظام'}</div></div>)}</div>}
-      </InfoCard>
+      <InfoCard title="سجل الحركة الكامل" icon={History}>{props.events.length === 0 ? <div className="text-sm text-slate-400">لا توجد أحداث مسجلة.</div> : <div className="space-y-3">{props.events.map((event) => <div key={event.id} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm text-white">{event.action || 'تحديث'}</strong><span className="text-xs text-slate-400">{event.created_at ? formatDate(event.created_at) : ''}</span></div><div className="mt-1 text-sm text-slate-300">{event.notes || 'بدون ملاحظات'}</div><div className="mt-1 text-xs text-slate-500">{event.old_status ? requestStatusLabel(event.old_status) : 'بداية'} ← {requestStatusLabel(event.new_status)} · {event.created_by_name || 'النظام'}</div></div>)}</div>}</InfoCard>
     </div>
   );
 }
@@ -531,25 +464,7 @@ function CreateRequestPanel({ doctors, user, onCreated }: { doctors: StaffOption
     if (!selectedProduct?.id) return toast.error('اختر الصنف بالكود أو أضف صنفًا جديدًا');
     setSaving(true);
     try {
-      const created = await createCustomerRequest({
-        customer_id: selectedCustomer.id,
-        customer_code: selectedCustomer.code,
-        customer_name: selectedCustomer.name,
-        customer_phone: selectedCustomer.phone,
-        branch: selectedCustomer.branch || selectedDoctor?.branch || null,
-        medicine_name: selectedProduct.name,
-        medicine_image_url: image.publicUrl || null,
-        item_image_url: image.publicUrl || null,
-        item_image_path: image.path || null,
-        quantity,
-        urgency,
-        doctor_id: selectedDoctor?.id || null,
-        doctor_name: selectedDoctor?.name || null,
-        doctor_notes: doctorNotes || null,
-        supplier_hint: supplierHint || null,
-        created_by: user?.id,
-        created_by_name: user?.name,
-      });
+      const created = await createCustomerRequest({ customer_id: selectedCustomer.id, customer_code: selectedCustomer.code, customer_name: selectedCustomer.name, customer_phone: selectedCustomer.phone, branch: selectedCustomer.branch || selectedDoctor?.branch || null, medicine_name: selectedProduct.name, medicine_image_url: image.publicUrl || null, item_image_url: image.publicUrl || null, item_image_path: image.path || null, quantity, urgency, doctor_id: selectedDoctor?.id || null, doctor_name: selectedDoctor?.name || null, doctor_notes: doctorNotes || null, supplier_hint: supplierHint || null, created_by: user?.id, created_by_name: user?.name });
       await linkCustomerRequestProduct(created.id, selectedProduct.id);
       await onCreated(created);
     } catch (error) {
@@ -559,22 +474,7 @@ function CreateRequestPanel({ doctors, user, onCreated }: { doctors: StaffOption
     }
   };
 
-  return (
-    <form onSubmit={submit} className="space-y-4 rounded-3xl border border-teal-400/25 bg-[#102640] p-5 shadow-xl">
-      <div><div className="flex items-center gap-2 text-lg font-black text-white"><Plus size={19} className="text-teal-300" /> تسجيل طلب جديد</div><p className="mt-1 text-xs font-bold text-slate-400">اختيار العميل ثم الصنف بالكود أو الاسم. لو الصنف جديد أضفه من نفس المكان.</p></div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-3"><CustomerSmartSearch value={selectedCustomer} onSelect={setSelectedCustomer} placeholder="ابحث باسم العميل أو الكود أو الهاتف" disabled={saving} allowCreate /></div>
-        <div className="lg:col-span-3"><ProductSmartSearch value={selectedProduct} onSelect={setSelectedProduct} disabled={saving} /></div>
-        <input className="input-dark" type="number" min={1} value={quantity} onChange={(e) => setQuantity(Number(e.target.value || 1))} placeholder="الكمية" />
-        <select className="input-dark" value={urgency} onChange={(e) => setUrgency(e.target.value)}><option value="normal">عادي</option><option value="high">مهم</option><option value="urgent">عاجل</option></select>
-        <select className="input-dark" value={doctorId} onChange={(e) => setDoctorId(e.target.value)}><option value="">الدكتور/الموظف المسجل</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} - {doctor.branch || ''}</option>)}</select>
-        <input className="input-dark" value={supplierHint} onChange={(e) => setSupplierHint(e.target.value)} placeholder="مورد/مصدر محتمل" />
-        <textarea className="input-dark min-h-20 lg:col-span-2" value={doctorNotes} onChange={(e) => setDoctorNotes(e.target.value)} placeholder="ملاحظات الطلب" />
-        <div className="lg:col-span-3"><ImageUploadBox bucket="customer-request-images" folder="customer-requests" label="صورة الصنف (اختياري)" valueUrl={image.publicUrl} valuePath={image.path} onUploaded={setImage} disabled={saving} /></div>
-      </div>
-      <button className="btn-primary flex min-w-44 items-center justify-center gap-2" disabled={saving || !selectedProduct?.id}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} حفظ الطلب</button>
-    </form>
-  );
+  return <form onSubmit={submit} className="space-y-4 rounded-3xl border border-teal-400/25 bg-[#102640] p-5 shadow-xl"><div><div className="flex items-center gap-2 text-lg font-black text-white"><Plus size={19} className="text-teal-300" /> تسجيل طلب جديد</div><p className="mt-1 text-xs font-bold text-slate-400">اختيار العميل ثم الصنف بالكود أو الاسم. لو الصنف جديد أضفه من نفس المكان.</p></div><div className="grid grid-cols-1 gap-4 lg:grid-cols-3"><div className="lg:col-span-3"><CustomerSmartSearch value={selectedCustomer} onSelect={setSelectedCustomer} placeholder="ابحث باسم العميل أو الكود أو الهاتف" disabled={saving} allowCreate /></div><div className="lg:col-span-3"><ProductSmartSearch value={selectedProduct} onSelect={setSelectedProduct} disabled={saving} /></div><input className="input-dark" type="number" min={1} value={quantity} onChange={(e) => setQuantity(Number(e.target.value || 1))} placeholder="الكمية" /><select className="input-dark" value={urgency} onChange={(e) => setUrgency(e.target.value)}><option value="normal">عادي</option><option value="high">مهم</option><option value="urgent">عاجل</option></select><select className="input-dark" value={doctorId} onChange={(e) => setDoctorId(e.target.value)}><option value="">الدكتور/الموظف المسجل</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} - {doctor.branch || ''}</option>)}</select><input className="input-dark" value={supplierHint} onChange={(e) => setSupplierHint(e.target.value)} placeholder="مورد/مصدر محتمل" /><textarea className="input-dark min-h-20 lg:col-span-2" value={doctorNotes} onChange={(e) => setDoctorNotes(e.target.value)} placeholder="ملاحظات الطلب" /><div className="lg:col-span-3"><ImageUploadBox bucket="customer-request-images" folder="customer-requests" label="صورة الصنف (اختياري)" valueUrl={image.publicUrl} valuePath={image.path} onUploaded={setImage} disabled={saving} /></div></div><button className="btn-primary flex min-w-44 items-center justify-center gap-2" disabled={saving || !selectedProduct?.id}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} حفظ الطلب</button></form>;
 }
 
 function InfoCard({ title, icon: Icon, children }: { title: string; icon: typeof History; children: React.ReactNode }) {
