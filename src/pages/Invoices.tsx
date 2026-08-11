@@ -622,64 +622,27 @@ export default function Invoices() {
     setSummarySnapshotBusy(true);
     setSummarySnapshotMessage(null);
     try {
-      const { data, error } = await supabase
-        .from('sales_invoices')
-        .select('invoice_date,branch,net_amount,net_total,amount')
-        .order('invoice_date', { ascending: false })
-        .limit(5000);
-
-      if (error) throw error;
-
-      const rows = ((data || []) as Array<Record<string, unknown>>)
-        .map((row) => {
-          const invoiceDate = String(row.invoice_date || '').slice(0, 10);
-          const branchName = String(row.branch || 'غير محدد').trim() || 'غير محدد';
-          const netValue = Number(row.net_amount ?? row.net_total ?? row.amount ?? 0);
-          return { invoiceDate, branchName, netValue };
-        })
-        .filter((row) => row.invoiceDate);
-
-      const dailyMap = new Map<string, { summary_date: string; invoices_count: number; net_total: number; updated_at: string | null }>();
-      const branchMap = new Map<string, { branch_name: string; invoices_count: number; net_total: number; updated_at: string | null }>();
-
-      for (const row of rows) {
-        const daily = dailyMap.get(row.invoiceDate) || {
-          summary_date: row.invoiceDate,
-          invoices_count: 0,
-          net_total: 0,
-          updated_at: row.invoiceDate,
-        };
-        daily.invoices_count += 1;
-        daily.net_total += row.netValue;
-        dailyMap.set(row.invoiceDate, daily);
-
-        const branch = branchMap.get(row.branchName) || {
-          branch_name: row.branchName,
-          invoices_count: 0,
-          net_total: 0,
-          updated_at: row.invoiceDate,
-        };
-        branch.invoices_count += 1;
-        branch.net_total += row.netValue;
-        branchMap.set(row.branchName, branch);
-      }
-
-      const dailyRows = [...dailyMap.values()]
-        .sort((a, b) => b.summary_date.localeCompare(a.summary_date))
-        .slice(0, 8);
-      const branchRows = [...branchMap.values()]
-        .sort((a, b) => b.net_total - a.net_total)
-        .slice(0, 8);
-
-      setSummarySnapshot({
-        totalInvoices: rows.length,
-        totalSales: rows.reduce((sum, row) => sum + row.netValue, 0),
-        latestUpdatedAt: rows[0]?.invoiceDate || null,
-        latestBatchStatus: null,
-        branchRows,
-        dailyRows,
+      const { data, error } = await supabase.rpc('get_invoice_management_summary_v1', {
+        p_limit: 5000,
       });
-      setSummarySnapshotMessage('تحديث الملخصات غير مفعل حاليًا، سيتم الاعتماد على الفواتير المباشرة.');
+      if (error) throw error;
+      const snapshot = (data || {}) as {
+        totalInvoices?: number;
+        totalSales?: number;
+        latestUpdatedAt?: string | null;
+        latestBatchStatus?: string | null;
+        branchRows?: Array<{ branch_name: string; invoices_count: number; net_total: number; updated_at: string | null }>;
+        dailyRows?: Array<{ summary_date: string; invoices_count: number; net_total: number; updated_at: string | null }>;
+      };
+      setSummarySnapshot({
+        totalInvoices: Number(snapshot.totalInvoices || 0),
+        totalSales: Number(snapshot.totalSales || 0),
+        latestUpdatedAt: snapshot.latestUpdatedAt || null,
+        latestBatchStatus: snapshot.latestBatchStatus || null,
+        branchRows: snapshot.branchRows || [],
+        dailyRows: snapshot.dailyRows || [],
+      });
+      setSummarySnapshotMessage('ملخص سريع محسوب مباشرة داخل قاعدة البيانات.');
     } catch (error) {
       setSummarySnapshotMessage(`تعذر تحميل ملخصات الفواتير: ${(error as Error).message}`);
       setSummarySnapshot(null);
@@ -691,51 +654,25 @@ export default function Invoices() {
   const loadDuplicateAudit = useCallback(async () => {
     if (!canManageBatches) return;
     setDuplicateAuditLoading(true);
-    const { data, error } = await supabase
-      .from('sales_invoices')
-      .select('id,invoice_no,invoice_number,branch,invoice_date,created_at')
-      .order('created_at', { ascending: false })
-      .limit(3000);
-
+    const { data, error } = await supabase.rpc('get_invoice_duplicate_audit_v1', {
+      p_limit: 3000,
+    });
     if (error) {
       toast.error(`تعذر فحص التكرارات: ${error.message}`);
       setDuplicateAudit([]);
-      setDuplicateAuditLoading(false);
-      return;
+    } else {
+      setDuplicateAudit(
+        ((data || []) as Array<Record<string, unknown>>).map((row) => ({
+          invoice_number: String(row.invoice_number || ''),
+          branch: String(row.branch || 'غير محدد'),
+          sale_date: String(row.sale_date || '').slice(0, 10),
+          count: Number(row.count || 0),
+          latest_created_at: row.latest_created_at ? String(row.latest_created_at) : null,
+        }))
+      );
     }
-
-    const groups = new Map<string, DuplicateInvoiceGroup>();
-    for (const row of data || []) {
-      const invoiceNumber = getInvoiceKey(row as Record<string, unknown>);
-      const branchName = String(row.branch || 'غير محدد').trim() || 'غير محدد';
-      const saleDate = String(row.invoice_date || '').slice(0, 10);
-      if (!invoiceNumber || !saleDate) continue;
-      const key = `${branchName}|${saleDate}|${invoiceNumber}`;
-      const current = groups.get(key) || {
-        invoice_number: invoiceNumber,
-        branch: branchName,
-        sale_date: saleDate,
-        count: 0,
-        latest_created_at: null,
-      };
-      current.count += 1;
-      const createdAt = String(row.created_at || '');
-      if (createdAt && (!current.latest_created_at || createdAt > current.latest_created_at)) {
-        current.latest_created_at = createdAt;
-      }
-      groups.set(key, current);
-    }
-
-    setDuplicateAudit(
-      [...groups.values()]
-        .filter((group) => group.count > 1)
-        .sort((a, b) =>
-          String(b.latest_created_at || '').localeCompare(String(a.latest_created_at || ''))
-        )
-        .slice(0, 30)
-    );
     setDuplicateAuditLoading(false);
-  }, [isAdmin]);
+  }, [canManageBatches]);
 
   useEffect(() => {
     void loadManagedInvoices();
@@ -760,22 +697,18 @@ export default function Invoices() {
       if (numbers.length < 10) return; // عيّنة صغيرة جدًا مش كافية نبني عليها قرار
       const min = Math.min(...numbers);
       const max = Math.max(...numbers);
-      const { data, error } = await supabase
-        .from('sales_invoices')
-        .select('branch, invoice_no')
-        .neq('branch', selectedBranch)
-        .not('invoice_no', 'is', null)
-        .limit(20000);
+      const { data, error } = await supabase.rpc('get_other_branch_invoice_number_ranges_v1', {
+        p_selected_branch: selectedBranch,
+      });
       if (error || !data) return;
       const otherBranchRanges = new Map<string, { min: number; max: number; count: number }>();
-      for (const row of data as Array<{ branch: string | null; invoice_no: string | null }>) {
-        const n = Number(String(row.invoice_no || '').replace(/[^\d]/g, ''));
-        if (!Number.isFinite(n) || n <= 0 || !row.branch) continue;
-        const current = otherBranchRanges.get(row.branch) || { min: n, max: n, count: 0 };
-        current.min = Math.min(current.min, n);
-        current.max = Math.max(current.max, n);
-        current.count += 1;
-        otherBranchRanges.set(row.branch, current);
+      for (const row of data as Array<{ branch: string | null; min_invoice: number | string | null; max_invoice: number | string | null; invoice_count: number | string | null }>) {
+        if (!row.branch) continue;
+        const minValue = Number(row.min_invoice || 0);
+        const maxValue = Number(row.max_invoice || 0);
+        const countValue = Number(row.invoice_count || 0);
+        if (!Number.isFinite(minValue) || !Number.isFinite(maxValue) || countValue <= 0) continue;
+        otherBranchRanges.set(row.branch, { min: minValue, max: maxValue, count: countValue });
       }
       for (const [otherBranch, range] of otherBranchRanges) {
         if (range.count < 20) continue; // نطاق مبني على بيانات قليلة جدًا

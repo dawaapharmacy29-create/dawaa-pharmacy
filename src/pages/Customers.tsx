@@ -145,6 +145,7 @@ export default function Customers() {
   const [selected, setSelected] = useState<CustomerMetric | null>(null);
   const [exporting, setExporting] = useState(false);
   const requestIdRef = useRef(0);
+  const hasLoadedCustomersRef = useRef(false);
 
   useEffect(() => {
     const timeout = window.setTimeout(
@@ -211,7 +212,7 @@ export default function Customers() {
   const loadCustomers = useCallback(async () => {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
-    if (customers.length) setRefreshing(true);
+    if (hasLoadedCustomersRef.current) setRefreshing(true);
     else setLoading(true);
     setError(null);
 
@@ -248,6 +249,7 @@ export default function Customers() {
 
       setCustomers(result.customers);
       setTotalCount(result.count);
+      hasLoadedCustomersRef.current = true;
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
       const source = err instanceof Error ? err.message : 'غير معروف';
@@ -266,7 +268,6 @@ export default function Customers() {
     }
   }, [
     branchFilter,
-    customers.length,
     debouncedSearch,
     page,
     segmentFilter,

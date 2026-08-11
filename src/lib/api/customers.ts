@@ -620,72 +620,30 @@ export async function getCustomerMonthlyAnalytics(months = 6): Promise<CustomerM
   }
 
   const safeMonths = Math.min(Math.max(months, 3), 12);
-  const current = monthStart(new Date());
-  const starts = Array.from({ length: safeMonths }, (_, index) =>
-    addMonths(current, index - safeMonths + 1)
-  );
-  const warnings: string[] = [];
+  const { data, error } = await supabase.rpc('get_customer_monthly_analytics_v2', {
+    p_months: safeMonths,
+  });
+  if (error) throw new Error(`customer monthly analytics: ${error.message}`);
 
-  const rows = await Promise.all(
-    starts.map(async (start) => {
-      const end = addMonths(start, 1);
-      const startIso = toDateOnly(start);
-      const endIso = toDateOnly(end);
-
-      const [registered, purchased, veryImportant, important, medium, normal] = await Promise.all([
-        safeCount('customers', (query) =>
-          query.gte('created_at', startIso).lt('created_at', endIso)
-        ),
-        safeCount(SUMMARY_TABLE, (query) =>
-          query.gte('first_purchase', startIso).lt('first_purchase', endIso)
-        ),
-        safeCount(SUMMARY_TABLE, (query) =>
-          applySegmentFilter(
-            query.gte('first_purchase', startIso).lt('first_purchase', endIso),
-            'مهم جدًا'
-          )
-        ),
-        safeCount(SUMMARY_TABLE, (query) =>
-          applySegmentFilter(
-            query.gte('first_purchase', startIso).lt('first_purchase', endIso),
-            'مهم'
-          )
-        ),
-        safeCount(SUMMARY_TABLE, (query) =>
-          applySegmentFilter(
-            query.gte('first_purchase', startIso).lt('first_purchase', endIso),
-            'متوسط'
-          )
-        ),
-        safeCount(SUMMARY_TABLE, (query) =>
-          applySegmentFilter(
-            query.gte('first_purchase', startIso).lt('first_purchase', endIso),
-            'عادي'
-          )
-        ),
-      ]);
-
-      [registered, purchased, veryImportant, important, medium, normal].forEach((result) => {
-        if (result.warning) warnings.push(result.warning);
-      });
-
-      return {
-        month: startIso.slice(0, 7),
-        label: monthLabel(start),
-        registeredCustomers: registered.count,
-        purchasedCustomers: purchased.count,
-        veryImportant: veryImportant.count,
-        important: important.count,
-        medium: medium.count,
-        normal: normal.count,
-      };
-    })
-  );
+  const rows = ((data || []) as Array<Record<string, unknown>>).map((row) => {
+    const monthStartValue = String(row.month_start || '').slice(0, 10);
+    const monthDate = monthStartValue ? new Date(`${monthStartValue}T12:00:00`) : new Date();
+    return {
+      month: monthStartValue.slice(0, 7),
+      label: monthLabel(monthDate),
+      registeredCustomers: toNumber(row.registered_customers),
+      purchasedCustomers: toNumber(row.purchased_customers),
+      veryImportant: toNumber(row.very_important),
+      important: toNumber(row.important),
+      medium: toNumber(row.medium),
+      normal: toNumber(row.normal),
+    };
+  });
 
   return {
     rows,
-    source: 'customers.created_at + daw من ملخص العملاء',
-    warnings: Array.from(new Set(warnings)).slice(0, 4),
+    source: 'customers + customer_metrics_summary (optimized RPC)',
+    warnings: [],
   };
 }
 
