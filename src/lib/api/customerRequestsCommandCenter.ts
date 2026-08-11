@@ -168,9 +168,19 @@ export async function getCustomerRequestsPage(
   const { data, error, count } = await query.range(from, to);
   if (error) throw new Error(error.message);
 
+  const rows = (data || []) as CustomerRequest[];
+  const customerIds = Array.from(new Set(rows.map((row) => row.customer_id).filter(Boolean))) as string[];
+  const segmentById = new Map<string, string>();
+  if (customerIds.length) {
+    const { data: customers } = await supabase.from('customers').select('id,segment').in('id', customerIds);
+    for (const customer of customers || []) {
+      if (customer.id && customer.segment) segmentById.set(String(customer.id), String(customer.segment));
+    }
+  }
+
   const exactCount = count || 0;
   return {
-    rows: (data || []) as CustomerRequest[],
+    rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? segmentById.get(row.customer_id) || null : null })),
     count: exactCount,
     page,
     pageSize,

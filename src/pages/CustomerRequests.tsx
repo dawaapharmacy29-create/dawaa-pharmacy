@@ -8,6 +8,8 @@ import {
   Clock3,
   Database,
   History,
+  LayoutGrid,
+  List,
   Loader2,
   MessageCircle,
   PackageCheck,
@@ -15,6 +17,7 @@ import {
   PackageSearch,
   Phone,
   Plus,
+  Pencil,
   RefreshCw,
   Search,
   ShoppingCart,
@@ -22,6 +25,7 @@ import {
   Truck,
   UserRound,
   UsersRound,
+  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
@@ -41,6 +45,7 @@ import {
   requestStatusLabel,
   REQUEST_STATUS_FLOW,
   updateCustomerRequestStatus,
+  updateCustomerRequestDetails,
   type CustomerRequest,
   type CustomerRequestEvent,
 } from '@/lib/api/customerRequests';
@@ -63,6 +68,7 @@ type RequestWithProduct = CustomerRequest & {
   product_code?: string | null;
   product_price?: number | null;
 };
+type ViewMode = 'table' | 'cards';
 
 const EMPTY_SUMMARY: CustomerRequestCommandSummary = {
   total: 0,
@@ -153,6 +159,25 @@ function importanceLabel(request: CustomerRequest) {
   return { label: 'عادي', className: 'bg-slate-700/70 text-slate-200 border-slate-600' };
 }
 
+function requestTypeLabel(request: CustomerRequest) {
+  const value = String(request.request_type || '').toLowerCase();
+  if (value.includes('urgent') || customerRequestIsUrgent(request)) return 'عاجل';
+  if (value.includes('shortage') || value.includes('missing') || value.includes('ناقص')) return 'ناقص';
+  return 'عادي';
+}
+
+function customerImportanceLabel(request: CustomerRequest) {
+  const payload = request.source_payload || {};
+  const value = String(request.customer_segment || payload.customer_segment || payload.segment || payload.customer_type || '').toLowerCase();
+  if (/vip|very|مهم جدا/.test(value)) return 'مهم جدًا';
+  if (/important|high|مهم/.test(value)) return 'مهم';
+  return 'عادي';
+}
+
+function requestChannelLabel(request: CustomerRequest) {
+  return request.source_request_channel || (request.source_system === 'dawaawael' ? 'واتساب/النظام' : 'داخل الصيدلية');
+}
+
 function nextAction(request: CustomerRequest) {
   switch (request.status) {
     case 'new':
@@ -202,6 +227,7 @@ export default function CustomerRequests() {
   const [pageSize, setPageSize] = useState(30);
   const [totalRows, setTotalRows] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
 
   const { data: staff } = useSupabaseQuery<StaffOption>({ table: 'staff', filters: isActiveStaffFilter(), realtimeEnabled: false });
   const doctors = useMemo(() => (staff || []).filter((item) => [item.name, item.role].filter(Boolean).some((value) => /د\/|دكتور|صيدلي|صيدلاني|doctor|pharmacist/i.test(String(value)))), [staff]);
@@ -302,11 +328,10 @@ export default function CustomerRequests() {
 
       <Filters search={search} setSearch={setSearch} branch={branchFilter} setBranch={setBranchFilter} status={statusFilter} setStatus={setStatusFilter} urgency={urgencyFilter} setUrgency={setUrgencyFilter} source={sourceFilter} setSource={setSourceFilter} channel={channelFilter} setChannel={setChannelFilter} assignee={assigneeFilter} setAssignee={setAssigneeFilter} assignees={assignees} />
 
-      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(390px,0.95fr)_minmax(0,2.05fr)]">
-        <section className="min-w-0 rounded-3xl border border-slate-700 bg-slate-950/50 p-3 shadow-xl xl:sticky xl:top-4 xl:self-start">
+      <section className="min-w-0 rounded-3xl border border-slate-700 bg-slate-950/50 p-3 shadow-xl">
           <div className="mb-3 flex items-center justify-between gap-3 px-1">
             <div><div className="font-black text-white">قائمة التنفيذ</div><div className="mt-1 text-xs text-slate-400">{totalRows.toLocaleString('ar-EG')} طلب مطابق</div></div>
-            <select className="input-dark w-auto min-w-24 text-xs" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={20}>20</option><option value={30}>30</option><option value={50}>50</option><option value={100}>100</option></select>
+            <div className="flex items-center gap-2"><div className="flex rounded-xl border border-slate-700 bg-slate-900 p-1"><button type="button" aria-label="عرض كجدول" className={`rounded-lg p-2 ${viewMode === 'table' ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400'}`} onClick={() => setViewMode('table')}><List size={17} /></button><button type="button" aria-label="عرض كبطاقات" className={`rounded-lg p-2 ${viewMode === 'cards' ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400'}`} onClick={() => setViewMode('cards')}><LayoutGrid size={17} /></button></div><select className="input-dark w-auto min-w-24 text-xs" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={20}>20</option><option value={30}>30</option><option value={50}>50</option><option value={100}>100</option></select></div>
           </div>
 
           {loading ? (
@@ -314,17 +339,12 @@ export default function CustomerRequests() {
           ) : requests.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-700 p-10 text-center text-sm text-slate-400">لا توجد طلبات مطابقة.</div>
           ) : (
-            <div className="max-h-[calc(100vh-180px)] space-y-2 overflow-y-auto pe-1 [scrollbar-color:#22d3ee_#0f172a] [scrollbar-width:thin]">
-              {requests.map((request) => <RequestCard key={request.id} request={request} selected={selected?.id === request.id} onSelect={() => setSelected(request)} />)}
-            </div>
+            viewMode === 'table' ? <RequestTable requests={requests} page={page} pageSize={pageSize} selectedId={selected?.id} onSelect={setSelected} /> : <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">{requests.map((request) => <RequestCard key={request.id} request={request} selected={selected?.id === request.id} onSelect={() => setSelected(request)} />)}</div>
           )}
           <Pagination page={page} pages={totalPages} onPage={setPage} />
-        </section>
+      </section>
 
-        <section className="min-w-0">
-          {selected ? <RequestDetail request={selected as RequestWithProduct} events={events} newStatus={newStatus} setNewStatus={setNewStatus} note={statusNote} setNote={setStatusNote} saving={saving} onStatus={() => void saveStatus(newStatus)} onQuickStatus={(status) => void saveStatus(status, '')} onWhatsApp={openWhatsApp} onShortage={moveToShortage} onProductLinked={load} /> : <div className="rounded-3xl border border-slate-700 bg-[#102640] p-12 text-center text-slate-400">اختر طلبًا من القائمة.</div>}
-        </section>
-      </div>
+      <section className="min-w-0">{selected ? <RequestDetail request={selected as RequestWithProduct} events={events} newStatus={newStatus} setNewStatus={setNewStatus} note={statusNote} setNote={setStatusNote} saving={saving} onStatus={() => void saveStatus(newStatus)} onQuickStatus={(status, note) => void saveStatus(status, note ?? '')} onWhatsApp={openWhatsApp} onShortage={moveToShortage} onProductLinked={load} onUpdated={async (request) => { setSelected(request); await load(); }} user={user} /> : <div className="rounded-3xl border border-slate-700 bg-[#102640] p-12 text-center text-slate-400">اختر طلبًا من القائمة.</div>}</section>
     </div>
   );
 }
@@ -350,7 +370,7 @@ function CommandHeader({ summary, onCreate, onRefresh, loading }: { summary: Cus
           <div className="flex flex-wrap gap-2"><button className="btn-primary flex items-center gap-2" onClick={onCreate}><Plus size={16} /> تسجيل طلب جديد</button><button className="btn-secondary flex items-center gap-2" onClick={onRefresh} disabled={loading}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث</button></div>
         </div>
       </section>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{kpis.map(({ label, value, icon: Icon, tone }) => <div key={label} className="rounded-2xl border border-slate-700 bg-[#102640] p-4 shadow-lg"><div className="flex items-center justify-between gap-2"><Icon size={18} className={tone} /><span className={`num text-2xl font-black ${tone}`}>{value.toLocaleString('ar-EG')}</span></div><div className="mt-2 text-xs font-bold text-slate-300">{label}</div></div>)}</div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{kpis.map(({ label, value, icon: Icon, tone }) => <div key={label} className="min-h-28 rounded-2xl border border-slate-700 bg-[#102640] p-5 shadow-lg"><div className="flex items-center justify-between gap-2"><Icon size={23} className={tone} /><span className={`num text-3xl font-black ${tone}`}>{value.toLocaleString('ar-EG')}</span></div><div className="mt-3 text-sm font-black text-slate-200">{label}</div></div>)}</div>
     </>
   );
 }
@@ -362,6 +382,10 @@ function QuickQueues({ value, onChange, summary }: { value: CustomerRequestQuick
 
 function Filters(props: { search: string; setSearch: (v: string) => void; branch: string; setBranch: (v: string) => void; status: string; setStatus: (v: string) => void; urgency: string; setUrgency: (v: string) => void; source: string; setSource: (v: string) => void; channel: string; setChannel: (v: string) => void; assignee: string; setAssignee: (v: string) => void; assignees: string[] }) {
   return <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg"><div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7"><div className="relative md:col-span-2 xl:col-span-2"><Search size={16} className="absolute left-3 top-3.5 text-slate-400" /><input className="input-dark pl-9" placeholder="عميل، كود، هاتف، صنف، كود صنف، رقم الطلب..." value={props.search} onChange={(e) => props.setSearch(e.target.value)} /></div><select className="input-dark" value={props.branch} onChange={(e) => props.setBranch(e.target.value)}><option value="all">كل الفروع</option><option value="فرع شكري">فرع شكري</option><option value="فرع الشامي">فرع الشامي</option></select><select className="input-dark" value={props.status} onChange={(e) => props.setStatus(e.target.value)}><option value="all">كل الحالات</option>{REQUEST_STATUS_FLOW.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><select className="input-dark" value={props.urgency} onChange={(e) => props.setUrgency(e.target.value)}><option value="all">كل الأولويات</option><option value="urgent">عاجل/مهم</option><option value="normal">عادي</option></select><select className="input-dark" value={props.source} onChange={(e) => props.setSource(e.target.value)}><option value="all">كل المصادر</option><option value="dawaawael">dawaawael</option><option value="manual">تسجيل الإدارة</option></select><select className="input-dark" value={props.channel} onChange={(e) => props.setChannel(e.target.value)}><option value="all">كل القنوات</option><option value="واتساب">واتساب</option><option value="داخل الصيدلية">داخل الصيدلية</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select><select className="input-dark xl:col-start-6 xl:col-span-2" value={props.assignee} onChange={(e) => props.setAssignee(e.target.value)}><option value="all">كل المسئولين</option><option value="unassigned">بدون مسئول</option>{props.assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select></div></section>;
+}
+
+function RequestTable({ requests, page, pageSize, selectedId, onSelect }: { requests: CustomerRequest[]; page: number; pageSize: number; selectedId?: string; onSelect: (request: CustomerRequest) => void }) {
+  return <div className="overflow-x-auto rounded-2xl border border-slate-700"><table className="min-w-[1900px] w-full text-right text-xs"><thead className="sticky top-0 z-10 bg-[#0c1d32] text-slate-300"><tr>{['م','الصنف والكمية','العميل','الكود','التواصل','نوع الطلب','أهمية العميل','طريقة التسجيل','المسجل','التاريخ والوقت','العمر/التأخير','المرحلة الحالية','مراحل التنفيذ','الملاحظات'].map((title) => <th key={title} className="whitespace-nowrap border-b border-slate-700 px-3 py-4 font-black">{title}</th>)}</tr></thead><tbody>{requests.map((request, index) => { const overdue = customerRequestIsOverdue(request); const currentIndex = (page - 1) * pageSize + index + 1; return <tr key={request.id} role="button" tabIndex={0} onClick={() => onSelect(request)} onKeyDown={(event) => { if (event.key === 'Enter') onSelect(request); }} className={`cursor-pointer border-b border-slate-800 align-top transition hover:bg-cyan-500/[0.08] ${selectedId === request.id ? 'bg-cyan-500/10' : ''}`}><td className="px-3 py-3 num font-black text-cyan-200">{currentIndex}</td><td className="px-3 py-3"><div className="max-w-48 font-black text-white">{request.medicine_name}</div><div className="mt-1 text-slate-400">الكمية: {request.quantity || 1}</div></td><td className="px-3 py-3 font-bold text-white">{request.customer_name || 'غير محدد'}</td><td className="px-3 py-3 num text-slate-300">{request.customer_code || '—'}</td><td className="px-3 py-3"><div className="num text-slate-200">{displayEgyptianPhone(request.customer_phone || '') || '—'}</div></td><td className="px-3 py-3"><span className="rounded-lg bg-amber-500/10 px-2 py-1 font-bold text-amber-200">{requestTypeLabel(request)}</span></td><td className="px-3 py-3">{customerImportanceLabel(request)}</td><td className="px-3 py-3">{requestChannelLabel(request)}</td><td className="px-3 py-3">{registrarName(request)}</td><td className="px-3 py-3 whitespace-nowrap">{exactRequestTime(request)}</td><td className={`px-3 py-3 font-black ${overdue ? 'text-red-300' : 'text-slate-300'}`}>{ageLabel(request)}{overdue ? ' · متأخر' : ''}</td><td className="px-3 py-3"><span className={overdue ? 'badge-warning' : customerRequestIsClosed(request) ? 'badge-success' : 'badge-info'}>{requestStatusLabel(request.status)}</span></td><td className="px-3 py-3"><div className="h-2 w-28 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-l from-cyan-400 to-emerald-400" style={{ width: `${progressValue(request.status)}%` }} /></div><div className="mt-1 max-w-40 text-[10px] text-cyan-100">{nextAction(request)}</div></td><td className="px-3 py-3"><div className="max-w-56 line-clamp-3 text-slate-300">{request.purchasing_notes || request.doctor_notes || request.contact_summary || request.source_notes || '—'}</div></td></tr>; })}</tbody></table></div>;
 }
 
 function RequestCard({ request, selected, onSelect }: { request: RequestWithProduct; selected: boolean; onSelect: () => void }) {
@@ -388,15 +412,34 @@ function RequestCard({ request, selected, onSelect }: { request: RequestWithProd
   );
 }
 
-function RequestDetail(props: { request: RequestWithProduct; events: CustomerRequestEvent[]; newStatus: string; setNewStatus: (v: string) => void; note: string; setNote: (v: string) => void; saving: boolean; onStatus: () => void; onQuickStatus: (status: string) => void; onWhatsApp: () => void; onShortage: () => void; onProductLinked: () => void | Promise<void> }) {
+function RequestDetail(props: { request: RequestWithProduct; events: CustomerRequestEvent[]; newStatus: string; setNewStatus: (v: string) => void; note: string; setNote: (v: string) => void; saving: boolean; onStatus: () => void; onQuickStatus: (status: string, note?: string) => void; onWhatsApp: () => void; onShortage: () => void; onProductLinked: () => void | Promise<void>; onUpdated: (request: CustomerRequest) => void | Promise<void>; user: { id?: string; name?: string } | null }) {
   const request = props.request;
   const issues = customerRequestQualityIssues(request);
   const importance = importanceLabel(request);
   const [editingProduct, setEditingProduct] = useState(!request.product_id);
   const [pickedProduct, setPickedProduct] = useState<CatalogProduct | null>(null);
   const [linking, setLinking] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editValues, setEditValues] = useState({ medicine_name: request.medicine_name, quantity: Number(request.quantity || 1), urgency: request.urgency || 'normal', request_type: request.request_type || 'missing_medicine', source_request_channel: request.source_request_channel || '', customer_phone: request.customer_phone || '', doctor_notes: request.doctor_notes || '' });
+  const [cancelReason, setCancelReason] = useState('');
 
-  useEffect(() => { setEditingProduct(!request.product_id); setPickedProduct(null); }, [request.id, request.product_id]);
+  useEffect(() => { setEditingProduct(!request.product_id); setPickedProduct(null); setEditing(false); setCancelReason(''); setEditValues({ medicine_name: request.medicine_name, quantity: Number(request.quantity || 1), urgency: request.urgency || 'normal', request_type: request.request_type || 'missing_medicine', source_request_channel: request.source_request_channel || '', customer_phone: request.customer_phone || '', doctor_notes: request.doctor_notes || '' }); }, [request]);
+
+  const saveDetails = async () => {
+    setLinking(true);
+    try {
+      const updated = await updateCustomerRequestDetails(request, { ...editValues, user_id: props.user?.id, user_name: props.user?.name });
+      toast.success('تم تعديل بيانات الطلب وتسجيل التعديل');
+      setEditing(false);
+      await props.onUpdated(updated);
+    } catch (error) { toast.error(`تعذر تعديل الطلب: ${(error as Error).message}`); } finally { setLinking(false); }
+  };
+
+  const cancelRequest = async () => {
+    if (!cancelReason.trim()) return toast.error('اختر أو اكتب سبب الإلغاء');
+    await props.onQuickStatus('cancelled', cancelReason.trim());
+    setCancelReason('');
+  };
 
   const linkProduct = async () => {
     if (!pickedProduct?.id) return;
@@ -424,9 +467,11 @@ function RequestDetail(props: { request: RequestWithProduct; events: CustomerReq
             <div className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.07] p-3 text-sm font-black text-cyan-100">الخطوة التالية المقترحة: {nextAction(request)}</div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-l from-cyan-400 to-emerald-400" style={{ width: `${progressValue(request.status)}%` }} /></div>
           </div>
-          <div className="flex flex-wrap gap-2"><button className="btn-secondary flex items-center gap-2" onClick={props.onWhatsApp}><MessageCircle size={16} /> واتساب</button><button className="btn-secondary flex items-center gap-2" onClick={props.onShortage} disabled={props.saving || !!request.shortage_item_id}><ShoppingCart size={16} /> {request.shortage_item_id ? 'مربوط بالنواقص' : 'إلى النواقص'}</button>{request.customer_id && <Link className="btn-secondary flex items-center gap-2" to={`/customers/${request.customer_id}`}><UsersRound size={16} /> ملف العميل</Link>}</div>
+          <div className="flex flex-wrap gap-2"><button className="btn-secondary flex items-center gap-2" onClick={() => setEditing((value) => !value)}><Pencil size={16} /> تعديل</button><button className="btn-secondary flex items-center gap-2" onClick={props.onWhatsApp}><MessageCircle size={16} /> واتساب</button><button className="btn-secondary flex items-center gap-2" onClick={props.onShortage} disabled={props.saving || !!request.shortage_item_id}><ShoppingCart size={16} /> {request.shortage_item_id ? 'مربوط بالنواقص' : 'إلى النواقص'}</button>{request.customer_id && <Link className="btn-secondary flex items-center gap-2" to={`/customers/${request.customer_id}`}><UsersRound size={16} /> ملف العميل</Link>}</div>
         </div>
       </div>
+
+      {editing && <InfoCard title="تعديل بيانات الطلب" icon={Pencil}><div className="grid grid-cols-1 gap-3 md:grid-cols-3"><input className="input-dark md:col-span-2" value={editValues.medicine_name} onChange={(e) => setEditValues((v) => ({ ...v, medicine_name: e.target.value }))} placeholder="اسم الصنف" /><input className="input-dark" type="number" min={1} value={editValues.quantity} onChange={(e) => setEditValues((v) => ({ ...v, quantity: Number(e.target.value || 1) }))} /><select className="input-dark" value={editValues.urgency} onChange={(e) => setEditValues((v) => ({ ...v, urgency: e.target.value }))}><option value="normal">عادي</option><option value="high">مهم</option><option value="urgent">عاجل</option></select><select className="input-dark" value={editValues.request_type} onChange={(e) => setEditValues((v) => ({ ...v, request_type: e.target.value }))}><option value="missing_medicine">صنف ناقص</option><option value="normal_request">طلب عادي</option><option value="inquiry">استفسار فقط</option></select><select className="input-dark" value={editValues.source_request_channel} onChange={(e) => setEditValues((v) => ({ ...v, source_request_channel: e.target.value }))}><option value="">غير محدد</option><option value="واتساب">واتساب</option><option value="داخل الصيدلية">داخل الصيدلية</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select><input className="input-dark" value={editValues.customer_phone} onChange={(e) => setEditValues((v) => ({ ...v, customer_phone: e.target.value }))} placeholder="رقم التواصل" /><textarea className="input-dark min-h-20 md:col-span-2" value={editValues.doctor_notes} onChange={(e) => setEditValues((v) => ({ ...v, doctor_notes: e.target.value }))} placeholder="ملاحظات الطلب" /></div><div className="flex gap-2"><button className="btn-primary" onClick={() => void saveDetails()} disabled={linking}>حفظ التعديل</button><button className="btn-secondary" onClick={() => setEditing(false)}>إلغاء التعديل</button></div></InfoCard>}
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">{QUICK_ACTIONS.map(({ status, label, icon: Icon }) => <button key={status} type="button" disabled={props.saving || request.status === status} onClick={() => props.onQuickStatus(status)} className="rounded-2xl border border-slate-700 bg-[#102640] p-3 text-sm font-black text-slate-100 hover:border-cyan-400/50 disabled:opacity-45"><Icon size={17} className="mx-auto mb-2 text-cyan-300" />{label}</button>)}</div>
 
@@ -441,6 +486,8 @@ function RequestDetail(props: { request: RequestWithProduct; events: CustomerReq
         <InfoCard title="تحديث الحالة" icon={RefreshCw}><select className="input-dark" value={props.newStatus} onChange={(e) => props.setNewStatus(e.target.value)}>{REQUEST_STATUS_FLOW.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select><textarea className="input-dark mt-3 min-h-24" value={props.note} onChange={(e) => props.setNote(e.target.value)} placeholder="نتيجة البحث، رد المورد، تأكيد العميل أو ملاحظة مهمة..." /><button className="btn-primary mt-3 flex w-full items-center justify-center gap-2" disabled={props.saving || props.newStatus === request.status} onClick={props.onStatus}>{props.saving && <Loader2 size={16} className="animate-spin" />} حفظ التحديث</button></InfoCard>
       </div>
 
+      {!customerRequestIsClosed(request) && <InfoCard title="إلغاء الطلب بسبب موثق" icon={XCircle}><div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]"><select className="input-dark" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)}><option value="">اختر سبب الإلغاء</option><option value="العميل وفر الصنف من مكان آخر">العميل وفر الصنف</option><option value="العميل كان يستفسر فقط ولا يريد تنفيذ الطلب">كان يستفسر فقط</option><option value="العميل عدل رأيه ولم يعد يحتاج الصنف">العميل عدل رأيه</option><option value="تم تسجيل الطلب بالخطأ أو مكرر">طلب مسجل بالخطأ/مكرر</option><option value="تعذر التواصل مع العميل بعد المحاولات الموثقة">تعذر التواصل مع العميل</option></select><button className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-2 font-black text-red-200" onClick={() => void cancelRequest()} disabled={props.saving}><XCircle size={16} className="inline ms-2" />إلغاء الطلب</button></div></InfoCard>}
+
       <InfoCard title="سجل الحركة الكامل" icon={History}>{props.events.length === 0 ? <div className="text-sm text-slate-400">لا توجد أحداث مسجلة.</div> : <div className="space-y-3">{props.events.map((event) => <div key={event.id} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm text-white">{event.action || 'تحديث'}</strong><span className="text-xs text-slate-400">{event.created_at ? formatDate(event.created_at) : ''}</span></div><div className="mt-1 text-sm text-slate-300">{event.notes || 'بدون ملاحظات'}</div><div className="mt-1 text-xs text-slate-500">{event.old_status ? requestStatusLabel(event.old_status) : 'بداية'} ← {requestStatusLabel(event.new_status)} · {event.created_by_name || 'النظام'}</div></div>)}</div>}</InfoCard>
     </div>
   );
@@ -452,6 +499,8 @@ function CreateRequestPanel({ doctors, user, onCreated }: { doctors: StaffOption
   const [image, setImage] = useState({ publicUrl: '', path: '' });
   const [quantity, setQuantity] = useState(1);
   const [urgency, setUrgency] = useState('normal');
+  const [requestType, setRequestType] = useState('missing_medicine');
+  const [requestChannel, setRequestChannel] = useState('داخل الصيدلية');
   const [doctorId, setDoctorId] = useState('');
   const [doctorNotes, setDoctorNotes] = useState('');
   const [supplierHint, setSupplierHint] = useState('');
@@ -464,7 +513,7 @@ function CreateRequestPanel({ doctors, user, onCreated }: { doctors: StaffOption
     if (!selectedProduct?.id) return toast.error('اختر الصنف بالكود أو أضف صنفًا جديدًا');
     setSaving(true);
     try {
-      const created = await createCustomerRequest({ customer_id: selectedCustomer.id, customer_code: selectedCustomer.code, customer_name: selectedCustomer.name, customer_phone: selectedCustomer.phone, branch: selectedCustomer.branch || selectedDoctor?.branch || null, medicine_name: selectedProduct.name, medicine_image_url: image.publicUrl || null, item_image_url: image.publicUrl || null, item_image_path: image.path || null, quantity, urgency, doctor_id: selectedDoctor?.id || null, doctor_name: selectedDoctor?.name || null, doctor_notes: doctorNotes || null, supplier_hint: supplierHint || null, created_by: user?.id, created_by_name: user?.name });
+      const created = await createCustomerRequest({ customer_id: selectedCustomer.id, customer_code: selectedCustomer.code, customer_name: selectedCustomer.name, customer_phone: selectedCustomer.phone, branch: selectedCustomer.branch || selectedDoctor?.branch || null, medicine_name: selectedProduct.name, medicine_image_url: image.publicUrl || null, item_image_url: image.publicUrl || null, item_image_path: image.path || null, quantity, urgency, request_type: requestType, source_request_channel: requestChannel, doctor_id: selectedDoctor?.id || null, doctor_name: selectedDoctor?.name || null, doctor_notes: doctorNotes || null, supplier_hint: supplierHint || null, created_by: user?.id, created_by_name: user?.name });
       await linkCustomerRequestProduct(created.id, selectedProduct.id);
       await onCreated(created);
     } catch (error) {
@@ -474,7 +523,7 @@ function CreateRequestPanel({ doctors, user, onCreated }: { doctors: StaffOption
     }
   };
 
-  return <form onSubmit={submit} className="space-y-4 rounded-3xl border border-teal-400/25 bg-[#102640] p-5 shadow-xl"><div><div className="flex items-center gap-2 text-lg font-black text-white"><Plus size={19} className="text-teal-300" /> تسجيل طلب جديد</div><p className="mt-1 text-xs font-bold text-slate-400">اختيار العميل ثم الصنف بالكود أو الاسم. لو الصنف جديد أضفه من نفس المكان.</p></div><div className="grid grid-cols-1 gap-4 lg:grid-cols-3"><div className="lg:col-span-3"><CustomerSmartSearch value={selectedCustomer} onSelect={setSelectedCustomer} placeholder="ابحث باسم العميل أو الكود أو الهاتف" disabled={saving} allowCreate /></div><div className="lg:col-span-3"><ProductSmartSearch value={selectedProduct} onSelect={setSelectedProduct} disabled={saving} /></div><input className="input-dark" type="number" min={1} value={quantity} onChange={(e) => setQuantity(Number(e.target.value || 1))} placeholder="الكمية" /><select className="input-dark" value={urgency} onChange={(e) => setUrgency(e.target.value)}><option value="normal">عادي</option><option value="high">مهم</option><option value="urgent">عاجل</option></select><select className="input-dark" value={doctorId} onChange={(e) => setDoctorId(e.target.value)}><option value="">الدكتور/الموظف المسجل</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} - {doctor.branch || ''}</option>)}</select><input className="input-dark" value={supplierHint} onChange={(e) => setSupplierHint(e.target.value)} placeholder="مورد/مصدر محتمل" /><textarea className="input-dark min-h-20 lg:col-span-2" value={doctorNotes} onChange={(e) => setDoctorNotes(e.target.value)} placeholder="ملاحظات الطلب" /><div className="lg:col-span-3"><ImageUploadBox bucket="customer-request-images" folder="customer-requests" label="صورة الصنف (اختياري)" valueUrl={image.publicUrl} valuePath={image.path} onUploaded={setImage} disabled={saving} /></div></div><button className="btn-primary flex min-w-44 items-center justify-center gap-2" disabled={saving || !selectedProduct?.id}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} حفظ الطلب</button></form>;
+  return <form onSubmit={submit} className="space-y-4 rounded-3xl border border-teal-400/25 bg-[#102640] p-5 shadow-xl"><div><div className="flex items-center gap-2 text-lg font-black text-white"><Plus size={19} className="text-teal-300" /> تسجيل طلب جديد</div><p className="mt-1 text-xs font-bold text-slate-400">اختيار العميل ثم الصنف بالكود أو الاسم. لو الصنف جديد أضفه من نفس المكان.</p></div><div className="grid grid-cols-1 gap-4 lg:grid-cols-3"><div className="lg:col-span-3"><CustomerSmartSearch value={selectedCustomer} onSelect={setSelectedCustomer} placeholder="ابحث باسم العميل أو الكود أو الهاتف" disabled={saving} allowCreate /></div><div className="lg:col-span-3"><ProductSmartSearch value={selectedProduct} onSelect={setSelectedProduct} disabled={saving} /></div><input className="input-dark" type="number" min={1} value={quantity} onChange={(e) => setQuantity(Number(e.target.value || 1))} placeholder="الكمية" /><select className="input-dark" value={urgency} onChange={(e) => setUrgency(e.target.value)}><option value="normal">عادي</option><option value="high">مهم</option><option value="urgent">عاجل</option></select><select className="input-dark" value={requestType} onChange={(e) => setRequestType(e.target.value)}><option value="missing_medicine">صنف ناقص</option><option value="normal_request">طلب عادي</option><option value="urgent_request">طلب عاجل</option><option value="inquiry">استفسار</option></select><select className="input-dark" value={requestChannel} onChange={(e) => setRequestChannel(e.target.value)}><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select><select className="input-dark" value={doctorId} onChange={(e) => setDoctorId(e.target.value)}><option value="">الدكتور/الموظف المسجل</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} - {doctor.branch || ''}</option>)}</select><input className="input-dark" value={supplierHint} onChange={(e) => setSupplierHint(e.target.value)} placeholder="مورد/مصدر محتمل" /><textarea className="input-dark min-h-20 lg:col-span-2" value={doctorNotes} onChange={(e) => setDoctorNotes(e.target.value)} placeholder="ملاحظات الطلب" /><div className="lg:col-span-3"><ImageUploadBox bucket="customer-request-images" folder="customer-requests" label="صورة الصنف (اختياري)" valueUrl={image.publicUrl} valuePath={image.path} onUploaded={setImage} disabled={saving} /></div></div><button className="btn-primary flex min-w-44 items-center justify-center gap-2" disabled={saving || !selectedProduct?.id}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} حفظ الطلب</button></form>;
 }
 
 function InfoCard({ title, icon: Icon, children }: { title: string; icon: typeof History; children: React.ReactNode }) {

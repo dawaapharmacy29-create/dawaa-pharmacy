@@ -84,6 +84,7 @@ export interface CustomerRequest {
   source_payload?: Record<string, unknown> | null;
   sync_conflict?: boolean | null;
   sync_conflict_reason?: string | null;
+  customer_segment?: string | null;
 }
 
 export interface CustomerRequestEvent {
@@ -116,6 +117,7 @@ export interface CustomerRequestInput {
   quantity?: number | null;
   urgency?: string | null;
   request_type?: string | null;
+  source_request_channel?: string | null;
   needs_customer_confirmation?: boolean | null;
   is_expensive_or_special?: boolean | null;
   doctor_id?: string | null;
@@ -315,6 +317,7 @@ export async function createCustomerRequest(input: CustomerRequestInput) {
     urgency: input.urgency || 'normal',
     status,
     request_type: input.request_type || 'missing_medicine',
+    source_request_channel: input.source_request_channel || null,
     needs_customer_confirmation: needsConfirmation,
     is_expensive_or_special: Boolean(input.is_expensive_or_special),
     doctor_id: safeUuid(input.doctor_id),
@@ -359,6 +362,9 @@ export async function updateCustomerRequestStatus(
   }
 ) {
   requireSupabaseConfig();
+  if (input.status === 'cancelled' && !input.notes?.trim()) {
+    throw new Error('سبب إلغاء الطلب مطلوب');
+  }
   const payload: Record<string, unknown> = {
     status: input.status,
     purchasing_notes: input.purchasing_notes ?? request.purchasing_notes,
@@ -412,6 +418,46 @@ export async function updateCustomerRequestStatus(
       new_status: input.status,
       notes: input.notes || null,
     },
+  });
+  return updated;
+}
+
+export async function updateCustomerRequestDetails(
+  request: CustomerRequest,
+  input: {
+    medicine_name: string;
+    quantity: number;
+    urgency: string;
+    request_type: string;
+    source_request_channel?: string | null;
+    customer_phone?: string | null;
+    doctor_notes?: string | null;
+    user_id?: string | null;
+    user_name?: string | null;
+  }
+) {
+  requireSupabaseConfig();
+  if (!input.medicine_name.trim()) throw new Error('اسم الصنف مطلوب');
+  if (!Number.isFinite(input.quantity) || input.quantity < 1) throw new Error('الكمية غير صحيحة');
+
+  const updated = (await updateResilient('customer_requests', request.id, {
+    medicine_name: input.medicine_name.trim(),
+    quantity: input.quantity,
+    urgency: input.urgency,
+    request_type: input.request_type,
+    source_request_channel: input.source_request_channel || null,
+    customer_phone: input.customer_phone?.trim() || null,
+    doctor_notes: input.doctor_notes?.trim() || null,
+    updated_at: new Date().toISOString(),
+  })) as CustomerRequest;
+
+  await addCustomerRequestEvent(request.id, {
+    old_status: request.status,
+    new_status: request.status,
+    action: 'تعديل بيانات طلب عميل',
+    notes: `تم تعديل بيانات الطلب بواسطة ${input.user_name || 'النظام'}`,
+    created_by: input.user_id,
+    created_by_name: input.user_name,
   });
   return updated;
 }
