@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { TrendingUp, TrendingDown, Users, UserPlus, UserCheck, UserX, AlertTriangle, RefreshCw } from 'lucide-react';
+import { TrendingUp, TrendingDown, Users, UserPlus, UserCheck, UserX, AlertTriangle, RefreshCw, FileUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
@@ -10,6 +10,7 @@ import {
   type CustomerMonthlyRow,
 } from '@/lib/customerMonthlyPerformanceService';
 import { BRANCHES } from '@/lib/constants';
+import { normalizeWatchlistRows, replaceCustomerWatchlist } from '@/lib/customerService/customerCohortIntelligenceService';
 
 type PeriodMode = 'cycle' | 'calendar';
 
@@ -87,6 +88,8 @@ export default function CustomerMonthlyPerformance() {
   >(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [watchlistMessage, setWatchlistMessage] = useState('');
+  const [uploadingWatchlist, setUploadingWatchlist] = useState(false);
 
   const period = useMemo(
     () => (mode === 'cycle' ? getPharmacyCycleRange(new Date(refDate)) : calendarMonthRange(new Date(refDate))),
@@ -124,6 +127,28 @@ export default function CustomerMonthlyPerformance() {
     summary && summary.previousTotalSales > 0
       ? Math.round(((summary.totalSales - summary.previousTotalSales) / summary.previousTotalSales) * 1000) / 10
       : null;
+
+  const uploadWatchlist = async (file: File) => {
+    if (branch === ALL_BRANCHES_VALUE) {
+      setWatchlistMessage('اختاري فرعًا محددًا قبل رفع قائمة أهم 20 عميل.');
+      return;
+    }
+    setUploadingWatchlist(true);
+    setWatchlistMessage('');
+    try {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = normalizeWatchlistRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }));
+      if (!rows.length) throw new Error('لم يتم العثور على عمود كود العميل. استخدمي: كود العميل، اسم العميل، الهاتف، ملاحظة.');
+      const saved = await replaceCustomerWatchlist(branch, rows);
+      setWatchlistMessage(`تم اعتماد قائمة مراقبة من ${saved} عميل لفرع ${branch}.`);
+    } catch (uploadError) {
+      setWatchlistMessage(uploadError instanceof Error ? uploadError.message : 'تعذر رفع قائمة المراقبة');
+    } finally {
+      setUploadingWatchlist(false);
+    }
+  };
 
   return (
     <div dir="rtl" className="space-y-6 p-4 md:p-6">
@@ -189,7 +214,23 @@ export default function CustomerMonthlyPerformance() {
         <button type="button" onClick={() => void load()} className="btn-secondary flex items-center gap-2 text-xs" disabled={loading}>
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
         </button>
+        <label className={`btn-secondary flex cursor-pointer items-center gap-2 text-xs ${branch === ALL_BRANCHES_VALUE || uploadingWatchlist ? 'pointer-events-none opacity-50' : ''}`}>
+          <FileUp size={14} /> {uploadingWatchlist ? 'جاري رفع القائمة...' : 'رفع أهم 20 عميل'}
+          <input
+            type="file"
+            className="sr-only"
+            accept=".xlsx,.xls,.csv"
+            disabled={branch === ALL_BRANCHES_VALUE || uploadingWatchlist}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void uploadWatchlist(file);
+              event.currentTarget.value = '';
+            }}
+          />
+        </label>
       </div>
+
+      {watchlistMessage ? <p className={`rounded-xl border p-3 text-xs ${watchlistMessage.startsWith('تم اعتماد') ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200' : 'border-amber-400/20 bg-amber-500/10 text-amber-200'}`}>{watchlistMessage}</p> : null}
 
       {error && <p className="text-sm text-red-300">{error}</p>}
       {loading && (
