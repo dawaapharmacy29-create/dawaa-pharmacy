@@ -46,399 +46,218 @@ export type EvaluationCriterion = {
   hint?: string;
   sourceRoute?: string;
   sourceLabel?: string;
-  /** مفاتيح وحدات البيانات التي يعتمد عليها البند لإظهار حالة التغطية والحياد بوضوح. */
   coverageKeys?: string[];
-  /** لعناصر auto فقط — بيحسب درجة من 0-10 من المقاييس (الحالية + السابقة للمقارنة). */
   autoScore?: (current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null) => number;
-  /** لعناصر checklist فقط — مفتاح المهمة اليومية اللي معدل إنجازها الأسبوعي بيحدد الدرجة. */
   checklistTaskKey?: string;
-  /** لعناصر checklist اللي بتتغذى من أكتر من بند فرعي — بيتاخد متوسط معدلات الإنجاز لكل المفاتيح. له أولوية على checklistTaskKey لو الاتنين موجودين. */
   checklistTaskKeys?: string[];
-  /** بند جوهري للدور: صفر نشاط يدخل التقييم ولا يُستبعد كمصدر مفقود. */
   requiredOperational?: boolean;
 };
 
-/** بيرجع كل مفاتيح الـ Checklist المرتبطة بمعيار معيّن (سواء مفتاح واحد أو أكتر). */
 export function criterionChecklistKeys(criterion: EvaluationCriterion): string[] {
   if (criterion.checklistTaskKeys?.length) return criterion.checklistTaskKeys;
-  if (criterion.checklistTaskKey) return [criterion.checklistTaskKey];
-  return [];
+  return criterion.checklistTaskKey ? [criterion.checklistTaskKey] : [];
 }
 
-function ratio(part: number, total: number): number {
-  if (!total) return 0;
-  return part / total;
-}
+const clamp10 = (value: number) => Math.max(0, Math.min(10, Number.isFinite(value) ? value : 0));
+const ratio = (part: number, total: number) => (total > 0 ? part / total : 0);
 
-function covered(current: WeeklyAutoMetrics, key: string): boolean {
-  return current.data_coverage?.[key] !== false;
-}
-
-/** نمو المبيعات مقارنة بالأسبوع السابق — 5 نقطة أساس + مكافأة/خصم حسب نسبة النمو. */
-function salesGrowthScore(current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null): number {
-  if (current.sales_target_achievement_rate !== null && current.sales_target_achievement_rate !== undefined) {
-    return Math.max(0, Math.min(10, current.sales_target_achievement_rate / 10));
-  }
-  if (!previous || !previous.sales_total) return 5;
+function salesPerformanceScore(current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null): number {
+  const targetRate = current.sales_target_achievement_rate;
+  if (targetRate !== null && targetRate !== undefined) return clamp10(targetRate / 10);
+  if (!previous?.sales_total) return current.sales_total > 0 ? 5 : 0;
   const growthPct = ((current.sales_total - previous.sales_total) / previous.sales_total) * 100;
-  return Math.max(0, Math.min(10, 5 + growthPct / 5));
+  return clamp10(5 + growthPct / 5);
 }
 
 function attendanceScore(current: WeeklyAutoMetrics): number {
-  if (!covered(current, 'attendance') || !current.attendance_days_count) return 5;
-  const latePenalty = Math.min(5, current.attendance_late_minutes / Math.max(1, current.attendance_days_count) / 12);
-  const punchPenalty = Math.min(5, current.attendance_missing_punch / Math.max(1, current.attendance_days_count) * 5);
-  return Math.max(0, 10 - latePenalty - punchPenalty);
+  const days = current.attendance_days_count || 0;
+  if (!days) return 5; // غياب ملف الحضور لا يتحول إلى استبعاد ولا عقوبة كاملة.
+  const latePenalty = Math.min(5, current.attendance_late_minutes / Math.max(1, days) / 12);
+  const punchPenalty = Math.min(5, current.attendance_missing_punch / Math.max(1, days) * 5);
+  return clamp10(10 - latePenalty - punchPenalty);
 }
 
 function customerRequestsScore(current: WeeklyAutoMetrics): number {
-  if (!covered(current, 'customer_requests') || !current.customer_requests_total) return 5;
-  const onTime = ratio(current.customer_requests_closed_on_time || 0, current.customer_requests_total);
-  const overdue = ratio(current.customer_requests_overdue || 0, current.customer_requests_total);
-  return Math.max(0, Math.min(10, onTime * 10 - overdue * 5));
+  const total = current.customer_requests_total || 0;
+  if (!total) return 5; // لا توجد حالات تشغيلية مسجلة خلال الأسبوع.
+  const onTime = ratio(current.customer_requests_closed_on_time || 0, total);
+  const overdue = ratio(current.customer_requests_overdue || 0, total);
+  return clamp10(onTime * 10 - overdue * 5);
 }
 
 function coordinationScore(current: WeeklyAutoMetrics): number {
   const scores: number[] = [];
-  if (covered(current, 'shift_notes') && current.shift_notes_total) {
-    scores.push(Math.max(0, ratio(current.shift_notes_completed || 0, current.shift_notes_total) * 10 - ratio(current.shift_notes_overdue || 0, current.shift_notes_total) * 5));
+  const shiftTotal = current.shift_notes_total || 0;
+  if (shiftTotal) {
+    scores.push(clamp10(
+      ratio(current.shift_notes_completed || 0, shiftTotal) * 10 -
+      ratio(current.shift_notes_overdue || 0, shiftTotal) * 5
+    ));
   }
-  if (covered(current, 'customer_requests') && current.customer_requests_total) scores.push(customerRequestsScore(current));
+  if ((current.customer_requests_total || 0) > 0) scores.push(customerRequestsScore(current));
   return scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 5;
 }
 
-/** جودة إغلاق المتابعات: نسبة المغلق من الإجمالي، بعد خصم وزن المنتهي بدون رد. */
 function followupClosureScore(current: WeeklyAutoMetrics): number {
-  const closedRatio = ratio(current.followups_closed, current.followups_total);
-  const expiredPenalty = ratio(current.followups_expired, current.followups_total);
-  return Math.max(0, Math.min(10, closedRatio * 10 - expiredPenalty * 5));
+  if (!current.followups_total) return 0;
+  const closed = ratio(current.followups_closed, current.followups_total);
+  const expired = ratio(current.followups_expired, current.followups_total);
+  return clamp10(closed * 10 - expired * 5);
 }
 
 function vipRetentionScore(current: WeeklyAutoMetrics): number {
   if (current.vip_retention_rate === null || current.vip_retention_rate === undefined) return 0;
-  return Math.max(0, Math.min(10, current.vip_retention_rate / 10));
+  return clamp10(current.vip_retention_rate / 10);
 }
 
-/**
- * تقييم المحادثات وتحسين أداء الدكاترة: نصف الدرجة من مدى نشاط المراجعة نفسها
- * (هل مسئول خدمة العملاء بيراجع محادثات كفاية؟ هدف مرجعي 10 مراجعات/أسبوع)،
- * ونصها التاني من متوسط درجة المحادثات (هل الدكاترة فعلًا بيتحسنوا؟).
- */
 function conversationQualityScore(current: WeeklyAutoMetrics): number {
   if (!current.conversation_reviews_count) return 0;
-  const activityScore = Math.max(0, Math.min(10, (current.conversation_reviews_count / 10) * 10));
-  const qualityScore =
-    current.conversation_reviews_avg_score !== null
-      ? Math.max(0, Math.min(10, current.conversation_reviews_avg_score / 10))
-      : 5;
+  const activityScore = clamp10(current.conversation_reviews_count); // 10 مراجعات أسبوعيًا تحقق سقف النشاط.
+  const qualityScore = current.conversation_reviews_avg_score !== null
+    ? clamp10(current.conversation_reviews_avg_score / 10)
+    : 0;
   return activityScore * 0.4 + qualityScore * 0.6;
 }
 
-/** متابعة نقاط العملاء وإبلاغهم: نسبة معاملات النقاط اللي اتبلّغ فيها العميل فعليًا. */
 function pointsCommunicationScore(current: WeeklyAutoMetrics): number {
   if (!current.points_transactions_total) return 0;
-  return Math.max(0, Math.min(10, ratio(current.points_transactions_contacted, current.points_transactions_total) * 10));
+  return clamp10(ratio(current.points_transactions_contacted, current.points_transactions_total) * 10);
 }
 
-/** نمو عدد العملاء: مقارنة عدد العملاء الجدد بالأسبوع اللي فات. */
 function customerGrowthScore(current: WeeklyAutoMetrics, previous: WeeklyAutoMetrics | null): number {
-  if (!previous || !previous.new_customers_count) return current.new_customers_count > 0 ? 5 : 0;
+  if (!previous?.new_customers_count) return current.new_customers_count > 0 ? 5 : 0;
   const growthPct = ((current.new_customers_count - previous.new_customers_count) / previous.new_customers_count) * 100;
-  return Math.max(0, Math.min(10, 5 + growthPct / 10));
+  return clamp10(5 + growthPct / 10);
 }
 
 export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> = {
   branch_manager: [
     {
-      key: 'sales',
-      label: 'أداء المبيعات (مقارنة بالأسبوع السابق)',
-      weight: 0.2,
-      mode: 'auto',
-      autoScore: salesGrowthScore,
-      hint: 'محسوبة تلقائيًا من إجمالي مبيعات الفرع مقارنة بالأسبوع اللي فات.',
-      sourceRoute: '/daily-target', sourceLabel: 'المبيعات والتارجت',
-      coverageKeys: ['sales', 'targets'],
+      key: 'sales', label: 'تحقيق تارجت المبيعات الأسبوعي', weight: 0.20, mode: 'auto', autoScore: salesPerformanceScore,
+      hint: 'إجمالي مبيعات الفرع ÷ نصيب الأسبوع من تارجت دورة 26→25. عند غياب التارجت فقط تتم المقارنة بالأسبوع السابق.',
+      sourceRoute: '/daily-target', sourceLabel: 'المبيعات والتارجت', coverageKeys: ['sales','targets'],
     },
     {
-      key: 'customer_service',
-      label: 'خدمة العملاء والمتابعات',
-      weight: 0.15,
-      mode: 'auto',
-      autoScore: followupClosureScore,
-      hint: 'محسوبة تلقائيًا من نسبة إغلاق المتابعات مقابل المنتهي بدون رد.',
-      sourceRoute: '/customer-service', sourceLabel: 'المتابعات والعملاء',
-      coverageKeys: ['followups'],
+      key: 'customer_service', label: 'إدارة متابعة العملاء وإغلاق الحالات', weight: 0.15, mode: 'auto', autoScore: followupClosureScore,
+      hint: 'نسبة المتابعات المغلقة بنتيجة فعلية مع خصم الحالات المنتهية بدون رد.',
+      sourceRoute: '/customer-service', sourceLabel: 'متابعة العملاء', coverageKeys: ['followups'],
     },
     {
-      key: 'vip_retention',
-      label: 'الاحتفاظ بكبار العملاء',
-      weight: 0.1,
-      mode: 'auto',
-      autoScore: vipRetentionScore,
-      hint: 'محسوبة تلقائيًا من نسبة كبار العملاء اللي فضلوا نشطين.',
-      sourceRoute: '/customers', sourceLabel: 'العملاء',
-      coverageKeys: ['customers'],
+      key: 'vip_retention', label: 'الاحتفاظ بالعملاء المهمين وVIP', weight: 0.10, mode: 'auto', autoScore: vipRetentionScore,
+      hint: 'نسبة كبار العملاء الذين ظلوا نشطين خلال الفترة.', sourceRoute: '/customers', sourceLabel: 'العملاء', coverageKeys: ['customers'],
     },
     {
-      key: 'cash_integrity',
-      label: 'الضبط المالي اليومي (مطابقة الكاش)',
-      weight: 0.1,
-      mode: 'checklist',
-      checklistTaskKey: 'cash_reconciliation',
-      hint: 'محسوبة من نسبة أيام الأسبوع اللي اتسجّلت فيها مطابقة الكاش والعهدة فعليًا.',
-      sourceRoute: '/daily-manager-checklist', sourceLabel: 'المهام الموثقة',
+      key: 'cash_integrity', label: 'مطابقة الكاش والعهدة اليومية', weight: 0.10, mode: 'checklist', checklistTaskKey: 'cash_reconciliation',
+      hint: 'نسبة الأيام التي تم فيها توثيق مطابقة الكاش والعهدة.', sourceRoute: '/daily-manager-checklist', sourceLabel: 'مهام المدير',
     },
     {
-      key: 'complaints_handling',
-      label: 'التعامل مع الشكاوى المتصاعدة',
-      weight: 0.1,
-      mode: 'auto', autoScore: customerRequestsScore,
-      hint: 'محسوبة من الطلبات المغلقة في موعدها والمتأخرة، بدون تقدير شخصي.',
-      sourceRoute: '/customer-requests', sourceLabel: 'طلبات العملاء',
-      coverageKeys: ['customer_requests'],
+      key: 'complaints_handling', label: 'سرعة تنفيذ طلبات العملاء والحالات المتأخرة', weight: 0.10, mode: 'auto', autoScore: customerRequestsScore,
+      hint: 'من الطلبات المغلقة في موعدها مقابل الطلبات المتأخرة.', sourceRoute: '/customer-requests', sourceLabel: 'طلبات العملاء', coverageKeys: ['customer_requests'],
     },
     {
-      key: 'purchases',
-      label: 'مراجعة المشتريات وإدارة الموردين',
-      weight: 0.08,
-      mode: 'checklist',
-      checklistTaskKey: 'purchases_review',
-      hint: 'محسوبة من نسبة أيام الأسبوع اللي سجّل فيها المدير مراجعة المشتريات فعليًا في المهام اليومية.',
+      key: 'purchases', label: 'مراجعة المشتريات والموردين', weight: 0.08, mode: 'checklist', checklistTaskKey: 'purchases_review',
       sourceRoute: '/purchases', sourceLabel: 'المشتريات',
     },
     {
-      key: 'inventory',
-      label: 'متابعة الجرد والمخزون',
-      weight: 0.08,
-      mode: 'checklist',
-      checklistTaskKey: 'inventory_review',
-      hint: 'محسوبة من نسبة أيام الأسبوع اللي سجّل فيها المدير متابعة الجرد فعليًا في المهام اليومية.',
-      sourceRoute: '/inventory-counts', sourceLabel: 'الجرد',
+      key: 'inventory', label: 'متابعة الجرد والمخزون', weight: 0.08, mode: 'checklist', checklistTaskKey: 'inventory_review',
+      sourceRoute: '/inventory-counts', sourceLabel: 'الجرد والمخزون',
     },
     {
-      key: 'shortages_handling',
-      label: 'حسن التصرف في النواقص ومكانها المخصص',
-      weight: 0.05,
-      mode: 'checklist',
-      checklistTaskKey: 'shortages_handling',
-      hint: 'محسوبة من نسبة أيام الأسبوع اللي اتسجّل فيها التعامل مع النواقص فعليًا.',
+      key: 'shortages_handling', label: 'التعامل السليم مع النواقص', weight: 0.05, mode: 'checklist', checklistTaskKey: 'shortages_handling',
       sourceRoute: '/shortages', sourceLabel: 'النواقص',
     },
     {
-      key: 'expiry_compliance',
-      label: 'الالتزام بمراجعة أصناف الإكسباير',
-      weight: 0.04,
-      mode: 'checklist',
-      checklistTaskKey: 'expiry_check',
-      hint: 'محسوبة من نسبة أيام الأسبوع اللي اتسجّلت فيها مراجعة الإكسباير فعليًا.',
+      key: 'expiry_compliance', label: 'مراجعة الأصناف القريبة من الانتهاء والإكسباير', weight: 0.04, mode: 'checklist', checklistTaskKey: 'expiry_check',
       sourceRoute: '/medicine-expiry', sourceLabel: 'الصلاحية',
     },
     {
-      key: 'shift_briefing',
-      label: 'تسليم الشيفت والتجميعة اليومية مع الفريق',
-      weight: 0.03,
-      mode: 'checklist',
-      checklistTaskKey: 'team_briefing',
+      key: 'shift_briefing', label: 'تسليم الشيفت والتجميعة اليومية مع الفريق', weight: 0.03, mode: 'checklist', checklistTaskKey: 'team_briefing',
       sourceRoute: '/shift-notes', sourceLabel: 'ملاحظات الشيفت',
     },
     {
-      key: 'attendance',
-      label: 'الحضور والانضباط لفريق الفرع + الزي واستخدام PConnect الشخصي',
-      weight: 0.07,
-      mode: 'auto', autoScore: attendanceScore,
-      hint: 'محسوبة من دقائق التأخير والبصمات الناقصة. عند غياب بيانات الحضور تكون محايدة ولا تُعاقب الموظف.',
-      sourceRoute: '/attendance-report', sourceLabel: 'الحضور',
-      coverageKeys: ['attendance'],
+      key: 'attendance', label: 'انضباط الحضور لفريق الفرع', weight: 0.07, mode: 'auto', autoScore: attendanceScore,
+      hint: 'دقائق التأخير والبصمات الناقصة فقط؛ الزي وPConnect لهما مهام موثقة منفصلة ولا يتم خلطهما بالحضور.',
+      sourceRoute: '/attendance-report', sourceLabel: 'الحضور', coverageKeys: ['attendance'],
     },
   ],
+
   branches_manager: [
     {
-      key: 'sales',
-      label: 'أداء المبيعات الكلي (الفرعين معًا)',
-      weight: 0.19,
-      mode: 'auto',
-      autoScore: salesGrowthScore,
-      sourceRoute: '/branch-comparison', sourceLabel: 'مقارنة الفروع',
-      coverageKeys: ['sales', 'targets'],
+      key: 'sales', label: 'تحقيق تارجت المبيعات الكلي للفروع', weight: 0.19, mode: 'auto', autoScore: salesPerformanceScore,
+      hint: 'مجموع مبيعات الفروع ÷ مجموع نصيب الأسبوع من تارجت كل فرع.', sourceRoute: '/branch-comparison', sourceLabel: 'مقارنة الفروع', coverageKeys: ['sales','targets'],
     },
     {
-      key: 'customer_service',
-      label: 'جودة خدمة العملاء الكلية',
-      weight: 0.17,
-      mode: 'auto',
-      autoScore: followupClosureScore,
-      sourceRoute: '/customer-service-dashboard', sourceLabel: 'خدمة العملاء',
-      coverageKeys: ['followups'],
+      key: 'customer_service', label: 'جودة تنفيذ المتابعات على مستوى الفروع', weight: 0.17, mode: 'auto', autoScore: followupClosureScore,
+      sourceRoute: '/customer-service-dashboard', sourceLabel: 'خدمة العملاء', coverageKeys: ['followups'],
     },
     {
-      key: 'vip_retention',
-      label: 'الاحتفاظ بكبار العملاء على مستوى الفروع',
-      weight: 0.1,
-      mode: 'auto',
-      autoScore: vipRetentionScore,
-      sourceRoute: '/customers', sourceLabel: 'العملاء',
-      coverageKeys: ['customers'],
+      key: 'vip_retention', label: 'الاحتفاظ بالعملاء المهمين على مستوى الفروع', weight: 0.10, mode: 'auto', autoScore: vipRetentionScore,
+      sourceRoute: '/customers', sourceLabel: 'العملاء', coverageKeys: ['customers'],
     },
     {
-      key: 'coordination',
-      label: 'جودة سير العمل والتنسيق بين الفروع',
-      weight: 0.08,
-      mode: 'auto', autoScore: coordinationScore,
-      hint: 'محسوبة من إغلاق ملاحظات الشيفت وطلبات العملاء في موعدها على مستوى الفروع.',
-      sourceRoute: '/operations-center', sourceLabel: 'مركز العمليات',
-      coverageKeys: ['shift_notes', 'customer_requests'],
+      key: 'coordination', label: 'سرعة إغلاق مشكلات التشغيل والتنسيق بين الفروع', weight: 0.08, mode: 'auto', autoScore: coordinationScore,
+      hint: 'من ملاحظات الشيفت وطلبات العملاء الموثقة والمتأخرة.', sourceRoute: '/operations-center', sourceLabel: 'مركز العمليات', coverageKeys: ['shift_notes','customer_requests'],
     },
     {
-      key: 'warehouse',
-      label: 'متابعة أداء المخزن (مواعيد، أذونات تحويل، باركود)',
-      weight: 0.08,
-      mode: 'checklist',
-      checklistTaskKey: 'warehouse_review',
-      hint: 'محسوبة من نسبة أيام الأسبوع اللي اتسجّلت فيها متابعة المخزن المركزي فعليًا.',
+      key: 'warehouse', label: 'متابعة أداء المخزن والتحويلات والباركود', weight: 0.08, mode: 'checklist', checklistTaskKey: 'warehouse_review',
       sourceRoute: '/inventory-counts', sourceLabel: 'الجرد والمخزن',
     },
     {
-      key: 'top20_customers',
-      label: 'مراجعة أهم 20 عميل بكل فرع (استمرارية وجودة خدمة)',
-      weight: 0.08,
-      mode: 'checklist',
-      checklistTaskKey: 'top20_customers_retention_review',
+      key: 'top20_customers', label: 'مراجعة أهم 20 عميل بكل فرع', weight: 0.08, mode: 'checklist', checklistTaskKey: 'top20_customers_retention_review',
       sourceRoute: '/customers', sourceLabel: 'أهم العملاء',
     },
     {
-      key: 'purchases_speed',
-      label: 'سرعة المشتريات وتوافر الأصناف',
-      weight: 0.07,
-      mode: 'checklist',
-      checklistTaskKey: 'purchases_speed_availability_review',
+      key: 'purchases_speed', label: 'سرعة المشتريات وتوافر الأصناف', weight: 0.07, mode: 'checklist', checklistTaskKey: 'purchases_speed_availability_review',
       sourceRoute: '/purchases', sourceLabel: 'المشتريات',
     },
     {
-      key: 'shift_notes_compliance',
-      label: 'الالتزام بمتابعة ملاحظات الشيفتات',
-      weight: 0.05,
-      mode: 'checklist',
-      checklistTaskKey: 'shift_notes_compliance_review',
+      key: 'shift_notes_compliance', label: 'متابعة وتنفيذ ملاحظات الشيفتات', weight: 0.05, mode: 'checklist', checklistTaskKey: 'shift_notes_compliance_review',
       sourceRoute: '/shift-notes', sourceLabel: 'ملاحظات الشيفت',
     },
+    { key: 'infrastructure', label: 'جاهزية الكاميرات والخط الأرضي والإنترنت', weight: 0.04, mode: 'checklist', checklistTaskKey: 'infrastructure_check' },
+    { key: 'consumables', label: 'توافر الأكياس وبكر الريسيت والباركود', weight: 0.03, mode: 'checklist', checklistTaskKey: 'consumables_check' },
+    { key: 'stagnant_compliance', label: 'متابعة التزام الدكاترة بخطة الرواكد', weight: 0.05, mode: 'checklist', checklistTaskKey: 'stagnant_compliance_review' },
     {
-      key: 'infrastructure',
-      label: 'الكاميرات والخط الأرضي والنت',
-      weight: 0.04,
-      mode: 'checklist',
-      checklistTaskKey: 'infrastructure_check',
-    },
-    {
-      key: 'consumables',
-      label: 'توافر الأكياس وبكر الريسيت والباركود',
-      weight: 0.03,
-      mode: 'checklist',
-      checklistTaskKey: 'consumables_check',
-    },
-    {
-      key: 'stagnant_compliance',
-      label: 'التزام الدكاترة بالرواكد واللستة',
-      weight: 0.05,
-      mode: 'checklist',
-      checklistTaskKey: 'stagnant_compliance_review',
-    },
-    {
-      key: 'leadership',
-      label: 'القدرة على القيادة واتخاذ القرار',
-      weight: 0.06,
-      mode: 'auto', autoScore: coordinationScore,
-      hint: 'محسوبة من سرعة إغلاق المشكلات والطلبات وملاحظات التشغيل الموثقة، وليست رأيًا شخصيًا.',
-      sourceRoute: '/operations-center', sourceLabel: 'القرارات والتشغيل',
-      coverageKeys: ['shift_notes', 'customer_requests'],
+      key: 'leadership', label: 'القيادة وسرعة اتخاذ القرار التشغيلي', weight: 0.06, mode: 'auto', autoScore: coordinationScore,
+      hint: 'مؤشر موضوعي من سرعة إغلاق المشكلات والطلبات وملاحظات التشغيل.', sourceRoute: '/operations-center', sourceLabel: 'التشغيل والقرارات', coverageKeys: ['shift_notes','customer_requests'],
     },
   ],
+
   customer_service: [
     {
-      key: 'conversation_quality',
-      label: 'تقييم المحادثات وتحسين تعامل الدكاترة',
-      weight: 0.18,
-      mode: 'auto',
-      autoScore: conversationQualityScore,
-      hint: 'محسوبة من عدد مراجعات المحادثات المنجزة + متوسط درجتها خلال الأسبوع.',
-      sourceRoute: '/reviews', sourceLabel: 'تقييمات الدكاترة',
-      coverageKeys: ['reviews'],
-      requiredOperational: true,
+      key: 'conversation_quality', label: 'مراجعة المحادثات وجودة تعامل الدكاترة', weight: 0.18, mode: 'auto', autoScore: conversationQualityScore,
+      hint: '40% من حجم المراجعات و60% من متوسط جودة المحادثات.', sourceRoute: '/reviews', sourceLabel: 'تقييم المحادثات', coverageKeys: ['reviews'], requiredOperational: true,
     },
     {
-      key: 'followups_execution',
-      label: 'تنفيذ المتابعات الاستثنائية (طلب → تواصل → رد → نتيجة)',
-      weight: 0.2,
-      mode: 'auto',
-      autoScore: followupClosureScore,
-      hint: 'محسوبة تلقائيًا من نسبة إغلاق كل المتابعات الاستثنائية (دكاترة، أبلكيشن، شكاوى، قائمة مدير الفروع) بنتيجة فعلية موثّقة، مش مجرد "تم الاتصال".',
-      sourceRoute: '/customer-service', sourceLabel: 'المتابعات',
-      coverageKeys: ['followups'],
-      requiredOperational: true,
+      key: 'followups_execution', label: 'تنفيذ المتابعات حتى نتيجة فعلية', weight: 0.20, mode: 'auto', autoScore: followupClosureScore,
+      hint: 'طلب → تواصل → رد → نتيجة موثقة، مع احتساب المتأخر والمنتهي بدون رد.', sourceRoute: '/customer-service', sourceLabel: 'المتابعات', coverageKeys: ['followups'], requiredOperational: true,
     },
     {
-      key: 'points_communication',
-      label: 'متابعة نقاط العملاء وإبلاغهم بالتفاصيل',
-      weight: 0.08,
-      mode: 'auto',
-      autoScore: pointsCommunicationScore,
-      hint: 'محسوبة تلقائيًا من نسبة معاملات نقاط العملاء اللي اتبلّغ فيها العميل فعليًا.',
-      sourceRoute: '/customer-points-ledger', sourceLabel: 'سجل النقاط',
-      coverageKeys: ['points'],
-      requiredOperational: true,
+      key: 'points_communication', label: 'إبلاغ العملاء بالنقاط ومتابعة الاستفادة منها', weight: 0.08, mode: 'auto', autoScore: pointsCommunicationScore,
+      sourceRoute: '/customer-points-ledger', sourceLabel: 'سجل النقاط', coverageKeys: ['points'], requiredOperational: true,
     },
     {
-      key: 'customer_growth',
-      label: 'نمو عدد العملاء الشهري',
-      weight: 0.08,
-      mode: 'auto',
-      autoScore: customerGrowthScore,
-      hint: 'محسوبة تلقائيًا من عدد العملاء الجدد مقارنة بالأسبوع اللي فات.',
-      sourceRoute: '/customers', sourceLabel: 'العملاء الجدد',
-      coverageKeys: ['customers'],
-      requiredOperational: true,
+      key: 'customer_growth', label: 'اكتساب عملاء جدد', weight: 0.08, mode: 'auto', autoScore: customerGrowthScore,
+      hint: 'عدد العملاء الجدد مقارنة بالأسبوع السابق.', sourceRoute: '/customers', sourceLabel: 'العملاء الجدد', coverageKeys: ['customers'], requiredOperational: true,
     },
     {
-      key: 'vip_retention',
-      label: 'أهم 20 عميل بالفرع: الرضا والنمو',
-      weight: 0.15,
-      mode: 'auto',
-      autoScore: vipRetentionScore,
-      hint: 'تقريب مبدئي من نسبة الاحتفاظ بكبار العملاء لحد ما نضيف مقياس رضا مخصص لقائمة أهم 20 عميل.',
-      sourceRoute: '/customers', sourceLabel: 'أهم العملاء',
-      coverageKeys: ['customers'],
-      requiredOperational: true,
+      key: 'vip_retention', label: 'الاحتفاظ بأهم العملاء واستمرار نشاطهم', weight: 0.15, mode: 'auto', autoScore: vipRetentionScore,
+      sourceRoute: '/customers', sourceLabel: 'أهم العملاء', coverageKeys: ['customers'], requiredOperational: true,
     },
     {
-      key: 'classification_accuracy',
-      label: 'الالتزام بالتصنيف ودقته',
-      weight: 0.1,
-      mode: 'checklist',
-      checklistTaskKey: 'classification_accuracy_review',
+      key: 'classification_accuracy', label: 'مراجعة دقة تصنيف العملاء', weight: 0.10, mode: 'checklist', checklistTaskKey: 'classification_accuracy_review',
       sourceRoute: '/customer-coding', sourceLabel: 'تكويد العملاء',
     },
     {
-      key: 'doctor_coaching',
-      label: 'تطوير وتوجيه الدكاترة في الفرع',
-      weight: 0.08,
-      mode: 'checklist',
-      checklistTaskKey: 'doctor_coaching',
-      hint: 'محسوبة من نسبة أيام الأسبوع اللي اترسل فيها توجيه/تدريب موثّق لدكتور.',
-      sourceRoute: '/training', sourceLabel: 'تدريب الدكاترة',
+      key: 'doctor_coaching', label: 'توجيه وتطوير الدكاترة', weight: 0.08, mode: 'checklist', checklistTaskKey: 'doctor_coaching',
+      sourceRoute: '/training', sourceLabel: 'التدريب والتوجيه',
     },
     {
-      key: 'sales_quality',
-      label: 'جودة عمليات البيع (Cross/Up-selling)',
-      weight: 0.08,
-      mode: 'checklist',
-      checklistTaskKeys: ['cross_selling_review', 'up_selling_review'],
+      key: 'sales_quality', label: 'مراجعة جودة البيع وCross/Up-selling', weight: 0.08, mode: 'checklist', checklistTaskKeys: ['cross_selling_review','up_selling_review'],
       sourceRoute: '/reviews', sourceLabel: 'جودة البيع',
     },
     {
-      key: 'branches_manager_alignment',
-      label: 'تنفيذ ملاحظات مدير الفروع',
-      weight: 0.05,
-      mode: 'checklist',
-      checklistTaskKey: 'branches_manager_notes_followup',
+      key: 'branches_manager_alignment', label: 'تنفيذ ملاحظات مدير الفروع', weight: 0.05, mode: 'checklist', checklistTaskKey: 'branches_manager_notes_followup',
       sourceRoute: '/shift-notes', sourceLabel: 'ملاحظات الإدارة',
     },
   ],
@@ -447,33 +266,26 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
 export const EVALUATION_TYPE_LABELS: Record<EvaluationType, string> = {
   branch_manager: 'تقييم مدير الفرع',
   branches_manager: 'تقييم مدير الفروع',
-  customer_service: 'تقييم أداء خدمة العملاء الأسبوعي',
+  customer_service: 'تقييم مسؤول خدمة العملاء',
 };
 
-/**
- * سقف الحافز الشهري بالجنيه عند متوسط تقييم 100/100 خلال الدورة — الحافز
- * الفعلي = (متوسط درجات التقييمات المعتمدة في الدورة / 100) × السقف.
- * الأرقام تمثل الحافز الأساسي عند الأداء الكامل، ويمكن لشريحة التميز 95–100
- * الوصول إلى 110% وفق incentiveTiers.
- */
 export const EVALUATION_MAX_MONTHLY_INCENTIVE_EGP: Partial<Record<EvaluationType, number>> = {
   branch_manager: 3000,
   branches_manager: 4000,
   customer_service: 2500,
 };
 
+/**
+ * من الإصدار الحالي لا يوجد مفهوم «مستبعد». كل معيار داخل الخطة محسوب بوزنه الأصلي.
+ * عدم وجود نشاط موثق يعني أن دالة المعيار نفسها تحدد الدرجة (غالبًا صفر، أو محايد فقط
+ * عندما يكون غياب المصدر خارج سيطرة الموظف مثل ملف الحضور).
+ */
 export function criterionHasData(
   criterion: EvaluationCriterion,
-  current: WeeklyAutoMetrics,
-  checklistRates: Record<string, number>
+  _current: WeeklyAutoMetrics,
+  _checklistRates: Record<string, number>
 ): boolean {
-  if (criterion.requiredOperational) return true;
-  if (criterion.mode === 'checklist') {
-    const keys = criterionChecklistKeys(criterion);
-    return keys.length > 0 && keys.every((key) => Object.prototype.hasOwnProperty.call(checklistRates, key));
-  }
-  const keys = criterion.coverageKeys || [];
-  return keys.length === 0 || keys.every((key) => current.data_coverage?.[key] === true);
+  return Boolean(criterion);
 }
 
 export type WeightedCriterionScore = {
@@ -485,7 +297,6 @@ export type WeightedCriterionScore = {
   contribution: number;
 };
 
-/** يستبعد المصادر غير المتاحة ويعيد توزيع وزنها نسبيًا على البنود المثبتة فقط. */
 export function computeWeightedCriterionScores(
   type: EvaluationType,
   current: WeeklyAutoMetrics,
@@ -493,26 +304,26 @@ export function computeWeightedCriterionScores(
   manualScores: Record<string, number>,
   checklistRates: Record<string, number> = {}
 ): WeightedCriterionScore[] {
-  const raw = EVALUATION_CRITERIA[type].map((criterion) => {
-    const included = criterionHasData(criterion, current, checklistRates);
+  return EVALUATION_CRITERIA[type].map((criterion) => {
     let score10 = 0;
-    if (included && criterion.mode === 'auto' && criterion.autoScore) score10 = criterion.autoScore(current, previous);
-    else if (included && criterion.mode === 'checklist') {
-      const rates = criterionChecklistKeys(criterion).map((key) => checklistRates[key]);
-      score10 = rates.reduce((sum, rate) => sum + rate, 0) / rates.length / 10;
-    } else if (included) score10 = manualScores[criterion.key] ?? 0;
-    return { criterion, included, score10: Math.max(0, Math.min(10, score10)) };
-  });
-  const availableWeight = raw.filter((row) => row.included).reduce((sum, row) => sum + row.criterion.weight, 0);
-  return raw.map((row) => {
-    const effectiveWeight = row.included && availableWeight > 0 ? row.criterion.weight / availableWeight : 0;
+    if (criterion.mode === 'auto' && criterion.autoScore) {
+      score10 = criterion.autoScore(current, previous);
+    } else if (criterion.mode === 'checklist') {
+      const keys = criterionChecklistKeys(criterion);
+      const rates = keys.map((key) => Number(checklistRates[key] ?? 0));
+      score10 = rates.length ? rates.reduce((sum, rate) => sum + rate, 0) / rates.length / 10 : 0;
+    } else {
+      score10 = manualScores[criterion.key] ?? 0;
+    }
+    const normalizedScore = Math.round(clamp10(score10) * 10) / 10;
+    const contribution = Math.round(normalizedScore * criterion.weight * 10 * 10) / 10;
     return {
-      criterion: row.criterion,
-      score10: Math.round(row.score10 * 10) / 10,
-      originalWeight: row.criterion.weight,
-      effectiveWeight,
-      included: row.included,
-      contribution: Math.round(row.score10 * effectiveWeight * 10 * 10) / 10,
+      criterion,
+      score10: normalizedScore,
+      originalWeight: criterion.weight,
+      effectiveWeight: criterion.weight,
+      included: true,
+      contribution,
     };
   });
 }
@@ -524,6 +335,8 @@ export function computeTotalScore(
   manualScores: Record<string, number>,
   checklistRates: Record<string, number> = {}
 ): number {
-  return Math.round(computeWeightedCriterionScores(type, current, previous, manualScores, checklistRates)
-    .reduce((sum, row) => sum + row.contribution, 0) * 10) / 10;
+  return Math.round(
+    computeWeightedCriterionScores(type,current,previous,manualScores,checklistRates)
+      .reduce((sum,row) => sum + row.contribution,0) * 10
+  ) / 10;
 }
