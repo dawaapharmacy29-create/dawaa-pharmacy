@@ -2035,6 +2035,17 @@ export async function importInvoicesToDB(
   const branchMismatchWarning = await detectBranchInvoiceNumberMismatch(rows, branch);
   if (branchMismatchWarning) {
     summary.errors.push({ row: 0, field: 'الفرع', message: branchMismatchWarning });
+    summary.needsReviewRows = rows.length;
+    summary.rejectedRows = rows.length;
+    summary.rowsSaveNotAttemptedCount = rows.length;
+    summary.rowSaveTrace = [...traceMap.values()].map((trace) => ({
+      ...trace,
+      actualAction: 'blocked_wrong_branch',
+      skipReason: 'branch_invoice_sequence_mismatch',
+      finalStatus: 'blocked_wrong_branch',
+    }));
+    await persistInvoiceImportBatch(summary, 'blocked_wrong_branch', branchMismatchWarning);
+    return summary;
   }
 
   if (rows.length === 0) {

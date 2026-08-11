@@ -242,9 +242,15 @@ export async function markCustomerPointsContacted(customerCode: string, branch: 
   if (error) throw new Error(error.message || 'تعذر تسجيل التواصل.');
 }
 
-export async function runQuarterlyCashbackBatch(actorName?: string | null) {
-  const { data, error } = await supabase.rpc('run_quarterly_cashback_batch', {
-    p_period_start: null, p_period_end: null, p_reward_rate: 0.05, p_actor_name: actorName || 'يدوي من الصفحة',
+export async function runQuarterlyCashbackBatch(
+  actorName?: string | null,
+  branch?: string | null,
+  periodStart?: string | null,
+  periodEnd?: string | null
+) {
+  if (!branch || !periodStart || !periodEnd) throw new Error('لازم تحدد الفرع وفترة الدورة قبل الاحتساب.');
+  const { data, error } = await supabase.rpc('run_quarterly_cashback_batch_for_branch_v1', {
+    p_branch: branch, p_period_start: periodStart, p_period_end: periodEnd, p_reward_rate: 0.05, p_actor_name: actorName || 'يدوي من الصفحة',
   });
   if (error) throw new Error(error.message || 'تعذر تشغيل الاحتساب الربع سنوي.');
   return data as { period_start: string; period_end: string; customers_credited: number; total_points: number };
