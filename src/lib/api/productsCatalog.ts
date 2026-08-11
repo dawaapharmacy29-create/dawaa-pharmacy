@@ -25,7 +25,18 @@ function normalizeName(value: unknown) {
 }
 
 function meaningfulName(value: string) {
-  return /[A-Za-z0-9\u0600-\u06FF]/.test(value);
+  const normalized = normalizeName(value);
+  if (!normalized) return false;
+
+  // نستبعد القيم الواضح أنها بيانات تالفة: أرقام فقط، أو حرف واحد محاط بنقاط/رموز.
+  if (/^\d+$/.test(normalized)) return false;
+  if (/^[A-Za-z\u0600-\u06FF][\s._\-–—/\\|:;,*%#@!؟?]*$/.test(normalized)) return false;
+
+  const core = normalized.replace(/[^A-Za-z0-9\u0600-\u06FF]/g, '');
+  if (core.length < 2) return false;
+
+  // يجب وجود حرف حقيقي واحد على الأقل؛ الأرقام وحدها ليست اسم صنف.
+  return /[A-Za-z\u0600-\u06FF]/.test(core);
 }
 
 function numeric(value: unknown): number | null {
