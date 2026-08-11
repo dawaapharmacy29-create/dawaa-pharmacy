@@ -54,9 +54,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const mainRef = useRef<HTMLElement>(null);
   const hasChildren = Children.count(children) > 0;
   const showTargetEditor = location.pathname === '/' || location.pathname === '/executive-2027';
-  const reviewsPageMode = new URLSearchParams(location.search).get('mode');
-  const reviewsPageSection = new URLSearchParams(location.search).get('section');
-  const showReviewsHub = location.pathname === '/reviews' && reviewsPageMode !== 'new' && reviewsPageSection !== 'history';
+  const reviewParams = new URLSearchParams(location.search);
+  const reviewsPageMode = reviewParams.get('mode');
+  const reviewsPageSection = reviewParams.get('section');
+  const reviewsPageId = reviewParams.get('id');
+  const showReviewsHub =
+    location.pathname === '/reviews' &&
+    reviewsPageMode !== 'new' &&
+    reviewsPageSection !== 'history' &&
+    !reviewsPageId;
   const showFollowupPerformance = location.pathname === '/customer-service';
 
   useEffect(() => {
