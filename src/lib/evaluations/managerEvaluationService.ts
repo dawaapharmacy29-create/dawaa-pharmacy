@@ -65,6 +65,19 @@ export async function fetchWeeklyChecklistCompletion(
     allManagerTaskKeys.map((key) => [key, getManagerTaskCadence(key)])
   );
 
+  // v3 يحافظ على المفاتيح الحالية ويعتبر مفاتيح المهام القديمة المعروفة مرادفات،
+  // لذلك لا نفقد تنفيذًا تاريخيًا بعد تطوير المسميات.
+  const { data: v3Data, error: v3Error } = await supabase.rpc(
+    'calculate_weekly_checklist_completion_v3',
+    {
+      p_staff_id: staffId,
+      p_week_start: weekStart,
+      p_week_end: weekEnd,
+      p_task_cadences: cadencePayload,
+    }
+  );
+  if (!v3Error) return (v3Data as Record<string, number>) || {};
+
   const { data: cadenceData, error: cadenceError } = await supabase.rpc(
     'calculate_weekly_checklist_completion_v2',
     {
@@ -81,7 +94,7 @@ export async function fetchWeeklyChecklistCompletion(
     p_week_start: weekStart,
     p_week_end: weekEnd,
   });
-  if (error) throw new Error(error.message || cadenceError.message);
+  if (error) throw new Error(error.message || cadenceError.message || v3Error.message);
   return (data as Record<string, number>) || {};
 }
 
