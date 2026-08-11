@@ -34,6 +34,9 @@ import {
 } from '@/lib/customerEngagement';
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
+const SHAMY_EXCEPTION_BRANCH = 'فرع الشامي';
+const SHAMY_EXCEPTION_START = '2026-04-01';
+const SHAMY_EXCEPTION_END = '2026-07-31';
 const shiftMonths = (dateText: string, months: number) => {
   const date = new Date(`${dateText}T12:00:00`);
   date.setMonth(date.getMonth() + months);
@@ -119,6 +122,17 @@ export default function CustomerPointsLedger() {
     [pendingCustomers, contactFilter]
   );
 
+  const effectiveQuarterBounds = useMemo(() => {
+    if (
+      workBranch === SHAMY_EXCEPTION_BRANCH &&
+      quarterBounds?.period_start === '2026-05-01' &&
+      quarterBounds?.period_end === SHAMY_EXCEPTION_END
+    ) {
+      return { ...quarterBounds, period_start: SHAMY_EXCEPTION_START, period_end: SHAMY_EXCEPTION_END, quarter_label: 'استثناء الشامي: أبريل - يوليو 2026' };
+    }
+    return quarterBounds;
+  }, [quarterBounds, workBranch]);
+
   const markContacted = async (customerCode: string) => {
     try {
       await markCustomerPointsContacted(customerCode, workBranch, user?.name);
@@ -132,7 +146,13 @@ export default function CustomerPointsLedger() {
   const runBatchNow = async () => {
     setRunningBatch(true);
     try {
-      const result = await runQuarterlyCashbackBatch(user?.name);
+      if (!effectiveQuarterBounds) throw new Error('تعذر تحديد فترة الدورة الحالية.');
+      const result = await runQuarterlyCashbackBatch(
+        user?.name,
+        workBranch,
+        effectiveQuarterBounds.period_start,
+        effectiveQuarterBounds.period_end
+      );
       toast.success(`تم احتساب نقاط ${result.customers_credited} عميل بإجمالي ${formatCurrency(result.total_points)} نقطة`);
       void loadPendingCustomers(workBranch);
     } catch (error) {
@@ -324,11 +344,11 @@ export default function CustomerPointsLedger() {
     <section className="rounded-3xl border border-emerald-500/30 bg-slate-950/50 p-5">
       <h1 className="flex items-center gap-2 text-2xl font-black text-white"><Gift className="text-emerald-300"/> نظام نقاط وولاء العملاء الذكي</h1>
       <p className="mt-2 text-sm text-slate-300">كاش باك تلقائي كل ربع سنة (فبراير / مايو / أغسطس / نوفمبر) بنسبة 5% من مشتريات العميل في الدورة اللي فاتت.</p>
-      {quarterBounds ? (
+      {effectiveQuarterBounds ? (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-500/5 p-3 text-sm">
           <CalendarClock className="text-cyan-300" size={18}/>
-          <span className="font-bold text-white">آخر دورة محسوبة: {quarterBounds.quarter_label}</span>
-          <span className="text-slate-400">({quarterBounds.period_start} — {quarterBounds.period_end})</span>
+          <span className="font-bold text-white">آخر دورة محسوبة: {effectiveQuarterBounds.quarter_label}</span>
+          <span className="text-slate-400">({effectiveQuarterBounds.period_start} — {effectiveQuarterBounds.period_end})</span>
           {managerView ? (
             <button className="btn-secondary mr-auto text-xs" onClick={() => void runBatchNow()} disabled={runningBatch}>
               {runningBatch ? <RefreshCw className="ml-1 inline h-4 w-4 animate-spin"/> : <Sparkles className="ml-1 inline h-4 w-4"/>} إعادة تشغيل الاحتساب يدويًا

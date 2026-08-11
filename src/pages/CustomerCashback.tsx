@@ -58,6 +58,20 @@ type CashbackRow = {
 };
 
 const ALL = '__all__';
+const SHAMY_EXCEPTION_BRANCH = 'فرع الشامي';
+const SHAMY_EXCEPTION_START = '2026-04-01';
+const SHAMY_EXCEPTION_END = '2026-07-31';
+
+function currentBoundsForBranch(branchName: string, standard: { start: string; end: string }) {
+  if (
+    branchName === SHAMY_EXCEPTION_BRANCH &&
+    standard.start === '2026-05-01' &&
+    standard.end === SHAMY_EXCEPTION_END
+  ) {
+    return { start: SHAMY_EXCEPTION_START, end: SHAMY_EXCEPTION_END };
+  }
+  return standard;
+}
 const SCRIPT_TEMPLATES = [
   {
     key: 'friendly',
@@ -537,8 +551,8 @@ export default function CustomerCashback() {
           .select(
             'id,customer_code,customer_name,customer_phone,branch,cycle_label,cycle_start,cycle_end,total_spent,cashback_rate,cashback_value,redeemed_value,remaining_value,status,notified_at,bconnect_updated_at,settled_at,notes'
           )
-          .gte('cycle_start', cycleStart)
-          .lte('cycle_end', cycleEnd)
+          .eq('cycle_start', cycleStart)
+          .eq('cycle_end', cycleEnd)
           .order('cashback_value', { ascending: false })
           .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
         if (branch !== ALL) query = query.eq('branch', branch);
@@ -565,9 +579,14 @@ export default function CustomerCashback() {
   const calculate = async () => {
     setCalculating(true);
     try {
-      const { data, error } = await supabase.rpc('calculate_customer_cashback_cycle_v6', {
+      if (branch === ALL) {
+        toast.error('اختار الفرع الأول قبل احتساب الكاش باك، عشان ما نعدّلش فرع تاني بالغلط.');
+        return;
+      }
+      const { data, error } = await supabase.rpc('calculate_customer_cashback_cycle_for_branch_v1', {
         p_cycle_start: cycleStart,
         p_cycle_end: cycleEnd,
+        p_branch: branch,
       });
       if (error) throw error;
       toast.success(`تم احتساب الكاش باك لعدد ${Number(data || 0).toLocaleString('ar-EG')} عميل`);
@@ -1153,8 +1172,9 @@ export default function CustomerCashback() {
           type="button"
           className="btn-secondary"
           onClick={() => {
-            setCycleStart(current.start);
-            setCycleEnd(current.end);
+            const bounds = currentBoundsForBranch(branch, current);
+            setCycleStart(bounds.start);
+            setCycleEnd(bounds.end);
           }}
         >
           الدورة الحالية
@@ -1181,7 +1201,18 @@ export default function CustomerCashback() {
           value={cycleEnd}
           onChange={(e) => setCycleEnd(e.target.value)}
         />
-        <select className="dawaa-input" value={branch} onChange={(e) => setBranch(e.target.value)}>
+        <select className="dawaa-input" value={branch} onChange={(e) => {
+          const nextBranch = e.target.value;
+          setBranch(nextBranch);
+          const wasShamyException = cycleStart === SHAMY_EXCEPTION_START && cycleEnd === SHAMY_EXCEPTION_END;
+          if (nextBranch === SHAMY_EXCEPTION_BRANCH && current.start === '2026-05-01' && current.end === SHAMY_EXCEPTION_END) {
+            setCycleStart(SHAMY_EXCEPTION_START);
+            setCycleEnd(SHAMY_EXCEPTION_END);
+          } else if (nextBranch !== SHAMY_EXCEPTION_BRANCH && wasShamyException) {
+            setCycleStart(current.start);
+            setCycleEnd(current.end);
+          }
+        }}>
           <option value={ALL}>كل الفروع</option>
           {BRANCHES.map((b) => (
             <option key={b} value={b}>
@@ -1203,7 +1234,29 @@ export default function CustomerCashback() {
               </option>
             ))}
         </select>
-        <select className="dawaa-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select
+          className="dawaa-input"
+          value={status}
+          onChange={(e) => {
+            const nextStatus = e.target.value;
+            setStatus(nextStatus);
+            setQuickFilter(
+              nextStatus === ALL
+                ? 'all'
+                : nextStatus === 'calculated'
+                  ? 'pending'
+                  : nextStatus === 'notified'
+                    ? 'notified'
+                    : nextStatus === 'bconnect_updated'
+                      ? 'bconnect'
+                      : nextStatus === 'partially_redeemed'
+                        ? 'partial'
+                        : nextStatus === 'settled'
+                          ? 'settled'
+                          : 'all'
+            );
+          }}
+        >
           <option value={ALL}>كل الحالات</option>
           {['calculated', 'notified', 'bconnect_updated', 'partially_redeemed', 'settled'].map(
             (s) => (
@@ -1231,7 +1284,10 @@ export default function CustomerCashback() {
           <button
             key={item.key}
             type="button"
-            onClick={() => setQuickFilter(item.key)}
+            onClick={() => {
+              setQuickFilter(item.key);
+              setStatus(ALL);
+            }}
             className={`rounded-2xl border p-4 text-right transition hover:-translate-y-0.5 ${summaryTone(item.key, quickFilter === item.key)}`}
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: `${item.accent}22`, color: item.accent }}>
