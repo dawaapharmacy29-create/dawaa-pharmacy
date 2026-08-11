@@ -14,8 +14,8 @@ describe('performance incentive eligibility', () => {
   });
 });
 
-describe('fair criterion weighting', () => {
-  it('excludes missing automatic sources and redistributes their weight without a neutral score', () => {
+describe('core customer-service criterion governance', () => {
+  it('keeps core customer-service work included without inventing a neutral score', () => {
     const metrics = {
       sales_total: 1000,
       sales_target_amount: 1000,
@@ -29,9 +29,9 @@ describe('fair criterion weighting', () => {
     const rows = computeWeightedCriterionScores('branch_manager', metrics, null, {}, checklistRates);
     const followups = rows.find((row) => row.criterion.key === 'customer_service');
     const sales = rows.find((row) => row.criterion.key === 'sales');
-    expect(followups?.included).toBe(false);
+    expect(followups?.included).toBe(true);
     expect(followups?.contribution).toBe(0);
-    expect(Boolean(sales && sales.effectiveWeight > sales.originalWeight)).toBe(true);
+    expect(sales?.effectiveWeight).toBe(sales?.originalWeight);
     expect(Math.round(rows.reduce((sum, row) => sum + row.effectiveWeight, 0) * 100)).toBe(100);
   });
 });
