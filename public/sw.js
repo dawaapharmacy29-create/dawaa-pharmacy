@@ -3,7 +3,7 @@
  * Versioned cache + offline fallback + auto-update
  */
 
-const APP_VERSION = 'dawaa-v19.0-incentive-system-overhaul-20260808';
+const APP_VERSION = 'dawaa-v20.0-data-integrity-fixes-20260812';
 const CACHE_STATIC = `${APP_VERSION}-static`;
 const CACHE_DYNAMIC = `${APP_VERSION}-dynamic`;
 const CACHE_IMAGES = `${APP_VERSION}-images`;
