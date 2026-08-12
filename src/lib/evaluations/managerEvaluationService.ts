@@ -55,6 +55,43 @@ export async function fetchWeeklyAutoMetrics(
   return legacyData as WeeklyAutoMetrics;
 }
 
+export type ManagerCycleSalesTargetSummary = {
+  sales_total: number;
+  sales_invoices_count: number;
+  sales_target_amount: number;
+  sales_target_achievement_rate: number | null;
+};
+
+/**
+ * ملخص خفيف للمبيعات والتارجت داخل الدورة الحالية.
+ * يفصل حساب حافز التارجت عن محرك التقييم الأسبوعي الثقيل حتى لا نعيد حساب
+ * كل وحدات الأداء على فترة الدورة كاملة عند فتح لوحة القيادة.
+ */
+export async function fetchManagerCycleSalesTargetSummary(
+  evaluationType: EvaluationType,
+  branch: string | null,
+  cycleStart: string,
+  asOf: string
+): Promise<ManagerCycleSalesTargetSummary> {
+  const { data, error } = await supabase.rpc('calculate_manager_cycle_sales_target_v1', {
+    p_evaluation_type: evaluationType,
+    p_branch: branch,
+    p_cycle_start: cycleStart,
+    p_as_of: asOf,
+  });
+  if (error) throw new Error(error.message);
+  const result = (data || {}) as Partial<ManagerCycleSalesTargetSummary>;
+  return {
+    sales_total: Number(result.sales_total || 0),
+    sales_invoices_count: Number(result.sales_invoices_count || 0),
+    sales_target_amount: Number(result.sales_target_amount || 0),
+    sales_target_achievement_rate:
+      result.sales_target_achievement_rate === null || result.sales_target_achievement_rate === undefined
+        ? null
+        : Number(result.sales_target_achievement_rate),
+  };
+}
+
 export async function fetchWeeklyChecklistCompletion(
   staffId: string,
   weekStart: string,
