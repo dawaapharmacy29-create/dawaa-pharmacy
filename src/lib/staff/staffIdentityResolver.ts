@@ -349,7 +349,7 @@ async function fetchStaffById(staffId: string): Promise<ResolvedStaff | null> {
   if (!isUuid(staffId)) return null;
   const { data, error } = await supabase
     .from('staff')
-    .select('id,name,staff_name,username,role,branch,active,is_active,status')
+    .select('id,name,username,role,branch,active,is_active,status')
     .eq('id', staffId)
     .maybeSingle();
   if (error) return null;
@@ -365,7 +365,7 @@ async function fetchUniqueStaffByNameOrUsername(
 
   const { data } = await supabase
     .from('staff')
-    .select('id,name,staff_name,username,role,branch,active,is_active,status')
+    .select('id,name,username,role,branch,active,is_active,status')
     .limit(500);
 
   const rows = (data || []) as StaffDirectoryRow[];
@@ -483,7 +483,7 @@ async function ensureLoaded(): Promise<void> {
   if (loaded) return;
   const { data } = await supabase
     .from('staff')
-    .select('id,name,staff_name,username,role,branch,active,is_active,status')
+    .select('id,name,username,role,branch,active,is_active,status')
     .limit(500);
   allStaff = (data || []) as StaffDirectoryRow[];
   loaded = true;
