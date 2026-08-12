@@ -13,6 +13,7 @@ import {
   weekBoundsOf,
   previousWeekOf,
   fetchEvaluationHistory,
+  fetchManagerCycleSalesTargetSummary,
 } from '@/lib/evaluations/managerEvaluationService';
 import { calculateTieredIncentiveValue, type CriticalGateType } from '@/lib/evaluations/incentiveTiers';
 import { formatCycleDate, getCurrentCycle, getCycleForDate } from '@/lib/pharmacy-cycle';
@@ -110,15 +111,19 @@ export async function fetchManagerLiveIncentiveSnapshot(
   const cycle = getCurrentCycle();
   const cycleStart = dateOnly(cycle.start);
   const cycleEnd = dateOnly(cycle.end);
+  const today = formatCycleDate(new Date());
   const cycleWeekCount = countEvaluationWeeksInCycle(cycle.start, cycle.end);
   const weeklyBaseEgp = maxIncentiveEgp / cycleWeekCount;
 
-  const [current, prev, checklistRates, history, cycleMetrics] = await Promise.all([
+  // مهم للأداء: لا نعيد تشغيل محرك التقييم الكامل على الدورة كلها.
+  // المبيعات/التارجت للدورة تأتي من RPC خفيف ومفصول، بينما تغطية البيانات
+  // تؤخذ من الأسبوع الجاري؛ وبذلك نقلل الضغط الذي كان يسبب statement timeout.
+  const [current, prev, checklistRates, history, cycleSalesTarget] = await Promise.all([
     fetchWeeklyAutoMetrics(evaluationType, branch, weekStart, weekEnd),
     fetchWeeklyAutoMetrics(evaluationType, branch, previous.start, previous.end).catch(() => null),
-    fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd),
-    fetchEvaluationHistory(evaluationType, subjectStaffId),
-    fetchWeeklyAutoMetrics(evaluationType, branch, cycleStart, formatCycleDate(new Date())),
+    fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd).catch(() => ({})),
+    fetchEvaluationHistory(evaluationType, subjectStaffId).catch(() => []),
+    fetchManagerCycleSalesTargetSummary(evaluationType, branch, cycleStart, today).catch(() => null),
   ]);
 
   const liveScore = computeTotalScore(evaluationType, current, prev, {}, checklistRates);
@@ -183,17 +188,19 @@ export async function fetchManagerLiveIncentiveSnapshot(
     maxIncentiveEgp,
     activeGates
   );
-  const coverage = cycleMetrics.data_coverage || {};
+  const coverage = current.data_coverage || {};
   const coverageEntries = Object.entries(coverage);
   const dataCoveragePercent = coverageEntries.length
     ? Math.round((coverageEntries.filter(([, available]) => available).length / coverageEntries.length) * 100)
     : 0;
   const neutralDataSources = coverageEntries.filter(([, available]) => !available).map(([key]) => key);
-  const targetBonus = calculateTargetAchievementBonus(
-    Number(cycleMetrics.sales_total || 0),
-    Number(cycleMetrics.sales_target_amount || 0),
-    evaluationType === 'customer_service' ? 'not_eligible' : 'manager'
-  );
+  const targetBonus = cycleSalesTarget
+    ? calculateTargetAchievementBonus(
+        Number(cycleSalesTarget.sales_total || 0),
+        Number(cycleSalesTarget.sales_target_amount || 0),
+        evaluationType === 'customer_service' ? 'not_eligible' : 'manager'
+      )
+    : calculateTargetAchievementBonus(0, 0, evaluationType === 'customer_service' ? 'not_eligible' : 'manager');
   const eligibility = evaluatePerformanceIncentiveEligibility(submittedThisCycle.length, dataCoveragePercent);
 
   return {
@@ -207,10 +214,10 @@ export async function fetchManagerLiveIncentiveSnapshot(
     payoutPercent,
     estimatedIncentiveEgp: incentiveValue,
     performanceIncentiveEgp: incentiveValue,
-    targetAchievementPercent: targetBonus.achievementPercent,
-    targetBonusEgp: targetBonus.amountEgp,
-    targetBonusTierLabel: targetBonus.tierLabel,
-    totalEstimatedIncentiveEgp: incentiveValue + Number(targetBonus.amountEgp || 0),
+    targetAchievementPercent: cycleSalesTarget ? targetBonus.achievementPercent : null,
+    targetBonusEgp: cycleSalesTarget ? targetBonus.amountEgp : null,
+    targetBonusTierLabel: cycleSalesTarget ? targetBonus.tierLabel : 'تعذّر تحميل بيانات التارجت مؤقتًا',
+    totalEstimatedIncentiveEgp: incentiveValue + Number(cycleSalesTarget ? targetBonus.amountEgp || 0 : 0),
     payoutEligible: eligibility.eligible,
     eligibilityReasons: eligibility.reasons,
     approvedWeeksInCycle: submittedThisCycle.length,
