@@ -71,7 +71,7 @@ function QueueCard({ customer, onPointDone }: { customer: QueueCustomer; onPoint
   </div>;
 }
 
-function BranchQueue({ title, customers, onPointDone }: { title: string; customers: QueueCustomer[]; onPointDone?: (customer: QueueCustomer) => void }) {
+function BranchQueue({ title, customers, onPointDone, loading }: { title: string; customers: QueueCustomer[]; onPointDone?: (customer: QueueCustomer) => void; loading?: boolean }) {
   const groups = ['فرع شكري', 'فرع الشامي'].map((branch) => ({ branch, rows: customers.filter((c) => c.branch === branch) })).filter((g) => g.rows.length);
   return <div className="space-y-2">
     <div className="text-sm font-black text-white">{title} ({customers.length})</div>
@@ -79,7 +79,7 @@ function BranchQueue({ title, customers, onPointDone }: { title: string; custome
       <div className="sticky top-0 z-10 rounded-lg bg-[#0b2035]/95 px-2 py-1 text-xs font-black text-teal-200">{group.branch} · {group.rows.length}</div>
       {group.rows.map((c, index) => <QueueCard key={`${c.queueType}-${c.branch}-${c.code}-${index}`} customer={c} onPointDone={onPointDone}/>) }
     </div>)}
-    {!customers.length ? <div className="rounded-xl border border-white/10 p-3 text-xs text-slate-400">لا توجد بيانات مؤهلة حاليًا.</div> : null}
+    {!customers.length ? <div className="rounded-xl border border-white/10 p-3 text-xs text-slate-400">{loading ? 'جارٍ التحميل...' : 'لا توجد بيانات مؤهلة حاليًا.'}</div> : null}
   </div>;
 }
 
@@ -106,13 +106,21 @@ export default function CustomerDailyPriorityQueues() {
     try {
       const today = ymd(new Date());
       const saleDay = ymd(yesterday);
+      // p_actor_id is passed explicitly (from the logged-in session) rather than relying only on the
+      // x-dawaa-user-id request header, which was found to sometimes not reach the branch-scope check —
+      // causing these queues to silently return zero rows with no visible error.
+      const actorId = user?.id;
       const [topResult, vipResult, plusResult, pointsResult] = await Promise.all([
-        supabase.rpc('get_customer_service_recent_top50_v2', { p_days: 90 }),
-        supabase.rpc('get_customer_service_daily_vip7_v2', { p_date: today }),
-        supabase.rpc('get_customer_service_plus500_v2', { p_date: saleDay }),
-        supabase.rpc('get_customer_points_daily20_v2', { p_date: today }),
+        supabase.rpc('get_customer_service_recent_top50_v2', { p_days: 90, p_actor_id: actorId }),
+        supabase.rpc('get_customer_service_daily_vip7_v2', { p_date: today, p_actor_id: actorId }),
+        supabase.rpc('get_customer_service_plus500_v2', { p_date: saleDay, p_actor_id: actorId }),
+        supabase.rpc('get_customer_points_daily20_v2', { p_date: today, p_actor_id: actorId }),
       ]);
-      for (const result of [topResult, vipResult, plusResult, pointsResult]) if (result.error) throw result.error;
+      const namedResults: Array<[string, typeof topResult]> = [
+        ['أهم 50 عميل', topResult], ['VIP اليوم', vipResult], ['فواتير +500', plusResult], ['نقاط اليوم', pointsResult],
+      ];
+      const failed = namedResults.find(([, r]) => r.error);
+      if (failed) throw new Error(`${failed[0]}: ${failed[1].error?.message || 'خطأ غير معروف'}`);
 
       const topRows = (topResult.data || []) as Top50Row[];
       setTop50(topRows);
@@ -143,15 +151,19 @@ export default function CustomerDailyPriorityQueues() {
       const pick = (states: string[], limit: number, sorter?: (a: CustomerMonthlyRow, b: CustomerMonthlyRow) => number) => rows.filter((r) => states.includes(r.customer_state)).sort(sorter || ((a,b) => Number(b.sales_amount)-Number(a.sales_amount))).slice(0, limit);
       const selected = [...pick(['مستقر'],5), ...pick(['تراجع قوي','تراجع'],5,(a,b)=>Number(b.previous_month_sales)-Number(a.previous_month_sales)), ...pick(['نمو قوي','نمو','مستعاد'],5,(a,b)=>Number(b.sales_change_amount)-Number(a.sales_change_amount))];
       setActivity(selected.map((r) => ({ code:String(r.customer_code||''),name:String(r.customer_name||''),phone:String(r.phone||''),branch:normalizeBranchName(r.branch||''),queueType:'activity',state:r.customer_state,value:Number(r.sales_amount||0),label:`${r.customer_state} · الحالي ${money(Number(r.sales_amount||0))}` })));
-    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل القوائم الذكية'); }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'تعذر تحميل القوائم الذكية';
+      setError(message);
+      console.error('[CustomerDailyPriorityQueues] load failed', e);
+    }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { void load(); }, [managerView, scopedBranch]);
+  useEffect(() => { void load(); }, [managerView, scopedBranch, user?.id]);
 
   async function markPointDone(customer: QueueCustomer) {
     try {
-      const { error: markError } = await supabase.rpc('mark_customer_points_contacted_v2', { p_branch: customer.branch, p_customer_code: customer.code, p_actor_name: user?.name || 'خدمة العملاء' });
+      const { error: markError } = await supabase.rpc('mark_customer_points_contacted_v2', { p_branch: customer.branch, p_customer_code: customer.code, p_actor_name: user?.name || 'خدمة العملاء', p_actor_id: user?.id });
       if (markError) throw markError;
       toast.success(`تم تسجيل إبلاغ ${customer.name} برصيد النقاط`);
       await load();
@@ -208,12 +220,12 @@ export default function CustomerDailyPriorityQueues() {
         <button type="button" onClick={() => void load()} disabled={loading} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-black text-slate-200"><RefreshCw size={14} className={`ml-1 inline ${loading?'animate-spin':''}`}/>تحديث</button>
       </div>
     </div>
-    {error ? <div className="rounded-xl border border-rose-300/20 bg-rose-500/10 p-3 text-xs font-bold text-rose-200">{error}</div> : null}
+    {error ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-300/20 bg-rose-500/10 p-3 text-xs font-bold text-rose-200"><span>{error}</span><button type="button" onClick={() => void load()} className="rounded-lg border border-rose-300/30 bg-rose-400/10 px-3 py-1.5 text-[11px] font-black text-rose-100 hover:bg-rose-400/20">إعادة المحاولة</button></div> : null}
 
     <div className="grid gap-4 xl:grid-cols-3">
-      <div className="max-h-[560px] overflow-auto rounded-2xl border border-amber-300/10 bg-amber-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-amber-200"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم</span></div><BranchQueue title="VIP آخر 3 شهور" customers={vipDaily}/></div>
-      <div className="max-h-[560px] overflow-auto rounded-2xl border border-emerald-300/10 bg-emerald-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-emerald-200"><BadgeDollarSign size={18}/><span className="font-black">كل عملاء +500 أمس</span></div><BranchQueue title={`فواتير ${ymd(yesterday)}`} customers={largeInvoices}/></div>
-      <div className="max-h-[560px] overflow-auto rounded-2xl border border-cyan-300/10 bg-cyan-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-cyan-200"><Gift size={18}/><span className="font-black">20 عميل نقاط اليوم</span></div><BranchQueue title="الأقدم في الإبلاغ أولًا" customers={pointsDaily} onPointDone={(c)=>void markPointDone(c)}/></div>
+      <div className="max-h-[560px] overflow-auto rounded-2xl border border-amber-300/10 bg-amber-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-amber-200"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم</span></div><BranchQueue title="VIP آخر 3 شهور" customers={vipDaily} loading={loading}/></div>
+      <div className="max-h-[560px] overflow-auto rounded-2xl border border-emerald-300/10 bg-emerald-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-emerald-200"><BadgeDollarSign size={18}/><span className="font-black">كل عملاء +500 أمس</span></div><BranchQueue title={`فواتير ${ymd(yesterday)}`} customers={largeInvoices} loading={loading}/></div>
+      <div className="max-h-[560px] overflow-auto rounded-2xl border border-cyan-300/10 bg-cyan-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-cyan-200"><Gift size={18}/><span className="font-black">20 عميل نقاط اليوم</span></div><BranchQueue title="الأقدم في الإبلاغ أولًا" customers={pointsDaily} onPointDone={(c)=>void markPointDone(c)} loading={loading}/></div>
     </div>
 
     <button type="button" onClick={() => setShowTop50((v)=>!v)} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-right">
