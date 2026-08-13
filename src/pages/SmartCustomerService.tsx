@@ -8,6 +8,7 @@ import CustomerFollowupOperationsCompletionPanel from '@/components/customerServ
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
 import CustomerFollowupOperationsHub from '@/components/customerService/CustomerFollowupOperationsHub';
 import CustomerFollowupRecordsAndPerformance from '@/components/customerService/CustomerFollowupRecordsAndPerformance';
+import CustomerServiceStaffPerformancePanel from '@/components/customerService/CustomerServiceStaffPerformancePanel';
 import CustomerDailyPriorityQueues from '@/components/customerService/CustomerDailyPriorityQueues';
 import ExceptionalFollowupCenter from '@/components/customerService/ExceptionalFollowupCenter';
 import QuickFollowupModal from '@/components/common/QuickFollowupModal';
@@ -26,7 +27,7 @@ const views: Array<{ id: MainView; title: string; description: string; icon: typ
   { id: 'no_answer', title: 'لم يرد العميل', description: 'محاولات تواصل بدون رد', icon: PhoneMissed },
   { id: 'exceptional', title: 'المتابعات الاستثنائية', description: 'المنفذ وطلبات دكاترة الفرع', icon: Sparkles },
   { id: 'completed', title: 'سجل المكتمل', description: 'المتابعات المنفذة فقط', icon: History },
-  { id: 'performance', title: 'أداء خدمة العملاء', description: 'تقييم شهري وحافز حتى 500 جنيه', icon: BarChart3 },
+  { id: 'performance', title: 'أداء خدمة العملاء', description: 'تنفيذ وردود و+500 ونقاط وVIP والحافز', icon: BarChart3 },
   { id: 'data', title: 'البيانات والجودة', description: 'التصحيح والفروع والتكرارات', icon: Database },
   { id: 'content', title: 'سكريبتات التواصل', description: 'نصوص المكالمات والواتساب', icon: MessageSquareText },
   { id: 'reports', title: 'التقارير والنقاط', description: 'التصدير والكاش باك والاستحقاق', icon: BarChart3 },
@@ -117,7 +118,7 @@ export default function SmartCustomerService() {
       {hasSafeBranchScope && view === 'no_answer' ? <CustomerFollowupRecordsAndPerformance key={`no-answer-${workspaceVersion}`} mode="no_answer" /> : null}
       {hasSafeBranchScope && view === 'exceptional' ? <ExceptionalFollowupCenter key={`exceptional-${workspaceVersion}`} /> : null}
       {hasSafeBranchScope && view === 'completed' ? <CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /> : null}
-      {hasSafeBranchScope && view === 'performance' ? <CustomerFollowupRecordsAndPerformance key={`performance-${workspaceVersion}`} mode="performance" /> : null}
+      {hasSafeBranchScope && view === 'performance' ? <CustomerServiceStaffPerformancePanel key={`performance-${workspaceVersion}`} /> : null}
       {hasSafeBranchScope && view === 'data' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><Suspense fallback={<SectionLoader label="أدوات تصحيح البيانات"/>}><CustomerServiceDataTools/></Suspense></div> : null}
       {hasSafeBranchScope && view === 'content' ? <Suspense fallback={<SectionLoader label="محرر السكريبتات"/>}><CustomerServiceScriptEditor/></Suspense> : null}
       {view === 'reports' ? <div className="space-y-4"><CustomerFollowupFullExportPanel/>{hasSafeBranchScope ? <Suspense fallback={<SectionLoader label="نقاط العملاء والكاش باك"/>}><CustomerCashback/></Suspense> : null}</div> : null}
