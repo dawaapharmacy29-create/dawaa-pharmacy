@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BadgeDollarSign, ChevronDown, ChevronUp, Crown, Download, FileUp, Gift, RefreshCw, TrendingDown, TrendingUp, UserCheck } from 'lucide-react';
+import { BadgeDollarSign, ChevronDown, ChevronUp, Crown, Download, FileUp, Gift, RefreshCw, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
@@ -121,7 +121,7 @@ export default function CustomerDailyPriorityQueues() {
         branch: String(r.branch || ''), queueType: 'vip_recent' as const, rank: Number(r.customer_rank || 0),
         recentSales: Number(r.recent_sales || 0), activeMonths: Number(r.active_months || 0), lastPurchase: String(r.last_purchase || '') || null,
         value: Number(r.recent_sales || 0),
-        label: `رقم ${Number(r.customer_rank || 0)} ضمن أهم 50 · آخر 90 يوم ${money(Number(r.recent_sales || 0))} · ${Number(r.active_months || 0)} شهر نشط`,
+        label: `رقم ${Number(r.customer_rank || 0)} ضمن أهم 50 · آخر 3 شهور ${money(Number(r.recent_sales || 0))} · ${Number(r.active_months || 0)} شهر نشط`,
       })));
       setLargeInvoices(((plusResult.data || []) as Array<Record<string, unknown>>).map((r) => ({
         code: String(r.customer_code || ''), name: String(r.customer_name || ''), phone: String(r.customer_phone || ''), branch: String(r.branch || ''),
@@ -151,7 +151,7 @@ export default function CustomerDailyPriorityQueues() {
 
   async function markPointDone(customer: QueueCustomer) {
     try {
-      const { error: markError } = await supabase.rpc('mark_customer_points_contacted_v2', { p_branch: customer.branch, p_customer_code: customer.code, p_actor_name: user?.name || user?.staff_name || 'خدمة العملاء' });
+      const { error: markError } = await supabase.rpc('mark_customer_points_contacted_v2', { p_branch: customer.branch, p_customer_code: customer.code, p_actor_name: user?.name || 'خدمة العملاء' });
       if (markError) throw markError;
       toast.success(`تم تسجيل إبلاغ ${customer.name} برصيد النقاط`);
       await load();
@@ -166,16 +166,16 @@ export default function CustomerDailyPriorityQueues() {
         'هل يحتاج متابعة أخرى': '', 'موعد المتابعة القادمة': '', 'ملاحظات': '',
       };
       const dailyRows = [...vipDaily, ...largeInvoices, ...pointsDaily].map((c) => ({
-        'نوع القائمة': c.queueType === 'vip_recent' ? 'VIP آخر 90 يوم' : c.queueType === 'plus500' ? '+500' : 'نقاط',
+        'نوع القائمة': c.queueType === 'vip_recent' ? 'VIP آخر 3 شهور' : c.queueType === 'plus500' ? '+500' : 'نقاط',
         'الفرع': c.branch, 'اسم العميل': c.name, 'كود العميل': c.code, 'الهاتف': c.phone,
         'قيمة الفاتورة': c.queueType === 'plus500' ? Number(c.value || 0) : '', 'عدد الفواتير': c.invoiceCount || '',
         'رصيد النقاط': c.queueType === 'points' ? Number(c.pointsBalance || 0) : '',
-        'مبيعات آخر 90 يوم': c.queueType === 'vip_recent' ? Number(c.recentSales || 0) : '', 'ترتيب أهم 50': c.rank || '',
+        'مبيعات آخر 3 شهور': c.queueType === 'vip_recent' ? Number(c.recentSales || 0) : '', 'ترتيب أهم 50': c.rank || '',
         ...resultColumns,
       }));
       const topSheetRows = (branch: string) => top50.filter((r) => r.branch === branch).map((r) => ({
         'الترتيب': r.customer_rank, 'اسم العميل': r.customer_name || '', 'كود العميل': r.customer_code, 'الهاتف': r.customer_phone || '',
-        'مبيعات آخر 90 يوم': Number(r.recent_sales || 0), 'عدد الفواتير': Number(r.invoice_count || 0), 'الشهور النشطة': Number(r.active_months || 0),
+        'مبيعات آخر 3 شهور': Number(r.recent_sales || 0), 'عدد الفواتير': Number(r.invoice_count || 0), 'الشهور النشطة': Number(r.active_months || 0),
         'متوسط الفاتورة': Number(r.avg_invoice || 0), 'آخر شراء': r.last_purchase || '', 'درجة الأهمية': Number(r.importance_score || 0),
       }));
       const book = XLSX.utils.book_new();
@@ -201,7 +201,7 @@ export default function CustomerDailyPriorityQueues() {
 
   return <section className="mx-4 mt-4 space-y-4 rounded-3xl border border-cyan-300/15 bg-[#0b2035] p-4 md:p-5" dir="rtl">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><p className="text-xs font-black text-cyan-300">قوائم المتابعة الذكية</p><h2 className="mt-1 text-lg font-black text-white">أولويات اليوم لخدمة العملاء</h2><p className="mt-1 text-xs font-bold leading-6 text-slate-400">Top 50 لكل فرع مبني فقط على آخر 90 يومًا. النظام يوزع 7 عملاء يوميًا من الـ100 بالتبادل 4/3 بين الفرعين، ليتم المرور على كل عميل تقريبًا مرتين شهريًا.</p></div>
+      <div><p className="text-xs font-black text-cyan-300">قوائم المتابعة الذكية</p><h2 className="mt-1 text-lg font-black text-white">أولويات اليوم لخدمة العملاء</h2><p className="mt-1 text-xs font-bold leading-6 text-slate-400">Top 50 لكل فرع مبني فقط على آخر 3 شهور: الشهر الحالي والشهرين السابقين. النظام يوزع 7 عملاء يوميًا من الـ100 بالتبادل 4/3 بين الفرعين، ليتم المرور على كل عميل تقريبًا مرتين شهريًا.</p></div>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => void exportExcel()} className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs font-black text-emerald-100"><Download size={14} className="ml-1 inline"/>تصدير Excel</button>
         <button type="button" onClick={() => setImportOpen(true)} className="rounded-xl border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-xs font-black text-amber-100"><FileUp size={14} className="ml-1 inline"/>استيراد النتائج</button>
@@ -211,17 +211,17 @@ export default function CustomerDailyPriorityQueues() {
     {error ? <div className="rounded-xl border border-rose-300/20 bg-rose-500/10 p-3 text-xs font-bold text-rose-200">{error}</div> : null}
 
     <div className="grid gap-4 xl:grid-cols-3">
-      <div className="max-h-[560px] overflow-auto rounded-2xl border border-amber-300/10 bg-amber-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-amber-200"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم</span></div><BranchQueue title="VIP آخر 90 يوم" customers={vipDaily}/></div>
+      <div className="max-h-[560px] overflow-auto rounded-2xl border border-amber-300/10 bg-amber-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-amber-200"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم</span></div><BranchQueue title="VIP آخر 3 شهور" customers={vipDaily}/></div>
       <div className="max-h-[560px] overflow-auto rounded-2xl border border-emerald-300/10 bg-emerald-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-emerald-200"><BadgeDollarSign size={18}/><span className="font-black">كل عملاء +500 أمس</span></div><BranchQueue title={`فواتير ${ymd(yesterday)}`} customers={largeInvoices}/></div>
       <div className="max-h-[560px] overflow-auto rounded-2xl border border-cyan-300/10 bg-cyan-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-cyan-200"><Gift size={18}/><span className="font-black">20 عميل نقاط اليوم</span></div><BranchQueue title="الأقدم في الإبلاغ أولًا" customers={pointsDaily} onPointDone={(c)=>void markPointDone(c)}/></div>
     </div>
 
     <button type="button" onClick={() => setShowTop50((v)=>!v)} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-right">
-      <span><span className="font-black text-white">قائمة أهم 50 عميل لكل فرع — آخر 90 يوم فقط</span><span className="mr-3 text-xs font-bold text-slate-400">شكري {topCounts.shokry}/50 · الشامي {topCounts.shamy}/50</span></span>{showTop50?<ChevronUp className="text-cyan-300"/>:<ChevronDown className="text-cyan-300"/>}
+      <span><span className="font-black text-white">قائمة أهم 50 عميل لكل فرع — آخر 3 شهور فقط</span><span className="mr-3 text-xs font-bold text-slate-400">شكري {topCounts.shokry}/50 · الشامي {topCounts.shamy}/50</span></span>{showTop50?<ChevronUp className="text-cyan-300"/>:<ChevronDown className="text-cyan-300"/>}
     </button>
     {showTop50 ? <div className="grid gap-4 xl:grid-cols-2">{['فرع شكري','فرع الشامي'].map((branch) => {
       const rows=top50.filter((r)=>r.branch===branch); if (!rows.length) return null;
-      return <div key={branch} className="max-h-[520px] overflow-auto rounded-2xl border border-white/10"><div className="sticky top-0 z-10 bg-[#173252] px-4 py-3 text-sm font-black text-white">{branch} — {rows.length} عميل</div><table className="min-w-[760px] w-full text-xs"><thead className="bg-[#102941] text-slate-400"><tr>{['#','العميل','مبيعات 90 يوم','فواتير','شهور نشطة','آخر شراء'].map((h)=><th key={h} className="p-2 text-right">{h}</th>)}</tr></thead><tbody>{rows.map((r)=><tr key={`${branch}-${r.customer_code}`} className="border-t border-white/5 text-slate-200"><td className="p-2 font-black text-cyan-300">{r.customer_rank}</td><td className="p-2"><div className="font-black text-white">{r.customer_name}</div><div className="text-[10px] text-slate-500">كود {r.customer_code}</div></td><td className="p-2 font-bold">{money(Number(r.recent_sales||0))}</td><td className="p-2">{r.invoice_count}</td><td className="p-2">{r.active_months}</td><td className="p-2">{r.last_purchase || '—'}</td></tr>)}</tbody></table></div>;
+      return <div key={branch} className="max-h-[520px] overflow-auto rounded-2xl border border-white/10"><div className="sticky top-0 z-10 bg-[#173252] px-4 py-3 text-sm font-black text-white">{branch} — {rows.length} عميل</div><table className="min-w-[760px] w-full text-xs"><thead className="bg-[#102941] text-slate-400"><tr>{['#','العميل','مبيعات 3 شهور','فواتير','شهور نشطة','آخر شراء'].map((h)=><th key={h} className="p-2 text-right">{h}</th>)}</tr></thead><tbody>{rows.map((r)=><tr key={`${branch}-${r.customer_code}`} className="border-t border-white/5 text-slate-200"><td className="p-2 font-black text-cyan-300">{r.customer_rank}</td><td className="p-2"><div className="font-black text-white">{r.customer_name}</div><div className="text-[10px] text-slate-500">كود {r.customer_code}</div></td><td className="p-2 font-bold">{money(Number(r.recent_sales||0))}</td><td className="p-2">{r.invoice_count}</td><td className="p-2">{r.active_months}</td><td className="p-2">{r.last_purchase || '—'}</td></tr>)}</tbody></table></div>;
     })}</div> : null}
 
     <button type="button" onClick={() => setShowActivity((v)=>!v)} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-3 text-right"><span className="font-black text-slate-200"><UserCheck size={16} className="ml-2 inline text-cyan-300"/>عينة ذكية إضافية: مستقرون + متراجعون + متحسنون ({activity.length})</span>{showActivity?<ChevronUp size={18}/>:<ChevronDown size={18}/>}</button>
