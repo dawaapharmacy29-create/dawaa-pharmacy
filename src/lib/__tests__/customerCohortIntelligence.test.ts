@@ -29,14 +29,14 @@ describe('customer service intelligence governance', () => {
     expect(rows.find((row) => row.criterion.key === 'points_communication')?.score10).toBe(0);
   });
 
-  it('normalizes Arabic watchlist uploads, removes duplicates and caps at 20', () => {
-    const source = Array.from({ length: 22 }, (_, index) => ({
+  it('normalizes Arabic watchlist uploads, removes duplicates and caps at 50', () => {
+    const source = Array.from({ length: 55 }, (_, index) => ({
       'كود العميل': String(index + 1),
       'اسم العميل': `عميل ${index + 1}`,
     }));
     source.push({ 'كود العميل': '1', 'اسم العميل': 'نسخة مكررة' });
     const rows = normalizeWatchlistRows(source);
-    expect(rows.length).toBe(20);
-    expect(new Set(rows.map((row) => row.customer_code)).size).toBe(20);
+    expect(rows.length).toBe(50);
+    expect(new Set(rows.map((row) => row.customer_code)).size).toBe(50);
   });
 });
