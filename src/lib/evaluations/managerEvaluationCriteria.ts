@@ -35,6 +35,9 @@ export type WeeklyAutoMetrics = {
   shift_notes_completed?: number;
   shift_notes_overdue?: number;
   attendance_days_count?: number;
+  daily_queues_total?: number;
+  daily_queues_handled?: number;
+  daily_queues_completion_rate?: number | null;
   data_coverage?: Record<string, boolean>;
 };
 
@@ -128,6 +131,11 @@ function customerGrowthScore(current: WeeklyAutoMetrics, previous: WeeklyAutoMet
   if (!previous?.new_customers_count) return current.new_customers_count > 0 ? 5 : 0;
   const growthPct = ((current.new_customers_count - previous.new_customers_count) / previous.new_customers_count) * 100;
   return clamp10(5 + growthPct / 10);
+}
+
+function dailyQueuesExecutionScore(current: WeeklyAutoMetrics): number {
+  if (current.daily_queues_completion_rate === null || current.daily_queues_completion_rate === undefined) return 0;
+  return clamp10(current.daily_queues_completion_rate / 10);
 }
 
 export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> = {
@@ -229,11 +237,16 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       hint: '40% من حجم المراجعات و60% من متوسط جودة المحادثات.', sourceRoute: '/reviews', sourceLabel: 'تقييم المحادثات', coverageKeys: ['reviews'], requiredOperational: true,
     },
     {
-      key: 'followups_execution', label: 'تنفيذ المتابعات حتى نتيجة فعلية', weight: 0.20, mode: 'auto', autoScore: followupClosureScore,
+      key: 'followups_execution', label: 'تنفيذ المتابعات حتى نتيجة فعلية', weight: 0.14, mode: 'auto', autoScore: followupClosureScore,
       hint: 'طلب → تواصل → رد → نتيجة موثقة، مع احتساب المتأخر والمنتهي بدون رد.', sourceRoute: '/customer-service', sourceLabel: 'المتابعات', coverageKeys: ['followups'], requiredOperational: true,
     },
     {
-      key: 'points_communication', label: 'إبلاغ العملاء بالنقاط ومتابعة الاستفادة منها', weight: 0.08, mode: 'auto', autoScore: pointsCommunicationScore,
+      key: 'daily_queues_execution', label: 'إنجاز قوائم المتابعة اليومية (VIP + فواتير 500+ + النقاط)', weight: 0.10, mode: 'auto', autoScore: dailyQueuesExecutionScore,
+      hint: 'نسبة عملاء قوائم اليوم (7 VIP لكل فرع + كل فواتير الـ500+ + قائمة النقاط) اللي اتسجلت لهم متابعة فعلية في نفس اليوم.',
+      sourceRoute: '/customer-service', sourceLabel: 'القوائم الذكية', coverageKeys: ['daily_queues'], requiredOperational: true,
+    },
+    {
+      key: 'points_communication', label: 'إبلاغ العملاء بالنقاط ومتابعة الاستفادة منها', weight: 0.04, mode: 'auto', autoScore: pointsCommunicationScore,
       sourceRoute: '/customer-points-ledger', sourceLabel: 'سجل النقاط', coverageKeys: ['points'], requiredOperational: true,
     },
     {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BadgeDollarSign, ChevronDown, ChevronUp, Crown, Download, FileUp, Gift, RefreshCw, UserCheck } from 'lucide-react';
+import { BadgeDollarSign, ChevronDown, ChevronUp, Crown, Download, FileUp, Gift, RefreshCw, UserCheck, Gauge } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
@@ -41,6 +41,13 @@ type Top50Row = {
   avg_invoice: number;
   last_purchase: string | null;
   importance_score: number;
+};
+
+type CompletionRow = {
+  branch: string;
+  vip_total: number; vip_handled: number;
+  plus500_total: number; plus500_handled: number;
+  points_total: number; points_handled: number;
 };
 
 function ymd(date: Date) {
@@ -97,6 +104,7 @@ export default function CustomerDailyPriorityQueues() {
   const [showTop50, setShowTop50] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [completion, setCompletion] = useState<CompletionRow[]>([]);
 
   const yesterday = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; }, []);
   const importBranch = managerView ? 'كل الفروع' : scopedBranch;
@@ -151,6 +159,11 @@ export default function CustomerDailyPriorityQueues() {
       const pick = (states: string[], limit: number, sorter?: (a: CustomerMonthlyRow, b: CustomerMonthlyRow) => number) => rows.filter((r) => states.includes(r.customer_state)).sort(sorter || ((a,b) => Number(b.sales_amount)-Number(a.sales_amount))).slice(0, limit);
       const selected = [...pick(['مستقر'],5), ...pick(['تراجع قوي','تراجع'],5,(a,b)=>Number(b.previous_month_sales)-Number(a.previous_month_sales)), ...pick(['نمو قوي','نمو','مستعاد'],5,(a,b)=>Number(b.sales_change_amount)-Number(a.sales_change_amount))];
       setActivity(selected.map((r) => ({ code:String(r.customer_code||''),name:String(r.customer_name||''),phone:String(r.phone||''),branch:normalizeBranchName(r.branch||''),queueType:'activity',state:r.customer_state,value:Number(r.sales_amount||0),label:`${r.customer_state} · الحالي ${money(Number(r.sales_amount||0))}` })));
+
+      // نسبة إنجاز قوائم اليوم (VIP + فواتير 500+ + النقاط) — مرئية لمسئول خدمة العملاء
+      // ولمدير الفرع ومدير الفروع، وهي نفس المؤشر اللي بيغذي معيار التقييم الأسبوعي.
+      const { data: completionData, error: completionError } = await supabase.rpc('get_customer_service_daily_queue_completion_v1', { p_date: today, p_actor_id: actorId });
+      if (!completionError) setCompletion((completionData || []) as CompletionRow[]);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'تعذر تحميل القوائم الذكية';
       setError(message);
@@ -213,7 +226,7 @@ export default function CustomerDailyPriorityQueues() {
 
   return <section className="mx-4 mt-4 space-y-4 rounded-3xl border border-cyan-300/15 bg-[#0b2035] p-4 md:p-5" dir="rtl">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><p className="text-xs font-black text-cyan-300">قوائم المتابعة الذكية</p><h2 className="mt-1 text-lg font-black text-white">أولويات اليوم لخدمة العملاء</h2><p className="mt-1 text-xs font-bold leading-6 text-slate-400">Top 50 لكل فرع مبني فقط على آخر 3 شهور: الشهر الحالي والشهرين السابقين. النظام يوزع 7 عملاء يوميًا من الـ100 بالتبادل 4/3 بين الفرعين، ليتم المرور على كل عميل تقريبًا مرتين شهريًا.</p></div>
+      <div><p className="text-xs font-black text-cyan-300">قوائم المتابعة الذكية</p><h2 className="mt-1 text-lg font-black text-white">أولويات اليوم لخدمة العملاء</h2><p className="mt-1 text-xs font-bold leading-6 text-slate-400">Top 50 لكل فرع مبني فقط على آخر 3 شهور: الشهر الحالي والشهرين السابقين. النظام يعرض 7 عملاء VIP يوميًا لكل فرع (14 إجمالاً)، بالتبادل على الـ50 عميل بحيث يتم المرور على كل عميل كل أسبوع تقريبًا.</p></div>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => void exportExcel()} className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs font-black text-emerald-100"><Download size={14} className="ml-1 inline"/>تصدير Excel</button>
         <button type="button" onClick={() => setImportOpen(true)} className="rounded-xl border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-xs font-black text-amber-100"><FileUp size={14} className="ml-1 inline"/>استيراد النتائج</button>
@@ -222,8 +235,24 @@ export default function CustomerDailyPriorityQueues() {
     </div>
     {error ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-300/20 bg-rose-500/10 p-3 text-xs font-bold text-rose-200"><span>{error}</span><button type="button" onClick={() => void load()} className="rounded-lg border border-rose-300/30 bg-rose-400/10 px-3 py-1.5 text-[11px] font-black text-rose-100 hover:bg-rose-400/20">إعادة المحاولة</button></div> : null}
 
+    {completion.length ? <div className="grid gap-2 sm:grid-cols-2">
+      {completion.map((row) => {
+        const total = row.vip_total + row.plus500_total + row.points_total;
+        const handled = row.vip_handled + row.plus500_handled + row.points_handled;
+        const pct = total ? Math.round((handled / total) * 100) : null;
+        const tone = pct === null ? 'text-slate-400' : pct >= 70 ? 'text-emerald-300' : pct >= 40 ? 'text-amber-300' : 'text-rose-300';
+        return <div key={row.branch} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+          <div className="flex items-center gap-2 text-xs font-black text-white"><Gauge size={14} className="text-cyan-300"/>{row.branch} · إنجاز اليوم</div>
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
+            <span>VIP {row.vip_handled}/{row.vip_total} · 500+ {row.plus500_handled}/{row.plus500_total} · نقاط {row.points_handled}/{row.points_total}</span>
+            <span className={`text-sm font-black ${tone}`}>{pct === null ? '—' : `${pct}%`}</span>
+          </div>
+        </div>;
+      })}
+    </div> : null}
+
     <div className="grid gap-4 xl:grid-cols-3">
-      <div className="max-h-[560px] overflow-auto rounded-2xl border border-amber-300/10 bg-amber-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-amber-200"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم</span></div><BranchQueue title="VIP آخر 3 شهور" customers={vipDaily} loading={loading}/></div>
+      <div className="max-h-[560px] overflow-auto rounded-2xl border border-amber-300/10 bg-amber-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-amber-200"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم لكل فرع</span></div><BranchQueue title="VIP آخر 3 شهور" customers={vipDaily} loading={loading}/></div>
       <div className="max-h-[560px] overflow-auto rounded-2xl border border-emerald-300/10 bg-emerald-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-emerald-200"><BadgeDollarSign size={18}/><span className="font-black">كل عملاء +500 أمس</span></div><BranchQueue title={`فواتير ${ymd(yesterday)}`} customers={largeInvoices} loading={loading}/></div>
       <div className="max-h-[560px] overflow-auto rounded-2xl border border-cyan-300/10 bg-cyan-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-cyan-200"><Gift size={18}/><span className="font-black">20 عميل نقاط اليوم</span></div><BranchQueue title="الأقدم في الإبلاغ أولًا" customers={pointsDaily} onPointDone={(c)=>void markPointDone(c)} loading={loading}/></div>
     </div>

@@ -301,6 +301,7 @@ export default function WeeklyManagerEvaluation() {
               <div><span className="text-slate-500">طلبات متأخرة: </span><span className="font-bold text-red-300">{currentMetrics.customer_requests_overdue ?? 0}</span></div>
               <div><span className="text-slate-500">قيمة شراء بعد المتابعة: </span><span className="font-bold text-emerald-300">{(currentMetrics.followups_purchase_amount ?? 0).toLocaleString('ar-EG')} ج.م</span></div>
               <div><span className="text-slate-500">تكويد الفواتير: </span><span className="font-bold text-white">{currentMetrics.sales_coding_rate ?? '—'}%</span></div>
+              <div><span className="text-slate-500">إنجاز القوائم اليومية: </span><span className="font-bold text-white">{currentMetrics.daily_queues_completion_rate ?? '—'}%{currentMetrics.daily_queues_total ? ` (${currentMetrics.daily_queues_handled ?? 0}/${currentMetrics.daily_queues_total})` : ''}</span></div>
             </div>
           </div>
 
