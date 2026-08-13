@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 import {
   Activity,
   AlertTriangle,
@@ -35,6 +36,7 @@ function Change({ current, previous }: { current: number; previous: number }) {
 }
 
 export default function CustomerCycleCohortPanel({ branch }: { branch: string }) {
+  const { user } = useAuth();
   const [cohorts, setCohorts] = useState<CustomerCycleCohort[]>([]);
   const [watchlist, setWatchlist] = useState<WatchlistCustomerPerformance[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,8 +48,8 @@ export default function CustomerCycleCohortPanel({ branch }: { branch: string })
     setLoading(true);
     setError('');
     const [cohortResult, watchlistResult] = await Promise.allSettled([
-      fetchCustomerCycleCohorts(branch, asOfDate),
-      fetchWatchlistPerformance(branch, asOfDate),
+      fetchCustomerCycleCohorts(branch, asOfDate, user?.id),
+      fetchWatchlistPerformance(branch, asOfDate, user?.id),
     ]);
     if (cohortResult.status === 'fulfilled') setCohorts(cohortResult.value);
     else {

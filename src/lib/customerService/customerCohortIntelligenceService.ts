@@ -47,21 +47,23 @@ export type WatchlistUploadRow = {
   note?: string;
 };
 
-export async function fetchCustomerCycleCohorts(branch: string, asOfDate: string) {
+export async function fetchCustomerCycleCohorts(branch: string, asOfDate: string, actorId?: string) {
   const { data, error } = await supabase.rpc('get_customer_service_cycle_cohorts', {
     p_branch: branch,
     p_as_of_date: asOfDate,
     p_cycles: 3,
+    p_actor_id: actorId,
   });
   if (error) throw new Error(error.message);
   return (data || []) as CustomerCycleCohort[];
 }
 
-export async function fetchWatchlistPerformance(branch: string, asOfDate: string) {
+export async function fetchWatchlistPerformance(branch: string, asOfDate: string, actorId?: string) {
   const { data, error } = await supabase.rpc('get_customer_service_watchlist_performance', {
     p_branch: branch,
     p_as_of_date: asOfDate,
     p_cycles: 3,
+    p_actor_id: actorId,
   });
   if (error) throw new Error(error.message);
   return (data || []) as WatchlistCustomerPerformance[];
