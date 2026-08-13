@@ -140,7 +140,7 @@ function isHistoricalImport(row: Row) {
 
 function performerName(row: Row) {
   if (isHistoricalImport(row) && text(row.created_by_name)) return text(row.created_by_name);
-  return text(row.completed_by_name || row.responsible_name || row.assigned_to || row.handled_by_name || row.updated_by_name || row.created_by_name || 'غير محدد');
+  return text(row.completed_by || row.responsible_name || row.assigned_to || row.created_by_name || 'غير محدد');
 }
 
 function performerKey(row: Row) {
@@ -182,7 +182,7 @@ export default function CustomerServiceStaffPerformancePanel() {
     try {
       let query = supabase
         .from('daily_followups')
-        .select('id,date,followup_date,customer_code,customer_name,branch,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_type,request_type,request_source,followup_reason,request_details,notes,created_at,updated_at,contacted_at,first_attempt_at,last_attempt_at,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,purchase_amount,responsible_name,assigned_to,assigned_staff_id,assigned_to_staff_id,handled_by_staff_id,staff_id,created_by,created_by_name,updated_by_name,completed_by_name,customer_metrics')
+        .select('id,date,followup_date,customer_code,customer_name,branch,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_type,request_type,request_source,followup_reason,request_details,notes,created_at,updated_at,contacted_at,first_attempt_at,last_attempt_at,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,purchase_amount,responsible_name,assigned_to,assigned_staff_id,assigned_to_staff_id,handled_by_staff_id,staff_id,created_by,created_by_name,completed_by,customer_metrics')
         .gte('date', start)
         .lte('date', end)
         .order('date', { ascending: true })
@@ -269,7 +269,7 @@ export default function CustomerServiceStaffPerformancePanel() {
       const daily = [...dailyMap.values()].sort((a, b) => a.date.localeCompare(b.date));
       const activeDays = daily.filter((day) => day.executed > 0).length;
       const executionRate = rate(executedRows.length, total);
-      const responseRate = rate(respondedRows.length, Math.max(executedRows.length - noAnswerRows.length + noAnswerRows.length, 0));
+      const responseRate = rate(respondedRows.length, executedRows.length);
       const completionRate = rate(completedRows.length, total);
       const documentationRate = rate(documented, total);
       const timelyRate = timestampedRows.length ? rate(timely, timestampedRows.length) : 100;
