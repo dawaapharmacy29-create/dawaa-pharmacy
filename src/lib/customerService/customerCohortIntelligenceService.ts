@@ -95,5 +95,5 @@ export function normalizeWatchlistRows(rows: Array<Record<string, unknown>>): Wa
     .filter((row) => row.customer_code);
 
   const unique = new Map(normalized.map((row) => [row.customer_code, row]));
-  return [...unique.values()].slice(0, 20);
+  return [...unique.values()].slice(0, 50);
 }
