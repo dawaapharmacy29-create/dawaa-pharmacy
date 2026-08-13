@@ -37,6 +37,11 @@ interface StaffAccountLoginRow {
 
 const STORAGE_KEY = 'dawaa_auth_user_v2';
 const listeners = new Set<() => void>();
+const ACCOUNT_REFRESH_TTL_MS = 5 * 60 * 1000;
+const ACCOUNT_REFRESH_TIMEOUT_MS = 3500;
+let lastAccountRefreshAt = 0;
+let accountRefreshPromise: Promise<User | null> | null = null;
+
 const DOCTOR_WORKSPACE_PERMISSIONS = [
   'view_doctor_dashboard',
   'view_own_performance',
@@ -94,9 +99,6 @@ function normalizePermissionInput(extra: unknown): Record<string, boolean> {
 
 type SupabaseRpcResult<T> = { data: T | null; error: { message?: string } | null };
 
-// صلاحيات قليلة ومحددة يجوز منحها لموظف بعينه حتى لو مش جزء من دوره الافتراضي
-// (مثال: دكتورة بعينها مسؤولة كمان عن رسائل الترحيب). أي مفتاح غير موجود هنا لازم
-// يكون أصلاً جزء من قائمة الدور، عشان محدش يقدر يمنح نفسه صلاحية حساسة عن طريق override.
 const EXPLICIT_OVERRIDABLE_PERMISSIONS = new Set([
   'customer_welcome_messages.view',
   'customer_welcome_messages.create',
@@ -167,12 +169,27 @@ function logAuthActivity(user: User, action: string, details: string) {
   supabase.from('activity_log').insert({ user_id: user.id, user_name: user.name, action, module: 'system', details, branch: user.branch }).then(() => {});
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+    promise.then(resolve).catch(reject).finally(() => window.clearTimeout(timeoutId));
+  });
+}
+
 async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
   if (!isSupabaseConfigured) return sanitizeUser(user);
-  const identifiers = [user.id, user.staffId, user.username].map((value) => safeText(value)).filter(Boolean);
-  for (const identifier of identifiers) {
+
+  const identifiers = Array.from(new Set(
+    [user.id, user.staffId, user.username].map((value) => safeText(value)).filter(Boolean)
+  ));
+
+  for (const identifier of identifiers.slice(0, 2)) {
     try {
-      const { data, error } = await supabase.rpc('resolve_staff_account_safe', { p_identifier: identifier });
+      const { data, error } = await withTimeout<SupabaseRpcResult<unknown>>(
+        supabase.rpc('resolve_staff_account_safe', { p_identifier: identifier }),
+        ACCOUNT_REFRESH_TIMEOUT_MS,
+        'resolve_staff_account_safe'
+      );
       if (error) continue;
       const rows = Array.isArray(data) ? data : data ? [data] : [];
       const row = rows.find((item: StaffAccountLoginRow) => safeText(item.id) === safeText(user.id)) || rows[0];
@@ -195,9 +212,28 @@ async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
       } as User);
     } catch (error) {
       if (import.meta.env.DEV) console.warn('[Dawaa auth] account refresh skipped', error);
+      break;
     }
   }
+
   return sanitizeUser(user);
+}
+
+function refreshCurrentStaffAccount(user: User): Promise<User | null> {
+  const now = Date.now();
+  if (now - lastAccountRefreshAt < ACCOUNT_REFRESH_TTL_MS) return Promise.resolve(sanitizeUser(user));
+  if (accountRefreshPromise) return accountRefreshPromise;
+
+  accountRefreshPromise = resolveCurrentStaffAccount(user)
+    .then((resolvedUser) => {
+      lastAccountRefreshAt = Date.now();
+      return resolvedUser;
+    })
+    .finally(() => {
+      accountRefreshPromise = null;
+    });
+
+  return accountRefreshPromise;
 }
 
 async function loginWithStaffAccount(username: string, password: string): Promise<User | null> {
@@ -206,7 +242,7 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   try {
     const result = await withTimeout<SupabaseRpcResult<unknown>>(
       supabase.rpc('staff_account_login', { p_username: username, p_password: password }),
-      10000,
+      7000,
       'staff_account_login'
     );
     data = result.data;
@@ -219,15 +255,29 @@ async function loginWithStaffAccount(username: string, password: string): Promis
     logRuntimeError('auth login rpc failed', error);
     return null;
   }
+
   const row = Array.isArray(data) ? (data[0] as StaffAccountLoginRow | undefined) : (data as StaffAccountLoginRow | null);
   if (!row?.id || row.active === false || row.can_login === false) return null;
-  try { await supabase.rpc('set_current_user_context', { p_user_id: row.id }); } catch {}
+
+  void withTimeout(
+    supabase.rpc('set_current_user_context', { p_user_id: row.id }),
+    2000,
+    'set_current_user_context'
+  ).catch(() => {});
+
   const roleKey = normalizeRole(safeText(row.role, 'assistant'));
   let effectivePermissions = capPermissionsToRole(roleKey, row.permissions || {});
   try {
-    const { data: permsData, error: permsError } = await supabase.rpc('get_user_permissions', { p_user_id: row.id });
+    const { data: permsData, error: permsError } = await withTimeout<SupabaseRpcResult<unknown>>(
+      supabase.rpc('get_user_permissions', { p_user_id: row.id }),
+      2500,
+      'get_user_permissions'
+    );
     if (!permsError && permsData) effectivePermissions = capPermissionsToRole(roleKey, permsData as Record<string, boolean>);
-  } catch {}
+  } catch (error) {
+    if (import.meta.env.DEV) console.warn('[Dawaa auth] permission refresh skipped', error);
+  }
+
   const resolvedName = isPlaceholderName(row.name)
     ? safeText(row.staff_name, safeText(row.username, 'حساب موظف'))
     : safeText(row.name);
@@ -244,16 +294,9 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   } as User);
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
-    promise.then(resolve).catch(reject).finally(() => window.clearTimeout(timeoutId));
-  });
-}
-
 export function useAuth() {
   const [user, setUser] = useState<User | null>(currentUser);
-  const [loading, setLoading] = useState(Boolean(currentUser));
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const listener = () => setUser(currentUser);
@@ -265,12 +308,22 @@ export function useAuth() {
   useEffect(() => {
     if (!currentUser) { setLoading(false); return; }
     let cancelled = false;
-    setLoading(true);
-    void resolveCurrentStaffAccount(currentUser)
+
+    const shouldBlockForRefresh = Date.now() - lastAccountRefreshAt >= ACCOUNT_REFRESH_TTL_MS;
+    setLoading(shouldBlockForRefresh);
+
+    void refreshCurrentStaffAccount(currentUser)
       .then((freshUser) => {
         if (cancelled) return;
         if (!freshUser) setCurrentUser(null);
-        else setCurrentUser(freshUser);
+        else if (
+          freshUser.id !== currentUser?.id ||
+          freshUser.role !== currentUser?.role ||
+          freshUser.branch !== currentUser?.branch ||
+          freshUser.name !== currentUser?.name
+        ) {
+          setCurrentUser(freshUser);
+        }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -289,14 +342,26 @@ export function useAuth() {
 
   const login = useCallback(async (username: string, password: string): Promise<boolean> => {
     const accountUser = await loginWithStaffAccount(username, password);
-    if (accountUser) { setCurrentUser(accountUser); logAuthActivity(accountUser, 'login', 'success'); return true; }
+    if (accountUser) {
+      lastAccountRefreshAt = Date.now();
+      setCurrentUser(accountUser);
+      logAuthActivity(accountUser, 'login', 'success');
+      return true;
+    }
     return false;
   }, []);
 
   const logout = useCallback(async () => {
     if (currentUser) logAuthActivity(currentUser, 'logout', 'success');
     setCurrentUser(null);
-    try { await supabase.rpc('set_current_user_context', { p_user_id: null }); } catch {}
+    lastAccountRefreshAt = 0;
+    try {
+      await withTimeout(
+        supabase.rpc('set_current_user_context', { p_user_id: null }),
+        2000,
+        'clear_current_user_context'
+      );
+    } catch {}
   }, []);
 
   const safeUser = useMemo(() => sanitizeUser(user), [user?.id, user?.role, user?.branch, user?.name, user?.username, user?.active, user?.phone, user?.staffId, JSON.stringify(user?.permissions || {})]);
@@ -323,7 +388,7 @@ export function getSafeCurrentUserId(): string | null {
 
 export function getCurrentUserProfile() {
   if (!currentUser) throw new Error('Login required');
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRegex.test(currentUser.id)) return { ...currentUser, id: '00000000-0000-0000-0000-000000000000' };
   return sanitizeUser(currentUser) || currentUser;
 }
