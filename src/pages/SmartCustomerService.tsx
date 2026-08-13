@@ -8,6 +8,7 @@ import CustomerFollowupOperationsCompletionPanel from '@/components/customerServ
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
 import CustomerFollowupOperationsHub from '@/components/customerService/CustomerFollowupOperationsHub';
 import CustomerFollowupRecordsAndPerformance from '@/components/customerService/CustomerFollowupRecordsAndPerformance';
+import CustomerDailyPriorityQueues from '@/components/customerService/CustomerDailyPriorityQueues';
 import ExceptionalFollowupCenter from '@/components/customerService/ExceptionalFollowupCenter';
 import QuickFollowupModal from '@/components/common/QuickFollowupModal';
 import ExceptionalFollowupModal from '@/components/customerService/ExceptionalFollowupModal';
@@ -51,11 +52,15 @@ export default function SmartCustomerService() {
   const hasSafeBranchScope = managerView || Boolean(normalizedUserBranch);
 
   useEffect(() => {
-    const openQuick = () => setQuickOpen(true);
+    const openQuick = (event: Event) => {
+      const detail = (event as CustomEvent<{ code?: string; name?: string; phone?: string }>).detail;
+      if (detail && (detail.code || detail.name || detail.phone)) {
+        setPendingCustomer({ code: detail.code || '', name: detail.name || '', phone: detail.phone || '' });
+      }
+      setQuickOpen(true);
+    };
     const params = new URLSearchParams(window.location.search);
     if (params.get('quickFollowup') === '1') {
-      // أولوية أولى: sessionStorage (مصدر موثوق ومتزامن جاي من صفحات زي "أداء
-      // العملاء الشهري")، وإلا نرجع لبارامترات الرابط نفسه كـ fallback.
       let customer: { code: string; name: string; phone: string } | null = null;
       try {
         const stored = sessionStorage.getItem('dawaa_pending_followup_customer');
@@ -67,7 +72,7 @@ export default function SmartCustomerService() {
           }
         }
       } catch {
-        // تجاهل أي خطأ قراءة — نكمل على بارامترات الرابط
+        // نكمل على بارامترات الرابط
       }
       if (!customer) {
         const code = params.get('code') || '';
@@ -107,7 +112,7 @@ export default function SmartCustomerService() {
 
     <main className="mx-auto max-w-[1800px] px-0 pb-8">
       {!hasSafeBranchScope && view !== 'reports' ? <MissingBranchGuard/> : null}
-      {hasSafeBranchScope && view === 'operations' ? <CustomerFollowupOperationsHub version={workspaceVersion}/> : null}
+      {hasSafeBranchScope && view === 'operations' ? <div className="space-y-4"><CustomerDailyPriorityQueues/><CustomerFollowupOperationsHub version={workspaceVersion}/></div> : null}
       {hasSafeBranchScope && view === 'waiting' ? <CustomerFollowupRecordsAndPerformance key={`waiting-${workspaceVersion}`} mode="waiting" /> : null}
       {hasSafeBranchScope && view === 'no_answer' ? <CustomerFollowupRecordsAndPerformance key={`no-answer-${workspaceVersion}`} mode="no_answer" /> : null}
       {hasSafeBranchScope && view === 'exceptional' ? <ExceptionalFollowupCenter key={`exceptional-${workspaceVersion}`} /> : null}
