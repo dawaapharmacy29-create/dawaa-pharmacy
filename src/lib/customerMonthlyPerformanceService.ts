@@ -17,6 +17,9 @@ export type CustomerMonthlyRow = {
   last_purchase_date: string | null;
   month_2_ago_sales: number;
   month_3_ago_sales: number;
+  expected_to_date_sales?: number;
+  projected_period_sales?: number;
+  period_progress_pct?: number;
 };
 
 export type MonthlyPerformanceSummary = {
@@ -32,16 +35,105 @@ export type MonthlyPerformanceSummary = {
   netCustomerGrowth: number; // جديد + مستعاد - مختفي
   totalSales: number;
   previousTotalSales: number;
-  revenueAtRisk: number; // مبيعات آخر فترة للعملاء اللي دلوقتي متراجعين بقوة أو مختفيين
-  needsAttention: CustomerMonthlyRow[]; // مهم/مهم جدًا + تراجع قوي/مختفي — الأولوية
-  improving: CustomerMonthlyRow[]; // مهم/مهم جدًا (أو أي حد) بينمو أو اترقّى — عشان نشكرهم ونستثمر فيهم
+  revenueAtRisk: number; // فجوة المبيعات الفعلية مقابل المتوقع حتى اليوم
+  needsAttention: CustomerMonthlyRow[];
+  improving: CustomerMonthlyRow[];
+  periodProgress: {
+    isPartial: boolean;
+    elapsedDays: number;
+    totalDays: number;
+    progressPct: number;
+  };
 };
 
 const GENERIC_CUSTOMER_NAMES = ['عميل الصيدلية', 'عميل نقدي', 'عميل عابر', 'كاش', 'عميل'];
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function isGenericCustomer(name: string | null): boolean {
   if (!name) return false;
   return GENERIC_CUSTOMER_NAMES.some((g) => name.trim() === g);
+}
+
+function parseDateOnly(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function localTodayDateOnly() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function periodProgress(periodStart: string, periodEnd: string) {
+  const start = parseDateOnly(periodStart);
+  const end = parseDateOnly(periodEnd);
+  const today = localTodayDateOnly();
+  const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / DAY_MS) + 1);
+
+  const isCurrentPartialPeriod = today >= start && today < end;
+  const effectiveEnd = today < start ? start : today > end ? end : today;
+  const elapsedDays = isCurrentPartialPeriod
+    ? Math.max(1, Math.round((effectiveEnd.getTime() - start.getTime()) / DAY_MS) + 1)
+    : totalDays;
+  const ratio = Math.min(1, Math.max(1 / totalDays, elapsedDays / totalDays));
+
+  return {
+    isPartial: isCurrentPartialPeriod,
+    elapsedDays,
+    totalDays,
+    ratio,
+    progressPct: Math.round(ratio * 1000) / 10,
+  };
+}
+
+function classifyProgressAwareRow(row: CustomerMonthlyRow, ratio: number, isPartial: boolean): CustomerMonthlyRow {
+  if (!isPartial) {
+    return {
+      ...row,
+      expected_to_date_sales: Number(row.previous_month_sales || 0),
+      projected_period_sales: Number(row.sales_amount || 0),
+      period_progress_pct: 100,
+    };
+  }
+
+  const current = Number(row.sales_amount || 0);
+  const previousFull = Number(row.previous_month_sales || 0);
+  const expectedToDate = previousFull * ratio;
+  const projected = ratio > 0 ? current / ratio : current;
+
+  // الجديد والمستعاد لهما معنى مستقل عن مقارنة سرعة الإنفاق، فلا نكسر تصنيفهما.
+  if (row.customer_state === 'جديد' || row.customer_state === 'مستعاد' || previousFull <= 0) {
+    return {
+      ...row,
+      expected_to_date_sales: expectedToDate,
+      projected_period_sales: projected,
+      period_progress_pct: Math.round(ratio * 1000) / 10,
+    };
+  }
+
+  const paceChangeAmount = current - expectedToDate;
+  const paceChangePct = expectedToDate > 0 ? (paceChangeAmount / expectedToDate) * 100 : null;
+
+  let customerState = row.customer_state;
+  if (current <= 0 && previousFull > 0) {
+    customerState = 'مختفي هذا الشهر';
+  } else if (paceChangePct !== null) {
+    if (paceChangePct <= -30) customerState = 'تراجع قوي';
+    else if (paceChangePct <= -10) customerState = 'تراجع';
+    else if (paceChangePct >= 30) customerState = 'نمو قوي';
+    else if (paceChangePct >= 10) customerState = 'نمو';
+    else customerState = 'مستقر';
+  }
+
+  return {
+    ...row,
+    sales_change_amount: paceChangeAmount,
+    sales_change_pct: paceChangePct === null ? null : Math.round(paceChangePct * 10) / 10,
+    customer_state: customerState,
+    expected_to_date_sales: expectedToDate,
+    projected_period_sales: projected,
+    period_progress_pct: Math.round(ratio * 1000) / 10,
+  };
 }
 
 export async function fetchMonthlyCustomerPerformance(
@@ -52,9 +144,6 @@ export async function fetchMonthlyCustomerPerformance(
   prevPeriodEnd: string,
   mode: 'cycle' | 'calendar' = 'cycle'
 ): Promise<MonthlyPerformanceSummary & { computedAt: string | null; fromCache: boolean }> {
-  // القراءة الأولى من الكاش اليومي (سريع جدًا، بيتحدّث كل يوم 3 الفجر) —
-  // fallback للحساب الحي بس لو الكاش لسه ما اتحسبش (أول مرة، أو يوم جديد لسه
-  // الـ cron ماشتغلش فيه).
   const cacheResult = await supabase
     .from('customer_monthly_performance_snapshots')
     .select('rows, computed_at')
@@ -83,12 +172,24 @@ export async function fetchMonthlyCustomerPerformance(
     rows = (data || []) as CustomerMonthlyRow[];
   }
 
+  const progress = periodProgress(periodStart, periodEnd);
+  // أهم تعديل: في الدورة/الشهر الجاري لا نقارن 15-20 يومًا بتوتال دورة سابقة كاملة.
+  // نحول السابقة إلى "المتوقع حتى نفس اليوم" ثم نقيس سرعة العميل بالنسبة لهذا المتوقع.
+  rows = rows.map((row) => classifyProgressAwareRow(row, progress.ratio, progress.isPartial));
+
   const count = (state: string) => rows.filter((r) => r.customer_state === state).length;
   const totalSales = rows.reduce((sum, r) => sum + (Number(r.sales_amount) || 0), 0);
-  const previousTotalSales = rows.reduce((sum, r) => sum + (Number(r.previous_month_sales) || 0), 0);
+  const previousTotalSales = rows.reduce(
+    (sum, r) => sum + (Number(r.expected_to_date_sales ?? r.previous_month_sales) || 0),
+    0
+  );
   const revenueAtRisk = rows
     .filter((r) => r.customer_state === 'تراجع قوي' || r.customer_state === 'مختفي هذا الشهر')
-    .reduce((sum, r) => sum + (Number(r.previous_month_sales) || 0), 0);
+    .reduce((sum, r) => {
+      const expected = Number(r.expected_to_date_sales ?? r.previous_month_sales) || 0;
+      const current = Number(r.sales_amount) || 0;
+      return sum + Math.max(0, expected - current);
+    }, 0);
 
   const importantSegments = ['مهم', 'مهم جدًا'];
   const needsAttention = rows
@@ -98,10 +199,12 @@ export async function fetchMonthlyCustomerPerformance(
         importantSegments.includes(r.previous_segment) &&
         (r.customer_state === 'تراجع قوي' || r.customer_state === 'مختفي هذا الشهر')
     )
-    .sort((a, b) => (Number(b.previous_month_sales) || 0) - (Number(a.previous_month_sales) || 0));
+    .sort((a, b) => {
+      const gapA = Math.max(0, Number(a.expected_to_date_sales || 0) - Number(a.sales_amount || 0));
+      const gapB = Math.max(0, Number(b.expected_to_date_sales || 0) - Number(b.sales_amount || 0));
+      return gapB - gapA;
+    });
 
-  // العملاء المتحسنين: نمو قوي/نمو/مستعاد — الأولوية لمن كان مهم أو مهم جدًا أصلًا
-  // أو بقى مهم/مهم جدًا دلوقتي (ترقّى لفئة أعلى)، عشان دول أصحاب أكبر أثر مالي فعلي.
   const growthStates = ['نمو قوي', 'نمو', 'مستعاد'];
   const importantNow = ['مهم', 'مهم جدًا'];
   const improving = rows
@@ -131,5 +234,11 @@ export async function fetchMonthlyCustomerPerformance(
     improving,
     computedAt,
     fromCache,
+    periodProgress: {
+      isPartial: progress.isPartial,
+      elapsedDays: progress.elapsedDays,
+      totalDays: progress.totalDays,
+      progressPct: progress.progressPct,
+    },
   };
 }
