@@ -84,15 +84,11 @@ export default function CustomerDailyPriorityQueues() {
     setLoading(true);
     setError('');
     try {
-      const start = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-
+      const saleDay = ymd(yesterday);
       let invoiceQuery = supabase
         .from('sales_invoices')
-        .select('customer_code,customer_name,customer_phone,branch,branch_name,invoice_no,invoice_number,invoice_date,net_amount,net_total,total_amount,amount')
-        .gte('invoice_date', start.toISOString())
-        .lt('invoice_date', end.toISOString());
+        .select('customer_code,customer_name,customer_phone,branch,branch_name,invoice_no,invoice_number,invoice_date,sale_date,net_amount,net_total,total_amount,amount')
+        .eq('sale_date', saleDay);
       if (!managerView && scopedBranch) invoiceQuery = invoiceQuery.eq('branch', scopedBranch);
       const { data: invoices, error: invoiceError } = await invoiceQuery;
       if (invoiceError) throw invoiceError;
