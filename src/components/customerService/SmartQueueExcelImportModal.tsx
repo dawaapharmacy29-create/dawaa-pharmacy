@@ -59,7 +59,7 @@ function col(headers: unknown[], aliases: string[]) {
   }
   return -1;
 }
-function queueCode(value: unknown) {
+export function queueCode(value: unknown) {
   const v = norm(value);
   if (v.includes('vip') || v.includes('اهم90') || v.includes('اهمعميل')) return 'vip_recent';
   if (v.includes('500')) return 'plus500';
@@ -68,7 +68,7 @@ function queueCode(value: unknown) {
   return text(value) || 'other';
 }
 
-function parseMatrix(matrix: unknown[][]): SmartQueueImportRow[] {
+export function parseMatrix(matrix: unknown[][]): SmartQueueImportRow[] {
   const headerIndex = matrix.findIndex((row) => row.map(norm).includes(norm('اسم العميل')) && row.map(norm).includes(norm('تمت المتابعة')));
   if (headerIndex < 0) throw new Error('لم يتم العثور على صف العناوين. استخدم ملف التصدير من التطبيق.');
   const headers = matrix[headerIndex] || [];
