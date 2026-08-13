@@ -24,6 +24,14 @@ export type SmartQueueImportRow = {
 };
 
 type ImportSummary = { total: number; imported: number; duplicates: number; skipped: number };
+const QUEUE_TYPE_LABELS: Record<string, string> = {
+  vip_recent: 'VIP',
+  plus500: '+500',
+  points: 'نقاط',
+  activity: 'ذكاء 3 فترات',
+  other: 'أخرى',
+};
+function queueTypeLabel(code: string) { return QUEUE_TYPE_LABELS[code] || code; }
 
 const text = (value: unknown) => String(value ?? '').trim();
 const norm = (value: unknown) => text(value).toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[\s_\-/—–]+/g, '');
@@ -56,7 +64,7 @@ function queueCode(value: unknown) {
   if (v.includes('vip') || v.includes('اهم90') || v.includes('اهمعميل')) return 'vip_recent';
   if (v.includes('500')) return 'plus500';
   if (v.includes('نقاط')) return 'points';
-  if (v.includes('نشاط') || v.includes('متراجع') || v.includes('متحسن')) return 'activity';
+  if (v.includes('خطرفقد') || v.includes('تراجع') || v.includes('نمو') || v.includes('مستقر') || v.includes('صاعد') || v.includes('نشاط') || v.includes('ذكاء')) return 'activity';
   return text(value) || 'other';
 }
 
@@ -124,6 +132,7 @@ export default function SmartQueueExcelImportModal({ open, onClose, onImported, 
     points: rows.filter((r) => r.queueType === 'points').length,
     vip: rows.filter((r) => r.queueType === 'vip_recent').length,
     plus500: rows.filter((r) => r.queueType === 'plus500').length,
+    intelligence: rows.filter((r) => r.queueType === 'activity').length,
   }), [rows]);
   if (!open) return null;
 
@@ -132,11 +141,18 @@ export default function SmartQueueExcelImportModal({ open, onClose, onImported, 
     try {
       const XLSX = await import('xlsx');
       const book = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
-      const preferred = book.SheetNames.find((name) => norm(name).includes(norm('المتابعة اليومية'))) || book.SheetNames[0];
-      const matrix = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[preferred], { header: 1, defval: '', raw: true });
-      const parsed = parseMatrix(matrix).map((row) => ({ ...row, branch: row.branch || (branch === 'كل الفروع' ? '' : branch) }));
+      const sheetMatrices = book.SheetNames.map((name) => ({
+        name,
+        matrix: XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, defval: '', raw: true }),
+      }));
+      // نقرأ أي شيت فيه أعمدة نتائج (اسم العميل + تمت المتابعة)، مش شيت واحد بس —
+      // عشان يشتغل مع شيت "المتابعة اليومية" و"ذكاء 3 فترات" في نفس الوقت.
+      const resultSheets = sheetMatrices.filter(({ matrix }) =>
+        matrix.some((row) => row.map(norm).includes(norm('اسم العميل')) && row.map(norm).includes(norm('تمت المتابعة'))));
+      if (!resultSheets.length) throw new Error('لم يتم العثور على أي شيت يحتوي على أعمدة النتائج. استخدم ملف التصدير من التطبيق دون حذف الأعمدة.');
+      const parsed = resultSheets.flatMap(({ matrix }) => parseMatrix(matrix).map((row) => ({ ...row, branch: row.branch || (branch === 'كل الفروع' ? '' : branch) })));
       setRows(parsed); setFileName(file.name);
-      toast.success(`تمت قراءة ${parsed.length} صف متابعة`);
+      toast.success(`تمت قراءة ${parsed.length} صف من ${resultSheets.length} شيت (${resultSheets.map((s) => s.name).join('، ')})`);
     } catch (error) {
       setRows([]); toast.error(`تعذر قراءة الملف: ${(error as Error).message}`);
     } finally { setLoading(false); }
@@ -149,7 +165,7 @@ export default function SmartQueueExcelImportModal({ open, onClose, onImported, 
     if (!window.confirm(`سيتم تسجيل نتائج ${rows.length} صف في سجل المتابعات. هل تريد المتابعة؟`)) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.rpc('import_customer_service_queue_results_v2', {
+      const { data, error } = await supabase.rpc('import_customer_service_queue_results_v3', {
         p_actor_id: user.id,
         p_branch: branch,
         p_file_name: fileName,
@@ -169,7 +185,7 @@ export default function SmartQueueExcelImportModal({ open, onClose, onImported, 
   return <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/75 p-4" dir="rtl">
     <div className="max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-3xl border border-cyan-300/15 bg-[#0d2038] p-5 shadow-2xl">
       <div className="flex items-start justify-between gap-3">
-        <div><h2 className="text-xl font-black text-white">استيراد نتائج القوائم الذكية</h2><p className="mt-1 text-sm font-bold text-slate-400">يدعم VIP آخر 90 يوم، +500، والنقاط. استخدم ملف التصدير نفسه بعد تسجيل النتيجة عليه.</p></div>
+        <div><h2 className="text-xl font-black text-white">استيراد نتائج القوائم الذكية</h2><p className="mt-1 text-sm font-bold text-slate-400">يدعم VIP آخر 90 يوم، +500، النقاط، وتحليل 3 فترات (تراجع/نمو/مستقر). استخدم ملف التصدير نفسه بعد تسجيل النتيجة عليه — النظام يقرأ كل الشيتات اللي فيها نتائج تلقائيًا.</p></div>
         <button type="button" onClick={onClose} className="rounded-xl border border-white/10 p-2 text-slate-300"><X size={18}/></button>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
@@ -180,12 +196,12 @@ export default function SmartQueueExcelImportModal({ open, onClose, onImported, 
         <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-slate-300"><FileSpreadsheet className="ml-2 inline" size={17}/>{fileName || 'لا يوجد ملف'}</div>
       </div>
       {!!rows.length && <>
-        <div className="my-4 grid grid-cols-2 gap-2 md:grid-cols-6">
-          {[['الإجمالي',counts.total],['تمت المتابعة',counts.followed],['تم الرد',counts.responded],['VIP',counts.vip],['+500',counts.plus500],['نقاط',counts.points]].map(([label,value]) => <div key={String(label)} className="rounded-xl border border-white/10 bg-white/5 p-3 text-center"><div className="text-[11px] font-bold text-slate-400">{label}</div><div className="mt-1 text-xl font-black text-white">{value}</div></div>)}
+        <div className="my-4 grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
+          {[['الإجمالي',counts.total],['تمت المتابعة',counts.followed],['تم الرد',counts.responded],['VIP',counts.vip],['+500',counts.plus500],['نقاط',counts.points],['ذكاء 3 فترات',counts.intelligence]].map(([label,value]) => <div key={String(label)} className="rounded-xl border border-white/10 bg-white/5 p-3 text-center"><div className="text-[11px] font-bold text-slate-400">{label}</div><div className="mt-1 text-xl font-black text-white">{value}</div></div>)}
         </div>
         <div className="max-h-[46vh] overflow-auto rounded-2xl border border-white/10">
           <table className="min-w-[1000px] w-full text-sm"><thead className="sticky top-0 bg-[#173252] text-slate-300"><tr>{['النوع','الفرع','العميل','الكود','تمت','رد','شراء','متابعة أخرى'].map((h) => <th key={h} className="p-3 text-right">{h}</th>)}</tr></thead>
-          <tbody>{rows.map((r) => <tr key={`${r.rowNumber}-${r.customerCode}`} className="border-t border-white/5 text-slate-200"><td className="p-3">{r.queueType}</td><td className="p-3">{r.branch || '—'}</td><td className="p-3 font-black text-white">{r.customerName}</td><td className="p-3">{r.customerCode}</td><td className="p-3">{r.followedUp?'نعم':'لا'}</td><td className="p-3">{r.responded?'نعم':'لا'}</td><td className="p-3">{r.purchaseAfterFollowup?'نعم':'لا'}</td><td className="p-3">{r.needsNextFollowup?r.nextFollowupDate || 'نعم':'لا'}</td></tr>)}</tbody></table>
+          <tbody>{rows.map((r) => <tr key={`${r.rowNumber}-${r.customerCode}`} className="border-t border-white/5 text-slate-200"><td className="p-3">{queueTypeLabel(r.queueType)}</td><td className="p-3">{r.branch || '—'}</td><td className="p-3 font-black text-white">{r.customerName}</td><td className="p-3">{r.customerCode}</td><td className="p-3">{r.followedUp?'نعم':'لا'}</td><td className="p-3">{r.responded?'نعم':'لا'}</td><td className="p-3">{r.purchaseAfterFollowup?'نعم':'لا'}</td><td className="p-3">{r.needsNextFollowup?r.nextFollowupDate || 'نعم':'لا'}</td></tr>)}</tbody></table>
         </div>
         <button type="button" disabled={loading} onClick={() => void importRows()} className="mt-4 w-full rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-50">اعتماد واستيراد النتائج</button>
       </>}
