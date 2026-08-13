@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { TrendingUp, TrendingDown, Users, UserPlus, UserCheck, UserX, AlertTriangle, RefreshCw, FileUp } from 'lucide-react';
+import { TrendingUp, TrendingDown, Users, UserPlus, UserCheck, UserX, AlertTriangle, RefreshCw, FileUp, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
@@ -11,6 +11,7 @@ import {
 } from '@/lib/customerMonthlyPerformanceService';
 import { BRANCHES } from '@/lib/constants';
 import { normalizeWatchlistRows, replaceCustomerWatchlist } from '@/lib/customerService/customerCohortIntelligenceService';
+import CustomerQuickDetailsModal from '@/components/customers/CustomerQuickDetailsModal';
 
 type PeriodMode = 'cycle' | 'calendar';
 
@@ -90,6 +91,7 @@ export default function CustomerMonthlyPerformance() {
   const [error, setError] = useState('');
   const [watchlistMessage, setWatchlistMessage] = useState('');
   const [uploadingWatchlist, setUploadingWatchlist] = useState(false);
+  const [detailsCustomer, setDetailsCustomer] = useState<CustomerMonthlyRow | null>(null);
 
   const period = useMemo(
     () => (mode === 'cycle' ? getPharmacyCycleRange(new Date(refDate)) : calendarMonthRange(new Date(refDate))),
@@ -333,7 +335,7 @@ export default function CustomerMonthlyPerformance() {
                         <th className="pb-2 font-bold">الشهر السابق</th>
                         <th className="pb-2 font-bold">الشهر الحالي</th>
                         <th className="pb-2 font-bold">الحالة</th>
-                        <th className="pb-2 font-bold"></th>
+                        <th className="pb-2 font-bold">إجراءات</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -353,13 +355,24 @@ export default function CustomerMonthlyPerformance() {
                           <td className="py-2 text-slate-300">{fmtMoney(c.sales_amount)}</td>
                           <td className="py-2"><span className={`text-xs font-black ${STATE_COLORS[c.customer_state] || 'text-slate-300'}`}>{c.customer_state}</span></td>
                           <td className="py-2">
-                            <button
-                              type="button"
-                              onClick={() => navigate(followupUrl(c))}
-                              className="rounded-lg bg-teal-500 px-3 py-1.5 text-xs font-black text-slate-950"
-                            >
-                              متابعة الآن
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setDetailsCustomer(c)}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-teal-400/30 bg-teal-500/10 text-teal-300 transition hover:bg-teal-500/20 hover:text-teal-200"
+                                aria-label={`عرض تفاصيل العميل ${c.customer_name || ''}`}
+                                title="عرض تفاصيل العميل"
+                              >
+                                <Eye size={16} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(followupUrl(c))}
+                                className="rounded-lg bg-teal-500 px-3 py-1.5 text-xs font-black text-slate-950"
+                              >
+                                متابعة الآن
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -397,9 +410,16 @@ export default function CustomerMonthlyPerformance() {
                       <span className={`text-sm font-black ${STATE_COLORS[c.customer_state] || 'text-slate-300'}`}>{c.customer_state}</span>
                       <button
                         type="button"
-                        onClick={() =>
-                          navigate(followupUrl(c))
-                        }
+                        onClick={() => setDetailsCustomer(c)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-400/30 bg-emerald-500/10 text-emerald-300 transition hover:bg-emerald-500/20 hover:text-emerald-200"
+                        aria-label={`عرض تفاصيل العميل ${c.customer_name || ''}`}
+                        title="عرض تفاصيل العميل"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate(followupUrl(c))}
                         className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-black text-slate-950"
                       >
                         اتصال شكر
@@ -412,6 +432,27 @@ export default function CustomerMonthlyPerformance() {
           </div>
           )}
         </>
+      )}
+
+      {detailsCustomer && (
+        <CustomerQuickDetailsModal
+          customerCode={detailsCustomer.customer_code}
+          customerPhone={detailsCustomer.phone}
+          customerName={detailsCustomer.customer_name}
+          branch={detailsCustomer.branch || (branch === ALL_BRANCHES_VALUE ? null : branch)}
+          fallbackMetric={{
+            invoices_count: detailsCustomer.invoice_count,
+            total_spent: detailsCustomer.sales_amount,
+            total_purchases: detailsCustomer.sales_amount,
+            avg_invoice: detailsCustomer.avg_invoice,
+            last_purchase: detailsCustomer.last_purchase_date,
+            segment: detailsCustomer.current_segment || detailsCustomer.previous_segment,
+            type: detailsCustomer.current_segment || detailsCustomer.previous_segment,
+            customer_status: detailsCustomer.customer_state,
+            status: detailsCustomer.customer_state,
+          }}
+          onClose={() => setDetailsCustomer(null)}
+        />
       )}
     </div>
   );
