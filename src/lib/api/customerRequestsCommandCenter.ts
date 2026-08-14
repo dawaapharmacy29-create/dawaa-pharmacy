@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 
-export type CustomerRequestQuickFilter = 'all' | 'today' | 'recent' | 'attention' | 'overdue' | 'urgent' | 'unassigned' | 'unlinked' | 'sync_review' | 'backlog';
+export type CustomerRequestQuickFilter = 'all' | 'today' | 'recent' | 'attention' | 'followup_due' | 'overdue' | 'urgent' | 'unassigned' | 'unlinked' | 'sync_review' | 'backlog';
 
 export interface CustomerRequestCommandSummary {
   total: number;
@@ -98,7 +98,12 @@ export async function getCustomerRequestsPage(options: CustomerRequestPageOption
     }
   }
 
-  let query = supabase.from('customer_requests').select('*', { count: 'exact' }).order('is_urgent', { ascending: false }).order('updated_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false, nullsFirst: false });
+  let query = supabase.from('customer_requests').select('*', { count: 'exact' });
+  if ((options.quickFilter || 'all') === 'followup_due') {
+    query = query.order('due_date', { ascending: true, nullsFirst: false }).order('is_urgent', { ascending: false });
+  } else {
+    query = query.order('is_urgent', { ascending: false }).order('updated_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false, nullsFirst: false });
+  }
 
   // Context filters are exact by design. They are used by deep-links from customer/product analytics
   // and must not degrade into a broad text search.
@@ -143,6 +148,7 @@ export async function getCustomerRequestsPage(options: CustomerRequestPageOption
   const quick = options.quickFilter || 'all';
   if (quick === 'today') query = query.gte('requested_at', startOfTodayIso());
   if (quick === 'recent') query = query.gte('requested_at', daysAgoIso(7));
+  if (quick === 'followup_due') query = query.not('status', 'in', `(${CLOSED.join(',')})`).not('due_date', 'is', null).lte('due_date', new Date().toISOString());
   if (quick === 'urgent') query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
   if (quick === 'unlinked') query = query.is('customer_id', null);
   if (quick === 'unassigned') query = query.is('purchasing_assignee', null).is('source_assigned_employee', null);
