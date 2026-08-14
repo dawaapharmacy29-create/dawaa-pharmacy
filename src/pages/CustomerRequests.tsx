@@ -30,7 +30,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
@@ -204,6 +204,7 @@ function progressValue(status?: string | null) {
 
 export default function CustomerRequests() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [requests, setRequests] = useState<CustomerRequest[]>([]);
   const [summary, setSummary] = useState<CustomerRequestCommandSummary>(EMPTY_SUMMARY);
   const [selected, setSelected] = useState<CustomerRequest | null>(null);
@@ -214,15 +215,18 @@ export default function CustomerRequests() {
   const [statusNote, setStatusNote] = useState('');
   const [newStatus, setNewStatus] = useState('');
   const [search, setSearch] = useState('');
-  const [branchFilter, setBranchFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [branchFilter, setBranchFilter] = useState(() => searchParams.get('branch') || 'all');
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'all');
   const [urgencyFilter, setUrgencyFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [channelFilter, setChannelFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [quickFilter, setQuickFilter] = useState<CustomerRequestQuickFilter>('attention');
+  const [quickFilter, setQuickFilter] = useState<CustomerRequestQuickFilter>(() => {
+    const value = searchParams.get('quick') as CustomerRequestQuickFilter | null;
+    return QUICK_FILTERS.some((item) => item.value === value) ? (value as CustomerRequestQuickFilter) : 'attention';
+  });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [totalRows, setTotalRows] = useState(0);
@@ -230,8 +234,19 @@ export default function CustomerRequests() {
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [showDetails, setShowDetails] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [workspaceTab, setWorkspaceTab] = useState<'overview' | 'requests' | 'followup' | 'analytics' | 'archive'>('overview');
+  const [workspaceTab, setWorkspaceTab] = useState<'overview' | 'requests' | 'followup' | 'analytics' | 'archive'>(() => {
+    const value = searchParams.get('workspace');
+    return ['overview', 'requests', 'followup', 'analytics', 'archive'].includes(String(value)) ? value as 'overview' | 'requests' | 'followup' | 'analytics' | 'archive' : 'overview';
+  });
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false); // ADMIN_CUSTOMER_REQUESTS_TABS_V1
+  const [contextRequestId, setContextRequestId] = useState(() => searchParams.get('requestId') || '');
+  const [contextCustomerId, setContextCustomerId] = useState(() => searchParams.get('customerId') || '');
+  const [contextCustomerCode, setContextCustomerCode] = useState(() => searchParams.get('customerCode') || '');
+  const [contextCustomerPhone, setContextCustomerPhone] = useState(() => searchParams.get('customerPhone') || '');
+  const [contextCustomerName, setContextCustomerName] = useState(() => searchParams.get('customerName') || '');
+  const [contextProductCode, setContextProductCode] = useState(() => searchParams.get('productCode') || '');
+  const [contextMedicineName, setContextMedicineName] = useState(() => searchParams.get('medicineName') || '');
+  const [registrarFilter, setRegistrarFilter] = useState(() => searchParams.get('registrar') || ''); // CUSTOMER_REQUEST_CONTEXT_ROUTING_V2
 
   const { data: staff } = useSupabaseQuery<StaffOption>({ table: 'staff', filters: isActiveStaffFilter(), realtimeEnabled: false });
   const doctors = useMemo(() => (staff || []).filter((item) => [item.name, item.role].filter(Boolean).some((value) => /د\/|دكتور|صيدلي|صيدلاني|doctor|pharmacist/i.test(String(value)))), [staff]);
@@ -242,7 +257,7 @@ export default function CustomerRequests() {
     try {
       const [summaryData, pageData] = await Promise.all([
         getCustomerRequestsCommandSummary(branchFilter),
-        getCustomerRequestsPage({ page, pageSize, status: statusFilter, branch: branchFilter, urgency: urgencyFilter, sourceSystem: sourceFilter, sourceChannel: channelFilter, assignee: assigneeFilter, dateFrom, dateTo, search, quickFilter }),
+        getCustomerRequestsPage({ page, pageSize, status: statusFilter, branch: branchFilter, urgency: urgencyFilter, sourceSystem: sourceFilter, sourceChannel: channelFilter, assignee: assigneeFilter, dateFrom, dateTo, search, quickFilter, requestId: contextRequestId, customerId: contextCustomerId, customerCode: contextCustomerCode, customerPhone: contextCustomerPhone, productCode: contextProductCode, medicineName: contextMedicineName, registrar: registrarFilter }),
       ]);
       setSummary(summaryData);
       setRequests(pageData.rows);
@@ -254,13 +269,13 @@ export default function CustomerRequests() {
     } finally {
       setLoading(false);
     }
-  }, [assigneeFilter, branchFilter, channelFilter, dateFrom, dateTo, page, pageSize, quickFilter, search, sourceFilter, statusFilter, urgencyFilter]);
+  }, [assigneeFilter, branchFilter, channelFilter, contextCustomerCode, contextCustomerId, contextCustomerPhone, contextMedicineName, contextProductCode, contextRequestId, dateFrom, dateTo, page, pageSize, quickFilter, registrarFilter, search, sourceFilter, statusFilter, urgencyFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), search ? 300 : 30);
     return () => window.clearTimeout(timer);
   }, [load, search]);
-  useEffect(() => setPage(1), [assigneeFilter, branchFilter, channelFilter, dateFrom, dateTo, quickFilter, search, sourceFilter, statusFilter, urgencyFilter]);
+  useEffect(() => setPage(1), [assigneeFilter, branchFilter, channelFilter, contextCustomerCode, contextCustomerId, contextCustomerPhone, contextMedicineName, contextProductCode, contextRequestId, dateFrom, dateTo, quickFilter, registrarFilter, search, sourceFilter, statusFilter, urgencyFilter]);
   useEffect(() => {
     if (!selected || !showDetails) return;
     setNewStatus(selected.status || 'new');
@@ -278,11 +293,58 @@ export default function CustomerRequests() {
     setShowDetails(true);
   };
 
-  const applyAnalyticsAction = (action: { quickFilter?: 'all' | 'overdue' | 'unassigned'; status?: string; assignee?: string; search?: string }) => {
+  const clearRequestContext = () => {
+    setContextRequestId('');
+    setContextCustomerId('');
+    setContextCustomerCode('');
+    setContextCustomerPhone('');
+    setContextCustomerName('');
+    setContextProductCode('');
+    setContextMedicineName('');
+    setRegistrarFilter('');
+  };
+
+  useEffect(() => {
+    if (!contextRequestId || !requests.length) return;
+    const request = requests.find((item) => item.id === contextRequestId);
+    if (request) openDetails(request);
+  }, [contextRequestId, requests]);
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (workspaceTab !== 'overview') next.set('workspace', workspaceTab);
+    if (branchFilter !== 'all') next.set('branch', branchFilter);
+    if (statusFilter !== 'all') next.set('status', statusFilter);
+    if (quickFilter !== 'attention') next.set('quick', quickFilter);
+    if (search) next.set('search', search);
+    if (assigneeFilter !== 'all') next.set('assignee', assigneeFilter);
+    if (registrarFilter) next.set('registrar', registrarFilter);
+    if (contextRequestId) next.set('requestId', contextRequestId);
+    if (contextCustomerId) next.set('customerId', contextCustomerId);
+    if (contextCustomerCode) next.set('customerCode', contextCustomerCode);
+    if (contextCustomerPhone) next.set('customerPhone', contextCustomerPhone);
+    if (contextCustomerName) next.set('customerName', contextCustomerName);
+    if (contextProductCode) next.set('productCode', contextProductCode);
+    if (contextMedicineName) next.set('medicineName', contextMedicineName);
+    setSearchParams(next, { replace: true });
+  }, [assigneeFilter, branchFilter, contextCustomerCode, contextCustomerId, contextCustomerName, contextCustomerPhone, contextMedicineName, contextProductCode, contextRequestId, quickFilter, registrarFilter, search, setSearchParams, statusFilter, workspaceTab]);
+
+  const applyAnalyticsAction = (action: { quickFilter?: 'all' | 'overdue' | 'unassigned'; status?: string; assignee?: string; search?: string; branch?: string; customerCode?: string; customerPhone?: string; customerName?: string; productCode?: string; medicineName?: string }) => {
+    const hasEntityContext = Boolean(action.customerCode || action.customerPhone || action.customerName || action.productCode || action.medicineName);
+    if (hasEntityContext) {
+      clearRequestContext();
+      setSearch('');
+      setContextCustomerCode(action.customerCode || '');
+      setContextCustomerPhone(action.customerPhone || '');
+      setContextCustomerName(action.customerName || '');
+      setContextProductCode(action.productCode || '');
+      setContextMedicineName(action.medicineName || '');
+    }
+    if (action.branch) setBranchFilter(action.branch);
     if (action.quickFilter) setQuickFilter(action.quickFilter);
     if (action.status) { setStatusFilter(action.status); setQuickFilter('all'); }
-    if (action.assignee) { setAssigneeFilter(action.assignee); setQuickFilter('all'); }
-    if (action.search) { setSearch(action.search); setQuickFilter('all'); }
+    if (action.assignee) { clearRequestContext(); setAssigneeFilter(action.assignee); setQuickFilter('all'); }
+    if (action.search) { clearRequestContext(); setSearch(action.search); setQuickFilter('all'); }
     setWorkspaceTab('requests');
     setPage(1);
     window.setTimeout(() => document.getElementById('customer-request-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
@@ -333,7 +395,7 @@ export default function CustomerRequests() {
   };
 
   const clearFilters = () => {
-    setSearch(''); setBranchFilter('all'); setStatusFilter('all'); setUrgencyFilter('all'); setSourceFilter('all'); setChannelFilter('all'); setAssigneeFilter('all'); setDateFrom(''); setDateTo(''); setQuickFilter('all'); setPage(1);
+    setSearch(''); setBranchFilter('all'); setStatusFilter('all'); setUrgencyFilter('all'); setSourceFilter('all'); setChannelFilter('all'); setAssigneeFilter('all'); setDateFrom(''); setDateTo(''); setQuickFilter('all'); clearRequestContext(); setPage(1);
   };
 
   const exportReport = async () => {
@@ -343,7 +405,7 @@ export default function CustomerRequests() {
       let exportPage = 1;
       let pages = 1;
       do {
-        const result = await getCustomerRequestsPage({ page: exportPage, pageSize: 100, status: statusFilter, branch: branchFilter, urgency: urgencyFilter, sourceSystem: sourceFilter, sourceChannel: channelFilter, assignee: assigneeFilter, dateFrom, dateTo, search, quickFilter });
+        const result = await getCustomerRequestsPage({ page: exportPage, pageSize: 100, status: statusFilter, branch: branchFilter, urgency: urgencyFilter, sourceSystem: sourceFilter, sourceChannel: channelFilter, assignee: assigneeFilter, dateFrom, dateTo, search, quickFilter, requestId: contextRequestId, customerId: contextCustomerId, customerCode: contextCustomerCode, customerPhone: contextCustomerPhone, productCode: contextProductCode, medicineName: contextMedicineName, registrar: registrarFilter });
         all.push(...result.rows); pages = result.pages; exportPage += 1;
       } while (exportPage <= pages);
       await exportToExcel(all.map((request, index) => ({
@@ -408,6 +470,23 @@ export default function CustomerRequests() {
             />
           )}
 
+          {(contextCustomerCode || contextCustomerPhone || contextCustomerName || contextProductCode || contextMedicineName || registrarFilter || contextRequestId) && (
+            <div className="rounded-2xl border border-cyan-400/25 bg-cyan-500/[0.08] p-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="text-xs font-black text-cyan-200">عرض مرتبط بالسياق — الفلتر دقيق وليس بحثًا عامًا</div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold">
+                    {(contextCustomerName || contextCustomerCode || contextCustomerPhone) && <span className="rounded-lg bg-slate-900/80 px-2.5 py-1.5 text-white">العميل: {contextCustomerName || '—'}{contextCustomerCode ? ` · كود ${contextCustomerCode}` : ''}{contextCustomerPhone ? ` · ${contextCustomerPhone}` : ''}</span>}
+                    {(contextMedicineName || contextProductCode) && <span className="rounded-lg bg-slate-900/80 px-2.5 py-1.5 text-white">الصنف: {contextMedicineName || '—'}{contextProductCode ? ` · كود ${contextProductCode}` : ''}</span>}
+                    {registrarFilter && <span className="rounded-lg bg-slate-900/80 px-2.5 py-1.5 text-white">مسجل الطلبات: {registrarFilter}</span>}
+                    {branchFilter !== 'all' && <span className="rounded-lg bg-slate-900/80 px-2.5 py-1.5 text-white">الفرع: {branchFilter}</span>}
+                  </div>
+                </div>
+                <button type="button" onClick={() => { clearRequestContext(); setSearch(''); setQuickFilter('all'); setStatusFilter('all'); setPage(1); }} className="h-9 shrink-0 rounded-xl border border-cyan-400/25 bg-slate-950 px-3 text-xs font-black text-cyan-100 hover:bg-slate-900">إلغاء سياق العميل/الصنف</button>
+              </div>
+            </div>
+          )}
+
           <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-3">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
               <div className="relative flex-1">
@@ -422,7 +501,7 @@ export default function CustomerRequests() {
               <button type="button" className={`h-10 rounded-xl border px-4 text-sm font-bold transition ${showAdvancedFilters ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-200' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600'}`} onClick={() => setShowAdvancedFilters((value) => !value)}>
                 {showAdvancedFilters ? 'إخفاء الفلاتر' : 'فلاتر متقدمة'}
               </button>
-              {(search || branchFilter !== 'all' || statusFilter !== 'all' || urgencyFilter !== 'all' || sourceFilter !== 'all' || channelFilter !== 'all' || assigneeFilter !== 'all' || dateFrom || dateTo) && (
+              {(search || branchFilter !== 'all' || statusFilter !== 'all' || urgencyFilter !== 'all' || sourceFilter !== 'all' || channelFilter !== 'all' || assigneeFilter !== 'all' || registrarFilter || contextCustomerCode || contextCustomerPhone || contextProductCode || contextMedicineName || contextRequestId || dateFrom || dateTo) && (
                 <button type="button" className="h-10 rounded-xl border border-slate-700 px-3 text-xs font-bold text-slate-400 hover:text-white" onClick={clearFilters}>مسح</button>
               )}
             </div>
