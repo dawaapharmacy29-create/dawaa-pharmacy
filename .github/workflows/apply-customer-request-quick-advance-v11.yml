@@ -1,0 +1,35 @@
+name: Apply customer request quick advance V11
+
+on:
+  push:
+    branches:
+      - agent/customer-request-quick-advance-v11
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[quick-advance-v11-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/customer-request-quick-advance-v11
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply quick advance table transformation
+        run: node scripts/apply-customer-request-quick-advance-v11.cjs
+      - name: Commit generated change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/CustomerRequests.tsx
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "توحيد الانتقال السريع في الكروت والجدول [quick-advance-v11-applied]"
+          git push origin HEAD:agent/customer-request-quick-advance-v11
