@@ -70,6 +70,10 @@ function isUrgent(request: RequestWithProduct) {
   return Boolean(request.is_urgent) || ['urgent', 'high', 'critical', 'عاجل', 'مهم'].includes(urgency);
 }
 
+function customerKey(request: RequestWithProduct) {
+  return String(request.customer_id || request.customer_code || request.customer_phone || '').trim();
+}
+
 async function loadCanonicalProducts(requests: RequestWithProduct[]) {
   const byCode = new Map<string, CanonicalProduct>();
   const byName = new Map<string, CanonicalProduct[]>();
@@ -123,6 +127,8 @@ export async function getWarehouseShortageSnapshot(branch = 'all', limit = 3000)
   const { byCode, byName } = await loadCanonicalProducts(requests);
 
   const groups = new Map<string, WarehouseShortageGroup>();
+  const customerKeysByGroup = new Map<string, Set<string>>();
+
   for (const request of requests) {
     const requestCode = normalizeProductCode(request.product_code);
     const normalizedRequestName = normalizeProductName(request.medicine_name);
@@ -167,17 +173,18 @@ export async function getWarehouseShortageSnapshot(branch = 'all', limit = 3000)
     if (!current.latestRequestAt || (created && dateValue(created) > dateValue(current.latestRequestAt))) current.latestRequestAt = created;
     if (request.needed_by_date && (!current.neededByDate || dateValue(request.needed_by_date) < dateValue(current.neededByDate))) current.neededByDate = request.needed_by_date;
 
+    const cKey = customerKey(request);
+    if (cKey) {
+      const set = customerKeysByGroup.get(key) || new Set<string>();
+      set.add(cKey);
+      customerKeysByGroup.set(key, set);
+    }
+
     groups.set(key, current);
   }
 
-  // عدد العملاء يحتاج مجموعة مستقلة لأن بعض الطلبات قد تكون لنفس العميل.
   for (const group of groups.values()) {
-    const matching = requests.filter((request) => {
-      const requestCode = normalizeProductCode(request.product_code);
-      if (group.productCode && requestCode) return requestCode === group.productCode;
-      return !group.productCode && normalizeProductName(request.medicine_name) === normalizeProductName(group.canonicalName);
-    });
-    group.customerCount = new Set(matching.map((request) => request.customer_id || request.customer_code || request.customer_phone).filter(Boolean)).size;
+    group.customerCount = customerKeysByGroup.get(group.key)?.size || 0;
   }
 
   const sorted = [...groups.values()].sort((a, b) =>
@@ -197,19 +204,6 @@ export async function getWarehouseShortageSnapshot(branch = 'all', limit = 3000)
     generatedAt: new Date().toISOString(),
     branch,
   };
-}
-
-function statusArabic(status: string) {
-  const labels: Record<string, string> = {
-    new: 'طلب جديد',
-    purchasing_review: 'مراجعة المشتريات',
-    searching_suppliers: 'جاري البحث',
-    needs_customer_confirmation: 'يحتاج تأكيد العميل',
-    customer_confirmed: 'العميل أكد',
-    sourcing: 'جاري التوفير',
-    not_available: 'غير متوفر حاليًا',
-  };
-  return labels[status] || status;
 }
 
 function formatDate(value: string | null) {
