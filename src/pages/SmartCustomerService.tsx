@@ -210,10 +210,10 @@ export default function SmartCustomerService() {
           })}
         </nav>
 
-        {section === 'today' ? <SecondaryNav items={todayViews} value={todayView} onChange={setTodayView} label="مهام اليوم"/> : null}
-        {section === 'followups' ? <SecondaryNav items={followupViews} value={followupView} onChange={setFollowupView} tone="amber" label="حالات المتابعة"/> : null}
-        {section === 'tools' ? <SecondaryNav items={toolsViews} value={toolsView} onChange={setToolsView} tone="violet" label="أدوات خدمة العملاء"/> : null}
-        {section === 'reports' ? <SecondaryNav items={reportsViews} value={reportsView} onChange={setReportsView} label="التقارير والنقاط"/> : null}
+        {section === 'today' ? <SecondaryNav items={todayViews} value={todayView} onChange={(value) => setTodayView(value as TodayView)} label="مهام اليوم"/> : null}
+        {section === 'followups' ? <SecondaryNav items={followupViews} value={followupView} onChange={(value) => setFollowupView(value as FollowupView)} tone="amber" label="حالات المتابعة"/> : null}
+        {section === 'tools' ? <SecondaryNav items={toolsViews} value={toolsView} onChange={(value) => setToolsView(value as ToolsView)} tone="violet" label="أدوات خدمة العملاء"/> : null}
+        {section === 'reports' ? <SecondaryNav items={reportsViews} value={reportsView} onChange={(value) => setReportsView(value as ReportsView)} label="التقارير والنقاط"/> : null}
       </div>
     </section>
 
