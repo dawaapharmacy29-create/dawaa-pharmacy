@@ -1,0 +1,19 @@
+name: Verify Customer Request Smart Quality Priority V6
+
+on:
+  push:
+    branches:
+      - agent/customer-request-smart-quality-priority-v6
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
