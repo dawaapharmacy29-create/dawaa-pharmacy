@@ -1,0 +1,10 @@
+const fs = require('fs');
+const file = 'src/lib/customerService/customerServiceExcelWorkbook.ts';
+let src = fs.readFileSync(file, 'utf8');
+const start = src.indexOf('function addDashboardLiveMetrics');
+const end = src.indexOf('\nfunction addSheet(', start);
+if (start < 0 || end < 0) throw new Error('dashboard block not found');
+const before = src.slice(0, start);
+const block = src.slice(start, end).replace(/\\\"/g, '"');
+const after = src.slice(end);
+fs.writeFileSync(file, before + block + after);
