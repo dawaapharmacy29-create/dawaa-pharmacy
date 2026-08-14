@@ -1,11 +1,17 @@
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
+import { normalizeProductCode, normalizeProductName, rankProductCandidates } from '@/lib/productMatching';
 
 export type CatalogProduct = {
   id?: string;
   code: string;
   name: string;
   price: number | null;
+};
+
+export type SmartCatalogProduct = CatalogProduct & {
+  matchScore: number;
+  matchLabel: string;
 };
 
 export type CatalogSummary = {
@@ -15,9 +21,7 @@ export type CatalogSummary = {
 };
 
 function normalizeCode(value: unknown) {
-  const raw = String(value ?? '').trim();
-  if (!raw) return '';
-  return raw.replace(/\.0$/, '').toUpperCase();
+  return normalizeProductCode(value);
 }
 
 function normalizeName(value: unknown) {
@@ -99,7 +103,7 @@ export async function parseProductsCatalogFile(file: File): Promise<CatalogProdu
     const price = numeric(row?.[layout.price]);
     if (!code || !name || !meaningfulName(name)) continue;
     if (/^(الكود|كود|كود الصنف|product code|item code|code|عدد الأصناف|الإجمالى|الاجمالي)$/i.test(code)) continue;
-    if (/^(الإسم|الاسم|اسم الصنف|الصنف|اسم الدواء|product name|item name)$/i.test(name)) continue;
+    if (/^(الإسم|الاسم|اسم الصنف|الصنف|اسم الدواء|product name|item name|name)$/i.test(name)) continue;
     unique.set(code, { code, name, price });
   }
 
@@ -133,6 +137,40 @@ export async function searchProductsCatalog(query: string, limit = 20) {
   return ((data || []) as Array<{ id: string; product_code: string; name: string; price: number | null }>).map(
     (row) => ({ id: row.id, code: row.product_code, name: row.name, price: row.price })
   );
+}
+
+export async function searchProductsCatalogSmart(query: string, limit = 20): Promise<SmartCatalogProduct[]> {
+  const raw = query.trim();
+  if (!raw) return [];
+
+  const candidateMap = new Map<string, CatalogProduct>();
+  const add = (products: CatalogProduct[]) => {
+    for (const product of products) {
+      const key = product.id || normalizeCode(product.code) || `${normalizeProductName(product.name)}:${product.price ?? ''}`;
+      if (!candidateMap.has(key)) candidateMap.set(key, product);
+    }
+  };
+
+  add(await searchProductsCatalog(raw, 40));
+
+  const normalized = normalizeProductName(raw);
+  const tokens = normalized.split(' ').filter((token) => token.length >= 3 && !/^\d+$/.test(token));
+  for (const token of tokens.slice(0, 3)) {
+    if (candidateMap.size >= 50) break;
+    try {
+      add(await searchProductsCatalog(token, 30));
+    } catch {
+      // البحث الأساسي نجح؛ فشل توسيع Token واحد لا يمنع النتائج.
+    }
+  }
+
+  const codeLike = /^[A-Za-z0-9._\-/]+$/.test(raw) && /\d/.test(raw) ? raw : '';
+  const ranked = rankProductCandidates({ name: raw, code: codeLike }, [...candidateMap.values()]);
+  return ranked.slice(0, Math.max(1, limit)).map(({ product, score, label }) => ({
+    ...product,
+    matchScore: score,
+    matchLabel: label,
+  }));
 }
 
 export async function createProductCatalogItem(input: { code: string; name: string; price?: number | null }) {

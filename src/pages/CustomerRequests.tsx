@@ -41,6 +41,8 @@ import CustomerSmartSearch, { type CustomerSearchResult } from '@/components/Cus
 import ProductSmartSearch from '@/components/ProductSmartSearch';
 import CustomerRequestInsightsPanel from '@/components/customer-requests/CustomerRequestInsightsPanel';
 import CustomerRequestQualityCenter from '@/components/customer-requests/CustomerRequestQualityCenter'; // CUSTOMER_REQUEST_QUALITY_CENTER_V4
+import CustomerRequestWarehousePanel from '@/components/customer-requests/CustomerRequestWarehousePanel';
+import CustomerRequestCriticalToday from '@/components/customer-requests/CustomerRequestCriticalToday'; // CUSTOMER_REQUEST_PRODUCT_MATCHING_WAREHOUSE_V7
 import CustomerRequestDataQualityPanel from '@/components/customer-requests/CustomerRequestDataQualityPanel'; // CUSTOMER_REQUEST_DATA_QUALITY_V3
 import {
   createCustomerRequest,
@@ -447,7 +449,10 @@ export default function CustomerRequests() {
         if (tab === 'archive') { setQuickFilter('all'); setStatusFilter('delivered'); }
       }} summary={summary} />
 
-      {workspaceTab === 'overview' && <CustomerRequestsOverview summary={summary} onOpenQueue={(filter) => { setWorkspaceTab('requests'); setQuickFilter(filter); setStatusFilter('all'); }} />}
+      {workspaceTab === 'overview' && <>
+        <CustomerRequestsOverview summary={summary} onOpenQueue={(filter) => { setWorkspaceTab('requests'); setQuickFilter(filter); setStatusFilter('all'); }} />
+        <CustomerRequestCriticalToday branch={branchFilter} onOpenRequest={(request) => openDetails(request)} />
+      </>}
       {workspaceTab === 'analytics' && <CustomerRequestInsightsPanel branch={branchFilter} onAction={applyAnalyticsAction} />}
       {workspaceTab === 'quality' && <CustomerRequestQualityCenter branch={branchFilter} onOpenRequest={(request) => openDetails(request)} />}
 
@@ -457,13 +462,14 @@ export default function CustomerRequests() {
         <div className="space-y-4">
           {workspaceTab === 'requests' && <QuickQueues value={quickFilter} onChange={setQuickFilter} summary={summary} />}
 
-          {workspaceTab === 'followup' && (
+          {workspaceTab === 'followup' && <>
             <CustomerRequestsStageTabs
               value={statusFilter}
               onChange={(status) => { setQuickFilter('all'); setStatusFilter(status); setPage(1); }}
               items={[['searching_suppliers', 'جاري البحث'], ['sourcing', 'جاري التوفير'], ['available', 'تم التوفير'], ['customer_contacted', 'تم التواصل']]}
             />
-          )}
+            <CustomerRequestWarehousePanel branch={branchFilter} />
+          </>}
 
           {workspaceTab === 'archive' && (
             <CustomerRequestsStageTabs
@@ -569,7 +575,7 @@ function CustomerRequestsWorkspaceTabs({ value, onChange, summary }: { value: Cu
   const tabs: Array<{ id: CustomerRequestsWorkspaceTab; label: string; hint: string; badge?: number }> = [
     { id: 'overview', label: 'لوحة اليوم', hint: 'المهم الآن', badge: summary.open },
     { id: 'requests', label: 'الطلبات', hint: 'التنفيذ اليومي', badge: summary.today },
-    { id: 'followup', label: 'المتابعة', hint: 'التوفير والتواصل', badge: summary.searching + summary.waiting_customer + summary.ready },
+    { id: 'followup', label: 'المتابعة', hint: 'التوفير + ملف المخازن', badge: summary.searching + summary.waiting_customer + summary.ready },
     { id: 'analytics', label: 'التحليلات', hint: 'الأداء والفروع' },
     { id: 'quality', label: 'مشاكل البيانات', hint: 'الأكواد والربط', badge: summary.unlinked_customer + summary.no_branch + summary.invalid_phone + summary.sync_conflicts },
     { id: 'archive', label: 'الأرشيف', hint: 'المكتمل والملغي', badge: summary.delivered + summary.cancelled },
@@ -628,7 +634,7 @@ function QuickQueues({ value, onChange, summary }: { value: CustomerRequestQuick
 }
 
 function Filters(props: { search: string; setSearch: (v: string) => void; branch: string; setBranch: (v: string) => void; status: string; setStatus: (v: string) => void; urgency: string; setUrgency: (v: string) => void; source: string; setSource: (v: string) => void; channel: string; setChannel: (v: string) => void; assignee: string; setAssignee: (v: string) => void; assignees: string[]; dateFrom: string; setDateFrom: (v: string) => void; dateTo: string; setDateTo: (v: string) => void; onClear: () => void }) {
-  return <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg"><div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7"><div className="relative md:col-span-2 xl:col-span-2"><Search size={16} className="absolute left-3 top-3.5 text-slate-400" /><input className="input-dark pl-9" placeholder="عميل، كود، هاتف، صنف أو كود صنف..." value={props.search} onChange={(e) => props.setSearch(e.target.value)} /></div><select className="input-dark" value={props.branch} onChange={(e) => props.setBranch(e.target.value)}><option value="all">كل الفروع</option><option value="فرع شكري">فرع شكري</option><option value="فرع الشامي">فرع الشامي</option></select><select className="input-dark" value={props.status} onChange={(e) => props.setStatus(e.target.value)}><option value="all">كل الحالات</option>{REQUEST_STATUS_FLOW.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><select className="input-dark" value={props.urgency} onChange={(e) => props.setUrgency(e.target.value)}><option value="all">كل الأولويات</option><option value="urgent">عاجل/مهم</option><option value="normal">عادي</option></select><select className="input-dark" value={props.source} onChange={(e) => props.setSource(e.target.value)}><option value="all">كل المصادر</option><option value="dawaawael">dawaawael</option><option value="manual">تسجيل الإدارة</option></select><select className="input-dark" value={props.channel} onChange={(e) => props.setChannel(e.target.value)}><option value="all">كل القنوات</option><option value="واتساب">واتساب</option><option value="داخل الصيدلية">داخل الصيدلية</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select><select className="input-dark xl:col-span-2" value={props.assignee} onChange={(e) => props.setAssignee(e.target.value)}><option value="all">كل المسئولين</option><option value="unassigned">بدون مسئول</option>{props.assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select><label className="text-xs font-bold text-slate-400">من تاريخ<input type="date" className="input-dark mt-1" value={props.dateFrom} onChange={(e) => props.setDateFrom(e.target.value)} /></label><label className="text-xs font-bold text-slate-400">إلى تاريخ<input type="date" className="input-dark mt-1" value={props.dateTo} onChange={(e) => props.setDateTo(e.target.value)} /></label><button type="button" className="btn-secondary flex items-center justify-center gap-2 self-end" onClick={props.onClear}><XCircle size={16} /> مسح الفلاتر</button></div></section>;
+  return <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg"><div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7"><div className="relative md:col-span-2 xl:col-span-2"><Search size={16} className="absolute left-3 top-3.5 text-slate-400" /><input className="input-dark pl-9" placeholder="عميل، كود، هاتف، صنف أو كود صنف..." value={props.search} onChange={(e) => props.setSearch(e.target.value)} /></div><select className="input-dark" value={props.branch} onChange={(e) => props.setBranch(e.target.value)}><option value="all">كل الفروع</option><option value="دواء شكري">دواء شكري</option><option value="دواء الشامي">دواء الشامي</option></select><select className="input-dark" value={props.status} onChange={(e) => props.setStatus(e.target.value)}><option value="all">كل الحالات</option>{REQUEST_STATUS_FLOW.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><select className="input-dark" value={props.urgency} onChange={(e) => props.setUrgency(e.target.value)}><option value="all">كل الأولويات</option><option value="urgent">عاجل/مهم</option><option value="normal">عادي</option></select><select className="input-dark" value={props.source} onChange={(e) => props.setSource(e.target.value)}><option value="all">كل المصادر</option><option value="dawaawael">dawaawael</option><option value="manual">تسجيل الإدارة</option></select><select className="input-dark" value={props.channel} onChange={(e) => props.setChannel(e.target.value)}><option value="all">كل القنوات</option><option value="واتساب">واتساب</option><option value="داخل الصيدلية">داخل الصيدلية</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select><select className="input-dark xl:col-span-2" value={props.assignee} onChange={(e) => props.setAssignee(e.target.value)}><option value="all">كل المسئولين</option><option value="unassigned">بدون مسئول</option>{props.assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select><label className="text-xs font-bold text-slate-400">من تاريخ<input type="date" className="input-dark mt-1" value={props.dateFrom} onChange={(e) => props.setDateFrom(e.target.value)} /></label><label className="text-xs font-bold text-slate-400">إلى تاريخ<input type="date" className="input-dark mt-1" value={props.dateTo} onChange={(e) => props.setDateTo(e.target.value)} /></label><button type="button" className="btn-secondary flex items-center justify-center gap-2 self-end" onClick={props.onClear}><XCircle size={16} /> مسح الفلاتر</button></div></section>;
 }
 
 function RequestCard({ request, onSelect }: { request: RequestWithProduct; onSelect: () => void }) {
