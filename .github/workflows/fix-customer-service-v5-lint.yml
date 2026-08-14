@@ -1,0 +1,37 @@
+name: Fix Customer Service V5 Lint
+
+on:
+  push:
+    branches:
+      - feat/customer-service-v5-doctor-daily-command
+    paths:
+      - '.github/workflows/fix-customer-service-v5-lint.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/customer-service-v5-doctor-daily-command
+      - name: Remove redundant boolean casts
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/components/customerService/CustomerServiceDoctorWorkbookCenter.tsx')
+          text = path.read_text(encoding='utf-8')
+          updated = text.replace('!!readyRows.length ? (', 'readyRows.length > 0 ? (')
+          if updated == text:
+              raise SystemExit('Expected boolean cast pattern not found')
+          path.write_text(updated, encoding='utf-8')
+          PY
+      - name: Commit repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/customerService/CustomerServiceDoctorWorkbookCenter.tsx
+          git commit -m "Fix V5 semantic lint"
+          git push origin HEAD:feat/customer-service-v5-doctor-daily-command
