@@ -20,6 +20,7 @@ import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { supabase } from '@/lib/supabase';
 import SmartQueueExcelImportModal from '@/components/customerService/SmartQueueExcelImportModal';
+import { downloadCustomerServiceWorkbook, type CustomerServiceExcelColumn } from '@/lib/customerService/customerServiceExcelWorkbook';
 
 type QueueType = 'vip_recent' | 'plus500' | 'points';
 type InvoiceValue = { invoiceNumber?: string; value: number };
@@ -316,7 +317,6 @@ export default function CustomerDailyPriorityQueues() {
 
   async function exportExcel() {
     try {
-      const XLSX = await import('xlsx');
       const resultColumns = {
         'تمت المتابعة': '',
         'تم الرد': '',
@@ -327,109 +327,114 @@ export default function CustomerDailyPriorityQueues() {
         'موعد المتابعة القادمة': '',
         'ملاحظات': '',
       };
-      const dailyRows = [...vipDaily, ...largeInvoices, ...pointsDaily].map((c) => ({
+      const taskPriority = (customer: QueueCustomer) => {
+        if (['خطر فقد', 'تراجع قوي', 'تراجع'].includes(customer.trendState || '')) return 900;
+        if (customer.queueType === 'plus500') return 700;
+        if (customer.queueType === 'vip_recent') return 500;
+        return 300;
+      };
+      const reasonFor = (customer: QueueCustomer) => {
+        if (['خطر فقد', 'تراجع قوي', 'تراجع'].includes(customer.trendState || '')) return 'استرجاع عميل انخفض نشاطه';
+        if (customer.queueType === 'plus500') return 'متابعة رضا العميل بعد فاتورة كبيرة وفرصة إعادة الشراء';
+        if (customer.queueType === 'points') return 'إبلاغ العميل برصيد النقاط وتشجيع استخدامه';
+        return 'الحفاظ على علاقة أهم العملاء ومعرفة أي احتياج جديد';
+      };
+      const allTasks = [...vipDaily, ...largeInvoices, ...pointsDaily]
+        .sort((a, b) => taskPriority(b) - taskPriority(a));
+      const dailyRows = allTasks.map((c, index) => ({
+        'ترتيب التنفيذ': index + 1,
         'نوع القائمة': c.queueType === 'vip_recent' ? 'VIP آخر 3 شهور' : c.queueType === 'plus500' ? '+500' : 'نقاط',
         'الفرع': c.branch,
         'اسم العميل': c.name,
         'كود العميل': c.code,
         'الهاتف': c.phone,
+        'سبب التواصل': reasonFor(c),
         'حالة الاتجاه': c.trendState || '',
-        'الفترة الحالية': c.currentSales ?? '',
-        'الفترة السابقة': c.previousSales ?? '',
-        'الفترة قبل السابقة': c.priorSales ?? '',
-        'التغير عن المعتاد %': c.changeVsBaselinePct ?? '',
         'قيمة الفاتورة': c.queueType === 'plus500' ? Number(c.value || 0) : '',
-        'عدد الفواتير': c.invoiceCount || '',
         'رصيد النقاط': c.queueType === 'points' ? Number(c.pointsBalance || 0) : '',
-        'مبيعات آخر 3 شهور': c.queueType === 'vip_recent' ? Number(c.recentSales || 0) : '',
-        'ترتيب أهم 50': c.rank || '',
         ...resultColumns,
       }));
 
       const topSheetRows = (branch: string) => top50.filter((r) => r.branch === branch).map((r) => {
         const signal = intelligence.find((item) => item.branch === branch && item.customer_code === r.customer_code);
         return {
-          'الترتيب': r.customer_rank,
-          'اسم العميل': r.customer_name || '',
-          'كود العميل': r.customer_code,
-          'الهاتف': r.customer_phone || '',
-          'مبيعات آخر 3 شهور': Number(r.recent_sales || 0),
-          'الفترة الحالية': Number(signal?.current_period_sales || 0),
-          'الفترة السابقة': Number(signal?.previous_period_sales || 0),
-          'الفترة قبل السابقة': Number(signal?.prior_period_sales || 0),
-          'حالة الاتجاه': signal?.trend_state || '',
-          'التغير عن المعتاد %': signal?.change_vs_baseline_pct ?? '',
-          'عدد الفواتير': Number(r.invoice_count || 0),
-          'الشهور النشطة': Number(r.active_months || 0),
-          'متوسط الفاتورة': Number(r.avg_invoice || 0),
-          'آخر شراء': r.last_purchase || '',
-          'درجة الأهمية': Number(r.importance_score || 0),
+          'الترتيب': r.customer_rank, 'اسم العميل': r.customer_name || '', 'كود العميل': r.customer_code, 'الهاتف': r.customer_phone || '',
+          'مبيعات آخر 3 شهور': Number(r.recent_sales || 0), 'الفترة الحالية': Number(signal?.current_period_sales || 0),
+          'الفترة السابقة': Number(signal?.previous_period_sales || 0), 'الفترة قبل السابقة': Number(signal?.prior_period_sales || 0),
+          'حالة الاتجاه': signal?.trend_state || '', 'التغير عن المعتاد %': signal?.change_vs_baseline_pct ?? '',
+          'عدد الفواتير': Number(r.invoice_count || 0), 'الشهور النشطة': Number(r.active_months || 0),
+          'متوسط الفاتورة': Number(r.avg_invoice || 0), 'آخر شراء': r.last_purchase || '', 'درجة الأهمية': Number(r.importance_score || 0),
         };
       });
-
       const intelligenceRows = intelligence.map((r) => ({
-        'نوع القائمة': r.trend_state,
-        'الفرع': r.branch,
-        'الترتيب': r.customer_rank,
-        'اسم العميل': r.customer_name || '',
-        'كود العميل': r.customer_code,
-        'الهاتف': r.customer_phone || '',
-        'الحالة': r.trend_state,
-        'مبيعات آخر 3 شهور': Number(r.recent_sales || 0),
-        'الفترة الحالية': Number(r.current_period_sales || 0),
-        'الفترة السابقة': Number(r.previous_period_sales || 0),
-        'الفترة قبل السابقة': Number(r.prior_period_sales || 0),
-        'متوسط الفترتين السابقتين': Number(r.baseline_sales || 0),
-        'التغير عن الفترة السابقة %': r.change_vs_previous_pct ?? '',
-        'التغير عن المعتاد %': r.change_vs_baseline_pct ?? '',
-        'فواتير الحالي': r.current_invoices,
-        'فواتير السابق': r.previous_invoices,
-        'فواتير قبل السابق': r.prior_invoices,
-        'آخر شراء': r.last_purchase || '',
-        'درجة أولوية المتابعة': Number(r.priority_score || 0),
-        ...resultColumns,
+        'الفرع': r.branch, 'الترتيب': r.customer_rank, 'اسم العميل': r.customer_name || '', 'كود العميل': r.customer_code, 'الهاتف': r.customer_phone || '',
+        'الحالة': r.trend_state, 'مبيعات آخر 3 شهور': Number(r.recent_sales || 0), 'الفترة الحالية': Number(r.current_period_sales || 0),
+        'الفترة السابقة': Number(r.previous_period_sales || 0), 'الفترة قبل السابقة': Number(r.prior_period_sales || 0),
+        'متوسط الفترتين السابقتين': Number(r.baseline_sales || 0), 'التغير عن الفترة السابقة %': r.change_vs_previous_pct ?? '',
+        'التغير عن المعتاد %': r.change_vs_baseline_pct ?? '', 'فواتير الحالي': r.current_invoices, 'فواتير السابق': r.previous_invoices,
+        'فواتير قبل السابق': r.prior_invoices, 'آخر شراء': r.last_purchase || '', 'درجة أولوية المتابعة': Number(r.priority_score || 0),
       }));
-
-      const book = XLSX.utils.book_new();
-      const add = (name: string, rows: Array<Record<string, unknown>>, widths: number[]) => {
-        const sheet = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'ملاحظة': 'لا توجد بيانات' }]);
-        (sheet as any)['!cols'] = widths.map((wch) => ({ wch }));
-        if (rows.length) (sheet as any)['!autofilter'] = { ref: sheet['!ref'] };
-        (sheet as any)['!views'] = [{ RTL: true }];
-        XLSX.utils.book_append_sheet(book, sheet, name.slice(0, 31));
-      };
-
-      const instructions = [
-        { 'الخطوة': '1', 'الشرح': 'كل صف = عميل واحد لازم يتم التواصل معاه اليوم.' },
-        { 'الخطوة': '2', 'الشرح': 'شيت "المتابعة اليومية" = VIP + فواتير 500+ + النقاط. شيت "ذكاء 3 فترات" = تحليل مقارنة (تراجع/نمو/مستقر).' },
-        { 'الخطوة': '3', 'الشرح': 'بعد التواصل مع العميل، املأ الأعمدة دي في نفس الصف: تمت المتابعة (نعم/لا)، تم الرد (نعم/لا)، رد العميل (اكتب اللي قاله العميل).' },
-        { 'الخطوة': '4', 'الشرح': 'لو حصلت عملية شراء بعد المكالمة: اكتب "نعم" في عمود "عملية شراء" وحدد "قيمة عملية الشراء".' },
-        { 'الخطوة': '5', 'الشرح': 'لو العميل محتاج متابعة تانية: اكتب "نعم" في "هل يحتاج متابعة أخرى" وحدد "موعد المتابعة القادمة".' },
-        { 'الخطوة': '6', 'الشرح': 'لازم تكتب "ملاحظات" فيها تفاصيل واضحة عن المكالمة (10 حروف على الأقل) — ده مطلوب لتسجيل المتابعة كمكتملة في النظام.' },
-        { 'الخطوة': '7', 'الشرح': 'بعد الانتهاء من الملف كله، ارفعه في "استيراد النتائج" من نفس صفحة متابعة العملاء. النظام بيقرأ كل الشيتات اللي فيها نتائج تلقائيًا.' },
-        { 'الخطوة': '8', 'الشرح': 'لا تحذف أو تعيد ترتيب أي عمود في الشيت — الاستيراد بيدور على اسم العمود بالظبط.' },
+      const dashboardRows = [
+        { 'المؤشر': 'مهام التنفيذ اليوم', 'القيمة': dailyRows.length, 'المعنى': 'الصفوف المطلوب تنفيذها فعليًا في شيت تنفيذ اليوم.' },
+        { 'المؤشر': 'VIP', 'القيمة': vipDaily.length, 'المعنى': 'أهم العملاء المطلوب الحفاظ على علاقتهم.' },
+        { 'المؤشر': 'فواتير +500', 'القيمة': largeInvoices.length, 'المعنى': 'متابعات ما بعد الفواتير الكبيرة.' },
+        { 'المؤشر': 'قيمة +500', 'القيمة': largeInvoices.reduce((sum, c) => sum + Number(c.value || 0), 0), 'المعنى': 'إجمالي قيمة الفواتير الكبيرة داخل قائمة اليوم.' },
+        { 'المؤشر': 'عملاء النقاط', 'القيمة': pointsDaily.length, 'المعنى': 'عملاء مطلوب إبلاغهم برصيد النقاط.' },
+        { 'المؤشر': 'رصيد النقاط بالقائمة', 'القيمة': pointsDaily.reduce((sum, c) => sum + Number(c.pointsBalance || 0), 0), 'المعنى': 'إجمالي أرصدة النقاط داخل مهام اليوم.' },
+        { 'المؤشر': 'عملاء خطر/تراجع', 'القيمة': intelligence.filter((r) => ['خطر فقد', 'تراجع قوي', 'تراجع'].includes(r.trend_state)).length, 'المعنى': 'الأولوية في الاسترجاع ومنع فقد العميل.' },
       ];
-      add('تعليمات الاستخدام', instructions, [10, 100]);
+      const instructions = [
+        { 'الخطوة': '1', 'الشرح': 'ابدأ من شيت «تنفيذ اليوم» فقط، واعمل حسب ترتيب التنفيذ من 1 إلى آخر صف.' },
+        { 'الخطوة': '2', 'الشرح': 'الأعمدة الزرقاء/البنفسجية للقراءة. الأعمدة الخضراء فقط هي المطلوب إدخال نتيجة التواصل فيها.' },
+        { 'الخطوة': '3', 'الشرح': 'استخدم القوائم المنسدلة «نعم/لا» بدل الكتابة اليدوية في تمت المتابعة، تم الرد، عملية شراء، يحتاج متابعة أخرى.' },
+        { 'الخطوة': '4', 'الشرح': 'إذا تمت المتابعة اكتب ملاحظات واضحة 10 حروف على الأقل. وإذا يحتاج متابعة أخرى لازم تحدد التاريخ.' },
+        { 'الخطوة': '5', 'الشرح': 'التحليلات التفصيلية موجودة في الشيتات المرجعية حتى لا تزحم شاشة التنفيذ.' },
+        { 'الخطوة': '6', 'الشرح': 'بعد الانتهاء ارفع نفس الملف من «مراجعة واستيراد النتائج». النظام يقرأ أسماء الأعمدة وليس ترتيبها.' },
+      ];
+      const reviewRows = [
+        { 'راجع قبل الرفع': 'تمت المتابعة', 'المطلوب': 'نعم فقط لو تم التواصل فعليًا.' },
+        { 'راجع قبل الرفع': 'تم الرد', 'المطلوب': 'حدد هل العميل رد فعلًا.' },
+        { 'راجع قبل الرفع': 'الملاحظات', 'المطلوب': '10 حروف على الأقل للصفوف المنفذة.' },
+        { 'راجع قبل الرفع': 'متابعة أخرى', 'المطلوب': 'لو نعم يجب تحديد موعد المتابعة القادمة.' },
+        { 'راجع قبل الرفع': 'عملية شراء', 'المطلوب': 'لو حصل شراء سجل نعم والقيمة.' },
+      ];
 
-      add('المتابعة اليومية', dailyRows, [18,14,28,14,16,16,16,16,16,18,16,14,16,18,14,14,14,28,14,18,20,28]);
-      add('ذكاء 3 فترات', intelligenceRows, [16,14,10,28,14,16,16,20,16,16,16,22,18,18,14,14,14,16,18,14,14,14,28,14,18,20,28]);
-      if (managerView || scopedBranch === 'فرع شكري') add('Top50 شكري', topSheetRows('فرع شكري'), [10,28,14,16,20,16,16,16,16,18,14,14,18,14,16]);
-      if (managerView || scopedBranch === 'فرع الشامي') add('Top50 الشامي', topSheetRows('فرع الشامي'), [10,28,14,16,20,16,16,16,16,18,14,14,18,14,16]);
-      add('+500 أمس', largeInvoices.map((c) => ({
-        'الفرع': c.branch,
-        'اسم العميل': c.name,
-        'الكود': c.code,
-        'الهاتف': c.phone,
-        'عدد الفواتير المؤهلة': c.invoiceCount,
-        'إجمالي الفواتير المؤهلة': c.value,
-        'تفاصيل الفواتير': c.invoiceValues?.map((v) => `${v.invoiceNumber || '-'}: ${v.value}`).join(' | ') || '',
-      })), [14,28,14,16,20,22,50]);
-      add('النقاط اليوم', pointsDaily.map((c) => ({ 'الفرع': c.branch, 'اسم العميل': c.name, 'الكود': c.code, 'الهاتف': c.phone, 'رصيد النقاط': c.pointsBalance })), [14,28,14,16,18]);
-      (book as any).Workbook = { Views: [{ RTL: true }] };
-      XLSX.writeFile(book, `متابعة_خدمة_العملاء_${ymd(new Date())}.xlsx`);
-      toast.success('تم تجهيز ملف Excel متكامل: المتابعة اليومية + تحليل 3 فترات + Top 50');
+      const executionColumns: CustomerServiceExcelColumn[] = [
+        { key: 'ترتيب التنفيذ', width: 12, group: 'identity', format: 'integer' },
+        { key: 'نوع القائمة', width: 18, group: 'context' }, { key: 'الفرع', width: 14, group: 'identity' },
+        { key: 'اسم العميل', width: 28, group: 'identity' }, { key: 'كود العميل', width: 14, group: 'identity', format: 'text' },
+        { key: 'الهاتف', width: 17, group: 'identity', format: 'text' }, { key: 'سبب التواصل', width: 38, group: 'context' },
+        { key: 'حالة الاتجاه', width: 16, group: 'context' }, { key: 'قيمة الفاتورة', width: 16, group: 'analysis', format: 'currency' },
+        { key: 'رصيد النقاط', width: 15, group: 'analysis', format: 'integer' },
+        { key: 'تمت المتابعة', width: 15, group: 'result', format: 'yesno' }, { key: 'تم الرد', width: 13, group: 'result', format: 'yesno' },
+        { key: 'رد العميل', width: 30, group: 'result' }, { key: 'عملية شراء', width: 14, group: 'result', format: 'yesno' },
+        { key: 'قيمة عملية الشراء', width: 18, group: 'result', format: 'currency' },
+        { key: 'هل يحتاج متابعة أخرى', width: 20, group: 'result', format: 'yesno' },
+        { key: 'موعد المتابعة القادمة', width: 20, group: 'result', format: 'date' }, { key: 'ملاحظات', width: 36, group: 'result' },
+      ];
+      const ref = (keys: string[], widths: number[] = []) => keys.map((key, index) => ({ key, width: widths[index] || 16, group: 'analysis' as const }));
+
+      const sheets = [
+        { name: 'تنفيذ اليوم', title: 'تنفيذ متابعة العملاء اليوم', subtitle: 'صيدليات دواء — ملف التشغيل اليومي', note: 'الخلايا الخضراء فقط للإدخال. تم فصل التحليل عن التنفيذ لتقليل الزحام.', rows: dailyRows, columns: executionColumns, kind: 'execution' as const },
+        { name: 'لوحة اليوم', title: 'لوحة متابعة اليوم', subtitle: 'ملخص سريع قبل بدء التنفيذ', rows: dashboardRows, columns: ref(['المؤشر','القيمة','المعنى'], [28,18,70]), kind: 'dashboard' as const },
+        { name: 'تعليمات الاستخدام', title: 'تعليمات ملف المتابعة', subtitle: '6 خطوات فقط للعمل بدون لخبطة', rows: instructions, columns: ref(['الخطوة','الشرح'], [12,90]), kind: 'instructions' as const },
+        { name: 'ذكاء 3 فترات', title: 'تحليل حركة العملاء — 3 فترات', subtitle: 'مرجع تراجع / نمو / استقرار — لا يحتاج تعديل', rows: intelligenceRows, columns: ref(Object.keys(intelligenceRows[0] || { 'ملاحظة': '' }), [14,10,28,14,16,16,20,18,18,18,24,20,20,14,14,14,16,18]), kind: 'reference' as const },
+        ...(managerView || scopedBranch === 'فرع شكري' ? [{ name: 'Top50 شكري', title: 'أفضل 50 عميل — شكري', subtitle: 'مرجع آخر 90 يومًا', rows: topSheetRows('فرع شكري'), columns: ref(Object.keys(topSheetRows('فرع شكري')[0] || { 'ملاحظة': '' })), kind: 'reference' as const }] : []),
+        ...(managerView || scopedBranch === 'فرع الشامي' ? [{ name: 'Top50 الشامي', title: 'أفضل 50 عميل — الشامي', subtitle: 'مرجع آخر 90 يومًا', rows: topSheetRows('فرع الشامي'), columns: ref(Object.keys(topSheetRows('فرع الشامي')[0] || { 'ملاحظة': '' })), kind: 'reference' as const }] : []),
+        { name: '+500 أمس', title: 'فواتير +500 — أمس', subtitle: 'مرجع الفواتير الكبيرة', rows: largeInvoices.map((c) => ({ 'الفرع': c.branch, 'اسم العميل': c.name, 'الكود': c.code, 'الهاتف': c.phone, 'عدد الفواتير المؤهلة': c.invoiceCount, 'إجمالي الفواتير المؤهلة': c.value, 'تفاصيل الفواتير': c.invoiceValues?.map((v) => (v.invoiceNumber || '-') + ': ' + v.value).join(' | ') || '' })), columns: ref(['الفرع','اسم العميل','الكود','الهاتف','عدد الفواتير المؤهلة','إجمالي الفواتير المؤهلة','تفاصيل الفواتير'], [14,28,14,16,20,22,46]), kind: 'reference' as const },
+        { name: 'النقاط اليوم', title: 'قائمة النقاط اليوم', subtitle: 'مرجع أرصدة العملاء', rows: pointsDaily.map((c) => ({ 'الفرع': c.branch, 'اسم العميل': c.name, 'الكود': c.code, 'الهاتف': c.phone, 'رصيد النقاط': c.pointsBalance })), columns: ref(['الفرع','اسم العميل','الكود','الهاتف','رصيد النقاط'], [14,28,14,16,18]), kind: 'reference' as const },
+        { name: 'مراجعة قبل الرفع', title: 'مراجعة قبل استيراد النتائج', subtitle: 'تأكد من النقاط دي قبل رفع الملف للتطبيق', rows: reviewRows, columns: ref(['راجع قبل الرفع','المطلوب'], [28,80]), kind: 'review' as const },
+      ];
+
+      await downloadCustomerServiceWorkbook({
+        filename: 'متابعة_خدمة_العملاء_' + ymd(new Date()) + '.xlsx',
+        title: 'متابعة خدمة العملاء',
+        subtitle: 'تنفيذ يومي منظم + تحليلات مرجعية',
+        sheets,
+      });
+      toast.success('تم تجهيز Excel الجديد: تنفيذ مختصر وملون + قوائم منسدلة + تحليلات منفصلة');
     } catch (e) {
-      toast.error(`تعذر التصدير: ${(e as Error).message}`);
+      toast.error('تعذر التصدير: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
     }
   }
 
