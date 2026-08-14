@@ -628,7 +628,7 @@ export default function CustomerServiceDoctorWorkbookCenter({ onImported }: { on
             })}
           </div>
 
-          {!!readyRows.length ? (
+          {readyRows.length > 0 ? (
             <div className="mt-3 grid gap-2 md:grid-cols-3">
               <div className="rounded-xl border border-sky-300/15 bg-sky-400/5 p-3"><div className="text-[11px] font-bold text-slate-400">معدل الرد</div><div className="mt-1 text-xl font-black text-sky-200">{previewStats.responseRate}%</div></div>
               <div className="rounded-xl border border-violet-300/15 bg-violet-400/5 p-3"><div className="text-[11px] font-bold text-slate-400">تحويل الرد إلى شراء</div><div className="mt-1 text-xl font-black text-violet-200">{previewStats.conversionRate}%</div></div>
@@ -653,7 +653,7 @@ export default function CustomerServiceDoctorWorkbookCenter({ onImported }: { on
             <div className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-3 text-sm font-black text-emerald-100"><BadgeCheck size={18} />كل المتابعات المنفذة مستوفية البيانات وجاهزة للاستيراد.</div>
           ) : null}
 
-          {!!readyRows.length ? (
+          {readyRows.length > 0 ? (
             <div className="mt-3 overflow-x-auto rounded-xl border border-white/10">
               <table className="min-w-full text-right text-xs">
                 <thead className="bg-white/5 text-slate-400"><tr><th className="px-3 py-2">العميل</th><th className="px-3 py-2">القائمة</th><th className="px-3 py-2">الرد</th><th className="px-3 py-2">شراء</th><th className="px-3 py-2">متابعة قادمة</th><th className="px-3 py-2">الجاهزية</th></tr></thead>
