@@ -15,6 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: agent/customer-request-product-matching-warehouse-export-v7
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -32,5 +33,6 @@ jobs:
             echo "No generated UI changes"
           else
             git commit -m "ربط تطوير الأصناف وملف المخازن بصفحة الطلبات [v7-applied]"
+            git pull --rebase origin agent/customer-request-product-matching-warehouse-export-v7
             git push origin HEAD:agent/customer-request-product-matching-warehouse-export-v7
           fi
