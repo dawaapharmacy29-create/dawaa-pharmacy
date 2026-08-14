@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
+// trigger after workflow registration on main
 const file = path.join(process.cwd(), 'src/pages/CustomerRequests.tsx');
 let src = fs.readFileSync(file, 'utf8');
 const MARKER = 'ADMIN_CUSTOMER_REQUESTS_TABS_V1';
