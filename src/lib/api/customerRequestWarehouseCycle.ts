@@ -35,6 +35,8 @@ export type WarehouseDispatchContext = {
   newSinceLastGroups: number;
   repeatedGroups: number;
   staleGroups: number;
+  resolvedSinceLastGroups: number;
+  latestResponseRate: number;
 };
 
 type DispatchItem = {
@@ -90,6 +92,8 @@ export async function getWarehouseDispatchContext(snapshot: WarehouseShortageSna
         newSinceLastGroups: snapshot.groups.length,
         repeatedGroups: 0,
         staleGroups: 0,
+        resolvedSinceLastGroups: 0,
+        latestResponseRate: 0,
       };
     }
     throw new Error(dispatchError.message);
@@ -126,6 +130,8 @@ export async function getWarehouseDispatchContext(snapshot: WarehouseShortageSna
       newSinceLastGroups: snapshot.groups.length,
       repeatedGroups: 0,
       staleGroups: 0,
+      resolvedSinceLastGroups: 0,
+      latestResponseRate: 0,
     };
   }
 
@@ -196,15 +202,26 @@ export async function getWarehouseDispatchContext(snapshot: WarehouseShortageSna
     };
   }
 
+  const latestDispatch = dispatches[0] || null;
+  const currentKeys = new Set(snapshot.groups.map((group) => group.key));
+  const latestItems = latestDispatch ? items.filter((item) => item.dispatch_id === latestDispatch.id) : [];
+  const latestUniqueKeys = new Set(latestItems.map((item) => item.product_key));
+  const resolvedSinceLastGroups = [...latestUniqueKeys].filter((key) => !currentKeys.has(key)).length;
+  const latestResponseRate = latestUniqueKeys.size
+    ? Math.round((resolvedSinceLastGroups / latestUniqueKeys.size) * 1000) / 10
+    : 0;
+
   return {
     featureReady: true,
-    latestDispatch: dispatches[0] || null,
+    latestDispatch,
     dispatches,
     metricsByKey,
     neverSentGroups,
     newSinceLastGroups,
     repeatedGroups,
     staleGroups,
+    resolvedSinceLastGroups,
+    latestResponseRate,
   };
 }
 
