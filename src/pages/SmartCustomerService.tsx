@@ -1,5 +1,20 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BarChart3, Clock3, Database, History, MessageSquareText, PhoneMissed, Plus, Sparkles, Workflow, Wrench } from 'lucide-react';
+import {
+  AlertTriangle,
+  BarChart3,
+  Clock3,
+  Database,
+  FileSpreadsheet,
+  History,
+  ListChecks,
+  MessageSquareText,
+  PhoneMissed,
+  Plus,
+  Sparkles,
+  Target,
+  Workflow,
+  Wrench,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
@@ -21,15 +36,23 @@ const CustomerServiceScriptEditor = lazy(() => import('@/components/customerServ
 const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
 
 type MainSection = 'today' | 'followups' | 'performance' | 'tools' | 'reports';
+type TodayView = 'execute' | 'priorities' | 'workbook';
 type FollowupView = 'waiting' | 'no_answer' | 'exceptional' | 'completed';
 type ToolsView = 'data' | 'content';
+type ReportsView = 'exports' | 'cashback';
 
 const mainSections: Array<{ id: MainSection; title: string; description: string; icon: typeof Workflow }> = [
-  { id: 'today', title: 'اليوم', description: 'قائمة التنفيذ وملف الدكاترة', icon: Workflow },
+  { id: 'today', title: 'اليوم', description: 'التنفيذ والأولويات وملف الدكاترة', icon: Workflow },
   { id: 'followups', title: 'المتابعات', description: 'انتظار الرد ولم يرد والاستثنائي والمكتمل', icon: Clock3 },
   { id: 'performance', title: 'الأداء', description: 'تنفيذ وردود و+500 ونقاط وVIP', icon: BarChart3 },
   { id: 'tools', title: 'الأدوات', description: 'جودة البيانات وسكريبتات التواصل', icon: Wrench },
   { id: 'reports', title: 'التقارير والنقاط', description: 'التصدير والكاش باك والاستحقاق', icon: History },
+];
+
+const todayViews: Array<{ id: TodayView; title: string; description: string; icon: typeof ListChecks }> = [
+  { id: 'execute', title: 'التنفيذ الآن', description: 'قائمة العمل المباشرة وما يحتاج إجراء حاليًا', icon: ListChecks },
+  { id: 'priorities', title: 'الأولويات', description: 'VIP و+500 والنقاط وتحليل العملاء المهمين', icon: Target },
+  { id: 'workbook', title: 'ملف الدكاترة', description: 'تصدير ومراجعة واستيراد ملف التنفيذ', icon: FileSpreadsheet },
 ];
 
 const followupViews: Array<{ id: FollowupView; title: string; description: string; icon: typeof Clock3 }> = [
@@ -44,6 +67,11 @@ const toolsViews: Array<{ id: ToolsView; title: string; description: string; ico
   { id: 'content', title: 'سكريبتات التواصل', description: 'نصوص المكالمات والواتساب', icon: MessageSquareText },
 ];
 
+const reportsViews: Array<{ id: ReportsView; title: string; description: string; icon: typeof History }> = [
+  { id: 'exports', title: 'التقارير والتصدير', description: 'تصدير البيانات والتقارير التشغيلية', icon: History },
+  { id: 'cashback', title: 'النقاط والكاش باك', description: 'استحقاقات العملاء ومتابعة الكاش باك', icon: BarChart3 },
+];
+
 function SectionLoader({ label }: { label: string }) {
   return <div className="mx-4 mt-4 rounded-2xl border border-white/10 bg-[#10243d] p-5 text-center text-sm font-black text-slate-300">جارٍ تحميل {label}...</div>;
 }
@@ -52,11 +80,43 @@ function MissingBranchGuard() {
   return <section className="mx-4 mt-4 rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 text-center" dir="rtl"><AlertTriangle className="mx-auto text-amber-300" size={34}/><h2 className="mt-3 text-xl font-black text-white">لا يمكن فتح قائمة المتابعات بدون فرع محدد</h2><p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-amber-100/80">الحساب الحالي غير مربوط بفرع الشامي أو فرع شكري. تم إيقاف تحميل البيانات بدل فتح فرع افتراضي أو إظهار بيانات فرع آخر.</p></section>;
 }
 
+function SecondaryNav<T extends string>({
+  items,
+  value,
+  onChange,
+  tone = 'cyan',
+  label,
+}: {
+  items: Array<{ id: T; title: string; description: string; icon: typeof Workflow }>;
+  value: T;
+  onChange: (value: T) => void;
+  tone?: 'cyan' | 'amber' | 'violet';
+  label: string;
+}) {
+  const activeClass = tone === 'amber'
+    ? 'border-amber-300/50 bg-amber-400/10 text-amber-100'
+    : tone === 'violet'
+      ? 'border-violet-300/50 bg-violet-400/10 text-violet-100'
+      : 'border-cyan-300/50 bg-cyan-400/10 text-cyan-100';
+
+  return <nav className={`mt-2 grid gap-2 rounded-2xl border border-white/10 bg-black/15 p-2 ${items.length === 2 ? 'grid-cols-2' : items.length === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 md:grid-cols-4'}`} aria-label={label}>
+    {items.map(({ id, title, description, icon: Icon }) => {
+      const active = id === value;
+      return <button key={id} type="button" onClick={() => onChange(id)} className={`rounded-xl border px-3 py-2.5 text-right transition ${active ? activeClass : 'border-white/5 bg-white/[0.025] text-slate-200 hover:border-white/15 hover:bg-white/[0.05]'}`} aria-pressed={active}>
+        <span className="flex items-center gap-2"><Icon size={15}/><span className="text-xs font-black">{title}</span></span>
+        <span className="mt-1 hidden text-[10px] font-bold text-slate-500 md:block">{description}</span>
+      </button>;
+    })}
+  </nav>;
+}
+
 export default function SmartCustomerService() {
   const { user } = useAuth();
   const [section, setSection] = useState<MainSection>('today');
+  const [todayView, setTodayView] = useState<TodayView>('execute');
   const [followupView, setFollowupView] = useState<FollowupView>('waiting');
   const [toolsView, setToolsView] = useState<ToolsView>('data');
+  const [reportsView, setReportsView] = useState<ReportsView>('exports');
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [quickOpen, setQuickOpen] = useState(false);
   const [exceptionalOpen, setExceptionalOpen] = useState(false);
@@ -128,12 +188,13 @@ export default function SmartCustomerService() {
             <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] font-black text-slate-400">
               <span className="rounded-full border border-cyan-300/15 bg-cyan-400/10 px-2.5 py-1 text-cyan-200">مركز خدمة العملاء</span>
               <span>الفرع: {normalizedUserBranch || (managerView ? 'كل الفروع حسب الصلاحية' : 'غير محدد')}</span>
+              <span className="rounded-full border border-emerald-300/15 bg-emerald-400/10 px-2.5 py-1 text-emerald-200">هيكل تشغيل نهائي</span>
             </div>
-            <h1 className="text-xl font-black text-white md:text-2xl">تنفيذ يومي واضح وسريع للدكاترة وخدمة العملاء</h1>
-            <p className="mt-1 max-w-4xl text-xs font-bold leading-6 text-slate-400">تم تجميع الصفحة في خمس مساحات فقط. ابدأ من «اليوم»، ثم انتقل للمتابعات أو الأداء أو الأدوات عند الحاجة. كل الوظائف القديمة ما زالت موجودة لكن بدون ازدحام في شريط واحد.</p>
+            <h1 className="text-xl font-black text-white md:text-2xl">خدمة العملاء — تشغيل يومي منظم من مكان واحد</h1>
+            <p className="mt-1 max-w-4xl text-xs font-bold leading-6 text-slate-400">المستوى الأول يحدد مساحة العمل، والمستوى الثاني يحدد المهمة داخلها. لا تظهر أكثر من وحدة تشغيل كبيرة في نفس الوقت، لتقليل التشتت وتحسين سرعة التنفيذ.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {section !== 'today' ? <button type="button" onClick={() => selectSection('today')} className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-black text-slate-200 hover:border-cyan-300/30 hover:bg-white/[0.07]"><Workflow className="ml-1 inline" size={16}/> الرجوع لقائمة اليوم</button> : null}
+            {section !== 'today' || todayView !== 'execute' ? <button type="button" onClick={() => { selectSection('today'); setTodayView('execute'); }} className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-black text-slate-200 hover:border-cyan-300/30 hover:bg-white/[0.07]"><Workflow className="ml-1 inline" size={16}/> التنفيذ الآن</button> : null}
             <button type="button" onClick={() => setQuickOpen(true)} className="rounded-xl border border-cyan-300/30 bg-cyan-400/15 px-4 py-2 text-sm font-black text-cyan-100 hover:bg-cyan-400/20"><Plus className="ml-1 inline" size={16}/> متابعة سريعة</button>
             <button type="button" onClick={openExceptional} className="rounded-xl border-2 border-amber-200 bg-amber-500 px-4 py-2 text-sm font-black text-slate-950 shadow-lg hover:bg-amber-400"><Sparkles className="ml-1 inline" size={16}/> متابعة استثنائية</button>
           </div>
@@ -149,32 +210,19 @@ export default function SmartCustomerService() {
           })}
         </nav>
 
-        {section === 'followups' ? <nav className="mt-2 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/15 p-2 md:grid-cols-4" aria-label="حالات المتابعة">
-          {followupViews.map(({ id, title, description, icon: Icon }) => {
-            const active = id === followupView;
-            return <button key={id} type="button" onClick={() => setFollowupView(id)} className={`rounded-xl border px-3 py-2.5 text-right transition ${active ? 'border-amber-300/50 bg-amber-400/10' : 'border-white/5 bg-white/[0.025] hover:border-white/15 hover:bg-white/[0.05]'}`} aria-pressed={active}>
-              <span className="flex items-center gap-2"><Icon size={15} className={id === 'exceptional' ? 'text-amber-300' : id === 'no_answer' ? 'text-rose-300' : 'text-slate-300'}/><span className={`text-xs font-black ${active ? 'text-amber-100' : 'text-slate-200'}`}>{title}</span></span>
-              <span className="mt-1 hidden text-[10px] font-bold text-slate-500 xl:block">{description}</span>
-            </button>;
-          })}
-        </nav> : null}
-
-        {section === 'tools' ? <nav className="mt-2 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/15 p-2" aria-label="أدوات خدمة العملاء">
-          {toolsViews.map(({ id, title, description, icon: Icon }) => {
-            const active = id === toolsView;
-            return <button key={id} type="button" onClick={() => setToolsView(id)} className={`rounded-xl border px-3 py-2.5 text-right transition ${active ? 'border-violet-300/50 bg-violet-400/10' : 'border-white/5 bg-white/[0.025] hover:border-white/15 hover:bg-white/[0.05]'}`} aria-pressed={active}>
-              <span className="flex items-center gap-2"><Icon size={15} className="text-violet-300"/><span className={`text-xs font-black ${active ? 'text-violet-100' : 'text-slate-200'}`}>{title}</span></span>
-              <span className="mt-1 hidden text-[10px] font-bold text-slate-500 md:block">{description}</span>
-            </button>;
-          })}
-        </nav> : null}
+        {section === 'today' ? <SecondaryNav items={todayViews} value={todayView} onChange={setTodayView} label="مهام اليوم"/> : null}
+        {section === 'followups' ? <SecondaryNav items={followupViews} value={followupView} onChange={setFollowupView} tone="amber" label="حالات المتابعة"/> : null}
+        {section === 'tools' ? <SecondaryNav items={toolsViews} value={toolsView} onChange={setToolsView} tone="violet" label="أدوات خدمة العملاء"/> : null}
+        {section === 'reports' ? <SecondaryNav items={reportsViews} value={reportsView} onChange={setReportsView} label="التقارير والنقاط"/> : null}
       </div>
     </section>
 
     <main className="mx-auto max-w-[1800px] px-0 pb-8">
       {!hasSafeBranchScope && section !== 'reports' ? <MissingBranchGuard/> : null}
 
-      {hasSafeBranchScope && section === 'today' ? <div className="space-y-4"><CustomerServiceDoctorWorkbookCenter onImported={refreshWorkspace}/><CustomerDailyPriorityQueues/><CustomerFollowupOperationsHub version={workspaceVersion}/></div> : null}
+      {hasSafeBranchScope && section === 'today' && todayView === 'execute' ? <CustomerFollowupOperationsHub version={workspaceVersion}/> : null}
+      {hasSafeBranchScope && section === 'today' && todayView === 'priorities' ? <CustomerDailyPriorityQueues/> : null}
+      {hasSafeBranchScope && section === 'today' && todayView === 'workbook' ? <CustomerServiceDoctorWorkbookCenter onImported={refreshWorkspace}/> : null}
 
       {hasSafeBranchScope && section === 'followups' && followupView === 'waiting' ? <CustomerFollowupRecordsAndPerformance key={`waiting-${workspaceVersion}`} mode="waiting" /> : null}
       {hasSafeBranchScope && section === 'followups' && followupView === 'no_answer' ? <CustomerFollowupRecordsAndPerformance key={`no-answer-${workspaceVersion}`} mode="no_answer" /> : null}
@@ -186,7 +234,9 @@ export default function SmartCustomerService() {
       {hasSafeBranchScope && section === 'tools' && toolsView === 'data' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><Suspense fallback={<SectionLoader label="أدوات تصحيح البيانات"/>}><CustomerServiceDataTools/></Suspense></div> : null}
       {hasSafeBranchScope && section === 'tools' && toolsView === 'content' ? <Suspense fallback={<SectionLoader label="محرر السكريبتات"/>}><CustomerServiceScriptEditor/></Suspense> : null}
 
-      {section === 'reports' ? <div className="space-y-4"><CustomerFollowupFullExportPanel/>{hasSafeBranchScope ? <Suspense fallback={<SectionLoader label="نقاط العملاء والكاش باك"/>}><CustomerCashback/></Suspense> : null}</div> : null}
+      {section === 'reports' && reportsView === 'exports' ? <CustomerFollowupFullExportPanel/> : null}
+      {section === 'reports' && reportsView === 'cashback' && hasSafeBranchScope ? <Suspense fallback={<SectionLoader label="نقاط العملاء والكاش باك"/>}><CustomerCashback/></Suspense> : null}
+      {section === 'reports' && reportsView === 'cashback' && !hasSafeBranchScope ? <MissingBranchGuard/> : null}
     </main>
 
     <QuickFollowupModal
