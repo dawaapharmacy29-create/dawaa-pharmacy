@@ -40,6 +40,7 @@ import ImageUploadBox from '@/components/ImageUploadBox';
 import CustomerSmartSearch, { type CustomerSearchResult } from '@/components/CustomerSmartSearch';
 import ProductSmartSearch from '@/components/ProductSmartSearch';
 import CustomerRequestInsightsPanel from '@/components/customer-requests/CustomerRequestInsightsPanel';
+import CustomerRequestQualityCenter from '@/components/customer-requests/CustomerRequestQualityCenter'; // CUSTOMER_REQUEST_QUALITY_CENTER_V4
 import CustomerRequestDataQualityPanel from '@/components/customer-requests/CustomerRequestDataQualityPanel'; // CUSTOMER_REQUEST_DATA_QUALITY_V3
 import {
   createCustomerRequest,
@@ -235,9 +236,9 @@ export default function CustomerRequests() {
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [showDetails, setShowDetails] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [workspaceTab, setWorkspaceTab] = useState<'overview' | 'requests' | 'followup' | 'analytics' | 'archive'>(() => {
+  const [workspaceTab, setWorkspaceTab] = useState<'overview' | 'requests' | 'followup' | 'analytics' | 'quality' | 'archive'>(() => {
     const value = searchParams.get('workspace');
-    return ['overview', 'requests', 'followup', 'analytics', 'archive'].includes(String(value)) ? value as 'overview' | 'requests' | 'followup' | 'analytics' | 'archive' : 'overview';
+    return ['overview', 'requests', 'followup', 'analytics', 'quality', 'archive'].includes(String(value)) ? value as 'overview' | 'requests' | 'followup' | 'analytics' | 'quality' | 'archive' : 'overview';
   });
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false); // ADMIN_CUSTOMER_REQUESTS_TABS_V1
   const [contextRequestId, setContextRequestId] = useState(() => searchParams.get('requestId') || '');
@@ -448,10 +449,11 @@ export default function CustomerRequests() {
 
       {workspaceTab === 'overview' && <CustomerRequestsOverview summary={summary} onOpenQueue={(filter) => { setWorkspaceTab('requests'); setQuickFilter(filter); setStatusFilter('all'); }} />}
       {workspaceTab === 'analytics' && <CustomerRequestInsightsPanel branch={branchFilter} onAction={applyAnalyticsAction} />}
+      {workspaceTab === 'quality' && <CustomerRequestQualityCenter branch={branchFilter} onOpenRequest={(request) => openDetails(request)} />}
 
       {showCreate && <CreateRequestPanel doctors={doctors} user={user} onCreated={async (request) => { setShowCreate(false); setSelected(request); setQuickFilter('today'); setPage(1); toast.success('تم تسجيل طلب العميل'); await load(); }} />}
 
-      {workspaceTab !== 'overview' && workspaceTab !== 'analytics' && (
+      {workspaceTab !== 'overview' && workspaceTab !== 'analytics' && workspaceTab !== 'quality' && (
         <div className="space-y-4">
           {workspaceTab === 'requests' && <QuickQueues value={quickFilter} onChange={setQuickFilter} summary={summary} />}
 
@@ -561,7 +563,7 @@ export default function CustomerRequests() {
 }
 
 
-type CustomerRequestsWorkspaceTab = 'overview' | 'requests' | 'followup' | 'analytics' | 'archive';
+type CustomerRequestsWorkspaceTab = 'overview' | 'requests' | 'followup' | 'analytics' | 'quality' | 'archive';
 
 function CustomerRequestsWorkspaceTabs({ value, onChange, summary }: { value: CustomerRequestsWorkspaceTab; onChange: (value: CustomerRequestsWorkspaceTab) => void; summary: CustomerRequestCommandSummary }) {
   const tabs: Array<{ id: CustomerRequestsWorkspaceTab; label: string; hint: string; badge?: number }> = [
@@ -569,10 +571,11 @@ function CustomerRequestsWorkspaceTabs({ value, onChange, summary }: { value: Cu
     { id: 'requests', label: 'الطلبات', hint: 'التنفيذ اليومي', badge: summary.today },
     { id: 'followup', label: 'المتابعة', hint: 'التوفير والتواصل', badge: summary.searching + summary.waiting_customer + summary.ready },
     { id: 'analytics', label: 'التحليلات', hint: 'الأداء والفروع' },
+    { id: 'quality', label: 'مشاكل البيانات', hint: 'الأكواد والربط', badge: summary.unlinked_customer + summary.no_branch + summary.invalid_phone + summary.sync_conflicts },
     { id: 'archive', label: 'الأرشيف', hint: 'المكتمل والملغي', badge: summary.delivered + summary.cancelled },
   ];
   return <nav className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950/55 p-1.5 shadow-lg">
-    <div className="grid min-w-[760px] grid-cols-5 gap-1.5">
+    <div className="grid min-w-[900px] grid-cols-6 gap-1.5">
       {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => onChange(tab.id)} className={`relative h-[58px] rounded-xl border px-3 text-right transition ${value === tab.id ? 'border-cyan-400/40 bg-cyan-500/15 text-white shadow-sm' : 'border-transparent text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'}`}>
         <span className="block text-sm font-black">{tab.label}</span><span className="mt-0.5 block text-[10px] text-slate-500">{tab.hint}</span>
         {typeof tab.badge === 'number' && <span className={`absolute left-2 top-2 min-w-6 rounded-full px-1.5 py-0.5 text-center text-[10px] font-black ${value === tab.id ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>{tab.badge.toLocaleString('ar-EG')}</span>}
