@@ -68,10 +68,15 @@ export default function CustomerRequestSyncHealthPanel({ onReview }: { onReview?
   }, [load]);
 
   const state = useMemo(() => {
-    if (!health) return { label: 'جاري الفحص', tone: 'border-slate-600 bg-slate-900/50 text-slate-300', icon: Clock3 };
-    const lag = Number(health.sync_lag_minutes ?? 9999);
-    if (health.pending > 0 || health.failed_or_conflict > 0 || lag > 15) return { label: 'يحتاج مراجعة', tone: 'border-amber-400/30 bg-amber-500/10 text-amber-200', icon: AlertTriangle };
-    return { label: 'المزامنة تعمل', tone: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200', icon: CheckCircle2 };
+    if (!health) return { label: 'جاري الفحص', tone: 'border-slate-600 bg-slate-900/50 text-slate-300', icon: Clock3, note: 'يتم فحص قناة الربط الآن.' };
+    if (health.pending > 0 || health.failed_or_conflict > 0) {
+      return { label: 'المزامنة تحتاج تدخل', tone: 'border-red-400/30 bg-red-500/10 text-red-200', icon: AlertTriangle, note: 'هناك سجلات لم تُعالج بعد أو فشل تقني داخل صندوق المزامنة.' };
+    }
+    const qualityIssues = Number(health.sync_conflicts || 0) + Number(health.no_branch || 0) + Number(health.unlinked_customer || 0);
+    if (qualityIssues > 0) {
+      return { label: 'المزامنة تعمل • جودة البيانات تحتاج مراجعة', tone: 'border-amber-400/30 bg-amber-500/10 text-amber-200', icon: ShieldAlert, note: 'الطلبات تصل، لكن توجد سجلات تحتاج تنظيف فرع أو ربط عميل أو حسم تعارض.' };
+    }
+    return { label: 'المزامنة سليمة', tone: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200', icon: CheckCircle2, note: 'لا توجد مشكلات معالجة أو جودة معلقة.' };
   }, [health]);
   const StateIcon = state.icon;
 
@@ -86,10 +91,11 @@ export default function CustomerRequestSyncHealthPanel({ onReview }: { onReview?
               <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-black ${state.tone}`}><StateIcon size={13} />{state.label}</span>
             </div>
             <p className="mt-1 text-xs font-bold leading-6 text-slate-400">إنشاء وتعديل طلبات Base44 يصل تلقائيًا إلى Supabase، مع مراجعة تصحيحية دورية لمنع فقد أي طلب.</p>
+            <p className="mt-1 text-[11px] font-bold leading-5 text-slate-500">{state.note}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {onReview && <button type="button" onClick={onReview} className="rounded-xl border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-black text-amber-100"><ShieldAlert size={14} className="ml-1 inline" /> مراجعة جودة الربط</button>}
+          {onReview && <button type="button" onClick={onReview} className="rounded-xl border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-black text-amber-100"><ShieldAlert size={14} className="ml-1 inline" /> فتح قائمة مراجعة الجودة</button>}
           <button type="button" onClick={() => void load()} disabled={loading} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-black text-slate-200"><RefreshCw size={14} className={`ml-1 inline ${loading ? 'animate-spin' : ''}`} /> تحديث الحالة</button>
         </div>
       </div>
@@ -109,9 +115,11 @@ export default function CustomerRequestSyncHealthPanel({ onReview }: { onReview?
 
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-[11px] font-bold text-slate-400">آخر وصول من Base44</div><div className="mt-1 font-black text-white">{cairoDateTime(health.last_received)}</div></div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-[11px] font-bold text-slate-400">الزمن منذ آخر وصول</div><div className={`mt-1 font-black ${Number(health.sync_lag_minutes || 0) > 15 ? 'text-amber-200' : 'text-emerald-200'}`}>{health.sync_lag_minutes == null ? '—' : `${health.sync_lag_minutes} دقيقة`}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-[11px] font-bold text-slate-400">منذ آخر دفعة وصلت</div><div className="mt-1 font-black text-slate-100">{health.sync_lag_minutes == null ? '—' : `${health.sync_lag_minutes} دقيقة`}</div><div className="mt-1 text-[10px] leading-4 text-slate-500">هذا المؤشر لا يعني عطلًا وحده إذا لم تُسجل طلبات جديدة على Base44.</div></div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-[11px] font-bold text-slate-400">توزيع الفروع</div><div className="mt-1 flex flex-wrap gap-2">{(health.branches || []).map((item) => <span key={item.branch} className="rounded-full bg-slate-800 px-2 py-1 text-[11px] font-black text-slate-200">{item.branch}: {item.total}</span>)}</div></div>
         </div>
+
+        {(health.sync_conflicts > 0 || health.no_branch > 0 || health.unlinked_customer > 0) && onReview ? <button type="button" onClick={onReview} className="mt-3 w-full rounded-2xl border border-amber-300/20 bg-amber-400/[0.07] px-4 py-3 text-right text-xs font-black text-amber-100">يوجد {Number(health.sync_conflicts || 0) + Number(health.no_branch || 0) + Number(health.unlinked_customer || 0)} ملاحظة جودة مسجلة — افتح قائمة المراجعة بدل اعتبارها عطلًا في النقل.</button> : null}
 
         <button type="button" onClick={() => setExpanded((v) => !v)} className="mt-3 flex items-center gap-2 text-xs font-black text-cyan-200"><Link2 size={14} />{expanded ? 'إخفاء آخر الطلبات الواصلة' : 'عرض آخر الطلبات الواصلة'}</button>
         {expanded ? <div className="mt-2 overflow-x-auto rounded-2xl border border-white/10"><table className="min-w-[850px] w-full text-xs"><thead className="bg-slate-950/60 text-slate-400"><tr>{['رقم الطلب','العميل','الصنف','الفرع','حالة Base44','وقت الوصول'].map((h) => <th key={h} className="p-2 text-right font-black">{h}</th>)}</tr></thead><tbody>{(health.latest || []).map((row) => <tr key={row.source_record_id} className="border-t border-white/5 text-slate-200"><td className="p-2 font-black text-cyan-200">{row.order_number || row.source_record_id.slice(-6)}</td><td className="p-2">{row.customer_name || '—'}</td><td className="p-2">{row.medicine_name || '—'}</td><td className="p-2">{row.branch || 'بدون فرع'}</td><td className="p-2">{row.source_status || '—'}</td><td className="p-2">{cairoDateTime(row.received_at)}</td></tr>)}</tbody></table></div> : null}
