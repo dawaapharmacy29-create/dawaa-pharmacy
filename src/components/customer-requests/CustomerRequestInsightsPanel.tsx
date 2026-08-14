@@ -18,6 +18,7 @@ import {
 import { requestStatusLabel } from '@/lib/api/customerRequests';
 import { getCustomerRequestOperationalInsights, type CustomerRequestInsights } from '@/lib/api/customerRequestInsights';
 import CustomerRequestActionQueue from '@/components/customer-requests/CustomerRequestActionQueue';
+import CustomerRequestSyncHealthPanel from '@/components/customer-requests/CustomerRequestSyncHealthPanel';
 
 function n(value: number | null | undefined) {
   return Number(value || 0).toLocaleString('ar-EG');
@@ -80,6 +81,8 @@ export default function CustomerRequestInsightsPanel({
 
   return (
     <div className="space-y-4">
+      <CustomerRequestSyncHealthPanel />
+
       <div className="grid grid-cols-2 gap-3 rounded-3xl border border-slate-700 bg-[#102640] p-3 shadow-lg">
         <button type="button" onClick={() => setTab('analytics')} className={`rounded-2xl px-4 py-4 text-sm font-black ${tab === 'analytics' ? 'bg-violet-500/20 text-violet-100 ring-1 ring-violet-400/40' : 'bg-slate-900/60 text-slate-300'}`}>
           التحليلات والقرارات التشغيلية
