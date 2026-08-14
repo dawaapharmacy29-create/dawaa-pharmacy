@@ -422,6 +422,76 @@ export async function updateCustomerRequestStatus(
   return updated;
 }
 
+export type CustomerRequestContactOutcome = 'answered' | 'no_answer' | 'later';
+
+export async function recordCustomerRequestContactAttempt(
+  request: CustomerRequest,
+  input: {
+    outcome: CustomerRequestContactOutcome;
+    notes?: string | null;
+    user_id?: string | null;
+    user_name?: string | null;
+  }
+) {
+  requireSupabaseConfig();
+  const labels: Record<CustomerRequestContactOutcome, string> = {
+    answered: 'تم الرد',
+    no_answer: 'لم يرد',
+    later: 'تواصل لاحقًا',
+  };
+  const note = String(input.notes || '').trim();
+  if (input.outcome === 'later' && !note) throw new Error('اكتب موعد أو سبب التواصل لاحقًا');
+
+  const currentStatus = String(request.status || 'new');
+  const shouldAdvanceToContacted =
+    input.outcome === 'answered' && ['available', 'arrived'].includes(currentStatus);
+  const nextStatus = shouldAdvanceToContacted ? 'customer_contacted' : currentStatus;
+  const summaryLine = [
+    'نتيجة التواصل: ' + labels[input.outcome],
+    note ? 'ملاحظة: ' + note : '',
+    'بواسطة: ' + (input.user_name || 'النظام'),
+  ].filter(Boolean).join(' — ');
+  const previousSummary = String(request.contact_summary || '').trim();
+  const contactSummary = previousSummary ? summaryLine + '\n' + previousSummary : summaryLine;
+
+  const payload: Record<string, unknown> = {
+    status: nextStatus,
+    contact_summary: contactSummary,
+    updated_at: new Date().toISOString(),
+    last_action_at: new Date().toISOString(),
+  };
+  if (input.outcome === 'answered') payload.customer_contacted_by_name = input.user_name || null;
+
+  const updated = (await updateResilient('customer_requests', request.id, payload)) as CustomerRequest;
+  await addCustomerRequestEvent(request.id, {
+    old_status: request.status,
+    new_status: nextStatus,
+    action: 'تسجيل نتيجة تواصل مع العميل',
+    notes: summaryLine,
+    created_by: input.user_id,
+    created_by_name: input.user_name,
+  });
+  await logActivity({
+    action: 'تسجيل نتيجة تواصل طلب عميل',
+    module: 'طلبات العملاء',
+    target_type: 'customer_request',
+    target_id: request.id,
+    user_id: safeUuid(input.user_id) || undefined,
+    user_name: input.user_name || undefined,
+    branch_name: request.branch || undefined,
+    details: {
+      customer_name: request.customer_name,
+      customer_code: request.customer_code,
+      medicine_name: request.medicine_name,
+      outcome: input.outcome,
+      old_status: request.status,
+      new_status: nextStatus,
+      notes: note || null,
+    },
+  });
+  return updated;
+}
+
 export async function updateCustomerRequestDetails(
   request: CustomerRequest,
   input: {

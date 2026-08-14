@@ -49,6 +49,7 @@ import {
   createCustomerRequest,
   getCustomerRequestEvents,
   moveCustomerRequestToShortage,
+  recordCustomerRequestContactAttempt,
   requestStatusLabel,
   REQUEST_STATUS_FLOW,
   updateCustomerRequestStatus,
@@ -274,6 +275,9 @@ export default function CustomerRequests() {
   const [pendingAdvance, setPendingAdvance] = useState<CustomerRequest | null>(null);
   const [pendingAlternative, setPendingAlternative] = useState<RequestWithProduct | null>(null);
   const [alternativeReason, setAlternativeReason] = useState('');
+  const [pendingContactResult, setPendingContactResult] = useState<CustomerRequest | null>(null);
+  const [contactResultNote, setContactResultNote] = useState('');
+  const [contactResultSavingId, setContactResultSavingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [statusNote, setStatusNote] = useState('');
   const [newStatus, setNewStatus] = useState('');
@@ -474,6 +478,40 @@ export default function CustomerRequests() {
     setPendingAlternative(request as RequestWithProduct);
   };
 
+  const openContactResult = (request: CustomerRequest) => {
+    setContactResultNote('');
+    setPendingContactResult(request);
+  };
+
+  const saveContactResult = async (outcome: 'answered' | 'no_answer' | 'later') => {
+    if (!pendingContactResult) return;
+    if (outcome === 'later' && !contactResultNote.trim()) {
+      toast.error('اكتب موعد أو سبب التواصل لاحقًا');
+      return;
+    }
+    const request = pendingContactResult;
+    setContactResultSavingId(request.id);
+    try {
+      const updated = await recordCustomerRequestContactAttempt(request, {
+        outcome,
+        notes: contactResultNote.trim() || null,
+        user_id: user?.id,
+        user_name: user?.name,
+      });
+      setRequests((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setSelected((current) => current?.id === updated.id ? updated : current);
+      setPendingContactResult(null);
+      setContactResultNote('');
+      const label = outcome === 'answered' ? 'تم الرد' : outcome === 'no_answer' ? 'لم يرد' : 'تواصل لاحقًا';
+      toast.success(updated.status === 'customer_contacted' && request.status !== updated.status ? 'تم تسجيل ' + label + ' ونقل الطلب إلى تم التواصل' : 'تم تسجيل نتيجة التواصل: ' + label);
+      await load();
+    } catch (error) {
+      toast.error('تعذر تسجيل نتيجة التواصل: ' + (error as Error).message);
+    } finally {
+      setContactResultSavingId(null);
+    }
+  };
+
   const applyAlternativeStatus = async (request: CustomerRequest, status: 'needs_customer_confirmation' | 'not_available' | 'cancelled', label: string) => {
     const reason = alternativeReason.trim();
     if ((status === 'not_available' || status === 'cancelled') && !reason) {
@@ -594,6 +632,28 @@ export default function CustomerRequests() {
       </>}
       {workspaceTab === 'analytics' && <CustomerRequestInsightsPanel branch={branchFilter} onAction={applyAnalyticsAction} />}
       {workspaceTab === 'quality' && <CustomerRequestQualityCenter branch={branchFilter} onOpenRequest={(request) => openDetails(request)} />}
+
+      {pendingContactResult && (
+        <div className="fixed inset-0 z-[133] flex items-center justify-center bg-slate-950/85 p-3 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget && !contactResultSavingId) setPendingContactResult(null); }}>
+          <section className="w-full max-w-xl overflow-hidden rounded-[26px] border border-emerald-400/25 bg-[#091a2d] shadow-2xl">
+            <header className="flex items-start justify-between gap-4 border-b border-slate-700 bg-gradient-to-l from-emerald-500/10 to-cyan-500/[0.06] px-5 py-4">
+              <div className="flex min-w-0 items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/25"><MessageCircle size={21} /></span><div><div className="text-lg font-black text-white">تسجيل نتيجة التواصل</div><p className="mt-1 text-xs font-bold leading-6 text-slate-400">سجّل النتيجة فورًا بعد المكالمة أو واتساب بدون فتح تفاصيل الطلب.</p></div></div>
+              <button type="button" disabled={Boolean(contactResultSavingId)} className="rounded-xl border border-slate-600 bg-slate-900 p-2 text-slate-300 hover:text-white disabled:opacity-50" onClick={() => setPendingContactResult(null)} aria-label="إغلاق نتيجة التواصل"><X size={18} /></button>
+            </header>
+            <div className="space-y-4 p-5">
+              <div className="grid grid-cols-2 gap-2 text-xs"><div className="rounded-xl bg-slate-950/55 p-3"><span className="block text-[10px] font-bold text-slate-500">العميل</span><strong className="mt-1 block truncate text-white">{pendingContactResult.customer_name || 'غير محدد'}</strong></div><div className="rounded-xl bg-slate-950/55 p-3"><span className="block text-[10px] font-bold text-slate-500">الحالة الحالية</span><strong className="mt-1 block text-cyan-200">{requestStatusLabel(pendingContactResult.status)}</strong></div><div className="col-span-2 rounded-xl bg-slate-950/55 p-3"><span className="block text-[10px] font-bold text-slate-500">الصنف</span><strong className="mt-1 block text-white">{pendingContactResult.medicine_name}</strong><span className="mt-1 block text-[10px] text-slate-500">{displayEgyptianPhone(pendingContactResult.customer_phone || '') || 'بدون رقم هاتف'}</span></div></div>
+              {['available', 'arrived'].includes(String(pendingContactResult.status || '')) && <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.07] px-3 py-2 text-[11px] font-bold leading-6 text-emerald-100"><CheckCircle2 size={15} className="ml-1 inline" /> اختيار «تم الرد» هنا سينقل الطلب تلقائيًا إلى مرحلة «تم التواصل» لأن الصنف جاهز بالفعل.</div>}
+              <div className="grid gap-2 sm:grid-cols-3">
+                <button type="button" disabled={Boolean(contactResultSavingId)} onClick={() => void saveContactResult('answered')} className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-3 text-emerald-100 transition hover:bg-emerald-500/20 disabled:opacity-60"><CheckCircle2 size={21} /><strong className="text-xs">تم الرد</strong></button>
+                <button type="button" disabled={Boolean(contactResultSavingId)} onClick={() => void saveContactResult('no_answer')} className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-orange-400/25 bg-orange-500/10 p-3 text-orange-100 transition hover:bg-orange-500/20 disabled:opacity-60"><Phone size={21} /><strong className="text-xs">لم يرد</strong></button>
+                <button type="button" disabled={Boolean(contactResultSavingId) || !contactResultNote.trim()} onClick={() => void saveContactResult('later')} className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-violet-400/25 bg-violet-500/10 p-3 text-violet-100 transition hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:opacity-40"><Clock3 size={21} /><strong className="text-xs">تواصل لاحقًا</strong></button>
+              </div>
+              <div className="rounded-2xl border border-slate-700 bg-slate-950/35 p-3"><label className="text-[11px] font-black text-slate-300">ملاحظة سريعة <span className="text-slate-600">— مطلوبة لتواصل لاحقًا</span></label><textarea className="input-dark mt-2 min-h-20 w-full resize-y text-xs" placeholder="مثال: لم يرد — إعادة المحاولة مساءً / طلب الاتصال غدًا الساعة 2..." value={contactResultNote} onChange={(event) => setContactResultNote(event.target.value)} /></div>
+            </div>
+            <footer className="flex items-center justify-between gap-3 border-t border-slate-700 bg-slate-950/30 p-4 text-[10px] font-bold text-slate-500"><span>كل نتيجة تُحفظ في سجل أحداث الطلب.</span>{contactResultSavingId && <span className="flex items-center gap-1 text-cyan-200"><Loader2 size={13} className="animate-spin" /> جاري الحفظ...</span>}</footer>
+          </section>
+        </div>
+      )}
 
       {pendingAlternative && (
         <div className="fixed inset-0 z-[134] flex items-center justify-center bg-slate-950/85 p-3 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget && !advancingId) setPendingAlternative(null); }}>
@@ -741,8 +801,8 @@ export default function CustomerRequests() {
 
             {loading ? <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-72 animate-pulse rounded-3xl bg-slate-800/80" />)}</div>
               : requests.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-700 p-12 text-center text-sm text-slate-400">لا توجد طلبات مطابقة.</div>
-              : viewMode === 'table' ? <RequestTable requests={requests} page={page} pageSize={pageSize} onSelect={openDetails} onAdvance={(request) => void advanceRequestFromCard(request)} onAlternative={openAlternativeActions} advancingId={advancingId} />
-              : <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{requests.map((request) => <RequestCard key={request.id} request={request as RequestWithProduct} onSelect={() => openDetails(request)} onAdvance={() => void advanceRequestFromCard(request)} onAlternative={() => openAlternativeActions(request)} advancing={advancingId === request.id} />)}</div>}
+              : viewMode === 'table' ? <RequestTable requests={requests} page={page} pageSize={pageSize} onSelect={openDetails} onAdvance={(request) => void advanceRequestFromCard(request)} onAlternative={openAlternativeActions} onContactResult={openContactResult} advancingId={advancingId} />
+              : <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{requests.map((request) => <RequestCard key={request.id} request={request as RequestWithProduct} onSelect={() => openDetails(request)} onAdvance={() => void advanceRequestFromCard(request)} onAlternative={() => openAlternativeActions(request)} onContactResult={() => openContactResult(request)} advancing={advancingId === request.id} />)}</div>}
             <Pagination page={page} pages={totalPages} onPage={setPage} />
           </section>
         </div>
@@ -865,7 +925,7 @@ function quickAdvanceAction(request: CustomerRequest): QuickAdvanceAction | null
   }
 }
 
-function RequestCard({ request, onSelect, onAdvance, onAlternative, advancing }: { request: RequestWithProduct; onSelect: () => void; onAdvance: () => void; onAlternative: () => void; advancing: boolean }) {
+function RequestCard({ request, onSelect, onAdvance, onAlternative, onContactResult, advancing }: { request: RequestWithProduct; onSelect: () => void; onAdvance: () => void; onAlternative: () => void; onContactResult: () => void; advancing: boolean }) {
   const issues = customerRequestQualityIssues(request);
   const overdue = customerRequestIsOverdue(request);
   const importance = importanceLabel(request);
@@ -882,6 +942,7 @@ function RequestCard({ request, onSelect, onAdvance, onAlternative, advancing }:
         <button type="button" onClick={() => openRequestWhatsApp(request)} className="flex items-center gap-1.5 rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2 text-[11px] font-black text-emerald-100 transition hover:bg-emerald-500/20" title="فتح واتساب برسالة جاهزة"><MessageCircle size={15} /> واتساب</button>
         <button type="button" onClick={() => callRequestCustomer(request)} className="flex items-center gap-1.5 rounded-xl border border-sky-400/20 bg-sky-500/[0.08] px-3 py-2 text-[11px] font-black text-sky-100 transition hover:bg-sky-500/15" title="اتصال بالعميل"><Phone size={15} /> اتصال</button>
         <button type="button" onClick={() => void copyRequestCustomerPhone(request)} className="flex items-center gap-1.5 rounded-xl border border-slate-600 bg-slate-900/70 px-3 py-2 text-[11px] font-black text-slate-300 transition hover:text-white" title="نسخ رقم العميل"><Copy size={14} /> نسخ الرقم</button>
+        <button type="button" onClick={onContactResult} className="flex items-center gap-1.5 rounded-xl border border-violet-400/20 bg-violet-500/[0.08] px-3 py-2 text-[11px] font-black text-violet-100 transition hover:bg-violet-500/15" title="تسجيل نتيجة التواصل"><CheckCircle2 size={14} /> سجل النتيجة</button>
       </> : <span className="rounded-xl bg-red-500/10 px-3 py-2 text-[11px] font-black text-red-200">لا يوجد رقم صالح للتواصل</span>}
     </div>
     <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-black ${overdue ? 'border-red-400/25 bg-red-500/10 text-red-100' : 'border-cyan-400/20 bg-cyan-500/[0.07] text-cyan-100'}`}>الخطوة التالية: {nextAction(request)}</div>
@@ -894,8 +955,8 @@ function CardField({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0 rounded-xl bg-slate-900/55 px-3 py-2"><div className="text-[10px] font-bold text-slate-500">{label}</div><div className="mt-1 truncate text-xs font-black text-slate-100" title={value}>{value}</div></div>;
 }
 
-function RequestTable({ requests, page, pageSize, onSelect, onAdvance, onAlternative, advancingId }: { requests: CustomerRequest[]; page: number; pageSize: number; onSelect: (request: CustomerRequest) => void; onAdvance: (request: CustomerRequest) => void; onAlternative: (request: CustomerRequest) => void; advancingId: string | null }) {
-  return <div className="overflow-x-auto rounded-2xl border border-slate-700"><table className="min-w-[1650px] w-full text-right text-xs"><thead className="sticky top-0 z-10 bg-[#0c1d32] text-slate-300"><tr>{['م','الصنف','العميل','الهاتف','الفرع','المسئول','التسجيل','العمر','الحالة','المرحلة التالية','الإجراء'].map((title) => <th key={title} className="whitespace-nowrap border-b border-slate-700 px-3 py-4 font-black">{title}</th>)}</tr></thead><tbody>{requests.map((request, index) => { const advance = quickAdvanceAction(request); const AdvanceIcon = advance?.icon; const advancing = advancingId === request.id; return <tr key={request.id} className="border-b border-slate-800 align-middle hover:bg-cyan-500/[0.08]"><td className="px-3 py-3 num font-black text-cyan-200">{(page - 1) * pageSize + index + 1}</td><td className="px-3 py-3 font-black text-white">{request.medicine_name}<div className="mt-1 text-[10px] text-slate-500">كمية {request.quantity || 1}</div></td><td className="px-3 py-3 text-white">{request.customer_name || 'غير محدد'}<div className="mt-1 text-[10px] text-slate-500">{request.customer_code || '—'}</div></td><td className="px-3 py-3">{displayEgyptianPhone(request.customer_phone || '') || '—'}</td><td className="px-3 py-3">{request.branch || '—'}</td><td className="px-3 py-3">{currentOwner(request)}</td><td className="px-3 py-3 whitespace-nowrap">{exactRequestTime(request)}</td><td className={`px-3 py-3 font-black ${customerRequestIsOverdue(request) ? 'text-red-300' : 'text-slate-300'}`}>{ageLabel(request)}</td><td className="px-3 py-3 min-w-40"><span className={customerRequestIsOverdue(request) ? 'badge-warning' : customerRequestIsClosed(request) ? 'badge-success' : 'badge-info'}>{requestStatusLabel(request.status)}</span><RequestStageRail status={request.status} compact /></td><td className="px-3 py-3">{advance && AdvanceIcon ? <button type="button" disabled={advancing} onClick={() => onAdvance(request)} className={`flex min-w-36 items-center justify-center gap-2 rounded-xl border px-3 py-2 font-black shadow-sm transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60 ${advance.className}`} title={`نقل مباشر إلى ${requestStatusLabel(advance.status)}`}>{advancing ? <Loader2 size={15} className="animate-spin" /> : <AdvanceIcon size={15} />}<span>{advancing ? 'جاري النقل...' : advance.label}</span></button> : <span className="text-[10px] font-bold text-slate-600">لا توجد مرحلة تالية</span>}</td><td className="px-3 py-3"><div className="flex items-center gap-1.5">{request.customer_phone && <><button type="button" onClick={() => openRequestWhatsApp(request)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-500/10 text-emerald-200 transition hover:bg-emerald-500/20" title="واتساب"><MessageCircle size={15} /></button><button type="button" onClick={() => callRequestCustomer(request)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-sky-400/20 bg-sky-500/[0.08] text-sky-200 transition hover:bg-sky-500/15" title="اتصال"><Phone size={15} /></button></>}{!customerRequestIsClosed(request) && !['cancelled', 'not_available'].includes(String(request.status || '')) && <button type="button" onClick={() => onAlternative(request)} className="flex items-center gap-1 rounded-xl border border-amber-400/20 bg-amber-500/[0.07] px-2.5 py-2 font-black text-amber-100 transition hover:bg-amber-500/15" title="إجراءات بديلة"><AlertTriangle size={14} /> أخرى</button>}<button type="button" onClick={() => onSelect(request)} className="flex items-center gap-1 rounded-xl bg-slate-800 px-3 py-2 font-black text-slate-200 transition hover:bg-cyan-500/15 hover:text-cyan-100"><Eye size={15} /> التفاصيل</button></div></td></tr>; })}</tbody></table></div>;
+function RequestTable({ requests, page, pageSize, onSelect, onAdvance, onAlternative, onContactResult, advancingId }: { requests: CustomerRequest[]; page: number; pageSize: number; onSelect: (request: CustomerRequest) => void; onAdvance: (request: CustomerRequest) => void; onAlternative: (request: CustomerRequest) => void; onContactResult: (request: CustomerRequest) => void; advancingId: string | null }) {
+  return <div className="overflow-x-auto rounded-2xl border border-slate-700"><table className="min-w-[1650px] w-full text-right text-xs"><thead className="sticky top-0 z-10 bg-[#0c1d32] text-slate-300"><tr>{['م','الصنف','العميل','الهاتف','الفرع','المسئول','التسجيل','العمر','الحالة','المرحلة التالية','الإجراء'].map((title) => <th key={title} className="whitespace-nowrap border-b border-slate-700 px-3 py-4 font-black">{title}</th>)}</tr></thead><tbody>{requests.map((request, index) => { const advance = quickAdvanceAction(request); const AdvanceIcon = advance?.icon; const advancing = advancingId === request.id; return <tr key={request.id} className="border-b border-slate-800 align-middle hover:bg-cyan-500/[0.08]"><td className="px-3 py-3 num font-black text-cyan-200">{(page - 1) * pageSize + index + 1}</td><td className="px-3 py-3 font-black text-white">{request.medicine_name}<div className="mt-1 text-[10px] text-slate-500">كمية {request.quantity || 1}</div></td><td className="px-3 py-3 text-white">{request.customer_name || 'غير محدد'}<div className="mt-1 text-[10px] text-slate-500">{request.customer_code || '—'}</div></td><td className="px-3 py-3">{displayEgyptianPhone(request.customer_phone || '') || '—'}</td><td className="px-3 py-3">{request.branch || '—'}</td><td className="px-3 py-3">{currentOwner(request)}</td><td className="px-3 py-3 whitespace-nowrap">{exactRequestTime(request)}</td><td className={`px-3 py-3 font-black ${customerRequestIsOverdue(request) ? 'text-red-300' : 'text-slate-300'}`}>{ageLabel(request)}</td><td className="px-3 py-3 min-w-40"><span className={customerRequestIsOverdue(request) ? 'badge-warning' : customerRequestIsClosed(request) ? 'badge-success' : 'badge-info'}>{requestStatusLabel(request.status)}</span><RequestStageRail status={request.status} compact /></td><td className="px-3 py-3">{advance && AdvanceIcon ? <button type="button" disabled={advancing} onClick={() => onAdvance(request)} className={`flex min-w-36 items-center justify-center gap-2 rounded-xl border px-3 py-2 font-black shadow-sm transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60 ${advance.className}`} title={`نقل مباشر إلى ${requestStatusLabel(advance.status)}`}>{advancing ? <Loader2 size={15} className="animate-spin" /> : <AdvanceIcon size={15} />}<span>{advancing ? 'جاري النقل...' : advance.label}</span></button> : <span className="text-[10px] font-bold text-slate-600">لا توجد مرحلة تالية</span>}</td><td className="px-3 py-3"><div className="flex items-center gap-1.5">{request.customer_phone && <><button type="button" onClick={() => openRequestWhatsApp(request)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-500/10 text-emerald-200 transition hover:bg-emerald-500/20" title="واتساب"><MessageCircle size={15} /></button><button type="button" onClick={() => callRequestCustomer(request)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-sky-400/20 bg-sky-500/[0.08] text-sky-200 transition hover:bg-sky-500/15" title="اتصال"><Phone size={15} /></button><button type="button" onClick={() => onContactResult(request)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-400/20 bg-violet-500/[0.08] text-violet-200 transition hover:bg-violet-500/15" title="تسجيل نتيجة التواصل"><CheckCircle2 size={15} /></button></>}{!customerRequestIsClosed(request) && !['cancelled', 'not_available'].includes(String(request.status || '')) && <button type="button" onClick={() => onAlternative(request)} className="flex items-center gap-1 rounded-xl border border-amber-400/20 bg-amber-500/[0.07] px-2.5 py-2 font-black text-amber-100 transition hover:bg-amber-500/15" title="إجراءات بديلة"><AlertTriangle size={14} /> أخرى</button>}<button type="button" onClick={() => onSelect(request)} className="flex items-center gap-1 rounded-xl bg-slate-800 px-3 py-2 font-black text-slate-200 transition hover:bg-cyan-500/15 hover:text-cyan-100"><Eye size={15} /> التفاصيل</button></div></td></tr>; })}</tbody></table></div>;
 }
 
 function RequestDetail(props: { request: RequestWithProduct; events: CustomerRequestEvent[]; newStatus: string; setNewStatus: (v: string) => void; note: string; setNote: (v: string) => void; saving: boolean; onStatus: () => void; onQuickStatus: (status: string, note?: string) => void; onWhatsApp: () => void; onShortage: () => void; user: { id?: string; name?: string } | null }) {
