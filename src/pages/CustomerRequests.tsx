@@ -102,6 +102,7 @@ const EMPTY_SUMMARY: CustomerRequestCommandSummary = {
 };
 
 const QUICK_FILTERS: Array<{ value: CustomerRequestQuickFilter; label: string; description: string }> = [
+  { value: 'followup_due', label: 'متابعات مستحقة الآن', description: 'مواعيد تواصل وصلت أو تأخرت' },
   { value: 'attention', label: 'يحتاج تدخل الآن', description: 'طلبات مفتوحة وحديثة' },
   { value: 'today', label: 'طلبات اليوم', description: 'المسجلة اليوم' },
   { value: 'urgent', label: 'العاجلة', description: 'أولوية قصوى' },
@@ -302,7 +303,7 @@ export default function CustomerRequests() {
   const [dateTo, setDateTo] = useState('');
   const [quickFilter, setQuickFilter] = useState<CustomerRequestQuickFilter>(() => {
     const value = searchParams.get('quick') as CustomerRequestQuickFilter | null;
-    return QUICK_FILTERS.some((item) => item.value === value) ? (value as CustomerRequestQuickFilter) : 'attention';
+    return QUICK_FILTERS.some((item) => item.value === value) ? (value as CustomerRequestQuickFilter) : 'followup_due';
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -392,7 +393,7 @@ export default function CustomerRequests() {
     if (workspaceTab !== 'overview') next.set('workspace', workspaceTab);
     if (branchFilter !== 'all') next.set('branch', branchFilter);
     if (statusFilter !== 'all') next.set('status', statusFilter);
-    if (quickFilter !== 'attention') next.set('quick', quickFilter);
+    if (quickFilter !== 'followup_due') next.set('quick', quickFilter);
     if (search) next.set('search', search);
     if (assigneeFilter !== 'all') next.set('assignee', assigneeFilter);
     if (registrarFilter) next.set('registrar', registrarFilter);
@@ -638,7 +639,7 @@ export default function CustomerRequests() {
         setWorkspaceTab(tab);
         setPage(1);
         setShowAdvancedFilters(false);
-        if (tab === 'requests') { setQuickFilter('attention'); setStatusFilter('all'); }
+        if (tab === 'requests') { setQuickFilter('followup_due'); setStatusFilter('all'); }
         if (tab === 'followup') { setQuickFilter('all'); setStatusFilter('searching_suppliers'); }
         if (tab === 'archive') { setQuickFilter('all'); setStatusFilter('delivered'); }
       }} summary={summary} />
