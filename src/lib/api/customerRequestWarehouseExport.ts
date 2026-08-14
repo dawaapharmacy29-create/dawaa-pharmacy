@@ -31,6 +31,7 @@ export type WarehouseShortageGroup = {
   productCode: string;
   canonicalName: string;
   requestNames: string[];
+  requestIds: string[];
   totalQuantity: number;
   requestCount: number;
   urgentCount: number;
@@ -55,10 +56,22 @@ export type WarehouseShortageSnapshot = {
   branch: string;
 };
 
+export type WarehouseExportCycleMetric = {
+  dispatchCount?: number;
+  lastSentAt?: string | null;
+  lastSentQuantity?: number;
+  newRequestCount?: number;
+  quantityDelta?: number;
+  ageDays?: number;
+  repeated?: boolean;
+  stale?: boolean;
+  state?: string;
+};
+
 function dateValue(value: string | null | undefined) {
   if (!value) return 0;
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.getTime() : 0;
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime()) ? date.getTime() : 0;
 }
 
 function requestDate(request: RequestWithProduct) {
@@ -74,7 +87,6 @@ function customerKey(request: RequestWithProduct) {
   return String(request.customer_id || request.customer_code || request.customer_phone || '').trim();
 }
 
-// مطابق للدالة SQL الحالية normalize_product_name المستخدمة في products.normalized_name.
 function normalizeCatalogDbName(value: unknown) {
   return String(value ?? '')
     .trim()
@@ -166,6 +178,7 @@ export async function getWarehouseShortageSnapshot(branch = 'all', limit = 3000)
       productCode,
       canonicalName,
       requestNames: [],
+      requestIds: [],
       totalQuantity: 0,
       requestCount: 0,
       urgentCount: 0,
@@ -184,6 +197,7 @@ export async function getWarehouseShortageSnapshot(branch = 'all', limit = 3000)
     if (isUrgent(request)) current.urgentCount += 1;
     current.branches[branchName] = (current.branches[branchName] || 0) + quantity;
     current.statuses[status] = (current.statuses[status] || 0) + 1;
+    if (request.id && !current.requestIds.includes(request.id)) current.requestIds.push(request.id);
     if (request.medicine_name && !current.requestNames.includes(request.medicine_name)) current.requestNames.push(request.medicine_name);
     if (request.supplier_hint && !current.supplierHints.includes(request.supplier_hint)) current.supplierHints.push(request.supplier_hint);
     if (!current.oldestRequestAt || (created && dateValue(created) < dateValue(current.oldestRequestAt))) current.oldestRequestAt = created;
@@ -223,26 +237,48 @@ export async function getWarehouseShortageSnapshot(branch = 'all', limit = 3000)
   };
 }
 
-function formatDate(value: string | null) {
+function formatDate(value: string | null | undefined) {
   return value ? String(value).slice(0, 10) : '';
 }
 
-export async function exportWarehouseShortageWorkbook(snapshot: WarehouseShortageSnapshot) {
+function cycleStateLabel(metric: WarehouseExportCycleMetric | undefined) {
+  if (!metric) return 'لا يوجد سجل إرسال';
+  if (metric.state === 'never_sent') return 'جديد - لم يرسل من قبل';
+  if (metric.state === 'new_since_last') return 'طلبات جديدة منذ آخر إرسال';
+  if (metric.state === 'quantity_increased') return 'الكمية زادت';
+  if (metric.state === 'improving') return 'الكمية قلت';
+  if (metric.state === 'repeated_unchanged') return 'متكرر بدون تغير';
+  return metric.state || '';
+}
+
+export async function exportWarehouseShortageWorkbook(
+  snapshot: WarehouseShortageSnapshot,
+  cycleMetrics: Record<string, WarehouseExportCycleMetric> = {},
+) {
   const XLSX = await import('xlsx');
-  const summaryRows = snapshot.groups.map((group, index) => ({
-    'م': index + 1,
-    'كود الصنف': group.productCode || '',
-    'اسم الصنف المعتمد': group.canonicalName,
-    'إجمالي الكمية المطلوبة': group.totalQuantity,
-    'عدد الطلبات': group.requestCount,
-    'عدد العملاء': group.customerCount,
-    'طلبات عاجلة': group.urgentCount,
-    'الفروع': Object.entries(group.branches).map(([name, qty]) => `${name}: ${qty}`).join(' | '),
-    'أقدم طلب': formatDate(group.oldestRequestAt),
-    'مطلوب قبل': formatDate(group.neededByDate),
-    'المورد المقترح': group.supplierHints.join(' | '),
-    'حالة الربط': group.linkQuality === 'linked_code' ? 'مربوط بالكود' : group.linkQuality === 'linked_name' ? 'مربوط باسم مؤكد' : 'يحتاج مراجعة',
-  }));
+  const summaryRows = snapshot.groups.map((group, index) => {
+    const metric = cycleMetrics[group.key];
+    return {
+      'م': index + 1,
+      'كود الصنف': group.productCode || '',
+      'اسم الصنف المعتمد': group.canonicalName,
+      'إجمالي الكمية المطلوبة': group.totalQuantity,
+      'عدد الطلبات': group.requestCount,
+      'عدد العملاء': group.customerCount,
+      'طلبات عاجلة': group.urgentCount,
+      'الفروع': Object.entries(group.branches).map(([name, qty]) => `${name}: ${qty}`).join(' | '),
+      'أقدم طلب': formatDate(group.oldestRequestAt),
+      'عمر النقص بالأيام': metric?.ageDays ?? '',
+      'عدد دورات الإرسال السابقة': metric?.dispatchCount ?? 0,
+      'طلبات جديدة منذ آخر إرسال': metric?.newRequestCount ?? group.requestCount,
+      'فرق الكمية عن آخر إرسال': metric?.quantityDelta ?? group.totalQuantity,
+      'آخر إرسال': formatDate(metric?.lastSentAt),
+      'حالة الدورة': cycleStateLabel(metric),
+      'مطلوب قبل': formatDate(group.neededByDate),
+      'المورد المقترح': group.supplierHints.join(' | '),
+      'حالة الربط': group.linkQuality === 'linked_code' ? 'مربوط بالكود' : group.linkQuality === 'linked_name' ? 'مربوط باسم مؤكد' : 'يحتاج مراجعة',
+    };
+  });
 
   const branchRows = snapshot.groups.flatMap((group) => Object.entries(group.branches).map(([branch, quantity]) => ({
     'كود الصنف': group.productCode || '',
@@ -262,6 +298,24 @@ export async function exportWarehouseShortageWorkbook(snapshot: WarehouseShortag
     'سبب المراجعة': group.linkQuality === 'unlinked' ? 'لا يوجد ربط مؤكد بكتالوج الأصناف' : 'يوجد أكثر من طريقة كتابة لنفس الصنف',
   }));
 
+  const repeatedRows = snapshot.groups
+    .filter((group) => (cycleMetrics[group.key]?.dispatchCount || 0) > 0)
+    .map((group) => {
+      const metric = cycleMetrics[group.key];
+      return {
+        'كود الصنف': group.productCode || '',
+        'اسم الصنف': group.canonicalName,
+        'دورات الإرسال': metric?.dispatchCount || 0,
+        'عمر النقص بالأيام': metric?.ageDays || 0,
+        'الكمية الحالية': group.totalQuantity,
+        'كمية آخر إرسال': metric?.lastSentQuantity || 0,
+        'فرق الكمية': metric?.quantityDelta || 0,
+        'طلبات جديدة': metric?.newRequestCount || 0,
+        'آخر إرسال': formatDate(metric?.lastSentAt),
+        'الحالة': cycleStateLabel(metric),
+      };
+    });
+
   const wb = XLSX.utils.book_new();
   const addSheet = (rows: Record<string, string | number>[], name: string) => {
     const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'لا توجد بيانات': '' }]);
@@ -273,6 +327,7 @@ export async function exportWarehouseShortageWorkbook(snapshot: WarehouseShortag
 
   addSheet(summaryRows, 'طلب المخازن');
   addSheet(branchRows, 'توزيع الفروع');
+  addSheet(repeatedRows, 'متابعة الدورات');
   addSheet(reviewRows, 'مراجعة الأكواد والأسماء');
 
   const branchLabel = snapshot.branch === 'all' ? 'كل_الفروع' : snapshot.branch.replace(/\s+/g, '_');
