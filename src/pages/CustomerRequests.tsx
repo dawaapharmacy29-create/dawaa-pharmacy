@@ -41,6 +41,8 @@ import CustomerSmartSearch, { type CustomerSearchResult } from '@/components/Cus
 import ProductSmartSearch from '@/components/ProductSmartSearch';
 import CustomerRequestInsightsPanel from '@/components/customer-requests/CustomerRequestInsightsPanel';
 import CustomerRequestQualityCenter from '@/components/customer-requests/CustomerRequestQualityCenter'; // CUSTOMER_REQUEST_QUALITY_CENTER_V4
+import CustomerRequestWarehousePanel from '@/components/customer-requests/CustomerRequestWarehousePanel';
+import CustomerRequestCriticalToday from '@/components/customer-requests/CustomerRequestCriticalToday'; // CUSTOMER_REQUEST_PRODUCT_MATCHING_WAREHOUSE_V7
 import CustomerRequestDataQualityPanel from '@/components/customer-requests/CustomerRequestDataQualityPanel'; // CUSTOMER_REQUEST_DATA_QUALITY_V3
 import {
   createCustomerRequest,
@@ -447,7 +449,10 @@ export default function CustomerRequests() {
         if (tab === 'archive') { setQuickFilter('all'); setStatusFilter('delivered'); }
       }} summary={summary} />
 
-      {workspaceTab === 'overview' && <CustomerRequestsOverview summary={summary} onOpenQueue={(filter) => { setWorkspaceTab('requests'); setQuickFilter(filter); setStatusFilter('all'); }} />}
+      {workspaceTab === 'overview' && <>
+        <CustomerRequestsOverview summary={summary} onOpenQueue={(filter) => { setWorkspaceTab('requests'); setQuickFilter(filter); setStatusFilter('all'); }} />
+        <CustomerRequestCriticalToday branch={branchFilter} onOpenRequest={(request) => openDetails(request)} />
+      </>}
       {workspaceTab === 'analytics' && <CustomerRequestInsightsPanel branch={branchFilter} onAction={applyAnalyticsAction} />}
       {workspaceTab === 'quality' && <CustomerRequestQualityCenter branch={branchFilter} onOpenRequest={(request) => openDetails(request)} />}
 
@@ -457,13 +462,14 @@ export default function CustomerRequests() {
         <div className="space-y-4">
           {workspaceTab === 'requests' && <QuickQueues value={quickFilter} onChange={setQuickFilter} summary={summary} />}
 
-          {workspaceTab === 'followup' && (
+          {workspaceTab === 'followup' && <>
             <CustomerRequestsStageTabs
               value={statusFilter}
               onChange={(status) => { setQuickFilter('all'); setStatusFilter(status); setPage(1); }}
               items={[['searching_suppliers', 'جاري البحث'], ['sourcing', 'جاري التوفير'], ['available', 'تم التوفير'], ['customer_contacted', 'تم التواصل']]}
             />
-          )}
+            <CustomerRequestWarehousePanel branch={branchFilter} />
+          </>}
 
           {workspaceTab === 'archive' && (
             <CustomerRequestsStageTabs
@@ -569,7 +575,7 @@ function CustomerRequestsWorkspaceTabs({ value, onChange, summary }: { value: Cu
   const tabs: Array<{ id: CustomerRequestsWorkspaceTab; label: string; hint: string; badge?: number }> = [
     { id: 'overview', label: 'لوحة اليوم', hint: 'المهم الآن', badge: summary.open },
     { id: 'requests', label: 'الطلبات', hint: 'التنفيذ اليومي', badge: summary.today },
-    { id: 'followup', label: 'المتابعة', hint: 'التوفير والتواصل', badge: summary.searching + summary.waiting_customer + summary.ready },
+    { id: 'followup', label: 'المتابعة', hint: 'التوفير + ملف المخازن', badge: summary.searching + summary.waiting_customer + summary.ready },
     { id: 'analytics', label: 'التحليلات', hint: 'الأداء والفروع' },
     { id: 'quality', label: 'مشاكل البيانات', hint: 'الأكواد والربط', badge: summary.unlinked_customer + summary.no_branch + summary.invalid_phone + summary.sync_conflicts },
     { id: 'archive', label: 'الأرشيف', hint: 'المكتمل والملغي', badge: summary.delivered + summary.cancelled },
