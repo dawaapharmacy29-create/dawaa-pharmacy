@@ -74,38 +74,55 @@ function customerKey(request: RequestWithProduct) {
   return String(request.customer_id || request.customer_code || request.customer_phone || '').trim();
 }
 
+// مطابق للدالة SQL الحالية normalize_product_name المستخدمة في products.normalized_name.
+function normalizeCatalogDbName(value: unknown) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06ff]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function loadCanonicalProducts(requests: RequestWithProduct[]) {
   const byCode = new Map<string, CanonicalProduct>();
   const byName = new Map<string, CanonicalProduct[]>();
   const codes = [...new Set(requests.map((request) => normalizeProductCode(request.product_code)).filter(Boolean))];
-  const normalizedNames = [...new Set(requests.filter((request) => !normalizeProductCode(request.product_code)).map((request) => normalizeProductName(request.medicine_name)).filter(Boolean))];
+  const dbNames = [...new Set(
+    requests
+      .filter((request) => !normalizeProductCode(request.product_code))
+      .map((request) => normalizeCatalogDbName(request.medicine_name))
+      .filter(Boolean)
+  )];
+
+  const addProduct = (row: { id: string; product_code: string | null; name: string | null; price: number | null; normalized_name?: string | null }) => {
+    const product: CanonicalProduct = {
+      id: row.id,
+      code: row.product_code || '',
+      name: row.name || '',
+      price: row.price === null ? null : Number(row.price),
+    };
+    const code = normalizeProductCode(row.product_code);
+    if (code) byCode.set(code, product);
+    const smartName = normalizeProductName(row.name);
+    if (smartName) {
+      const current = byName.get(smartName) || [];
+      if (!current.some((item) => item.id === product.id)) byName.set(smartName, [...current, product]);
+    }
+  };
 
   for (let index = 0; index < codes.length; index += 100) {
     const chunk = codes.slice(index, index + 100);
     const { data, error } = await supabase.from('products').select('id,product_code,name,price,normalized_name').in('product_code', chunk);
     if (error) throw new Error(error.message);
-    for (const row of data || []) {
-      const product: CanonicalProduct = { id: row.id, code: row.product_code || '', name: row.name || '', price: row.price === null ? null : Number(row.price) };
-      byCode.set(normalizeProductCode(row.product_code), product);
-      const normalized = normalizeProductName(row.name);
-      if (normalized) byName.set(normalized, [...(byName.get(normalized) || []), product]);
-    }
+    for (const row of data || []) addProduct(row);
   }
 
-  for (let index = 0; index < normalizedNames.length; index += 100) {
-    const chunk = normalizedNames.slice(index, index + 100);
+  for (let index = 0; index < dbNames.length; index += 100) {
+    const chunk = dbNames.slice(index, index + 100);
     const { data, error } = await supabase.from('products').select('id,product_code,name,price,normalized_name').in('normalized_name', chunk);
     if (error) throw new Error(error.message);
-    for (const row of data || []) {
-      const product: CanonicalProduct = { id: row.id, code: row.product_code || '', name: row.name || '', price: row.price === null ? null : Number(row.price) };
-      const code = normalizeProductCode(row.product_code);
-      if (code) byCode.set(code, product);
-      const normalized = normalizeProductName(row.normalized_name || row.name);
-      if (normalized) {
-        const current = byName.get(normalized) || [];
-        if (!current.some((item) => item.id === product.id)) byName.set(normalized, [...current, product]);
-      }
-    }
+    for (const row of data || []) addProduct(row);
   }
 
   return { byCode, byName };
