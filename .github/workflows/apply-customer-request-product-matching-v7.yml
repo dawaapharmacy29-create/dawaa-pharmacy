@@ -1,0 +1,36 @@
+name: Apply Customer Request Product Matching V7
+
+on:
+  push:
+    branches:
+      - agent/customer-request-product-matching-warehouse-export-v7
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/customer-request-product-matching-warehouse-export-v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: node scripts/apply-customer-request-product-matching-v7.cjs
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Commit applied UI
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/CustomerRequests.tsx
+          if git diff --cached --quiet; then
+            echo "No generated UI changes"
+          else
+            git commit -m "ربط تطوير الأصناف وملف المخازن بصفحة الطلبات [v7-applied]"
+            git push origin HEAD:agent/customer-request-product-matching-warehouse-export-v7
+          fi
