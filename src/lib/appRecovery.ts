@@ -18,6 +18,27 @@ export function logRuntimeError(source: string, error: unknown) {
   if (typeof window !== 'undefined') recordRuntimeError(source, error);
 }
 
+export function clearRecoveredRuntimeError() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = window.sessionStorage.getItem(LAST_RUNTIME_ERROR_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { source?: string; message?: string };
+    const source = String(parsed?.source || '');
+    const message = String(parsed?.message || '');
+    const recoverable =
+      source === 'index recovery' ||
+      source === 'bootstrap App import failed' ||
+      /asset load failed|chunk|dynamically imported module|failed to fetch dynamically imported module/i.test(message);
+    if (!recoverable) return false;
+    window.sessionStorage.removeItem(LAST_RUNTIME_ERROR_KEY);
+    window.sessionStorage.removeItem('dawaa_health_banner_dismissed_error');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function loginRecoveryUrl(reason = 'recovery') {
   const url = new URL('/login', window.location.origin);
   url.searchParams.set('_recovery', `${reason}_${Date.now()}`);
