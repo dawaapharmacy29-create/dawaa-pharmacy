@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 22
       - name: Apply contact results transformation
-        run: node scripts/apply-customer-request-contact-results-v16.cjs
+        run: node scripts/apply-customer-request-contact-results-v16-fix.cjs
       - name: Commit generated change
         run: |
           git config user.name "github-actions[bot]"
