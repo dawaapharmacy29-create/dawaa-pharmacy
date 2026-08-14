@@ -133,6 +133,142 @@ function addTitleRows(worksheet: any, sheet: CustomerServiceExcelSheet, lastColu
   }
 }
 
+function dashboardFill(cell: any, color: string) {
+  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
+}
+
+function dashboardText(cell: any, options: { size?: number; color?: string; bold?: boolean; align?: 'center' | 'right' } = {}) {
+  cell.font = { name: 'Arial', size: options.size || 10, bold: options.bold ?? true, color: { argb: options.color || COLORS.navy } };
+  cell.alignment = { horizontal: options.align || 'center', vertical: 'middle', wrapText: true };
+}
+
+function addDashboardLiveMetrics(workbook: any, worksheet: any) {
+  const execution = workbook.getWorksheet('تنفيذ اليوم');
+  if (!execution) return;
+
+  const maxExecutionRow = Math.max(7, execution.rowCount || 7);
+  const endRow = Math.max(maxExecutionRow, 5000);
+  const q = (column: string) => `'تنفيذ اليوم'!${column}$7:${column}${endRow}`;
+
+  for (let col = 5; col <= 12; col += 1) worksheet.getColumn(col).width = col % 2 === 1 ? 16 : 14;
+
+  worksheet.mergeCells('E4:L4');
+  const title = worksheet.getCell('E4');
+  title.value = 'لوحة التنفيذ المباشرة — تتحدث تلقائيًا أثناء العمل على «تنفيذ اليوم»';
+  dashboardFill(title, COLORS.navy);
+  dashboardText(title, { size: 12, color: COLORS.white });
+  worksheet.getRow(4).height = Math.max(worksheet.getRow(4).height || 0, 30);
+
+  const card = (labelRange: string, valueRange: string, label: string, formula: string, color: string, numberFormat?: string) => {
+    worksheet.mergeCells(labelRange);
+    worksheet.mergeCells(valueRange);
+    const labelCell = worksheet.getCell(labelRange.split(':')[0]);
+    const valueCell = worksheet.getCell(valueRange.split(':')[0]);
+    labelCell.value = label;
+    valueCell.value = { formula };
+    dashboardFill(labelCell, color);
+    dashboardText(labelCell, { size: 9, color: COLORS.white });
+    dashboardFill(valueCell, 'F8FAFC');
+    dashboardText(valueCell, { size: 20, color, bold: true });
+    if (numberFormat) valueCell.numFmt = numberFormat;
+    applyBorder(labelCell);
+    applyBorder(valueCell);
+  };
+
+  card('E5:F5', 'E6:F7', 'إجمالي مهام اليوم', `COUNTA(${q('D')})`, COLORS.cyan, '#,##0');
+  card('G5:H5', 'G6:H7', 'تم تنفيذ المتابعة', `COUNTIF(${q('K')},\"نعم\")`, COLORS.emerald, '#,##0');
+  card('I5:J5', 'I6:J7', 'نسبة الرد من المنفذ', `IFERROR(COUNTIF(${q('L')},\"نعم\")/COUNTIF(${q('K')},\"نعم\"),0)`, COLORS.indigo, '0%');
+  card('K5:L5', 'K6:L7', 'تحويل الرد إلى شراء', `IFERROR(COUNTIF(${q('N')},\"نعم\")/COUNTIF(${q('L')},\"نعم\"),0)`, COLORS.violet, '0%');
+
+  card('E9:F9', 'E10:F11', 'نسبة إنجاز القائمة', `IFERROR(COUNTIF(${q('K')},\"نعم\")/COUNTA(${q('D')}),0)`, COLORS.teal, '0%');
+  card('G9:H9', 'G10:H11', 'متبقي للتنفيذ', `MAX(0,COUNTA(${q('D')})-COUNTIF(${q('K')},\"نعم\"))`, COLORS.amber, '#,##0');
+  card('I9:J9', 'I10:J11', 'يحتاج متابعة أخرى', `COUNTIF(${q('P')},\"نعم\")`, COLORS.slate, '#,##0');
+  card('K9:L9', 'K10:L11', 'قيمة شراء بعد المتابعة', `SUM(${q('O')})`, COLORS.emerald, '#,##0.00 \"ج.م\"');
+
+  worksheet.mergeCells('E13:L13');
+  const progressTitle = worksheet.getCell('E13');
+  progressTitle.value = 'مؤشرات التقدم';
+  dashboardFill(progressTitle, 'E2E8F0');
+  dashboardText(progressTitle, { size: 11, color: COLORS.navy });
+
+  const progressRows = [
+    ['تنفيذ المهام', `COUNTIF(${q('K')},\"نعم\")`, `COUNTA(${q('D')})`],
+    ['العملاء الذين ردوا', `COUNTIF(${q('L')},\"نعم\")`, `MAX(1,COUNTIF(${q('K')},\"نعم\"))`],
+    ['عمليات الشراء', `COUNTIF(${q('N')},\"نعم\")`, `MAX(1,COUNTIF(${q('L')},\"نعم\"))`],
+    ['متابعات قادمة', `COUNTIF(${q('P')},\"نعم\")`, `MAX(1,COUNTIF(${q('K')},\"نعم\"))`],
+  ];
+  progressRows.forEach(([label, current, target], index) => {
+    const row = 14 + index;
+    worksheet.mergeCells(`E${row}:F${row}`);
+    worksheet.getCell(`E${row}`).value = label;
+    dashboardText(worksheet.getCell(`E${row}`), { align: 'right' });
+    worksheet.getCell(`G${row}`).value = { formula: current };
+    worksheet.getCell(`H${row}`).value = { formula: `IFERROR(${current}/${target},0)` };
+    worksheet.getCell(`H${row}`).numFmt = '0%';
+    worksheet.mergeCells(`I${row}:L${row}`);
+    worksheet.getCell(`I${row}`).value = { formula: `REPT(\"█\",ROUND(MIN(1,IFERROR(${current}/${target},0))*10,0))&REPT(\"░\",10-ROUND(MIN(1,IFERROR(${current}/${target},0))*10,0))` };
+    dashboardText(worksheet.getCell(`I${row}`), { size: 12, color: COLORS.teal });
+    ['E','G','H','I'].forEach((col) => applyBorder(worksheet.getCell(`${col}${row}`)));
+    if (row % 2 === 0) ['E','G','H','I'].forEach((col) => dashboardFill(worksheet.getCell(`${col}${row}`), COLORS.slateSoft));
+    worksheet.getRow(row).height = 24;
+  });
+
+  worksheet.mergeCells('E20:H20');
+  worksheet.getCell('E20').value = 'توزيع مهام التنفيذ';
+  dashboardFill(worksheet.getCell('E20'), COLORS.indigo);
+  dashboardText(worksheet.getCell('E20'), { color: COLORS.white });
+  worksheet.getCell('E21').value = 'نوع القائمة';
+  worksheet.getCell('F21').value = 'عدد العملاء';
+  worksheet.getCell('G21').value = 'تم التنفيذ';
+  worksheet.getCell('H21').value = 'نسبة التنفيذ';
+  ['E21','F21','G21','H21'].forEach((ref) => { dashboardFill(worksheet.getCell(ref), COLORS.slate); dashboardText(worksheet.getCell(ref), { color: COLORS.white, size: 9 }); applyBorder(worksheet.getCell(ref)); });
+  ['VIP آخر 3 شهور', '+500', 'نقاط'].forEach((type, index) => {
+    const row = 22 + index;
+    worksheet.getCell(`E${row}`).value = type;
+    worksheet.getCell(`F${row}`).value = { formula: `COUNTIF(${q('B')},\"${type}\")` };
+    worksheet.getCell(`G${row}`).value = { formula: `COUNTIFS(${q('B')},\"${type}\",${q('K')},\"نعم\")` };
+    worksheet.getCell(`H${row}`).value = { formula: `IFERROR(G${row}/F${row},0)` };
+    worksheet.getCell(`H${row}`).numFmt = '0%';
+    ['E','F','G','H'].forEach((col) => { applyBorder(worksheet.getCell(`${col}${row}`)); dashboardText(worksheet.getCell(`${col}${row}`), { size: 9 }); });
+  });
+
+  worksheet.mergeCells('J20:L20');
+  worksheet.getCell('J20').value = 'الفروع';
+  dashboardFill(worksheet.getCell('J20'), COLORS.cyan);
+  dashboardText(worksheet.getCell('J20'), { color: COLORS.white });
+  worksheet.getCell('J21').value = 'الفرع';
+  worksheet.getCell('K21').value = 'المهام';
+  worksheet.getCell('L21').value = 'المنفذ';
+  ['J21','K21','L21'].forEach((ref) => { dashboardFill(worksheet.getCell(ref), COLORS.slate); dashboardText(worksheet.getCell(ref), { color: COLORS.white, size: 9 }); applyBorder(worksheet.getCell(ref)); });
+  ['فرع شكري', 'فرع الشامي'].forEach((branch, index) => {
+    const row = 22 + index;
+    worksheet.getCell(`J${row}`).value = branch;
+    worksheet.getCell(`K${row}`).value = { formula: `COUNTIF(${q('C')},\"${branch}\")` };
+    worksheet.getCell(`L${row}`).value = { formula: `COUNTIFS(${q('C')},\"${branch}\",${q('K')},\"نعم\")` };
+    ['J','K','L'].forEach((col) => { applyBorder(worksheet.getCell(`${col}${row}`)); dashboardText(worksheet.getCell(`${col}${row}`), { size: 9 }); });
+  });
+
+  worksheet.mergeCells('E27:L27');
+  worksheet.getCell('E27').value = 'تنبيهات جودة التنفيذ';
+  dashboardFill(worksheet.getCell('E27'), COLORS.amber);
+  dashboardText(worksheet.getCell('E27'), { color: COLORS.white });
+  const warnings = [
+    ['منفذ بدون ملاحظات', `COUNTIFS(${q('K')},\"نعم\",${q('R')},\"\")`],
+    ['متابعة أخرى بدون موعد', `COUNTIFS(${q('P')},\"نعم\",${q('Q')},\"\")`],
+    ['مواعيد متابعة مستحقة/قديمة', `COUNTIFS(${q('P')},\"نعم\",${q('Q')},\"<=\"&TODAY())`],
+  ];
+  warnings.forEach(([label, formula], index) => {
+    const row = 28 + index;
+    worksheet.mergeCells(`E${row}:J${row}`);
+    worksheet.getCell(`E${row}`).value = label;
+    worksheet.mergeCells(`K${row}:L${row}`);
+    worksheet.getCell(`K${row}`).value = { formula };
+    dashboardText(worksheet.getCell(`E${row}`), { align: 'right', color: COLORS.slate });
+    dashboardText(worksheet.getCell(`K${row}`), { size: 12, color: COLORS.red });
+    applyBorder(worksheet.getCell(`E${row}`)); applyBorder(worksheet.getCell(`K${row}`));
+  });
+}
+
 function addSheet(workbook: any, sheet: CustomerServiceExcelSheet) {
   const worksheet = workbook.addWorksheet(sheet.name.slice(0, 31), {
     views: [{ state: 'frozen', ySplit: sheet.kind === 'execution' ? 6 : 4, xSplit: sheet.kind === 'execution' ? Math.min(5, sheet.columns.length) : 0, rightToLeft: true, showGridLines: false }],
@@ -242,6 +378,8 @@ function addSheet(workbook: any, sheet: CustomerServiceExcelSheet) {
       rules: [{ type: 'expression', formulae: [`AND($${next}${firstDataRow}="نعم",$${date}${firstDataRow}="")`], style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.roseSoft } }, font: { color: { argb: COLORS.red }, bold: true } } }],
     });
   }
+
+  if (sheet.kind === 'dashboard') addDashboardLiveMetrics(workbook, worksheet);
 
   return worksheet;
 }
