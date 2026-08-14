@@ -41,6 +41,14 @@ const REVIEW_ACTIONS = new Set(['reviewed', 'approved', 'rejected', 'returned_fo
 type WorkspaceTab = 'queue' | 'waiting' | 'review' | 'contacted' | 'performance';
 type QuickAction = 'message_sent' | 'no_answer' | 'replied' | 'scheduled' | 'completed';
 type ReviewAction = 'approved' | 'returned_for_completion' | 'escalated';
+type QueueFocus = 'all' | 'critical' | 'overdue' | 'uncontacted';
+type PriorityInsight = {
+  level: 'critical' | 'high' | 'medium' | 'normal';
+  label: string;
+  reason: string;
+  nextAction: string;
+  tone: string;
+};
 
 type FollowupRow = {
   id: string;
@@ -113,7 +121,7 @@ const lastPurchase = (row: FollowupRow) => dayKey(row.last_purchase_date) || day
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const isStaleCustomer = (row: FollowupRow) => {
   const last = lastPurchase(row);
-  if (!last) return false; // مفيش تاريخ شراء معروف — سيبها تظهر، مش نستبعدها على أساس بيانات ناقصة
+  if (!last) return false;
   const lastDate = new Date(`${last}T12:00:00`);
   if (Number.isNaN(lastDate.getTime())) return false;
   return Date.now() - lastDate.getTime() > NINETY_DAYS_MS;
@@ -126,6 +134,7 @@ const isUrgent = (row: FollowupRow) => Boolean(row.needs_manager || /عاجل|ur
 const isOverdue = (row: FollowupRow) => Boolean(dayKey(row.next_followup_date) && dayKey(row.next_followup_date) < localDayKey());
 const isDueNow = (row: FollowupRow) => !dayKey(row.next_followup_date) || dayKey(row.next_followup_date) <= localDayKey();
 const isPendingReview = (row: FollowupRow) => /pending_review|انتظار مراجعة|في انتظار المراجعة/i.test(rawStatus(row));
+const lastTouchAt = (row: FollowupRow) => row.last_attempt_at || row.contacted_at || row.first_attempt_at || null;
 
 function actorProfile(name: unknown, directory: StaffDirectoryEntry[] = []): ActorProfile {
   const normalized = normalizedActor(name);
@@ -145,6 +154,12 @@ function assignedExecutor(branch: string | null | undefined, directory: StaffDir
 function formatDateTime(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function lastTouchLabel(row: FollowupRow) {
+  const value = lastTouchAt(row);
+  if (!value) return 'لم يبدأ التواصل بعد';
+  return formatDateTime(value);
 }
 
 function dedupeRows(rows: FollowupRow[]) {
@@ -175,6 +190,64 @@ function smartScore(row: FollowupRow) {
   return score;
 }
 
+function priorityInsight(row: FollowupRow): PriorityInsight {
+  const attempts = Number(row.attempt_count || 0);
+  const avg = monthlyAverage(row);
+  const inactiveDays = activity(row).days ?? 0;
+  if (isUrgent(row)) {
+    return {
+      level: 'critical',
+      label: 'حرجة الآن',
+      reason: row.needs_manager ? 'الحالة تحتاج تدخل مدير' : 'شكوى أو طلب عاجل يحتاج تدخل سريع',
+      nextAction: 'تواصل فورًا وسجل نتيجة واضحة قبل الانتقال للعميل التالي',
+      tone: 'border-rose-300/35 bg-rose-400/10 text-rose-100',
+    };
+  }
+  if (isOverdue(row)) {
+    return {
+      level: 'high',
+      label: 'أولوية عالية',
+      reason: `موعد المتابعة ${dayKey(row.next_followup_date)} فات بدون إغلاق`,
+      nextAction: 'أعد التواصل الآن وحدد نتيجة أو موعدًا جديدًا',
+      tone: 'border-orange-300/35 bg-orange-400/10 text-orange-100',
+    };
+  }
+  if (isNoAnswer(row)) {
+    return {
+      level: 'high',
+      label: 'إعادة محاولة',
+      reason: `العميل لم يرد بعد ${attempts || 1} محاولة`,
+      nextAction: 'حاول التواصل مرة أخرى أو ثبّت موعد متابعة مناسب',
+      tone: 'border-amber-300/35 bg-amber-400/10 text-amber-100',
+    };
+  }
+  if (!lastTouchAt(row)) {
+    return {
+      level: avg >= 3000 ? 'high' : 'medium',
+      label: avg >= 3000 ? 'ابدأ الآن' : 'لم يبدأ',
+      reason: avg >= 3000 ? 'عميل مهم ولم يبدأ التواصل معه حتى الآن' : 'لا توجد محاولة تواصل مسجلة',
+      nextAction: 'ابدأ أول محاولة وسجل النتيجة مباشرة',
+      tone: avg >= 3000 ? 'border-cyan-300/35 bg-cyan-400/10 text-cyan-100' : 'border-slate-300/20 bg-white/5 text-slate-200',
+    };
+  }
+  if (inactiveDays >= 45) {
+    return {
+      level: 'medium',
+      label: 'استعادة عميل',
+      reason: `آخر شراء منذ ${inactiveDays} يومًا`,
+      nextAction: 'اعرف سبب انخفاض التعامل وسجل احتياج العميل القادم',
+      tone: 'border-violet-300/30 bg-violet-400/10 text-violet-100',
+    };
+  }
+  return {
+    level: 'normal',
+    label: 'متابعة عادية',
+    reason: avg >= 3000 ? 'عميل ذو قيمة مرتفعة ويحتاج متابعة منتظمة' : 'متابعة مستحقة حسب قائمة اليوم',
+    nextAction: attempts > 0 ? 'استكمل من آخر نتيجة وسجل الخطوة التالية' : 'ابدأ التواصل وسجل النتيجة',
+    tone: 'border-emerald-300/25 bg-emerald-400/10 text-emerald-100',
+  };
+}
+
 function suggestedFollowupScript(row: FollowupRow, kind: 'general' | 'inactive' | 'missing' | 'thanks') {
   const name = customerName(row);
   if (kind === 'inactive') return `أهلًا أ/ ${name}، مع حضرتك صيدليات دواء. لاحظنا إن زيارات حضرتك قلت الفترة الأخيرة وحبينا نطمن إن كل احتياجاتك متوفرة. هل في صنف أو خدمة نقدر نساعد حضرتك فيها؟`;
@@ -196,6 +269,13 @@ const actionLabels: Record<string, string> = {
   escalated: 'تم تصعيد الحالة',
 };
 
+const queueFocusOptions: Array<[QueueFocus, string]> = [
+  ['all', 'كل قائمة اليوم'],
+  ['critical', 'حرجة وعالية'],
+  ['overdue', 'متأخرة'],
+  ['uncontacted', 'لم يبدأ التواصل'],
+];
+
 export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTools?: () => void }) {
   const { user } = useAuth();
   const managerView = canViewAllBranches(user);
@@ -204,6 +284,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const [rows, setRows] = useState<FollowupRow[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [tab, setTab] = useState<WorkspaceTab>('queue');
+  const [queueFocus, setQueueFocus] = useState<QueueFocus>('all');
   const [selected, setSelected] = useState<FollowupRow | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -313,26 +394,28 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const queueCandidates = useMemo(() => rows.filter((row) => !isWaiting(row) && !isPendingReview(row) && isDueNow(row) && !isStaleCustomer(row)).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
   const staleBacklogCount = useMemo(() => rows.filter((row) => !isWaiting(row) && !isPendingReview(row) && isDueNow(row) && isStaleCustomer(row)).length, [rows]);
   const smartQueue = useMemo(() => {
-    if (branch !== ALL_BRANCHES) {
-      return queueCandidates.slice(0, PER_BRANCH_QUEUE_LIMIT);
-    }
-
-    const shamyQueue = queueCandidates
-      .filter((row) => normalizeBranchName(row.branch || '').includes('الشامي'))
-      .slice(0, PER_BRANCH_QUEUE_LIMIT);
-
-    const shokryQueue = queueCandidates
-      .filter((row) => normalizeBranchName(row.branch || '').includes('شكري'))
-      .slice(0, PER_BRANCH_QUEUE_LIMIT);
-
+    if (branch !== ALL_BRANCHES) return queueCandidates.slice(0, PER_BRANCH_QUEUE_LIMIT);
+    const shamyQueue = queueCandidates.filter((row) => normalizeBranchName(row.branch || '').includes('الشامي')).slice(0, PER_BRANCH_QUEUE_LIMIT);
+    const shokryQueue = queueCandidates.filter((row) => normalizeBranchName(row.branch || '').includes('شكري')).slice(0, PER_BRANCH_QUEUE_LIMIT);
     return [...shamyQueue, ...shokryQueue].sort((a, b) => smartScore(b) - smartScore(a));
   }, [branch, queueCandidates]);
   const backlogCount = Math.max(0, queueCandidates.length - smartQueue.length);
+  const queueSummary = useMemo(() => {
+    const critical = smartQueue.filter((row) => ['critical', 'high'].includes(priorityInsight(row).level)).length;
+    const overdue = smartQueue.filter(isOverdue).length;
+    const uncontacted = smartQueue.filter((row) => !lastTouchAt(row)).length;
+    return { critical, overdue, uncontacted };
+  }, [smartQueue]);
   const visibleRows = useMemo(() => {
-    const source = tab === 'waiting' ? waitingRows : tab === 'review' ? reviewRows : smartQueue;
+    let source = tab === 'waiting' ? waitingRows : tab === 'review' ? reviewRows : smartQueue;
+    if (tab === 'queue') {
+      if (queueFocus === 'critical') source = source.filter((row) => ['critical', 'high'].includes(priorityInsight(row).level));
+      if (queueFocus === 'overdue') source = source.filter(isOverdue);
+      if (queueFocus === 'uncontacted') source = source.filter((row) => !lastTouchAt(row));
+    }
     const q = search.trim().toLowerCase();
     return q ? source.filter((row) => `${customerName(row)} ${row.customer_code || ''} ${customerPhone(row)} ${row.branch || ''} ${row.followup_reason || ''}`.toLowerCase().includes(q)) : source;
-  }, [reviewRows, search, smartQueue, tab, waitingRows]);
+  }, [queueFocus, reviewRows, search, smartQueue, tab, waitingRows]);
 
   const periodEvents = useMemo(() => {
     const since = new Date();
@@ -340,9 +423,8 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     return events.filter((event) => new Date(event.created_at) >= since);
   }, [events, performanceDays]);
 
-  const executionEvents = useMemo(() => periodEvents.filter((event) => EXECUTION_ACTIONS.has(event.action) && actorProfile(event.actor_name, csDirectory).role === 'executor'), [periodEvents]);
+  const executionEvents = useMemo(() => periodEvents.filter((event) => EXECUTION_ACTIONS.has(event.action) && actorProfile(event.actor_name, csDirectory).role === 'executor'), [periodEvents, csDirectory]);
   const contactedEvents = useMemo(() => events.filter((event) => EXECUTION_ACTIONS.has(event.action)), [events]);
-
   const executorList = useMemo(() => csDirectory.filter((entry) => entry.role === 'executor'), [csDirectory]);
 
   const performance = useMemo(() => executorList.map((executor) => {
@@ -353,18 +435,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     const noAnswer = relevant.filter((event) => event.action === 'no_answer').length;
     const replied = relevant.filter((event) => event.action === 'replied').length;
     const completed = relevant.filter((event) => event.action === 'completed').length;
-    return {
-      actor: executor.name,
-      branch: executor.branch || 'غير محدد',
-      customers: customers.size,
-      attempts,
-      messages,
-      noAnswer,
-      replied,
-      completed,
-      responseRate: attempts ? replied / attempts : 0,
-      completionRate: customers.size ? completed / customers.size : 0,
-    };
+    return { actor: executor.name, branch: executor.branch || 'غير محدد', customers: customers.size, attempts, messages, noAnswer, replied, completed, responseRate: attempts ? replied / attempts : 0, completionRate: customers.size ? completed / customers.size : 0 };
   }), [executionEvents, executorList, csDirectory]);
 
   const reviewSummary = useMemo(() => {
@@ -375,7 +446,7 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       returned: reviewEvents.filter((event) => event.action === 'returned_for_completion' || event.action === 'rejected').length,
       escalated: reviewEvents.filter((event) => event.action === 'escalated').length,
     };
-  }, [periodEvents]);
+  }, [periodEvents, csDirectory]);
 
   const audit = async (row: FollowupRow, action: string, metadata: Record<string, unknown>) => {
     const profile = actorProfile(user?.name, csDirectory);
@@ -401,6 +472,13 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       .limit(200);
     if (error) toast.error(`تعذر تحميل سجل المتابعة: ${error.message}`);
     setHistory((data || []) as AuditEvent[]);
+  };
+
+  const openExecution = (row: FollowupRow) => {
+    setSelected(row);
+    setScheduledDate(dayKey(row.next_followup_date));
+    setActionNote('');
+    setHistoryOpen(false);
   };
 
   const executeAction = async (action: QuickAction) => {
@@ -489,52 +567,18 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
 
       if (action === 'approved') {
         result = 'تم اعتماد المتابعة وإغلاقها نهائيًا';
-        payload = {
-          completed_at: now,
-          status: 'completed',
-          followup_status: 'completed',
-          contact_status: 'تم الاعتماد',
-          needs_next_followup: false,
-          is_hidden: true,
-          hidden_at: now,
-          hidden_by: currentProfile.displayName,
-          hidden_reason: 'تم اعتماد المتابعة بعد المراجعة',
-          updated_by: user?.id || null,
-        };
+        payload = { completed_at: now, status: 'completed', followup_status: 'completed', contact_status: 'تم الاعتماد', needs_next_followup: false, is_hidden: true, hidden_at: now, hidden_by: currentProfile.displayName, hidden_reason: 'تم اعتماد المتابعة بعد المراجعة', updated_by: user?.id || null };
       } else if (action === 'returned_for_completion') {
         result = 'أُعيدت المتابعة للمنفذة لاستكمال البيانات أو التواصل';
-        payload = {
-          status: 'open',
-          followup_status: 'returned_for_completion',
-          contact_status: 'أُعيدت للاستكمال',
-          needs_next_followup: true,
-          next_followup_date: localDayKey(),
-          is_hidden: false,
-          followup_summary: actionNote.trim(),
-          updated_by: user?.id || null,
-        };
+        payload = { status: 'open', followup_status: 'returned_for_completion', contact_status: 'أُعيدت للاستكمال', needs_next_followup: true, next_followup_date: localDayKey(), is_hidden: false, followup_summary: actionNote.trim(), updated_by: user?.id || null };
       } else {
         result = 'تم تصعيد الحالة للإدارة';
-        payload = {
-          status: 'pending_review',
-          followup_status: 'pending_review',
-          contact_status: 'تم التصعيد',
-          needs_manager: true,
-          is_hidden: false,
-          followup_summary: actionNote.trim(),
-          updated_by: user?.id || null,
-        };
+        payload = { status: 'pending_review', followup_status: 'pending_review', contact_status: 'تم التصعيد', needs_manager: true, is_hidden: false, followup_summary: actionNote.trim(), updated_by: user?.id || null };
       }
 
       const { error } = await supabase.from('daily_followups').update(payload).eq('id', selected.id);
       if (error) throw error;
-      await audit(selected, action, {
-        result,
-        notes: actionNote.trim() || null,
-        customer_name: customerName(selected),
-        customer_code: selected.customer_code,
-        reviewed_by: currentProfile.displayName,
-      });
+      await audit(selected, action, { result, notes: actionNote.trim() || null, customer_name: customerName(selected), customer_code: selected.customer_code, reviewed_by: currentProfile.displayName });
       toast.success(result);
       setSelected(null);
       setActionNote('');
@@ -554,13 +598,15 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     ['performance', 'أداء خدمة العملاء', 2, BarChart3],
   ];
 
+  const selectedInsight = selected ? priorityInsight(selected) : null;
+
   return <>
     <section className="mx-4 space-y-4 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <p className="text-xs font-black text-cyan-300">تشغيل ومراجعة منفصلان</p>
           <h2 className="text-xl font-black text-white">تنفيذ ومراجعة المتابعات — كل مسؤولة بفرعها، ومراجعة مركزية</h2>
-          <p className="mt-1 text-sm font-bold text-slate-400">لا تُحتسب الإنشاءات أو المشاهدات أو التصحيحات الإدارية ضمن أداء التنفيذ.</p>
+          <p className="mt-1 text-sm font-bold text-slate-400">القائمة مرتبة تلقائيًا حسب الاستعجال والتأخير وقيمة العميل وحالة التواصل. كل كارت يوضح الآن لماذا جاء في هذا الترتيب وما الإجراء المطلوب.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {managerView ? <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}><option>{ALL_BRANCHES}</option><option>فرع الشامي</option><option>فرع شكري</option></select> : <div className="input-dark font-black text-cyan-100">{userBranch}</div>}
@@ -574,41 +620,64 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
         {tabs.map(([id, label, count, Icon]) => <button key={id} type="button" onClick={() => setTab(id)} className={`rounded-2xl border p-3 text-right ${tab === id ? 'border-cyan-300 bg-cyan-400/15' : 'border-white/10 bg-white/[0.03]'}`}><Icon size={18} className="mb-2 text-cyan-300"/><div className="text-xs font-black text-slate-400">{label}</div><div className="text-2xl font-black text-white">{count}</div></button>)}
       </div>
 
-      {tab === 'queue' ? <div className="grid gap-2 sm:grid-cols-4">
-        <div className="rounded-2xl bg-emerald-400/10 p-3"><div className="text-xs font-black text-emerald-200">المعروض للتنفيذ</div><div className="text-2xl font-black text-white">{smartQueue.length} / {branch === ALL_BRANCHES ? TOTAL_DAILY_QUEUE_LIMIT : PER_BRANCH_QUEUE_LIMIT}</div></div>
-        <div className="rounded-2xl bg-amber-400/10 p-3"><div className="text-xs font-black text-amber-200">قائمة الانتظار</div><div className="text-2xl font-black text-white">{backlogCount}</div></div>
-        <div className="rounded-2xl bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">منفذ الفرع</div><div className="text-lg font-black text-white">{branch === ALL_BRANCHES ? executorList.map((e) => e.name).join(' + ') || 'غير محدد' : assignedExecutor(branch, csDirectory)}</div></div>
-        {staleBacklogCount > 0 ? (
-          <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3" title="عملاء آخر شراء ليهم أقدم من 3 شهور — مستبعدين من قائمة التنفيذ اليومية ومحتاجين مراجعة/إغلاق بدل ما يفضلوا معلقين">
-            <div className="text-xs font-black text-rose-200">قديمة (أقدم من 3 شهور)</div>
-            <div className="text-2xl font-black text-white">{staleBacklogCount}</div>
-          </div>
-        ) : null}
-      </div> : null}
+      {tab === 'queue' ? <>
+        <div className="grid gap-2 sm:grid-cols-4">
+          <div className="rounded-2xl bg-emerald-400/10 p-3"><div className="text-xs font-black text-emerald-200">المعروض للتنفيذ</div><div className="text-2xl font-black text-white">{smartQueue.length} / {branch === ALL_BRANCHES ? TOTAL_DAILY_QUEUE_LIMIT : PER_BRANCH_QUEUE_LIMIT}</div></div>
+          <div className="rounded-2xl border border-rose-300/15 bg-rose-400/10 p-3"><div className="text-xs font-black text-rose-200">حرجة / عالية</div><div className="text-2xl font-black text-white">{queueSummary.critical}</div></div>
+          <div className="rounded-2xl border border-orange-300/15 bg-orange-400/10 p-3"><div className="text-xs font-black text-orange-200">متأخرة</div><div className="text-2xl font-black text-white">{queueSummary.overdue}</div></div>
+          <div className="rounded-2xl border border-cyan-300/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">لم يبدأ التواصل</div><div className="text-2xl font-black text-white">{queueSummary.uncontacted}</div></div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <div className="rounded-2xl bg-amber-400/10 p-3"><div className="text-xs font-black text-amber-200">قائمة الانتظار</div><div className="text-2xl font-black text-white">{backlogCount}</div></div>
+          <div className="rounded-2xl bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">منفذ الفرع</div><div className="text-lg font-black text-white">{branch === ALL_BRANCHES ? executorList.map((e) => e.name).join(' + ') || 'غير محدد' : assignedExecutor(branch, csDirectory)}</div></div>
+          <div className={`rounded-2xl p-3 ${staleBacklogCount > 0 ? 'border border-rose-400/20 bg-rose-500/10' : 'border border-white/10 bg-white/[0.03]'}`}><div className="text-xs font-black text-slate-300">قديمة للمراجعة</div><div className="text-2xl font-black text-white">{staleBacklogCount}</div></div>
+        </div>
+        <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/15 p-2">
+          {queueFocusOptions.map(([id, label]) => <button key={id} type="button" onClick={() => setQueueFocus(id)} className={`rounded-xl px-3 py-2 text-xs font-black transition ${queueFocus === id ? 'bg-cyan-400/20 text-cyan-100' : 'text-slate-300 hover:bg-white/5'}`}>{label}{id === 'critical' ? ` (${queueSummary.critical})` : id === 'overdue' ? ` (${queueSummary.overdue})` : id === 'uncontacted' ? ` (${queueSummary.uncontacted})` : ''}</button>)}
+        </div>
+      </> : null}
 
       {(tab === 'queue' || tab === 'waiting' || tab === 'review') ? <>
-        <div className="relative"><Search size={17} className="absolute right-3 top-3 text-slate-400"/><input className="input-dark w-full pr-10" placeholder="بحث بالاسم أو الكود أو الهاتف" value={search} onChange={(event) => setSearch(event.target.value)}/></div>
+        <div className="relative"><Search size={17} className="absolute right-3 top-3 text-slate-400"/><input className="input-dark w-full pr-10" placeholder="بحث بالاسم أو الكود أو الهاتف أو سبب المتابعة" value={search} onChange={(event) => setSearch(event.target.value)}/></div>
         <div className="space-y-2">{visibleRows.map((row, index) => {
           const tier = importance(row);
           const state = activity(row);
-          return <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <button type="button" onClick={() => { setSelected(row); setScheduledDate(dayKey(row.next_followup_date)); setActionNote(''); setHistoryOpen(false); }} className="min-w-0 flex-1 text-right">
-                <div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span><div className="font-black text-white">{customerName(row)}</div><span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">{assignedExecutor(row.branch, csDirectory)}</span></div>
-                <div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs font-black"><span className={`rounded-full border px-3 py-1 ${tier.bg} ${tier.color}`}>{tier.label}</span><span className={`rounded-full bg-white/5 px-3 py-1 ${state.color}`}>{state.label}</span>{isOverdue(row) ? <span className="rounded-full bg-red-500/15 px-3 py-1 text-red-200">متأخر</span> : null}</div>
+          const insight = priorityInsight(row);
+          const phone = customerPhone(row);
+          return <article key={row.id} className={`rounded-2xl border bg-white/[0.035] p-4 transition ${insight.level === 'critical' ? 'border-rose-300/35 shadow-lg shadow-rose-950/10' : insight.level === 'high' ? 'border-amber-300/25' : 'border-white/10'}`}>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch xl:justify-between">
+              <button type="button" onClick={() => openExecution(row)} className="min-w-0 flex-1 text-right">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span>
+                  <div className="font-black text-white">{customerName(row)}</div>
+                  <span className={`rounded-full border px-3 py-1 text-[11px] font-black ${insight.tone}`}>{insight.label}</span>
+                  <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">{assignedExecutor(row.branch, csDirectory)}</span>
+                </div>
+                <div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {phone || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs font-black"><span className={`rounded-full border px-3 py-1 ${tier.bg} ${tier.color}`}>{tier.label}</span><span className={`rounded-full bg-white/5 px-3 py-1 ${state.color}`}>{state.label}</span>{isOverdue(row) ? <span className="rounded-full bg-red-500/15 px-3 py-1 text-red-200">متأخر</span> : null}<span className="rounded-full bg-white/5 px-3 py-1 text-slate-300">{row.attempt_count || 0} محاولة</span></div>
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  <div className="rounded-xl border border-white/5 bg-black/15 p-2.5"><div className="text-[10px] font-black text-slate-500">لماذا هذه الأولوية؟</div><div className="mt-1 text-xs font-black leading-5 text-white">{insight.reason}</div></div>
+                  <div className="rounded-xl border border-cyan-300/10 bg-cyan-400/[0.06] p-2.5"><div className="text-[10px] font-black text-cyan-300">الإجراء الآن</div><div className="mt-1 text-xs font-black leading-5 text-cyan-50">{insight.nextAction}</div></div>
+                </div>
                 <div className="mt-2 text-xs font-bold text-slate-500">سبب المتابعة: {row.followup_reason || row.request_details || row.notes || 'غير مسجل'} · آخر شراء: {lastPurchase(row) || 'غير معروف'} · المتوسط: {formatCurrency(monthlyAverage(row))}</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-500">آخر محاولة: <span className={lastTouchAt(row) ? 'text-slate-300' : 'text-amber-200'}>{lastTouchLabel(row)}</span>{dayKey(row.next_followup_date) ? ` · الموعد التالي: ${dayKey(row.next_followup_date)}` : ''}</div>
               </button>
-              <div className="flex gap-2"><button className="btn-secondary text-xs" onClick={() => { setSelected(row); void loadHistory(row); }}>عرض {row.attempt_count || 0} محاولة</button><button className="btn-secondary p-2" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={18}/></button></div>
+              <div className="flex shrink-0 flex-wrap items-center gap-2 xl:w-44 xl:flex-col xl:justify-center">
+                <button className="btn-primary w-full text-xs" onClick={() => openExecution(row)}>تنفيذ الآن</button>
+                {phone ? <a className="btn-secondary w-full text-center text-xs" href={generateWhatsAppLink(phone, suggestedFollowupScript(row, isStaleCustomer(row) ? 'inactive' : 'general'))} target="_blank" rel="noreferrer">فتح واتساب</a> : null}
+                <button className="btn-secondary w-full text-xs" onClick={() => { setSelected(row); void loadHistory(row); }}>سجل المحاولات ({row.attempt_count || 0})</button>
+                <button className="btn-secondary w-full text-xs" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={15} className="ml-1 inline"/> ملف العميل</button>
+              </div>
             </div>
           </article>;
         })}</div>
+        {!visibleRows.length && !loading ? <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-6 text-center text-sm font-bold text-slate-400">لا توجد حالات مطابقة للفلاتر الحالية.</div> : null}
       </> : null}
 
       {tab === 'contacted' ? <div className="space-y-2">{contactedEvents.slice(0, 500).map((event) => <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex justify-between gap-2"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div><div className="text-xs text-slate-400">{formatDateTime(event.created_at)}</div></div><div className="mt-2 font-bold text-white">{text(event.metadata?.customer_name) || 'عميل غير محدد'} · {actorProfile(event.actor_name, csDirectory).displayName}</div><div className="mt-1 text-xs text-slate-400">{event.branch || 'فرع غير محدد'} · {text(event.metadata?.result) || 'غير مسجلة'}</div></div>)}</div> : null}
 
       {tab === 'performance' ? <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-black text-white">أداء التنفيذ الفعلي</h3><p className="text-xs font-bold text-slate-400">التنفيذ محسوب على د/ ضحى ود/ دنيا فقط.</p></div><select className="input-dark" value={performanceDays} onChange={(event) => setPerformanceDays(Number(event.target.value))}><option value={7}>آخر 7 أيام</option><option value={14}>آخر 14 يومًا</option><option value={30}>آخر 30 يومًا</option></select></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-black text-white">أداء التنفيذ الفعلي</h3><p className="text-xs font-bold text-slate-400">التنفيذ محسوب على مسؤولي خدمة العملاء الفعليين فقط.</p></div><select className="input-dark" value={performanceDays} onChange={(event) => setPerformanceDays(Number(event.target.value))}><option value={7}>آخر 7 أيام</option><option value={14}>آخر 14 يومًا</option><option value={30}>آخر 30 يومًا</option></select></div>
         <div className="overflow-x-auto rounded-2xl border border-white/10"><table className="min-w-full text-right text-sm"><thead className="bg-white/5"><tr><th className="p-3">المنفذة</th><th className="p-3">الفرع</th><th className="p-3">عملاء</th><th className="p-3">محاولات</th><th className="p-3">رسائل</th><th className="p-3">لم يرد</th><th className="p-3">تم الرد</th><th className="p-3">مكتمل</th><th className="p-3">نسبة الرد</th><th className="p-3">نسبة الإكمال</th></tr></thead><tbody>{performance.map((item) => <tr key={item.actor} className="border-t border-white/10 text-white"><td className="p-3 font-black">{item.actor}</td><td className="p-3">{item.branch}</td><td className="p-3">{item.customers}</td><td className="p-3">{item.attempts}</td><td className="p-3">{item.messages}</td><td className="p-3">{item.noAnswer}</td><td className="p-3 text-emerald-200">{item.replied}</td><td className="p-3 text-cyan-200">{item.completed}</td><td className="p-3">{(item.responseRate * 100).toFixed(1)}%</td><td className="p-3">{(item.completionRate * 100).toFixed(1)}%</td></tr>)}</tbody></table></div>
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-violet-400/20 bg-violet-400/10 p-4"><div className="flex items-center gap-2 font-black text-violet-100"><ShieldCheck size={18}/> مراجعة د/ علا</div><div className="mt-3 grid grid-cols-2 gap-2 text-sm text-white"><div>تمت المراجعة: {reviewSummary.reviewed}</div><div>مقبول: {reviewSummary.approved}</div><div>أُعيد للاستكمال: {reviewSummary.returned}</div><div>تم التصعيد: {reviewSummary.escalated}</div></div></div>
@@ -619,6 +688,13 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
 
     {selected && !detailsOpen ? <div className="fixed inset-0 z-[100] flex justify-end bg-black/65" dir="rtl"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-[#091b2d] p-5">
       <div className="flex justify-between"><div><p className="text-xs font-black text-cyan-300">بطاقة المتابعة · المسؤول {assignedExecutor(selected.branch, csDirectory)}</p><h3 className="text-2xl font-black text-white">{customerName(selected)}</h3><p className="text-sm text-slate-400">{selected.branch}</p></div><button className="btn-secondary" onClick={() => setSelected(null)}><X size={18}/></button></div>
+
+      {selectedInsight ? <div className={`mt-4 rounded-2xl border p-4 ${selectedInsight.tone}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2"><div className="font-black">{selectedInsight.label}</div><div className="text-xs font-black opacity-80">آخر محاولة: {lastTouchLabel(selected)}</div></div>
+        <div className="mt-2 text-sm font-bold leading-6">{selectedInsight.reason}</div>
+        <div className="mt-3 rounded-xl bg-black/15 p-3"><div className="text-[10px] font-black opacity-70">الإجراء التالي المقترح</div><div className="mt-1 text-sm font-black">{selectedInsight.nextAction}</div></div>
+      </div> : null}
+
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">الأهمية</div><div className="mt-1 font-black text-white">{importance(selected).label}</div></div>
         <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">حالة النشاط</div><div className="mt-1 font-black text-white">{activity(selected).label}</div></div>
@@ -652,8 +728,8 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-black text-white">وسيلة التواصل<select className="input-dark mt-2 w-full" value={contactChannel} onChange={(event) => setContactChannel(event.target.value)}><option>واتساب</option><option>اتصال هاتفي</option><option>رسالة SMS</option><option>زيارة داخل الفرع</option></select></label><label className="text-sm font-black text-white">الموعد التالي<input type="date" className="input-dark mt-2 w-full" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)}/></label></div>
       <textarea className="input-dark mt-3 min-h-28 w-full" value={actionNote} onChange={(event) => setActionNote(event.target.value)} placeholder="اكتب تفاصيل المحاولة والنتيجة..."/>
       {!canExecute ? <div className="mt-3 rounded-xl bg-amber-400/10 p-3 text-sm font-bold text-amber-100">حسابك للعرض فقط؛ أزرار التنفيذ موقوفة.</div> : null}
-      <div className="mt-4 grid gap-2 sm:grid-cols-2"><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('message_sent')}><Send size={16} className="inline ms-2"/> أرسلت رسالة</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('no_answer')}><PhoneOff size={16} className="inline ms-2"/> لم يرد</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('replied')}><MessageCircle size={16} className="inline ms-2"/> تم الرد</button>{customerPhone(selected) ? <a className="btn-secondary text-center" href={generateWhatsAppLink(customerPhone(selected), 'أهلًا بحضرتك، مع حضرتك صيدليات دواء. حابين نطمن إن كل شيء تمام.')} target="_blank" rel="noreferrer">فتح واتساب</a> : null}<button className="btn-secondary" disabled={saving || !canExecute || !scheduledDate} onClick={() => void executeAction('scheduled')}>حفظ الموعد</button><button className="btn-primary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('completed')}><CheckCircle2 size={16} className="inline ms-2"/> إكمال المتابعة</button></div>
-{isPendingReview(selected) && ['reviewer', 'general_manager'].includes(currentProfile.role) ? <div className="mt-5 rounded-2xl border border-violet-400/20 bg-violet-400/10 p-4"><div className="mb-3 font-black text-violet-100">قرار المراجعة</div><div className="grid gap-2 sm:grid-cols-3"><button className="btn-primary" disabled={saving} onClick={() => void executeReviewAction('approved')}>اعتماد وإغلاق</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('returned_for_completion')}>إعادة للاستكمال</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('escalated')}>تصعيد للإدارة</button></div></div> : null}
+      <div className="mt-4 grid gap-2 sm:grid-cols-2"><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('message_sent')}><Send size={16} className="inline ms-2"/> أرسلت رسالة</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('no_answer')}><PhoneOff size={16} className="inline ms-2"/> لم يرد</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('replied')}><MessageCircle size={16} className="inline ms-2"/> تم الرد</button>{customerPhone(selected) ? <a className="btn-secondary text-center" href={generateWhatsAppLink(customerPhone(selected), suggestedFollowupScript(selected, 'general'))} target="_blank" rel="noreferrer">فتح واتساب</a> : null}<button className="btn-secondary" disabled={saving || !canExecute || !scheduledDate} onClick={() => void executeAction('scheduled')}>حفظ الموعد</button><button className="btn-primary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('completed')}><CheckCircle2 size={16} className="inline ms-2"/> إكمال المتابعة</button></div>
+      {isPendingReview(selected) && ['reviewer', 'general_manager'].includes(currentProfile.role) ? <div className="mt-5 rounded-2xl border border-violet-400/20 bg-violet-400/10 p-4"><div className="mb-3 font-black text-violet-100">قرار المراجعة</div><div className="grid gap-2 sm:grid-cols-3"><button className="btn-primary" disabled={saving} onClick={() => void executeReviewAction('approved')}>اعتماد وإغلاق</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('returned_for_completion')}>إعادة للاستكمال</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('escalated')}>تصعيد للإدارة</button></div></div> : null}
     </aside></div> : null}
 
     {detailsOpen && selected ? <Suspense fallback={<div className="fixed inset-0 z-[110] grid place-items-center bg-black/70"><Loader2 className="animate-spin text-cyan-300"/></div>}><CustomerQuickDetailsModal followupId={selected.id} customerId={selected.customer_id} customerCode={selected.customer_code} customerPhone={customerPhone(selected)} customerName={customerName(selected)} branch={selected.branch} fallbackMetric={{ ...selected.customer_metrics, total_spent: selected.total_spent, avg_monthly: monthlyAverage(selected), last_purchase: lastPurchase(selected) }} onClose={() => setDetailsOpen(false)}/></Suspense> : null}
