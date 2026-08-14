@@ -176,14 +176,14 @@ function addDashboardLiveMetrics(workbook: any, worksheet: any) {
   };
 
   card('E5:F5', 'E6:F7', 'إجمالي مهام اليوم', `COUNTA(${q('D')})`, COLORS.cyan, '#,##0');
-  card('G5:H5', 'G6:H7', 'تم تنفيذ المتابعة', `COUNTIF(${q('K')},\"نعم\")`, COLORS.emerald, '#,##0');
-  card('I5:J5', 'I6:J7', 'نسبة الرد من المنفذ', `IFERROR(COUNTIF(${q('L')},\"نعم\")/COUNTIF(${q('K')},\"نعم\"),0)`, COLORS.indigo, '0%');
-  card('K5:L5', 'K6:L7', 'تحويل الرد إلى شراء', `IFERROR(COUNTIF(${q('N')},\"نعم\")/COUNTIF(${q('L')},\"نعم\"),0)`, COLORS.violet, '0%');
+  card('G5:H5', 'G6:H7', 'تم تنفيذ المتابعة', `COUNTIF(${q('K')},"نعم")`, COLORS.emerald, '#,##0');
+  card('I5:J5', 'I6:J7', 'نسبة الرد من المنفذ', `IFERROR(COUNTIF(${q('L')},"نعم")/COUNTIF(${q('K')},"نعم"),0)`, COLORS.indigo, '0%');
+  card('K5:L5', 'K6:L7', 'تحويل الرد إلى شراء', `IFERROR(COUNTIF(${q('N')},"نعم")/COUNTIF(${q('L')},"نعم"),0)`, COLORS.violet, '0%');
 
-  card('E9:F9', 'E10:F11', 'نسبة إنجاز القائمة', `IFERROR(COUNTIF(${q('K')},\"نعم\")/COUNTA(${q('D')}),0)`, COLORS.teal, '0%');
-  card('G9:H9', 'G10:H11', 'متبقي للتنفيذ', `MAX(0,COUNTA(${q('D')})-COUNTIF(${q('K')},\"نعم\"))`, COLORS.amber, '#,##0');
-  card('I9:J9', 'I10:J11', 'يحتاج متابعة أخرى', `COUNTIF(${q('P')},\"نعم\")`, COLORS.slate, '#,##0');
-  card('K9:L9', 'K10:L11', 'قيمة شراء بعد المتابعة', `SUM(${q('O')})`, COLORS.emerald, '#,##0.00 \"ج.م\"');
+  card('E9:F9', 'E10:F11', 'نسبة إنجاز القائمة', `IFERROR(COUNTIF(${q('K')},"نعم")/COUNTA(${q('D')}),0)`, COLORS.teal, '0%');
+  card('G9:H9', 'G10:H11', 'متبقي للتنفيذ', `MAX(0,COUNTA(${q('D')})-COUNTIF(${q('K')},"نعم"))`, COLORS.amber, '#,##0');
+  card('I9:J9', 'I10:J11', 'يحتاج متابعة أخرى', `COUNTIF(${q('P')},"نعم")`, COLORS.slate, '#,##0');
+  card('K9:L9', 'K10:L11', 'قيمة شراء بعد المتابعة', `SUM(${q('O')})`, COLORS.emerald, '#,##0.00 "ج.م"');
 
   worksheet.mergeCells('E13:L13');
   const progressTitle = worksheet.getCell('E13');
@@ -192,10 +192,10 @@ function addDashboardLiveMetrics(workbook: any, worksheet: any) {
   dashboardText(progressTitle, { size: 11, color: COLORS.navy });
 
   const progressRows = [
-    ['تنفيذ المهام', `COUNTIF(${q('K')},\"نعم\")`, `COUNTA(${q('D')})`],
-    ['العملاء الذين ردوا', `COUNTIF(${q('L')},\"نعم\")`, `MAX(1,COUNTIF(${q('K')},\"نعم\"))`],
-    ['عمليات الشراء', `COUNTIF(${q('N')},\"نعم\")`, `MAX(1,COUNTIF(${q('L')},\"نعم\"))`],
-    ['متابعات قادمة', `COUNTIF(${q('P')},\"نعم\")`, `MAX(1,COUNTIF(${q('K')},\"نعم\"))`],
+    ['تنفيذ المهام', `COUNTIF(${q('K')},"نعم")`, `COUNTA(${q('D')})`],
+    ['العملاء الذين ردوا', `COUNTIF(${q('L')},"نعم")`, `MAX(1,COUNTIF(${q('K')},"نعم"))`],
+    ['عمليات الشراء', `COUNTIF(${q('N')},"نعم")`, `MAX(1,COUNTIF(${q('L')},"نعم"))`],
+    ['متابعات قادمة', `COUNTIF(${q('P')},"نعم")`, `MAX(1,COUNTIF(${q('K')},"نعم"))`],
   ];
   progressRows.forEach(([label, current, target], index) => {
     const row = 14 + index;
@@ -206,7 +206,7 @@ function addDashboardLiveMetrics(workbook: any, worksheet: any) {
     worksheet.getCell(`H${row}`).value = { formula: `IFERROR(${current}/${target},0)` };
     worksheet.getCell(`H${row}`).numFmt = '0%';
     worksheet.mergeCells(`I${row}:L${row}`);
-    worksheet.getCell(`I${row}`).value = { formula: `REPT(\"█\",ROUND(MIN(1,IFERROR(${current}/${target},0))*10,0))&REPT(\"░\",10-ROUND(MIN(1,IFERROR(${current}/${target},0))*10,0))` };
+    worksheet.getCell(`I${row}`).value = { formula: `REPT("█",ROUND(MIN(1,IFERROR(${current}/${target},0))*10,0))&REPT("░",10-ROUND(MIN(1,IFERROR(${current}/${target},0))*10,0))` };
     dashboardText(worksheet.getCell(`I${row}`), { size: 12, color: COLORS.teal });
     ['E','G','H','I'].forEach((col) => applyBorder(worksheet.getCell(`${col}${row}`)));
     if (row % 2 === 0) ['E','G','H','I'].forEach((col) => dashboardFill(worksheet.getCell(`${col}${row}`), COLORS.slateSoft));
@@ -225,8 +225,8 @@ function addDashboardLiveMetrics(workbook: any, worksheet: any) {
   ['VIP آخر 3 شهور', '+500', 'نقاط'].forEach((type, index) => {
     const row = 22 + index;
     worksheet.getCell(`E${row}`).value = type;
-    worksheet.getCell(`F${row}`).value = { formula: `COUNTIF(${q('B')},\"${type}\")` };
-    worksheet.getCell(`G${row}`).value = { formula: `COUNTIFS(${q('B')},\"${type}\",${q('K')},\"نعم\")` };
+    worksheet.getCell(`F${row}`).value = { formula: `COUNTIF(${q('B')},"${type}")` };
+    worksheet.getCell(`G${row}`).value = { formula: `COUNTIFS(${q('B')},"${type}",${q('K')},"نعم")` };
     worksheet.getCell(`H${row}`).value = { formula: `IFERROR(G${row}/F${row},0)` };
     worksheet.getCell(`H${row}`).numFmt = '0%';
     ['E','F','G','H'].forEach((col) => { applyBorder(worksheet.getCell(`${col}${row}`)); dashboardText(worksheet.getCell(`${col}${row}`), { size: 9 }); });
@@ -243,8 +243,8 @@ function addDashboardLiveMetrics(workbook: any, worksheet: any) {
   ['فرع شكري', 'فرع الشامي'].forEach((branch, index) => {
     const row = 22 + index;
     worksheet.getCell(`J${row}`).value = branch;
-    worksheet.getCell(`K${row}`).value = { formula: `COUNTIF(${q('C')},\"${branch}\")` };
-    worksheet.getCell(`L${row}`).value = { formula: `COUNTIFS(${q('C')},\"${branch}\",${q('K')},\"نعم\")` };
+    worksheet.getCell(`K${row}`).value = { formula: `COUNTIF(${q('C')},"${branch}")` };
+    worksheet.getCell(`L${row}`).value = { formula: `COUNTIFS(${q('C')},"${branch}",${q('K')},"نعم")` };
     ['J','K','L'].forEach((col) => { applyBorder(worksheet.getCell(`${col}${row}`)); dashboardText(worksheet.getCell(`${col}${row}`), { size: 9 }); });
   });
 
@@ -253,9 +253,9 @@ function addDashboardLiveMetrics(workbook: any, worksheet: any) {
   dashboardFill(worksheet.getCell('E27'), COLORS.amber);
   dashboardText(worksheet.getCell('E27'), { color: COLORS.white });
   const warnings = [
-    ['منفذ بدون ملاحظات', `COUNTIFS(${q('K')},\"نعم\",${q('R')},\"\")`],
-    ['متابعة أخرى بدون موعد', `COUNTIFS(${q('P')},\"نعم\",${q('Q')},\"\")`],
-    ['مواعيد متابعة مستحقة/قديمة', `COUNTIFS(${q('P')},\"نعم\",${q('Q')},\"<=\"&TODAY())`],
+    ['منفذ بدون ملاحظات', `COUNTIFS(${q('K')},"نعم",${q('R')},"")`],
+    ['متابعة أخرى بدون موعد', `COUNTIFS(${q('P')},"نعم",${q('Q')},"")`],
+    ['مواعيد متابعة مستحقة/قديمة', `COUNTIFS(${q('P')},"نعم",${q('Q')},"<="&TODAY())`],
   ];
   warnings.forEach(([label, formula], index) => {
     const row = 28 + index;
