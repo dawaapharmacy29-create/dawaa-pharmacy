@@ -1,0 +1,19 @@
+name: Verify Customer Request Bulk Repair V5
+
+on:
+  push:
+    branches:
+      - agent/customer-request-bulk-repair-v5
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
