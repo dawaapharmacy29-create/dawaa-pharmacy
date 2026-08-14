@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LAST_RUNTIME_ERROR_KEY } from '@/lib/appRecovery';
+import { clearRecoveredRuntimeError, LAST_RUNTIME_ERROR_KEY } from '@/lib/appRecovery';
 
 const DISMISSED_KEY = 'dawaa_health_banner_dismissed_error';
 
@@ -9,6 +9,10 @@ export default function AppHealthBanner() {
 
   useEffect(() => {
     try {
+      if (window.__DAWAA_REACT_BOOTSTRAPPED && clearRecoveredRuntimeError()) {
+        setError(null);
+        return;
+      }
       const lastError = window.sessionStorage.getItem(LAST_RUNTIME_ERROR_KEY);
       const dismissed = window.sessionStorage.getItem(DISMISSED_KEY);
       if (lastError && dismissed !== lastError) setError(lastError);

@@ -10,7 +10,7 @@ import './styles/customer-service-followups.css';
 import './styles/customer-cashback-polish.css';
 import './styles/reviews-modal-polish.css';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
-import { logRuntimeError } from '@/lib/appRecovery';
+import { clearRecoveredRuntimeError, logRuntimeError } from '@/lib/appRecovery';
 
 const APP_IMPORT_TIMEOUT_MS = 25000;
 
@@ -77,6 +77,8 @@ const SafeApp = lazy(async () => {
     const module = await withTimeout(import('./App.tsx'), APP_IMPORT_TIMEOUT_MS, 'App import');
     console.info('[Dawaa bootstrap] App imported');
     window.__DAWAA_REACT_BOOTSTRAPPED = true;
+    clearRecoveredRuntimeError();
+    try { sessionStorage.removeItem('dawaa_stale_chunk_reload_at'); } catch { /* ignore storage failures */ }
     return normalizeDefault(module);
   } catch (error) {
     console.error('[Dawaa bootstrap] App import failed', error);

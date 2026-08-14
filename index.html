@@ -216,10 +216,12 @@
 
         window.addEventListener('error', function (event) {
           var target = event.target;
-          var isAssetFailure = target && target !== window && (target.tagName === 'SCRIPT' || target.tagName === 'LINK');
+          var isScriptFailure = target && target !== window && target.tagName === 'SCRIPT';
+          var isCriticalStylesheetFailure = target && target !== window && target.tagName === 'LINK' && String(target.rel || '').toLowerCase() === 'stylesheet' && String(target.href || '').indexOf(window.location.origin) === 0;
+          var isAssetFailure = isScriptFailure || isCriticalStylesheetFailure;
           var message = event.message || (isAssetFailure ? 'asset load failed' : '');
-          if (/module|script|chunk|CSP|Content Security Policy|asset load failed/i.test(message)) {
-            showRecovery('module_error', message);
+          if (isAssetFailure || /module|script|chunk|CSP|Content Security Policy/i.test(message)) {
+            showRecovery('module_error', message || 'critical asset load failed');
           }
         }, true);
 
