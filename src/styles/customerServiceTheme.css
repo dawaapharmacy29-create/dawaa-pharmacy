@@ -200,6 +200,19 @@
   background-color: rgba(34, 211, 197, 0.06) !important;
 }
 
+/* أعمدة لوحة القرارات: يظل عنوان العمود ظاهرًا بينما تتحرك أسماء العملاء فقط. */
+.customer-service-page [class*="max-h-[620px]"][class*="overflow-auto"] > div:first-child {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  margin: -0.75rem -0.75rem 0.75rem;
+  padding: 0.85rem 0.75rem 0.75rem;
+  background: rgba(11, 32, 53, 0.98);
+  border-bottom: 1px solid rgba(42, 82, 112, 0.72);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(12px);
+}
+
 .customer-service-page ::-webkit-scrollbar-thumb {
   background: #315c78;
   border-radius: 999px;
