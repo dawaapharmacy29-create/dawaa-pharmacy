@@ -1,0 +1,1 @@
+Validation covers live arrival, reconciliation, conflict visibility, branch mapping, customer matching and source metadata preservation.
