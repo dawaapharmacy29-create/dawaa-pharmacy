@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, History, Loader2, PackageSearch, RefreshCw, Send, ShieldCheck, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertTriangle, Download, FileSpreadsheet, History, Loader2, PackageSearch, RefreshCw, Send, ShieldCheck, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   exportWarehouseShortageWorkbook,
@@ -152,6 +152,22 @@ export default function CustomerRequestWarehousePanel({ branch }: { branch: stri
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {!!cycle?.dispatches.length && (
+            <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950/35 p-3">
+              <div className="flex items-center gap-2 text-xs font-black text-white"><History size={15} className="text-violet-300" /> آخر دورات الإرسال لنفس نطاق الفرع</div>
+              <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+                {cycle.dispatches.slice(0, 5).map((dispatch) => (
+                  <div key={dispatch.id} className="rounded-xl border border-slate-800 bg-slate-950/55 p-3">
+                    <div className="flex items-center justify-between gap-2"><span className="font-black text-violet-200">#{dispatch.dispatch_no}</span><span className="text-[10px] text-slate-500">{new Date(dispatch.sent_at).toLocaleDateString('ar-EG')}</span></div>
+                    <div className="mt-2 text-[11px] font-bold text-slate-300">{dispatch.total_products} صنف · {dispatch.total_quantity} وحدة</div>
+                    <div className="mt-1 text-[10px] text-slate-500">{dispatch.total_requests} طلب · {dispatch.urgent_requests} عاجل</div>
+                    {dispatch.notes && <div className="mt-2 line-clamp-2 text-[10px] leading-5 text-slate-400">{dispatch.notes}</div>}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </>
