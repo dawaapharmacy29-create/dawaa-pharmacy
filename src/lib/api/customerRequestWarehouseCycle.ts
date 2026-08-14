@@ -72,13 +72,13 @@ function isMissingRelation(error: { code?: string; message?: string } | null | u
 }
 
 export async function getWarehouseDispatchContext(snapshot: WarehouseShortageSnapshot): Promise<WarehouseDispatchContext> {
-  let dispatchQuery = supabase
+  const branchKey = snapshot.branch && snapshot.branch !== '' ? snapshot.branch : 'all';
+  const dispatchQuery = supabase
     .from('warehouse_shortage_dispatches')
     .select('id,dispatch_no,branch,sent_at,total_products,total_requests,total_quantity,urgent_requests,unlinked_products,notes')
+    .eq('branch', branchKey)
     .order('sent_at', { ascending: false })
     .limit(12);
-
-  if (snapshot.branch && snapshot.branch !== 'all') dispatchQuery = dispatchQuery.eq('branch', snapshot.branch);
 
   const { data: dispatchData, error: dispatchError } = await dispatchQuery;
   if (dispatchError) {
