@@ -15,20 +15,18 @@ export type ProductMatch = {
 const ARABIC_DIACRITICS = /[\u064B-\u065F\u0670\u06D6-\u06ED]/g;
 const UNIT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bmilligram(s)?\b/gi, 'mg'],
-  [/\bمجم\b/g, 'mg'],
-  [/\bمغ\b/g, 'mg'],
+  [/مجم/g, 'mg'],
+  [/مغ/g, 'mg'],
   [/\bgram(s)?\b/gi, 'g'],
-  [/\bجرام\b/g, 'g'],
+  [/جرام/g, 'g'],
   [/\bmilliliter(s)?\b/gi, 'ml'],
-  [/\bمللى\b/g, 'ml'],
-  [/\bمللي\b/g, 'ml'],
-  [/\bقرص\b/g, 'tab'],
-  [/\bاقراص\b/g, 'tab'],
-  [/\bأقراص\b/g, 'tab'],
+  [/مللى/g, 'ml'],
+  [/مللي/g, 'ml'],
+  [/اقراص/g, 'tab'],
+  [/قرص/g, 'tab'],
   [/\btablet(s)?\b/gi, 'tab'],
   [/\bcapsule(s)?\b/gi, 'cap'],
-  [/\bكبسوله\b/g, 'cap'],
-  [/\bكبسولة\b/g, 'cap'],
+  [/كبسوله/g, 'cap'],
 ];
 
 export function normalizeProductCode(value: unknown) {
