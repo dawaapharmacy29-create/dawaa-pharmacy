@@ -47,23 +47,22 @@ create index if not exists idx_warehouse_shortage_dispatch_items_product_code
 alter table public.warehouse_shortage_dispatches enable row level security;
 alter table public.warehouse_shortage_dispatch_items enable row level security;
 
+revoke all on table public.warehouse_shortage_dispatches from anon, authenticated;
+revoke all on table public.warehouse_shortage_dispatch_items from anon, authenticated;
+grant select on table public.warehouse_shortage_dispatches to anon, authenticated;
+grant select on table public.warehouse_shortage_dispatch_items to anon, authenticated;
+grant all on table public.warehouse_shortage_dispatches to service_role;
+grant all on table public.warehouse_shortage_dispatch_items to service_role;
+
 drop policy if exists warehouse_shortage_dispatches_read on public.warehouse_shortage_dispatches;
 create policy warehouse_shortage_dispatches_read on public.warehouse_shortage_dispatches
-for select using (auth.uid() is not null or public.dawaa_has_active_app_session());
-
-drop policy if exists warehouse_shortage_dispatches_write on public.warehouse_shortage_dispatches;
-create policy warehouse_shortage_dispatches_write on public.warehouse_shortage_dispatches
-for all using (auth.uid() is not null or public.dawaa_has_active_app_session())
-with check (auth.uid() is not null or public.dawaa_has_active_app_session());
+for select to anon, authenticated
+using ((select auth.uid()) is not null or public.dawaa_has_active_app_session());
 
 drop policy if exists warehouse_shortage_dispatch_items_read on public.warehouse_shortage_dispatch_items;
 create policy warehouse_shortage_dispatch_items_read on public.warehouse_shortage_dispatch_items
-for select using (auth.uid() is not null or public.dawaa_has_active_app_session());
-
-drop policy if exists warehouse_shortage_dispatch_items_write on public.warehouse_shortage_dispatch_items;
-create policy warehouse_shortage_dispatch_items_write on public.warehouse_shortage_dispatch_items
-for all using (auth.uid() is not null or public.dawaa_has_active_app_session())
-with check (auth.uid() is not null or public.dawaa_has_active_app_session());
+for select to anon, authenticated
+using ((select auth.uid()) is not null or public.dawaa_has_active_app_session());
 
 create or replace function public.record_warehouse_shortage_dispatch(
   p_branch text,
@@ -75,14 +74,14 @@ create or replace function public.record_warehouse_shortage_dispatch(
 returns jsonb
 language plpgsql
 security definer
-set search_path to 'public','pg_catalog'
+set search_path = ''
 as $$
 declare
   v_dispatch_id uuid;
   v_dispatch_no bigint;
   v_item jsonb;
 begin
-  if not (auth.uid() is not null or public.dawaa_has_active_app_session()) then
+  if not ((select auth.uid()) is not null or public.dawaa_has_active_app_session()) then
     raise exception 'not_authorized';
   end if;
 
@@ -108,7 +107,7 @@ begin
     coalesce((p_summary->>'urgent_requests')::integer, 0),
     coalesce((p_summary->>'unlinked_products')::integer, 0),
     nullif(trim(coalesce(p_notes, '')), ''),
-    auth.uid(),
+    (select auth.uid()),
     nullif(trim(coalesce(p_created_by_label, '')), '')
   )
   returning id, dispatch_no into v_dispatch_id, v_dispatch_no;
@@ -134,7 +133,7 @@ begin
     ) values (
       v_dispatch_id,
       nullif(v_item->>'product_id', '')::uuid,
-      coalesce(nullif(v_item->>'product_key', ''), 'unknown:' || gen_random_uuid()::text),
+      coalesce(nullif(v_item->>'product_key', ''), 'unknown:' || v_dispatch_id::text),
       nullif(v_item->>'product_code', ''),
       coalesce(nullif(v_item->>'product_name', ''), 'صنف غير محدد'),
       coalesce((v_item->>'total_quantity')::numeric, 0),
@@ -159,4 +158,6 @@ begin
 end;
 $$;
 
+revoke execute on function public.record_warehouse_shortage_dispatch(text,jsonb,jsonb,text,text) from public;
+revoke execute on function public.record_warehouse_shortage_dispatch(text,jsonb,jsonb,text,text) from anon, authenticated;
 grant execute on function public.record_warehouse_shortage_dispatch(text,jsonb,jsonb,text,text) to anon, authenticated, service_role;
