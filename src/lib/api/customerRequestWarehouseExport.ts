@@ -31,6 +31,7 @@ export type WarehouseShortageGroup = {
   productCode: string;
   canonicalName: string;
   requestNames: string[];
+  requestIds: string[];
   totalQuantity: number;
   requestCount: number;
   urgentCount: number;
@@ -74,7 +75,6 @@ function customerKey(request: RequestWithProduct) {
   return String(request.customer_id || request.customer_code || request.customer_phone || '').trim();
 }
 
-// مطابق للدالة SQL الحالية normalize_product_name المستخدمة في products.normalized_name.
 function normalizeCatalogDbName(value: unknown) {
   return String(value ?? '')
     .trim()
@@ -166,6 +166,7 @@ export async function getWarehouseShortageSnapshot(branch = 'all', limit = 3000)
       productCode,
       canonicalName,
       requestNames: [],
+      requestIds: [],
       totalQuantity: 0,
       requestCount: 0,
       urgentCount: 0,
@@ -184,6 +185,7 @@ export async function getWarehouseShortageSnapshot(branch = 'all', limit = 3000)
     if (isUrgent(request)) current.urgentCount += 1;
     current.branches[branchName] = (current.branches[branchName] || 0) + quantity;
     current.statuses[status] = (current.statuses[status] || 0) + 1;
+    if (request.id && !current.requestIds.includes(request.id)) current.requestIds.push(request.id);
     if (request.medicine_name && !current.requestNames.includes(request.medicine_name)) current.requestNames.push(request.medicine_name);
     if (request.supplier_hint && !current.supplierHints.includes(request.supplier_hint)) current.supplierHints.push(request.supplier_hint);
     if (!current.oldestRequestAt || (created && dateValue(created) < dateValue(current.oldestRequestAt))) current.oldestRequestAt = created;
