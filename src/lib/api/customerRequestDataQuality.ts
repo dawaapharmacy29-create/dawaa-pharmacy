@@ -1,19 +1,18 @@
 import { supabase } from '@/lib/supabase';
 import { normalizePhone, searchCustomers, type CustomerSearchResult } from '@/lib/customerSearch';
-import { searchProductsCatalog, type CatalogProduct } from '@/lib/api/productsCatalog';
+import { searchProductsCatalogSmart, type CatalogProduct } from '@/lib/api/productsCatalog';
+import { confidentUniqueProductMatch, normalizeProductCode, normalizeProductName, scoreProductCandidate } from '@/lib/productMatching';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 
 export type RequestDataQuality = {
   customerCandidate: CustomerSearchResult | null;
   productCandidate: CatalogProduct | null;
+  productMatchScore: number;
+  productMatchLabel: string;
   customerIssues: string[];
   productIssues: string[];
   branchConflict: boolean;
 };
-
-function normalizeCode(value: unknown) {
-  return String(value ?? '').trim().replace(/\.0$/, '').toUpperCase();
-}
 
 export async function inspectCustomerRequestDataQuality(request: CustomerRequest & { product_id?: string | null; product_code?: string | null }) : Promise<RequestDataQuality> {
   const customerIssues: string[] = [];
@@ -50,27 +49,51 @@ export async function inspectCustomerRequestDataQuality(request: CustomerRequest
   if (branchConflict) customerIssues.push(`فرع الطلب (${request.branch}) مختلف عن فرع العميل (${customerCandidate?.branch})`);
 
   const requestWithProduct = request as CustomerRequest & { product_id?: string | null; product_code?: string | null };
+  const requestCode = normalizeProductCode(requestWithProduct.product_code);
+  const requestName = String(request.medicine_name || '').trim();
   if (!requestWithProduct.product_id) productIssues.push('الصنف غير مربوط بكتالوج الأصناف');
-  if (!normalizeCode(requestWithProduct.product_code)) productIssues.push('كود الصنف غير موجود');
-  if (!String(request.medicine_name || '').trim()) productIssues.push('اسم الصنف غير موجود');
+  if (!requestCode) productIssues.push('كود الصنف غير موجود');
+  if (!requestName) productIssues.push('اسم الصنف غير موجود');
 
   let productCandidate: CatalogProduct | null = null;
-  const productQuery = normalizeCode(requestWithProduct.product_code) || String(request.medicine_name || '').trim();
+  let productMatchScore = 0;
+  let productMatchLabel = 'لا يوجد تطابق مؤكد';
+  const productQuery = requestCode || requestName;
   if (productQuery) {
-    const products = await searchProductsCatalog(productQuery, 20);
-    const code = normalizeCode(requestWithProduct.product_code);
-    productCandidate = products.find((item) => code && normalizeCode(item.code) === code) || null;
-    if (!productCandidate && !code && products.length === 1) productCandidate = products[0];
+    const products = await searchProductsCatalogSmart(productQuery, 30);
+    if (requestCode) {
+      const exact = products.find((item) => normalizeProductCode(item.code) === requestCode);
+      if (exact) {
+        productCandidate = exact;
+        productMatchScore = 100;
+        productMatchLabel = 'تطابق كود مؤكد';
+      }
+    } else {
+      const confident = confidentUniqueProductMatch({ name: requestName }, products);
+      if (confident) {
+        productCandidate = confident.product;
+        productMatchScore = confident.score;
+        productMatchLabel = confident.label;
+      } else if (products[0]) {
+        productMatchScore = products[0].matchScore;
+        productMatchLabel = products[0].matchScore >= 68 ? 'يوجد تشابه محتمل — يحتاج مراجعة يدوية' : 'لا يوجد تطابق قوي';
+      }
+    }
   }
 
-  if (productCandidate && requestWithProduct.product_code && normalizeCode(productCandidate.code) !== normalizeCode(requestWithProduct.product_code)) {
+  if (productCandidate && requestCode && normalizeProductCode(productCandidate.code) !== requestCode) {
     productIssues.push('كود الصنف لا يطابق كتالوج الأصناف');
   }
-  if (productCandidate && request.medicine_name && productCandidate.name && productCandidate.name.trim() !== request.medicine_name.trim()) {
-    productIssues.push('اسم الصنف في الطلب مختلف عن الاسم المعتمد في الكتالوج');
+  if (productCandidate && requestName && productCandidate.name) {
+    const match = scoreProductCandidate({ requestName, requestCode, product: productCandidate });
+    if (normalizeProductName(productCandidate.name) !== normalizeProductName(requestName)) {
+      productIssues.push(`اسم الطلب مختلف عن الاسم المعتمد في الكتالوج — ${match.label}`);
+    }
+    productMatchScore = Math.max(productMatchScore, match.score);
+    productMatchLabel = match.label;
   }
 
-  return { customerCandidate, productCandidate, customerIssues, productIssues, branchConflict };
+  return { customerCandidate, productCandidate, productMatchScore, productMatchLabel, customerIssues, productIssues, branchConflict };
 }
 
 export async function repairCustomerRequestCustomer(requestId: string, customer: CustomerSearchResult, keepRequestBranch = true) {
