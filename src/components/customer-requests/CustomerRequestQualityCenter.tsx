@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronLeft, Loader2, RefreshCw, Search, ShieldAlert, UserRound, PackageSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
+import CustomerRequestBulkRepairPanel from '@/components/customer-requests/CustomerRequestBulkRepairPanel';
 import {
   getCustomerRequestQualityCenter,
   qualityIssueLabel,
@@ -76,6 +77,8 @@ export default function CustomerRequestQualityCenter({
         <SummaryCard icon={<UserRound size={18} />} label="مشاكل بيانات العميل" value={customerProblems} tone="cyan" />
         <SummaryCard icon={<PackageSearch size={18} />} label="مشاكل ربط الأصناف" value={productProblems} tone="violet" />
       </div>
+
+      {!loading && rows.length > 0 && <CustomerRequestBulkRepairPanel rows={rows} onChanged={() => void load()} />}
 
       <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-3">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
