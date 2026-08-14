@@ -19,9 +19,11 @@ if (!src.includes(MARKER)) {
   src = src.replace(followupAnchor, `          {workspaceTab === 'followup' && <>\n            <CustomerRequestsStageTabs\n              value={statusFilter}\n              onChange={(status) => { setQuickFilter('all'); setStatusFilter(status); setPage(1); }}\n              items={[[\'searching_suppliers\', \'جاري البحث\'], [\'sourcing\', \'جاري التوفير\'], [\'available\', \'تم التوفير\'], [\'customer_contacted\', \'تم التواصل\']]}\n            />\n            <CustomerRequestWarehousePanel branch={branchFilter} />\n          </>}`);
 
   src = src.replace(`{ id: 'followup', label: 'المتابعة', hint: 'التوفير والتواصل', badge: summary.searching + summary.waiting_customer + summary.ready },`, `{ id: 'followup', label: 'المتابعة', hint: 'التوفير + ملف المخازن', badge: summary.searching + summary.waiting_customer + summary.ready },`);
-
-  fs.writeFileSync(file, src);
-  console.log('customer request product matching v7 UI applied');
-} else {
-  console.log('customer request product matching v7 already applied');
 }
+
+// قيم الفرع لازم تكون موحدة في الفلتر السريع والمتقدم وملف المخازن.
+src = src.replaceAll('<option value="فرع شكري">فرع شكري</option>', '<option value="دواء شكري">دواء شكري</option>');
+src = src.replaceAll('<option value="فرع الشامي">فرع الشامي</option>', '<option value="دواء الشامي">دواء الشامي</option>');
+
+fs.writeFileSync(file, src);
+console.log(src.includes(MARKER) ? 'customer request product matching v7 UI ready' : 'customer request product matching v7 UI applied');
