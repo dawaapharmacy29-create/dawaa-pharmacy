@@ -216,6 +216,7 @@ export default function CustomerRequests() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [advancingId, setAdvancingId] = useState<string | null>(null);
+  const [pendingAdvance, setPendingAdvance] = useState<CustomerRequest | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [statusNote, setStatusNote] = useState('');
   const [newStatus, setNewStatus] = useState('');
@@ -379,7 +380,7 @@ export default function CustomerRequests() {
     }
   };
 
-  const advanceRequestFromCard = async (request: CustomerRequest) => {
+  const performAdvanceRequest = async (request: CustomerRequest) => {
     const action = quickAdvanceAction(request);
     if (!action) return;
     setAdvancingId(request.id);
@@ -399,6 +400,16 @@ export default function CustomerRequests() {
     } finally {
       setAdvancingId(null);
     }
+  };
+
+  const advanceRequestFromCard = (request: CustomerRequest) => {
+    const action = quickAdvanceAction(request);
+    if (!action) return;
+    if (action.status === 'delivered') {
+      setPendingAdvance(request);
+      return;
+    }
+    void performAdvanceRequest(request);
   };
 
   const moveToShortage = async () => {
@@ -478,6 +489,37 @@ export default function CustomerRequests() {
       </>}
       {workspaceTab === 'analytics' && <CustomerRequestInsightsPanel branch={branchFilter} onAction={applyAnalyticsAction} />}
       {workspaceTab === 'quality' && <CustomerRequestQualityCenter branch={branchFilter} onOpenRequest={(request) => openDetails(request)} />}
+
+      {pendingAdvance && (() => {
+        const action = quickAdvanceAction(pendingAdvance);
+        if (!action) return null;
+        return <div className="fixed inset-0 z-[135] flex items-center justify-center bg-slate-950/85 p-3 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget && !advancingId) setPendingAdvance(null); }}>
+          <section className="w-full max-w-lg overflow-hidden rounded-[26px] border border-green-400/30 bg-[#091a2d] shadow-2xl">
+            <header className="border-b border-slate-700 bg-gradient-to-l from-green-500/15 to-cyan-500/10 px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-green-500/15 text-green-200 ring-1 ring-green-400/25"><CheckCircle2 size={22} /></span>
+                  <div><div className="text-lg font-black text-white">تأكيد التسليم / البيع</div><p className="mt-1 text-xs font-bold leading-6 text-slate-400">دي آخر مرحلة في دورة الطلب، وبعد التأكيد هيتسجل الطلب كمُسلّم ومكتمل تشغيليًا.</p></div>
+                </div>
+                <button type="button" className="rounded-xl border border-slate-600 bg-slate-900 p-2 text-slate-300 hover:text-white" onClick={() => setPendingAdvance(null)} aria-label="إغلاق تأكيد التسليم"><X size={18} /></button>
+              </div>
+            </header>
+            <div className="space-y-3 p-5">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-xl bg-slate-950/55 p-3"><span className="block text-[10px] font-bold text-slate-500">العميل</span><strong className="mt-1 block truncate text-white">{pendingAdvance.customer_name || 'غير محدد'}</strong></div>
+                <div className="rounded-xl bg-slate-950/55 p-3"><span className="block text-[10px] font-bold text-slate-500">كود العميل</span><strong className="mt-1 block text-white">{pendingAdvance.customer_code || '—'}</strong></div>
+                <div className="col-span-2 rounded-xl bg-slate-950/55 p-3"><span className="block text-[10px] font-bold text-slate-500">الصنف</span><strong className="mt-1 block text-white">{pendingAdvance.medicine_name}</strong><span className="mt-1 block text-[10px] text-slate-500">الكمية {pendingAdvance.quantity || 1}</span></div>
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-green-400/20 bg-green-500/[0.08] p-3 text-xs font-black"><span className="text-slate-400">الحالة الحالية</span><span className="text-cyan-200">{requestStatusLabel(pendingAdvance.status)}</span><ArrowLeft size={16} className="text-slate-500" /><span className="text-green-200">{requestStatusLabel(action.status)}</span></div>
+              <div className="rounded-xl border border-amber-400/20 bg-amber-500/[0.07] px-3 py-2 text-[11px] font-bold leading-6 text-amber-100"><AlertTriangle size={15} className="ml-1 inline" /> استخدم التأكيد فقط بعد استلام العميل للصنف أو إتمام البيع فعليًا.</div>
+            </div>
+            <footer className="flex flex-col-reverse gap-2 border-t border-slate-700 bg-slate-950/35 p-4 sm:flex-row sm:justify-end">
+              <button type="button" className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-xs font-black text-slate-300 hover:text-white" onClick={() => setPendingAdvance(null)}>رجوع</button>
+              <button type="button" disabled={Boolean(advancingId)} className="flex items-center justify-center gap-2 rounded-xl border border-green-400/30 bg-green-500/20 px-5 py-3 text-xs font-black text-green-100 transition hover:bg-green-500/30 disabled:cursor-wait disabled:opacity-60" onClick={() => { const request = pendingAdvance; setPendingAdvance(null); void performAdvanceRequest(request); }}><CheckCircle2 size={17} /> تأكيد تم التسليم / البيع</button>
+            </footer>
+          </section>
+        </div>;
+      })()}
 
       {showCreate && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/80 p-2 backdrop-blur-sm md:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setShowCreate(false); }}>
