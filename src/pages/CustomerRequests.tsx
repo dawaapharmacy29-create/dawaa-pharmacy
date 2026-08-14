@@ -40,6 +40,7 @@ import ImageUploadBox from '@/components/ImageUploadBox';
 import CustomerSmartSearch, { type CustomerSearchResult } from '@/components/CustomerSmartSearch';
 import ProductSmartSearch from '@/components/ProductSmartSearch';
 import CustomerRequestInsightsPanel from '@/components/customer-requests/CustomerRequestInsightsPanel';
+import CustomerRequestDataQualityPanel from '@/components/customer-requests/CustomerRequestDataQualityPanel'; // CUSTOMER_REQUEST_DATA_QUALITY_V3
 import {
   createCustomerRequest,
   getCustomerRequestEvents,
@@ -543,6 +544,14 @@ export default function CustomerRequests() {
               <div className="flex items-center gap-2 font-black text-white"><Eye size={19} className="text-cyan-300" /> كل تفاصيل الطلب</div>
               <button type="button" className="rounded-xl border border-slate-600 bg-slate-900 p-2 text-slate-300 hover:text-white" onClick={() => setShowDetails(false)} aria-label="إغلاق"><X size={18} /></button>
             </div>
+            <CustomerRequestDataQualityPanel
+              request={selected as RequestWithProduct}
+              onUpdated={(updated) => {
+                setSelected(updated);
+                setRequests((current) => current.map((item) => item.id === updated.id ? updated : item));
+                void load();
+              }}
+            />
             <RequestDetail request={selected as RequestWithProduct} events={events} newStatus={newStatus} setNewStatus={setNewStatus} note={statusNote} setNote={setStatusNote} saving={saving} onStatus={() => void saveStatus(newStatus)} onQuickStatus={(status, note) => void saveStatus(status, note ?? '')} onWhatsApp={openWhatsApp} onShortage={moveToShortage} user={user} />
           </aside>
         </div>
