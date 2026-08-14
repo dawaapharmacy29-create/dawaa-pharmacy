@@ -1,0 +1,1 @@
+CI should validate TypeScript build and repository quality gates before merge.
