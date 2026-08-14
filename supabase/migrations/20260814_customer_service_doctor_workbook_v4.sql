@@ -130,7 +130,7 @@ begin
             or coalesce(d.request_source,'') in ('exceptional_followup','doctor_requested_followup'));
         if found then
           v_updated:=v_updated+1;
-          if v_queue='points' and v_code is not null then perform public.mark_customer_points_contacted_v2(v_branch,v_code,v_actor.actor_name,p_actor_id); end if;
+          if v_points<>0 and v_code is not null then perform public.mark_customer_points_contacted_v2(v_branch,v_code,v_actor.actor_name,p_actor_id); end if;
           continue;
         end if;
       end if;
@@ -149,7 +149,7 @@ begin
           updated_by=p_actor_id::text,updated_at=now(),notes=concat('استيراد ملف: ',coalesce(p_file_name,'-'),' · ',v_notes)
         where id=v_existing;
         v_updated:=v_updated+1;
-        if v_queue='points' and v_code is not null then perform public.mark_customer_points_contacted_v2(v_branch,v_code,v_actor.actor_name,p_actor_id); end if;
+        if v_points<>0 and v_code is not null then perform public.mark_customer_points_contacted_v2(v_branch,v_code,v_actor.actor_name,p_actor_id); end if;
         continue;
       end if;
 
@@ -166,7 +166,7 @@ begin
         v_needs_next,v_next_date,now(),now(),now(),1,v_completed_at,v_completed_at,v_completed_at is null,v_actor.actor_name,v_actor.actor_name,v_actor.staff_id,p_actor_id::text,
         v_actor.actor_name,p_actor_id::text,v_client_request_id,'complete',jsonb_build_object('queue_type',v_queue,'invoice_amount',v_invoice_amount,'points_balance',v_points,'source','smart_queue_excel_v4')
       );
-      if v_queue='points' and v_code is not null then perform public.mark_customer_points_contacted_v2(v_branch,v_code,v_actor.actor_name,p_actor_id); end if;
+      if v_points<>0 and v_code is not null then perform public.mark_customer_points_contacted_v2(v_branch,v_code,v_actor.actor_name,p_actor_id); end if;
       v_imported:=v_imported+1;
     exception when others then
       v_skipped:=v_skipped+1;
