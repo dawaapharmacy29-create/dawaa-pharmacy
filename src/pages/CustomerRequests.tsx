@@ -230,6 +230,8 @@ export default function CustomerRequests() {
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [showDetails, setShowDetails] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<'overview' | 'requests' | 'followup' | 'analytics' | 'archive'>('overview');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false); // ADMIN_CUSTOMER_REQUESTS_TABS_V1
 
   const { data: staff } = useSupabaseQuery<StaffOption>({ table: 'staff', filters: isActiveStaffFilter(), realtimeEnabled: false });
   const doctors = useMemo(() => (staff || []).filter((item) => [item.name, item.role].filter(Boolean).some((value) => /د\/|دكتور|صيدلي|صيدلاني|doctor|pharmacist/i.test(String(value)))), [staff]);
@@ -281,6 +283,7 @@ export default function CustomerRequests() {
     if (action.status) { setStatusFilter(action.status); setQuickFilter('all'); }
     if (action.assignee) { setAssigneeFilter(action.assignee); setQuickFilter('all'); }
     if (action.search) { setSearch(action.search); setQuickFilter('all'); }
+    setWorkspaceTab('requests');
     setPage(1);
     window.setTimeout(() => document.getElementById('customer-request-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   };
@@ -370,36 +373,89 @@ export default function CustomerRequests() {
 
   return (
     <div className="mx-auto w-full max-w-[1680px] space-y-5 px-1 pb-10" dir="rtl">
-      <CommandHeader summary={summary} onCreate={() => setShowCreate((value) => !value)} onRefresh={load} loading={loading} onKpi={(filter) => { setQuickFilter(filter); setStatusFilter('all'); }} />
-      <QuickQueues value={quickFilter} onChange={setQuickFilter} summary={summary} />
-      <CustomerRequestInsightsPanel branch={branchFilter} onAction={applyAnalyticsAction} />
+      <CommandHeader summary={summary} onCreate={() => setShowCreate((value) => !value)} onRefresh={load} loading={loading} onKpi={(filter) => { setWorkspaceTab('requests'); setQuickFilter(filter); setStatusFilter('all'); }} />
+      <CustomerRequestsWorkspaceTabs value={workspaceTab} onChange={(tab) => {
+        setWorkspaceTab(tab);
+        setPage(1);
+        setShowAdvancedFilters(false);
+        if (tab === 'requests') { setQuickFilter('attention'); setStatusFilter('all'); }
+        if (tab === 'followup') { setQuickFilter('all'); setStatusFilter('searching_suppliers'); }
+        if (tab === 'archive') { setQuickFilter('all'); setStatusFilter('delivered'); }
+      }} summary={summary} />
+
+      {workspaceTab === 'overview' && <CustomerRequestsOverview summary={summary} onOpenQueue={(filter) => { setWorkspaceTab('requests'); setQuickFilter(filter); setStatusFilter('all'); }} />}
+      {workspaceTab === 'analytics' && <CustomerRequestInsightsPanel branch={branchFilter} onAction={applyAnalyticsAction} />}
 
       {showCreate && <CreateRequestPanel doctors={doctors} user={user} onCreated={async (request) => { setShowCreate(false); setSelected(request); setQuickFilter('today'); setPage(1); toast.success('تم تسجيل طلب العميل'); await load(); }} />}
 
-      <Filters search={search} setSearch={setSearch} branch={branchFilter} setBranch={setBranchFilter} status={statusFilter} setStatus={setStatusFilter} urgency={urgencyFilter} setUrgency={setUrgencyFilter} source={sourceFilter} setSource={setSourceFilter} channel={channelFilter} setChannel={setChannelFilter} assignee={assigneeFilter} setAssignee={setAssigneeFilter} assignees={assignees} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} onClear={clearFilters} />
+      {workspaceTab !== 'overview' && workspaceTab !== 'analytics' && (
+        <div className="space-y-4">
+          {workspaceTab === 'requests' && <QuickQueues value={quickFilter} onChange={setQuickFilter} summary={summary} />}
 
-      <section id="customer-request-list" className="scroll-mt-24 rounded-3xl border border-slate-700 bg-slate-950/45 p-4 shadow-xl">
-        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="text-lg font-black text-white">طلبات العملاء — قائمة التنفيذ</div>
-            <div className="mt-1 text-xs text-slate-400">{totalRows.toLocaleString('ar-EG')} طلب مطابق · العرض الافتراضي كروت كبيرة لسهولة المتابعة</div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary flex items-center gap-2 px-3 py-2 text-xs" onClick={() => void exportReport()} disabled={exporting}>{exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Excel</button>
-            <div className="flex rounded-xl border border-slate-700 bg-slate-900 p-1">
-              <button type="button" aria-label="عرض كبطاقات" className={`flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold ${viewMode === 'cards' ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400'}`} onClick={() => setViewMode('cards')}><LayoutGrid size={16} /> كروت</button>
-              <button type="button" aria-label="عرض كجدول" className={`flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold ${viewMode === 'table' ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400'}`} onClick={() => setViewMode('table')}><List size={16} /> جدول</button>
+          {workspaceTab === 'followup' && (
+            <CustomerRequestsStageTabs
+              value={statusFilter}
+              onChange={(status) => { setQuickFilter('all'); setStatusFilter(status); setPage(1); }}
+              items={[['searching_suppliers', 'جاري البحث'], ['sourcing', 'جاري التوفير'], ['available', 'تم التوفير'], ['customer_contacted', 'تم التواصل']]}
+            />
+          )}
+
+          {workspaceTab === 'archive' && (
+            <CustomerRequestsStageTabs
+              value={statusFilter}
+              onChange={(status) => { setQuickFilter('all'); setStatusFilter(status); setPage(1); }}
+              items={[['delivered', 'تم التسليم'], ['closed', 'مغلق'], ['cancelled', 'ملغي'], ['not_available', 'غير متوفر']]}
+            />
+          )}
+
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-3">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+              <div className="relative flex-1">
+                <Search size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input className="input-dark h-10 w-full pr-9 text-sm" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث سريع: العميل، الكود، الهاتف أو الصنف..." />
+              </div>
+              <select className="input-dark h-10 min-w-40 text-sm" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}>
+                <option value="all">كل الفروع</option>
+                <option value="دواء شكري">دواء شكري</option>
+                <option value="دواء الشامي">دواء الشامي</option>
+              </select>
+              <button type="button" className={`h-10 rounded-xl border px-4 text-sm font-bold transition ${showAdvancedFilters ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-200' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600'}`} onClick={() => setShowAdvancedFilters((value) => !value)}>
+                {showAdvancedFilters ? 'إخفاء الفلاتر' : 'فلاتر متقدمة'}
+              </button>
+              {(search || branchFilter !== 'all' || statusFilter !== 'all' || urgencyFilter !== 'all' || sourceFilter !== 'all' || channelFilter !== 'all' || assigneeFilter !== 'all' || dateFrom || dateTo) && (
+                <button type="button" className="h-10 rounded-xl border border-slate-700 px-3 text-xs font-bold text-slate-400 hover:text-white" onClick={clearFilters}>مسح</button>
+              )}
             </div>
-            <select className="input-dark w-auto min-w-24 text-xs" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={20}>20</option><option value={30}>30</option><option value={50}>50</option></select>
+            {showAdvancedFilters && <div className="mt-3 border-t border-slate-800 pt-3">
+              <Filters search={search} setSearch={setSearch} branch={branchFilter} setBranch={setBranchFilter} status={statusFilter} setStatus={setStatusFilter} urgency={urgencyFilter} setUrgency={setUrgencyFilter} source={sourceFilter} setSource={setSourceFilter} channel={channelFilter} setChannel={setChannelFilter} assignee={assigneeFilter} setAssignee={setAssigneeFilter} assignees={assignees} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} onClear={clearFilters} />
+            </div>}
           </div>
-        </div>
 
-        {loading ? <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-72 animate-pulse rounded-3xl bg-slate-800/80" />)}</div>
-          : requests.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-700 p-12 text-center text-sm text-slate-400">لا توجد طلبات مطابقة.</div>
-          : viewMode === 'table' ? <RequestTable requests={requests} page={page} pageSize={pageSize} onSelect={openDetails} />
-          : <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{requests.map((request) => <RequestCard key={request.id} request={request as RequestWithProduct} onSelect={() => openDetails(request)} />)}</div>}
-        <Pagination page={page} pages={totalPages} onPage={setPage} />
-      </section>
+
+          <section id="customer-request-list" className="scroll-mt-24 rounded-3xl border border-slate-700 bg-slate-950/45 p-4 shadow-xl">
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-lg font-black text-white">طلبات العملاء — قائمة التنفيذ</div>
+                <div className="mt-1 text-xs text-slate-400">{totalRows.toLocaleString('ar-EG')} طلب مطابق · العرض الافتراضي كروت كبيرة لسهولة المتابعة</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button className="btn-secondary flex items-center gap-2 px-3 py-2 text-xs" onClick={() => void exportReport()} disabled={exporting}>{exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Excel</button>
+                <div className="flex rounded-xl border border-slate-700 bg-slate-900 p-1">
+                  <button type="button" aria-label="عرض كبطاقات" className={`flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold ${viewMode === 'cards' ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400'}`} onClick={() => setViewMode('cards')}><LayoutGrid size={16} /> كروت</button>
+                  <button type="button" aria-label="عرض كجدول" className={`flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold ${viewMode === 'table' ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400'}`} onClick={() => setViewMode('table')}><List size={16} /> جدول</button>
+                </div>
+                <select className="input-dark w-auto min-w-24 text-xs" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={20}>20</option><option value={30}>30</option><option value={50}>50</option></select>
+              </div>
+            </div>
+
+            {loading ? <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-72 animate-pulse rounded-3xl bg-slate-800/80" />)}</div>
+              : requests.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-700 p-12 text-center text-sm text-slate-400">لا توجد طلبات مطابقة.</div>
+              : viewMode === 'table' ? <RequestTable requests={requests} page={page} pageSize={pageSize} onSelect={openDetails} />
+              : <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{requests.map((request) => <RequestCard key={request.id} request={request as RequestWithProduct} onSelect={() => openDetails(request)} />)}</div>}
+            <Pagination page={page} pages={totalPages} onPage={setPage} />
+          </section>
+        </div>
+      )}
 
       {showDetails && selected && (
         <div className="fixed inset-0 z-[100] flex items-stretch justify-end bg-slate-950/75 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowDetails(false); }}>
@@ -414,6 +470,48 @@ export default function CustomerRequests() {
       )}
     </div>
   );
+}
+
+
+type CustomerRequestsWorkspaceTab = 'overview' | 'requests' | 'followup' | 'analytics' | 'archive';
+
+function CustomerRequestsWorkspaceTabs({ value, onChange, summary }: { value: CustomerRequestsWorkspaceTab; onChange: (value: CustomerRequestsWorkspaceTab) => void; summary: CustomerRequestCommandSummary }) {
+  const tabs: Array<{ id: CustomerRequestsWorkspaceTab; label: string; hint: string; badge?: number }> = [
+    { id: 'overview', label: 'لوحة اليوم', hint: 'المهم الآن', badge: summary.open },
+    { id: 'requests', label: 'الطلبات', hint: 'التنفيذ اليومي', badge: summary.today },
+    { id: 'followup', label: 'المتابعة', hint: 'التوفير والتواصل', badge: summary.searching + summary.waiting_customer + summary.ready },
+    { id: 'analytics', label: 'التحليلات', hint: 'الأداء والفروع' },
+    { id: 'archive', label: 'الأرشيف', hint: 'المكتمل والملغي', badge: summary.delivered + summary.cancelled },
+  ];
+  return <nav className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950/55 p-1.5 shadow-lg">
+    <div className="grid min-w-[760px] grid-cols-5 gap-1.5">
+      {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => onChange(tab.id)} className={`relative h-[58px] rounded-xl border px-3 text-right transition ${value === tab.id ? 'border-cyan-400/40 bg-cyan-500/15 text-white shadow-sm' : 'border-transparent text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'}`}>
+        <span className="block text-sm font-black">{tab.label}</span><span className="mt-0.5 block text-[10px] text-slate-500">{tab.hint}</span>
+        {typeof tab.badge === 'number' && <span className={`absolute left-2 top-2 min-w-6 rounded-full px-1.5 py-0.5 text-center text-[10px] font-black ${value === tab.id ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>{tab.badge.toLocaleString('ar-EG')}</span>}
+      </button>)}
+    </div>
+  </nav>;
+}
+
+function CustomerRequestsOverview({ summary, onOpenQueue }: { summary: CustomerRequestCommandSummary; onOpenQueue: (filter: CustomerRequestQuickFilter) => void }) {
+  const cards: Array<{ label: string; value: number; hint: string; filter: CustomerRequestQuickFilter; tone: string }> = [
+    { label: 'يحتاج تدخل', value: summary.open, hint: 'كل الطلبات المفتوحة', filter: 'attention', tone: 'border-amber-400/25 bg-amber-500/10 text-amber-200' },
+    { label: 'عاجل', value: summary.urgent, hint: 'أولوية قصوى', filter: 'urgent', tone: 'border-red-400/25 bg-red-500/10 text-red-200' },
+    { label: 'متأخر', value: summary.overdue, hint: 'تجاوز وقت المرحلة', filter: 'overdue', tone: 'border-orange-400/25 bg-orange-500/10 text-orange-200' },
+    { label: 'بدون مسئول', value: summary.unassigned, hint: 'تحتاج إسناد', filter: 'unassigned', tone: 'border-violet-400/25 bg-violet-500/10 text-violet-200' },
+  ];
+  return <div className="space-y-4">
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{cards.map((card) => <button key={card.label} type="button" onClick={() => onOpenQueue(card.filter)} className={`rounded-2xl border p-4 text-right transition hover:-translate-y-0.5 ${card.tone}`}><div className="text-3xl font-black">{card.value.toLocaleString('ar-EG')}</div><div className="mt-1 text-sm font-black">{card.label}</div><div className="mt-1 text-[11px] opacity-70">{card.hint}</div></button>)}</div>
+    <div className="grid gap-3 lg:grid-cols-3">
+      <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-4"><div className="text-xs text-slate-500">نسبة التنفيذ</div><div className="mt-2 text-3xl font-black text-emerald-300">{summary.fulfillment_rate.toLocaleString('ar-EG')}%</div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-emerald-400" style={{ width: Math.min(summary.fulfillment_rate, 100) + '%' }} /></div></div>
+      <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-4"><div className="text-xs text-slate-500">متوسط وقت التوفير</div><div className="mt-2 text-3xl font-black text-cyan-200">{Number(summary.avg_fulfillment_hours || 0).toLocaleString('ar-EG', { maximumFractionDigits: 1 })} س</div><div className="mt-1 text-xs text-slate-500">من التسجيل حتى الإتمام</div></div>
+      <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-4"><div className="text-xs text-slate-500">جودة البيانات</div><div className="mt-2 flex gap-3"><span><b className="text-xl text-white">{summary.unlinked_customer}</b><small className="block text-[10px] text-slate-500">غير مربوط</small></span><span><b className="text-xl text-white">{summary.no_branch}</b><small className="block text-[10px] text-slate-500">بدون فرع</small></span><span><b className="text-xl text-white">{summary.sync_conflicts}</b><small className="block text-[10px] text-slate-500">تعارض مزامنة</small></span></div></div>
+    </div>
+  </div>;
+}
+
+function CustomerRequestsStageTabs({ value, onChange, items }: { value: string; onChange: (value: string) => void; items: Array<[string, string]> }) {
+  return <div className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950/45 p-1.5"><div className="flex min-w-max gap-1.5">{items.map(([id, label]) => <button key={id} type="button" onClick={() => onChange(id)} className={`h-10 rounded-xl px-4 text-xs font-black transition ${value === id ? 'bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/30' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}>{label}</button>)}</div></div>;
 }
 
 function CommandHeader({ summary, onCreate, onRefresh, loading, onKpi }: { summary: CustomerRequestCommandSummary; onCreate: () => void; onRefresh: () => void; loading: boolean; onKpi: (filter: CustomerRequestQuickFilter) => void }) {
