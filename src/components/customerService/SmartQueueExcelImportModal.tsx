@@ -97,10 +97,12 @@ export default function SmartQueueExcelImportModal({ open, onClose, onImported, 
   const [fileName, setFileName] = useState('');
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [sourceSheets, setSourceSheets] = useState<string[]>([]);
 
   const executedRows = useMemo(() => rows.filter((r) => r.followedUp), [rows]);
   const invalid = useMemo(() => executedRows.filter((r) => r.notes.trim().length < 10 || (r.needsNextFollowup && !r.nextFollowupDate)), [executedRows]);
-  const counts = useMemo(() => ({ total: rows.length, executed: executedRows.length, pending: rows.length - executedRows.length, invalid: invalid.length, exceptional: executedRows.filter((r) => r.queueType === 'exceptional').length }), [rows, executedRows, invalid]);
+  const counts = useMemo(() => ({ total: rows.length, executed: executedRows.length, pending: rows.length - executedRows.length, invalid: invalid.length, exceptional: executedRows.filter((r) => r.queueType === 'exceptional').length, responded: executedRows.filter((r) => r.responded).length, purchases: executedRows.filter((r) => r.purchaseAfterFollowup).length }), [rows, executedRows, invalid]);
+  const invalidReason = (row: SmartQueueImportRow) => [row.notes.trim().length < 10 ? 'الملاحظات أقل من 10 حروف' : '', row.needsNextFollowup && !row.nextFollowupDate ? 'موعد المتابعة القادمة ناقص' : ''].filter(Boolean).join(' · ');
   if (!open) return null;
 
   async function readFile(file: File) {
@@ -109,15 +111,17 @@ export default function SmartQueueExcelImportModal({ open, onClose, onImported, 
       const XLSX = await import('xlsx');
       const book = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
       const preferred = book.SheetNames.includes('تنفيذ اليوم') ? ['تنفيذ اليوم'] : book.SheetNames;
+      const detectedSheets: string[] = [];
       const parsed = preferred.flatMap((name) => {
         const matrix = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, defval: '', raw: true });
         const hasResultHeaders = matrix.some((row) => row.map(norm).includes(norm('اسم العميل')) && row.map(norm).includes(norm('تمت المتابعة')));
+        if (hasResultHeaders) detectedSheets.push(name);
         return hasResultHeaders ? parseMatrix(matrix) : [];
       }).map((row) => ({ ...row, branch: row.branch || (branch === 'كل الفروع' ? '' : branch) }));
       if (!parsed.length) throw new Error('لم يتم العثور على شيت تنفيذ اليوم أو بيانات متابعة قابلة للقراءة.');
-      setRows(parsed); setFileName(file.name);
+      setRows(parsed); setFileName(file.name); setSourceSheets(detectedSheets);
       toast.success(`تمت قراءة ${parsed.length} مهمة؛ المنفذ فعليًا ${parsed.filter((r) => r.followedUp).length}`);
-    } catch (error) { setRows([]); toast.error(`تعذر قراءة الملف: ${(error as Error).message}`); }
+    } catch (error) { setRows([]); setSourceSheets([]); toast.error(`تعذر قراءة الملف: ${(error as Error).message}`); }
     finally { setLoading(false); }
   }
 
@@ -140,9 +144,9 @@ export default function SmartQueueExcelImportModal({ open, onClose, onImported, 
 
   return <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/75 p-4" dir="rtl">
     <div className="max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-3xl border border-cyan-300/15 bg-[#0d2038] p-5 shadow-2xl">
-      <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-white">استيراد نتائج ملف الدكاترة</h2><p className="mt-1 text-sm font-bold text-slate-400">نقرأ «تنفيذ اليوم»، نستورد المنفذ فقط، ونراجع النواقص قبل التسجيل.</p></div><button type="button" onClick={onClose} className="rounded-xl border border-white/10 p-2 text-slate-300"><X size={18}/></button></div>
-      <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]"><label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3 text-sm font-black text-slate-950"><Upload size={17}/>{loading ? 'جارٍ المعالجة...' : 'اختيار ملف الدكاترة'}<input type="file" accept=".xlsx,.xls" className="hidden" disabled={loading} onChange={(e) => e.target.files?.[0] && void readFile(e.target.files[0])}/></label><div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-slate-300"><FileSpreadsheet className="ml-2 inline" size={17}/>{fileName || 'لا يوجد ملف'}</div></div>
-      {!!rows.length && <><div className="my-4 grid grid-cols-2 gap-2 md:grid-cols-5">{[['كل المهام',counts.total],['المنفذ',counts.executed],['غير منفذ — لن يستورد',counts.pending],['استثنائي منفذ',counts.exceptional],['ناقص بيانات',counts.invalid]].map(([label,value])=><div key={String(label)} className={`rounded-xl border p-3 text-center ${label==='ناقص بيانات' && Number(value)>0?'border-rose-300/30 bg-rose-400/10':'border-white/10 bg-white/5'}`}><div className="text-[11px] font-bold text-slate-400">{label}</div><div className="mt-1 text-xl font-black text-white">{value}</div></div>)}</div>{invalid.length ? <div className="mb-4 flex items-center gap-2 rounded-xl border border-rose-300/25 bg-rose-400/10 p-3 text-sm font-black text-rose-100"><AlertTriangle size={18}/>لن يتم السماح بالاستيراد قبل استكمال الصفوف المنفذة الناقصة.</div>:<div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-400/10 p-3 text-sm font-black text-emerald-100"><CheckCircle2 size={18}/>الملف صالح للاستيراد.</div>}<div className="flex justify-end"><button type="button" disabled={loading || !executedRows.length || !!invalid.length} onClick={()=>void importRows()} className="rounded-xl bg-emerald-400 px-5 py-3 text-sm font-black text-slate-950 disabled:opacity-40">استيراد النتائج المنفذة فقط</button></div></>}
+      <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-white">مراجعة واستيراد نتائج Excel</h2><p className="mt-1 text-sm font-bold text-slate-400">نقرأ «تنفيذ اليوم» حتى لو الهيدر بعد عنوان ملون، ونستورد الصفوف المنفذة فقط بعد فحص النواقص.</p></div><button type="button" onClick={onClose} className="rounded-xl border border-white/10 p-2 text-slate-300"><X size={18}/></button></div>
+      <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]"><label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3 text-sm font-black text-slate-950"><Upload size={17}/>{loading ? 'جارٍ المعالجة...' : 'اختيار ملف الدكاترة'}<input type="file" accept=".xlsx,.xls" className="hidden" disabled={loading} onChange={(e) => e.target.files?.[0] && void readFile(e.target.files[0])}/></label><div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-slate-300"><FileSpreadsheet className="ml-2 inline" size={17}/>{fileName || 'لا يوجد ملف'}{sourceSheets.length ? <div className="mt-1 text-[10px] font-black text-cyan-200">تم التعرف على: {sourceSheets.join('، ')}</div> : null}</div></div>
+      {!!rows.length && <><div className="my-4 grid grid-cols-2 gap-2 md:grid-cols-5">{[['كل المهام',counts.total],['المنفذ',counts.executed],['تم الرد',counts.responded],['عمليات شراء',counts.purchases],['غير منفذ — لن يستورد',counts.pending],['ناقص بيانات',counts.invalid]].map(([label,value])=><div key={String(label)} className={`rounded-xl border p-3 text-center ${label==='ناقص بيانات' && Number(value)>0?'border-rose-300/30 bg-rose-400/10':'border-white/10 bg-white/5'}`}><div className="text-[11px] font-bold text-slate-400">{label}</div><div className="mt-1 text-xl font-black text-white">{value}</div></div>)}</div>{invalid.length ? <><div className="mb-3 flex items-center gap-2 rounded-xl border border-rose-300/25 bg-rose-400/10 p-3 text-sm font-black text-rose-100"><AlertTriangle size={18}/>لن يتم السماح بالاستيراد قبل استكمال الصفوف المنفذة الناقصة.</div><div className="mb-4 overflow-hidden rounded-2xl border border-rose-300/15"><div className="bg-rose-400/10 px-3 py-2 text-xs font-black text-rose-100">الصفوف التي تحتاج تعديل ({invalid.length})</div><div className="max-h-52 overflow-auto">{invalid.slice(0, 15).map((row) => <div key={row.rowNumber} className="grid grid-cols-[70px_1fr_1.4fr] gap-2 border-t border-white/5 px-3 py-2 text-[11px]"><span className="font-black text-slate-400">صف {row.rowNumber}</span><span className="font-black text-white">{row.customerName || row.customerCode}</span><span className="font-bold text-rose-200">{invalidReason(row)}</span></div>)}</div></div></>:<div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-400/10 p-3 text-sm font-black text-emerald-100"><CheckCircle2 size={18}/>الملف صالح للاستيراد ولا توجد صفوف منفذة ناقصة.</div>}<div className="flex justify-end"><button type="button" disabled={loading || !executedRows.length || !!invalid.length} onClick={()=>void importRows()} className="rounded-xl bg-emerald-400 px-5 py-3 text-sm font-black text-slate-950 disabled:opacity-40">استيراد النتائج المنفذة فقط</button></div></>}
       {summary ? <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm font-black text-slate-200">النتيجة: تم {summary.imported} · تحديث {summary.updated || 0} · مكرر {summary.duplicates} · متوقف {summary.skipped}</div> : null}
     </div>
   </div>;
