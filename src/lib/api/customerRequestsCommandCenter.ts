@@ -39,6 +39,13 @@ export interface CustomerRequestPageOptions {
   dateTo?: string;
   search?: string;
   quickFilter?: CustomerRequestQuickFilter;
+  requestId?: string;
+  customerId?: string;
+  customerCode?: string;
+  customerPhone?: string;
+  productCode?: string;
+  medicineName?: string;
+  registrar?: string; // CUSTOMER_REQUEST_CONTEXT_ROUTING_V2
 }
 
 export interface CustomerRequestPageResult {
@@ -92,6 +99,19 @@ export async function getCustomerRequestsPage(options: CustomerRequestPageOption
   }
 
   let query = supabase.from('customer_requests').select('*', { count: 'exact' }).order('is_urgent', { ascending: false }).order('updated_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false, nullsFirst: false });
+
+  // Context filters are exact by design. They are used by deep-links from customer/product analytics
+  // and must not degrade into a broad text search.
+  if (options.requestId) query = query.eq('id', options.requestId);
+  if (options.customerId) query = query.eq('customer_id', options.customerId);
+  if (options.customerCode) query = query.eq('customer_code', options.customerCode);
+  if (options.customerPhone) query = query.eq('customer_phone', options.customerPhone);
+  if (options.productCode) query = query.eq('product_code', options.productCode);
+  if (options.medicineName && !options.productCode) query = query.ilike('medicine_name', options.medicineName);
+  if (options.registrar) {
+    const registrar = safeSearch(options.registrar);
+    query = query.or(`doctor_name.ilike.${registrar},created_by_name.ilike.${registrar},source_assigned_employee.ilike.${registrar}`);
+  }
 
   if (options.status && options.status !== 'all') query = query.eq('status', options.status);
   if (options.branch && options.branch !== 'all') query = query.eq('branch', options.branch);

@@ -38,6 +38,12 @@ type AnalyticsAction = {
   status?: string;
   assignee?: string;
   search?: string;
+  branch?: string;
+  customerCode?: string;
+  customerPhone?: string;
+  customerName?: string;
+  productCode?: string;
+  medicineName?: string; // CUSTOMER_REQUEST_CONTEXT_ROUTING_V2
 };
 
 export default function CustomerRequestInsightsPanel({
@@ -149,7 +155,7 @@ export default function CustomerRequestInsightsPanel({
                     <Panel title="سرعة وكفاءة الفروع" icon={BarChart3} className="xl:col-span-1">
                       <div className="space-y-3">
                         {data.branches.map((item) => (
-                          <button type="button" key={item.branch} onClick={() => onAction?.({ quickFilter: 'all' })} className="w-full rounded-2xl border border-slate-700 bg-slate-800/55 p-4 text-right transition hover:border-cyan-400/50">
+                          <button type="button" key={item.branch} onClick={() => onAction?.({ quickFilter: 'all', branch: item.branch })} className="w-full rounded-2xl border border-slate-700 bg-slate-800/55 p-4 text-right transition hover:border-cyan-400/50">
                             <div className="flex items-center justify-between gap-3">
                               <strong className="text-sm text-white">{item.branch}</strong>
                               <span className="num rounded-lg bg-cyan-500/15 px-2 py-1 text-xs font-black text-cyan-200">{n(item.total)} طلب</span>
@@ -194,7 +200,7 @@ export default function CustomerRequestInsightsPanel({
                     <Panel title="أكثر الأصناف طلبًا" icon={PackageSearch} className="xl:col-span-1">
                       <div className="max-h-[500px] space-y-2 overflow-y-auto pr-1">
                         {data.top_products.map((item, index) => (
-                          <button type="button" key={`${item.product_code}-${item.medicine_name}-${index}`} onClick={() => onAction?.({ search: item.medicine_name })} className="w-full rounded-2xl border border-slate-700 bg-slate-800/55 p-3 text-right transition hover:border-cyan-400/50">
+                          <button type="button" key={`${item.product_code}-${item.medicine_name}-${index}`} onClick={() => onAction?.({ productCode: item.product_code, medicineName: item.medicine_name, branch: branch === 'all' ? undefined : branch, quickFilter: 'all' })} className="w-full rounded-2xl border border-slate-700 bg-slate-800/55 p-3 text-right transition hover:border-cyan-400/50">
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0"><div className="truncate text-xs font-black text-white">{item.medicine_name}</div><div className="mt-1 text-[10px] text-slate-400">كود {item.product_code} · الأكثر في {item.top_branch || 'غير محدد'}</div></div>
                               <span className="num rounded-lg bg-cyan-500/15 px-2 py-1 text-xs font-black text-cyan-200">{n(item.requests_count)}</span>
@@ -260,7 +266,7 @@ export default function CustomerRequestInsightsPanel({
                     <Panel title="أكثر العملاء طلبًا" icon={UserRound}>
                       <div className="space-y-2">
                         {data.top_customers.map((item, index) => (
-                          <button type="button" key={`${item.customer_key}-${index}`} onClick={() => onAction?.({ search: item.customer_code || item.customer_name })} className="flex w-full items-center gap-3 rounded-xl bg-slate-800/60 p-3 text-right hover:bg-slate-800">
+                          <button type="button" key={`${item.customer_key}-${index}`} onClick={() => onAction?.({ customerCode: item.customer_code || undefined, customerPhone: item.customer_phone || undefined, customerName: item.customer_name, branch: branch === 'all' ? undefined : branch, quickFilter: 'all' })} className="flex w-full items-center gap-3 rounded-xl bg-slate-800/60 p-3 text-right hover:bg-slate-800">
                             <span className="num flex h-8 w-8 items-center justify-center rounded-full bg-cyan-500/15 text-xs font-black text-cyan-200">{index + 1}</span>
                             <div className="min-w-0 flex-1"><div className="truncate text-xs font-black text-white">{item.customer_name}</div><div className="mt-1 text-[10px] text-slate-400">كود {item.customer_code || '—'} · متأخر {item.overdue_count}</div></div>
                             <strong className="num text-cyan-200">{n(item.requests_count)}</strong>

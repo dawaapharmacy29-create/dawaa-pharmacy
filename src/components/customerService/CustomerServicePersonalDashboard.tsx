@@ -503,7 +503,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
             <div className="flex justify-between"><span style={mutedText}>وصلت</span><span className="font-black text-teal-300">{data.my_welcome_messages.delivered_count}</span></div>
           </div>
         </div>
-        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-sky-400/40" style={card} onClick={() => navigate('/customer-requests')}>
+        <div className="rounded-3xl border p-5 cursor-pointer transition hover:border-sky-400/40" style={card} onClick={() => navigate(`/customer-requests?workspace=requests&registrar=${encodeURIComponent(staffName)}&branch=${encodeURIComponent(branch)}&quick=all`)} data-context-routing="CUSTOMER_REQUEST_CONTEXT_ROUTING_V2">
           <SectionTitle icon={Package} accent="#38bdf8">طلبات العملاء</SectionTitle>
           <div className="mt-3 space-y-1 text-sm">
             <div className="flex justify-between"><span style={mutedText}>سجلتها</span><span className="font-black text-white">{data.my_customer_requests.logged_count}</span></div>
