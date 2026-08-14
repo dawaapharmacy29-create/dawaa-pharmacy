@@ -1,0 +1,37 @@
+name: Apply Customer Request Context Routing V2
+
+on:
+  push:
+    branches:
+      - agent/customer-request-context-routing-v2
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[customer-request-context-v2-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: node scripts/apply-customer-request-context-routing-v2.cjs
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Commit applied routing fixes
+        run: |
+          if git diff --quiet -- src/pages/CustomerRequests.tsx src/lib/api/customerRequestsCommandCenter.ts src/components/customer-requests/CustomerRequestInsightsPanel.tsx src/components/customerService/CustomerServicePersonalDashboard.tsx; then
+            echo "No source changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/CustomerRequests.tsx src/lib/api/customerRequestsCommandCenter.ts src/components/customer-requests/CustomerRequestInsightsPanel.tsx src/components/customerService/CustomerServicePersonalDashboard.tsx
+          git commit -m "ربط سياق العملاء والأصناف بالفلاتر [customer-request-context-v2-applied]"
+          git push
