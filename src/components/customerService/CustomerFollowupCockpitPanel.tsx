@@ -14,8 +14,6 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
-  UserRoundCheck,
-  Wrench,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -33,7 +31,6 @@ const CustomerQuickDetailsModal = lazy(() => import('@/components/customers/Cust
 
 const ALL_BRANCHES = 'كل الفروع';
 const PER_BRANCH_QUEUE_LIMIT = 25;
-const TOTAL_DAILY_QUEUE_LIMIT = PER_BRANCH_QUEUE_LIMIT * 2;
 const FETCH_BATCH = 1000;
 const EXECUTION_ACTIONS = new Set(['message_sent', 'no_answer', 'replied', 'completed', 'scheduled']);
 const REVIEW_ACTIONS = new Set(['reviewed', 'approved', 'rejected', 'returned_for_completion', 'escalated']);
@@ -42,13 +39,7 @@ type WorkspaceTab = 'queue' | 'waiting' | 'review' | 'contacted' | 'performance'
 type QuickAction = 'message_sent' | 'no_answer' | 'replied' | 'scheduled' | 'completed';
 type ReviewAction = 'approved' | 'returned_for_completion' | 'escalated';
 type QueueFocus = 'all' | 'critical' | 'overdue' | 'uncontacted';
-type PriorityInsight = {
-  level: 'critical' | 'high' | 'medium' | 'normal';
-  label: string;
-  reason: string;
-  nextAction: string;
-  tone: string;
-};
+type ContactOutcome = '' | 'purchased' | 'interested' | 'postponed' | 'needs_followup' | 'not_interested' | 'issue';
 
 type FollowupRow = {
   id: string;
@@ -79,10 +70,7 @@ type FollowupRow = {
   needs_next_followup: boolean | null;
   needs_manager: boolean | null;
   total_spent: number | null;
-  average_monthly_purchase_count: number | null;
   last_purchase_date: string | null;
-  segment: string | null;
-  customer_status: string | null;
   customer_metrics: Record<string, unknown> | null;
 };
 
@@ -104,6 +92,14 @@ type ActorProfile = {
 
 type StaffDirectoryEntry = { name: string; normalized: string; branch: string | null; role: ActorProfile['role'] };
 
+type OutcomeOption = {
+  id: Exclude<ContactOutcome, ''>;
+  label: string;
+  note: string;
+  tone: string;
+  defaultNextDay?: boolean;
+};
+
 const text = (value: unknown) => String(value ?? '').trim();
 const dayKey = (value?: string | null) => text(value).slice(0, 10);
 const localDayKey = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -113,28 +109,29 @@ const customerPhone = (row: FollowupRow) => normalizeEgyptianPhone(text(row.cust
 const rawStatus = (row: FollowupRow) => text(row.contact_status || row.followup_status || row.response_status || row.status || row.followup_result);
 const normalizedActor = (value: unknown) => text(value).toLowerCase().replace(/[/._-]/g, ' ').replace(/\s+/g, ' ').trim();
 const metricNumber = (row: FollowupRow, key: string, fallback = 0) => {
-  const number = Number(row.customer_metrics?.[key] ?? fallback ?? 0);
-  return Number.isFinite(number) ? number : 0;
+  const value = Number(row.customer_metrics?.[key] ?? fallback ?? 0);
+  return Number.isFinite(value) ? value : 0;
 };
 const monthlyAverage = (row: FollowupRow) => metricNumber(row, 'avg_monthly', metricNumber(row, 'monthly_average'));
 const lastPurchase = (row: FollowupRow) => dayKey(row.last_purchase_date) || dayKey(text(row.customer_metrics?.last_purchase));
-const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
-const isStaleCustomer = (row: FollowupRow) => {
-  const last = lastPurchase(row);
-  if (!last) return false;
-  const lastDate = new Date(`${last}T12:00:00`);
-  if (Number.isNaN(lastDate.getTime())) return false;
-  return Date.now() - lastDate.getTime() > NINETY_DAYS_MS;
-};
 const importance = (row: FollowupRow) => classifyCustomer(monthlyAverage(row));
 const activity = (row: FollowupRow) => customerStatus(lastPurchase(row));
-const isWaiting = (row: FollowupRow) => /في انتظار الرد|تم إرسال رسالة|message_sent|waiting_reply/i.test(rawStatus(row));
+const isWaiting = (row: FollowupRow) => /في انتظار الرد|message_sent|waiting_reply/i.test(rawStatus(row));
 const isNoAnswer = (row: FollowupRow) => /لم يرد|no_answer/i.test(rawStatus(row));
 const isUrgent = (row: FollowupRow) => Boolean(row.needs_manager || /عاجل|urgent|high|شكوى|تصعيد/i.test(`${row.priority || ''} ${rawStatus(row)} ${row.followup_reason || ''}`));
 const isOverdue = (row: FollowupRow) => Boolean(dayKey(row.next_followup_date) && dayKey(row.next_followup_date) < localDayKey());
 const isDueNow = (row: FollowupRow) => !dayKey(row.next_followup_date) || dayKey(row.next_followup_date) <= localDayKey();
 const isPendingReview = (row: FollowupRow) => /pending_review|انتظار مراجعة|في انتظار المراجعة/i.test(rawStatus(row));
 const lastTouchAt = (row: FollowupRow) => row.last_attempt_at || row.contacted_at || row.first_attempt_at || null;
+
+const outcomeOptions: OutcomeOption[] = [
+  { id: 'purchased', label: 'اشترى', note: 'العميل أتم عملية شراء بعد المتابعة.', tone: 'border-emerald-300/40 bg-emerald-400/15 text-emerald-100' },
+  { id: 'interested', label: 'مهتم', note: 'العميل مهتم ويحتاج استكمال التواصل.', tone: 'border-cyan-300/40 bg-cyan-400/15 text-cyan-100', defaultNextDay: true },
+  { id: 'postponed', label: 'مؤجل', note: 'العميل طلب تأجيل المتابعة لموعد لاحق.', tone: 'border-amber-300/40 bg-amber-400/15 text-amber-100', defaultNextDay: true },
+  { id: 'needs_followup', label: 'يحتاج متابعة', note: 'العميل يحتاج متابعة أخرى لاستكمال الطلب أو القرار.', tone: 'border-violet-300/40 bg-violet-400/15 text-violet-100', defaultNextDay: true },
+  { id: 'not_interested', label: 'غير مهتم', note: 'العميل غير مهتم حاليًا ولا يحتاج متابعة مباشرة.', tone: 'border-slate-300/30 bg-white/5 text-slate-200' },
+  { id: 'issue', label: 'مشكلة / تصعيد', note: 'العميل لديه مشكلة تحتاج مراجعة أو تصعيد للإدارة.', tone: 'border-rose-300/40 bg-rose-400/15 text-rose-100' },
+];
 
 function actorProfile(name: unknown, directory: StaffDirectoryEntry[] = []): ActorProfile {
   const normalized = normalizedActor(name);
@@ -147,19 +144,12 @@ function actorProfile(name: unknown, directory: StaffDirectoryEntry[] = []): Act
 
 function assignedExecutor(branch: string | null | undefined, directory: StaffDirectoryEntry[] = []) {
   const normalized = normalizeBranchName(branch || '');
-  const match = directory.find((entry) => entry.role === 'executor' && entry.branch && normalizeBranchName(entry.branch) === normalized);
-  return match?.name || 'غير محدد';
+  return directory.find((entry) => entry.role === 'executor' && entry.branch && normalizeBranchName(entry.branch) === normalized)?.name || 'غير محدد';
 }
 
 function formatDateTime(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
-}
-
-function lastTouchLabel(row: FollowupRow) {
-  const value = lastTouchAt(row);
-  if (!value) return 'لم يبدأ التواصل بعد';
-  return formatDateTime(value);
 }
 
 function dedupeRows(rows: FollowupRow[]) {
@@ -168,10 +158,10 @@ function dedupeRows(rows: FollowupRow[]) {
     const key = text(row.customer_code || customerPhone(row) || customerName(row)).toLowerCase();
     if (!key) return;
     const current = selected.get(key);
-    const currentAttempts = Number(current?.attempt_count || 0);
     const rowAttempts = Number(row.attempt_count || 0);
-    const currentDate = new Date(current?.last_attempt_at || current?.created_at || 0).getTime();
+    const currentAttempts = Number(current?.attempt_count || 0);
     const rowDate = new Date(row.last_attempt_at || row.created_at || 0).getTime();
+    const currentDate = new Date(current?.last_attempt_at || current?.created_at || 0).getTime();
     if (!current || rowAttempts > currentAttempts || (rowAttempts === currentAttempts && rowDate > currentDate)) selected.set(key, row);
   });
   return Array.from(selected.values());
@@ -190,99 +180,22 @@ function smartScore(row: FollowupRow) {
   return score;
 }
 
-function priorityInsight(row: FollowupRow): PriorityInsight {
-  const attempts = Number(row.attempt_count || 0);
-  const avg = monthlyAverage(row);
-  const inactiveDays = activity(row).days ?? 0;
-  if (isUrgent(row)) {
-    return {
-      level: 'critical',
-      label: 'حرجة الآن',
-      reason: row.needs_manager ? 'الحالة تحتاج تدخل مدير' : 'شكوى أو طلب عاجل يحتاج تدخل سريع',
-      nextAction: 'تواصل فورًا وسجل نتيجة واضحة قبل الانتقال للعميل التالي',
-      tone: 'border-rose-300/35 bg-rose-400/10 text-rose-100',
-    };
-  }
-  if (isOverdue(row)) {
-    return {
-      level: 'high',
-      label: 'أولوية عالية',
-      reason: `موعد المتابعة ${dayKey(row.next_followup_date)} فات بدون إغلاق`,
-      nextAction: 'أعد التواصل الآن وحدد نتيجة أو موعدًا جديدًا',
-      tone: 'border-orange-300/35 bg-orange-400/10 text-orange-100',
-    };
-  }
-  if (isNoAnswer(row)) {
-    return {
-      level: 'high',
-      label: 'إعادة محاولة',
-      reason: `العميل لم يرد بعد ${attempts || 1} محاولة`,
-      nextAction: 'حاول التواصل مرة أخرى أو ثبّت موعد متابعة مناسب',
-      tone: 'border-amber-300/35 bg-amber-400/10 text-amber-100',
-    };
-  }
-  if (!lastTouchAt(row)) {
-    return {
-      level: avg >= 3000 ? 'high' : 'medium',
-      label: avg >= 3000 ? 'ابدأ الآن' : 'لم يبدأ',
-      reason: avg >= 3000 ? 'عميل مهم ولم يبدأ التواصل معه حتى الآن' : 'لا توجد محاولة تواصل مسجلة',
-      nextAction: 'ابدأ أول محاولة وسجل النتيجة مباشرة',
-      tone: avg >= 3000 ? 'border-cyan-300/35 bg-cyan-400/10 text-cyan-100' : 'border-slate-300/20 bg-white/5 text-slate-200',
-    };
-  }
-  if (inactiveDays >= 45) {
-    return {
-      level: 'medium',
-      label: 'استعادة عميل',
-      reason: `آخر شراء منذ ${inactiveDays} يومًا`,
-      nextAction: 'اعرف سبب انخفاض التعامل وسجل احتياج العميل القادم',
-      tone: 'border-violet-300/30 bg-violet-400/10 text-violet-100',
-    };
-  }
-  return {
-    level: 'normal',
-    label: 'متابعة عادية',
-    reason: avg >= 3000 ? 'عميل ذو قيمة مرتفعة ويحتاج متابعة منتظمة' : 'متابعة مستحقة حسب قائمة اليوم',
-    nextAction: attempts > 0 ? 'استكمل من آخر نتيجة وسجل الخطوة التالية' : 'ابدأ التواصل وسجل النتيجة',
-    tone: 'border-emerald-300/25 bg-emerald-400/10 text-emerald-100',
-  };
+function priorityInfo(row: FollowupRow) {
+  if (isUrgent(row)) return { label: 'حرجة الآن', reason: row.needs_manager ? 'تحتاج تدخل مدير' : 'طلب عاجل أو شكوى', next: 'تواصل فورًا وسجل النتيجة', tone: 'border-rose-300/35 bg-rose-400/10 text-rose-100', level: 'critical' };
+  if (isOverdue(row)) return { label: 'أولوية عالية', reason: 'موعد المتابعة فات بدون إغلاق', next: 'أعد التواصل وحدد نتيجة أو موعدًا جديدًا', tone: 'border-orange-300/35 bg-orange-400/10 text-orange-100', level: 'high' };
+  if (isNoAnswer(row)) return { label: 'إعادة محاولة', reason: 'العميل لم يرد في المحاولة السابقة', next: 'حاول مرة أخرى أو ثبّت موعدًا مناسبًا', tone: 'border-amber-300/35 bg-amber-400/10 text-amber-100', level: 'high' };
+  if (!lastTouchAt(row)) return { label: 'ابدأ الآن', reason: 'لا توجد محاولة تواصل مسجلة', next: 'ابدأ أول محاولة وسجل النتيجة', tone: 'border-cyan-300/35 bg-cyan-400/10 text-cyan-100', level: monthlyAverage(row) >= 3000 ? 'high' : 'medium' };
+  return { label: 'متابعة مستحقة', reason: 'الحالة ضمن قائمة اليوم', next: 'استكمل من آخر نتيجة وسجل الخطوة التالية', tone: 'border-emerald-300/25 bg-emerald-400/10 text-emerald-100', level: 'normal' };
 }
 
-function suggestedFollowupScript(row: FollowupRow, kind: 'general' | 'inactive' | 'missing' | 'thanks') {
-  const name = customerName(row);
-  if (kind === 'inactive') return `أهلًا أ/ ${name}، مع حضرتك صيدليات دواء. لاحظنا إن زيارات حضرتك قلت الفترة الأخيرة وحبينا نطمن إن كل احتياجاتك متوفرة. هل في صنف أو خدمة نقدر نساعد حضرتك فيها؟`;
-  if (kind === 'missing') return `أهلًا أ/ ${name}، مع حضرتك صيدليات دواء. بنراجع احتياجات حضرتك وعايزين نتأكد إن الأصناف المطلوبة متوفرة، ولو في صنف ناقص نسجله ونوفره لحضرتك في أسرع وقت.`;
-  if (kind === 'thanks') return `أهلًا أ/ ${name}، بنشكرك على ثقتك في صيدليات دواء. حابين نطمن إن آخر طلب وصل بشكل سليم وإن كل الأصناف مناسبة لحضرتك.`;
-  return `أهلًا أ/ ${name}، مع حضرتك صيدليات دواء. حابين نطمن على حضرتك ونعرف هل في أي احتياج أو ملاحظة نقدر نساعد فيها؟`;
-}
-
-const actionLabels: Record<string, string> = {
-  message_sent: 'تم إرسال رسالة للعميل',
-  no_answer: 'لم يرد العميل',
-  replied: 'تم تسجيل رد العميل',
-  scheduled: 'تم تحديد موعد متابعة',
-  completed: 'تم إكمال المتابعة',
-  reviewed: 'تمت مراجعة المتابعة',
-  approved: 'تم اعتماد المتابعة',
-  rejected: 'تم رفض المتابعة',
-  returned_for_completion: 'أُعيدت لاستكمال البيانات',
-  escalated: 'تم تصعيد الحالة',
-};
-
-const queueFocusOptions: Array<[QueueFocus, string]> = [
-  ['all', 'كل قائمة اليوم'],
-  ['critical', 'حرجة وعالية'],
-  ['overdue', 'متأخرة'],
-  ['uncontacted', 'لم يبدأ التواصل'],
-];
-
-export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTools?: () => void }) {
+export default function CustomerFollowupCockpitPanel() {
   const { user } = useAuth();
   const managerView = canViewAllBranches(user);
   const userBranch = normalizeBranchName(user?.branch || '');
   const [branch, setBranch] = useState(managerView ? ALL_BRANCHES : userBranch);
   const [rows, setRows] = useState<FollowupRow[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [directory, setDirectory] = useState<StaffDirectoryEntry[]>([]);
   const [tab, setTab] = useState<WorkspaceTab>('queue');
   const [queueFocus, setQueueFocus] = useState<QueueFocus>('all');
   const [selected, setSelected] = useState<FollowupRow | null>(null);
@@ -292,54 +205,28 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [generatingSmart, setGeneratingSmart] = useState(false);
   const [scheduledDate, setScheduledDate] = useState('');
   const [actionNote, setActionNote] = useState('');
   const [contactChannel, setContactChannel] = useState('واتساب');
+  const [outcome, setOutcome] = useState<ContactOutcome>('');
+  const [purchaseValue, setPurchaseValue] = useState('');
   const [performanceDays, setPerformanceDays] = useState(7);
-  const [csDirectory, setCsDirectory] = useState<StaffDirectoryEntry[]>([]);
-  const [generatingSmart, setGeneratingSmart] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    supabase
-      .from('staff_accounts')
-      .select('name, branch, role')
-      .eq('active', true)
-      .eq('can_login', true)
-      .in('role', ['customer_service_manager', 'branches_manager', 'general_manager'])
-      .then(({ data }) => {
-        if (cancelled || !data) return;
-        const entries: StaffDirectoryEntry[] = (data as Array<{ name: string; branch: string | null; role: string }>).map((row) => ({
-          name: text(row.name),
-          normalized: normalizedActor(row.name),
-          branch: row.role === 'customer_service_manager' ? normalizeBranchName(row.branch || '') : null,
-          role: row.role === 'customer_service_manager' ? 'executor' : row.role === 'branches_manager' ? 'reviewer' : 'general_manager',
-        }));
-        setCsDirectory(entries);
-      });
+    supabase.from('staff_accounts').select('name, branch, role').eq('active', true).eq('can_login', true).in('role', ['customer_service_manager', 'branches_manager', 'general_manager']).then(({ data }) => {
+      if (cancelled || !data) return;
+      setDirectory((data as Array<{ name: string; branch: string | null; role: string }>).map((row) => ({
+        name: text(row.name), normalized: normalizedActor(row.name), branch: row.role === 'customer_service_manager' ? normalizeBranchName(row.branch || '') : null,
+        role: row.role === 'customer_service_manager' ? 'executor' : row.role === 'branches_manager' ? 'reviewer' : 'general_manager',
+      })));
+    });
     return () => { cancelled = true; };
   }, []);
 
-  const currentProfile = actorProfile(user?.name, csDirectory);
+  const currentProfile = actorProfile(user?.name, directory);
   const canExecute = ['executor', 'reviewer', 'general_manager'].includes(currentProfile.role);
-
-  const generateSmartFollowups = async () => {
-    setGeneratingSmart(true);
-    try {
-      const targetBranches = branch === ALL_BRANCHES ? ['فرع الشامي', 'فرع شكري'] : [branch];
-      let created = 0;
-      for (const targetBranch of targetBranches) {
-        const report = await generateTodayFollowupsSmartReport(targetBranch, user?.name || null);
-        created += report.created_count;
-      }
-      toast.success(created > 0 ? `اتضافت ${created} متابعة ذكية جديدة (عملاء مهمين، انخفاض مسحوبات، مهددين بالتوقف)` : 'مفيش متابعات ذكية جديدة دلوقتي — كل الفرص المتاحة مسجلة أصلاً');
-      await load();
-    } catch (error) {
-      toast.error(`تعذر توليد المتابعات الذكية: ${(error as Error).message}`);
-    } finally {
-      setGeneratingSmart(false);
-    }
-  };
 
   const load = useCallback(async () => {
     if (!managerView && !userBranch) return;
@@ -347,17 +234,11 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
     try {
       const allRows: FollowupRow[] = [];
       for (let start = 0; ; start += FETCH_BATCH) {
-        let query = supabase
-          .from('daily_followups')
-          .select('id,customer_id,customer_name,name,customer_code,customer_phone,phone,branch,priority,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_reason,request_details,notes,next_followup_date,created_at,contacted_at,first_attempt_at,last_attempt_at,attempt_count,needs_next_followup,needs_manager,total_spent,average_monthly_purchase_count,last_purchase_date,segment,customer_status,customer_metrics')
-          .eq('is_hidden', false)
-          .is('completed_at', null)
-          .is('cancelled_at', null)
-          .is('archived_at', null)
-          .or('is_duplicate.is.null,is_duplicate.eq.false')
-          .is('duplicate_of', null)
-          .order('created_at', { ascending: false })
-          .range(start, start + FETCH_BATCH - 1);
+        let query = supabase.from('daily_followups')
+          .select('id,customer_id,customer_name,name,customer_code,customer_phone,phone,branch,priority,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_reason,request_details,notes,next_followup_date,created_at,contacted_at,first_attempt_at,last_attempt_at,attempt_count,needs_next_followup,needs_manager,total_spent,last_purchase_date,customer_metrics')
+          .eq('is_hidden', false).is('completed_at', null).is('cancelled_at', null).is('archived_at', null)
+          .or('is_duplicate.is.null,is_duplicate.eq.false').is('duplicate_of', null)
+          .order('created_at', { ascending: false }).range(start, start + FETCH_BATCH - 1);
         if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
         const { data, error } = await query;
         if (error) throw error;
@@ -365,136 +246,61 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
         allRows.push(...batch);
         if (batch.length < FETCH_BATCH) break;
       }
-
-      const since = new Date();
-      since.setDate(since.getDate() - 30);
-      let auditQuery = supabase
-        .from('customer_followup_audit_log')
-        .select('id,followup_id,action,actor_name,created_at,branch,metadata')
-        .gte('created_at', since.toISOString())
-        .order('created_at', { ascending: false })
-        .limit(5000);
+      const since = new Date(); since.setDate(since.getDate() - 30);
+      let auditQuery = supabase.from('customer_followup_audit_log').select('id,followup_id,action,actor_name,created_at,branch,metadata').gte('created_at', since.toISOString()).order('created_at', { ascending: false }).limit(5000);
       if (branch !== ALL_BRANCHES) auditQuery = auditQuery.eq('branch', branch);
       const { data: auditData, error: auditError } = await auditQuery;
       if (auditError) throw auditError;
-
       setRows(dedupeRows(allRows));
       setEvents((auditData || []) as AuditEvent[]);
     } catch (error) {
       toast.error(`تعذر تحميل مركز المتابعات: ${(error as Error).message}`);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }, [branch, managerView, userBranch]);
 
   useEffect(() => { void load(); }, [load]);
 
   const waitingRows = useMemo(() => rows.filter(isWaiting).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
   const reviewRows = useMemo(() => rows.filter(isPendingReview).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
-  const queueCandidates = useMemo(() => rows.filter((row) => !isWaiting(row) && !isPendingReview(row) && isDueNow(row) && !isStaleCustomer(row)).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
-  const staleBacklogCount = useMemo(() => rows.filter((row) => !isWaiting(row) && !isPendingReview(row) && isDueNow(row) && isStaleCustomer(row)).length, [rows]);
-  const smartQueue = useMemo(() => {
-    if (branch !== ALL_BRANCHES) return queueCandidates.slice(0, PER_BRANCH_QUEUE_LIMIT);
-    const shamyQueue = queueCandidates.filter((row) => normalizeBranchName(row.branch || '').includes('الشامي')).slice(0, PER_BRANCH_QUEUE_LIMIT);
-    const shokryQueue = queueCandidates.filter((row) => normalizeBranchName(row.branch || '').includes('شكري')).slice(0, PER_BRANCH_QUEUE_LIMIT);
-    return [...shamyQueue, ...shokryQueue].sort((a, b) => smartScore(b) - smartScore(a));
-  }, [branch, queueCandidates]);
-  const backlogCount = Math.max(0, queueCandidates.length - smartQueue.length);
-  const queueSummary = useMemo(() => {
-    const critical = smartQueue.filter((row) => ['critical', 'high'].includes(priorityInsight(row).level)).length;
-    const overdue = smartQueue.filter(isOverdue).length;
-    const uncontacted = smartQueue.filter((row) => !lastTouchAt(row)).length;
-    return { critical, overdue, uncontacted };
-  }, [smartQueue]);
+  const queue = useMemo(() => rows.filter((row) => !isWaiting(row) && !isPendingReview(row) && isDueNow(row)).sort((a, b) => smartScore(b) - smartScore(a)).slice(0, branch === ALL_BRANCHES ? PER_BRANCH_QUEUE_LIMIT * 2 : PER_BRANCH_QUEUE_LIMIT), [rows, branch]);
   const visibleRows = useMemo(() => {
-    let source = tab === 'waiting' ? waitingRows : tab === 'review' ? reviewRows : smartQueue;
+    let source = tab === 'waiting' ? waitingRows : tab === 'review' ? reviewRows : queue;
     if (tab === 'queue') {
-      if (queueFocus === 'critical') source = source.filter((row) => ['critical', 'high'].includes(priorityInsight(row).level));
+      if (queueFocus === 'critical') source = source.filter((row) => ['critical', 'high'].includes(priorityInfo(row).level));
       if (queueFocus === 'overdue') source = source.filter(isOverdue);
       if (queueFocus === 'uncontacted') source = source.filter((row) => !lastTouchAt(row));
     }
     const q = search.trim().toLowerCase();
     return q ? source.filter((row) => `${customerName(row)} ${row.customer_code || ''} ${customerPhone(row)} ${row.branch || ''} ${row.followup_reason || ''}`.toLowerCase().includes(q)) : source;
-  }, [queueFocus, reviewRows, search, smartQueue, tab, waitingRows]);
+  }, [queue, queueFocus, reviewRows, search, tab, waitingRows]);
 
-  const periodEvents = useMemo(() => {
-    const since = new Date();
-    since.setDate(since.getDate() - performanceDays);
-    return events.filter((event) => new Date(event.created_at) >= since);
-  }, [events, performanceDays]);
+  const openExecution = (row: FollowupRow) => {
+    setSelected(row); setScheduledDate(dayKey(row.next_followup_date)); setActionNote(''); setOutcome(''); setPurchaseValue(''); setHistoryOpen(false);
+  };
 
-  const executionEvents = useMemo(() => periodEvents.filter((event) => EXECUTION_ACTIONS.has(event.action) && actorProfile(event.actor_name, csDirectory).role === 'executor'), [periodEvents, csDirectory]);
-  const contactedEvents = useMemo(() => events.filter((event) => EXECUTION_ACTIONS.has(event.action)), [events]);
-  const executorList = useMemo(() => csDirectory.filter((entry) => entry.role === 'executor'), [csDirectory]);
-
-  const performance = useMemo(() => executorList.map((executor) => {
-    const relevant = executionEvents.filter((event) => actorProfile(event.actor_name, csDirectory).displayName === executor.name);
-    const customers = new Set(relevant.map((event) => text(event.metadata?.customer_code) || event.followup_id).filter(Boolean));
-    const attempts = relevant.filter((event) => ['message_sent', 'no_answer', 'replied'].includes(event.action)).length;
-    const messages = relevant.filter((event) => event.action === 'message_sent').length;
-    const noAnswer = relevant.filter((event) => event.action === 'no_answer').length;
-    const replied = relevant.filter((event) => event.action === 'replied').length;
-    const completed = relevant.filter((event) => event.action === 'completed').length;
-    return { actor: executor.name, branch: executor.branch || 'غير محدد', customers: customers.size, attempts, messages, noAnswer, replied, completed, responseRate: attempts ? replied / attempts : 0, completionRate: customers.size ? completed / customers.size : 0 };
-  }), [executionEvents, executorList, csDirectory]);
-
-  const reviewSummary = useMemo(() => {
-    const reviewEvents = periodEvents.filter((event) => REVIEW_ACTIONS.has(event.action) && actorProfile(event.actor_name, csDirectory).role === 'reviewer');
-    return {
-      reviewed: reviewEvents.length,
-      approved: reviewEvents.filter((event) => event.action === 'approved').length,
-      returned: reviewEvents.filter((event) => event.action === 'returned_for_completion' || event.action === 'rejected').length,
-      escalated: reviewEvents.filter((event) => event.action === 'escalated').length,
-    };
-  }, [periodEvents, csDirectory]);
+  const chooseOutcome = (option: OutcomeOption) => {
+    setOutcome(option.id);
+    setActionNote(option.note);
+    if (option.defaultNextDay && !scheduledDate) setScheduledDate(tomorrowKey());
+    if (option.id !== 'purchased') setPurchaseValue('');
+  };
 
   const audit = async (row: FollowupRow, action: string, metadata: Record<string, unknown>) => {
-    const profile = actorProfile(user?.name, csDirectory);
     const { error } = await supabase.from('customer_followup_audit_log').insert({
-      followup_id: row.id,
-      customer_id: row.customer_id || null,
-      action,
-      actor_staff_id: user?.staffId || user?.id || null,
-      actor_name: profile.displayName,
+      followup_id: row.id, customer_id: row.customer_id || null, action,
+      actor_staff_id: user?.staffId || user?.id || null, actor_name: currentProfile.displayName,
       branch: row.branch || branch,
-      metadata: { ...metadata, actor_role: profile.role, assigned_executor: assignedExecutor(row.branch, csDirectory) },
+      metadata: { ...metadata, actor_role: currentProfile.role, assigned_executor: assignedExecutor(row.branch, directory), contact_outcome: outcome || null, purchase_value: purchaseValue ? Number(purchaseValue) : null },
     });
     if (error) throw error;
   };
 
-  const loadHistory = async (row: FollowupRow) => {
-    setHistoryOpen(true);
-    const { data, error } = await supabase
-      .from('customer_followup_audit_log')
-      .select('id,followup_id,action,actor_name,created_at,branch,metadata')
-      .eq('followup_id', row.id)
-      .order('created_at', { ascending: false })
-      .limit(200);
-    if (error) toast.error(`تعذر تحميل سجل المتابعة: ${error.message}`);
-    setHistory((data || []) as AuditEvent[]);
-  };
-
-  const openExecution = (row: FollowupRow) => {
-    setSelected(row);
-    setScheduledDate(dayKey(row.next_followup_date));
-    setActionNote('');
-    setHistoryOpen(false);
-  };
-
   const executeAction = async (action: QuickAction) => {
     if (!selected) return;
-    if (!canExecute) {
-      toast.error('حسابك لا يملك صلاحية تنفيذ المتابعات. التنفيذ متاح لد/ ضحى ود/ دنيا ود/ علا والمدير العام.');
-      return;
-    }
-    if (currentProfile.branch && normalizeBranchName(selected.branch || '') !== normalizeBranchName(currentProfile.branch)) {
-      toast.error(`هذه الحالة مخصصة لـ ${assignedExecutor(selected.branch, csDirectory)} وليست ضمن فرعك.`);
-      return;
-    }
-    if ((action === 'replied' || action === 'completed') && actionNote.trim().length < 3) {
-      toast.error('اكتب ملخصًا واضحًا لما تم مع العميل قبل الحفظ');
-      return;
-    }
+    if (!canExecute) return toast.error('حسابك لا يملك صلاحية تنفيذ المتابعات.');
+    if (currentProfile.branch && normalizeBranchName(selected.branch || '') !== normalizeBranchName(currentProfile.branch)) return toast.error('هذه الحالة خارج فرعك.');
+    if ((action === 'replied' || action === 'completed') && actionNote.trim().length < 3) return toast.error('اكتب أو اختر نتيجة واضحة قبل الحفظ.');
+    if (outcome === 'purchased' && purchaseValue && Number(purchaseValue) < 0) return toast.error('قيمة الشراء غير صحيحة.');
     setSaving(true);
     try {
       const now = new Date().toISOString();
@@ -503,233 +309,116 @@ export default function CustomerFollowupCockpitPanel({ onOpenTools }: { onOpenTo
       let payload: Record<string, unknown> = { updated_by: user?.id || null };
       let result = '';
       let nextDate: string | null = null;
-
       if (action === 'message_sent') {
-        nextDate = tomorrowKey();
-        result = 'في انتظار رد العميل';
+        nextDate = tomorrowKey(); result = 'في انتظار رد العميل';
         payload = { ...payload, contact_status: 'في انتظار الرد', followup_status: 'في انتظار الرد', response_status: 'waiting_reply', status: 'في انتظار الرد', contacted_at: now, first_attempt_at: selected.first_attempt_at || now, last_attempt_at: now, attempt_count: attempts, next_followup_date: nextDate, needs_next_followup: true, followup_summary: actionNote.trim() || selected.followup_summary };
       } else if (action === 'no_answer') {
-        nextDate = tomorrowKey();
-        result = 'لم يرد العميل';
+        nextDate = tomorrowKey(); result = 'لم يرد العميل';
         payload = { ...payload, contact_status: 'لم يرد', followup_status: 'لم يرد', response_status: 'no_answer', status: 'لم يرد', last_attempt_at: now, attempt_count: attempts, next_followup_date: nextDate, needs_next_followup: true, followup_summary: actionNote.trim() || selected.followup_summary };
       } else if (action === 'replied') {
-        nextDate = scheduledDate || localDayKey();
-        result = 'تم الرد وجارٍ استكمال المتابعة';
+        nextDate = scheduledDate || localDayKey(); result = 'تم تسجيل رد العميل';
         payload = { ...payload, contact_status: 'تم الرد', followup_status: 'جارٍ التواصل', response_status: 'replied', status: 'جارٍ التواصل', last_attempt_at: now, attempt_count: attempts, next_followup_date: nextDate, needs_next_followup: true, followup_summary: actionNote.trim(), followup_result: actionNote.trim() };
       } else if (action === 'scheduled') {
-        nextDate = scheduledDate;
-        result = 'تم تحديد موعد متابعة جديد';
+        nextDate = scheduledDate; result = 'تم تحديد موعد متابعة جديد';
         payload = { ...payload, next_followup_date: nextDate, followup_status: 'scheduled', status: 'open', needs_next_followup: true };
       } else {
         result = 'تم إكمال المتابعة';
-        payload = { ...payload, status: 'pending_review', followup_status: 'pending_review', contact_status: 'في انتظار المراجعة', followup_result: actionNote.trim(), followup_summary: actionNote.trim(), needs_next_followup: false, is_hidden: false };
+        payload = { ...payload, status: 'pending_review', followup_status: 'pending_review', contact_status: 'في انتظار المراجعة', followup_result: actionNote.trim(), followup_summary: actionNote.trim(), needs_next_followup: false, is_hidden: false, needs_manager: outcome === 'issue' ? true : selected.needs_manager };
       }
-
       const { error } = await supabase.from('daily_followups').update(payload).eq('id', selected.id);
       if (error) throw error;
-      await audit(selected, action, {
-        attempt_count: attempts,
-        contact_channel: contactChannel,
-        result,
-        notes: actionNote.trim() || null,
-        next_followup_date: nextDate,
-        customer_name: customerName(selected),
-        customer_code: selected.customer_code,
-      });
-      toast.success(action === 'completed' ? 'تم إرسال المتابعة لمراجعة د/ علا وظهر العميل التالي تلقائيًا' : 'تم حفظ الإجراء');
-      setSelected(null);
-      setActionNote('');
-      setScheduledDate('');
+      await audit(selected, action, { attempt_count: attempts, contact_channel: contactChannel, result, notes: actionNote.trim() || null, next_followup_date: nextDate, customer_name: customerName(selected), customer_code: selected.customer_code });
+      toast.success(action === 'completed' ? 'تم إرسال المتابعة للمراجعة وظهر العميل التالي.' : 'تم حفظ الإجراء.');
+      setSelected(null); setActionNote(''); setScheduledDate(''); setOutcome(''); setPurchaseValue('');
       await load();
-    } catch (error) {
-      toast.error(`تعذر حفظ الإجراء: ${(error as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
+    } catch (error) { toast.error(`تعذر حفظ الإجراء: ${(error as Error).message}`); }
+    finally { setSaving(false); }
+  };
+
+  const loadHistory = async (row: FollowupRow) => {
+    setSelected(row); setHistoryOpen(true);
+    const { data } = await supabase.from('customer_followup_audit_log').select('id,followup_id,action,actor_name,created_at,branch,metadata').eq('followup_id', row.id).order('created_at', { ascending: false }).limit(200);
+    setHistory((data || []) as AuditEvent[]);
   };
 
   const executeReviewAction = async (action: ReviewAction) => {
     if (!selected || !isPendingReview(selected)) return;
-    if (!['reviewer', 'general_manager'].includes(currentProfile.role)) {
-      toast.error('الاعتماد أو الإعادة متاحان لد/ علا والمدير العام فقط.');
-      return;
-    }
-    if (action !== 'approved' && actionNote.trim().length < 3) {
-      toast.error('اكتب سبب الإعادة أو التصعيد قبل الحفظ.');
-      return;
-    }
-
+    if (!['reviewer', 'general_manager'].includes(currentProfile.role)) return toast.error('الاعتماد أو الإعادة غير متاحين لهذا الحساب.');
+    if (action !== 'approved' && actionNote.trim().length < 3) return toast.error('اكتب سبب القرار قبل الحفظ.');
     setSaving(true);
     try {
       const now = new Date().toISOString();
-      let payload: Record<string, unknown>;
-      let result: string;
-
-      if (action === 'approved') {
-        result = 'تم اعتماد المتابعة وإغلاقها نهائيًا';
-        payload = { completed_at: now, status: 'completed', followup_status: 'completed', contact_status: 'تم الاعتماد', needs_next_followup: false, is_hidden: true, hidden_at: now, hidden_by: currentProfile.displayName, hidden_reason: 'تم اعتماد المتابعة بعد المراجعة', updated_by: user?.id || null };
-      } else if (action === 'returned_for_completion') {
-        result = 'أُعيدت المتابعة للمنفذة لاستكمال البيانات أو التواصل';
-        payload = { status: 'open', followup_status: 'returned_for_completion', contact_status: 'أُعيدت للاستكمال', needs_next_followup: true, next_followup_date: localDayKey(), is_hidden: false, followup_summary: actionNote.trim(), updated_by: user?.id || null };
-      } else {
-        result = 'تم تصعيد الحالة للإدارة';
-        payload = { status: 'pending_review', followup_status: 'pending_review', contact_status: 'تم التصعيد', needs_manager: true, is_hidden: false, followup_summary: actionNote.trim(), updated_by: user?.id || null };
-      }
-
+      const payload = action === 'approved'
+        ? { completed_at: now, status: 'completed', followup_status: 'completed', contact_status: 'تم الاعتماد', needs_next_followup: false, is_hidden: true, hidden_at: now, hidden_by: currentProfile.displayName, hidden_reason: 'تم اعتماد المتابعة بعد المراجعة', updated_by: user?.id || null }
+        : action === 'returned_for_completion'
+          ? { status: 'open', followup_status: 'returned_for_completion', contact_status: 'أُعيدت للاستكمال', needs_next_followup: true, next_followup_date: localDayKey(), is_hidden: false, followup_summary: actionNote.trim(), updated_by: user?.id || null }
+          : { status: 'pending_review', followup_status: 'pending_review', contact_status: 'تم التصعيد', needs_manager: true, is_hidden: false, followup_summary: actionNote.trim(), updated_by: user?.id || null };
       const { error } = await supabase.from('daily_followups').update(payload).eq('id', selected.id);
       if (error) throw error;
-      await audit(selected, action, { result, notes: actionNote.trim() || null, customer_name: customerName(selected), customer_code: selected.customer_code, reviewed_by: currentProfile.displayName });
-      toast.success(result);
-      setSelected(null);
-      setActionNote('');
-      await load();
-    } catch (error) {
-      toast.error(`تعذر حفظ قرار المراجعة: ${(error as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
+      await audit(selected, action, { notes: actionNote.trim() || null, customer_name: customerName(selected), customer_code: selected.customer_code });
+      toast.success('تم حفظ قرار المراجعة.'); setSelected(null); setActionNote(''); await load();
+    } catch (error) { toast.error(`تعذر حفظ القرار: ${(error as Error).message}`); }
+    finally { setSaving(false); }
   };
 
+  const periodEvents = useMemo(() => {
+    const since = new Date(); since.setDate(since.getDate() - performanceDays);
+    return events.filter((event) => new Date(event.created_at) >= since);
+  }, [events, performanceDays]);
+  const executionEvents = periodEvents.filter((event) => EXECUTION_ACTIONS.has(event.action));
+  const reviewEvents = periodEvents.filter((event) => REVIEW_ACTIONS.has(event.action));
   const tabs: Array<[WorkspaceTab, string, number, typeof Inbox]> = [
-    ['queue', 'قائمة اليوم', smartQueue.length, Inbox],
+    ['queue', 'قائمة اليوم', queue.length, Inbox],
     ['waiting', 'انتظار الرد', waitingRows.length, Clock3],
-    ['review', 'انتظار مراجعة د/ علا', reviewRows.length, ShieldCheck],
-    ['contacted', 'سجل التواصل', contactedEvents.length, History],
-    ['performance', 'أداء خدمة العملاء', 2, BarChart3],
+    ['review', 'انتظار المراجعة', reviewRows.length, ShieldCheck],
+    ['contacted', 'سجل التواصل', executionEvents.length, History],
+    ['performance', 'أداء التنفيذ', directory.filter((entry) => entry.role === 'executor').length, BarChart3],
   ];
-
-  const selectedInsight = selected ? priorityInsight(selected) : null;
 
   return <>
     <section className="mx-4 space-y-4 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <p className="text-xs font-black text-cyan-300">تشغيل ومراجعة منفصلان</p>
-          <h2 className="text-xl font-black text-white">تنفيذ ومراجعة المتابعات — كل مسؤولة بفرعها، ومراجعة مركزية</h2>
-          <p className="mt-1 text-sm font-bold text-slate-400">القائمة مرتبة تلقائيًا حسب الاستعجال والتأخير وقيمة العميل وحالة التواصل. كل كارت يوضح الآن لماذا جاء في هذا الترتيب وما الإجراء المطلوب.</p>
-        </div>
+        <div><p className="text-xs font-black text-cyan-300">مركز التنفيذ</p><h2 className="text-xl font-black text-white">نفّذ المتابعة وسجّل النتيجة بأقل عدد ضغطات</h2><p className="mt-1 text-sm font-bold text-slate-400">المسار: تواصل → اختر النتيجة → حدّد الموعد إن لزم → أرسل للمراجعة.</p></div>
         <div className="flex flex-wrap gap-2">
           {managerView ? <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}><option>{ALL_BRANCHES}</option><option>فرع الشامي</option><option>فرع شكري</option></select> : <div className="input-dark font-black text-cyan-100">{userBranch}</div>}
           <button className="btn-secondary flex items-center gap-2" onClick={() => void load()} disabled={loading}>{loading ? <Loader2 size={16} className="animate-spin"/> : <RefreshCw size={16}/>} تحديث</button>
-          <button className="flex items-center gap-2 rounded-xl border-2 border-amber-200 bg-amber-500 px-4 py-2 text-sm font-black text-slate-950 hover:bg-amber-400 disabled:opacity-50" onClick={() => void generateSmartFollowups()} disabled={generatingSmart}>{generatingSmart ? <Loader2 size={16} className="animate-spin"/> : <Sparkles size={16}/>} توليد متابعات ذكية اليوم</button>
-          {onOpenTools ? <button className="btn-secondary flex items-center gap-2" onClick={onOpenTools}><Wrench size={16}/> الإدارة والتصحيح</button> : null}
+          <button className="flex items-center gap-2 rounded-xl border-2 border-amber-200 bg-amber-500 px-4 py-2 text-sm font-black text-slate-950" disabled={generatingSmart} onClick={async () => { setGeneratingSmart(true); try { const targets = branch === ALL_BRANCHES ? ['فرع الشامي', 'فرع شكري'] : [branch]; for (const target of targets) await generateTodayFollowupsSmartReport(target, user?.name || null); await load(); toast.success('تم تحديث قائمة المتابعات الذكية.'); } catch (error) { toast.error((error as Error).message); } finally { setGeneratingSmart(false); } }}>{generatingSmart ? <Loader2 size={16} className="animate-spin"/> : <Sparkles size={16}/>} توليد ذكي</button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        {tabs.map(([id, label, count, Icon]) => <button key={id} type="button" onClick={() => setTab(id)} className={`rounded-2xl border p-3 text-right ${tab === id ? 'border-cyan-300 bg-cyan-400/15' : 'border-white/10 bg-white/[0.03]'}`}><Icon size={18} className="mb-2 text-cyan-300"/><div className="text-xs font-black text-slate-400">{label}</div><div className="text-2xl font-black text-white">{count}</div></button>)}
-      </div>
-
-      {tab === 'queue' ? <>
-        <div className="grid gap-2 sm:grid-cols-4">
-          <div className="rounded-2xl bg-emerald-400/10 p-3"><div className="text-xs font-black text-emerald-200">المعروض للتنفيذ</div><div className="text-2xl font-black text-white">{smartQueue.length} / {branch === ALL_BRANCHES ? TOTAL_DAILY_QUEUE_LIMIT : PER_BRANCH_QUEUE_LIMIT}</div></div>
-          <div className="rounded-2xl border border-rose-300/15 bg-rose-400/10 p-3"><div className="text-xs font-black text-rose-200">حرجة / عالية</div><div className="text-2xl font-black text-white">{queueSummary.critical}</div></div>
-          <div className="rounded-2xl border border-orange-300/15 bg-orange-400/10 p-3"><div className="text-xs font-black text-orange-200">متأخرة</div><div className="text-2xl font-black text-white">{queueSummary.overdue}</div></div>
-          <div className="rounded-2xl border border-cyan-300/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">لم يبدأ التواصل</div><div className="text-2xl font-black text-white">{queueSummary.uncontacted}</div></div>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          <div className="rounded-2xl bg-amber-400/10 p-3"><div className="text-xs font-black text-amber-200">قائمة الانتظار</div><div className="text-2xl font-black text-white">{backlogCount}</div></div>
-          <div className="rounded-2xl bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">منفذ الفرع</div><div className="text-lg font-black text-white">{branch === ALL_BRANCHES ? executorList.map((e) => e.name).join(' + ') || 'غير محدد' : assignedExecutor(branch, csDirectory)}</div></div>
-          <div className={`rounded-2xl p-3 ${staleBacklogCount > 0 ? 'border border-rose-400/20 bg-rose-500/10' : 'border border-white/10 bg-white/[0.03]'}`}><div className="text-xs font-black text-slate-300">قديمة للمراجعة</div><div className="text-2xl font-black text-white">{staleBacklogCount}</div></div>
-        </div>
-        <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/15 p-2">
-          {queueFocusOptions.map(([id, label]) => <button key={id} type="button" onClick={() => setQueueFocus(id)} className={`rounded-xl px-3 py-2 text-xs font-black transition ${queueFocus === id ? 'bg-cyan-400/20 text-cyan-100' : 'text-slate-300 hover:bg-white/5'}`}>{label}{id === 'critical' ? ` (${queueSummary.critical})` : id === 'overdue' ? ` (${queueSummary.overdue})` : id === 'uncontacted' ? ` (${queueSummary.uncontacted})` : ''}</button>)}
-        </div>
-      </> : null}
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">{tabs.map(([id, label, count, Icon]) => <button key={id} onClick={() => setTab(id)} className={`rounded-2xl border p-3 text-right ${tab === id ? 'border-cyan-300 bg-cyan-400/15' : 'border-white/10 bg-white/[0.03]'}`}><Icon size={18} className="mb-2 text-cyan-300"/><div className="text-xs font-black text-slate-400">{label}</div><div className="text-2xl font-black text-white">{count}</div></button>)}</div>
 
       {(tab === 'queue' || tab === 'waiting' || tab === 'review') ? <>
-        <div className="relative"><Search size={17} className="absolute right-3 top-3 text-slate-400"/><input className="input-dark w-full pr-10" placeholder="بحث بالاسم أو الكود أو الهاتف أو سبب المتابعة" value={search} onChange={(event) => setSearch(event.target.value)}/></div>
-        <div className="space-y-2">{visibleRows.map((row, index) => {
-          const tier = importance(row);
-          const state = activity(row);
-          const insight = priorityInsight(row);
-          const phone = customerPhone(row);
-          return <article key={row.id} className={`rounded-2xl border bg-white/[0.035] p-4 transition ${insight.level === 'critical' ? 'border-rose-300/35 shadow-lg shadow-rose-950/10' : insight.level === 'high' ? 'border-amber-300/25' : 'border-white/10'}`}>
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch xl:justify-between">
-              <button type="button" onClick={() => openExecution(row)} className="min-w-0 flex-1 text-right">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span>
-                  <div className="font-black text-white">{customerName(row)}</div>
-                  <span className={`rounded-full border px-3 py-1 text-[11px] font-black ${insight.tone}`}>{insight.label}</span>
-                  <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">{assignedExecutor(row.branch, csDirectory)}</span>
-                </div>
-                <div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {phone || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs font-black"><span className={`rounded-full border px-3 py-1 ${tier.bg} ${tier.color}`}>{tier.label}</span><span className={`rounded-full bg-white/5 px-3 py-1 ${state.color}`}>{state.label}</span>{isOverdue(row) ? <span className="rounded-full bg-red-500/15 px-3 py-1 text-red-200">متأخر</span> : null}<span className="rounded-full bg-white/5 px-3 py-1 text-slate-300">{row.attempt_count || 0} محاولة</span></div>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  <div className="rounded-xl border border-white/5 bg-black/15 p-2.5"><div className="text-[10px] font-black text-slate-500">لماذا هذه الأولوية؟</div><div className="mt-1 text-xs font-black leading-5 text-white">{insight.reason}</div></div>
-                  <div className="rounded-xl border border-cyan-300/10 bg-cyan-400/[0.06] p-2.5"><div className="text-[10px] font-black text-cyan-300">الإجراء الآن</div><div className="mt-1 text-xs font-black leading-5 text-cyan-50">{insight.nextAction}</div></div>
-                </div>
-                <div className="mt-2 text-xs font-bold text-slate-500">سبب المتابعة: {row.followup_reason || row.request_details || row.notes || 'غير مسجل'} · آخر شراء: {lastPurchase(row) || 'غير معروف'} · المتوسط: {formatCurrency(monthlyAverage(row))}</div>
-                <div className="mt-1 text-[11px] font-bold text-slate-500">آخر محاولة: <span className={lastTouchAt(row) ? 'text-slate-300' : 'text-amber-200'}>{lastTouchLabel(row)}</span>{dayKey(row.next_followup_date) ? ` · الموعد التالي: ${dayKey(row.next_followup_date)}` : ''}</div>
-              </button>
-              <div className="flex shrink-0 flex-wrap items-center gap-2 xl:w-44 xl:flex-col xl:justify-center">
-                <button className="btn-primary w-full text-xs" onClick={() => openExecution(row)}>تنفيذ الآن</button>
-                {phone ? <a className="btn-secondary w-full text-center text-xs" href={generateWhatsAppLink(phone, suggestedFollowupScript(row, isStaleCustomer(row) ? 'inactive' : 'general'))} target="_blank" rel="noreferrer">فتح واتساب</a> : null}
-                <button className="btn-secondary w-full text-xs" onClick={() => { setSelected(row); void loadHistory(row); }}>سجل المحاولات ({row.attempt_count || 0})</button>
-                <button className="btn-secondary w-full text-xs" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={15} className="ml-1 inline"/> ملف العميل</button>
-              </div>
-            </div>
-          </article>;
-        })}</div>
-        {!visibleRows.length && !loading ? <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-6 text-center text-sm font-bold text-slate-400">لا توجد حالات مطابقة للفلاتر الحالية.</div> : null}
+        {tab === 'queue' ? <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/15 p-2">{([['all','الكل'],['critical','حرجة وعالية'],['overdue','متأخرة'],['uncontacted','لم يبدأ التواصل']] as Array<[QueueFocus,string]>).map(([id,label]) => <button key={id} onClick={() => setQueueFocus(id)} className={`rounded-xl px-3 py-2 text-xs font-black ${queueFocus === id ? 'bg-cyan-400/20 text-cyan-100' : 'text-slate-300 hover:bg-white/5'}`}>{label}</button>)}</div> : null}
+        <div className="relative"><Search size={17} className="absolute right-3 top-3 text-slate-400"/><input className="input-dark w-full pr-10" placeholder="بحث بالاسم أو الكود أو الهاتف" value={search} onChange={(event) => setSearch(event.target.value)}/></div>
+        <div className="space-y-2">{visibleRows.map((row, index) => { const info = priorityInfo(row); const tier = importance(row); const state = activity(row); return <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><button className="min-w-0 flex-1 text-right" onClick={() => openExecution(row)}><div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span><span className="font-black text-white">{customerName(row)}</span><span className={`rounded-full border px-3 py-1 text-[11px] font-black ${info.tone}`}>{info.label}</span></div><div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div><div className="mt-2 flex flex-wrap gap-2 text-xs font-black"><span className={`rounded-full border px-3 py-1 ${tier.bg} ${tier.color}`}>{tier.label}</span><span className={`rounded-full bg-white/5 px-3 py-1 ${state.color}`}>{state.label}</span><span className="rounded-full bg-white/5 px-3 py-1 text-slate-300">{row.attempt_count || 0} محاولة</span></div><div className="mt-3 grid gap-2 md:grid-cols-2"><div className="rounded-xl bg-black/15 p-2.5"><div className="text-[10px] font-black text-slate-500">سبب الأولوية</div><div className="mt-1 text-xs font-black text-white">{info.reason}</div></div><div className="rounded-xl bg-cyan-400/[0.06] p-2.5"><div className="text-[10px] font-black text-cyan-300">الإجراء الآن</div><div className="mt-1 text-xs font-black text-cyan-50">{info.next}</div></div></div></button><div className="flex shrink-0 gap-2"><button className="btn-primary text-xs" onClick={() => openExecution(row)}>تنفيذ الآن</button><button className="btn-secondary text-xs" onClick={() => void loadHistory(row)}>السجل</button><button className="btn-secondary p-2" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={16}/></button></div></div></article>; })}</div>
       </> : null}
 
-      {tab === 'contacted' ? <div className="space-y-2">{contactedEvents.slice(0, 500).map((event) => <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex justify-between gap-2"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div><div className="text-xs text-slate-400">{formatDateTime(event.created_at)}</div></div><div className="mt-2 font-bold text-white">{text(event.metadata?.customer_name) || 'عميل غير محدد'} · {actorProfile(event.actor_name, csDirectory).displayName}</div><div className="mt-1 text-xs text-slate-400">{event.branch || 'فرع غير محدد'} · {text(event.metadata?.result) || 'غير مسجلة'}</div></div>)}</div> : null}
+      {tab === 'contacted' ? <div className="space-y-2">{executionEvents.slice(0, 300).map((event) => <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex justify-between gap-2"><div className="font-black text-cyan-100">{event.action}</div><div className="text-xs text-slate-400">{formatDateTime(event.created_at)}</div></div><div className="mt-1 text-sm text-white">{text(event.metadata?.customer_name) || 'عميل غير محدد'} · {text(event.metadata?.result) || 'بدون نتيجة'}</div></div>)}</div> : null}
 
-      {tab === 'performance' ? <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-black text-white">أداء التنفيذ الفعلي</h3><p className="text-xs font-bold text-slate-400">التنفيذ محسوب على مسؤولي خدمة العملاء الفعليين فقط.</p></div><select className="input-dark" value={performanceDays} onChange={(event) => setPerformanceDays(Number(event.target.value))}><option value={7}>آخر 7 أيام</option><option value={14}>آخر 14 يومًا</option><option value={30}>آخر 30 يومًا</option></select></div>
-        <div className="overflow-x-auto rounded-2xl border border-white/10"><table className="min-w-full text-right text-sm"><thead className="bg-white/5"><tr><th className="p-3">المنفذة</th><th className="p-3">الفرع</th><th className="p-3">عملاء</th><th className="p-3">محاولات</th><th className="p-3">رسائل</th><th className="p-3">لم يرد</th><th className="p-3">تم الرد</th><th className="p-3">مكتمل</th><th className="p-3">نسبة الرد</th><th className="p-3">نسبة الإكمال</th></tr></thead><tbody>{performance.map((item) => <tr key={item.actor} className="border-t border-white/10 text-white"><td className="p-3 font-black">{item.actor}</td><td className="p-3">{item.branch}</td><td className="p-3">{item.customers}</td><td className="p-3">{item.attempts}</td><td className="p-3">{item.messages}</td><td className="p-3">{item.noAnswer}</td><td className="p-3 text-emerald-200">{item.replied}</td><td className="p-3 text-cyan-200">{item.completed}</td><td className="p-3">{(item.responseRate * 100).toFixed(1)}%</td><td className="p-3">{(item.completionRate * 100).toFixed(1)}%</td></tr>)}</tbody></table></div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border border-violet-400/20 bg-violet-400/10 p-4"><div className="flex items-center gap-2 font-black text-violet-100"><ShieldCheck size={18}/> مراجعة د/ علا</div><div className="mt-3 grid grid-cols-2 gap-2 text-sm text-white"><div>تمت المراجعة: {reviewSummary.reviewed}</div><div>مقبول: {reviewSummary.approved}</div><div>أُعيد للاستكمال: {reviewSummary.returned}</div><div>تم التصعيد: {reviewSummary.escalated}</div></div></div>
-          <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4"><div className="flex items-center gap-2 font-black text-amber-100"><UserRoundCheck size={18}/> المدير العام</div><p className="mt-3 text-sm leading-7 text-amber-50">عرض ومقارنة واعتماد المؤشرات فقط، ولا يدخل ضمن أرقام تنفيذ المتابعات.</p></div>
-        </div>
-      </div> : null}
+      {tab === 'performance' ? <div className="space-y-3"><div className="flex justify-end"><select className="input-dark" value={performanceDays} onChange={(event) => setPerformanceDays(Number(event.target.value))}><option value={7}>آخر 7 أيام</option><option value={14}>آخر 14 يومًا</option><option value={30}>آخر 30 يومًا</option></select></div><div className="grid gap-3 md:grid-cols-3"><div className="rounded-2xl bg-cyan-400/10 p-4"><div className="text-xs font-black text-cyan-200">إجراءات تنفيذ</div><div className="text-3xl font-black text-white">{executionEvents.length}</div></div><div className="rounded-2xl bg-violet-400/10 p-4"><div className="text-xs font-black text-violet-200">إجراءات مراجعة</div><div className="text-3xl font-black text-white">{reviewEvents.length}</div></div><div className="rounded-2xl bg-emerald-400/10 p-4"><div className="text-xs font-black text-emerald-200">إغلاقات معتمدة</div><div className="text-3xl font-black text-white">{reviewEvents.filter((event) => event.action === 'approved').length}</div></div></div></div> : null}
     </section>
 
     {selected && !detailsOpen ? <div className="fixed inset-0 z-[100] flex justify-end bg-black/65" dir="rtl"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-[#091b2d] p-5">
-      <div className="flex justify-between"><div><p className="text-xs font-black text-cyan-300">بطاقة المتابعة · المسؤول {assignedExecutor(selected.branch, csDirectory)}</p><h3 className="text-2xl font-black text-white">{customerName(selected)}</h3><p className="text-sm text-slate-400">{selected.branch}</p></div><button className="btn-secondary" onClick={() => setSelected(null)}><X size={18}/></button></div>
+      <div className="flex justify-between gap-3"><div><p className="text-xs font-black text-cyan-300">بطاقة التنفيذ · {assignedExecutor(selected.branch, directory)}</p><h3 className="text-2xl font-black text-white">{customerName(selected)}</h3><p className="text-sm text-slate-400">{selected.branch} · {selected.customer_code || 'بدون كود'}</p></div><button className="btn-secondary" onClick={() => setSelected(null)}><X size={18}/></button></div>
 
-      {selectedInsight ? <div className={`mt-4 rounded-2xl border p-4 ${selectedInsight.tone}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2"><div className="font-black">{selectedInsight.label}</div><div className="text-xs font-black opacity-80">آخر محاولة: {lastTouchLabel(selected)}</div></div>
-        <div className="mt-2 text-sm font-bold leading-6">{selectedInsight.reason}</div>
-        <div className="mt-3 rounded-xl bg-black/15 p-3"><div className="text-[10px] font-black opacity-70">الإجراء التالي المقترح</div><div className="mt-1 text-sm font-black">{selectedInsight.nextAction}</div></div>
-      </div> : null}
+      <div className="mt-4 rounded-2xl border border-cyan-300/15 bg-cyan-400/[0.06] p-4"><div className="text-xs font-black text-cyan-300">1) تواصل مع العميل</div><div className="mt-3 grid gap-2 sm:grid-cols-3">{customerPhone(selected) ? <a className="btn-primary text-center" href={generateWhatsAppLink(customerPhone(selected), `أهلًا أ/ ${customerName(selected)}، مع حضرتك صيدليات دواء. حابين نطمن على حضرتك ونعرف هل في أي احتياج نقدر نساعد فيه؟`)} target="_blank" rel="noreferrer">فتح واتساب</a> : null}<button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('message_sent')}><Send size={16} className="inline ms-2"/> أرسلت رسالة</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('no_answer')}><PhoneOff size={16} className="inline ms-2"/> لم يرد</button></div></div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">الأهمية</div><div className="mt-1 font-black text-white">{importance(selected).label}</div></div>
-        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">حالة النشاط</div><div className="mt-1 font-black text-white">{activity(selected).label}</div></div>
-        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">آخر شراء</div><div className="mt-1 font-black text-white">{lastPurchase(selected) || 'غير معروف'}</div></div>
-        <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-3"><div className="text-xs font-black text-cyan-200">المتوسط الشهري</div><div className="mt-1 font-black text-white">{formatCurrency(monthlyAverage(selected))}</div></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">إجمالي المشتريات</div><div className="mt-1 font-black text-white">{formatCurrency(Number(selected.total_spent || metricNumber(selected, 'total_spent')))}</div></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">عدد مرات الشراء</div><div className="mt-1 font-black text-white">{metricNumber(selected, 'invoices_count')}</div></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-xs font-black text-slate-400">متوسط الفاتورة</div><div className="mt-1 font-black text-white">{formatCurrency(metricNumber(selected, 'avg_invoice'))}</div></div>
-        <button type="button" className="rounded-2xl border border-emerald-300/30 bg-emerald-400/15 p-3 text-right" onClick={() => setDetailsOpen(true)}><div className="text-xs font-black text-emerald-200">الملف الكامل</div><div className="mt-1 font-black text-white">ملف العميل 360</div></button>
-      </div>
+      {!isPendingReview(selected) ? <>
+        <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="text-xs font-black text-slate-300">2) اختر نتيجة التواصل</div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">{outcomeOptions.map((option) => <button key={option.id} type="button" onClick={() => chooseOutcome(option)} className={`rounded-xl border px-3 py-3 text-sm font-black transition ${outcome === option.id ? option.tone : 'border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.06]'}`}>{option.label}</button>)}</div>{outcome === 'purchased' ? <label className="mt-3 block text-sm font-black text-white">قيمة عملية الشراء<input type="number" min="0" step="0.01" className="input-dark mt-2 w-full" value={purchaseValue} onChange={(event) => setPurchaseValue(event.target.value)} placeholder="مثال: 650"/></label> : null}</div>
 
-      <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-        <div className="text-xs font-black text-slate-400">سبب المتابعة</div>
-        <div className="mt-1 text-sm font-bold leading-7 text-white">{selected.followup_reason || selected.request_details || selected.notes || 'غير مسجل'}</div>
-        <div className="mt-3 text-xs font-black text-slate-400">آخر نتيجة مسجلة</div>
-        <div className="mt-1 text-sm font-bold leading-7 text-white">{selected.followup_result || selected.contact_result || selected.followup_summary || 'لم تسجل نتيجة بعد'}</div>
-      </div>
+        <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="text-xs font-black text-slate-300">3) الموعد والتفاصيل</div><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm font-black text-white">وسيلة التواصل<select className="input-dark mt-2 w-full" value={contactChannel} onChange={(event) => setContactChannel(event.target.value)}><option>واتساب</option><option>اتصال هاتفي</option><option>رسالة SMS</option><option>زيارة داخل الفرع</option></select></label><label className="text-sm font-black text-white">المتابعة القادمة<input type="date" className="input-dark mt-2 w-full" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)}/></label></div><textarea className="input-dark mt-3 min-h-24 w-full" value={actionNote} onChange={(event) => setActionNote(event.target.value)} placeholder="ملخص النتيجة أو ملاحظة إضافية..."/></div>
 
-      <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4">
-        <div className="font-black text-amber-100">سكريبتات تواصل مقترحة</div>
-        <p className="mt-1 text-xs font-bold text-amber-50/70">اختاري السكريبت ثم عدّليه حسب حالة العميل قبل الإرسال.</p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'general'))}>اطمئنان عام</button>
-          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'inactive'))}>استعادة عميل متوقف</button>
-          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'missing'))}>متابعة صنف أو طلب</button>
-          <button type="button" className="btn-secondary text-xs" onClick={() => setActionNote(suggestedFollowupScript(selected, 'thanks'))}>شكر بعد الشراء</button>
-        </div>
-      </div>
+        <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-400/[0.06] p-4"><div className="text-xs font-black text-emerald-200">4) احفظ النتيجة</div><div className="mt-3 grid gap-2 sm:grid-cols-3"><button className="btn-secondary" disabled={saving || !canExecute || actionNote.trim().length < 3} onClick={() => void executeAction('replied')}><MessageCircle size={16} className="inline ms-2"/> حفظ الرد والاستمرار</button><button className="btn-secondary" disabled={saving || !canExecute || !scheduledDate} onClick={() => void executeAction('scheduled')}>حفظ الموعد فقط</button><button className="btn-primary" disabled={saving || !canExecute || actionNote.trim().length < 3} onClick={() => void executeAction('completed')}><CheckCircle2 size={16} className="inline ms-2"/> إكمال وإرسال للمراجعة</button></div></div>
+      </> : null}
 
-      {historyOpen ? <div className="mt-4 space-y-2 rounded-2xl bg-black/20 p-4">{history.map((event) => <div key={event.id} className="rounded-xl border border-white/10 p-3"><div className="font-black text-cyan-100">{actionLabels[event.action] || event.action}</div><div className="text-xs text-slate-400">{actorProfile(event.actor_name, csDirectory).displayName} · {formatDateTime(event.created_at)}</div><div className="mt-2 text-sm text-white">{text(event.metadata?.notes) || text(event.metadata?.result) || 'بدون تفاصيل'}</div></div>)}</div> : null}
-      <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-black text-white">وسيلة التواصل<select className="input-dark mt-2 w-full" value={contactChannel} onChange={(event) => setContactChannel(event.target.value)}><option>واتساب</option><option>اتصال هاتفي</option><option>رسالة SMS</option><option>زيارة داخل الفرع</option></select></label><label className="text-sm font-black text-white">الموعد التالي<input type="date" className="input-dark mt-2 w-full" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)}/></label></div>
-      <textarea className="input-dark mt-3 min-h-28 w-full" value={actionNote} onChange={(event) => setActionNote(event.target.value)} placeholder="اكتب تفاصيل المحاولة والنتيجة..."/>
-      {!canExecute ? <div className="mt-3 rounded-xl bg-amber-400/10 p-3 text-sm font-bold text-amber-100">حسابك للعرض فقط؛ أزرار التنفيذ موقوفة.</div> : null}
-      <div className="mt-4 grid gap-2 sm:grid-cols-2"><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('message_sent')}><Send size={16} className="inline ms-2"/> أرسلت رسالة</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('no_answer')}><PhoneOff size={16} className="inline ms-2"/> لم يرد</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('replied')}><MessageCircle size={16} className="inline ms-2"/> تم الرد</button>{customerPhone(selected) ? <a className="btn-secondary text-center" href={generateWhatsAppLink(customerPhone(selected), suggestedFollowupScript(selected, 'general'))} target="_blank" rel="noreferrer">فتح واتساب</a> : null}<button className="btn-secondary" disabled={saving || !canExecute || !scheduledDate} onClick={() => void executeAction('scheduled')}>حفظ الموعد</button><button className="btn-primary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('completed')}><CheckCircle2 size={16} className="inline ms-2"/> إكمال المتابعة</button></div>
-      {isPendingReview(selected) && ['reviewer', 'general_manager'].includes(currentProfile.role) ? <div className="mt-5 rounded-2xl border border-violet-400/20 bg-violet-400/10 p-4"><div className="mb-3 font-black text-violet-100">قرار المراجعة</div><div className="grid gap-2 sm:grid-cols-3"><button className="btn-primary" disabled={saving} onClick={() => void executeReviewAction('approved')}>اعتماد وإغلاق</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('returned_for_completion')}>إعادة للاستكمال</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('escalated')}>تصعيد للإدارة</button></div></div> : null}
+      <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="text-xs font-black text-slate-400">سبب المتابعة</div><div className="mt-1 text-sm font-bold text-white">{selected.followup_reason || selected.request_details || selected.notes || 'غير مسجل'}</div><div className="mt-3 text-xs font-black text-slate-400">آخر نتيجة</div><div className="mt-1 text-sm font-bold text-white">{selected.followup_result || selected.contact_result || selected.followup_summary || 'لم تسجل نتيجة بعد'}</div></div>
+
+      {historyOpen ? <div className="mt-3 space-y-2 rounded-2xl bg-black/20 p-4">{history.map((event) => <div key={event.id} className="rounded-xl border border-white/10 p-3"><div className="font-black text-cyan-100">{event.action}</div><div className="text-xs text-slate-400">{actorProfile(event.actor_name, directory).displayName} · {formatDateTime(event.created_at)}</div><div className="mt-2 text-sm text-white">{text(event.metadata?.notes) || text(event.metadata?.result) || 'بدون تفاصيل'}</div></div>)}</div> : null}
+
+      {isPendingReview(selected) && ['reviewer', 'general_manager'].includes(currentProfile.role) ? <div className="mt-4 rounded-2xl border border-violet-400/20 bg-violet-400/10 p-4"><div className="font-black text-violet-100">قرار المراجعة</div><textarea className="input-dark mt-3 min-h-20 w-full" value={actionNote} onChange={(event) => setActionNote(event.target.value)} placeholder="سبب الإعادة أو التصعيد..."/><div className="mt-3 grid gap-2 sm:grid-cols-3"><button className="btn-primary" disabled={saving} onClick={() => void executeReviewAction('approved')}>اعتماد وإغلاق</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('returned_for_completion')}>إعادة للاستكمال</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('escalated')}>تصعيد للإدارة</button></div></div> : null}
+
+      <button className="mt-4 w-full rounded-2xl border border-emerald-300/30 bg-emerald-400/10 p-3 font-black text-emerald-100" onClick={() => setDetailsOpen(true)}>فتح ملف العميل 360</button>
     </aside></div> : null}
 
     {detailsOpen && selected ? <Suspense fallback={<div className="fixed inset-0 z-[110] grid place-items-center bg-black/70"><Loader2 className="animate-spin text-cyan-300"/></div>}><CustomerQuickDetailsModal followupId={selected.id} customerId={selected.customer_id} customerCode={selected.customer_code} customerPhone={customerPhone(selected)} customerName={customerName(selected)} branch={selected.branch} fallbackMetric={{ ...selected.customer_metrics, total_spent: selected.total_spent, avg_monthly: monthlyAverage(selected), last_purchase: lastPurchase(selected) }} onClose={() => setDetailsOpen(false)}/></Suspense> : null}
