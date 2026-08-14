@@ -23,7 +23,7 @@ const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
 type MainView = 'operations' | 'waiting' | 'no_answer' | 'exceptional' | 'completed' | 'performance' | 'data' | 'content' | 'reports';
 
 const views: Array<{ id: MainView; title: string; description: string; icon: typeof Workflow }> = [
-  { id: 'operations', title: 'قائمة اليوم', description: 'المطلوب الآن + ملف الدكاترة', icon: Workflow },
+  { id: 'operations', title: 'قائمة اليوم', description: 'تنفيذ مباشر + ملف الدكاترة', icon: Workflow },
   { id: 'waiting', title: 'في انتظار الرد', description: 'تم الإرسال وننتظر العميل', icon: Clock3 },
   { id: 'no_answer', title: 'لم يرد العميل', description: 'محاولات تواصل بدون رد', icon: PhoneMissed },
   { id: 'exceptional', title: 'المتابعات الاستثنائية', description: 'طلبات الدكاترة والحالات الخاصة', icon: Sparkles },
@@ -102,7 +102,7 @@ export default function SmartCustomerService() {
     <section className="sticky top-0 z-40 border-b border-cyan-300/15 bg-[#071827]/95 px-3 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl md:px-5">
       <div className="mx-auto max-w-[1800px]">
         <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-          <div><p className="text-xs font-black text-cyan-300">مركز خدمة العملاء</p><h1 className="text-xl font-black text-white md:text-2xl">تنفيذ يومي واضح للدكاترة وخدمة العملاء</h1><p className="mt-1 text-xs font-bold text-slate-400">ابدأ بقائمة اليوم، نفّذ الأولويات، راجع ملف الدكاترة قبل الرفع، ثم تابع انتظار الرد وعدم الرد والمكتمل من نفس المركز.</p></div>
+          <div><p className="text-xs font-black text-cyan-300">مركز خدمة العملاء</p><h1 className="text-xl font-black text-white md:text-2xl">تنفيذ يومي واضح وسريع للدكاترة وخدمة العملاء</h1><p className="mt-1 text-xs font-bold text-slate-400">عندك مساران بدون ازدواج: نفّذ مباشرة داخل التطبيق من قائمة اليوم، أو صدّر ملف الفرع للدكاترة ثم راجعه واستورد النتائج. نفس العميل لا يتكرر لمجرد ظهوره في أكثر من سبب متابعة.</p></div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setQuickOpen(true)} className="rounded-xl border border-cyan-300/30 bg-cyan-400/15 px-4 py-2 text-sm font-black text-cyan-100 hover:bg-cyan-400/20"><Plus className="ml-1 inline" size={16}/> متابعة سريعة</button>
             <button type="button" onClick={() => setExceptionalOpen(true)} className="rounded-xl border-2 border-amber-200 bg-amber-500 px-4 py-2 text-sm font-black text-slate-950 shadow-lg hover:bg-amber-400"><Sparkles className="ml-1 inline" size={16}/> إضافة متابعة استثنائية</button>
