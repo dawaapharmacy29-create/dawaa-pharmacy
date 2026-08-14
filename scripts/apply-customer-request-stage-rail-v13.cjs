@@ -7,7 +7,7 @@ const stageHelpers = `${progressAnchor}\nconst REQUEST_STAGE_RAIL = [\n  { id: '
 if (!src.includes(progressAnchor)) throw new Error('progress anchor not found');
 src = src.replace(progressAnchor, stageHelpers);
 
-const oldCardProgress = `<div className=\"mt-3 h-2 overflow-hidden rounded-full bg-slate-800\"><div className=\"h-full rounded-full bg-gradient-to-l from-cyan-400 to-emerald-400\" style={{ width: \`${progressValue(request.status)}%\` }} /></div>`;
+const oldCardProgress = '<div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-l from-cyan-400 to-emerald-400" style={{ width: `${progressValue(request.status)}%` }} /></div>';
 const newCardProgress = `<RequestStageRail status={request.status} />`;
 if (!src.includes(oldCardProgress)) throw new Error('card progress anchor not found');
 src = src.replace(oldCardProgress, newCardProgress);
