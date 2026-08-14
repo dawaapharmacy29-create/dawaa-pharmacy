@@ -429,6 +429,7 @@ export async function recordCustomerRequestContactAttempt(
   input: {
     outcome: CustomerRequestContactOutcome;
     notes?: string | null;
+    followup_at?: string | null;
     user_id?: string | null;
     user_name?: string | null;
   }
@@ -440,7 +441,9 @@ export async function recordCustomerRequestContactAttempt(
     later: 'تواصل لاحقًا',
   };
   const note = String(input.notes || '').trim();
-  if (input.outcome === 'later' && !note) throw new Error('اكتب موعد أو سبب التواصل لاحقًا');
+  if (input.outcome === 'later' && !input.followup_at) throw new Error('حدد موعد التواصل القادم');
+  if (input.outcome === 'later' && !note) throw new Error('اكتب سبب أو ملاحظة للتواصل لاحقًا');
+  if (input.outcome === 'later' && input.followup_at && new Date(input.followup_at).getTime() <= Date.now()) throw new Error('موعد التواصل القادم يجب أن يكون في المستقبل');
 
   const currentStatus = String(request.status || 'new');
   const shouldAdvanceToContacted =
@@ -449,6 +452,7 @@ export async function recordCustomerRequestContactAttempt(
   const summaryLine = [
     'نتيجة التواصل: ' + labels[input.outcome],
     note ? 'ملاحظة: ' + note : '',
+    input.outcome === 'later' && input.followup_at ? 'موعد المتابعة: ' + new Intl.DateTimeFormat('ar-EG', { timeZone: 'Africa/Cairo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(input.followup_at)) : '',
     'بواسطة: ' + (input.user_name || 'النظام'),
   ].filter(Boolean).join(' — ');
   const previousSummary = String(request.contact_summary || '').trim();
@@ -459,6 +463,7 @@ export async function recordCustomerRequestContactAttempt(
     contact_summary: contactSummary,
     updated_at: new Date().toISOString(),
     last_action_at: new Date().toISOString(),
+    due_date: input.outcome === 'later' ? input.followup_at || request.due_date || null : request.due_date || null,
   };
   if (input.outcome === 'answered') payload.customer_contacted_by_name = input.user_name || null;
 
@@ -487,6 +492,7 @@ export async function recordCustomerRequestContactAttempt(
       old_status: request.status,
       new_status: nextStatus,
       notes: note || null,
+      followup_at: input.followup_at || null,
     },
   });
   return updated;
