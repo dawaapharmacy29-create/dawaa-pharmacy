@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, Sparkles, UsersRound, PackageCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { normalizePhone, searchCustomers, type CustomerSearchResult } from '@/lib/customerSearch';
-import { searchProductsCatalog, linkCustomerRequestProduct, type CatalogProduct } from '@/lib/api/productsCatalog';
+import { searchProductsCatalogSmart, linkCustomerRequestProduct, type CatalogProduct } from '@/lib/api/productsCatalog';
+import { confidentUniqueProductMatch, normalizeProductCode, normalizeProductName } from '@/lib/productMatching';
 import { repairCustomerRequestCustomer } from '@/lib/api/customerRequestDataQuality';
 import type { QualityCenterRequest, QualityIssueKey } from '@/lib/api/customerRequestQualityCenter';
 
@@ -11,20 +12,19 @@ type Group = {
   id: string;
   kind: 'customer' | 'product';
   key: string;
+  query: string;
   label: string;
   rows: Row[];
+  matchBy?: 'code' | 'name';
 };
 
 type CandidateState = {
   status: 'idle' | 'loading' | 'ready' | 'blocked' | 'done';
   customer?: CustomerSearchResult | null;
   product?: CatalogProduct | null;
+  score?: number;
   reason?: string;
 };
-
-function normalizeCode(value: unknown) {
-  return String(value ?? '').trim().replace(/\.0$/, '').toUpperCase();
-}
 
 function buildGroups(rows: Row[]): Group[] {
   const groups = new Map<string, Group>();
@@ -36,16 +36,28 @@ function buildGroups(rows: Row[]): Group[] {
     if (needsCustomer && (customerCode || phone)) {
       const stableKey = customerCode ? `code:${customerCode}` : `phone:${phone}`;
       const id = `customer:${stableKey}`;
-      const existing = groups.get(id) || { id, kind: 'customer' as const, key: customerCode || phone, label: customerCode ? `كود العميل ${customerCode}` : `هاتف ${phone}`, rows: [] };
+      const existing = groups.get(id) || { id, kind: 'customer' as const, key: customerCode || phone, query: customerCode || phone, label: customerCode ? `كود العميل ${customerCode}` : `هاتف ${phone}`, rows: [] };
       existing.rows.push(row);
       groups.set(id, existing);
     }
 
-    const productCode = normalizeCode(request.product_code);
+    const productCode = normalizeProductCode(request.product_code);
+    const productName = String(request.medicine_name || '').trim();
+    const normalizedName = normalizeProductName(productName);
     const needsProduct = row.issues.some((issue) => ['product_link', 'product_code'].includes(issue));
-    if (needsProduct && productCode) {
-      const id = `product:${productCode}`;
-      const existing = groups.get(id) || { id, kind: 'product' as const, key: productCode, label: `كود الصنف ${productCode}`, rows: [] };
+    if (needsProduct && (productCode || normalizedName)) {
+      const matchBy = productCode ? 'code' as const : 'name' as const;
+      const stableKey = productCode ? `code:${productCode}` : `name:${normalizedName}`;
+      const id = `product:${stableKey}`;
+      const existing = groups.get(id) || {
+        id,
+        kind: 'product' as const,
+        key: productCode || normalizedName,
+        query: productCode || productName,
+        label: productCode ? `كود الصنف ${productCode}` : `اسم الصنف: ${productName || normalizedName}`,
+        rows: [],
+        matchBy,
+      };
       existing.rows.push(row);
       groups.set(id, existing);
     }
@@ -97,14 +109,28 @@ export default function CustomerRequestBulkRepairPanel({ rows, onChanged }: { ro
         return;
       }
 
-      const products = await searchProductsCatalog(group.key, 20);
-      const exact = products.filter((product) => normalizeCode(product.code) === normalizeCode(group.key));
-      const unique = [...new Map(exact.map((item) => [item.id || item.code, item])).values()];
-      if (unique.length !== 1 || !unique[0]?.id) {
-        setStates((prev) => ({ ...prev, [group.id]: { status: 'blocked', reason: unique.length ? 'يوجد أكثر من صنف مطابق للكود؛ راجع يدويًا.' : 'لا يوجد تطابق تام لهذا الكود في الكتالوج.' } }));
+      const products = await searchProductsCatalogSmart(group.query, 30);
+      if (group.matchBy === 'code') {
+        const exact = products.filter((product) => normalizeProductCode(product.code) === normalizeProductCode(group.key));
+        const unique = [...new Map(exact.map((item) => [item.id || item.code, item])).values()];
+        if (unique.length !== 1 || !unique[0]?.id) {
+          setStates((prev) => ({ ...prev, [group.id]: { status: 'blocked', reason: unique.length ? 'يوجد أكثر من صنف مطابق للكود؛ راجع يدويًا.' : 'لا يوجد تطابق تام لهذا الكود في الكتالوج.' } }));
+          return;
+        }
+        setStates((prev) => ({ ...prev, [group.id]: { status: 'ready', product: unique[0], score: 100 } }));
         return;
       }
-      setStates((prev) => ({ ...prev, [group.id]: { status: 'ready', product: unique[0] } }));
+
+      const confident = confidentUniqueProductMatch({ name: group.query }, products);
+      if (!confident?.product.id) {
+        const best = products[0];
+        const reason = best
+          ? `أفضل تشابه ${best.matchScore}% (${best.name}) لكنه غير كافٍ للإصلاح الجماعي. راجع يدويًا.`
+          : 'لم يتم العثور على صنف مناسب بالاسم.';
+        setStates((prev) => ({ ...prev, [group.id]: { status: 'blocked', reason } }));
+        return;
+      }
+      setStates((prev) => ({ ...prev, [group.id]: { status: 'ready', product: confident.product, score: confident.score } }));
     } catch (error) {
       setStates((prev) => ({ ...prev, [group.id]: { status: 'blocked', reason: (error as Error).message } }));
     }
@@ -135,13 +161,13 @@ export default function CustomerRequestBulkRepairPanel({ rows, onChanged }: { ro
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 font-black text-white"><Sparkles size={17} className="text-cyan-300" /> إصلاح جماعي ذكي</div>
-          <div className="mt-1 text-xs text-slate-400">مجموعات متكررة يمكن مراجعتها مرة واحدة. لا يتم التطبيق إلا بعد تطابق تام وآمن.</div>
+          <div className="mt-1 text-xs text-slate-400">يجمع الطلبات بالكود، أو بالاسم الموحّد عند غياب الكود. لا يتم التطبيق إلا بعد تطابق قوي وفريد.</div>
         </div>
         <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-black text-cyan-200">{groups.length.toLocaleString('ar-EG')} مجموعة</span>
       </div>
 
       <div className="mt-4 space-y-2">
-        {groups.slice(0, 20).map((group) => {
+        {groups.slice(0, 24).map((group) => {
           const state = states[group.id] || { status: 'idle' as const };
           const busy = applying === group.id;
           return (
@@ -152,17 +178,18 @@ export default function CustomerRequestBulkRepairPanel({ rows, onChanged }: { ro
                     {group.kind === 'customer' ? <UsersRound size={15} className="text-cyan-300" /> : <PackageCheck size={15} className="text-violet-300" />}
                     <span className="font-black text-white">{group.label}</span>
                     <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-black text-slate-300">{group.rows.length.toLocaleString('ar-EG')} طلب</span>
+                    {group.kind === 'product' && <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${group.matchBy === 'code' ? 'bg-emerald-500/10 text-emerald-200' : 'bg-amber-500/10 text-amber-200'}`}>{group.matchBy === 'code' ? 'ربط بالكود' : 'ربط بالاسم — يحتاج ثقة عالية'}</span>}
                   </div>
                   <div className="mt-1 truncate text-[11px] text-slate-500">
-                    {group.rows.slice(0, 3).map(({ request }) => request.customer_name || request.medicine_name || request.id).join(' · ')}{group.rows.length > 3 ? ' …' : ''}
+                    {group.rows.slice(0, 3).map(({ request }) => group.kind === 'customer' ? (request.customer_name || request.id) : (request.medicine_name || request.id)).join(' · ')}{group.rows.length > 3 ? ' …' : ''}
                   </div>
                   {state.status === 'ready' && (
-                    <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2 py-1 text-[11px] font-black text-emerald-200"><CheckCircle2 size={12} /> تطابق مؤكد: {state.customer?.name || state.product?.name}</div>
+                    <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2 py-1 text-[11px] font-black text-emerald-200"><CheckCircle2 size={12} /> تطابق مؤكد: {state.customer?.name || state.product?.name}{state.score ? ` · ${state.score}%` : ''}</div>
                   )}
                   {state.status === 'blocked' && (
                     <div className="mt-2 flex items-start gap-1.5 text-[11px] font-bold text-amber-200"><AlertTriangle size={12} className="mt-0.5 shrink-0" />{state.reason}</div>
                   )}
-                  {state.status === 'done' && <div className="mt-2 text-[11px] font-black text-emerald-300">تم إصلاح المجموعة بنجاح.</div>}
+                  {state.status === 'done' && <div className="mt-2 text-[11px] font-black text-emerald-300">تم إصلاح المجموعة بنجاح وتوحيد الاسم/الكود.</div>}
                 </div>
                 <div className="flex shrink-0 gap-2">
                   {(state.status === 'idle' || state.status === 'blocked') && (
