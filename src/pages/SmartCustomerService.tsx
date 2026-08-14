@@ -38,16 +38,19 @@ type FollowupView = 'exceptional' | 'completed';
 type ToolsView = 'data' | 'content';
 type ReportsView = 'exports' | 'cashback';
 
-const mainSections: Array<{ id: MainSection; title: string; description: string; icon: typeof Workflow }> = [
-  { id: 'operations', title: 'مركز التنفيذ', description: 'اليوم وانتظار الرد والمراجعة وسجل التواصل والأداء', icon: Workflow },
-  { id: 'priorities', title: 'الأولويات والملف', description: 'VIP و+500 والنقاط وملف الدكاترة', icon: Target },
-  { id: 'followups', title: 'الحالات الخاصة', description: 'المتابعات الاستثنائية والمكتملة', icon: Sparkles },
-  { id: 'tools', title: 'الأدوات والإدارة', description: 'جودة البيانات والتصحيح وسكريبتات التواصل', icon: Wrench },
-  { id: 'reports', title: 'التقارير والنقاط', description: 'التصدير والكاش باك والاستحقاق', icon: History },
+const workspaces: Array<{ id: 'operations' | 'priorities'; title: string; description: string; icon: typeof Workflow }> = [
+  { id: 'operations', title: 'مركز متابعة العملاء', description: 'تنفيذ المتابعات الحالية، انتظار الرد، المراجعة، سجل التواصل والأداء', icon: Workflow },
+  { id: 'priorities', title: 'قائمة عمل مسؤول خدمة العملاء', description: 'الاسترجاع والنمو والعملاء المستقرون وVIP و+500 والنقاط وملف الدكاترة', icon: Target },
+];
+
+const supportSections: Array<{ id: 'followups' | 'tools' | 'reports'; title: string; description: string; icon: typeof Workflow }> = [
+  { id: 'followups', title: 'الحالات الخاصة', description: 'الاستثنائي والمكتمل', icon: Sparkles },
+  { id: 'tools', title: 'الأدوات والإدارة', description: 'الجودة والتصحيح والسكريبتات', icon: Wrench },
+  { id: 'reports', title: 'التقارير والنقاط', description: 'التصدير والكاش باك', icon: History },
 ];
 
 const priorityViews: Array<{ id: PriorityView; title: string; description: string; icon: typeof ListChecks }> = [
-  { id: 'queues', title: 'أولويات العملاء', description: 'VIP و+500 والنقاط وتحليل العملاء المهمين', icon: ListChecks },
+  { id: 'queues', title: 'أولويات العملاء', description: 'الاسترجاع والنمو والمستقرون وVIP و+500 والنقاط', icon: ListChecks },
   { id: 'workbook', title: 'ملف الدكاترة', description: 'تصدير ومراجعة واستيراد ملف التنفيذ', icon: FileSpreadsheet },
 ];
 
@@ -74,13 +77,7 @@ function MissingBranchGuard() {
   return <section className="mx-4 mt-4 rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 text-center" dir="rtl"><AlertTriangle className="mx-auto text-amber-300" size={34}/><h2 className="mt-3 text-xl font-black text-white">لا يمكن فتح مساحة التشغيل بدون فرع محدد</h2><p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-amber-100/80">الحساب الحالي غير مربوط بفرع الشامي أو فرع شكري. تم إيقاف تحميل بيانات العملاء بدل فتح فرع افتراضي أو إظهار بيانات فرع آخر.</p></section>;
 }
 
-function SecondaryNav<T extends string>({
-  items,
-  value,
-  onChange,
-  tone = 'cyan',
-  label,
-}: {
+function SecondaryNav<T extends string>({ items, value, onChange, tone = 'cyan', label }: {
   items: Array<{ id: T; title: string; description: string; icon: typeof Workflow }>;
   value: T;
   onChange: (value: T) => void;
@@ -122,9 +119,7 @@ export default function SmartCustomerService() {
   useEffect(() => {
     const openQuick = (event: Event) => {
       const detail = (event as CustomEvent<{ code?: string; name?: string; phone?: string }>).detail;
-      if (detail && (detail.code || detail.name || detail.phone)) {
-        setPendingCustomer({ code: detail.code || '', name: detail.name || '', phone: detail.phone || '' });
-      }
+      if (detail && (detail.code || detail.name || detail.phone)) setPendingCustomer({ code: detail.code || '', name: detail.name || '', phone: detail.phone || '' });
       setQuickOpen(true);
     };
     const params = new URLSearchParams(window.location.search);
@@ -135,9 +130,7 @@ export default function SmartCustomerService() {
         if (stored) {
           sessionStorage.removeItem('dawaa_pending_followup_customer');
           const parsed = JSON.parse(stored) as { code?: string; name?: string; phone?: string };
-          if (parsed.code || parsed.name || parsed.phone) {
-            customer = { code: parsed.code || '', name: parsed.name || '', phone: parsed.phone || '' };
-          }
+          if (parsed.code || parsed.name || parsed.phone) customer = { code: parsed.code || '', name: parsed.name || '', phone: parsed.phone || '' };
         }
       } catch {
         // نكمل على بارامترات الرابط
@@ -168,7 +161,6 @@ export default function SmartCustomerService() {
     setFollowupView('exceptional');
     setExceptionalOpen(true);
   };
-
   const selectSection = (next: MainSection) => {
     setSection(next);
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
@@ -182,29 +174,37 @@ export default function SmartCustomerService() {
             <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] font-black text-slate-400">
               <span className="rounded-full border border-cyan-300/15 bg-cyan-400/10 px-2.5 py-1 text-cyan-200">مركز خدمة العملاء</span>
               <span>الفرع: {normalizedUserBranch || (managerView ? 'كل الفروع حسب الصلاحية' : 'غير محدد')}</span>
-              <span className="rounded-full border border-emerald-300/15 bg-emerald-400/10 px-2.5 py-1 text-emerald-200">مسار موحد بدون تكرار</span>
+              <span className="rounded-full border border-emerald-300/15 bg-emerald-400/10 px-2.5 py-1 text-emerald-200">اختيار مساحة العمل</span>
             </div>
-            <h1 className="text-xl font-black text-white md:text-2xl">خدمة العملاء — كل وظيفة في مكان واحد واضح</h1>
-            <p className="mt-1 max-w-5xl text-xs font-bold leading-6 text-slate-400">مركز التنفيذ هو المسار اليومي الوحيد: قائمة اليوم ← انتظار الرد ← المراجعة ← سجل التواصل ← الأداء. باقي الأقسام مخصصة فقط للأولويات والملفات، الحالات الخاصة، الإدارة، والتقارير.</p>
+            <h1 className="text-xl font-black text-white md:text-2xl">خدمة العملاء — اختار مساحة العمل ثم نفّذ</h1>
+            <p className="mt-1 max-w-5xl text-xs font-bold leading-6 text-slate-400">اختيار رئيسي بين مركز المتابعة للتنفيذ الفعلي، وقائمة عمل المسؤول لتحليل فرص الاسترجاع والنمو والعملاء المهمين. باقي الأدوات منفصلة أسفل الاختيار الرئيسي.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {section !== 'operations' ? <button type="button" onClick={() => selectSection('operations')} className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-black text-slate-200 hover:border-cyan-300/30 hover:bg-white/[0.07]"><Workflow className="ml-1 inline" size={16}/> مركز التنفيذ</button> : null}
             <button type="button" onClick={() => setQuickOpen(true)} className="rounded-xl border border-cyan-300/30 bg-cyan-400/15 px-4 py-2 text-sm font-black text-cyan-100 hover:bg-cyan-400/20"><Plus className="ml-1 inline" size={16}/> متابعة سريعة</button>
             <button type="button" onClick={openExceptional} className="rounded-xl border-2 border-amber-200 bg-amber-500 px-4 py-2 text-sm font-black text-slate-950 shadow-lg hover:bg-amber-400"><Sparkles className="ml-1 inline" size={16}/> متابعة استثنائية</button>
           </div>
         </div>
 
-        <nav className="grid grid-cols-2 gap-2 md:grid-cols-5" aria-label="أقسام خدمة العملاء الرئيسية">
-          {mainSections.map(({ id, title, description, icon: Icon }) => {
+        <nav className="grid gap-2 md:grid-cols-2" aria-label="مساحات العمل الرئيسية لخدمة العملاء">
+          {workspaces.map(({ id, title, description, icon: Icon }) => {
             const active = id === section;
-            return <button key={id} type="button" onClick={() => selectSection(id)} className={`rounded-2xl border px-3 py-3 text-right transition ${active ? 'border-cyan-300/60 bg-cyan-400/15 shadow-lg shadow-cyan-950/30' : 'border-white/10 bg-white/[0.035] hover:border-cyan-300/30 hover:bg-white/[0.06]'}`} aria-pressed={active}>
-              <span className="flex items-center gap-2"><Icon size={17} className={id === 'followups' ? 'text-amber-200' : id === 'tools' ? 'text-violet-300' : 'text-cyan-300'}/><span className={`block text-sm font-black ${active ? 'text-cyan-200' : 'text-white'}`}>{title}</span></span>
-              <span className="mt-1 hidden text-[11px] font-bold text-slate-400 md:block">{description}</span>
+            return <button key={id} type="button" onClick={() => selectSection(id)} className={`rounded-2xl border px-4 py-3 text-right transition ${active ? 'border-cyan-300/70 bg-cyan-400/15 shadow-lg shadow-cyan-950/30' : 'border-white/10 bg-white/[0.035] hover:border-cyan-300/30 hover:bg-white/[0.06]'}`} aria-pressed={active}>
+              <span className="flex items-center gap-3"><span className={`rounded-xl p-2 ${active ? 'bg-cyan-300/15 text-cyan-200' : 'bg-white/5 text-slate-300'}`}><Icon size={20}/></span><span><span className={`block text-sm font-black md:text-base ${active ? 'text-cyan-100' : 'text-white'}`}>{title}</span><span className="mt-1 block text-[11px] font-bold text-slate-400">{description}</span></span></span>
             </button>;
           })}
         </nav>
 
-        {section === 'priorities' ? <SecondaryNav items={priorityViews} value={priorityView} onChange={(value) => setPriorityView(value as PriorityView)} label="الأولويات والملفات"/> : null}
+        <nav className="mt-2 grid grid-cols-3 gap-2" aria-label="المساحات المساعدة لخدمة العملاء">
+          {supportSections.map(({ id, title, description, icon: Icon }) => {
+            const active = id === section;
+            return <button key={id} type="button" onClick={() => selectSection(id)} className={`rounded-xl border px-3 py-2 text-right transition ${active ? 'border-violet-300/50 bg-violet-400/10' : 'border-white/5 bg-black/10 hover:border-white/15 hover:bg-white/[0.04]'}`} aria-pressed={active}>
+              <span className="flex items-center gap-2"><Icon size={15} className={id === 'followups' ? 'text-amber-200' : id === 'tools' ? 'text-violet-300' : 'text-cyan-300'}/><span className="text-xs font-black text-white">{title}</span></span>
+              <span className="mt-1 hidden text-[10px] font-bold text-slate-500 md:block">{description}</span>
+            </button>;
+          })}
+        </nav>
+
+        {section === 'priorities' ? <SecondaryNav items={priorityViews} value={priorityView} onChange={(value) => setPriorityView(value as PriorityView)} label="قائمة عمل مسؤول خدمة العملاء"/> : null}
         {section === 'followups' ? <SecondaryNav items={followupViews} value={followupView} onChange={(value) => setFollowupView(value as FollowupView)} tone="amber" label="الحالات الخاصة"/> : null}
         {section === 'tools' ? <SecondaryNav items={toolsViews} value={toolsView} onChange={(value) => setToolsView(value as ToolsView)} tone="violet" label="أدوات خدمة العملاء"/> : null}
         {section === 'reports' ? <SecondaryNav items={reportsViews} value={reportsView} onChange={(value) => setReportsView(value as ReportsView)} label="التقارير والنقاط"/> : null}
@@ -213,18 +213,13 @@ export default function SmartCustomerService() {
 
     <main className="mx-auto max-w-[1800px] px-0 pb-8">
       {!hasSafeBranchScope && section !== 'reports' ? <MissingBranchGuard/> : null}
-
       {hasSafeBranchScope && section === 'operations' ? <CustomerFollowupCockpitPanel key={`operations-${workspaceVersion}`} /> : null}
-
       {hasSafeBranchScope && section === 'priorities' && priorityView === 'queues' ? <CustomerDailyPriorityQueues/> : null}
       {hasSafeBranchScope && section === 'priorities' && priorityView === 'workbook' ? <CustomerServiceDoctorWorkbookCenter onImported={refreshWorkspace}/> : null}
-
       {hasSafeBranchScope && section === 'followups' && followupView === 'exceptional' ? <ExceptionalFollowupCenter key={`exceptional-${workspaceVersion}`} /> : null}
       {hasSafeBranchScope && section === 'followups' && followupView === 'completed' ? <CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /> : null}
-
       {hasSafeBranchScope && section === 'tools' && toolsView === 'data' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><Suspense fallback={<SectionLoader label="أدوات تصحيح البيانات"/>}><CustomerServiceDataTools/></Suspense></div> : null}
       {hasSafeBranchScope && section === 'tools' && toolsView === 'content' ? <Suspense fallback={<SectionLoader label="محرر السكريبتات"/>}><CustomerServiceScriptEditor/></Suspense> : null}
-
       {section === 'reports' && reportsView === 'exports' ? <CustomerFollowupFullExportPanel/> : null}
       {section === 'reports' && reportsView === 'cashback' && hasSafeBranchScope ? <Suspense fallback={<SectionLoader label="نقاط العملاء والكاش باك"/>}><CustomerCashback/></Suspense> : null}
       {section === 'reports' && reportsView === 'cashback' && !hasSafeBranchScope ? <MissingBranchGuard/> : null}
