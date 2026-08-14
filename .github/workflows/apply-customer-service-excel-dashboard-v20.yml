@@ -1,0 +1,35 @@
+name: Apply customer service Excel dashboard V20
+
+on:
+  push:
+    branches:
+      - agent/customer-service-excel-dashboard-v20
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[excel-dashboard-v20-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/customer-service-excel-dashboard-v20
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply dashboard transformation
+        run: node scripts/apply-customer-service-excel-dashboard-v20.cjs
+      - name: Commit generated change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/customerService/customerServiceExcelWorkbook.ts src/components/customerService/SmartQueueExcelImportModal.tsx
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "تطوير Dashboard Excel ومراجعة الاستيراد [excel-dashboard-v20-applied]"
+          git push origin HEAD:agent/customer-service-excel-dashboard-v20
