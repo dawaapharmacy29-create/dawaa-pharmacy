@@ -214,13 +214,15 @@ export default function CustomerDailyPriorityQueues() {
       const today = ymd(new Date());
       const saleDay = ymd(yesterday);
       const actorId = user?.id;
-      const [topResult, intelligenceResult, vipResult, plusResult, pointsResult] = await Promise.all([
-        supabase.rpc('get_customer_service_recent_top50_v2', { p_days: 90, p_actor_id: actorId }),
-        supabase.rpc('get_customer_service_three_cycle_intelligence_v1', { p_as_of: today, p_actor_id: actorId }),
+      // Load the operational queues together, then run the heavier analytics sequentially.
+      // This prevents Top-50 and 3-cycle analytics from competing for DB resources on page open.
+      const [vipResult, plusResult, pointsResult] = await Promise.all([
         supabase.rpc('get_customer_service_daily_vip7_v2', { p_date: today, p_actor_id: actorId }),
         supabase.rpc('get_customer_service_plus500_v2', { p_date: saleDay, p_actor_id: actorId }),
         supabase.rpc('get_customer_points_daily20_v2', { p_date: today, p_actor_id: actorId }),
       ]);
+      const topResult = await supabase.rpc('get_customer_service_recent_top50_v2', { p_days: 90, p_actor_id: actorId });
+      const intelligenceResult = await supabase.rpc('get_customer_service_three_cycle_intelligence_v1', { p_as_of: today, p_actor_id: actorId });
       const namedResults: Array<[string, typeof topResult]> = [
         ['أهم 50 عميل', topResult],
         ['تحليل 3 فترات', intelligenceResult],
