@@ -1,0 +1,81 @@
+/* Customer requests execution workspace — desktop density/readability overrides.
+   Loaded globally but scoped to #customer-request-list so the rest of the app is untouched. */
+#customer-request-list {
+  padding: 12px !important;
+}
+
+#customer-request-list > div:first-child {
+  margin-bottom: 12px !important;
+}
+
+#customer-request-list table {
+  min-width: 1240px !important;
+  table-layout: auto;
+}
+
+#customer-request-list table th {
+  padding: 10px 8px !important;
+  font-size: 11px;
+}
+
+#customer-request-list table td {
+  padding: 9px 8px !important;
+  line-height: 1.35;
+}
+
+#customer-request-list table th:nth-child(1),
+#customer-request-list table td:nth-child(1) { width: 42px; }
+#customer-request-list table th:nth-child(2),
+#customer-request-list table td:nth-child(2) { min-width: 155px; max-width: 220px; }
+#customer-request-list table th:nth-child(3),
+#customer-request-list table td:nth-child(3) { min-width: 145px; max-width: 205px; }
+#customer-request-list table th:nth-child(4),
+#customer-request-list table td:nth-child(4) { min-width: 112px; white-space: nowrap; }
+#customer-request-list table th:nth-child(5),
+#customer-request-list table td:nth-child(5) { min-width: 92px; }
+#customer-request-list table th:nth-child(6),
+#customer-request-list table td:nth-child(6) { min-width: 105px; max-width: 150px; }
+#customer-request-list table th:nth-child(7),
+#customer-request-list table td:nth-child(7) { min-width: 118px; }
+#customer-request-list table th:nth-child(8),
+#customer-request-list table td:nth-child(8) { min-width: 65px; }
+#customer-request-list table th:nth-child(9),
+#customer-request-list table td:nth-child(9) { min-width: 132px; }
+#customer-request-list table th:nth-child(10),
+#customer-request-list table td:nth-child(10) { min-width: 142px; }
+#customer-request-list table th:nth-child(11),
+#customer-request-list table td:nth-child(11) { min-width: 205px; }
+
+#customer-request-list table tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: 56px;
+}
+
+#customer-request-list table tbody tr:hover {
+  background: rgba(34, 211, 238, 0.06);
+}
+
+@media (min-width: 1440px) {
+  #customer-request-list {
+    border-radius: 20px !important;
+  }
+}
+
+@media (max-width: 1199px) {
+  #customer-request-list {
+    padding: 10px !important;
+  }
+  #customer-request-list table {
+    min-width: 1180px !important;
+  }
+}
+
+@media (max-width: 767px) {
+  #customer-request-list {
+    padding: 8px !important;
+    border-radius: 16px !important;
+  }
+  #customer-request-list table {
+    min-width: 1080px !important;
+  }
+}
