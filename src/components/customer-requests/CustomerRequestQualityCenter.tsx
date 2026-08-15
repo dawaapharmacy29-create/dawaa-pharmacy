@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, ChevronLeft, Loader2, RefreshCw, Search, S
 import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import CustomerRequestBulkRepairPanel from '@/components/customer-requests/CustomerRequestBulkRepairPanel';
+import CustomerRequestSourceAuditPanel from '@/components/customer-requests/CustomerRequestSourceAuditPanel';
 import {
   getCustomerRequestQualityCenter,
   qualityIssueLabel,
@@ -89,6 +90,8 @@ export default function CustomerRequestQualityCenter({
         <SummaryCard icon={<UserRound size={18} />} label="مشاكل بيانات العميل" value={customerProblems} tone="cyan" />
         <SummaryCard icon={<PackageSearch size={18} />} label="مشاكل ربط الأصناف" value={productProblems} tone="violet" />
       </div>
+
+      <CustomerRequestSourceAuditPanel branch={branch} />
 
       {!loading && rows.length > 0 && <CustomerRequestBulkRepairPanel rows={rows} onChanged={() => void load()} />}
 
