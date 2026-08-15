@@ -5,6 +5,7 @@ import type { CustomerRequest } from '@/lib/api/customerRequests';
 import CustomerRequestBulkRepairPanel from '@/components/customer-requests/CustomerRequestBulkRepairPanel';
 import CustomerRequestSourceAuditPanel from '@/components/customer-requests/CustomerRequestSourceAuditPanel';
 import CustomerRequestProcurementExportPanel from '@/components/customer-requests/CustomerRequestProcurementExportPanel';
+import CustomerRequestProductIntelligencePanel from '@/components/customer-requests/CustomerRequestProductIntelligencePanel';
 import {
   getCustomerRequestQualityCenter,
   qualityIssueLabel,
@@ -94,6 +95,7 @@ export default function CustomerRequestQualityCenter({
 
       <CustomerRequestSourceAuditPanel branch={branch} />
       <CustomerRequestProcurementExportPanel branch={branch} />
+      <CustomerRequestProductIntelligencePanel branch={branch} onChanged={() => void load()} />
 
       {!loading && rows.length > 0 && <CustomerRequestBulkRepairPanel rows={rows} onChanged={() => void load()} />}
 
