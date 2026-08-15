@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import CustomerRequestBulkRepairPanel from '@/components/customer-requests/CustomerRequestBulkRepairPanel';
 import CustomerRequestSourceAuditPanel from '@/components/customer-requests/CustomerRequestSourceAuditPanel';
+import CustomerRequestProcurementExportPanel from '@/components/customer-requests/CustomerRequestProcurementExportPanel';
 import {
   getCustomerRequestQualityCenter,
   qualityIssueLabel,
@@ -92,6 +93,7 @@ export default function CustomerRequestQualityCenter({
       </div>
 
       <CustomerRequestSourceAuditPanel branch={branch} />
+      <CustomerRequestProcurementExportPanel branch={branch} />
 
       {!loading && rows.length > 0 && <CustomerRequestBulkRepairPanel rows={rows} onChanged={() => void load()} />}
 
