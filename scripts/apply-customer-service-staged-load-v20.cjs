@@ -6,3 +6,4 @@ const newBlock = `      // Load the operational queues together, then run the he
 if (!s.includes(oldBlock)) throw new Error('staged-load target block not found');
 s = s.replace(oldBlock, newBlock);
 fs.writeFileSync(path, s);
+// workflow trigger v20
