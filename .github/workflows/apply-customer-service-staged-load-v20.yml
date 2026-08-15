@@ -1,0 +1,28 @@
+name: Apply customer service staged load V20
+on:
+  push:
+    branches: [agent/customer-service-cache-staged-v20]
+    paths:
+      - scripts/apply-customer-service-staged-load-v20.cjs
+      - .github/workflows/apply-customer-service-staged-load-v20.yml
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/customer-service-cache-staged-v20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/apply-customer-service-staged-load-v20.cjs
+      - name: Commit generated source change
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/customerService/CustomerDailyPriorityQueues.tsx
+          git commit -m "perf: stage customer service analytics loading"
+          git push
