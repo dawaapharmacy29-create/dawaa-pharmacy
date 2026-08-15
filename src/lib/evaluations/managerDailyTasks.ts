@@ -116,7 +116,7 @@ export const MANAGER_DAILY_TASK_GROUPS: Record<ManagerDailyRole, DailyTaskGroup[
       groupKey: 'appearance_and_infrastructure',
       groupLabel: 'الشكل العام والبنية التحتية',
       subtasks: [
-        { key: 'branch_appearance_cleanliness_audit', label: 'الشكل العام والنظافة في الفرعين' },
+        { key: 'branch_appearance_cleanliness_audit', label: 'الشكل العام والنظافة بالفرع' },
         { key: 'infrastructure_check', label: 'الكاميرات والخط الأرضي والنت' },
         { key: 'consumables_check', label: 'الأكياس وبكر الريسيت والباركود' },
       ],
@@ -150,7 +150,7 @@ export const MANAGER_DAILY_TASK_GROUPS: Record<ManagerDailyRole, DailyTaskGroup[
         { key: 'customer_requests_speed_review', label: 'سرعة تسجيل طلبات العملاء وتحقيقها' },
         {
           key: 'top20_customers_retention_review',
-          label: 'أهم 20 عميل بكل فرع — الاستمرارية وجودة الخدمة',
+          label: 'أهم 20 عميل بالفرع — الاستمرارية وجودة الخدمة',
           hint: 'مصدرها RPC: get_top_customers_per_branch(branch, 20).',
         },
       ],

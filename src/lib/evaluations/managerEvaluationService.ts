@@ -100,12 +100,19 @@ export async function fetchManagerCycleSalesTargetSummary(
 export async function fetchWeeklyChecklistCompletion(
   staffId: string,
   weekStart: string,
-  weekEnd: string
+  weekEnd: string,
+  branch: string | null = null
 ): Promise<Record<string, number>> {
   const allManagerTaskKeys = [...new Set(Object.values(MANAGER_DAILY_TASKS).flat().map((task) => task.key))];
   const cadencePayload = Object.fromEntries(
     allManagerTaskKeys.map((key) => [key, getManagerTaskCadence(key)])
   );
+
+  const { data: v4Data, error: v4Error } = await supabase.rpc(
+    'calculate_weekly_checklist_completion_v4',
+    { p_staff_id: staffId, p_week_start: weekStart, p_week_end: weekEnd, p_task_cadences: cadencePayload, p_branch: branch }
+  );
+  if (!v4Error) return (v4Data as Record<string, number>) || {};
 
   // v3 يحافظ على المفاتيح الحالية ويعتبر مفاتيح المهام القديمة المعروفة مرادفات،
   // لذلك لا نفقد تنفيذًا تاريخيًا بعد تطوير المسميات.
@@ -165,7 +172,7 @@ export async function saveWeeklyEvaluation(evaluation: ManagerWeeklyEvaluation) 
         ...evaluation,
         submitted_at: evaluation.status === 'submitted' ? new Date().toISOString() : null,
       },
-      { onConflict: 'evaluation_type,subject_staff_id,week_start' }
+      { onConflict: 'evaluation_type,subject_staff_id,week_start,branch' }
     )
     .select()
     .maybeSingle();
@@ -173,14 +180,14 @@ export async function saveWeeklyEvaluation(evaluation: ManagerWeeklyEvaluation) 
   return data;
 }
 
-export async function fetchEvaluationHistory(evaluationType: EvaluationType, subjectStaffId: string) {
-  const { data, error } = await supabase
+export async function fetchEvaluationHistory(evaluationType: EvaluationType, subjectStaffId: string, branch: string | null = null) {
+  let query = supabase
     .from(TABLES.managerWeeklyEvaluations)
     .select('*')
     .eq('evaluation_type', evaluationType)
-    .eq('subject_staff_id', subjectStaffId)
-    .order('week_start', { ascending: false })
-    .limit(12);
+    .eq('subject_staff_id', subjectStaffId);
+  if (branch) query = query.eq('branch', branch);
+  const { data, error } = await query.order('week_start', { ascending: false }).limit(12);
   if (error) throw new Error(error.message);
   return data || [];
 }

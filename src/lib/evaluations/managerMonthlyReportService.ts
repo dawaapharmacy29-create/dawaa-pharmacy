@@ -131,15 +131,17 @@ export async function fetchManagerMonthlyReport(
   const oldestStart = formatCycleDate(cycles[cycles.length - 1].start);
   const maxIncentive = EVALUATION_MAX_MONTHLY_INCENTIVE_EGP[evaluationType] || 0;
 
+  let evaluationQuery = supabase
+    .from('manager_weekly_evaluations')
+    .select('week_start,week_end,total_score,status,auto_metrics,branch')
+    .eq('evaluation_type', evaluationType)
+    .eq('subject_staff_id', subjectStaffId)
+    .eq('status', 'submitted')
+    .gte('week_end', oldestStart);
+  if (branch) evaluationQuery = evaluationQuery.eq('branch', branch);
+
   const [evaluationResult, settlementResult, liveSnapshot, cycleMetrics] = await Promise.all([
-    supabase
-      .from('manager_weekly_evaluations')
-      .select('week_start,week_end,total_score,status,auto_metrics')
-      .eq('evaluation_type', evaluationType)
-      .eq('subject_staff_id', subjectStaffId)
-      .eq('status', 'submitted')
-      .gte('week_end', oldestStart)
-      .order('week_end', { ascending: false }),
+    evaluationQuery.order('week_end', { ascending: false }),
     supabase
       .from('employee_transactions')
       .select('amount,month_cycle,status,metadata')
