@@ -229,7 +229,7 @@ export default function CustomerDailyPriorityQueues() {
         ['نقاط اليوم', pointsResult],
       ];
       const failed = namedResults.find(([, result]) => result.error);
-      if (failed) throw new Error(`${failed[0]}: ${failed[1].error?.message || 'خطأ غير معروف'}`);
+      if (failed) setError(`تعذر تحميل ${failed[0]} مؤقتًا: ${failed[1].error?.message || 'خطأ غير معروف'} — تم عرض باقي القوائم المتاحة.`);
 
       const topRows = (topResult.data || []) as Top50Row[];
       const intelligenceRows = (intelligenceResult.data || []) as IntelligenceRow[];
