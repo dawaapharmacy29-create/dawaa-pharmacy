@@ -1,5 +1,5 @@
--- Canonical sales/target exclusions for Dawaa internal/exception customer accounts.
--- Keep every invoice in sales_invoices for audit/returns; exclude only from target/performance math.
+-- Canonical sales/target exclusions for Dawaa exception customer accounts.
+-- Keep every invoice in sales_invoices for audit/returns; exclude only the five confirmed codes from target/performance math.
 
 create or replace function public.dawaa_is_sales_target_excluded_customer_v1(
   p_branch text,
@@ -9,13 +9,7 @@ language sql
 immutable
 set search_path = public, pg_catalog
 as $$
-  select case
-    when nullif(btrim(coalesce(p_customer_code,'')), '') is null then false
-    when btrim(p_customer_code) in ('5','7','50','54','12820') then true
-    when p_branch = 'فرع شكري' and btrim(p_customer_code) in ('10','4902') then true
-    when p_branch = 'فرع الشامي' and btrim(p_customer_code) in ('13','170','10094') then true
-    else false
-  end;
+  select coalesce(btrim(p_customer_code),'') in ('54','12820','10','5','170');
 $$;
 
 grant execute on function public.dawaa_is_sales_target_excluded_customer_v1(text,text) to anon, authenticated;
