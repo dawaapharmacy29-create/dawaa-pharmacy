@@ -17,6 +17,8 @@ const ROLE_TO_EVALUATION_TYPE: Record<ManagerDailyRole, EvaluationType> = {
   customer_service_manager: 'customer_service',
 };
 
+const BRANCHES_MANAGER_BRANCHES = ['فرع شكري', 'فرع الشامي'] as const;
+
 function todayInput() {
   const now = new Date();
   const year = now.getFullYear();
@@ -31,6 +33,7 @@ type ChecklistRow = {
   task_date?: string;
   completed: boolean;
   note: string | null;
+  branch?: string | null;
 };
 
 type EligibleRole = ManagerDailyRole | 'assistant';
@@ -57,6 +60,7 @@ export default function DailyManagerChecklist() {
 
   const [taskDate, setTaskDate] = useState(todayInput());
   const [activeTab, setActiveTab] = useState<'tasks' | 'score'>('tasks');
+  const [selectedBranch, setSelectedBranch] = useState<(typeof BRANCHES_MANAGER_BRANCHES)[number]>('فرع شكري');
   const [rows, setRows] = useState<Record<string, ChecklistRow>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -66,6 +70,7 @@ export default function DailyManagerChecklist() {
   const groups = !isAssistant && isEligible ? MANAGER_DAILY_TASK_GROUPS[role as ManagerDailyRole] : [];
 
   const staffId = user?.staffId || user?.id || '';
+  const effectiveBranch = role === 'branches_manager' ? selectedBranch : (user?.branch || null);
 
   useEffect(() => {
     if (!staffId || !isEligible) return;
@@ -74,7 +79,7 @@ export default function DailyManagerChecklist() {
     setError('');
     supabase
       .from(TABLES.managerDailyChecklist)
-      .select('id, task_key, task_date, completed, note')
+      .select('id, task_key, task_date, completed, note, branch')
       .eq('staff_id', staffId)
       .gte('task_date', getPharmacyCycleRange(taskDate).start)
       .lte('task_date', getPharmacyCycleRange(taskDate).end)
@@ -88,6 +93,7 @@ export default function DailyManagerChecklist() {
         const selectedWeek = weekBoundsOf(new Date(`${taskDate}T12:00:00`));
         (data || []).forEach((rawRow) => {
           const row = rawRow as ChecklistRow;
+          if (role === 'branches_manager' && row.branch !== selectedBranch) return;
           const cadence = isAssistant ? 'daily' : getManagerTaskCadence(row.task_key);
           const rowDate = String(row.task_date || '').slice(0, 10);
           const isRelevant =
@@ -113,7 +119,7 @@ export default function DailyManagerChecklist() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staffId, taskDate, isEligible]);
+  }, [staffId, taskDate, isEligible, selectedBranch]);
 
   const toggleGroup = (groupKey: string) => {
     setExpandedGroups((prev) => {
@@ -149,7 +155,7 @@ export default function DailyManagerChecklist() {
         staff_id: staffId,
         staff_name: user?.name || null,
         role,
-        branch: role === 'branches_manager' ? null : (user?.branch || null),
+        branch: effectiveBranch,
         task_date: current?.task_date || taskDate,
         task_key: taskKey,
         completed: nextCompleted,
@@ -159,7 +165,7 @@ export default function DailyManagerChecklist() {
         current?.id && cadence !== 'daily'
           ? await supabase.from(TABLES.managerDailyChecklist).update(payload).eq('id', current.id)
           : await supabase.from(TABLES.managerDailyChecklist).upsert(payload, {
-              onConflict: 'staff_id,task_date,task_key',
+              onConflict: 'staff_id,task_date,task_key,branch',
             });
       if (result.error) throw new Error(result.error.message);
     } catch (err) {
@@ -188,7 +194,7 @@ export default function DailyManagerChecklist() {
       staff_id: staffId,
       staff_name: user?.name || null,
       role,
-      branch: role === 'branches_manager' ? null : (user?.branch || null),
+      branch: effectiveBranch,
       task_date: current?.task_date || taskDate,
       task_key: taskKey,
       completed: current?.completed || false,
@@ -199,7 +205,7 @@ export default function DailyManagerChecklist() {
       return;
     }
     await supabase.from(TABLES.managerDailyChecklist).upsert(payload, {
-      onConflict: 'staff_id,task_date,task_key',
+      onConflict: 'staff_id,task_date,task_key,branch',
     });
   };
 
@@ -220,6 +226,16 @@ export default function DailyManagerChecklist() {
           <p className="text-sm text-slate-400">{pageSubtitle}</p>
         </div>
       </div>
+
+      {role === 'branches_manager' && (
+        <div className="grid gap-2 rounded-2xl border border-teal-400/20 bg-teal-500/5 p-3 sm:grid-cols-2">
+          {BRANCHES_MANAGER_BRANCHES.map((branch) => (
+            <button key={branch} type="button" onClick={() => setSelectedBranch(branch)} className={`rounded-xl border px-4 py-3 text-sm font-black transition ${selectedBranch === branch ? 'border-teal-400/50 bg-teal-500/15 text-teal-200' : 'border-white/10 bg-slate-950/30 text-slate-400 hover:text-white'}`}>
+              {branch} {selectedBranch === branch ? '— الفرع النشط' : ''}
+            </button>
+          ))}
+        </div>
+      )}
 
       {isEligible && !isAssistant && (
         <div className="flex gap-2 border-b border-white/10">
@@ -248,10 +264,11 @@ export default function DailyManagerChecklist() {
         <ManagerScoreBreakdownTab
           evaluationType={ROLE_TO_EVALUATION_TYPE[role as ManagerDailyRole]}
           staffId={staffId}
-          branch={role === 'branches_manager' ? null : (user?.branch || null)}
+          branch={effectiveBranch}
         />
       ) : (
         <>
+          {role === 'branches_manager' && <div className="rounded-xl border border-white/10 bg-slate-900/40 px-3 py-2 text-sm font-black text-teal-200">مهام {selectedBranch} — الإنجاز والتقييم لهذا الفرع فقط</div>}
           <div className="flex flex-wrap items-center gap-3">
             <input type="date" className="input-dark" value={taskDate} max={todayInput()} onChange={(e) => setTaskDate(e.target.value)} />
             <div className="flex-1">

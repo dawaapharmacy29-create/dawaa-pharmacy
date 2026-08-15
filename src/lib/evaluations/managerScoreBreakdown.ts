@@ -72,7 +72,7 @@ export async function fetchManagerScoreBreakdown(
   const [current, prev, checklistRates] = await Promise.all([
     fetchWeeklyAutoMetrics(evaluationType, branch, weekStart, weekEnd),
     fetchWeeklyAutoMetrics(evaluationType, branch, previous.start, previous.end).catch(() => null as WeeklyAutoMetrics | null),
-    fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd),
+    fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd, branch),
   ]);
 
   const weightedRows = computeWeightedCriterionScores(evaluationType, current, prev, {}, checklistRates);

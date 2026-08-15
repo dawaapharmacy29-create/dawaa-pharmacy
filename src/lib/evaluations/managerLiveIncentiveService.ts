@@ -121,8 +121,8 @@ export async function fetchManagerLiveIncentiveSnapshot(
   const [current, prev, checklistRates, history, cycleSalesTarget] = await Promise.all([
     fetchWeeklyAutoMetrics(evaluationType, branch, weekStart, weekEnd),
     fetchWeeklyAutoMetrics(evaluationType, branch, previous.start, previous.end).catch(() => null),
-    fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd).catch(() => ({})),
-    fetchEvaluationHistory(evaluationType, subjectStaffId).catch(() => []),
+    fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd, branch).catch(() => ({})),
+    fetchEvaluationHistory(evaluationType, subjectStaffId, branch).catch(() => []),
     fetchManagerCycleSalesTargetSummary(evaluationType, branch, cycleStart, today).catch(() => null),
   ]);
 

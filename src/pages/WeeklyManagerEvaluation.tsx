@@ -80,6 +80,7 @@ export default function WeeklyManagerEvaluation() {
   );
 
   const [weekStart, setWeekStart] = useState(() => weekBoundsOf(new Date()).start);
+  const [selectedBranch, setSelectedBranch] = useState<'فرع شكري' | 'فرع الشامي'>('فرع شكري');
   const weekEnd = useMemo(() => weekBoundsOf(new Date(weekStart)).end, [weekStart]);
 
   const [currentMetrics, setCurrentMetrics] = useState<WeeklyAutoMetrics | null>(null);
@@ -91,7 +92,7 @@ export default function WeeklyManagerEvaluation() {
   const [error, setError] = useState('');
   const [history, setHistory] = useState<Array<{ week_start: string; total_score: number; status: string }>>([]);
 
-  const branchForMetrics = evaluationType === 'branches_manager' ? null : subject?.branch || null;
+  const branchForMetrics = evaluationType === 'branches_manager' ? selectedBranch : subject?.branch || null;
 
   useEffect(() => {
     if (!subjectStaffId) return;
@@ -102,8 +103,8 @@ export default function WeeklyManagerEvaluation() {
     Promise.all([
       fetchWeeklyAutoMetrics(evaluationType, branchForMetrics, weekStart, weekEnd),
       fetchWeeklyAutoMetrics(evaluationType, branchForMetrics, prev.start, prev.end),
-      fetchEvaluationHistory(evaluationType, subjectStaffId),
-      fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd),
+      fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics),
+      fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd, branchForMetrics),
     ])
       .then(([cur, prevMetrics, hist, checklist]) => {
         if (cancelled) return;
@@ -160,7 +161,7 @@ export default function WeeklyManagerEvaluation() {
           detail: { type: 'success', message: status === 'submitted' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة' },
         })
       );
-      const hist = await fetchEvaluationHistory(evaluationType, subjectStaffId);
+      const hist = await fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics);
       setHistory(hist as Array<{ week_start: string; total_score: number; status: string }>);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر الحفظ');
@@ -196,6 +197,12 @@ export default function WeeklyManagerEvaluation() {
             </option>
           ))}
         </select>
+        {evaluationType === 'branches_manager' && (
+          <select className="input-dark" value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value as 'فرع شكري' | 'فرع الشامي')}>
+            <option value="فرع شكري">تقييم فرع شكري</option>
+            <option value="فرع الشامي">تقييم فرع الشامي</option>
+          </select>
+        )}
         <input type="date" className="input-dark" value={weekStart} onChange={(e) => setWeekStart(weekBoundsOf(new Date(e.target.value)).start)} />
         <span className="flex items-center text-xs text-slate-400">الأسبوع: {weekStart} إلى {weekEnd}</span>
       </div>
