@@ -1132,6 +1132,7 @@ export default function ExecutiveDashboard2027() {
   const Cell = R?.Cell ?? ((props: any) => null);
   const Legend = R?.Legend ?? ((props: any) => null);
   const Line = R?.Line ?? ((props: any) => null);
+  const Area = R?.Area ?? ((props: any) => null);
   const FunnelChart = R?.FunnelChart ?? ((props: any) => <div className="h-56 rounded-2xl bg-slate-100 animate-pulse" />);
   const Funnel = R?.Funnel ?? ((props: any) => null);
   const Pie = R?.Pie ?? ((props: any) => null);
@@ -2522,7 +2523,21 @@ export default function ExecutiveDashboard2027() {
               >
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={dailyChart} margin={{ top: 18, right: 12, left: 10, bottom: 26 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
+                    <defs>
+                      <linearGradient id="dsGradShokry" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#22d3ee" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#0891b2" stopOpacity={0.55} />
+                      </linearGradient>
+                      <linearGradient id="dsGradShamy" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#a78bfa" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#6d28d9" stopOpacity={0.55} />
+                      </linearGradient>
+                      <linearGradient id="dsGradTotal" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#34d399" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="#34d399" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" vertical={false} />
                     <XAxis
                       dataKey="date"
                       tickFormatter={shortAxisDate}
@@ -2530,14 +2545,19 @@ export default function ExecutiveDashboard2027() {
                       angle={-20}
                       textAnchor="end"
                       height={52}
+                      axisLine={{ stroke: 'rgba(148,163,184,0.2)' }}
+                      tickLine={false}
                       interval={Math.max(0, Math.floor(dailyChart.length / 10))}
                     />
                     <YAxis
                       tickFormatter={compactChartValue}
                       tick={{ fill: '#cbd5e1', fontSize: 11, fontWeight: 700 }}
                       width={58}
+                      axisLine={false}
+                      tickLine={false}
                     />
                     <Tooltip
+                      cursor={{ fill: 'rgba(148,163,184,0.06)' }}
                       formatter={(value: unknown, name: unknown) => [
                         `${n(value).toLocaleString('ar-EG', { maximumFractionDigits: dailyChartMetric === 'average' ? 2 : 0 })} ${dailyChartKeys.suffix}`,
                         name,
@@ -2545,25 +2565,39 @@ export default function ExecutiveDashboard2027() {
                       labelFormatter={(label: unknown) => `اليوم: ${safeDate(String(label))}`}
                       contentStyle={{
                         background: 'rgba(15, 23, 42, 0.96)',
-                        border: '1px solid rgba(45, 212, 191, 0.25)',
+                        border: '1px solid rgba(45, 212, 191, 0.3)',
                         borderRadius: 16,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
                         color: '#f8fafc',
                         direction: 'rtl',
                         textAlign: 'right',
                         fontWeight: 800,
                       }}
                     />
-                    <Legend wrapperStyle={{ color: '#e2e8f0', fontWeight: 800, paddingTop: 8 }} />
-                    <Bar dataKey={dailyChartKeys.shokry} name="فرع شكري" fill="#22d3ee" radius={[8, 8, 0, 0]} maxBarSize={30} />
-                    <Bar dataKey={dailyChartKeys.shamy} name="فرع الشامي" fill="#8b5cf6" radius={[8, 8, 0, 0]} maxBarSize={30} />
+                    <Legend
+                      wrapperStyle={{ color: '#e2e8f0', fontWeight: 800, paddingTop: 8 }}
+                      iconType="circle"
+                    />
+                    <Bar dataKey={dailyChartKeys.shokry} name="فرع شكري" fill="url(#dsGradShokry)" radius={[8, 8, 0, 0]} maxBarSize={26} animationDuration={600} />
+                    <Bar dataKey={dailyChartKeys.shamy} name="فرع الشامي" fill="url(#dsGradShamy)" radius={[8, 8, 0, 0]} maxBarSize={26} animationDuration={600} />
+                    <Area
+                      type="monotone"
+                      dataKey={dailyChartKeys.total}
+                      fill="url(#dsGradTotal)"
+                      stroke="none"
+                      legendType="none"
+                      isAnimationActive={false}
+                      tooltipType="none"
+                    />
                     <Line
                       type="monotone"
                       dataKey={dailyChartKeys.total}
                       name="إجمالي اليوم"
                       stroke="#34d399"
                       strokeWidth={3}
-                      dot={{ r: 3 }}
-                      activeDot={{ r: 6 }}
+                      dot={{ r: 3, fill: '#34d399', strokeWidth: 0 }}
+                      activeDot={{ r: 7, fill: '#34d399', stroke: '#0f172a', strokeWidth: 2 }}
+                      animationDuration={700}
                     />
                   </ComposedChart>
                 </ResponsiveContainer>
