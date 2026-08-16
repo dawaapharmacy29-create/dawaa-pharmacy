@@ -20,6 +20,22 @@ const categories = [
   'الحافز الربع سنوي',
 ];
 const roles = ['الكل', 'صيدلاني', 'توصيل', 'خدمة عملاء', 'مدير فرع'];
+const PILLARS = [
+  { key: 'discipline', label: 'الالتزام والانضباط' },
+  { key: 'conversations', label: 'جودة المحادثات' },
+  { key: 'sales', label: 'المبيعات وجودة الفاتورة' },
+  { key: 'customer_service', label: 'خدمة العملاء الشاملة والمتابعات' },
+] as const;
+/** اقتراح محور مبدئي حسب الفئة المختارة، عشان الشاشة تختار قيمة منطقية تلقائيًا
+ *  ويقدر المستخدم يغيّرها يدويًا لو حابب. لازم يفضل فيه محور محدد دايمًا قبل
+ *  الحفظ، عشان أي بند جديد يتحسب صح في الدرجة المركّبة من أول لحظة. */
+function suggestPillar(category: string): (typeof PILLARS)[number]['key'] {
+  if (category === 'الالتزام والانضباط' || category === 'استخدام التطبيق والتسجيل') return 'discipline';
+  if (category === 'الواتساب والمحادثات') return 'conversations';
+  if (category === 'جودة البيع وصرف الدواء' || category === 'الرواكد' || category === 'أصناف اللستة')
+    return 'sales';
+  return 'customer_service';
+}
 
 export default function EvaluationRules2027() {
   const { data: dbRules, refetch } = useSupabaseQuery<Record<string, unknown>>({
@@ -36,6 +52,7 @@ export default function EvaluationRules2027() {
     points: '10',
     repeatable: true,
     requires_approval: true,
+    pillar_key: 'customer_service' as string,
   });
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('الكل');
@@ -116,6 +133,7 @@ export default function EvaluationRules2027() {
       repeatable: form.repeatable,
       requires_approval: form.requires_approval,
       active: true,
+      pillar_key: form.pillar_key,
       severity:
         form.type === 'reward'
           ? 'positive'
@@ -177,10 +195,24 @@ export default function EvaluationRules2027() {
           <select
             className="input-dark"
             value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, category: e.target.value, pillar_key: suggestPillar(e.target.value) })
+            }
           >
             {categories.map((c) => (
               <option key={c}>{c}</option>
+            ))}
+          </select>
+          <select
+            className="input-dark"
+            value={form.pillar_key}
+            onChange={(e) => setForm({ ...form, pillar_key: e.target.value })}
+            title="المحور اللي البند ده هيتحسب فيه ضمن الدرجة المركّبة الشهرية"
+          >
+            {PILLARS.map((p) => (
+              <option key={p.key} value={p.key}>
+                محور: {p.label}
+              </option>
             ))}
           </select>
           <select

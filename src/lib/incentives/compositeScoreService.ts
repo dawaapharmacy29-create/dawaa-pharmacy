@@ -68,7 +68,6 @@ export async function calculateCompositeScore(
     sales: 0,
     conversations: 0,
     customer_service: 0,
-    data_quality: 0,
     discipline: 0,
   };
   let unmappedPointsDelta = 0;

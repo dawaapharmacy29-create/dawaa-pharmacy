@@ -57,12 +57,17 @@ export function canonicalCategory(rawCategory: string): string {
  * كان بيخلي المجموع أكتر من 100%. الصح: كل فئة موحّدة تتبع محور واحد بس من
  * الخمسة، والمحور نفسه له وزن واحد، ومجموع أوزان الخمس محاور = 1.0 بالظبط.
  */
+/**
+ * تحديث 17 أغسطس 2026: توحيد المحاور مع الهيكل المتفق عليه مع صاحب الصيدلية —
+ * خدمة العملاء (بما فيها جودة البيانات والمتابعات) بقت المحور الأكبر (44%)
+ * عشان تعكس إنها جوهر شغل الدكتور، ومحور "تصنيف وجودة البيانات" اتدمج جوّاها
+ * بدل ما يفضل محور مستقل صغير. المجموع لازم يفضل 1.0 بالظبط.
+ */
 export const PERFORMANCE_PILLARS = [
-  { key: 'sales', label: 'المبيعات وجودة الفاتورة', weight: 0.30, categories: ['جودة البيع والصرف', 'قوائم النواقص'] },
-  { key: 'conversations', label: 'جودة المحادثات', weight: 0.20, categories: ['جودة المحادثات'] },
-  { key: 'customer_service', label: 'خدمة العملاء والمتابعات', weight: 0.25, categories: ['خدمة العملاء'] },
-  { key: 'data_quality', label: 'تصنيف وجودة البيانات', weight: 0.10, categories: ['تصنيف البيانات'] },
-  { key: 'discipline', label: 'الالتزام والانضباط', weight: 0.15, categories: ['الالتزام والانضباط', 'الالتزام بالتطبيق'] },
+  { key: 'discipline', label: 'الالتزام والانضباط', weight: 0.16, categories: ['الالتزام والانضباط', 'الالتزام بالتطبيق'] },
+  { key: 'conversations', label: 'جودة المحادثات', weight: 0.24, categories: ['جودة المحادثات'] },
+  { key: 'sales', label: 'المبيعات وجودة الفاتورة', weight: 0.16, categories: ['جودة البيع والصرف', 'قوائم النواقص'] },
+  { key: 'customer_service', label: 'خدمة العملاء الشاملة والمتابعات', weight: 0.44, categories: ['خدمة العملاء', 'تصنيف البيانات'] },
 ] as const;
 
 export type PerformancePillarKey = (typeof PERFORMANCE_PILLARS)[number]['key'];
@@ -112,6 +117,7 @@ function rule(
     included_in_pdf: options.included_in_pdf ?? true,
     source_module: options.source_module || 'manual_review',
     active: options.active ?? true,
+    pillar_key: options.pillar_key ?? pillarForCanonicalCategory(canonicalCategory(category)) ?? undefined,
   };
 }
 

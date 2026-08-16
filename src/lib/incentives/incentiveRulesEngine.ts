@@ -67,6 +67,8 @@ export type IncentiveRuleDefinition = {
   included_in_pdf: boolean;
   source_module: string;
   active: boolean;
+  /** المحور اللي القاعدة دي تتحسب فيه في الدرجة المركّبة الشهرية (اختياري لقواعد مالها محور، زي الحافز الربع سنوي). */
+  pillar_key?: string;
 };
 
 export type MonthlyIncentiveCalculation = {
