@@ -1,0 +1,24 @@
+const fs=require('fs');
+function edit(path, fn){const src=fs.readFileSync(path,'utf8');const out=fn(src);if(out===src) throw new Error('no change '+path);fs.writeFileSync(path,out);}
+const setCode="\nconst SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54','4902','20','12820','10','170','5']);\nfunction isSystemGenericInvoice(row: Row) {\n  return SYSTEM_GENERIC_CUSTOMER_CODES.has(String(row.customer_code ?? '').trim());\n}\n";
+edit('src/lib/doctorCompetitionMetrics.ts',s=>{
+  s=s.replace("type Row = Record<string, unknown>;", "type Row = Record<string, unknown>;"+setCode);
+  s=s.replace(/function invoiceIdentityKey\(row: Row\) \{[\s\S]*?\n\}/,`function invoiceIdentityKey(row: Row) {\n  const branch = invoiceBranch(row);\n  const number = text(row.invoice_no || row.invoice_number);\n  const day = invoiceDate(row);\n  if (number) return \`${'${branch}'}|${'${number}'}|${'${day}'}\`;\n  return getInvoiceId(row) || text(row.id);\n}`);
+  s=s.replace("return day && day >= range.start && day <= range.end && !invoiceInvalid(row) && pickInvoiceAmount(row) > 0;","return day && day >= range.start && day <= range.end && !invoiceInvalid(row) && !isSystemGenericInvoice(row) && pickInvoiceAmount(row) > 0;");
+  s=s.replace("    const current = upsert(doctor);\n    current.totalSales += pickInvoiceAmount(row);\n    const key = doctor.staffId ? `staff:${doctor.staffId}` : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;\n    const set = invoiceSets.get(key) || new Set<string>();\n    const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;\n    set.add(invoiceKey);\n    invoiceSets.set(key, set);","    const current = upsert(doctor);\n    const key = doctor.staffId ? `staff:${doctor.staffId}` : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;\n    const set = invoiceSets.get(key) || new Set<string>();\n    const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;\n    if (set.has(invoiceKey)) continue;\n    set.add(invoiceKey);\n    invoiceSets.set(key, set);\n    current.totalSales += pickInvoiceAmount(row);");
+  s=s.replace("  const previousSales = new Map<string, number>();\n  for (const row of previousRows) {","  const previousSales = new Map<string, number>();\n  const previousInvoiceSets = new Map<string, Set<string>>();\n  for (const row of previousRows) {");
+  s=s.replace("    const key = doctor.staffId ? `staff:${doctor.staffId}` : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;\n    previousSales.set(key, (previousSales.get(key) || 0) + pickInvoiceAmount(row));","    const key = doctor.staffId ? `staff:${doctor.staffId}` : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;\n    const set = previousInvoiceSets.get(key) || new Set<string>();\n    const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;\n    if (set.has(invoiceKey)) continue;\n    set.add(invoiceKey);\n    previousInvoiceSets.set(key, set);\n    previousSales.set(key, (previousSales.get(key) || 0) + pickInvoiceAmount(row));");
+  return s;
+});
+edit('src/lib/staffInvoiceTruthService.ts',s=>{
+  s=s.replace("type Row = Record<string, unknown>;", "type Row = Record<string, unknown>;"+setCode);
+  s=s.replace("  const amounts = rows\n    .map(invoiceFromRow)","  const amounts = rows\n    .filter((row) => !isSystemGenericInvoice(row))\n    .map(invoiceFromRow)");
+  s=s.replace(/function mergeRowsByInvoiceIdentity\(rows: Row\[\]\) \{[\s\S]*?\n\}/,`function mergeRowsByInvoiceIdentity(rows: Row[]) {\n  const map = new Map<string, Row>();\n  rows.forEach((row, index) => {\n    const branch = String(pickFirst(row, ['branch','branch_name'], '')).trim();\n    const invoiceNo = String(pickFirst(row, ['invoice_no','invoice_number','invoice_key'], '')).trim();\n    const day = String(pickFirst(row, ['invoice_date','sale_date','date'], '')).slice(0,10);\n    const key = invoiceNo ? \`${'${branch}'}|${'${invoiceNo}'}|${'${day}'}\` : String(pickFirst(row,['id'],'') || \`row-${'${index}'}\`);\n    map.set(key,row);\n  });\n  return [...map.values()];\n}`);
+  s=s.replace("  const matchedRows = roleAllowedForMatching\n    ? rows.filter((row) => sellerMatches(row, staff.id, normalizedAliasSet))","  const matchedRows = roleAllowedForMatching\n    ? mergeRowsByInvoiceIdentity(rows.filter((row) => !isSystemGenericInvoice(row) && sellerMatches(row, staff.id, normalizedAliasSet)))");
+  return s;
+});
+edit('src/lib/staff/sharedStaffSalesService.ts',s=>{
+  s=s.replace("type Row = Record<string, unknown>;", "type Row = Record<string, unknown>;"+setCode);
+  s=s.replace("  const filtered = (invoiceResult.data as Row[]).filter((row) => {\n    const identity", "  const filtered = (invoiceResult.data as Row[]).filter((row) => {\n    if (isSystemGenericInvoice(row)) return false;\n    const identity");
+  return s;
+});
