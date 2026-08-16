@@ -925,6 +925,111 @@ function MiniBox({
   );
 }
 
+const PAYMENT_TYPE_ORDER = ['كاش', 'توصيل منزلى', 'آجل', 'غير محدد'];
+const PAYMENT_TYPE_TONE: Record<string, 'cyan' | 'green' | 'amber' | 'red' | 'blue'> = {
+  'كاش': 'green',
+  'توصيل منزلى': 'blue',
+  'آجل': 'amber',
+  'غير محدد': 'red',
+};
+
+type PaymentTypeRow = {
+  invoice_type: string;
+  invoice_count: number;
+  total_value: number;
+  avg_invoice: number;
+  pct_of_value: number;
+  pct_of_count: number;
+};
+
+function PaymentTypeBreakdownCards({
+  startDate,
+  endDate,
+  scopedBranch,
+}: {
+  startDate: string;
+  endDate: string;
+  scopedBranch: string;
+}) {
+  const [rows, setRows] = React.useState<PaymentTypeRow[] | null>(null);
+  const [error, setError] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setRows(null);
+    setError(false);
+    const branchParam =
+      !scopedBranch || scopedBranch === ALL_BRANCHES ? 'ALL' : scopedBranch;
+    supabase
+      .rpc('get_sales_payment_type_breakdown', {
+        p_start: startDate,
+        p_end: endDate,
+        p_branch: branchParam,
+      })
+      .then(({ data, error: rpcError }: { data: PaymentTypeRow[] | null; error: unknown }) => {
+        if (cancelled) return;
+        if (rpcError) {
+          setError(true);
+          return;
+        }
+        setRows((data as PaymentTypeRow[]) || []);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [startDate, endDate, scopedBranch]);
+
+  if (error) return null;
+
+  const ordered = rows
+    ? [...rows].sort(
+        (a, b) => PAYMENT_TYPE_ORDER.indexOf(a.invoice_type) - PAYMENT_TYPE_ORDER.indexOf(b.invoice_type)
+      )
+    : PAYMENT_TYPE_ORDER.map((t) => ({
+        invoice_type: t,
+        invoice_count: 0,
+        total_value: 0,
+        avg_invoice: 0,
+        pct_of_value: 0,
+        pct_of_count: 0,
+      }));
+
+  return (
+    <div className="mb-3 grid gap-3 md:grid-cols-4">
+      {ordered.map((row) => (
+        <div
+          key={row.invoice_type}
+          className={`rounded-2xl border p-4 ${
+            {
+              cyan: 'border-cyan-400/20 bg-cyan-500/10 text-cyan-100',
+              green: 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100',
+              amber: 'border-amber-400/20 bg-amber-500/10 text-amber-100',
+              red: 'border-red-400/20 bg-red-500/10 text-red-100',
+              blue: 'border-sky-400/20 bg-sky-500/10 text-sky-100',
+            }[PAYMENT_TYPE_TONE[row.invoice_type] || 'cyan']
+          } ${rows === null ? 'animate-pulse' : ''}`}
+        >
+          <p className="text-xs font-black text-slate-300">{row.invoice_type}</p>
+          <p className="mt-2 text-xl font-black text-white">
+            {rows === null ? '—' : `${money(row.total_value)} ج.م`}
+          </p>
+          <p className="mt-1 text-[11px] font-bold text-slate-400">
+            {rows === null
+              ? ''
+              : `${row.invoice_count.toLocaleString('ar-EG')} فاتورة (${row.pct_of_count}%) · ${row.pct_of_value}% من القيمة`}
+          </p>
+          <p className="mt-1 text-[11px] font-bold text-slate-500">
+            {rows === null ? '' : `متوسط الفاتورة: ${money(row.avg_invoice)} ج.م`}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function HealthSummaryBox({
   label,
   value,
@@ -2512,6 +2617,7 @@ export default function ExecutiveDashboard2027() {
               tone="blue"
             />
           </div>
+          <PaymentTypeBreakdownCards startDate={startDate} endDate={endDate} scopedBranch={scopedBranch} />
           <div className="h-[380px] rounded-3xl border border-cyan-300/10 bg-slate-950/25 p-3">
             {dailyChart.length && chartDataDays.length ? (
               <Suspense

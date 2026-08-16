@@ -1,0 +1,306 @@
+-- Centralizes the customer-code exclusion list (previously hardcoded as
+-- not in ('5','10','54','170','12820','20','4902') in 4 separate function bodies) into
+-- public.customer_flags with flag_key='system_generic_code', merged with the existing
+-- wholesale_b2b flag check into a single dynamic lookup. Adding/removing an excluded code
+-- going forward is a single row insert/update in customer_flags - no code/deploy needed.
+--
+-- Seed data (already applied live 2026-08-16): the 7 known system-generic codes.
+insert into public.customer_flags (customer_code, flag_key, flag_label, is_active, notes, created_by)
+values
+  ('5','system_generic_code','كود عام/نظام - مستبعد من تحليلات خدمة العملاء',true,'كود نقدي/عابر عام غير مرتبط بعميل حقيقي','system_migration_2026_08_16'),
+  ('10','system_generic_code','كود عام/نظام - مستبعد من تحليلات خدمة العملاء',true,'كود نقدي/عابر عام غير مرتبط بعميل حقيقي','system_migration_2026_08_16'),
+  ('54','system_generic_code','كود عام/نظام - مستبعد من تحليلات خدمة العملاء',true,'كود نقدي/عابر عام غير مرتبط بعميل حقيقي','system_migration_2026_08_16'),
+  ('170','system_generic_code','كود عام/نظام - مستبعد من تحليلات خدمة العملاء',true,'كود نقدي/عابر عام غير مرتبط بعميل حقيقي','system_migration_2026_08_16'),
+  ('12820','system_generic_code','كود عام/نظام - مستبعد من تحليلات خدمة العملاء',true,'كود نقدي/عابر عام غير مرتبط بعميل حقيقي','system_migration_2026_08_16'),
+  ('20','system_generic_code','كود عام/نظام - مستبعد من تحليلات خدمة العملاء',true,'أضيف بطلب المالك 2026-08-16','system_migration_2026_08_16'),
+  ('4902','system_generic_code','كود عام/نظام - مستبعد من تحليلات خدمة العملاء',true,'أضيف بطلب المالك 2026-08-16','system_migration_2026_08_16')
+on conflict do nothing;
+
+create index if not exists idx_customer_flags_code_key_active on public.customer_flags(customer_code, flag_key) where coalesce(is_active,false);
+
+-- The 4 functions below now check exclusion via
+-- `not exists (select 1 from customer_flags where flag_key in ('wholesale_b2b','system_generic_code') and is_active and customer_code = ...)`
+-- instead of a hardcoded literal list. See CustomerDailyPriorityQueues.tsx callers.
+
+create or replace function public.get_customer_service_recent_top50_core(p_days integer, p_scope text)
+returns table(customer_rank integer, branch text, customer_code text, customer_name text, customer_phone text, recent_sales numeric, invoice_count bigint, active_months integer, avg_invoice numeric, last_purchase date, importance_score numeric)
+language plpgsql stable security definer
+set search_path=public,pg_catalog
+as $$
+declare
+  v_days integer := greatest(coalesce(p_days,90),1);
+  v_scope text := coalesce(nullif(btrim(p_scope),''),'ALL');
+begin
+  return query execute format($f$
+    with base as (
+      select s.branch,btrim(s.customer_code) customer_code,
+        sum(coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0))::numeric recent_sales,
+        count(*)::bigint invoice_count,
+        count(distinct date_trunc('month',s.invoice_date))::integer active_months,
+        avg(coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0))::numeric avg_invoice,
+        max(s.invoice_date)::date last_purchase
+      from public.sales_invoices s
+      where s.invoice_date>=greatest(date_trunc('month',current_date)-interval '2 months',(current_date-%1$L::int)::timestamp)
+        and s.invoice_date<(current_date+1)::timestamp
+        and s.branch in ('فرع شكري','فرع الشامي')
+        and (%2$L='ALL' or lower(btrim(s.branch))=%2$L)
+        and nullif(btrim(s.customer_code),'') is not null
+        and coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0)>0
+      group by s.branch,btrim(s.customer_code)
+    ), filtered as (
+      select b.* from base b
+      where not exists(select 1 from public.customer_flags x where x.flag_key in ('wholesale_b2b','system_generic_code') and coalesce(x.is_active,false) and x.customer_code=b.customer_code)
+    ), scored as (
+      select f.*,round((f.recent_sales*(0.70+0.10*least(f.active_months,3)))::numeric,2) importance_score from filtered f
+    ), ranked as (
+      select s.*,row_number() over(partition by s.branch order by s.importance_score desc,s.recent_sales desc,s.invoice_count desc,s.last_purchase desc,s.customer_code)::integer customer_rank
+      from scored s
+    ), top50 as materialized (
+      select * from ranked where customer_rank<=50
+    ), enriched as (
+      select t.customer_rank,t.branch,t.customer_code,
+        coalesce(public.dawaa_clean_customer_name(c.name),'عميل كود '||t.customer_code) customer_name,
+        coalesce(nullif(btrim(c.phone),''),nullif(btrim(c.whatsapp_phone),''),nullif(btrim(c.phone_alt),''),'') customer_phone,
+        t.recent_sales,t.invoice_count,t.active_months,t.avg_invoice,t.last_purchase,t.importance_score
+      from top50 t
+      left join lateral (
+        select c.name,c.phone,c.whatsapp_phone,c.phone_alt
+        from public.customers c
+        where c.customer_code=t.customer_code
+        order by case when c.branch=t.branch then 0 else 1 end,c.updated_at desc nulls last,c.id
+        limit 1
+      ) c on true
+    )
+    select e.customer_rank,e.branch,e.customer_code,e.customer_name,e.customer_phone,round(e.recent_sales,2),e.invoice_count,e.active_months,round(e.avg_invoice,2),e.last_purchase,e.importance_score
+    from enriched e order by e.branch,e.customer_rank
+  $f$, v_days, v_scope);
+end;
+$$;
+
+grant execute on function public.get_customer_service_recent_top50_core(integer,text) to anon,authenticated;
+
+create or replace function public.get_customer_service_three_cycle_intelligence_v1(p_as_of date default current_date, p_actor_id uuid default null)
+returns table(branch text, customer_rank integer, customer_code text, customer_name text, customer_phone text, recent_sales numeric, last_purchase date, current_period_sales numeric, previous_period_sales numeric, prior_period_sales numeric, current_invoices bigint, previous_invoices bigint, prior_invoices bigint, baseline_sales numeric, change_vs_previous_pct numeric, change_vs_baseline_pct numeric, trend_state text, priority_score numeric, current_period_start date, current_period_end date, previous_period_start date, previous_period_end date, prior_period_start date, prior_period_end date)
+language plpgsql stable security definer
+set search_path=public,pg_catalog
+as $$
+declare
+  v_as_of date := coalesce(p_as_of, current_date);
+  v_scope text := coalesce(nullif(public.dawaa_customer_service_queue_scope_v3(p_actor_id),''),'');
+  v_current_start date;
+  v_current_end date;
+  v_previous_start date;
+  v_previous_end date;
+  v_prior_start date;
+  v_prior_end date;
+  v_recent_start date;
+begin
+  v_current_end := v_as_of;
+  v_current_start := case when extract(day from v_as_of)::int>=26
+    then date_trunc('month',v_as_of)::date+25
+    else (date_trunc('month',v_as_of)::date-interval '1 month'+interval '25 days')::date end;
+  v_recent_start := (date_trunc('month',v_as_of)-interval '2 months')::date;
+  v_previous_start := (v_current_start-interval '1 month')::date;
+  v_previous_end := (v_previous_start+(v_as_of-v_current_start))::date;
+  v_prior_start := (v_current_start-interval '2 months')::date;
+  v_prior_end := (v_prior_start+(v_as_of-v_current_start))::date;
+
+  return query execute format($f$
+    with agg as materialized (
+      select s.branch,btrim(s.customer_code) customer_code,
+        sum(coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0))::numeric recent_sales,
+        count(*)::bigint invoice_count,
+        count(distinct date_trunc('month',s.invoice_date))::integer active_months,
+        avg(coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0))::numeric avg_invoice,
+        max(s.invoice_date)::date last_purchase,
+        coalesce(sum(coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0)) filter(where s.invoice_date>=%3$L::timestamp and s.invoice_date<(%4$L::date+1)::timestamp),0)::numeric current_sales,
+        coalesce(sum(coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0)) filter(where s.invoice_date>=%5$L::timestamp and s.invoice_date<(%6$L::date+1)::timestamp),0)::numeric previous_sales,
+        coalesce(sum(coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0)) filter(where s.invoice_date>=%7$L::timestamp and s.invoice_date<(%8$L::date+1)::timestamp),0)::numeric prior_sales,
+        count(*) filter(where s.invoice_date>=%3$L::timestamp and s.invoice_date<(%4$L::date+1)::timestamp)::bigint current_count,
+        count(*) filter(where s.invoice_date>=%5$L::timestamp and s.invoice_date<(%6$L::date+1)::timestamp)::bigint previous_count,
+        count(*) filter(where s.invoice_date>=%7$L::timestamp and s.invoice_date<(%8$L::date+1)::timestamp)::bigint prior_count
+      from public.sales_invoices s
+      where s.invoice_date>=%1$L::timestamp and s.invoice_date<(%4$L::date+1)::timestamp
+        and s.branch in ('فرع شكري','فرع الشامي')
+        and (%9$L='ALL' or lower(btrim(s.branch))=%9$L)
+        and nullif(btrim(s.customer_code),'') is not null
+        and coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0)>0
+        and not exists(select 1 from public.customer_flags f where f.flag_key in ('wholesale_b2b','system_generic_code') and coalesce(f.is_active,false) and f.customer_code=btrim(s.customer_code))
+      group by s.branch,btrim(s.customer_code)
+    ), scored as (
+      select a.*,round((a.recent_sales*(0.70+0.10*least(a.active_months,3)))::numeric,2) importance_score
+      from agg a
+    ), ranked as (
+      select s.*,row_number() over(partition by s.branch order by s.importance_score desc,s.recent_sales desc,s.invoice_count desc,s.last_purchase desc,s.customer_code)::integer customer_rank
+      from scored s
+    ), top50 as materialized (
+      select * from ranked where customer_rank<=50
+    ), enriched as (
+      select t.*,
+        coalesce(public.dawaa_clean_customer_name(c.name),'عميل كود '||t.customer_code) customer_name,
+        coalesce(nullif(btrim(c.phone),''),nullif(btrim(c.whatsapp_phone),''),nullif(btrim(c.phone_alt),''),'') customer_phone
+      from top50 t
+      left join lateral (
+        select c.name,c.phone,c.whatsapp_phone,c.phone_alt from public.customers c
+        where c.customer_code=t.customer_code
+        order by case when c.branch=t.branch then 0 else 1 end,c.updated_at desc nulls last,c.id limit 1
+      ) c on true
+    ), calculated as (
+      select e.*,((e.previous_sales+e.prior_sales)/2.0)::numeric baseline,
+        case when e.previous_sales>0 then ((e.current_sales-e.previous_sales)/e.previous_sales*100.0)::numeric end vs_previous,
+        case when (e.previous_sales+e.prior_sales)>0 then ((e.current_sales-((e.previous_sales+e.prior_sales)/2.0))/((e.previous_sales+e.prior_sales)/2.0)*100.0)::numeric end vs_baseline
+      from enriched e
+    ), classified as (
+      select c.*,case
+        when c.current_sales=0 and c.baseline>=500 then 'خطر فقد'
+        when c.baseline>=500 and c.current_sales<c.baseline*0.60 then 'تراجع قوي'
+        when c.baseline>=500 and c.current_sales<c.baseline*0.85 then 'تراجع'
+        when c.current_sales>=500 and c.baseline>0 and c.current_sales>c.baseline*1.35 then 'نمو قوي'
+        when c.current_sales>=500 and c.baseline>0 and c.current_sales>c.baseline*1.10 then 'نمو'
+        when c.current_sales>=500 and c.baseline=0 then 'عميل صاعد جديد'
+        else 'مستقر' end state
+      from calculated c
+    )
+    select c.branch,c.customer_rank,c.customer_code,c.customer_name,c.customer_phone,round(c.recent_sales,2),c.last_purchase,
+      round(c.current_sales,2),round(c.previous_sales,2),round(c.prior_sales,2),c.current_count,c.previous_count,c.prior_count,
+      round(c.baseline,2),round(c.vs_previous,1),round(c.vs_baseline,1),c.state,
+      round((c.recent_sales*case c.state when 'خطر فقد' then 1.45 when 'تراجع قوي' then 1.35 when 'تراجع' then 1.20 when 'نمو قوي' then 1.15 when 'نمو' then 1.08 when 'عميل صاعد جديد' then 1.10 else 1.00 end)::numeric,2),
+      %2$L::date,%4$L::date,%5$L::date,%6$L::date,%7$L::date,%8$L::date
+    from classified c
+    order by c.branch,case c.state when 'خطر فقد' then 1 when 'تراجع قوي' then 2 when 'تراجع' then 3 when 'نمو قوي' then 4 when 'نمو' then 5 when 'عميل صاعد جديد' then 6 else 7 end,18 desc,c.customer_rank
+  $f$, v_recent_start, v_current_start, v_current_start, v_current_end, v_previous_start, v_previous_end, v_prior_start, v_prior_end, v_scope);
+end;
+$$;
+
+grant execute on function public.get_customer_service_three_cycle_intelligence_v1(date,uuid) to anon,authenticated;
+
+create or replace function public.get_customer_service_plus500_core(p_date date, p_scope text)
+returns table(branch text, customer_code text, customer_name text, customer_phone text, qualifying_invoice_count bigint, qualifying_total numeric, invoice_values jsonb, highest_invoice numeric)
+language plpgsql stable security definer
+set search_path=public,pg_catalog
+as $$
+declare
+  v_date date := coalesce(p_date, current_date-1);
+  v_scope text := coalesce(nullif(btrim(p_scope),''),'ALL');
+begin
+  return query execute format($f$
+    with eligible_invoices as (
+      select
+        s.branch,
+        btrim(s.customer_code) as customer_code,
+        nullif(btrim(s.customer_name),'') as invoice_name,
+        nullif(btrim(coalesce(s.customer_phone,s.phone)),'') as invoice_phone,
+        coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0)::numeric as invoice_value,
+        coalesce(s.invoice_no,s.invoice_number,'') as invoice_number
+      from public.sales_invoices s
+      where s.sale_date = %1$L::date
+        and s.branch in ('فرع شكري','فرع الشامي')
+        and (%2$L='ALL' or lower(btrim(s.branch))=%2$L)
+        and nullif(btrim(s.customer_code),'') is not null
+        and coalesce(s.net_amount,s.net_total,s.total_amount,s.amount,0) >= 500
+    ),
+    grouped as (
+      select
+        e.branch,
+        e.customer_code,
+        max(e.invoice_name) as invoice_name,
+        max(e.invoice_phone) as invoice_phone,
+        count(*)::bigint as qualifying_invoice_count,
+        round(sum(e.invoice_value),2) as qualifying_total,
+        jsonb_agg(
+          jsonb_build_object('invoiceNumber',e.invoice_number,'value',round(e.invoice_value,2))
+          order by e.invoice_value desc,e.invoice_number
+        ) as invoice_values,
+        round(max(e.invoice_value),2) as highest_invoice
+      from eligible_invoices e
+      group by e.branch,e.customer_code
+    ),
+    filtered as (
+      select g.*
+      from grouped g
+      where not exists (
+        select 1
+        from public.customer_flags x
+        where x.flag_key in ('wholesale_b2b','system_generic_code')
+          and coalesce(x.is_active,false)
+          and x.customer_code=g.customer_code
+      )
+    )
+    select
+      g.branch,
+      g.customer_code,
+      coalesce(
+        public.dawaa_clean_customer_name(c.name),
+        public.dawaa_clean_customer_name(g.invoice_name),
+        'عميل كود ' || g.customer_code
+      ) as customer_name,
+      coalesce(
+        nullif(btrim(c.phone),''),
+        nullif(btrim(c.whatsapp_phone),''),
+        nullif(btrim(c.phone_alt),''),
+        g.invoice_phone
+      ) as customer_phone,
+      g.qualifying_invoice_count,
+      g.qualifying_total,
+      g.invoice_values,
+      g.highest_invoice
+    from filtered g
+    left join lateral (
+      select c1.name,c1.phone,c1.whatsapp_phone,c1.phone_alt
+      from public.customers c1
+      where c1.customer_code=g.customer_code
+      order by
+        case when c1.branch=g.branch then 0 else 1 end,
+        c1.updated_at desc nulls last,
+        c1.id
+      limit 1
+    ) c on true
+    order by g.branch,g.qualifying_total desc,g.customer_code
+  $f$, v_date, v_scope);
+end;
+$$;
+
+grant execute on function public.get_customer_service_plus500_core(date,text) to anon,authenticated;
+
+create or replace function public.get_customer_points_daily20_core(p_date date, p_scope text)
+returns table(daily_order integer, branch text, customer_code text, customer_name text, customer_phone text, points_balance numeric, last_contacted_at timestamptz, ledger_entries bigint)
+language plpgsql stable security definer
+set search_path=public,pg_catalog
+as $$
+declare
+  v_date date := coalesce(p_date, current_date);
+  v_scope text := coalesce(nullif(btrim(p_scope),''),'ALL');
+begin
+  return query execute format($f$
+    with balances as (
+      select l.branch,btrim(l.customer_code) customer_code,max(nullif(btrim(l.customer_name),'')) customer_name,max(nullif(btrim(l.customer_phone),'')) customer_phone,
+        sum(coalesce(l.points_amount,0))::numeric points_balance,max(l.contacted_at) last_contacted_at,count(*)::bigint ledger_entries
+      from public.customer_points_ledger l where l.branch in ('فرع شكري','فرع الشامي') and (%2$L='ALL' or lower(btrim(l.branch))=%2$L)
+        and nullif(btrim(l.customer_code),'') is not null
+        and nullif(btrim(l.customer_name),'') is not null and btrim(l.customer_name) not in ('عميل الصيدلية','عميل نقدي','عميل عابر','كاش','عميل','.')
+        and (l.expiry_date is null or l.expiry_date>=%1$L::date)
+        group by l.branch,btrim(l.customer_code) having sum(coalesce(l.points_amount,0))>0
+    ), excluded as (
+      select customer_code from public.customer_flags where flag_key in ('wholesale_b2b','system_generic_code') and coalesce(is_active,false)
+    ), filtered as (
+      select b.* from balances b where not exists (select 1 from excluded x where x.customer_code=b.customer_code)
+    ), ranked as (
+      select f.*,row_number() over(partition by f.branch order by f.last_contacted_at asc nulls first,f.points_balance desc,f.customer_code)::integer rn
+      from filtered f
+    ), top10 as materialized (
+      select * from ranked where rn<=10
+    ), enriched as (
+      select t.branch, t.customer_code,
+        coalesce(public.dawaa_clean_customer_name(c.name), public.dawaa_clean_customer_name(t.customer_name), t.customer_name) as customer_name,
+        coalesce(nullif(btrim(c.phone),''), nullif(btrim(c.whatsapp_phone),''), nullif(btrim(c.phone_alt),''), t.customer_phone) as customer_phone,
+        t.points_balance, t.last_contacted_at, t.ledger_entries, t.rn
+      from top10 t
+      left join public.customers c on c.customer_code = t.customer_code
+    )
+    select row_number() over(order by e.branch,e.rn)::integer,e.branch,e.customer_code,e.customer_name,e.customer_phone,round(e.points_balance,2),e.last_contacted_at,e.ledger_entries
+    from enriched e order by e.branch,e.rn
+  $f$, v_date, v_scope);
+end;
+$$;
+
+grant execute on function public.get_customer_points_daily20_core(date,text) to anon,authenticated;
