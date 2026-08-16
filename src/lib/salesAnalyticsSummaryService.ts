@@ -357,7 +357,7 @@ export async function loadSalesAnalyticsSummary(
   ] = await Promise.allSettled([
     fetchLiveInvoiceRows(filters),
     fetchAllSummaryRows(
-      'sales_daily_summary',
+      'dawaa_sales_daily_dashboard_v1',
       'sale_date',
       filters.startDate,
       filters.endDate,
@@ -413,7 +413,7 @@ export async function loadSalesAnalyticsSummary(
     message: errorsBySection.liveInvoices || null,
   });
   sourceHealth.push({
-    source: 'sales_daily_summary',
+    source: 'dawaa_sales_daily_dashboard_v1',
     status: salesRows.length ? 'ready' : errorsBySection.sales ? 'error' : 'empty',
     message: errorsBySection.sales || null,
   });
