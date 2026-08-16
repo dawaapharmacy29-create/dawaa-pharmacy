@@ -5,6 +5,11 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { selectAllPaged } from '@/lib/supabasePaged';
 
 type Row = Record<string, unknown>;
+const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54','4902','20','12820','10','170','5']);
+function isSystemGenericInvoice(row: Row) {
+  return SYSTEM_GENERIC_CUSTOMER_CODES.has(String(row.customer_code ?? '').trim());
+}
+
 
 export type StaffInvoiceTruthInvoice = {
   id: string;
@@ -514,6 +519,7 @@ function buildLinkedCustomers(invoices: StaffInvoiceTruthInvoice[]): StaffInvoic
 async function getBranchAverageFromInvoices(rows: Row[], staffBranch: string) {
   const branchNorm = normalizeBranchName(staffBranch);
   const amounts = rows
+    .filter((row) => !isSystemGenericInvoice(row))
     .map(invoiceFromRow)
     .filter((inv) => !branchNorm || !inv.branch || normalizeBranchName(inv.branch) === branchNorm)
     .map((inv) => inv.amount)
@@ -552,16 +558,11 @@ async function loadInvoicesByKnownStaffIdColumns(
 function mergeRowsByInvoiceIdentity(rows: Row[]) {
   const map = new Map<string, Row>();
   rows.forEach((row, index) => {
-    const key =
-      [
-        String(pickFirst(row, ['id'], '')),
-        String(pickFirst(row, ['invoice_no', 'invoice_number', 'invoice_key'], '')),
-        String(pickFirst(row, ['invoice_date', 'sale_date', 'date'], '')),
-        String(pickFirst(row, ['branch', 'branch_name'], '')),
-      ]
-        .filter(Boolean)
-        .join('|') || `row-${index}`;
-    map.set(key, row);
+    const branch = String(pickFirst(row, ['branch','branch_name'], '')).trim();
+    const invoiceNo = String(pickFirst(row, ['invoice_no','invoice_number','invoice_key'], '')).trim();
+    const day = String(pickFirst(row, ['invoice_date','sale_date','date'], '')).slice(0,10);
+    const key = invoiceNo ? `${branch}|${invoiceNo}|${day}` : String(pickFirst(row,['id'],'') || `row-${index}`);
+    map.set(key,row);
   });
   return [...map.values()];
 }
@@ -748,7 +749,7 @@ export async function getStaffInvoiceTruth(
 
   // ── 5. Match invoices ──────────────────────────────────────────────────────
   const matchedRows = roleAllowedForMatching
-    ? rows.filter((row) => sellerMatches(row, staff.id, normalizedAliasSet))
+    ? mergeRowsByInvoiceIdentity(rows.filter((row) => !isSystemGenericInvoice(row) && sellerMatches(row, staff.id, normalizedAliasSet)))
     : [];
 
   if (roleAllowedForMatching && matchedRows.length === 0 && rows.length > 0) {

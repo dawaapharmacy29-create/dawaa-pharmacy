@@ -17,6 +17,11 @@ import { selectAllPaged } from '@/lib/supabasePaged';
 import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
 
 type Row = Record<string, unknown>;
+const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54','4902','20','12820','10','170','5']);
+function isSystemGenericInvoice(row: Row) {
+  return SYSTEM_GENERIC_CUSTOMER_CODES.has(String(row.customer_code ?? '').trim());
+}
+
 
 function dayAfter(date: string) {
   const next = new Date(`${date}T12:00:00`);
@@ -107,6 +112,7 @@ export async function getLiveStaffInvoiceRowsForPeriod(
 
   const allowAliasFallback = isSalesRole(params.role);
   const filtered = (invoiceResult.data as Row[]).filter((row) => {
+    if (isSystemGenericInvoice(row)) return false;
     const identity = findStaffIdentityForSalesRow(invoiceAsStaffSalesRow(row), staffRows);
     if (identity?.id) return identity.id === params.staffId;
     if (!allowAliasFallback) return false;
