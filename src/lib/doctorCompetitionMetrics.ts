@@ -114,6 +114,11 @@ const INVOICE_SELECT_DOCTOR_OPTIONS = [
 ];
 
 type Row = Record<string, unknown>;
+const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54','4902','20','12820','10','170','5']);
+function isSystemGenericInvoice(row: Row) {
+  return SYSTEM_GENERIC_CUSTOMER_CODES.has(String(row.customer_code ?? '').trim());
+}
+
 type EligibleDoctor = { staffId: string; name: string; branch: string };
 
 function text(value: unknown) {
@@ -188,6 +193,10 @@ export function pickInvoiceAmount(row: Row) {
 }
 
 function invoiceIdentityKey(row: Row) {
+  const branch = invoiceBranch(row);
+  const number = text(row.invoice_no || row.invoice_number);
+  const day = invoiceDate(row);
+  if (number) return `${branch}|${number}|${day}`;
   return getInvoiceId(row) || text(row.id);
 }
 
@@ -286,7 +295,7 @@ async function fetchDoctorSalesRows(range: { start: string; end: string }, branc
   })) as Row[];
   return rows.filter((row) => {
     const day = invoiceDate(row);
-    return day && day >= range.start && day <= range.end && !invoiceInvalid(row) && pickInvoiceAmount(row) > 0;
+    return day && day >= range.start && day <= range.end && !invoiceInvalid(row) && !isSystemGenericInvoice(row) && pickInvoiceAmount(row) > 0;
   });
 }
 
@@ -406,12 +415,13 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       continue;
     }
     const current = upsert(doctor);
-    current.totalSales += pickInvoiceAmount(row);
     const key = doctor.staffId ? `staff:${doctor.staffId}` : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;
     const set = invoiceSets.get(key) || new Set<string>();
     const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;
+    if (set.has(invoiceKey)) continue;
     set.add(invoiceKey);
     invoiceSets.set(key, set);
+    current.totalSales += pickInvoiceAmount(row);
   }
   for (const [key, set] of invoiceSets) {
     const current = map.get(key);
@@ -422,12 +432,18 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   }
 
   const previousSales = new Map<string, number>();
+  const previousInvoiceSets = new Map<string, Set<string>>();
   for (const row of previousRows) {
     const branch = invoiceBranch(row);
     if (!allowBranch(branch)) continue;
     const doctor = resolveDoctor(row, branch);
     if (!doctor) continue;
     const key = doctor.staffId ? `staff:${doctor.staffId}` : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;
+    const set = previousInvoiceSets.get(key) || new Set<string>();
+    const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;
+    if (set.has(invoiceKey)) continue;
+    set.add(invoiceKey);
+    previousInvoiceSets.set(key, set);
     previousSales.set(key, (previousSales.get(key) || 0) + pickInvoiceAmount(row));
   }
 
