@@ -951,10 +951,10 @@ function PaymentTypeBreakdownCards({
   endDate: string;
   scopedBranch: string;
 }) {
-  const [rows, setRows] = React.useState<PaymentTypeRow[] | null>(null);
-  const [error, setError] = React.useState(false);
+  const [rows, setRows] = useState<PaymentTypeRow[] | null>(null);
+  const [error, setError] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
     setRows(null);
     setError(false);
