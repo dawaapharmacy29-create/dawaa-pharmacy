@@ -260,6 +260,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
   const [personalState, setPersonalState] = useState<Record<string, LoadState>>({});
   const [moreOpen, setMoreOpen] = useState(false);
   const [branchTargetAmount, setBranchTargetAmount] = useState<number | null>(null);
+  const [branchCycleTruth, setBranchCycleTruth] = useState<{ sales_total: number; invoices_count: number; items_count: number; avg_invoice: number } | null>(null);
   const [openReviewId, setOpenReviewId] = useState<string | null>(null);
   const [invoiceQuality, setInvoiceQuality] = useState<{
     my_metrics: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number; invoices: number; items_rank: number | null; invoice_rank: number | null; customers_rank: number | null; branch_doctor_count: number };
@@ -289,6 +290,23 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     const amount = number(match?.target_amount ?? match?.monthly_target ?? match?.target);
     setBranchTargetAmount(amount > 0 ? amount : null);
   }, [branch]);
+
+  const loadBranchCycleTruth = useCallback(async () => {
+    if (!branch) return;
+    const { data, error: rpcError } = await supabase.rpc('get_doctor_dashboard_branch_cycle_v1', {
+      p_branch: branch,
+      p_start: formatCycleDate(cycle.start),
+      p_end: formatCycleDate(cycle.end),
+    });
+    if (rpcError || !data || typeof data !== 'object') { setBranchCycleTruth(null); return; }
+    const row = data as Record<string, unknown>;
+    setBranchCycleTruth({
+      sales_total: number(row.sales_total),
+      invoices_count: number(row.invoices_count),
+      items_count: number(row.items_count),
+      avg_invoice: number(row.avg_invoice),
+    });
+  }, [branch, cycle.end, cycle.start]);
 
   const load = useCallback(async () => {
     if (!branch) { setState('error'); setError('الحساب غير مرتبط بفرع واضح.'); return; }
@@ -487,6 +505,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadBranchTarget(); }, [loadBranchTarget]);
+  useEffect(() => { void loadBranchCycleTruth(); }, [loadBranchCycleTruth]);
   useEffect(() => { void loadDoctorTrend(); }, [loadDoctorTrend]);
   useEffect(() => subscribeToStaffNotifications(staffId, () => void loadNotifications()), [loadNotifications, staffId]);
   useEffect(() => {
@@ -501,7 +520,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
   const doctorRow = useMemo<DoctorRow | null>(() => summary?.doctorRows.find((row) => row.staffId === staffId) || summary?.doctorRows.find((row) => normalizeName(row.doctor) === normalizeName(doctorName)) || null, [doctorName, staffId, summary]);
   const ranking = useMemo(() => summary ? [...summary.doctorRows].sort((a, b) => b.netSales - a.netSales) : [], [summary]);
   const doctorRank = doctorRow ? ranking.findIndex((row) => row.staffId === doctorRow.staffId && row.doctor === doctorRow.doctor) + 1 : 0;
-  const branchSales = summary?.kpis.netSales || 0;
+  const branchSales = branchCycleTruth?.sales_total ?? summary?.kpis.netSales ?? 0;
   const target = branchTargetAmount ?? branchTargetFallback(branchSales);
   const achievement = target ? branchSales / target * 100 : 0;
   const doctorTargetBonus = calculateTargetAchievementBonus(branchSales, branchTargetAmount ?? 0, 'doctor');
@@ -527,7 +546,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       <section className="relative overflow-hidden rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, #1B2B4B 0%, #243558 100%)', borderColor: 'var(--dawaa-theme-border)' }}>
         <div className="absolute left-4 top-4 flex items-center gap-2">
           <button
-            type="button" onClick={() => { void load(); void loadDoctorTrend(); void loadBranchTarget(); void loadNotifications(); }} disabled={state === 'loading'}
+            type="button" onClick={() => { void load(); void loadDoctorTrend(); void loadBranchTarget(); void loadBranchCycleTruth(); void loadNotifications(); }} disabled={state === 'loading'}
             className="rounded-full p-2 text-teal-300 transition disabled:opacity-50" style={{ background: 'rgba(0,0,0,0.2)' }}
           >
             <RefreshCw size={16} className={state === 'loading' ? 'animate-spin' : ''} />
