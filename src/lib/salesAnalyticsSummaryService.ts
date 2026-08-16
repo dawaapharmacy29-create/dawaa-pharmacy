@@ -137,7 +137,7 @@ async function fetchLiveInvoiceRows(filters: SalesAnalyticsFilters) {
   const pageSize = 1000;
   for (let from = 0; from < 10000; from += pageSize) {
     let query = supabase
-      .from('sales_invoices')
+      .from('dawaa_sales_invoices_dashboard_v1')
       .select(
         'id,invoice_no,invoice_number,sale_date,invoice_date,net_total,net_amount,discounted_amount,total_amount,amount,gross_total,gross_amount,branch,branch_name,seller_name,normalized_seller_name,staff_name,customer_code,customer_phone,customer_name'
       )
@@ -326,7 +326,7 @@ async function countCustomers(filter: (query: any) => any) {
 
 async function countMissing(column: string, startDate: string, endDate: string, branch?: string) {
   let query = supabase
-    .from('sales_invoices')
+    .from('dawaa_sales_invoices_dashboard_v1')
     .select('id', { count: 'exact', head: true })
     .gte('invoice_date', startDate)
     .lt('invoice_date', dayAfter(endDate))
@@ -408,7 +408,7 @@ export async function loadSalesAnalyticsSummary(
         : staffResult.value.error || '';
 
   sourceHealth.push({
-    source: 'sales_invoices_live',
+    source: 'dawaa_sales_invoices_dashboard_v1',
     status: liveInvoiceRows.length ? 'ready' : errorsBySection.liveInvoices ? 'error' : 'empty',
     message: errorsBySection.liveInvoices || null,
   });
