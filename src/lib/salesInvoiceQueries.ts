@@ -37,6 +37,7 @@ const PARALLEL_BATCH = 5;
 const PAGE_TIMEOUT_MS = 20000;
 const PAGE_RETRIES = 2;
 const PERSISTED_TTL_MS = 30 * 60 * 1000;
+const SALES_TRUTH_VIEW = 'dawaa_sales_invoices_dashboard_v1';
 const lastGoodResults = new Map<string, SalesInvoiceQueryRow[]>();
 const inFlightLoads = new Map<string, Promise<SalesInvoiceQueryRow[]>>();
 const preferredSelectIndex = new Map<string, number>();
@@ -75,7 +76,7 @@ function queryIdentity(options: {
 }) {
   const projection = (options.selectOptions?.length ? options.selectOptions : INVOICE_SELECT_TRUTH_OPTIONS).join('|');
   const base = invoiceCacheKey(options.startDate, options.endDate, options.branch || '');
-  return `${base}:p${options.pageSize || DEFAULT_PAGE_SIZE}:s${stableHash(projection)}`;
+  return `${base}:truth-v24:p${options.pageSize || DEFAULT_PAGE_SIZE}:s${stableHash(projection)}`;
 }
 
 function persistedKey(key: string) {
@@ -156,7 +157,7 @@ async function fetchOnePageOnce(
   const endExclusive = nextDay(endDate);
   const result = await withTimeout<{ data: unknown[] | null; error: unknown }>(
     supabase
-      .from('sales_invoices')
+      .from(SALES_TRUTH_VIEW)
       .select(selectField)
       .gte('invoice_date', startDate)
       .lt('invoice_date', endExclusive)
@@ -164,7 +165,7 @@ async function fetchOnePageOnce(
       .order('id', { ascending: true })
       .range(from, to),
     PAGE_TIMEOUT_MS,
-    `sales_invoices page ${page}`,
+    `${SALES_TRUTH_VIEW} page ${page}`,
   );
   return {
     data: (result.data || []) as unknown as SalesInvoiceQueryRow[],
@@ -227,7 +228,7 @@ async function loadSalesInvoicesPaged(
   }
 
   if (page0result.error) {
-    errors.push(`sales_invoices: ${page0result.error.message}`);
+    errors.push(`${SALES_TRUTH_VIEW}: ${page0result.error.message}`);
     const fallback = fallbackRows(cacheKey);
     if (fallback?.length) return fallback;
     throw page0result.error;
@@ -255,7 +256,7 @@ async function loadSalesInvoicesPaged(
       const result = batchResults[index];
       const page = pageNumbers[index];
       if (result.error) {
-        errors.push(`sales_invoices page ${page}: ${result.error.message}`);
+        errors.push(`${SALES_TRUTH_VIEW} page ${page}: ${result.error.message}`);
         const fallback = fallbackRows(cacheKey);
         if (fallback?.length) return fallback;
         throw result.error;
