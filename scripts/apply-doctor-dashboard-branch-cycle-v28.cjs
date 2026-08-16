@@ -1,0 +1,10 @@
+const fs = require('fs');
+const p = 'src/pages/DoctorDashboardStable.tsx';
+let s = fs.readFileSync(p,'utf8');
+function once(a,b,label){ if(!s.includes(a)){console.error('missing '+label);process.exit(1);} s=s.replace(a,b); }
+once("  const [branchTargetAmount, setBranchTargetAmount] = useState<number | null>(null);", `  const [branchTargetAmount, setBranchTargetAmount] = useState<number | null>(null);\n  const [branchCycleTruth, setBranchCycleTruth] = useState<{ sales_total: number; invoices_count: number; items_count: number; avg_invoice: number } | null>(null);`, 'state');
+once("  const load = useCallback(async () => {", `  const loadBranchCycleTruth = useCallback(async () => {\n    if (!branch) return;\n    const { data, error: rpcError } = await supabase.rpc('get_doctor_dashboard_branch_cycle_v1', {\n      p_branch: branch,\n      p_start: formatCycleDate(cycle.start),\n      p_end: formatCycleDate(cycle.end),\n    });\n    if (rpcError || !data || typeof data !== 'object') { setBranchCycleTruth(null); return; }\n    const row = data as Record<string, unknown>;\n    setBranchCycleTruth({\n      sales_total: number(row.sales_total),\n      invoices_count: number(row.invoices_count),\n      items_count: number(row.items_count),\n      avg_invoice: number(row.avg_invoice),\n    });\n  }, [branch, cycle.end, cycle.start]);\n\n  const load = useCallback(async () => {`, 'loader');
+once("  useEffect(() => { void loadBranchTarget(); }, [loadBranchTarget]);", "  useEffect(() => { void loadBranchTarget(); }, [loadBranchTarget]);\n  useEffect(() => { void loadBranchCycleTruth(); }, [loadBranchCycleTruth]);", 'effect');
+once("  const branchSales = summary?.kpis.netSales || 0;", "  const branchSales = branchCycleTruth?.sales_total ?? summary?.kpis.netSales ?? 0;", 'branchSales');
+s=s.replace("void load(); void loadDoctorTrend(); void loadBranchTarget(); void loadNotifications();", "void load(); void loadDoctorTrend(); void loadBranchTarget(); void loadBranchCycleTruth(); void loadNotifications();");
+fs.writeFileSync(p,s);
