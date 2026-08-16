@@ -63,25 +63,49 @@ function uniqueIdentities(rows: StaffIdentityRow[]) {
   return [...map.values()];
 }
 
+function staffIdentityFromRow(row: Row, idKeys: string[], nameKeys: string[]): StaffIdentityRow {
+  return {
+    id: text(read(row, idKeys, '')) || null,
+    name: text(read(row, nameKeys, '')) || null,
+    branch: normalizeBranchName(read(row, ['branch', 'branch_name'], null)) || null,
+    role: text(read(row, ['role', 'staff_role', 'job_title'], '')) || null,
+    active:
+      read(row, ['active'], true) !== false &&
+      read(row, ['is_active'], true) !== false &&
+      read(row, ['can_login'], true) !== false,
+  };
+}
+
 export async function fetchStaffIdentityRows(): Promise<StaffIdentityRow[]> {
   if (!isSupabaseConfigured) return [];
-  const [staffResult, aliasResult] = await Promise.all([
+  const [staffResult, accountResult, aliasResult] = await Promise.all([
     supabase.from('staff').select('id,name,branch,role,active,is_active').limit(800),
+    supabase
+      .from('staff_accounts')
+      .select('staff_id,staff_name,name,branch,role,staff_role,job_title,active,is_active,can_login')
+      .limit(1200),
     supabase
       .from('staff_identity_aliases')
       .select('staff_id,alias_name,active,confidence,priority')
       .eq('active', true)
       .limit(2000),
   ]);
-  if (staffResult.error) return [];
+  if (staffResult.error && accountResult.error) return [];
 
-  const baseRows = ((staffResult.data ?? []) as Row[]).map((row) => ({
-    id: text(read(row, ['id'], '')) || null,
-    name: text(read(row, ['name'], '')) || null,
-    branch: normalizeBranchName(read(row, ['branch'], null)) || null,
-    role: text(read(row, ['role'], '')) || null,
-    active: read(row, ['active'], true) !== false && read(row, ['is_active'], true) !== false,
-  }));
+  const staffRows = staffResult.error
+    ? []
+    : ((staffResult.data ?? []) as Row[]).map((row) =>
+        staffIdentityFromRow(row, ['id'], ['name'])
+      );
+  const accountRows = accountResult.error
+    ? []
+    : ((accountResult.data ?? []) as Row[]).map((row) =>
+        staffIdentityFromRow(row, ['staff_id'], ['staff_name', 'name'])
+      );
+
+  // Prefer the canonical staff row when both sources describe the same staff_id,
+  // but keep active account-only identities (for example migrated/legacy doctors).
+  const baseRows = uniqueIdentities([...staffRows, ...accountRows]);
   const byId = new Map(baseRows.filter((row) => row.id).map((row) => [row.id as string, row]));
 
   const aliasRows = aliasResult.error
