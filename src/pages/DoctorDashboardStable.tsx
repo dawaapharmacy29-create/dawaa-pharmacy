@@ -456,11 +456,11 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       // بنجيب فواتير الفرع كلها للدورة، وبنطابق بنفس دالة normalizeName المستخدمة
       // في باقي الصفحة (الرواكد واللستة)، اللي بتشيل "د/" والمسافات والرموز.
       const { data, error } = await supabase
-        .from('sales_invoices')
+        .from('dawaa_sales_invoices_dashboard_v1')
         .select('invoice_date,sale_date,net_total,net_amount,discounted_amount,total_amount,amount,branch,seller_name,normalized_seller_name,staff_name')
         .eq('branch', branch)
         .gte('invoice_date', formatCycleDate(cycle.start))
-        .lt('invoice_date', formatCycleDate(cycle.end))
+        .lt('invoice_date', formatCycleDate(new Date(cycle.end.getTime() + 86400000)))
         .limit(5000);
       if (error) throw error;
       const target = normalizeName(doctorName);
