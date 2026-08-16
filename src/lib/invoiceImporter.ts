@@ -63,7 +63,7 @@ export interface RawInvoiceRow {
   saveStatus: string;
   deviceName: string;
   customerLinkStatus: 'matched_by_file' | 'unmatched_customer';
-  importValidationStatus: 'valid' | 'zero_amount';
+  importValidationStatus: 'valid' | 'zero_amount' | 'pending_not_finalized';
   importWarning: string | null;
   raw: Record<string, unknown>;
 }
@@ -358,6 +358,13 @@ function cleanText(value: unknown): string {
   return String(value ?? '').trim();
 }
 
+const PENDING_SAVE_STATUS_VALUES = ['معلقة', 'معلق', 'pending', 'held', 'draft'];
+
+function isPendingSaveStatus(value: unknown): boolean {
+  const text = normalise(value);
+  return PENDING_SAVE_STATUS_VALUES.some((candidate) => text === normalise(candidate));
+}
+
 export function buildInvoiceDuplicateIdentity(
   invoiceNumber: string | number | null | undefined,
   branch: string | null | undefined,
@@ -373,12 +380,25 @@ export function buildInvoiceDuplicateIdentity(
 }
 
 function findColumn(headers: string[], candidates: string[]): number {
+  // عمود بنفس الاسم بيتكرر في نفس الملف (مثال: "النوع" لنوع الفاتورة، وبرضو
+  // "النوع" لحالة الحفظ) بياخد اللاحقة __2, __3... عند القراءة عشان نفرّق بينهم.
+  // أي candidate ليه لاحقة __N قصده تحديدًا العمود ده، فلازم نقارنه بالهيدر
+  // الخام (من غير ما نشيل اللاحقة) وإلا هيرجع العمود الأول الغلط.
+  const normRawHeaders = headers.map((header) => normalise(header));
+  for (const candidate of candidates) {
+    if (!/__\d+$/.test(candidate)) continue;
+    const idx = normRawHeaders.indexOf(normalise(candidate));
+    if (idx !== -1) return idx;
+  }
+
   const normHeaders = headers.map((header) => normalise(header.replace(/__\d+$/, '')));
   for (const candidate of candidates) {
+    if (/__\d+$/.test(candidate)) continue;
     const idx = normHeaders.indexOf(normalise(candidate));
     if (idx !== -1) return idx;
   }
   for (const candidate of candidates) {
+    if (/__\d+$/.test(candidate)) continue;
     const needle = normalise(candidate);
     const idx = normHeaders.findIndex(
       (header) => header.includes(needle) || needle.includes(header)
@@ -1218,12 +1238,18 @@ export function parseInvoiceFile(
       saveStatus: cleanText(getValue(record, headers, SAVE_STATUS_KEYS)),
       deviceName: cleanText(getValue(record, headers, DEVICE_KEYS)),
       customerLinkStatus: isUnmatchedCustomer ? 'unmatched_customer' : 'matched_by_file',
-      importValidationStatus: normalizedAmount === 0 ? 'zero_amount' : 'valid',
-      importWarning: isUnmatchedCustomer
-        ? 'عميل غير مسجل في الملف'
+      importValidationStatus: isPendingSaveStatus(getValue(record, headers, SAVE_STATUS_KEYS))
+        ? 'pending_not_finalized'
         : normalizedAmount === 0
-          ? 'فاتورة صافيها صفر وتحتاج مراجعة'
-          : null,
+          ? 'zero_amount'
+          : 'valid',
+      importWarning: isPendingSaveStatus(getValue(record, headers, SAVE_STATUS_KEYS))
+        ? 'فاتورة معلقة (لم تُحفظ نهائيًا في الكاشير) - لم تُستورد'
+        : isUnmatchedCustomer
+          ? 'عميل غير مسجل في الملف'
+          : normalizedAmount === 0
+            ? 'فاتورة صافيها صفر وتحتاج مراجعة'
+            : null,
       raw: {
         ...record,
         invoice_datetime: invoiceDateTime,
@@ -2159,6 +2185,26 @@ export async function importInvoicesToDB(
 
   const newRows = rows.filter((row) => {
     const rowBranch = row.branch || branch;
+    if (row.importValidationStatus === 'pending_not_finalized') {
+      markTrace(traceMap, traceKey(row), {
+        intendedAction: 'skip',
+        actualAction: 'skipped_before_save',
+        skipReason: 'pending_not_finalized',
+        finalStatus: 'pending_not_finalized',
+      });
+      addSkippedReason(skippedByReason, 'pending_not_finalized', rawInvoiceNetValue(row));
+      if (skippedRowsSample.length < 10) {
+        skippedRowsSample.push({
+          invoiceNumber: row.invoiceNumber,
+          branch: rowBranch,
+          originalDate: row.date,
+          parsedDate: row.date,
+          reason: 'pending_not_finalized',
+        });
+      }
+      summary.skippedInvoices = (summary.skippedInvoices || 0) + 1;
+      return false;
+    }
     const dedupeKey = invoiceDuplicateKey(row.invoiceNumber, rowBranch, row.date);
     if (seenImportKeys.has(dedupeKey)) {
       markTrace(traceMap, traceKey(row), {
@@ -2463,7 +2509,11 @@ export async function importInvoicesToDB(
     if (error) {
       batchReport.batchError = error.message;
       const isDuplicateError = isDuplicateSaveError(error.message);
-      const shouldSplitBatch = (isDuplicateError || isRetryableSaveError(error.message)) && chunk.length > 1;
+      // مهم: لازم نعزل الصف المُعطّل مهما كان نوع الخطأ (مش بس تكرار أو timeout).
+      // قبل كده: أي خطأ تاني (مثلاً صف واحد بقيمة غير صالحة) كان بيسقط الدفعة
+      // كاملة (حتى 25 فاتورة) من غير ما يجرب كل صف لوحده، فتضيع فواتير سليمة
+      // بسبب فاتورة وحيدة معطوبة. دلوقتي بنعزل الصف المشكلة دايمًا ونحفظ الباقي.
+      const shouldSplitBatch = chunk.length > 1;
       if (shouldSplitBatch) {
         if (isRetryableSaveError(error.message)) {
           batchReport.batchError = `${error.message}; split into single-row retries`;
