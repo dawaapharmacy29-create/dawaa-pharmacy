@@ -14,6 +14,15 @@ function patchFile(path, transform) {
 function addEslintDirective(path, rule) {
   patchFile(path, (source) => {
     const directive = `/* eslint-disable ${rule} */`;
+    const firstLine = source.split('\n', 1)[0] || '';
+    const combinedDirective = firstLine.match(/^\/\*\s*eslint-disable\s+(.+?)\s*\*\/$/);
+    if (combinedDirective) {
+      const existingRules = combinedDirective[1]
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (existingRules.includes(rule)) return source;
+    }
     return source.startsWith(directive) ? source : `${directive}\n${source}`;
   });
 }
