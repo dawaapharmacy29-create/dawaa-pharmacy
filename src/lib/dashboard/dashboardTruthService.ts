@@ -1,4 +1,5 @@
-/* eslint-disable no-useless-escape */
+/* eslint-disable no-useless-escape, @typescript-eslint/no-explicit-any */
+import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 import {
@@ -17,6 +18,8 @@ import {
 
 export const DASHBOARD_ALL_BRANCHES = '\u0643\u0644 \u0627\u0644\u0641\u0631\u0648\u0639';
 const UNKNOWN_LABEL = '\u063A\u064A\u0631 \u0645\u062D\u062F\u062F';
+
+type RpcRow = Record<string, unknown>;
 
 export type DashboardInvoiceRow = {
   id?: string | number | null;
@@ -138,10 +141,6 @@ function invoiceIdentityKey(row: DashboardInvoiceRow) {
   return getInvoiceId(row as Record<string, unknown>);
 }
 
-function normalizedBranch(branch?: string | null) {
-  return normalizeBranchName(branch || '') || UNKNOWN_LABEL;
-}
-
 function invoiceBranch(row: DashboardInvoiceRow) {
   return getCoreInvoiceBranch(row as Record<string, unknown>, UNKNOWN_LABEL);
 }
@@ -150,47 +149,22 @@ function invoiceDoctorName(row: DashboardInvoiceRow) {
   return getInvoiceSellerName(row as Record<string, unknown>) || row.doctor_name || '';
 }
 
-function isAllBranches(branch: string) {
-  const raw = String(branch || '')
-    .trim()
-    .toLowerCase();
-  return (
-    !raw ||
-    normalizeBranchName(branch) === normalizeBranchName(DASHBOARD_ALL_BRANCHES) ||
-    raw.includes('all') ||
-    raw.includes('\u0643\u0644') ||
-    raw.includes('ÙƒÙ„')
-  );
-}
-
-function monthStartFor(dateText: string, monthsBack = 5) {
-  const date = new Date(`${dateText}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return dateText;
-  date.setDate(1);
-  date.setMonth(date.getMonth() - monthsBack);
-  return date.toISOString().slice(0, 10);
-}
-
 function daysBefore(dateText: string, daysBack: number) {
   const date = new Date(`${dateText}T12:00:00`);
   if (Number.isNaN(date.getTime())) return dateText;
   date.setDate(date.getDate() - daysBack);
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function latestInvoiceDate(rows: DashboardInvoiceRow[], fallback: string) {
-  return rows.map(invoiceDate).filter(Boolean).sort().at(-1) || fallback;
-}
-
-function firstInvoiceDate(rows: DashboardInvoiceRow[]) {
-  return rows.map(invoiceDate).filter(Boolean).sort().at(0) || null;
-}
-
-function invoicesBetween(rows: DashboardInvoiceRow[], start: string, end: string) {
-  return rows.filter((row) => {
-    const day = invoiceDate(row);
-    return day && day >= start && day <= end;
-  });
+function localToday() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function normalizeText(value: unknown) {
@@ -207,10 +181,7 @@ function normalizeText(value: unknown) {
 
 function normalizedSellerName(value: unknown) {
   return normalizeText(value)
-    .replace(
-      /^(\u062F|\u062F\u0643\u062A\u0648\u0631|\u0627\u0644\u062F\u0643\u062A\u0648\u0631)\s+/,
-      ''
-    )
+    .replace(/^(\u062F|\u062F\u0643\u062A\u0648\u0631|\u0627\u0644\u062F\u0643\u062A\u0648\u0631)\s+/, '')
     .trim();
 }
 
@@ -247,90 +218,29 @@ function isLinkedInvoice(row: DashboardInvoiceRow) {
   );
 }
 
-function buildTruth(rows: DashboardInvoiceRow[]) {
-  const invoiceRows = rows.filter(
-    (row) => invoiceDate(row) && !isCancelledInvoice(row as Record<string, unknown>)
-  );
-  const invoiceKeys = new Set(invoiceRows.map(invoiceIdentityKey).filter(Boolean));
+function buildFallbackTruth(rows: DashboardInvoiceRow[]) {
+  const invoiceRows = rows.filter((row) => invoiceDate(row) && !isCancelledInvoice(row as Record<string, unknown>));
   const linkedRows = invoiceRows.filter(isLinkedInvoice);
-  const linkedInvoiceKeys = new Set(linkedRows.map(invoiceIdentityKey).filter(Boolean));
-  const unlinkedRows = invoiceRows.filter((row) => !isLinkedInvoice(row));
-  const unlinkedInvoiceKeys = new Set(unlinkedRows.map(invoiceIdentityKey).filter(Boolean));
   const total = invoiceRows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0);
-
-  const dailyMap = new Map<
-    string,
-    { sale_date: string; branch: string; daily_sales: number; invoices_count: number }
-  >();
-  const dailyKeys = new Map<string, Set<string>>();
-  const branchMap = new Map<
-    string,
-    {
-      branch: string;
-      sales_total: number;
-      invoices_count: number;
-      avg_invoice: number;
-      linked_customers: number;
-    }
-  >();
-  const branchKeys = new Map<string, Set<string>>();
+  const dailyMap = new Map<string, { sale_date: string; branch: string; daily_sales: number; invoices_count: number }>();
+  const branchMap = new Map<string, { branch: string; sales_total: number; invoices_count: number; avg_invoice: number; linked_customers: number }>();
   const branchCustomers = new Map<string, Set<string>>();
-  const doctorMap = new Map<
-    string,
-    {
-      doctor_name: string;
-      branch: string;
-      sales_total: number;
-      invoices_count: number;
-      avg_invoice: number;
-      estimated_points: number;
-      incentive_value: number;
-    }
-  >();
-  const doctorKeys = new Map<string, Set<string>>();
-  const monthMap = new Map<
-    string,
-    {
-      month_start: string;
-      month_label: string;
-      branch: string;
-      sales_total: number;
-      invoices_count: number;
-      avg_invoice: number;
-    }
-  >();
-  const monthKeys = new Map<string, Set<string>>();
+  const doctorMap = new Map<string, { doctor_name: string; branch: string; sales_total: number; invoices_count: number; avg_invoice: number; estimated_points: number; incentive_value: number }>();
+  const monthMap = new Map<string, { month_start: string; month_label: string; branch: string; sales_total: number; invoices_count: number; avg_invoice: number }>();
 
   for (const row of invoiceRows) {
     const day = invoiceDate(row);
     const branch = invoiceBranch(row);
     const amount = dashboardInvoiceAmount(row);
-    const key = invoiceIdentityKey(row);
-
     const dailyKey = `${day}__${branch}`;
-    const daily = dailyMap.get(dailyKey) || {
-      sale_date: day,
-      branch,
-      daily_sales: 0,
-      invoices_count: 0,
-    };
+    const daily = dailyMap.get(dailyKey) || { sale_date: day, branch, daily_sales: 0, invoices_count: 0 };
     daily.daily_sales += amount;
-    if (!dailyKeys.has(dailyKey)) dailyKeys.set(dailyKey, new Set());
-    if (key) dailyKeys.get(dailyKey)?.add(key);
-    daily.invoices_count = dailyKeys.get(dailyKey)?.size || 0;
+    daily.invoices_count += 1;
     dailyMap.set(dailyKey, daily);
 
-    const branchRow = branchMap.get(branch) || {
-      branch,
-      sales_total: 0,
-      invoices_count: 0,
-      avg_invoice: 0,
-      linked_customers: 0,
-    };
+    const branchRow = branchMap.get(branch) || { branch, sales_total: 0, invoices_count: 0, avg_invoice: 0, linked_customers: 0 };
     branchRow.sales_total += amount;
-    if (!branchKeys.has(branch)) branchKeys.set(branch, new Set());
-    if (key) branchKeys.get(branch)?.add(key);
-    branchRow.invoices_count = branchKeys.get(branch)?.size || 0;
+    branchRow.invoices_count += 1;
     branchMap.set(branch, branchRow);
 
     if (isLinkedInvoice(row)) {
@@ -339,40 +249,19 @@ function buildTruth(rows: DashboardInvoiceRow[]) {
     }
 
     const month = day.slice(0, 7);
-    if (month) {
-      const monthKey = `${month}__${branch}`;
-      const monthRow = monthMap.get(monthKey) || {
-        month_start: `${month}-01`,
-        month_label: month,
-        branch,
-        sales_total: 0,
-        invoices_count: 0,
-        avg_invoice: 0,
-      };
-      monthRow.sales_total += amount;
-      if (!monthKeys.has(monthKey)) monthKeys.set(monthKey, new Set());
-      if (key) monthKeys.get(monthKey)?.add(key);
-      monthRow.invoices_count = monthKeys.get(monthKey)?.size || 0;
-      monthMap.set(monthKey, monthRow);
-    }
+    const monthKey = `${month}__${branch}`;
+    const monthRow = monthMap.get(monthKey) || { month_start: `${month}-01`, month_label: month, branch, sales_total: 0, invoices_count: 0, avg_invoice: 0 };
+    monthRow.sales_total += amount;
+    monthRow.invoices_count += 1;
+    monthMap.set(monthKey, monthRow);
 
     const doctorSource = invoiceDoctorName(row);
     if (isDoctorName(doctorSource)) {
       const doctor = normalizeDoctorName(doctorSource);
       const doctorKey = `${doctor}__${branch}`;
-      const doctorRow = doctorMap.get(doctorKey) || {
-        doctor_name: doctor,
-        branch,
-        sales_total: 0,
-        invoices_count: 0,
-        avg_invoice: 0,
-        estimated_points: 0,
-        incentive_value: 0,
-      };
+      const doctorRow = doctorMap.get(doctorKey) || { doctor_name: doctor, branch, sales_total: 0, invoices_count: 0, avg_invoice: 0, estimated_points: 0, incentive_value: 0 };
       doctorRow.sales_total += amount;
-      if (!doctorKeys.has(doctorKey)) doctorKeys.set(doctorKey, new Set());
-      if (key) doctorKeys.get(doctorKey)?.add(key);
-      doctorRow.invoices_count = doctorKeys.get(doctorKey)?.size || 0;
+      doctorRow.invoices_count += 1;
       doctorMap.set(doctorKey, doctorRow);
     }
   }
@@ -382,17 +271,10 @@ function buildTruth(rows: DashboardInvoiceRow[]) {
     avg_invoice: row.invoices_count ? row.sales_total / row.invoices_count : 0,
     linked_customers: branchCustomers.get(row.branch)?.size || 0,
   }));
-
   const doctorSales = [...doctorMap.values()].map((row) => {
     const points = Math.round(row.sales_total / 1000);
-    return {
-      ...row,
-      avg_invoice: row.invoices_count ? row.sales_total / row.invoices_count : 0,
-      estimated_points: points,
-      incentive_value: points * 3,
-    };
+    return { ...row, avg_invoice: row.invoices_count ? row.sales_total / row.invoices_count : 0, estimated_points: points, incentive_value: points * 3 };
   });
-
   const monthlySales = [...monthMap.values()].map((row) => ({
     ...row,
     avg_invoice: row.invoices_count ? row.sales_total / row.invoices_count : 0,
@@ -400,29 +282,201 @@ function buildTruth(rows: DashboardInvoiceRow[]) {
 
   return {
     summary: {
-      invoices_count: invoiceKeys.size,
+      invoices_count: invoiceRows.length,
       sales_total: total,
-      avg_invoice: invoiceKeys.size ? total / invoiceKeys.size : 0,
-      linked_invoices: linkedInvoiceKeys.size,
-      unregistered_customer_invoices: unlinkedInvoiceKeys.size,
+      avg_invoice: invoiceRows.length ? total / invoiceRows.length : 0,
+      linked_invoices: linkedRows.length,
+      unregistered_customer_invoices: invoiceRows.length - linkedRows.length,
       linked_sales: linkedRows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0),
-      unregistered_customer_sales: unlinkedRows.reduce(
-        (sum, row) => sum + dashboardInvoiceAmount(row),
-        0
-      ),
-      customer_link_rate_percent: invoiceKeys.size
-        ? (linkedInvoiceKeys.size / invoiceKeys.size) * 100
-        : 0,
-      linked_customers: new Set(
-        linkedRows.map((row) => String(row.customer_code || '').trim()).filter(Boolean)
-      ).size,
+      unregistered_customer_sales: invoiceRows.filter((row) => !isLinkedInvoice(row)).reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0),
+      customer_link_rate_percent: invoiceRows.length ? (linkedRows.length / invoiceRows.length) * 100 : 0,
+      linked_customers: new Set(linkedRows.map((row) => String(row.customer_code || '').trim()).filter(Boolean)).size,
     },
-    dailySales: [...dailyMap.values()].sort((a, b) => a.sale_date.localeCompare(b.sale_date)),
+    dailySales: [...dailyMap.values()].sort((a, b) => `${a.sale_date}__${a.branch}`.localeCompare(`${b.sale_date}__${b.branch}`)),
     branchDistribution: branchDistribution.sort((a, b) => b.sales_total - a.sales_total),
     doctorSales: doctorSales.sort((a, b) => b.sales_total - a.sales_total).slice(0, 60),
-    monthlySales: monthlySales.sort((a, b) =>
-      `${a.month_start}__${a.branch}`.localeCompare(`${b.month_start}__${b.branch}`)
-    ),
+    monthlySales: monthlySales.sort((a, b) => `${a.month_start}__${a.branch}`.localeCompare(`${b.month_start}__${b.branch}`)),
+  };
+}
+
+async function rpcRows<T extends RpcRow>(name: string, params: Record<string, unknown>): Promise<T[]> {
+  const result = await (supabase as any).rpc(name, params);
+  if (result.error) throw new Error(result.error.message || `${name} failed`);
+  if (Array.isArray(result.data)) return result.data as T[];
+  if (result.data && typeof result.data === 'object') return [result.data as T];
+  return [];
+}
+
+function numberRow(row: RpcRow, key: string) {
+  return dashboardNumber(row[key]);
+}
+
+async function fetchAggregatedTruth(params: {
+  startDate: string;
+  endDate: string;
+  branch: string;
+  errors?: string[];
+  noCache?: boolean;
+}): Promise<DashboardSalesTruth> {
+  const branch = params.branch || DASHBOARD_ALL_BRANCHES;
+  const rangeParams = { p_start: params.startDate, p_end: params.endDate, p_branch: branch };
+  const [summaryRows, dailyRows, branchRows, doctorRows, monthlyRows, auditRows] = await Promise.all([
+    rpcRows<RpcRow>('get_dashboard_sales_summary_v171', rangeParams),
+    rpcRows<RpcRow>('get_dashboard_daily_sales_v171', rangeParams),
+    rpcRows<RpcRow>('get_dashboard_branch_distribution_v171', rangeParams),
+    rpcRows<RpcRow>('get_dashboard_doctor_sales_v171', rangeParams),
+    rpcRows<RpcRow>('get_dashboard_monthly_sales_v171', { p_end: params.endDate, p_branch: branch, p_months: 6 }),
+    rpcRows<RpcRow>('get_dashboard_sales_truth_audit_v1', rangeParams),
+  ]);
+
+  const summaryRow = summaryRows[0];
+  if (!summaryRow) throw new Error('Dashboard sales summary returned no row');
+
+  const summary = {
+    invoices_count: numberRow(summaryRow, 'invoices_count'),
+    sales_total: numberRow(summaryRow, 'sales_total'),
+    avg_invoice: numberRow(summaryRow, 'avg_invoice'),
+    linked_invoices: numberRow(summaryRow, 'linked_invoices'),
+    unregistered_customer_invoices: numberRow(summaryRow, 'unregistered_customer_invoices'),
+    linked_sales: numberRow(summaryRow, 'linked_sales'),
+    unregistered_customer_sales: numberRow(summaryRow, 'unregistered_customer_sales'),
+    customer_link_rate_percent: numberRow(summaryRow, 'customer_link_rate_percent'),
+    linked_customers: numberRow(summaryRow, 'linked_customers'),
+  };
+
+  const dailySales = dailyRows.map((row) => ({
+    sale_date: String(row.sale_date || '').slice(0, 10),
+    branch: String(row.branch || UNKNOWN_LABEL),
+    daily_sales: numberRow(row, 'daily_sales'),
+    invoices_count: numberRow(row, 'invoices_count'),
+  }));
+
+  const branchDistribution = branchRows.map((row) => ({
+    branch: String(row.branch || UNKNOWN_LABEL),
+    sales_total: numberRow(row, 'sales_total'),
+    invoices_count: numberRow(row, 'invoices_count'),
+    avg_invoice: numberRow(row, 'avg_invoice'),
+    linked_customers: numberRow(row, 'linked_customers'),
+  }));
+
+  const doctorSales = doctorRows.map((row) => {
+    const salesTotal = numberRow(row, 'sales_total');
+    const points = Math.round(salesTotal / 1000);
+    return {
+      doctor_name: String(row.doctor_name || 'غير مربوط'),
+      branch: String(row.branch || UNKNOWN_LABEL),
+      sales_total: salesTotal,
+      invoices_count: numberRow(row, 'invoices_count'),
+      avg_invoice: numberRow(row, 'avg_invoice'),
+      estimated_points: points,
+      incentive_value: points * 3,
+    };
+  });
+
+  const monthlySales = monthlyRows.map((row) => ({
+    month_start: String(row.month_start || '').slice(0, 10),
+    month_label: String(row.month_label || ''),
+    branch: String(row.branch || UNKNOWN_LABEL),
+    sales_total: numberRow(row, 'sales_total'),
+    invoices_count: numberRow(row, 'invoices_count'),
+    avg_invoice: numberRow(row, 'avg_invoice'),
+  }));
+
+  const today = localToday();
+  const recentEnd = params.endDate < today ? params.endDate : today;
+  const safeRecentEnd = recentEnd < params.startDate ? params.endDate : recentEnd;
+  const recentStartCandidate = daysBefore(safeRecentEnd, 4);
+  const recentStart = recentStartCandidate < params.startDate ? params.startDate : recentStartCandidate;
+  const recentInvoices = (await fetchSalesInvoicesPagedSafe({
+    startDate: recentStart,
+    endDate: safeRecentEnd,
+    branch,
+    errors: params.errors,
+    noCache: params.noCache,
+  })) as DashboardInvoiceRow[];
+
+  const audit = auditRows[0] || {};
+  const branchesIncluded = branchDistribution.map((row) => row.branch).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ar'));
+  const firstInvoiceDate = dailySales.map((row) => row.sale_date).filter(Boolean).sort()[0] || null;
+  const lastInvoiceDate = dailySales.map((row) => row.sale_date).filter(Boolean).sort().at(-1) || null;
+  const cleanTotal = numberRow(audit, 'clean_total') || summary.sales_total;
+  const cleanRows = numberRow(audit, 'clean_rows') || summary.invoices_count;
+
+  return {
+    sourceRows: recentInvoices,
+    cycleRows: recentInvoices,
+    summary,
+    dailySales,
+    monthlySales,
+    branchDistribution,
+    doctorSales,
+    recentInvoices,
+    reconciliation: {
+      source: 'dashboard_aggregate_rpcs_v171',
+      dashboardTotal: summary.sales_total,
+      sqlEquivalentTotal: cleanTotal,
+      difference: Math.abs(summary.sales_total - cleanTotal),
+      invoicesCount: summary.invoices_count,
+      rowsRead: cleanRows,
+      selectedStartDate: params.startDate,
+      selectedEndDate: params.endDate,
+      branchesIncluded,
+      firstInvoiceDate,
+      lastInvoiceDate,
+      missingBranchCount: 0,
+      missingDoctorCount: 0,
+      missingInvoiceKeyCount: 0,
+      missingCustomerCodeCount: summary.unregistered_customer_invoices,
+    },
+  };
+}
+
+async function fetchFallbackTruth(params: {
+  startDate: string;
+  endDate: string;
+  branch: string;
+  errors?: string[];
+  noCache?: boolean;
+}): Promise<DashboardSalesTruth> {
+  const rows = (await fetchSalesInvoicesPagedSafe({
+    startDate: params.startDate,
+    endDate: params.endDate,
+    branch: params.branch,
+    errors: params.errors,
+    noCache: params.noCache,
+  })) as DashboardInvoiceRow[];
+  const truth = buildFallbackTruth(rows);
+  const recentAnchorDate = rows.map(invoiceDate).filter(Boolean).sort().at(-1) || params.endDate;
+  const recentStart = daysBefore(recentAnchorDate, 4);
+  const recentInvoices = rows.filter((row) => {
+    const day = invoiceDate(row);
+    return day >= recentStart && day <= recentAnchorDate;
+  });
+  const branchesIncluded = [...new Set(rows.map(invoiceBranch))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'ar'));
+  const sqlEquivalentTotal = rows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0);
+
+  return {
+    sourceRows: rows,
+    cycleRows: rows,
+    ...truth,
+    recentInvoices,
+    reconciliation: {
+      source: 'dawaa_sales_invoices_dashboard_v1_fallback',
+      dashboardTotal: truth.summary.sales_total,
+      sqlEquivalentTotal,
+      difference: Math.abs(truth.summary.sales_total - sqlEquivalentTotal),
+      invoicesCount: truth.summary.invoices_count,
+      rowsRead: rows.length,
+      selectedStartDate: params.startDate,
+      selectedEndDate: params.endDate,
+      branchesIncluded,
+      firstInvoiceDate: rows.map(invoiceDate).filter(Boolean).sort()[0] || null,
+      lastInvoiceDate: recentAnchorDate || null,
+      missingBranchCount: rows.filter((row) => !String(row.branch_name || row.branch || '').trim()).length,
+      missingDoctorCount: rows.filter((row) => !String(invoiceDoctorName(row) || '').trim()).length,
+      missingInvoiceKeyCount: rows.filter((row) => !invoiceIdentityKey(row)).length,
+      missingCustomerCodeCount: rows.filter((row) => !String(row.customer_code || '').trim()).length,
+    },
   };
 }
 
@@ -433,59 +487,12 @@ export async function fetchDashboardSalesTruth(params: {
   errors?: string[];
   noCache?: boolean;
 }): Promise<DashboardSalesTruth> {
-  const errors = params.errors || [];
-  const sourceStart = monthStartFor(params.endDate, 5);
-  const sourceRows = (await fetchSalesInvoicesPagedSafe({
-    startDate: sourceStart,
-    endDate: params.endDate,
-    branch: params.branch,
-    errors,
-    noCache: params.noCache,
-  })) as DashboardInvoiceRow[];
-  const sourceRowsWithDate = sourceRows.filter((row) => invoiceDate(row));
-  const cycleRows = invoicesBetween(sourceRowsWithDate, params.startDate, params.endDate);
-  const cycleTruth = buildTruth(cycleRows);
-  const monthlyTruth = buildTruth(sourceRowsWithDate);
-  const recentAnchorDate = latestInvoiceDate(
-    cycleRows.length ? cycleRows : sourceRowsWithDate,
-    params.endDate
-  );
-  const recentInvoices = invoicesBetween(
-    cycleRows.length ? cycleRows : sourceRowsWithDate,
-    daysBefore(recentAnchorDate, 4),
-    recentAnchorDate
-  );
-  const sqlEquivalentTotal = cycleRows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0);
-  const branchesIncluded = [...new Set(cycleRows.map((row) => invoiceBranch(row)))]
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, 'ar'));
-
-  return {
-    sourceRows,
-    cycleRows,
-    summary: cycleTruth.summary,
-    dailySales: cycleTruth.dailySales,
-    monthlySales: monthlyTruth.monthlySales,
-    branchDistribution: cycleTruth.branchDistribution,
-    doctorSales: cycleTruth.doctorSales,
-    recentInvoices,
-    reconciliation: {
-      source: 'sales_invoices_live',
-      dashboardTotal: cycleTruth.summary.sales_total,
-      sqlEquivalentTotal,
-      difference: Math.abs(cycleTruth.summary.sales_total - sqlEquivalentTotal),
-      invoicesCount: cycleTruth.summary.invoices_count,
-      rowsRead: cycleRows.length,
-      selectedStartDate: params.startDate,
-      selectedEndDate: params.endDate,
-      branchesIncluded,
-      firstInvoiceDate: firstInvoiceDate(cycleRows),
-      lastInvoiceDate: latestInvoiceDate(cycleRows, ''),
-      missingBranchCount: cycleRows.filter((row) => !String(row.branch_name || row.branch || '').trim()).length,
-      missingDoctorCount: cycleRows.filter((row) => !String(invoiceDoctorName(row) || '').trim()).length,
-      missingInvoiceKeyCount: cycleRows.filter((row) => !invoiceIdentityKey(row)).length,
-      missingCustomerCodeCount: cycleRows.filter((row) => !String(row.customer_code || '').trim())
-        .length,
-    },
-  };
+  try {
+    return await fetchAggregatedTruth(params);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    params.errors?.push(`dashboard aggregate RPCs: ${message}`);
+    if (import.meta.env.DEV) console.warn('[DashboardTruth] aggregate path failed; using clean-view fallback', error);
+    return fetchFallbackTruth(params);
+  }
 }
