@@ -114,12 +114,9 @@ const INVOICE_SELECT_DOCTOR_OPTIONS = [
 ];
 
 type Row = Record<string, unknown>;
-const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54','4902','20','12820','10','170','5']);
-function isSystemGenericInvoice(row: Row) {
-  return SYSTEM_GENERIC_CUSTOMER_CODES.has(String(row.customer_code ?? '').trim());
-}
-
 type EligibleDoctor = { staffId: string; name: string; branch: string };
+
+const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54', '4902', '20', '12820', '10', '170', '5']);
 
 function text(value: unknown) {
   return String(value ?? '').trim();
@@ -203,6 +200,10 @@ function invoiceIdentityKey(row: Row) {
 function invoiceInvalid(row: Row) {
   const raw = `${text(row.invoice_type)} ${text(row.status)} ${text(row.save_status)}`.toLowerCase();
   return /return|refund|cancel|cancelled|مرتجع|الغاء|إلغاء|ملغي|invalid|failed|error|فشل|خطأ/.test(raw);
+}
+
+function isSystemGenericInvoice(row: Row) {
+  return SYSTEM_GENERIC_CUSTOMER_CODES.has(text(row.customer_code));
 }
 
 export function rangeForDoctorCompetition(period: DoctorCompetitionPeriod = 'cycle', customStart?: string | null, customEnd?: string | null) {
@@ -295,7 +296,7 @@ async function fetchDoctorSalesRows(range: { start: string; end: string }, branc
   })) as Row[];
   return rows.filter((row) => {
     const day = invoiceDate(row);
-    return day && day >= range.start && day <= range.end && !invoiceInvalid(row) && !isSystemGenericInvoice(row) && pickInvoiceAmount(row) > 0;
+    return day && day >= range.start && day <= range.end && !invoiceInvalid(row) && !isSystemGenericInvoice(row);
   });
 }
 
@@ -308,6 +309,12 @@ function doctorAccountFromRow(row: Row): EligibleDoctor | null {
   const name = normalizeDoctorName(row.employee_name || row.name || row.staff_name || row.full_name || row.username);
   if (!staffId || !branch || isUnknownDoctorName(name)) return null;
   return { staffId, name, branch };
+}
+
+function scoreKey(doctor: EligibleDoctor) {
+  return doctor.staffId
+    ? `staff:${doctor.staffId}|${doctor.branch}`
+    : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;
 }
 
 function calculateScores(rows: Array<Omit<DoctorCompetitionScore, 'overallScore' | 'competitionPoints'>>): DoctorCompetitionScore[] {
@@ -355,41 +362,51 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   if (accountResult.error) errors.staff_accounts = accountResult.error;
   const eligibleDoctors = accountResult.data
     .map(doctorAccountFromRow)
-    .filter((row): row is EligibleDoctor => Boolean(row))
-    .filter((row) => allowBranch(row.branch));
+    .filter((row): row is EligibleDoctor => Boolean(row));
   sourceHealth.staff_accounts = accountResult.error ? 'unavailable' : eligibleDoctors.length ? 'ready' : 'empty';
 
   const map = new Map<string, Omit<DoctorCompetitionScore, 'overallScore' | 'competitionPoints'>>();
   const byStaff = new Map<string, EligibleDoctor>();
-  const byName = new Map<string, EligibleDoctor>();
+  const byNameGlobal = new Map<string, EligibleDoctor[]>();
+  const byNameBranch = new Map<string, EligibleDoctor>();
   const firstNameGroups = new Map<string, EligibleDoctor[]>();
 
   for (const doctor of eligibleDoctors) {
     byStaff.set(doctor.staffId, doctor);
-    byName.set(`${doctor.branch}|${comparableDoctorName(doctor.name)}`, doctor);
+    const nameKey = comparableDoctorName(doctor.name);
+    byNameGlobal.set(nameKey, [...(byNameGlobal.get(nameKey) || []), doctor]);
+    byNameBranch.set(`${doctor.branch}|${nameKey}`, doctor);
     const first = firstNameKey(doctor.name);
     if (first) firstNameGroups.set(`${doctor.branch}|${first}`, [...(firstNameGroups.get(`${doctor.branch}|${first}`) || []), doctor]);
-    map.set(`staff:${doctor.staffId}`, emptyDoctor(doctor));
+    if (allowBranch(doctor.branch)) map.set(scoreKey(doctor), emptyDoctor(doctor));
   }
 
   const resolveDoctor = (row: Row, branch: string): EligibleDoctor | null => {
     const direct = rowStaffId(row);
-    if (direct && byStaff.has(direct)) return byStaff.get(direct) || null;
+    const directDoctor = direct ? byStaff.get(direct) : null;
+    if (directDoctor) return { ...directDoctor, branch };
+
     const name = invoiceDoctor(row);
-    const exact = byName.get(`${branch}|${comparableDoctorName(name)}`);
-    if (exact) return exact;
+    const nameKey = comparableDoctorName(name);
+    const sameBranch = byNameBranch.get(`${branch}|${nameKey}`);
+    if (sameBranch) return sameBranch;
+
+    const globalCandidates = byNameGlobal.get(nameKey) || [];
+    if (globalCandidates.length === 1) return { ...globalCandidates[0], branch };
+
     const first = firstNameKey(name);
-    const candidates = firstNameGroups.get(`${branch}|${first}`) || [];
-    if (first && candidates.length === 1) return candidates[0];
+    const branchCandidates = firstNameGroups.get(`${branch}|${first}`) || [];
+    if (first && branchCandidates.length === 1) return branchCandidates[0];
+
     if (!eligibleDoctors.length && !isUnknownDoctorName(name)) return { staffId: direct, name, branch };
     return null;
   };
 
   const upsert = (doctor: EligibleDoctor) => {
-    const key = doctor.staffId ? `staff:${doctor.staffId}` : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;
+    const key = scoreKey(doctor);
     const current = map.get(key) || emptyDoctor(doctor);
     map.set(key, current);
-    return current;
+    return { key, current };
   };
 
   const salesErrors: string[] = [];
@@ -414,8 +431,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       invoiceRowsWithoutDoctorCount += 1;
       continue;
     }
-    const current = upsert(doctor);
-    const key = doctor.staffId ? `staff:${doctor.staffId}` : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;
+    const { key, current } = upsert(doctor);
     const set = invoiceSets.get(key) || new Set<string>();
     const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;
     if (set.has(invoiceKey)) continue;
@@ -438,7 +454,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     if (!allowBranch(branch)) continue;
     const doctor = resolveDoctor(row, branch);
     if (!doctor) continue;
-    const key = doctor.staffId ? `staff:${doctor.staffId}` : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;
+    const key = scoreKey(doctor);
     const set = previousInvoiceSets.get(key) || new Set<string>();
     const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;
     if (set.has(invoiceKey)) continue;
@@ -454,7 +470,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     if (!allowBranch(branch)) continue;
     const doctor = resolveDoctor({ ...row, normalized_seller_name: row.staff_name || row.doctor_name || row.employee_name }, branch);
     if (!doctor) continue;
-    const current = upsert(doctor);
+    const { current } = upsert(doctor);
     const score = num(row.final_score || row.score || row.quality_rating);
     if (score > 0) {
       current.reviewCount += 1;
@@ -471,12 +487,17 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     if (!allowBranch(branch)) continue;
     const doctor = resolveDoctor({ ...row, normalized_seller_name: row.responsible_name || row.assigned_doctor || row.assigned_to || row.created_by_name }, branch);
     if (!doctor) continue;
-    const current = upsert(doctor);
+    const { current } = upsert(doctor);
     current.followups += 1;
     if (row.completed_at || /تم|completed|closed|done/i.test(text(row.status || row.followup_status))) current.completedFollowups += 1;
     if (truthy(row.purchase_after_followup)) {
       current.recoveredCustomers += 1;
       current.followupSales += num(row.purchase_amount);
+    }
+    const satisfaction = num(row.satisfaction_score || row.customer_satisfaction || row.rating);
+    if (satisfaction > 0) {
+      current.satisfactionCount += 1;
+      current.satisfactionTotal += satisfaction;
     }
   }
 
@@ -488,7 +509,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     if (!allowBranch(branch)) continue;
     const doctor = resolveDoctor({ ...row, normalized_seller_name: row.staff_name || row.doctor_name || row.responsible_doctor_name || row.responsible_doctor }, branch);
     if (!doctor) continue;
-    const current = upsert(doctor);
+    const { current } = upsert(doctor);
     current.stagnantStatus = 'available';
     if (stagnantResult.data.includes(row)) current.stagnantItems += 1;
     else current.listItems += 1;
@@ -516,6 +537,10 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   const warnings = Object.values(errors);
   const totalDoctorSales = rows.reduce((sum, row) => sum + row.totalSales, 0);
 
+  if (invoiceRowsWithoutDoctorCount > 0) {
+    warnings.push(`${invoiceRowsWithoutDoctorCount} فاتورة نظيفة في الفترة لا يمكن نسبها تلقائياً لدكتور مؤهل، وتم استبعادها من ترتيب المسابقة فقط.`);
+  }
+
   return {
     rows,
     eligibleRows,
@@ -539,8 +564,8 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       totalDoctorSales,
       invoiceRowsWithoutDoctorCount,
       totalInvoicesCountFromDoctorRows: rows.reduce((sum, row) => sum + row.invoices, 0),
-      invoiceCountMethod: 'distinct invoice identity per staff_id and branch',
-      topRawDoctorSalesPreview: rows.slice(0, 5).map((row) => `${row.name} ${row.totalSales.toFixed(2)}`),
+      invoiceCountMethod: 'distinct clean invoice identity per staff_id and actual invoice branch; zero-value clean invoices count toward invoice count',
+      topRawDoctorSalesPreview: rows.slice(0, 5).map((row) => `${row.name} · ${row.branch} · ${row.totalSales.toFixed(2)}`),
       noWinnersReasons: rows.length ? [] : ['لا توجد حسابات دكاترة مؤهلة أو مبيعات في النطاق الحالي'],
       eligibleAccountsCount: eligibleDoctors.length,
     },
