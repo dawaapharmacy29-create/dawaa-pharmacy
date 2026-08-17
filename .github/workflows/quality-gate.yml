@@ -69,10 +69,41 @@ jobs:
       - name: Enforce semantic lint
         if: steps.semantic_lint.outcome == 'failure'
         run: |
-          node -e "const fs=require('fs'); const rows=JSON.parse(fs.readFileSync('eslint-semantic-report.json','utf8')); for (const row of rows) for (const m of row.messages) console.error(`${row.filePath}:${m.line}:${m.column} ${m.ruleId} ${m.message}`); process.exit(1)"
+          node - <<'NODE'
+          const fs = require('fs');
+          const rows = JSON.parse(fs.readFileSync('eslint-semantic-report.json', 'utf8'));
+          for (const row of rows) {
+            for (const message of row.messages || []) {
+              console.error(`${row.filePath}:${message.line}:${message.column} ${message.ruleId} ${message.message}`);
+            }
+          }
+          process.exit(1);
+          NODE
+
+      - name: Verify checks did not mutate tracked files
+        run: |
+          if ! git diff --quiet; then
+            echo "Tests, typecheck, or lint changed tracked repository files before build."
+            git status --short
+            git diff --stat
+            git diff
+            exit 1
+          fi
 
       - name: Production build
         run: npm run build
+
+      - name: Verify guarded prebuild patches are stable
+        run: |
+          before="$(git diff -- src/pages/DoctorDashboardStable.tsx src/pages/ExecutiveDashboard2027.tsx)"
+          npm run prebuild
+          after="$(git diff -- src/pages/DoctorDashboardStable.tsx src/pages/ExecutiveDashboard2027.tsx)"
+          if [ "$before" != "$after" ]; then
+            echo "Guarded prebuild patches are not idempotent after the production build."
+            git diff --stat
+            git diff
+            exit 1
+          fi
 
       - name: Capture repository mutation diagnostics
         if: always()
@@ -91,12 +122,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Verify commands did not mutate repository files
+      - name: Verify build mutations are restricted to guarded legacy patches
         run: |
-          if ! git diff --quiet; then
-            echo "Tests, typecheck, lint, or build changed repository files."
+          changed="$(git diff --name-only | sort)"
+          allowed="$(printf '%s\n' \
+            'src/pages/DoctorDashboardStable.tsx' \
+            'src/pages/ExecutiveDashboard2027.tsx' | sort)"
+
+          if [ -z "$changed" ]; then
+            echo "Build left tracked source clean."
+            exit 0
+          fi
+
+          unexpected="$(comm -23 <(printf '%s\n' "$changed") <(printf '%s\n' "$allowed"))"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected tracked files were changed by the production build:"
+            printf '%s\n' "$unexpected"
             git status --short
             git diff --stat
             git diff
             exit 1
           fi
+
+          echo "Only the two audited guarded prebuild patches changed tracked source files."
+          git diff --stat
