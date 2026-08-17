@@ -86,6 +86,7 @@ const GROUPS: NavGroup[] = [
     { path: '/staff-payroll', icon: Wallet, label: 'الرواتب', permission: 'view_salary_calculator' },
   ]},
   { title: 'تقييم الأداء الإداري', icon: ClipboardCheck, items: [
+    { path: '/doctor-quality-summary', icon: Star, label: 'ملخص أداء الدكاترة الذكي', excludeRoles: ['pharmacist', 'customer_service_manager'] },
     { path: '/daily-manager-checklist', icon: ClipboardList, label: 'المهام اليومية (مدراء ومساعدين)', excludeRoles: ['general_manager', 'executive_manager'] },
     { path: '/weekly-evaluation/branch_manager', icon: ClipboardCheck, label: 'تقييم مدير الفرع', excludeRoles: ['branch_manager', 'customer_service_manager'] },
     { path: '/weekly-evaluation/branches_manager', icon: ClipboardCheck, label: 'تقييم مدير الفروع', excludeRoles: ['branch_manager', 'customer_service_manager'] },

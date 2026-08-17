@@ -72,6 +72,7 @@ const IncentiveGovernance = lazy(() => import('@/pages/IncentiveGovernance'));
 const PenaltyIncentiveManagement = lazy(() => import('@/pages/PenaltyIncentiveManagement'));
 const PointAppeals = lazy(() => import('@/pages/PointAppeals'));
 const DoctorPerformancePillars = lazy(() => import('@/pages/DoctorPerformancePillars'));
+const DoctorQualitySummary = lazy(() => import('@/pages/DoctorQualitySummary'));
 const WeeklyManagerEvaluation = lazy(() => import('@/pages/WeeklyManagerEvaluation'));
 const DailyManagerChecklist = lazy(() => import('@/pages/DailyManagerChecklist'));
 const CustomerMonthlyPerformance = lazy(() => import('@/pages/CustomerMonthlyPerformance'));
@@ -195,6 +196,7 @@ function AppRoutes() {
     <Route path="/evaluation-rules" element={<ProtectedRoute>{routeSuspense(<EvaluationRules2027 />, 'قواعد التقييم')}</ProtectedRoute>} />
     <Route path="/point-appeals" element={<ProtectedRoute>{routeSuspense(<PointAppeals />, 'اعتراضات النقاط')}</ProtectedRoute>} />
     <Route path="/performance-pillars" element={<ProtectedRoute>{routeSuspense(<DoctorPerformancePillars />, 'الدرجة المركّبة للأداء')}</ProtectedRoute>} />
+    <Route path="/doctor-quality-summary" element={<ProtectedRoute>{routeSuspense(<DoctorQualitySummary />, 'ملخص أداء الدكاترة')}</ProtectedRoute>} />
     <Route path="/weekly-evaluation/:type" element={<ProtectedRoute>{routeSuspense(<WeeklyManagerEvaluation />, 'التقييم الأسبوعي')}</ProtectedRoute>} />
     <Route path="/daily-manager-checklist" element={<ProtectedRoute>{routeSuspense(<DailyManagerChecklist />, 'المهام اليومية')}</ProtectedRoute>} />
     <Route path="/customer-monthly-performance" element={<ProtectedRoute>{routeSuspense(<CustomerMonthlyPerformance />, 'أداء العملاء الشهري')}</ProtectedRoute>} />
