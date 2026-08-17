@@ -1,0 +1,14 @@
+drop index if exists public.sales_invoices_loyalty_id_invoice_date_idx;
+drop index if exists public.idx_sales_invoices_branch_invoice_date_id;
+drop index if exists public.idx_sales_invoices_seller_invoice_date_id;
+drop index if exists public.idx_sales_invoices_branch_code_date_amounts_v1;
+drop index if exists public.idx_sales_invoices_branch_analysis;
+drop index if exists public.idx_sales_invoices_branch_trim_code_date;
+drop index if exists public.idx_sales_invoices_branch_date_customer_identity;
+drop index if exists public.sales_invoices_customer_id_date_idx;
+drop index if exists public.idx_sales_invoices_branch_numeric_invoice_v1;
+drop index if exists public.idx_sales_invoices_analysis_datetime;
+drop index if exists public.sales_invoices_customer_phone_digits_date_idx;
+drop index if exists public.idx_sales_invoices_branch_name;
+drop index if exists public.sales_invoices_delivery_staff_idx;
+analyze public.sales_invoices;
