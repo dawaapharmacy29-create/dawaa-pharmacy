@@ -95,9 +95,9 @@ jobs:
 
       - name: Verify guarded prebuild patches are stable
         run: |
-          before="$(git diff -- src/pages/DoctorDashboardStable.tsx src/pages/ExecutiveDashboard2027.tsx)"
+          before="$(git diff -- src/pages/DoctorDashboardStable.tsx src/pages/ExecutiveDashboard2027.tsx src/lib/api/customers.ts)"
           npm run prebuild
-          after="$(git diff -- src/pages/DoctorDashboardStable.tsx src/pages/ExecutiveDashboard2027.tsx)"
+          after="$(git diff -- src/pages/DoctorDashboardStable.tsx src/pages/ExecutiveDashboard2027.tsx src/lib/api/customers.ts)"
           if [ "$before" != "$after" ]; then
             echo "Guarded prebuild patches are not idempotent after the production build."
             git diff --stat
@@ -126,6 +126,7 @@ jobs:
         run: |
           changed="$(git diff --name-only | sort)"
           allowed="$(printf '%s\n' \
+            'src/lib/api/customers.ts' \
             'src/pages/DoctorDashboardStable.tsx' \
             'src/pages/ExecutiveDashboard2027.tsx' | sort)"
 
@@ -144,5 +145,5 @@ jobs:
             exit 1
           fi
 
-          echo "Only the two audited guarded prebuild patches changed tracked source files."
+          echo "Only the three audited guarded prebuild patches changed tracked source files."
           git diff --stat

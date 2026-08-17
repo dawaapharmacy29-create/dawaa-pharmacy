@@ -1,6 +1,7 @@
 require('./apply-shamy-apr-jul-cashback-exception.cjs');
 require('./apply-doctor-cycle-review-truth.cjs');
 require('./apply-executive-target-fallback-truth.cjs');
+require('./apply-customer-invoice-metrics-rpc.cjs');
 
 const fs = require('node:fs');
 
