@@ -88,6 +88,7 @@ export type DoctorCompetitionMetrics = {
     totalInvoicesCountFromDoctorRows: number;
     invoiceCountMethod: string;
     eligibleAccountsCount: number;
+    salesSource: 'aggregate_rpc' | 'invoice_fallback';
   };
   range: { start: string; end: string };
   sourceHealth: Record<string, 'ready' | 'empty' | 'unavailable'>;
@@ -115,6 +116,12 @@ const INVOICE_SELECT_DOCTOR_OPTIONS = [
 
 type Row = Record<string, unknown>;
 type EligibleDoctor = { staffId: string; name: string; branch: string };
+type DoctorSalesAggregate = {
+  doctor_name?: string | null;
+  branch?: string | null;
+  sales_total?: number | string | null;
+  invoices_count?: number | string | null;
+};
 
 const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54', '4902', '20', '12820', '10', '170', '5']);
 
@@ -270,10 +277,6 @@ export function avgReview(row?: Pick<DoctorCompetitionScore, 'reviewCount' | 're
   return row?.reviewCount ? row.reviewTotal / row.reviewCount : 0;
 }
 
-function customerServiceAvg(row?: Pick<DoctorCompetitionScore, 'satisfactionCount' | 'satisfactionTotal'> | null) {
-  return row?.satisfactionCount ? row.satisfactionTotal / row.satisfactionCount : 0;
-}
-
 async function safeSelect(table: string, build: (query: ReturnType<typeof supabase.from>) => unknown) {
   try {
     const result = await (build(supabase.from(table)) as PromiseLike<{ data: unknown; error: { message?: string } | null }>);
@@ -298,6 +301,16 @@ async function fetchDoctorSalesRows(range: { start: string; end: string }, branc
     const day = invoiceDate(row);
     return day && day >= range.start && day <= range.end && !invoiceInvalid(row) && !isSystemGenericInvoice(row);
   });
+}
+
+async function fetchDoctorSalesAggregates(range: { start: string; end: string }, branch: string) {
+  const { data, error } = await supabase.rpc('get_dashboard_doctor_sales_v171', {
+    p_start: range.start,
+    p_end: range.end,
+    p_branch: branch || ALL_BRANCHES,
+  });
+  if (error) throw new Error(error.message || 'get_dashboard_doctor_sales_v171 failed');
+  return (Array.isArray(data) ? data : data ? [data] : []) as DoctorSalesAggregate[];
 }
 
 function doctorAccountFromRow(row: Row): EligibleDoctor | null {
@@ -334,7 +347,7 @@ function calculateScores(rows: Array<Omit<DoctorCompetitionScore, 'overallScore'
 
 function buildWinners(rows: DoctorCompetitionScore[]): DoctorCompetitionWinners {
   const sales = [...rows].sort((a, b) => b.totalSales - a.totalSales)[0] || null;
-  const averageInvoice = [...rows].sort((a, b) => b.avgInvoice - a.avgInvoice)[0] || null;
+  const averageInvoice = [...rows].filter((row) => row.avgInvoiceEligible).sort((a, b) => b.avgInvoice - a.avgInvoice)[0] || null;
   const incentive = [...rows].sort((a, b) => b.incentiveValue - a.incentiveValue)[0] || null;
   const reviews = [...rows].filter((row) => row.reviewCount).sort((a, b) => avgReview(b) - avgReview(a))[0] || null;
   const service = [...rows].sort((a, b) => b.completedFollowups + b.recoveredCustomers - (a.completedFollowups + a.recoveredCustomers))[0] || null;
@@ -409,58 +422,106 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     return { key, current };
   };
 
+  let salesSource: 'aggregate_rpc' | 'invoice_fallback' = 'aggregate_rpc';
+  let salesAggregates: DoctorSalesAggregate[] | null = null;
+  let previousAggregates: DoctorSalesAggregate[] | null = null;
+  try {
+    [salesAggregates, previousAggregates] = await Promise.all([
+      fetchDoctorSalesAggregates(range, selectedBranch),
+      fetchDoctorSalesAggregates(previous, selectedBranch),
+    ]);
+  } catch (error) {
+    salesSource = 'invoice_fallback';
+    errors.sales_aggregate = error instanceof Error ? error.message : String(error);
+  }
+
   const salesErrors: string[] = [];
   const [salesRows, previousRows, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
-    fetchDoctorSalesRows(range, selectedBranch, salesErrors).catch(() => [] as Row[]),
-    fetchDoctorSalesRows(previous, selectedBranch, []).catch(() => [] as Row[]),
+    salesSource === 'invoice_fallback' ? fetchDoctorSalesRows(range, selectedBranch, salesErrors).catch(() => [] as Row[]) : Promise.resolve([] as Row[]),
+    salesSource === 'invoice_fallback' ? fetchDoctorSalesRows(previous, selectedBranch, []).catch(() => [] as Row[]) : Promise.resolve([] as Row[]),
     safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', `${range.end}T23:59:59`).limit(5000)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(5000)),
     safeSelect('stagnant_medicine_dispenses', (query) => query.select('*').limit(5000)),
     safeSelect('incentive_medicine_sales', (query) => query.select('*').limit(5000)),
   ]);
+
   if (salesErrors.length) errors.sales_invoices = salesErrors.join(' | ');
-  sourceHealth.sales_invoices = errors.sales_invoices ? 'unavailable' : salesRows.length ? 'ready' : 'empty';
+  sourceHealth.sales_invoices = salesSource === 'aggregate_rpc'
+    ? (salesAggregates?.length ? 'ready' : 'empty')
+    : errors.sales_invoices ? 'unavailable' : salesRows.length ? 'ready' : 'empty';
 
   let invoiceRowsWithoutDoctorCount = 0;
-  const invoiceSets = new Map<string, Set<string>>();
-  for (const row of salesRows) {
-    const branch = invoiceBranch(row);
-    if (!allowBranch(branch)) continue;
-    const doctor = resolveDoctor(row, branch);
-    if (!doctor) {
-      invoiceRowsWithoutDoctorCount += 1;
-      continue;
+  let salesInvoicesFetchedCount = 0;
+
+  if (salesSource === 'aggregate_rpc') {
+    for (const aggregate of salesAggregates || []) {
+      const branch = normalizeBranchName(aggregate.branch || '') || text(aggregate.branch) || 'غير محدد';
+      if (!allowBranch(branch)) continue;
+      const invoiceCount = Math.max(0, Math.round(num(aggregate.invoices_count)));
+      salesInvoicesFetchedCount += invoiceCount;
+      const doctor = resolveDoctor({ normalized_seller_name: aggregate.doctor_name }, branch);
+      if (!doctor) {
+        invoiceRowsWithoutDoctorCount += invoiceCount;
+        continue;
+      }
+      const { current } = upsert(doctor);
+      current.totalSales += num(aggregate.sales_total);
+      current.invoices += invoiceCount;
+      current.linkedInvoiceCount += invoiceCount;
     }
-    const { key, current } = upsert(doctor);
-    const set = invoiceSets.get(key) || new Set<string>();
-    const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;
-    if (set.has(invoiceKey)) continue;
-    set.add(invoiceKey);
-    invoiceSets.set(key, set);
-    current.totalSales += pickInvoiceAmount(row);
-  }
-  for (const [key, set] of invoiceSets) {
-    const current = map.get(key);
-    if (current) {
-      current.invoices = set.size;
-      current.linkedInvoiceCount = set.size;
+  } else {
+    salesInvoicesFetchedCount = salesRows.length;
+    const invoiceSets = new Map<string, Set<string>>();
+    for (const row of salesRows) {
+      const branch = invoiceBranch(row);
+      if (!allowBranch(branch)) continue;
+      const doctor = resolveDoctor(row, branch);
+      if (!doctor) {
+        invoiceRowsWithoutDoctorCount += 1;
+        continue;
+      }
+      const { key, current } = upsert(doctor);
+      const set = invoiceSets.get(key) || new Set<string>();
+      const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;
+      if (set.has(invoiceKey)) continue;
+      set.add(invoiceKey);
+      invoiceSets.set(key, set);
+      current.totalSales += pickInvoiceAmount(row);
+    }
+    for (const [key, set] of invoiceSets) {
+      const current = map.get(key);
+      if (current) {
+        current.invoices = set.size;
+        current.linkedInvoiceCount = set.size;
+      }
     }
   }
 
   const previousSales = new Map<string, number>();
-  const previousInvoiceSets = new Map<string, Set<string>>();
-  for (const row of previousRows) {
-    const branch = invoiceBranch(row);
-    if (!allowBranch(branch)) continue;
-    const doctor = resolveDoctor(row, branch);
-    if (!doctor) continue;
-    const key = scoreKey(doctor);
-    const set = previousInvoiceSets.get(key) || new Set<string>();
-    const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;
-    if (set.has(invoiceKey)) continue;
-    set.add(invoiceKey);
-    previousInvoiceSets.set(key, set);
-    previousSales.set(key, (previousSales.get(key) || 0) + pickInvoiceAmount(row));
+  if (salesSource === 'aggregate_rpc') {
+    for (const aggregate of previousAggregates || []) {
+      const branch = normalizeBranchName(aggregate.branch || '') || text(aggregate.branch) || 'غير محدد';
+      if (!allowBranch(branch)) continue;
+      const doctor = resolveDoctor({ normalized_seller_name: aggregate.doctor_name }, branch);
+      if (!doctor) continue;
+      const key = scoreKey(doctor);
+      previousSales.set(key, (previousSales.get(key) || 0) + num(aggregate.sales_total));
+    }
+  } else {
+    const previousInvoiceSets = new Map<string, Set<string>>();
+    for (const row of previousRows) {
+      const branch = invoiceBranch(row);
+      if (!allowBranch(branch)) continue;
+      const doctor = resolveDoctor(row, branch);
+      if (!doctor) continue;
+      const key = scoreKey(doctor);
+      const set = previousInvoiceSets.get(key) || new Set<string>();
+      const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;
+      if (set.has(invoiceKey)) continue;
+      set.add(invoiceKey);
+      previousInvoiceSets.set(key, set);
+      previousSales.set(key, (previousSales.get(key) || 0) + pickInvoiceAmount(row));
+    }
   }
 
   if (reviewResult.error) errors.conversation_sales_reviews = reviewResult.error;
@@ -534,9 +595,14 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     .sort((a, b) => b.competitionPoints - a.competitionPoints || b.totalSales - a.totalSales);
   const eligibleRows = rows;
   const reviewRows: DoctorCompetitionScore[] = [];
-  const warnings = Object.values(errors);
+  const warnings = Object.entries(errors)
+    .filter(([key]) => key !== 'sales_aggregate' || salesSource !== 'invoice_fallback')
+    .map(([, message]) => message);
   const totalDoctorSales = rows.reduce((sum, row) => sum + row.totalSales, 0);
 
+  if (salesSource === 'invoice_fallback' && errors.sales_aggregate) {
+    warnings.push('تم استخدام مسار الفواتير الاحتياطي للمسابقة لأن التجميع السريع لم يكن متاحًا.');
+  }
   if (invoiceRowsWithoutDoctorCount > 0) {
     warnings.push(`${invoiceRowsWithoutDoctorCount} فاتورة نظيفة في الفترة لا يمكن نسبها تلقائياً لدكتور مؤهل، وتم استبعادها من ترتيب المسابقة فقط.`);
   }
@@ -559,15 +625,18 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
       hasReviewData: sourceHealth.conversation_sales_reviews === 'ready',
       hasFollowupData: sourceHealth.daily_followups === 'ready',
       hasIncentiveData: incentiveAvailable,
-      salesInvoicesFetchedCount: salesRows.length,
+      salesInvoicesFetchedCount,
       doctorSalesRowsCount: rows.length,
       totalDoctorSales,
       invoiceRowsWithoutDoctorCount,
       totalInvoicesCountFromDoctorRows: rows.reduce((sum, row) => sum + row.invoices, 0),
-      invoiceCountMethod: 'distinct clean invoice identity per staff_id and actual invoice branch; zero-value clean invoices count toward invoice count',
+      invoiceCountMethod: salesSource === 'aggregate_rpc'
+        ? 'canonical server-side doctor aggregate grouped by actual invoice branch; zero-value clean invoices are included by the dashboard RPC'
+        : 'distinct clean invoice identity per staff_id and actual invoice branch; zero-value clean invoices count toward invoice count',
       topRawDoctorSalesPreview: rows.slice(0, 5).map((row) => `${row.name} · ${row.branch} · ${row.totalSales.toFixed(2)}`),
       noWinnersReasons: rows.length ? [] : ['لا توجد حسابات دكاترة مؤهلة أو مبيعات في النطاق الحالي'],
       eligibleAccountsCount: eligibleDoctors.length,
+      salesSource,
     },
     range,
     sourceHealth,
