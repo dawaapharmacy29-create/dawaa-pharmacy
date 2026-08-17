@@ -1381,18 +1381,11 @@ export default function ExecutiveDashboard2027() {
         console.error('[Dashboard] customer service fetch failed', e);
         setCustomerServiceError(String(e instanceof Error ? e.message : e));
       }
-      try {
-        customerServiceOwners = await rpcRows<CustomerServiceOwner>(
-          ['get_dashboard_customer_service_by_responsible_v171'],
-          branchParams,
-          'customer service owners',
-          errors
-        );
-      } catch (e) {
-        customerServiceOwners = [];
-        console.error('[Dashboard] customer service owners fetch failed', e);
-        setCustomerServiceError((prev) => prev ? prev + ' | owners failed' : String(e instanceof Error ? e.message : e));
-      }
+      // ملاحظة (17 أغسطس 2026): كانت هنا محاولة نداء get_dashboard_customer_service_by_responsible_v171
+      // عبر RPC، لكن الدالة دي مش موجودة في القاعدة تحت أي إصدار (تأكدنا من pg_proc) — يعني كانت
+      // بتفشل 100% من المرات وبتضيف خطأ لكل تحميل للداشبورد من غير أي فايدة. القسم أصلًا عنده
+      // fallback شغال بيتحسب من متابعات خدمة العملاء (buildCustomerServiceOwnersFallback تحت)،
+      // فبنروح عليه على طول بدل إهدار طلب شبكة مصيره الفشل دايمًا.
       try {
         customerServiceFollowups = await fetchFollowupsForDashboard(
           startDate,
