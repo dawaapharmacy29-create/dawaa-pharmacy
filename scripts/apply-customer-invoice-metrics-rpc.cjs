@@ -5,11 +5,20 @@ let source = fs.readFileSync(filePath, 'utf8');
 
 const startMarker = 'async function patchCustomerMetricsFromInvoices(customers: CustomerMetric[]) {';
 const endMarker = '\nfunction applyBranchFilter';
-const verificationMarker = "supabase.rpc('get_customer_invoice_metrics_patch_v1'";
+const helperImport = `import {\n  fetchCustomerInvoiceMetricsPatch,\n  type CustomerInvoiceMetricPatchRow,\n} from '@/lib/api/customerInvoiceMetricsPatch';\n`;
+const helperImportAnchor = "import type { CustomerMetric as CustomerMetricType, CustomerLike } from '@/types/domain';";
+const verificationMarker = 'fetchCustomerInvoiceMetricsPatch(codes)';
 
 if (source.includes(verificationMarker)) {
   console.log('Customer invoice metrics RPC already wired.');
   process.exit(0);
+}
+
+if (!source.includes(helperImport)) {
+  if (!source.includes(helperImportAnchor)) {
+    throw new Error('Could not locate customer metrics import anchor safely. Refusing to patch.');
+  }
+  source = source.replace(helperImportAnchor, `${helperImport}\n${helperImportAnchor}`);
 }
 
 const start = source.indexOf(startMarker);
@@ -26,19 +35,10 @@ const replacement = `async function patchCustomerMetricsFromInvoices(customers: 
   ];
   if (!codes.length) return customers;
 
-  type InvoiceMetricPatchRow = {
-    customer_code?: string | null;
-    invoices_count?: number | string | null;
-    total_spent?: number | string | null;
-    first_purchase?: string | null;
-    last_purchase?: string | null;
-    active_months?: number | string | null;
-  };
-
   const applyAggregates = (
-    rows: InvoiceMetricPatchRow[]
+    rows: CustomerInvoiceMetricPatchRow[]
   ) => {
-    const aggregates = new Map<string, InvoiceMetricPatchRow>();
+    const aggregates = new Map<string, CustomerInvoiceMetricPatchRow>();
     for (const row of rows) {
       const code = String(row.customer_code || '').trim();
       if (code) aggregates.set(code, row);
@@ -75,11 +75,9 @@ const replacement = `async function patchCustomerMetricsFromInvoices(customers: 
 
   // Fast path: aggregate inside Postgres so the customer list does not download
   // thousands of invoice rows just to rebuild metrics already available server-side.
-  const { data: rpcData, error: rpcError } = await supabase.rpc('get_customer_invoice_metrics_patch_v1', {
-    p_customer_codes: codes,
-  });
-  if (!rpcError && Array.isArray(rpcData) && rpcData.length) {
-    return applyAggregates(rpcData as InvoiceMetricPatchRow[]);
+  const rpcData = await fetchCustomerInvoiceMetricsPatch(codes);
+  if (rpcData && rpcData.length) {
+    return applyAggregates(rpcData);
   }
 
   // Safety fallback: preserve the legacy raw-invoice path if the RPC is temporarily
