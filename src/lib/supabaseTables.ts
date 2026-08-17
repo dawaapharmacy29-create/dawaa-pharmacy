@@ -1,5 +1,6 @@
 // الجداول الرسمية للتطبيق — استخدم دايماً TABLES بدل كتابة اسم الجدول مباشرة
 export const TABLES = {
+  staffCoachingNotes: 'staff_coaching_notes',
   // الفريق والحسابات
   staff: 'staff',
   staffAccounts: 'staff_accounts',

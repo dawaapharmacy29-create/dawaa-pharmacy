@@ -3,6 +3,7 @@ import { AlertTriangle, Bell, CheckCircle2, ClipboardCheck, Headphones, RefreshC
 import { fetchMyRequestedFollowups } from '@/lib/api/doctorRequestedFollowups';
 import { listStaffNotifications, type StaffNotification } from '@/lib/staffNotificationService';
 import { supabase } from '@/lib/supabase';
+import CoachingNotesFeed from '@/components/shared/CoachingNotesFeed';
 
 type Row = Record<string, unknown>;
 type TabTarget = 'requirements' | 'followups' | 'reviews' | 'notifications' | 'performance';
@@ -94,5 +95,10 @@ export default function DoctorTodayFocus({
 
     {!loading && !openAssignments.length && !followups.length && !unreadNotifications.length && !reviewCount ? <div className="mt-4 flex items-center gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm font-bold text-emerald-100"><CheckCircle2 size={18} /> لا توجد عناصر عاجلة مرتبطة بحسابك الآن.</div> : null}
     {!loading && overdueAssignments.length ? <div className="mt-4 flex items-center gap-2 rounded-2xl border border-red-400/25 bg-red-500/10 p-4 text-sm font-bold text-red-100"><AlertTriangle size={18} /> لديك مهام متأخرة؛ ابدأ بها أو أضف تحديثًا واضحًا للمسؤول.</div> : null}
+
+    {staffId ? <div className="mt-5">
+      <h3 className="mb-2 text-sm font-black text-slate-300">ملاحظات موجّهة لك من الإدارة</h3>
+      <CoachingNotesFeed scope={{ mode: 'staff', staffId }} limit={10} />
+    </div> : null}
   </section>;
 }
