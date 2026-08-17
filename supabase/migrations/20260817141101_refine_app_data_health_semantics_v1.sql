@@ -1,0 +1,3 @@
+-- Production history marker.
+-- The refined semantics are consolidated in 20260817142859_align_data_health_customer_phone_operational_truth_v1.sql
+-- so fresh replays finish with the same final function definition without preserving an intermediate broken state.
