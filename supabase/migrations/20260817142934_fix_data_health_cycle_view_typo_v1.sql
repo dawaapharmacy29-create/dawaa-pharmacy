@@ -1,0 +1,4 @@
+-- Production history marker.
+-- The production migration corrected an intermediate typo in the cycle sales view name.
+-- The repository's preceding 20260817142859 migration already contains the corrected final definition,
+-- so no additional DDL is required on a clean replay.
