@@ -11,43 +11,6 @@ export type DataHealthIssue = {
   error?: string | null;
 };
 
-type CountResult = {
-  count: number | null;
-  error: { message?: string } | null;
-  data?: unknown[] | null;
-};
-
-type CountQuery = PromiseLike<CountResult> & {
-  or: (filters: string) => CountQuery;
-  eq: (column: string, value: unknown) => CountQuery;
-  is: (column: string, value: unknown) => CountQuery;
-  not: (column: string, operator: string, value: unknown) => CountQuery;
-  limit: (count: number) => CountQuery;
-};
-
-async function safeCount(source: string, build: (query: CountQuery) => PromiseLike<CountResult>) {
-  try {
-    const exact = await build(
-      supabase.from(source).select('*', { count: 'exact', head: true }) as unknown as CountQuery
-    );
-    if (!exact.error && exact.count !== null && exact.count !== undefined) {
-      return { count: exact.count, error: null };
-    }
-
-    const fallback = await build(
-      supabase.from(source).select('*').limit(1001) as unknown as CountQuery
-    );
-    if (fallback.error)
-      return { count: null, error: fallback.error.message || 'تعذر تحميل المصدر' };
-    return { count: fallback.data?.length ?? 0, error: null };
-  } catch (error) {
-    return {
-      count: null,
-      error: error instanceof Error ? error.message : 'تعذر تحميل المصدر',
-    };
-  }
-}
-
 function issue(
   args: Omit<DataHealthIssue, 'severity'> & {
     severity?: DataHealthIssue['severity'];
@@ -104,24 +67,213 @@ export async function loadAppDataHealthSummary() {
   }
 
   const rows: DataHealthIssue[] = [
-    issue({ key: 'invoices-without-customer', label: 'فواتير بدون عميل — كل التاريخ', count: num('invoices_without_customer'), severity: severityForCount(num('invoices_without_customer'), 500), source: 'sales_invoices', suggestedFix: 'راجع ربط customer_code/customer_id بعد الاستيراد. هذا العداد يغطي كل تاريخ الفواتير وليس الدورة الحالية فقط.', affectedPages: ['/invoices', '/customers', '/customer-service', '/'] }),
-    issue({ key: 'invoices-without-doctor', label: 'فواتير بدون دكتور/موظف — كل التاريخ', count: num('invoices_without_doctor'), severity: severityForCount(num('invoices_without_doctor'), 25), source: 'sales_invoices', suggestedFix: 'اربط seller_name بالموظف الصحيح. هذا العداد تاريخي؛ راجع لوحة الدورة لعدد الدورة الحالية.', affectedPages: ['/invoices', '/analytics', '/'] }),
-    issue({ key: 'invoices-without-branch', label: 'فواتير بدون فرع — كل التاريخ', count: num('invoices_without_branch'), severity: severityForCount(num('invoices_without_branch'), 25), source: 'sales_invoices', suggestedFix: 'راجع الفرع في ملف الاستيراد. هذا العداد يغطي كل تاريخ الفواتير.', affectedPages: ['/invoices', '/analytics', '/'] }),
-    issue({ key: 'duplicate-invoice-groups', label: 'مجموعات فواتير مكررة', count: num('duplicate_invoice_groups'), severity: severityForCount(num('duplicate_invoice_groups'), 1), source: 'sales_invoices', suggestedFix: 'راجع الفرع + التاريخ + رقم الفاتورة قبل أي حذف.', affectedPages: ['/invoices', '/'] }),
-    issue({ key: 'invalid-customer-phones', label: 'عملاء بدون رقم صالح', count: num('invalid_customer_phones'), severity: severityForCount(num('invalid_customer_phones'), 300), source: 'customer_metrics_summary', suggestedFix: 'استكمل أرقام العملاء قبل حملات واتساب والمتابعات.', affectedPages: ['/customers', '/customer-service'] }),
-    issue({ key: 'customers-without-branch', label: 'عملاء بدون فرع', count: num('customers_without_branch'), severity: severityForCount(num('customers_without_branch'), 100), source: 'customers', suggestedFix: 'حدد الفرع الرئيسي للعميل.', affectedPages: ['/customers'] }),
-    issue({ key: 'customers-without-phone', label: 'عملاء بدون رقم هاتف', count: num('customers_without_phone'), severity: severityForCount(num('customers_without_phone'), 100), source: 'customers', suggestedFix: 'استكمل الهاتف الصحيح للعميل.', affectedPages: ['/customers'] }),
-    issue({ key: 'accounts-without-staff', label: 'حسابات دخول نشطة بدون موظف مربوط', count: num('accounts_without_staff'), severity: severityForCount(num('accounts_without_staff'), 1), source: 'staff_accounts', suggestedFix: 'اربط أي حساب دخول نشط بسجل موظف صحيح. الحسابات الخاصة بالمدير العام والدليفري مستثناة من هذا الفحص.', affectedPages: ['/staff-accounts', '/team'] }),
-    issue({ key: 'legacy-inactive-accounts', label: 'حسابات Legacy معطلة', count: num('legacy_inactive_accounts'), severity: 'info', source: 'staff_accounts', suggestedFix: 'معلومة أرشيفية فقط؛ الحسابات معطلة ولا تستطيع تسجيل الدخول.', affectedPages: ['/staff-accounts'] }),
-    issue({ key: 'points-without-staff', label: 'سجلات نقاط بدون staff_id', count: num('points_without_staff'), severity: severityForCount(num('points_without_staff'), 10), source: 'employee_transactions', suggestedFix: 'اربط سجلات النقاط بالموظف.', affectedPages: ['/points'] }),
-    issue({ key: 'reviews-without-points', label: 'تقييمات ناقصها سجل نقاط', count: num('reviews_without_points'), severity: severityForCount(num('reviews_without_points'), 1), source: 'conversation_sales_reviews + employee_transactions', suggestedFix: 'أعد بناء Transaction pending للتقييم فقط إذا لم يكن له source_id مطابق؛ لا تعتمد الخصم تلقائيًا.', affectedPages: ['/reviews', '/points'] }),
-    issue({ key: 'pending-review-approvals', label: 'تقييمات تنتظر اعتماد تأثير النقاط', count: num('pending_review_approvals'), severity: 'info', source: 'conversation_sales_reviews + employee_transactions', suggestedFix: 'طابور اعتماد إداري طبيعي؛ الاعتماد أو الرفض يتم من الصلاحية المختصة ولا يعتبر خطأ بيانات.', affectedPages: ['/reviews', '/points'] }),
-    issue({ key: 'unassigned-customer-requests', label: 'طلبات عملاء مفتوحة بدون مسؤول', count: num('unassigned_customer_requests'), severity: severityForCount(num('unassigned_customer_requests'), 5), source: 'customer_requests', suggestedFix: 'راجع طلبات المزامنة غير المحسومة وحدد الفرع أولًا قبل الإسناد.', affectedPages: ['/customer-requests'] }),
-    issue({ key: 'customer-requests-without-branch', label: 'طلبات عملاء بدون فرع', count: num('customer_requests_without_branch'), severity: severityForCount(num('customer_requests_without_branch'), 1), source: 'customer_requests.branch', suggestedFix: 'افتح مركز جودة طلبات العملاء ثم فلتر «يحتاج تحديد فرع». لا تعيّن فرعًا تلقائيًا إذا كان المصدر الأصلي لا يحتوي دليلًا موثوقًا.', affectedPages: ['/customer-requests'] }),
-    issue({ key: 'request-sync-conflicts', label: 'طلبات مزامنة تحتاج تحديد فرع', count: num('unresolved_request_sync_conflicts'), severity: severityForCount(num('unresolved_request_sync_conflicts'), 5), source: 'customer_requests.sync_conflict', suggestedFix: 'راجع بيانات العميل/الهاتف وحدد الفرع يدويًا فقط عندما لا يوجد دليل موثوق يسمح بالربط التلقائي.', affectedPages: ['/customer-requests'] }),
-    issue({ key: 'overdue-customer-requests', label: 'طلبات عملاء متأخرة عن الموعد', count: num('overdue_customer_requests'), severity: severityForCount(num('overdue_customer_requests'), 5), source: 'customer_requests', suggestedFix: 'راجع الطلبات المتأخرة وحدّث الموعد أو مرحلة التنفيذ.', affectedPages: ['/customer-requests'] }),
-    issue({ key: 'rls-coverage', label: 'جداول public بدون RLS', count: num('public_tables_without_rls'), severity: severityForCount(num('public_tables_without_rls'), 1), source: 'PostgreSQL RLS', suggestedFix: 'أي جدول جديد في public يجب تأمينه بسياسات RLS قبل الاعتماد.', affectedPages: ['/'] }),
-    issue({ key: 'invoice-volume-review', label: 'حجم الفواتير المقروءة — كل التاريخ', count: num('invoice_volume'), severity: 'info', source: 'sales_invoices', suggestedFix: 'مؤشر جاهزية مصدر الفواتير لكل التاريخ.', affectedPages: ['/invoices', '/analytics', '/'] }),
+    issue({
+      key: 'invoices-without-customer-identity',
+      label: 'فواتير بدون هوية عميل فعلية — كل التاريخ',
+      count: num('invoices_without_customer'),
+      severity: severityForCount(num('invoices_without_customer'), 1),
+      source: 'sales_invoices',
+      suggestedFix: 'هذا العداد لا يشمل «عميل غير مسجل» أو «عميل الصيدلية»؛ هو فقط للفواتير التي لا تحتوي اسمًا ولا كودًا ولا هاتفًا.',
+      affectedPages: ['/invoices', '/customers', '/customer-service', '/'],
+    }),
+    issue({
+      key: 'unregistered-customer-invoices',
+      label: 'فواتير «عميل غير مسجل» — كل التاريخ',
+      count: num('unregistered_customer_invoices'),
+      severity: 'info',
+      source: 'sales_invoices.customer_name',
+      suggestedFix: 'معلومة تشغيلية وليست خطأ ربط تلقائيًا. هذه الفواتير لا تحمل كودًا أو هاتفًا موثوقًا يسمح بربط عميل آمن.',
+      affectedPages: ['/invoices', '/analytics'],
+    }),
+    issue({
+      key: 'pharmacy-customer-invoices',
+      label: 'فواتير «عميل الصيدلية» — كل التاريخ',
+      count: num('pharmacy_customer_invoices'),
+      severity: 'info',
+      source: 'sales_invoices.customer_name',
+      suggestedFix: 'بيع عام/نقدي مصنف صراحة كعميل الصيدلية؛ لا يعتبر فقدًا لهوية عميل مسجل.',
+      affectedPages: ['/invoices', '/analytics'],
+    }),
+    issue({
+      key: 'cycle-invoices-without-doctor',
+      label: 'فواتير الدورة الحالية بدون دكتور/موظف',
+      count: num('cycle_invoices_without_doctor'),
+      severity: severityForCount(num('cycle_invoices_without_doctor'), 25),
+      source: 'dawaa_sales_invoices_dashboard_v1',
+      suggestedFix: 'راجع seller_name للفواتير النظيفة في دورة 26→25 الحالية فقط، ولا تخمّن الدكتور إذا لم يوجد دليل موثوق.',
+      affectedPages: ['/invoices', '/analytics', '/'],
+    }),
+    issue({
+      key: 'historical-invoices-without-doctor',
+      label: 'فواتير بدون دكتور/موظف — كل التاريخ',
+      count: num('invoices_without_doctor'),
+      severity: 'info',
+      source: 'sales_invoices',
+      suggestedFix: 'مؤشر تاريخي للمراجعة؛ مؤشر الدورة الحالية أعلاه هو الأهم للتشغيل اليومي.',
+      affectedPages: ['/invoices', '/analytics'],
+    }),
+    issue({
+      key: 'invoices-without-branch',
+      label: 'فواتير بدون فرع — كل التاريخ',
+      count: num('invoices_without_branch'),
+      severity: severityForCount(num('invoices_without_branch'), 1),
+      source: 'sales_invoices',
+      suggestedFix: 'راجع الفرع في مصدر الاستيراد قبل أي تصحيح يدوي.',
+      affectedPages: ['/invoices', '/analytics', '/'],
+    }),
+    issue({
+      key: 'duplicate-invoice-groups',
+      label: 'مجموعات فواتير مكررة',
+      count: num('duplicate_invoice_groups'),
+      severity: severityForCount(num('duplicate_invoice_groups'), 1),
+      source: 'sales_invoices',
+      suggestedFix: 'راجع الفرع + التاريخ + رقم الفاتورة قبل أي حذف.',
+      affectedPages: ['/invoices', '/'],
+    }),
+    issue({
+      key: 'invalid-customer-phones',
+      label: 'عملاء التشغيل بدون رقم هاتف صالح',
+      count: num('invalid_customer_phones'),
+      severity: severityForCount(num('invalid_customer_phones'), 300),
+      source: 'dawaa_customer_metrics_app_view',
+      suggestedFix: 'هذا هو العدد المؤثر فعليًا على صفحة العملاء والمتابعات. استكمل الهواتف قبل حملات واتساب.',
+      affectedPages: ['/customers', '/customer-service'],
+    }),
+    issue({
+      key: 'customers-without-branch',
+      label: 'عملاء التشغيل بدون فرع',
+      count: num('customers_without_branch'),
+      severity: severityForCount(num('customers_without_branch'), 1),
+      source: 'dawaa_customer_metrics_app_view',
+      suggestedFix: 'هذا هو المصدر الذي تستخدمه صفحة العملاء فعليًا؛ أي رقم هنا يؤثر على الفلاتر والتقارير التشغيلية.',
+      affectedPages: ['/customers'],
+    }),
+    issue({
+      key: 'legacy-master-customers-without-branch',
+      label: 'Master customers قديمة بدون فرع',
+      count: num('master_customers_without_branch'),
+      severity: 'info',
+      source: 'customers',
+      suggestedFix: 'معلومة Legacy للمراجعة التدريجية. لا تعني أن صفحة العملاء التشغيلية بلا فرع إذا كان الـView الموحّد قد استكمل الفرع من مصدر موثوق.',
+      affectedPages: ['/customers'],
+    }),
+    issue({
+      key: 'legacy-master-customers-without-phone',
+      label: 'Master customers قديمة بدون هاتف',
+      count: num('master_customers_without_phone'),
+      severity: 'info',
+      source: 'customers',
+      suggestedFix: 'معلومة Legacy منفصلة عن العدد التشغيلي؛ لا تُجمع معها كإنذار مزدوج.',
+      affectedPages: ['/customers'],
+    }),
+    issue({
+      key: 'accounts-without-staff',
+      label: 'حسابات دخول نشطة بدون موظف مربوط',
+      count: num('accounts_without_staff'),
+      severity: severityForCount(num('accounts_without_staff'), 1),
+      source: 'staff_accounts',
+      suggestedFix: 'اربط أي حساب دخول نشط بسجل موظف صحيح. حسابات المدير العام والدليفري مستثناة من هذا الفحص.',
+      affectedPages: ['/staff-accounts', '/team'],
+    }),
+    issue({
+      key: 'legacy-inactive-accounts',
+      label: 'حسابات Legacy معطلة',
+      count: num('legacy_inactive_accounts'),
+      severity: 'info',
+      source: 'staff_accounts',
+      suggestedFix: 'معلومة أرشيفية فقط؛ الحسابات معطلة ولا تستطيع تسجيل الدخول.',
+      affectedPages: ['/staff-accounts'],
+    }),
+    issue({
+      key: 'points-without-staff',
+      label: 'سجلات نقاط بدون staff_id',
+      count: num('points_without_staff'),
+      severity: severityForCount(num('points_without_staff'), 10),
+      source: 'employee_transactions',
+      suggestedFix: 'اربط سجلات النقاط بالموظف الصحيح قبل اعتماد تأثيرها.',
+      affectedPages: ['/points'],
+    }),
+    issue({
+      key: 'reviews-without-points',
+      label: 'تقييمات ناقصها سجل نقاط',
+      count: num('reviews_without_points'),
+      severity: severityForCount(num('reviews_without_points'), 1),
+      source: 'conversation_sales_reviews + employee_transactions',
+      suggestedFix: 'أعد بناء Transaction pending للتقييم فقط إذا لم يكن له source_id مطابق؛ لا تعتمد الخصم تلقائيًا.',
+      affectedPages: ['/reviews', '/points'],
+    }),
+    issue({
+      key: 'pending-review-approvals',
+      label: 'تقييمات تنتظر اعتماد تأثير النقاط',
+      count: num('pending_review_approvals'),
+      severity: 'info',
+      source: 'conversation_sales_reviews + employee_transactions',
+      suggestedFix: 'طابور اعتماد إداري طبيعي؛ الاعتماد أو الرفض يتم من الصلاحية المختصة ولا يعتبر خطأ بيانات.',
+      affectedPages: ['/reviews', '/points'],
+    }),
+    issue({
+      key: 'unassigned-customer-requests',
+      label: 'طلبات عملاء مفتوحة بدون مسؤول',
+      count: num('unassigned_customer_requests'),
+      severity: severityForCount(num('unassigned_customer_requests'), 5),
+      source: 'customer_requests',
+      suggestedFix: 'راجع الطلبات المفتوحة غير المسندة. إذا كان الفرع غير محسوم فحدده أولًا قبل الإسناد.',
+      affectedPages: ['/customer-requests'],
+    }),
+    issue({
+      key: 'customer-requests-without-branch',
+      label: 'طلبات عملاء مفتوحة بدون فرع',
+      count: num('customer_requests_without_branch'),
+      severity: severityForCount(num('customer_requests_without_branch'), 1),
+      source: 'customer_requests.branch',
+      suggestedFix: 'افتح مركز جودة طلبات العملاء ثم فلتر «يحتاج تحديد فرع». لا تعيّن فرعًا تلقائيًا إذا لم يوجد دليل موثوق.',
+      affectedPages: ['/customer-requests'],
+    }),
+    issue({
+      key: 'request-sync-conflicts',
+      label: 'طلبات مزامنة تحتاج تحديد فرع',
+      count: num('unresolved_request_sync_conflicts'),
+      severity: severityForCount(num('unresolved_request_sync_conflicts'), 5),
+      source: 'customer_requests.sync_conflict',
+      suggestedFix: 'راجع بيانات العميل/الهاتف وحدد الفرع يدويًا فقط عندما لا يوجد دليل يسمح بالربط التلقائي.',
+      affectedPages: ['/customer-requests'],
+    }),
+    issue({
+      key: 'overdue-customer-requests',
+      label: 'طلبات عملاء متأخرة عن الموعد',
+      count: num('overdue_customer_requests'),
+      severity: severityForCount(num('overdue_customer_requests'), 5),
+      source: 'customer_requests',
+      suggestedFix: 'راجع الطلبات المتأخرة وحدّث الموعد أو مرحلة التنفيذ.',
+      affectedPages: ['/customer-requests'],
+    }),
+    issue({
+      key: 'rls-coverage',
+      label: 'جداول public بدون RLS',
+      count: num('public_tables_without_rls'),
+      severity: severityForCount(num('public_tables_without_rls'), 1),
+      source: 'PostgreSQL RLS',
+      suggestedFix: 'أي جدول جديد في public يجب تأمينه بسياسات RLS أو حجبه عن أدوار العميل قبل الاعتماد.',
+      affectedPages: ['/'],
+    }),
+    issue({
+      key: 'cycle-invoice-volume',
+      label: 'حجم الفواتير النظيفة في الدورة الحالية',
+      count: num('cycle_invoice_volume'),
+      severity: 'info',
+      source: 'dawaa_sales_invoices_dashboard_v1',
+      suggestedFix: 'مؤشر مرجعي لحجم الدورة الحالية 26→25 حتى اليوم.',
+      affectedPages: ['/invoices', '/analytics', '/'],
+    }),
+    issue({
+      key: 'invoice-volume-review',
+      label: 'حجم الفواتير المقروءة — كل التاريخ',
+      count: num('invoice_volume'),
+      severity: 'info',
+      source: 'sales_invoices',
+      suggestedFix: 'مؤشر مرجعي لحجم مصدر الفواتير التاريخي.',
+      affectedPages: ['/invoices', '/analytics'],
+    }),
   ];
 
   if (!performanceError) {
@@ -134,7 +286,10 @@ export async function loadAppDataHealthSummary() {
         count: slow,
         severity: verySlow > 0 ? 'danger' : slow > 0 ? 'warning' : 'info',
         source: 'pg_stat_statements delta baseline',
-        suggestedFix: slow > 0 ? 'راجع الاستعلامات الجديدة التي تجاوز متوسطها 500ms منذ آخر Baseline.' : 'لا يوجد تراجع أداء جديد مسجل منذ آخر Baseline.',
+        suggestedFix:
+          slow > 0
+            ? 'راجع الاستعلامات الجديدة التي تجاوز متوسطها 500ms منذ آخر Baseline.'
+            : 'لا يوجد تراجع أداء جديد مسجل منذ آخر Baseline.',
         affectedPages: ['/'],
       })
     );
