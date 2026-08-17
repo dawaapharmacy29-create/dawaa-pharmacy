@@ -1,4 +1,5 @@
 require('./apply-shamy-apr-jul-cashback-exception.cjs');
+require('./apply-doctor-cycle-review-truth.cjs');
 
 const fs = require('node:fs');
 
