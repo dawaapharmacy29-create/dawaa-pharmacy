@@ -135,7 +135,7 @@ function PageLoadingFallback({ pageName }: { pageName: string }) {
 
 function routeSuspense(component: ReactNode, pageName: string) {
   return (
-    <PageSafetyBoundary>
+    <PageSafetyBoundary pageName={pageName}>
       <Suspense fallback={<PageLoadingFallback pageName={pageName} />}>
         {component}
       </Suspense>
