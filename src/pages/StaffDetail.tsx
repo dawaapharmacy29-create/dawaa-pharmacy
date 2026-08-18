@@ -22,7 +22,7 @@ import { toast } from 'sonner';
 import { formatMoney, formatNumber } from '@/lib/dawaa2027';
 import { formatCurrency } from '@/lib/utils';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import {
   clearStaffPerformanceProfileCache,
   loadStaffPerformanceProfile,
@@ -374,6 +374,15 @@ export default function StaffDetail() {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksIssue, setTasksIssue] = useState<string | null>(null);
   const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
+  const [todayBreakdown, setTodayBreakdown] = useState<{
+    pillars: Array<{ key: string; label: string; weight: number; sub_score: number }>;
+    target_bonus: { settled_amount_egp: number | null; achievement_percent?: number; tier?: string };
+    weakest_pillar: string;
+    recommendation: string;
+  } | null>(null);
+  const [checklistEvents, setChecklistEvents] = useState<
+    Array<{ date: string; task: string; status: string; note: string | null }>
+  >([]);
 
   const cycle = useMemo(() => getCurrentCycle(), []);
   const cycleStart = formatCycleDate(cycle.start);
@@ -410,6 +419,48 @@ export default function StaffDetail() {
 
     return () => controller.abort();
   }, [cycleEnd, cycleStart, id, refreshNonce]);
+
+  // أرقام محور المبيعات وحافز التارجت والتشيك ليست — مصادر بُنيت لاحقًا، فبتتجاب
+  // بشكل مستقل عشان منلمسش الخدمة الكبيرة الموجودة أصلًا.
+  useEffect(() => {
+    const staffId = profile?.staff?.id;
+    if (!staffId) return;
+    const controller = new AbortController();
+
+    supabase
+      .rpc('get_doctor_incentive_breakdown', { p_doctor_id: staffId })
+      .then(({ data }) => {
+        if (controller.signal.aborted) return;
+        if (data && !data.error) setTodayBreakdown(data);
+      })
+      .catch(() => {});
+
+    supabase
+      .from('staff_daily_checklist_submissions')
+      .select('submission_date, review_status, reviewer_note, staff_daily_checklist_items(title)')
+      .eq('staff_id', staffId)
+      .order('submission_date', { ascending: false })
+      .limit(10)
+      .then(({ data }) => {
+        if (controller.signal.aborted || !data) return;
+        setChecklistEvents(
+          (data as unknown as Array<{
+            submission_date: string;
+            review_status: string;
+            reviewer_note: string | null;
+            staff_daily_checklist_items: { title: string } | null;
+          }>).map((row) => ({
+            date: row.submission_date,
+            task: row.staff_daily_checklist_items?.title || '',
+            status: row.review_status,
+            note: row.reviewer_note,
+          }))
+        );
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, [profile?.staff?.id]);
 
   useEffect(() => {
     const handleImportRefresh = (event: StorageEvent) => {
@@ -881,6 +932,58 @@ export default function StaffDetail() {
             />
           </div>
         </Section>
+
+        {todayBreakdown && todayBreakdown.pillars?.length ? (
+          <Section title="تفصيل المحاور وحافز التارجت (محدّث لحظيًا)">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <MiniPanel
+                label="حافز التارجت المُسوّى"
+                value={
+                  todayBreakdown.target_bonus?.settled_amount_egp != null
+                    ? `${formatNumber(todayBreakdown.target_bonus.settled_amount_egp)} ج (${todayBreakdown.target_bonus.tier || ''})`
+                    : 'لسه ما اتسوّاش الشهر ده'
+                }
+              />
+              <MiniPanel label="أضعف محور حاليًا" value={todayBreakdown.weakest_pillar} />
+            </div>
+            <div className="mt-3 space-y-2">
+              {todayBreakdown.pillars.map((p) => (
+                <div key={p.key} className="rounded-xl border border-slate-700/60 bg-slate-900/60 p-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-black text-slate-100">{p.label}</span>
+                    <span className="text-slate-400">وزن {p.weight}% · {Math.round(p.sub_score)}/100</span>
+                  </div>
+                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                    <div
+                      className={p.sub_score >= 60 ? 'h-full bg-emerald-400' : p.sub_score >= 40 ? 'h-full bg-amber-400' : 'h-full bg-rose-400'}
+                      style={{ width: `${Math.min(100, Math.max(0, p.sub_score))}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-sm text-amber-100">
+              {todayBreakdown.recommendation}
+            </div>
+          </Section>
+        ) : null}
+
+        {checklistEvents.length ? (
+          <Section title="آخر أحداث التشيك ليست اليومي (نظافة/مساعد)">
+            <TableShell empty="مفيش بيانات">
+              {checklistEvents.map((event, i) => (
+                <DataRow
+                  key={i}
+                  title={event.task}
+                  subtitle={event.date}
+                  value={
+                    event.status === 'approved' ? 'معتمد' : event.status === 'rejected' ? `مرفوض${event.note ? ': ' + event.note : ''}` : 'بانتظار المراجعة'
+                  }
+                />
+              ))}
+            </TableShell>
+          </Section>
+        ) : null}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
