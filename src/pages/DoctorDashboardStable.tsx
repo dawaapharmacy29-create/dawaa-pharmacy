@@ -254,6 +254,13 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     incentiveValue: number;
     transactionCount: number;
   } | null>(null);
+  const [incentiveBreakdown, setIncentiveBreakdown] = useState<{
+    pillars: Array<{ key: string; label: string; weight: number; sub_score: number; raw_points_delta: number }>;
+    conversation_quality: Record<string, number | null>;
+    top_issues_this_cycle: Array<{ reason: string; count: number }>;
+    weakest_pillar: string;
+    recommendation: string;
+  } | null>(null);
   const [manualPayrollRows, setManualPayrollRows] = useState<Row[]>([]);
   const [offers, setOffers] = useState<Row[]>([]);
   const [stories, setStories] = useState<Row[]>([]);
@@ -448,6 +455,13 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
           incentiveValue: calc.monthlyIncentiveValue,
           transactionCount: rows.length,
         });
+
+        // تفاصيل دقيقة: من أين تأتي كل نقطة بالظبط، مش رقم مجمّع بس — عشان
+        // الدكتور يعرف لحظيًا مشكلته الفعلية وإيه المطلوب يحسّنه.
+        const { data: breakdownData } = await supabase.rpc('get_doctor_incentive_breakdown', {
+          p_doctor_id: staffId,
+        });
+        if (breakdownData && !breakdownData.error) setIncentiveBreakdown(breakdownData);
       } catch {
         setLiveIncentive(null);
       }
@@ -1041,6 +1055,64 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
               <Empty>لسه مفيش معاملات نقاط مسجّلة في الدورة الحالية.</Empty>
             )}
           </div>
+
+          {incentiveBreakdown ? (
+            <div className="rounded-3xl border p-5" style={surface}>
+              <h2 className="text-xl font-black text-white">تفاصيل الحافز — من أين جاءت كل نقطة</h2>
+              <p className="mt-1 text-sm" style={mutedText}>
+                كل رقم هنا له مصدر حقيقي، مفيش تقدير. المحاور دي بتحسب حافز الأداء الشهري بالأوزان الموضحة.
+              </p>
+
+              <div className="mt-4 space-y-2">
+                {incentiveBreakdown.pillars.map((p) => (
+                  <div key={p.key} className="rounded-xl bg-black/20 p-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-black text-white">{p.label}</span>
+                      <span style={mutedText}>وزن {p.weight}% · درجتك {Math.round(p.sub_score)}/100</span>
+                    </div>
+                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className={p.sub_score >= 60 ? 'h-full bg-emerald-400' : p.sub_score >= 40 ? 'h-full bg-amber-400' : 'h-full bg-rose-400'}
+                        style={{ width: `${Math.min(100, Math.max(0, p.sub_score))}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-sm text-amber-100">
+                {incentiveBreakdown.recommendation}
+              </div>
+
+              {incentiveBreakdown.conversation_quality?.reviews_this_cycle ? (
+                <div className="mt-4">
+                  <h3 className="text-sm font-black text-white">جودة محادثاتك هذا الشهر ({incentiveBreakdown.conversation_quality.reviews_this_cycle} مراجعة)</h3>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3" style={mutedText}>
+                    <span>سرعة الرد: {incentiveBreakdown.conversation_quality.response_speed_pct}%</span>
+                    <span>الترحيب: {incentiveBreakdown.conversation_quality.greeting_pct}%</span>
+                    <span>نبرة التعامل: {incentiveBreakdown.conversation_quality.tone_pct}%</span>
+                    <span>فهم الطلب: {incentiveBreakdown.conversation_quality.understanding_pct}%</span>
+                    <span>جودة البيع: {incentiveBreakdown.conversation_quality.sales_quality_pct}%</span>
+                    <span>رسالة الختام: {incentiveBreakdown.conversation_quality.closing_message_pct}%</span>
+                  </div>
+                </div>
+              ) : null}
+
+              {incentiveBreakdown.top_issues_this_cycle?.length ? (
+                <div className="mt-4">
+                  <h3 className="text-sm font-black text-white">أكتر أسباب الخصم تكرارًا الشهر ده</h3>
+                  <div className="mt-2 space-y-1.5">
+                    {incentiveBreakdown.top_issues_this_cycle.map((issue, i) => (
+                      <div key={i} className="flex items-center justify-between rounded-lg bg-black/20 px-3 py-2 text-xs">
+                        <span className="text-slate-200">{issue.reason}</span>
+                        <span className="font-black text-rose-300">×{issue.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="rounded-3xl border p-5" style={surface}>
             <h2 className="text-xl font-black text-white">تفاصيل القبض والحوافز</h2>
