@@ -134,7 +134,13 @@ function PageLoadingFallback({ pageName }: { pageName: string }) {
 }
 
 function routeSuspense(component: ReactNode, pageName: string) {
-  return <Suspense fallback={<PageLoadingFallback pageName={pageName} />}>{component}</Suspense>;
+  return (
+    <PageSafetyBoundary>
+      <Suspense fallback={<PageLoadingFallback pageName={pageName} />}>
+        {component}
+      </Suspense>
+    </PageSafetyBoundary>
+  );
 }
 
 function ProtectedRoute({ children, permission }: { children: ReactNode; permission?: string }) {
@@ -253,7 +259,6 @@ function AppRoutes() {
     <Route path="/shortages" element={<ProtectedRoute>{routeSuspense(<Shortages />, 'النواقص')}</ProtectedRoute>} />
     <Route path="/supplies" element={<ProtectedRoute>{routeSuspense(<Supplies />, 'المستلزمات')}</ProtectedRoute>} />
     <Route path="/purchases" element={<ProtectedRoute>{routeSuspense(<Purchases />, 'المشتريات')}</ProtectedRoute>} />
-    <Route path="/staff-payroll" element={<ProtectedRoute>{routeSuspense(<StaffPayroll />, 'الرواتب')}</ProtectedRoute>} />
     <Route path="/accessories" element={<ProtectedRoute>{routeSuspense(<Accessories />, 'الإكسسوارات')}</ProtectedRoute>} />
     <Route path="/offers" element={<ProtectedRoute>{routeSuspense(<Offers />, 'العروض')}</ProtectedRoute>} />
     <Route path="/stories" element={<ProtectedRoute>{routeSuspense(<Stories />, 'القصص')}</ProtectedRoute>} />
