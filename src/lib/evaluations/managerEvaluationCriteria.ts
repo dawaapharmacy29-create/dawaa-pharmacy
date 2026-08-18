@@ -167,8 +167,14 @@ export const EVALUATION_CRITERIA: Record<EvaluationType, EvaluationCriterion[]> 
       sourceRoute: '/purchases', sourceLabel: 'المشتريات',
     },
     {
-      key: 'inventory', label: 'متابعة الجرد والمخزون', weight: 0.08, mode: 'checklist', checklistTaskKey: 'inventory_review',
+      key: 'inventory', label: 'متابعة الجرد والمخزون', weight: 0.03, mode: 'checklist', checklistTaskKey: 'inventory_review',
       sourceRoute: '/inventory-counts', sourceLabel: 'الجرد والمخزون',
+    },
+    {
+      key: 'cleanliness_compliance', label: 'الالتزام بالتشيك ليست اليومي للنظافة ورص الأرفف', weight: 0.05, mode: 'checklist',
+      checklistTaskKeys: ['branch_appearance_cleanliness_audit', 'floor_cleanliness'],
+      hint: 'نسبة الأيام التي راجع فيها مدير الفرع تشيك ليست عامل النظافة والمساعدين واعتمدها فعليًا.',
+      sourceRoute: '/branch-checklist-review', sourceLabel: 'مراجعة تشيك ليست النظافة والمساعدين',
     },
     {
       key: 'shortages_handling', label: 'التعامل السليم مع النواقص', weight: 0.05, mode: 'checklist', checklistTaskKey: 'shortages_handling',
