@@ -130,7 +130,7 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
 
     const loadPart = async (key: SourceKey, rpc: string) => {
       try {
-        const result = await withTimeout(supabase.rpc(rpc, args), 9000, rpc) as { data: Record<string, unknown> | null; error: { message?: string } | null };
+        const result = await withTimeout(supabase.rpc(rpc, args), 25000, rpc) as { data: Record<string, unknown> | null; error: { message?: string } | null };
         if (cancelled) return;
         if (result.error) throw new Error(result.error.message || `${rpc} failed`);
         const part = result.data || {};
