@@ -9,6 +9,30 @@ import { normalizeBranchName } from '@/lib/branch';
 
 type NotificationTable = 'notifications' | 'app_notifications';
 
+type NotificationRuntimeState = {
+  refreshPromise: Promise<AppNotification[]> | null;
+  lastRefreshAt: number;
+  subscribers: number;
+  rows: AppNotification[];
+  available: boolean;
+  loading: boolean;
+  timer: number | null;
+  channel: ReturnType<typeof supabase.channel> | null;
+};
+
+const notificationRuntime = ((globalThis as typeof globalThis & {
+  __dawaaNotificationRuntime?: NotificationRuntimeState;
+}).__dawaaNotificationRuntime ??= {
+  refreshPromise: null,
+  lastRefreshAt: 0,
+  subscribers: 0,
+  rows: [],
+  available: true,
+  loading: true,
+  timer: null,
+  channel: null,
+});
+
 export type NotificationSettings = {
   customerService: boolean;
   delivery: boolean;
@@ -214,69 +238,98 @@ export function useNotifications() {
   const navigate = useNavigate();
   const navigationGuard = useOptionalNavigationGuard();
   const { user } = useAuth();
-  const [rows, setRows] = useState<AppNotification[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [available, setAvailable] = useState(true);
+  const [rows, setRows] = useState<AppNotification[]>(notificationRuntime.rows);
+  const [loading, setLoading] = useState(notificationRuntime.loading);
+  const [available, setAvailable] = useState(notificationRuntime.available);
   const [settings, setSettings] = useState(readSettings);
   const tableRef = useRef<NotificationTable>('notifications');
   const mountedRef = useRef(true);
 
   const refreshNotifications = useCallback(async () => {
     if (!isSupabaseConfigured) {
+      notificationRuntime.available = false;
+      notificationRuntime.loading = false;
       setAvailable(false);
       setLoading(false);
       return;
     }
-    try {
-      let result: AppNotification[];
-      try {
-        result = await fetchTable('notifications');
-        tableRef.current = 'notifications';
-      } catch (primaryError) {
-        if (import.meta.env.DEV)
-          console.warn('[notifications] primary table unavailable', primaryError);
-        result = await fetchTable('app_notifications');
-        tableRef.current = 'app_notifications';
-      }
-      if (!mountedRef.current) return;
-      const unique = new Map<string, AppNotification>();
-      for (const item of result) {
-        const normalized = { ...item, route: notificationRoute(item) };
-        const semanticKey = [
-          normalized.type,
-          normalized.target_type,
-          normalized.target_id || normalized.metadata?.entity_id,
-          normalized.recipient_staff_id,
-          normalized.branch || normalized.metadata?.branch,
-          normalized.title,
-        ]
-          .map((value) =>
-            String(value || '')
-              .trim()
-              .toLowerCase()
-          )
-          .join('|');
-        if (!unique.has(semanticKey)) unique.set(semanticKey, normalized);
-      }
-      setRows([...unique.values()]);
-      setAvailable(true);
-    } catch (error) {
-      console.warn('[notifications] database source unavailable', error);
+
+    if (notificationRuntime.refreshPromise && Date.now() - notificationRuntime.lastRefreshAt < 15_000) {
+      const sharedRows = await notificationRuntime.refreshPromise;
       if (mountedRef.current) {
-        setRows([]);
-        setAvailable(false);
+        setRows(sharedRows);
+        setAvailable(notificationRuntime.available);
+        setLoading(false);
       }
-    } finally {
-      if (mountedRef.current) setLoading(false);
+      return;
     }
+
+    notificationRuntime.refreshPromise = (async () => {
+      try {
+        let result: AppNotification[];
+        try {
+          result = await fetchTable('notifications');
+          tableRef.current = 'notifications';
+        } catch (primaryError) {
+          if (import.meta.env.DEV)
+            console.warn('[notifications] primary table unavailable', primaryError);
+          result = await fetchTable('app_notifications');
+          tableRef.current = 'app_notifications';
+        }
+
+        const unique = new Map<string, AppNotification>();
+        for (const item of result) {
+          const normalized = { ...item, route: notificationRoute(item) };
+          const semanticKey = [
+            normalized.type,
+            normalized.target_type,
+            normalized.target_id || normalized.metadata?.entity_id,
+            normalized.recipient_staff_id,
+            normalized.branch || normalized.metadata?.branch,
+            normalized.title,
+          ]
+            .map((value) =>
+              String(value || '')
+                .trim()
+                .toLowerCase()
+            )
+            .join('|');
+          if (!unique.has(semanticKey)) unique.set(semanticKey, normalized);
+        }
+
+        const resolvedRows = [...unique.values()];
+        notificationRuntime.rows = resolvedRows;
+        notificationRuntime.available = true;
+        notificationRuntime.lastRefreshAt = Date.now();
+        return resolvedRows;
+      } catch (error) {
+        console.warn('[notifications] database source unavailable', error);
+        notificationRuntime.rows = [];
+        notificationRuntime.available = false;
+        return [] as AppNotification[];
+      } finally {
+        notificationRuntime.refreshPromise = null;
+      }
+    })();
+
+    const nextRows = await notificationRuntime.refreshPromise;
+    if (!mountedRef.current) return;
+    setRows(nextRows);
+    setAvailable(notificationRuntime.available);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     mountedRef.current = true;
+    notificationRuntime.subscribers += 1;
+    if (notificationRuntime.rows.length > 0 || notificationRuntime.lastRefreshAt > 0) {
+      setRows(notificationRuntime.rows);
+      setAvailable(notificationRuntime.available);
+      setLoading(false);
+    }
+
     void refreshNotifications();
-    // Realtime is the primary path. Polling is only a resilient fallback, so it does not need
-    // to hit the database every minute on every page in the app.
-    const polling = window.setInterval(() => void refreshNotifications(), 120_000);
+
     const onSettings = () => setSettings(readSettings());
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void refreshNotifications();
@@ -284,38 +337,52 @@ export function useNotifications() {
     window.addEventListener('dawaa:notification-settings', onSettings);
     document.addEventListener('visibilitychange', onVisibility);
 
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    if (isSupabaseConfigured) {
-      try {
-        const channelName = `app-notifications-live-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        channel = supabase
-          .channel(channelName)
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'notifications' },
-            () => void refreshNotifications()
-          );
+    if (notificationRuntime.subscribers === 1) {
+      if (notificationRuntime.timer) window.clearInterval(notificationRuntime.timer);
+      notificationRuntime.timer = window.setInterval(() => void refreshNotifications(), 120_000);
 
-        channel.subscribe((status) => {
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-            console.warn('[notifications] realtime unavailable; polling remains active', status);
-          }
-        });
-      } catch (error) {
-        console.warn('[notifications] realtime setup failed; polling remains active', error);
-        channel = null;
+      if (isSupabaseConfigured) {
+        try {
+          const channelName = `app-notifications-live-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const channel = supabase
+            .channel(channelName)
+            .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'notifications' },
+              () => void refreshNotifications()
+            );
+
+          channel.subscribe((status) => {
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+              console.warn('[notifications] realtime unavailable; polling remains active', status);
+            }
+          });
+          notificationRuntime.channel = channel;
+        } catch (error) {
+          console.warn('[notifications] realtime setup failed; polling remains active', error);
+          notificationRuntime.channel = null;
+        }
       }
     }
+
     return () => {
       mountedRef.current = false;
-      window.clearInterval(polling);
+      notificationRuntime.subscribers = Math.max(0, notificationRuntime.subscribers - 1);
       window.removeEventListener('dawaa:notification-settings', onSettings);
       document.removeEventListener('visibilitychange', onVisibility);
-      if (channel) {
-        try {
-          void supabase.removeChannel(channel);
-        } catch (error) {
-          console.warn('[notifications] realtime cleanup failed', error);
+
+      if (notificationRuntime.subscribers === 0) {
+        if (notificationRuntime.timer) {
+          window.clearInterval(notificationRuntime.timer);
+          notificationRuntime.timer = null;
+        }
+        if (notificationRuntime.channel) {
+          try {
+            void supabase.removeChannel(notificationRuntime.channel);
+          } catch (error) {
+            console.warn('[notifications] realtime cleanup failed', error);
+          }
+          notificationRuntime.channel = null;
         }
       }
     };

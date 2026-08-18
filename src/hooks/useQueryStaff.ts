@@ -13,14 +13,16 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { TABLES } from '@/lib/supabaseTables';
-
-export const STAFF_QUERY_KEY = ['staff', 'active'] as const;
+import { QUERY_KEYS } from '@/lib/queryKeys';
 
 async function fetchActiveStaff() {
   if (!isSupabaseConfigured) return [];
 
   const filters = isActiveStaffFilter();
-  let query = supabase.from(TABLES.staff).select('*').order('name', { ascending: true });
+  let query = supabase
+    .from(TABLES.staff)
+    .select('id,name,username,role,branch,phone,active,created_at,updated_at')
+    .order('name', { ascending: true });
 
   for (const f of filters) {
     if (f.operator === 'eq') query = query.eq(f.column, f.value as string);
@@ -31,15 +33,29 @@ async function fetchActiveStaff() {
     console.error('[useQueryStaff] fetch error:', error.message);
     return [];
   }
-  return data ?? [];
+  return (data ?? []).map((staff) => ({
+    ...staff,
+    name: staff.name ?? staff.username ?? 'غير محدد',
+  }));
 }
+
+export const STAFF_QUERY_KEY = QUERY_KEYS.staff.active;
 
 export function useQueryStaff(options?: { includeInactive?: boolean }) {
   return useQuery({
     queryKey: STAFF_QUERY_KEY,
     queryFn: fetchActiveStaff,
-    staleTime: 5 * 60 * 1000, // 5 min — don't refetch if data is fresh
-    gcTime: 30 * 60 * 1000, // 30 min — keep in memory
+    staleTime: 10 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
     enabled: isSupabaseConfigured,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
+    retry: (failureCount, error) => {
+      if (error instanceof Error && /timed out|network|failed to fetch/i.test(error.message)) {
+        return failureCount < 1;
+      }
+      return false;
+    },
   });
 }

@@ -12,7 +12,6 @@ import {
   ShieldCheck,
   UserPlus,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -174,11 +173,12 @@ export default function CustomerCoding() {
     [rows]
   );
 
-  function exportExcel() {
+  async function exportExcel() {
     if (!filtered.length) {
       toast.error('لا توجد بيانات للتصدير');
       return;
     }
+    const XLSX = await import('xlsx');
     const exportRows = filtered.map((row) => {
       const extended = row as CustomerCodingRow & {
         customer_code?: string | null;

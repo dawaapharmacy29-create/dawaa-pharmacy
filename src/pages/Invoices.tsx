@@ -22,6 +22,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { BRANCHES } from '@/lib/constants';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { QUERY_KEYS } from '@/lib/queryKeys';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { logActivity } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
@@ -853,7 +854,10 @@ export default function Invoices() {
       );
       if (importKind === 'sales') {
         clearInvoiceLinkedViews();
-        await queryClient.invalidateQueries({ queryKey: ['supabase'] });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.invoices.list() }),
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.invoices.summary() }),
+        ]);
         await loadManagedInvoices();
         await loadInvoiceSummarySnapshot();
         await supabase.from('notifications').insert({
@@ -1114,7 +1118,10 @@ export default function Invoices() {
         await supabase.from('customer_analysis').delete().in('customer_code', affectedIdentifiers);
       }
       clearInvoiceLinkedViews();
-      await queryClient.invalidateQueries({ queryKey: ['supabase'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.invoices.list() }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.invoices.summary() }),
+      ]);
       await logInvoiceAdminAction('مسح دفعة فواتير', `مسح دفعة ${batch}`, { import_batch: batch });
       await loadManagedInvoices();
     }

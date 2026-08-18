@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { normalizeProductCode, normalizeProductName, rankProductCandidates } from '@/lib/productMatching';
 
@@ -84,6 +83,7 @@ function detectLayout(rows: unknown[][]): Layout {
 }
 
 export async function parseProductsCatalogFile(file: File): Promise<CatalogProduct[]> {
+  const XLSX = await import('xlsx');
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];

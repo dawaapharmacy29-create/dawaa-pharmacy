@@ -4,6 +4,7 @@ import { logActivity as writeActivityLog } from '@/lib/activityLog';
 import { logSupabaseError } from '@/lib/supabaseError';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { stableKeyValue } from '@/lib/queryKeys';
 
 interface QueryOptions {
   table: string;
@@ -88,10 +89,10 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     'supabase',
     options.table,
     options.select ?? '*',
-    options.filters ?? null,
-    options.orderBy ?? null,
-    options.limit ?? null,
-  ];
+    stableKeyValue(options.filters ?? null),
+    stableKeyValue(options.orderBy ?? null),
+    String(options.limit ?? 'all'),
+  ] as const;
 
   const fetcher = async () => {
     if (!isSupabaseConfigured) {
@@ -114,11 +115,11 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   const { data = [], isLoading: loading, error } = useQuery<T[], Error>({
     queryKey,
     queryFn: fetcher,
-    // 60 seconds caused repeated reloads while navigating between operational pages.
-    // Two minutes is a conservative shared default; truly live pages still use Realtime invalidation.
-    staleTime: options.staleTimeMs ?? 2 * 60_000,
-    gcTime: options.gcTimeMs ?? 10 * 60_000,
+    staleTime: options.staleTimeMs ?? 5 * 60_000,
+    gcTime: options.gcTimeMs ?? 30 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     retry: 1,
     retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
