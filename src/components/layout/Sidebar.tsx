@@ -84,7 +84,6 @@ const GROUPS: NavGroup[] = [
     { path: '/penalty-incentive', icon: AlertTriangle, label: 'جزاءات ومكافآت الفرع', permission: 'view_penalty_management' },
     { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضات النقاط' },
     { path: '/quarterly-incentives', icon: Crown, label: 'شرح الحافز الشهري', permission: 'view_quarterly_incentives' },
-    { path: '/staff-payroll', icon: Wallet, label: 'الرواتب', permission: 'view_salary_calculator' },
   ]},
   { title: 'تقييم الأداء الإداري', icon: ClipboardCheck, items: [
     { path: '/doctor-quality-summary', icon: Star, label: 'ملخص أداء الدكاترة الذكي', excludeRoles: ['pharmacist', 'customer_service_manager'] },

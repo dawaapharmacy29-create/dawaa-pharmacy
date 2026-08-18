@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { Calculator, CalendarClock, CheckCircle2, Download, Gift, History, MessageCircle, Phone, Plus, RefreshCw, Search, Settings2, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
@@ -83,6 +82,7 @@ export default function CustomerPointsLedger() {
 
   const exportPendingExcel = async () => {
     if (!visiblePendingCustomers.length) { toast.error('مفيش عملاء يتصدروا دلوقتي.'); return; }
+    const XLSX = await import('xlsx');
     const sheetRows = visiblePendingCustomers.map((c) => ({
       'الكود': c.customer_code,
       'الاسم': c.customer_name,
@@ -96,6 +96,7 @@ export default function CustomerPointsLedger() {
 
   const handleImportFile = async (file: File) => {
     try {
+      const XLSX = await import('xlsx');
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];

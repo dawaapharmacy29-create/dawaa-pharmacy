@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { Download, FileText, Loader2 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { CommandHeader } from '@/components/command/CommandUI';
@@ -66,7 +65,8 @@ function formatReportFileName(type: ReportType, branch: string, start: string, e
   return `${labelMap[type]}_${branchPart}_${start}_${end}.xlsx`;
 }
 
-function downloadXlsx(rows: Record<string, unknown>[], sheetName: string, filename: string) {
+async function downloadXlsx(rows: Record<string, unknown>[], sheetName: string, filename: string) {
+  const XLSX = await import('xlsx');
   const worksheet = XLSX.utils.json_to_sheet(rows);
   worksheet['!cols'] = Object.keys(rows[0] || {}).map((key) => ({ wch: Math.min(40, Math.max(12, key.length + 4)) }));
   const workbook = XLSX.utils.book_new();
@@ -116,12 +116,13 @@ function responseMinutesOf(row: ReviewRow): number {
   return asNumber(row.first_response_minutes ?? row.response_minutes ?? row.reply_minutes);
 }
 
-function appendSheet(
-  workbook: XLSX.WorkBook,
+async function appendSheet(
+  workbook: any,
   rows: Record<string, unknown>[],
   name: string,
   widths?: number[]
 ) {
+  const XLSX = await import('xlsx');
   const safeRows = rows.length ? rows : [{ ملاحظة: 'لا توجد بيانات مطابقة' }];
   const worksheet = XLSX.utils.json_to_sheet(safeRows);
   const keys = Object.keys(safeRows[0] || {});
@@ -232,12 +233,13 @@ function percent(part: number, total: number): number {
   return total ? Math.round((part / total) * 1000) / 10 : 0;
 }
 
-function buildAdvancedConversationWorkbook(
+async function buildAdvancedConversationWorkbook(
   rows: ReviewRow[],
   type: 'reviews_summary' | 'whatsapp_performance',
   filename: string,
   meta: { branch: string; startDate: string; endDate: string; staffFilter: string }
 ) {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
   const doctors = buildDoctorStats(rows);
   const total = rows.length;

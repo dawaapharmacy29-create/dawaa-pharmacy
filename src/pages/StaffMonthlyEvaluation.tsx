@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { Award, CheckCircle2, Download, FileText, Loader2, Save, Search, Send, Star, UserCheck } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -178,6 +176,10 @@ export default function StaffMonthlyEvaluation() {
 
   async function downloadPdf() {
     if (!printRef.current || !selected) return;
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf'),
+    ]);
     const pages = Array.from(printRef.current.querySelectorAll<HTMLElement>('[data-pdf-page]'));
     if (!pages.length) return;
     const pdf = new jsPDF('p', 'mm', 'a4');
