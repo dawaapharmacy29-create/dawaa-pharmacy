@@ -142,20 +142,7 @@ cte_input_customers as (
   from jsonb_array_elements(p_customers) with ordinality as t(elem, ord_idx)
 ),
 
--- Step 1a: Strategy 1 - Exact customer code match (first successful column wins)
-cte_code_matching_columns as (
-  select
-    c.input_idx,
-    case
-      when exists (select 1 from public.sales_invoices si where c.input_cust_code is not null and si.customer_code = c.input_cust_code limit 1) then 'customer_code'
-      when exists (select 1 from public.sales_invoices si where c.input_cust_code is not null and si.client_code = c.input_cust_code limit 1) then 'client_code'
-      when exists (select 1 from public.sales_invoices si where c.input_cust_code is not null and si.code = c.input_cust_code limit 1) then 'code'
-      else null
-    end as winning_column
-  from cte_input_customers c
-  where c.input_cust_code is not null
-),
-
+-- Step 1a: Strategy 1 - Exact customer code match
 cte_strategy_code as (
   select
     c.input_idx,
@@ -163,17 +150,8 @@ cte_strategy_code as (
     si.id, si.invoice_number, si.invoice_no, si.branch_name, si.branch,
     si.sale_date, si.invoice_date, si.invoice_datetime, si.close_datetime, si.date as date_text,
     si.net_amount, si.net_total, si.total_amount, si.amount, si.gross_amount, si.discounted_amount
-  from cte_code_matching_columns cmc
-  join cte_input_customers c on c.input_idx = cmc.input_idx
-  join public.sales_invoices si on (
-    case
-      when cmc.winning_column = 'customer_code' then si.customer_code = c.input_cust_code
-      when cmc.winning_column = 'client_code' then si.client_code = c.input_cust_code
-      when cmc.winning_column = 'code' then si.code = c.input_cust_code
-      else false
-    end
-  )
-  where cmc.winning_column is not null
+  from cte_input_customers c
+  join public.sales_invoices si on c.input_cust_code is not null and si.customer_code = c.input_cust_code
 ),
 
 -- Step 1b: Strategy 2 - Exact customer ID match
