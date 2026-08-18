@@ -80,6 +80,33 @@ export type WelcomeMessageLogRow = CustomerIdentity & {
 export const DEFAULT_WELCOME_MESSAGE =
   'أهلا بحضرتك، مع حضرتك صيدليات دواء. بنرحب بحضرتك ونتشرف بخدمتك دائمًا. لو حضرتك محتاج أي استفسار عن دواء أو متابعة طلب، إحنا تحت أمر حضرتك.';
 
+/**
+ * القوالب الحقيقية المكتوبة في customer_welcome_message_templates كانت
+ * موجودة من شهور من غير ما أي صفحة تستخدمها فعليًا — الشاشة كانت بترجع
+ * دايمًا للسطر العام أعلاه بدل القالب المخصص بالاسم والفرع. الدالة دي
+ * بتجيب أفضل قالب متاح (باسم الفرع لو موجود، وإلا العام) وتستبدل
+ * {customer_name} و{branch_name} بالقيم الحقيقية.
+ */
+export async function fetchBestWelcomeTemplate(
+  customerName: string,
+  branch: string
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('customer_welcome_message_templates')
+    .select('title, message_body')
+    .eq('is_active', true)
+    .order('created_at', { ascending: true });
+  if (error || !data?.length) return DEFAULT_WELCOME_MESSAGE;
+
+  const branchTemplate = data.find((row) => String(row.title || '').includes('باسم الفرع'));
+  const generalTemplate = data.find((row) => String(row.title || '').includes('القالب العام'));
+  const chosen = branchTemplate || generalTemplate || data[0];
+
+  return String(chosen.message_body || DEFAULT_WELCOME_MESSAGE)
+    .replace(/\{customer_name\}/g, customerName || 'حضرتك')
+    .replace(/\{branch_name\}/g, branch || '');
+}
+
 function customerOrFilter(identity: CustomerIdentity) {
   return [
     identity.customer_code ? `customer_code.eq.${identity.customer_code}` : '',

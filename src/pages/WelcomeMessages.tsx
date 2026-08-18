@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import {
   DEFAULT_WELCOME_MESSAGE,
   addWelcomeMessageLog,
+  fetchBestWelcomeTemplate,
   fetchWelcomeMessageLogs,
   searchCustomerIdentity,
   updateWelcomeMessageStatus,
@@ -83,6 +84,23 @@ export default function WelcomeMessages() {
     status: 'sent',
     notes: '',
   });
+
+  // أول ما اسم العميل أو الفرع يبقى معروف، نستبدل السطر العام بالقالب
+  // الحقيقي المكتوب باسم العميل والفرع — بس لو المستخدم لسه ما عدّلش
+  // الرسالة بنفسه، عشان مانكتبش فوق تعديل يدوي.
+  useEffect(() => {
+    if (form.message_body !== DEFAULT_WELCOME_MESSAGE) return;
+    if (!form.customer_name && !form.branch) return;
+    let cancelled = false;
+    void fetchBestWelcomeTemplate(form.customer_name, form.branch).then((resolved) => {
+      if (cancelled) return;
+      setForm((current) => (current.message_body === DEFAULT_WELCOME_MESSAGE ? { ...current, message_body: resolved } : current));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.customer_name, form.branch]);
 
   const currentIdentity = useMemo<CustomerIdentity>(
     () => ({
