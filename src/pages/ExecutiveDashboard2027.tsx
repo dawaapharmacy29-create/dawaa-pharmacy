@@ -754,8 +754,8 @@ function createTargets(
   savedTargets: SavedBranchTargetRow[] = []
 ): TargetRow[] {
   const targetDefaults: Record<string, number> = {
-    'فرع الشامي': 1000000,
-    'فرع شكري': 1500000,
+    'فرع الشامي': 1200000,
+    'فرع شكري': 1550000,
   };
 
   return branches.map((row) => {
@@ -1263,10 +1263,9 @@ export default function ExecutiveDashboard2027() {
         userBranch: user?.branch,
         canSeeAllBranches: canAllBranches,
       }),
-      7000,
+      20000,
       'doctor-competition'
-    )
-      .then((metrics) => {
+    )      .then((metrics) => {
         if (!mounted) return;
         if (metrics.rows.length) {
           lastGoodDoctorCompetitionRef.current = metrics;
@@ -2536,6 +2535,7 @@ export default function ExecutiveDashboard2027() {
         <DashboardDoctorCompetitionPanel
           metrics={doctorCompetition}
           loading={doctorCompetitionLoading}
+          error={doctorCompetitionError}
           onNavigate={(focus) => navigate(`/doctor-competition?period=cycle&focus=${focus}`)}
         />
 
@@ -3636,10 +3636,12 @@ export default function ExecutiveDashboard2027() {
 function DashboardDoctorCompetitionPanel({
   metrics,
   loading,
+  error,
   onNavigate,
 }: {
   metrics: DoctorCompetitionMetrics | null;
   loading: boolean;
+  error?: string | null;
   onNavigate: (focus: 'sales' | 'average_invoice' | 'incentive' | 'reviews' | 'overall') => void;
 }) {
   const winners = metrics?.winners;
@@ -3749,7 +3751,7 @@ function DashboardDoctorCompetitionPanel({
           </div>
         </>
       ) : (
-        <EmptyState label="لا توجد بيانات كافية لمسابقات الدكاترة في الفترة الحالية" />
+        <EmptyState label={error ? 'تعذر تحميل مسابقة الدكاترة — قد يكون الحساب بطيء، جرّب تحديث الصفحة' : 'لا توجد بيانات كافية لمسابقات الدكاترة في الفترة الحالية'} />
       )}
     </Panel>
   );
