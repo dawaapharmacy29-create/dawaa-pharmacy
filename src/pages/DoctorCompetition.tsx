@@ -296,6 +296,20 @@ export default function DoctorCompetition() {
 
     try {
       const competitionRange = rangeForDoctorCompetition(period);
+
+      // مصدر ثقة واحد بيقول مين فعلًا "دكتور مؤهل للمسابقة" — بيتطبق على كل
+      // المصادر المدموجة (المسابقة نفسها + المبيعات المنفصلة) عشان عامل نظافة
+      // أو مساعد أو أي حد تاني ميرجعش يظهر من مصدر تاني حتى لو اتفلتر صح من الأول.
+      const eligibleAccountsResult = await supabase
+        .from('staff_accounts')
+        .select('staff_id,role,active,can_login')
+        .in('role', ['pharmacist', 'shift_supervisor', 'shift_supervisor_morning', 'shift_supervisor_evening']);
+      const eligibleStaffIds = new Set(
+        (eligibleAccountsResult.data || [])
+          .filter((row) => row.active !== false && row.can_login !== false)
+          .map((row) => String(row.staff_id))
+      );
+
       let reviewQuery = supabase
         .from('conversation_sales_reviews')
         .select('staff_id,doctor_id,staff_name,doctor_name,branch,final_score,total_score')
@@ -328,14 +342,16 @@ export default function DoctorCompetition() {
         }
       }));
 
-      const salesRows = summaries.flatMap((summary, summaryIndex) => summary?.doctorRows.map((doctor) => emptyCompetitionRow({
-        staffId: doctor.staffId,
-        name: doctor.doctor,
-        branch: doctor.branch || branchesToLoad[summaryIndex] || effectiveBranch || user?.branch || '',
-        totalSales: doctor.netSales,
-        invoices: doctor.invoicesCount,
-        avgInvoice: doctor.avgInvoice,
-      })) || []);
+      const salesRows = summaries.flatMap((summary, summaryIndex) => summary?.doctorRows
+        .filter((doctor) => doctor.staffId && eligibleStaffIds.has(String(doctor.staffId)))
+        .map((doctor) => emptyCompetitionRow({
+          staffId: doctor.staffId,
+          name: doctor.doctor,
+          branch: doctor.branch || branchesToLoad[summaryIndex] || effectiveBranch || user?.branch || '',
+          totalSales: doctor.netSales,
+          invoices: doctor.invoicesCount,
+          avgInvoice: doctor.avgInvoice,
+        })) || []);
 
       const identityLookup = buildUniqueStaffLookup([...competition.rows, ...salesRows]);
       const competitionMerged = new Map<string, DoctorCompetitionScore>();
@@ -357,6 +373,7 @@ export default function DoctorCompetition() {
 
       const mergedRows = [...merged.values()]
         .filter((row) => row.name && row.name !== 'غير محدد')
+        .filter((row) => !row.staffId || eligibleStaffIds.has(String(row.staffId)))
         .map((row) => ({ ...row, branch: mergeAllBranches ? ALL_BRANCHES : effectiveBranch || row.branch }));
 
       const reviewRows = reviewResponse.error ? [] : (reviewResponse.data || []) as ReviewRow[];
