@@ -1,0 +1,62 @@
+📋 SUPABASE RPC DEPLOYMENT - COPY & PASTE GUIDE
+
+Project: jkjqeqkshllustwlzzbf
+URL: https://jkjqeqkshllustwlzzbf.supabase.co
+
+========================================
+STEP-BY-STEP DEPLOYMENT
+========================================
+
+1. Go to: https://app.supabase.com/projects
+2. Click on project: jkjqeqkshllustwlzzbf
+3. Left sidebar → SQL Editor
+4. Click: "New query"
+5. ✅ COPY the entire content below:
+   (from: --- Phase 2 ... to: ... comment on function ...)
+
+6. Paste into the SQL editor window
+7. Click: "Run" button (top right)
+8. Wait for message: "Query succeeded"
+9. ✅ DONE! RPC is deployed
+
+========================================
+EXPECTED OUTPUT AFTER RUN
+========================================
+
+When successful, you'll see in the Results tab:
+  Query succeeded. No rows returned.
+
+If you see an error like:
+  - "function already exists" → Normal, it's a create or replace
+  - "syntax error" → Check Supabase dashboard for details
+  - Other errors → Check column names match your database
+
+========================================
+VERIFY DEPLOYMENT
+========================================
+
+After running the migration, run this test query:
+
+SELECT 
+  get_customer_service_metrics_batch_v1(
+    '[]'::jsonb
+  )::jsonb as result;
+
+Expected: Empty array [] returned
+
+Then test with real data:
+
+SELECT * FROM get_customer_service_metrics_batch_v1(
+  '[{"customer_id": "00000000-0000-0000-0000-000000000001", "customer_code": "TEST", "customer_phone": "123456", "customer_name": "Test Customer", "branch": "Default"}]'::jsonb
+) LIMIT 1;
+
+Expected: One row with customer metrics columns
+
+========================================
+FILE LOCATION
+========================================
+
+The full SQL is stored at:
+  supabase/migrations/20260818_customer_service_metrics_batch_rpc_v1.sql
+
+Total size: 11.9 KB (287 lines)
