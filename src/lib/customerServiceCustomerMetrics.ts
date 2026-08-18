@@ -331,11 +331,7 @@ export async function batchEnrichCustomerServiceMetrics(
   }
 
   const entries = [...unique.entries()];
-  // perf: increased concurrency from 5 → 15 to reduce sequential batch overhead
-  // from 50 batches → ~16 batches for 250 items. Each item may still trigger
-  // 3-5 queries internally, but at least batches run in parallel.
-  // TODO: Replace with aggregated RPC to eliminate N+1 entirely.
-  const concurrency = 15;
+  const concurrency = 5;
   for (let index = 0; index < entries.length; index += concurrency) {
     const chunk = entries.slice(index, index + concurrency);
     await Promise.all(
