@@ -411,7 +411,10 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     const branchCandidates = firstNameGroups.get(`${branch}|${first}`) || [];
     if (first && branchCandidates.length === 1) return branchCandidates[0];
 
-    if (!eligibleDoctors.length && !isUnknownDoctorName(name)) return { staffId: direct, name, branch };
+    // ملحوظة: أي سطر "طوارئ" كان بيقبل أي اسم من الفواتير كدكتور وقت فشل تحميل
+    // قائمة الحسابات المعتمدة اتشال عمدًا — كان بيسمح لعامل نظافة أو مساعد أو
+    // حتى شريك (مدير مشتريات) يظهر في المسابقة وقت أي تعطل بسيط. الأفضل نعرض
+    // قائمة ناقصة مؤقتًا على إننا نضيف موظف مش دكتور للمسابقة.
     return null;
   };
 
