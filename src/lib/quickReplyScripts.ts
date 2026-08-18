@@ -172,6 +172,8 @@ export async function fetchQuickReplyScripts() {
   const { data, error } = await supabase
     .from('quick_reply_scripts')
     .select('*')
+    .eq('active', true)
+    .order('category', { ascending: true })
     .order('shortcut', { ascending: true })
     .limit(1000);
   if (error) {
