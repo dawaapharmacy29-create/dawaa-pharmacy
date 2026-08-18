@@ -260,6 +260,11 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     top_issues_this_cycle: Array<{ reason: string; count: number }>;
     weakest_pillar: string;
     recommendation: string;
+    goals: Array<{
+      key: string; title: string; value_egp: number; unlocked: boolean;
+      current?: number; target?: number; min_pillar_score?: number; required_min_score?: number;
+      how_it_works: string;
+    }>;
   } | null>(null);
   const [manualPayrollRows, setManualPayrollRows] = useState<Row[]>([]);
   const [offers, setOffers] = useState<Row[]>([]);
@@ -1106,6 +1111,39 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
                       <div key={i} className="flex items-center justify-between rounded-lg bg-black/20 px-3 py-2 text-xs">
                         <span className="text-slate-200">{issue.reason}</span>
                         <span className="font-black text-rose-300">×{issue.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {incentiveBreakdown.goals?.length ? (
+                <div className="mt-5">
+                  <h3 className="text-sm font-black text-white">أهداف وحوافز إضافية مستقلة</h3>
+                  <div className="mt-2 space-y-2">
+                    {incentiveBreakdown.goals.map((goal) => (
+                      <div
+                        key={goal.key}
+                        className={`rounded-xl border p-3 ${goal.unlocked ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-white/10 bg-black/20'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-black text-white">{goal.title}</span>
+                          <span className={`text-sm font-black ${goal.unlocked ? 'text-emerald-300' : 'text-amber-300'}`}>
+                            {goal.value_egp} ج {goal.unlocked ? '✓ اتحققت' : ''}
+                          </span>
+                        </div>
+                        {goal.target != null ? (
+                          <>
+                            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                              <div
+                                className={goal.unlocked ? 'h-full bg-emerald-400' : 'h-full bg-amber-400'}
+                                style={{ width: `${Math.min(100, ((goal.current || 0) / goal.target) * 100)}%` }}
+                              />
+                            </div>
+                            <p className="mt-1 text-xs" style={mutedText}>{goal.current || 0} من {goal.target}</p>
+                          </>
+                        ) : null}
+                        <p className="mt-2 text-xs leading-5" style={mutedText}>{goal.how_it_works}</p>
                       </div>
                     ))}
                   </div>
