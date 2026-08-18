@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 
-export type ImageBucket = 'offer-assets' | 'story-assets' | 'customer-request-images';
+export type ImageBucket = 'offer-assets' | 'story-assets' | 'customer-request-images' | 'checklist-evidence';
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;

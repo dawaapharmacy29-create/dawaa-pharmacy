@@ -107,6 +107,7 @@ export const ROLE_MAP: Record<string, RoleKey> = {
   'مسؤول نظافة': 'cleaning_supervisor',
   'مسئول نظافة': 'cleaning_supervisor',
   'مسؤولة نظافة': 'cleaning_supervisor',
+  'مسؤولة النظافة': 'cleaning_supervisor',
   'مسئولة النظافة': 'cleaning_supervisor',
   'توصيل': 'delivery',
   'دليفري': 'delivery',

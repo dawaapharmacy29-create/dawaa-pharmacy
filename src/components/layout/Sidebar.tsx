@@ -45,6 +45,7 @@ const GROUPS: NavGroup[] = [
   { title: 'العملاء وخدمة العملاء', icon: HeadphonesIcon, items: [
     { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة العملاء', permission: 'view_customer_service' },
     { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهامي اليومية' },
+    { path: '/my-daily-checklist', icon: ClipboardCheck, label: 'التشيك ليست اليومي (نظافة ومساعدين)' },
     { path: '/customer-coding', icon: UserPlus, label: 'تكويد العملاء', permission: 'view_customer_service' },
     { path: '/customers', icon: Users, label: 'قاعدة العملاء', permission: 'view_customers' },
     { path: '/customer-monthly-performance', icon: TrendingDown, label: 'أداء العملاء الشهري', permission: 'view_customers' },
@@ -72,7 +73,7 @@ const GROUPS: NavGroup[] = [
     { path: '/shelf-organization', icon: ClipboardList, label: 'تنظيم الأرفف وCheckpoint', permission: ['view_inventory','view_operations'] },
     { path: '/supplies', icon: PackageSearch, label: 'Checkpoint المستلزمات', permission: ['view_supplies','view_inventory'] },
     { path: '/accessories', icon: Package, label: 'Checkpoint الإكسسوارات', permission: ['view_operations','view_inventory'] },
-    { path: '/branch-cleaning', icon: ClipboardCheck, label: 'جدول النظافة والصور اليومية', permission: 'view_operations' },
+    { path: '/branch-checklist-review', icon: ClipboardCheck, label: 'مراجعة تشيك ليست النظافة والمساعدين', excludeRoles: ['pharmacist', 'assistant'] },
     { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
   ]},
   { title: 'الدليفري', icon: Truck, items: [{ path: '/delivery', icon: Truck, label: 'لوحة الدليفري', permission: 'view_delivery' }] },
