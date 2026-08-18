@@ -287,6 +287,16 @@ async function safeSelect(table: string, build: (query: ReturnType<typeof supaba
   }
 }
 
+async function safeSelectRpc(fn: string) {
+  try {
+    const result = await supabase.rpc(fn);
+    if (result.error) return { data: [] as Row[], error: result.error.message || `تعذر تحميل ${fn}` };
+    return { data: (result.data || []) as Row[], error: null };
+  } catch (error) {
+    return { data: [] as Row[], error: error instanceof Error ? error.message : `تعذر تحميل ${fn}` };
+  }
+}
+
 async function fetchDoctorSalesRows(range: { start: string; end: string }, branch: string, errors: string[]) {
   const rows = (await fetchSalesInvoicesPagedSafe({
     startDate: range.start,
@@ -314,12 +324,11 @@ async function fetchDoctorSalesAggregates(range: { start: string; end: string },
 }
 
 function doctorAccountFromRow(row: Row): EligibleDoctor | null {
-  const role = text(row.role).toLowerCase();
-  if (!PARTICIPATING_ROLES.has(role)) return null;
-  if (!truthy(row.active, true) || !truthy(row.can_login, true)) return null;
-  const branch = normalizeBranchName(row.branch || row.branch_name) || text(row.branch || row.branch_name);
-  const staffId = text(row.staff_id || row.id);
-  const name = normalizeDoctorName(row.employee_name || row.name || row.staff_name || row.full_name || row.username);
+  // الدور والحالة (نشط/بيقدر يدخل) اتفلتروا فعلًا جوّه get_eligible_doctor_accounts
+  // نفسها — هنا بس بنستخرج ونتحقق من الاسم والفرع.
+  const branch = normalizeBranchName(row.branch) || text(row.branch);
+  const staffId = text(row.staff_id);
+  const name = normalizeDoctorName(row.name);
   if (!staffId || !branch || isUnknownDoctorName(name)) return null;
   return { staffId, name, branch };
 }
@@ -371,7 +380,10 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     return true;
   };
 
-  const accountResult = await safeSelect('staff_accounts', (query) => query.select('*').limit(5000));
+  // staff_accounts محمي بـ RLS — لو دكتور عادي (مش مدير) فتح الصفحة، الاستعلام
+  // المباشر بيرجّع حسابه هو بس. الدالة الآمنة دي بتتخطى القيد وتديّنا قائمة
+  // الدكاترة المؤهلين كاملة بغض النظر عن مين فاتح الصفحة.
+  const accountResult = await safeSelectRpc('get_eligible_doctor_accounts');
   if (accountResult.error) errors.staff_accounts = accountResult.error;
   const eligibleDoctors = accountResult.data
     .map(doctorAccountFromRow)

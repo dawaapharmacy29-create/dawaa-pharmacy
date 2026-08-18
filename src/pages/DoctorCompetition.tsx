@@ -300,14 +300,11 @@ export default function DoctorCompetition() {
       // مصدر ثقة واحد بيقول مين فعلًا "دكتور مؤهل للمسابقة" — بيتطبق على كل
       // المصادر المدموجة (المسابقة نفسها + المبيعات المنفصلة) عشان عامل نظافة
       // أو مساعد أو أي حد تاني ميرجعش يظهر من مصدر تاني حتى لو اتفلتر صح من الأول.
-      const eligibleAccountsResult = await supabase
-        .from('staff_accounts')
-        .select('staff_id,role,active,can_login')
-        .in('role', ['pharmacist', 'shift_supervisor', 'shift_supervisor_morning', 'shift_supervisor_evening']);
+      // staff_accounts محمي بـ RLS فمينفعش يتقرا مباشرة من هنا — استخدمنا دالة
+      // آمنة بترجع الـ IDs المؤهلة بس.
+      const eligibleAccountsResult = await supabase.rpc('get_eligible_doctor_staff_ids');
       const eligibleStaffIds = new Set(
-        (eligibleAccountsResult.data || [])
-          .filter((row) => row.active !== false && row.can_login !== false)
-          .map((row) => String(row.staff_id))
+        (eligibleAccountsResult.data || []).map((row: { staff_id: string }) => String(row.staff_id))
       );
 
       let reviewQuery = supabase
