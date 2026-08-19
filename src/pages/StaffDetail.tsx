@@ -23,6 +23,9 @@ import { formatMoney, formatNumber } from '@/lib/dawaa2027';
 import { formatCurrency } from '@/lib/utils';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import CoachingNoteComposer from '@/components/shared/CoachingNoteComposer';
+import CoachingNotesFeed from '@/components/shared/CoachingNotesFeed';
+import type { CoachingRecipientRole, CoachingRole } from '@/lib/coachingNotes';
 import {
   clearStaffPerformanceProfileCache,
   loadStaffPerformanceProfile,
@@ -984,6 +987,45 @@ export default function StaffDetail() {
             </TableShell>
           </Section>
         ) : null}
+
+        {(() => {
+          const roleMap: Record<string, CoachingRecipientRole> = {
+            'صيدلاني': 'doctor',
+            'مساعد صيدلي': 'doctor',
+            'customer_service_manager': 'customer_service',
+            'مسؤولة خدمة العملاء': 'customer_service',
+            'customer_service': 'customer_service',
+            'branch_manager': 'branch_manager',
+            'مدير فرع': 'branch_manager',
+            'branches_manager': 'branches_manager',
+            'مديرة الفروع': 'branches_manager',
+          };
+          const fromRoleMap: Record<string, CoachingRole> = {
+            branch_manager: 'branch_manager', 'مدير فرع': 'branch_manager',
+            branches_manager: 'branches_manager', 'مديرة الفروع': 'branches_manager',
+            general_manager: 'general_manager', executive_manager: 'general_manager',
+            customer_service_manager: 'customer_service', 'مسؤولة خدمة العملاء': 'customer_service',
+          };
+          const toRole = roleMap[String(profile.staff.role || '')];
+          const fromRole = fromRoleMap[String(user?.role || '')];
+          if (!toRole || !fromRole || !user?.staffId) return null;
+          return (
+            <Section title="ملاحظات وتوجيه من الإدارة">
+              <CoachingNoteComposer
+                fromStaffId={user.staffId}
+                fromStaffName={user.name || 'الإدارة'}
+                fromRole={fromRole}
+                toStaffId={profile.staff.id}
+                toStaffName={profile.staff.name}
+                toRole={toRole}
+                branch={profile.staff.branch}
+              />
+              <div className="mt-4">
+                <CoachingNotesFeed scope={{ mode: 'staff', staffId: profile.staff.id }} limit={10} />
+              </div>
+            </Section>
+          );
+        })()}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
