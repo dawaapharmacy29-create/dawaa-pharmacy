@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import { applyStaffDelta, persistPointsTransaction } from '@/lib/pointsPersistence';
+import { MAX_DEDUCTION_PER_EVENT, MAX_REPEAT_MULTIPLIER } from '@/lib/pointsWorkflow';
 import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
 import { TABLES } from '@/lib/supabaseTables';
 import {
@@ -72,7 +73,7 @@ async function insertOneWithColumnFallback(table: string, payload: Record<string
 
 async function insertManyWithColumnFallback(table: string, payloads: Record<string, unknown>[]) {
   if (!payloads.length) return { error: null as string | null };
-  let next = payloads.map((payload) => ({ ...payload }));
+  let next = payloads.filter(Boolean).map((payload) => ({ ...payload }));
   const removed = new Set<string>();
 
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -117,7 +118,7 @@ async function safeSelect(table: string, select = '*', limit = 500) {
     if (isMissingRelation(error.message)) return [] as Record<string, unknown>[];
     throw error;
   }
-  return (data || []) as unknown as Record<string, unknown>[];
+  return ((data || []) as unknown as Record<string, unknown>[]).filter(Boolean);
 }
 
 function staffChoiceInput(row: Record<string, unknown>) {
@@ -228,8 +229,7 @@ export async function loadShiftMembers(params: {
       const excluded = exceptionType.includes('إجازة') || exceptionType.includes('غياب');
       if (excluded) return null;
 
-      const attendance =
-        attendanceByName.get(staff.name) || attendanceByStaffId.get(staff.id);
+      const attendance = attendanceByName.get(staff.name) || attendanceByStaffId.get(staff.id);
       const hasPermission =
         Boolean(exception) && (exceptionType.includes('إذن') || exceptionType.includes('تبديل'));
 
@@ -279,7 +279,7 @@ async function countPreviousLeaderRepeats(input: {
     .limit(50);
 
   if (error) return 0;
-  return (data || []).filter((row) =>
+  return (data || []).filter(Boolean).filter((row) =>
     String(row.description || '').includes(`__RULE__:${input.ruleCode}`)
   ).length;
 }
@@ -324,8 +324,9 @@ export async function saveShiftPerformanceReview(
   const cycleEnd = cycle.end.toISOString().slice(0, 10);
   const rule = shiftDeductionRule(input.issue_category, input.severity);
   const now = new Date().toISOString();
-  const totalPoints = input.members.reduce(
-    (sum, member) => sum + Math.abs(Number(member.assigned_points || 0)),
+  const safeMembers = input.members.filter(Boolean);
+  const totalPoints = safeMembers.reduce(
+    (sum, member) => sum + Math.min(MAX_DEDUCTION_PER_EVENT, Math.abs(Number(member.assigned_points || 0))),
     0
   );
 
@@ -373,7 +374,7 @@ export async function saveShiftPerformanceReview(
     };
   }
 
-  const membersForStorage = input.members.map((member) => ({
+  const membersForStorage = safeMembers.map((member) => ({
     review_id: review.id,
     staff_id: member.staff_id,
     staff_name: member.staff_name,
@@ -383,8 +384,8 @@ export async function saveShiftPerformanceReview(
     has_permission: member.has_permission,
     base_points: member.base_points,
     repeat_count: member.repeat_count,
-    multiplier: member.multiplier,
-    assigned_points: member.assigned_points,
+    multiplier: Math.min(MAX_REPEAT_MULTIPLIER, Math.max(1, Number(member.multiplier) || 1)),
+    assigned_points: Math.min(MAX_DEDUCTION_PER_EVENT, Math.max(0, Math.abs(Number(member.assigned_points) || 0))),
     notes: member.notes || null,
     created_at: now,
   }));
@@ -397,7 +398,7 @@ export async function saveShiftPerformanceReview(
 
   const shouldCreateTransactions = input.status !== 'rejected';
   if (shouldCreateTransactions) {
-    for (const member of input.members) {
+    for (const member of safeMembers) {
       if (!member.assigned_points || member.assigned_points <= 0) continue;
 
       const isLeader = member.is_shift_leader;
@@ -410,10 +411,13 @@ export async function saveShiftPerformanceReview(
             cycleEnd,
           })
         : 0;
-      const multiplier = isLeader ? Math.min(4, 2 ** previous) : member.multiplier || 1;
-      const finalPoints = isLeader
-        ? Math.min(160, Math.round((member.base_points || 20) * multiplier))
-        : member.assigned_points;
+      const multiplier = isLeader
+        ? Math.min(MAX_REPEAT_MULTIPLIER, Math.max(1, previous + 1))
+        : Math.min(MAX_REPEAT_MULTIPLIER, Math.max(1, Number(member.multiplier) || 1));
+      const requestedPoints = isLeader
+        ? Math.round(Math.max(0, Number(member.base_points) || 20) * multiplier)
+        : Math.abs(Number(member.assigned_points) || 0);
+      const finalPoints = Math.min(MAX_DEDUCTION_PER_EVENT, requestedPoints);
       const status = input.status === 'approved' ? 'approved' : 'pending';
 
       const result = await persistPointsTransaction({
@@ -446,7 +450,7 @@ export async function saveShiftPerformanceReview(
           member.staff_id,
           500,
           500,
-          -Math.abs(finalPoints),
+          -finalPoints,
           member.staff_name,
           member.branch || input.branch_name
         );
@@ -475,5 +479,5 @@ export async function fetchShiftPerformanceStats() {
     .order('created_at', { ascending: false })
     .limit(100);
   if (error) return { reviews: [], error: error.message };
-  return { reviews: data || [], error: null };
+  return { reviews: (data || []).filter(Boolean), error: null };
 }

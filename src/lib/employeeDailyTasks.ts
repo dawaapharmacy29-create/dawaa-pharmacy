@@ -185,7 +185,13 @@ export async function generateTasksForStaff(staff: StaffLike, date = todayIso())
       p_task_date: taskDate,
     });
     if (!error && Array.isArray(data)) {
-      return { tasks: data.map((row) => normalizeTask(row as Record<string, unknown>)), generated: data.length, unavailable: false, error: null };
+      const safeRows = data.filter(Boolean);
+      return {
+        tasks: safeRows.map((row) => normalizeTask(row as Record<string, unknown>)),
+        generated: safeRows.length,
+        unavailable: false,
+        error: null,
+      };
     }
   } catch {
     // Fallback to safe upsert below when RPC is not installed yet.
@@ -213,7 +219,13 @@ export async function generateTasksForStaff(staff: StaffLike, date = todayIso())
       .upsert(rows, { onConflict: 'staff_id,task_date,task_key' })
       .select('*');
     if (error) throw error;
-    return { tasks: (data || []).map((row) => normalizeTask(row as Record<string, unknown>)), generated: data?.length || 0, unavailable: false, error: null };
+    const safeRows = (data || []).filter(Boolean);
+    return {
+      tasks: safeRows.map((row) => normalizeTask(row as Record<string, unknown>)),
+      generated: safeRows.length,
+      unavailable: false,
+      error: null,
+    };
   } catch (error) {
     return {
       tasks: defaults,
@@ -268,7 +280,11 @@ export async function fetchEmployeeTasks(filters: EmployeeTaskFilters = {}) {
 
     const { data, error, count } = await query;
     if (error) throw error;
-    const tasks = applyClientScope((data || []).map((row) => normalizeTask(row as Record<string, unknown>)), filters.user);
+    const safeRows = (data || []).filter(Boolean);
+    const tasks = applyClientScope(
+      safeRows.map((row) => normalizeTask(row as Record<string, unknown>)),
+      filters.user
+    );
     return { tasks, total: count ?? tasks.length, unavailable: false, error: null };
   } catch (error) {
     return {

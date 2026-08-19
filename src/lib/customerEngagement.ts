@@ -98,9 +98,11 @@ export async function fetchBestWelcomeTemplate(
     .order('created_at', { ascending: true });
   if (error || !data?.length) return DEFAULT_WELCOME_MESSAGE;
 
-  const branchTemplate = data.find((row) => String(row.title || '').includes('باسم الفرع'));
-  const generalTemplate = data.find((row) => String(row.title || '').includes('القالب العام'));
-  const chosen = branchTemplate || generalTemplate || data[0];
+  const safeTemplates = data.filter(Boolean);
+  if (!safeTemplates.length) return DEFAULT_WELCOME_MESSAGE;
+  const branchTemplate = safeTemplates.find((row) => String(row.title || '').includes('باسم الفرع'));
+  const generalTemplate = safeTemplates.find((row) => String(row.title || '').includes('القالب العام'));
+  const chosen = branchTemplate || generalTemplate || safeTemplates[0];
 
   return String(chosen.message_body || DEFAULT_WELCOME_MESSAGE)
     .replace(/\{customer_name\}/g, customerName || 'حضرتك')
@@ -132,7 +134,8 @@ export async function searchCustomerIdentity(query: string): Promise<CustomerIde
     .or(`customer_code.eq.${q},customer_phone.eq.${q},customer_name.eq.${q}`)
     .limit(20);
   if (exactResult.error) throw new Error(exactResult.error.message);
-  if (exactResult.data && exactResult.data.length) return exactResult.data as CustomerIdentity[];
+  if (exactResult.data && exactResult.data.length)
+    return exactResult.data.filter(Boolean) as CustomerIdentity[];
 
   const { data, error } = await supabase
     .from('customer_metrics_summary')
@@ -141,7 +144,7 @@ export async function searchCustomerIdentity(query: string): Promise<CustomerIde
     .order('customer_code', { ascending: true })
     .limit(20);
   if (error) throw new Error(error.message);
-  return (data || []) as CustomerIdentity[];
+  return (data || []).filter(Boolean) as CustomerIdentity[];
 }
 
 export async function fetchCustomerPointsLedger(identity: CustomerIdentity) {
@@ -154,11 +157,11 @@ export async function fetchCustomerPointsLedger(identity: CustomerIdentity) {
     .order('created_at', { ascending: false })
     .limit(200);
   if (error) throw new Error(error.message);
-  return (data || []) as CustomerPointsLedgerRow[];
+  return (data || []).filter(Boolean) as CustomerPointsLedgerRow[];
 }
 
 export function totalCustomerPoints(rows: CustomerPointsLedgerRow[]) {
-  return rows.reduce((sum, row) => {
+  return rows.filter(Boolean).reduce((sum, row) => {
     const amount = Number(row.points_amount || 0);
     if (row.transaction_type === 'debit') return sum - Math.abs(amount);
     if (row.transaction_type === 'correction') return sum + amount;
@@ -240,7 +243,7 @@ export type CashbackQuarterBounds = { period_start: string; period_end: string; 
 export async function fetchCashbackQuarterBounds(): Promise<CashbackQuarterBounds | null> {
   const { data, error } = await supabase.rpc('get_cashback_quarter_bounds');
   if (error) return null;
-  return (data as CashbackQuarterBounds[] | null)?.[0] || null;
+  return ((data as CashbackQuarterBounds[] | null) || []).filter(Boolean)[0] || null;
 }
 
 export type CustomerWithPendingPoints = {
@@ -258,8 +261,8 @@ export async function fetchCustomersWithPendingPoints(branch: string): Promise<C
   // الدالة بترجع {total_customers, rows} من بعد migration raise_points_followup_limit_add_total_count
   // (مش مصفوفة مباشرة زي ما كانت قبل كده) — لازم نفك التغليف هنا.
   const payload = data as { total_customers?: number; rows?: CustomerWithPendingPoints[] } | CustomerWithPendingPoints[] | null;
-  if (Array.isArray(payload)) return payload; // توافق رجعي لو الدالة رجعت لشكلها القديم يومًا
-  return payload?.rows || [];
+  if (Array.isArray(payload)) return payload.filter(Boolean); // توافق رجعي لو الدالة رجعت لشكلها القديم يومًا
+  return (payload?.rows || []).filter(Boolean);
 }
 
 export async function markCustomerPointsContacted(customerCode: string, branch: string, actorName?: string | null) {
@@ -297,7 +300,7 @@ export async function fetchWelcomeMessageLogs(identity: CustomerIdentity, filter
     p_to: filters.to || null,
   });
   if (error) throw new Error(error.message);
-  return (data || []) as WelcomeMessageLogRow[];
+  return (data || []).filter(Boolean) as WelcomeMessageLogRow[];
 }
 
 export async function addWelcomeMessageLog(payload: Partial<WelcomeMessageLogRow>) {
