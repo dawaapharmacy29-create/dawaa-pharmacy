@@ -16,6 +16,7 @@ import {
   type FollowupStats,
 } from '@/lib/api/customerServiceCommandCenter';
 import { normalizeBranchName } from '@/lib/branch';
+import { isCompletedFollowup, isNoAnswerFollowupValue } from '@/lib/customerFollowupCore';
 import { CustomerFlagChips } from '@/lib/customerDisplay';
 import { formatCurrency } from '@/lib/utils';
 import FollowupResultModal, { type FollowupResultData } from '@/components/customerService/FollowupResultModal';
@@ -33,12 +34,12 @@ function totalSpent(row: FollowupRow) { return Number(row.customer_metrics?.tota
 function avgMonthly(row: FollowupRow) { return Number(row.customer_metrics?.avg_monthly || 0) || 0; }
 function invoicesCount(row: FollowupRow) { return Number(row.customer_metrics?.invoices_count || 0) || 0; }
 function dueAt(row: FollowupRow) { return row.followup_datetime || row.followup_date || row.next_followup_date || row.date || row.created_at || null; }
-function isDone(row: FollowupRow) { return Boolean(row.completed_at) || /تم|completed|closed|done/i.test(statusOf(row)); }
+function isDone(row: FollowupRow) { return isCompletedFollowup(row as Record<string, unknown>); }
 function isOverdue(row: FollowupRow) { const due = dueAt(row); return Boolean(due && !isDone(row) && new Date(due).getTime() < Date.now()); }
 function branchLabel(value?: string | null) { return normalizeBranchName(value || '') || text(value, 'غير محدد'); }
 function whatsappLink(phone: string) { const cleaned = phone.replace(/\D/g, ''); if (!cleaned) return ''; const normalized = cleaned.startsWith('20') ? cleaned : cleaned.startsWith('0') ? `2${cleaned}` : cleaned; return `https://wa.me/${normalized}`; }
 function priorityClass(priority?: string | null) { const raw = text(priority).toLowerCase(); if (/عاجل|urgent|critical/.test(raw)) return 'border-red-400/40 bg-red-500/10 text-red-100'; if (/مهم|high/.test(raw)) return 'border-amber-400/40 bg-amber-500/10 text-amber-100'; return 'border-slate-600 bg-slate-800/50 text-slate-200'; }
-function statusClass(row: FollowupRow) { if (isDone(row)) return 'border-teal-400/40 bg-teal-500/10 text-teal-100'; if (isOverdue(row)) return 'border-red-400/40 bg-red-500/10 text-red-100'; if (/لم يرد|no_answer/i.test(statusOf(row))) return 'border-amber-400/40 bg-amber-500/10 text-amber-100'; return 'border-sky-400/40 bg-sky-500/10 text-sky-100'; }
+function statusClass(row: FollowupRow) { if (isDone(row)) return 'border-teal-400/40 bg-teal-500/10 text-teal-100'; if (isOverdue(row)) return 'border-red-400/40 bg-red-500/10 text-red-100'; if (isNoAnswerFollowupValue(statusOf(row))) return 'border-amber-400/40 bg-amber-500/10 text-amber-100'; return 'border-sky-400/40 bg-sky-500/10 text-sky-100'; }
 
 function modalPayload(result: FollowupResultData): FollowupResultPayload {
   const completed = result.result !== 'لم يرد' && result.result !== 'الرقم غير صحيح';
