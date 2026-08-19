@@ -43,6 +43,33 @@ interface HeaderProps {
 
 const SOUND_KEY = 'dawaa_notif_sound';
 
+// المتصفحات بتمنع تشغيل أي صوت قبل أول تفاعل حقيقي من المستخدم (دوسة/لمسة).
+// بنجهّز ونفعّل AudioContext واحد من أول تفاعل ونحتفظ بيه، عشان أي صوت إشعار
+// بعد كده يشتغل فعليًا وبسرعة من غير ما يستنى تفاعل جديد كل مرة.
+let sharedAudioContext: AudioContext | null = null;
+function ensureAudioUnlocked() {
+  if (sharedAudioContext) {
+    if (sharedAudioContext.state === 'suspended') void sharedAudioContext.resume();
+    return;
+  }
+  try {
+    sharedAudioContext = new AudioContext();
+  } catch {
+    // Browser audio unavailable.
+  }
+}
+if (typeof window !== 'undefined') {
+  const unlock = () => {
+    ensureAudioUnlocked();
+    window.removeEventListener('click', unlock);
+    window.removeEventListener('touchstart', unlock);
+    window.removeEventListener('keydown', unlock);
+  };
+  window.addEventListener('click', unlock, { once: true });
+  window.addEventListener('touchstart', unlock, { once: true });
+  window.addEventListener('keydown', unlock, { once: true });
+}
+
 const notifColors: Record<string, string> = {
   reward: 'bg-emerald-50 border-emerald-200 text-emerald-700',
   deduction: 'bg-red-50 border-red-200 text-red-700',
@@ -59,7 +86,10 @@ function playNotificationBeep() {
   const mode = localStorage.getItem(SOUND_KEY) || 'soft';
   if (mode === 'off') return;
   try {
-    const ctx = new AudioContext();
+    ensureAudioUnlocked();
+    const ctx = sharedAudioContext;
+    if (!ctx) return;
+    if (ctx.state === 'suspended') void ctx.resume();
     const oscillator = ctx.createOscillator();
     const gain = ctx.createGain();
     oscillator.connect(gain);
@@ -70,7 +100,6 @@ function playNotificationBeep() {
     setTimeout(
       () => {
         oscillator.stop();
-        ctx.close();
       },
       mode === 'distinct' ? 220 : 140
     );
@@ -196,7 +225,9 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
       return;
     }
     const newest = visibleNotifications[0];
-    if (visibleUnreadCount > prevUnread.current && newest && isUrgent(newest)) playNotificationBeep();
+    // أي إشعار جديد بيوصل (مش بس العاجل) لازم يعمل صوت — الدكتور والفريق كله
+    // محتاجين يعرفوا لحظيًا من غير ما يفوتهم حاجة.
+    if (visibleUnreadCount > prevUnread.current && newest) playNotificationBeep();
     prevUnread.current = visibleUnreadCount;
   }, [visibleNotifications, visibleUnreadCount]);
 
