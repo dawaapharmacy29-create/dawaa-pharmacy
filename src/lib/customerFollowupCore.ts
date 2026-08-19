@@ -34,8 +34,24 @@ export const FINAL_FOLLOWUP_RESULTS = new Set([
   'تم إلغاء المتابعة',
   'completed',
   'closed',
+  'done',
   'cancelled',
   'archived',
+]);
+
+export const COMPLETED_FOLLOWUP_STATES = new Set([
+  'completed',
+  'closed',
+  'done',
+  'تم',
+  'مكتمل',
+  'تم الشراء بعد المتابعة',
+]);
+
+export const NO_ANSWER_FOLLOWUP_VALUES = new Set([
+  'no_answer',
+  'no answer',
+  'لم يرد',
 ]);
 
 export const OPEN_FOLLOWUP_RESULTS = new Set([
@@ -62,14 +78,32 @@ export const OPEN_FOLLOWUP_RESULTS = new Set([
   'scheduled',
   'needs_manager',
   'postponed',
+  'no_answer',
+  'no answer',
+  'contacted',
+  'responded',
 ]);
 
 function text(value: unknown) {
   return String(value ?? '').trim();
 }
 
+export function normalizeFollowupState(value: unknown) {
+  return text(value).toLowerCase();
+}
+
 export function isMeaningfulText(value: unknown) {
   return !INVALID_TEXT_VALUES.has(text(value).toLowerCase());
+}
+
+export function isNoAnswerFollowupValue(value: unknown) {
+  const normalized = normalizeFollowupState(value);
+  return NO_ANSWER_FOLLOWUP_VALUES.has(normalized) || NO_ANSWER_FOLLOWUP_VALUES.has(text(value));
+}
+
+export function isCompletedFollowupState(value: unknown) {
+  const normalized = normalizeFollowupState(value);
+  return COMPLETED_FOLLOWUP_STATES.has(normalized) || COMPLETED_FOLLOWUP_STATES.has(text(value));
 }
 
 export function normalizeEgyptianPhone(value: unknown) {
@@ -133,7 +167,7 @@ export function isOpenFollowupResult(value: unknown) {
 
 export function isCancelledFollowup(row: Record<string, unknown> | null | undefined) {
   if (!row) return false;
-  return Boolean(row.cancelled_at) || /cancelled|تم إلغاء المتابعة/i.test(text(row.status || row.followup_status || row.followup_result));
+  return Boolean(row.cancelled_at) || /cancelled|canceled|ملغي|ملغى|تم إلغاء المتابعة/i.test(text(row.status || row.followup_status || row.followup_result));
 }
 
 export function isArchivedFollowup(row: Record<string, unknown> | null | undefined) {
@@ -143,7 +177,14 @@ export function isArchivedFollowup(row: Record<string, unknown> | null | undefin
 
 export function isCompletedFollowup(row: Record<string, unknown> | null | undefined) {
   if (!row || isCancelledFollowup(row) || isArchivedFollowup(row)) return false;
-  const result = row.followup_result || row.contact_result || row.followup_status || row.status;
+
+  // Completion state belongs to the workflow status fields. Contact fields like
+  // "responded / تم التواصل" alone must not close a follow-up that still needs work.
+  if (isCompletedFollowupState(row.status) || isCompletedFollowupState(row.followup_status)) {
+    return true;
+  }
+
+  const result = row.followup_result || row.contact_result;
   if (isOpenFollowupResult(result)) return false;
   return Boolean(row.completed_at || row.closed_at) || isFinalFollowupResult(result);
 }
