@@ -378,7 +378,8 @@ function normalizeFollowup(row: Row): FollowupRow {
   };
 }
 
-function indexMetric(map: Map<string, CustomerMetric>, metric: CustomerMetric) {
+function indexMetric(map: Map<string, CustomerMetric>, metric: CustomerMetric | null | undefined) {
+  if (!metric) return;
   [metric.customer_code, metric.customer_phone, metric.phone, metric.customer_name]
     .map(normalizeKey)
     .filter(Boolean)
@@ -395,8 +396,8 @@ async function enrichFollowupRows(rows: FollowupRow[], filters: FollowupFilters)
       offset: 0,
     });
     const byKey = new Map<string, CustomerMetric>();
-    result.customers.forEach((metric) => indexMetric(byKey, metric));
-    return rows.map((row) => {
+    result.customers.filter(Boolean).forEach((metric) => indexMetric(byKey, metric));
+    return rows.filter(Boolean).map((row) => {
       let metric: CustomerMetric | null = null;
       const keys = [row.customer_code, row.customer_phone, row.phone, row.name, row.customer_name]
         .map(normalizeKey)
@@ -482,7 +483,7 @@ export async function searchCustomerMetrics(
     limit: 20,
     offset: 0,
   });
-  return result.customers.map((metric) => ({
+  return result.customers.filter(Boolean).map((metric) => ({
     ...metric,
     source: 'customer_metrics_summary',
     hasTodayFollowup: false,

@@ -513,7 +513,7 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
   }
 
   const mapped = await patchCustomerMetricsFromInvoices(
-    ((data ?? []) as Row[]).map(normalizeCustomerMetric)
+    ((data ?? []) as Row[]).filter(Boolean).map(normalizeCustomerMetric)
   );
 
   if (
