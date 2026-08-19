@@ -1,5 +1,6 @@
 import { normalizeBranchName as normalizeBranchNameShared } from '@/lib/branch';
 import type { EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
+import { MAX_DEDUCTION_PER_EVENT, MAX_REPEAT_MULTIPLIER } from '@/lib/pointsWorkflow';
 
 export type ShiftType = 'morning' | 'evening' | 'night';
 export type WorkloadPressure = 'normal' | 'medium' | 'high' | 'very_high';
@@ -112,7 +113,7 @@ export function buildShiftMembersWithPoints(
 ): ShiftMemberDraft[] {
   const protectedByPressure = shouldProtectFromAutoDeduction(pressure) || negligence !== 'yes';
 
-  return members.map((member) => {
+  return members.filter(Boolean).map((member) => {
     const isLeader = member.staff_id === leaderId;
     let base = member.base_points || 0;
 
@@ -120,9 +121,14 @@ export function buildShiftMembersWithPoints(
     else if (actionMode === 'leader_only') base = isLeader ? 20 : 0;
     else if (actionMode === 'leader_and_team') base = isLeader ? 20 : 5;
 
-    const multiplier = isLeader && base > 0 ? member.multiplier || 1 : 1;
+    const multiplier =
+      isLeader && base > 0
+        ? Math.min(MAX_REPEAT_MULTIPLIER, Math.max(1, Number(member.multiplier) || 1))
+        : 1;
     const assigned =
-      actionMode === 'custom' ? member.assigned_points : Math.round(base * multiplier);
+      actionMode === 'custom'
+        ? Number(member.assigned_points) || 0
+        : Math.min(MAX_DEDUCTION_PER_EVENT, Math.round(Math.max(0, base) * multiplier));
 
     return {
       ...member,
@@ -158,6 +164,6 @@ export function shiftDeductionRule(issueCategory: string, severity: string): Eva
     allowed_approver_roles: ['branch_manager', 'general_manager'],
     repeat_policy: 'double_per_cycle',
     active: true,
-    max_points_cap: 160,
+    max_points_cap: MAX_DEDUCTION_PER_EVENT,
   };
 }
