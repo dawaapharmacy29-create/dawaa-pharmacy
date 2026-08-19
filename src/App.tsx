@@ -182,7 +182,10 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
       const last = Number(sessionStorage.getItem(key) || 0);
       if (Date.now() - last > 15000) {
         sessionStorage.setItem(key, String(Date.now()));
-        window.location.reload();
+        // إعادة تحميل عادية أحيانًا بترجع نفس الصفحة القديمة من كاش HTTP —
+        // معامل فريد في الرابط بيجبر المتصفح يجيب index.html طازة 100%.
+        window.location.href = window.location.pathname + window.location.search
+          + (window.location.search ? '&' : '?') + '_r=' + Date.now() + window.location.hash;
       }
     }
   }

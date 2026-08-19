@@ -17,6 +17,10 @@ function shortErrorMessage(error: unknown) {
   return String(error || 'unknown error');
 }
 
+function isStaleChunkMessage(message: string) {
+  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
+}
+
 export default class PageSafetyBoundary extends Component<
   PageSafetyBoundaryProps,
   PageSafetyBoundaryState
@@ -33,6 +37,13 @@ export default class PageSafetyBoundary extends Component<
   }
 
   retry = () => {
+    // لو السبب ملف قديم اتشال بعد نشرة جديدة، مسح حالة الخطأ بس مش هيحل
+    // حاجة — لازم تحميل كامل يجيب index.html وملفات JS طازة فعليًا.
+    if (isStaleChunkMessage(this.state.message)) {
+      window.location.href = window.location.pathname + window.location.search
+        + (window.location.search ? '&' : '?') + '_r=' + Date.now() + window.location.hash;
+      return;
+    }
     this.setState({ hasError: false, message: '' });
   };
 

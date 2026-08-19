@@ -88,7 +88,8 @@ const SafeApp = lazy(async () => {
       const last = Number(sessionStorage.getItem(key) || 0);
       if (Date.now() - last > 15000) {
         sessionStorage.setItem(key, String(Date.now()));
-        window.location.reload();
+        window.location.href = window.location.pathname + window.location.search
+          + (window.location.search ? '&' : '?') + '_r=' + Date.now() + window.location.hash;
         return { default: BootstrapShell };
       }
     }
