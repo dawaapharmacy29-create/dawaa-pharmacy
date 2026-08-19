@@ -55,7 +55,7 @@ export async function fetchCustomerCycleCohorts(branch: string, asOfDate: string
     p_actor_id: actorId,
   });
   if (error) throw new Error(error.message);
-  return (data || []) as CustomerCycleCohort[];
+  return (data || []).filter(Boolean) as CustomerCycleCohort[];
 }
 
 export async function fetchWatchlistPerformance(branch: string, asOfDate: string, actorId?: string) {
@@ -66,7 +66,7 @@ export async function fetchWatchlistPerformance(branch: string, asOfDate: string
     p_actor_id: actorId,
   });
   if (error) throw new Error(error.message);
-  return (data || []) as WatchlistCustomerPerformance[];
+  return (data || []).filter(Boolean) as WatchlistCustomerPerformance[];
 }
 
 export async function replaceCustomerWatchlist(branch: string, rows: WatchlistUploadRow[]) {
@@ -88,6 +88,7 @@ export function normalizeWatchlistRows(rows: Array<Record<string, unknown>>): Wa
     return '';
   };
   const normalized = rows
+    .filter(Boolean)
     .map((row) => ({
       customer_code: value(row, ['كود العميل', 'الكود', 'customer_code', 'code']),
       customer_name: value(row, ['اسم العميل', 'الاسم', 'customer_name', 'name']),
