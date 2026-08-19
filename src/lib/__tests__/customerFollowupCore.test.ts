@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCustomerIdentity,
   getCustomerActivityState,
+  isCompletedFollowup,
   isFinalFollowupResult,
+  isNoAnswerFollowupValue,
   isOpenFollowupResult,
   isValidEgyptianMobile,
   normalizeEgyptianPhone,
@@ -40,6 +42,21 @@ describe('customer followup core', () => {
     expect(isFinalFollowupResult('تم الرد والعميل راضي')).toBe(true);
     expect(isOpenFollowupResult('مؤجل')).toBe(true);
     expect(isOpenFollowupResult('not_started')).toBe(true);
+    expect(isOpenFollowupResult('no_answer')).toBe(true);
+    expect(isOpenFollowupResult('responded')).toBe(true);
+  });
+
+  it('normalizes Arabic and English no-answer values', () => {
+    expect(isNoAnswerFollowupValue('لم يرد')).toBe(true);
+    expect(isNoAnswerFollowupValue('no_answer')).toBe(true);
+    expect(isNoAnswerFollowupValue('no answer')).toBe(true);
+  });
+
+  it('recognizes Arabic workflow completion without using contact response as closure', () => {
+    expect(isCompletedFollowup({ status: 'تم' })).toBe(true);
+    expect(isCompletedFollowup({ followup_status: 'مكتمل' })).toBe(true);
+    expect(isCompletedFollowup({ status: 'pending', contact_status: 'responded' })).toBe(false);
+    expect(isCompletedFollowup({ status: 'pending', contact_result: 'تم التواصل' })).toBe(false);
   });
 
   it('classifies recent customers as active', () => {
