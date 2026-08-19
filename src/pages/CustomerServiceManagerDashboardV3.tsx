@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
 import CustomerServicePersonalDashboard from '@/components/customerService/CustomerServicePersonalDashboard';
-import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
+import { ManagerScoreBreakdownTab } from '@/components/evaluations/ManagerScoreBreakdownTab';
 
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const soft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
@@ -227,7 +227,7 @@ export default function CustomerServiceManagerDashboardV3() {
   return <div className="space-y-5 p-4 md:p-6" dir="rtl">
     {user?.name && !allBranches ? <>
       <CustomerServicePersonalDashboard branch={ownBranch} staffName={user.name} />
-      <ManagerLiveIncentiveCard evaluationType="customer_service" staffId={user.staffId || user.id} branch={ownBranch} />
+      <ManagerScoreBreakdownTab evaluationType="customer_service" staffId={user.staffId || user.id} branch={ownBranch} />
     </> : <div className="flex flex-col gap-3 rounded-3xl border p-5 md:flex-row md:items-center md:justify-between" style={surface}>
       <div>
         <div className="flex items-center gap-2 text-teal-200"><Headphones size={18} /><span className="text-xs font-black">لوحة مدير خدمة العملاء</span></div>
