@@ -48,13 +48,16 @@ async function safeCount(table: string, column: string, staffId: string): Promis
 }
 
 async function loadStaffAccountsByStaffId(): Promise<Map<string, string>> {
-  const { data, error } = await supabase.from('staff_accounts').select('id,staff_id');
+  const { data, error } = await supabase.rpc('get_staff_accounts_directory', {
+    p_roles: null,
+    p_branch: null,
+  });
   if (error) return new Map<string, string>();
-  const rows = (data || []) as Array<{ id: unknown; staff_id: unknown }>;
+  const rows = ((data || []) as Array<{ account_id?: unknown; staff_id?: unknown }>).filter(Boolean);
   return new Map<string, string>(
     rows
-      .filter((row) => Boolean(row.staff_id))
-      .map((row): [string, string] => [String(row.staff_id), String(row.id)])
+      .filter((row) => Boolean(row.staff_id) && Boolean(row.account_id))
+      .map((row): [string, string] => [String(row.staff_id), String(row.account_id)])
   );
 }
 
@@ -72,7 +75,7 @@ export async function fetchAllStaffWithCounts(): Promise<StaffDuplicateRecord[]>
   for (const select of staffSelects) {
     const { data, error } = await supabase.from('staff').select(select);
     if (!error) {
-      staffData = (data || []) as Record<string, unknown>[];
+      staffData = ((data || []) as Record<string, unknown>[]).filter(Boolean);
       lastError = null;
       break;
     }
@@ -126,7 +129,7 @@ export async function fetchAllStaffWithCounts(): Promise<StaffDuplicateRecord[]>
 
 function groupDuplicateStaff(allStaff: StaffDuplicateRecord[]): StaffDuplicateGroup[] {
   const groups = new Map<string, StaffDuplicateRecord[]>();
-  for (const staff of allStaff) {
+  for (const staff of allStaff.filter(Boolean)) {
     if (!staff.normalized_name) continue;
     const current = groups.get(staff.normalized_name) || [];
     current.push(staff);
