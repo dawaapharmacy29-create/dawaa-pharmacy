@@ -80,10 +80,9 @@ export async function fetchStaffIdentityRows(): Promise<StaffIdentityRow[]> {
   if (!isSupabaseConfigured) return [];
   const [staffResult, accountResult, aliasResult] = await Promise.all([
     supabase.from('staff').select('id,name,branch,role,active,is_active').limit(800),
-    supabase
-      .from('staff_accounts')
-      .select('staff_id,staff_name,name,branch,role,staff_role,job_title,active,is_active,can_login')
-      .limit(1200),
+    // staff_accounts محمي بـ RLS (المدراء بس بيشوفوا كل الحسابات مباشرة) —
+    // بنستخدم دالة آمنة عشان مطابقة الأسماء تفضل كاملة لأي مستخدم.
+    supabase.rpc('get_staff_accounts_directory'),
     supabase
       .from('staff_identity_aliases')
       .select('staff_id,alias_name,active,confidence,priority')

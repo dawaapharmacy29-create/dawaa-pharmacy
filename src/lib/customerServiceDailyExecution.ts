@@ -397,11 +397,9 @@ export async function notifyIncompleteDailyQueue(input: {
     'branches_manager',
     'general_manager',
   ];
-  const accounts = await supabase
-    .from('staff_accounts')
-    .select('staff_id,id,role,branch,active,status')
-    .in('role', roles)
-    .limit(100);
+  // staff_accounts محمي بـ RLS — بنستخدم دالة آمنة عشان الإشعار يوصل حتى لو
+  // مسؤولة خدمة العملاء (مش مدير) هي اللي شغّلت العملية.
+  const accounts = await supabase.rpc('get_staff_accounts_directory', { p_roles: roles });
   if (accounts.error) return;
   const eligibleRecipients = (accounts.data || []).filter((row) => {
     if (row.active === false || text(row.status).includes('موقوف')) return false;

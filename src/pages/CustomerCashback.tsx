@@ -512,16 +512,15 @@ export default function CustomerCashback() {
 
   useEffect(() => {
     let cancelled = false;
+    // staff_accounts محمي بـ RLS — دالة آمنة بدل القراءة المباشرة.
     supabase
-      .from('staff_accounts')
-      .select('name, branch')
-      .eq('role', 'customer_service_manager')
-      .eq('active', true)
-      .eq('can_login', true)
+      .rpc('get_staff_accounts_directory', { p_roles: ['customer_service_manager'] })
       .then(({ data }) => {
         if (cancelled || !data) return;
+        const activeRows = (data as Array<{ name: string; branch: string | null; active: boolean; can_login: boolean }>)
+          .filter((row) => row.active !== false && row.can_login !== false);
         const map: Record<string, string> = {};
-        (data as Array<{ name: string; branch: string | null }>).forEach((row) => {
+        activeRows.forEach((row) => {
           const normalized = normalizeBranchName(row.branch || '');
           if (normalized) map[normalized] = row.name;
         });

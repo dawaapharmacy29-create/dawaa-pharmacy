@@ -89,15 +89,16 @@ export async function notifyBranchDoctors(
   if (!branchValue) return;
   // لازم تشمل الدكاترة (pharmacist) والمساعدين (assistant) مع بعض — التنبيه الخاص
   // بفرع معين المفروض يوصل لكل فريق الفرع ده، مش الصيادلة بس.
-  const { data, error } = await supabase
-    .from('staff_accounts')
-    .select('staff_id')
-    .eq('branch', branchValue)
-    .in('role', ['pharmacist', 'assistant'])
-    .eq('active', true)
-    .eq('can_login', true);
+  // staff_accounts محمي بـ RLS — دالة آمنة عشان التنبيه يوصل لكل الفريق حتى
+  // لو اللي شغّل العملية مش مدير.
+  const { data, error } = await supabase.rpc('get_staff_accounts_directory', {
+    p_roles: ['pharmacist', 'assistant'],
+    p_branch: branchValue,
+  });
   if (error || !data) return;
-  const staffIds: string[] = [...new Set(data.map((row) => text((row as RawRow).staff_id)))].filter((value): value is string => Boolean(value));
+  const activeRows = (data as Array<{ staff_id: string; active: boolean; can_login: boolean }>)
+    .filter((row) => row.active !== false && row.can_login !== false);
+  const staffIds: string[] = [...new Set(activeRows.map((row) => text(row.staff_id)))].filter((value): value is string => Boolean(value));
   await Promise.all(staffIds.map((recipientStaffId: string) => createStaffNotification({ ...notification, recipientStaffId }).catch(() => null)));
 }
 

@@ -215,9 +215,13 @@ export default function CustomerFollowupCockpitPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    supabase.from('staff_accounts').select('name, branch, role').eq('active', true).eq('can_login', true).in('role', ['customer_service_manager', 'branches_manager', 'general_manager']).then(({ data }) => {
+    // staff_accounts محمي بـ RLS (المدراء بس بيشوفوا كل الحسابات مباشرة) —
+    // بنستخدم دالة آمنة بدل القراءة المباشرة عشان الدليل يفضل كامل لأي حد.
+    supabase.rpc('get_staff_accounts_directory', { p_roles: ['customer_service_manager', 'branches_manager', 'general_manager'] }).then(({ data }) => {
       if (cancelled || !data) return;
-      setDirectory((data as Array<{ name: string; branch: string | null; role: string }>).map((row) => ({
+      const filtered = (data as Array<{ name: string; branch: string | null; role: string; active: boolean; can_login: boolean; status: string | null }>)
+        .filter((row) => row.active !== false && row.can_login !== false);
+      setDirectory(filtered.map((row) => ({
         name: text(row.name), normalized: normalizedActor(row.name), branch: row.role === 'customer_service_manager' ? normalizeBranchName(row.branch || '') : null,
         role: row.role === 'customer_service_manager' ? 'executor' : row.role === 'branches_manager' ? 'reviewer' : 'general_manager',
       })));
