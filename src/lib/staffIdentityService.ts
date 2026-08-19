@@ -56,7 +56,7 @@ function read(row: Row, keys: string[], fallback: unknown = null) {
 
 function uniqueIdentities(rows: StaffIdentityRow[]) {
   const map = new Map<string, StaffIdentityRow>();
-  for (const row of rows) {
+  for (const row of rows.filter(Boolean)) {
     const key = row.id || `${normalizeStaffName(row.name)}|${normalizeBranchName(row.branch) || ''}|${row.role || ''}`;
     if (!map.has(key)) map.set(key, row);
   }
@@ -93,14 +93,14 @@ export async function fetchStaffIdentityRows(): Promise<StaffIdentityRow[]> {
 
   const staffRows = staffResult.error
     ? []
-    : ((staffResult.data ?? []) as Row[]).map((row) =>
-        staffIdentityFromRow(row, ['id'], ['name'])
-      );
+    : ((staffResult.data ?? []) as Row[])
+        .filter(Boolean)
+        .map((row) => staffIdentityFromRow(row, ['id'], ['name']));
   const accountRows = accountResult.error
     ? []
-    : ((accountResult.data ?? []) as Row[]).map((row) =>
-        staffIdentityFromRow(row, ['staff_id'], ['staff_name', 'name'])
-      );
+    : ((accountResult.data ?? []) as Row[])
+        .filter(Boolean)
+        .map((row) => staffIdentityFromRow(row, ['staff_id'], ['staff_name', 'name']));
 
   // Prefer the canonical staff row when both sources describe the same staff_id,
   // but keep active account-only identities (for example migrated/legacy doctors).
@@ -110,6 +110,7 @@ export async function fetchStaffIdentityRows(): Promise<StaffIdentityRow[]> {
   const aliasRows = aliasResult.error
     ? []
     : ((aliasResult.data ?? []) as Row[])
+        .filter(Boolean)
         .map((alias) => {
           const base = byId.get(text(alias.staff_id));
           const aliasName = text(alias.alias_name);
@@ -125,12 +126,13 @@ export function findStaffIdentityForSalesRow(
   row: StaffSalesSummary,
   staffRows: StaffIdentityRow[]
 ) {
+  if (!row) return null;
   const sellerName = row.sellerName || '';
   const normalized = normalizeStaffName(sellerName);
   const branch = normalizeBranchName(row.branch);
   if (!normalized) return null;
 
-  const salesStaffRows = staffRows.filter(isSalesIdentityRole);
+  const salesStaffRows = staffRows.filter(Boolean).filter(isSalesIdentityRole);
   const sameBranch = uniqueIdentities(
     salesStaffRows.filter(
       (staff) =>
@@ -165,7 +167,7 @@ export function groupStaffSalesPerformance(
 ): GroupedStaffSalesPerformance[] {
   const groups = new Map<string, GroupedStaffSalesPerformance>();
 
-  for (const row of rows) {
+  for (const row of rows.filter(Boolean)) {
     if (!row.sellerName) continue;
     const identity = findStaffIdentityForSalesRow(row, staffRows);
     const normalizedName = normalizeStaffName(identity?.name || row.sellerName);
