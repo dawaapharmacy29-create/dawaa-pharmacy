@@ -1,4 +1,5 @@
 import { normalizeBranchName } from '@/lib/branch';
+import { isCompletedFollowup } from '@/lib/customerFollowupCore';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 import { getInvoiceAmount, getInvoiceBranch, getInvoiceDay, getInvoiceId, getInvoiceSellerName } from '@/lib/invoices/invoiceCore';
@@ -281,7 +282,7 @@ async function safeSelect(table: string, build: (query: ReturnType<typeof supaba
   try {
     const result = await (build(supabase.from(table)) as PromiseLike<{ data: unknown; error: { message?: string } | null }>);
     if (result.error) return { data: [] as Row[], error: result.error.message || `تعذر تحميل ${table}` };
-    return { data: (result.data || []) as Row[], error: null };
+    return { data: ((result.data || []) as Row[]).filter(Boolean), error: null };
   } catch (error) {
     return { data: [] as Row[], error: error instanceof Error ? error.message : `تعذر تحميل ${table}` };
   }
@@ -291,7 +292,7 @@ async function safeSelectRpc(fn: string) {
   try {
     const result = await supabase.rpc(fn);
     if (result.error) return { data: [] as Row[], error: result.error.message || `تعذر تحميل ${fn}` };
-    return { data: (result.data || []) as Row[], error: null };
+    return { data: ((result.data || []) as Row[]).filter(Boolean), error: null };
   } catch (error) {
     return { data: [] as Row[], error: error instanceof Error ? error.message : `تعذر تحميل ${fn}` };
   }
@@ -307,7 +308,7 @@ async function fetchDoctorSalesRows(range: { start: string; end: string }, branc
     noCache: true,
     pageSize: 1000,
   })) as Row[];
-  return rows.filter((row) => {
+  return rows.filter(Boolean).filter((row) => {
     const day = invoiceDate(row);
     return day && day >= range.start && day <= range.end && !invoiceInvalid(row) && !isSystemGenericInvoice(row);
   });
@@ -320,7 +321,7 @@ async function fetchDoctorSalesAggregates(range: { start: string; end: string },
     p_branch: branch || ALL_BRANCHES,
   });
   if (error) throw new Error(error.message || 'get_dashboard_doctor_sales_v171 failed');
-  return (Array.isArray(data) ? data : data ? [data] : []) as DoctorSalesAggregate[];
+  return (Array.isArray(data) ? data : data ? [data] : []).filter(Boolean) as DoctorSalesAggregate[];
 }
 
 function doctorAccountFromRow(row: Row): EligibleDoctor | null {
@@ -565,7 +566,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     if (!doctor) continue;
     const { current } = upsert(doctor);
     current.followups += 1;
-    if (row.completed_at || /تم|completed|closed|done/i.test(text(row.status || row.followup_status))) current.completedFollowups += 1;
+    if (isCompletedFollowup(row)) current.completedFollowups += 1;
     if (truthy(row.purchase_after_followup)) {
       current.recoveredCustomers += 1;
       current.followupSales += num(row.purchase_amount);

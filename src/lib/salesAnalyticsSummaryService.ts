@@ -125,7 +125,7 @@ async function fetchAllSummaryRows(
       errorMessage = error.message;
       break;
     }
-    rows.push(...((data ?? []) as Row[]));
+    rows.push(...((data ?? []) as Row[]).filter(Boolean));
     if (!data || data.length < pageSize) break;
   }
   return { rows, error: errorMessage };
@@ -152,7 +152,7 @@ async function fetchLiveInvoiceRows(filters: SalesAnalyticsFilters) {
       errorMessage = error.message;
       break;
     }
-    rows.push(...((data ?? []) as Row[]));
+    rows.push(...((data ?? []) as Row[]).filter(Boolean));
     if (!data || data.length < pageSize) break;
   }
   return { rows, error: errorMessage };
