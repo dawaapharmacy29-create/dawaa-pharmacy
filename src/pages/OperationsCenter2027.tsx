@@ -1,4 +1,4 @@
-import { useMemo, useState, type ElementType, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ElementType, type ReactNode } from 'react';
 import {
   BellRing,
   CheckCircle2,
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSupabaseQuery, supabaseInsert, supabaseUpdate } from '@/hooks/useSupabaseQuery';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { currentCycleText, pickFirst } from '@/lib/dawaa2027';
 import { logActivity } from '@/lib/activityLog';
@@ -46,14 +47,20 @@ export default function OperationsCenter2027() {
     orderBy: { column: 'created_at', ascending: false },
     realtimeEnabled: true,
   });
-  const { data: rawNotifications, refetch: refetchNotifications } = useSupabaseQuery<
-    Record<string, unknown>
-  >({
-    table: 'notifications',
-    limit: 250,
-    orderBy: { column: 'created_at', ascending: false },
-    realtimeEnabled: true,
-  });
+  const [rawNotifications, setRawNotifications] = useState<Record<string, unknown>[]>([]);
+  const refetchNotifications = useCallback(() => {
+    void supabase
+      .rpc('get_my_notifications', {
+        p_staff_id: user?.staffId || null,
+        p_role: user?.role || null,
+        p_branch: user?.branch || null,
+        p_limit: 250,
+      })
+      .then(({ data }) => setRawNotifications((data as Record<string, unknown>[]) || []));
+  }, [user?.staffId, user?.role, user?.branch]);
+  useEffect(() => {
+    refetchNotifications();
+  }, [refetchNotifications]);
 
   const [form, setForm] = useState({
     title: '',
