@@ -4,6 +4,7 @@ import DoctorDashboardStable from '@/pages/DoctorDashboardStable';
 import DoctorReviewDetails from '@/components/doctor/DoctorReviewDetails';
 import DoctorTodayFocus from '@/components/doctor/DoctorTodayFocus';
 import DoctorIncentiveSummaryCard from '@/components/doctor/DoctorIncentiveSummaryCard';
+import DoctorDetailedActivityCard from '@/components/doctor/DoctorDetailedActivityCard';
 import { canAccessFullConversationReviewWorkspace } from '@/lib/reviewWorkspaceAccess';
 
 export default function DoctorDashboardEnhanced() {
@@ -18,6 +19,7 @@ export default function DoctorDashboardEnhanced() {
   return <div className="space-y-5" dir="rtl">
     {(!tab || tab === 'overview') ? <>
       <DoctorIncentiveSummaryCard staffId={String(user?.staffId || '')} onNavigate={() => setParams({ tab: 'payroll' })} />
+      <DoctorDetailedActivityCard staffId={String(user?.staffId || '')} />
       <DoctorTodayFocus
         staffId={String(user?.staffId || '')}
         userId={String(user?.id || '')}

@@ -7,6 +7,7 @@ import { normalizeRole } from '@/lib/core/permissionSystem';
 import { MANAGER_DAILY_TASKS, MANAGER_DAILY_TASK_GROUPS, getManagerTaskCadence, type ManagerDailyRole } from '@/lib/evaluations/managerDailyTasks';
 import { ASSISTANT_DAILY_TASKS, ASSISTANT_TASKS_TOTAL_WEIGHT } from '@/lib/evaluations/assistantDailyTasks';
 import { ManagerScoreBreakdownTab } from '@/components/evaluations/ManagerScoreBreakdownTab';
+import BranchStockDeficitCard from '@/components/evaluations/BranchStockDeficitCard';
 import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
 import { weekBoundsOf } from '@/lib/evaluations/managerEvaluationService';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
@@ -261,11 +262,16 @@ export default function DailyManagerChecklist() {
       )}
 
       {isEligible && !isAssistant && activeTab === 'score' ? (
-        <ManagerScoreBreakdownTab
-          evaluationType={ROLE_TO_EVALUATION_TYPE[role as ManagerDailyRole]}
-          staffId={staffId}
-          branch={effectiveBranch}
-        />
+        <>
+          {(role === 'branch_manager' || role === 'branches_manager') ? (
+            <BranchStockDeficitCard branch={effectiveBranch} />
+          ) : null}
+          <ManagerScoreBreakdownTab
+            evaluationType={ROLE_TO_EVALUATION_TYPE[role as ManagerDailyRole]}
+            staffId={staffId}
+            branch={effectiveBranch}
+          />
+        </>
       ) : (
         <>
           {role === 'branches_manager' && <div className="rounded-xl border border-white/10 bg-slate-900/40 px-3 py-2 text-sm font-black text-teal-200">مهام {selectedBranch} — الإنجاز والتقييم لهذا الفرع فقط</div>}
