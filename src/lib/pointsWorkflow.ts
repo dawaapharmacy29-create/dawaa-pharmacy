@@ -6,7 +6,8 @@ export type PointsTxnStatus = 'pending' | 'approved' | 'rejected';
 export type OperationKind = 'bonus' | 'deduction' | 'admin_adjustment';
 
 export const RULE_NOTE_PREFIX = '__RULE__:';
-export const MAX_DEDUCTION_PER_EVENT = 1000;
+export const MAX_REPEAT_MULTIPLIER = 2;
+export const MAX_DEDUCTION_PER_EVENT = 30;
 
 export function embedRuleCodeInNote(code: string, note: string): string {
   const clean = note?.trim() || '';
@@ -61,9 +62,8 @@ export function countPreviousRuleApplicationsInCycle(
 }
 
 export function repeatMultiplier(previousCount: number): number {
-  // التصعيد المطلوب للصيدلية: نفس الخطأ داخل دورة 26→25 يزيد خطيًا
-  // مثال بند 20 نقطة: أول مرة 20، ثاني مرة 40، ثالث مرة 60.
-  return Math.max(1, previousCount + 1);
+  // سياسة موحّدة: التكرار يصعد حتى ×2 فقط داخل دورة 26→25.
+  return Math.min(MAX_REPEAT_MULTIPLIER, Math.max(1, previousCount + 1));
 }
 
 export function computeDeductionWithRepeat(
@@ -72,12 +72,13 @@ export function computeDeductionWithRepeat(
   maxCap: number | undefined
 ): { base_points: number; repeat_count: number; multiplier: number; final_points: number } {
   const mult = repeatMultiplier(previousCount);
-  let final = Math.round(basePoints * mult);
-  const cap = maxCap ?? MAX_DEDUCTION_PER_EVENT;
-  final = Math.min(final, cap);
+  const safeBase = Math.max(0, Math.abs(Number(basePoints) || 0));
+  const requestedCap = Number.isFinite(maxCap) ? Math.max(0, Number(maxCap)) : MAX_DEDUCTION_PER_EVENT;
+  const cap = Math.min(MAX_DEDUCTION_PER_EVENT, requestedCap);
+  const final = Math.min(Math.round(safeBase * mult), cap);
   return {
-    base_points: basePoints,
-    repeat_count: previousCount,
+    base_points: safeBase,
+    repeat_count: Math.max(0, previousCount),
     multiplier: mult,
     final_points: final,
   };
