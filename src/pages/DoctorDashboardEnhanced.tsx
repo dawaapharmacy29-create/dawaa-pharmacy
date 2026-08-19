@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import DoctorDashboardStable from '@/pages/DoctorDashboardStable';
 import DoctorReviewDetails from '@/components/doctor/DoctorReviewDetails';
 import DoctorTodayFocus from '@/components/doctor/DoctorTodayFocus';
+import DoctorIncentiveSummaryCard from '@/components/doctor/DoctorIncentiveSummaryCard';
 import { canAccessFullConversationReviewWorkspace } from '@/lib/reviewWorkspaceAccess';
 
 export default function DoctorDashboardEnhanced() {
@@ -15,12 +16,15 @@ export default function DoctorDashboardEnhanced() {
   }
 
   return <div className="space-y-5" dir="rtl">
-    {(!tab || tab === 'overview') ? <DoctorTodayFocus
-      staffId={String(user?.staffId || '')}
-      userId={String(user?.id || '')}
-      doctorName={String(user?.name || '')}
-      onNavigate={(next) => setParams({ tab: next })}
-    /> : null}
+    {(!tab || tab === 'overview') ? <>
+      <DoctorIncentiveSummaryCard staffId={String(user?.staffId || '')} onNavigate={() => setParams({ tab: 'payroll' })} />
+      <DoctorTodayFocus
+        staffId={String(user?.staffId || '')}
+        userId={String(user?.id || '')}
+        doctorName={String(user?.name || '')}
+        onNavigate={(next) => setParams({ tab: next })}
+      />
+    </> : null}
     <DoctorDashboardStable hideReviews={tab === 'reviews'} />
     {tab === 'reviews' ? <DoctorReviewDetails /> : null}
   </div>;

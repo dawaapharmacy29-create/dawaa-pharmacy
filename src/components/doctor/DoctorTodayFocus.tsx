@@ -138,6 +138,11 @@ export default function DoctorTodayFocus({
         supabase.from('conversation_sales_reviews').select('id,staff_id,doctor_id,doctor_name,staff_name').eq('staff_id', staffId).gte('created_at', `${today}T00:00:00`).limit(100) as any,
         supabase.from('conversation_sales_reviews').select('id,staff_id,doctor_id,doctor_name,staff_name').eq('doctor_id', staffId).gte('created_at', `${today}T00:00:00`).limit(100) as any,
       );
+      // ملحوظة: staff_id/doctor_id فاضيين في أغلب تقييمات المحادثات — بنستخدم
+      // كمان دالة مطابقة بالاسم المطبّع (الحقل الموثوق فعليًا) عشان العدد يبقى صح.
+      void supabase.rpc('get_doctor_today_review_count', { p_doctor_id: staffId }).then(({ data }) => {
+        if (!cancelled && typeof data === 'number') setReviewCount((prev) => Math.max(prev ?? 0, data));
+      });
     }
     if (doctorName) {
       reviewQueries.push(
@@ -155,7 +160,7 @@ export default function DoctorTodayFocus({
             if (matchesDoctor(row, staffId, doctorName)) unique.add(text(row.id) || `${text(row.doctor_name)}-${unique.size}`);
           });
         });
-        setReviewCount(unique.size);
+        setReviewCount((prev) => Math.max(prev ?? 0, unique.size));
         settle('reviews', 'ready');
       })
       .catch((error) => {
