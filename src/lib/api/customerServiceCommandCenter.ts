@@ -750,16 +750,19 @@ export async function fetchCustomerServiceInsightPools(branch?: string): Promise
   ]);
 
   const important = vipCustomers
+    .filter(Boolean)
     .sort((a, b) => toNumber(b.total_spent || b.total_purchases) - toNumber(a.total_spent || a.total_purchases))
     .slice(0, 40)
     .map((customer) => metricToFollowupRow(customer, 'عميل مهم حاليًا يحتاج متابعة ذكية', customer.segment === 'مهم جدًا' ? 'عاجل' : 'مهم'));
 
   const reduced = atRiskCustomers
+    .filter(Boolean)
     .filter((customer) => (customer.avg_monthly || 0) >= 500 || (customer.total_spent || 0) >= 1500)
     .slice(0, 40)
     .map((customer) => metricToFollowupRow(customer, 'قلل التعامل ويحتاج استرجاع قبل التوقف', 'مهم'));
 
   const stopped60 = stoppedCustomers
+    .filter(Boolean)
     .filter((customer) => {
       const days = daysSince(customer.last_purchase);
       // من غير حد أقصى، القائمة كانت بتتلخبط بعملاء توقفوا من سنين (أو حتى من غير تاريخ شراء
@@ -786,7 +789,7 @@ async function fetchSpendDeclinePool(branch: string, warnings: string[]): Promis
   try {
     const { data, error } = await supabase.rpc('get_customer_spend_decline_alerts', { p_branch: branch });
     if (error) throw error;
-    const rows = ((data as Row[]) || []);
+    const rows = ((data as Row[]) || []).filter(Boolean);
     return rows.slice(0, 30).map((row) => {
       const declinePct = Number(row.decline_pct || 0);
       const priorAvg = Number(row.prior_avg_monthly_spend || 0);
@@ -822,7 +825,7 @@ async function fetchTopActive3mPool(branch: string, warnings: string[]): Promise
   try {
     const { data, error } = await supabase.rpc('get_daily_smart_followup_candidates', { p_branch: branch });
     if (error) throw error;
-    const rows = (data as { top_active_customers?: Row[] } | null)?.top_active_customers || [];
+    const rows = ((data as { top_active_customers?: Row[] } | null)?.top_active_customers || []).filter(Boolean);
     return rows.slice(0, 20).map((row) => {
       const phone = String(row.customer_phone || '');
       return normalizeFollowup({
@@ -855,7 +858,7 @@ async function fetchCycleChurnRiskPool(branch: string, warnings: string[]): Prom
   try {
     const { data, error } = await supabase.rpc('get_daily_smart_followup_candidates', { p_branch: branch });
     if (error) throw error;
-    const rows = (data as { cycle_churn_risk?: Row[] } | null)?.cycle_churn_risk || [];
+    const rows = ((data as { cycle_churn_risk?: Row[] } | null)?.cycle_churn_risk || []).filter(Boolean);
     return rows.slice(0, 30).map((row) => {
       const phone = String(row.customer_phone || '');
       return normalizeFollowup({
@@ -936,7 +939,7 @@ export async function generateTodayFollowupsSmartReport(
   for (const branchName of branches) {
     const existingKeys = await fetchOpenFollowupKeys(branchName);
     const pools = await fetchCustomerServiceInsightPools(branchName);
-    const candidates = [...pools.spendDecline, ...pools.strong, ...pools.cycleChurn, ...pools.stopped60, ...pools.reduced, ...pools.important];
+    const candidates = [...pools.spendDecline, ...pools.strong, ...pools.cycleChurn, ...pools.stopped60, ...pools.reduced, ...pools.important].filter(Boolean);
     report.candidate_count += candidates.length;
     const unique = new Map<string, FollowupRow>();
 
