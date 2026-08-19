@@ -47,17 +47,21 @@ export default function StaffPayroll() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [{ data, error: summaryError }, { data: manualData, error: manualError }, { data: accounts }, truths] = await Promise.all([
+      const [{ data, error: summaryError }, { data: manualData, error: manualError }, { data: accounts, error: accountsError }, truths] = await Promise.all([
         supabase.from('staff_payroll_summary').select('*').order('staff_name').limit(500),
         supabase.from('staff_payroll_manual_entries').select('*').order('created_at', { ascending: false }).limit(1000),
-        supabase.from('staff_accounts').select('username,staff_id').eq('active', true).limit(500),
+        supabase.rpc('get_staff_accounts_directory', { p_roles: null, p_branch: null }),
         fetchPayrollIncentiveTruth().catch(() => []),
       ]);
       if (summaryError) throw summaryError;
       if (manualError && canEditPayroll) throw manualError;
-      const staffByUsername = new Map<string, string>((accounts || []).map((account: any) => [String(account.username || ''), String(account.staff_id || '')] as [string, string]));
-      const truthByKey = new Map<string, PayrollIncentiveTruth>(truths.map((truth) => [`${truth.staffId}|${truth.monthCycle}`, truth] as [string, PayrollIncentiveTruth]));
-      setRows(((data || []) as PayrollRow[]).map((row) => {
+      if (accountsError) throw accountsError;
+      const safeAccounts = (accounts || []).filter(Boolean);
+      const staffByUsername = new Map<string, string>(safeAccounts
+        .filter((account: any) => account.active !== false && account.username && account.staff_id)
+        .map((account: any) => [String(account.username), String(account.staff_id)] as [string, string]));
+      const truthByKey = new Map<string, PayrollIncentiveTruth>(truths.filter(Boolean).map((truth) => [`${truth.staffId}|${truth.monthCycle}`, truth] as [string, PayrollIncentiveTruth]));
+      setRows(((data || []) as PayrollRow[]).filter(Boolean).map((row) => {
         const staffId = staffByUsername.get(String(row.username || '')) || '';
         const cycleKey = String(row.payroll_month || '').slice(0, 7);
         const truth = truthByKey.get(`${staffId}|${cycleKey}`);
@@ -66,7 +70,7 @@ export default function StaffPayroll() {
         const correctedNet = n(row.calculated_net_salary) - storedTarget + effectiveTarget + n(truth?.performanceIncentive);
         return { ...row, staff_id: staffId, target_bonus: effectiveTarget, performance_incentive: truth?.performanceIncentive || 0, automated_target_bonus: truth?.targetBonus || 0, automated_truth_available: Boolean(truth), calculated_net_salary: correctedNet };
       }));
-      setEntries((manualData || []) as ManualEntry[]);
+      setEntries(((manualData || []) as ManualEntry[]).filter(Boolean));
     } catch (err) { setError(err instanceof Error ? err.message : 'تعذر تحميل القبض'); }
     finally { setLoading(false); }
   }, [canEditPayroll]);

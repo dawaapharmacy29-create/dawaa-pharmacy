@@ -64,10 +64,27 @@ export default function PayrollManagement() {
   const [saving, setSaving] = useState(false);
 
   const loadStaff = useCallback(async () => {
-    let query = supabase.from('staff_accounts').select('id,staff_id,username,name,staff_name,branch,role,active').eq('active', true).order('name');
-    if (!allBranches && ownBranch) query = query.eq('branch', ownBranch);
-    const { data } = await query;
-    setStaff(((data || []) as Row[]).map((r: any) => ({ id: r.id, staffId: String(r.staff_id || ''), username: r.username, name: r.name || r.staff_name || r.username, branch: r.branch || '', role: r.role || '', active: r.active !== false })));
+    const { data, error } = await supabase.rpc('get_staff_accounts_directory', {
+      p_roles: null,
+      p_branch: !allBranches && ownBranch ? ownBranch : null,
+    });
+    if (error) {
+      setStaff([]);
+      toast.error(error.message || 'تعذر تحميل دليل الموظفين');
+      return;
+    }
+    const rows = ((data || []) as Row[]).filter(Boolean);
+    setStaff(rows
+      .filter((r: any) => r.active !== false && r.username)
+      .map((r: any) => ({
+        id: String(r.account_id || r.staff_id || ''),
+        staffId: String(r.staff_id || ''),
+        username: String(r.username || ''),
+        name: String(r.name || r.username || ''),
+        branch: String(r.branch || ''),
+        role: String(r.role || ''),
+        active: r.active !== false,
+      })));
   }, [allBranches, ownBranch]);
 
   useEffect(() => { void loadStaff(); }, [loadStaff]);
@@ -83,8 +100,8 @@ export default function PayrollManagement() {
       ]);
       setProfile((p as Profile) || emptyProfile(person.username));
       setMonthly((cur as MonthlyRow) || emptyMonthly(person.username, m));
-      setHistory((hist || []) as MonthlyRow[]);
-      setAutomatedTruth(truth[0] || null);
+      setHistory(((hist || []) as MonthlyRow[]).filter(Boolean));
+      setAutomatedTruth((truth || []).filter(Boolean)[0] || null);
     } finally {
       setLoading(false);
     }
