@@ -3,6 +3,7 @@ import { getCurrentCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
 import { getStaffCycleIncentive, type StaffCycleIncentive } from '@/lib/staffIncentiveService';
 import { normalizeStaffName } from '@/lib/staffIdentityService';
 import { staffRowIsActive } from '@/lib/staffActiveFilter';
+import { isCompletedFollowup as isCompletedFollowupCore } from '@/lib/customerFollowupCore';
 import {
   PermissionPolicyService,
   type PermissionPolicyStatus,
@@ -19,12 +20,7 @@ import {
 type Row = Record<string, unknown>;
 
 function isCompletedFollowup(row: Row) {
-  return Boolean(
-    row.status === 'completed' ||
-    row.followup_status === 'completed' ||
-    row.completed ||
-    row.is_completed
-  );
+  return isCompletedFollowupCore(row);
 }
 
 function isMissedFollowup(row: Row) {
@@ -603,7 +599,9 @@ async function resolveStaffIdentity(staff: StaffBaseProfile): Promise<StaffIdent
       .limit(50);
 
     if (!aliasError && aliasData) {
-      const aliasList = (aliasData as Row[]).map((r) => String(r.alias_name || ''));
+      const aliasList = (aliasData as Array<Row | null | undefined>)
+        .filter(Boolean)
+        .map((r) => String((r as Row).alias_name || ''));
       aliases.push(...aliasList);
       aliasList.forEach((alias) => {
         const normalizedAlias = normalizeStaffName(alias);
@@ -627,10 +625,13 @@ async function resolveStaffIdentity(staff: StaffBaseProfile): Promise<StaffIdent
         .limit(80);
 
       if (sameNameStaff) {
-        const activeMatch = (sameNameStaff as Row[]).find((row) => {
-          if (!staffRowIsActive(row as StaffBaseProfile)) return false;
-          return normalizeStaffName(String(row.name || '')) === normalized;
-        });
+        const activeMatch = (sameNameStaff as Array<Row | null | undefined>)
+          .filter(Boolean)
+          .find((row) => {
+            const safeRow = row as Row;
+            if (!staffRowIsActive(safeRow as StaffBaseProfile)) return false;
+            return normalizeStaffName(String(safeRow.name || '')) === normalized;
+          }) as Row | undefined;
 
         if (activeMatch) {
           warnings.push(`هذا الموظف غير نشط. يوجد موظف نشط بنفس الاسم: ${activeMatch.name}`);
@@ -651,7 +652,11 @@ async function resolveStaffIdentity(staff: StaffBaseProfile): Promise<StaffIdent
       .limit(100);
 
     if (invoiceNames) {
-      const uniqueNames = new Set((invoiceNames as Row[]).map((r) => String(r.seller_name || '')));
+      const uniqueNames = new Set(
+        (invoiceNames as Array<Row | null | undefined>)
+          .filter(Boolean)
+          .map((r) => String((r as Row).seller_name || ''))
+      );
       rawSellerNames.push(...Array.from(uniqueNames));
 
       // Check if any names don't match exactly
@@ -920,9 +925,10 @@ async function loadStaffStagnantListMetrics(
     ]);
 
     const stagnantMap = new Map<string, Row>();
-    for (const row of [...(stagnantsById.data || []), ...(stagnantsByName.data || [])]) {
-      const id = String((row as Row).id || '');
-      if (id) stagnantMap.set(id, row as Row);
+    for (const row of [...(stagnantsById.data || []), ...(stagnantsByName.data || [])].filter(Boolean)) {
+      const safeRow = row as Row;
+      const id = String(safeRow.id || '');
+      if (id) stagnantMap.set(id, safeRow);
     }
 
     // Load stagnant dispenses for the cycle
@@ -933,6 +939,7 @@ async function loadStaffStagnantListMetrics(
       .gte('created_at', cycleStart)
       .lt('created_at', cycleEnd)
       .limit(300);
+    const safeStagnantDispenses = ((stagnantDispenses || []) as Array<Row | null | undefined>).filter(Boolean) as Row[];
 
     // Calculate stagnant metrics
     const stagnantRows = Array.from(stagnantMap.values());
@@ -940,8 +947,8 @@ async function loadStaffStagnantListMetrics(
       (sum, row) => sum + (Number(row.total_quantity) || 0),
       0
     );
-    const stagnantSoldQuantity = (stagnantDispenses || []).reduce(
-      (sum, row) => sum + (Number((row as Row).quantity) || 0),
+    const stagnantSoldQuantity = safeStagnantDispenses.reduce(
+      (sum, row) => sum + (Number(row.quantity) || 0),
       0
     );
     const stagnantRemainingQuantity = stagnantTargetQuantity - stagnantSoldQuantity;
@@ -949,8 +956,8 @@ async function loadStaffStagnantListMetrics(
       stagnantTargetQuantity > 0 ? (stagnantSoldQuantity / stagnantTargetQuantity) * 100 : 0;
 
     // Calculate stagnant cash rewards from dispenses
-    const stagnantCashRewards = (stagnantDispenses || []).reduce((sum, row) => {
-      const incentive = Number((row as Row).incentive_amount) || 0;
+    const stagnantCashRewards = safeStagnantDispenses.reduce((sum, row) => {
+      const incentive = Number(row.incentive_amount) || 0;
       return sum + incentive;
     }, 0);
 
@@ -968,14 +975,14 @@ async function loadStaffStagnantListMetrics(
     // Stagnant progress
     const stagnantProgress = stagnantRows.map((row) => ({
       target: Number(row.total_quantity) || 0,
-      sold: (stagnantDispenses || [])
-        .filter((d) => String((d as Row).medicine_id) === String(row.id))
-        .reduce((sum, d) => sum + (Number((d as Row).quantity) || 0), 0),
+      sold: safeStagnantDispenses
+        .filter((d) => String(d.medicine_id) === String(row.id))
+        .reduce((sum, d) => sum + (Number(d.quantity) || 0), 0),
       remaining:
         (Number(row.total_quantity) || 0) -
-        (stagnantDispenses || [])
-          .filter((d) => String((d as Row).medicine_id) === String(row.id))
-          .reduce((sum, d) => sum + (Number((d as Row).quantity) || 0), 0),
+        safeStagnantDispenses
+          .filter((d) => String(d.medicine_id) === String(row.id))
+          .reduce((sum, d) => sum + (Number(d.quantity) || 0), 0),
     }));
 
     // Top remaining items
@@ -984,9 +991,9 @@ async function loadStaffStagnantListMetrics(
         name: String(row.medicine_name || row.product_name || ''),
         remaining:
           (Number(row.total_quantity) || 0) -
-          (stagnantDispenses || [])
-            .filter((d) => String((d as Row).medicine_id) === String(row.id))
-            .reduce((sum, d) => sum + (Number((d as Row).quantity) || 0), 0),
+          safeStagnantDispenses
+            .filter((d) => String(d.medicine_id) === String(row.id))
+            .reduce((sum, d) => sum + (Number(d.quantity) || 0), 0),
         expiryDate: String(row.expiry_date || row.nearest_expiry_date || ''),
       }))
       .filter((item) => item.remaining > 0)
@@ -1002,9 +1009,9 @@ async function loadStaffStagnantListMetrics(
         );
         const remaining =
           (Number(row.total_quantity) || 0) -
-          (stagnantDispenses || [])
-            .filter((d) => String((d as Row).medicine_id) === String(row.id))
-            .reduce((sum, d) => sum + (Number((d as Row).quantity) || 0), 0);
+          safeStagnantDispenses
+            .filter((d) => String(d.medicine_id) === String(row.id))
+            .reduce((sum, d) => sum + (Number(d.quantity) || 0), 0);
         return {
           name: String(row.medicine_name || row.product_name || ''),
           remaining,
@@ -1027,9 +1034,10 @@ async function loadStaffStagnantListMetrics(
     ]);
 
     const listMap = new Map<string, Row>();
-    for (const row of [...(listById.data || []), ...(listByName.data || [])]) {
-      const id = String((row as Row).id || '');
-      if (id) listMap.set(id, row as Row);
+    for (const row of [...(listById.data || []), ...(listByName.data || [])].filter(Boolean)) {
+      const safeRow = row as Row;
+      const id = String(safeRow.id || '');
+      if (id) listMap.set(id, safeRow);
     }
 
     // Load list sales for the cycle
@@ -1040,6 +1048,7 @@ async function loadStaffStagnantListMetrics(
       .gte('created_at', cycleStart)
       .lt('created_at', cycleEnd)
       .limit(300);
+    const safeListSales = ((listSales || []) as Array<Row | null | undefined>).filter(Boolean) as Row[];
 
     // Calculate list metrics
     const listRows = Array.from(listMap.values());
@@ -1053,8 +1062,8 @@ async function loadStaffStagnantListMetrics(
         ) || 0),
       0
     );
-    const listSoldQuantity = (listSales || []).reduce(
-      (sum, row) => sum + (Number((row as Row).quantity) || 0),
+    const listSoldQuantity = safeListSales.reduce(
+      (sum, row) => sum + (Number(row.quantity) || 0),
       0
     );
     const listRemainingQuantity = listTargetQuantity - listSoldQuantity;
@@ -1062,8 +1071,8 @@ async function loadStaffStagnantListMetrics(
       listTargetQuantity > 0 ? (listSoldQuantity / listTargetQuantity) * 100 : 0;
 
     // Calculate list cash rewards from sales
-    const listCashRewards = (listSales || []).reduce((sum, row) => {
-      const incentive = Number((row as Row).incentive_amount) || 0;
+    const listCashRewards = safeListSales.reduce((sum, row) => {
+      const incentive = Number(row.incentive_amount) || 0;
       return sum + incentive;
     }, 0);
 
@@ -1086,9 +1095,9 @@ async function loadStaffStagnantListMetrics(
             ? (Number(row.current_quantity) || 0) * (Number(row.target_min_percent) / 100)
             : row.current_quantity
         ) || 0;
-      const sold = (listSales || [])
-        .filter((s) => String((s as Row).medicine_id) === String(row.id))
-        .reduce((sum, s) => sum + (Number((s as Row).quantity) || 0), 0);
+      const sold = safeListSales
+        .filter((s) => String(s.medicine_id) === String(row.id))
+        .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
       return {
         target,
         sold,
@@ -1110,9 +1119,9 @@ async function loadStaffStagnantListMetrics(
         stagnantWarnings,
         stagnantMissedTargets: stagnantRows
           .filter((row) => {
-            const sold = (stagnantDispenses || [])
-              .filter((d) => String((d as Row).medicine_id) === String(row.id))
-              .reduce((sum, d) => sum + (Number((d as Row).quantity) || 0), 0);
+            const sold = safeStagnantDispenses
+              .filter((d) => String(d.medicine_id) === String(row.id))
+              .reduce((sum, d) => sum + (Number(d.quantity) || 0), 0);
             const target = Number(row.total_quantity) || 0;
             return sold < target * 0.5;
           })
@@ -1207,7 +1216,7 @@ async function loadOptionalTableRows(table: string, limit = 1000): Promise<Row[]
   try {
     const { data, error } = await supabase.from(table).select('*').limit(limit);
     if (error || !data) return [];
-    return data as Row[];
+    return ((data || []) as Array<Row | null | undefined>).filter(Boolean) as Row[];
   } catch {
     return [];
   }
@@ -1540,9 +1549,9 @@ async function loadStaffCustomerServiceMetrics(
       .gte('created_at', cycleStart)
       .lte('created_at', cycleEnd)
       .limit(1000);
-    const staffFollowups = ((followupData || []) as Row[]).filter((row) =>
-      followupMatchesStaff(row, staffId, identity)
-    );
+    const staffFollowups = ((followupData || []) as Array<Row | null | undefined>)
+      .filter(Boolean)
+      .filter((row) => followupMatchesStaff(row as Row, staffId, identity)) as Row[];
 
     const followupsAssigned = staffFollowups.length;
     const followupsCompleted = staffFollowups.filter((row) => isCompletedFollowup(row)).length;
@@ -1556,16 +1565,17 @@ async function loadStaffCustomerServiceMetrics(
       .gte('created_at', cycleStart)
       .lte('created_at', cycleEnd)
       .limit(200);
+    const safeReviewData = ((reviewData || []) as Array<Row | null | undefined>).filter(Boolean) as Row[];
 
-    const complaintCount = (reviewData || []).filter(
+    const complaintCount = safeReviewData.filter(
       (row) => row.has_complaint || row.complaint_flag
     ).length;
-    const resolvedComplaints = (reviewData || []).filter(
+    const resolvedComplaints = safeReviewData.filter(
       (row) => row.has_complaint && row.complaint_resolved
     ).length;
 
     // Calculate average conversation evaluation score
-    const scoredReviews = (reviewData || []).filter((row) => row.final_score != null);
+    const scoredReviews = safeReviewData.filter((row) => row.final_score != null);
     const conversationEvaluationAverage =
       scoredReviews.length > 0
         ? scoredReviews.reduce((sum, row) => sum + (Number(row.final_score) || 0), 0) /
@@ -1605,7 +1615,7 @@ async function loadStaffCustomerServiceMetrics(
     }).length;
 
     // Missing important notes
-    const missingImportantNotes = (reviewData || []).filter(
+    const missingImportantNotes = safeReviewData.filter(
       (row) => !row.reviewer_notes && !row.notes
     ).length;
 
@@ -1657,7 +1667,7 @@ async function loadStaffCustomerServiceMetrics(
     ];
 
     // Build complaints and resolutions
-    const complaintsAndResolutions = (reviewData || [])
+    const complaintsAndResolutions = safeReviewData
       .filter((row) => row.has_complaint || row.complaint_flag)
       .map((row) => ({
         date: String(row.conversation_date || row.created_at || ''),
@@ -1666,7 +1676,7 @@ async function loadStaffCustomerServiceMetrics(
       }));
 
     // Build conversations and evaluations
-    const conversationsAndEvaluations = (reviewData || []).map((row) => ({
+    const conversationsAndEvaluations = safeReviewData.map((row) => ({
       date: String(row.conversation_date || row.created_at || ''),
       score: Number(row.final_score || 0),
     }));
@@ -1727,14 +1737,17 @@ async function loadStaffQuarterlyMetrics(
       .lte('created_at', quarterEnd)
       .limit(5000);
 
-    const staffListSales = (listSales || []).filter((row) => {
-      const rowStaffId = String(row.staff_id || row.doctor_id || '');
-      const rowStaffName = String(row.staff_name || row.doctor_name || '');
-      return (
-        rowStaffId === staffId ||
-        identity.normalizedNames.some((norm) => normalizeStaffName(rowStaffName) === norm)
-      );
-    });
+    const staffListSales = ((listSales || []) as Array<Row | null | undefined>)
+      .filter(Boolean)
+      .filter((row) => {
+        const safeRow = row as Row;
+        const rowStaffId = String(safeRow.staff_id || safeRow.doctor_id || '');
+        const rowStaffName = String(safeRow.staff_name || safeRow.doctor_name || '');
+        return (
+          rowStaffId === staffId ||
+          identity.normalizedNames.some((norm) => normalizeStaffName(rowStaffName) === norm)
+        );
+      }) as Row[];
 
     const achievedQty = staffListSales.reduce(
       (sum, row) => sum + Number(row.quantity || row.qty || 0),
@@ -1747,16 +1760,19 @@ async function loadStaffQuarterlyMetrics(
       .select('*')
       .limit(5000);
 
-    const staffTargets = (targets || []).filter((row) => {
-      const rowStaffId = String(row.staff_id || '');
-      const rowStaffName = String(
-        row.staff_name || row.doctor_name || row.responsible_doctor || ''
-      );
-      return (
-        rowStaffId === staffId ||
-        identity.normalizedNames.some((norm) => normalizeStaffName(rowStaffName) === norm)
-      );
-    });
+    const staffTargets = ((targets || []) as Array<Row | null | undefined>)
+      .filter(Boolean)
+      .filter((row) => {
+        const safeRow = row as Row;
+        const rowStaffId = String(safeRow.staff_id || '');
+        const rowStaffName = String(
+          safeRow.staff_name || safeRow.doctor_name || safeRow.responsible_doctor || ''
+        );
+        return (
+          rowStaffId === staffId ||
+          identity.normalizedNames.some((norm) => normalizeStaffName(rowStaffName) === norm)
+        );
+      }) as Row[];
 
     const targetQty = staffTargets.reduce(
       (sum, row) => sum + Number(row.target_quantity || row.quantity_target || 0),
@@ -1771,16 +1787,19 @@ async function loadStaffQuarterlyMetrics(
       .lte('created_at', quarterEnd)
       .limit(5000);
 
-    const staffStagnantDispenses = (stagnantDispenses || []).filter((row) => {
-      const rowStaffId = String(row.staff_id || row.doctor_id || '');
-      const rowStaffName = String(
-        row.staff_name || row.doctor_name || row.responsible_doctor_name || ''
-      );
-      return (
-        rowStaffId === staffId ||
-        identity.normalizedNames.some((norm) => normalizeStaffName(rowStaffName) === norm)
-      );
-    });
+    const staffStagnantDispenses = ((stagnantDispenses || []) as Array<Row | null | undefined>)
+      .filter(Boolean)
+      .filter((row) => {
+        const safeRow = row as Row;
+        const rowStaffId = String(safeRow.staff_id || safeRow.doctor_id || '');
+        const rowStaffName = String(
+          safeRow.staff_name || safeRow.doctor_name || safeRow.responsible_doctor_name || ''
+        );
+        return (
+          rowStaffId === staffId ||
+          identity.normalizedNames.some((norm) => normalizeStaffName(rowStaffName) === norm)
+        );
+      }) as Row[];
 
     const stagnantCount = staffStagnantDispenses.length;
 
@@ -1792,14 +1811,17 @@ async function loadStaffQuarterlyMetrics(
       .lte('created_at', quarterEnd)
       .limit(5000);
 
-    const staffTransactions = (transactions || []).filter((row) => {
-      const rowStaffId = String(row.staff_id || row.employee_id || '');
-      const rowStaffName = String(row.employee_name || '');
-      return (
-        rowStaffId === staffId ||
-        identity.normalizedNames.some((norm) => normalizeStaffName(rowStaffName) === norm)
-      );
-    });
+    const staffTransactions = ((transactions || []) as Array<Row | null | undefined>)
+      .filter(Boolean)
+      .filter((row) => {
+        const safeRow = row as Row;
+        const rowStaffId = String(safeRow.staff_id || safeRow.employee_id || '');
+        const rowStaffName = String(safeRow.employee_name || '');
+        return (
+          rowStaffId === staffId ||
+          identity.normalizedNames.some((norm) => normalizeStaffName(rowStaffName) === norm)
+        );
+      }) as Row[];
 
     // Calculate quarterly cash rewards (stagnant/list)
     const quarterlyCashRewards = staffTransactions.reduce((sum, t) => {
@@ -1996,7 +2018,9 @@ async function loadStaffFollowups(
     .limit(1000);
 
   if (error) throw error;
-  return ((data || []) as Row[]).filter((row) => followupMatchesStaff(row, staffId, identity));
+  return ((data || []) as Array<Row | null | undefined>)
+    .filter(Boolean)
+    .filter((row) => followupMatchesStaff(row as Row, staffId, identity)) as Row[];
 }
 
 function calculateStaffDataHealth(
