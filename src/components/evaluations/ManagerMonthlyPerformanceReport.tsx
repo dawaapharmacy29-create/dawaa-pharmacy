@@ -64,7 +64,7 @@ export function ManagerMonthlyPerformanceReport({
   staffId: string | null | undefined;
   branch: string | null;
 }) {
-  const [cycleCount, setCycleCount] = useState<3 | 6 | 12>(6);
+  const [cycleCount, setCycleCount] = useState<3 | 6 | 12>(3);
   const [report, setReport] = useState<ManagerMonthlyReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
