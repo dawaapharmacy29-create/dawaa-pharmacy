@@ -4,6 +4,9 @@ begin;
 -- Keep day-boundary semantics while making invoice_date predicates sargable.
 -- Production audit confirmed invoice_date is non-null for every row in both
 -- sales_invoices and dawaa_sales_invoices_dashboard_v1 at migration time.
+-- Benchmark on the audited 2026-07-26..2026-08-20 range: the cast predicate
+-- scanned/filter-checked the broader index in ~4509 ms; the direct timestamp
+-- range used sales_invoices_date_idx as an Index Cond in ~51 ms for 7,482 rows.
 -- Every replacement is fail-closed against the audited function signature and
 -- expected occurrence count.
 do $migration$
