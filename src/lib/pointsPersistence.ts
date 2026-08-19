@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
-import { embedRuleCodeInNote } from '@/lib/pointsWorkflow';
+import { embedRuleCodeInNote, MAX_DEDUCTION_PER_EVENT } from '@/lib/pointsWorkflow';
 import type { EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
 import type { OperationKind, PointsTxnStatus } from '@/lib/pointsWorkflow';
 import { formatApproverList } from '@/lib/approverRoles';
@@ -129,12 +129,13 @@ export async function persistPointsTransaction(
     input.rule?.title ||
     (input.operation === 'admin_adjustment' ? 'تعديل إداري' : 'تسوية نقاط');
   const manager_note = buildManagerNote(input, ruleCode);
+  const requestedPoints = Math.max(0, Math.abs(Number(input.pointsToStore) || 0));
   const signedDelta =
     input.operation === 'admin_adjustment'
       ? (input.adminDeltaSigned ?? 0)
       : input.operation === 'bonus'
-        ? Math.abs(input.pointsToStore)
-        : -Math.abs(input.pointsToStore);
+        ? requestedPoints
+        : -Math.min(MAX_DEDUCTION_PER_EVENT, requestedPoints);
   const month_cycle = monthCycleFromDate(input.cycle.end);
   const source = input.source || input.sourceModule || 'manual_admin';
   const sourceType = input.sourceModule || source;
@@ -171,7 +172,7 @@ export async function persistPointsTransaction(
       .eq('type', 'penalty')
       .limit(20);
     if (!relatedError) {
-      const existingRuleCodes = (relatedRows || []).flatMap((row) =>
+      const existingRuleCodes = (relatedRows || []).filter(Boolean).flatMap((row) =>
         String(row.description || row.reason || '').match(/[A-Z]+(?:-[A-Z]+)*-\d+[A-Z]?/g) || []
       );
       const guard = sameEventDeductionGuard({ incomingRuleCode: ruleCode, existingRuleCodes });
@@ -193,11 +194,12 @@ export async function persistPointsTransaction(
       .eq('type', type)
       .limit(1);
 
-    if (!existingError && existingRows?.[0]?.id) {
+    const existingRow = (existingRows || []).filter(Boolean)[0];
+    if (!existingError && existingRow?.id) {
       const { error } = await supabase
         .from(TABLES.employeeTransactions)
         .update({ ...transactionPayload, updated_at: new Date().toISOString() })
-        .eq('id', existingRows[0].id as string);
+        .eq('id', existingRow.id as string);
       if (error) {
         console.error('Employee transactions error:', {
           message: error.message,
@@ -207,7 +209,7 @@ export async function persistPointsTransaction(
         });
         return { error: error.message };
       }
-      return { error: null, id: existingRows[0].id as string };
+      return { error: null, id: existingRow.id as string };
     }
 
     if (existingError && !isIgnorableSchemaIssue(existingError.message)) {

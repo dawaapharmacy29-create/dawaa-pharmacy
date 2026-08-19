@@ -77,7 +77,9 @@ export async function searchCustomers(query: string, limit = 30): Promise<Custom
     for (const filter of exactAttempts) {
       const { data, error } = await supabase.from('customers').select('*').or(filter).limit(limit);
       if (!error && data && data.length) {
-        return data.map((row) => normalizeCustomerRow(row as Record<string, unknown>));
+        return data
+          .filter(Boolean)
+          .map((row) => normalizeCustomerRow(row as Record<string, unknown>));
       }
       if (!error) break; // الأعمدة موجودة لكن مفيش تطابق تام؛ منكملش نجرب صيغ تانية، نروح لبحث substring
     }
@@ -92,12 +94,15 @@ export async function searchCustomers(query: string, limit = 30): Promise<Custom
   for (const filter of attempts) {
     const { data, error } = await supabase.from('customers').select('*').or(filter).order('customer_code', { ascending: true, nullsFirst: false }).limit(limit);
     if (!error)
-      return (data || []).map((row) => normalizeCustomerRow(row as Record<string, unknown>));
+      return (data || [])
+        .filter(Boolean)
+        .map((row) => normalizeCustomerRow(row as Record<string, unknown>));
   }
 
   const { data } = await supabase.from('customers').select('*').limit(500);
   const normalizedQuery = normalizeArabicText(raw.replace(/\*/g, ''));
   return ((data || []) as Record<string, unknown>[])
+    .filter(Boolean)
     .map(normalizeCustomerRow)
     .filter((customer) => {
       const text = normalizeArabicText(`${customer.name} ${customer.code} ${customer.phone}`);
