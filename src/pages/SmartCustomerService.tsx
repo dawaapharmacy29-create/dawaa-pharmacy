@@ -21,6 +21,7 @@ import CustomerFollowupFullExportPanel from '@/components/customerService/Custom
 import CustomerFollowupOperationsCompletionPanel from '@/components/customerService/CustomerFollowupOperationsCompletionPanel';
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
 import CustomerFollowupRecordsAndPerformance from '@/components/customerService/CustomerFollowupRecordsAndPerformance';
+import CustomerHistoricalFollowupLedger from '@/components/customerService/CustomerHistoricalFollowupLedger';
 import CustomerDailyPriorityQueues from '@/components/customerService/CustomerDailyPriorityQueues';
 import CustomerServiceDoctorWorkbookCenter from '@/components/customerService/CustomerServiceDoctorWorkbookCenter';
 import ExceptionalFollowupCenter from '@/components/customerService/ExceptionalFollowupCenter';
@@ -44,7 +45,7 @@ const workspaces: Array<{ id: 'operations' | 'priorities'; title: string; descri
 ];
 
 const supportSections: Array<{ id: 'followups' | 'tools' | 'reports'; title: string; description: string; icon: typeof Workflow }> = [
-  { id: 'followups', title: 'الحالات الخاصة', description: 'الاستثنائي والمكتمل', icon: Sparkles },
+  { id: 'followups', title: 'الحالات الخاصة', description: 'الاستثنائي والسجل التاريخي والمكتمل', icon: Sparkles },
   { id: 'tools', title: 'الأدوات والإدارة', description: 'الجودة والتصحيح والسكريبتات', icon: Wrench },
   { id: 'reports', title: 'التقارير والنقاط', description: 'التصدير والكاش باك', icon: History },
 ];
@@ -56,7 +57,7 @@ const priorityViews: Array<{ id: PriorityView; title: string; description: strin
 
 const followupViews: Array<{ id: FollowupView; title: string; description: string; icon: typeof Sparkles }> = [
   { id: 'exceptional', title: 'متابعة استثنائية', description: 'طلبات الدكاترة والحالات الخاصة التي تحتاج متابعة منفصلة', icon: Sparkles },
-  { id: 'completed', title: 'المكتمل', description: 'المتابعات المنفذة والمؤرشفة للمراجعة والرجوع', icon: History },
+  { id: 'completed', title: 'السجل والمكتمل', description: 'السجل التاريخي الموحد ثم المتابعات المكتملة والمنفذة', icon: History },
 ];
 
 const toolsViews: Array<{ id: ToolsView; title: string; description: string; icon: typeof Database }> = [
@@ -217,7 +218,7 @@ export default function SmartCustomerService() {
       {hasSafeBranchScope && section === 'priorities' && priorityView === 'queues' ? <CustomerDailyPriorityQueues/> : null}
       {hasSafeBranchScope && section === 'priorities' && priorityView === 'workbook' ? <CustomerServiceDoctorWorkbookCenter onImported={refreshWorkspace}/> : null}
       {hasSafeBranchScope && section === 'followups' && followupView === 'exceptional' ? <ExceptionalFollowupCenter key={`exceptional-${workspaceVersion}`} /> : null}
-      {hasSafeBranchScope && section === 'followups' && followupView === 'completed' ? <CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /> : null}
+      {hasSafeBranchScope && section === 'followups' && followupView === 'completed' ? <div className="space-y-4"><CustomerHistoricalFollowupLedger key={`history-${workspaceVersion}`} /><CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /></div> : null}
       {hasSafeBranchScope && section === 'tools' && toolsView === 'data' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><Suspense fallback={<SectionLoader label="أدوات تصحيح البيانات"/>}><CustomerServiceDataTools/></Suspense></div> : null}
       {hasSafeBranchScope && section === 'tools' && toolsView === 'content' ? <Suspense fallback={<SectionLoader label="محرر السكريبتات"/>}><CustomerServiceScriptEditor/></Suspense> : null}
       {section === 'reports' && reportsView === 'exports' ? <CustomerFollowupFullExportPanel/> : null}
