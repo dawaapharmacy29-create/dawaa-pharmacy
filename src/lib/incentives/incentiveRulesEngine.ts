@@ -218,12 +218,16 @@ export function calculateRepeatDeduction(args: {
   previousOccurrences: number;
   severe?: boolean;
 }) {
+  // سياسة موحّدة في كل التطبيق: ×2 حد أقصى للضرب، و-30 نقطة حد أقصى لأي خصم
+  // من حدث واحد — عشان خطأ واحد (حتى لو تكرر) ميكسرش حافز شهر كامل لوحده.
+  const MAX_REPEAT_MULTIPLIER = 2;
+  const MAX_SINGLE_EVENT_DEDUCTION = 30;
   const occurrenceNumber = Math.max(1, args.previousOccurrences + 1);
-  const multiplier = args.severe ? 1 : Math.min(4, occurrenceNumber);
+  const multiplier = args.severe ? 1 : Math.min(MAX_REPEAT_MULTIPLIER, occurrenceNumber);
   return {
     occurrenceNumber,
     multiplier,
-    finalPoints: Math.abs(args.basePoints) * multiplier,
+    finalPoints: Math.min(Math.abs(args.basePoints) * multiplier, MAX_SINGLE_EVENT_DEDUCTION),
     requiresManagerReview: Boolean(args.severe && occurrenceNumber > 1) || occurrenceNumber >= 4,
   };
 }

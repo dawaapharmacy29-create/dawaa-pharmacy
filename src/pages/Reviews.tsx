@@ -763,11 +763,16 @@ export default function Reviews() {
     setSaving(true);
     try {
       const previousCount = await countPreviousReviewErrors();
-      const multiplier =
+      // حد أقصى ×2 للضرب المتكرر، وحد أقصى -30 نقطة لأي خصم من محادثة واحدة
+      // بس — مهما كان الضرب، عشان محادثة واحدة سيئة ميكسرش حافز شهر كامل.
+      const MAX_REPEAT_MULTIPLIER = 2;
+      const MAX_SINGLE_EVENT_DEDUCTION = 30;
+      const rawMultiplier =
         result.doctorPointsImpact < 0 && result.repeatErrorType ? previousCount + 1 : 1;
+      const multiplier = Math.min(rawMultiplier, MAX_REPEAT_MULTIPLIER);
       const repeatedDoctorImpact =
         result.doctorPointsImpact < 0
-          ? -Math.abs(result.doctorPointsImpact) * multiplier
+          ? -Math.min(Math.abs(result.doctorPointsImpact) * multiplier, MAX_SINGLE_EVENT_DEDUCTION)
           : result.doctorPointsImpact;
       setRepeatInfo({ count: previousCount, multiplier });
 
