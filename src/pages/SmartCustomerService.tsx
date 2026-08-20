@@ -2,16 +2,17 @@ import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 're
 import {
   AlertTriangle,
   BarChart3,
+  Clock3,
   Database,
   FileSpreadsheet,
   History,
   ListChecks,
   MessageSquareText,
   Plus,
+  RefreshCw,
   Sparkles,
   Target,
   Workflow,
-  Wrench,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
@@ -21,6 +22,7 @@ import CustomerFollowupFullExportPanel from '@/components/customerService/Custom
 import CustomerFollowupOperationsCompletionPanel from '@/components/customerService/CustomerFollowupOperationsCompletionPanel';
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
 import CustomerFollowupRecordsAndPerformance from '@/components/customerService/CustomerFollowupRecordsAndPerformance';
+import CustomerFollowupPerformancePanel from '@/components/customerService/CustomerFollowupPerformancePanel';
 import CustomerHistoricalFollowupLedger from '@/components/customerService/CustomerHistoricalFollowupLedger';
 import CustomerDailyPriorityQueues from '@/components/customerService/CustomerDailyPriorityQueues';
 import CustomerServiceDoctorWorkbookCenter from '@/components/customerService/CustomerServiceDoctorWorkbookCenter';
@@ -34,42 +36,56 @@ const CustomerServiceDataTools = lazy(() => import('@/components/customerService
 const CustomerServiceScriptEditor = lazy(() => import('@/components/customerService/CustomerServiceScriptEditor'));
 const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
 
-type MainSection = 'operations' | 'priorities' | 'followups' | 'tools' | 'reports';
-type PriorityView = 'queues' | 'workbook';
-type FollowupView = 'exceptional' | 'completed';
-type ToolsView = 'data' | 'content';
-type ReportsView = 'exports' | 'cashback';
+// ============================================================================
+// هيكل تنقل مبسّط: 4 مساحات عمل رئيسية فقط بدل 5 أقسام + تابات متداخلة كتير.
+// كل مساحة عندها Secondary tabs قليلة (لو محتاجة)، وتنفيذ اليوم نفسه بيدير
+// التابات الداخلية بتاعته (قائمة اليوم / انتظار الرد / مراجعة) من جوه الكومبوننت.
+// ============================================================================
+type Workspace = 'execution' | 'customers' | 'log' | 'reports';
+type CustomersTab = 'priorities' | 'doctors';
+type LogTab = 'ledger' | 'exceptional' | 'completed';
+type ReportsTab = 'performance' | 'exports' | 'quality' | 'scripts' | 'cashback';
 
-const workspaces: Array<{ id: 'operations' | 'priorities'; title: string; description: string; icon: typeof Workflow }> = [
-  { id: 'operations', title: 'مركز متابعة العملاء', description: 'تنفيذ المتابعات الحالية، انتظار الرد، المراجعة، سجل التواصل والأداء', icon: Workflow },
-  { id: 'priorities', title: 'قائمة عمل مسؤول خدمة العملاء', description: 'الاسترجاع والنمو والعملاء المستقرون وVIP و+500 والنقاط وملف الدكاترة', icon: Target },
+type NavItem<T extends string> = { id: T; title: string; icon: typeof Workflow };
+
+const workspaceItems: NavItem<Workspace>[] = [
+  { id: 'execution', title: 'التنفيذ اليومي', icon: Workflow },
+  { id: 'customers', title: 'العملاء والأولويات', icon: Target },
+  { id: 'log', title: 'السجل والمتابعات', icon: History },
+  { id: 'reports', title: 'التقارير والإدارة', icon: BarChart3 },
 ];
 
-const supportSections: Array<{ id: 'followups' | 'tools' | 'reports'; title: string; description: string; icon: typeof Workflow }> = [
-  { id: 'followups', title: 'الحالات الخاصة', description: 'الاستثنائي والسجل التاريخي والمكتمل', icon: Sparkles },
-  { id: 'tools', title: 'الأدوات والإدارة', description: 'الجودة والتصحيح والسكريبتات', icon: Wrench },
-  { id: 'reports', title: 'التقارير والنقاط', description: 'التصدير والكاش باك', icon: History },
+const customersTabs: NavItem<CustomersTab>[] = [
+  { id: 'priorities', title: 'الأولويات', icon: ListChecks },
+  { id: 'doctors', title: 'ملف الدكاترة', icon: FileSpreadsheet },
 ];
 
-const priorityViews: Array<{ id: PriorityView; title: string; description: string; icon: typeof ListChecks }> = [
-  { id: 'queues', title: 'أولويات العملاء', description: 'الاسترجاع والنمو والمستقرون وVIP و+500 والنقاط', icon: ListChecks },
-  { id: 'workbook', title: 'ملف الدكاترة', description: 'تصدير ومراجعة واستيراد ملف التنفيذ', icon: FileSpreadsheet },
+const logTabs: NavItem<LogTab>[] = [
+  { id: 'ledger', title: 'سجل المتابعات', icon: History },
+  { id: 'exceptional', title: 'الاستثنائي', icon: Sparkles },
+  { id: 'completed', title: 'المكتمل', icon: Clock3 },
 ];
 
-const followupViews: Array<{ id: FollowupView; title: string; description: string; icon: typeof Sparkles }> = [
-  { id: 'exceptional', title: 'متابعة استثنائية', description: 'طلبات الدكاترة والحالات الخاصة التي تحتاج متابعة منفصلة', icon: Sparkles },
-  { id: 'completed', title: 'السجل والمكتمل', description: 'السجل التاريخي الموحد ثم المتابعات المكتملة والمنفذة', icon: History },
+const reportsTabs: NavItem<ReportsTab>[] = [
+  { id: 'performance', title: 'الأداء', icon: BarChart3 },
+  { id: 'exports', title: 'التقارير', icon: FileSpreadsheet },
+  { id: 'quality', title: 'البيانات والجودة', icon: Database },
+  { id: 'scripts', title: 'السكريبتات', icon: MessageSquareText },
+  { id: 'cashback', title: 'الكاش باك', icon: Sparkles },
 ];
 
-const toolsViews: Array<{ id: ToolsView; title: string; description: string; icon: typeof Database }> = [
-  { id: 'data', title: 'البيانات والجودة', description: 'التصحيح والفروع والتكرارات واستكمال التشغيل', icon: Database },
-  { id: 'content', title: 'سكريبتات التواصل', description: 'نصوص المكالمات والواتساب المعتمدة', icon: MessageSquareText },
-];
+const NAV_STORAGE_KEY = 'dawaa_customer_service_nav_v2';
 
-const reportsViews: Array<{ id: ReportsView; title: string; description: string; icon: typeof History }> = [
-  { id: 'exports', title: 'التقارير والتصدير', description: 'تصدير البيانات والتقارير التشغيلية', icon: History },
-  { id: 'cashback', title: 'النقاط والكاش باك', description: 'استحقاقات العملاء ومتابعة الكاش باك', icon: BarChart3 },
-];
+type StoredNav = { workspace?: Workspace; customersTab?: CustomersTab; logTab?: LogTab; reportsTab?: ReportsTab };
+
+function readStoredNav(): StoredNav {
+  try {
+    const raw = sessionStorage.getItem(NAV_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as StoredNav) : {};
+  } catch {
+    return {};
+  }
+}
 
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -80,47 +96,55 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function MissingBranchGuard() {
-  return <section className="mx-4 mt-4 rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 text-center" dir="rtl"><AlertTriangle className="mx-auto text-amber-300" size={34}/><h2 className="mt-3 text-xl font-black text-white">لا يمكن فتح مساحة التشغيل بدون فرع محدد</h2><p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-amber-100/80">الحساب الحالي غير مربوط بفرع الشامي أو فرع شكري. تم إيقاف تحميل بيانات العملاء بدل فتح فرع افتراضي أو إظهار بيانات فرع آخر.</p></section>;
+  return <section className="mt-4 rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 text-center" dir="rtl"><AlertTriangle className="mx-auto text-amber-300" size={34}/><h2 className="mt-3 text-xl font-black text-white">لا يمكن فتح مساحة التشغيل بدون فرع محدد</h2><p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-amber-100/80">الحساب الحالي غير مربوط بفرع الشامي أو فرع شكري. تم إيقاف تحميل بيانات العملاء بدل فتح فرع افتراضي أو إظهار بيانات فرع آخر.</p></section>;
 }
 
-function SecondaryNav<T extends string>({ items, value, onChange, tone = 'cyan', label }: {
-  items: Array<{ id: T; title: string; description: string; icon: typeof Workflow }>;
+function TabRow<T extends string>({ items, value, onChange, label }: {
+  items: NavItem<T>[];
   value: T;
   onChange: (value: T) => void;
-  tone?: 'cyan' | 'amber' | 'violet';
   label: string;
 }) {
-  const activeClass = tone === 'amber'
-    ? 'border-amber-300/50 bg-amber-400/10 text-amber-100'
-    : tone === 'violet'
-      ? 'border-violet-300/50 bg-violet-400/10 text-violet-100'
-      : 'border-cyan-300/50 bg-cyan-400/10 text-cyan-100';
-
-  return <nav className={`mt-2 grid gap-2 rounded-2xl border border-white/10 bg-black/15 p-2 ${items.length === 2 ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`} aria-label={label}>
-    {items.map(({ id, title, description, icon: Icon }) => {
+  return <nav className="flex flex-wrap gap-1.5" aria-label={label}>
+    {items.map(({ id, title, icon: Icon }) => {
       const active = id === value;
-      return <button key={id} type="button" onClick={() => onChange(id)} className={`rounded-xl border px-3 py-2.5 text-right transition ${active ? activeClass : 'border-white/5 bg-white/[0.025] text-slate-200 hover:border-white/15 hover:bg-white/[0.05]'}`} aria-pressed={active}>
-        <span className="flex items-center gap-2"><Icon size={15}/><span className="text-xs font-black">{title}</span></span>
-        <span className="mt-1 hidden text-[10px] font-bold text-slate-500 md:block">{description}</span>
+      return <button key={id} type="button" onClick={() => onChange(id)} className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-black transition ${active ? 'border-cyan-300/60 bg-cyan-400/15 text-cyan-100' : 'border-white/5 bg-white/[0.03] text-slate-300 hover:border-white/15 hover:bg-white/[0.06]'}`} aria-pressed={active}>
+        <Icon size={13}/>{title}
       </button>;
     })}
   </nav>;
 }
 
+function formatClock(date: Date | null) {
+  if (!date) return '—';
+  return date.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+}
+
 export default function SmartCustomerService() {
   const { user } = useAuth();
-  const [section, setSection] = useState<MainSection>('operations');
-  const [priorityView, setPriorityView] = useState<PriorityView>('queues');
-  const [followupView, setFollowupView] = useState<FollowupView>('exceptional');
-  const [toolsView, setToolsView] = useState<ToolsView>('data');
-  const [reportsView, setReportsView] = useState<ReportsView>('exports');
+  const stored = useMemo(readStoredNav, []);
+  const [workspace, setWorkspace] = useState<Workspace>(stored.workspace || 'execution');
+  const [customersTab, setCustomersTab] = useState<CustomersTab>(stored.customersTab || 'priorities');
+  const [logTab, setLogTab] = useState<LogTab>(stored.logTab || 'ledger');
+  const [reportsTab, setReportsTab] = useState<ReportsTab>(stored.reportsTab || 'performance');
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   const [exceptionalOpen, setExceptionalOpen] = useState(false);
   const [pendingCustomer, setPendingCustomer] = useState<{ code: string; name: string; phone: string } | null>(null);
   const managerView = canViewAllBranches(user);
   const normalizedUserBranch = useMemo(() => normalizeBranchName(user?.branch || ''), [user?.branch]);
   const hasSafeBranchScope = managerView || Boolean(normalizedUserBranch);
+
+  // نحفظ آخر مساحة عمل وتابات فرعية مفتوحة فقط (تنقل بحت، من غير أي بيانات حساسة)
+  // عشان المستخدم يرجع لنفس المكان لو قفل التاب أو عمل رفرش.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(NAV_STORAGE_KEY, JSON.stringify({ workspace, customersTab, logTab, reportsTab }));
+    } catch {
+      // تخزين تفضيل تنقل بس؛ لو فشل (خصوصية متصفح صارمة) نكمل عادي من غير ما نوقف الصفحة.
+    }
+  }, [workspace, customersTab, logTab, reportsTab]);
 
   useEffect(() => {
     const openQuick = (event: Event) => {
@@ -132,10 +156,10 @@ export default function SmartCustomerService() {
     if (params.get('quickFollowup') === '1') {
       let customer: { code: string; name: string; phone: string } | null = null;
       try {
-        const stored = sessionStorage.getItem('dawaa_pending_followup_customer');
-        if (stored) {
+        const storedCustomer = sessionStorage.getItem('dawaa_pending_followup_customer');
+        if (storedCustomer) {
           sessionStorage.removeItem('dawaa_pending_followup_customer');
-          const parsed = JSON.parse(stored) as { code?: string; name?: string; phone?: string };
+          const parsed = JSON.parse(storedCustomer) as { code?: string; name?: string; phone?: string };
           if (parsed.code || parsed.name || parsed.phone) customer = { code: parsed.code || '', name: parsed.name || '', phone: parsed.phone || '' };
         }
       } catch {
@@ -155,87 +179,70 @@ export default function SmartCustomerService() {
   }, []);
 
   useEffect(() => {
-    const refresh = () => setWorkspaceVersion((current) => current + 1);
+    const refresh = () => { setWorkspaceVersion((current) => current + 1); setLastUpdatedAt(new Date()); };
     const events = ['customer-followup-updated', 'customer-followup-branch-transferred', 'customer-followup-data-corrected', 'customer-followup-imported'];
     events.forEach((eventName) => window.addEventListener(eventName, refresh));
     return () => events.forEach((eventName) => window.removeEventListener(eventName, refresh));
   }, []);
 
-  const refreshWorkspace = () => setWorkspaceVersion((current) => current + 1);
+  const refreshWorkspace = () => { setWorkspaceVersion((current) => current + 1); setLastUpdatedAt(new Date()); };
   const openExceptional = () => {
-    setSection('followups');
-    setFollowupView('exceptional');
+    setWorkspace('log');
+    setLogTab('exceptional');
     setExceptionalOpen(true);
   };
-  const selectSection = (next: MainSection) => {
-    setSection(next);
-    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
-  };
 
-  return <div className="customer-service-page min-h-screen space-y-4" dir="rtl">
-    <section className="sticky top-0 z-40 border-b border-cyan-300/15 bg-[#071827]/95 px-3 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl md:px-5">
-      <div className="mx-auto max-w-[1800px]">
-        <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] font-black text-slate-400">
-              <span className="rounded-full border border-cyan-300/15 bg-cyan-400/10 px-2.5 py-1 text-cyan-200">مركز خدمة العملاء</span>
-              <span>الفرع: {normalizedUserBranch || (managerView ? 'كل الفروع حسب الصلاحية' : 'غير محدد')}</span>
-              <span className="rounded-full border border-emerald-300/15 bg-emerald-400/10 px-2.5 py-1 text-emerald-200">اختيار مساحة العمل</span>
-            </div>
-            <h1 className="text-xl font-black text-white md:text-2xl">خدمة العملاء — اختار مساحة العمل ثم نفّذ</h1>
-            <p className="mt-1 max-w-5xl text-xs font-bold leading-6 text-slate-400">اختيار رئيسي بين مركز المتابعة للتنفيذ الفعلي، وقائمة عمل المسؤول لتحليل فرص الاسترجاع والنمو والعملاء المهمين. باقي الأدوات منفصلة أسفل الاختيار الرئيسي.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setQuickOpen(true)} className="rounded-xl border border-cyan-300/30 bg-cyan-400/15 px-4 py-2 text-sm font-black text-cyan-100 hover:bg-cyan-400/20"><Plus className="ml-1 inline" size={16}/> متابعة سريعة</button>
-            <button type="button" onClick={openExceptional} className="rounded-xl border-2 border-amber-200 bg-amber-500 px-4 py-2 text-sm font-black text-slate-950 shadow-lg hover:bg-amber-400"><Sparkles className="ml-1 inline" size={16}/> متابعة استثنائية</button>
-          </div>
+  return <div className="customer-service-page min-h-screen space-y-3" dir="rtl">
+    <section className="sticky top-0 z-40 rounded-2xl border border-cyan-300/15 bg-[#071827]/95 px-3 py-2.5 shadow-lg shadow-black/20 backdrop-blur-xl">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-lg font-black text-white">متابعة العملاء</h1>
+          <span className="rounded-full border border-cyan-300/15 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-black text-cyan-200">{normalizedUserBranch || (managerView ? 'كل الفروع' : 'غير محدد')}</span>
+          <span className="hidden items-center gap-1 text-[11px] font-bold text-slate-400 sm:flex"><Clock3 size={12}/> آخر تحديث {formatClock(lastUpdatedAt)}</span>
         </div>
-
-        <nav className="grid gap-2 md:grid-cols-2" aria-label="مساحات العمل الرئيسية لخدمة العملاء">
-          {workspaces.map(({ id, title, description, icon: Icon }) => {
-            const active = id === section;
-            return <button key={id} type="button" onClick={() => selectSection(id)} className={`rounded-2xl border px-4 py-3 text-right transition ${active ? 'border-cyan-300/70 bg-cyan-400/15 shadow-lg shadow-cyan-950/30' : 'border-white/10 bg-white/[0.035] hover:border-cyan-300/30 hover:bg-white/[0.06]'}`} aria-pressed={active}>
-              <span className="flex items-center gap-3"><span className={`rounded-xl p-2 ${active ? 'bg-cyan-300/15 text-cyan-200' : 'bg-white/5 text-slate-300'}`}><Icon size={20}/></span><span><span className={`block text-sm font-black md:text-base ${active ? 'text-cyan-100' : 'text-white'}`}>{title}</span><span className="mt-1 block text-[11px] font-bold text-slate-400">{description}</span></span></span>
-            </button>;
-          })}
-        </nav>
-
-        <nav className="mt-2 grid grid-cols-3 gap-2" aria-label="المساحات المساعدة لخدمة العملاء">
-          {supportSections.map(({ id, title, description, icon: Icon }) => {
-            const active = id === section;
-            return <button key={id} type="button" onClick={() => selectSection(id)} className={`rounded-xl border px-3 py-2 text-right transition ${active ? 'border-violet-300/50 bg-violet-400/10' : 'border-white/5 bg-black/10 hover:border-white/15 hover:bg-white/[0.04]'}`} aria-pressed={active}>
-              <span className="flex items-center gap-2"><Icon size={15} className={id === 'followups' ? 'text-amber-200' : id === 'tools' ? 'text-violet-300' : 'text-cyan-300'}/><span className="text-xs font-black text-white">{title}</span></span>
-              <span className="mt-1 hidden text-[10px] font-bold text-slate-500 md:block">{description}</span>
-            </button>;
-          })}
-        </nav>
-
-        {section === 'priorities' ? <SecondaryNav items={priorityViews} value={priorityView} onChange={(value) => setPriorityView(value as PriorityView)} label="قائمة عمل مسؤول خدمة العملاء"/> : null}
-        {section === 'followups' ? <SecondaryNav items={followupViews} value={followupView} onChange={(value) => setFollowupView(value as FollowupView)} tone="amber" label="الحالات الخاصة"/> : null}
-        {section === 'tools' ? <SecondaryNav items={toolsViews} value={toolsView} onChange={(value) => setToolsView(value as ToolsView)} tone="violet" label="أدوات خدمة العملاء"/> : null}
-        {section === 'reports' ? <SecondaryNav items={reportsViews} value={reportsView} onChange={(value) => setReportsView(value as ReportsView)} label="التقارير والنقاط"/> : null}
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" onClick={refreshWorkspace} className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-black text-slate-200 hover:bg-white/10"><RefreshCw size={14}/> تحديث</button>
+          <button type="button" onClick={() => setQuickOpen(true)} className="flex items-center gap-1.5 rounded-xl border border-cyan-300/30 bg-cyan-400/15 px-3 py-1.5 text-xs font-black text-cyan-100 hover:bg-cyan-400/20"><Plus size={14}/> متابعة سريعة</button>
+          <button type="button" onClick={openExceptional} className="flex items-center gap-1.5 rounded-xl border-2 border-amber-200 bg-amber-500 px-3 py-1.5 text-xs font-black text-slate-950 hover:bg-amber-400"><Sparkles size={14}/> متابعة استثنائية</button>
+        </div>
       </div>
+
+      <nav className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4" aria-label="مساحات العمل الرئيسية لخدمة العملاء">
+        {workspaceItems.map(({ id, title, icon: Icon }) => {
+          const active = id === workspace;
+          return <button key={id} type="button" onClick={() => setWorkspace(id)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-black transition ${active ? 'border-cyan-300/70 bg-cyan-400/15 text-cyan-100 shadow-lg shadow-cyan-950/20' : 'border-white/10 bg-white/[0.035] text-slate-200 hover:border-cyan-300/25 hover:bg-white/[0.06]'}`} aria-pressed={active}>
+            <Icon size={16}/>{title}
+          </button>;
+        })}
+      </nav>
+
+      {workspace === 'customers' ? <div className="mt-2"><TabRow items={customersTabs} value={customersTab} onChange={(value: CustomersTab) => setCustomersTab(value)} label="العملاء والأولويات"/></div> : null}
+      {workspace === 'log' ? <div className="mt-2"><TabRow items={logTabs} value={logTab} onChange={(value: LogTab) => setLogTab(value)} label="السجل والمتابعات"/></div> : null}
+      {workspace === 'reports' ? <div className="mt-2"><TabRow items={reportsTabs} value={reportsTab} onChange={(value: ReportsTab) => setReportsTab(value)} label="التقارير والإدارة"/></div> : null}
     </section>
 
-    <main className="mx-auto max-w-[1800px] px-0 pb-8">
-      {!hasSafeBranchScope && section !== 'reports' ? <MissingBranchGuard/> : null}
-      {hasSafeBranchScope && section === 'operations' ? <Section label="مركز التنفيذ"><CustomerFollowupCockpitPanel key={`operations-${workspaceVersion}`} /></Section> : null}
-      {hasSafeBranchScope && section === 'priorities' && priorityView === 'queues' ? <Section label="أولويات العملاء"><CustomerDailyPriorityQueues/></Section> : null}
-      {hasSafeBranchScope && section === 'priorities' && priorityView === 'workbook' ? <Section label="ملف الدكاترة"><CustomerServiceDoctorWorkbookCenter onImported={refreshWorkspace}/></Section> : null}
-      {hasSafeBranchScope && section === 'followups' && followupView === 'exceptional' ? <Section label="المتابعات الاستثنائية"><ExceptionalFollowupCenter key={`exceptional-${workspaceVersion}`} /></Section> : null}
-      {hasSafeBranchScope && section === 'followups' && followupView === 'completed' ? <div className="space-y-4">
-        <Section label="سجل المتابعات"><CustomerHistoricalFollowupLedger key={`history-${workspaceVersion}`} /></Section>
-        <Section label="المتابعات المكتملة"><CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /></Section>
-      </div> : null}
-      {hasSafeBranchScope && section === 'tools' && toolsView === 'data' ? <div className="space-y-4">
+    <main className="space-y-3 pb-8">
+      {!hasSafeBranchScope && workspace !== 'reports' ? <MissingBranchGuard/> : null}
+
+      {hasSafeBranchScope && workspace === 'execution' ? <Section label="مركز التنفيذ"><CustomerFollowupCockpitPanel key={`execution-${workspaceVersion}`} /></Section> : null}
+
+      {hasSafeBranchScope && workspace === 'customers' && customersTab === 'priorities' ? <Section label="أولويات العملاء"><CustomerDailyPriorityQueues/></Section> : null}
+      {hasSafeBranchScope && workspace === 'customers' && customersTab === 'doctors' ? <Section label="ملف الدكاترة"><CustomerServiceDoctorWorkbookCenter onImported={refreshWorkspace}/></Section> : null}
+
+      {hasSafeBranchScope && workspace === 'log' && logTab === 'ledger' ? <Section label="سجل المتابعات"><CustomerHistoricalFollowupLedger key={`ledger-${workspaceVersion}`} /></Section> : null}
+      {hasSafeBranchScope && workspace === 'log' && logTab === 'exceptional' ? <Section label="المتابعات الاستثنائية"><ExceptionalFollowupCenter key={`exceptional-${workspaceVersion}`} /></Section> : null}
+      {hasSafeBranchScope && workspace === 'log' && logTab === 'completed' ? <Section label="المتابعات المكتملة"><CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /></Section> : null}
+
+      {hasSafeBranchScope && workspace === 'reports' && reportsTab === 'performance' ? <Section label="أداء المتابعات"><CustomerFollowupPerformancePanel/></Section> : null}
+      {workspace === 'reports' && reportsTab === 'exports' ? <Section label="التصدير والتقارير"><CustomerFollowupFullExportPanel/></Section> : null}
+      {hasSafeBranchScope && workspace === 'reports' && reportsTab === 'quality' ? <div className="space-y-3">
         <Section label="جودة البيانات"><CustomerFollowupFinalQualityPanel/></Section>
         <Section label="استكمال التشغيل"><CustomerFollowupOperationsCompletionPanel/></Section>
         <Section label="أدوات تصحيح البيانات"><CustomerServiceDataTools/></Section>
       </div> : null}
-      {hasSafeBranchScope && section === 'tools' && toolsView === 'content' ? <Section label="محرر السكريبتات"><CustomerServiceScriptEditor/></Section> : null}
-      {section === 'reports' && reportsView === 'exports' ? <Section label="التصدير والتقارير"><CustomerFollowupFullExportPanel/></Section> : null}
-      {section === 'reports' && reportsView === 'cashback' && hasSafeBranchScope ? <Section label="نقاط العملاء والكاش باك"><CustomerCashback/></Section> : null}
-      {section === 'reports' && reportsView === 'cashback' && !hasSafeBranchScope ? <MissingBranchGuard/> : null}
+      {hasSafeBranchScope && workspace === 'reports' && reportsTab === 'scripts' ? <Section label="محرر السكريبتات"><CustomerServiceScriptEditor/></Section> : null}
+      {workspace === 'reports' && reportsTab === 'cashback' && hasSafeBranchScope ? <Section label="نقاط العملاء والكاش باك"><CustomerCashback/></Section> : null}
+      {workspace === 'reports' && reportsTab === 'cashback' && !hasSafeBranchScope ? <MissingBranchGuard/> : null}
     </main>
 
     <QuickFollowupModal
@@ -248,6 +255,6 @@ export default function SmartCustomerService() {
       initialCustomerName={pendingCustomer?.name || null}
       initialCustomerPhone={pendingCustomer?.phone || null}
     />
-    <ExceptionalFollowupModal open={exceptionalOpen} onClose={() => setExceptionalOpen(false)} onCreated={() => { refreshWorkspace(); setSection('followups'); setFollowupView('exceptional'); }} />
+    <ExceptionalFollowupModal open={exceptionalOpen} onClose={() => setExceptionalOpen(false)} onCreated={() => { refreshWorkspace(); setWorkspace('log'); setLogTab('exceptional'); }} />
   </div>;
 }

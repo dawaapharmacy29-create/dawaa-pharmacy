@@ -452,7 +452,7 @@ export default function CustomerDailyPriorityQueues() {
   const growthValue = useMemo(() => growthCustomers.reduce((sum, r) => sum + Math.max(0, Number(r.current_period_sales || 0) - Number(r.baseline_sales || 0)), 0), [growthCustomers]);
   const period = intelligence[0];
 
-  return <section className="mx-4 mt-4 space-y-4 rounded-3xl border border-cyan-300/15 bg-[#0b2035] p-4 md:p-5" dir="rtl">
+  return <section className="space-y-4 rounded-3xl border border-cyan-300/15 bg-[#0b2035] p-4 md:p-5" dir="rtl">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <p className="text-xs font-black text-cyan-300">مركز ذكاء ومتابعة العملاء</p>

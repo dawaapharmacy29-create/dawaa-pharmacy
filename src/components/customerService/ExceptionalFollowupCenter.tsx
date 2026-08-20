@@ -278,7 +278,7 @@ export default function ExceptionalFollowupCenter() {
     XLSX.writeFile(wb, `exceptional-followups-${localDate()}.xlsx`);
   }
 
-  return <section className="mx-3 rounded-3xl border border-amber-300/20 bg-[#0b2035] p-4 shadow-xl md:mx-5 md:p-6" dir="rtl">
+  return <section className="rounded-3xl border border-amber-300/20 bg-[#0b2035] p-4 shadow-xl md:p-6" dir="rtl">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
       <div><div className="flex items-center gap-2 text-amber-300"><Sparkles size={20}/><span className="text-sm font-black">المركز المتخصص</span></div><h2 className="mt-1 text-2xl font-black text-white">المتابعات الاستثنائية وطلبات الفريق</h2><p className="mt-1 text-sm font-bold text-slate-400">فصل كامل بين ما نفذته دكتورة خدمة العملاء وما طلبه دكاترة الفرع.</p></div>
       <div className="flex flex-wrap gap-2"><button onClick={() => void load()} className="rounded-xl border border-white/10 px-4 py-2 text-sm font-black text-white"><RefreshCw className="ml-1 inline" size={15}/>تحديث</button><button onClick={() => inputRef.current?.click()} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-slate-950"><Upload className="ml-1 inline" size={15}/>استيراد Excel</button><button onClick={() => void exportExcel()} className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-black text-slate-950"><Download className="ml-1 inline" size={15}/>تصدير النتائج</button><input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void readExcel(file); }}/></div>

@@ -534,7 +534,7 @@ export default function CustomerServiceDoctorWorkbookCenter({ onImported }: { on
       : [];
 
   return (
-    <section className="mx-4 mt-4 rounded-3xl border border-cyan-300/15 bg-[#0b2035] p-4 shadow-xl md:p-5" dir="rtl">
+    <section className="rounded-3xl border border-cyan-300/15 bg-[#0b2035] p-4 shadow-xl md:p-5" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">

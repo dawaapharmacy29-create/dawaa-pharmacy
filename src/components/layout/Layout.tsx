@@ -6,7 +6,6 @@ import { PageSectionsPreview } from '@/components/security/PermissionGate';
 import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
 import BranchTargetEditor from '@/components/dashboard/BranchTargetEditor';
 import ReviewsInsightsHub from '@/components/reviews/ReviewsInsightsHub';
-import CustomerFollowupPerformancePanel from '@/components/customerService/CustomerFollowupPerformancePanel';
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'لوحة القيادة 2027',
@@ -63,7 +62,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     reviewsPageMode !== 'new' &&
     reviewsPageSection !== 'history' &&
     !reviewsPageId;
-  const showFollowupPerformance = location.pathname === '/customer-service';
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -112,7 +110,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <PageSectionsPreview path={location.pathname} />
               {showTargetEditor ? <BranchTargetEditor compact /> : null}
               {showReviewsHub ? <ReviewsInsightsHub /> : null}
-              {showFollowupPerformance ? <CustomerFollowupPerformancePanel /> : null}
               {hasChildren ? (
                 children
               ) : (
