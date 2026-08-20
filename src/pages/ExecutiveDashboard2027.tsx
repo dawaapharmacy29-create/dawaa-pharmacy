@@ -327,6 +327,7 @@ function isActiveStaff(row: StaffDirectoryRow) {
 
 function roleGroup(role: unknown) {
   const normalized = normalizeText(role);
+  if (normalized.includes('مساعد') || normalized.includes('assistant')) return 'assistant';
   if (
     normalized.includes('توصيل') ||
     normalized.includes('دليفري') ||
@@ -1217,6 +1218,7 @@ export default function ExecutiveDashboard2027() {
   const [dataHealthTimedOut, setDataHealthTimedOut] = useState(false);
   const [dataHealthError, setDataHealthError] = useState<string | null>(null);
   const [dataHealthRetryToken, setDataHealthRetryToken] = useState(0);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [teamTaskSummary, setTeamTaskSummary] = useState<EmployeeTaskSummary | null>(null);
   const [teamTaskIssue, setTeamTaskIssue] = useState<string | null>(null);
   const loadIdRef = useRef(0);
@@ -1366,6 +1368,7 @@ export default function ExecutiveDashboard2027() {
   }, [canAllBranches, scopedBranch, startDate, endDate, user?.branch, doctorCompetitionRetryToken]);
 
   useEffect(() => {
+    if (!diagnosticsOpen) return;
     let mounted = true;
     setDataHealthLoading(true);
     setDataHealthError(null);
@@ -1393,7 +1396,7 @@ export default function ExecutiveDashboard2027() {
     return () => {
       mounted = false;
     };
-  }, [dataHealthRetryToken]);
+  }, [dataHealthRetryToken, diagnosticsOpen]);
 
   useEffect(() => {
     let mounted = true;
@@ -1443,67 +1446,10 @@ export default function ExecutiveDashboard2027() {
       setInventoryOperationsLoading(true);
       setInventoryOperationsError(null);
       setInventoryOperationsLoadedAt(null);
-
-      // CUSTOMER SERVICE block
-      let customerServiceRows: CustomerServiceSummary[] = [];
-    let customerServiceOwners: CustomerServiceOwner[] = [];
-    let customerServiceFollowups: FollowupDashboardRow[] = [];
-    let staffOpsRows: StaffOps[] = [];
-    try {
-      const branchParams = { p_branch: scopedBranch || ALL_BRANCHES };
-      try {
-        customerServiceRows = await rpcRows<CustomerServiceSummary>(
-          ['get_dashboard_customer_service_summary_v171'],
-          branchParams,
-          'customer service',
-          errors
-        );
-      } catch (e) {
-        customerServiceRows = [];
-        console.error('[Dashboard] customer service fetch failed', e);
-        setCustomerServiceError(String(e instanceof Error ? e.message : e));
-      }
-      // ملاحظة (17 أغسطس 2026): كانت هنا محاولة نداء get_dashboard_customer_service_by_responsible_v171
-      // عبر RPC، لكن الدالة دي مش موجودة في القاعدة تحت أي إصدار (تأكدنا من pg_proc) — يعني كانت
-      // بتفشل 100% من المرات وبتضيف خطأ لكل تحميل للداشبورد من غير أي فايدة. القسم أصلًا عنده
-      // fallback شغال بيتحسب من متابعات خدمة العملاء (buildCustomerServiceOwnersFallback تحت)،
-      // فبنروح عليه على طول بدل إهدار طلب شبكة مصيره الفشل دايمًا.
-      try {
-        customerServiceFollowups = await fetchFollowupsForDashboard(
-          startDate,
-          endDate,
-          scopedBranch || ALL_BRANCHES,
-          errors
-        );
-      } catch (e) {
-        console.warn('[Dashboard] customer service fallback fetch skipped', e);
-      }
-      try {
-        staffOpsRows = await rpcRows<StaffOps>(
-          ['get_dashboard_staff_ops_summary_v171'],
-          undefined,
-          'staff operations',
-          errors
-        );
-      } catch (e) {
-        staffOpsRows = [];
-        console.error('[Dashboard] staff ops fetch failed', e);
-      }
-      setCustomerServiceLoadedAt(new Date().toISOString());
-    } finally {
-      // update state for customer service section
-      const fallbackSummary = customerServiceFollowups.length ? buildCustomerServiceSummaryFallback(customerServiceFollowups) : null;
-      const fallbackOwners = customerServiceFollowups.length ? buildCustomerServiceOwnersFallback(customerServiceFollowups) : [];
-      const effectiveCustomerServiceRows = fallbackSummary ? [fallbackSummary] : customerServiceRows;
-      const effectiveCustomerServiceOwners = fallbackOwners.length ? fallbackOwners : customerServiceOwners;
-      setState((prev) => ({
-        ...prev,
-        customerService: effectiveCustomerServiceRows[0] || null,
-        customerServiceOwners: effectiveCustomerServiceOwners,
-        staffOps: staffOpsRows[0] || null,
-      }));
+      // Customer-service analytics live in /customer-service. Avoid duplicate Supabase work here.
       setCustomerServiceLoading(false);
-    }
+      setCustomerServiceLoadedAt(new Date().toISOString());
+      setState((prev) => ({ ...prev, customerService: null, customerServiceOwners: [], staffOps: null }));
 
       // ensure inventory section is marked as loaded for static operations cards
       setInventoryOperationsLoadedAt(new Date().toISOString());
@@ -1565,36 +1511,9 @@ export default function ExecutiveDashboard2027() {
     } finally {
       setSalesKPILoading(false);
     }
-
-      // INCENTIVES block
-      try {
-      setIncentivesLoading(true);
-      try {
-        const incentiveSettled = await withTimeout(
-          getStaffIncentiveSummaryForCycle({
-            cycle: currentCycle,
-            branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
-          }),
-          7000,
-          'incentives'
-        ).then(
-          (data) => ({ ok: true as const, data }),
-          (error: unknown) => ({ ok: false as const, error })
-        );
-        if (incentiveSettled.ok) {
-          setState((prev) => ({ ...prev, incentiveSummary: incentiveSettled.data }));
-          setIncentivesLoadedAt(new Date().toISOString());
-        } else {
-          const err = 'error' in incentiveSettled ? incentiveSettled.error : null;
-          setIncentivesError(err instanceof Error ? err.message : String(err));
-        }
-      } catch (e) {
-        console.error('[Dashboard] incentives fetch failed', e);
-        setIncentivesError(String(e instanceof Error ? e.message : e));
-      }
-    } finally {
+      // Detailed incentive ledger belongs to the points/incentives workspace.
       setIncentivesLoading(false);
-    }
+      setIncentivesLoadedAt(new Date().toISOString());
 
       // STAFF ATTENDANCE block (staff directory, schedules, presence)
       try {
@@ -2028,6 +1947,10 @@ export default function ExecutiveDashboard2027() {
     () => groupedOnShiftNow.filter((member) => roleGroup(member.role) === 'doctor'),
     [groupedOnShiftNow]
   );
+  const onShiftAssistants = useMemo(
+    () => groupedOnShiftNow.filter((member) => roleGroup(member.role) === 'assistant'),
+    [groupedOnShiftNow]
+  );
   const onShiftDelivery = useMemo(
     () => groupedOnShiftNow.filter((member) => roleGroup(member.role) === 'delivery'),
     [groupedOnShiftNow]
@@ -2072,43 +1995,10 @@ export default function ExecutiveDashboard2027() {
       tone: 'cyan' as const,
     },
     {
-      id: 'customer-service-analysis',
-      title: 'خدمة العملاء',
-      value: getSectionValue({
-        value: count(service.open_followups),
-        loading: customerServiceLoading,
-        error: customerServiceError,
-        loadedAt: customerServiceLoadedAt,
-      }),
-      tone: 'green' as const,
-    },
-    {
-      id: 'operations-quality',
-      title: 'التشغيل والجرد',
-      value: getSectionValue({
-        value: 'متابعة',
-        loading: inventoryOperationsLoading,
-        error: inventoryOperationsError,
-        loadedAt: inventoryOperationsLoadedAt,
-      }),
-      tone: 'blue' as const,
-    },
-    {
-      id: 'stagnant-list-analysis',
-      title: 'الرواكد واللستة',
-      value: 'تحليل',
+      id: 'doctor-competitions',
+      title: 'مسابقة الدكاترة',
+      value: doctorCompetitionLoading ? 'تحميل' : doctorCompetitionError ? 'مراجعة' : 'Top 5',
       tone: 'amber' as const,
-    },
-    {
-      id: 'incentives-analysis',
-      title: 'الحوافز والنقاط',
-      value: getSectionValue({
-        value: count(topDoctors.length),
-        loading: incentivesLoading,
-        error: incentivesError,
-        loadedAt: incentivesLoadedAt,
-      }),
-      tone: 'purple' as const,
     },
   ];
 
@@ -2290,16 +2180,6 @@ export default function ExecutiveDashboard2027() {
               <p className="mt-2 text-sm font-semibold text-slate-300">
                 لوحة قيادة تنفيذية شاملة للمبيعات، الفروع، الموظفين، خدمة العملاء، والتشغيل.
               </p>
-              <div className="mt-5 flex flex-wrap justify-start gap-2 xl:justify-end">
-                {['المبيعات', 'الموظفين', 'خدمة العملاء', 'الفروع', 'التشغيل'].map((tab, index) => (
-                  <button
-                    key={tab}
-                    className={`rounded-2xl border px-5 py-2 text-sm font-black transition ${index === 0 ? 'border-cyan-400/40 bg-cyan-400/15 text-cyan-100' : 'border-slate-700/70 bg-slate-900/50 text-slate-300 hover:border-cyan-400/30'}`}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
         </Panel>
@@ -2368,79 +2248,52 @@ export default function ExecutiveDashboard2027() {
 
         <Panel className="p-5">
           <SectionTitle
-            title="الموجودون حاليا في الشيفت"
-            subtitle="حسب جدول الشيفتات الحالي، مع فصل الصيادلة عن الدليفري لمنع خلط المبيعات"
+            title="الموجودون الآن"
+            subtitle="عرض واحد ذكي للحضور الحالي حسب الدور والفرع — التفاصيل الكاملة في صفحة الحضور"
             icon={<Clock3 className="h-5 w-5" />}
           />
-          <div className="grid gap-4 xl:grid-cols-2">
-            <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-black text-white">الدكاترة والصيادلة</h3>
-                <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-100">
-                  {count(onShiftDoctors.length)}
-                </span>
-              </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {onShiftDoctors.length ? (
-                  onShiftDoctors.slice(0, 10).map((member) => (
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MiniBox label="إجمالي الموجودين" value={count(groupedOnShiftNow.length)} tone="cyan" />
+            <MiniBox label="صيادلة" value={count(onShiftDoctors.length)} tone="green" />
+            <MiniBox label="مساعدون" value={count(onShiftAssistants.length)} tone="blue" />
+            <MiniBox label="دليفري" value={count(onShiftDelivery.length)} tone="amber" />
+          </div>
+          <div className="grid gap-4 xl:grid-cols-3">
+            {[
+              { label: 'الدكاترة والصيادلة', rows: onShiftDoctors, tone: 'cyan' },
+              { label: 'مساعدو الصيدلي', rows: onShiftAssistants, tone: 'emerald' },
+              { label: 'الدليفري', rows: onShiftDelivery, tone: 'amber' },
+            ].map((group) => (
+              <div key={group.label} className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="font-black text-white">{group.label}</h3>
+                  <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-100">{count(group.rows.length)}</span>
+                </div>
+                <div className="space-y-2">
+                  {group.rows.length ? group.rows.slice(0, 12).map((member) => (
                     <button
-                      key={`${staffId(member)}-${staffName(member)}`}
+                      key={`${staffId(member)}-${staffName(member)}-${branchName(member.branch)}`}
                       onClick={() => void navigateToStaff(staffName(member), member.branch)}
-                      className="rounded-xl border border-cyan-300/10 bg-slate-900/75 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
+                      className="w-full rounded-xl border border-cyan-300/10 bg-slate-900/75 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
                     >
-                      <b className="block text-white">{normalizeDoctorName(staffName(member))}</b>
-                      <span className="text-slate-400">
-                        {branchName(member.branch)} ·{' '}
-                        {member.shifts.map((shift, index) => (
-                          <span key={index}>
-                            {index > 0 ? '، ' : ''}
-                            <ShiftTimeRange shift={shift} />
-                          </span>
-                        ))}
-                      </span>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <b className="block text-white">{roleGroup(member.role) === 'doctor' ? normalizeDoctorName(staffName(member)) : staffName(member)}</b>
+                          <span className="text-slate-400">{branchName(member.branch)} · {String(member.role || 'فريق')}</span>
+                        </div>
+                        <span className="text-cyan-200">
+                          {member.shifts.map((shift, index) => (
+                            <span key={index}>{index > 0 ? '، ' : ''}<ShiftTimeRange shift={shift} /></span>
+                          ))}
+                        </span>
+                      </div>
                     </button>
-                  ))
-                ) : (
-                  <p className="rounded-xl border border-cyan-300/10 bg-slate-900/70 p-4 text-center text-xs font-bold text-slate-400">
-                    لا توجد بيانات شيفت حالية.
-                  </p>
-                )}
+                  )) : (
+                    <p className="rounded-xl bg-slate-900/60 p-4 text-center text-xs font-bold text-slate-500">لا يوجد أحد حاليًا.</p>
+                  )}
+                </div>
               </div>
-            </div>
-            <div className="rounded-2xl border border-amber-300/10 bg-slate-950/45 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-black text-white">الدليفري</h3>
-                <span className="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-black text-amber-100">
-                  {count(onShiftDelivery.length)}
-                </span>
-              </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {onShiftDelivery.length ? (
-                  onShiftDelivery.slice(0, 10).map((member) => (
-                    <button
-                      key={`${staffId(member)}-${staffName(member)}`}
-                      onClick={() => void navigateToStaff(staffName(member), member.branch)}
-                      className="rounded-xl border border-amber-300/10 bg-slate-900/75 px-3 py-2 text-right text-xs hover:bg-amber-400/10"
-                    >
-                      <b className="block text-white">{staffName(member)}</b>
-                      <span className="text-slate-400">
-                        {branchName(member.branch)} ·{' '}
-                        {member.shifts.map((shift, index) => (
-                          <span key={index}>
-                            {index > 0 ? '، ' : ''}
-                            <ShiftTimeRange shift={shift} />
-                          </span>
-                        ))}
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <p className="rounded-xl border border-amber-300/10 bg-slate-900/70 p-4 text-center text-xs font-bold text-slate-400">
-                    لا توجد بيانات دليفري حالية.
-                  </p>
-                )}
-              </div>
-            </div>
+            ))}
           </div>
         </Panel>
 
@@ -2451,7 +2304,7 @@ export default function ExecutiveDashboard2027() {
           </div>
         )}
 
-        {canAllBranches && state.salesReconciliation && (
+        {diagnosticsOpen && canAllBranches && state.salesReconciliation && (
           <Panel
             className={`p-4 ${state.salesReconciliation.difference > 1 ? 'border-red-300/40 bg-red-500/10' : 'border-emerald-300/20 bg-emerald-500/5'}`}
           >
@@ -2643,34 +2496,51 @@ export default function ExecutiveDashboard2027() {
           onRetry={() => setDoctorCompetitionRetryToken((token) => token + 1)}
         />
 
-        <DashboardDataHealthPanel
-          issues={dataHealthIssues}
-          loading={dataHealthLoading}
-          error={dataHealthError}
-          onNavigate={(route) => navigate(route)}
-          onRetry={() => setDataHealthRetryToken((token) => token + 1)}
-        />
-
-        <Panel className="p-5">
-          <SectionTitle
-            title="تشخيص تحميل الداشبورد"
-            subtitle="حالة كل قسم من الأقسام الأساسية في الوقت الحالي"
-            icon={<AlertTriangle className="h-5 w-5" />}
-          />
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            {[
-              { key: 'sales', label: 'sales', state: salesKPILoading ? 'loading' : salesKPIError || salesKPITimedOut ? 'error' : salesKPILoadedAt ? 'loaded' : 'loading' },
-              { key: 'customerService', label: 'customerService', state: customerServiceLoading ? 'loading' : customerServiceError || customerServiceTimedOut ? 'error' : customerServiceLoadedAt ? 'loaded' : 'loading' },
-              { key: 'staff', label: 'staff', state: staffAttendanceLoading ? 'loading' : staffAttendanceError || staffAttendanceTimedOut ? 'error' : staffAttendanceLoadedAt ? 'loaded' : 'loading' },
-              { key: 'incentives', label: 'incentives', state: incentivesLoading ? 'loading' : incentivesError || incentivesTimedOut ? 'error' : incentivesLoadedAt ? 'loaded' : 'loading' },
-              { key: 'dailyTasks', label: 'dailyTasks', state: dailyTasksLoading ? 'loading' : dailyTasksError || dailyTasksTimedOut ? 'error' : dailyTasksLoadedAt ? 'loaded' : 'loading' },
-            ].map((item) => (
-              <div key={item.key} className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4">
-                <div className="text-sm font-black text-white">{item.label}</div>
-                <div className="mt-3 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{item.state}</div>
+        <Panel className="p-4">
+          <button
+            type="button"
+            onClick={() => setDiagnosticsOpen((open) => !open)}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-cyan-300/10 bg-slate-950/40 px-4 py-3 text-right hover:bg-cyan-400/10"
+          >
+            <div>
+              <div className="font-black text-white">التشخيص وصحة البيانات</div>
+              <div className="mt-1 text-xs font-bold text-slate-400">مخفي افتراضيًا — افتحه فقط عند المراجعة الفنية</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {dataHealthError || dataHealthIssues.length ? (
+                <span className="rounded-full bg-amber-400/15 px-3 py-1 text-xs font-black text-amber-100">{dataHealthError ? 'تعذر الفحص' : `${dataHealthIssues.length} مؤشر`}</span>
+              ) : null}
+              <span className="text-cyan-200">{diagnosticsOpen ? 'إخفاء' : 'عرض'}</span>
+            </div>
+          </button>
+          {diagnosticsOpen ? (
+            <div className="mt-4 space-y-4">
+              <DashboardDataHealthPanel
+                issues={dataHealthIssues}
+                loading={dataHealthLoading}
+                error={dataHealthError}
+                onNavigate={(route) => navigate(route)}
+                onRetry={() => setDataHealthRetryToken((token) => token + 1)}
+              />
+              <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/35 p-4">
+                <SectionTitle title="تشخيص تحميل الداشبورد" subtitle="حالة الأقسام الأساسية" icon={<AlertTriangle className="h-5 w-5" />} />
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  {[
+                    { key: 'sales', label: 'sales', state: salesKPILoading ? 'loading' : salesKPIError || salesKPITimedOut ? 'error' : salesKPILoadedAt ? 'loaded' : 'loading' },
+                    { key: 'staff', label: 'staff', state: staffAttendanceLoading ? 'loading' : staffAttendanceError || staffAttendanceTimedOut ? 'error' : staffAttendanceLoadedAt ? 'loaded' : 'loading' },
+                    { key: 'dailyTasks', label: 'dailyTasks', state: dailyTasksLoading ? 'loading' : dailyTasksError || dailyTasksTimedOut ? 'error' : dailyTasksLoadedAt ? 'loaded' : 'loading' },
+                    { key: 'competition', label: 'competition', state: doctorCompetitionLoading ? 'loading' : doctorCompetitionError ? 'error' : doctorCompetitionLoadedAt ? 'loaded' : 'loading' },
+                    { key: 'health', label: 'health', state: dataHealthLoading ? 'loading' : dataHealthError ? 'error' : 'loaded' },
+                  ].map((item) => (
+                    <div key={item.key} className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4">
+                      <div className="text-sm font-black text-white">{item.label}</div>
+                      <div className="mt-3 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{item.state}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : null}
         </Panel>
 
         <Panel className="p-5">
@@ -3164,304 +3034,7 @@ export default function ExecutiveDashboard2027() {
           </Panel>
         </section>
 
-        <Panel id="operations-quality" className="p-5 scroll-mt-24">
-          <SectionTitle
-            title="التشغيل والمخزون والجودة"
-            subtitle="تقسيم تنفيذي للنظافة، الجرد، المستلزمات، طلبات العملاء، الرواكد واللستة"
-            icon={<PackageSearch className="h-5 w-5" />}
-          />
-          <div className="grid gap-4 xl:grid-cols-2">
-            <KpiCard
-              title="أداء النظافة"
-              value="متابعة الفروع"
-              subtitle="اضغط لفتح مراجعة النظافة"
-              icon={<ShieldCheck className="h-6 w-6" />}
-              tone="cyan"
-              onClick={() => navigate('/branch-cleaning')}
-            />
-            <KpiCard
-              title="أداء الجرد"
-              value="مراجعة العد"
-              subtitle="اضغط لفتح الجرد والفروقات"
-              icon={<ClipboardList className="h-6 w-6" />}
-              tone="blue"
-              onClick={() => navigate('/inventory-counts')}
-            />
-            <KpiCard
-              title="أداء المستلزمات"
-              value="طلبات التشغيل"
-              subtitle="اضغط لفتح المستلزمات"
-              icon={<PackageSearch className="h-6 w-6" />}
-              tone="purple"
-              onClick={() => navigate('/supplies')}
-            />
-            <KpiCard
-              title="طلبات العملاء"
-              value={getSectionValue({
-                value: count(service.open_followups),
-                loading: customerServiceLoading,
-                error: customerServiceError,
-                loadedAt: customerServiceLoadedAt,
-              })}
-              subtitle="اضغط لفتح مركز خدمة العملاء"
-              icon={<Headphones className="h-6 w-6" />}
-              tone="green"
-              onClick={() => navigate('/customer-service')}
-            />
-          </div>
-          <div id="stagnant-list-analysis" className="mt-4 grid gap-4 xl:grid-cols-2 scroll-mt-24">
-            <div className="rounded-3xl border border-amber-300/15 bg-amber-400/8 p-5">
-              <SectionTitle
-                title="تحليل الرواكد"
-                subtitle="الأصناف الراكدة والدكاترة الأكثر مساهمة في تحريكها"
-                icon={<PackageSearch className="h-5 w-5" />}
-              />
-              <p className="text-sm font-bold text-slate-300">
-                افتح صفحة الرواكد لمراجعة الأصناف، آخر حركة، والدكتور المسؤول عن التحريك.
-              </p>
-              <button
-                onClick={() => navigate('/stagnant-medicines')}
-                className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-400/10 px-5 py-3 text-sm font-black text-amber-100 hover:bg-amber-400/20"
-              >
-                فتح تحليل الرواكد
-              </button>
-            </div>
-            <div className="rounded-3xl border border-emerald-300/15 bg-emerald-400/8 p-5">
-              <SectionTitle
-                title="تحليل اللستة والحوافز"
-                subtitle="الأصناف المحفزة وأثرها على نقاط الدكاترة"
-                icon={<Sparkles className="h-5 w-5" />}
-              />
-              <p className="text-sm font-bold text-slate-300">
-                افتح صفحة اللستة لمراجعة مبيعات الأصناف المحفزة وربطها بالحوافز.
-              </p>
-              <button
-                onClick={() => navigate('/incentive-medicines')}
-                className="mt-4 rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-5 py-3 text-sm font-black text-emerald-100 hover:bg-emerald-400/20"
-              >
-                فتح تحليل اللستة
-              </button>
-            </div>
-          </div>
-        </Panel>
-
         <section className="grid gap-4 xl:grid-cols-12">
-          <Panel id="customer-service-analysis" className="xl:col-span-12 p-5 scroll-mt-24">
-            <SectionTitle
-              title="عمليات خدمة العملاء"
-              subtitle="المتابعات داخل الفترة المختارة حسب المسؤولة والفرع"
-              icon={<Headphones className="h-5 w-5" />}
-            />
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-              <MiniBox
-                label="مفتوح الآن"
-                value={count(service.open_followups)}
-                tone="cyan"
-              />
-              <MiniBox label="متأخر قبل اليوم" value={count(service.overdue_followups)} tone="red" />
-              <MiniBox label="المكتملة خلال الفترة" value={count(service.completed_today)} tone="green" />
-              <MiniBox label="تحتاج مدير" value={count(service.needs_manager)} tone="amber" />
-              <MiniBox label="عملاء بدون كود" value={count(service.no_code_customers)} tone="blue" />
-              <MiniBox
-                label="مبيعات بعد المتابعة"
-                value={
-                  n(service.purchase_after_followup_amount)
-                    ? `${money(service.purchase_after_followup_amount)} جنيه`
-                    : 'غير محدد'
-                }
-                tone="green"
-              />
-            </div>
-            <div className="mt-5 grid gap-3 xl:grid-cols-2">
-              {serviceOwnersByBranch.length ? (
-                serviceOwnersByBranch.map(([branchLabel, owners]) => {
-                  const assigned = owners.reduce(
-                    (sum, owner) => sum + n(owner.assigned_followups),
-                    0
-                  );
-                  const completed = owners.reduce(
-                    (sum, owner) => sum + n(owner.completed_today),
-                    0
-                  );
-                  const overdue = owners.reduce((sum, owner) => sum + n(owner.overdue_followups), 0);
-                  const manager = owners.reduce((sum, owner) => sum + n(owner.needs_manager), 0);
-                  const bestOwner = [...owners].sort(
-                    (a, b) => n(b.completion_percent) - n(a.completion_percent)
-                  )[0];
-                  const percent = assigned
-                    ? (completed / assigned) * 100
-                    : n(bestOwner?.completion_percent);
-                  return (
-                    <div
-                      key={branchLabel}
-                      className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4"
-                    >
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div>
-                          <h3 className="text-lg font-black text-white">{branchLabel}</h3>
-                          <p className="mt-1 text-xs font-bold text-slate-400">
-                            المسؤولة الأقوى: {bestOwner?.responsible_name || 'غير محدد'}
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs font-black text-emerald-100">
-                          {pct(percent)}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-4 gap-2">
-                        <MiniBox label="مفتوح" value={count(Math.max(0, assigned - completed))} tone="cyan" />
-                        <MiniBox label="متأخر" value={count(overdue)} tone="red" />
-                        <MiniBox label="مكتمل" value={count(completed)} tone="green" />
-                        <MiniBox label="يحتاج مدير" value={count(manager)} tone="amber" />
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        {owners.map((owner) => (
-                          <button
-                            key={`${branchLabel}-${owner.responsible_name}`}
-                            onClick={() =>
-                              navigate(
-                                `/customer-service?responsible=${encodeURIComponent(String(owner.responsible_name || ''))}&branch=${encodeURIComponent(branchLabel)}`
-                              )
-                            }
-                            className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-2 rounded-xl border border-cyan-300/10 bg-slate-900/70 px-3 py-2 text-right text-xs font-bold hover:bg-cyan-400/10"
-                          >
-                            <span className="font-black text-white">
-                              {owner.responsible_name || 'غير محدد'}
-                            </span>
-                            <span className="text-cyan-200">
-                              {count(owner.assigned_followups)} مسند
-                            </span>
-                            <span className="text-emerald-200">
-                              {count(owner.completed_today)} مكتمل
-                            </span>
-                            <span className="text-red-200">
-                              {count(owner.overdue_followups)} متأخر
-                            </span>
-                            <span className="text-amber-200">
-                              {count(owner.needs_manager)} مدير
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-5 text-center text-sm font-bold text-slate-400 xl:col-span-2">
-                  <div className="text-base font-black text-white">لا توجد متابعات مسجلة لهذه الفترة</div>
-                  <div className="mt-2 text-slate-400">افتح مركز خدمة العملاء أو أنشئ متابعة جديدة ثم حدث البيانات.</div>
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    <button type="button" className="rounded-xl border border-cyan-300/25 px-4 py-2 text-xs font-black text-cyan-100 hover:bg-cyan-400/10" onClick={() => navigate('/customer-service')}>فتح مركز خدمة العملاء</button>
-                    <button type="button" className="rounded-xl border border-emerald-300/25 px-4 py-2 text-xs font-black text-emerald-100 hover:bg-emerald-400/10" onClick={() => navigate('/customer-service?quickFollowup=1')}>إنشاء متابعة</button>
-                    <button type="button" className="rounded-xl border border-slate-500/40 px-4 py-2 text-xs font-black text-slate-100 hover:bg-white/10" onClick={() => void load()}>تحديث البيانات</button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_0.9fr]">
-              <div className="space-y-2 rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-3">
-                <h3 className="text-sm font-black text-white">توزيع المتابعات على الفريق</h3>
-                {serviceOwners.length ? (
-                  serviceOwners.map((owner, index) => {
-                    const assigned = n(owner.assigned_followups);
-                    const completed = n(owner.completed_today);
-                    const percent = n(owner.completion_percent);
-                    const ownerBranch = branchName(owner.branch);
-                    const ownerName = String(owner.responsible_name || 'غير محدد');
-                    return (
-                      <button
-                        key={`${ownerName}-${ownerBranch}-${index}`}
-                        onClick={() =>
-                          navigate(
-                            `/customer-service?responsible=${encodeURIComponent(ownerName)}&branch=${encodeURIComponent(ownerBranch)}`
-                          )
-                        }
-                        className="w-full rounded-xl border border-cyan-300/10 bg-slate-900/75 p-3 text-right transition hover:bg-cyan-400/10"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-black text-white">{ownerName}</p>
-                            <p className="mt-1 text-xs font-bold text-slate-400">{ownerBranch}</p>
-                          </div>
-                          <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-100">
-                            {pct(percent)}
-                          </span>
-                        </div>
-                        <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-bold text-slate-300">
-                          <span>
-                            مسند
-                            <br />
-                            <b className="text-white">{count(assigned)}</b>
-                          </span>
-                          <span>
-                            مكتمل
-                            <br />
-                            <b className="text-emerald-200">{count(completed)}</b>
-                          </span>
-                          <span>
-                            مدير
-                            <br />
-                            <b className="text-amber-200">{count(owner.needs_manager)}</b>
-                          </span>
-                        </div>
-                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-l from-cyan-300 to-emerald-400"
-                            style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
-                          />
-                        </div>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <p className="rounded-xl border border-cyan-300/10 bg-slate-900/70 p-4 text-center text-xs font-bold text-slate-400">
-                    لا توجد بيانات مسؤولي خدمة عملاء بعد تشغيل ملف الدعم.
-                  </p>
-                )}
-              </div>
-              <div className="h-64">
-                {serviceOwnerChart.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={serviceOwnerChart}
-                      margin={{ top: 10, right: 12, left: 12, bottom: 20 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.14)" />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fill: '#94a3b8', fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        tick={{ fill: '#94a3b8', fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: '#0f172a',
-                          border: '1px solid rgba(45,212,191,0.25)',
-                          borderRadius: 16,
-                          color: '#fff',
-                        }}
-                      />
-                      <Legend />
-                      <Bar dataKey="assigned" name="مسند" fill="#38bdf8" radius={[8, 8, 0, 0]} />
-                      <Bar dataKey="completed" name="مكتمل" fill="#2dd4bf" radius={[8, 8, 0, 0]} />
-                      <Bar dataKey="manager" name="مدير" fill="#f59e0b" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyState
-                    label="لا توجد بيانات كافية لرسم أداء خدمة العملاء"
-                    error={Boolean(customerServiceError || customerServiceTimedOut)}
-                    onRetry={reloadDashboard}
-                  />
-                )}
-              </div>
-            </div>
-          </Panel>
-
           <Panel className="hidden">
             <SectionTitle
               title="أداء الموظفين التشغيلي"
@@ -3500,66 +3073,6 @@ export default function ExecutiveDashboard2027() {
             </div>
           </Panel>
 
-          <Panel id="incentives-analysis" className="xl:col-span-12 p-5 scroll-mt-24">
-            <SectionTitle
-              title="النقاط والحوافز"
-              subtitle="مرتبط فعليا بسجل النقاط والحوافز داخل التطبيق"
-              icon={<Sparkles className="h-5 w-5" />}
-            />
-            <div className="max-h-[520px] overflow-auto rounded-2xl border border-cyan-300/10">
-              <table className="w-full text-right text-sm">
-                <thead className="sticky top-0 bg-slate-950/90 text-xs text-slate-400">
-                  <tr>
-                    <th className="p-3">الموظف</th>
-                    <th className="p-3">النقاط</th>
-                    <th className="p-3">قيمة الحافز</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {incentiveRows.length
-                    ? incentiveRows.map((row, index) => (
-                        <tr
-                          key={`${row.staff.id || row.staff.name}-points-${index}`}
-                          onClick={() =>
-                            void (row.staff.id
-                              ? navigate(staffProfilePath(row.staff))
-                              : navigateToStaff(
-                                  row.staff.name,
-                                  (row.staff as { branch?: unknown }).branch
-                                ))
-                          }
-                          className="cursor-pointer border-t border-cyan-300/10 hover:bg-cyan-400/8"
-                        >
-                          <td className="p-3 font-black text-white">
-                            {row.staff.name || 'غير محدد'}
-                          </td>
-                          <td className="p-3 text-cyan-200">{count(row.finalPoints)}</td>
-                          <td className="p-3 text-emerald-200">{money(row.incentiveValue)} جنيه</td>
-                        </tr>
-                      ))
-                    : topDoctors.slice(0, 8).map((row, index) => {
-                        const points =
-                          n(row.estimated_points) || Math.round(n(row.sales_total) / 1000);
-                        return (
-                          <tr
-                            key={`${row.doctor_name}-points-${index}`}
-                            onClick={() => void navigateToStaff(row.doctor_name, row.branch)}
-                            className="cursor-pointer border-t border-cyan-300/10 hover:bg-cyan-400/8"
-                          >
-                            <td className="p-3 font-black text-white">
-                              {row.doctor_name || 'غير محدد'}
-                            </td>
-                            <td className="p-3 text-cyan-200">{count(points)}</td>
-                            <td className="p-3 text-emerald-200">
-                              {money(n(row.incentive_value) || points * 3)} جنيه
-                            </td>
-                          </tr>
-                        );
-                      })}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
         </section>
 
         <section className="hidden">
@@ -3682,67 +3195,6 @@ export default function ExecutiveDashboard2027() {
             </div>
           </Panel>
         </section>
-
-        <Panel className="p-5">
-          <SectionTitle
-            title="جدول الحضور والموجودين في الشيفت"
-            subtitle="تفصيل حسب كل فرع مع فصل الدور ووقت الشيفت الحالي"
-            icon={<Clock3 className="h-5 w-5" />}
-          />
-          <div className="grid gap-4 xl:grid-cols-2">
-            {onShiftByBranch.length ? (
-              onShiftByBranch.map(([branchLabel, members]) => (
-                <div
-                  key={branchLabel}
-                  className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4"
-                >
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-lg font-black text-white">{branchLabel}</h3>
-                    <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-100">
-                      {count(members.length)} على الشيفت
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    {members.map((member) => (
-                      <button
-                        key={`${staffId(member)}-${staffName(member)}`}
-                        onClick={() => void navigateToStaff(staffName(member), member.branch)}
-                        className="grid w-full grid-cols-[1fr_auto_auto] gap-3 rounded-xl border border-cyan-300/10 bg-slate-900/75 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
-                      >
-                        <span className="font-black text-white">
-                          {roleGroup(member.role) === 'doctor'
-                            ? normalizeDoctorName(staffName(member))
-                            : staffName(member)}
-                        </span>
-                        <span className="text-slate-300">
-                          {roleGroup(member.role) === 'delivery'
-                            ? 'دليفري'
-                            : roleGroup(member.role) === 'doctor'
-                              ? 'دكتور'
-                              : String(member.role || 'فريق')}
-                        </span>
-                        <span className="text-cyan-200">
-                          {member.shifts.map((shift, index) => (
-                            <span key={index}>
-                              {index > 0 ? '، ' : ''}
-                              <ShiftTimeRange shift={shift} />
-                            </span>
-                          ))}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <EmptyState
-                label="لا توجد بيانات حضور أو شيفت حالية"
-                error={Boolean(staffAttendanceError || staffAttendanceTimedOut)}
-                onRetry={reloadDashboard}
-              />
-            )}
-          </div>
-        </Panel>
 
         <Panel className="hidden">
           <SectionTitle

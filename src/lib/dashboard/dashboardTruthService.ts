@@ -311,6 +311,47 @@ function numberRow(row: RpcRow, key: string) {
   return dashboardNumber(row[key]);
 }
 
+function monthKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+async function fetchMonthlySalesFromTruth(endDate: string, branch: string, months = 5): Promise<RpcRow[]> {
+  const anchor = new Date(`${endDate}T12:00:00`);
+  if (Number.isNaN(anchor.getTime())) return [];
+  const jobs = Array.from({ length: Math.max(1, months) }, (_, index) => {
+    const monthDate = new Date(anchor.getFullYear(), anchor.getMonth() - (months - 1 - index), 1, 12, 0, 0);
+    const key = monthKey(monthDate);
+    const start = `${key}-01`;
+    const lastDay = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 12, 0, 0);
+    const naturalEnd = `${monthKey(lastDay)}-${String(lastDay.getDate()).padStart(2, '0')}`;
+    const end = key === endDate.slice(0, 7) && endDate < naturalEnd ? endDate : naturalEnd;
+    return { key, start, end };
+  });
+
+  return Promise.all(
+    jobs.map(async ({ key, start, end }) => {
+      const summaryRows = await rpcRows<RpcRow>('get_dashboard_sales_summary_v171', {
+        p_start: start,
+        p_end: end,
+        p_branch: branch,
+      });
+      const summary = summaryRows[0] || {};
+      const invoices = numberRow(summary, 'invoices_count');
+      const sales = numberRow(summary, 'sales_total');
+      return {
+        month_start: `${key}-01`,
+        month_label: key,
+        branch,
+        sales_total: sales,
+        invoices_count: invoices,
+        avg_invoice: invoices ? sales / invoices : 0,
+      };
+    })
+  );
+}
+
 async function fetchAggregatedTruth(params: {
   startDate: string;
   endDate: string;
@@ -325,7 +366,7 @@ async function fetchAggregatedTruth(params: {
     rpcRows<RpcRow>('get_dashboard_daily_sales_v171', rangeParams),
     rpcRows<RpcRow>('get_dashboard_branch_distribution_v171', rangeParams),
     rpcRows<RpcRow>('get_dashboard_doctor_sales_v171', rangeParams),
-    rpcRows<RpcRow>('get_dashboard_monthly_sales_v171', { p_end: params.endDate, p_branch: branch, p_months: 6 }),
+    fetchMonthlySalesFromTruth(params.endDate, branch, 5),
     rpcRows<RpcRow>('get_dashboard_sales_truth_audit_v1', rangeParams),
   ]);
 
