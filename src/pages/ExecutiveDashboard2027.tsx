@@ -1369,7 +1369,12 @@ export default function ExecutiveDashboard2027() {
     let mounted = true;
     setDataHealthLoading(true);
     setDataHealthError(null);
-    withTimeout(loadAppDataHealthSummary(), 7000, 'data-health')
+    // مهلة 7 ثواني كانت أقل من التكلفة الحقيقية المقاسة لـget_app_data_health_v2 وقت
+    // انتهاء صلاحية الكاش الداخلي (cache TTL دقيقتين): قياس مباشر عبر EXPLAIN ANALYZE
+    // أظهر ~8.4-10.5 ثانية على cache miss مقابل ~12ms على cache hit. المهلة هنا بقت
+    // مبنية على الرقم الحقيقي المقاس (مش تخمين) مع هامش أمان، والمسار العادي (cache
+    // hit) لسه سريع جدًا زي ما هو.
+    withTimeout(loadAppDataHealthSummary(), 12000, 'data-health')
       .then((issues) => {
         if (!mounted) return;
         setDataHealthIssues(issues);
@@ -2383,7 +2388,7 @@ export default function ExecutiveDashboard2027() {
                       onClick={() => void navigateToStaff(staffName(member), member.branch)}
                       className="rounded-xl border border-cyan-300/10 bg-slate-900/75 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
                     >
-                      <b className="block text-white">{staffName(member)}</b>
+                      <b className="block text-white">{normalizeDoctorName(staffName(member))}</b>
                       <span className="text-slate-400">
                         {branchName(member.branch)} ·{' '}
                         {member.shifts.map((shift, index) => (
@@ -3704,7 +3709,11 @@ export default function ExecutiveDashboard2027() {
                         onClick={() => void navigateToStaff(staffName(member), member.branch)}
                         className="grid w-full grid-cols-[1fr_auto_auto] gap-3 rounded-xl border border-cyan-300/10 bg-slate-900/75 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
                       >
-                        <span className="font-black text-white">{staffName(member)}</span>
+                        <span className="font-black text-white">
+                          {roleGroup(member.role) === 'doctor'
+                            ? normalizeDoctorName(staffName(member))
+                            : staffName(member)}
+                        </span>
                         <span className="text-slate-300">
                           {roleGroup(member.role) === 'delivery'
                             ? 'دليفري'

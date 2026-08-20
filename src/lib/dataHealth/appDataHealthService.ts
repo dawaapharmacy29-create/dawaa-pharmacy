@@ -51,8 +51,12 @@ export async function loadAppDataHealthSummary() {
     return Number.isFinite(value) ? value : 0;
   };
 
+  // مهم: فشل get_app_data_health_v2 لا يعني تجاهل get_app_performance_health_v2 لو
+  // نجحت (الاستدعاءين مستقلين عبر Promise.allSettled فوق) — قبل كده كان أي فشل في
+  // فحص سلامة البيانات الأساسي بيرجّع بند خطأ واحد بس ويشيل نتيجة فحص الأداء حتى لو
+  // نجح فعلاً. دلوقتي كل فحص بيتقيّم لوحده والنتائج الناجحة بتفضل ظاهرة.
   if (healthError) {
-    return [
+    const rows: DataHealthIssue[] = [
       issue({
         key: 'data-health-rpc',
         label: 'تعذر تحميل فحص سلامة البيانات',
@@ -64,6 +68,25 @@ export async function loadAppDataHealthSummary() {
         error: healthError,
       }),
     ];
+    if (!performanceError) {
+      const slow = perfNum('slow_query_groups');
+      const verySlow = perfNum('very_slow_query_groups');
+      rows.push(
+        issue({
+          key: 'performance-regression-monitor',
+          label: 'استعلامات بطيئة منذ آخر Baseline',
+          count: slow,
+          severity: verySlow > 0 ? 'danger' : slow > 0 ? 'warning' : 'info',
+          source: 'pg_stat_statements delta baseline',
+          suggestedFix:
+            slow > 0
+              ? 'راجع الاستعلامات الجديدة التي تجاوز متوسطها 500ms منذ آخر Baseline.'
+              : 'لا يوجد تراجع أداء جديد مسجل منذ آخر Baseline.',
+          affectedPages: ['/'],
+        })
+      );
+    }
+    return rows;
   }
 
   const rows: DataHealthIssue[] = [
