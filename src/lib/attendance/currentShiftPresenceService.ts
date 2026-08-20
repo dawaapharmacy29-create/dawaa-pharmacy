@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { DAYS_AR } from '@/lib/constants';
+import { normalizeDoctorName } from '@/lib/doctorCompetitionMetrics';
 
 export type ShiftPresencePerson = {
   id: string;
@@ -127,12 +128,15 @@ function categorize(
   return 'delivery';
 }
 
+// نستخدم normalizeDoctorName بدل normalizeText العادي هنا عشان لو مفيش staff_id
+// (حالة شائعة في shift_schedules)، نفس الشخص المكتوب "د رضا" مرة و"د/ رضا" مرة
+// تانية يتربطوا بنفس مفتاح الهوية بدل ما يتعاملوا كشخصين مختلفين.
 function attendanceKey(row: Pick<AttendanceRow, 'staff_id' | 'staff_name'>) {
-  return String(row.staff_id || '').trim() || normalizeText(row.staff_name);
+  return String(row.staff_id || '').trim() || normalizeDoctorName(row.staff_name);
 }
 
 function scheduleKey(row: ShiftScheduleRow) {
-  return String(row.staff_id || '').trim() || normalizeText(row.staff_name);
+  return String(row.staff_id || '').trim() || normalizeDoctorName(row.staff_name);
 }
 
 function statusFor(attendance?: AttendanceRow): ShiftPresencePerson['attendance_status'] {
@@ -203,7 +207,7 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
   rawSchedules.forEach((row) => {
     const name = String(row.staff_name || '').trim();
     if (!name) return;
-    const key = `${normalizeText(name)}|${normalizeText(row.branch)}|${normalizeTime(row.shift_start || row.start_time) || ''}|${normalizeTime(row.shift_end || row.end_time) || ''}`;
+    const key = `${normalizeDoctorName(name)}|${normalizeText(row.branch)}|${normalizeTime(row.shift_start || row.start_time) || ''}|${normalizeTime(row.shift_end || row.end_time) || ''}`;
     const existing = scheduleMap.get(key);
     if (!existing) {
       scheduleMap.set(key, row);
@@ -265,8 +269,13 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
     const key = scheduleKey(row);
     const attendance = attendanceMap.get(key) || attendanceMap.get(normalizeText(name));
     const category = categorize(row.role, name);
+    // مهم: ما نستخدمش row.id (المفتاح الأساسي لسجل shift_schedules نفسه) كـfallback
+    // للهوية — ده مفتاح صف الجدول مش هوية الموظف، ولو استخدمناه هيبقى مختلف لكل
+    // صف حتى لو نفس الشخص، وده كان بيمنع تجميع نفس الدكتور تحت كارت واحد في
+    // الصفحة لما staff_id يكون فاضي. لو مفيش staff_id حقيقي نسيب id فاضي عمدًا
+    // عشان طبقة التجميع (groupShiftMembers) تعمل fallback بالاسم بعد التطبيع.
     const person: ShiftPresencePerson = {
-      id: String(row.staff_id || row.id || key || name),
+      id: String(row.staff_id || '').trim(),
       name,
       role:
         row.role ||

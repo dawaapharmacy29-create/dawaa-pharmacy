@@ -2383,7 +2383,7 @@ export default function ExecutiveDashboard2027() {
                       onClick={() => void navigateToStaff(staffName(member), member.branch)}
                       className="rounded-xl border border-cyan-300/10 bg-slate-900/75 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
                     >
-                      <b className="block text-white">{staffName(member)}</b>
+                      <b className="block text-white">{normalizeDoctorName(staffName(member))}</b>
                       <span className="text-slate-400">
                         {branchName(member.branch)} ·{' '}
                         {member.shifts.map((shift, index) => (
@@ -3704,7 +3704,11 @@ export default function ExecutiveDashboard2027() {
                         onClick={() => void navigateToStaff(staffName(member), member.branch)}
                         className="grid w-full grid-cols-[1fr_auto_auto] gap-3 rounded-xl border border-cyan-300/10 bg-slate-900/75 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
                       >
-                        <span className="font-black text-white">{staffName(member)}</span>
+                        <span className="font-black text-white">
+                          {roleGroup(member.role) === 'doctor'
+                            ? normalizeDoctorName(staffName(member))
+                            : staffName(member)}
+                        </span>
                         <span className="text-slate-300">
                           {roleGroup(member.role) === 'delivery'
                             ? 'دليفري'
