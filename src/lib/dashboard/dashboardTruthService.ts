@@ -218,8 +218,28 @@ function isLinkedInvoice(row: DashboardInvoiceRow) {
   );
 }
 
-function buildFallbackTruth(rows: DashboardInvoiceRow[]) {
-  const invoiceRows = rows.filter((row) => invoiceDate(row) && !isCancelledInvoice(row as Record<string, unknown>));
+// الـview اللي مسار الـfallback بيقرأ منها (dawaa_sales_invoices_dashboard_v1) بتستبعد
+// system_generic_code بس جوه تعريفها؛ لسه ملهاش استبعاد wholesale_b2b. عشان مسار الـfallback
+// يفضل متسق مع مسار الـRPC الأساسي (اللي بيستبعد الاتنين)، بنجيب أكواد عملاء wholesale_b2b
+// النشطة مرة واحدة (استعلام صغير على customer_flags) ونستبعدها هنا على مستوى العميل.
+async function fetchWholesaleB2bCodes(): Promise<Set<string>> {
+  try {
+    const { data, error } = await supabase
+      .from('customer_flags')
+      .select('customer_code')
+      .eq('flag_key', 'wholesale_b2b')
+      .eq('is_active', true);
+    if (error || !Array.isArray(data)) return new Set();
+    return new Set(data.map((row: { customer_code?: string | null }) => String(row.customer_code || '').trim()).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+function buildFallbackTruth(rows: DashboardInvoiceRow[], excludedCodes: Set<string> = new Set()) {
+  const invoiceRows = rows
+    .filter((row) => invoiceDate(row) && !isCancelledInvoice(row as Record<string, unknown>))
+    .filter((row) => !excludedCodes.has(String(row.customer_code || '').trim()));
   const linkedRows = invoiceRows.filter(isLinkedInvoice);
   const total = invoiceRows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0);
   const dailyMap = new Map<string, { sale_date: string; branch: string; daily_sales: number; invoices_count: number }>();
@@ -317,7 +337,7 @@ function monthKey(date: Date) {
   return `${year}-${month}`;
 }
 
-async function fetchMonthlySalesFromTruth(endDate: string, branch: string, months = 5): Promise<RpcRow[]> {
+export async function fetchMonthlySalesFromTruth(endDate: string, branch: string, months = 5): Promise<RpcRow[]> {
   const anchor = new Date(`${endDate}T12:00:00`);
   if (Number.isNaN(anchor.getTime())) return [];
   const jobs = Array.from({ length: Math.max(1, months) }, (_, index) => {
@@ -361,12 +381,14 @@ async function fetchAggregatedTruth(params: {
 }): Promise<DashboardSalesTruth> {
   const branch = params.branch || DASHBOARD_ALL_BRANCHES;
   const rangeParams = { p_start: params.startDate, p_end: params.endDate, p_branch: branch };
-  const [summaryRows, dailyRows, branchRows, doctorRows, monthlyRows, auditRows] = await Promise.all([
+  // ملاحظة: الشهور الخمسة الأخيرة بقت لها fetch مستقل في صفحة الداشبورد
+  // (fetchMonthlySalesFromTruth تتنادى مباشرة من هناك) عشان قسم "آخر 5 شهور"
+  // يكون له loading/error/retry خاص بيه، وعشان منجيبش نفس البيانات مرتين.
+  const [summaryRows, dailyRows, branchRows, doctorRows, auditRows] = await Promise.all([
     rpcRows<RpcRow>('get_dashboard_sales_summary_v171', rangeParams),
     rpcRows<RpcRow>('get_dashboard_daily_sales_v171', rangeParams),
     rpcRows<RpcRow>('get_dashboard_branch_distribution_v171', rangeParams),
     rpcRows<RpcRow>('get_dashboard_doctor_sales_v171', rangeParams),
-    fetchMonthlySalesFromTruth(params.endDate, branch, 5),
     rpcRows<RpcRow>('get_dashboard_sales_truth_audit_v1', rangeParams),
   ]);
 
@@ -414,15 +436,6 @@ async function fetchAggregatedTruth(params: {
     };
   });
 
-  const monthlySales = monthlyRows.map((row) => ({
-    month_start: String(row.month_start || '').slice(0, 10),
-    month_label: String(row.month_label || ''),
-    branch: String(row.branch || UNKNOWN_LABEL),
-    sales_total: numberRow(row, 'sales_total'),
-    invoices_count: numberRow(row, 'invoices_count'),
-    avg_invoice: numberRow(row, 'avg_invoice'),
-  }));
-
   const today = localToday();
   const recentEnd = params.endDate < today ? params.endDate : today;
   const safeRecentEnd = recentEnd < params.startDate ? params.endDate : recentEnd;
@@ -448,7 +461,7 @@ async function fetchAggregatedTruth(params: {
     cycleRows: recentInvoices,
     summary,
     dailySales,
-    monthlySales,
+    monthlySales: [],
     branchDistribution,
     doctorSales,
     recentInvoices,
@@ -479,26 +492,34 @@ async function fetchFallbackTruth(params: {
   errors?: string[];
   noCache?: boolean;
 }): Promise<DashboardSalesTruth> {
-  const rows = (await fetchSalesInvoicesPagedSafe({
-    startDate: params.startDate,
-    endDate: params.endDate,
-    branch: params.branch,
-    errors: params.errors,
-    noCache: params.noCache,
-  })) as DashboardInvoiceRow[];
-  const truth = buildFallbackTruth(rows);
-  const recentAnchorDate = rows.map(invoiceDate).filter(Boolean).sort().at(-1) || params.endDate;
+  const [rows, excludedCodes] = await Promise.all([
+    fetchSalesInvoicesPagedSafe({
+      startDate: params.startDate,
+      endDate: params.endDate,
+      branch: params.branch,
+      errors: params.errors,
+      noCache: params.noCache,
+    }) as Promise<DashboardInvoiceRow[]>,
+    fetchWholesaleB2bCodes(),
+  ]);
+  // نفس مجموعة الاستبعاد (system_generic_code من الـview + wholesale_b2b هنا) لازم تتطبق
+  // على كل حاجة نحسبها من rows — مش بس summary/branchDistribution/dailySales/monthlySales
+  // (جوه buildFallbackTruth) — عشان reconciliation.difference يفضل قريب من صفر بدل ما
+  // يبلّغ اختلاف وهمي سببه إننا بنقارن رقم مستبعَد برقم مش مستبعَد.
+  const cleanRows = rows.filter((row) => !excludedCodes.has(String(row.customer_code || '').trim()));
+  const truth = buildFallbackTruth(rows, excludedCodes);
+  const recentAnchorDate = cleanRows.map(invoiceDate).filter(Boolean).sort().at(-1) || params.endDate;
   const recentStart = daysBefore(recentAnchorDate, 4);
-  const recentInvoices = rows.filter((row) => {
+  const recentInvoices = cleanRows.filter((row) => {
     const day = invoiceDate(row);
     return day >= recentStart && day <= recentAnchorDate;
   });
-  const branchesIncluded = [...new Set(rows.map(invoiceBranch))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'ar'));
-  const sqlEquivalentTotal = rows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0);
+  const branchesIncluded = [...new Set(cleanRows.map(invoiceBranch))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'ar'));
+  const sqlEquivalentTotal = cleanRows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0);
 
   return {
     sourceRows: rows,
-    cycleRows: rows,
+    cycleRows: cleanRows,
     ...truth,
     recentInvoices,
     reconciliation: {

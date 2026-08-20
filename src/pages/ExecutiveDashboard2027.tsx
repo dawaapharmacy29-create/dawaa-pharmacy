@@ -49,6 +49,7 @@ import {
   DASHBOARD_ALL_BRANCHES,
   dashboardInvoiceAmount,
   fetchDashboardSalesTruth,
+  fetchMonthlySalesFromTruth,
   type DashboardSalesReconciliation,
 } from '@/lib/dashboard/dashboardTruthService';
 import { resolveStaffLink, getStaffNavigationTarget, staffProfilePath } from '@/lib/staff/staffIdentityResolver';
@@ -1177,6 +1178,17 @@ export default function ExecutiveDashboard2027() {
   const [salesKPILoadedAt, setSalesKPILoadedAt] = useState<string | null>(null);
   const [salesKPITimedOut, setSalesKPITimedOut] = useState(false);
 
+  // قسم "تحليل آخر 5 شهور" له fetch/loading/error/retry مستقل تمامًا عن باقي
+  // مؤشرات المبيعات، عشان فشل أو بطء فيه ميوقفش أو يوهم بفشل بقية الداشبورد.
+  const [monthlyTrend, setMonthlyTrend] = useState<
+    Array<{ month_start: string; month_label: string; branch: string; sales_total: number; invoices_count: number; avg_invoice: number }>
+  >([]);
+  const [monthlyTrendLoading, setMonthlyTrendLoading] = useState(false);
+  const [monthlyTrendError, setMonthlyTrendError] = useState<string | null>(null);
+  const [monthlyTrendLoadedAt, setMonthlyTrendLoadedAt] = useState<string | null>(null);
+  const [monthlyTrendTimedOut, setMonthlyTrendTimedOut] = useState(false);
+  const [monthlyTrendRetryToken, setMonthlyTrendRetryToken] = useState(0);
+
   const [customerServiceLoading, setCustomerServiceLoading] = useState(false);
   const [customerServiceError, setCustomerServiceError] = useState<string | null>(null);
   const [customerServiceLoadedAt, setCustomerServiceLoadedAt] = useState<string | null>(null);
@@ -1255,6 +1267,7 @@ export default function ExecutiveDashboard2027() {
   }
 
   useSectionTimeout(salesKPILoading, salesKPILoadedAt, setSalesKPITimedOut);
+  useSectionTimeout(monthlyTrendLoading, monthlyTrendLoadedAt, setMonthlyTrendTimedOut);
   useSectionTimeout(customerServiceLoading, customerServiceLoadedAt, setCustomerServiceTimedOut);
   useSectionTimeout(incentivesLoading, incentivesLoadedAt, setIncentivesTimedOut);
   useSectionTimeout(dailyTasksLoading, dailyTasksLoadedAt, setDailyTasksTimedOut);
@@ -1366,6 +1379,34 @@ export default function ExecutiveDashboard2027() {
       mounted = false;
     };
   }, [canAllBranches, scopedBranch, startDate, endDate, user?.branch, doctorCompetitionRetryToken]);
+
+  useEffect(() => {
+    let mounted = true;
+    setMonthlyTrendLoading(true);
+    setMonthlyTrendError(null);
+    withTimeout(
+      fetchMonthlySalesFromTruth(endDate, scopedBranch || ALL_BRANCHES, 5),
+      15000,
+      'monthly-trend'
+    )
+      .then((rows) => {
+        if (!mounted) return;
+        setMonthlyTrend(rows as typeof monthlyTrend);
+        setMonthlyTrendError(null);
+        setMonthlyTrendLoadedAt(new Date().toISOString());
+      })
+      .catch((error) => {
+        if (import.meta.env.DEV) console.warn('[ExecutiveDashboard2027] monthly trend fetch failed', error);
+        if (!mounted) return;
+        setMonthlyTrendError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (mounted) setMonthlyTrendLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [endDate, scopedBranch, monthlyTrendRetryToken]);
 
   useEffect(() => {
     if (!diagnosticsOpen) return;
@@ -1669,6 +1710,7 @@ export default function ExecutiveDashboard2027() {
     clearInvoiceCache();
     clearDashboardCache();
     void load();
+    setMonthlyTrendRetryToken((token) => token + 1);
   }, [load]);
 
   useEffect(() => {
@@ -1794,7 +1836,7 @@ export default function ExecutiveDashboard2027() {
   const monthlyChart = useMemo(() => {
     const monthName = new Intl.DateTimeFormat('ar-EG', { month: 'short', year: 'numeric' });
     const map = new Map<string, Record<string, unknown>>();
-    state.monthlySales.forEach((row) => {
+    monthlyTrend.forEach((row) => {
       const raw = String(row.month_start || '').slice(0, 10);
       const d = new Date(`${raw || '2026-01-01'}T12:00:00`);
       const current = map.get(raw) || {
@@ -1813,7 +1855,7 @@ export default function ExecutiveDashboard2027() {
     return [...map.values()].sort((a, b) =>
       String(a.month_start).localeCompare(String(b.month_start))
     );
-  }, [state.monthlySales]);
+  }, [monthlyTrend]);
 
   const branchPie = useMemo(
     () =>
@@ -2701,7 +2743,15 @@ export default function ExecutiveDashboard2027() {
             icon={<BarChart3 className="h-5 w-5" />}
           />
           <div className="h-[320px]">
-            {monthlyChart.length ? (
+            {monthlyTrendLoading && !monthlyTrendLoadedAt ? (
+              <div className="h-full animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40" />
+            ) : (monthlyTrendError || monthlyTrendTimedOut) && !monthlyChart.length ? (
+              <EmptyState
+                label="لا توجد بيانات كافية لآخر 5 شهور"
+                error
+                onRetry={() => setMonthlyTrendRetryToken((token) => token + 1)}
+              />
+            ) : monthlyChart.length ? (
               <Suspense
                 fallback={
                   <div className="flex h-full items-center justify-center text-slate-400">
@@ -2712,13 +2762,21 @@ export default function ExecutiveDashboard2027() {
                 <MonthlySalesChart data={monthlyChart} />
               </Suspense>
             ) : (
-              <EmptyState
-                label="لا توجد بيانات كافية لآخر 5 شهور"
-                error={Boolean(salesKPIError || salesKPITimedOut)}
-                onRetry={reloadDashboard}
-              />
+              <EmptyState label="لا توجد بيانات كافية لآخر 5 شهور" />
             )}
           </div>
+          {monthlyTrendError && monthlyChart.length ? (
+            <p className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-red-400/25 bg-red-500/[0.06] px-3 py-2 text-xs font-bold text-red-200">
+              <span>تعذر تحديث بيانات آخر 5 شهور (البيانات المعروضة قد تكون قديمة).</span>
+              <button
+                type="button"
+                onClick={() => setMonthlyTrendRetryToken((token) => token + 1)}
+                className="rounded-lg border border-red-300/25 bg-slate-950/55 px-2 py-1 font-black text-red-100 hover:bg-red-400/15"
+              >
+                إعادة المحاولة
+              </button>
+            </p>
+          ) : null}
         </Panel>
 
         <section className="grid gap-4 xl:grid-cols-12">
