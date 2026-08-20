@@ -156,10 +156,10 @@ export function ShowMoreList<T>({ items, pageSize = 25, render, emptyLabel }: {
 
 export function SectionEmptyState({ title, description, icon: Icon }: { title: string; description?: string; icon?: typeof AlertTriangle }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-8 text-center" dir="rtl">
-      {Icon ? <Icon className="mx-auto mb-3 text-slate-500" size={26} /> : null}
+    <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-6 py-10 text-center" dir="rtl">
+      {Icon ? <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-white/[0.06] text-slate-400"><Icon size={22} /></span> : null}
       <div className="font-black text-slate-300">{title}</div>
-      {description ? <div className="mt-1 text-xs font-bold text-slate-500">{description}</div> : null}
+      {description ? <div className="mx-auto mt-1 max-w-sm text-xs font-bold text-slate-500">{description}</div> : null}
     </div>
   );
 }

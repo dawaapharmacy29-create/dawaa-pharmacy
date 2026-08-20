@@ -228,6 +228,8 @@ export default function SmartCustomerService() {
     </section>
 
     <main className="space-y-3 pb-8">
+    {/* key بيتغير مع أي تبويب فرعي أو رئيسي عشان المحتوى يظهر بـ fade خفيف بدل القفزة الفجائية */}
+    <div key={`${workspace}-${customersTab}-${logTab}-${reportsTab}`} className="animate-fade-in space-y-3">
       {!hasSafeBranchScope && workspace !== 'reports' ? <MissingBranchGuard/> : null}
 
       {hasSafeBranchScope && workspace === 'execution' ? <Section label="مركز التنفيذ"><CustomerFollowupCockpitPanel key={`execution-${workspaceVersion}`} /></Section> : null}
@@ -249,6 +251,7 @@ export default function SmartCustomerService() {
       {hasSafeBranchScope && workspace === 'reports' && reportsTab === 'scripts' ? <Section label="محرر السكريبتات"><CustomerServiceScriptEditor/></Section> : null}
       {workspace === 'reports' && reportsTab === 'cashback' && hasSafeBranchScope ? <Section label="نقاط العملاء والكاش باك"><CustomerCashback/></Section> : null}
       {workspace === 'reports' && reportsTab === 'cashback' && !hasSafeBranchScope ? <MissingBranchGuard/> : null}
+    </div>
     </main>
 
     <QuickFollowupModal
