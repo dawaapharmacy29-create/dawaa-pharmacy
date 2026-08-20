@@ -55,6 +55,7 @@ import { resolveStaffLink, getStaffNavigationTarget, staffProfilePath } from '@/
 import {
   avgReview,
   getDoctorCompetitionMetrics,
+  normalizeDoctorName,
   MIN_AVG_INVOICE_THRESHOLD,
   type DoctorCompetitionMetrics,
   type DoctorCompetitionScore,
@@ -266,6 +267,45 @@ function staffName(row: StaffDirectoryRow | ShiftNowRow) {
 
 function staffId(row: StaffDirectoryRow | ShiftNowRow) {
   return String(row.id || row.staff_id || '').trim();
+}
+
+type GroupedShiftMember = ShiftNowRow & { shifts: Array<{ start: string | null; end: string | null }> };
+
+// نفس الشخص ممكن يظهر أكتر من مرة في بيانات الشيفت الحالي (شيفت مقسّم لفترتين
+// في نفس اليوم، أو مصدرين مختلفين رجّعوا نفس الموظف). بنجمعهم في كارت واحد بدل
+// ما نعرض الشخص نفسه مكرر — الأولوية للـstaffId كمفتاح، والاسم بعد التطبيع
+// (normalizeDoctorName بيشيل بادئات زي "د/"، "دكتور"، "الدكتور") كـfallback بس.
+function groupShiftMembers(rows: ShiftNowRow[]): GroupedShiftMember[] {
+  const map = new Map<string, GroupedShiftMember>();
+  for (const row of rows) {
+    const id = staffId(row);
+    const branch = branchName(row.branch);
+    const key = id ? `id:${id}|${branch}` : `name:${normalizeDoctorName(staffName(row))}|${branch}`;
+    const shift = { start: row.shift_start || null, end: row.shift_end || null };
+    const existing = map.get(key);
+    if (existing) {
+      const isDuplicate = existing.shifts.some((s) => s.start === shift.start && s.end === shift.end);
+      if (!isDuplicate) existing.shifts.push(shift);
+    } else {
+      map.set(key, { ...row, shifts: [shift] });
+    }
+  }
+  return [...map.values()];
+}
+
+function formatShiftRange(shift: { start: string | null; end: string | null }) {
+  if (!shift.start && !shift.end) return 'غير محدد';
+  return `${shift.start || '--:--'} → ${shift.end || '--:--'}`;
+}
+
+// نعزل نص وقت الشيفت في اتجاه LTR عشان السهم والأرقام ميتقلبوش بصريًا وسط
+// سياق RTL — ده اللي كان بيخلي ترتيب الوقتين يبان مربك.
+function ShiftTimeRange({ shift, className = '' }: { shift: { start: string | null; end: string | null }; className?: string }) {
+  return (
+    <span dir="ltr" className={className}>
+      {formatShiftRange(shift)}
+    </span>
+  );
 }
 
 function staffNameMatches(memberName: unknown, targetName: unknown) {
@@ -893,7 +933,34 @@ function KpiCard({
   );
 }
 
-function EmptyState({ label }: { label: string }) {
+function EmptyState({
+  label,
+  error,
+  onRetry,
+}: {
+  label: string;
+  error?: boolean;
+  onRetry?: () => void;
+}) {
+  // لو القسم فاضل بسبب فشل تحميل حقيقي (مش لأنه فعلاً مفيش بيانات)، لازم نوضح
+  // ده للمستخدم بدل رسالة "لا توجد بيانات" المضللة، ونديله زرار يعيد تحميل نفس القسم.
+  if (error) {
+    return (
+      <div className="flex h-full min-h-56 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-red-400/25 bg-red-500/[0.04] p-4 text-center">
+        <span className="text-sm font-black text-red-200">تعذر تحميل البيانات</span>
+        <span className="text-xs font-bold text-red-200/70">قد يكون الاتصال بطيء، جرّب إعادة المحاولة.</span>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-1 rounded-xl border border-red-300/25 bg-slate-950/55 px-3 py-2 text-xs font-black text-red-100 hover:bg-red-400/15"
+          >
+            إعادة المحاولة
+          </button>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div className="flex h-full min-h-56 items-center justify-center rounded-2xl border border-dashed border-cyan-300/15 bg-slate-950/30 text-sm font-black text-slate-500">
       {label}
@@ -1142,9 +1209,14 @@ export default function ExecutiveDashboard2027() {
   const [competitionsLoading, setCompetitionsLoading] = useState(false);
   const [doctorCompetitionError, setDoctorCompetitionError] = useState<string | null>(null);
   const [doctorCompetitionLoadedAt, setDoctorCompetitionLoadedAt] = useState<string | null>(null);
+  // زيادة الرقم ده بس تعيد تشغيل query مسابقة الدكاترة لوحدها، من غير أي تأثير
+  // على باقي أقسام لوحة القيادة ومن غير إعادة تحميل الصفحة.
+  const [doctorCompetitionRetryToken, setDoctorCompetitionRetryToken] = useState(0);
   const [dataHealthIssues, setDataHealthIssues] = useState<DataHealthIssue[]>([]);
   const [dataHealthLoading, setDataHealthLoading] = useState(false);
   const [dataHealthTimedOut, setDataHealthTimedOut] = useState(false);
+  const [dataHealthError, setDataHealthError] = useState<string | null>(null);
+  const [dataHealthRetryToken, setDataHealthRetryToken] = useState(0);
   const [teamTaskSummary, setTeamTaskSummary] = useState<EmployeeTaskSummary | null>(null);
   const [teamTaskIssue, setTeamTaskIssue] = useState<string | null>(null);
   const loadIdRef = useRef(0);
@@ -1291,18 +1363,24 @@ export default function ExecutiveDashboard2027() {
     return () => {
       mounted = false;
     };
-  }, [canAllBranches, scopedBranch, startDate, endDate, user?.branch]);
+  }, [canAllBranches, scopedBranch, startDate, endDate, user?.branch, doctorCompetitionRetryToken]);
 
   useEffect(() => {
     let mounted = true;
     setDataHealthLoading(true);
+    setDataHealthError(null);
     withTimeout(loadAppDataHealthSummary(), 7000, 'data-health')
       .then((issues) => {
-        if (mounted) setDataHealthIssues(issues);
+        if (!mounted) return;
+        setDataHealthIssues(issues);
+        setDataHealthError(null);
       })
       .catch((error) => {
         if (import.meta.env.DEV) console.warn('[ExecutiveDashboard2027] data health failed', error);
-        if (mounted) setDataHealthIssues([]);
+        // مهم: لازم نفرّق بين "فحصنا فعلاً ومفيش مشاكل" و"الفحص نفسه فشل" — قبل كده كان
+        // أي فشل في التحميل بيمسح القائمة ويظهر "كل شيء سليم" باللون الأخضر، يعني
+        // بيخفي المشكلة الحقيقية بدل ما يبلّغ عنها.
+        if (mounted) setDataHealthError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         if (mounted) setDataHealthLoading(false);
@@ -1310,7 +1388,7 @@ export default function ExecutiveDashboard2027() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [dataHealthRetryToken]);
 
   useEffect(() => {
     let mounted = true;
@@ -1487,10 +1565,14 @@ export default function ExecutiveDashboard2027() {
       try {
       setIncentivesLoading(true);
       try {
-        const incentiveSettled = await getStaffIncentiveSummaryForCycle({
-          cycle: currentCycle,
-          branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
-        }).then(
+        const incentiveSettled = await withTimeout(
+          getStaffIncentiveSummaryForCycle({
+            cycle: currentCycle,
+            branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
+          }),
+          7000,
+          'incentives'
+        ).then(
           (data) => ({ ok: true as const, data }),
           (error: unknown) => ({ ok: false as const, error })
         );
@@ -1513,45 +1595,50 @@ export default function ExecutiveDashboard2027() {
       try {
       setStaffAttendanceLoading(true);
       try {
-        const staffResult = await withTimeout<{
-          data: StaffDirectoryRow[] | null;
-          error: { message?: string } | null;
-        }>(
-          supabase
-            .from('staff')
-            .select('id,name,role,branch,status,active,is_active')
-            .limit(700) as PromiseLike<{
-              data: StaffDirectoryRow[] | null;
-              error: { message?: string } | null;
-            }>,
-          7000,
-          'staff-directory'
-        );
-        const scheduleResult = await withTimeout<{
-          data: ShiftScheduleRow[] | null;
-          error: { message?: string } | null;
-        }>(
-          supabase
-            .from('shift_schedules')
-            .select('staff_id,staff_name,branch,day_name,shift_start,shift_end,is_off')
-            .limit(1200) as PromiseLike<{
-              data: ShiftScheduleRow[] | null;
-              error: { message?: string } | null;
-            }>,
-          7000,
-          'shift-schedules'
-        );
-        const presenceResult = await withTimeout<{
-          doctors: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-          assistants: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-          delivery: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-          error?: { message?: string } | null;
-        }>(fetchCurrentShiftPresence() as PromiseLike<{
-          doctors: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-          assistants: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-          delivery: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-          error?: { message?: string } | null;
-        }>, 7000, 'shift-presence');
+        // التلات queries دول مستقلين تمامًا عن بعض (جداول/مصادر مختلفة، وميحتاجش
+        // نتيجة أي واحد فيهم عشان نبدأ التاني) — بنشغّلهم بالتوازي بدل التتابع
+        // عشان زمن الانتظار الكلي يبقى أقرب لأبطأ واحد فيهم مش مجموعهم.
+        const [staffResult, scheduleResult, presenceResult] = await Promise.all([
+          withTimeout<{
+            data: StaffDirectoryRow[] | null;
+            error: { message?: string } | null;
+          }>(
+            supabase
+              .from('staff')
+              .select('id,name,role,branch,status,active,is_active')
+              .limit(700) as PromiseLike<{
+                data: StaffDirectoryRow[] | null;
+                error: { message?: string } | null;
+              }>,
+            7000,
+            'staff-directory'
+          ),
+          withTimeout<{
+            data: ShiftScheduleRow[] | null;
+            error: { message?: string } | null;
+          }>(
+            supabase
+              .from('shift_schedules')
+              .select('staff_id,staff_name,branch,day_name,shift_start,shift_end,is_off')
+              .limit(1200) as PromiseLike<{
+                data: ShiftScheduleRow[] | null;
+                error: { message?: string } | null;
+              }>,
+            7000,
+            'shift-schedules'
+          ),
+          withTimeout<{
+            doctors: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+            assistants: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+            delivery: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+            error?: { message?: string } | null;
+          }>(fetchCurrentShiftPresence() as PromiseLike<{
+            doctors: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+            assistants: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+            delivery: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
+            error?: { message?: string } | null;
+          }>, 7000, 'shift-presence'),
+        ]);
         if (staffResult.error) errors.push(`staff: ${staffResult.error.message}`);
         if (scheduleResult.error) errors.push(`shift_schedules: ${scheduleResult.error.message}`);
         if (presenceResult && 'error' in presenceResult && presenceResult.error) {
@@ -1931,22 +2018,23 @@ export default function ExecutiveDashboard2027() {
     [navigate, state.staffDirectory]
   );
 
+  const groupedOnShiftNow = useMemo(() => groupShiftMembers(state.onShiftNow), [state.onShiftNow]);
   const onShiftDoctors = useMemo(
-    () => state.onShiftNow.filter((member) => roleGroup(member.role) === 'doctor'),
-    [state.onShiftNow]
+    () => groupedOnShiftNow.filter((member) => roleGroup(member.role) === 'doctor'),
+    [groupedOnShiftNow]
   );
   const onShiftDelivery = useMemo(
-    () => state.onShiftNow.filter((member) => roleGroup(member.role) === 'delivery'),
-    [state.onShiftNow]
+    () => groupedOnShiftNow.filter((member) => roleGroup(member.role) === 'delivery'),
+    [groupedOnShiftNow]
   );
   const onShiftByBranch = useMemo(() => {
-    const map = new Map<string, ShiftNowRow[]>();
-    state.onShiftNow.forEach((member) => {
+    const map = new Map<string, GroupedShiftMember[]>();
+    groupedOnShiftNow.forEach((member) => {
       const key = branchName(member.branch);
       map.set(key, [...(map.get(key) || []), member]);
     });
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ar'));
-  }, [state.onShiftNow]);
+  }, [groupedOnShiftNow]);
   const branchPerformance = useMemo(() => {
     return state.targets
       .map((target) => {
@@ -2297,8 +2385,13 @@ export default function ExecutiveDashboard2027() {
                     >
                       <b className="block text-white">{staffName(member)}</b>
                       <span className="text-slate-400">
-                        {branchName(member.branch)} · {member.shift_start || '-'} -{' '}
-                        {member.shift_end || '-'}
+                        {branchName(member.branch)} ·{' '}
+                        {member.shifts.map((shift, index) => (
+                          <span key={index}>
+                            {index > 0 ? '، ' : ''}
+                            <ShiftTimeRange shift={shift} />
+                          </span>
+                        ))}
                       </span>
                     </button>
                   ))
@@ -2326,8 +2419,13 @@ export default function ExecutiveDashboard2027() {
                     >
                       <b className="block text-white">{staffName(member)}</b>
                       <span className="text-slate-400">
-                        {branchName(member.branch)} · {member.shift_start || '-'} -{' '}
-                        {member.shift_end || '-'}
+                        {branchName(member.branch)} ·{' '}
+                        {member.shifts.map((shift, index) => (
+                          <span key={index}>
+                            {index > 0 ? '، ' : ''}
+                            <ShiftTimeRange shift={shift} />
+                          </span>
+                        ))}
                       </span>
                     </button>
                   ))
@@ -2537,12 +2635,15 @@ export default function ExecutiveDashboard2027() {
           loading={doctorCompetitionLoading}
           error={doctorCompetitionError}
           onNavigate={(focus) => navigate(`/doctor-competition?period=cycle&focus=${focus}`)}
+          onRetry={() => setDoctorCompetitionRetryToken((token) => token + 1)}
         />
 
         <DashboardDataHealthPanel
           issues={dataHealthIssues}
           loading={dataHealthLoading}
+          error={dataHealthError}
           onNavigate={(route) => navigate(route)}
+          onRetry={() => setDataHealthRetryToken((token) => token + 1)}
         />
 
         <Panel className="p-5">
@@ -2706,7 +2807,11 @@ export default function ExecutiveDashboard2027() {
                 لا توجد مبيعات فعلية داخل الفترة المختارة حتى الآن. تم تجهيز أيام الدورة كلها على الرسم، وستظهر القيم فور وجود فواتير.
               </div>
             ) : (
-              <EmptyState label="لا توجد بيانات مبيعات يومية بعد" />
+              <EmptyState
+                label="لا توجد بيانات مبيعات يومية بعد"
+                error={Boolean(salesKPIError || salesKPITimedOut)}
+                onRetry={reloadDashboard}
+              />
             )}
           </div>
           <p className="mt-3 text-xs font-bold text-slate-400">
@@ -2732,7 +2837,11 @@ export default function ExecutiveDashboard2027() {
                 <MonthlySalesChart data={monthlyChart} />
               </Suspense>
             ) : (
-              <EmptyState label="لا توجد بيانات كافية لآخر 5 شهور" />
+              <EmptyState
+                label="لا توجد بيانات كافية لآخر 5 شهور"
+                error={Boolean(salesKPIError || salesKPITimedOut)}
+                onRetry={reloadDashboard}
+              />
             )}
           </div>
         </Panel>
@@ -3040,7 +3149,11 @@ export default function ExecutiveDashboard2027() {
                   );
                 })
               ) : (
-                <EmptyState label="لا توجد بيانات تارجت" />
+                <EmptyState
+                  label="لا توجد بيانات تارجت"
+                  error={Boolean(salesKPIError || salesKPITimedOut)}
+                  onRetry={reloadDashboard}
+                />
               )}
             </div>
           </Panel>
@@ -3334,7 +3447,11 @@ export default function ExecutiveDashboard2027() {
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
-                  <EmptyState label="لا توجد بيانات كافية لرسم أداء خدمة العملاء" />
+                  <EmptyState
+                    label="لا توجد بيانات كافية لرسم أداء خدمة العملاء"
+                    error={Boolean(customerServiceError || customerServiceTimedOut)}
+                    onRetry={reloadDashboard}
+                  />
                 )}
               </div>
             </div>
@@ -3596,7 +3713,12 @@ export default function ExecutiveDashboard2027() {
                               : String(member.role || 'فريق')}
                         </span>
                         <span className="text-cyan-200">
-                          {member.shift_start || '-'} - {member.shift_end || '-'}
+                          {member.shifts.map((shift, index) => (
+                            <span key={index}>
+                              {index > 0 ? '، ' : ''}
+                              <ShiftTimeRange shift={shift} />
+                            </span>
+                          ))}
                         </span>
                       </button>
                     ))}
@@ -3604,7 +3726,11 @@ export default function ExecutiveDashboard2027() {
                 </div>
               ))
             ) : (
-              <EmptyState label="لا توجد بيانات حضور أو شيفت حالية" />
+              <EmptyState
+                label="لا توجد بيانات حضور أو شيفت حالية"
+                error={Boolean(staffAttendanceError || staffAttendanceTimedOut)}
+                onRetry={reloadDashboard}
+              />
             )}
           </div>
         </Panel>
@@ -3638,16 +3764,22 @@ function DashboardDoctorCompetitionPanel({
   loading,
   error,
   onNavigate,
+  onRetry,
 }: {
   metrics: DoctorCompetitionMetrics | null;
   loading: boolean;
   error?: string | null;
   onNavigate: (focus: 'sales' | 'average_invoice' | 'incentive' | 'reviews' | 'overall') => void;
+  onRetry: () => void;
 }) {
+  const [showFullRanking, setShowFullRanking] = useState(false);
   const winners = metrics?.winners;
   const topRows = metrics?.eligibleRows.length ? metrics.eligibleRows.slice(0, 5) : metrics?.rows.slice(0, 5) || [];
   const hasRows = topRows.length > 0;
   const stagnantDisabled = metrics ? !metrics.metadata.stagnantEnabled : false;
+  // فشل فعلي (query/timeout) لكن معانا بيانات قديمة صالحة نعرضها — نظهر شريط تنبيه
+  // مضغوط فوق البيانات المعروضة بدل ما نمسح القسم بالكامل ونجبر المستخدم يعمل Refresh.
+  const showStaleWarning = Boolean(error) && hasRows;
   return (
     <Panel id="doctor-competitions" className="p-5">
       <SectionTitle
@@ -3655,11 +3787,33 @@ function DashboardDoctorCompetitionPanel({
         subtitle={metrics ? `الفترة: من ${metrics.range.start} إلى ${metrics.range.end}` : 'ملخص مباشر من sales_invoices والتقييمات والمتابعات'}
         icon={<Trophy className="h-5 w-5" />}
       />
-      {loading ? (
+      {showStaleWarning ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100">
+          <span>البيانات المعروضة من آخر تحميل ناجح — تعذر تحديثها الآن.</span>
+          <button type="button" onClick={onRetry} className="rounded-lg border border-amber-300/40 bg-amber-400/15 px-3 py-1 font-black text-amber-50 hover:bg-amber-400/25">
+            إعادة المحاولة
+          </button>
+        </div>
+      ) : null}
+      {loading && !metrics ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" aria-busy="true">
           {Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="h-40 animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40" />
+            <div key={index} className="h-28 animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40" />
           ))}
+        </div>
+      ) : !hasRows && error ? (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-red-400/25 bg-red-950/20 px-4 py-6 text-center">
+          <AlertTriangle className="h-6 w-6 text-red-300" />
+          <p className="text-sm font-bold text-red-100">تعذر تحميل مسابقة الدكاترة الآن.</p>
+          <p className="max-w-md text-xs text-red-200/70">{error.slice(0, 160)}</p>
+          <button type="button" onClick={onRetry} className="rounded-xl border border-red-300/30 bg-red-400/10 px-4 py-2 text-xs font-black text-red-100 hover:bg-red-400/20">
+            إعادة محاولة تحميل القسم
+          </button>
+        </div>
+      ) : !hasRows ? (
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-cyan-300/15 bg-slate-950/30 px-4 py-6 text-center text-sm font-black text-slate-500">
+          <Trophy className="h-6 w-6 text-slate-600" />
+          لا توجد بيانات كافية للمسابقة في الفترة الحالية
         </div>
       ) : hasRows ? (
         <>
@@ -3713,46 +3867,75 @@ function DashboardDoctorCompetitionPanel({
               onClick={() => onNavigate('overall')}
             />
           </div>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-cyan-300/10">
-            <table className="w-full min-w-[860px] text-right text-sm">
-              <thead className="bg-gradient-to-l from-slate-950 via-slate-900 to-cyan-950/80 text-slate-50 shadow-[inset_0_-1px_0_rgba(103,232,249,0.22)]">
-                <tr className="border-b border-cyan-300/20">
-                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الترتيب</th>
-                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الدكتور</th>
-                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفرع</th>
-                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">المبيعات</th>
-                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفواتير</th>
-                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">متوسط الفاتورة</th>
-                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">تقييم المحادثات</th>
-                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">المتابعات المكتملة</th>
-                  <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">النقاط الشاملة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topRows.map((row, index) => (
-                  <tr
-                    key={`${row.name}-${row.branch}-${index}`}
-                    onClick={() => onNavigate('overall')}
-                    className="cursor-pointer border-t border-cyan-300/10 hover:bg-cyan-400/8"
-                  >
-                    <td className="p-3 font-black text-cyan-200">{index + 1}</td>
-                    <td className="p-3 font-black text-white">{row.name}</td>
-                    <td className="p-3 text-slate-300">{row.branch}</td>
-                    <td className="p-3 text-emerald-200">{money(row.totalSales)} جنيه</td>
-                    <td className="p-3">{count(row.invoices)}</td>
-                    <td className="p-3">{row.avgInvoiceEligible ? `${money(row.avgInvoice)} جنيه` : 'عدد فواتير غير كافٍ'}</td>
-                    <td className="p-3">{row.reviewCount ? `${avgReview(row).toFixed(1)}/100` : 'غير متاح'}</td>
-                    <td className="p-3">{count(row.completedFollowups)}</td>
-                    <td className="p-3 font-black text-amber-200">{row.overallScore.toFixed(1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="mt-4 space-y-2">
+            {topRows.map((row, index) => (
+              <button
+                type="button"
+                key={`${row.staffId || row.name}-${row.branch}-${index}`}
+                onClick={() => onNavigate('overall')}
+                className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-cyan-300/10 bg-slate-900/60 px-3 py-2.5 text-right hover:bg-cyan-400/10"
+              >
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-cyan-400/15 text-xs font-black text-cyan-200">{index + 1}</span>
+                <span className="min-w-0">
+                  <span className="block truncate font-black text-white">{row.name}</span>
+                  <span className="block text-[11px] font-bold text-slate-400">{row.branch} · {count(row.invoices)} فاتورة · متوسط {row.avgInvoiceEligible ? `${money(row.avgInvoice)} ج` : 'غير كافٍ'}{row.reviewCount ? ` · تقييم ${avgReview(row).toFixed(1)}/100` : ''}</span>
+                </span>
+                <span className="text-left">
+                  <span className="block text-sm font-black text-emerald-200">{money(row.totalSales)} ج</span>
+                  <span className="block text-[10px] font-bold text-amber-200">{row.overallScore.toFixed(1)} نقطة</span>
+                </span>
+              </button>
+            ))}
           </div>
+          {(metrics?.eligibleRows.length || metrics?.rows.length || 0) > topRows.length ? (
+            <button
+              type="button"
+              onClick={() => setShowFullRanking((value) => !value)}
+              className="mt-3 w-full rounded-xl border border-cyan-300/15 bg-slate-900/50 py-2 text-xs font-black text-cyan-200 hover:bg-cyan-400/10"
+            >
+              {showFullRanking ? 'إخفاء الترتيب الكامل' : 'عرض الترتيب الكامل'}
+            </button>
+          ) : null}
+          {showFullRanking ? (
+            <div className="mt-3 overflow-hidden rounded-2xl border border-cyan-300/10">
+              <table className="w-full min-w-[860px] text-right text-sm">
+                <thead className="bg-gradient-to-l from-slate-950 via-slate-900 to-cyan-950/80 text-slate-50 shadow-[inset_0_-1px_0_rgba(103,232,249,0.22)]">
+                  <tr className="border-b border-cyan-300/20">
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الترتيب</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الدكتور</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفرع</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">المبيعات</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفواتير</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">متوسط الفاتورة</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">تقييم المحادثات</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">المتابعات المكتملة</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">النقاط الشاملة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(metrics?.eligibleRows.length ? metrics.eligibleRows : metrics?.rows || []).map((row, index) => (
+                    <tr
+                      key={`${row.staffId || row.name}-${row.branch}-${index}`}
+                      onClick={() => onNavigate('overall')}
+                      className="cursor-pointer border-t border-cyan-300/10 hover:bg-cyan-400/8"
+                    >
+                      <td className="p-3 font-black text-cyan-200">{index + 1}</td>
+                      <td className="p-3 font-black text-white">{row.name}</td>
+                      <td className="p-3 text-slate-300">{row.branch}</td>
+                      <td className="p-3 text-emerald-200">{money(row.totalSales)} جنيه</td>
+                      <td className="p-3">{count(row.invoices)}</td>
+                      <td className="p-3">{row.avgInvoiceEligible ? `${money(row.avgInvoice)} جنيه` : 'عدد فواتير غير كافٍ'}</td>
+                      <td className="p-3">{row.reviewCount ? `${avgReview(row).toFixed(1)}/100` : 'غير متاح'}</td>
+                      <td className="p-3">{count(row.completedFollowups)}</td>
+                      <td className="p-3 font-black text-amber-200">{row.overallScore.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </>
-      ) : (
-        <EmptyState label={error ? 'تعذر تحميل مسابقة الدكاترة — قد يكون الحساب بطيء، جرّب تحديث الصفحة' : 'لا توجد بيانات كافية لمسابقات الدكاترة في الفترة الحالية'} />
-      )}
+      ) : null}
     </Panel>
   );
 }
@@ -3792,11 +3975,15 @@ function DoctorWinnerCard({
 function DashboardDataHealthPanel({
   issues,
   loading,
+  error,
   onNavigate,
+  onRetry,
 }: {
   issues: DataHealthIssue[];
   loading: boolean;
+  error?: string | null;
   onNavigate: (route: string) => void;
+  onRetry: () => void;
 }) {
   const summary = summarizeDataHealth(issues);
   const actionable = issues
@@ -3820,7 +4007,15 @@ function DashboardDataHealthPanel({
           <ShieldCheck className="h-5 w-5" />
         </div>
       </div>
-      {loading ? (
+      {error ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-100">
+          <span>تعذر فحص صحة البيانات الآن — النتيجة الظاهرة قد تكون قديمة أو غير مكتملة، ومش معناها إن كل حاجة سليمة فعلًا.</span>
+          <button type="button" onClick={onRetry} className="rounded-lg border border-red-300/40 bg-red-400/15 px-3 py-1 font-black text-red-50 hover:bg-red-400/25">
+            إعادة المحاولة
+          </button>
+        </div>
+      ) : null}
+      {loading && !issues.length ? (
         <div className="grid gap-3 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, index) => (
             <div key={index} className="h-24 animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40" />
@@ -3856,6 +4051,10 @@ function DashboardDataHealthPanel({
                   </button>
                 );
               })
+            ) : error ? (
+              <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 text-sm font-bold text-slate-400 md:col-span-2 xl:col-span-4">
+                لا يمكن تأكيد حالة صحة البيانات حاليًا بسبب فشل الفحص أعلاه.
+              </div>
             ) : (
               <div className="rounded-2xl border border-emerald-300/15 bg-emerald-500/10 p-4 text-sm font-bold text-emerald-100 md:col-span-2 xl:col-span-4">
                 لا توجد بنود حرجة ظاهرة في ملخص صحة البيانات.
