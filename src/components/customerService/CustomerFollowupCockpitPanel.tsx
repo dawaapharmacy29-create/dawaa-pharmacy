@@ -403,6 +403,14 @@ export default function CustomerFollowupCockpitPanel() {
     ['waiting', 'انتظار الرد', waitingRows.length, Clock3],
     ['review', 'مراجعة', reviewRows.length, ShieldCheck],
   ];
+  // توزيع الحالات المفتوحة اليوم — نفس الألوان المستخدمة في بطاقات الـKPI فوق، عشان
+  // العين تربط الشريط بالأرقام على طول من غير مكتبة رسم بياني تقيلة على أول شاشة تفتح.
+  const openTotal = queue.length + waitingRows.length + reviewRows.length;
+  const composition: Array<[string, number, string]> = [
+    ['قائمة اليوم', queue.length, 'bg-cyan-400'],
+    ['انتظار الرد', waitingRows.length, 'bg-amber-400'],
+    ['انتظار مراجعة', reviewRows.length, 'bg-violet-400'],
+  ];
 
   return <>
     <section className="space-y-3 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
@@ -418,6 +426,14 @@ export default function CustomerFollowupCockpitPanel() {
       {loadError ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-400/25 bg-red-500/10 p-3" role="alert"><div className="flex items-center gap-2 text-sm font-black text-red-100"><AlertTriangle size={16}/> {loadError}</div><button className="btn-secondary flex items-center gap-2 text-xs" onClick={() => void load()}><RefreshCw size={14}/> إعادة المحاولة</button></div> : null}
 
       <div className="grid grid-cols-3 gap-2 md:grid-cols-6">{kpis.map(([label, value, Icon, tone]) => <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.03] p-2.5"><span className={`grid h-7 w-7 place-items-center rounded-lg ${tone}`}><Icon size={14}/></span><div className="mt-1.5 text-[10px] font-black text-slate-400">{label}</div><div className="text-xl font-black text-white">{value}</div></div>)}</div>
+
+      {openTotal > 0 ? <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
+        <div className="mb-2 text-[11px] font-black text-slate-400">توزيع الحالات المفتوحة اليوم</div>
+        <div className="flex h-2.5 overflow-hidden rounded-full bg-white/5">
+          {composition.filter(([, value]) => value > 0).map(([label, value, color]) => <div key={label} title={`${label}: ${value}`} className={color} style={{ width: `${(value / openTotal) * 100}%` }} />)}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-slate-300">{composition.map(([label, value, color]) => <span key={label} className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${color}`}/>{label} <span className="font-black text-white">{value}</span></span>)}</div>
+      </div> : null}
 
       <div className="grid grid-cols-3 gap-2">{tabs.map(([id, label, count, Icon]) => <button key={id} onClick={() => setTab(id)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-black ${tab === id ? 'border-cyan-300 bg-cyan-400/15 text-cyan-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}><Icon size={16}/>{label}<span className="rounded-full bg-black/20 px-2 py-0.5 text-[11px]">{count}</span></button>)}</div>
 
