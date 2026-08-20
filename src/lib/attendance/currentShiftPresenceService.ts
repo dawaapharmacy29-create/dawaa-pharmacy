@@ -49,6 +49,15 @@ type ShiftScheduleRow = {
   status?: string | null;
 };
 
+type StaffMasterRow = {
+  id?: string | null;
+  name?: string | null;
+  status?: string | null;
+  active?: boolean | null;
+  is_active?: boolean | null;
+  visible_in_schedule?: boolean | null;
+};
+
 type AttendanceRow = {
   staff_id?: string | null;
   staff_name?: string | null;
@@ -121,10 +130,10 @@ function categorize(
 ): 'doctors' | 'assistants' | 'delivery' {
   const r = normalizeText(role);
   const n = normalizeText(name);
+  if (/مساعد|assistant/.test(r)) return 'assistants';
+  if (/توصيل|دليفري|delivery|rider/.test(r)) return 'delivery';
   if (/صيد|دكتور|pharmacist|doctor/.test(r) || /^د\s*\/?/.test(n) || n.startsWith('د '))
     return 'doctors';
-  if (/توصيل|دليفري|delivery|rider/.test(r)) return 'delivery';
-  if (/مساعد|assistant/.test(r)) return 'assistants';
   return 'delivery';
 }
 
@@ -203,8 +212,54 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
     return isShiftActive(row.shift_start || row.start_time, row.shift_end || row.end_time);
   });
 
+  // Current truth rules:
+  // 1) If a person has a linked staff_id schedule, ignore old unlinked imported copies.
+  // 2) Never surface schedules for staff explicitly inactive/hidden in the staff master.
+  // This preserves all historical schedule rows while preventing stale copies from appearing now.
+  const staffMasterRows = await safeSelect<StaffMasterRow>(
+    'staff',
+    'id,name,status,active,is_active,visible_in_schedule',
+    (query) => query.limit(1000)
+  );
+  const inactiveIds = new Set(
+    staffMasterRows
+      .filter((row) =>
+        row.active === false ||
+        row.is_active === false ||
+        row.visible_in_schedule === false ||
+        /غير نشط|inactive|disabled|موقوف/.test(normalizeText(row.status))
+      )
+      .map((row) => String(row.id || '').trim())
+      .filter(Boolean)
+  );
+  const inactiveNames = new Set(
+    staffMasterRows
+      .filter((row) =>
+        row.active === false ||
+        row.is_active === false ||
+        row.visible_in_schedule === false ||
+        /غير نشط|inactive|disabled|موقوف/.test(normalizeText(row.status))
+      )
+      .map((row) => normalizeDoctorName(row.name))
+      .filter(Boolean)
+  );
+  const linkedNames = new Set(
+    rawSchedules
+      .filter((row) => String(row.staff_id || '').trim())
+      .map((row) => normalizeDoctorName(row.staff_name))
+      .filter(Boolean)
+  );
+  const currentSchedules = rawSchedules.filter((row) => {
+    const id = String(row.staff_id || '').trim();
+    const nameKey = normalizeDoctorName(row.staff_name);
+    if (id && inactiveIds.has(id)) return false;
+    if (!id && inactiveNames.has(nameKey)) return false;
+    if (!id && linkedNames.has(nameKey)) return false;
+    return true;
+  });
+
   const scheduleMap = new Map<string, ShiftScheduleRow>();
-  rawSchedules.forEach((row) => {
+  currentSchedules.forEach((row) => {
     const name = String(row.staff_name || '').trim();
     if (!name) return;
     const key = `${normalizeDoctorName(name)}|${normalizeText(row.branch)}|${normalizeTime(row.shift_start || row.start_time) || ''}|${normalizeTime(row.shift_end || row.end_time) || ''}`;
