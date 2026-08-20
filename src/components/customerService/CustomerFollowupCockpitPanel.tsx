@@ -26,16 +26,19 @@ import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
+import CustomerHistoricalFollowupLedger from '@/components/customerService/CustomerHistoricalFollowupLedger';
+import SectionErrorBoundary, { SectionEmptyState } from '@/components/customerService/SectionBoundary';
 
 const CustomerQuickDetailsModal = lazy(() => import('@/components/customers/CustomerQuickDetailsModal'));
 
 const ALL_BRANCHES = 'كل الفروع';
 const PER_BRANCH_QUEUE_LIMIT = 25;
 const FETCH_BATCH = 1000;
+const MAX_FETCH_BATCHES = 20; // سقف أمان يمنع لوب لا نهائي لو حصل خلل غير متوقع في الترقيم
 const EXECUTION_ACTIONS = new Set(['message_sent', 'no_answer', 'replied', 'completed', 'scheduled']);
 const REVIEW_ACTIONS = new Set(['reviewed', 'approved', 'rejected', 'returned_for_completion', 'escalated']);
 
-type WorkspaceTab = 'queue' | 'waiting' | 'review' | 'contacted' | 'performance';
+type WorkspaceTab = 'queue' | 'waiting' | 'review' | 'contacted' | 'performance' | 'history';
 type QuickAction = 'message_sent' | 'no_answer' | 'replied' | 'scheduled' | 'completed';
 type ReviewAction = 'approved' | 'returned_for_completion' | 'escalated';
 type QueueFocus = 'all' | 'critical' | 'overdue' | 'uncontacted';
@@ -217,15 +220,17 @@ export default function CustomerFollowupCockpitPanel() {
     let cancelled = false;
     // staff_accounts محمي بـ RLS (المدراء بس بيشوفوا كل الحسابات مباشرة) —
     // بنستخدم دالة آمنة بدل القراءة المباشرة عشان الدليل يفضل كامل لأي حد.
-    supabase.rpc('get_staff_accounts_directory', { p_roles: ['customer_service_manager', 'branches_manager', 'general_manager'] }).then(({ data }) => {
-      if (cancelled || !data) return;
+    supabase.rpc('get_staff_accounts_directory', { p_roles: ['customer_service_manager', 'branches_manager', 'general_manager'] }).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) { console.error('[customer-followup-cockpit] staff directory failed', error); return; }
+      if (!data) return;
       const filtered = (data as Array<{ name: string; branch: string | null; role: string; active: boolean; can_login: boolean; status: string | null }>)
         .filter((row) => row.active !== false && row.can_login !== false);
       setDirectory(filtered.map((row) => ({
         name: text(row.name), normalized: normalizedActor(row.name), branch: row.role === 'customer_service_manager' ? normalizeBranchName(row.branch || '') : null,
         role: row.role === 'customer_service_manager' ? 'executor' : row.role === 'branches_manager' ? 'reviewer' : 'general_manager',
       })));
-    });
+    }).catch((error) => { if (!cancelled) console.error('[customer-followup-cockpit] staff directory failed', error); });
     return () => { cancelled = true; };
   }, []);
 
@@ -236,27 +241,34 @@ export default function CustomerFollowupCockpitPanel() {
     if (!managerView && !userBranch) return;
     setLoading(true);
     try {
-      const allRows: FollowupRow[] = [];
-      for (let start = 0; ; start += FETCH_BATCH) {
-        let query = supabase.from('daily_followups')
-          .select('id,customer_id,customer_name,name,customer_code,customer_phone,phone,branch,priority,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_reason,request_details,notes,next_followup_date,created_at,contacted_at,first_attempt_at,last_attempt_at,attempt_count,needs_next_followup,needs_manager,total_spent,last_purchase_date,customer_metrics')
-          .eq('is_hidden', false).is('completed_at', null).is('cancelled_at', null).is('archived_at', null)
-          .or('is_duplicate.is.null,is_duplicate.eq.false').is('duplicate_of', null)
-          .order('created_at', { ascending: false }).range(start, start + FETCH_BATCH - 1);
-        if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
-        const { data, error } = await query;
+      const fetchRows = async () => {
+        const allRows: FollowupRow[] = [];
+        for (let start = 0, batches = 0; batches < MAX_FETCH_BATCHES; start += FETCH_BATCH, batches += 1) {
+          let query = supabase.from('daily_followups')
+            .select('id,customer_id,customer_name,name,customer_code,customer_phone,phone,branch,priority,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_reason,request_details,notes,next_followup_date,created_at,contacted_at,first_attempt_at,last_attempt_at,attempt_count,needs_next_followup,needs_manager,total_spent,last_purchase_date,customer_metrics')
+            .eq('is_hidden', false).is('completed_at', null).is('cancelled_at', null).is('archived_at', null)
+            .or('is_duplicate.is.null,is_duplicate.eq.false').is('duplicate_of', null)
+            .order('created_at', { ascending: false }).range(start, start + FETCH_BATCH - 1);
+          if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
+          const { data, error } = await query;
+          if (error) throw error;
+          const batch = (data || []) as FollowupRow[];
+          allRows.push(...batch);
+          if (batch.length < FETCH_BATCH) break;
+        }
+        return allRows;
+      };
+      const fetchAudit = async () => {
+        const since = new Date(); since.setDate(since.getDate() - 30);
+        let auditQuery = supabase.from('customer_followup_audit_log').select('id,followup_id,action,actor_name,created_at,branch,metadata').gte('created_at', since.toISOString()).order('created_at', { ascending: false }).limit(5000);
+        if (branch !== ALL_BRANCHES) auditQuery = auditQuery.eq('branch', branch);
+        const { data, error } = await auditQuery;
         if (error) throw error;
-        const batch = (data || []) as FollowupRow[];
-        allRows.push(...batch);
-        if (batch.length < FETCH_BATCH) break;
-      }
-      const since = new Date(); since.setDate(since.getDate() - 30);
-      let auditQuery = supabase.from('customer_followup_audit_log').select('id,followup_id,action,actor_name,created_at,branch,metadata').gte('created_at', since.toISOString()).order('created_at', { ascending: false }).limit(5000);
-      if (branch !== ALL_BRANCHES) auditQuery = auditQuery.eq('branch', branch);
-      const { data: auditData, error: auditError } = await auditQuery;
-      if (auditError) throw auditError;
+        return (data || []) as AuditEvent[];
+      };
+      const [allRows, auditData] = await Promise.all([fetchRows(), fetchAudit()]);
       setRows(dedupeRows(allRows));
-      setEvents((auditData || []) as AuditEvent[]);
+      setEvents(auditData);
     } catch (error) {
       toast.error(`تعذر تحميل مركز المتابعات: ${(error as Error).message}`);
     } finally { setLoading(false); }
@@ -371,12 +383,13 @@ export default function CustomerFollowupCockpitPanel() {
   }, [events, performanceDays]);
   const executionEvents = periodEvents.filter((event) => EXECUTION_ACTIONS.has(event.action));
   const reviewEvents = periodEvents.filter((event) => REVIEW_ACTIONS.has(event.action));
-  const tabs: Array<[WorkspaceTab, string, number, typeof Inbox]> = [
+  const tabs: Array<[WorkspaceTab, string, number | string, typeof Inbox]> = [
     ['queue', 'قائمة اليوم', queue.length, Inbox],
     ['waiting', 'انتظار الرد', waitingRows.length, Clock3],
     ['review', 'انتظار المراجعة', reviewRows.length, ShieldCheck],
     ['contacted', 'سجل التواصل', executionEvents.length, History],
     ['performance', 'أداء التنفيذ', directory.filter((entry) => entry.role === 'executor').length, BarChart3],
+    ['history', 'سجل المتابعات', '—', History],
   ];
 
   return <>
@@ -395,12 +408,16 @@ export default function CustomerFollowupCockpitPanel() {
       {(tab === 'queue' || tab === 'waiting' || tab === 'review') ? <>
         {tab === 'queue' ? <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/15 p-2">{([['all','الكل'],['critical','حرجة وعالية'],['overdue','متأخرة'],['uncontacted','لم يبدأ التواصل']] as Array<[QueueFocus,string]>).map(([id,label]) => <button key={id} onClick={() => setQueueFocus(id)} className={`rounded-xl px-3 py-2 text-xs font-black ${queueFocus === id ? 'bg-cyan-400/20 text-cyan-100' : 'text-slate-300 hover:bg-white/5'}`}>{label}</button>)}</div> : null}
         <div className="relative"><Search size={17} className="absolute right-3 top-3 text-slate-400"/><input className="input-dark w-full pr-10" placeholder="بحث بالاسم أو الكود أو الهاتف" value={search} onChange={(event) => setSearch(event.target.value)}/></div>
-        <div className="space-y-2">{visibleRows.map((row, index) => { const info = priorityInfo(row); const tier = importance(row); const state = activity(row); return <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><button className="min-w-0 flex-1 text-right" onClick={() => openExecution(row)}><div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span><span className="font-black text-white">{customerName(row)}</span><span className={`rounded-full border px-3 py-1 text-[11px] font-black ${info.tone}`}>{info.label}</span></div><div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div><div className="mt-2 flex flex-wrap gap-2 text-xs font-black"><span className={`rounded-full border px-3 py-1 ${tier.bg} ${tier.color}`}>{tier.label}</span><span className={`rounded-full bg-white/5 px-3 py-1 ${state.color}`}>{state.label}</span><span className="rounded-full bg-white/5 px-3 py-1 text-slate-300">{row.attempt_count || 0} محاولة</span></div><div className="mt-3 grid gap-2 md:grid-cols-2"><div className="rounded-xl bg-black/15 p-2.5"><div className="text-[10px] font-black text-slate-500">سبب الأولوية</div><div className="mt-1 text-xs font-black text-white">{info.reason}</div></div><div className="rounded-xl bg-cyan-400/[0.06] p-2.5"><div className="text-[10px] font-black text-cyan-300">الإجراء الآن</div><div className="mt-1 text-xs font-black text-cyan-50">{info.next}</div></div></div></button><div className="flex shrink-0 gap-2"><button className="btn-primary text-xs" onClick={() => openExecution(row)}>تنفيذ الآن</button><button className="btn-secondary text-xs" onClick={() => void loadHistory(row)}>السجل</button><button className="btn-secondary p-2" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={16}/></button></div></div></article>; })}</div>
+        {loading && !rows.length ? <div className="animate-pulse space-y-2">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 rounded-2xl bg-white/[0.04]" />)}</div> : null}
+        <div className="space-y-2">{visibleRows.map((row, index) => { const info = priorityInfo(row); const tier = importance(row); const state = activity(row); return <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><button className="min-w-0 flex-1 text-right" onClick={() => openExecution(row)}><div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span><span className="font-black text-white">{customerName(row)}</span><span className={`rounded-full border px-3 py-1 text-[11px] font-black ${info.tone}`}>{info.label}</span></div><div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div><div className="mt-2 flex flex-wrap gap-2 text-xs font-black"><span className={`rounded-full border px-3 py-1 ${tier.bg} ${tier.color}`}>{tier.label}</span><span className={`rounded-full bg-white/5 px-3 py-1 ${state.color}`}>{state.label}</span><span className="rounded-full bg-white/5 px-3 py-1 text-slate-300">{row.attempt_count || 0} محاولة</span></div><div className="mt-3 grid gap-2 md:grid-cols-2"><div className="rounded-xl bg-black/15 p-2.5"><div className="text-[10px] font-black text-slate-500">سبب الأولوية</div><div className="mt-1 text-xs font-black text-white">{info.reason}</div></div><div className="rounded-xl bg-cyan-400/[0.06] p-2.5"><div className="text-[10px] font-black text-cyan-300">الإجراء الآن</div><div className="mt-1 text-xs font-black text-cyan-50">{info.next}</div></div></div></button><div className="flex shrink-0 gap-2"><button className="btn-primary text-xs" onClick={() => openExecution(row)}>تنفيذ الآن</button><button className="btn-secondary text-xs" onClick={() => void loadHistory(row)}>سجل العميل</button><button className="btn-secondary flex items-center gap-1 px-2 text-xs" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={16}/> تفاصيل</button></div></div></article>; })}</div>
+        {!loading && !visibleRows.length ? <SectionEmptyState title="لا توجد حالات مطابقة هنا" description="جرّب تغيير البحث أو الفلتر، أو راجع تبويب آخر." icon={Inbox} /> : null}
       </> : null}
 
-      {tab === 'contacted' ? <div className="space-y-2">{executionEvents.slice(0, 300).map((event) => <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex justify-between gap-2"><div className="font-black text-cyan-100">{event.action}</div><div className="text-xs text-slate-400">{formatDateTime(event.created_at)}</div></div><div className="mt-1 text-sm text-white">{text(event.metadata?.customer_name) || 'عميل غير محدد'} · {text(event.metadata?.result) || 'بدون نتيجة'}</div></div>)}</div> : null}
+      {tab === 'contacted' ? <div className="space-y-2">{executionEvents.slice(0, 300).map((event) => <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex justify-between gap-2"><div className="font-black text-cyan-100">{event.action}</div><div className="text-xs text-slate-400">{formatDateTime(event.created_at)}</div></div><div className="mt-1 text-sm text-white">{text(event.metadata?.customer_name) || 'عميل غير محدد'} · {text(event.metadata?.result) || 'بدون نتيجة'}</div></div>)}{!executionEvents.length ? <SectionEmptyState title="لا يوجد سجل تواصل خلال آخر 30 يومًا" icon={History} /> : null}</div> : null}
 
       {tab === 'performance' ? <div className="space-y-3"><div className="flex justify-end"><select className="input-dark" value={performanceDays} onChange={(event) => setPerformanceDays(Number(event.target.value))}><option value={7}>آخر 7 أيام</option><option value={14}>آخر 14 يومًا</option><option value={30}>آخر 30 يومًا</option></select></div><div className="grid gap-3 md:grid-cols-3"><div className="rounded-2xl bg-cyan-400/10 p-4"><div className="text-xs font-black text-cyan-200">إجراءات تنفيذ</div><div className="text-3xl font-black text-white">{executionEvents.length}</div></div><div className="rounded-2xl bg-violet-400/10 p-4"><div className="text-xs font-black text-violet-200">إجراءات مراجعة</div><div className="text-3xl font-black text-white">{reviewEvents.length}</div></div><div className="rounded-2xl bg-emerald-400/10 p-4"><div className="text-xs font-black text-emerald-200">إغلاقات معتمدة</div><div className="text-3xl font-black text-white">{reviewEvents.filter((event) => event.action === 'approved').length}</div></div></div></div> : null}
+
+      {tab === 'history' ? <SectionErrorBoundary label="سجل المتابعات"><CustomerHistoricalFollowupLedger /></SectionErrorBoundary> : null}
     </section>
 
     {selected && !detailsOpen ? <div className="fixed inset-0 z-[100] flex justify-end bg-black/65" dir="rtl"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-[#091b2d] p-5">

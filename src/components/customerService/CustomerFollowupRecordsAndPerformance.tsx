@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock3, Edit3, Eye, PhoneCall, PhoneMissed, RefreshCw, RotateCcw, Save, Search, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, Edit3, Eye, PhoneCall, PhoneMissed, RefreshCw, RotateCcw, Save, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { formatFollowupDetailText } from '@/lib/followupFormat';
+import { SectionSkeleton } from '@/components/customerService/SectionBoundary';
 
 type ViewMode = 'exceptional' | 'waiting' | 'no_answer' | 'completed' | 'performance';
 type Row = Record<string, any>;
@@ -55,6 +56,7 @@ export default function CustomerFollowupRecordsAndPerformance({ mode }: { mode: 
   const userBranch = normalizeBranchName(user?.branch || '');
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Row | null>(null);
@@ -62,16 +64,22 @@ export default function CustomerFollowupRecordsAndPerformance({ mode }: { mode: 
   const [editState, setEditState] = useState<EditState>({ result: '', notes: '', nextDate: '', needsNext: false });
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
 
+  const RECORD_COLUMNS = 'id,customer_code,customer_phone,phone,customer_name,name,branch,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_reason,request_details,notes,next_followup_date,created_at,completed_at,closed_at,updated_at,last_event_at,contact_attempts,attempts_count,followup_attempts,attempt_count,needs_next_followup,assigned_doctor,responsible_name,completed_by_name,updated_by_name,assigned_staff_id,responsible_staff_id,completed_by_staff_id,updated_by_staff_id,staff_id,requested_by_name,created_by_name,source,request_type';
+
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
-      let query = supabase.from('daily_followups').select('*').order('created_at', { ascending: false }).limit(5000);
+      // نجيب أعمدة محددة بدل select('*') عشان نتفادى نقل أعمدة JSON التقيلة اللي مش مستخدمة هنا (زي customer_metrics)
+      let query = supabase.from('daily_followups').select(RECORD_COLUMNS).order('created_at', { ascending: false }).limit(5000);
       if (!managerView && userBranch) query = query.eq('branch', userBranch);
       const { data, error } = await query;
       if (error) throw error;
       setRows((data || []) as Row[]);
     } catch (error) {
-      toast.error(`تعذر تحميل سجل المتابعات: ${(error as Error).message}`);
+      const message = (error as Error).message;
+      setError(message);
+      toast.error(`تعذر تحميل سجل المتابعات: ${message}`);
     } finally {
       setLoading(false);
     }
@@ -186,6 +194,8 @@ export default function CustomerFollowupRecordsAndPerformance({ mode }: { mode: 
     } finally { setSaving(false); }
   }
 
+  if (loading && !rows.length) return <SectionSkeleton label={mode === 'performance' ? 'تحليل الأداء' : VIEW_COPY[mode as Exclude<ViewMode, 'performance'>]?.title || 'السجل'} />;
+
   if (mode === 'performance') return (
     <section className="mx-4 rounded-3xl border border-white/10 bg-[#091b2d] p-4 shadow-xl" dir="rtl">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-black text-white">تحليل أداء خدمة العملاء</h2><p className="mt-1 text-xs font-bold text-slate-400">الحافز الأقصى 500 جنيه. الأسماء المكررة تُدمج، وأقل من 10 متابعات يُعرض كتقييم مبدئي.</p></div><input className="input-dark max-w-44" type="month" value={month} onChange={(e)=>setMonth(e.target.value)} /></div>
@@ -198,6 +208,7 @@ export default function CustomerFollowupRecordsAndPerformance({ mode }: { mode: 
   const actionable = mode !== 'completed';
   return (
     <section className="mx-4 rounded-3xl border border-white/10 bg-[#091b2d] p-4 shadow-xl" dir="rtl">
+      {error ? <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-400/25 bg-red-500/10 p-3" role="alert"><div className="flex items-center gap-2 text-sm font-black text-red-100"><AlertTriangle size={16}/> تعذر تحميل البيانات: {error.slice(0, 160)}</div><button className="btn-secondary flex items-center gap-2 text-xs" onClick={() => void load()}><RefreshCw size={14}/> إعادة المحاولة</button></div> : null}
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-black text-white">{copy.title}</h2><p className="mt-1 text-xs font-bold text-slate-400">{copy.description}</p></div><div className="flex min-w-64 flex-1 items-center gap-2 max-w-2xl"><label className="relative flex-1"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={17}/><input className="input-dark w-full pr-10" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو الكود أو الهاتف" /></label><button className="btn-secondary flex items-center gap-1" onClick={()=>void load()} disabled={loading}><RefreshCw size={16} className={loading ? 'animate-spin' : ''}/> تحديث</button></div></div>
       <div className="mt-4 grid gap-2 sm:grid-cols-3"><div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm font-black text-white">عدد الحالات: {filtered.length.toLocaleString('ar-EG')}</div>{mode === 'waiting' ? <div className="rounded-xl border border-amber-300/20 bg-amber-400/10 p-3 text-sm font-black text-amber-100"><Clock3 className="ml-1 inline" size={16}/> تحتاج متابعة الرد</div> : null}{mode === 'no_answer' ? <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 p-3 text-sm font-black text-rose-100"><PhoneMissed className="ml-1 inline" size={16}/> تحتاج محاولة جديدة</div> : null}</div>
       <div className="mt-3 grid gap-3">{filtered.map((row)=><article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-black text-white">{customer(row)}</h3><p className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {phone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</p></div><div className="flex flex-wrap gap-2">{phone(row) ? <a className="btn-secondary flex items-center gap-2" href={`tel:${phone(row)}`}><PhoneCall size={16}/> اتصال</a> : null}<button className="btn-secondary flex items-center gap-2" onClick={()=>setSelected(row)}><Eye size={16}/> التفاصيل</button>{actionable ? <button className="btn-primary flex items-center gap-2" disabled={saving} onClick={()=>openEdit(row)}><CheckCircle2 size={16}/> تنفيذ المتابعة</button> : <><button className="btn-secondary flex items-center gap-2" onClick={()=>openEdit(row)}><Edit3 size={16}/> تعديل</button><button className="btn-primary flex items-center gap-2" disabled={saving} onClick={()=>void reopen(row)}><RotateCcw size={16}/> إعادة متابعة</button></>}</div></div><div className="mt-3 grid gap-2 text-sm font-bold text-slate-300 md:grid-cols-4"><div>مقدم الطلب: {requester(row)}</div><div>المسؤول: {actor(row)}</div><div>آخر نشاط: {formatDate(lastActivityAt(row))}</div><div>المحاولات: {attempts(row)}</div></div><p className="mt-3 rounded-xl bg-black/15 p-3 text-sm font-bold text-slate-200">{resultText(row) || text(row.request_details || row.notes) || 'لا توجد نتيجة مسجلة'}</p></article>)}</div>
