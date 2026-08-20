@@ -92,7 +92,7 @@ export default function CustomerFollowupFullExportPanel() {
 
   return (
     <section
-      className="mx-4 mt-4 rounded-3xl border border-teal-400/20 bg-[#10243d] p-4 shadow-xl"
+      className="rounded-3xl border border-teal-400/20 bg-[#10243d] p-4 shadow-xl"
       dir="rtl"
     >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">

@@ -1,10 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BarChart3,
+  AlertTriangle,
   CheckCircle2,
   Clock3,
   Eye,
-  History,
   Inbox,
   Loader2,
   MessageCircle,
@@ -14,6 +13,7 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  UserX,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,10 +24,8 @@ import { normalizeEgyptianPhone } from '@/lib/customerFollowupCore';
 import { classifyCustomer, customerStatus } from '@/lib/customerMetrics';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { supabase } from '@/lib/supabase';
-import { formatCurrency } from '@/lib/utils';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
-import CustomerHistoricalFollowupLedger from '@/components/customerService/CustomerHistoricalFollowupLedger';
-import SectionErrorBoundary, { SectionEmptyState } from '@/components/customerService/SectionBoundary';
+import { SectionEmptyState } from '@/components/customerService/SectionBoundary';
 
 const CustomerQuickDetailsModal = lazy(() => import('@/components/customers/CustomerQuickDetailsModal'));
 
@@ -35,10 +33,10 @@ const ALL_BRANCHES = 'كل الفروع';
 const PER_BRANCH_QUEUE_LIMIT = 25;
 const FETCH_BATCH = 1000;
 const MAX_FETCH_BATCHES = 20; // سقف أمان يمنع لوب لا نهائي لو حصل خلل غير متوقع في الترقيم
-const EXECUTION_ACTIONS = new Set(['message_sent', 'no_answer', 'replied', 'completed', 'scheduled']);
-const REVIEW_ACTIONS = new Set(['reviewed', 'approved', 'rejected', 'returned_for_completion', 'escalated']);
 
-type WorkspaceTab = 'queue' | 'waiting' | 'review' | 'contacted' | 'performance' | 'history';
+// تبويبات تنفيذ اليوم فقط. سجل المتابعات/الأداء/سجل التواصل بقوا في مساحات عمل
+// منفصلة (السجل والمتابعات / التقارير والإدارة) عشان محدش يتكرر ومحدش يزحم هنا.
+type WorkspaceTab = 'queue' | 'waiting' | 'review';
 type QuickAction = 'message_sent' | 'no_answer' | 'replied' | 'scheduled' | 'completed';
 type ReviewAction = 'approved' | 'returned_for_completion' | 'escalated';
 type QueueFocus = 'all' | 'critical' | 'overdue' | 'uncontacted';
@@ -207,6 +205,7 @@ export default function CustomerFollowupCockpitPanel() {
   const [history, setHistory] = useState<AuditEvent[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [generatingSmart, setGeneratingSmart] = useState(false);
   const [scheduledDate, setScheduledDate] = useState('');
@@ -214,7 +213,6 @@ export default function CustomerFollowupCockpitPanel() {
   const [contactChannel, setContactChannel] = useState('واتساب');
   const [outcome, setOutcome] = useState<ContactOutcome>('');
   const [purchaseValue, setPurchaseValue] = useState('');
-  const [performanceDays, setPerformanceDays] = useState(7);
 
   useEffect(() => {
     let cancelled = false;
@@ -240,6 +238,7 @@ export default function CustomerFollowupCockpitPanel() {
   const load = useCallback(async () => {
     if (!managerView && !userBranch) return;
     setLoading(true);
+    setLoadError('');
     try {
       const fetchRows = async () => {
         const allRows: FollowupRow[] = [];
@@ -266,11 +265,21 @@ export default function CustomerFollowupCockpitPanel() {
         if (error) throw error;
         return (data || []) as AuditEvent[];
       };
-      const [allRows, auditData] = await Promise.all([fetchRows(), fetchAudit()]);
-      setRows(dedupeRows(allRows));
-      setEvents(auditData);
-    } catch (error) {
-      toast.error(`تعذر تحميل مركز المتابعات: ${(error as Error).message}`);
+      // allSettled بدل all: query السجل (آخر 30 يوم، مستخدم بس لمؤشر "مكتمل اليوم") لو فشل
+      // منفصل عن query الصفوف الأساسية — قائمة اليوم تفضل شغالة حتى لو السجل فشل مؤقتًا.
+      const [rowsResult, auditResult] = await Promise.allSettled([fetchRows(), fetchAudit()]);
+      if (rowsResult.status === 'fulfilled') {
+        setRows(dedupeRows(rowsResult.value));
+      } else {
+        setLoadError(`تعذر تحميل قائمة المتابعات: ${(rowsResult.reason as Error)?.message || 'خطأ غير معروف'}`);
+        toast.error(`تعذر تحميل قائمة المتابعات: ${(rowsResult.reason as Error)?.message || 'خطأ غير معروف'}`);
+      }
+      if (auditResult.status === 'fulfilled') {
+        setEvents(auditResult.value);
+      } else {
+        console.error('[customer-followup-cockpit] audit log fetch failed', auditResult.reason);
+        setEvents([]);
+      }
     } finally { setLoading(false); }
   }, [branch, managerView, userBranch]);
 
@@ -377,25 +386,28 @@ export default function CustomerFollowupCockpitPanel() {
     finally { setSaving(false); }
   };
 
-  const periodEvents = useMemo(() => {
-    const since = new Date(); since.setDate(since.getDate() - performanceDays);
-    return events.filter((event) => new Date(event.created_at) >= since);
-  }, [events, performanceDays]);
-  const executionEvents = periodEvents.filter((event) => EXECUTION_ACTIONS.has(event.action));
-  const reviewEvents = periodEvents.filter((event) => REVIEW_ACTIONS.has(event.action));
-  const tabs: Array<[WorkspaceTab, string, number | string, typeof Inbox]> = [
+  const todayKeyValue = localDayKey();
+  const completedToday = events.filter((event) => event.action === 'completed' && dayKey(event.created_at) === todayKeyValue).length;
+  const overdueOpen = rows.filter((row) => isOverdue(row) && !isPendingReview(row)).length;
+  const notStarted = queue.filter((row) => !lastTouchAt(row)).length;
+  const kpis: Array<[string, number, typeof Inbox, string]> = [
+    ['المطلوب اليوم', queue.length, Inbox, 'bg-cyan-400/15 text-cyan-200'],
+    ['لم يبدأ', notStarted, UserX, 'bg-white/10 text-slate-200'],
+    ['انتظار الرد', waitingRows.length, Clock3, 'bg-amber-400/15 text-amber-200'],
+    ['متأخر', overdueOpen, PhoneOff, 'bg-rose-400/15 text-rose-200'],
+    ['انتظار مراجعة', reviewRows.length, ShieldCheck, 'bg-violet-400/15 text-violet-200'],
+    ['مكتمل اليوم', completedToday, CheckCircle2, 'bg-emerald-400/15 text-emerald-200'],
+  ];
+  const tabs: Array<[WorkspaceTab, string, number, typeof Inbox]> = [
     ['queue', 'قائمة اليوم', queue.length, Inbox],
     ['waiting', 'انتظار الرد', waitingRows.length, Clock3],
-    ['review', 'انتظار المراجعة', reviewRows.length, ShieldCheck],
-    ['contacted', 'سجل التواصل', executionEvents.length, History],
-    ['performance', 'أداء التنفيذ', directory.filter((entry) => entry.role === 'executor').length, BarChart3],
-    ['history', 'سجل المتابعات', '—', History],
+    ['review', 'مراجعة', reviewRows.length, ShieldCheck],
   ];
 
   return <>
-    <section className="mx-4 space-y-4 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
+    <section className="space-y-3 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div><p className="text-xs font-black text-cyan-300">مركز التنفيذ</p><h2 className="text-xl font-black text-white">نفّذ المتابعة وسجّل النتيجة بأقل عدد ضغطات</h2><p className="mt-1 text-sm font-bold text-slate-400">المسار: تواصل → اختر النتيجة → حدّد الموعد إن لزم → أرسل للمراجعة.</p></div>
+        <div><p className="text-xs font-black text-cyan-300">مركز التنفيذ</p><h2 className="text-lg font-black text-white">نفّذ المتابعة وسجّل النتيجة بأقل عدد ضغطات</h2></div>
         <div className="flex flex-wrap gap-2">
           {managerView ? <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}><option>{ALL_BRANCHES}</option><option>فرع الشامي</option><option>فرع شكري</option></select> : <div className="input-dark font-black text-cyan-100">{userBranch}</div>}
           <button className="btn-secondary flex items-center gap-2" onClick={() => void load()} disabled={loading}>{loading ? <Loader2 size={16} className="animate-spin"/> : <RefreshCw size={16}/>} تحديث</button>
@@ -403,21 +415,17 @@ export default function CustomerFollowupCockpitPanel() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">{tabs.map(([id, label, count, Icon]) => <button key={id} onClick={() => setTab(id)} className={`rounded-2xl border p-3 text-right ${tab === id ? 'border-cyan-300 bg-cyan-400/15' : 'border-white/10 bg-white/[0.03]'}`}><Icon size={18} className="mb-2 text-cyan-300"/><div className="text-xs font-black text-slate-400">{label}</div><div className="text-2xl font-black text-white">{count}</div></button>)}</div>
+      {loadError ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-400/25 bg-red-500/10 p-3" role="alert"><div className="flex items-center gap-2 text-sm font-black text-red-100"><AlertTriangle size={16}/> {loadError}</div><button className="btn-secondary flex items-center gap-2 text-xs" onClick={() => void load()}><RefreshCw size={14}/> إعادة المحاولة</button></div> : null}
 
-      {(tab === 'queue' || tab === 'waiting' || tab === 'review') ? <>
-        {tab === 'queue' ? <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/15 p-2">{([['all','الكل'],['critical','حرجة وعالية'],['overdue','متأخرة'],['uncontacted','لم يبدأ التواصل']] as Array<[QueueFocus,string]>).map(([id,label]) => <button key={id} onClick={() => setQueueFocus(id)} className={`rounded-xl px-3 py-2 text-xs font-black ${queueFocus === id ? 'bg-cyan-400/20 text-cyan-100' : 'text-slate-300 hover:bg-white/5'}`}>{label}</button>)}</div> : null}
-        <div className="relative"><Search size={17} className="absolute right-3 top-3 text-slate-400"/><input className="input-dark w-full pr-10" placeholder="بحث بالاسم أو الكود أو الهاتف" value={search} onChange={(event) => setSearch(event.target.value)}/></div>
-        {loading && !rows.length ? <div className="animate-pulse space-y-2">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 rounded-2xl bg-white/[0.04]" />)}</div> : null}
-        <div className="space-y-2">{visibleRows.map((row, index) => { const info = priorityInfo(row); const tier = importance(row); const state = activity(row); return <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><button className="min-w-0 flex-1 text-right" onClick={() => openExecution(row)}><div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span><span className="font-black text-white">{customerName(row)}</span><span className={`rounded-full border px-3 py-1 text-[11px] font-black ${info.tone}`}>{info.label}</span></div><div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</div><div className="mt-2 flex flex-wrap gap-2 text-xs font-black"><span className={`rounded-full border px-3 py-1 ${tier.bg} ${tier.color}`}>{tier.label}</span><span className={`rounded-full bg-white/5 px-3 py-1 ${state.color}`}>{state.label}</span><span className="rounded-full bg-white/5 px-3 py-1 text-slate-300">{row.attempt_count || 0} محاولة</span></div><div className="mt-3 grid gap-2 md:grid-cols-2"><div className="rounded-xl bg-black/15 p-2.5"><div className="text-[10px] font-black text-slate-500">سبب الأولوية</div><div className="mt-1 text-xs font-black text-white">{info.reason}</div></div><div className="rounded-xl bg-cyan-400/[0.06] p-2.5"><div className="text-[10px] font-black text-cyan-300">الإجراء الآن</div><div className="mt-1 text-xs font-black text-cyan-50">{info.next}</div></div></div></button><div className="flex shrink-0 gap-2"><button className="btn-primary text-xs" onClick={() => openExecution(row)}>تنفيذ الآن</button><button className="btn-secondary text-xs" onClick={() => void loadHistory(row)}>سجل العميل</button><button className="btn-secondary flex items-center gap-1 px-2 text-xs" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={16}/> تفاصيل</button></div></div></article>; })}</div>
-        {!loading && !visibleRows.length ? <SectionEmptyState title="لا توجد حالات مطابقة هنا" description="جرّب تغيير البحث أو الفلتر، أو راجع تبويب آخر." icon={Inbox} /> : null}
-      </> : null}
+      <div className="grid grid-cols-3 gap-2 md:grid-cols-6">{kpis.map(([label, value, Icon, tone]) => <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.03] p-2.5"><span className={`grid h-7 w-7 place-items-center rounded-lg ${tone}`}><Icon size={14}/></span><div className="mt-1.5 text-[10px] font-black text-slate-400">{label}</div><div className="text-xl font-black text-white">{value}</div></div>)}</div>
 
-      {tab === 'contacted' ? <div className="space-y-2">{executionEvents.slice(0, 300).map((event) => <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex justify-between gap-2"><div className="font-black text-cyan-100">{event.action}</div><div className="text-xs text-slate-400">{formatDateTime(event.created_at)}</div></div><div className="mt-1 text-sm text-white">{text(event.metadata?.customer_name) || 'عميل غير محدد'} · {text(event.metadata?.result) || 'بدون نتيجة'}</div></div>)}{!executionEvents.length ? <SectionEmptyState title="لا يوجد سجل تواصل خلال آخر 30 يومًا" icon={History} /> : null}</div> : null}
+      <div className="grid grid-cols-3 gap-2">{tabs.map(([id, label, count, Icon]) => <button key={id} onClick={() => setTab(id)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-black ${tab === id ? 'border-cyan-300 bg-cyan-400/15 text-cyan-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}><Icon size={16}/>{label}<span className="rounded-full bg-black/20 px-2 py-0.5 text-[11px]">{count}</span></button>)}</div>
 
-      {tab === 'performance' ? <div className="space-y-3"><div className="flex justify-end"><select className="input-dark" value={performanceDays} onChange={(event) => setPerformanceDays(Number(event.target.value))}><option value={7}>آخر 7 أيام</option><option value={14}>آخر 14 يومًا</option><option value={30}>آخر 30 يومًا</option></select></div><div className="grid gap-3 md:grid-cols-3"><div className="rounded-2xl bg-cyan-400/10 p-4"><div className="text-xs font-black text-cyan-200">إجراءات تنفيذ</div><div className="text-3xl font-black text-white">{executionEvents.length}</div></div><div className="rounded-2xl bg-violet-400/10 p-4"><div className="text-xs font-black text-violet-200">إجراءات مراجعة</div><div className="text-3xl font-black text-white">{reviewEvents.length}</div></div><div className="rounded-2xl bg-emerald-400/10 p-4"><div className="text-xs font-black text-emerald-200">إغلاقات معتمدة</div><div className="text-3xl font-black text-white">{reviewEvents.filter((event) => event.action === 'approved').length}</div></div></div></div> : null}
-
-      {tab === 'history' ? <SectionErrorBoundary label="سجل المتابعات"><CustomerHistoricalFollowupLedger /></SectionErrorBoundary> : null}
+      {tab === 'queue' ? <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/15 p-2">{([['all','الكل'],['critical','حرجة وعالية'],['overdue','متأخرة'],['uncontacted','لم يبدأ التواصل']] as Array<[QueueFocus,string]>).map(([id,label]) => <button key={id} onClick={() => setQueueFocus(id)} className={`rounded-xl px-3 py-2 text-xs font-black ${queueFocus === id ? 'bg-cyan-400/20 text-cyan-100' : 'text-slate-300 hover:bg-white/5'}`}>{label}</button>)}</div> : null}
+      <div className="relative"><Search size={17} className="absolute right-3 top-3 text-slate-400"/><input className="input-dark w-full pr-10" placeholder="بحث بالاسم أو الكود أو الهاتف" value={search} onChange={(event) => setSearch(event.target.value)}/></div>
+      {loading && !rows.length ? <div className="animate-pulse space-y-2">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 rounded-2xl bg-white/[0.04]" />)}</div> : null}
+      <div className="space-y-2">{visibleRows.map((row, index) => { const info = priorityInfo(row); const tier = importance(row); const responsible = assignedExecutor(row.branch, directory); return <article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between"><button className="min-w-0 flex-1 text-right" onClick={() => openExecution(row)}><div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-white/5 px-2 py-1 text-xs font-black text-slate-400">#{index + 1}</span><span className="font-black text-white">{customerName(row)}</span><span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${info.tone}`}>{info.label}</span><span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${tier.bg} ${tier.color}`}>{tier.label}</span></div><div className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'} · المسؤول {responsible} · {info.reason} · آخر تواصل {lastTouchAt(row) ? formatDateTime(lastTouchAt(row) as string) : 'لا يوجد'}{row.next_followup_date ? ` · موعد ${dayKey(row.next_followup_date)}` : ''}</div></button><div className="flex shrink-0 gap-2"><button className="btn-primary text-xs" onClick={() => openExecution(row)}>تنفيذ الآن</button><button className="btn-secondary text-xs" onClick={() => void loadHistory(row)}>سجل العميل</button><button className="btn-secondary flex items-center gap-1 px-2 text-xs" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={16}/> تفاصيل</button></div></div></article>; })}</div>
+      {!loading && !visibleRows.length ? <SectionEmptyState title="لا توجد حالات مطابقة هنا" description="جرّب تغيير البحث أو الفلتر، أو راجع تبويب آخر." icon={Inbox} /> : null}
     </section>
 
     {selected && !detailsOpen ? <div className="fixed inset-0 z-[100] flex justify-end bg-black/65" dir="rtl"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-[#091b2d] p-5">

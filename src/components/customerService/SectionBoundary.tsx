@@ -1,5 +1,5 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { Component, useState, type ErrorInfo, type ReactNode } from 'react';
+import { AlertTriangle, RefreshCw, X } from 'lucide-react';
 import { logRuntimeError } from '@/lib/appRecovery';
 
 type SectionErrorBoundaryProps = {
@@ -79,6 +79,78 @@ export function SectionSkeleton({ label, rows = 3 }: { label?: string; rows?: nu
       </div>
       <span className="sr-only">جارٍ التحميل</span>
     </div>
+  );
+}
+
+// درج تفاصيل موحد (RTL: يفتح من الشمال بصريًا) يستخدمه أكتر من قسم بدل ما كل قسم
+// يعمل الـmodal بتاعه لوحده — عشان تجربة استخدام واحدة متسقة، بدون إعادة تحميل الصفحة.
+export function Drawer({ open, onClose, title, subtitle, children, width = 'max-w-2xl' }: {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  children: ReactNode;
+  width?: string;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[130] flex justify-end bg-black/70" dir="rtl" onClick={onClose}>
+      <aside
+        className={`h-full w-full ${width} overflow-y-auto bg-[#091b2d] p-5 shadow-2xl`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-xl font-black text-white">{title}</h3>
+            {subtitle ? <p className="mt-1 truncate text-sm font-bold text-slate-400">{subtitle}</p> : null}
+          </div>
+          <button type="button" className="btn-secondary shrink-0" onClick={onClose} aria-label="إغلاق">
+            <X size={17} />
+          </button>
+        </div>
+        <div className="mt-4">{children}</div>
+      </aside>
+    </div>
+  );
+}
+
+export function DrawerFieldGrid({ fields }: { fields: Array<[string, ReactNode]> }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {fields.map(([label, value]) => (
+        <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+          <div className="text-[11px] font-black text-slate-500">{label}</div>
+          <div className="mt-1 break-words text-sm font-bold text-white">{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function ShowMoreList<T>({ items, pageSize = 25, render, emptyLabel }: {
+  items: T[];
+  pageSize?: number;
+  render: (item: T, index: number) => ReactNode;
+  emptyLabel?: ReactNode;
+}) {
+  // بدل عرض كل الصفوف مرة واحدة على الصفحة (اللي بيطول الصفحة جدًا)، بنعرض أول صفحة
+  // ونزود العدد بالضغط، مع الحفاظ على كل البيانات محملة أصلًا في الذاكرة (بدون query تاني).
+  const [visibleCount, setVisibleCount] = useState(pageSize);
+  const visible = items.slice(0, visibleCount);
+  return (
+    <>
+      {visible.map((item, index) => render(item, index))}
+      {!items.length && emptyLabel ? emptyLabel : null}
+      {items.length > visibleCount ? (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((count: number) => count + pageSize)}
+          className="btn-secondary mt-2 w-full text-xs"
+        >
+          عرض {Math.min(pageSize, items.length - visibleCount)} أخرى (من إجمالي {items.length.toLocaleString('ar-EG')})
+        </button>
+      ) : null}
+    </>
   );
 }
 

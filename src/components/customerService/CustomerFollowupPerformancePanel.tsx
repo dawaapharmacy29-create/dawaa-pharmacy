@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, CalendarDays, RefreshCw } from 'lucide-react';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
+import { AlertTriangle, BarChart3, CalendarDays, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -49,24 +50,28 @@ export default function CustomerFollowupPerformancePanel() {
   const [to, setTo] = useState<string>(stored.to || todayIso());
   const [data, setData] = useState<PerformanceData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const actorId = String(user?.id || user?.staffId || user?.username || '');
 
   async function load() {
     if (!actorId) return;
     setLoading(true);
+    setError('');
     try {
-      const { data: result, error } = await supabase.rpc('customer_followup_performance_v1', {
+      const { data: result, error: rpcError } = await supabase.rpc('customer_followup_performance_v1', {
         p_actor_id: actorId,
         p_branch: branch,
         p_from: from,
         p_to: to,
       });
-      if (error) throw error;
+      if (rpcError) throw rpcError;
       setData(result as PerformanceData);
       localStorage.setItem('dawaa-followup-performance-filters', JSON.stringify({ branch, from, to }));
-    } catch (error) {
-      toast.error(`تعذر تحميل أداء المتابعات: ${(error as Error).message}`);
+    } catch (err) {
+      const message = (err as Error).message;
+      setError(message);
+      toast.error(`تعذر تحميل أداء المتابعات: ${message}`);
     } finally {
       setLoading(false);
     }
@@ -100,6 +105,8 @@ export default function CustomerFollowupPerformancePanel() {
         </button>
       </div>
 
+      {error ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-400/25 bg-red-500/10 p-3" role="alert"><div className="flex items-center gap-2 text-sm font-black text-red-100"><AlertTriangle size={16}/> تعذر تحميل الأداء: {error.slice(0, 160)}</div><button className="btn-secondary flex items-center gap-2 text-xs" onClick={() => void load()}><RefreshCw size={14}/> إعادة المحاولة</button></div> : null}
+
       <div className="mt-4 flex flex-wrap gap-2">
         {presets.map(([label, start, end]) => (
           <button key={label} type="button" className="rounded-xl border border-teal-400/35 px-3 py-2 text-sm font-black text-teal-100 hover:bg-teal-500/10" onClick={() => { setFrom(start); setTo(end); }}>{label}</button>
@@ -127,9 +134,34 @@ export default function CustomerFollowupPerformancePanel() {
         ].map(([label, value]) => <div key={String(label)} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-center"><div className="text-xs font-bold text-slate-400">{label}</div><div className="mt-1 text-xl font-black text-white">{value}</div></div>)}
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10">
+      {(data?.daily || []).length > 1 ? <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3">
+        <div className="mb-2 text-[11px] font-black text-slate-400">اتجاه الإجمالي اليومي</div>
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={data?.daily || []} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+            <defs>
+              <linearGradient id="dailyTotalFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#2dd4bf" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#2dd4bf" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" />
+            <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(value: string) => value.slice(5)} minTickGap={24} />
+            <Tooltip
+              cursor={{ stroke: 'rgba(45,212,191,0.35)', strokeWidth: 1 }}
+              contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
+              labelStyle={{ color: '#e2e8f0', fontWeight: 700 }}
+              itemStyle={{ color: '#5eead4' }}
+              formatter={(value: number) => [value, 'الإجمالي']}
+            />
+            <Area type="monotone" dataKey="total" stroke="#2dd4bf" strokeWidth={2} fill="url(#dailyTotalFill)" dot={false} activeDot={{ r: 4, fill: '#2dd4bf' }} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div> : null}
+
+      {/* جدول بارتفاع محدد + سكرول داخلي بدل ما يمد الصفحة بعشرات الصفوف */}
+      <div className="mt-4 max-h-96 overflow-auto rounded-2xl border border-white/10">
         <table className="min-w-full text-sm">
-          <thead className="bg-[#0a1d32] text-slate-200"><tr>{['التاريخ','الإجمالي','تم التواصل','تم الرد','لم يرد','مكتمل','متابعة قادمة','شراء'].map((h) => <th key={h} className="px-3 py-3 text-center font-black">{h}</th>)}</tr></thead>
+          <thead className="sticky top-0 z-10 bg-[#0a1d32] text-slate-200"><tr>{['التاريخ','الإجمالي','تم التواصل','تم الرد','لم يرد','مكتمل','متابعة قادمة','شراء'].map((h) => <th key={h} className="px-3 py-3 text-center font-black">{h}</th>)}</tr></thead>
           <tbody>
             {(data?.daily || []).map((row) => (
               <tr key={row.date} className="border-t border-white/10 text-white">

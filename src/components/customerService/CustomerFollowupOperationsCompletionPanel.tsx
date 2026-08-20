@@ -257,7 +257,7 @@ export default function CustomerFollowupOperationsCompletionPanel() {
   }
 
   return (
-    <section className="mx-4 mt-4 space-y-4 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
+    <section className="space-y-4 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="flex items-center gap-2 text-xl font-black text-white">
