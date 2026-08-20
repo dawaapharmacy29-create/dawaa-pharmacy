@@ -1,0 +1,45 @@
+name: Apply Claude followup patch
+
+on:
+  push:
+    branches:
+      - feature/claude-followup-stability-v1
+    paths:
+      - '.github/workflows/apply-claude-followup-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild and verify exact patch
+        shell: bash
+        run: |
+          cat .claude-patch/chunk-* | base64 -d > /tmp/claude-followup-fixes.patch
+          echo "Patch bytes: $(wc -c < /tmp/claude-followup-fixes.patch)"
+          sha256sum /tmp/claude-followup-fixes.patch
+          git apply --check /tmp/claude-followup-fixes.patch
+          git apply /tmp/claude-followup-fixes.patch
+
+      - name: Remove transport files
+        shell: bash
+        run: |
+          rm -rf .claude-patch
+          rm -f .github/workflows/apply-claude-followup-patch.yml
+
+      - name: Commit exact Claude changes
+        shell: bash
+        run: |
+          git config user.name "dawaapharmacy29-create"
+          git config user.email "dawaapharmacy29@gmail.com"
+          git add -A
+          git commit -m "feat(customer-service): harden followup loading and history UX"
+          git push origin HEAD:feature/claude-followup-stability-v1
