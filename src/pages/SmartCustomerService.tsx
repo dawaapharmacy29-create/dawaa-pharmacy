@@ -5,6 +5,7 @@ import {
   Clock3,
   Database,
   FileSpreadsheet,
+  HeadphonesIcon,
   History,
   ListChecks,
   MessageSquareText,
@@ -22,7 +23,6 @@ import CustomerFollowupFullExportPanel from '@/components/customerService/Custom
 import CustomerFollowupOperationsCompletionPanel from '@/components/customerService/CustomerFollowupOperationsCompletionPanel';
 import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
 import CustomerFollowupRecordsAndPerformance from '@/components/customerService/CustomerFollowupRecordsAndPerformance';
-import CustomerFollowupPerformancePanel from '@/components/customerService/CustomerFollowupPerformancePanel';
 import CustomerHistoricalFollowupLedger from '@/components/customerService/CustomerHistoricalFollowupLedger';
 import CustomerDailyPriorityQueues from '@/components/customerService/CustomerDailyPriorityQueues';
 import CustomerServiceDoctorWorkbookCenter from '@/components/customerService/CustomerServiceDoctorWorkbookCenter';
@@ -35,6 +35,8 @@ import '@/styles/customerServiceTheme.css';
 const CustomerServiceDataTools = lazy(() => import('@/components/customerService/CustomerServiceDataTools'));
 const CustomerServiceScriptEditor = lazy(() => import('@/components/customerService/CustomerServiceScriptEditor'));
 const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
+// lazy عشان مكتبة الرسم البياني (recharts) متتحملش مع الحزمة الأساسية للصفحة إلا لما المستخدم يفتح تبويب الأداء فعلًا
+const CustomerFollowupPerformancePanel = lazy(() => import('@/components/customerService/CustomerFollowupPerformancePanel'));
 
 // ============================================================================
 // هيكل تنقل مبسّط: 4 مساحات عمل رئيسية فقط بدل 5 أقسام + تابات متداخلة كتير.
@@ -48,11 +50,14 @@ type ReportsTab = 'performance' | 'exports' | 'quality' | 'scripts' | 'cashback'
 
 type NavItem<T extends string> = { id: T; title: string; icon: typeof Workflow };
 
-const workspaceItems: NavItem<Workspace>[] = [
-  { id: 'execution', title: 'التنفيذ اليومي', icon: Workflow },
-  { id: 'customers', title: 'العملاء والأولويات', icon: Target },
-  { id: 'log', title: 'السجل والمتابعات', icon: History },
-  { id: 'reports', title: 'التقارير والإدارة', icon: BarChart3 },
+// لون شارة زخرفي مميز لكل مساحة عمل (للتفرقة البصرية بسرعة) — منفصل تمامًا عن ألوان
+// الحالة الدلالية (Cyan=إجراء رئيسي فعّال، Amber=تنبيه، Red=خطر، Green=نجاح) عشان محدش
+// يفهم شارة تنقل عادية على إنها تحذير.
+const workspaceItems: Array<NavItem<Workspace> & { chip: string }> = [
+  { id: 'execution', title: 'التنفيذ اليومي', icon: Workflow, chip: 'bg-cyan-400/15 text-cyan-200' },
+  { id: 'customers', title: 'العملاء والأولويات', icon: Target, chip: 'bg-violet-400/15 text-violet-200' },
+  { id: 'log', title: 'السجل والمتابعات', icon: History, chip: 'bg-sky-400/15 text-sky-200' },
+  { id: 'reports', title: 'التقارير والإدارة', icon: BarChart3, chip: 'bg-indigo-400/15 text-indigo-200' },
 ];
 
 const customersTabs: NavItem<CustomersTab>[] = [
@@ -196,6 +201,7 @@ export default function SmartCustomerService() {
     <section className="sticky top-0 z-40 rounded-2xl border border-cyan-300/15 bg-[#071827]/95 px-3 py-2.5 shadow-lg shadow-black/20 backdrop-blur-xl">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-cyan-400/15 text-cyan-200"><HeadphonesIcon size={17}/></span>
           <h1 className="text-lg font-black text-white">متابعة العملاء</h1>
           <span className="rounded-full border border-cyan-300/15 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-black text-cyan-200">{normalizedUserBranch || (managerView ? 'كل الفروع' : 'غير محدد')}</span>
           <span className="hidden items-center gap-1 text-[11px] font-bold text-slate-400 sm:flex"><Clock3 size={12}/> آخر تحديث {formatClock(lastUpdatedAt)}</span>
@@ -208,10 +214,10 @@ export default function SmartCustomerService() {
       </div>
 
       <nav className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4" aria-label="مساحات العمل الرئيسية لخدمة العملاء">
-        {workspaceItems.map(({ id, title, icon: Icon }) => {
+        {workspaceItems.map(({ id, title, icon: Icon, chip }) => {
           const active = id === workspace;
           return <button key={id} type="button" onClick={() => setWorkspace(id)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-black transition ${active ? 'border-cyan-300/70 bg-cyan-400/15 text-cyan-100 shadow-lg shadow-cyan-950/20' : 'border-white/10 bg-white/[0.035] text-slate-200 hover:border-cyan-300/25 hover:bg-white/[0.06]'}`} aria-pressed={active}>
-            <Icon size={16}/>{title}
+            <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${active ? 'bg-cyan-400/20 text-cyan-100' : chip}`}><Icon size={15}/></span>{title}
           </button>;
         })}
       </nav>

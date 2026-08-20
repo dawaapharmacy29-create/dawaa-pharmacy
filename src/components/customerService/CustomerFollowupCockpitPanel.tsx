@@ -391,12 +391,12 @@ export default function CustomerFollowupCockpitPanel() {
   const overdueOpen = rows.filter((row) => isOverdue(row) && !isPendingReview(row)).length;
   const notStarted = queue.filter((row) => !lastTouchAt(row)).length;
   const kpis: Array<[string, number, typeof Inbox, string]> = [
-    ['المطلوب اليوم', queue.length, Inbox, 'text-cyan-200'],
-    ['لم يبدأ', notStarted, UserX, 'text-slate-200'],
-    ['انتظار الرد', waitingRows.length, Clock3, 'text-amber-200'],
-    ['متأخر', overdueOpen, PhoneOff, 'text-rose-200'],
-    ['انتظار مراجعة', reviewRows.length, ShieldCheck, 'text-violet-200'],
-    ['مكتمل اليوم', completedToday, CheckCircle2, 'text-emerald-200'],
+    ['المطلوب اليوم', queue.length, Inbox, 'bg-cyan-400/15 text-cyan-200'],
+    ['لم يبدأ', notStarted, UserX, 'bg-white/10 text-slate-200'],
+    ['انتظار الرد', waitingRows.length, Clock3, 'bg-amber-400/15 text-amber-200'],
+    ['متأخر', overdueOpen, PhoneOff, 'bg-rose-400/15 text-rose-200'],
+    ['انتظار مراجعة', reviewRows.length, ShieldCheck, 'bg-violet-400/15 text-violet-200'],
+    ['مكتمل اليوم', completedToday, CheckCircle2, 'bg-emerald-400/15 text-emerald-200'],
   ];
   const tabs: Array<[WorkspaceTab, string, number, typeof Inbox]> = [
     ['queue', 'قائمة اليوم', queue.length, Inbox],
@@ -417,7 +417,7 @@ export default function CustomerFollowupCockpitPanel() {
 
       {loadError ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-400/25 bg-red-500/10 p-3" role="alert"><div className="flex items-center gap-2 text-sm font-black text-red-100"><AlertTriangle size={16}/> {loadError}</div><button className="btn-secondary flex items-center gap-2 text-xs" onClick={() => void load()}><RefreshCw size={14}/> إعادة المحاولة</button></div> : null}
 
-      <div className="grid grid-cols-3 gap-2 md:grid-cols-6">{kpis.map(([label, value, Icon, tone]) => <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.03] p-2.5"><Icon size={15} className={`mb-1.5 ${tone}`}/><div className="text-[10px] font-black text-slate-400">{label}</div><div className="text-xl font-black text-white">{value}</div></div>)}</div>
+      <div className="grid grid-cols-3 gap-2 md:grid-cols-6">{kpis.map(([label, value, Icon, tone]) => <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.03] p-2.5"><span className={`grid h-7 w-7 place-items-center rounded-lg ${tone}`}><Icon size={14}/></span><div className="mt-1.5 text-[10px] font-black text-slate-400">{label}</div><div className="text-xl font-black text-white">{value}</div></div>)}</div>
 
       <div className="grid grid-cols-3 gap-2">{tabs.map(([id, label, count, Icon]) => <button key={id} onClick={() => setTab(id)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-black ${tab === id ? 'border-cyan-300 bg-cyan-400/15 text-cyan-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}><Icon size={16}/>{label}<span className="rounded-full bg-black/20 px-2 py-0.5 text-[11px]">{count}</span></button>)}</div>
 

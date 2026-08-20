@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { AlertTriangle, BarChart3, CalendarDays, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -135,13 +136,26 @@ export default function CustomerFollowupPerformancePanel() {
 
       {(data?.daily || []).length > 1 ? <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3">
         <div className="mb-2 text-[11px] font-black text-slate-400">اتجاه الإجمالي اليومي</div>
-        <div className="flex h-16 items-end gap-1">
-          {(data?.daily || []).map((row) => {
-            const max = Math.max(...(data?.daily || []).map((d) => d.total), 1);
-            const heightPct = Math.max(6, Math.round((row.total / max) * 100));
-            return <div key={row.date} title={`${row.date}: ${row.total}`} className="min-w-[6px] flex-1 rounded-t bg-teal-400/60" style={{ height: `${heightPct}%` }} />;
-          })}
-        </div>
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={data?.daily || []} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+            <defs>
+              <linearGradient id="dailyTotalFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#2dd4bf" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#2dd4bf" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" />
+            <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(value: string) => value.slice(5)} minTickGap={24} />
+            <Tooltip
+              cursor={{ stroke: 'rgba(45,212,191,0.35)', strokeWidth: 1 }}
+              contentStyle={{ background: '#0f1d33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
+              labelStyle={{ color: '#e2e8f0', fontWeight: 700 }}
+              itemStyle={{ color: '#5eead4' }}
+              formatter={(value: number) => [value, 'الإجمالي']}
+            />
+            <Area type="monotone" dataKey="total" stroke="#2dd4bf" strokeWidth={2} fill="url(#dailyTotalFill)" dot={false} activeDot={{ r: 4, fill: '#2dd4bf' }} />
+          </AreaChart>
+        </ResponsiveContainer>
       </div> : null}
 
       {/* جدول بارتفاع محدد + سكرول داخلي بدل ما يمد الصفحة بعشرات الصفوف */}
