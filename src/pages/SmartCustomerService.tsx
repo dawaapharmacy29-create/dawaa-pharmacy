@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -27,6 +27,7 @@ import CustomerServiceDoctorWorkbookCenter from '@/components/customerService/Cu
 import ExceptionalFollowupCenter from '@/components/customerService/ExceptionalFollowupCenter';
 import QuickFollowupModal from '@/components/common/QuickFollowupModal';
 import ExceptionalFollowupModal from '@/components/customerService/ExceptionalFollowupModal';
+import SectionErrorBoundary, { SectionSkeleton } from '@/components/customerService/SectionBoundary';
 import '@/styles/customerServiceTheme.css';
 
 const CustomerServiceDataTools = lazy(() => import('@/components/customerService/CustomerServiceDataTools'));
@@ -70,8 +71,12 @@ const reportsViews: Array<{ id: ReportsView; title: string; description: string;
   { id: 'cashback', title: 'النقاط والكاش باك', description: 'استحقاقات العملاء ومتابعة الكاش باك', icon: BarChart3 },
 ];
 
-function SectionLoader({ label }: { label: string }) {
-  return <div className="mx-4 mt-4 rounded-2xl border border-white/10 bg-[#10243d] p-5 text-center text-sm font-black text-slate-300">جارٍ تحميل {label}...</div>;
+function Section({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <SectionErrorBoundary label={label}>
+      <Suspense fallback={<SectionSkeleton label={label} />}>{children}</Suspense>
+    </SectionErrorBoundary>
+  );
 }
 
 function MissingBranchGuard() {
@@ -214,15 +219,22 @@ export default function SmartCustomerService() {
 
     <main className="mx-auto max-w-[1800px] px-0 pb-8">
       {!hasSafeBranchScope && section !== 'reports' ? <MissingBranchGuard/> : null}
-      {hasSafeBranchScope && section === 'operations' ? <CustomerFollowupCockpitPanel key={`operations-${workspaceVersion}`} /> : null}
-      {hasSafeBranchScope && section === 'priorities' && priorityView === 'queues' ? <CustomerDailyPriorityQueues/> : null}
-      {hasSafeBranchScope && section === 'priorities' && priorityView === 'workbook' ? <CustomerServiceDoctorWorkbookCenter onImported={refreshWorkspace}/> : null}
-      {hasSafeBranchScope && section === 'followups' && followupView === 'exceptional' ? <ExceptionalFollowupCenter key={`exceptional-${workspaceVersion}`} /> : null}
-      {hasSafeBranchScope && section === 'followups' && followupView === 'completed' ? <div className="space-y-4"><CustomerHistoricalFollowupLedger key={`history-${workspaceVersion}`} /><CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /></div> : null}
-      {hasSafeBranchScope && section === 'tools' && toolsView === 'data' ? <div className="space-y-4"><CustomerFollowupFinalQualityPanel/><CustomerFollowupOperationsCompletionPanel/><Suspense fallback={<SectionLoader label="أدوات تصحيح البيانات"/>}><CustomerServiceDataTools/></Suspense></div> : null}
-      {hasSafeBranchScope && section === 'tools' && toolsView === 'content' ? <Suspense fallback={<SectionLoader label="محرر السكريبتات"/>}><CustomerServiceScriptEditor/></Suspense> : null}
-      {section === 'reports' && reportsView === 'exports' ? <CustomerFollowupFullExportPanel/> : null}
-      {section === 'reports' && reportsView === 'cashback' && hasSafeBranchScope ? <Suspense fallback={<SectionLoader label="نقاط العملاء والكاش باك"/>}><CustomerCashback/></Suspense> : null}
+      {hasSafeBranchScope && section === 'operations' ? <Section label="مركز التنفيذ"><CustomerFollowupCockpitPanel key={`operations-${workspaceVersion}`} /></Section> : null}
+      {hasSafeBranchScope && section === 'priorities' && priorityView === 'queues' ? <Section label="أولويات العملاء"><CustomerDailyPriorityQueues/></Section> : null}
+      {hasSafeBranchScope && section === 'priorities' && priorityView === 'workbook' ? <Section label="ملف الدكاترة"><CustomerServiceDoctorWorkbookCenter onImported={refreshWorkspace}/></Section> : null}
+      {hasSafeBranchScope && section === 'followups' && followupView === 'exceptional' ? <Section label="المتابعات الاستثنائية"><ExceptionalFollowupCenter key={`exceptional-${workspaceVersion}`} /></Section> : null}
+      {hasSafeBranchScope && section === 'followups' && followupView === 'completed' ? <div className="space-y-4">
+        <Section label="سجل المتابعات"><CustomerHistoricalFollowupLedger key={`history-${workspaceVersion}`} /></Section>
+        <Section label="المتابعات المكتملة"><CustomerFollowupRecordsAndPerformance key={`completed-${workspaceVersion}`} mode="completed" /></Section>
+      </div> : null}
+      {hasSafeBranchScope && section === 'tools' && toolsView === 'data' ? <div className="space-y-4">
+        <Section label="جودة البيانات"><CustomerFollowupFinalQualityPanel/></Section>
+        <Section label="استكمال التشغيل"><CustomerFollowupOperationsCompletionPanel/></Section>
+        <Section label="أدوات تصحيح البيانات"><CustomerServiceDataTools/></Section>
+      </div> : null}
+      {hasSafeBranchScope && section === 'tools' && toolsView === 'content' ? <Section label="محرر السكريبتات"><CustomerServiceScriptEditor/></Section> : null}
+      {section === 'reports' && reportsView === 'exports' ? <Section label="التصدير والتقارير"><CustomerFollowupFullExportPanel/></Section> : null}
+      {section === 'reports' && reportsView === 'cashback' && hasSafeBranchScope ? <Section label="نقاط العملاء والكاش باك"><CustomerCashback/></Section> : null}
       {section === 'reports' && reportsView === 'cashback' && !hasSafeBranchScope ? <MissingBranchGuard/> : null}
     </main>
 
