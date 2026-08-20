@@ -1,9 +1,15 @@
 import { normalizeBranchName } from '@/lib/branch';
 import { isCompletedFollowup } from '@/lib/customerFollowupCore';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
+import { withTimeout } from '@/lib/performance';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 import { getInvoiceAmount, getInvoiceBranch, getInvoiceDay, getInvoiceId, getInvoiceSellerName } from '@/lib/invoices/invoiceCore';
 import { supabase } from '@/lib/supabase';
+
+// سقف داخلي قصير لخطوة التجميع السريع (RPC) لوحدها. لو الـRPC اتأخر أو علّق، بنعدّي
+// بسرعة على مسار الفواتير الاحتياطي بدل ما نستهلك أغلب مهلة الـ20 ثانية الكلية
+// ونوصل لفشل تام بدون داعي — ده كان السبب الرئيسي لفشل تحميل القسم أحيانًا.
+const AGGREGATE_TIMEOUT_MS = 9000;
 
 export type DoctorCompetitionPeriod = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 
@@ -384,7 +390,35 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   // staff_accounts محمي بـ RLS — لو دكتور عادي (مش مدير) فتح الصفحة، الاستعلام
   // المباشر بيرجّع حسابه هو بس. الدالة الآمنة دي بتتخطى القيد وتديّنا قائمة
   // الدكاترة المؤهلين كاملة بغض النظر عن مين فاتح الصفحة.
-  const accountResult = await safeSelectRpc('get_eligible_doctor_accounts');
+  //
+  // بنشغّل قائمة الحسابات المؤهلة وخطوة تجميع المبيعات السريع في نفس الوقت
+  // (مش الواحدة بعد التانية) لأنهم مستقلين تمامًا عن بعض؛ ده بيقلل زمن
+  // التحميل الكلي بدل ما ننتظر كل خطوة لوحدها بالتتابع.
+  let salesSource: 'aggregate_rpc' | 'invoice_fallback' = 'aggregate_rpc';
+  let salesAggregates: DoctorSalesAggregate[] | null = null;
+  let previousAggregates: DoctorSalesAggregate[] | null = null;
+
+  const [accountResult, aggregateOutcome] = await Promise.all([
+    safeSelectRpc('get_eligible_doctor_accounts'),
+    withTimeout(
+      Promise.all([
+        fetchDoctorSalesAggregates(range, selectedBranch),
+        fetchDoctorSalesAggregates(previous, selectedBranch),
+      ]),
+      AGGREGATE_TIMEOUT_MS,
+      'get_dashboard_doctor_sales_v171 timed out'
+    )
+      .then((value) => ({ value, error: null as unknown }))
+      .catch((error) => ({ value: null, error })),
+  ]);
+
+  if (aggregateOutcome.value) {
+    [salesAggregates, previousAggregates] = aggregateOutcome.value;
+  } else {
+    salesSource = 'invoice_fallback';
+    errors.sales_aggregate = aggregateOutcome.error instanceof Error ? aggregateOutcome.error.message : String(aggregateOutcome.error);
+  }
+
   if (accountResult.error) errors.staff_accounts = accountResult.error;
   const eligibleDoctors = accountResult.data
     .map(doctorAccountFromRow)
@@ -437,19 +471,6 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     map.set(key, current);
     return { key, current };
   };
-
-  let salesSource: 'aggregate_rpc' | 'invoice_fallback' = 'aggregate_rpc';
-  let salesAggregates: DoctorSalesAggregate[] | null = null;
-  let previousAggregates: DoctorSalesAggregate[] | null = null;
-  try {
-    [salesAggregates, previousAggregates] = await Promise.all([
-      fetchDoctorSalesAggregates(range, selectedBranch),
-      fetchDoctorSalesAggregates(previous, selectedBranch),
-    ]);
-  } catch (error) {
-    salesSource = 'invoice_fallback';
-    errors.sales_aggregate = error instanceof Error ? error.message : String(error);
-  }
 
   const salesErrors: string[] = [];
   const [salesRows, previousRows, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
