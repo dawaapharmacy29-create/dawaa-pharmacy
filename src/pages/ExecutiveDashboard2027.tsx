@@ -1369,7 +1369,12 @@ export default function ExecutiveDashboard2027() {
     let mounted = true;
     setDataHealthLoading(true);
     setDataHealthError(null);
-    withTimeout(loadAppDataHealthSummary(), 7000, 'data-health')
+    // مهلة 7 ثواني كانت أقل من التكلفة الحقيقية المقاسة لـget_app_data_health_v2 وقت
+    // انتهاء صلاحية الكاش الداخلي (cache TTL دقيقتين): قياس مباشر عبر EXPLAIN ANALYZE
+    // أظهر ~8.4-10.5 ثانية على cache miss مقابل ~12ms على cache hit. المهلة هنا بقت
+    // مبنية على الرقم الحقيقي المقاس (مش تخمين) مع هامش أمان، والمسار العادي (cache
+    // hit) لسه سريع جدًا زي ما هو.
+    withTimeout(loadAppDataHealthSummary(), 12000, 'data-health')
       .then((issues) => {
         if (!mounted) return;
         setDataHealthIssues(issues);

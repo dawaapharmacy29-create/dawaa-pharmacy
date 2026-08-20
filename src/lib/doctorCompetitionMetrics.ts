@@ -9,7 +9,19 @@ import { supabase } from '@/lib/supabase';
 // سقف داخلي قصير لخطوة التجميع السريع (RPC) لوحدها. لو الـRPC اتأخر أو علّق، بنعدّي
 // بسرعة على مسار الفواتير الاحتياطي بدل ما نستهلك أغلب مهلة الـ20 ثانية الكلية
 // ونوصل لفشل تام بدون داعي — ده كان السبب الرئيسي لفشل تحميل القسم أحيانًا.
-const AGGREGATE_TIMEOUT_MS = 9000;
+const AGGREGATE_TIMEOUT_MS = 8000;
+// فترة المقارنة (growthRate) اختيارية بحتة — الحقل ده مش معروض في أي مكان في اللوحة
+// حاليًا (تم التأكد بالبحث في كل الاستخدامات). قبل كده كانت فترة الحالية والسابقة
+// بتتنفذا مع بعض في Promise.all واحد؛ لو أي واحدة فيهم اتأخرت، الاتنين كانوا
+// بيتجاهلوا سوا ويقع القسم كله على مسار الفواتير الخام الأتقل *لفترتين* بدل واحدة —
+// وده كان بيضاعف فرصة تجاوز مهلة الـ20 ثانية الكلية بدون أي فايدة ظاهرة للمستخدم.
+// دلوقتي فترة الحالية هي المسار الحرج الوحيد؛ فترة المقارنة best-effort مستقل
+// تمامًا بمهلة أقصر، ولو فشلت أو اتأخرت بتوصل "غير متاحة" من غير ما تفعّل مسار
+// الفواتير الخام الأتقل خالص.
+const PREVIOUS_AGGREGATE_TIMEOUT_MS = 5000;
+// get_eligible_doctor_accounts كانت بتتنفذ من غير أي مهلة زمنية — لو تعلّقت لأي
+// سبب كانت قادرة تستهلك كل الـ20 ثانية بمفردها من غير أي مسار احتياطي.
+const ACCOUNTS_TIMEOUT_MS = 6000;
 
 export type DoctorCompetitionPeriod = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 
@@ -391,33 +403,31 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   // المباشر بيرجّع حسابه هو بس. الدالة الآمنة دي بتتخطى القيد وتديّنا قائمة
   // الدكاترة المؤهلين كاملة بغض النظر عن مين فاتح الصفحة.
   //
-  // بنشغّل قائمة الحسابات المؤهلة وخطوة تجميع المبيعات السريع في نفس الوقت
-  // (مش الواحدة بعد التانية) لأنهم مستقلين تمامًا عن بعض؛ ده بيقلل زمن
-  // التحميل الكلي بدل ما ننتظر كل خطوة لوحدها بالتتابع.
+  // بنشغّل قائمة الحسابات المؤهلة، وتجميع مبيعات الفترة الحالية، وتجميع مبيعات فترة
+  // المقارنة — التلاتة مع بعض (مش بالتتابع) لأنهم مستقلين تمامًا عن بعض، وكل واحدة
+  // منهم بمهلتها الداخلية الخاصة (settled) عشان فشل أو تأخر أي واحدة لا يوقف التانية.
   let salesSource: 'aggregate_rpc' | 'invoice_fallback' = 'aggregate_rpc';
   let salesAggregates: DoctorSalesAggregate[] | null = null;
-  let previousAggregates: DoctorSalesAggregate[] | null = null;
+  let previousAggregates: DoctorSalesAggregate[] = [];
 
-  const [accountResult, aggregateOutcome] = await Promise.all([
-    safeSelectRpc('get_eligible_doctor_accounts'),
-    withTimeout(
-      Promise.all([
-        fetchDoctorSalesAggregates(range, selectedBranch),
-        fetchDoctorSalesAggregates(previous, selectedBranch),
-      ]),
-      AGGREGATE_TIMEOUT_MS,
-      'get_dashboard_doctor_sales_v171 timed out'
-    )
-      .then((value) => ({ value, error: null as unknown }))
-      .catch((error) => ({ value: null, error })),
+  const settled = <T,>(promise: Promise<T>) =>
+    promise.then((value) => ({ value, error: null as unknown })).catch((error) => ({ value: null as T | null, error }));
+
+  const [accountResult, currentAggOutcome, previousAggOutcome] = await Promise.all([
+    withTimeout(safeSelectRpc('get_eligible_doctor_accounts'), ACCOUNTS_TIMEOUT_MS, 'get_eligible_doctor_accounts timed out').catch(
+      (error) => ({ data: [] as Row[], error: error instanceof Error ? error.message : String(error) })
+    ),
+    settled(withTimeout(fetchDoctorSalesAggregates(range, selectedBranch), AGGREGATE_TIMEOUT_MS, 'get_dashboard_doctor_sales_v171 timed out')),
+    settled(withTimeout(fetchDoctorSalesAggregates(previous, selectedBranch), PREVIOUS_AGGREGATE_TIMEOUT_MS, 'get_dashboard_doctor_sales_v171 (previous) timed out')),
   ]);
 
-  if (aggregateOutcome.value) {
-    [salesAggregates, previousAggregates] = aggregateOutcome.value;
+  if (currentAggOutcome.value) {
+    salesAggregates = currentAggOutcome.value;
   } else {
     salesSource = 'invoice_fallback';
-    errors.sales_aggregate = aggregateOutcome.error instanceof Error ? aggregateOutcome.error.message : String(aggregateOutcome.error);
+    errors.sales_aggregate = currentAggOutcome.error instanceof Error ? currentAggOutcome.error.message : String(currentAggOutcome.error);
   }
+  if (previousAggOutcome.value) previousAggregates = previousAggOutcome.value;
 
   if (accountResult.error) errors.staff_accounts = accountResult.error;
   const eligibleDoctors = accountResult.data
@@ -472,10 +482,13 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     return { key, current };
   };
 
+  // ملحوظة: فترة المقارنة (السابقة) بترجع من الـRPC بس (فوق) ومفيهاش مسار فواتير
+  // خام احتياطي — لو فشلت أو اتأخرت، growthRate بيبقى "غير متاح" وده تنازل مقبول
+  // لأن الحقل ده مش معروض في أي مكان في اللوحة حاليًا؛ مفيش داعي لمضاعفة حجم
+  // الفواتير الخام المطلوب تحميلها وقت استخدام مسار الفواتير الاحتياطي.
   const salesErrors: string[] = [];
-  const [salesRows, previousRows, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
+  const [salesRows, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
     salesSource === 'invoice_fallback' ? fetchDoctorSalesRows(range, selectedBranch, salesErrors).catch(() => [] as Row[]) : Promise.resolve([] as Row[]),
-    salesSource === 'invoice_fallback' ? fetchDoctorSalesRows(previous, selectedBranch, []).catch(() => [] as Row[]) : Promise.resolve([] as Row[]),
     safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', `${range.end}T23:59:59`).limit(5000)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(5000)),
     safeSelect('stagnant_medicine_dispenses', (query) => query.select('*').limit(5000)),
@@ -535,30 +548,13 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   }
 
   const previousSales = new Map<string, number>();
-  if (salesSource === 'aggregate_rpc') {
-    for (const aggregate of previousAggregates || []) {
-      const branch = normalizeBranchName(aggregate.branch || '') || text(aggregate.branch) || 'غير محدد';
-      if (!allowBranch(branch)) continue;
-      const doctor = resolveDoctor({ normalized_seller_name: aggregate.doctor_name }, branch);
-      if (!doctor) continue;
-      const key = scoreKey(doctor);
-      previousSales.set(key, (previousSales.get(key) || 0) + num(aggregate.sales_total));
-    }
-  } else {
-    const previousInvoiceSets = new Map<string, Set<string>>();
-    for (const row of previousRows) {
-      const branch = invoiceBranch(row);
-      if (!allowBranch(branch)) continue;
-      const doctor = resolveDoctor(row, branch);
-      if (!doctor) continue;
-      const key = scoreKey(doctor);
-      const set = previousInvoiceSets.get(key) || new Set<string>();
-      const invoiceKey = invoiceIdentityKey(row) || `${invoiceDate(row)}:${set.size}`;
-      if (set.has(invoiceKey)) continue;
-      set.add(invoiceKey);
-      previousInvoiceSets.set(key, set);
-      previousSales.set(key, (previousSales.get(key) || 0) + pickInvoiceAmount(row));
-    }
+  for (const aggregate of previousAggregates) {
+    const branch = normalizeBranchName(aggregate.branch || '') || text(aggregate.branch) || 'غير محدد';
+    if (!allowBranch(branch)) continue;
+    const doctor = resolveDoctor({ normalized_seller_name: aggregate.doctor_name }, branch);
+    if (!doctor) continue;
+    const key = scoreKey(doctor);
+    previousSales.set(key, (previousSales.get(key) || 0) + num(aggregate.sales_total));
   }
 
   if (reviewResult.error) errors.conversation_sales_reviews = reviewResult.error;
