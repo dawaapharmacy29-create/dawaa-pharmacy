@@ -33,6 +33,17 @@ const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
   'src/components/staff/StaffPerformanceDashboard.tsx',
 ]);
 
+// Financial employee ledger is a shared domain boundary. Existing UI reads are frozen migration debt.
+const LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS = new Set([
+  'src/pages/ReportsCenter.tsx',
+  'src/pages/BranchInspection.tsx',
+]);
+
+// Attendance UI must consume attendance/domain projections rather than raw attendance rows.
+const LEGACY_DIRECT_ATTENDANCE_UI_READERS = new Set([
+  'src/pages/StaffMonthlyEvaluation.tsx',
+]);
+
 // Baseline only: these existed before the snake_case contract was enforced.
 // This set must shrink as permission data + consumers are migrated.
 const LEGACY_DOT_PERMISSION_KEYS = new Set([
@@ -89,6 +100,10 @@ const invoiceOffenders = [];
 const presentInvoiceLegacy = [];
 const staffUiOffenders = [];
 const presentStaffUiLegacy = [];
+const employeeTxnUiOffenders = [];
+const presentEmployeeTxnUiLegacy = [];
+const attendanceUiOffenders = [];
+const presentAttendanceUiLegacy = [];
 
 for (const file of walk(ROOT)) {
   const relative = repoPath(file);
@@ -105,29 +120,47 @@ for (const file of walk(ROOT)) {
   }
 
   const isUi = relative.startsWith('src/pages/') || relative.startsWith('src/components/');
-  if (isUi && hasDirectAccess(content, 'staff')) {
+  if (!isUi) continue;
+
+  if (hasDirectAccess(content, 'staff')) {
     if (LEGACY_DIRECT_STAFF_UI_READERS.has(relative)) presentStaffUiLegacy.push(relative);
     else staffUiOffenders.push(relative);
   }
+
+  if (hasDirectAccess(content, 'employee_transactions')) {
+    if (LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS.has(relative)) {
+      presentEmployeeTxnUiLegacy.push(relative);
+    } else {
+      employeeTxnUiOffenders.push(relative);
+    }
+  }
+
+  if (hasDirectAccess(content, 'attendance')) {
+    if (LEGACY_DIRECT_ATTENDANCE_UI_READERS.has(relative)) {
+      presentAttendanceUiLegacy.push(relative);
+    } else {
+      attendanceUiOffenders.push(relative);
+    }
+  }
 }
 
-const staleInvoiceDebt = [...LEGACY_DIRECT_INVOICE_READERS].filter(
-  (file) => !presentInvoiceLegacy.includes(file)
-);
-if (staleInvoiceDebt.length) {
-  console.error('\nArchitecture debt register is stale. These legacy readers no longer access sales_invoices:');
-  staleInvoiceDebt.forEach((file) => console.error(`  - ${file}`));
+function failOnStaleDebt(register, present, label) {
+  const stale = [...register].filter((file) => !present.includes(file));
+  if (!stale.length) return;
+  console.error(`\n${label} debt register is stale. These legacy readers are no longer direct readers:`);
+  stale.forEach((file) => console.error(`  - ${file}`));
+  console.error('Remove migrated files from the legacy register in the same PR.');
   process.exit(1);
 }
 
-const staleStaffUiDebt = [...LEGACY_DIRECT_STAFF_UI_READERS].filter(
-  (file) => !presentStaffUiLegacy.includes(file)
+failOnStaleDebt(LEGACY_DIRECT_INVOICE_READERS, presentInvoiceLegacy, 'Invoice');
+failOnStaleDebt(LEGACY_DIRECT_STAFF_UI_READERS, presentStaffUiLegacy, 'Staff UI');
+failOnStaleDebt(
+  LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS,
+  presentEmployeeTxnUiLegacy,
+  'Employee transaction UI'
 );
-if (staleStaffUiDebt.length) {
-  console.error('\nStaff UI debt register is stale. These UI files no longer access staff directly:');
-  staleStaffUiDebt.forEach((file) => console.error(`  - ${file}`));
-  process.exit(1);
-}
+failOnStaleDebt(LEGACY_DIRECT_ATTENDANCE_UI_READERS, presentAttendanceUiLegacy, 'Attendance UI');
 
 if (invoiceOffenders.length) {
   console.error('\nArchitecture boundary violation: new direct sales_invoices access detected.');
@@ -138,6 +171,20 @@ if (invoiceOffenders.length) {
 if (staffUiOffenders.length) {
   console.error('\nArchitecture boundary violation: UI must not query the staff table directly.');
   staffUiOffenders.forEach((file) => console.error(`  - ${file}`));
+  process.exit(1);
+}
+
+if (employeeTxnUiOffenders.length) {
+  console.error('\nEmployee-domain architecture violation: UI must not query employee_transactions directly.');
+  console.error('Use the points/incentive/payroll domain boundary; final financial truth must not be rebuilt in pages.');
+  employeeTxnUiOffenders.forEach((file) => console.error(`  - ${file}`));
+  process.exit(1);
+}
+
+if (attendanceUiOffenders.length) {
+  console.error('\nEmployee-domain architecture violation: UI must not query attendance directly.');
+  console.error('Use an attendance projection/domain service keyed by canonical staff_id.');
+  attendanceUiOffenders.forEach((file) => console.error(`  - ${file}`));
   process.exit(1);
 }
 
@@ -176,5 +223,5 @@ if (staleDotPermissionDebt.length) {
 }
 
 console.log(
-  `Architecture boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.length}. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}. Routes checked: ${routePaths.length}. Legacy dot permissions: ${dotPermissionKeys.size}.`
+  `Architecture boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.length}. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}. Legacy employee transaction UI readers: ${presentEmployeeTxnUiLegacy.length}. Legacy attendance UI readers: ${presentAttendanceUiLegacy.length}. Routes checked: ${routePaths.length}. Legacy dot permissions: ${dotPermissionKeys.size}.`
 );
