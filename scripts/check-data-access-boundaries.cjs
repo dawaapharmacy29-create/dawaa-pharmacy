@@ -6,7 +6,6 @@ const ROOT = path.join(process.cwd(), 'src');
 // Transitional debt register. New direct sales_invoices reads are forbidden.
 // This list must only shrink as consumers migrate to read models / canonical services.
 const LEGACY_DIRECT_READERS = new Set([
-  'src/components/customers/CustomerQuickDetailsModal.tsx',
   'src/lib/api/customers.ts',
   'src/lib/classificationService.ts',
   'src/lib/customerAnalyticsService.ts',
