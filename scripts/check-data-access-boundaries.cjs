@@ -5,7 +5,6 @@ const ROOT = path.join(process.cwd(), 'src');
 
 const LEGACY_DIRECT_INVOICE_READERS = new Set([
   'src/lib/api/customers.ts',
-  'src/lib/customerAnalyticsService.ts',
   'src/lib/customerProfileService.ts',
   'src/lib/dashboardSummaryService.ts',
   'src/lib/executiveDashboardDataService.ts',
