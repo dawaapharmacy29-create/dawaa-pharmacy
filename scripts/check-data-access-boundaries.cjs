@@ -33,12 +33,39 @@ const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
   'src/components/staff/StaffPerformanceDashboard.tsx',
 ]);
 
+// Baseline only: these existed before the snake_case contract was enforced.
+// This set must shrink as permission data + consumers are migrated.
 const LEGACY_DOT_PERMISSION_KEYS = new Set([
   'customer_welcome_messages.view',
   'customer_welcome_messages.create',
   'customer_welcome_messages.update',
   'employee_operating_system.view',
   'employee_operating_system.manage',
+  'dashboard.view',
+  'customers.view',
+  'customers.create',
+  'customers.edit',
+  'customers.delete',
+  'team.view',
+  'team.create',
+  'team.edit',
+  'team.delete',
+  'shifts.view',
+  'shifts.create',
+  'shifts.edit',
+  'leaves.view',
+  'leaves.create',
+  'leaves.manage',
+  'permissions.view',
+  'permissions.edit',
+  'points.view',
+  'points.manage',
+  'evaluations.view',
+  'evaluations.create',
+  'reports.view',
+  'reports.export',
+  'settings.view',
+  'settings.edit',
 ]);
 
 function walk(dir) {
@@ -125,7 +152,6 @@ if (duplicateRoutes.length) {
   process.exit(1);
 }
 
-// Permission naming integrity. Dot-notation is frozen legacy debt; new permissions must be snake_case.
 const permissionSources = [
   path.join(ROOT, 'lib/core/permissionSystem.ts'),
   path.join(ROOT, 'lib/permissionMatrix.ts'),
@@ -138,6 +164,14 @@ if (newDotPermissionKeys.length) {
   console.error('\nPermission architecture violation: new dot-notation permission keys detected:');
   newDotPermissionKeys.forEach((key) => console.error(`  - ${key}`));
   console.error('Use snake_case permission keys. Existing dot-notation keys are migration-only legacy debt.');
+  process.exit(1);
+}
+
+const staleDotPermissionDebt = [...LEGACY_DOT_PERMISSION_KEYS].filter((key) => !dotPermissionKeys.has(key));
+if (staleDotPermissionDebt.length) {
+  console.error('\nPermission debt register is stale. These legacy dot keys are no longer present:');
+  staleDotPermissionDebt.forEach((key) => console.error(`  - ${key}`));
+  console.error('Remove migrated keys from LEGACY_DOT_PERMISSION_KEYS in the same PR.');
   process.exit(1);
 }
 
