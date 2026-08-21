@@ -10,7 +10,6 @@ const LEGACY_DIRECT_READERS = new Set([
   'src/lib/customerAnalyticsService.ts',
   'src/lib/customerProfileService.ts',
   'src/lib/dashboardSummaryService.ts',
-  'src/lib/dataIntegrityService.ts',
   'src/lib/executiveDashboardDataService.ts',
   'src/lib/salesInvoiceSource.ts',
   'src/lib/salesInvoiceQueries.ts',
@@ -24,6 +23,7 @@ const LEGACY_DIRECT_READERS = new Set([
 const APPROVED_BOUNDARIES = new Set([
   'src/lib/invoiceImporter.ts',
   'src/lib/readModels/customerInvoiceReadModel.ts',
+  'src/lib/readModels/invoiceDataHealthReadModel.ts',
   'src/lib/readModels/invoiceRecordReadModel.ts',
   'src/pages/Invoices.tsx',
 ]);
