@@ -7,7 +7,6 @@ const ROOT = path.join(process.cwd(), 'src');
 // This list must only shrink as consumers migrate to read models / canonical services.
 const LEGACY_DIRECT_READERS = new Set([
   'src/lib/api/customers.ts',
-  'src/lib/classificationService.ts',
   'src/lib/customerAnalyticsService.ts',
   'src/lib/customerProfileService.ts',
   'src/lib/dashboardSummaryService.ts',
@@ -25,6 +24,7 @@ const LEGACY_DIRECT_READERS = new Set([
 const APPROVED_BOUNDARIES = new Set([
   'src/lib/invoiceImporter.ts',
   'src/lib/readModels/customerInvoiceReadModel.ts',
+  'src/lib/readModels/invoiceRecordReadModel.ts',
   'src/pages/Invoices.tsx',
 ]);
 
