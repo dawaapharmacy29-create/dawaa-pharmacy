@@ -1,16 +1,19 @@
 /* eslint-disable no-empty */
 /**
  * invoiceCache.ts
- * Cache for sales invoice data with TTL.
+ * Shared cache for sales invoice data with explicit freshness policies.
  *
- * IMPROVEMENT v3:
- *  - TTL raised from 5 min → 30 min (invoice data rarely changes mid-session)
- *  - Uses localStorage (persistent across tabs) with sessionStorage fallback
- *  - localStorage gives near-instant loads even after page refresh
+ * Stability phase 1:
+ *  - Live/current-period invoice data must stay fresh (60 seconds).
+ *  - Historical invoice data may use a longer cache (30 minutes).
+ *  - The default cache lifetime is conservative (5 minutes).
+ *  - Cache version bumped to invalidate older 30-minute snapshots.
  */
 
-const CACHE_VERSION = 'v3';
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes (was 5 minutes)
+const CACHE_VERSION = 'v4';
+export const LIVE_INVOICE_CACHE_TTL_MS = 60 * 1000;
+export const DEFAULT_INVOICE_CACHE_TTL_MS = 5 * 60 * 1000;
+export const HISTORICAL_INVOICE_CACHE_TTL_MS = 30 * 60 * 1000;
 
 interface CacheEntry<T> {
   data: T;
@@ -20,7 +23,6 @@ interface CacheEntry<T> {
 
 function getStorage(): Storage | null {
   try {
-    // Prefer localStorage (persists across tabs + refreshes)
     if (typeof localStorage !== 'undefined') return localStorage;
   } catch {}
   try {
@@ -29,7 +31,10 @@ function getStorage(): Storage | null {
   return null;
 }
 
-export function cacheGet<T>(key: string): T | null {
+export function cacheGet<T>(
+  key: string,
+  maxAgeMs = DEFAULT_INVOICE_CACHE_TTL_MS,
+): T | null {
   try {
     const storage = getStorage();
     if (!storage) return null;
@@ -40,7 +45,7 @@ export function cacheGet<T>(key: string): T | null {
       storage.removeItem(key);
       return null;
     }
-    if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    if (!Number.isFinite(entry.ts) || Date.now() - entry.ts > maxAgeMs) {
       storage.removeItem(key);
       return null;
     }
@@ -57,8 +62,6 @@ export function cacheSet<T>(key: string, data: T): void {
     const entry: CacheEntry<T> = { data, ts: Date.now(), version: CACHE_VERSION };
     storage.setItem(key, JSON.stringify(entry));
   } catch {
-    // Storage full or unavailable — silently skip
-    // Try clearing old dawaa invoice keys first, then retry
     try {
       clearInvoiceCache();
       const storage = getStorage();
@@ -66,7 +69,7 @@ export function cacheSet<T>(key: string, data: T): void {
       const entry: CacheEntry<T> = { data, ts: Date.now(), version: CACHE_VERSION };
       storage.setItem(key, JSON.stringify(entry));
     } catch {
-      // Give up silently
+      // Storage is optional. Network/database remains the source of truth.
     }
   }
 }
@@ -83,8 +86,10 @@ export function clearInvoiceCache(): void {
   try {
     const storage = getStorage();
     if (!storage) return;
-    const keys = Object.keys(storage).filter((k) => k.startsWith('dawaa_inv_'));
-    keys.forEach((k) => storage.removeItem(k));
+    const keys = Object.keys(storage).filter(
+      (key) => key.startsWith('dawaa_inv_') || key.startsWith('dawaa:last-good-sales:'),
+    );
+    keys.forEach((key) => storage.removeItem(key));
   } catch {
     // ignore
   }
