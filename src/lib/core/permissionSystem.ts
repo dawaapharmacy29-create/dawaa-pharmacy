@@ -1042,6 +1042,20 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/welcome-messages': 'customer_welcome_messages.view',
   '/diagnostics': 'view_diagnostics',
   '/evaluation-rules': 'manage_evaluation_rules',
+  // صفحات كانت من غير أي فحص صلاحية لأنها مش موجودة في الخريطة أصلًا —
+  // ده كان بيخلي أي حساب مسجّل دخول (بما فيهم الدكاترة) يقدر يفتحها لو عرف الرابط،
+  // مع إنها صفحات إدارية بحتة أو مراجعة مجمّعة لأداء كل الدكاترة.
+  '/branch-checklist-review': 'view_team',
+  '/customer-monthly-performance': 'view_analytics',
+  '/daily-manager-checklist': 'view_team',
+  '/doctor-quality-summary': 'view_team',
+  '/performance-pillars': 'view_team',
+  '/staff-monthly-evaluation': 'view_team',
+  '/weekly-evaluation': 'view_team',
+  // صفحات ذاتية (أي حد يقدر يستخدمها لنفسه) — بس لازم تفضل مربوطة بتسجيل دخول
+  // وصلاحية أساسية موجودة عند كل الأدوار عشان الفحص يفضل واحد ومتسق في كل مكان.
+  '/my-daily-checklist': 'view_dashboard',
+  '/point-appeals': 'view_points',
 };
 
 export function getRoutePermissions(pathname: string): string[] | undefined {
@@ -1053,5 +1067,6 @@ export function getRoutePermissions(pathname: string): string[] | undefined {
   // يفتح ملف أي عميل كامل مباشرة لو عرف الرابط، بغض النظر عن دوره.
   if (pathname.startsWith('/customers/')) return ['view_customer_360'];
   if (pathname.startsWith('/customer-health/')) return ['view_customer_details'];
+  if (pathname.startsWith('/weekly-evaluation/')) return ['view_team'];
   return undefined;
 }

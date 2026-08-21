@@ -458,19 +458,22 @@ export function clampScore(value: number) {
 }
 
 export function baseDoctorImpactFromScore(score: number) {
-  // إعادة توازن (7 أغسطس 2026): كانت المكافأة القصوى +5 مقابل خصم أقصى -20 (أساسي)
-  // أو -45 مع الأخطاء الجسيمة — فجوة كبيرة جدًا بين التميز والإهمال. رفعنا سقف
-  // المكافأة لـ+10 وأضفنا مكافأة حقيقية لمنطقة "جيد" (85-89) بدل ما تكون صفر تأثير،
-  // من غير ما نلمس جانب الخصم (كان متوازن أصلًا لأن سلامة المريض وجودة الخدمة
-  // بتستاهل ردع قوي بغض النظر عن جانب المكافأة).
-  if (score >= 95) return 10;
-  if (score >= 90) return 6;
-  if (score >= 85) return 2;
-  if (score >= 80) return -5;
-  if (score >= 70) return -10;
-  if (score >= 60) return -15;
-  return -20;
+  // هيكلة جديدة (21 أغسطس 2026) بناءً على طلب صريح: سلم بسيط وواضح
+  // بدل التدرج القديم متعدد المستويات:
+  //   >= 95   ممتازة  -> +5 (أقصى مكافأة)
+  //   >= 90   قوية    -> 0  (لا تأثير، محادثة سليمة بدون تميز)
+  //   >= 85   جيدة    -> -3
+  //   < 85    ضعيفة   -> -5
+  // أي خصم إضافي عن مشكلة محددة (extraPenaltyPoints) بيتجمع على القيمة دي،
+  // لكن سقف الخصم الكلي لأي محادثة واحدة محدود بـ -20 (شوف MAX_CONVERSATION_PENALTY تحت).
+  if (score >= 95) return 5;
+  if (score >= 90) return 0;
+  if (score >= 85) return -3;
+  return -5;
 }
+
+// أقصى خصم مسموح به لمحادثة واحدة (الأساسي + كل الأخطاء المحددة مجمّعة) قبل مضاعف أهمية العميل
+export const MAX_CONVERSATION_PENALTY = -20;
 
 export function conversationLevel(score: number) {
   if (score >= 95) return 'ممتازة';
@@ -560,7 +563,8 @@ export function evaluateConversationReview(
   const baseDoctorImpact = baseDoctorImpactFromScore(finalScore);
   const extraPenalties = Array.from(extraPenaltyMap.values());
   const extraPenaltyPoints = extraPenalties.reduce((sum, penalty) => sum + penalty.points, 0);
-  const rawDoctorPointsImpact = baseDoctorImpact + extraPenaltyPoints;
+  // سقف الخصم: أي محادثة واحدة ميتخصمش منها أكتر من -20 حتى لو فيها أكتر من خطأ مجمّع
+  const rawDoctorPointsImpact = Math.max(MAX_CONVERSATION_PENALTY, baseDoctorImpact + extraPenaltyPoints);
   // مضاعف أهمية العميل (عادي ×1 / متوسط ×1.25 / مهم ×1.5 / مهم جدًا ×2) يُطبَّق على
   // التأثير النهائي (مكافأة أو خصم) عشان محادثة ممتازة أو مهملة مع عميل VIP توزن
   // فعليًا أكتر من نفس المحادثة مع عميل عادي — بدل ما الاتنين ياخدوا نفس القيمة بالظبط.
