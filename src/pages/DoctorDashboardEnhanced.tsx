@@ -19,7 +19,7 @@ export default function DoctorDashboardEnhanced() {
   return <div className="space-y-5" dir="rtl">
     {(!tab || tab === 'overview') ? <>
       <DoctorIncentiveSummaryCard staffId={String(user?.staffId || '')} onNavigate={() => setParams({ tab: 'payroll' })} />
-      <DoctorDetailedActivityCard staffId={String(user?.staffId || '')} />
+      <DoctorDetailedActivityCard staffId={String(user?.staffId || '')} doctorName={String(user?.name || '')} />
       <DoctorTodayFocus
         staffId={String(user?.staffId || '')}
         userId={String(user?.id || '')}

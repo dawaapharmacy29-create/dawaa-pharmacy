@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MessageSquare, PackageSearch, Timer } from 'lucide-react';
+import { Headphones, MessageSquare, PackageSearch, Timer, UserRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 type ConversationReview = {
@@ -19,40 +19,87 @@ type StockItem = {
   days_left?: number;
 };
 
-export default function DoctorDetailedActivityCard({ staffId }: { staffId: string }) {
+type CustomerRequestRow = { id: string; medicine_name: string | null; status: string | null; points_awarded: number | null };
+type FollowupRow = { id: string; customer_name: string | null; followup_reason: string | null; points_value: number | null };
+type PillarRow = { pillar_key: string; points: number };
+
+type TabKey = 'conversations' | 'stock' | 'requests' | 'followups';
+
+function monthCycleNow() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export default function DoctorDetailedActivityCard({ staffId, doctorName }: { staffId: string; doctorName?: string }) {
   const [reviews, setReviews] = useState<ConversationReview[]>([]);
   const [stock, setStock] = useState<{ list_priority: StockItem[]; expiry_priority: StockItem[] } | null>(null);
-  const [tab, setTab] = useState<'conversations' | 'stock'>('conversations');
+  const [requests, setRequests] = useState<CustomerRequestRow[]>([]);
+  const [followups, setFollowups] = useState<FollowupRow[]>([]);
+  const [pillars, setPillars] = useState<PillarRow[]>([]);
+  // مقفولة افتراضيًا — الصفحة متطولش أول ما تفتحها، وتختار انت التاب اللي عايزه
+  const [tab, setTab] = useState<TabKey | null>(null);
 
   useEffect(() => {
     if (!staffId) return;
+    const month = monthCycleNow();
     void supabase
       .rpc('get_doctor_conversation_reviews_list', { p_doctor_id: staffId, p_limit: 20 })
       .then(({ data }) => setReviews((data as ConversationReview[]) || []));
     void supabase
       .rpc('get_doctor_priority_stock_items', { p_doctor_id: staffId })
       .then(({ data }) => setStock(data as { list_priority: StockItem[]; expiry_priority: StockItem[] }));
-  }, [staffId]);
+    void supabase
+      .from('customer_requests')
+      .select('id,medicine_name,status,points_awarded')
+      .eq('doctor_id', staffId)
+      .gte('created_at', `${month}-01`)
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then(({ data }) => setRequests((data as CustomerRequestRow[]) || []));
+    if (doctorName) {
+      void supabase
+        .from('daily_followups')
+        .select('id,customer_name,followup_reason,points_value')
+        .eq('assigned_doctor', doctorName)
+        .gte('created_at', `${month}-01`)
+        .order('created_at', { ascending: false })
+        .limit(50)
+        .then(({ data }) => setFollowups((data as FollowupRow[]) || []));
+    }
+    void supabase
+      .rpc('get_doctor_pillar_breakdown', { p_staff_id: staffId })
+      .then(({ data }) => setPillars((data as PillarRow[]) || []));
+  }, [staffId, doctorName]);
 
+  const pillarPoints = (key: string) => pillars.find((p) => p.pillar_key === key)?.points ?? 0;
   const scoreColor = (score: number) => (score >= 90 ? 'text-emerald-300' : score >= 70 ? 'text-amber-300' : 'text-rose-300');
+
+  const tabs: Array<{ key: TabKey; icon: typeof MessageSquare; label: string; count: number; points: number }> = [
+    { key: 'conversations', icon: MessageSquare, label: 'المحادثات', count: reviews.length, points: pillarPoints('محادثات') },
+    { key: 'stock', icon: PackageSearch, label: 'اللستة والرواكد', count: (stock?.list_priority?.length || 0) + (stock?.expiry_priority?.length || 0), points: pillarPoints('الرواكد') },
+    { key: 'requests', icon: UserRound, label: 'طلبات العملاء', count: requests.length, points: pillarPoints('طلبات العملاء') },
+    { key: 'followups', icon: Headphones, label: 'طلبات المتابعة', count: followups.length, points: pillarPoints('متابعات') },
+  ];
 
   return (
     <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-5">
-      <div className="flex gap-2 border-b border-white/10 pb-3">
-        <button
-          type="button"
-          onClick={() => setTab('conversations')}
-          className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black ${tab === 'conversations' ? 'bg-teal-500/20 text-teal-200' : 'text-slate-400'}`}
-        >
-          <MessageSquare size={14} /> محادثاتي ({reviews.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab('stock')}
-          className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black ${tab === 'stock' ? 'bg-teal-500/20 text-teal-200' : 'text-slate-400'}`}
-        >
-          <PackageSearch size={14} /> أولويات اللستة والرواكد
-        </button>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {tabs.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(active ? null : t.key)}
+              className={`flex flex-col items-center gap-1 rounded-2xl border p-3 text-center transition ${active ? 'border-teal-400/40 bg-teal-500/15' : 'border-white/10 bg-black/20 hover:bg-black/30'}`}
+            >
+              <Icon size={16} className={active ? 'text-teal-200' : 'text-slate-400'} />
+              <span className={`text-xs font-black ${active ? 'text-white' : 'text-slate-300'}`}>{t.label}</span>
+              <span className="text-[11px] font-bold text-slate-400">{t.count} · {t.points} نقطة</span>
+            </button>
+          );
+        })}
       </div>
 
       {tab === 'conversations' ? (
@@ -78,7 +125,9 @@ export default function DoctorDetailedActivityCard({ staffId }: { staffId: strin
             ))
           )}
         </div>
-      ) : (
+      ) : null}
+
+      {tab === 'stock' ? (
         <div className="mt-4 space-y-4">
           <div>
             <h3 className="text-sm font-black text-white">أهم أصناف اللستة محتاجة تركيزك</h3>
@@ -115,7 +164,43 @@ export default function DoctorDetailedActivityCard({ staffId }: { staffId: strin
             </div>
           </div>
         </div>
-      )}
+      ) : null}
+
+      {tab === 'requests' ? (
+        <div className="mt-4 space-y-2">
+          {requests.length === 0 ? (
+            <p className="text-sm text-slate-400">لسه مفيش طلبات عملاء مسجّلة لك الشهر ده.</p>
+          ) : (
+            requests.map((r) => (
+              <div key={r.id} className="flex items-center justify-between rounded-xl bg-black/20 p-3">
+                <div>
+                  <p className="font-black text-white">{r.medicine_name || 'صنف غير محدد'}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">{r.status || '—'}</p>
+                </div>
+                {r.points_awarded != null ? <p className="text-sm font-black text-teal-300">+{r.points_awarded} نقطة</p> : null}
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+
+      {tab === 'followups' ? (
+        <div className="mt-4 space-y-2">
+          {followups.length === 0 ? (
+            <p className="text-sm text-slate-400">لسه مفيش طلبات متابعة مسجّلة لك الشهر ده.</p>
+          ) : (
+            followups.map((f) => (
+              <div key={f.id} className="flex items-center justify-between rounded-xl bg-black/20 p-3">
+                <div>
+                  <p className="font-black text-white">{f.customer_name || 'عميل غير محدد'}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">{f.followup_reason || '—'}</p>
+                </div>
+                {f.points_value != null ? <p className="text-sm font-black text-teal-300">+{f.points_value} نقطة</p> : null}
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
