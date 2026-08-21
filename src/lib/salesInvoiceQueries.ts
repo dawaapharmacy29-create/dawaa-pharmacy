@@ -1,6 +1,12 @@
 import { supabase } from '@/lib/supabase';
 import { branchMatches } from '@/lib/branch';
-import { cacheGet, cacheSet, invoiceCacheKey } from '@/lib/invoiceCache';
+import {
+  cacheGet,
+  cacheSet,
+  HISTORICAL_INVOICE_CACHE_TTL_MS,
+  invoiceCacheKey,
+  LIVE_INVOICE_CACHE_TTL_MS,
+} from '@/lib/invoiceCache';
 import { getInvoiceBranch } from '@/lib/invoices/invoiceCore';
 
 export const INVOICE_SELECT_KPI =
@@ -36,9 +42,9 @@ const DEFAULT_MAX_PAGES = 500;
 const PARALLEL_BATCH = 5;
 const PAGE_TIMEOUT_MS = 20000;
 const PAGE_RETRIES = 2;
-const PERSISTED_TTL_MS = 30 * 60 * 1000;
+const FALLBACK_TTL_MS = 30 * 60 * 1000;
 const SALES_TRUTH_VIEW = 'dawaa_sales_invoices_dashboard_v1';
-const lastGoodResults = new Map<string, SalesInvoiceQueryRow[]>();
+const lastGoodResults = new Map<string, { rows: SalesInvoiceQueryRow[]; savedAt: number }>();
 const inFlightLoads = new Map<string, Promise<SalesInvoiceQueryRow[]>>();
 const preferredSelectIndex = new Map<string, number>();
 
@@ -51,6 +57,25 @@ function nextDay(dateText: string) {
   if (Number.isNaN(date.getTime())) return dateText;
   date.setDate(date.getDate() + 1);
   return date.toISOString().slice(0, 10);
+}
+
+function cairoToday() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Cairo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function cacheMaxAgeForRange(endDate: string) {
+  return endDate >= cairoToday()
+    ? LIVE_INVOICE_CACHE_TTL_MS
+    : HISTORICAL_INVOICE_CACHE_TTL_MS;
 }
 
 function isAllBranchesSelection(branch?: string) {
@@ -76,19 +101,23 @@ function queryIdentity(options: {
 }) {
   const projection = (options.selectOptions?.length ? options.selectOptions : INVOICE_SELECT_TRUTH_OPTIONS).join('|');
   const base = invoiceCacheKey(options.startDate, options.endDate, options.branch || '');
-  return `${base}:truth-v25-sales-recovery-20260821:p${options.pageSize || DEFAULT_PAGE_SIZE}:s${stableHash(projection)}`;
+  return `${base}:truth-v26-freshness-policy-20260822:p${options.pageSize || DEFAULT_PAGE_SIZE}:s${stableHash(projection)}`;
 }
 
 function persistedKey(key: string) {
   return `dawaa:last-good-sales:${key}`;
 }
 
-function readPersisted(key: string): SalesInvoiceQueryRow[] | null {
+function readPersisted(key: string, maxAgeMs = FALLBACK_TTL_MS): SalesInvoiceQueryRow[] | null {
   try {
     const raw = window.localStorage.getItem(persistedKey(key));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { savedAt?: number; rows?: SalesInvoiceQueryRow[] };
-    if (!parsed.savedAt || Date.now() - parsed.savedAt > PERSISTED_TTL_MS || !Array.isArray(parsed.rows)) {
+    if (
+      !parsed.savedAt ||
+      Date.now() - parsed.savedAt > maxAgeMs ||
+      !Array.isArray(parsed.rows)
+    ) {
       window.localStorage.removeItem(persistedKey(key));
       return null;
     }
@@ -109,12 +138,15 @@ function persistRows(key: string, rows: SalesInvoiceQueryRow[]) {
 
 function rememberRows(key: string, rows: SalesInvoiceQueryRow[]) {
   cacheSet(key, rows);
-  lastGoodResults.set(key, rows);
+  lastGoodResults.set(key, { rows, savedAt: Date.now() });
   persistRows(key, rows);
 }
 
 function fallbackRows(key: string) {
-  return lastGoodResults.get(key) || cacheGet<SalesInvoiceQueryRow[]>(key) || readPersisted(key);
+  const inMemory = lastGoodResults.get(key);
+  if (inMemory && Date.now() - inMemory.savedAt <= FALLBACK_TTL_MS) return inMemory.rows;
+  if (inMemory) lastGoodResults.delete(key);
+  return cacheGet<SalesInvoiceQueryRow[]>(key, FALLBACK_TTL_MS) || readPersisted(key, FALLBACK_TTL_MS);
 }
 
 function isSchemaError(error: Error | null) {
@@ -169,7 +201,11 @@ async function fetchOnePageOnce(
   );
   return {
     data: (result.data || []) as unknown as SalesInvoiceQueryRow[],
-    error: result.error ? (result.error instanceof Error ? result.error : new Error(String((result.error as { message?: string }).message || result.error))) : null,
+    error: result.error
+      ? result.error instanceof Error
+        ? result.error
+        : new Error(String((result.error as { message?: string }).message || result.error))
+      : null,
   };
 }
 
@@ -230,7 +266,10 @@ async function loadSalesInvoicesPaged(
   if (page0result.error) {
     errors.push(`${SALES_TRUTH_VIEW}: ${page0result.error.message}`);
     const fallback = fallbackRows(cacheKey);
-    if (fallback?.length) return fallback;
+    if (fallback?.length) {
+      errors.push('تم عرض آخر نسخة سليمة مؤقتًا بسبب تعذر الوصول إلى مصدر الفواتير الحالي.');
+      return fallback;
+    }
     throw page0result.error;
   }
 
@@ -258,7 +297,10 @@ async function loadSalesInvoicesPaged(
       if (result.error) {
         errors.push(`${SALES_TRUTH_VIEW} page ${page}: ${result.error.message}`);
         const fallback = fallbackRows(cacheKey);
-        if (fallback?.length) return fallback;
+        if (fallback?.length) {
+          errors.push('تم عرض آخر نسخة سليمة مؤقتًا بسبب فشل تحميل إحدى صفحات الفواتير.');
+          return fallback;
+        }
         throw result.error;
       }
       rows.push(...result.data.filter(filterRow));
@@ -274,7 +316,10 @@ async function loadSalesInvoicesPaged(
     const error = new Error(`تم الوصول للحد الأقصى لصفحات الفواتير (${maxPages}) قبل اكتمال التحميل`);
     errors.push(error.message);
     const fallback = fallbackRows(cacheKey);
-    if (fallback?.length) return fallback;
+    if (fallback?.length) {
+      errors.push('تم عرض آخر نسخة سليمة مؤقتًا لأن تحميل كل صفحات الفواتير لم يكتمل.');
+      return fallback;
+    }
     throw error;
   }
 
@@ -293,11 +338,14 @@ export async function fetchSalesInvoicesPagedSafe(options: {
   noCache?: boolean;
 }) {
   const cacheKey = queryIdentity(options);
+  const normalCacheMaxAge = cacheMaxAgeForRange(options.endDate);
 
   if (!options.noCache) {
-    const cached = cacheGet<SalesInvoiceQueryRow[]>(cacheKey) || readPersisted(cacheKey);
+    const cached =
+      cacheGet<SalesInvoiceQueryRow[]>(cacheKey, normalCacheMaxAge) ||
+      readPersisted(cacheKey, normalCacheMaxAge);
     if (cached?.length) {
-      lastGoodResults.set(cacheKey, cached);
+      lastGoodResults.set(cacheKey, { rows: cached, savedAt: Date.now() });
       return cached;
     }
   }
@@ -312,6 +360,11 @@ export async function fetchSalesInvoicesPagedSafe(options: {
   return loadPromise;
 }
 
+/**
+ * Legacy direct-table helpers remain temporarily for compatibility.
+ * New KPI/analytics code should use fetchSalesInvoicesPagedSafe so all screens
+ * converge on daw aa_sales_invoices_dashboard_v1 as the canonical read source.
+ */
 export function invoicesByDateRange(start: string, end: string, fields = INVOICE_SELECT_KPI) {
   return supabase.from('sales_invoices').select(fields).gte('invoice_date', start).lte('invoice_date', end);
 }
