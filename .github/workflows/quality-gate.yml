@@ -46,6 +46,9 @@ jobs:
       - name: Tests
         run: npm run test
 
+      - name: Architecture data-access boundary
+        run: node scripts/check-data-access-boundaries.cjs
+
       - name: TypeScript
         run: npm run typecheck
 
@@ -83,7 +86,7 @@ jobs:
       - name: Verify checks did not mutate tracked files
         run: |
           if ! git diff --quiet; then
-            echo "Tests, typecheck, or lint changed tracked repository files before build."
+            echo "Tests, typecheck, lint, or architecture checks changed tracked repository files before build."
             git status --short
             git diff --stat
             git diff
