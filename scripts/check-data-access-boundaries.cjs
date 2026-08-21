@@ -15,7 +15,6 @@ const LEGACY_DIRECT_READERS = new Set([
   'src/lib/salesInvoiceQueries.ts',
   'src/lib/staff/staffDataHealthService.ts',
   'src/lib/staff/staffPerformanceProfileService.ts',
-  'src/lib/staffIdentityMapping.ts',
   'src/lib/staffInvoiceTruthService.ts',
 ]);
 
@@ -25,6 +24,7 @@ const APPROVED_BOUNDARIES = new Set([
   'src/lib/readModels/customerInvoiceReadModel.ts',
   'src/lib/readModels/invoiceDataHealthReadModel.ts',
   'src/lib/readModels/invoiceRecordReadModel.ts',
+  'src/lib/readModels/unlinkedSellerNamesReadModel.ts',
   'src/pages/Invoices.tsx',
 ]);
 
