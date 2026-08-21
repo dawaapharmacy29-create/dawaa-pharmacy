@@ -33,6 +33,7 @@ import {
 import { toast } from 'sonner';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { isDoctorRole } from '@/lib/security/userDataScope';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { formatDate } from '@/lib/utils';
@@ -1011,7 +1012,7 @@ function StageTimeline({ request, events }: { request: CustomerRequest; events: 
   return <InfoCard title="خط سير التنفيذ بالوقت والمسئول" icon={Clock3}><div className="grid grid-cols-1 gap-3 md:grid-cols-5">{stages.map((stage, index) => { const event = eventFor(stage.statuses); const time = event?.created_at || stage.fallback; const done = Boolean(time) || stage.statuses.includes(String(request.status)); return <div key={stage.label} className={`rounded-2xl border p-3 ${done ? 'border-emerald-400/30 bg-emerald-500/10' : 'border-slate-700 bg-slate-900/50'}`}><div className="flex items-center gap-2"><span className={`num flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${done ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-800 text-slate-400'}`}>{index + 1}</span><strong className="text-xs text-white">{stage.label}</strong></div><div className="mt-3 text-[11px] text-slate-300">{event?.created_by_name || stage.actor}</div><div className="mt-1 text-[10px] text-slate-500">{time ? exactRequestTime({ requested_at: time } as CustomerRequest) : 'لم تتم بعد'}</div></div>; })}</div></InfoCard>;
 }
 
-function CreateRequestPanel({ doctors, user, onCreated, onCancel }: { doctors: StaffOption[]; user: { id?: string; name?: string } | null; onCreated: (request: CustomerRequest) => void | Promise<void>; onCancel: () => void }) {
+function CreateRequestPanel({ doctors, user, onCreated, onCancel }: { doctors: StaffOption[]; user: { id?: string; name?: string; role?: string; staffId?: string } | null; onCreated: (request: CustomerRequest) => void | Promise<void>; onCancel: () => void }) {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSearchResult | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<CatalogProduct | null>(null);
   const [image, setImage] = useState({ publicUrl: '', path: '' });
@@ -1019,7 +1020,11 @@ function CreateRequestPanel({ doctors, user, onCreated, onCancel }: { doctors: S
   const [urgency, setUrgency] = useState('normal');
   const [requestType, setRequestType] = useState('missing_medicine');
   const [requestChannel, setRequestChannel] = useState('داخل الصيدلية');
-  const [doctorId, setDoctorId] = useState('');
+  // لو الدكتور نفسه هو اللي فاتح فورم التسجيل، بنحدده تلقائيًا كمسجّل الطلب —
+  // مش هيبقى محتاج يختار نفسه من ليستة، وده بيضمن ربط الطلب بحسابه من أول لحظة
+  // (بدل ما يفضل الحقل فاضي زي أغلب الطلبات القديمة المستوردة من المزامنة).
+  const selfDoctorId = isDoctorRole(user) ? String(user?.staffId || user?.id || '') : '';
+  const [doctorId, setDoctorId] = useState(selfDoctorId);
   const [doctorNotes, setDoctorNotes] = useState('');
   const [supplierHint, setSupplierHint] = useState('');
   const [neededByDate, setNeededByDate] = useState('');
@@ -1061,7 +1066,11 @@ function CreateRequestPanel({ doctors, user, onCreated, onCancel }: { doctors: S
 
         <section className="rounded-2xl border border-violet-400/20 bg-[#102640] p-4">
           <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-black text-white">3. طريقة الطلب والمسئول</h3><p className="mt-1 text-[11px] font-bold text-slate-500">سجل قناة التواصل ومن سجّل الطلب وأي مصدر محتمل للتوفير.</p></div><UserRound size={19} className="text-violet-300" /></div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"><label className="text-xs font-black text-slate-300">قناة الطلب<select className="input-dark mt-1" value={requestChannel} onChange={(e) => setRequestChannel(e.target.value)}><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select></label><label className="text-xs font-black text-slate-300">الدكتور/الموظف المسجل<select className="input-dark mt-1" value={doctorId} onChange={(e) => setDoctorId(e.target.value)}><option value="">اختر المسجل</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} - {doctor.branch || ''}</option>)}</select></label><label className="text-xs font-black text-slate-300">مورد أو مصدر محتمل<input className="input-dark mt-1" value={supplierHint} onChange={(e) => setSupplierHint(e.target.value)} placeholder="اختياري" /></label><label className="text-xs font-black text-slate-300">مطلوب قبل<input type="date" className="input-dark mt-1" value={neededByDate} onChange={(e) => setNeededByDate(e.target.value)} /></label><label className="text-xs font-black text-slate-300">مدة التوفير المتوقعة بالأيام<input type="number" min={0} className="input-dark mt-1" value={expectedDays} onChange={(e) => setExpectedDays(Number(e.target.value || 0))} /></label><div className="rounded-xl border border-slate-700 bg-slate-950/45 p-3"><span className="block text-[10px] font-bold text-slate-500">الفرع المتوقع</span><strong className="mt-1 block text-sm text-cyan-200">{resolvedBranch || 'سيُحدد حسب العميل/المسجل'}</strong></div></div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"><label className="text-xs font-black text-slate-300">قناة الطلب<select className="input-dark mt-1" value={requestChannel} onChange={(e) => setRequestChannel(e.target.value)}><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select></label><label className="text-xs font-black text-slate-300">الدكتور/الموظف المسجل{selfDoctorId ? (
+              <div className="input-dark mt-1 flex items-center gap-2 text-emerald-200"><UsersRound size={14} /> أنت: {user?.name || 'محدد تلقائيًا'}</div>
+            ) : (
+              <select className="input-dark mt-1" value={doctorId} onChange={(e) => setDoctorId(e.target.value)}><option value="">اختر المسجل</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} - {doctor.branch || ''}</option>)}</select>
+            )}</label><label className="text-xs font-black text-slate-300">مورد أو مصدر محتمل<input className="input-dark mt-1" value={supplierHint} onChange={(e) => setSupplierHint(e.target.value)} placeholder="اختياري" /></label><label className="text-xs font-black text-slate-300">مطلوب قبل<input type="date" className="input-dark mt-1" value={neededByDate} onChange={(e) => setNeededByDate(e.target.value)} /></label><label className="text-xs font-black text-slate-300">مدة التوفير المتوقعة بالأيام<input type="number" min={0} className="input-dark mt-1" value={expectedDays} onChange={(e) => setExpectedDays(Number(e.target.value || 0))} /></label><div className="rounded-xl border border-slate-700 bg-slate-950/45 p-3"><span className="block text-[10px] font-bold text-slate-500">الفرع المتوقع</span><strong className="mt-1 block text-sm text-cyan-200">{resolvedBranch || 'سيُحدد حسب العميل/المسجل'}</strong></div></div>
         </section>
 
         <section className="rounded-2xl border border-amber-400/20 bg-[#102640] p-4">
