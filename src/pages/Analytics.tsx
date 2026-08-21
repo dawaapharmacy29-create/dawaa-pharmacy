@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarDays, RefreshCw, Store, TrendingUp, Users } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCycleDate, getCurrentCycle, getPreviousCycle } from '@/lib/pharmacy-cycle';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { dashboardInvoiceAmount } from '@/lib/dashboard/dashboardTruthService';
+import { fetchSalesInvoicesPagedSafe, INVOICE_SELECT_FULL } from '@/lib/salesInvoiceQueries';
 import BranchTargetEditor from '@/components/dashboard/BranchTargetEditor';
 
 const ALL = 'الكل';
@@ -54,46 +54,19 @@ function customerId(row: InvoiceRow) {
   return String(row.customer_code ?? row.customer_phone ?? row.customer_name ?? '').trim();
 }
 
-async function fetchInvoicePages(start: string, end: string) {
-  const pageSize = 1000;
-  const maxPages = 12;
-  const rows: InvoiceRow[] = [];
+async function fetchInvoicePages(start: string, end: string, forceRefresh = false) {
   const errors: string[] = [];
-
-  const run = async (dateColumn: 'invoice_date' | 'sale_date') => {
-    const collected: InvoiceRow[] = [];
-    for (let page = 0; page < maxPages; page += 1) {
-      const from = page * pageSize;
-      const to = from + pageSize - 1;
-      const query = supabase
-        .from('sales_invoices')
-        .select('*')
-        .gte(dateColumn, start)
-        .lte(dateColumn, `${end}T23:59:59`)
-        .range(from, to);
-      const { data, error } = await query;
-      if (error) return { rows: collected, error: error.message };
-      const batch = Array.isArray(data) ? (data as InvoiceRow[]) : [];
-      collected.push(...batch);
-      if (batch.length < pageSize) break;
-    }
-    return { rows: collected, error: null as string | null };
-  };
-
-  const primary = await run('invoice_date');
-  rows.push(...primary.rows);
-  if (primary.error) errors.push(`invoice_date: ${primary.error}`);
-
-  if (!rows.length) {
-    const fallback = await run('sale_date');
-    rows.push(...fallback.rows);
-    if (fallback.error) errors.push(`sale_date: ${fallback.error}`);
-  }
-
-  if (rows.length >= pageSize * maxPages) {
-    errors.push(`تم تحميل أول ${rows.length.toLocaleString('ar-EG')} فاتورة فقط. استخدم فترة أقصر لعرض أدق.`);
-  }
-  return { rows, errors };
+  const rows = await fetchSalesInvoicesPagedSafe({
+    startDate: start,
+    endDate: end,
+    branch: 'كل الفروع',
+    selectOptions: [INVOICE_SELECT_FULL],
+    errors,
+    pageSize: 1000,
+    maxPages: 500,
+    noCache: forceRefresh,
+  });
+  return { rows: rows as InvoiceRow[], errors };
 }
 
 export default function Analytics() {
@@ -135,11 +108,11 @@ export default function Analytics() {
     }
   };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setErrors([]);
     try {
-      const result = await fetchInvoicePages(start, end);
+      const result = await fetchInvoicePages(start, end, forceRefresh);
       setInvoices(result.rows);
       setErrors(result.errors);
       setLastUpdated(new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }));
@@ -152,7 +125,7 @@ export default function Analytics() {
   }, [end, start]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 150);
+    const timer = window.setTimeout(() => void load(false), 150);
     return () => window.clearTimeout(timer);
   }, [load]);
 
@@ -244,8 +217,8 @@ export default function Analytics() {
     <div className="space-y-5" dir="rtl">
       <section className="rounded-3xl border border-cyan-300/20 bg-slate-900/80 p-5 text-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div><h1 className="text-2xl font-black">التحليلات والمبيعات</h1><p className="mt-1 text-sm font-bold text-slate-300">قراءة مباشرة من فواتير المبيعات الفعلية، بدون Views وسيطة.</p></div>
-          <div className="flex items-center gap-3"><span className="text-xs text-slate-400">آخر تحديث: {lastUpdated || '—'}</span><button onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> تحديث</button></div>
+          <div><h1 className="text-2xl font-black">التحليلات والمبيعات</h1><p className="mt-1 text-sm font-bold text-slate-300">قراءة تحليلية موحدة من مصدر المبيعات المعتمد، بنفس مسار الداشبورد.</p></div>
+          <div className="flex items-center gap-3"><span className="text-xs text-slate-400">آخر تحديث: {lastUpdated || '—'}</span><button onClick={() => void load(true)} disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> تحديث</button></div>
         </div>
       </section>
 
