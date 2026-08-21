@@ -855,21 +855,37 @@ export default function CustomerRequests() {
 type CustomerRequestsWorkspaceTab = 'overview' | 'requests' | 'followup' | 'analytics' | 'quality' | 'archive';
 
 function CustomerRequestsWorkspaceTabs({ value, onChange, summary }: { value: CustomerRequestsWorkspaceTab; onChange: (value: CustomerRequestsWorkspaceTab) => void; summary: CustomerRequestCommandSummary }) {
-  const tabs: Array<{ id: CustomerRequestsWorkspaceTab; label: string; hint: string; badge?: number }> = [
+  // تبسيط: 6 تابات كانت ظاهرة مع بعض بتلخبط. الأساسي اليومي (لوحة اليوم/الطلبات/المتابعة)
+  // يفضل ظاهر مباشرة، والأقل استخدامًا يوميًا (تحليلات/جودة البيانات/الأرشيف) بيتنقلوا
+  // لقائمة "المزيد" — لسه موجودين وسهل توصلهم، بس مش بياخدوا مساحة بصرية دايمًا.
+  const primaryTabs: Array<{ id: CustomerRequestsWorkspaceTab; label: string; hint: string; badge?: number }> = [
     { id: 'overview', label: 'لوحة اليوم', hint: 'المهم الآن', badge: summary.open },
     { id: 'requests', label: 'الطلبات', hint: 'التنفيذ اليومي', badge: summary.today },
     { id: 'followup', label: 'المتابعة', hint: 'التوفير + ملف المخازن', badge: summary.searching + summary.waiting_customer + summary.ready },
+  ];
+  const moreTabs: Array<{ id: CustomerRequestsWorkspaceTab; label: string; hint: string; badge?: number }> = [
     { id: 'analytics', label: 'التحليلات', hint: 'الأداء والفروع' },
     { id: 'quality', label: 'مشاكل البيانات', hint: 'الأكواد والربط', badge: summary.unlinked_customer + summary.no_branch + summary.invalid_phone + summary.sync_conflicts },
     { id: 'archive', label: 'الأرشيف', hint: 'المكتمل والملغي', badge: summary.delivered + summary.cancelled },
   ];
-  return <nav className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950/55 p-1.5 shadow-lg">
-    <div className="grid min-w-[900px] grid-cols-6 gap-1.5">
-      {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => onChange(tab.id)} className={`relative h-[58px] rounded-xl border px-3 text-right transition ${value === tab.id ? 'border-cyan-400/40 bg-cyan-500/15 text-white shadow-sm' : 'border-transparent text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'}`}>
+  const [moreOpen, setMoreOpen] = useState(false);
+  const activeInMore = moreTabs.find((t) => t.id === value);
+  return <nav className="relative rounded-2xl border border-slate-700 bg-slate-950/55 p-1.5 shadow-lg">
+    <div className="flex flex-wrap items-stretch gap-1.5">
+      {primaryTabs.map((tab) => <button key={tab.id} type="button" onClick={() => { onChange(tab.id); setMoreOpen(false); }} className={`relative h-[58px] flex-1 min-w-32 rounded-xl border px-3 text-right transition ${value === tab.id ? 'border-cyan-400/40 bg-cyan-500/15 text-white shadow-sm' : 'border-transparent text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'}`}>
         <span className="block text-sm font-black">{tab.label}</span><span className="mt-0.5 block text-[10px] text-slate-500">{tab.hint}</span>
         {typeof tab.badge === 'number' && <span className={`absolute left-2 top-2 min-w-6 rounded-full px-1.5 py-0.5 text-center text-[10px] font-black ${value === tab.id ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>{tab.badge.toLocaleString('ar-EG')}</span>}
       </button>)}
+      <button type="button" onClick={() => setMoreOpen((v) => !v)} className={`relative h-[58px] min-w-32 rounded-xl border px-3 text-right transition ${activeInMore ? 'border-cyan-400/40 bg-cyan-500/15 text-white shadow-sm' : 'border-slate-700 text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'}`}>
+        <span className="block text-sm font-black">{activeInMore ? activeInMore.label : 'المزيد ▾'}</span><span className="mt-0.5 block text-[10px] text-slate-500">تحليلات · جودة · أرشيف</span>
+      </button>
     </div>
+    {moreOpen && <div className="absolute left-0 right-0 top-[64px] z-20 rounded-2xl border border-slate-700 bg-slate-950 p-1.5 shadow-2xl">
+      {moreTabs.map((tab) => <button key={tab.id} type="button" onClick={() => { onChange(tab.id); setMoreOpen(false); }} className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-right text-sm font-bold transition ${value === tab.id ? 'bg-cyan-500/15 text-cyan-200' : 'text-slate-300 hover:bg-slate-900'}`}>
+        <span>{tab.label} <span className="text-[10px] font-normal text-slate-500">— {tab.hint}</span></span>
+        {typeof tab.badge === 'number' && tab.badge > 0 && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-black text-slate-300">{tab.badge.toLocaleString('ar-EG')}</span>}
+      </button>)}
+    </div>}
   </nav>;
 }
 
@@ -953,10 +969,10 @@ function RequestCard({ request, onSelect, onAdvance, onAlternative, onContactRes
   const advance = quickAdvanceAction(request);
   const followupDue = followupDueLabel(request);
   const AdvanceIcon = advance?.icon;
-  return <article className={`relative min-h-[310px] rounded-3xl border p-5 shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl ${overdue ? 'border-red-400/35 bg-red-500/[0.05]' : 'border-slate-700 bg-[#102640]'}`}>
+  return <article className={`relative min-h-[260px] rounded-3xl border p-5 shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl ${overdue ? 'border-red-400/35 bg-red-500/[0.05]' : 'border-slate-700 bg-[#102640]'}`}>
     <div className="flex items-start gap-4"><div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${importance.label === 'عاجل' ? 'bg-red-500/15 text-red-300' : 'bg-cyan-500/15 text-cyan-300'}`}><PackageSearch size={24} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-black leading-7 text-white">{request.medicine_name}</h3><div className="mt-1 text-xs text-slate-400">الكمية <strong className="num text-slate-200">{request.quantity || 1}</strong>{request.product_code ? ` · كود الصنف ${request.product_code}` : ''}</div></div><span className={overdue ? 'badge-warning' : customerRequestIsClosed(request) ? 'badge-success' : 'badge-info'}>{requestStatusLabel(request.status)}</span></div></div></div>
     <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-bold"><span className={`rounded-xl border px-3 py-1.5 ${importance.className}`}>{importance.label}</span><span className="rounded-xl bg-slate-800 px-3 py-1.5 text-slate-200">{requestTypeLabel(request)}</span><span className="rounded-xl bg-slate-800 px-3 py-1.5 text-cyan-200">{request.branch || 'بدون فرع'}</span><span className="rounded-xl bg-slate-800 px-3 py-1.5 text-violet-200">{requestChannelLabel(request)}</span>{overdue && <span className="rounded-xl bg-red-500/15 px-3 py-1.5 text-red-200">متأخر</span>}</div>
-    <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4"><CardField label="العميل" value={request.customer_name || 'غير محدد'} /><CardField label="كود العميل" value={request.customer_code || '—'} /><CardField label="الهاتف" value={displayEgyptianPhone(request.customer_phone || '') || 'بدون هاتف'} /><CardField label="أهمية العميل" value={customerImportanceLabel(request)} /><CardField label="المسجل" value={registrarName(request)} /><CardField label="المسئول الحالي" value={currentOwner(request)} /><CardField label="وقت التسجيل" value={exactRequestTime(request)} /><CardField label="عمر الطلب" value={ageLabel(request)} /></div>
+    <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4"><CardField label="العميل" value={request.customer_name || 'غير محدد'} /><CardField label="الهاتف" value={displayEgyptianPhone(request.customer_phone || '') || 'بدون هاتف'} /><CardField label="أهمية العميل" value={customerImportanceLabel(request)} /><CardField label="عمر الطلب" value={ageLabel(request)} /></div>
     <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-emerald-400/15 bg-emerald-500/[0.05] p-2.5">
       <span className="ml-auto text-[10px] font-black text-slate-500">تواصل مباشر</span>
       {request.customer_phone ? <>
