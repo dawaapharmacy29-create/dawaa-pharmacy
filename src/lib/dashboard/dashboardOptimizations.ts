@@ -1,16 +1,9 @@
-/**
- * تحسينات الداشبورد
- * - معالجة البيانات الفارغة
- * - تحسينات الأداء
- * - fallback values
- * - session caching
- */
-
 import type { DashboardSalesTruth } from '@/lib/dashboard/dashboardTruthService';
 
-// Dashboard Cache Management
-const DASHBOARD_CACHE_KEY = 'dawaa_dashboard_cache_v1';
-const DASHBOARD_CACHE_STALE_TIME = 30 * 60 * 1000; // 30 minutes
+// Versioned after the 2026-08-21 sales-truth recovery so an old session can never
+// keep showing totals calculated with the previous exclusion/fallback rules.
+const DASHBOARD_CACHE_KEY = 'dawaa_dashboard_cache_v2_sales_truth_20260821';
+const DASHBOARD_CACHE_STALE_TIME = 3 * 60 * 1000;
 
 export type DashboardCacheEntry = {
   state: any;
@@ -27,12 +20,7 @@ export function saveDashboardCache(
 ): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
-    const entry: DashboardCacheEntry = {
-      state,
-      timestamp: Date.now(),
-      branch,
-      dateRange,
-    };
+    const entry: DashboardCacheEntry = { state, timestamp: Date.now(), branch, dateRange };
     const key = `${DASHBOARD_CACHE_KEY}__${branch}__${dateRange.start}__${dateRange.end}__${userRole || ''}`;
     sessionStorage.setItem(key, JSON.stringify(entry));
   } catch (error) {
@@ -50,16 +38,11 @@ export function loadDashboardCache(
     const key = `${DASHBOARD_CACHE_KEY}__${branch}__${dateRange.start}__${dateRange.end}__${userRole || ''}`;
     const cached = sessionStorage.getItem(key);
     if (!cached) return null;
-
     const entry: DashboardCacheEntry = JSON.parse(cached);
-
-    // Check if cache is still fresh
-    const age = Date.now() - entry.timestamp;
-    if (age > DASHBOARD_CACHE_STALE_TIME) {
+    if (Date.now() - entry.timestamp > DASHBOARD_CACHE_STALE_TIME) {
       sessionStorage.removeItem(key);
       return null;
     }
-
     return entry.state;
   } catch (error) {
     console.debug('[Dashboard Cache] Failed to load cache:', error);
@@ -70,10 +53,9 @@ export function loadDashboardCache(
 export function clearDashboardCache(): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
-    // remove any keys that belong to dashboard cache namespace
     for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
       const key = sessionStorage.key(i);
-      if (key && key.startsWith(DASHBOARD_CACHE_KEY)) sessionStorage.removeItem(key);
+      if (key && key.startsWith('dawaa_dashboard_cache_')) sessionStorage.removeItem(key);
     }
   } catch (error) {
     console.debug('[Dashboard Cache] Failed to clear cache:', error);
@@ -83,20 +65,19 @@ export function clearDashboardCache(): void {
 export function getDashboardCacheTimestamp(): Date | null {
   if (typeof sessionStorage === 'undefined') return null;
   try {
-    // find latest dashboard cache entry for this namespace
     let latest: number | null = null;
     for (let i = 0; i < sessionStorage.length; i += 1) {
       const key = sessionStorage.key(i) || '';
       if (!key.startsWith(DASHBOARD_CACHE_KEY)) continue;
       try {
         const entry: DashboardCacheEntry = JSON.parse(sessionStorage.getItem(key) || '{}');
-        if (entry && entry.timestamp && (latest === null || entry.timestamp > latest)) latest = entry.timestamp;
-      } catch (e) {
-        // ignore malformed
+        if (entry?.timestamp && (latest === null || entry.timestamp > latest)) latest = entry.timestamp;
+      } catch {
+        // Ignore malformed cache entries.
       }
     }
     return latest ? new Date(latest) : null;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -128,10 +109,8 @@ export function ensureValidDashboardData(data: Partial<DashboardSalesTruth>): Da
       difference: data.reconciliation?.difference ?? 0,
       invoicesCount: data.reconciliation?.invoicesCount ?? 0,
       rowsRead: data.reconciliation?.rowsRead ?? 0,
-      selectedStartDate:
-        data.reconciliation?.selectedStartDate ?? new Date().toISOString().slice(0, 10),
-      selectedEndDate:
-        data.reconciliation?.selectedEndDate ?? new Date().toISOString().slice(0, 10),
+      selectedStartDate: data.reconciliation?.selectedStartDate ?? new Date().toISOString().slice(0, 10),
+      selectedEndDate: data.reconciliation?.selectedEndDate ?? new Date().toISOString().slice(0, 10),
       branchesIncluded: data.reconciliation?.branchesIncluded || [],
       firstInvoiceDate: data.reconciliation?.firstInvoiceDate || null,
       lastInvoiceDate: data.reconciliation?.lastInvoiceDate || null,
@@ -159,7 +138,6 @@ export function shouldShowEmptyState(
   return !hasSalesData(summary) && !hasInvoiceData(summary);
 }
 
-// تحسين أداء حسابات الخرائط
 export function buildSalesMap(rows: Array<{ branch?: string; sales_total?: number }>) {
   const map = new Map<string, number>();
   rows.forEach((row) => {
@@ -178,21 +156,18 @@ export function buildInvoiceCountMap(rows: Array<{ branch?: string; invoices_cou
   return map;
 }
 
-// دالة مساعدة لتنظيف البيانات
 export function sanitizeDashboardNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
-// دالة لحساب متوسط آمن
 export function safeAverage(total: number, count: number): number {
   if (count <= 0) return 0;
   const avg = total / count;
   return Number.isFinite(avg) ? avg : 0;
 }
 
-// دالة لحساب النسبة المئوية
 export function safePercentage(value: number, total: number): number {
   if (total <= 0) return 0;
   const pct = (value / total) * 100;
