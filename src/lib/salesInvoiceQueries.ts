@@ -76,7 +76,7 @@ function queryIdentity(options: {
 }) {
   const projection = (options.selectOptions?.length ? options.selectOptions : INVOICE_SELECT_TRUTH_OPTIONS).join('|');
   const base = invoiceCacheKey(options.startDate, options.endDate, options.branch || '');
-  return `${base}:truth-v24:p${options.pageSize || DEFAULT_PAGE_SIZE}:s${stableHash(projection)}`;
+  return `${base}:truth-v25-sales-recovery-20260821:p${options.pageSize || DEFAULT_PAGE_SIZE}:s${stableHash(projection)}`;
 }
 
 function persistedKey(key: string) {

@@ -142,7 +142,7 @@ type DoctorSalesAggregate = {
   invoices_count?: number | string | null;
 };
 
-const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54', '4902', '20', '12820', '10', '170', '5']);
+const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54', '12820', '10', '170', '5']);
 
 function text(value: unknown) {
   return String(value ?? '').trim();
