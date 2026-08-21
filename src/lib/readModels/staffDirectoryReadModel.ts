@@ -98,16 +98,14 @@ export async function readStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
   const baseRows = uniqueBaseIdentities([...staffRows, ...accountRows]);
   const byId = new Map(baseRows.filter((row) => row.id).map((row) => [row.id as string, row]));
 
-  const aliases = aliasResult.error
+  const aliases: StaffDirectoryIdentity[] = aliasResult.error
     ? []
-    : ((aliasResult.data ?? []) as Row[])
-        .map((alias) => {
-          const base = byId.get(text(alias.staff_id));
-          const aliasName = text(alias.alias_name);
-          if (!base || !aliasName || base.active === false) return null;
-          return { ...base, name: aliasName, source: 'alias' as const };
-        })
-        .filter((row): row is StaffDirectoryIdentity => Boolean(row));
+    : ((aliasResult.data ?? []) as Row[]).flatMap((alias) => {
+        const base = byId.get(text(alias.staff_id));
+        const aliasName = text(alias.alias_name);
+        if (!base || !aliasName || base.active === false) return [];
+        return [{ ...base, name: aliasName, source: 'alias' as const }];
+      });
 
   return [...baseRows, ...aliases];
 }
