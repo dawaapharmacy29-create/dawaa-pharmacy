@@ -15,6 +15,9 @@ import {
 
 type Row = Record<string, unknown>;
 
+export const SALES_ANALYTICS_SOURCE_ID = 'sales_invoices_live';
+export const SALES_ANALYTICS_PHYSICAL_SOURCE = 'dawaa_sales_invoices_dashboard_v1';
+
 export type SalesAnalyticsFilters = {
   startDate: string;
   endDate: string;
@@ -388,9 +391,11 @@ export async function loadSalesAnalyticsSummary(
     dataHealth: missingDataHealth(invoiceRows),
     sourceHealth: [
       {
-        source: 'dawaa_sales_invoices_dashboard_v1',
+        source: SALES_ANALYTICS_SOURCE_ID,
         status: invoiceRows.length ? 'ready' : 'empty',
-        message: invoiceErrors.length ? invoiceErrors.join(' | ') : null,
+        message: invoiceErrors.length
+          ? `${SALES_ANALYTICS_PHYSICAL_SOURCE}: ${invoiceErrors.join(' | ')}`
+          : null,
       },
     ],
     errorsBySection,
