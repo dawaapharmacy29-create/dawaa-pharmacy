@@ -39,6 +39,7 @@ type Row = Record<string, unknown>;
 type PersonalReview = {
   id: string; createdAt: string; kind: string; score: number; impact: number;
   positive: string; negative: string; notes: string; training: string; reviewer: string;
+  repeatCount: number; repeatedErrorType: string;
 };
 type EmployeeEvent = { id: string; title?: string; description?: string; category?: string; actor_name?: string; points_delta?: number; money_delta?: number; route?: string; event_at?: string };
 
@@ -371,6 +372,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       score: number(row.final_score ?? row.total_score), impact: number(row.doctor_points_impact ?? row.point_impact),
       positive: text(row.main_positive_reason), negative: text(row.main_negative_reason), notes: text(row.reviewer_notes),
       training: text(row.training_recommendation), reviewer: text(row.reviewer_name || 'مراجع خدمة العملاء'),
+      repeatCount: number(row.repeat_count), repeatedErrorType: text(row.repeated_error_type),
     })));
     setPart('reviews', 'success');
   }, [staffId, doctorName]);
@@ -952,6 +954,11 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
                   </button>
                   {open ? (
                     <div className="mt-3 border-t pt-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                      {review.repeatCount >= 1 && review.repeatedErrorType ? (
+                        <p className="mt-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-100">
+                          ⚠️ ده تكرار المرة {review.repeatCount + 1} لنفس نوع الخطأ في نفس الدورة — تم مضاعفة الخصم. راجع "المطلوب للتطوير" تحت عشان تتجنب التكرار مرة جاية.
+                        </p>
+                      ) : null}
                       {review.positive ? <p className="mt-2 text-sm text-teal-200">نقطة قوة: {review.positive}</p> : null}
                       {review.negative ? <p className="mt-1 text-sm text-amber-200">فرصة تحسين: {review.negative}</p> : null}
                       {review.training ? <p className="mt-2 rounded-xl bg-sky-500/10 p-3 text-sm text-sky-100">المطلوب للتطوير: {review.training}</p> : null}

@@ -21,8 +21,10 @@ import {
   defaultSevereErrors,
   evaluateConversationReview,
   monthCycleFromDate,
+  MAX_CONVERSATION_PENALTY,
   REVIEW_CRITERIA,
   SEVERE_ERRORS,
+  trainingByErrorType,
   type ConversationReviewState,
   type ReviewCriterionKey,
   type SevereErrorKey,
@@ -763,16 +765,16 @@ export default function Reviews() {
     setSaving(true);
     try {
       const previousCount = await countPreviousReviewErrors();
-      // حد أقصى ×2 للضرب المتكرر، وحد أقصى -30 نقطة لأي خصم من محادثة واحدة
-      // بس — مهما كان الضرب، عشان محادثة واحدة سيئة ميكسرش حافز شهر كامل.
+      // سقف موحّد مع conversationReviews.ts: أقصى خصم لأي محادثة واحدة -20 نقطة،
+      // حتى بعد تطبيق مضاعف التكرار (كان فيه سقف منفصل -30 هنا يتعارض مع
+      // MAX_CONVERSATION_PENALTY في المكتبة — دلوقتي مصدر واحد للحقيقة).
       const MAX_REPEAT_MULTIPLIER = 2;
-      const MAX_SINGLE_EVENT_DEDUCTION = 30;
       const rawMultiplier =
         result.doctorPointsImpact < 0 && result.repeatErrorType ? previousCount + 1 : 1;
       const multiplier = Math.min(rawMultiplier, MAX_REPEAT_MULTIPLIER);
       const repeatedDoctorImpact =
         result.doctorPointsImpact < 0
-          ? -Math.min(Math.abs(result.doctorPointsImpact) * multiplier, MAX_SINGLE_EVENT_DEDUCTION)
+          ? -Math.min(Math.abs(result.doctorPointsImpact) * multiplier, Math.abs(MAX_CONVERSATION_PENALTY))
           : result.doctorPointsImpact;
       setRepeatInfo({ count: previousCount, multiplier });
 
@@ -889,6 +891,31 @@ export default function Reviews() {
         toast.warning(
           `تم حفظ التقييم، لكن قاعدة البيانات ينقصها أعمدة اختيارية: ${ins.removedColumns.slice(0, 4).join(', ')}`
         );
+      }
+
+      // نمط متكرر: لو نفس نوع الخطأ اتكرر لنفس الدكتور في نفس الدورة (مش أول مرة)،
+      // بدل ما يفضل التكرار مجرد مضاعف نقاط صامت، نسجّل ملاحظة تدريب واضحة تظهر
+      // للدكتور وتُبنى تلقائيًا عشان محدش يحتاج يتابع الأنماط يدويًا كل شهر.
+      if (previousCount >= 1 && result.repeatErrorType) {
+        try {
+          await supabase.from('staff_coaching_notes').insert({
+            from_staff_id: asUuid(selectedReviewer.id || user?.id) || null,
+            from_staff_name: selectedReviewer.name || user?.name || 'النظام',
+            from_role: selectedReviewer.role || user?.role || 'system',
+            to_staff_id: asUuid(selectedStaff.id),
+            to_staff_name: selectedStaff.name,
+            to_role: selectedStaff.role,
+            branch: selectedStaff.branch,
+            category: 'تكرار خطأ في تقييم محادثة',
+            tone: 'تنبيه',
+            note: `تكرار المرة ${previousCount + 1} لنفس نوع الخطأ (${trainingByErrorType(result.repeatErrorType) || result.repeatErrorType}) خلال دورة ${reviewCycle.shortLabel}. تم مضاعفة الخصم x${multiplier}.`,
+            linked_table: 'conversation_sales_reviews',
+            linked_record_id: reviewRowId || null,
+          });
+        } catch (coachingError) {
+          // ملاحظة التدريب تحسين إضافي — فشلها ميوقفش حفظ التقييم نفسه
+          console.warn('[reviews] auto coaching note failed', coachingError);
+        }
       }
 
       if (repeatedDoctorImpact !== 0) {

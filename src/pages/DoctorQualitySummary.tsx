@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertOctagon, Award, Eye, RefreshCw, ShieldAlert, ThumbsUp, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertOctagon, AlertTriangle, Award, Eye, RefreshCw, ShieldAlert, ThumbsUp, TrendingDown, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { canViewAllBranches, getDashboardBranchOverride } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
 import { BRANCHES } from '@/lib/constants';
 import {
+  ALERT_TYPE_LABELS,
   fetchDoctorQualitySummaries,
+  fetchManagerDoctorAlerts,
+  type DoctorAlert,
   type DoctorQualitySummary,
 } from '@/lib/doctorQualitySummaryService';
 import CoachingNoteComposer from '@/components/shared/CoachingNoteComposer';
@@ -41,6 +44,9 @@ export default function DoctorQualitySummaryPage() {
   const [error, setError] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [composerFor, setComposerFor] = useState<DoctorQualitySummary | null>(null);
+  const [alerts, setAlerts] = useState<DoctorAlert[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(true);
+  const [showAllAlerts, setShowAllAlerts] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -51,8 +57,16 @@ export default function DoctorQualitySummaryPage() {
     setLoading(false);
   };
 
+  const loadAlerts = async () => {
+    setAlertsLoading(true);
+    const { rows: result } = await fetchManagerDoctorAlerts(branch || null, days);
+    setAlerts(result);
+    setAlertsLoading(false);
+  };
+
   useEffect(() => {
     void load();
+    void loadAlerts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branch, days]);
 
@@ -100,6 +114,62 @@ export default function DoctorQualitySummaryPage() {
           )}
         </div>
       )}
+
+      <section className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="text-amber-300" size={18} />
+            <h2 className="text-lg font-black text-white">لوحة التنبيهات المجمّعة</h2>
+          </div>
+          <div className="text-xs text-slate-400">
+            {alertsLoading ? 'جارٍ التحميل...' : `${alerts.length} تنبيه خلال آخر ${days} يوم`}
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          تجميع تلقائي لكل الأنماط المشبوهة: تكرار نفس الخطأ في تقييمات المحادثات، تبليغات تلاعب في المتابعات، وملاحظات التدريب التحذيرية — في مكان واحد بدل ما تكون متفرقة جوه كل شاشة لوحدها.
+        </p>
+
+        {!alertsLoading && !alerts.length ? (
+          <p className="mt-4 text-sm text-slate-400">مفيش أي تنبيهات حاليًا — الوضع مستقر.</p>
+        ) : null}
+
+        <div className="mt-3 space-y-2">
+          {(showAllAlerts ? alerts : alerts.slice(0, 8)).map((alert, index) => (
+            <div
+              key={`${alert.sourceId || index}-${alert.alertType}`}
+              className={`flex flex-wrap items-start justify-between gap-2 rounded-xl border p-3 text-sm ${
+                alert.severity === 'critical'
+                  ? 'border-red-500/40 bg-red-500/10 text-red-100'
+                  : 'border-amber-500/30 bg-amber-500/5 text-amber-100'
+              }`}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 font-bold">
+                  <span>{alert.doctorName}</span>
+                  <span className="rounded-full bg-black/20 px-2 py-0.5 text-[11px] font-black">
+                    {ALERT_TYPE_LABELS[alert.alertType]}
+                  </span>
+                  {alert.branch ? <span className="text-[11px] text-slate-400">{alert.branch}</span> : null}
+                </div>
+                <p className="mt-1 text-xs leading-6 opacity-90">{alert.detail}</p>
+              </div>
+              <div className="shrink-0 text-[11px] text-slate-400">
+                {alert.occurredAt ? new Date(alert.occurredAt).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }) : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {alerts.length > 8 ? (
+          <button
+            type="button"
+            onClick={() => setShowAllAlerts((v) => !v)}
+            className="mt-3 text-xs font-bold text-teal-300 hover:underline"
+          >
+            {showAllAlerts ? 'عرض أقل' : `عرض كل الـ${alerts.length} تنبيه`}
+          </button>
+        ) : null}
+      </section>
 
       {error ? <p className="text-sm text-red-300">{error}</p> : null}
       {loading ? <p className="text-sm text-slate-400">جارٍ التحميل...</p> : null}

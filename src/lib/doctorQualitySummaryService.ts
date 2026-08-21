@@ -136,3 +136,47 @@ export async function fetchDoctorQualitySummaries(
 
   return { rows, error: null };
 }
+
+export type DoctorAlert = {
+  alertType: 'repeat_error' | 'fraud_flag' | 'coaching_warning';
+  doctorId: string | null;
+  doctorName: string;
+  branch: string;
+  detail: string;
+  severity: 'critical' | 'warning';
+  occurredAt: string;
+  sourceId: string | null;
+};
+
+export const ALERT_TYPE_LABELS: Record<DoctorAlert['alertType'], string> = {
+  repeat_error: 'تكرار خطأ في تقييم محادثة',
+  fraud_flag: 'تبليغ تلاعب في متابعة',
+  coaching_warning: 'ملاحظة تدريب تحذيرية',
+};
+
+/**
+ * لوحة تنبيهات مجمّعة للمدير: بتجمع 3 مصادر إنذار كانت متفرقة كل واحد جوه
+ * شاشته لوحده (تكرار أخطاء المحادثات، تبليغات تلاعب المتابعات، ملاحظات
+ * التدريب التحذيرية) في مصدر واحد مرتب بالأحدث والأخطر أولاً.
+ */
+export async function fetchManagerDoctorAlerts(
+  branch: string | null = null,
+  days = 30
+): Promise<{ rows: DoctorAlert[]; error: string | null }> {
+  const { data, error } = await supabase.rpc('get_manager_doctor_alerts', {
+    p_branch: branch,
+    p_days: days,
+  });
+  if (error) return { rows: [], error: error.message };
+  const rows: DoctorAlert[] = ((data as RpcRow[]) || []).map((row) => ({
+    alertType: String(row.alert_type) as DoctorAlert['alertType'],
+    doctorId: row.doctor_id ? String(row.doctor_id) : null,
+    doctorName: String(row.doctor_name || 'غير محدد'),
+    branch: String(row.branch || ''),
+    detail: String(row.detail || ''),
+    severity: (String(row.severity) as DoctorAlert['severity']) || 'warning',
+    occurredAt: String(row.occurred_at || ''),
+    sourceId: row.source_id ? String(row.source_id) : null,
+  }));
+  return { rows, error: null };
+}
