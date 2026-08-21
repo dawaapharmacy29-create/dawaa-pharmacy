@@ -59,6 +59,11 @@ export type FollowupRow = {
   purchase_amount: number | null;
   purchase_invoice_no: string | null;
   purchase_date: string | null;
+  linked_to_invoice_today?: boolean | null;
+  points_value?: number | null;
+  counts_toward_quota?: boolean | null;
+  is_flagged?: boolean | null;
+  flag_reason?: string | null;
   closed_at: string | null;
   closed_by: string | null;
   created_by: string | null;

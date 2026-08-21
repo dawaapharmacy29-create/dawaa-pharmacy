@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CheckCircle2, Clock3, Headphones, Loader2, Phone, RefreshCw, Search, UserRound, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { isManagerRole } from '@/lib/security/userDataScope';
+import { supabase } from '@/lib/supabase';
 import QuickFollowupModal from '@/components/common/QuickFollowupModal';
 import { CustomerFlagChips } from '@/lib/customerDisplay';
 import { formatCycleDate, getCurrentCycle, getCycleForDate } from '@/lib/pharmacy-cycle';
@@ -50,6 +52,28 @@ function contactAttempts(row: FollowupRow & Record<string, unknown>) {
 
 export default function DoctorRequestedFollowups() {
   const { user } = useAuth();
+  const canFlagFraud = isManagerRole(user);
+  const [flagging, setFlagging] = useState(false);
+  const reportFraud = async (followupId: string) => {
+    const reason = window.prompt('اكتب سبب اعتبار المتابعة دي تلاعب (هيتم إلغاؤها + إلغاء 3 من أقدم متابعات الدكتور المحسوبة هذا الشهر):');
+    if (!reason || !reason.trim()) return;
+    setFlagging(true);
+    try {
+      const { data, error } = await supabase.rpc('penalize_followup_fraud', {
+        p_followup_id: followupId,
+        p_flagged_by: user?.name || 'مدير',
+        p_reason: reason.trim(),
+      });
+      if (error) throw error;
+      window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'success', message: `تم إلغاء المتابعة + ${data ?? 0} متابعة قديمة إضافية كعقوبة.` } }));
+      setSelected(null);
+      void load();
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { type: 'error', message: err instanceof Error ? err.message : 'تعذر تسجيل المخالفة' } }));
+    } finally {
+      setFlagging(false);
+    }
+  };
   const [rows, setRows] = useState<FollowupRow[]>([]);
   const [state, setState] = useState<LoadState>('idle');
   const [error, setError] = useState('');
@@ -132,6 +156,38 @@ export default function DoctorRequestedFollowups() {
 
   const openCount = rows.filter((row) => !isClosed(row)).length;
 
+  // حساب تقدّم نقاط المتابعات للشهر الحالي (نفس منطق refresh_doctor_followup_points
+  // في قاعدة البيانات — عرض تقريبي فوري للدكتور، الاحتساب الرسمي يتم ليلاً على السيرفر)
+  const followupPointsProgress = useMemo(() => {
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const thisMonthValid = rows.filter((row) => {
+      if (row.counts_toward_quota === false) return false;
+      const created = text(row.created_at);
+      return created.slice(0, 7) === monthKey;
+    });
+    // سقف 10 متابعات محسوبة يوميًا
+    const byDay = new Map<string, typeof thisMonthValid>();
+    for (const row of thisMonthValid) {
+      const day = text(row.created_at).slice(0, 10);
+      const list = byDay.get(day) || [];
+      list.push(row);
+      byDay.set(day, list);
+    }
+    let countedForCap: typeof thisMonthValid = [];
+    for (const [, list] of byDay) {
+      const sorted = [...list].sort((a, b) => text(a.created_at).localeCompare(text(b.created_at)));
+      countedForCap = countedForCap.concat(sorted.slice(0, 10));
+    }
+    const totalRegistered = thisMonthValid.length;
+    const eligible = totalRegistered >= 50;
+    const cappedList = countedForCap
+      .sort((a, b) => text(a.created_at).localeCompare(text(b.created_at)))
+      .slice(0, 150);
+    const totalPoints = eligible ? cappedList.reduce((sum, row) => sum + Number(row.points_value || 0), 0) : 0;
+    return { totalRegistered, eligible, totalPoints, monthKey };
+  }, [rows]);
+
   return (
     <>
       <QuickFollowupModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={() => void load()} />
@@ -151,6 +207,28 @@ export default function DoctorRequestedFollowups() {
           <div className="rounded-2xl border border-slate-700 p-4"><div className="text-xs text-slate-400">إجمالي طلباتي</div><div className="mt-1 text-2xl font-black text-white">{rows.length}</div></div>
           <div className="rounded-2xl border border-amber-400/20 bg-amber-500/5 p-4"><div className="text-xs text-amber-200">مفتوحة</div><div className="mt-1 text-2xl font-black text-amber-100">{openCount}</div></div>
           <div className="rounded-2xl border border-teal-400/20 bg-teal-500/5 p-4"><div className="text-xs text-teal-200">تم حلها أو إغلاقها</div><div className="mt-1 text-2xl font-black text-teal-100">{rows.length - openCount}</div></div>
+        </div>
+
+        <div className="mt-3 rounded-2xl border border-violet-400/25 bg-violet-500/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-black text-violet-100">نقاط المتابعات هذا الشهر ({followupPointsProgress.monthKey})</div>
+            <div className="text-xs text-slate-400">الاحتساب النهائي يتم تلقائيًا كل ليلة على السيرفر</div>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div>
+              <div className="text-xs text-slate-400">متابعات مسجّلة هذا الشهر</div>
+              <div className="mt-1 text-xl font-black text-white">{followupPointsProgress.totalRegistered} <span className="text-sm font-bold text-slate-500">/ 50 المطلوبة</span></div>
+              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-800"><div className="h-full bg-violet-400" style={{ width: `${Math.min(100, (followupPointsProgress.totalRegistered / 50) * 100)}%` }} /></div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-400">حالة الحافز</div>
+              <div className={`mt-1 text-xl font-black ${followupPointsProgress.eligible ? 'text-emerald-300' : 'text-amber-300'}`}>{followupPointsProgress.eligible ? 'مُستحق ✓' : `محتاج ${Math.max(0, 50 - followupPointsProgress.totalRegistered)} كمان`}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-400">نقاط المتابعات (سقف 150)</div>
+              <div className="mt-1 text-xl font-black text-violet-200">{followupPointsProgress.totalPoints}</div>
+            </div>
+          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-3 gap-2">
@@ -205,7 +283,12 @@ export default function DoctorRequestedFollowups() {
       {selected ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4" onMouseDown={() => setSelected(null)}>
           <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-teal-400/25 bg-slate-950 p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between gap-3"><div><h3 className="text-2xl font-black text-white">تفاصيل متابعة {selected.customer_name || selected.name || 'العميل'}</h3><p className="mt-1 text-sm text-slate-400">الحالة: {statusLabel(selected.followup_status || selected.status || selected.contact_status)}</p></div><button type="button" onClick={() => setSelected(null)} className="rounded-xl border border-slate-700 p-2 text-slate-200"><X /></button></div>
+            <div className="flex items-start justify-between gap-3"><div><h3 className="text-2xl font-black text-white">تفاصيل متابعة {selected.customer_name || selected.name || 'العميل'}</h3><p className="mt-1 text-sm text-slate-400">الحالة: {statusLabel(selected.followup_status || selected.status || selected.contact_status)}{selected.points_value != null ? ` · النقاط: ${selected.points_value}` : ''}{selected.is_flagged ? ' · ⚠️ محتاجة مراجعة' : ''}</p></div>
+              <div className="flex items-center gap-2">
+                {canFlagFraud ? <button type="button" disabled={flagging} onClick={() => void reportFraud(String(selected.id))} className="rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs font-black text-red-200 hover:bg-red-500/20 disabled:opacity-50">تسجيل مخالفة تلاعب</button> : null}
+                <button type="button" onClick={() => setSelected(null)} className="rounded-xl border border-slate-700 p-2 text-slate-200"><X /></button>
+              </div>
+            </div>
 
             <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <Info icon={UserRound} label="العميل" value={`${selected.customer_name || selected.name || 'غير محدد'} — ${selected.customer_code || 'بدون كود'}`} />

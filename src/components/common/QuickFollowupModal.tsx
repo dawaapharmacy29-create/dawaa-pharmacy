@@ -373,7 +373,27 @@ export default function QuickFollowupModal({
           <input className="input-dark" placeholder="رقم الهاتف" value={phone} onChange={(event) => { setPhone(event.target.value); setSelectedCustomer(null); setSelectedCustomerBranch(''); }} />
           <input className="input-dark" placeholder="كود العميل (اختياري)" value={code} onChange={(event) => { setCode(event.target.value); setSelectedCustomer(null); setSelectedCustomerBranch(''); }} />
           <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)} disabled={!managerView}><option value="">اختر الفرع</option>{BRANCHES.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-          <select className="input-dark" value={reason} onChange={(event) => setReason(event.target.value)}><option>طلب متابعة</option><option>شكوى</option><option>لم يرد</option><option>طلب لاحق</option><option>تم البيع</option><option>يحتاج مدير</option><option>انخفاض شراء</option><option>متابعة استثنائية سريعة</option></select>
+          <select className="input-dark" value={reason} onChange={(event) => setReason(event.target.value)}>
+            <optgroup label="سبب المتابعة (طبي/استشاري)">
+              <option>عميل تعبان أو مريض</option>
+              <option>مهتم بالكوزمو والعناية</option>
+              <option>صرف روشتة لنفسه</option>
+              <option>صرف روشتة لطفله أو لابنه</option>
+              <option>استفسار عن سعر أو توفر صنف</option>
+              <option>متابعة ما بعد الصرف</option>
+            </optgroup>
+            <optgroup label="تصنيف عام">
+              <option>طلب متابعة</option>
+              <option>شكوى</option>
+              <option>لم يرد</option>
+              <option>طلب لاحق</option>
+              <option>تم البيع</option>
+              <option>يحتاج مدير</option>
+              <option>انخفاض شراء</option>
+              <option>متابعة استثنائية سريعة</option>
+              <option>سبب آخر (اكتبه في الملاحظات)</option>
+            </optgroup>
+          </select>
           <select className="input-dark" value={priority} onChange={(event) => setPriority(event.target.value)}><option>عادي</option><option>مهم</option><option>عاجل</option></select>
 
           {mode === 'request' ? <>
