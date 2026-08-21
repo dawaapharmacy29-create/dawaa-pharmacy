@@ -9,7 +9,6 @@ const LEGACY_DIRECT_INVOICE_READERS = new Set([
   'src/lib/customerProfileService.ts',
   'src/lib/dashboardSummaryService.ts',
   'src/lib/executiveDashboardDataService.ts',
-  'src/lib/salesInvoiceSource.ts',
   'src/lib/staff/staffDataHealthService.ts',
   'src/lib/staff/staffPerformanceProfileService.ts',
   'src/lib/staffInvoiceTruthService.ts',
@@ -32,19 +31,15 @@ const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
   'src/components/staff/StaffPerformanceDashboard.tsx',
 ]);
 
-// Financial employee ledger is a shared domain boundary. Existing UI reads are frozen migration debt.
 const LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS = new Set([
   'src/pages/ReportsCenter.tsx',
   'src/pages/BranchInspection.tsx',
 ]);
 
-// Attendance UI must consume attendance/domain projections rather than raw attendance rows.
 const LEGACY_DIRECT_ATTENDANCE_UI_READERS = new Set([
   'src/pages/StaffMonthlyEvaluation.tsx',
 ]);
 
-// Baseline only: these existed before the snake_case contract was enforced.
-// This set must shrink as permission data + consumers are migrated.
 const LEGACY_DOT_PERMISSION_KEYS = new Set([
   'customer_welcome_messages.view',
   'customer_welcome_messages.create',
