@@ -22,6 +22,7 @@ import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievem
 import { normalizeBranchName } from '@/lib/branch';
 import { loadSalesAnalyticsSummary, type SalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import DoctorRequestedFollowups from '@/components/doctor/DoctorRequestedFollowups';
+import DoctorVouchers from '@/components/doctor/DoctorVouchers';
 import { getEmployeeEvents } from '@/lib/employeeEventService';
 import {
   listStaffNotifications,
@@ -32,7 +33,7 @@ import {
 } from '@/lib/staffNotificationService';
 
 type LoadState = 'idle' | 'loading' | 'success' | 'error';
-type Tab = 'overview' | 'requirements' | 'performance' | 'followups' | 'reviews' | 'notifications' | 'activity' | 'payroll' | 'offers' | 'rules';
+type Tab = 'overview' | 'requirements' | 'performance' | 'followups' | 'vouchers' | 'reviews' | 'notifications' | 'activity' | 'payroll' | 'offers' | 'rules';
 type DoctorRow = SalesAnalyticsSummary['doctorRows'][number];
 type Row = Record<string, unknown>;
 
@@ -73,6 +74,7 @@ const PRIMARY_TABS: Array<[Tab, string, typeof Star]> = [
 const MORE_TABS: Array<[Tab, string, typeof Star]> = [
   ['requirements', 'المطلوب مني', ClipboardCheck],
   ['followups', 'متابعاتي', Headphones],
+  ['vouchers', 'فاوتشراتي', Gift],
   ['payroll', 'القبض والحوافز', WalletCards],
   ['offers', 'العروض والاستوريز', Megaphone],
   ['activity', 'سجل نشاطي', Activity],
@@ -232,7 +234,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
-  const validTabs: Tab[] = ['overview', 'requirements', 'performance', 'followups', 'reviews', 'notifications', 'activity', 'payroll', 'offers', 'rules'];
+  const validTabs: Tab[] = ['overview', 'requirements', 'performance', 'followups', 'vouchers', 'reviews', 'notifications', 'activity', 'payroll', 'offers', 'rules'];
   const tab: Tab = validTabs.includes(requestedTab as Tab) ? requestedTab as Tab : 'overview';
   const cycle = useMemo(() => getCurrentCycle(), []);
   const [state, setState] = useState<LoadState>('idle');
@@ -919,6 +921,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       ) : null}
 
       {tab === 'followups' ? <DoctorRequestedFollowups /> : null}
+      {tab === 'vouchers' ? <DoctorVouchers /> : null}
 
       {tab === 'reviews' && !hideReviews ? (
         <section className="rounded-3xl border p-5" style={surface}>
