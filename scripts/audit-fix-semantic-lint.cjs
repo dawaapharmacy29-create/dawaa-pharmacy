@@ -74,7 +74,6 @@ for (const path of [
   'src/lib/customerFlagLabels.ts',
   'src/lib/customerServiceCustomerMetrics.ts',
   'src/lib/customers/buildCustomerLiveMetrics.ts',
-  'src/lib/dashboard/dashboardTruthService.ts',
   'src/lib/dawaa2027.ts',
   'src/lib/salesMetrics.ts',
   'src/pages/CustomerService.tsx',
