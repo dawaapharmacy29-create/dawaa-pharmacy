@@ -9,7 +9,6 @@ const LEGACY_DIRECT_READERS = new Set([
   'src/components/customers/CustomerQuickDetailsModal.tsx',
   'src/lib/api/customers.ts',
   'src/lib/classificationService.ts',
-  'src/lib/core/supabasePagination.ts',
   'src/lib/customerAnalyticsService.ts',
   'src/lib/customerProfileService.ts',
   'src/lib/dashboardSummaryService.ts',
