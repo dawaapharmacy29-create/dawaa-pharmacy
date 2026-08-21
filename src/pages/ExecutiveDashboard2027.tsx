@@ -474,6 +474,22 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, label: strin
   });
 }
 
+// محاولة واحدة إضافية صامتة قبل ما نعتبر القسم فاشل فعلًا — أغلب "الأعطال" اللي
+// بتظهر بين الحين والتاني مجرد بطء لحظي في الشبكة أو RPC، مش فشل حقيقي، وده بيمتصها
+// بدل ما يوصل للمستخدم كرسالة خطأ من الأساس.
+async function withSingleRetry<T>(run: () => Promise<T>, delayMs = 1200): Promise<T> {
+  try {
+    return await run();
+  } catch (firstError) {
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    try {
+      return await run();
+    } catch {
+      throw firstError;
+    }
+  }
+}
+
 async function rpcRows<T>(
   names: string[],
   params: Record<string, unknown> | undefined,
@@ -876,6 +892,8 @@ function KpiCard({
   actionLabel,
   onAction,
   showAction = false,
+  loading = false,
+  stale = false,
 }: {
   title: string;
   value: string;
@@ -886,6 +904,10 @@ function KpiCard({
   actionLabel?: string;
   onAction?: () => void;
   showAction?: boolean;
+  /** أول تحميل لسه شغال ومفيش رقم اتعرض قبل كده — نعرض skeleton بدل نص "..." */
+  loading?: boolean;
+  /** الرقم المعروض قديم (آخر تحميل ناجح) بسبب فشل مؤقت في محاولة تحديث لاحقة */
+  stale?: boolean;
 }) {
   const toneClass = {
     cyan: 'from-cyan-500/12 to-cyan-400/5 border-cyan-300/22',
@@ -913,9 +935,21 @@ function KpiCard({
       <div className="absolute -left-8 -top-8 h-24 w-24 rounded-full bg-white/5 blur-2xl" />
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-black text-slate-300">{title}</p>
-          <p className="mt-3 text-3xl font-black tracking-tight text-white">{value}</p>
-          <p className="mt-2 text-xs font-bold text-emerald-300">{subtitle}</p>
+          <p className="flex items-center gap-1.5 text-sm font-black text-slate-300">
+            {title}
+            {stale ? (
+              <span
+                title="آخر بيانات ناجحة — جاري محاولة التحديث"
+                className="h-1.5 w-1.5 rounded-full bg-amber-300"
+              />
+            ) : null}
+          </p>
+          {loading ? (
+            <div className="mt-3 h-8 w-28 animate-pulse rounded-lg bg-white/10" />
+          ) : (
+            <p className="mt-3 text-3xl font-black tracking-tight text-white">{value}</p>
+          )}
+          <p className="mt-2 text-xs font-bold text-slate-400">{subtitle}</p>
         </div>
         <div className="rounded-2xl bg-slate-950/55 p-3 text-cyan-200">{icon}</div>
       </div>
@@ -1255,25 +1289,33 @@ export default function ExecutiveDashboard2027() {
     errors: [],
   });
 
-  function useSectionTimeout(loading: boolean, loadedAt: string | null, onTimeout: (value: boolean) => void) {
+  // المهلة البصرية دي لازم تفضل أعلى من أطول مهلة withTimeout حقيقية للقسم نفسه —
+  // لو كانت أقصر، الواجهة هتعلن "تعذر التحميل" والطلب لسه شغال فعليًا وممكن ينجح
+  // بعد ثانيتين، وده بالظبط سبب ظهور رسالة خطأ "بدون سبب حقيقي" بين الحين والتاني.
+  function useSectionTimeout(
+    loading: boolean,
+    loadedAt: string | null,
+    onTimeout: (value: boolean) => void,
+    thresholdMs = 7000
+  ) {
     useEffect(() => {
       if (!loading || loadedAt) {
         onTimeout(false);
         return;
       }
-      const timer = window.setTimeout(() => onTimeout(true), 7000);
+      const timer = window.setTimeout(() => onTimeout(true), thresholdMs);
       return () => window.clearTimeout(timer);
-    }, [loading, loadedAt, onTimeout]);
+    }, [loading, loadedAt, onTimeout, thresholdMs]);
   }
 
-  useSectionTimeout(salesKPILoading, salesKPILoadedAt, setSalesKPITimedOut);
-  useSectionTimeout(monthlyTrendLoading, monthlyTrendLoadedAt, setMonthlyTrendTimedOut);
+  useSectionTimeout(salesKPILoading, salesKPILoadedAt, setSalesKPITimedOut, 26000);
+  useSectionTimeout(monthlyTrendLoading, monthlyTrendLoadedAt, setMonthlyTrendTimedOut, 17000);
   useSectionTimeout(customerServiceLoading, customerServiceLoadedAt, setCustomerServiceTimedOut);
   useSectionTimeout(incentivesLoading, incentivesLoadedAt, setIncentivesTimedOut);
-  useSectionTimeout(dailyTasksLoading, dailyTasksLoadedAt, setDailyTasksTimedOut);
-  useSectionTimeout(staffAttendanceLoading, staffAttendanceLoadedAt, setStaffAttendanceTimedOut);
+  useSectionTimeout(dailyTasksLoading, dailyTasksLoadedAt, setDailyTasksTimedOut, 9000);
+  useSectionTimeout(staffAttendanceLoading, staffAttendanceLoadedAt, setStaffAttendanceTimedOut, 9000);
   useSectionTimeout(inventoryOperationsLoading, inventoryOperationsLoadedAt, setInventoryOperationsTimedOut);
-  useSectionTimeout(dataHealthLoading, null, setDataHealthTimedOut);
+  useSectionTimeout(dataHealthLoading, null, setDataHealthTimedOut, 14000);
 
   function getSectionValue<T>({
     value,
@@ -1290,9 +1332,12 @@ export default function ExecutiveDashboard2027() {
     timedOut?: boolean;
     fallback?: string;
   }): T | string {
+    // لو القسم نجح مرة واحدة قبل كده، نفضّل نعرض آخر رقم صحيح بدل ما نمسحه برسالة
+    // خطأ بسبب فشل مؤقت في محاولة تحديث لاحقة — رقم قديم صح أفضل من رقم مختفي، وزرار
+    // إعادة المحاولة على الكارت لسه ظاهر عادي لو فيه خطأ حالي.
+    if (loadedAt) return value;
     if (error || timedOut) return 'تعذر التحميل';
-    if (loading && !loadedAt) return fallback;
-    if (!loadedAt) return fallback;
+    if (loading) return fallback;
     return value;
   }
 
@@ -1343,16 +1388,19 @@ export default function ExecutiveDashboard2027() {
         ? { period: 'cycle' as const }
         : { period: 'custom' as const, customStart: startDate, customEnd: endDate };
 
-    withTimeout(
-      getDoctorCompetitionMetrics({
-        ...doctorCompetitionParams,
-        branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
-        userBranch: user?.branch,
-        canSeeAllBranches: canAllBranches,
-      }),
-      20000,
-      'doctor-competition'
-    )      .then((metrics) => {
+    withSingleRetry(() =>
+      withTimeout(
+        getDoctorCompetitionMetrics({
+          ...doctorCompetitionParams,
+          branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
+          userBranch: user?.branch,
+          canSeeAllBranches: canAllBranches,
+        }),
+        20000,
+        'doctor-competition'
+      )
+    )
+      .then((metrics) => {
         if (!mounted) return;
         if (metrics.rows.length) {
           lastGoodDoctorCompetitionRef.current = metrics;
@@ -1384,10 +1432,8 @@ export default function ExecutiveDashboard2027() {
     let mounted = true;
     setMonthlyTrendLoading(true);
     setMonthlyTrendError(null);
-    withTimeout(
-      fetchMonthlySalesFromTruth(endDate, scopedBranch || ALL_BRANCHES, 5),
-      15000,
-      'monthly-trend'
+    withSingleRetry(() =>
+      withTimeout(fetchMonthlySalesFromTruth(endDate, scopedBranch || ALL_BRANCHES, 5), 15000, 'monthly-trend')
     )
       .then((rows) => {
         if (!mounted) return;
@@ -1502,13 +1548,19 @@ export default function ExecutiveDashboard2027() {
       try {
         const noCache = noCacheRef.current;
         noCacheRef.current = false;
-        salesTruth = await fetchDashboardSalesTruth({
-          startDate,
-          endDate,
-          branch: scopedBranch || ALL_BRANCHES,
-          errors,
-          noCache,
-        });
+        salesTruth = await withSingleRetry(() =>
+          withTimeout(
+            fetchDashboardSalesTruth({
+              startDate,
+              endDate,
+              branch: scopedBranch || ALL_BRANCHES,
+              errors,
+              noCache,
+            }),
+            20000,
+            'sales-truth'
+          )
+        );
         // apply sales truth to state incrementally
         const summary = salesTruth.summary;
         const effectiveDailySales = salesTruth.dailySales;
@@ -2447,6 +2499,8 @@ export default function ExecutiveDashboard2027() {
             onClick={() => navigate(`/analytics?${dashboardQuery}`)}
             showAction={Boolean(salesKPIError || salesKPITimedOut)}
             onAction={reloadDashboard}
+            loading={salesKPILoading && !salesKPILoadedAt}
+            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
           />
           <KpiCard
             title="عدد الفواتير"
@@ -2463,6 +2517,8 @@ export default function ExecutiveDashboard2027() {
             onClick={() => navigate(`/invoice-import?${dashboardQuery}`)}
             showAction={Boolean(salesKPIError || salesKPITimedOut)}
             onAction={reloadDashboard}
+            loading={salesKPILoading && !salesKPILoadedAt}
+            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
           />
           <KpiCard
             title="متوسط الفاتورة"
@@ -2479,6 +2535,8 @@ export default function ExecutiveDashboard2027() {
             onClick={() => navigate(`/analytics?metric=avg-invoice&${dashboardQuery}`)}
             showAction={Boolean(salesKPIError || salesKPITimedOut)}
             onAction={reloadDashboard}
+            loading={salesKPILoading && !salesKPILoadedAt}
+            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
           />
           <KpiCard
             title="العملاء المشترين"
@@ -2495,6 +2553,8 @@ export default function ExecutiveDashboard2027() {
             onClick={() => navigate(`/customers?${dashboardQuery}`)}
             showAction={Boolean(salesKPIError || salesKPITimedOut)}
             onAction={reloadDashboard}
+            loading={salesKPILoading && !salesKPILoadedAt}
+            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
           />
           <KpiCard
             title="نسبة ربط العملاء"
@@ -2511,6 +2571,8 @@ export default function ExecutiveDashboard2027() {
             onClick={() => navigate(`/customer-data-review?${dashboardQuery}`)}
             showAction={Boolean(salesKPIError || salesKPITimedOut)}
             onAction={reloadDashboard}
+            loading={salesKPILoading && !salesKPILoadedAt}
+            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
           />
           <KpiCard
             title="الفواتير غير المسجلة"
@@ -2527,6 +2589,8 @@ export default function ExecutiveDashboard2027() {
             onClick={() => navigate(`/customer-data-review?status=unregistered&${dashboardQuery}`)}
             showAction={Boolean(salesKPIError || salesKPITimedOut)}
             onAction={reloadDashboard}
+            loading={salesKPILoading && !salesKPILoadedAt}
+            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
           />
         </section>
 
