@@ -3,8 +3,6 @@ const path = require('path');
 
 const ROOT = path.join(process.cwd(), 'src');
 
-// Transitional invoice debt register. New direct sales_invoices reads are forbidden.
-// This list must only shrink as consumers migrate to read models / canonical services.
 const LEGACY_DIRECT_INVOICE_READERS = new Set([
   'src/lib/api/customers.ts',
   'src/lib/customerAnalyticsService.ts',
@@ -27,13 +25,20 @@ const APPROVED_INVOICE_BOUNDARIES = new Set([
   'src/pages/Invoices.tsx',
 ]);
 
-// UI must not know the physical staff table. Existing violations are frozen debt and must only shrink.
 const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
   'src/pages/IncentiveMedicines.tsx',
   'src/pages/EmployeeOperatingSystem.tsx',
   'src/pages/ExecutiveDashboard2027.tsx',
   'src/components/reviews/ReviewsInsightsHub.tsx',
   'src/components/staff/StaffPerformanceDashboard.tsx',
+]);
+
+const LEGACY_DOT_PERMISSION_KEYS = new Set([
+  'customer_welcome_messages.view',
+  'customer_welcome_messages.create',
+  'customer_welcome_messages.update',
+  'employee_operating_system.view',
+  'employee_operating_system.manage',
 ]);
 
 function walk(dir) {
@@ -85,7 +90,6 @@ const staleInvoiceDebt = [...LEGACY_DIRECT_INVOICE_READERS].filter(
 if (staleInvoiceDebt.length) {
   console.error('\nArchitecture debt register is stale. These legacy readers no longer access sales_invoices:');
   staleInvoiceDebt.forEach((file) => console.error(`  - ${file}`));
-  console.error('Remove them from LEGACY_DIRECT_INVOICE_READERS in the same PR.');
   process.exit(1);
 }
 
@@ -95,27 +99,22 @@ const staleStaffUiDebt = [...LEGACY_DIRECT_STAFF_UI_READERS].filter(
 if (staleStaffUiDebt.length) {
   console.error('\nStaff UI debt register is stale. These UI files no longer access staff directly:');
   staleStaffUiDebt.forEach((file) => console.error(`  - ${file}`));
-  console.error('Remove them from LEGACY_DIRECT_STAFF_UI_READERS in the same PR.');
   process.exit(1);
 }
 
 if (invoiceOffenders.length) {
   console.error('\nArchitecture boundary violation: new direct sales_invoices access detected.');
-  console.error('Use an approved read model/service boundary instead of querying the table from feature code.');
   invoiceOffenders.forEach((file) => console.error(`  - ${file}`));
   process.exit(1);
 }
 
 if (staffUiOffenders.length) {
   console.error('\nArchitecture boundary violation: UI must not query the staff table directly.');
-  console.error('Use the canonical staff directory/domain service boundary.');
   staffUiOffenders.forEach((file) => console.error(`  - ${file}`));
   process.exit(1);
 }
 
-// Route-path integrity: literal routes in App.tsx must be unique.
-const appPath = path.join(ROOT, 'App.tsx');
-const appSource = fs.readFileSync(appPath, 'utf8');
+const appSource = fs.readFileSync(path.join(ROOT, 'App.tsx'), 'utf8');
 const routePaths = [...appSource.matchAll(/<Route\s+path=["']([^"']+)["']/g)].map((match) => match[1]);
 const routeCounts = new Map();
 for (const routePath of routePaths) routeCounts.set(routePath, (routeCounts.get(routePath) || 0) + 1);
@@ -123,10 +122,25 @@ const duplicateRoutes = [...routeCounts.entries()].filter(([, count]) => count >
 if (duplicateRoutes.length) {
   console.error('\nRoute architecture violation: duplicate route paths detected in src/App.tsx:');
   duplicateRoutes.forEach(([routePath, count]) => console.error(`  - ${routePath} (${count} definitions)`));
-  console.error('Each route must have one owner/definition before the route registry migration proceeds.');
+  process.exit(1);
+}
+
+// Permission naming integrity. Dot-notation is frozen legacy debt; new permissions must be snake_case.
+const permissionSources = [
+  path.join(ROOT, 'lib/core/permissionSystem.ts'),
+  path.join(ROOT, 'lib/permissionMatrix.ts'),
+].map((file) => fs.readFileSync(file, 'utf8')).join('\n');
+const dotPermissionKeys = new Set(
+  [...permissionSources.matchAll(/['\"]([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)['\"]/g)].map((match) => match[1])
+);
+const newDotPermissionKeys = [...dotPermissionKeys].filter((key) => !LEGACY_DOT_PERMISSION_KEYS.has(key));
+if (newDotPermissionKeys.length) {
+  console.error('\nPermission architecture violation: new dot-notation permission keys detected:');
+  newDotPermissionKeys.forEach((key) => console.error(`  - ${key}`));
+  console.error('Use snake_case permission keys. Existing dot-notation keys are migration-only legacy debt.');
   process.exit(1);
 }
 
 console.log(
-  `Architecture boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.length}. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}. Routes checked: ${routePaths.length}.`
+  `Architecture boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.length}. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}. Routes checked: ${routePaths.length}. Legacy dot permissions: ${dotPermissionKeys.size}.`
 );
