@@ -1,8 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
-import { QUERY_FRESHNESS } from '@/lib/queryPolicy';
 
 export const STAFF_DIRECTORY_QUERY_KEY = ['staff-directory'] as const;
+
+// Keep aligned with the current `standard` freshness class in useSupabaseQuery.
+const STANDARD_STALE_MS = 2 * 60_000;
+const STANDARD_GC_MS = 15 * 60_000;
 
 /**
  * Canonical UI hook for staff directory reads.
@@ -12,10 +15,10 @@ export function useStaffDirectory() {
   return useQuery<StaffDirectoryIdentity[]>({
     queryKey: STAFF_DIRECTORY_QUERY_KEY,
     queryFn: readStaffDirectory,
-    staleTime: QUERY_FRESHNESS.standard.staleTime,
-    gcTime: QUERY_FRESHNESS.standard.gcTime,
-    refetchOnMount: QUERY_FRESHNESS.standard.refetchOnMount,
-    refetchOnReconnect: QUERY_FRESHNESS.standard.refetchOnReconnect,
-    refetchOnWindowFocus: QUERY_FRESHNESS.standard.refetchOnWindowFocus,
+    staleTime: STANDARD_STALE_MS,
+    gcTime: STANDARD_GC_MS,
+    refetchOnMount: true,
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: false,
   });
 }
