@@ -113,6 +113,20 @@ if (staffUiOffenders.length) {
   process.exit(1);
 }
 
+// Route-path integrity: literal routes in App.tsx must be unique.
+const appPath = path.join(ROOT, 'App.tsx');
+const appSource = fs.readFileSync(appPath, 'utf8');
+const routePaths = [...appSource.matchAll(/<Route\s+path=["']([^"']+)["']/g)].map((match) => match[1]);
+const routeCounts = new Map();
+for (const routePath of routePaths) routeCounts.set(routePath, (routeCounts.get(routePath) || 0) + 1);
+const duplicateRoutes = [...routeCounts.entries()].filter(([, count]) => count > 1);
+if (duplicateRoutes.length) {
+  console.error('\nRoute architecture violation: duplicate route paths detected in src/App.tsx:');
+  duplicateRoutes.forEach(([routePath, count]) => console.error(`  - ${routePath} (${count} definitions)`));
+  console.error('Each route must have one owner/definition before the route registry migration proceeds.');
+  process.exit(1);
+}
+
 console.log(
-  `Data-access boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.length}. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}.`
+  `Architecture boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.length}. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}. Routes checked: ${routePaths.length}.`
 );
