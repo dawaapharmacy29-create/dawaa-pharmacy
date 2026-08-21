@@ -304,12 +304,16 @@ export function recordBelongsToStaff(row: PointLedgerRecord, staff: StaffLedgerT
       .filter(Boolean)
       .map((value) => String(value).trim())
   );
+
+  // Canonical identifiers are authoritative. A populated mismatching id must never be
+  // overridden by a coincidentally matching display name.
   const rowCanonicalStaffId = String(row.staff_id || '').trim();
-  if (rowCanonicalStaffId && duplicateIds.has(rowCanonicalStaffId)) return true;
+  if (rowCanonicalStaffId) return duplicateIds.has(rowCanonicalStaffId);
 
   const rowStaffId = String(row.employee_id || '').trim();
-  if (rowStaffId && duplicateIds.has(rowStaffId)) return true;
+  if (rowStaffId) return duplicateIds.has(rowStaffId);
 
+  // Name/alias matching is migration-only compatibility for historical rows that have no id.
   const staffNames = new Set(
     [staff.name, ...((staff.aliases || []) as string[])]
       .map(normalizeStaffLedgerKey)
