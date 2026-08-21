@@ -62,8 +62,10 @@ for (const file of walk(ROOT)) {
 
 const staleAllowlist = [...LEGACY_DIRECT_READERS].filter((file) => !presentLegacy.includes(file));
 if (staleAllowlist.length) {
-  console.log('Architecture debt reduced. Remove these files from LEGACY_DIRECT_READERS:');
-  staleAllowlist.forEach((file) => console.log(`  - ${file}`));
+  console.error('\nArchitecture debt register is stale. These legacy readers no longer access sales_invoices:');
+  staleAllowlist.forEach((file) => console.error(`  - ${file}`));
+  console.error('Remove them from LEGACY_DIRECT_READERS in the same PR so architecture debt can only move downward.');
+  process.exit(1);
 }
 
 if (offenders.length) {
