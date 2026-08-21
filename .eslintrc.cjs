@@ -44,6 +44,14 @@ module.exports = {
         'prefer-const': 'off',
       },
     },
+    {
+      // The stable doctor dashboard contains intentional quoted Arabic UI copy.
+      // Keep the rule enabled globally and relax it only for this legacy copy block.
+      files: ['src/pages/DoctorDashboardStable.tsx'],
+      rules: {
+        'react/no-unescaped-entities': 'off',
+      },
+    },
   ],
   settings: {
     react: {
