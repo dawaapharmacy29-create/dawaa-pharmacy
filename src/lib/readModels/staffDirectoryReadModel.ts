@@ -6,6 +6,8 @@ export type StaffDirectoryIdentity = {
   name: string | null;
   branch: string | null;
   role: string | null;
+  username: string | null;
+  status: string | null;
   active: boolean;
   source: 'staff' | 'staff_account' | 'alias';
 };
@@ -35,6 +37,8 @@ function identityFromRow(
     name: text(read(row, nameKeys, '')) || null,
     branch: normalizeBranchName(read(row, ['branch', 'branch_name'], null)) || null,
     role: text(read(row, ['role', 'staff_role', 'job_title'], '')) || null,
+    username: text(read(row, ['username'], '')) || null,
+    status: text(read(row, ['status'], '')) || null,
     active:
       read(row, ['active'], true) !== false &&
       read(row, ['is_active'], true) !== false &&
@@ -54,7 +58,7 @@ function uniqueBaseIdentities(rows: StaffDirectoryIdentity[]) {
       if (!existing || (existing.source !== 'staff' && row.source === 'staff')) byId.set(row.id, row);
       continue;
     }
-    const key = `${row.name || ''}|${row.branch || ''}|${row.role || ''}`;
+    const key = `${row.name || ''}|${row.branch || ''}|${row.role || ''}|${row.username || ''}`;
     if (!withoutId.has(key)) withoutId.set(key, row);
   }
 
@@ -75,7 +79,7 @@ export async function readStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
   if (!isSupabaseConfigured) return [];
 
   const [staffResult, accountResult, aliasResult] = await Promise.all([
-    supabase.from('staff').select('id,name,branch,role,active,is_active').limit(800),
+    supabase.from('staff').select('id,name,username,branch,role,status,active,is_active').limit(800),
     supabase.rpc('get_staff_accounts_directory'),
     supabase
       .from('staff_identity_aliases')
@@ -84,7 +88,11 @@ export async function readStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
       .limit(2000),
   ]);
 
-  if (staffResult.error && accountResult.error) return [];
+  if (staffResult.error && accountResult.error) {
+    throw new Error(
+      `تعذر تحميل دليل الموظفين: ${staffResult.error.message}; ${accountResult.error.message}`
+    );
+  }
 
   const staffRows = staffResult.error
     ? []
