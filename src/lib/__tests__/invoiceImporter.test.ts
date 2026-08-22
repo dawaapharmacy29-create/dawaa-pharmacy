@@ -6,7 +6,6 @@ const mockSelect = vi.fn();
 const mockGte = vi.fn();
 const mockLt = vi.fn();
 const mockRange = vi.fn();
-const mockRpc = vi.fn(async () => ({ data: null, error: null }));
 let mockDatabaseRows = [];
 let mockVerificationErrorPage = -1;
 let mockExistingInvoiceRows = [];
@@ -78,7 +77,7 @@ const chain = {
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    rpc: mockRpc,
+    rpc: vi.fn(async () => ({ data: null, error: null })),
     from: (table: string) => {
       currentTable = table;
       return chain;
@@ -132,7 +131,6 @@ beforeEach(() => {
   mockGte.mockReset();
   mockLt.mockReset();
   mockRange.mockReset();
-  mockRpc.mockClear();
   mockDatabaseRows = [];
   mockVerificationErrorPage = -1;
   mockExistingInvoiceRows = [];
