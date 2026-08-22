@@ -1,0 +1,40 @@
+name: Customers Invoice Read Model Migration V1
+
+on:
+  push:
+    branches:
+      - architecture/stability-phase-1
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[customers-invoice-readmodel-v1-applied]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: node scripts/migrate-customers-invoice-readmodel-v1.cjs
+      - run: node scripts/check-data-access-boundaries.cjs
+      - run: node scripts/check-migrated-ui-data-boundaries.cjs
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Commit migrated source
+        run: |
+          if git diff --quiet -- src/lib/api/customers.ts scripts/check-data-access-boundaries.cjs; then
+            echo "No migration changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/api/customers.ts scripts/check-data-access-boundaries.cjs
+          git commit -m "توحيد قراءة فواتير العملاء عبر read model [customers-invoice-readmodel-v1-applied]"
+          git push
