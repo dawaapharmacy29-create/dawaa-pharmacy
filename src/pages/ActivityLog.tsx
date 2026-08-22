@@ -157,7 +157,7 @@ export default function ActivityLog() {
 
       <section className="dawaa-card grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         <label className="relative xl:col-span-2">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+          <Search className="dawaa-muted absolute right-3 top-1/2 -translate-y-1/2" size={16} />
           <input className="dawaa-input w-full pr-9" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث في المستخدم، العملية، الهدف أو التفاصيل..." />
         </label>
         <select className="dawaa-select" value={branch} onChange={(e) => setBranch(e.target.value)}>
@@ -175,25 +175,25 @@ export default function ActivityLog() {
 
       <section className="dawaa-card overflow-hidden p-0">
         {loading && !result.rows.length ? (
-          <div className="py-16 text-center text-slate-400"><RefreshCw className="mx-auto mb-3 animate-spin" /> جاري التحميل...</div>
+          <div className="dawaa-muted py-16 text-center"><RefreshCw className="mx-auto mb-3 animate-spin" /> جاري التحميل...</div>
         ) : !result.rows.length ? (
           <div className="dawaa-empty-state py-16 text-center">لا توجد سجلات مطابقة للفلاتر الحالية.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="border-b border-[var(--dawaa-theme-border)] text-right text-slate-500">
+                <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
                   {['الوقت','المستخدم','الموديول','العملية','الفرع','التفاصيل'].map((h) => <th key={h} className="p-3">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {result.rows.map((row) => (
-                  <tr key={row.id} className="border-b border-[var(--dawaa-theme-border)]/60 hover:bg-white/5">
-                    <td className="whitespace-nowrap p-3 text-xs text-slate-400">{formatDateTime(row.created_at)}</td>
-                    <td className="p-3"><div className="font-bold">{row.user_name || 'النظام'}</div><div className="text-xs text-slate-500">{row.user_role || ''}</div></td>
+                  <tr key={row.id} className="border-b border-[var(--dawaa-theme-border)]/60 hover:bg-[var(--dawaa-theme-soft)]">
+                    <td className="dawaa-muted whitespace-nowrap p-3 text-xs">{formatDateTime(row.created_at)}</td>
+                    <td className="p-3"><div className="dawaa-heading font-bold">{row.user_name || 'النظام'}</div><div className="dawaa-muted text-xs">{row.user_role || ''}</div></td>
                     <td className="p-3"><span className="dawaa-badge dawaa-badge--info">{moduleOf(row)}</span></td>
-                    <td className="p-3 font-bold">{actionOf(row)}</td>
-                    <td className="p-3">{branchOf(row)}</td>
+                    <td className="dawaa-heading p-3 font-bold">{actionOf(row)}</td>
+                    <td className="dawaa-body p-3">{branchOf(row)}</td>
                     <td className="p-3">
                       <button type="button" onClick={() => setSelected(row)} className="dawaa-button dawaa-button--ghost text-xs">
                         <Activity size={14} /> عرض
@@ -208,7 +208,7 @@ export default function ActivityLog() {
       </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs text-slate-500">صفحة {page + 1} من {pageCount} · {result.total.toLocaleString('ar-EG')} سجل</div>
+        <div className="dawaa-muted text-xs">صفحة {page + 1} من {pageCount} · {result.total.toLocaleString('ar-EG')} سجل</div>
         <div className="flex gap-2">
           <button type="button" className="dawaa-button dawaa-button--secondary" disabled={page <= 0 || loading} onClick={() => setPage((p) => Math.max(0, p - 1))}>السابق</button>
           <button type="button" className="dawaa-button dawaa-button--secondary" disabled={page + 1 >= pageCount || loading} onClick={() => setPage((p) => p + 1)}>التالي</button>
@@ -216,12 +216,12 @@ export default function ActivityLog() {
       </div>
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelected(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--dawaa-theme-overlay)] p-4" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelected(null); }}>
           <div className="dawaa-card max-h-[85vh] w-full max-w-3xl overflow-y-auto">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <div className="dawaa-title text-lg">{actionOf(selected)}</div>
-                <div className="mt-1 text-xs text-slate-500">{formatDateTime(selected.created_at)} · {selected.user_name || 'النظام'}</div>
+                <div className="dawaa-muted mt-1 text-xs">{formatDateTime(selected.created_at)} · {selected.user_name || 'النظام'}</div>
               </div>
               <button type="button" onClick={() => setSelected(null)} className="dawaa-button dawaa-button--ghost"><X size={16} /></button>
             </div>
@@ -231,7 +231,7 @@ export default function ActivityLog() {
               <Detail label="نوع الهدف" value={text(selected.target_type || selected.entity_type, '—')} />
               <Detail label="معرف الهدف" value={text(selected.target_id || selected.entity_id, '—')} />
             </div>
-            <div className="mt-4 rounded-2xl bg-black/10 p-4 text-sm leading-7 whitespace-pre-wrap">{formatActivityDetails(selected.details) || 'لا توجد تفاصيل إضافية.'}</div>
+            <div className="dawaa-surface-soft mt-4 rounded-2xl p-4 text-sm leading-7 whitespace-pre-wrap">{formatActivityDetails(selected.details) || 'لا توجد تفاصيل إضافية.'}</div>
             {selected.route_path?.startsWith('/') ? (
               <button type="button" onClick={() => navigate(selected.route_path!)} className="dawaa-button dawaa-button--primary mt-4">
                 <ExternalLink size={15} /> فتح الصفحة المرتبطة
@@ -245,9 +245,9 @@ export default function ActivityLog() {
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
-  return <div className="stat-card"><div className="text-xs font-bold text-slate-500">{label}</div><div className="num mt-2 text-2xl font-black">{Number(value || 0).toLocaleString('ar-EG')}</div></div>;
+  return <div className="stat-card"><div className="dawaa-muted text-xs font-bold">{label}</div><div className="dawaa-heading num mt-2 text-2xl font-black">{Number(value || 0).toLocaleString('ar-EG')}</div></div>;
 }
 
 function Detail({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl border border-white/10 bg-white/5 p-3"><div className="text-xs text-slate-500">{label}</div><div className="mt-1 break-all text-sm font-bold">{value}</div></div>;
+  return <div className="dawaa-card dawaa-card--soft p-3"><div className="dawaa-muted text-xs">{label}</div><div className="dawaa-heading mt-1 break-all text-sm font-bold">{value}</div></div>;
 }
