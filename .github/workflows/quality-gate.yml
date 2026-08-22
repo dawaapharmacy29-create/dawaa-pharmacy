@@ -49,6 +49,9 @@ jobs:
       - name: Architecture data-access boundary
         run: node scripts/check-data-access-boundaries.cjs
 
+      - name: Migrated UI data boundary
+        run: node scripts/check-migrated-ui-data-boundaries.cjs
+
       - name: Notification architecture boundary
         run: node scripts/check-notification-architecture.cjs
 
