@@ -287,13 +287,13 @@ export default function CustomerQuickDetailsModal(props: Props) {
               <span>كود {safeCustomerCode || props.customerCode || 'بدون كود'}</span>
               <span>{resolvedBranch.branch}</span>
               {resolvedBranch.needsReview ? (
-                <span className="rounded-full border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs font-black text-amber-200">
+                <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">
                   فرع غير مؤكد
                 </span>
               ) : null}
               <CustomerFlagChips row={customer || props.fallbackMetric || props} />
               {liveStats?.status || details?.purchaseFrequencyStatus ? (
-                <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-1 text-xs font-black text-teal-700">
+                <span className="rounded-full border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-2 py-1 text-xs font-black text-[var(--dawaa-theme-primary)]">
                   {liveStats?.status || details?.purchaseFrequencyStatus}
                 </span>
               ) : null}
@@ -339,10 +339,10 @@ export default function CustomerQuickDetailsModal(props: Props) {
 
         {loading ? (
           <div className="flex items-center justify-center gap-2 p-10 text-sm font-black text-[var(--theme-muted)]">
-            <Loader2 className="h-5 w-5 animate-spin text-teal-600" /> جاري تحميل التفاصيل...
+            <Loader2 className="h-5 w-5 animate-spin text-[var(--dawaa-theme-primary)]" /> جاري تحميل التفاصيل...
           </div>
         ) : error ? (
-          <div className="p-6 text-center text-sm font-black text-red-600">{error}</div>
+          <div className="p-6 text-center text-sm font-black text-[var(--dawaa-status-danger-text)]">{error}</div>
         ) : customer ? (
           <div className="space-y-4 p-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -398,7 +398,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
                     }
                   />
                 </div>
-                <div className="mt-3 rounded-2xl bg-teal-600/10 p-3 text-sm font-black text-teal-700 dark:text-teal-100">
+                <div className="mt-3 rounded-2xl bg-[var(--dawaa-theme-accent-soft)] p-3 text-sm font-black text-[var(--dawaa-theme-primary)] dark:text-[var(--dawaa-theme-primary)]">
                   التوصية:{' '}
                   {liveStats?.recommendation ||
                     details?.purchaseAnalysis?.recommendation ||
@@ -409,9 +409,9 @@ export default function CustomerQuickDetailsModal(props: Props) {
             ) : null}
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border-2 border-emerald-300/70 bg-[var(--theme-surface)] p-4 shadow-sm">
-                <div className="mb-2 font-black text-emerald-900">نقاط العميل / الكاش باك</div>
-                <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-[var(--theme-text)]">
+              <div className="rounded-2xl border-2 border-[var(--dawaa-status-success-border)] bg-[var(--theme-surface)] p-4 shadow-sm">
+                <div className="mb-2 font-black text-[var(--dawaa-status-success-text)]">نقاط العميل / الكاش باك</div>
+                <div className="rounded-xl bg-[var(--dawaa-status-success-bg)] p-3 text-sm font-bold text-[var(--theme-text)]">
                   {cashbackSummaryLine(details?.cashback || null)}
                 </div>
                 {details?.cashback ? (
@@ -445,8 +445,8 @@ export default function CustomerQuickDetailsModal(props: Props) {
                 )}
               </div>
 
-              <div className="rounded-2xl border-2 border-sky-300/70 bg-[var(--theme-surface)] p-4 shadow-sm">
-                <div className="mb-2 font-black text-sky-900">الرسالة الترحيبية وتكويد العميل</div>
+              <div className="rounded-2xl border-2 border-[var(--dawaa-status-info-border)] bg-[var(--theme-surface)] p-4 shadow-sm">
+                <div className="mb-2 font-black text-[var(--dawaa-status-info-text)]">الرسالة الترحيبية وتكويد العميل</div>
                 {details?.welcomeStatus ? (
                   <div className="grid gap-2 text-xs font-bold text-[var(--theme-text)] sm:grid-cols-2">
                     <div className="rounded-xl bg-[var(--theme-surface-2)] p-2">
@@ -503,7 +503,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
                       </div>
                     ))}
                     {(details?.invoices || []).slice(0, 3).map((invoice, index) => (
-                      <div key={`invoice-timeline-${invoice.invoice_number || index}`} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-950">
+                      <div key={`invoice-timeline-${invoice.invoice_number || index}`} className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3 text-sm font-bold text-[var(--dawaa-status-success-text)]">
                         شراء / فاتورة {invoice.invoice_number || 'غير متاح'} · {formatDate(invoice.invoice_date)} · {formatCurrency(invoice.amount)}
                       </div>
                     ))}
@@ -533,7 +533,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
                           </div>
                         </div>
                         <div>{formatDate(invoice.invoice_date)}</div>
-                        <div className="text-left text-emerald-700">
+                        <div className="text-left text-[var(--dawaa-status-success-text)]">
                           {formatCurrency(invoice.amount)}
                         </div>
                       </div>
@@ -561,7 +561,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
                           <span className="text-[var(--theme-heading)]">
                             {followup.responsible_name || followup.assigned_to || 'غير محدد'}
                           </span>
-                          <span className="rounded-full bg-white px-2 py-1 text-xs">
+                          <span className="rounded-full bg-[var(--dawaa-theme-surface-2)] px-2 py-1 text-xs">
                             {followup.status || 'معلق'}
                           </span>
                         </div>

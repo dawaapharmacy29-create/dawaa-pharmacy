@@ -7,6 +7,8 @@ const SRC = path.join(ROOT, 'src');
 const rows = [];
 const CANONICAL_PALETTE = 'src/styles/dawaa-theme-palettes.css';
 const CLEAN_UI_FILES = new Set([
+  'src/pages/Customers.tsx',
+  'src/components/customers/CustomerQuickDetailsModal.tsx',
   'src/components/customerService/CustomerFollowupFullExportPanel.tsx',
   'src/components/customerService/CustomerFollowupOperationsCompletionPanel.tsx',
   'src/components/customerService/CustomerFollowupFinalQualityPanel.tsx',
