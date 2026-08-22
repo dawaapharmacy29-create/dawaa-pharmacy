@@ -10,8 +10,6 @@ html[data-theme] #root {
   color: var(--dawaa-theme-text);
 }
 
-/* Legacy index.css used to paint every .min-h-screen with an aqua/dark gradient.
-   Page roots are neutral now; deliberate ambient effects must use a semantic class. */
 html[data-theme] .min-h-screen {
   background-color: var(--dawaa-theme-bg) !important;
   background-image: var(--dawaa-theme-ambient) !important;
@@ -96,13 +94,71 @@ html[data-theme] header .theme-option-active {
   box-shadow: none !important;
 }
 
-/* Shared navigation states. */
-html[data-theme] .dawaa-sidebar,
-html[data-theme] .sidebar-shell {
-  background: var(--dawaa-theme-sidebar) !important;
-  border-color: var(--dawaa-theme-divider) !important;
+/* Canonical Sidebar semantic classes. Sidebar.tsx must use these instead of
+   Tailwind palette utilities or hard-coded colors. */
+.dawaa-sidebar {
+  background: var(--dawaa-theme-sidebar);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-divider);
 }
 
+.dawaa-sidebar-divider { border-color: var(--dawaa-theme-divider); }
+.dawaa-sidebar-title { color: var(--dawaa-theme-heading); }
+.dawaa-sidebar-muted { color: var(--dawaa-theme-muted); }
+.dawaa-sidebar-brand { color: var(--dawaa-theme-primary); }
+
+.dawaa-sidebar-user-card {
+  background: var(--dawaa-theme-surface-2);
+  border: 1px solid var(--dawaa-theme-divider);
+  color: var(--dawaa-theme-text);
+}
+
+.dawaa-sidebar-quick {
+  background: var(--dawaa-theme-sidebar-active);
+  color: var(--dawaa-theme-primary-strong);
+  border: 1px solid var(--dawaa-theme-border-strong);
+}
+.dawaa-sidebar-quick:hover {
+  background: var(--dawaa-theme-soft);
+  color: var(--dawaa-theme-heading);
+}
+
+.dawaa-sidebar-quick--secondary {
+  background: var(--dawaa-theme-surface-2);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
+}
+
+.dawaa-sidebar-group {
+  color: var(--dawaa-theme-muted);
+  background: transparent;
+}
+.dawaa-sidebar-group:hover {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-sidebar-hover);
+}
+.dawaa-sidebar-group.is-active {
+  color: var(--dawaa-theme-primary-strong);
+  background: var(--dawaa-theme-sidebar-active);
+}
+
+.dawaa-sidebar-section-label {
+  color: var(--dawaa-theme-muted);
+  border-color: var(--dawaa-theme-divider);
+}
+
+.dawaa-sidebar-count {
+  background: var(--dawaa-status-warning-bg);
+  color: var(--dawaa-status-warning-text);
+  border: 1px solid var(--dawaa-status-warning-border);
+}
+
+.dawaa-sidebar-logout { color: var(--dawaa-status-danger-text); }
+.dawaa-sidebar-logout:hover { background: var(--dawaa-status-danger-bg); }
+
+.dawaa-mobile-backdrop { background: var(--dawaa-theme-overlay); }
+
+/* Shared navigation states retained for other consumers. */
 html[data-theme] .dawaa-nav-item,
 html[data-theme] .sidebar-item {
   color: var(--dawaa-theme-muted) !important;
@@ -123,40 +179,7 @@ html[data-theme] .sidebar-item[aria-current='page'] {
   border-color: var(--dawaa-theme-border-strong) !important;
 }
 
-/* Active Sidebar.tsx palette compatibility. */
-html[data-theme] aside [class*='text-slate-900'],
-html[data-theme] aside [class*='text-slate-950'] {
-  color: var(--dawaa-theme-heading) !important;
-}
-
-html[data-theme] aside [class*='text-slate-400'],
-html[data-theme] aside [class*='text-slate-500'],
-html[data-theme] aside [class*='text-slate-600'],
-html[data-theme] aside [class*='text-slate-700'] {
-  color: var(--dawaa-theme-muted) !important;
-}
-
-html[data-theme] aside [class*='bg-white'],
-html[data-theme] aside [class*='bg-slate-50'],
-html[data-theme] aside [class*='bg-slate-100'] {
-  background: var(--dawaa-theme-sidebar) !important;
-  border-color: var(--dawaa-theme-divider) !important;
-}
-
-html[data-theme] aside [class*='bg-teal-50'],
-html[data-theme] aside [class*='bg-teal-100'] {
-  background: var(--dawaa-theme-sidebar-active) !important;
-  border-color: var(--dawaa-theme-border-strong) !important;
-}
-
-html[data-theme] aside [class*='text-teal-600'],
-html[data-theme] aside [class*='text-teal-700'],
-html[data-theme] aside [class*='text-teal-800'] {
-  color: var(--dawaa-theme-primary-strong) !important;
-}
-
-/* Status surfaces: color communicates state without turning the whole UI into
-   saturated pastel blocks. */
+/* Status surfaces: color communicates state without saturated blocks. */
 .dawaa-status-success,
 .dawaa-status-warning,
 .dawaa-status-danger,
@@ -218,7 +241,6 @@ html[data-theme] .dawaa-card {
   border-color: var(--dawaa-theme-border) !important;
 }
 
-/* Light keeps brand color out of large empty surfaces. */
 html[data-theme='light'] .dawaa-hero,
 html[data-theme='light'] .dawaa-panel,
 html[data-theme='light'] .dawaa-card,
