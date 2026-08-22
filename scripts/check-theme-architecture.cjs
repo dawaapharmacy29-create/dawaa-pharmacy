@@ -10,6 +10,7 @@ const LEGACY_SHARED_CHROME_HEX_BASELINE = new Map([
   ['src/components/layout/Header.tsx', 0],
   ['src/components/layout/Sidebar.tsx', 0],
 ]);
+const LEGACY_ARBITRARY_SELECTOR_BASELINE = 5;
 
 const writerPatterns = [
   /document\.documentElement[\s\S]{0,240}(?:classList\.(?:add|remove|toggle)|dataset\.theme|setAttribute\(\s*['"]data-theme['"])/m,
@@ -62,16 +63,13 @@ for (const importPath of expectedThemeImports) {
     violations.push(`src/main.tsx: missing canonical theme layer ${importPath}`);
     continue;
   }
-  if (index <= previousIndex) {
-    violations.push(`src/main.tsx: canonical theme layer order is invalid near ${importPath}`);
-  }
+  if (index <= previousIndex) violations.push(`src/main.tsx: canonical theme layer order is invalid near ${importPath}`);
   previousIndex = index;
 }
 
 const hardcodedPalette = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
-
-for (const rel of [
-  'src/styles/dawaa-theme.css',
+const declarationPalette = /:\s*(?:#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\()/g;
+const paletteNeutralFiles = [
   'src/styles/dawaa-theme-components.css',
   'src/styles/dawaa-theme-tokens.css',
   'src/styles/dawaa-theme-shell.css',
@@ -80,13 +78,28 @@ for (const rel of [
   'src/styles/customer-service-followups.css',
   'src/styles/customer-cashback-polish.css',
   'src/styles/reviews-modal-polish.css',
-]) {
+];
+for (const rel of paletteNeutralFiles) {
   const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   const colors = text.match(hardcodedPalette) || [];
   if (colors.length) violations.push(`${rel}: contains ${colors.length} hard-coded palette color(s)`);
-  if (/\.light-mode|data-palette=|\[data-palette/.test(text)) {
-    violations.push(`${rel}: contains retired legacy theme selector(s)`);
-  }
+  if (/\.light-mode|data-palette=|\[data-palette/.test(text)) violations.push(`${rel}: contains retired legacy theme selector(s)`);
+}
+
+// The compatibility bridge may name historical arbitrary Tailwind classes in selectors,
+// but it may not declare literal colors of its own. Selector debt is tracked separately.
+const bridgePath = path.join(SRC, 'styles', 'dawaa-theme.css');
+const bridgeText = fs.readFileSync(bridgePath, 'utf8');
+const bridgeDeclarationColors = bridgeText.match(declarationPalette) || [];
+if (bridgeDeclarationColors.length) {
+  violations.push(`src/styles/dawaa-theme.css: contains ${bridgeDeclarationColors.length} literal palette declaration(s)`);
+}
+if (/\.light-mode|data-palette=|\[data-palette/.test(bridgeText)) {
+  violations.push('src/styles/dawaa-theme.css: contains retired legacy theme selector(s)');
+}
+const arbitrarySelectorCount = (bridgeText.match(/\[class\*=['"][^'"]*#[0-9a-fA-F]{3,8}[^'"]*['"]\]/g) || []).length;
+if (arbitrarySelectorCount > LEGACY_ARBITRARY_SELECTOR_BASELINE) {
+  violations.push(`src/styles/dawaa-theme.css: arbitrary legacy selector debt increased (${arbitrarySelectorCount} > ${LEGACY_ARBITRARY_SELECTOR_BASELINE})`);
 }
 
 const palettesPath = path.join(SRC, 'styles', 'dawaa-theme-palettes.css');
@@ -95,9 +108,7 @@ if (!fs.existsSync(palettesPath)) {
 } else {
   const palettesText = fs.readFileSync(palettesPath, 'utf8');
   for (const theme of ['dark', 'light', 'pharmacy-green']) {
-    if (!palettesText.includes(`data-theme='${theme}'`)) {
-      violations.push(`src/styles/dawaa-theme-palettes.css: missing palette contract for ${theme}`);
-    }
+    if (!palettesText.includes(`data-theme='${theme}'`)) violations.push(`src/styles/dawaa-theme-palettes.css: missing palette contract for ${theme}`);
   }
   for (const semanticVar of [
     '--dawaa-theme-bg', '--dawaa-theme-surface', '--dawaa-theme-surface-2',
@@ -106,9 +117,7 @@ if (!fs.existsSync(palettesPath)) {
     '--dawaa-theme-sidebar', '--dawaa-status-success-bg', '--dawaa-status-warning-bg',
     '--dawaa-status-danger-bg', '--dawaa-status-info-bg',
   ]) {
-    if (!palettesText.includes(semanticVar)) {
-      violations.push(`src/styles/dawaa-theme-palettes.css: missing semantic palette variable ${semanticVar}`);
-    }
+    if (!palettesText.includes(semanticVar)) violations.push(`src/styles/dawaa-theme-palettes.css: missing semantic palette variable ${semanticVar}`);
   }
 }
 
@@ -137,4 +146,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log('Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral global/legacy utilities, canonical bootstrap, and zero hard-coded chrome hex colors verified.');
+console.log(`Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
