@@ -9,13 +9,12 @@ import {
   Send,
   ShieldAlert,
   Sparkles,
-  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSupabaseQuery, supabaseInsert, supabaseUpdate } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { currentCycleText, pickFirst } from '@/lib/dawaa2027';
+import { currentCycleText } from '@/lib/dawaa2027';
 import { logActivity } from '@/lib/activityLog';
 import {
   dismissNotification,
@@ -48,6 +47,7 @@ export default function OperationsCenter2027() {
     realtimeEnabled: true,
   });
   const [rawNotifications, setRawNotifications] = useState<Record<string, unknown>[]>([]);
+
   const refetchNotifications = useCallback(() => {
     void supabase
       .rpc('get_my_notifications', {
@@ -58,6 +58,7 @@ export default function OperationsCenter2027() {
       })
       .then(({ data }) => setRawNotifications((data as Record<string, unknown>[]) || []));
   }, [user?.staffId, user?.role, user?.branch]);
+
   useEffect(() => {
     refetchNotifications();
   }, [refetchNotifications]);
@@ -205,6 +206,7 @@ export default function OperationsCenter2027() {
       completed_at: new Date().toISOString(),
     } as Record<string, unknown>);
     if (error) return toast.error(error);
+
     await logActivity({
       action: 'task_completed',
       module: 'المهام اليومية',
@@ -219,6 +221,7 @@ export default function OperationsCenter2027() {
       new_value: { status: 'completed' },
       details: { title: task?.title || 'مهمة', assigned_to_name: task?.assigned_to_name },
     }).catch(() => undefined);
+
     toast.success('تم إغلاق المهمة');
     refetchTasks();
   };
@@ -242,14 +245,12 @@ export default function OperationsCenter2027() {
 
   return (
     <div className="space-y-5" dir="rtl">
-      <section className="dawaa-hero">
-        <div>
-          <span className="dawaa-brand-chip">Smart Notifications</span>
-          <h1 className="mt-3 text-2xl font-black text-slate-950">مركز التنبيهات والمهام</h1>
-          <p className="mt-1 text-sm font-semibold text-slate-600">
-            كل حدث مهم يتحول إلى تنبيه واضح، إجراء مطلوب، وسجل مسؤولية.
-          </p>
-        </div>
+      <section className="dawaa-card dawaa-card--raised">
+        <span className="dawaa-brand-chip">Smart Notifications</span>
+        <h1 className="dawaa-title mt-3 text-2xl">مركز التنبيهات والمهام</h1>
+        <p className="dawaa-caption mt-1 font-semibold">
+          كل حدث مهم يتحول إلى تنبيه واضح، إجراء مطلوب، وسجل مسؤولية.
+        </p>
       </section>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -270,8 +271,8 @@ export default function OperationsCenter2027() {
         />
       </div>
 
-      <section className="dawaa-panel">
-        <h2 className="mb-4 text-lg font-black text-slate-950">إنشاء مهمة تشغيلية</h2>
+      <section className="dawaa-card">
+        <h2 className="dawaa-title mb-4 text-lg">إنشاء مهمة تشغيلية</h2>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <input
             className="dawaa-input xl:col-span-2"
@@ -280,7 +281,7 @@ export default function OperationsCenter2027() {
             onChange={(e) => setForm({ ...form, title: e.target.value })}
           />
           <select
-            className="dawaa-input"
+            className="dawaa-select"
             value={form.type}
             onChange={(e) => setForm({ ...form, type: e.target.value })}
           >
@@ -289,7 +290,7 @@ export default function OperationsCenter2027() {
             ))}
           </select>
           <select
-            className="dawaa-input"
+            className="dawaa-select"
             value={form.priority}
             onChange={(e) => setForm({ ...form, priority: e.target.value })}
           >
@@ -310,25 +311,22 @@ export default function OperationsCenter2027() {
             onChange={(e) => setForm({ ...form, assigned_to_name: e.target.value })}
           />
         </div>
-        <button
-          onClick={addTask}
-          className="dawaa-button-primary mt-4 inline-flex items-center gap-2"
-        >
+        <button onClick={addTask} className="dawaa-button dawaa-button--primary mt-4">
           <Plus className="h-4 w-4" /> إنشاء مهمة وتنبيه
         </button>
       </section>
 
-      <section className="dawaa-panel">
+      <section className="dawaa-card">
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="flex-1">
-            <h2 className="text-lg font-black text-slate-950">مركز التنبيهات</h2>
-            <p className="text-sm font-semibold text-slate-500">
+            <h2 className="dawaa-title text-lg">مركز التنبيهات</h2>
+            <p className="dawaa-caption font-semibold">
               فلترة وتنفيذ ومراجعة التنبيهات بدون تحميل كامل الجدول.
             </p>
           </div>
           <div className="grid gap-2 md:grid-cols-6">
             <div className="relative md:col-span-2">
-              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="dawaa-muted absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" />
               <input
                 className="dawaa-input w-full pr-10"
                 placeholder="بحث في التنبيهات"
@@ -363,68 +361,69 @@ export default function OperationsCenter2027() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-slate-200">
-          <table className="min-w-full divide-y divide-slate-100 text-sm">
-            <thead className="bg-slate-50 text-xs font-black text-slate-500">
+        <div className="dawaa-table-shell">
+          <table className="dawaa-table-semantic min-w-full text-sm">
+            <thead className="text-xs">
               <tr>
-                <th className="px-4 py-3 text-right">التنبيه</th>
-                <th className="px-4 py-3 text-right">الأولوية</th>
-                <th className="px-4 py-3 text-right">الحالة</th>
-                <th className="px-4 py-3 text-right">الفرع</th>
-                <th className="px-4 py-3 text-right">التاريخ</th>
-                <th className="px-4 py-3 text-right">إجراءات</th>
+                <th className="text-right">التنبيه</th>
+                <th className="text-right">الأولوية</th>
+                <th className="text-right">الحالة</th>
+                <th className="text-right">الفرع</th>
+                <th className="text-right">التاريخ</th>
+                <th className="text-right">إجراءات</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
+            <tbody>
               {filteredNotifications.slice(0, 80).map((n) => (
-                <tr key={n.id} className={!n.read && !n.is_read ? 'bg-teal-50/40' : ''}>
-                  <td className="max-w-md px-4 py-3">
-                    <div className="font-black text-slate-950">{n.title}</div>
-                    <div className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-500">
+                <tr key={n.id} className={!n.read && !n.is_read ? 'dawaa-row--highlight' : ''}>
+                  <td className="max-w-md">
+                    <div className="dawaa-title text-sm">{n.title}</div>
+                    <div className="dawaa-caption mt-1 line-clamp-2 text-xs font-semibold leading-5">
                       {n.body || n.message}
                     </div>
-                    <div className="mt-2 text-[11px] font-bold text-slate-400">
+                    <div className="dawaa-muted mt-2 text-[11px] font-bold">
                       {n.target_type || n.type}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     <PriorityBadge value={String(n.priority || 'normal')} />
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {String(n.status || (n.read ? 'read' : 'new'))}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{n.branch || 'غير محدد'}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500">
+                  <td className="dawaa-text">{String(n.status || (n.read ? 'read' : 'new'))}</td>
+                  <td className="dawaa-text">{n.branch || 'غير محدد'}</td>
+                  <td className="dawaa-caption text-xs">
                     {String(n.created_at).slice(0, 16).replace('T', ' ')}
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     <div className="flex flex-wrap gap-1">
                       <button
-                        className="btn-secondary px-2 py-1 text-xs"
+                        className="dawaa-button dawaa-button--secondary min-h-0 px-2 py-1 text-xs"
                         onClick={() => void runNotificationAction('read', n.id)}
                       >
                         قراءة
                       </button>
                       <button
-                        className="btn-secondary px-2 py-1 text-xs"
+                        className="dawaa-button dawaa-button--secondary min-h-0 px-2 py-1 text-xs"
                         onClick={() => void runNotificationAction('completed', n.id)}
                       >
                         تم التنفيذ
                       </button>
                       <button
-                        className="btn-secondary px-2 py-1 text-xs"
+                        className="dawaa-button dawaa-button--secondary min-h-0 px-2 py-1 text-xs"
                         onClick={() => void runNotificationAction('escalated', n.id)}
                       >
                         تصعيد
                       </button>
                       <button
-                        className="btn-secondary px-2 py-1 text-xs"
+                        className="dawaa-button dawaa-button--secondary min-h-0 px-2 py-1 text-xs"
                         onClick={() => void runNotificationAction('dismissed', n.id)}
                       >
                         تجاهل
                       </button>
                       {n.route && (
-                        <a className="btn-secondary px-2 py-1 text-xs" href={n.route}>
+                        <a
+                          className="dawaa-button dawaa-button--ghost min-h-0 px-2 py-1 text-xs"
+                          href={n.route}
+                        >
                           <ExternalLink size={13} />
                         </a>
                       )}
@@ -434,10 +433,7 @@ export default function OperationsCenter2027() {
               ))}
               {!filteredNotifications.length && (
                 <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-10 text-center text-sm font-bold text-slate-500"
-                  >
+                  <td colSpan={6} className="dawaa-caption py-10 text-center font-bold">
                     لا توجد تنبيهات مطابقة
                   </td>
                 </tr>
@@ -448,38 +444,22 @@ export default function OperationsCenter2027() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <div className="dawaa-panel">
-          <h2 className="mb-4 text-lg font-black text-slate-950">المهام المفتوحة</h2>
+        <div className="dawaa-card">
+          <h2 className="dawaa-title mb-4 text-lg">المهام المفتوحة</h2>
           <div className="space-y-3">
             {open.slice(0, 40).map((t) => (
-              <div
-                key={t.id}
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-              >
+              <div key={t.id} className="dawaa-card dawaa-card--soft p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="font-black text-slate-950">{t.title}</div>
+                    <div className="dawaa-title text-sm">{t.title}</div>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                      <span className="badge-info">{t.type}</span>
-                      <span
-                        className={
-                          t.priority === 'خطر'
-                            ? 'badge-danger'
-                            : t.priority === 'مهم'
-                              ? 'badge-warning'
-                              : 'badge-success'
-                        }
-                      >
-                        {t.priority}
-                      </span>
-                      <span className="badge-info">{t.assigned_to_name}</span>
-                      <span className="badge-info">{String(t.due_date).slice(0, 10)}</span>
+                      <span className="dawaa-badge dawaa-badge--info">{t.type}</span>
+                      <span className={`dawaa-badge ${priorityTone(t.priority)}`}>{t.priority}</span>
+                      <span className="dawaa-badge dawaa-badge--info">{t.assigned_to_name}</span>
+                      <span className="dawaa-badge dawaa-badge--info">{String(t.due_date).slice(0, 10)}</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => closeTask(t.id)}
-                    className="rounded-xl p-2 text-teal-600 hover:bg-teal-50"
-                  >
+                  <button onClick={() => closeTask(t.id)} className="dawaa-action-icon p-2">
                     <CheckCircle2 className="h-5 w-5" />
                   </button>
                 </div>
@@ -489,8 +469,8 @@ export default function OperationsCenter2027() {
           </div>
         </div>
 
-        <div className="dawaa-panel">
-          <h2 className="mb-4 text-lg font-black text-slate-950">خريطة المساءلة</h2>
+        <div className="dawaa-card">
+          <h2 className="dawaa-title mb-4 text-lg">خريطة المساءلة</h2>
           <div className="space-y-3">
             <Accountability
               title="حدث"
@@ -536,7 +516,7 @@ function Filter({
 }) {
   return (
     <select
-      className="dawaa-input"
+      className="dawaa-select"
       value={value}
       onChange={(event) => onChange(event.target.value)}
     >
@@ -549,20 +529,21 @@ function Filter({
   );
 }
 
+function priorityTone(value: string) {
+  if (/critical|urgent|high|خطر|عاجل|حرج/i.test(value)) return 'dawaa-badge--danger';
+  if (/normal|مهم/i.test(value)) return 'dawaa-badge--warning';
+  return 'dawaa-badge--info';
+}
+
 function PriorityBadge({ value }: { value: string }) {
-  const cls = /critical|urgent|high|خطر|عاجل|حرج/i.test(value)
-    ? 'border-red-200 bg-red-50 text-red-700'
-    : /normal|مهم/i.test(value)
-      ? 'border-amber-200 bg-amber-50 text-amber-700'
-      : 'border-slate-200 bg-slate-50 text-slate-600';
-  return <span className={`rounded-full border px-2 py-1 text-xs font-black ${cls}`}>{value}</span>;
+  return <span className={`dawaa-badge ${priorityTone(value)}`}>{value}</span>;
 }
 
 function Accountability({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="font-black text-slate-950">{title}</div>
-      <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">{text}</p>
+    <div className="dawaa-card dawaa-card--soft p-4">
+      <div className="dawaa-title text-sm">{title}</div>
+      <p className="dawaa-caption mt-1 font-semibold leading-6">{text}</p>
     </div>
   );
 }
@@ -580,13 +561,13 @@ function Kpi({
 }) {
   return (
     <div className="dawaa-card">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-xs font-bold text-slate-500">{label}</div>
-          <div className="mt-2 text-3xl font-black text-slate-950">{value}</div>
-          <div className="mt-1 text-xs font-semibold text-slate-500">{hint}</div>
+          <div className="dawaa-caption text-xs font-bold">{label}</div>
+          <div className="dawaa-title mt-2 text-3xl">{value}</div>
+          <div className="dawaa-caption mt-1 text-xs font-semibold">{hint}</div>
         </div>
-        <div className="rounded-2xl bg-teal-50 p-3 text-teal-600">
+        <div className="dawaa-icon-tile h-12 w-12">
           <Icon className="h-6 w-6" />
         </div>
       </div>
@@ -595,9 +576,5 @@ function Kpi({
 }
 
 function Empty({ text }: { text: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">
-      {text}
-    </div>
-  );
+  return <div className="dawaa-empty-state p-6 text-sm font-bold">{text}</div>;
 }
