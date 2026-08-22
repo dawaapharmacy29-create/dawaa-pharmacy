@@ -75,6 +75,7 @@ for (const rel of [
   'src/styles/dawaa-theme-components.css',
   'src/styles/dawaa-theme-tokens.css',
   'src/styles/dawaa-theme-shell.css',
+  'src/styles/dawaa-design-system.css',
   'src/styles/v3-polish.css',
   'src/styles/customer-service-followups.css',
   'src/styles/customer-cashback-polish.css',
@@ -83,6 +84,9 @@ for (const rel of [
   const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   const colors = text.match(hardcodedPalette) || [];
   if (colors.length) violations.push(`${rel}: contains ${colors.length} hard-coded palette color(s)`);
+  if (/\.light-mode|data-palette=|\[data-palette/.test(text)) {
+    violations.push(`${rel}: contains retired legacy theme selector(s)`);
+  }
 }
 
 const palettesPath = path.join(SRC, 'styles', 'dawaa-theme-palettes.css');
@@ -133,4 +137,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log('Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral global polish, canonical bootstrap, and zero hard-coded chrome hex colors verified.');
+console.log('Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral global/legacy utilities, canonical bootstrap, and zero hard-coded chrome hex colors verified.');
