@@ -36,6 +36,78 @@
   border-color: var(--dawaa-theme-border);
 }
 
+/*
+ * Temporary legacy dark-surface bridge.
+ *
+ * A number of older pages still encode a dark visual theme directly in JSX via
+ * bg-slate-950/900/800 utilities. After retiring the old global repaint engine,
+ * those surfaces correctly became visible as migration debt, but they also make
+ * Light unusable while the pages are migrated one by one.
+ *
+ * This bridge changes ONLY the old dark surface hierarchy in non-dark themes.
+ * It does not recolor arbitrary status colors, brand actions, or all typography.
+ * Delete these selectors as their consumers reach zero-debt.
+ */
+html[data-theme='light'] [class*='bg-slate-950'],
+html[data-theme='pharmacy-green'] [class*='bg-slate-950'] {
+  background: var(--dawaa-theme-surface);
+  border-color: var(--dawaa-theme-border);
+}
+
+html[data-theme='light'] [class*='bg-slate-900'],
+html[data-theme='pharmacy-green'] [class*='bg-slate-900'] {
+  background: var(--dawaa-theme-surface);
+  border-color: var(--dawaa-theme-border);
+}
+
+html[data-theme='light'] [class*='bg-slate-800'],
+html[data-theme='pharmacy-green'] [class*='bg-slate-800'] {
+  background: var(--dawaa-theme-surface-2);
+  border-color: var(--dawaa-theme-border);
+}
+
+html[data-theme='light'] [class*='bg-slate-950'][class*='text-white'],
+html[data-theme='light'] [class*='bg-slate-900'][class*='text-white'],
+html[data-theme='light'] [class*='bg-slate-800'][class*='text-white'],
+html[data-theme='pharmacy-green'] [class*='bg-slate-950'][class*='text-white'],
+html[data-theme='pharmacy-green'] [class*='bg-slate-900'][class*='text-white'],
+html[data-theme='pharmacy-green'] [class*='bg-slate-800'][class*='text-white'],
+html[data-theme='light'] [class*='bg-slate-950'] .text-white,
+html[data-theme='light'] [class*='bg-slate-900'] .text-white,
+html[data-theme='light'] [class*='bg-slate-800'] .text-white,
+html[data-theme='pharmacy-green'] [class*='bg-slate-950'] .text-white,
+html[data-theme='pharmacy-green'] [class*='bg-slate-900'] .text-white,
+html[data-theme='pharmacy-green'] [class*='bg-slate-800'] .text-white {
+  color: var(--dawaa-theme-heading);
+}
+
+html[data-theme='light'] [class*='bg-slate-950'] :is(.text-slate-100, .text-slate-200, .text-slate-300),
+html[data-theme='light'] [class*='bg-slate-900'] :is(.text-slate-100, .text-slate-200, .text-slate-300),
+html[data-theme='light'] [class*='bg-slate-800'] :is(.text-slate-100, .text-slate-200, .text-slate-300),
+html[data-theme='pharmacy-green'] [class*='bg-slate-950'] :is(.text-slate-100, .text-slate-200, .text-slate-300),
+html[data-theme='pharmacy-green'] [class*='bg-slate-900'] :is(.text-slate-100, .text-slate-200, .text-slate-300),
+html[data-theme='pharmacy-green'] [class*='bg-slate-800'] :is(.text-slate-100, .text-slate-200, .text-slate-300) {
+  color: var(--dawaa-theme-text);
+}
+
+html[data-theme='light'] [class*='bg-slate-950'] :is(.text-slate-400, .text-slate-500),
+html[data-theme='light'] [class*='bg-slate-900'] :is(.text-slate-400, .text-slate-500),
+html[data-theme='light'] [class*='bg-slate-800'] :is(.text-slate-400, .text-slate-500),
+html[data-theme='pharmacy-green'] [class*='bg-slate-950'] :is(.text-slate-400, .text-slate-500),
+html[data-theme='pharmacy-green'] [class*='bg-slate-900'] :is(.text-slate-400, .text-slate-500),
+html[data-theme='pharmacy-green'] [class*='bg-slate-800'] :is(.text-slate-400, .text-slate-500) {
+  color: var(--dawaa-theme-muted);
+}
+
+html[data-theme='light'] [class*='bg-slate-950'] [class*='border-slate-'],
+html[data-theme='light'] [class*='bg-slate-900'] [class*='border-slate-'],
+html[data-theme='light'] [class*='bg-slate-800'] [class*='border-slate-'],
+html[data-theme='pharmacy-green'] [class*='bg-slate-950'] [class*='border-slate-'],
+html[data-theme='pharmacy-green'] [class*='bg-slate-900'] [class*='border-slate-'],
+html[data-theme='pharmacy-green'] [class*='bg-slate-800'] [class*='border-slate-'] {
+  border-color: var(--dawaa-theme-border);
+}
+
 /* Legacy form primitive. */
 .input-dark {
   background: var(--dawaa-theme-input);
