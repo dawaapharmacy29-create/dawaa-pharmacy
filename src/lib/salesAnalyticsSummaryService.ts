@@ -4,18 +4,9 @@ import type { StaffSalesSummary } from '@/lib/dashboardSummaryService';
 import {
   fetchStaffIdentityRows,
   groupStaffSalesPerformance,
-  normalizeStaffName,
 } from '@/lib/staffIdentityService';
-import { getInvoiceNetValue } from '@/lib/analyticsService';
-import {
-  fetchSalesInvoicesPagedSafe,
-  INVOICE_SELECT_STAFF,
-  type SalesInvoiceQueryRow,
-} from '@/lib/salesInvoiceQueries';
 
-type Row = Record<string, unknown>;
-
-export const SALES_ANALYTICS_SOURCE_ID = 'sales_invoices_live';
+export const SALES_ANALYTICS_SOURCE_ID = 'sales_invoices_server_aggregate';
 export const SALES_ANALYTICS_PHYSICAL_SOURCE = 'dawaa_sales_invoices_dashboard_v1';
 
 export type SalesAnalyticsFilters = {
@@ -86,186 +77,34 @@ export type SalesAnalyticsSummary = {
   errorsBySection: Record<string, string>;
 };
 
+type RpcPayload = {
+  kpis?: Record<string, unknown>;
+  dailyTrend?: Array<Record<string, unknown>>;
+  last5DaysByBranch?: Array<Record<string, unknown>>;
+  branchRows?: Array<Record<string, unknown>>;
+  staffSales?: Array<Record<string, unknown>>;
+  dataHealth?: Record<string, unknown>;
+};
+
 const cache = new Map<string, SalesAnalyticsSummary>();
 
 function isAll(value?: string | null) {
   return !value || value === 'الكل' || value === 'كل الفروع' || value === 'all';
 }
 
-function read(row: Row, keys: string[], fallback: unknown = null) {
-  for (const key of keys) {
-    const value = row[key];
-    if (value !== undefined && value !== null && value !== '') return value;
-  }
-  return fallback;
+function toNumber(value: unknown) {
+  const numberValue = Number(value ?? 0);
+  return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
-function invoiceAmount(row: Row) {
-  return getInvoiceNetValue(row);
+function toNullableNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
 }
 
-function customerKey(row: Row) {
-  return String(read(row, ['customer_code', 'customer_phone', 'customer_name'], '') || '').trim();
-}
-
-function sellerName(row: Row) {
-  return String(read(row, ['normalized_seller_name', 'seller_name', 'staff_name'], '') || '').trim();
-}
-
-function invoiceDate(row: Row) {
-  return String(read(row, ['sale_date', 'invoice_date'], '') || '').slice(0, 10);
-}
-
-function invoiceBranch(row: Row) {
-  return normalizeBranchName(read(row, ['branch_name', 'branch'], null));
-}
-
-function buildDailyTrend(rows: Row[]) {
-  const byDate = new Map<
-    string,
-    { date: string; netSales: number; invoicesCount: number; customers: Set<string> }
-  >();
-  for (const row of rows) {
-    const date = invoiceDate(row);
-    if (!date) continue;
-    const current = byDate.get(date) || {
-      date,
-      netSales: 0,
-      invoicesCount: 0,
-      customers: new Set<string>(),
-    };
-    current.netSales += invoiceAmount(row);
-    current.invoicesCount += 1;
-    const customer = customerKey(row);
-    if (customer) current.customers.add(customer);
-    byDate.set(date, current);
-  }
-  return [...byDate.values()]
-    .map((row) => ({
-      date: row.date,
-      netSales: row.netSales,
-      invoicesCount: row.invoicesCount,
-      avgInvoice: row.invoicesCount ? row.netSales / row.invoicesCount : 0,
-      uniqueCustomers: row.customers.size,
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
-
-function buildBranchRows(rows: Row[], netSales: number) {
-  const byBranch = new Map<
-    string,
-    { branch: string; netSales: number; invoicesCount: number; customers: Set<string> }
-  >();
-  for (const row of rows) {
-    const branch = invoiceBranch(row) || 'غير محدد';
-    const current = byBranch.get(branch) || {
-      branch,
-      netSales: 0,
-      invoicesCount: 0,
-      customers: new Set<string>(),
-    };
-    current.netSales += invoiceAmount(row);
-    current.invoicesCount += 1;
-    const customer = customerKey(row);
-    if (customer) current.customers.add(customer);
-    byBranch.set(branch, current);
-  }
-  return [...byBranch.values()]
-    .map((row) => ({
-      branch: row.branch,
-      netSales: row.netSales,
-      invoicesCount: row.invoicesCount,
-      avgInvoice: row.invoicesCount ? row.netSales / row.invoicesCount : 0,
-      uniqueCustomers: row.customers.size,
-      share: netSales ? (row.netSales / netSales) * 100 : 0,
-    }))
-    .sort((a, b) => b.netSales - a.netSales);
-}
-
-function buildLastFiveDaysByBranch(rows: Row[]) {
-  const byKey = new Map<
-    string,
-    { date: string; branch: string; netTotal: number; invoicesCount: number }
-  >();
-  for (const row of rows) {
-    const date = invoiceDate(row);
-    if (!date) continue;
-    const branch = invoiceBranch(row) || 'غير محدد';
-    const key = `${date}__${branch}`;
-    const current = byKey.get(key) || { date, branch, netTotal: 0, invoicesCount: 0 };
-    current.netTotal += invoiceAmount(row);
-    current.invoicesCount += 1;
-    byKey.set(key, current);
-  }
-
-  const dates = [...new Set([...byKey.values()].map((row) => row.date))].sort().slice(-5);
-  const values = [...byKey.values()]
-    .filter((row) => dates.includes(row.date))
-    .map((row) => ({
-      ...row,
-      avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0,
-      previousDayNetTotal: null as number | null,
-      changePercent: null as number | null,
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date) || a.branch.localeCompare(b.branch));
-
-  const byDateBranch = new Map(values.map((row) => [`${row.date}__${row.branch}`, row]));
-  for (const row of values) {
-    const index = dates.indexOf(row.date);
-    const previousDate = index > 0 ? dates[index - 1] : null;
-    if (!previousDate) continue;
-    const previous = byDateBranch.get(`${previousDate}__${row.branch}`);
-    if (!previous) continue;
-    row.previousDayNetTotal = previous.netTotal;
-    row.changePercent = previous.netTotal
-      ? ((row.netTotal - previous.netTotal) / previous.netTotal) * 100
-      : null;
-  }
-  return values;
-}
-
-function buildStaffSales(rows: Row[]) {
-  const byStaff = new Map<
-    string,
-    {
-      saleDate: string;
-      sellerName: string | null;
-      branch: string | null;
-      netTotal: number;
-      invoicesCount: number;
-      customers: Set<string>;
-    }
-  >();
-
-  for (const row of rows) {
-    const seller = sellerName(row);
-    if (!seller) continue;
-    const branch = invoiceBranch(row);
-    const key = `${seller}|${branch || ''}`;
-    const current = byStaff.get(key) || {
-      saleDate: invoiceDate(row),
-      sellerName: seller,
-      branch,
-      netTotal: 0,
-      invoicesCount: 0,
-      customers: new Set<string>(),
-    };
-    current.netTotal += invoiceAmount(row);
-    current.invoicesCount += 1;
-    const customer = customerKey(row);
-    if (customer) current.customers.add(customer);
-    byStaff.set(key, current);
-  }
-
-  return [...byStaff.values()].map((row) => ({
-    saleDate: row.saleDate,
-    sellerName: row.sellerName,
-    branch: row.branch,
-    netTotal: row.netTotal,
-    invoicesCount: row.invoicesCount,
-    avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0,
-    uniqueCustomers: row.customers.size,
-  })) satisfies StaffSalesSummary[];
+function text(value: unknown) {
+  return String(value ?? '').trim();
 }
 
 async function countCustomers(filter: (query: any) => any) {
@@ -276,23 +115,70 @@ async function countCustomers(filter: (query: any) => any) {
   return count ?? 0;
 }
 
-function filterDoctor(rows: SalesInvoiceQueryRow[], doctor?: string) {
-  if (isAll(doctor)) return rows;
-  const target = normalizeStaffName(doctor);
-  if (!target) return rows;
-  return rows.filter((row) => normalizeStaffName(sellerName(row)) === target);
-}
+function normalizeRpcPayload(data: unknown, fallbackDate: string) {
+  const payload = (data && typeof data === 'object' ? data : {}) as RpcPayload;
+  const kpisRaw = payload.kpis || {};
+  const dataHealthRaw = payload.dataHealth || {};
 
-function missingDataHealth(rows: Row[]) {
-  let invoicesWithoutCustomer = 0;
-  let invoicesWithoutDoctor = 0;
-  let invoicesWithoutBranch = 0;
-  for (const row of rows) {
-    if (!customerKey(row)) invoicesWithoutCustomer += 1;
-    if (!sellerName(row)) invoicesWithoutDoctor += 1;
-    if (!invoiceBranch(row)) invoicesWithoutBranch += 1;
-  }
-  return { invoicesWithoutCustomer, invoicesWithoutDoctor, invoicesWithoutBranch };
+  const kpis = {
+    netSales: toNumber(kpisRaw.netSales),
+    invoicesCount: toNumber(kpisRaw.invoicesCount),
+    avgInvoice: toNumber(kpisRaw.avgInvoice),
+    uniqueCustomers: toNumber(kpisRaw.uniqueCustomers),
+    activeDays: toNumber(kpisRaw.activeDays),
+  };
+
+  const dailyTrend = (payload.dailyTrend || [])
+    .map((row) => ({
+      date: text(row.date),
+      netSales: toNumber(row.netSales),
+      invoicesCount: toNumber(row.invoicesCount),
+      avgInvoice: toNumber(row.avgInvoice),
+      uniqueCustomers: toNumber(row.uniqueCustomers),
+    }))
+    .filter((row) => row.date);
+
+  const branchRows = (payload.branchRows || [])
+    .map((row) => ({
+      branch: text(row.branch) || 'غير محدد',
+      netSales: toNumber(row.netSales),
+      invoicesCount: toNumber(row.invoicesCount),
+      avgInvoice: toNumber(row.avgInvoice),
+      uniqueCustomers: toNumber(row.uniqueCustomers),
+      share: toNumber(row.share),
+    }))
+    .sort((a, b) => b.netSales - a.netSales);
+
+  const last5DaysByBranch = (payload.last5DaysByBranch || [])
+    .map((row) => ({
+      date: text(row.date),
+      branch: text(row.branch) || 'غير محدد',
+      netTotal: toNumber(row.netTotal),
+      invoicesCount: toNumber(row.invoicesCount),
+      avgInvoice: toNumber(row.avgInvoice),
+      previousDayNetTotal: toNullableNumber(row.previousDayNetTotal),
+      changePercent: toNullableNumber(row.changePercent),
+    }))
+    .filter((row) => row.date)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.branch.localeCompare(b.branch));
+
+  const staffSales = (payload.staffSales || []).map((row) => ({
+    saleDate: text(row.saleDate) || fallbackDate,
+    sellerName: text(row.sellerName) || null,
+    branch: text(row.branch) || null,
+    netTotal: toNumber(row.netTotal),
+    invoicesCount: toNumber(row.invoicesCount),
+    avgInvoice: toNumber(row.avgInvoice),
+    uniqueCustomers: toNumber(row.uniqueCustomers),
+  })) satisfies StaffSalesSummary[];
+
+  const dataHealth = {
+    invoicesWithoutCustomer: toNumber(dataHealthRaw.invoicesWithoutCustomer),
+    invoicesWithoutDoctor: toNumber(dataHealthRaw.invoicesWithoutDoctor),
+    invoicesWithoutBranch: toNumber(dataHealthRaw.invoicesWithoutBranch),
+  };
+
+  return { kpis, dailyTrend, branchRows, last5DaysByBranch, staffSales, dataHealth };
 }
 
 export async function loadSalesAnalyticsSummary(
@@ -301,31 +187,24 @@ export async function loadSalesAnalyticsSummary(
 ): Promise<SalesAnalyticsSummary> {
   if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
   const key = JSON.stringify(filters);
-  if (!forceRefresh && cache.has(key)) return cache.get(key)!;
+  const cached = cache.get(key);
+  if (!forceRefresh && cached) return cached;
 
   const errorsBySection: Record<string, string> = {};
-  const invoiceErrors: string[] = [];
-  let invoiceRows: SalesInvoiceQueryRow[] = [];
+  const branchParam = isAll(filters.branch) ? null : normalizeBranchName(filters.branch);
+  const doctorParam = isAll(filters.doctor) ? null : text(filters.doctor) || null;
 
-  try {
-    const loaded = await fetchSalesInvoicesPagedSafe({
-      startDate: filters.startDate,
-      endDate: filters.endDate,
-      branch: filters.branch,
-      selectOptions: [INVOICE_SELECT_STAFF],
-      errors: invoiceErrors,
-      noCache: forceRefresh,
-    });
-    invoiceRows = filterDoctor(loaded, filters.doctor);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    errorsBySection.sales = message;
-    throw new Error(`تعذر تحميل مصدر المبيعات التحليلي: ${message}`);
-  }
-
-  if (invoiceErrors.length) errorsBySection.salesWarnings = invoiceErrors.join(' | ');
-
-  const [staffIdentityResult, customerResult] = await Promise.allSettled([
+  const [salesResult, staffIdentityResult, customerResult] = await Promise.allSettled([
+    (async () => {
+      const { data, error } = await supabase.rpc('get_sales_analytics_summary_v1', {
+        p_start: filters.startDate,
+        p_end: filters.endDate,
+        p_branch: branchParam,
+        p_doctor: doctorParam,
+      });
+      if (error) throw new Error(error.message);
+      return normalizeRpcPayload(data, filters.endDate);
+    })(),
     fetchStaffIdentityRows(),
     Promise.all([
       countCustomers((query) => query.in('segment', ['مهم جدًا', 'مهم'])),
@@ -337,6 +216,25 @@ export async function loadSalesAnalyticsSummary(
     ]),
   ]);
 
+  if (salesResult.status === 'rejected') {
+    const message = salesResult.reason instanceof Error
+      ? salesResult.reason.message
+      : String(salesResult.reason);
+    errorsBySection.sales = message;
+    if (cached) {
+      return {
+        ...cached,
+        errorsBySection: { ...cached.errorsBySection, sales: message },
+        sourceHealth: [{
+          source: SALES_ANALYTICS_SOURCE_ID,
+          status: cached.kpis.invoicesCount > 0 ? 'ready' : 'empty',
+          message: `تم عرض آخر قراءة سليمة مؤقتًا: ${message}`,
+        }],
+      };
+    }
+    throw new Error(`تعذر تحميل مصدر المبيعات التحليلي: ${message}`);
+  }
+
   if (staffIdentityResult.status === 'rejected') {
     errorsBySection.staffIdentity = String(staffIdentityResult.reason);
   }
@@ -344,15 +242,9 @@ export async function loadSalesAnalyticsSummary(
     errorsBySection.customerCards = String(customerResult.reason);
   }
 
-  const dailyTrend = buildDailyTrend(invoiceRows);
-  const netSales = invoiceRows.reduce((sum, row) => sum + invoiceAmount(row), 0);
-  const invoicesCount = invoiceRows.length;
-  const uniqueCustomers = new Set(invoiceRows.map(customerKey).filter(Boolean)).size;
-  const staffIdentityRows =
-    staffIdentityResult.status === 'fulfilled' ? staffIdentityResult.value : [];
-  const staffSalesRows = buildStaffSales(invoiceRows);
-
-  const doctorRows = groupStaffSalesPerformance(staffSalesRows, staffIdentityRows)
+  const sales = salesResult.value;
+  const staffIdentityRows = staffIdentityResult.status === 'fulfilled' ? staffIdentityResult.value : [];
+  const doctorRows = groupStaffSalesPerformance(sales.staffSales, staffIdentityRows)
     .map((row) => ({
       staffId: row.staffId,
       doctor: row.displayName,
@@ -367,17 +259,11 @@ export async function loadSalesAnalyticsSummary(
     .sort((a, b) => b.netSales - a.netSales)
     .slice(0, 30);
 
-  const data: SalesAnalyticsSummary = {
-    kpis: {
-      netSales,
-      invoicesCount,
-      avgInvoice: invoicesCount ? netSales / invoicesCount : 0,
-      uniqueCustomers,
-      activeDays: new Set(dailyTrend.filter((row) => row.netSales > 0).map((row) => row.date)).size,
-    },
-    dailyTrend,
-    last5DaysByBranch: buildLastFiveDaysByBranch(invoiceRows),
-    branchRows: buildBranchRows(invoiceRows, netSales),
+  const result: SalesAnalyticsSummary = {
+    kpis: sales.kpis,
+    dailyTrend: sales.dailyTrend,
+    last5DaysByBranch: sales.last5DaysByBranch,
+    branchRows: sales.branchRows,
     doctorRows,
     customerCards:
       customerResult.status === 'fulfilled'
@@ -388,21 +274,17 @@ export async function loadSalesAnalyticsSummary(
             invalidPhone: customerResult.value[3],
           }
         : { important: null, stopped: null, threatened: null, invalidPhone: null },
-    dataHealth: missingDataHealth(invoiceRows),
-    sourceHealth: [
-      {
-        source: SALES_ANALYTICS_SOURCE_ID,
-        status: invoiceRows.length ? 'ready' : 'empty',
-        message: invoiceErrors.length
-          ? `${SALES_ANALYTICS_PHYSICAL_SOURCE}: ${invoiceErrors.join(' | ')}`
-          : null,
-      },
-    ],
+    dataHealth: sales.dataHealth,
+    sourceHealth: [{
+      source: SALES_ANALYTICS_SOURCE_ID,
+      status: sales.kpis.invoicesCount > 0 ? 'ready' : 'empty',
+      message: `${SALES_ANALYTICS_PHYSICAL_SOURCE} عبر get_sales_analytics_summary_v1`,
+    }],
     errorsBySection,
   };
 
-  cache.set(key, data);
-  return data;
+  cache.set(key, result);
+  return result;
 }
 
 export function clearSalesAnalyticsSummaryCache() {
