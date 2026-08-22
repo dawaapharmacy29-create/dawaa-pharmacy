@@ -10,7 +10,6 @@ const LEGACY_DIRECT_INVOICE_READERS = new Set([
   'src/lib/executiveDashboardDataService.ts',
   'src/lib/staff/staffDataHealthService.ts',
   'src/lib/staff/staffPerformanceProfileService.ts',
-  'src/lib/staffInvoiceTruthService.ts',
 ]);
 
 const APPROVED_INVOICE_BOUNDARIES = new Set([
