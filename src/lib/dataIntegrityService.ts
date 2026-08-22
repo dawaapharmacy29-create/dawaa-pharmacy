@@ -27,6 +27,8 @@ export type DataHealthReport = {
   lastChecked: string;
 };
 
+const DIAGNOSTIC_SAMPLE_LIMIT = 100;
+
 export async function checkDataHealth(): Promise<DataHealthReport> {
   const issues: DataHealthIssue[] = [];
 
@@ -70,40 +72,42 @@ export async function checkDataHealth(): Promise<DataHealthReport> {
     });
   }
 
-  // Check cash rewards recorded as points
-  const { data: cashAsPoints, error: cashError } = await supabase
+  // Historical stagnant/list cash rewards must never be counted as monthly performance points.
+  // Count suspicious positive-point rows exactly, but only return a bounded ID sample for review.
+  const cashAsPoints = await supabase
     .from('employee_transactions')
-    .select('id, reason, points_delta')
-    .ilike('reason', '%راكد%')
-    .or('reason.ilike.%لستة%,reason.ilike.%incentive%');
+    .select('id', { count: 'exact' })
+    .gt('points_delta', 0)
+    .or(
+      'reason.ilike.%راكد%,reason.ilike.%لستة%,reason.ilike.%incentive%,source.eq.stagnant_medicine_dispense,source.eq.incentive_medicine_sale,source.eq.incentive_medicine_sales'
+    )
+    .limit(DIAGNOSTIC_SAMPLE_LIMIT);
 
-  if (!cashError && cashAsPoints) {
-    const pointsRecords = cashAsPoints.filter((r: any) => r.points_delta && r.points_delta > 0);
-    if (pointsRecords.length > 0) {
-      issues.push({
-        type: 'cash_as_points',
-        severity: 'high',
-        count: pointsRecords.length,
-        description: 'مكافآت مالية مسجلة كنقاط بدلاً من جنيه',
-        affectedIds: pointsRecords.map((r: any) => r.id),
-      });
-    }
+  if (!cashAsPoints.error && Number(cashAsPoints.count || 0) > 0) {
+    issues.push({
+      type: 'cash_as_points',
+      severity: 'high',
+      count: Number(cashAsPoints.count || 0),
+      description: 'مكافآت مالية محتملة مسجلة كنقاط بدلاً من جنيه',
+      affectedIds: (cashAsPoints.data || []).map((row: any) => String(row.id || '')).filter(Boolean),
+    });
   }
 
-  // Check records without staff_id
-  const { data: noStaffId, error: noStaffError } = await supabase
+  // Check employee ledger records without any canonical staff identity.
+  const noStaffId = await supabase
     .from('employee_transactions')
-    .select('id')
+    .select('id', { count: 'exact' })
     .is('staff_id', null)
-    .is('employee_id', null);
+    .is('employee_id', null)
+    .limit(DIAGNOSTIC_SAMPLE_LIMIT);
 
-  if (!noStaffError && noStaffId) {
+  if (!noStaffId.error && Number(noStaffId.count || 0) > 0) {
     issues.push({
       type: 'no_staff_id',
       severity: 'critical',
-      count: noStaffId.length,
+      count: Number(noStaffId.count || 0),
       description: 'سجلات نقاط بدون staff_id',
-      affectedIds: noStaffId.map((r: any) => r.id),
+      affectedIds: (noStaffId.data || []).map((row: any) => String(row.id || '')).filter(Boolean),
     });
   }
 
