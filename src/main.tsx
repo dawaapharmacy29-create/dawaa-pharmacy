@@ -24,11 +24,11 @@ declare global {
 
 function BootstrapShell() {
   return (
-    <div className="min-h-screen daw aa-app-bg flex items-center justify-center p-5" dir="rtl">
+    <div className="min-h-screen dawaa-app-bg flex items-center justify-center p-5" dir="rtl">
       <div className="flex flex-col items-center gap-4 text-center">
-        <div className="h-12 w-12 rounded-2xl border daw aa-border bg-teal-500/10" />
+        <div className="h-12 w-12 rounded-2xl border dawaa-border bg-teal-500/10" />
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-teal-500/20 border-t-teal-400" />
-        <p className="text-sm font-bold daw aa-muted">جاري التحميل...</p>
+        <p className="text-sm font-bold dawaa-muted">جاري التحميل...</p>
       </div>
     </div>
   );
