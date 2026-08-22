@@ -1,0 +1,77 @@
+/*
+ * Dawaa Theme System — Core Design Tokens
+ * ----------------------------------------
+ * Theme-independent foundations only.
+ * NO dark/light palette colors belong in this file.
+ * Components and pages should consume semantic tokens/classes, never these raw scales directly.
+ */
+:root {
+  /* Spacing — 4px base grid */
+  --dawaa-space-0: 0;
+  --dawaa-space-1: 0.25rem;
+  --dawaa-space-2: 0.5rem;
+  --dawaa-space-3: 0.75rem;
+  --dawaa-space-4: 1rem;
+  --dawaa-space-5: 1.25rem;
+  --dawaa-space-6: 1.5rem;
+  --dawaa-space-8: 2rem;
+  --dawaa-space-10: 2.5rem;
+  --dawaa-space-12: 3rem;
+  --dawaa-space-16: 4rem;
+
+  /* Radius */
+  --dawaa-radius-sm: 0.5rem;
+  --dawaa-radius-md: 0.75rem;
+  --dawaa-radius-lg: 1rem;
+  --dawaa-radius-xl: 1.25rem;
+  --dawaa-radius-2xl: 1.5rem;
+  --dawaa-radius-pill: 999px;
+
+  /* Typography */
+  --dawaa-font-xs: 0.75rem;
+  --dawaa-font-sm: 0.875rem;
+  --dawaa-font-md: 1rem;
+  --dawaa-font-lg: 1.125rem;
+  --dawaa-font-xl: 1.25rem;
+  --dawaa-font-2xl: 1.5rem;
+  --dawaa-font-3xl: 1.875rem;
+  --dawaa-font-4xl: 2.25rem;
+  --dawaa-line-tight: 1.25;
+  --dawaa-line-normal: 1.55;
+  --dawaa-line-relaxed: 1.75;
+
+  /* Controls */
+  --dawaa-control-sm: 2.25rem;
+  --dawaa-control-md: 2.625rem;
+  --dawaa-control-lg: 3rem;
+
+  /* Layout */
+  --dawaa-sidebar-width: 19rem;
+  --dawaa-content-max: 100rem;
+  --dawaa-section-gap: var(--dawaa-space-6);
+  --dawaa-card-padding: var(--dawaa-space-5);
+
+  /* Motion */
+  --dawaa-duration-fast: 120ms;
+  --dawaa-duration-normal: 180ms;
+  --dawaa-duration-slow: 260ms;
+  --dawaa-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --dawaa-ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Z-index contract */
+  --dawaa-z-base: 0;
+  --dawaa-z-sticky: 20;
+  --dawaa-z-header: 30;
+  --dawaa-z-dropdown: 50;
+  --dawaa-z-overlay: 70;
+  --dawaa-z-modal: 80;
+  --dawaa-z-toast: 100;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dawaa-duration-fast: 0ms;
+    --dawaa-duration-normal: 0ms;
+    --dawaa-duration-slow: 0ms;
+  }
+}
