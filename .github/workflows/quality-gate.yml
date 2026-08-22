@@ -49,6 +49,9 @@ jobs:
       - name: Architecture data-access boundary
         run: node scripts/check-data-access-boundaries.cjs
 
+      - name: Notification architecture boundary
+        run: node scripts/check-notification-architecture.cjs
+
       - name: Theme architecture boundary
         run: node scripts/check-theme-architecture.cjs
 
