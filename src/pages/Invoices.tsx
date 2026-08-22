@@ -25,9 +25,18 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { QUERY_KEYS } from '@/lib/queryKeys';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { logActivity } from '@/hooks/useSupabaseQuery';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { createNotification } from '@/lib/notificationService';
+import {
+  cleanupCustomerAnalysisByIdentifiers,
+  deleteAllInvoiceManagementData,
+  deleteInvoiceBatchRows,
+  getInvoiceDuplicateAudit,
+  getInvoiceManagementSummary,
+  getOtherBranchInvoiceNumberRanges,
+  listManagedInvoices,
+  updateManagedInvoice,
+} from '@/lib/invoices/invoiceManagementService';
 import { getInvoiceKey } from '@/lib/dawaa2027';
 import { clearCustomersCache } from '@/lib/api/customers';
 import { clearCustomerServiceCommandCenterCache } from '@/lib/api/customerServiceCommandCenter';
@@ -591,59 +600,28 @@ export default function Invoices() {
   const loadManagedInvoices = useCallback(async () => {
     if (!canManageBatches) return;
     setManagedLoading(true);
-    let query = supabase
-      .from('sales_invoices')
-      .select(
-        'id,import_batch,branch,invoice_no,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,discounted_amount,gross_amount,seller_name'
-      )
-      .order('invoice_date', { ascending: false })
-      .limit(INVOICE_PAGE_SIZE);
-
-    if (sellerNameFilter) {
-      query = query.ilike('seller_name', `%${sellerNameFilter}%`);
-    }
-    if (fromDateFilter) {
-      query = query.gte('invoice_date', fromDateFilter);
-    }
-    if (toDateFilter) {
-      query = query.lt('invoice_date', dayAfter(toDateFilter));
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      toast.error(`تعذر تحميل أحدث الفواتير: ${error.message}`);
+    try {
+      const rows = await listManagedInvoices({
+        sellerName: sellerNameFilter,
+        fromDate: fromDateFilter,
+        toDate: toDateFilter,
+        limit: INVOICE_PAGE_SIZE,
+      });
+      setManagedInvoices(rows as ManagedInvoiceRow[]);
+    } catch (error) {
+      toast.error(`تعذر تحميل أحدث الفواتير: ${(error as Error).message}`);
       setManagedInvoices([]);
-    } else {
-      setManagedInvoices((data || []) as ManagedInvoiceRow[]);
+    } finally {
+      setManagedLoading(false);
     }
-    setManagedLoading(false);
   }, [canManageBatches, sellerNameFilter, fromDateFilter, toDateFilter]);
 
   const loadInvoiceSummarySnapshot = useCallback(async () => {
     setSummarySnapshotBusy(true);
     setSummarySnapshotMessage(null);
     try {
-      const { data, error } = await supabase.rpc('get_invoice_management_summary_v1', {
-        p_limit: 5000,
-      });
-      if (error) throw error;
-      const snapshot = (data || {}) as {
-        totalInvoices?: number;
-        totalSales?: number;
-        latestUpdatedAt?: string | null;
-        latestBatchStatus?: string | null;
-        branchRows?: Array<{ branch_name: string; invoices_count: number; net_total: number; updated_at: string | null }>;
-        dailyRows?: Array<{ summary_date: string; invoices_count: number; net_total: number; updated_at: string | null }>;
-      };
-      setSummarySnapshot({
-        totalInvoices: Number(snapshot.totalInvoices || 0),
-        totalSales: Number(snapshot.totalSales || 0),
-        latestUpdatedAt: snapshot.latestUpdatedAt || null,
-        latestBatchStatus: snapshot.latestBatchStatus || null,
-        branchRows: snapshot.branchRows || [],
-        dailyRows: snapshot.dailyRows || [],
-      });
+      const snapshot = await getInvoiceManagementSummary(5000);
+      setSummarySnapshot(snapshot);
       setSummarySnapshotMessage('ملخص سريع محسوب مباشرة داخل قاعدة البيانات.');
     } catch (error) {
       setSummarySnapshotMessage(`تعذر تحميل ملخصات الفواتير: ${(error as Error).message}`);
@@ -656,24 +634,14 @@ export default function Invoices() {
   const loadDuplicateAudit = useCallback(async () => {
     if (!canManageBatches) return;
     setDuplicateAuditLoading(true);
-    const { data, error } = await supabase.rpc('get_invoice_duplicate_audit_v1', {
-      p_limit: 3000,
-    });
-    if (error) {
-      toast.error(`تعذر فحص التكرارات: ${error.message}`);
+    try {
+      setDuplicateAudit(await getInvoiceDuplicateAudit(3000));
+    } catch (error) {
+      toast.error(`تعذر فحص التكرارات: ${(error as Error).message}`);
       setDuplicateAudit([]);
-    } else {
-      setDuplicateAudit(
-        ((data || []) as Array<Record<string, unknown>>).map((row) => ({
-          invoice_number: String(row.invoice_number || ''),
-          branch: String(row.branch || 'غير محدد'),
-          sale_date: String(row.sale_date || '').slice(0, 10),
-          count: Number(row.count || 0),
-          latest_created_at: row.latest_created_at ? String(row.latest_created_at) : null,
-        }))
-      );
+    } finally {
+      setDuplicateAuditLoading(false);
     }
-    setDuplicateAuditLoading(false);
   }, [canManageBatches]);
 
   useEffect(() => {
@@ -699,10 +667,13 @@ export default function Invoices() {
       if (numbers.length < 10) return; // عيّنة صغيرة جدًا مش كافية نبني عليها قرار
       const min = Math.min(...numbers);
       const max = Math.max(...numbers);
-      const { data, error } = await supabase.rpc('get_other_branch_invoice_number_ranges_v1', {
-        p_selected_branch: selectedBranch,
-      });
-      if (error || !data) return;
+      let data;
+      try {
+        data = await getOtherBranchInvoiceNumberRanges(selectedBranch);
+      } catch {
+        return;
+      }
+      if (!data) return;
       const otherBranchRanges = new Map<string, { min: number; max: number; count: number }>();
       for (const row of data as Array<{ branch: string | null; min_invoice: number | string | null; max_invoice: number | string | null; invoice_count: number | string | null }>) {
         if (!row.branch) continue;
@@ -1085,40 +1056,34 @@ export default function Invoices() {
       )
     );
 
-    // مسح على دفعات صغيرة (مش استعلام واحد ضخم) — دفعة فيها مئات الصفوف بتشغّل تريجر
-    // تحديث مقاييس المتابعة مرة لكل صف، ولو اتعمل الحذف كله في استعلام واحد ممكن ياخد وقت
-    // أطول من مهلة الـ API ويفشل بالكامل من غير ما يمسح حاجة. بنجيب المعرّفات الأول،
-    // وبعدين نمسحهم على دفعات من 150، عشان أي فشل يوقف عند نقطة واضحة وتقدر تكمل منها.
-    const idQuery = supabase.from('sales_invoices').select('id');
-    const { data: idRows, error: idError } =
-      batch === 'بدون رقم دفعة' ? await idQuery.is('import_batch', null) : await idQuery.eq('import_batch', batch);
-
-    if (idError) {
-      toast.error(`تعذر تجهيز قائمة الفواتير للمسح: ${idError.message}`);
-      setAdminBusy(false);
-      return;
-    }
-
-    const ids = (idRows || []).map((row) => row.id).filter(Boolean);
-    const CHUNK_SIZE = 150;
     let deletedCount = 0;
-    let lastError: { message: string } | null = null;
-    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-      const chunk = ids.slice(i, i + CHUNK_SIZE);
-      const { error } = await supabase.from('sales_invoices').delete().in('id', chunk);
-      if (error) { lastError = error; break; }
-      deletedCount += chunk.length;
-      toast.info(`جاري المسح… ${deletedCount} من ${ids.length}`, { id: 'batch-delete-progress' });
+    let totalToDelete = 0;
+    let deleteError: Error | null = null;
+    try {
+      const result = await deleteInvoiceBatchRows(batch, {
+        chunkSize: 150,
+        onProgress: (deleted, total) => {
+          deletedCount = deleted;
+          totalToDelete = total;
+          toast.info(`جاري المسح… ${deleted} من ${total}`, { id: 'batch-delete-progress' });
+        },
+      });
+      deletedCount = result.deletedCount;
+      totalToDelete = result.total;
+    } catch (error) {
+      deleteError = error as Error;
+      deletedCount = Number((error as Error & { deletedCount?: number }).deletedCount || deletedCount);
+      totalToDelete = Number((error as Error & { total?: number }).total || totalToDelete);
     }
 
-    const error = lastError;
+    const error = deleteError;
 
     if (error) {
-      toast.error(`تعذر مسح الدفعة بعد حذف ${deletedCount} من ${ids.length} فاتورة: ${error.message}. أعد المحاولة — الباقي فقط هيتمسح.`);
+      toast.error(`تعذر مسح الدفعة بعد حذف ${deletedCount} من ${totalToDelete} فاتورة: ${error.message}. أعد المحاولة — الباقي فقط هيتمسح.`);
     } else {
       toast.success(`تم مسح دفعة الفواتير (${deletedCount} فاتورة)`);
       if (affectedIdentifiers.length > 0) {
-        await supabase.from('customer_analysis').delete().in('customer_code', affectedIdentifiers);
+        await cleanupCustomerAnalysisByIdentifiers(affectedIdentifiers as string[]);
       }
       clearInvoiceLinkedViews();
       await Promise.all([
@@ -1131,30 +1096,6 @@ export default function Invoices() {
     setAdminBusy(false);
   };
 
-  const deleteTableRowsInChunks = async (table: string, batchSize = 400) => {
-    let deleted = 0;
-    for (let round = 0; round < 1000; round += 1) {
-      const { data, error: selectError } = await supabase.from(table).select('id').limit(batchSize);
-      if (selectError) {
-        if (
-          selectError.message.includes('does not exist') ||
-          selectError.message.includes('schema cache')
-        )
-          return deleted;
-        throw new Error(selectError.message);
-      }
-
-      const ids = (data || []).map((row) => row.id).filter(Boolean);
-      if (ids.length === 0) return deleted;
-
-      const { error: deleteError } = await supabase.from(table).delete().in('id', ids);
-      if (deleteError) throw new Error(deleteError.message);
-
-      deleted += ids.length;
-      if (ids.length < batchSize) return deleted;
-    }
-    return deleted;
-  };
 
   const deleteAllInvoices = async () => {
     if (!canDeleteBatches || adminBusy) return;
@@ -1166,8 +1107,7 @@ export default function Invoices() {
     setAdminBusy(true);
     const loadingToast = toast.loading('جاري مسح الفواتير على دفعات...');
     try {
-      const deletedInvoices = await deleteTableRowsInChunks('sales_invoices');
-      await deleteTableRowsInChunks('customer_analysis');
+      const deletedInvoices = await deleteAllInvoiceManagementData();
       await logInvoiceAdminAction(
         'مسح كل الفواتير',
         'مسح كل فواتير التجربة وتحليل العملاء المرتبط بها',
@@ -1229,12 +1169,14 @@ export default function Invoices() {
       net_amount: Number.isFinite(netAmount) ? netAmount : amount,
       gross_amount: Number.isFinite(grossAmount) ? grossAmount : amount,
     };
-    const { error } = await supabase
-      .from('sales_invoices')
-      .update(payload)
-      .eq('id', editInvoice.id);
-    if (error) {
-      toast.error(`تعذر تعديل الفاتورة: ${error.message}`);
+    let updateError: Error | null = null;
+    try {
+      await updateManagedInvoice(editInvoice.id, payload);
+    } catch (error) {
+      updateError = error as Error;
+    }
+    if (updateError) {
+      toast.error(`تعذر تعديل الفاتورة: ${updateError.message}`);
     } else {
       toast.success('تم حفظ تعديل الفاتورة');
       await logInvoiceAdminAction(

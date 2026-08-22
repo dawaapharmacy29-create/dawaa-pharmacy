@@ -19,7 +19,7 @@ const APPROVED_INVOICE_BOUNDARIES = new Set([
   'src/lib/readModels/invoiceDataHealthReadModel.ts',
   'src/lib/readModels/invoiceRecordReadModel.ts',
   'src/lib/readModels/unlinkedSellerNamesReadModel.ts',
-  'src/pages/Invoices.tsx',
+  'src/lib/invoices/invoiceManagementService.ts',
 ]);
 
 const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
