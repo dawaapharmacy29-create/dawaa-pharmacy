@@ -11,6 +11,7 @@ const CLEAN_UI_FILES = new Set([
   'src/pages/OperationsCenter2027.tsx',
   'src/components/system/OperationalReadinessPanel.tsx',
   'src/components/evaluations/ManagerLiveIncentiveCard.tsx',
+  'src/components/evaluations/BranchesManagerExceptionsPanel.tsx',
   'src/components/dashboard/MonthlySalesChart.tsx',
 ]);
 
