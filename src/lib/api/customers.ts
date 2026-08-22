@@ -1,16 +1,7 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import {
-  normalizeCustomerSegment,
-  normalizeCustomerStatus,
-  isPseudoCustomer,
-  isValidEgyptPhone,
-  getBestCustomerPhone,
-  customerFlagLabels,
-} from '@/lib/customerAnalyticsService';
+import { normalizeCustomerSegment, normalizeCustomerStatus } from '@/lib/customerAnalyticsService';
 import { normalizeBranchName } from '@/lib/branch';
 import { getCustomerFullProfile, clearCustomerProfileCache } from '@/lib/customerProfileService';
-import type { Customer as CustomerDbType } from '@/types/database';
-import { getInvoiceKey } from '@/lib/dawaa2027';
 import { buildCustomerFlagsForDb, parseCustomerFlags } from '@/lib/customerFlags';
 import {
   getCustomerCashbackSummary,
@@ -20,21 +11,19 @@ import {
   type CustomerWelcomeStatus,
   type CustomerInvoiceClassificationRow,
 } from '@/lib/api/customerLoyalty';
+import { fetchCustomerInvoiceMetricsBatch } from '@/lib/readModels/customerInvoiceMetricsBatchReadModel';
+import type { CustomerMetric as CustomerMetricType } from '@/types/domain';
 
 const DEFAULT_LIMIT = 30;
 export const ALL_FILTER = 'الكل';
 const SUMMARY_TABLE = 'dawaa_customer_metrics_app_view';
-const RAW_SUMMARY_TABLE = 'customer_metrics_summary';
-
-export function clearCustomersCache() {
-  // Customers list reads customer_metrics_summary directly; this hook keeps import invalidation explicit.
-}
-
-import type { CustomerMetric as CustomerMetricType, CustomerLike } from '@/types/domain';
 
 type Row = Record<string, unknown>;
-
 export type CustomerMetric = CustomerMetricType;
+
+export function clearCustomersCache() {
+  // List reads are server-backed. Keep this explicit hook for callers that invalidate after imports.
+}
 
 export interface GetCustomersOptions {
   search?: string;
@@ -110,6 +99,7 @@ export interface CustomerActiveAlert {
   end_date: string | null;
   status: string | null;
 }
+
 export interface CustomerDetails {
   invoices: CustomerInvoiceSummary[];
   followups: CustomerFollowupSummary[];
@@ -166,14 +156,26 @@ interface CustomerProfile {
   branch?: string | null;
 }
 
+export type CustomerProfileUpdatePayload = {
+  customer_notes?: string | null;
+  whatsapp_notes?: string | null;
+  service_notes?: string | null;
+  team_notes?: string | null;
+  handling_notes?: string | null;
+  address?: string | null;
+  phone_alt?: string | null;
+  whatsapp_phone?: string | null;
+  flags?: Record<string, boolean> | null;
+};
+
 function normalizeLimit(limit?: number) {
   if (!limit || limit <= 0) return DEFAULT_LIMIT;
   return Math.min(limit, 100);
 }
 
 function toNumber(value: unknown) {
-  const numberValue = Number(value ?? 0);
-  return Number.isFinite(numberValue) ? numberValue : 0;
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function readFirst(row: Row | null | undefined, keys: string[], fallback: unknown = null) {
@@ -214,6 +216,26 @@ function normalizeSearchPattern(search: string) {
   if (!trimmed) return null;
   const safe = trimmed.replace(/[%,()]/g, '').replace(/\*/g, '%');
   return safe.includes('%') ? safe : `%${safe}%`;
+}
+
+function dateOnly(value?: string | null) {
+  return String(value || '').slice(0, 10);
+}
+
+function isAfterDate(a?: string | null, b?: string | null) {
+  const left = dateOnly(a);
+  const right = dateOnly(b);
+  if (!left) return false;
+  if (!right) return true;
+  return left > right;
+}
+
+function isBeforeDate(a?: string | null, b?: string | null) {
+  const left = dateOnly(a);
+  const right = dateOnly(b);
+  if (!left) return false;
+  if (!right) return true;
+  return left < right;
 }
 
 export function normalizeCustomerMetric(row: Row): CustomerMetric {
@@ -267,26 +289,6 @@ export function normalizeCustomerMetric(row: Row): CustomerMetric {
   };
 }
 
-function dateOnly(value?: string | null) {
-  return String(value || '').slice(0, 10);
-}
-
-function isAfterDate(a?: string | null, b?: string | null) {
-  const left = dateOnly(a);
-  const right = dateOnly(b);
-  if (!left) return false;
-  if (!right) return true;
-  return left > right;
-}
-
-function isBeforeDate(a?: string | null, b?: string | null) {
-  const left = dateOnly(a);
-  const right = dateOnly(b);
-  if (!left) return false;
-  if (!right) return true;
-  return left < right;
-}
-
 function normalizeMetricAfterInvoicePatch(customer: CustomerMetric): CustomerMetric {
   const status =
     customer.invoices_count <= 0 || !customer.last_purchase
@@ -307,65 +309,39 @@ async function patchCustomerMetricsFromInvoices(customers: CustomerMetric[]) {
   ];
   if (!codes.length) return customers;
 
-  const { data, error } = await supabase
-    .from('sales_invoices')
-    .select('id,customer_code,invoice_date,net_amount,discounted_amount,amount,gross_amount')
-    .in('customer_code', codes)
-    .limit(10000);
+  try {
+    const rows = await fetchCustomerInvoiceMetricsBatch(codes);
+    if (!rows.length) return customers;
+    const aggregates = new Map(rows.map((row) => [row.customerCode, row]));
 
-  if (error || !data?.length) return customers;
-
-  const aggregates = new Map<
-    string,
-    { count: number; total: number; first: string | null; last: string | null; months: Set<string> }
-  >();
-  for (const row of (data || []) as Row[]) {
-    const code = String(readFirst(row, ['customer_code'], '') || '').trim();
-    if (!code) continue;
-    const invoiceDate = dateOnly(readFirst(row, ['invoice_date'], null) as string | null);
-    const current = aggregates.get(code) || {
-      count: 0,
-      total: 0,
-      first: null,
-      last: null,
-      months: new Set<string>(),
-    };
-    current.count += 1;
-    current.total += toNumber(
-      readFirst(row, ['net_amount', 'discounted_amount', 'amount', 'gross_amount'], 0)
-    );
-    if (invoiceDate) {
-      if (isBeforeDate(invoiceDate, current.first)) current.first = invoiceDate;
-      if (isAfterDate(invoiceDate, current.last)) current.last = invoiceDate;
-      current.months.add(invoiceDate.slice(0, 7));
-    }
-    aggregates.set(code, current);
+    return customers.map((customer) => {
+      const aggregate = aggregates.get(String(customer.customer_code || '').trim());
+      if (!aggregate) return customer;
+      const invoicesCount = Math.max(customer.invoices_count || 0, aggregate.invoicesCount);
+      const totalSpent = Math.max(customer.total_spent || 0, aggregate.totalSpent);
+      const patched: CustomerMetric = {
+        ...customer,
+        invoices_count: invoicesCount,
+        total_spent: totalSpent,
+        total_purchases: totalSpent,
+        avg_invoice:
+          invoicesCount > 0
+            ? Math.max(customer.avg_invoice || 0, totalSpent / invoicesCount)
+            : customer.avg_invoice,
+        first_purchase: isBeforeDate(aggregate.firstPurchase, customer.first_purchase)
+          ? aggregate.firstPurchase
+          : customer.first_purchase,
+        last_purchase: isAfterDate(aggregate.lastPurchase, customer.last_purchase)
+          ? aggregate.lastPurchase
+          : customer.last_purchase,
+        active_months: Math.max(customer.active_months || 0, aggregate.activeMonths),
+      };
+      return normalizeMetricAfterInvoicePatch(patched);
+    });
+  } catch (error) {
+    console.warn('[customers] invoice metrics aggregate unavailable; keeping summary metrics', error);
+    return customers;
   }
-
-  return customers.map((customer) => {
-    const aggregate = aggregates.get(String(customer.customer_code || '').trim());
-    if (!aggregate) return customer;
-    const invoicesCount = Math.max(customer.invoices_count || 0, aggregate.count);
-    const totalSpent = Math.max(customer.total_spent || 0, aggregate.total);
-    const patched: CustomerMetric = {
-      ...customer,
-      invoices_count: invoicesCount,
-      total_spent: totalSpent,
-      total_purchases: totalSpent,
-      avg_invoice:
-        invoicesCount > 0
-          ? Math.max(customer.avg_invoice || 0, totalSpent / invoicesCount)
-          : customer.avg_invoice,
-      first_purchase: isBeforeDate(aggregate.first, customer.first_purchase)
-        ? aggregate.first
-        : customer.first_purchase,
-      last_purchase: isAfterDate(aggregate.last, customer.last_purchase)
-        ? aggregate.last
-        : customer.last_purchase,
-      active_months: Math.max(customer.active_months || 0, aggregate.months.size),
-    };
-    return normalizeMetricAfterInvoicePatch(patched);
-  });
 }
 
 function applyBranchFilter<T>(query: T, branch?: string): T {
@@ -388,7 +364,6 @@ function normalizeSegmentLabel(value?: string | null) {
 function applySegmentFilter<T>(query: T, segment?: string): T {
   if (isAll(segment)) return query;
   const normalized = normalizeSegmentLabel(segment);
-  // القاعدة الذهبية الموحّدة (7 أغسطس 2026): >= مش > — لازم تطابق normalizeCustomerSegment بالظبط.
   if (normalized === 'مهم جدًا') return (query as any).gte('avg_monthly', 8000);
   if (normalized === 'مهم') return (query as any).gte('avg_monthly', 4000).lt('avg_monthly', 8000);
   if (normalized === 'متوسط')
@@ -403,27 +378,19 @@ function applyStatusFilter<T>(query: T, status?: string): T {
   const riskCutoff = isoDateDaysAgo(90);
   const newCutoff = isoDateDaysAgo(30);
 
-  if (normalized === 'بدون شراء') {
-    return (query as any).or('invoices_count.lte.0,last_purchase.is.null');
-  }
-  if (normalized === 'جديد') {
-    return (query as any).gte('first_purchase', newCutoff).gt('invoices_count', 0);
-  }
-  if (normalized === 'نشط') {
+  if (normalized === 'بدون شراء') return (query as any).or('invoices_count.lte.0,last_purchase.is.null');
+  if (normalized === 'جديد') return (query as any).gte('first_purchase', newCutoff).gt('invoices_count', 0);
+  if (normalized === 'نشط')
     return (query as any)
       .gte('last_purchase', activeCutoff)
       .lt('first_purchase', newCutoff)
       .gt('invoices_count', 0);
-  }
-  if (normalized === 'مهدد بالتوقف') {
+  if (normalized === 'مهدد بالتوقف')
     return (query as any)
       .lt('last_purchase', activeCutoff)
       .gte('last_purchase', riskCutoff)
       .gt('invoices_count', 0);
-  }
-  if (normalized === 'متوقف') {
-    return (query as any).lt('last_purchase', riskCutoff).gt('invoices_count', 0);
-  }
+  if (normalized === 'متوقف') return (query as any).lt('last_purchase', riskCutoff).gt('invoices_count', 0);
   return query;
 }
 
@@ -433,17 +400,15 @@ function applySearch<T>(query: T, search?: string): T {
   const digits = String(search || '').replace(/[^\d٠-٩]/g, '');
   const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
   const latinDigits = digits.replace(/[٠-٩]/g, (digit) => String(arabicDigits.indexOf(digit)));
-  const phonePattern =
-    latinDigits.length >= 2
-      ? normalizeSearchPattern(latinDigits.includes('*') ? latinDigits : `*${latinDigits}*`)
-      : null;
-  const clauses = [
-    `customer_code.ilike.${pattern}`,
-    `customer_name.ilike.${pattern}`,
-    `customer_phone.ilike.${phonePattern || pattern}`,
-    `final_customer_key.ilike.${pattern}`,
-  ];
-  return (query as any).or(clauses.join(','));
+  const phonePattern = latinDigits.length >= 2 ? normalizeSearchPattern(`*${latinDigits}*`) : null;
+  return (query as any).or(
+    [
+      `customer_code.ilike.${pattern}`,
+      `customer_name.ilike.${pattern}`,
+      `customer_phone.ilike.${phonePattern || pattern}`,
+      `final_customer_key.ilike.${pattern}`,
+    ].join(',')
+  );
 }
 
 function applyListFilters<T>(query: T, options: GetCustomersOptions): T {
@@ -469,25 +434,12 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
 
   const limit = normalizeLimit(options.limit);
   const offset = Math.max(options.offset ?? 0, 0);
-
-  if (import.meta.env.DEV) {
-    console.log('[getCustomers] Query Options:', {
-      search: options.search,
-      branch: options.branch,
-      type: options.type,
-      status: options.status,
-      limit,
-      offset,
-    });
-  }
-
   let query = supabase
     .from(SUMMARY_TABLE)
     .select(
       'final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status',
       { count: 'exact' }
     );
-
   query = applyListFilters(query, options);
 
   const { data, error, count } = await query
@@ -495,78 +447,24 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
     .order('total_spent', { ascending: false, nullsFirst: false })
     .order('last_purchase', { ascending: false, nullsFirst: false })
     .range(offset, offset + limit - 1);
-
-  if (import.meta.env.DEV) {
-    console.log('[getCustomers] Raw Supabase Response:', {
-      dataLength: data?.length ?? 0,
-      count,
-      hasError: !!error,
-      errorMsg: error?.message,
-      firstRow: data?.[0],
-      filters: options,
-    });
-  }
-
-  if (error) {
-    console.error('[getCustomers] Supabase Error:', error);
-    throw new Error(`customer_metrics_summary: ${error.message}`);
-  }
+  if (error) throw new Error(`customer_metrics_summary: ${error.message}`);
 
   const mapped = await patchCustomerMetricsFromInvoices(
     ((data ?? []) as Row[]).filter(Boolean).map(normalizeCustomerMetric)
   );
-
-  if (
-    !options.search?.trim() &&
-    isAll(options.branch) &&
-    isAll(options.type) &&
-    isAll(options.status) &&
-    count === 0
-  ) {
-    const fallback = await supabase
-      .from(SUMMARY_TABLE)
-      .select('final_customer_key,customer_name,segment,customer_status,avg_monthly')
-      .order('avg_monthly', { ascending: false, nullsFirst: false })
-      .limit(5);
-
-    if (import.meta.env.DEV) {
-      console.log('[getCustomers] Fallback probe query (no filters, zero results):', {
-        fallbackCount: fallback.data?.length ?? 0,
-        fallbackFirstRow: fallback.data?.[0],
-        fallbackError: fallback.error?.message,
-      });
-    }
-  }
-
-  if (import.meta.env.DEV && mapped.length > 0) {
-    console.log('[getCustomers] First Mapped Customer:', mapped[0]);
-  }
-
-  return {
-    customers: mapped,
-    count: count ?? 0,
-    limit,
-    offset,
-  };
+  return { customers: mapped, count: count ?? 0, limit, offset };
 }
 
 async function countRows(options: GetCustomersOptions = {}) {
-  let query = supabase
-    .from(SUMMARY_TABLE)
-    .select('final_customer_key', { count: 'exact', head: true });
+  let query = supabase.from(SUMMARY_TABLE).select('final_customer_key', { count: 'exact', head: true });
   query = applyListFilters(query, options);
   const { count, error } = await query;
-  if (import.meta.env.DEV && (options.type || options.status)) {
-    console.log('[countRows]', options, '=>', count);
-  }
   if (error) throw new Error(`customer_metrics_summary: ${error.message}`);
   return count ?? 0;
 }
 
 async function countRegisteredCustomers() {
-  const { count, error } = await supabase
-    .from('customers')
-    .select('id', { count: 'exact', head: true });
+  const { count, error } = await supabase.from('customers').select('id', { count: 'exact', head: true });
   if (error) throw new Error(`customers: ${error.message}`);
   return count ?? 0;
 }
@@ -580,52 +478,19 @@ async function countLoyalCustomers() {
   return count ?? 0;
 }
 
-function monthStart(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function addMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1);
-}
-
-function toDateOnly(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
 function monthLabel(date: Date) {
   return date.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
 }
 
-async function safeCount(
-  table: string,
-  apply: (query: any) => any
-): Promise<{ count: number | null; warning?: string }> {
-  try {
-    const { count, error } = await apply(
-      supabase.from(table).select('*', { count: 'exact', head: true })
-    );
-    if (error) return { count: null, warning: `${table}: ${error.message}` };
-    return { count: count ?? 0 };
-  } catch (error) {
-    return {
-      count: null,
-      warning: error instanceof Error ? `${table}: ${error.message}` : `${table}: تعذر العد`,
-    };
-  }
-}
-
 export async function getCustomerMonthlyAnalytics(months = 6): Promise<CustomerMonthlyAnalytics> {
-  if (!isSupabaseConfigured) {
-    throw new Error('إعدادات Supabase غير موجودة.');
-  }
-
+  if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
   const safeMonths = Math.min(Math.max(months, 3), 12);
   const { data, error } = await supabase.rpc('get_customer_monthly_analytics_v2', {
     p_months: safeMonths,
   });
   if (error) throw new Error(`customer monthly analytics: ${error.message}`);
 
-  const rows = ((data || []) as Array<Record<string, unknown>>).map((row) => {
+  const rows = ((data || []) as Row[]).map((row) => {
     const monthStartValue = String(row.month_start || '').slice(0, 10);
     const monthDate = monthStartValue ? new Date(`${monthStartValue}T12:00:00`) : new Date();
     return {
@@ -639,97 +504,56 @@ export async function getCustomerMonthlyAnalytics(months = 6): Promise<CustomerM
       normal: toNumber(row.normal),
     };
   });
-
-  return {
-    rows,
-    source: 'customers + customer_metrics_summary (optimized RPC)',
-    warnings: [],
-  };
+  return { rows, source: 'customers + customer_metrics_summary (optimized RPC)', warnings: [] };
 }
 
 export async function getCustomerStats(): Promise<CustomerStats> {
-  if (!isSupabaseConfigured) {
-    throw new Error('إعدادات Supabase غير موجودة.');
-  }
-
-  // مصدر أسرع وأكثر ثباتًا لكروت صفحة العملاء.
-  // هذا يمنع مشكلة ظهور كل الكروت = 0 عندما تكون الفلاتر القديمة لا تطابق أسماء الأعمدة/القيم.
+  if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
   try {
     const { data, error } = await supabase
       .from('dawaa_customer_dashboard_cards_check_v1')
       .select('card,value');
-
     if (!error && Array.isArray(data) && data.length) {
       const map = new Map<string, number>();
       for (const row of data as Array<{ card: string; value: number | string | null }>) {
         map.set(String(row.card), Number(row.value ?? 0) || 0);
       }
-
-      const registeredTotal = map.get('إجمالي العملاء المسجلين') ?? 0;
-      const summaryTotal = map.get('صفوف ملخص العملاء') ?? 0;
       const veryImportant = map.get('مهم جدًا') ?? 0;
-      const important = map.get('مهم') ?? 0;
-      const medium = map.get('متوسط') ?? 0;
-      const normal = map.get('عادي') ?? 0;
-      const newC = map.get('جديد') ?? 0;
-      const active = map.get('نشط') ?? 0;
-      const atRisk = map.get('مهدد بالتوقف') ?? 0;
-      const stopped = map.get('متوقف') ?? 0;
-      const noPurchase = map.get('بدون شراء') ?? 0;
-      const loyal = map.get('عملاء دائمين +6 شهور') ?? 0;
-
       return {
-        total: registeredTotal,
-        summaryTotal,
+        total: map.get('إجمالي العملاء المسجلين') ?? 0,
+        summaryTotal: map.get('صفوف ملخص العملاء') ?? 0,
         veryImportant,
-        important,
-        medium,
-        normal,
-        newC,
-        active,
-        atRisk,
-        stopped,
-        noPurchase,
+        important: map.get('مهم') ?? 0,
+        medium: map.get('متوسط') ?? 0,
+        normal: map.get('عادي') ?? 0,
+        newC: map.get('جديد') ?? 0,
+        active: map.get('نشط') ?? 0,
+        atRisk: map.get('مهدد بالتوقف') ?? 0,
+        stopped: map.get('متوقف') ?? 0,
+        noPurchase: map.get('بدون شراء') ?? 0,
         vip: veryImportant,
-        loyal,
+        loyal: map.get('عملاء دائمين +6 شهور') ?? 0,
       };
     }
-
-    if (error) {
-      console.warn('[getCustomerStats] dashboard view failed, fallback to counts:', error.message);
-    }
   } catch (error) {
-    console.warn('[getCustomerStats] dashboard view exception, fallback to counts:', error);
+    console.warn('[getCustomerStats] fast cards unavailable', error);
   }
 
-  const [
-    registeredTotal,
-    summaryTotal,
-    veryImportant,
-    important,
-    medium,
-    normal,
-    newC,
-    active,
-    atRisk,
-    stopped,
-    noPurchase,
-    loyal,
-  ] = await Promise.all([
-    countRegisteredCustomers(),
-    countRows(),
-    countRows({ type: 'مهم جدًا' }),
-    countRows({ type: 'مهم' }),
-    countRows({ type: 'متوسط' }),
-    countRows({ type: 'عادي' }),
-    countRows({ status: 'جديد' }),
-    countRows({ status: 'نشط' }),
-    countRows({ status: 'مهدد بالتوقف' }),
-    countRows({ status: 'متوقف' }),
-    countRows({ status: 'بدون شراء' }),
-    countLoyalCustomers(),
-  ]);
-
+  const [registeredTotal, summaryTotal, veryImportant, important, medium, normal, newC, active, atRisk, stopped, noPurchase, loyal] =
+    await Promise.all([
+      countRegisteredCustomers(),
+      countRows(),
+      countRows({ type: 'مهم جدًا' }),
+      countRows({ type: 'مهم' }),
+      countRows({ type: 'متوسط' }),
+      countRows({ type: 'عادي' }),
+      countRows({ status: 'جديد' }),
+      countRows({ status: 'نشط' }),
+      countRows({ status: 'مهدد بالتوقف' }),
+      countRows({ status: 'متوقف' }),
+      countRows({ status: 'بدون شراء' }),
+      countLoyalCustomers(),
+    ]);
   return {
     total: registeredTotal,
     summaryTotal,
@@ -748,11 +572,9 @@ export async function getCustomerStats(): Promise<CustomerStats> {
 }
 
 async function getCustomerProfile(customer: CustomerMetric): Promise<CustomerProfile | null> {
-  const customerId =
-    customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null;
-  const customerCode = customer.customer_code ? customer.customer_code : null;
-  const customerPhone = customer.customer_phone ? customer.customer_phone : null;
-
+  const customerId = customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null;
+  const customerCode = String(customer.customer_code || '').trim() || null;
+  const customerPhone = String(customer.customer_phone || customer.phone || '').trim() || null;
   if (!customerId && !customerCode && !customerPhone) return null;
 
   let query = supabase
@@ -761,21 +583,12 @@ async function getCustomerProfile(customer: CustomerMetric): Promise<CustomerPro
       'id,customer_code,customer_phone,phone,notes,whatsapp_notes,customer_notes,service_notes,team_notes,handling_notes,address,phone_alt,whatsapp_phone,customer_flags,branch'
     )
     .limit(1);
-
-  if (customerId) {
-    query = query.eq('id', customerId);
-  } else if (customerCode) {
-    query = query.eq('customer_code', customerCode);
-  } else {
-    query = query.or(`customer_phone.eq.${customerPhone},phone.eq.${customerPhone}`);
-  }
+  if (customerId) query = query.eq('id', customerId);
+  else if (customerCode) query = query.eq('customer_code', customerCode);
+  else query = query.or(`customer_phone.eq.${customerPhone},phone.eq.${customerPhone}`);
 
   const { data, error } = await query;
-  if (error) {
-    console.warn('[getCustomerProfile] Supabase Error:', error.message);
-    return null;
-  }
-
+  if (error) return null;
   return (data?.[0] ?? null) as CustomerProfile | null;
 }
 
@@ -785,16 +598,9 @@ async function saveDurableCustomerFlags(
   existingProfile?: CustomerProfile | null
 ) {
   if (!flags) return null;
-  const customerCode =
-    String(customer.customer_code || existingProfile?.customer_code || '').trim() || null;
+  const customerCode = String(customer.customer_code || existingProfile?.customer_code || '').trim() || null;
   const customerPhone =
-    String(
-      customer.customer_phone ||
-        customer.phone ||
-        existingProfile?.customer_phone ||
-        existingProfile?.phone ||
-        ''
-    ).trim() || null;
+    String(customer.customer_phone || customer.phone || existingProfile?.customer_phone || existingProfile?.phone || '').trim() || null;
   const customerName = String(customer.customer_name || customer.name || '').trim() || null;
   const customerId =
     customer.customer_id && isUuidLike(customer.customer_id)
@@ -813,9 +619,7 @@ async function saveDurableCustomerFlags(
     p_flags: flagsJson,
     p_tags: activeKeys,
   });
-
   if (error) {
-    // fallback to customers table so the UI does not lose the selected flags
     if (existingProfile?.id) {
       const fallback = await supabase
         .from('customers')
@@ -828,36 +632,19 @@ async function saveDurableCustomerFlags(
     }
     throw new Error(error.message);
   }
-
   return (data && typeof data === 'object' ? data : null) as CustomerProfile | null;
 }
-
-export type CustomerProfileUpdatePayload = {
-  customer_notes?: string | null;
-  whatsapp_notes?: string | null;
-  service_notes?: string | null;
-  team_notes?: string | null;
-  handling_notes?: string | null;
-  address?: string | null;
-  phone_alt?: string | null;
-  whatsapp_phone?: string | null;
-  flags?: Record<string, boolean> | null;
-};
 
 export async function saveCustomerProfileNotes(
   customer: CustomerMetric,
   payload: CustomerProfileUpdatePayload
 ) {
-  if (!isSupabaseConfigured) {
-    throw new Error('إعدادات Supabase غير موجودة.');
-  }
-
+  if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
   const profile = await getCustomerProfile(customer);
   const updatePayload: Record<string, unknown> = {};
   const assign = (key: string, value: unknown) => {
     if (value !== undefined) updatePayload[key] = value === '' ? null : value;
   };
-
   assign('customer_notes', payload.customer_notes ?? null);
   assign('whatsapp_notes', payload.whatsapp_notes ?? null);
   assign('service_notes', payload.service_notes ?? null);
@@ -866,53 +653,32 @@ export async function saveCustomerProfileNotes(
   assign('address', payload.address ?? null);
   assign('phone_alt', payload.phone_alt ?? null);
   assign('whatsapp_phone', payload.whatsapp_phone ?? null);
-
   if (payload.flags) {
-    updatePayload.customer_flags = buildCustomerFlagsForDb(
-      profile?.customer_flags || {},
-      payload.flags
-    );
+    updatePayload.customer_flags = buildCustomerFlagsForDb(profile?.customer_flags || {}, payload.flags);
   }
 
   const customerCode = String(customer.customer_code || '').trim() || null;
   const customerPhone = String(customer.customer_phone || customer.phone || '').trim() || null;
-  const customerName =
-    String(customer.customer_name || customer.name || '').trim() || 'عميل بدون اسم';
-
+  const customerName = String(customer.customer_name || customer.name || '').trim() || 'عميل بدون اسم';
   if (!profile && !customer.customer_id && !customerCode && !customerPhone) {
     throw new Error('لا يوجد عميل صالح لتحديثه.');
   }
 
   let saved: CustomerProfile | null = null;
   if (profile?.id) {
-    const { data, error } = await supabase
-      .from('customers')
-      .update(updatePayload)
-      .eq('id', profile.id)
-      .select('*')
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    saved = data as CustomerProfile | null;
+    const result = await supabase.from('customers').update(updatePayload).eq('id', profile.id).select('*').maybeSingle();
+    if (result.error) throw new Error(result.error.message);
+    saved = result.data as CustomerProfile | null;
   } else if (customer.customer_id && isUuidLike(customer.customer_id)) {
-    const { data, error } = await supabase
-      .from('customers')
-      .update(updatePayload)
-      .eq('id', customer.customer_id)
-      .select('*')
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    saved = data as CustomerProfile | null;
+    const result = await supabase.from('customers').update(updatePayload).eq('id', customer.customer_id).select('*').maybeSingle();
+    if (result.error) throw new Error(result.error.message);
+    saved = result.data as CustomerProfile | null;
   } else if (customerCode) {
-    const { data, error } = await supabase
-      .from('customers')
-      .update(updatePayload)
-      .eq('customer_code', customerCode)
-      .select('*')
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    saved = data as CustomerProfile | null;
+    const result = await supabase.from('customers').update(updatePayload).eq('customer_code', customerCode).select('*').maybeSingle();
+    if (result.error) throw new Error(result.error.message);
+    saved = result.data as CustomerProfile | null;
   } else if (customerPhone) {
-    const { data, error } = await supabase
+    const result = await supabase
       .from('customers')
       .update(updatePayload)
       .or(
@@ -920,136 +686,48 @@ export async function saveCustomerProfileNotes(
       )
       .select('*')
       .maybeSingle();
-    if (error) throw new Error(error.message);
-    saved = data as CustomerProfile | null;
+    if (result.error) throw new Error(result.error.message);
+    saved = result.data as CustomerProfile | null;
   }
 
-  // لو العميل موجود في الملخص فقط وليس له صف في customers، ننشئ صف آمن حتى لا تختفي الملاحظات عند إعادة الفتح.
   if (!saved) {
-    const insertPayload = {
-      customer_code: customerCode,
-      name: customerName,
-      phone: customerPhone,
-      customer_phone: customerPhone,
-      branch: customer.branch || null,
-      ...updatePayload,
-    };
-    const { data, error } = await supabase
+    const result = await supabase
       .from('customers')
-      .insert(insertPayload)
+      .insert({
+        customer_code: customerCode,
+        name: customerName,
+        phone: customerPhone,
+        customer_phone: customerPhone,
+        branch: customer.branch || null,
+        ...updatePayload,
+      })
       .select('*')
       .maybeSingle();
-    if (error) throw new Error(error.message);
-    saved = data as CustomerProfile | null;
+    if (result.error) throw new Error(result.error.message);
+    saved = result.data as CustomerProfile | null;
   }
 
   if (payload.flags) {
     const durableSaved = await saveDurableCustomerFlags(customer, payload.flags, saved || profile);
     if (durableSaved) saved = { ...saved, ...durableSaved } as CustomerProfile;
   }
-
   clearCustomerProfileCache();
   if (!saved) throw new Error('تم الحفظ لكن تعذر قراءة صف العميل بعد التحديث.');
   return saved;
 }
 
-function customerInvoiceOrClauses(customer: CustomerMetric) {
+function customerIdentityClauses(customer: CustomerMetric) {
   const code = String(customer.customer_code || '').trim();
   const phone = String(customer.customer_phone || customer.phone || '').replace(/[^0-9٠-٩]/g, '');
   const name = String(customer.customer_name || customer.name || '').trim();
-
-  // If customer_code exists, use it as the primary and only strong key to avoid splitting by phone
   if (code) return `customer_code.eq.${code}`;
-
-  const clauses = [
+  return [
     phone ? `customer_phone.eq.${phone}` : '',
     phone ? `phone.eq.${phone}` : '',
     name ? `customer_name.eq.${name}` : '',
-  ].filter(Boolean);
-  return clauses.join(',');
-}
-
-type LiveCustomerInvoiceStats = {
-  invoices: CustomerInvoiceSummary[];
-  currentMonthVisits: number;
-  previousMonthVisits: number;
-  averageMonthlyVisits: number;
-};
-
-async function getLiveCustomerInvoiceStats(
-  customer: CustomerMetric,
-  invoiceLimit = 20
-): Promise<LiveCustomerInvoiceStats> {
-  const clauses = customerInvoiceOrClauses(customer);
-  if (!clauses) {
-    return { invoices: [], currentMonthVisits: 0, previousMonthVisits: 0, averageMonthlyVisits: 0 };
-  }
-
-  try {
-      const { data, error } = await supabase
-        .from('dawaa_customer_invoice_stats_view')
-        .select(
-          'id,invoice_key,invoice_no,invoice_number,invoice_date,sale_date,date,net_amount,net_total,total_amount,amount,seller_name,branch,customer_code,customer_name,customer_phone,phone'
-        )
-        .or(clauses)
-        .order('invoice_date', { ascending: false })
-        .limit(2000);
-
-      if (error || !data?.length) {
-        return {
-          invoices: [],
-          currentMonthVisits: 0,
-          previousMonthVisits: 0,
-          averageMonthlyVisits: 0,
-        };
-      }
-
-      const rows = (data || []) as Row[];
-      // Use buildCustomerLiveMetrics to dedupe and aggregate by invoice identity
-      try {
-        const { buildCustomerLiveMetrics } = await import('@/lib/customers/buildCustomerLiveMetrics');
-        const live = buildCustomerLiveMetrics(rows);
-        return {
-          invoices: live.latestInvoices as any[],
-          currentMonthVisits: live.latestInvoices.filter((inv) => (inv.invoice_date || '').slice(0, 7) === new Date().toISOString().slice(0, 7)).length,
-          previousMonthVisits: 0,
-          averageMonthlyVisits: 0,
-        };
-      } catch (err) {
-        // fallback to original lightweight extraction if helper fails
-        const today = new Date();
-        const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-        const previousMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        const previousMonth = `${previousMonthDate.getFullYear()}-${String(previousMonthDate.getMonth() + 1).padStart(2, '0')}`;
-        const months = new Map<string, number>();
-        const invoices = rows.map((row) => {
-          const invoiceDate = String(readFirst(row, ['invoice_date', 'sale_date', 'date'], '') || '').slice(0, 10);
-          const month = invoiceDate.slice(0, 7);
-          if (month) months.set(month, (months.get(month) || 0) + 1);
-          return {
-            invoice_number: getInvoiceKey(row) || null,
-            invoice_date: invoiceDate || null,
-            amount: toNumber(readFirst(row, ['amount', 'net_amount', 'net_total', 'total_amount', 'gross_amount', 'gross_total'], 0)),
-            seller_name: readFirst(row, ['seller_name'], null) as string | null,
-            branch: normalizeBranchName(readFirst(row, ['branch'], null)),
-          };
-        });
-
-        const monthValues = [...months.values()];
-        const averageMonthlyVisits = monthValues.length
-          ? Math.round(monthValues.reduce((sum, value) => sum + value, 0) / monthValues.length)
-          : 0;
-
-        return {
-          invoices: invoices.slice(0, Math.min(invoiceLimit, 100)),
-          currentMonthVisits: months.get(currentMonth) || 0,
-          previousMonthVisits: months.get(previousMonth) || 0,
-          averageMonthlyVisits,
-        };
-      }
-  } catch {
-    return { invoices: [], currentMonthVisits: 0, previousMonthVisits: 0, averageMonthlyVisits: 0 };
-  }
+  ]
+    .filter(Boolean)
+    .join(',');
 }
 
 function purchaseFrequencyStatus(current: number, previous: number) {
@@ -1068,10 +746,8 @@ function purchaseFrequencyRecommendation(status: string) {
   return 'استمر في دعم العميل وقدم خدمات واضحة للحفاظ على العلاقة.';
 }
 
-async function getCustomerPurchaseFrequencyPatch(
-  customer: CustomerMetric
-): Promise<PurchaseAnalysis | null> {
-  const clauses = customerInvoiceOrClauses(customer);
+async function getCustomerPurchaseFrequencyPatch(customer: CustomerMetric): Promise<PurchaseAnalysis | null> {
+  const clauses = customerIdentityClauses(customer);
   if (!clauses) return null;
   try {
     const { data, error } = await supabase
@@ -1082,17 +758,13 @@ async function getCustomerPurchaseFrequencyPatch(
       .or(clauses)
       .limit(1)
       .maybeSingle();
-
     if (error || !data) return null;
     const current = toNumber(readFirst(data as Row, ['purchase_count_current_month'], 0));
     const previous = toNumber(readFirst(data as Row, ['purchase_count_previous_month'], 0));
     const average = toNumber(readFirst(data as Row, ['average_monthly_purchase_count'], 0));
     const status = String(
-      readFirst(
-        data as Row,
-        ['purchase_frequency_status'],
+      readFirst(data as Row, ['purchase_frequency_status'], purchaseFrequencyStatus(current, previous)) ||
         purchaseFrequencyStatus(current, previous)
-      ) || purchaseFrequencyStatus(current, previous)
     );
     return {
       purchaseCountCurrentMonth: current,
@@ -1111,9 +783,7 @@ async function getCustomerActiveAlerts(customer: CustomerMetric): Promise<Custom
     customer.customer_code ? `customer_code.eq.${customer.customer_code}` : '',
     customer.customer_phone ? `customer_phone.eq.${customer.customer_phone}` : '',
     customer.phone ? `customer_phone.eq.${customer.phone}` : '',
-    customer.customer_id && isUuidLike(customer.customer_id)
-      ? `customer_id.eq.${customer.customer_id}`
-      : '',
+    customer.customer_id && isUuidLike(customer.customer_id) ? `customer_id.eq.${customer.customer_id}` : '',
   ]
     .filter(Boolean)
     .join(',');
@@ -1175,17 +845,13 @@ export async function createCustomerManualFollowup(
     personality_note: payload.personality_note || null,
     reason: payload.reason || null,
   };
-
   const { error: rpcError } = await supabase.rpc('dawaa_create_customer_followup_request_v1', {
     p_payload: requestPayload as any,
   });
-
   if (!rpcError) return;
 
-  // fallback آمن للنسخ القديمة من قاعدة البيانات
   const { error } = await supabase.from('customer_manual_followups').insert({
-    customer_id:
-      customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null,
+    customer_id: customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null,
     customer_code: customer.customer_code,
     customer_name: customer.customer_name || customer.name,
     customer_phone: customer.customer_phone || customer.phone,
@@ -1214,8 +880,7 @@ export async function createCustomerPersonalOffer(
   }
 ) {
   const { error } = await supabase.from('customer_personal_offers').insert({
-    customer_id:
-      customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null,
+    customer_id: customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null,
     customer_code: customer.customer_code,
     customer_name: customer.customer_name || customer.name,
     customer_phone: customer.customer_phone || customer.phone,
@@ -1241,29 +906,18 @@ async function getCustomerDetailsFastRpc(
       p_customer_name: customer.customer_name || customer.name || null,
       p_invoice_limit: Math.min(Math.max(invoiceLimit || 20, 5), 50),
     });
-
-    if (error || !data) {
-      if (error) console.warn('[CustomerDetailsFastRpc] failed:', error.message);
-      return null;
-    }
-
+    if (error || !data) return null;
     const payload = data as any;
     if (payload.success === false) return null;
 
     const invoices = Array.isArray(payload.invoices) ? payload.invoices : [];
     const followups = Array.isArray(payload.followups) ? payload.followups : [];
     const flags = payload.customerFlags || payload.customer_flags || {};
-
-    const currentMonthVisits = Number(
-      payload.currentMonthVisits ?? payload.current_month_visits ?? 0
-    );
-    const previousMonthVisits = Number(
-      payload.previousMonthVisits ?? payload.previous_month_visits ?? 0
-    );
+    const currentMonthVisits = Number(payload.currentMonthVisits ?? payload.current_month_visits ?? 0);
+    const previousMonthVisits = Number(payload.previousMonthVisits ?? payload.previous_month_visits ?? 0);
     const avgMonthlyVisits = Number(payload.avgMonthlyVisits ?? payload.avg_monthly_visits ?? 0);
     const frequencyStatus =
-      payload.purchaseFrequencyStatus ||
-      purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits);
+      payload.purchaseFrequencyStatus || purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits);
     const frequencyRecommendation =
       payload.purchaseFrequencyRecommendation || purchaseFrequencyRecommendation(frequencyStatus);
 
@@ -1304,8 +958,7 @@ async function getCustomerDetailsFastRpc(
         ? payload.invoiceClassifications
         : [],
     };
-  } catch (error) {
-    console.warn('[CustomerDetailsFastRpc] exception:', error);
+  } catch {
     return null;
   }
 }
@@ -1314,25 +967,21 @@ export async function getCustomerDetails(
   customer: CustomerMetric,
   invoiceLimit = 20
 ): Promise<CustomerDetails> {
-  if (!isSupabaseConfigured) {
-    throw new Error('إعدادات Supabase غير موجودة.');
-  }
+  if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
 
   const fastDetails = await getCustomerDetailsFastRpc(customer, invoiceLimit);
   if (fastDetails) {
     const purchasePatch = await getCustomerPurchaseFrequencyPatch(customer);
-    if (purchasePatch) {
-      return {
-        ...fastDetails,
-        currentMonthVisits: purchasePatch.purchaseCountCurrentMonth,
-        previousMonthVisits: purchasePatch.purchaseCountPreviousMonth,
-        avgMonthlyVisits: purchasePatch.averageMonthlyPurchaseCount,
-        purchaseFrequencyStatus: purchasePatch.purchaseFrequencyStatus,
-        purchaseFrequencyRecommendation: purchasePatch.recommendation,
-        purchaseAnalysis: purchasePatch,
-      };
-    }
-    return fastDetails;
+    if (!purchasePatch) return fastDetails;
+    return {
+      ...fastDetails,
+      currentMonthVisits: purchasePatch.purchaseCountCurrentMonth,
+      previousMonthVisits: purchasePatch.purchaseCountPreviousMonth,
+      avgMonthlyVisits: purchasePatch.averageMonthlyPurchaseCount,
+      purchaseFrequencyStatus: purchasePatch.purchaseFrequencyStatus,
+      purchaseFrequencyRecommendation: purchasePatch.recommendation,
+      purchaseAnalysis: purchasePatch,
+    };
   }
 
   const fullProfile = await getCustomerFullProfile({
@@ -1343,74 +992,65 @@ export async function getCustomerDetails(
     customer_name: customer.customer_name || customer.name,
   });
 
-  const limitedFollowups = fullProfile.latestFollowups.slice(0, 20);
-  const [liveInvoiceStats, activeAlerts, cashback, welcomeStatus, invoiceClassifications] =
+  const [purchasePatch, activeAlerts, cashback, welcomeStatus, invoiceClassifications] =
     await Promise.all([
-      getLiveCustomerInvoiceStats(customer, invoiceLimit),
+      getCustomerPurchaseFrequencyPatch(customer),
       getCustomerActiveAlerts(customer),
       getCustomerCashbackSummary(customer),
       getCustomerWelcomeStatus(customer),
       getCustomerInvoiceClassifications(customer, 12),
     ]);
-  const limitedInvoices = liveInvoiceStats.invoices.length
-    ? liveInvoiceStats.invoices
-    : fullProfile.latestInvoices.slice(0, Math.min(invoiceLimit, 100));
+
+  const limitedInvoices = fullProfile.latestInvoices.slice(0, Math.min(invoiceLimit, 100));
+  const limitedFollowups = fullProfile.latestFollowups.slice(0, 20);
   const currentMonth = new Date().toISOString().slice(0, 7);
-  const previousMonthDate = new Date();
-  previousMonthDate.setMonth(previousMonthDate.getMonth() - 1);
-  const previousMonth = previousMonthDate.toISOString().slice(0, 7);
-  const monthlyTrendByMonth = new Map(fullProfile.monthlyPurchaseTrend.map((row) => [row.month, row]));
-  const currentMonthVisitsFromProfile = Math.max(
-    monthlyTrendByMonth.get(currentMonth)?.invoicesCount ?? 0,
-    liveInvoiceStats.currentMonthVisits
-  );
-  const previousMonthVisitsFromProfile = Math.max(
-    monthlyTrendByMonth.get(previousMonth)?.invoicesCount ?? 0,
-    liveInvoiceStats.previousMonthVisits
-  );
-  const profileAverageMonthlyVisits = fullProfile.monthlyPurchaseTrend.length
+  const previousDate = new Date();
+  previousDate.setMonth(previousDate.getMonth() - 1);
+  const previousMonth = previousDate.toISOString().slice(0, 7);
+  const trendMap = new Map(fullProfile.monthlyPurchaseTrend.map((row) => [row.month, row]));
+  const currentMonthVisits = trendMap.get(currentMonth)?.invoicesCount ?? 0;
+  const previousMonthVisits = trendMap.get(previousMonth)?.invoicesCount ?? 0;
+  const avgMonthlyVisits = fullProfile.monthlyPurchaseTrend.length
     ? Math.round(
         fullProfile.monthlyPurchaseTrend.reduce((sum, row) => sum + row.invoicesCount, 0) /
           fullProfile.monthlyPurchaseTrend.length
       )
     : 0;
-  const avgMonthlyVisitsFromProfile =
-    Math.max(profileAverageMonthlyVisits, liveInvoiceStats.averageMonthlyVisits) || null;
+  const derivedStatus = purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits);
+  const derivedAnalysis: PurchaseAnalysis = {
+    purchaseCountCurrentMonth: currentMonthVisits,
+    purchaseCountPreviousMonth: previousMonthVisits,
+    averageMonthlyPurchaseCount: avgMonthlyVisits,
+    purchaseFrequencyStatus: derivedStatus,
+    recommendation: purchaseFrequencyRecommendation(derivedStatus),
+  };
 
-  const frequencyStatusFromProfile = purchaseFrequencyStatus(
-    currentMonthVisitsFromProfile,
-    previousMonthVisitsFromProfile
-  );
-  const frequencyRecommendationFromProfile = purchaseFrequencyRecommendation(
-    frequencyStatusFromProfile
-  );
-
-  const doctorTotalsFromProfile = new Map<string, { total: number; count: number }>();
+  const doctorTotals = new Map<string, { total: number; count: number }>();
   for (const invoice of limitedInvoices) {
     if (!invoice.seller_name) continue;
-    const current = doctorTotalsFromProfile.get(invoice.seller_name) || { total: 0, count: 0 };
+    const current = doctorTotals.get(invoice.seller_name) || { total: 0, count: 0 };
     current.total += invoice.amount;
     current.count += 1;
-    doctorTotalsFromProfile.set(invoice.seller_name, current);
+    doctorTotals.set(invoice.seller_name, current);
   }
-  const topDoctorFromProfile =
-    [...doctorTotalsFromProfile.entries()].sort(
+  const topDoctor =
+    [...doctorTotals.entries()].sort(
       (a, b) => b[1].total - a[1].total || b[1].count - a[1].count
     )[0]?.[0] || null;
+  const analysis = purchasePatch || derivedAnalysis;
 
   return {
     invoices: limitedInvoices,
     followups: limitedFollowups,
     lastFollowup: limitedFollowups[0] || null,
-    topDoctor: topDoctorFromProfile,
-    lastServiceDoctor:
-      limitedFollowups[0]?.responsible_name || limitedFollowups[0]?.assigned_to || null,
+    topDoctor,
+    lastServiceDoctor: limitedFollowups[0]?.responsible_name || limitedFollowups[0]?.assigned_to || null,
     lastFollowupReport: limitedFollowups[0]?.followup_result || limitedFollowups[0]?.notes || null,
-    avgMonthlyVisits: avgMonthlyVisitsFromProfile,
-    currentMonthVisits: currentMonthVisitsFromProfile,
-    previousMonthVisits: previousMonthVisitsFromProfile,
-    purchaseFrequencyStatus: frequencyStatusFromProfile,
-    purchaseFrequencyRecommendation: frequencyRecommendationFromProfile,
+    avgMonthlyVisits: analysis.averageMonthlyPurchaseCount || null,
+    currentMonthVisits: analysis.purchaseCountCurrentMonth,
+    previousMonthVisits: analysis.purchaseCountPreviousMonth,
+    purchaseFrequencyStatus: analysis.purchaseFrequencyStatus,
+    purchaseFrequencyRecommendation: analysis.recommendation,
     customerNotes: fullProfile.notes.customerNotes || fullProfile.notes.notes,
     whatsappNotes: fullProfile.notes.whatsappNotes,
     serviceNotes: fullProfile.notes.serviceNotes,
@@ -1422,227 +1062,10 @@ export async function getCustomerDetails(
     customerFlags: parseCustomerFlags(fullProfile.flags as any),
     isPseudoCustomer: fullProfile.dataHealth.isPseudoCustomer,
     hasValidPhone: fullProfile.dataHealth.hasValidPhone,
-    purchaseAnalysis: {
-      purchaseCountCurrentMonth: currentMonthVisitsFromProfile,
-      purchaseCountPreviousMonth: previousMonthVisitsFromProfile,
-      averageMonthlyPurchaseCount: avgMonthlyVisitsFromProfile || 0,
-      purchaseFrequencyStatus: frequencyStatusFromProfile,
-      recommendation: frequencyRecommendationFromProfile,
-    },
+    purchaseAnalysis: analysis,
     activeAlerts,
     cashback,
     welcomeStatus,
     invoiceClassifications,
-  };
-
-  const invoiceClauses = customerInvoiceOrClauses(customer);
-  const followupClauses = [
-    customer.customer_code ? `customer_code.eq.${customer.customer_code}` : '',
-    customer.customer_id ? `customer_id.eq.${customer.customer_id}` : '',
-    customer.customer_phone ? `customer_phone.eq.${customer.customer_phone}` : '',
-    customer.customer_name ? `customer_name.eq.${customer.customer_name}` : '',
-  ]
-    .filter(Boolean)
-    .join(',');
-
-  const today = new Date();
-  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10);
-  const previousMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-    .toISOString()
-    .slice(0, 10);
-  const previousMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
-    .toISOString()
-    .slice(0, 10);
-
-  const invoiceQuery = invoiceClauses
-    ? supabase
-        .from('sales_invoices')
-        .select(
-          'id,invoice_no,invoice_number,invoice_date,net_amount,amount,gross_amount,seller_name,branch'
-        )
-        .or(invoiceClauses)
-        .order('invoice_date', { ascending: false })
-        .limit(Math.min(invoiceLimit, 100))
-    : Promise.resolve({ data: [], error: null } as any);
-
-  const currentMonthCountQuery = invoiceClauses
-    ? supabase
-        .from('sales_invoices')
-        .select('id', { count: 'exact', head: true })
-        .or(invoiceClauses)
-        .gte('invoice_date', currentMonthStart)
-        .lte('invoice_date', today.toISOString().slice(0, 10))
-    : Promise.resolve({ count: 0, error: null } as any);
-
-  const previousMonthCountQuery = invoiceClauses
-    ? supabase
-        .from('sales_invoices')
-        .select('id', { count: 'exact', head: true })
-        .or(invoiceClauses)
-        .gte('invoice_date', previousMonthStart)
-        .lte('invoice_date', previousMonthEnd)
-    : Promise.resolve({ count: 0, error: null } as any);
-
-  const followupQuery = followupClauses
-    ? supabase
-        .from('daily_followups')
-        .select(
-          'id,status,assigned_to,responsible_name,notes,followup_result,created_at,followup_date,completed_at'
-        )
-        .or(followupClauses)
-        .order('created_at', { ascending: false })
-        .limit(20)
-    : Promise.resolve({ data: [], error: null } as any);
-
-  const [
-    profile,
-    invoiceResult,
-    currentMonthCountResult,
-    previousMonthCountResult,
-    followupResult,
-  ] = await Promise.all([
-    getCustomerProfile(customer),
-    invoiceQuery,
-    currentMonthCountQuery,
-    previousMonthCountQuery,
-    followupQuery,
-  ]);
-
-  if (invoiceResult.error) throw new Error(`sales_invoices: ${invoiceResult.error.message}`);
-  if (currentMonthCountResult.error)
-    throw new Error(`sales_invoices: ${currentMonthCountResult.error.message}`);
-  if (previousMonthCountResult.error)
-    throw new Error(`sales_invoices: ${previousMonthCountResult.error.message}`);
-  if (followupResult.error) throw new Error(`daily_followups: ${followupResult.error.message}`);
-
-  const invoices = ((invoiceResult.data ?? []) as Row[]).map((row) => ({
-    invoice_number: getInvoiceKey(row) || null,
-    invoice_date: readFirst(row, ['invoice_date'], null) as string | null,
-    amount: toNumber(readFirst(row, ['net_amount', 'amount', 'gross_amount'], 0)),
-    seller_name: readFirst(row, ['seller_name'], null) as string | null,
-    branch: normalizeBranchName(readFirst(row, ['branch'], null)),
-  }));
-
-  const followups = ((followupResult.data ?? []) as Row[]).map((row) => ({
-    id: String(readFirst(row, ['id'], crypto.randomUUID())),
-    status: readFirst(row, ['status'], null) as string | null,
-    assigned_to: readFirst(row, ['assigned_to'], null) as string | null,
-    responsible_name: readFirst(row, ['responsible_name'], null) as string | null,
-    notes: readFirst(row, ['notes'], null) as string | null,
-    followup_result: readFirst(row, ['followup_result'], null) as string | null,
-    created_at: readFirst(row, ['created_at'], null) as string | null,
-    followup_date: readFirst(row, ['followup_date'], null) as string | null,
-    completed_at: readFirst(row, ['completed_at'], null) as string | null,
-  }));
-
-  const doctorTotals = new Map<string, { total: number; count: number }>();
-  for (const invoice of invoices) {
-    if (!invoice.seller_name) continue;
-    const current = doctorTotals.get(invoice.seller_name) || { total: 0, count: 0 };
-    current.total += invoice.amount;
-    current.count += 1;
-    doctorTotals.set(invoice.seller_name, current);
-  }
-
-  const topDoctor =
-    [...doctorTotals.entries()].sort(
-      (a, b) => b[1].total - a[1].total || b[1].count - a[1].count
-    )[0]?.[0] || null;
-  const lastFollowup = followups[0] || null;
-
-  const currentMonthVisits = Number(currentMonthCountResult.count ?? 0);
-  const previousMonthVisits = Number(previousMonthCountResult.count ?? 0);
-  const avgMonthlyVisits =
-    currentMonthVisits || previousMonthVisits
-      ? Math.round((currentMonthVisits + previousMonthVisits) / 2)
-      : null;
-
-  function purchaseFrequencyStatus(current: number, previous: number) {
-    if (current === 0 && previous >= 2) return 'توقف عن الشراء';
-    if (current * 2 <= previous && previous >= 2) return 'انخفض الشراء';
-    if (current === 0 && previous === 1) return 'يحتاج متابعة';
-    if (current === 0) return 'بدون مشتريات هذا الشهر';
-    return 'طبيعي';
-  }
-
-  function purchaseFrequencyRecommendation(status: string) {
-    if (status === 'توقف عن الشراء')
-      return 'تابع العميل فوراً لاستعادة الشراء، وقدّم عرضاً شخصياً إذا أمكن.';
-    if (status === 'انخفض الشراء') return 'راجع سبب انخفاض الأنشطة وراجع العروض المخصصة للعميل.';
-    if (status === 'يحتاج متابعة')
-      return 'اتصل بالعميل لتأكيد احتياجاته والتشجيع على الشراء القادم.';
-    return 'استمر في دعم العميل وقدم خدمات واضحة للحفاظ على العلاقة.';
-  }
-
-  const profilePhone = getBestCustomerPhone(
-    {
-      customer_phone: customer.customer_phone,
-      phone: customer.phone,
-      customer_code: customer.customer_code,
-    },
-    customer,
-    profile
-      ? {
-          whatsapp_phone: profile.whatsapp_phone || null,
-          phone: profile.phone || null,
-          phone_alt: profile.phone_alt || null,
-          customer_phone: profile.customer_phone || null,
-        }
-      : null
-  );
-  const isPseudo = isPseudoCustomer({
-    customer_name: customer.customer_name,
-    customer_phone: profilePhone,
-    phone: profilePhone,
-    customer_id: customer.customer_id,
-    customer_code: customer.customer_code,
-  });
-
-  const validPhone = isValidEgyptPhone(profilePhone, customer.customer_code);
-  const flags = customerFlagLabels(profile?.customer_flags as Record<string, boolean> | null);
-
-  // Purchase analysis
-  const purchaseAnalysis: PurchaseAnalysis | null = {
-    purchaseCountCurrentMonth: currentMonthVisits,
-    purchaseCountPreviousMonth: previousMonthVisits,
-    averageMonthlyPurchaseCount: avgMonthlyVisits || 0,
-    purchaseFrequencyStatus: purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits),
-    recommendation: purchaseFrequencyRecommendation(
-      purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits)
-    ),
-  };
-
-  return {
-    invoices,
-    followups,
-    lastFollowup,
-    topDoctor,
-    lastServiceDoctor: lastFollowup?.responsible_name || lastFollowup?.assigned_to || null,
-    lastFollowupReport: lastFollowup?.followup_result || lastFollowup?.notes || null,
-    avgMonthlyVisits,
-    currentMonthVisits,
-    previousMonthVisits,
-    purchaseFrequencyStatus: purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits),
-    purchaseFrequencyRecommendation: purchaseFrequencyRecommendation(
-      purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits)
-    ),
-    customerNotes: profile?.customer_notes || profile?.notes || null,
-    whatsappNotes: profile?.whatsapp_notes || null,
-    serviceNotes: profile?.service_notes || null,
-    teamNotes: profile?.team_notes || null,
-    handlingNotes: profile?.handling_notes || null,
-    address: profile?.address || null,
-    phoneAlt: profile?.phone_alt || null,
-    whatsappPhone: profile?.whatsapp_phone || null,
-    customerFlags: flags,
-    isPseudoCustomer: isPseudo,
-    hasValidPhone: validPhone,
-    purchaseAnalysis,
-    activeAlerts: [],
-    cashback: null,
-    welcomeStatus: null,
-    invoiceClassifications: [],
   };
 }

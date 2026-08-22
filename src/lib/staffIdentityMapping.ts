@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { normalizeStaffName } from './staffDuplicateAudit';
+import { readUnlinkedInvoiceSellerNames } from './readModels/unlinkedSellerNamesReadModel';
 
 export interface StaffIdentityAlias {
   id: string;
@@ -32,7 +33,6 @@ export async function resolveStaffNameToStaffId(
   const normalized = normalizeStaffName(rawName);
   if (!normalized) return null;
 
-  // البحث عن تطابق في جدول staff_identity_aliases
   const { data: aliases, error: aliasError } = await supabase
     .from('staff_identity_aliases')
     .select('*')
@@ -50,7 +50,6 @@ export async function resolveStaffNameToStaffId(
     return aliases[0].staff_id;
   }
 
-  // إذا لم يتم العثور على تطابق، حاول البحث المباشر في جدول staff
   const { data: staff, error: staffError } = await supabase
     .from('staff')
     .select('id, name')
@@ -62,13 +61,11 @@ export async function resolveStaffNameToStaffId(
     return null;
   }
 
-  // البحث عن تطابق جزئي في أسماء الموظفين
   if (staff && staff.length > 0) {
     for (const s of staff) {
       const staffName = s.name || '';
       const staffNormalized = normalizeStaffName(staffName);
       if (staffNormalized === normalized) {
-        // إنشاء alias تلقائي إذا كان مطلوباً
         if (options?.createAutoAlias) {
           await createStaffAlias(s.id, rawName, options.source || 'auto-resolve', 0.9, 'system');
         }
@@ -80,9 +77,7 @@ export async function resolveStaffNameToStaffId(
   return null;
 }
 
-/**
- * إنشاء alias جديد للموظف
- */
+/** إنشاء alias جديد للموظف */
 export async function createStaffAlias(
   staffId: string,
   aliasName: string,
@@ -114,15 +109,12 @@ export async function createStaffAlias(
   return data as StaffIdentityAlias;
 }
 
-/**
- * اقتراح ربط تلقائي للأسماء غير المرتبطة
- */
+/** اقتراح ربط تلقائي للأسماء غير المرتبطة */
 export async function suggestStaffAliases(
   rawNames: string[]
 ): Promise<Map<string, StaffIdentityMatch[]>> {
   const suggestions = new Map<string, StaffIdentityMatch[]>();
 
-  // جلب جميع الموظفين النشطين
   const { data: staff, error: staffError } = await supabase
     .from('staff')
     .select('id, name')
@@ -143,7 +135,6 @@ export async function suggestStaffAliases(
       const staffName = s.name || '';
       const staffNormalized = normalizeStaffName(staffName);
 
-      // تطابق تام
       if (staffNormalized === normalized) {
         matches.push({
           staff_id: s.id,
@@ -151,9 +142,7 @@ export async function suggestStaffAliases(
           confidence: 1.0,
           source: 'exact-match',
         });
-      }
-      // تطابق جزئي (يحتوي على نفس الأحرف)
-      else if (staffNormalized.includes(normalized) || normalized.includes(staffNormalized)) {
+      } else if (staffNormalized.includes(normalized) || normalized.includes(staffNormalized)) {
         matches.push({
           staff_id: s.id,
           staff_name: staffName,
@@ -172,31 +161,17 @@ export async function suggestStaffAliases(
   return suggestions;
 }
 
-/**
- * جلب جميع الأسماء غير المرتبطة من الفواتير
- */
+/** جلب جميع الأسماء غير المرتبطة من الفواتير والمراجعات */
 export async function getUnlinkedSellerNames(): Promise<string[]> {
-  // جلب seller_names الفريدة من sales_invoices
-  const { data: invoices, error: invoiceError } = await supabase
-    .from('sales_invoices')
-    .select('seller_name')
-    .not('seller_name', 'is', null)
-    .is('staff_id', null);
-
-  if (invoiceError) {
-    console.error('Error fetching invoices:', invoiceError);
-    return [];
-  }
-
   const sellerNames = new Set<string>();
-  for (const invoice of invoices || []) {
-    const sellerName = invoice.seller_name;
-    if (sellerName) {
-      sellerNames.add(sellerName);
-    }
+
+  try {
+    const invoiceNames = await readUnlinkedInvoiceSellerNames();
+    invoiceNames.forEach((name) => sellerNames.add(name));
+  } catch (invoiceError) {
+    console.error('Error fetching invoice seller identities:', invoiceError);
   }
 
-  // جلب الأسماء من conversation_sales_reviews
   const { data: reviews, error: reviewError } = await supabase
     .from('conversation_sales_reviews')
     .select('staff_name')
@@ -206,18 +181,14 @@ export async function getUnlinkedSellerNames(): Promise<string[]> {
   if (!reviewError && reviews) {
     for (const review of reviews) {
       const staffName = review.staff_name;
-      if (staffName) {
-        sellerNames.add(staffName);
-      }
+      if (staffName) sellerNames.add(staffName);
     }
   }
 
   return Array.from(sellerNames);
 }
 
-/**
- * تأكيد ربط الاسم بالموظف
- */
+/** تأكيد ربط الاسم بالموظف */
 export async function confirmStaffAlias(
   staffId: string,
   aliasName: string,
@@ -225,7 +196,6 @@ export async function confirmStaffAlias(
 ): Promise<boolean> {
   const normalized = normalizeStaffName(aliasName);
 
-  // التحقق من وجود alias مشابه
   const { data: existing, error: existingError } = await supabase
     .from('staff_identity_aliases')
     .select('*')
@@ -237,22 +207,17 @@ export async function confirmStaffAlias(
     return false;
   }
 
-  // تعطيل الـ aliases القديمة
   if (existing && existing.length > 0) {
     for (const alias of existing) {
       await supabase.from('staff_identity_aliases').update({ active: false }).eq('id', alias.id);
     }
   }
 
-  // إنشاء alias جديد
   const result = await createStaffAlias(staffId, aliasName, 'manual-confirm', 1.0, createdBy);
-
   return result !== null;
 }
 
-/**
- * جلب جميع aliases لموظف معين
- */
+/** جلب جميع aliases لموظف معين */
 export async function getStaffAliases(staffId: string): Promise<StaffIdentityAlias[]> {
   const { data, error } = await supabase
     .from('staff_identity_aliases')

@@ -20,8 +20,10 @@ export function useActiveStaff<T>(options?: {
     orderBy: opts.orderBy ?? { column: 'name', ascending: true },
     select: opts.select,
     limit: opts.limit,
-    // Realtime ON for staff — live attendance/shift updates matter
-    // All other tables default to false in useSupabaseQuery
+    freshness: 'live',
+    // Realtime ON for staff — live attendance/shift updates matter.
+    // Reconnect also refetches through the live freshness policy so missed
+    // websocket events do not leave an old staff snapshot on screen.
     realtimeEnabled: opts.realtimeEnabled ?? true,
   });
 }

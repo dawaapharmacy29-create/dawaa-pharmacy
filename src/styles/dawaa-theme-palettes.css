@@ -1,0 +1,273 @@
+/*
+ * Dawaa Theme Palettes v6
+ * -----------------------
+ * Canonical color ownership lives here.
+ * Components and pages consume semantic variables only.
+ *
+ * Visual direction:
+ * - Light: calm neutral operational canvas with strong readable hierarchy.
+ * - Dark: lifted charcoal / graphite surfaces for long-session comfort.
+ * - Pharmacy Green: branded healthcare green with the same surface hierarchy.
+ */
+
+:root,
+html[data-theme='dark'] {
+  --dawaa-theme-bg: #10161a;
+  --dawaa-theme-bg-soft: #141c21;
+  --dawaa-theme-surface: #182126;
+  --dawaa-theme-surface-2: #1e2a30;
+  --dawaa-theme-surface-raised: #25343b;
+  --dawaa-theme-soft: rgba(195, 208, 214, 0.065);
+  --dawaa-theme-accent-soft: rgba(57, 190, 175, 0.1);
+  --dawaa-theme-accent-border: rgba(83, 196, 183, 0.34);
+  --dawaa-theme-border: rgba(190, 204, 211, 0.16);
+  --dawaa-theme-border-strong: rgba(196, 211, 218, 0.28);
+  --dawaa-theme-text: #dce5e8;
+  --dawaa-theme-heading: #f7f9fa;
+  --dawaa-theme-muted: #9aa7ad;
+  --dawaa-theme-primary: #39beaf;
+  --dawaa-theme-primary-strong: #2aa091;
+  --dawaa-theme-primary-text: #071817;
+  --dawaa-theme-input: #141d22;
+  --dawaa-theme-table-head: #162026;
+  --dawaa-theme-table-row: #182126;
+  --dawaa-theme-table-hover: #223036;
+  --dawaa-theme-disabled-bg: #202a2f;
+  --dawaa-theme-disabled-text: #7f8d94;
+  --dawaa-theme-disabled-border: rgba(190, 204, 211, 0.11);
+  --dawaa-theme-overlay: rgba(7, 12, 15, 0.68);
+  --dawaa-theme-focus: rgba(57, 190, 175, 0.24);
+  --dawaa-theme-shadow: 0 18px 42px rgba(0, 0, 0, 0.27);
+  --dawaa-theme-shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.15);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.035);
+  --dawaa-theme-divider: rgba(192, 206, 212, 0.105);
+  --dawaa-theme-sidebar: #131b20;
+  --dawaa-theme-sidebar-active: #203038;
+  --dawaa-theme-sidebar-hover: #1a252b;
+  --dawaa-theme-ambient: radial-gradient(circle at 88% -12%, rgba(57, 190, 175, 0.07), transparent 34rem);
+
+  --dawaa-status-success-bg: rgba(65, 190, 133, 0.095);
+  --dawaa-status-success-text: #98dabd;
+  --dawaa-status-success-border: rgba(101, 199, 157, 0.24);
+  --dawaa-status-warning-bg: rgba(222, 169, 70, 0.095);
+  --dawaa-status-warning-text: #e6c27a;
+  --dawaa-status-warning-border: rgba(222, 173, 84, 0.25);
+  --dawaa-status-danger-bg: rgba(219, 97, 97, 0.095);
+  --dawaa-status-danger-text: #ecaaaa;
+  --dawaa-status-danger-border: rgba(224, 118, 118, 0.25);
+  --dawaa-status-info-bg: rgba(91, 148, 205, 0.095);
+  --dawaa-status-info-text: #a8c6e2;
+  --dawaa-status-info-border: rgba(113, 165, 216, 0.24);
+
+  --dawaa-chart-series-1: #39beaf;
+  --dawaa-chart-series-2: #79b1df;
+  --dawaa-chart-series-3: #a294d4;
+  --dawaa-chart-series-4: #7ac69b;
+  --dawaa-chart-series-5: #dfb05e;
+  --dawaa-chart-series-6: #dc7c7c;
+  --dawaa-chart-grid: rgba(190, 204, 211, 0.15);
+  --dawaa-chart-axis: #97a5ac;
+  --dawaa-chart-tooltip-bg: #202b31;
+  --dawaa-chart-tooltip-text: #edf2f4;
+  --dawaa-chart-tooltip-muted: #a4b0b6;
+  --dawaa-chart-tooltip-border: rgba(83, 196, 183, 0.31);
+
+  --background: 198 24% 8%;
+  --foreground: 197 18% 89%;
+  --card: 198 23% 12%;
+  --card-foreground: 197 18% 89%;
+  --popover: 198 22% 13%;
+  --popover-foreground: 197 18% 89%;
+  --primary: 173 52% 48%;
+  --primary-foreground: 176 55% 6%;
+  --secondary: 198 23% 15%;
+  --secondary-foreground: 197 18% 89%;
+  --muted: 198 18% 13%;
+  --muted-foreground: 198 10% 64%;
+  --accent: 184 25% 16%;
+  --accent-foreground: 173 51% 73%;
+  --destructive: 0 55% 50%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 198 13% 27%;
+  --input: 198 20% 11%;
+  --ring: 173 52% 48%;
+  --sidebar-background: 198 20% 10%;
+  --sidebar-foreground: 197 18% 89%;
+  --sidebar-primary: 173 52% 48%;
+  --sidebar-primary-foreground: 176 55% 6%;
+  --sidebar-accent: 198 23% 16%;
+  --sidebar-accent-foreground: 173 51% 73%;
+  --sidebar-border: 198 13% 25%;
+  --sidebar-ring: 173 52% 48%;
+}
+
+html[data-theme='light'] {
+  --dawaa-theme-bg: #eef2f3;
+  --dawaa-theme-bg-soft: #f5f7f8;
+  --dawaa-theme-surface: #ffffff;
+  --dawaa-theme-surface-2: #f3f6f7;
+  --dawaa-theme-surface-raised: #ffffff;
+  --dawaa-theme-soft: #edf1f2;
+  --dawaa-theme-accent-soft: #e9f6f4;
+  --dawaa-theme-accent-border: #acd5cf;
+  --dawaa-theme-border: #cfd8dc;
+  --dawaa-theme-border-strong: #b8c5ca;
+  --dawaa-theme-text: #2f3b41;
+  --dawaa-theme-heading: #152128;
+  --dawaa-theme-muted: #5d6970;
+  --dawaa-theme-primary: #0a9185;
+  --dawaa-theme-primary-strong: #07796f;
+  --dawaa-theme-primary-text: #ffffff;
+  --dawaa-theme-input: #ffffff;
+  --dawaa-theme-table-head: #f0f3f4;
+  --dawaa-theme-table-row: #ffffff;
+  --dawaa-theme-table-hover: #eef2f3;
+  --dawaa-theme-disabled-bg: #edf1f3;
+  --dawaa-theme-disabled-text: #7f8b92;
+  --dawaa-theme-disabled-border: #d9e0e3;
+  --dawaa-theme-overlay: rgba(24, 32, 36, 0.2);
+  --dawaa-theme-focus: rgba(10, 145, 133, 0.18);
+  --dawaa-theme-shadow: 0 14px 30px rgba(25, 38, 45, 0.075);
+  --dawaa-theme-shadow-soft: 0 3px 12px rgba(25, 38, 45, 0.05);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.96);
+  --dawaa-theme-divider: #e1e7e9;
+  --dawaa-theme-sidebar: #f8fafb;
+  --dawaa-theme-sidebar-active: #e9efef;
+  --dawaa-theme-sidebar-hover: #f0f4f5;
+  --dawaa-theme-ambient: none;
+
+  --dawaa-status-success-bg: #f1f7f3;
+  --dawaa-status-success-text: #205f43;
+  --dawaa-status-success-border: #c8ddd1;
+  --dawaa-status-warning-bg: #faf6ed;
+  --dawaa-status-warning-text: #755017;
+  --dawaa-status-warning-border: #e3d5b6;
+  --dawaa-status-danger-bg: #faf2f2;
+  --dawaa-status-danger-text: #873f3f;
+  --dawaa-status-danger-border: #e2caca;
+  --dawaa-status-info-bg: #f1f5f8;
+  --dawaa-status-info-text: #405e78;
+  --dawaa-status-info-border: #cedae4;
+
+  --dawaa-chart-series-1: #0a9185;
+  --dawaa-chart-series-2: #477ca9;
+  --dawaa-chart-series-3: #705da1;
+  --dawaa-chart-series-4: #3d865e;
+  --dawaa-chart-series-5: #a16f1d;
+  --dawaa-chart-series-6: #ad4f4f;
+  --dawaa-chart-grid: rgba(64, 82, 91, 0.14);
+  --dawaa-chart-axis: #637078;
+  --dawaa-chart-tooltip-bg: #ffffff;
+  --dawaa-chart-tooltip-text: #223038;
+  --dawaa-chart-tooltip-muted: #5f6c73;
+  --dawaa-chart-tooltip-border: #ccd6da;
+
+  --background: 195 13% 95%;
+  --foreground: 199 16% 22%;
+  --card: 0 0% 100%;
+  --card-foreground: 199 16% 22%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 199 16% 22%;
+  --primary: 175 87% 30%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 195 11% 96%;
+  --secondary-foreground: 199 16% 22%;
+  --muted: 195 10% 94%;
+  --muted-foreground: 198 9% 41%;
+  --accent: 195 10% 93%;
+  --accent-foreground: 175 81% 25%;
+  --destructive: 0 48% 45%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 198 12% 83%;
+  --input: 0 0% 100%;
+  --ring: 175 87% 30%;
+  --sidebar-background: 195 9% 98%;
+  --sidebar-foreground: 199 16% 22%;
+  --sidebar-primary: 175 87% 30%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 195 10% 93%;
+  --sidebar-accent-foreground: 175 81% 25%;
+  --sidebar-border: 198 12% 83%;
+  --sidebar-ring: 175 87% 30%;
+}
+
+html[data-theme='pharmacy-green'] {
+  --dawaa-theme-bg: #f2f5f3;
+  --dawaa-theme-bg-soft: #f7f9f8;
+  --dawaa-theme-surface: #ffffff;
+  --dawaa-theme-surface-2: #f4f7f5;
+  --dawaa-theme-surface-raised: #fcfdfc;
+  --dawaa-theme-soft: #eef2ef;
+  --dawaa-theme-accent-soft: #eaf4ed;
+  --dawaa-theme-accent-border: #b6cfbd;
+  --dawaa-theme-border: #d6dfd8;
+  --dawaa-theme-border-strong: #c0ccc3;
+  --dawaa-theme-text: #304038;
+  --dawaa-theme-heading: #172b21;
+  --dawaa-theme-muted: #68766e;
+  --dawaa-theme-primary: #167657;
+  --dawaa-theme-primary-strong: #105f46;
+  --dawaa-theme-primary-text: #ffffff;
+  --dawaa-theme-input: #ffffff;
+  --dawaa-theme-table-head: #f1f5f2;
+  --dawaa-theme-table-row: #ffffff;
+  --dawaa-theme-table-hover: #eef3f0;
+  --dawaa-theme-disabled-bg: #eef2ef;
+  --dawaa-theme-disabled-text: #7e8a83;
+  --dawaa-theme-disabled-border: #d9e1db;
+  --dawaa-theme-overlay: rgba(24, 39, 31, 0.22);
+  --dawaa-theme-focus: rgba(22, 118, 87, 0.17);
+  --dawaa-theme-shadow: 0 14px 32px rgba(31, 53, 42, 0.075);
+  --dawaa-theme-shadow-soft: 0 4px 14px rgba(31, 53, 42, 0.05);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.92);
+  --dawaa-theme-divider: #e3e9e5;
+  --dawaa-theme-sidebar: #f9fbfa;
+  --dawaa-theme-sidebar-active: #ebf0ed;
+  --dawaa-theme-sidebar-hover: #f1f4f2;
+  --dawaa-theme-ambient: none;
+
+  --dawaa-status-success-bg: #eff7f2;
+  --dawaa-status-success-text: #176645;
+  --dawaa-status-success-border: #c5dccb;
+  --dawaa-status-warning-bg: #fbf7ee;
+  --dawaa-status-warning-text: #7b540f;
+  --dawaa-status-warning-border: #e5d6b2;
+  --dawaa-status-danger-bg: #fbf2f2;
+  --dawaa-status-danger-text: #923c3c;
+  --dawaa-status-danger-border: #e2c8c8;
+  --dawaa-status-info-bg: #f1f5f7;
+  --dawaa-status-info-text: #426274;
+  --dawaa-status-info-border: #cedbe0;
+
+  --dawaa-chart-series-1: #167657;
+  --dawaa-chart-series-2: #4f7a92;
+  --dawaa-chart-series-3: #70648a;
+  --dawaa-chart-series-4: #47815c;
+  --dawaa-chart-series-5: #967029;
+  --dawaa-chart-series-6: #a45656;
+  --dawaa-chart-grid: rgba(65, 84, 72, 0.14);
+  --dawaa-chart-axis: #68766e;
+  --dawaa-chart-tooltip-bg: #ffffff;
+  --dawaa-chart-tooltip-text: #28372f;
+  --dawaa-chart-tooltip-muted: #647269;
+  --dawaa-chart-tooltip-border: #cad8ce;
+}
+
+html[data-theme='light'] body,
+html[data-theme='light'] #root,
+html[data-theme='pharmacy-green'] body,
+html[data-theme='pharmacy-green'] #root {
+  background: var(--dawaa-theme-bg);
+  background-image: none;
+}
+
+html[data-theme='dark'] body,
+html[data-theme='dark'] #root {
+  background-color: var(--dawaa-theme-bg);
+  background-image: var(--dawaa-theme-ambient);
+}
+
+html[data-theme] .dawaa-app-bg {
+  background-color: var(--dawaa-theme-bg);
+  background-image: var(--dawaa-theme-ambient);
+}

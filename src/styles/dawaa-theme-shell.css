@@ -1,0 +1,279 @@
+/*
+ * Dawaa Theme System — Application Shell
+ * ---------------------------------------
+ * Shared chrome only: app background, header, sidebar, page roots and semantic
+ * status surfaces. No feature/page-specific palette values belong here.
+ */
+
+html[data-theme] body,
+html[data-theme] #root {
+  color: var(--dawaa-theme-text);
+  background-color: var(--dawaa-theme-bg);
+  background-image: var(--dawaa-theme-ambient);
+}
+
+html[data-theme='light'] body,
+html[data-theme='light'] #root,
+html[data-theme='pharmacy-green'] body,
+html[data-theme='pharmacy-green'] #root {
+  background-image: none;
+}
+
+.dawaa-header {
+  background: color-mix(in srgb, var(--dawaa-theme-surface) 98%, transparent);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-divider);
+  box-shadow: 0 1px 0 var(--dawaa-theme-divider);
+}
+
+.dawaa-header-title { color: var(--dawaa-theme-heading); }
+.dawaa-header-muted { color: var(--dawaa-theme-muted); }
+.dawaa-header-brand { color: var(--dawaa-theme-primary-strong); }
+
+.dawaa-header-icon-button {
+  color: var(--dawaa-theme-muted);
+  background: transparent;
+  border: 1px solid transparent;
+}
+.dawaa-header-icon-button:hover {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-surface-2);
+  border-color: var(--dawaa-theme-border);
+}
+
+.dawaa-header-cycle {
+  background: var(--dawaa-theme-accent-soft);
+  border: 1px solid var(--dawaa-theme-accent-border);
+  color: var(--dawaa-theme-primary-strong);
+}
+
+.dawaa-header-status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.dawaa-header-popover {
+  background: var(--dawaa-theme-surface-raised);
+  border: 1px solid var(--dawaa-theme-border);
+  color: var(--dawaa-theme-text);
+  box-shadow: var(--dawaa-theme-shadow);
+}
+
+.dawaa-header-popover-divider { border-color: var(--dawaa-theme-divider); }
+
+.dawaa-header-toggle-group {
+  background: var(--dawaa-theme-surface-2);
+  border: 1px solid var(--dawaa-theme-border);
+}
+
+.dawaa-header-toggle {
+  color: var(--dawaa-theme-muted);
+  background: transparent;
+}
+.dawaa-header-toggle:hover {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-sidebar-hover);
+}
+.dawaa-header-toggle.is-active {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-surface-raised);
+  box-shadow: var(--dawaa-theme-shadow-soft);
+}
+
+.dawaa-header-notification-row {
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-divider);
+  background: transparent;
+}
+.dawaa-header-notification-row:hover { background: var(--dawaa-theme-surface-2); }
+.dawaa-header-notification-row.is-unread { background: var(--dawaa-theme-accent-soft); }
+
+.dawaa-header-unread-dot,
+.dawaa-header-unread-count {
+  background: var(--dawaa-theme-primary);
+  color: var(--dawaa-theme-primary-text);
+}
+.dawaa-header-unread-count { border-color: var(--dawaa-theme-surface); }
+
+.dawaa-header-settings-row {
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-divider);
+  background: var(--dawaa-theme-surface);
+}
+
+.dawaa-header-footer-action {
+  color: var(--dawaa-theme-primary-strong);
+  background: var(--dawaa-theme-surface-2);
+  border-color: var(--dawaa-theme-divider);
+}
+.dawaa-header-footer-action:hover { background: var(--dawaa-theme-accent-soft); }
+
+.theme-switcher {
+  background: var(--dawaa-theme-surface-2);
+  border-color: var(--dawaa-theme-border);
+}
+.theme-option {
+  color: var(--dawaa-theme-muted);
+  background: transparent;
+}
+.theme-option:hover {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-sidebar-hover);
+}
+.theme-option-active {
+  color: var(--dawaa-theme-primary-text);
+  background: var(--dawaa-theme-primary);
+  box-shadow: none;
+}
+
+.dawaa-sidebar {
+  background: var(--dawaa-theme-sidebar);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-divider);
+  box-shadow: -8px 0 28px color-mix(in srgb, var(--dawaa-theme-heading) 4%, transparent);
+}
+
+.dawaa-sidebar-divider { border-color: var(--dawaa-theme-divider); }
+.dawaa-sidebar-title { color: var(--dawaa-theme-heading); }
+.dawaa-sidebar-muted { color: var(--dawaa-theme-muted); }
+.dawaa-sidebar-brand { color: var(--dawaa-theme-primary); }
+
+.dawaa-sidebar-user-card {
+  background: var(--dawaa-theme-surface-2);
+  border: 1px solid var(--dawaa-theme-divider);
+  color: var(--dawaa-theme-text);
+}
+
+.dawaa-sidebar-quick {
+  background: var(--dawaa-theme-accent-soft);
+  color: var(--dawaa-theme-primary-strong);
+  border: 1px solid var(--dawaa-theme-accent-border);
+}
+.dawaa-sidebar-quick:hover {
+  background: var(--dawaa-theme-surface-2);
+  color: var(--dawaa-theme-heading);
+}
+
+.dawaa-sidebar-quick--secondary {
+  background: var(--dawaa-theme-surface-2);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
+}
+
+.dawaa-sidebar-group {
+  color: var(--dawaa-theme-muted);
+  background: transparent;
+}
+.dawaa-sidebar-group:hover {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-sidebar-hover);
+}
+.dawaa-sidebar-group.is-active {
+  color: var(--dawaa-theme-primary-strong);
+  background: var(--dawaa-theme-sidebar-active);
+}
+
+.dawaa-sidebar-section-label {
+  color: var(--dawaa-theme-muted);
+  border-color: var(--dawaa-theme-divider);
+}
+
+.dawaa-sidebar-count {
+  background: var(--dawaa-status-warning-bg);
+  color: var(--dawaa-status-warning-text);
+  border: 1px solid var(--dawaa-status-warning-border);
+}
+
+.dawaa-sidebar-logout { color: var(--dawaa-status-danger-text); }
+.dawaa-sidebar-logout:hover { background: var(--dawaa-status-danger-bg); }
+.dawaa-mobile-backdrop { background: var(--dawaa-theme-overlay); }
+
+html[data-theme] .dawaa-nav-item,
+html[data-theme] .sidebar-item {
+  color: var(--dawaa-theme-muted);
+}
+
+html[data-theme] .dawaa-nav-item:hover,
+html[data-theme] .sidebar-item:hover {
+  background: var(--dawaa-theme-sidebar-hover);
+  color: var(--dawaa-theme-heading);
+}
+
+html[data-theme] .dawaa-nav-item.is-active,
+html[data-theme] .dawaa-nav-item[aria-current='page'],
+html[data-theme] .sidebar-item.is-active,
+html[data-theme] .sidebar-item[aria-current='page'] {
+  background: var(--dawaa-theme-sidebar-active);
+  color: var(--dawaa-theme-primary-strong);
+  border-color: var(--dawaa-theme-border-strong);
+}
+
+.dawaa-status-success,
+.dawaa-status-warning,
+.dawaa-status-danger,
+.dawaa-status-info {
+  border-style: solid;
+  border-width: 1px;
+  box-shadow: none;
+}
+
+.dawaa-status-success {
+  background: var(--dawaa-status-success-bg);
+  color: var(--dawaa-status-success-text);
+  border-color: var(--dawaa-status-success-border);
+}
+
+.dawaa-status-warning {
+  background: var(--dawaa-status-warning-bg);
+  color: var(--dawaa-status-warning-text);
+  border-color: var(--dawaa-status-warning-border);
+}
+
+.dawaa-status-danger {
+  background: var(--dawaa-status-danger-bg);
+  color: var(--dawaa-status-danger-text);
+  border-color: var(--dawaa-status-danger-border);
+}
+
+.dawaa-status-info {
+  background: var(--dawaa-status-info-bg);
+  color: var(--dawaa-status-info-text);
+  border-color: var(--dawaa-status-info-border);
+}
+
+html[data-theme] .executive-dashboard-page {
+  background: var(--dawaa-theme-bg);
+  color: var(--dawaa-theme-text);
+}
+
+html[data-theme='light'] .executive-dashboard-page,
+html[data-theme='pharmacy-green'] .executive-dashboard-page {
+  background-image: none;
+}
+
+html[data-theme] .executive-dashboard-page > main {
+  background: transparent;
+}
+
+html[data-theme] .dawaa-hero {
+  background: var(--dawaa-theme-surface-raised);
+  border-color: var(--dawaa-theme-border);
+  box-shadow: var(--dawaa-theme-shadow-soft), inset 0 1px 0 var(--dawaa-theme-highlight);
+}
+
+html[data-theme] .dawaa-panel,
+html[data-theme] .dawaa-card {
+  border-color: var(--dawaa-theme-border);
+}
+
+html[data-theme='light'] .dawaa-hero,
+html[data-theme='light'] .dawaa-panel,
+html[data-theme='light'] .dawaa-card,
+html[data-theme='pharmacy-green'] .dawaa-hero,
+html[data-theme='pharmacy-green'] .dawaa-panel,
+html[data-theme='pharmacy-green'] .dawaa-card {
+  background-image: none;
+}

@@ -9,9 +9,19 @@ import { formatFollowupDetailText } from '@/lib/followupFormat';
 import { Drawer, DrawerFieldGrid, SectionEmptyState, SectionSkeleton } from '@/components/customerService/SectionBoundary';
 
 const PAGE_SIZE = 25;
+const PERFORMANCE_PAGE_SIZE = 200;
 type ViewMode = 'exceptional' | 'waiting' | 'no_answer' | 'completed' | 'performance';
 type Row = Record<string, any>;
 type EditState = { result: string; notes: string; nextDate: string; needsNext: boolean };
+
+type PagedRecordsPayload = {
+  branch?: string;
+  mode?: ViewMode;
+  total?: number;
+  limit?: number;
+  offset?: number;
+  rows?: Row[];
+};
 
 const text = (value: unknown) => String(value ?? '').trim();
 const dateKey = (value: unknown) => text(value).slice(0, 10);
@@ -26,12 +36,6 @@ const completed = (row: Row) => !cancelled(row) && !hasNextFollowup(row) && (
   Boolean(row.completed_at || row.closed_at) ||
   /completed|closed|resolved|مكتمل|تم الشراء|تم الحل|العميل راضي|تم التنفيذ|تم الرد|رد العميل|replied|customer_replied/.test(combinedStatus(row))
 );
-const waiting = (row: Row) => !completed(row) && !cancelled(row) && /waiting|awaiting|sent|message_sent|انتظار الرد|في انتظار|تم الإرسال|تم ارسال|بعتنا|أرسلنا/.test(combinedStatus(row));
-const noAnswer = (row: Row) => !completed(row) && !cancelled(row) && /no.?answer|unreachable|لم يرد|لا يرد|مغلق|غير متاح/.test(combinedStatus(row));
-const exceptional = (row: Row) => /exceptional_followup|متابعة استثنائية/i.test(`${row.request_type || ''} ${row.source || ''} ${row.followup_reason || ''} ${row.notes || ''}`);
-// السجلات التاريخية المستوردة من الإكسل ليها شاشة مخصصة أوضح («سجل المتابعات»)
-// فبنستبعدها هنا عشان محدش يشوفها متكررة في «المكتمل».
-const isHistoricalImport = (row: Row) => row.import_source === 'historical_excel_import';
 const actor = (row: Row) => text(row.assigned_doctor || row.responsible_name || row.completed_by_name || row.updated_by_name || 'غير محدد');
 const actorId = (row: Row) => text(row.assigned_staff_id || row.responsible_staff_id || row.completed_by_staff_id || row.updated_by_staff_id || row.staff_id);
 const normalizePersonName = (value: unknown) => text(value).replace(/[ًٌٍَُِّْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/^\s*(دكتور|دكتوره|د\.?|dr\.?)[\s/.-]*/i, '').replace(/[\s/_.-]+/g, ' ').trim().toLowerCase();
@@ -47,6 +51,15 @@ const attempts = (row: Row) => Number(row.contact_attempts || row.attempts_count
 const formatDate = (value: string) => { const d = new Date(value); return Number.isNaN(d.getTime()) ? value || 'غير محدد' : d.toLocaleString('ar-EG'); };
 const positiveOutcome = (row: Row) => /تم الشراء|اشترى|تم الطلب|أكد الطلب|راضي|تم الحل|تم تنفيذ|نجاح|استمر|روشتة|ارسل الروشتة|حجز|completed|resolved|purchased|converted/i.test(resultText(row));
 
+function monthBounds(month: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return { start: null as string | null, end: null as string | null };
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  return { start: `${month}-01`, end: `${month}-${String(lastDay).padStart(2, '0')}` };
+}
+
 const VIEW_COPY: Record<Exclude<ViewMode, 'performance'>, { title: string; description: string; empty: string }> = {
   exceptional: { title: 'المتابعات الاستثنائية المطلوبة', description: 'طلبات الدكاترة المفتوحة فقط، مع مقدم الطلب والمسؤول.', empty: 'لا توجد طلبات استثنائية مفتوحة.' },
   waiting: { title: 'في انتظار رد العميل', description: 'تم إرسال رسالة أو بدء التواصل، وننتظر رد العميل.', empty: 'لا توجد حالات في انتظار الرد.' },
@@ -58,37 +71,84 @@ export default function CustomerFollowupRecordsAndPerformance({ mode }: { mode: 
   const { user } = useAuth();
   const managerView = canViewAllBranches(user);
   const userBranch = normalizeBranchName(user?.branch || '');
+  const actorKey = text(user?.id || user?.staffId || user?.username);
+  const branchScope = managerView ? 'كل الفروع' : userBranch;
   const [rows, setRows] = useState<Row[]>([]);
+  const [totalRows, setTotalRows] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selected, setSelected] = useState<Row | null>(null);
   const [editing, setEditing] = useState<Row | null>(null);
   const [editState, setEditState] = useState<EditState>({ result: '', notes: '', nextDate: '', needsNext: false });
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  const RECORD_COLUMNS = 'id,customer_code,customer_phone,phone,customer_name,name,branch,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_reason,request_details,notes,next_followup_date,created_at,completed_at,closed_at,updated_at,last_event_at,contact_attempts,attempts_count,followup_attempts,attempt_count,needs_next_followup,assigned_doctor,responsible_name,completed_by_name,updated_by_name,assigned_staff_id,responsible_staff_id,completed_by_staff_id,updated_by_staff_id,staff_id,requested_by_name,created_by_name,source,request_type,import_source';
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setVisibleCount(PAGE_SIZE);
+      setDebouncedSearch(search.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search, mode]);
 
   const load = useCallback(async () => {
+    if (!actorKey) return;
     setLoading(true);
     setError('');
     try {
-      // نجيب أعمدة محددة بدل select('*') عشان نتفادى نقل أعمدة JSON التقيلة اللي مش مستخدمة هنا (زي customer_metrics)
-      let query = supabase.from('daily_followups').select(RECORD_COLUMNS).order('created_at', { ascending: false }).limit(5000);
-      if (!managerView && userBranch) query = query.eq('branch', userBranch);
-      const { data, error } = await query;
-      if (error) throw error;
-      setRows((data || []) as Row[]);
-    } catch (error) {
-      const message = (error as Error).message;
+      if (mode === 'performance') {
+        const bounds = monthBounds(month);
+        const allRows: Row[] = [];
+        let offset = 0;
+        let total = 0;
+        do {
+          const { data, error: rpcError } = await supabase.rpc('get_customer_followup_records_v1', {
+            p_actor_id: actorKey,
+            p_branch: branchScope || 'كل الفروع',
+            p_mode: 'performance',
+            p_search: null,
+            p_from: bounds.start,
+            p_to: bounds.end,
+            p_limit: PERFORMANCE_PAGE_SIZE,
+            p_offset: offset,
+          });
+          if (rpcError) throw rpcError;
+          const payload = (data || {}) as PagedRecordsPayload;
+          const pageRows = Array.isArray(payload.rows) ? payload.rows : [];
+          allRows.push(...pageRows);
+          total = Number(payload.total || 0);
+          offset += pageRows.length;
+          if (pageRows.length < PERFORMANCE_PAGE_SIZE) break;
+        } while (offset < total);
+        setRows(allRows);
+        setTotalRows(total);
+      } else {
+        const { data, error: rpcError } = await supabase.rpc('get_customer_followup_records_v1', {
+          p_actor_id: actorKey,
+          p_branch: branchScope || 'كل الفروع',
+          p_mode: mode,
+          p_search: debouncedSearch || null,
+          p_from: null,
+          p_to: null,
+          p_limit: visibleCount,
+          p_offset: 0,
+        });
+        if (rpcError) throw rpcError;
+        const payload = (data || {}) as PagedRecordsPayload;
+        setRows(Array.isArray(payload.rows) ? payload.rows : []);
+        setTotalRows(Number(payload.total || 0));
+      }
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : String(loadError);
       setError(message);
       toast.error(`تعذر تحميل سجل المتابعات: ${message}`);
     } finally {
       setLoading(false);
     }
-  }, [managerView, userBranch]);
+  }, [actorKey, branchScope, debouncedSearch, mode, month, visibleCount]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -97,19 +157,9 @@ export default function CustomerFollowupRecordsAndPerformance({ mode }: { mode: 
     return () => window.removeEventListener('dataChanged', handler);
   }, [load]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let source = rows;
-    if (mode === 'exceptional') source = source.filter((row) => exceptional(row) && !completed(row) && !cancelled(row));
-    if (mode === 'waiting') source = source.filter(waiting);
-    if (mode === 'no_answer') source = source.filter(noAnswer);
-    if (mode === 'completed') source = source.filter((row) => completed(row) && !isHistoricalImport(row));
-    if (q) source = source.filter((row) => `${customer(row)} ${row.customer_code || ''} ${phone(row)}`.toLowerCase().includes(q));
-    return source;
-  }, [mode, rows, search]);
-
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [mode, search]);
-  const paged = filtered.slice(0, visibleCount);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [mode]);
+  const filtered = rows;
+  const paged = rows;
 
   const performance = useMemo(() => {
     const monthlyRows = rows.filter((row) => completedAt(row).slice(0, 7) === month && completed(row));
@@ -218,9 +268,9 @@ export default function CustomerFollowupRecordsAndPerformance({ mode }: { mode: 
     <section className="rounded-3xl border border-white/10 bg-[#091b2d] p-4 shadow-xl" dir="rtl">
       {error ? <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-400/25 bg-red-500/10 p-3" role="alert"><div className="flex items-center gap-2 text-sm font-black text-red-100"><AlertTriangle size={16}/> تعذر تحميل البيانات: {error.slice(0, 160)}</div><button className="btn-secondary flex items-center gap-2 text-xs" onClick={() => void load()}><RefreshCw size={14}/> إعادة المحاولة</button></div> : null}
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-black text-white">{copy.title}</h2><p className="mt-1 text-xs font-bold text-slate-400">{copy.description}</p></div><div className="flex min-w-64 flex-1 items-center gap-2 max-w-2xl"><label className="relative flex-1"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={17}/><input className="input-dark w-full pr-10" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو الكود أو الهاتف" /></label><button className="btn-secondary flex items-center gap-1" onClick={()=>void load()} disabled={loading}><RefreshCw size={16} className={loading ? 'animate-spin' : ''}/> تحديث</button></div></div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-3"><div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm font-black text-white">عدد الحالات: {filtered.length.toLocaleString('ar-EG')}</div>{mode === 'waiting' ? <div className="rounded-xl border border-amber-300/20 bg-amber-400/10 p-3 text-sm font-black text-amber-100"><Clock3 className="ml-1 inline" size={16}/> تحتاج متابعة الرد</div> : null}{mode === 'no_answer' ? <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 p-3 text-sm font-black text-rose-100"><PhoneMissed className="ml-1 inline" size={16}/> تحتاج محاولة جديدة</div> : null}</div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3"><div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm font-black text-white">عدد الحالات: {totalRows.toLocaleString('ar-EG')}</div>{mode === 'waiting' ? <div className="rounded-xl border border-amber-300/20 bg-amber-400/10 p-3 text-sm font-black text-amber-100"><Clock3 className="ml-1 inline" size={16}/> تحتاج متابعة الرد</div> : null}{mode === 'no_answer' ? <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 p-3 text-sm font-black text-rose-100"><PhoneMissed className="ml-1 inline" size={16}/> تحتاج محاولة جديدة</div> : null}</div>
       <div className="mt-3 grid gap-3">{paged.map((row)=><article key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-black text-white">{customer(row)}</h3><p className="mt-1 text-xs font-bold text-slate-400">{row.customer_code || 'بدون كود'} · {phone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'}</p></div><div className="flex flex-wrap gap-2">{phone(row) ? <a className="btn-secondary flex items-center gap-2" href={`tel:${phone(row)}`}><PhoneCall size={16}/> اتصال</a> : null}<button className="btn-secondary flex items-center gap-2" onClick={()=>setSelected(row)}><Eye size={16}/> التفاصيل</button>{actionable ? <button className="btn-primary flex items-center gap-2" disabled={saving} onClick={()=>openEdit(row)}><CheckCircle2 size={16}/> تنفيذ المتابعة</button> : <><button className="btn-secondary flex items-center gap-2" onClick={()=>openEdit(row)}><Edit3 size={16}/> تعديل</button><button className="btn-primary flex items-center gap-2" disabled={saving} onClick={()=>void reopen(row)}><RotateCcw size={16}/> إعادة متابعة</button></>}</div></div><div className="mt-3 grid gap-2 text-sm font-bold text-slate-300 md:grid-cols-4"><div>مقدم الطلب: {requester(row)}</div><div>المسؤول: {actor(row)}</div><div>آخر نشاط: {formatDate(lastActivityAt(row))}</div><div>المحاولات: {attempts(row)}</div></div><p className="mt-3 rounded-xl bg-black/15 p-3 text-sm font-bold text-slate-200">{resultText(row) || text(row.request_details || row.notes) || 'لا توجد نتيجة مسجلة'}</p></article>)}</div>
-      {filtered.length > visibleCount ? <button type="button" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} className="btn-secondary mt-2 w-full text-xs">عرض {Math.min(PAGE_SIZE, filtered.length - visibleCount)} أخرى (من إجمالي {filtered.length.toLocaleString('ar-EG')})</button> : null}
+      {totalRows > rows.length ? <button type="button" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} className="btn-secondary mt-2 w-full text-xs">عرض {Math.min(PAGE_SIZE, totalRows - rows.length)} أخرى (من إجمالي {totalRows.toLocaleString('ar-EG')})</button> : null}
       {!loading && !filtered.length ? <div className="mt-4"><SectionEmptyState title={copy.empty} icon={mode === 'waiting' ? Clock3 : mode === 'no_answer' ? PhoneMissed : CheckCircle2} /></div> : null}
       {loading ? <div className="mt-4 text-center font-black text-cyan-200">جارٍ التحميل...</div> : null}
 

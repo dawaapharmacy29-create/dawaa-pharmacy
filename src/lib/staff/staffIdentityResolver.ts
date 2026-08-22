@@ -2,15 +2,15 @@
  * Canonical staff identity resolver.
  *
  * Safety rules:
- * 1) staff_id / account id are authoritative.
- * 2) username is the second-best identifier.
- * 3) name-only matching is accepted only when it produces one unambiguous result.
- * 4) branch is used as a disambiguation hint.
- * 5) no broad aliases are allowed (especially Islam El-Sabaa vs Dr Islam Farouk).
+ * 1) canonical staff_id is authoritative.
+ * 2) linked account / username are login identifiers that resolve to canonical staff_id.
+ * 3) name-only matching is migration compatibility and is accepted only when unambiguous.
+ * 4) branch is only a disambiguation hint.
+ * 5) all staff-table knowledge lives behind staffDirectoryReadModel.
  */
 
-import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 import { normalizeArabicName } from '@/lib/security/userDataScope';
 import { resolveStaffAccountSafe } from '@/lib/staff/staffAccountsApi';
 
@@ -33,6 +33,7 @@ export interface StaffDirectoryRow {
   status?: string | null;
   active?: boolean | null;
   is_active?: boolean | null;
+  source?: 'staff' | 'staff_account' | 'alias' | null;
 }
 
 export interface CanonicalStaffResolution {
@@ -51,7 +52,13 @@ export interface CanonicalStaffResolution {
     active?: boolean | null;
     can_login?: boolean | null;
   } | null;
-  source: 'staff.id' | 'staff_accounts.staff_id' | 'staff_accounts.id' | 'username' | 'name' | 'unresolved';
+  source:
+    | 'staff.id'
+    | 'staff_accounts.staff_id'
+    | 'staff_accounts.id'
+    | 'username'
+    | 'name'
+    | 'unresolved';
 }
 
 export interface StaffLinkResult {
@@ -75,7 +82,9 @@ export interface StaffIdentityMapEntry {
 export type StaffIdentityMap = Map<string, StaffIdentityMapEntry>;
 
 const PHARMACIST_ROLE_PATTERN = /صيدلاني|pharmacist|دكتور|doctor/i;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+let directoryPromise: Promise<StaffDirectoryRow[]> | null = null;
+const staffCache = new Map<string, ResolvedStaff | null>();
 
 export function normalizeStaffName(name: string | null | undefined): string {
   if (!name) return '';
@@ -95,13 +104,9 @@ function normalizedBranch(value: unknown): string {
   return normalizeBranchName(raw) || raw;
 }
 
-function isUuid(value: string): boolean {
-  return UUID_PATTERN.test(value);
-}
-
 function isStaffRowActive(row: StaffDirectoryRow): boolean {
   if (row.active === false || row.is_active === false) return false;
-  const status = normalizeIdentifier(row.status);
+  const status = normalizeIdentifier(row.status).toLowerCase();
   return !status || status === 'active' || status === 'نشط';
 }
 
@@ -117,6 +122,19 @@ function staffRowId(row: StaffDirectoryRow): string {
 
 function staffRowDisplayName(row: StaffDirectoryRow): string {
   return normalizeIdentifier(row.name || row.staff_name || row.username);
+}
+
+function staffFromRow(row: StaffDirectoryRow | null | undefined): ResolvedStaff | null {
+  if (!row) return null;
+  const id = staffRowId(row);
+  if (!id) return null;
+  return {
+    id,
+    name: staffRowDisplayName(row) || 'غير محدد',
+    role: row.role || null,
+    branch: row.branch || null,
+    username: row.username || null,
+  };
 }
 
 function makeEntry(row: StaffDirectoryRow): StaffIdentityMapEntry | null {
@@ -149,9 +167,7 @@ function exactNameCandidates(name: string, rows: StaffDirectoryRow[]): StaffDire
   if (!normalized) return [];
   return uniqueByStaffId(
     rows.filter(
-      (row) =>
-        isStaffRowActive(row) &&
-        normalizeDoctorName(staffRowDisplayName(row)) === normalized
+      (row) => isStaffRowActive(row) && normalizeDoctorName(staffRowDisplayName(row)) === normalized
     )
   );
 }
@@ -172,6 +188,27 @@ function resolveUniqueName(
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+async function loadDirectoryRows(): Promise<StaffDirectoryRow[]> {
+  if (!directoryPromise) {
+    directoryPromise = readStaffDirectory().then((rows) =>
+      rows.map((row) => ({
+        id: row.id,
+        staff_id: row.id,
+        name: row.name,
+        staff_name: row.name,
+        username: row.username,
+        branch: row.branch,
+        role: row.role,
+        status: row.status,
+        active: row.active,
+        is_active: row.active,
+        source: row.source,
+      }))
+    );
+  }
+  return directoryPromise;
+}
+
 export function buildStaffIdentityMap(staffRows: StaffDirectoryRow[]): StaffIdentityMap {
   const map: StaffIdentityMap = new Map();
   const activeRows = staffRows.filter(isStaffRowActive);
@@ -179,11 +216,8 @@ export function buildStaffIdentityMap(staffRows: StaffDirectoryRow[]): StaffIden
   for (const row of activeRows) {
     const entry = makeEntry(row);
     if (!entry) continue;
-
     map.set(`id:${entry.staffId}`, entry);
-    if (entry.username) {
-      map.set(`username:${entry.username.toLowerCase()}`, entry);
-    }
+    if (entry.username) map.set(`username:${entry.username.toLowerCase()}`, entry);
   }
 
   const names = new Map<string, StaffDirectoryRow[]>();
@@ -217,7 +251,6 @@ export function resolvePrimaryStaffForDoctor(
   identityMap?: StaffIdentityMap
 ): StaffIdentityMapEntry | null {
   const map = identityMap || buildStaffIdentityMap(staffRows);
-
   const staffId = readRowValue(row, [
     'staff_id',
     'reviewed_staff_id',
@@ -234,12 +267,7 @@ export function resolvePrimaryStaffForDoctor(
     return direct ? makeEntry(direct) : null;
   }
 
-  const username = readRowValue(row, [
-    'username',
-    'staff_username',
-    'reviewed_username',
-  ]).toLowerCase();
-
+  const username = readRowValue(row, ['username', 'staff_username', 'reviewed_username']).toLowerCase();
   if (username) {
     const byUsername = map.get(`username:${username}`);
     if (byUsername) return byUsername;
@@ -265,7 +293,6 @@ export function resolvePrimaryStaffForDoctor(
 export function dedupeStaffRows<T extends StaffDirectoryRow>(rows: T[]): T[] {
   const seen = new Set<string>();
   const result: T[] = [];
-
   for (const row of rows) {
     const id = staffRowId(row);
     const username = normalizeIdentifier(row.username).toLowerCase();
@@ -275,7 +302,6 @@ export function dedupeStaffRows<T extends StaffDirectoryRow>(rows: T[]): T[] {
     seen.add(key);
     result.push(row);
   }
-
   return result;
 }
 
@@ -287,15 +313,17 @@ function matchStaffInDirectory(
   const value = normalizeIdentifier(identifier);
   if (!value) return null;
 
-  const byId = staffDirectory.filter(
-    (row) => isStaffRowActive(row) && (staffRowId(row) === value || normalizeIdentifier(row.id) === value)
+  const byId = uniqueByStaffId(
+    staffDirectory.filter((row) => isStaffRowActive(row) && staffRowId(row) === value)
   );
   if (byId.length === 1) return byId[0];
 
-  const byUsername = staffDirectory.filter(
-    (row) =>
-      isStaffRowActive(row) &&
-      normalizeIdentifier(row.username).toLowerCase() === value.toLowerCase()
+  const byUsername = uniqueByStaffId(
+    staffDirectory.filter(
+      (row) =>
+        isStaffRowActive(row) &&
+        normalizeIdentifier(row.username).toLowerCase() === value.toLowerCase()
+    )
   );
   if (byUsername.length === 1) return byUsername[0];
 
@@ -308,11 +336,10 @@ export function resolveStaffLink(
   staffDirectory?: StaffDirectoryRow[]
 ): StaffLinkResult {
   const value = normalizeIdentifier(nameOrId);
-
   if (staffDirectory?.length && value) {
     const match = matchStaffInDirectory(value, staffDirectory, branchOrFallback);
     if (match) {
-      const id = staffRowId(match) || normalizeIdentifier(match.id) || normalizeIdentifier(match.username);
+      const id = staffRowId(match) || normalizeIdentifier(match.username);
       if (id) {
         const route = `/staff/${encodeURIComponent(id)}`;
         return { route, href: route, fallback: false, isFallback: false };
@@ -332,58 +359,9 @@ export function resolveStaffLink(
   };
 }
 
-function staffFromRow(row: Record<string, unknown> | null | undefined): ResolvedStaff | null {
-  if (!row) return null;
-  const id = normalizeIdentifier(row.id || row.staff_id);
-  if (!id) return null;
-  return {
-    id,
-    name: normalizeIdentifier(row.name || row.staff_name || row.username || 'غير محدد'),
-    role: (row.role as string | null | undefined) || null,
-    branch: (row.branch as string | null | undefined) || null,
-    username: (row.username as string | null | undefined) || null,
-  };
-}
-
-async function fetchStaffById(staffId: string): Promise<ResolvedStaff | null> {
-  if (!isUuid(staffId)) return null;
-  const { data, error } = await supabase
-    .from('staff')
-    .select('id,name,username,role,branch,active,is_active,status')
-    .eq('id', staffId)
-    .maybeSingle();
-  if (error) return null;
-  return staffFromRow(data as Record<string, unknown> | null);
-}
-
-async function fetchUniqueStaffByNameOrUsername(
-  identifier: string,
-  branchHint?: unknown
-): Promise<ResolvedStaff | null> {
-  const value = normalizeIdentifier(identifier);
-  if (!value) return null;
-
-  const { data } = await supabase
-    .from('staff')
-    .select('id,name,username,role,branch,active,is_active,status')
-    .limit(500);
-
-  const rows = (data || []) as StaffDirectoryRow[];
-  const byUsername = rows.filter(
-    (row) =>
-      isStaffRowActive(row) &&
-      normalizeIdentifier(row.username).toLowerCase() === value.toLowerCase()
-  );
-  if (byUsername.length === 1) return staffFromRow(byUsername[0] as Record<string, unknown>);
-
-  const match = resolveUniqueName(value, rows, branchHint);
-  return match ? staffFromRow(match as Record<string, unknown>) : null;
-}
-
 async function fetchAccount(identifier: string) {
   const value = normalizeIdentifier(identifier);
   if (!value) return null;
-
   const accounts = await resolveStaffAccountSafe(value);
   const exact = accounts.filter((account) => {
     if (account.active === false || account.can_login === false) return false;
@@ -394,10 +372,7 @@ async function fetchAccount(identifier: string) {
       normalizeStaffName(account.name || account.staff_name) === normalizeStaffName(value)
     );
   });
-
-  return exact.length === 1
-    ? (exact[0] as CanonicalStaffResolution['account'])
-    : null;
+  return exact.length === 1 ? (exact[0] as CanonicalStaffResolution['account']) : null;
 }
 
 export async function resolveCanonicalStaffIdentifier(
@@ -412,24 +387,30 @@ export async function resolveCanonicalStaffIdentifier(
     account: null,
     source: 'unresolved',
   });
-
   if (!input) return unresolved();
 
-  const directStaff = await fetchStaffById(input);
-  if (directStaff) {
-    return {
-      input,
-      canonicalStaffId: directStaff.id,
-      routeIdentifier: directStaff.id,
-      staff: directStaff,
-      account: await fetchAccount(directStaff.id),
-      source: 'staff.id',
-    };
+  const directory = await loadDirectoryRows();
+  const direct = matchStaffInDirectory(input, directory);
+  if (direct && staffRowId(direct) === input) {
+    const staff = staffFromRow(direct);
+    if (staff) {
+      return {
+        input,
+        canonicalStaffId: staff.id,
+        routeIdentifier: staff.id,
+        staff,
+        account: await fetchAccount(staff.id),
+        source: 'staff.id',
+      };
+    }
   }
 
   const account = await fetchAccount(input);
   if (account) {
-    const linkedStaff = account.staff_id ? await fetchStaffById(account.staff_id) : null;
+    const linked = account.staff_id
+      ? directory.find((row) => staffRowId(row) === account.staff_id && row.source !== 'alias') || null
+      : null;
+    const linkedStaff = staffFromRow(linked);
     return {
       input,
       canonicalStaffId: linkedStaff?.id || account.staff_id || null,
@@ -444,15 +425,16 @@ export async function resolveCanonicalStaffIdentifier(
     };
   }
 
-  const uniqueStaff = await fetchUniqueStaffByNameOrUsername(input);
-  if (uniqueStaff) {
+  const unique = matchStaffInDirectory(input, directory);
+  const staff = staffFromRow(unique);
+  if (staff) {
     return {
       input,
-      canonicalStaffId: uniqueStaff.id,
-      routeIdentifier: uniqueStaff.id,
-      staff: uniqueStaff,
-      account: await fetchAccount(uniqueStaff.id),
-      source: 'name',
+      canonicalStaffId: staff.id,
+      routeIdentifier: staff.id,
+      staff,
+      account: await fetchAccount(staff.id),
+      source: normalizeIdentifier(unique?.username).toLowerCase() === input.toLowerCase() ? 'username' : 'name',
     };
   }
 
@@ -475,32 +457,17 @@ export function staffProfilePath(row: {
   return identifier ? `/staff/${encodeURIComponent(identifier)}` : '/team';
 }
 
-const staffCache = new Map<string, ResolvedStaff | null>();
-let allStaff: StaffDirectoryRow[] = [];
-let loaded = false;
-
-async function ensureLoaded(): Promise<void> {
-  if (loaded) return;
-  const { data } = await supabase
-    .from('staff')
-    .select('id,name,username,role,branch,active,is_active,status')
-    .limit(500);
-  allStaff = (data || []) as StaffDirectoryRow[];
-  loaded = true;
-}
-
 export async function resolveStaffBySellerName(
   sellerName: string | null | undefined
 ): Promise<ResolvedStaff | null> {
   const value = normalizeIdentifier(sellerName);
   if (!value) return null;
-
   const key = normalizeStaffName(value);
   if (staffCache.has(key)) return staffCache.get(key) ?? null;
 
-  await ensureLoaded();
-  const match = resolveUniqueName(value, allStaff);
-  const resolved = match ? staffFromRow(match as Record<string, unknown>) : null;
+  const directory = await loadDirectoryRows();
+  const match = resolveUniqueName(value, directory);
+  const resolved = staffFromRow(match);
   staffCache.set(key, resolved);
   return resolved;
 }
@@ -525,6 +492,5 @@ export async function getStaffNavigationTarget(sellerName: string): Promise<Staf
 
 export function clearStaffCache(): void {
   staffCache.clear();
-  allStaff = [];
-  loaded = false;
+  directoryPromise = null;
 }

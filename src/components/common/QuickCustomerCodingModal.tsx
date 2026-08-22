@@ -123,51 +123,20 @@ export default function QuickCustomerCodingModal({
   };
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center" dir="rtl">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-lg bg-slate-900 p-4">
-        <h3 className="mb-3 text-lg font-bold text-white">تكويد عميل سريع</h3>
-        <input
-          className="mb-2 w-full rounded bg-slate-800 p-2 text-sm text-white"
-          placeholder="اسم العميل *"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          required
-        />
-        <input
-          className="mb-2 w-full rounded bg-slate-800 p-2 text-sm text-white"
-          placeholder="رقم الهاتف *"
-          value={phone}
-          onChange={(event) => setPhone(event.target.value)}
-          required
-        />
-        <input
-          className="mb-2 w-full rounded bg-slate-800 p-2 text-sm text-white"
-          placeholder="كود العميل (اختياري)"
-          value={code}
-          onChange={(event) => setCode(event.target.value)}
-        />
-        <input
-          className="mb-2 w-full rounded bg-slate-800 p-2 text-sm text-white"
-          placeholder="العنوان (اختياري)"
-          value={address}
-          onChange={(event) => setAddress(event.target.value)}
-        />
-        <textarea
-          className="mb-3 w-full rounded bg-slate-800 p-2 text-sm text-white"
-          placeholder="ملاحظات (اختياري)"
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
-        />
-        <div className="flex justify-end gap-2">
-          <button className="rounded bg-white/5 px-3 py-1 text-sm text-white" onClick={onClose}>
-            إلغاء
-          </button>
-          <button
-            className="rounded bg-teal-500 px-3 py-1 text-sm text-black disabled:opacity-60"
-            onClick={() => void submit()}
-            disabled={loading}
-          >
+    <div className="modal-backdrop items-center" dir="rtl" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+      <div className="modal-panel max-w-md p-5">
+        <h3 className="dawaa-title mb-1 text-lg">تكويد عميل سريع</h3>
+        <p className="dawaa-caption mb-4 text-xs font-bold">أدخل البيانات الأساسية، ويمكن استكمال باقي بيانات العميل لاحقًا.</p>
+        <div className="space-y-2.5">
+          <input className="dawaa-input text-sm" placeholder="اسم العميل *" value={name} onChange={(event) => setName(event.target.value)} required />
+          <input className="dawaa-input text-sm" placeholder="رقم الهاتف *" value={phone} onChange={(event) => setPhone(event.target.value)} required />
+          <input className="dawaa-input text-sm" placeholder="كود العميل (اختياري)" value={code} onChange={(event) => setCode(event.target.value)} />
+          <input className="dawaa-input text-sm" placeholder="العنوان (اختياري)" value={address} onChange={(event) => setAddress(event.target.value)} />
+          <textarea className="dawaa-textarea min-h-24 text-sm" placeholder="ملاحظات (اختياري)" value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="dawaa-button dawaa-button--secondary" onClick={onClose}>إلغاء</button>
+          <button className="dawaa-button dawaa-button--primary disabled:opacity-60" onClick={() => void submit()} disabled={loading}>
             {loading ? 'جارٍ الحفظ...' : 'حفظ'}
           </button>
         </div>

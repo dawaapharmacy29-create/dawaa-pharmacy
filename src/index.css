@@ -2,71 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --dawaa-theme-bg: #071522;
-    --dawaa-theme-bg-soft: #0b1d31;
-    --dawaa-theme-surface: #10243d;
-    --dawaa-theme-surface-2: #132d4d;
-    --dawaa-theme-soft: rgba(45, 212, 191, 0.12);
-    --dawaa-theme-border: rgba(148, 211, 226, 0.2);
-    --dawaa-theme-border-strong: rgba(45, 212, 191, 0.42);
-    --dawaa-theme-text: #eef8fb;
-    --dawaa-theme-heading: #ffffff;
-    --dawaa-theme-muted: #bad0df;
-    --dawaa-theme-primary: #2dd4bf;
-    --dawaa-theme-primary-strong: #14b8a6;
-    --dawaa-theme-primary-text: #05202f;
-    --dawaa-theme-input: #0b1d31;
-    --dawaa-theme-table-head: #0d2239;
-    --dawaa-theme-table-row: #10243d;
-    --dawaa-theme-table-hover: #143253;
-    --background: 210 33% 98%;
-    --foreground: 222 47% 13%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 13%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 13%;
-    --primary: 176 100% 34%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 13%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 42%;
-    --accent: 176 100% 34%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 214 32% 88%;
-    --input: 0 0% 100%;
-    --ring: 176 100% 34%;
-    --radius: 0.75rem;
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222 47% 18%;
-    --sidebar-primary: 176 100% 34%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 40% 96%;
-    --sidebar-accent-foreground: 222 47% 13%;
-    --sidebar-border: 214 32% 88%;
-    --sidebar-ring: 176 100% 34%;
-  }
-}
+/*
+ * Dawaa application base CSS.
+ * ---------------------------
+ * This file owns framework/base geometry only. It does not own a theme palette.
+ * All color decisions flow through the canonical --dawaa-theme-* and
+ * --dawaa-status-* semantic variables defined by the theme system.
+ */
 
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
     box-sizing: border-box;
   }
 
   html {
     direction: rtl;
-    color-scheme: light;
     font-family:
       'Tajawal', 'Cairo', 'IBM Plex Sans Arabic', 'Noto Sans Arabic', system-ui, sans-serif;
     scrollbar-width: auto;
-    scrollbar-color: rgba(45, 212, 191, 0.72) rgba(15, 31, 52, 0.9);
+    scrollbar-color: var(--dawaa-theme-primary) var(--dawaa-theme-bg-soft);
   }
 
   body {
+    margin: 0;
     background: var(--dawaa-theme-bg);
     color: var(--dawaa-theme-text);
     font-family:
@@ -76,62 +36,73 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Scrollbar */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
+
   ::-webkit-scrollbar-track {
-    background: rgba(15, 31, 52, 0.92);
+    background: var(--dawaa-theme-bg-soft);
   }
+
   ::-webkit-scrollbar-thumb {
-    background: rgba(45, 212, 191, 0.72);
-    border: 2px solid rgba(15, 31, 52, 0.92);
+    background: var(--dawaa-theme-primary);
+    border: 2px solid var(--dawaa-theme-bg-soft);
     border-radius: 999px;
   }
+
   ::-webkit-scrollbar-thumb:hover {
-    background: #2dd4bf;
+    background: var(--dawaa-theme-primary-strong);
   }
 
-  .light-mode {
-    scrollbar-color: #0d9488 #e2e8f0;
+  input,
+  textarea,
+  select {
+    direction: rtl;
+    text-align: right;
   }
 
-  .light-mode ::-webkit-scrollbar-track {
-    background: #e2e8f0;
-  }
-
-  .light-mode ::-webkit-scrollbar-thumb {
-    background: #0d9488;
-    border-color: #e2e8f0;
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    min-width: 0;
   }
 }
 
 @layer components {
+  /* Legacy navigation geometry. Color comes from the canonical shell. */
   .nav-item {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer w-full text-right;
+    @apply flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-right text-sm font-medium transition-all duration-200;
   }
 
   .nav-item-active {
-    @apply bg-teal-500/15 text-teal-400 border border-teal-500/20;
+    background: var(--dawaa-theme-sidebar-active);
+    color: var(--dawaa-theme-primary-strong);
+    border: 1px solid var(--dawaa-theme-border-strong);
   }
 
   .nav-item-inactive {
-    @apply text-slate-400 hover:bg-white/5 hover:text-slate-200;
+    color: var(--dawaa-theme-muted);
+    border: 1px solid transparent;
   }
 
-  .stat-card,
-  .dawaa-panel {
-    @apply rounded-2xl border p-5 shadow-sm transition-all duration-200;
+  .nav-item-inactive:hover {
+    background: var(--dawaa-theme-sidebar-hover);
+    color: var(--dawaa-theme-heading);
+  }
+
+  .stat-card {
+    @apply rounded-2xl border p-5 transition-all duration-200;
     background: var(--dawaa-theme-surface);
     border-color: var(--dawaa-theme-border);
     color: var(--dawaa-theme-text);
+    box-shadow: var(--dawaa-theme-shadow-soft);
   }
 
-  .stat-card:hover,
-  .dawaa-panel:hover {
+  .stat-card:hover {
     border-color: var(--dawaa-theme-border-strong);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
   }
 
   .page-title {
@@ -144,69 +115,83 @@
     color: var(--dawaa-theme-heading);
   }
 
+  .badge-success,
+  .badge-warning,
+  .badge-danger,
+  .badge-info,
+  .badge-purple {
+    @apply rounded-full border px-2.5 py-0.5 text-xs font-semibold;
+  }
+
   .badge-success {
-    @apply bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+    background: var(--dawaa-status-success-bg);
+    color: var(--dawaa-status-success-text);
+    border-color: var(--dawaa-status-success-border);
   }
 
   .badge-warning {
-    @apply bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+    background: var(--dawaa-status-warning-bg);
+    color: var(--dawaa-status-warning-text);
+    border-color: var(--dawaa-status-warning-border);
   }
 
   .badge-danger {
-    @apply bg-red-50 text-red-700 border border-red-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+    background: var(--dawaa-status-danger-bg);
+    color: var(--dawaa-status-danger-text);
+    border-color: var(--dawaa-status-danger-border);
   }
 
-  .badge-info {
-    @apply bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
-  }
-
+  .badge-info,
   .badge-purple {
-    @apply bg-violet-50 text-violet-700 border border-violet-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+    background: var(--dawaa-status-info-bg);
+    color: var(--dawaa-status-info-text);
+    border-color: var(--dawaa-status-info-border);
   }
 
   .input-dark {
-    @apply w-full rounded-xl border px-4 py-2.5 text-sm shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-teal-500/20;
+    @apply w-full rounded-xl border px-4 py-2.5 text-sm transition-all focus:outline-none;
     background: var(--dawaa-theme-input);
-    border-color: var(--dawaa-theme-border-strong);
+    border-color: var(--dawaa-theme-border);
     color: var(--dawaa-theme-heading);
+    box-shadow: var(--dawaa-theme-shadow-soft);
+  }
+
+  .input-dark:focus {
+    border-color: var(--dawaa-theme-primary);
+    box-shadow: 0 0 0 3px var(--dawaa-theme-focus);
   }
 
   .input-dark::placeholder {
-    color: color-mix(in srgb, var(--dawaa-theme-muted) 78%, transparent);
+    color: var(--dawaa-theme-muted);
   }
 
-  .theme-option {
-    @apply flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-400 transition-all hover:bg-white/5 hover:text-white;
-  }
-
-  .theme-option-active {
-    @apply bg-teal-500 text-navy-900 hover:bg-teal-500 hover:text-navy-900;
-  }
-
-  .logo-tile {
-    background: #ffffff;
-    border: 1px solid rgba(0, 201, 167, 0.18);
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+  .logo-tile,
+  .login-logo-card {
+    background: var(--dawaa-theme-surface-raised);
+    border: 1px solid var(--dawaa-theme-border);
+    box-shadow: var(--dawaa-theme-shadow-soft);
   }
 
   .login-logo-card {
     width: min(220px, 68vw);
     height: 190px;
-    background: #ffffff;
-    border: 1px solid rgba(15, 25, 35, 0.08);
     border-radius: 18px;
     padding: 14px;
-    box-shadow:
-      0 22px 60px rgba(0, 0, 0, 0.28),
-      0 0 0 1px rgba(0, 201, 167, 0.08);
   }
 
   .btn-primary {
-    @apply rounded-xl bg-teal-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-teal-700 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-teal-200;
+    @apply rounded-xl px-5 py-2.5 text-sm font-bold transition-all duration-200 focus:outline-none;
+    background: var(--dawaa-theme-primary);
+    color: var(--dawaa-theme-primary-text);
+    box-shadow: var(--dawaa-theme-shadow-soft);
+  }
+
+  .btn-primary:hover {
+    background: var(--dawaa-theme-primary-strong);
   }
 
   .btn-secondary {
-    @apply rounded-xl border px-5 py-2.5 text-sm font-medium shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20;
+    @apply rounded-xl border px-5 py-2.5 text-sm font-medium transition-all duration-200 focus:outline-none;
     background: var(--dawaa-theme-surface-2);
     border-color: var(--dawaa-theme-border);
     color: var(--dawaa-theme-text);
@@ -218,22 +203,29 @@
   }
 
   .btn-danger {
-    @apply rounded-xl border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-medium text-red-700 transition-all duration-200 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-100;
+    @apply rounded-xl border px-5 py-2.5 text-sm font-medium transition-all duration-200 focus:outline-none;
+    background: var(--dawaa-status-danger-bg);
+    border-color: var(--dawaa-status-danger-border);
+    color: var(--dawaa-status-danger-text);
   }
 
   .modal-backdrop {
-    @apply fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/35 p-4;
+    @apply fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto p-4;
+    background: var(--dawaa-theme-overlay);
   }
 
   .modal-panel {
-    @apply my-6 max-h-[calc(100vh-3rem)] w-full animate-fade-in overflow-y-auto rounded-2xl border shadow-xl;
-    background: var(--dawaa-theme-surface);
+    @apply my-6 max-h-[calc(100vh-3rem)] w-full animate-fade-in overflow-y-auto rounded-2xl border;
+    background: var(--dawaa-theme-surface-raised);
     border-color: var(--dawaa-theme-border);
     color: var(--dawaa-theme-text);
+    box-shadow: var(--dawaa-theme-shadow);
   }
 
   .data-table {
     @apply w-full border-collapse;
+    background: var(--dawaa-theme-surface);
+    color: var(--dawaa-theme-text);
   }
 
   .data-table th {
@@ -254,232 +246,54 @@
     background: var(--dawaa-theme-table-hover);
   }
 
-  /* RTL fixes */
-  input,
-  textarea,
-  select {
-    direction: rtl;
-    text-align: right;
-  }
-
-  button,
-  a,
-  input,
-  select,
-  textarea {
-    min-width: 0;
-  }
-
   .recharts-text {
     font-family:
-      'Tajawal', 'Cairo', 'IBM Plex Sans Arabic', 'Noto Sans Arabic', system-ui, sans-serif !important;
+      'Tajawal', 'Cairo', 'IBM Plex Sans Arabic', 'Noto Sans Arabic', system-ui, sans-serif;
   }
 }
 
-/* Animations */
 .animate-fade-in {
   animation: fadeIn 0.3s ease-in-out;
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateX(-16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
-/* Toaster */
-.toaster-rtl [data-sonner-toast] {
-  direction: rtl;
-}
+.toaster-rtl [data-sonner-toast] { direction: rtl; }
 
-/* Glass morphism */
 .glass {
-  background: rgba(255, 255, 255, 0.72);
+  background: color-mix(in srgb, var(--dawaa-theme-surface-raised) 78%, transparent);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
 
-/* Progress bars */
 .progress-bar {
-  @apply h-2 overflow-hidden rounded-full bg-slate-200;
+  @apply h-2 overflow-hidden rounded-full;
+  background: var(--dawaa-theme-surface-2);
 }
 
 .progress-fill {
   @apply h-full rounded-full transition-all duration-500;
-  background: linear-gradient(90deg, #00c9a7, #00a589);
+  background: var(--dawaa-theme-primary);
 }
 
-/* Card hover glow */
 .card-glow:hover {
-  box-shadow:
-    0 0 0 1px rgba(0, 201, 167, 0.2),
-    0 8px 32px rgba(0, 201, 167, 0.08);
+  border-color: var(--dawaa-theme-border-strong);
+  box-shadow: var(--dawaa-theme-shadow-soft);
 }
 
-/* Number font */
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
 }
 
-/* Light theme */
-.light-mode body,
-.light-mode .bg-navy-900 {
-  background: #f4f7fb !important;
-  color: #102033;
-}
-
-.light-mode [class*='bg-[#151f34]'],
-.light-mode [class*='bg-[#1B2B4B]'],
-.light-mode .modal-panel {
-  background: #ffffff !important;
-}
-
-.light-mode [class*='border-[#2d4063]'],
-.light-mode .modal-panel,
-.light-mode .input-dark {
-  border-color: #d9e2ef !important;
-}
-
-.light-mode header,
-.light-mode aside {
-  background: rgba(255, 255, 255, 0.94) !important;
-}
-
-.light-mode main {
-  background: #f4f7fb;
-}
-
-.light-mode .stat-card {
-  background: linear-gradient(145deg, #ffffff 0%, #eef5fb 100%) !important;
-  border-color: #d8e3ef !important;
-}
-
-.light-mode .input-dark {
-  background: #ffffff !important;
-  color: #132238 !important;
-}
-
-.light-mode .input-dark::placeholder {
-  color: #7890a8 !important;
-}
-
-.light-mode .btn-secondary {
-  background: #eef4fa !important;
-  color: #24344d !important;
-  border-color: #d8e3ef !important;
-}
-
-.light-mode .data-table th {
-  background: #edf4fb !important;
-  color: #607187 !important;
-  border-color: #d8e3ef !important;
-}
-
-.light-mode .data-table td {
-  color: #33445c !important;
-  border-color: rgba(216, 227, 239, 0.9) !important;
-}
-
-.light-mode .text-white,
-.light-mode .section-title,
-.light-mode .page-title {
-  color: #102033 !important;
-}
-
-.light-mode .text-slate-400,
-.light-mode .text-slate-500 {
-  color: #697d95 !important;
-}
-
-.light-mode .text-slate-300,
-.light-mode .text-slate-200 {
-  color: #40516a !important;
-}
-
-.light-mode .nav-item-inactive {
-  color: #607187 !important;
-}
-
-.light-mode .nav-item-inactive:hover {
-  background: #eef4fa !important;
-  color: #132238 !important;
-}
-
-.light-mode .theme-switcher {
-  background: #eef4fa !important;
-  border-color: #d8e3ef !important;
-}
-
-.light-mode .login-page {
-  background: #f4f7fb !important;
-}
-
-/* ========== ثلاث لوحات ألوان (مع الحفاظ على RTL والبنية الحالية) ========== */
-/* ocean: افتراضي — كما في التصميم الحالي */
-
-[data-palette='royal'] {
-  --dawaa-accent: #6366f1;
-  --dawaa-accent2: #818cf8;
-}
-[data-palette='royal'] .btn-primary {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
-  color: #f8fafc !important;
-  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.25) !important;
-}
-[data-palette='royal'] .progress-fill {
-  background: linear-gradient(90deg, #818cf8, #6366f1) !important;
-}
-[data-palette='royal'] .nav-item-active,
-[data-palette='royal'] .theme-option-active {
-  border-color: rgba(129, 140, 248, 0.45) !important;
-  color: #c7d2fe !important;
-  background: rgba(99, 102, 241, 0.12) !important;
-}
-
-[data-palette='forest'] {
-  --dawaa-accent: #059669;
-  --dawaa-accent2: #10b981;
-}
-[data-palette='forest'] .btn-primary {
-  background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
-  color: #ecfdf5 !important;
-  box-shadow: 0 10px 25px rgba(16, 185, 129, 0.22) !important;
-}
-[data-palette='forest'] .progress-fill {
-  background: linear-gradient(90deg, #34d399, #059669) !important;
-}
-[data-palette='forest'] .nav-item-active,
-[data-palette='forest'] .theme-option-active {
-  border-color: rgba(52, 211, 153, 0.45) !important;
-  color: #a7f3d0 !important;
-  background: rgba(5, 150, 105, 0.12) !important;
-}
-
-.light-mode[data-palette='royal'] .btn-primary {
-  color: #fff !important;
-}
-.light-mode[data-palette='forest'] .btn-primary {
-  color: #fff !important;
-}
-
-/* ===== v4 final readability fixes ===== */
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -487,369 +301,41 @@
   overflow: hidden;
 }
 
-.light-mode {
-  color-scheme: light;
+/* Legacy feature primitives retained only for geometry; all colors are semantic. */
+.crm-card,
+.crm-timeline-item,
+.card {
+  border: 1px solid var(--dawaa-theme-border);
+  background: var(--dawaa-theme-surface);
+  color: var(--dawaa-theme-text);
+  box-shadow: var(--dawaa-theme-shadow-soft);
 }
 
-.light-mode body,
-.light-mode .bg-navy-900,
-.light-mode [class*='bg-navy-900'] {
-  background: #f3f7fb !important;
-  color: #102033 !important;
-}
-
-.light-mode .modal-backdrop {
-  background: rgba(15, 23, 42, 0.28) !important;
-}
-
-.light-mode .modal-panel,
-.light-mode .stat-card,
-.light-mode [class*='bg-[#1B2B4B]'],
-.light-mode [class*='bg-[#16253f]'],
-.light-mode [class*='bg-[#151f34]'] {
-  background: #ffffff !important;
-  color: #102033 !important;
-  border-color: #d7e3f0 !important;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06) !important;
-}
-
-.light-mode .bg-white\/5,
-.light-mode .bg-white\/10,
-.light-mode [class*='bg-white/5'],
-.light-mode [class*='bg-white/10'] {
-  background: #eef5fb !important;
-}
-
-.light-mode .text-white,
-.light-mode .text-slate-100,
-.light-mode .text-slate-200,
-.light-mode .section-title,
-.light-mode .page-title,
-.light-mode h1,
-.light-mode h2,
-.light-mode h3 {
-  color: #102033 !important;
-}
-
-.light-mode .text-slate-300 {
-  color: #33465f !important;
-}
-
-.light-mode .text-slate-400,
-.light-mode .text-slate-500,
-.light-mode .text-slate-600 {
-  color: #63758c !important;
-}
-
-.light-mode .input-dark,
-.light-mode input,
-.light-mode select,
-.light-mode textarea {
-  background: #ffffff !important;
-  color: #102033 !important;
-  border-color: #cfdbe9 !important;
-}
-
-.light-mode .input-dark::placeholder,
-.light-mode input::placeholder,
-.light-mode textarea::placeholder {
-  color: #8193aa !important;
-}
-
-.light-mode .data-table th,
-.light-mode thead,
-.light-mode [class*='bg-[#16253f]'] thead {
-  background: #eaf2fb !important;
-  color: #53667f !important;
-  border-color: #d7e3f0 !important;
-}
-
-.light-mode .data-table td,
-.light-mode tr,
-.light-mode tbody {
-  color: #26374d !important;
-  border-color: #dbe6f2 !important;
-}
-
-.light-mode .data-table tr:hover td {
-  background: #f6f9fd !important;
-}
-
-.light-mode .nav-item-active {
-  background: #dffaf4 !important;
-  color: #047f71 !important;
-  border-color: #99eadb !important;
-}
-
-.light-mode .nav-item-inactive {
-  color: #5e7189 !important;
-}
-
-.light-mode .nav-item-inactive:hover {
-  background: #edf4fb !important;
-  color: #102033 !important;
-}
-
-.light-mode .btn-secondary {
-  background: #eef5fb !important;
-  color: #22344c !important;
-  border-color: #cfdbe9 !important;
-}
-
-.light-mode .badge-success,
-.light-mode .badge-info,
-.light-mode .badge-warning,
-.light-mode .badge-danger,
-.light-mode .badge-purple {
-  background-opacity: 1;
-}
-
-/* Dawaa Pharmacy 2027 light theme hardening */
-html.light-mode {
-  --background: 210 40% 98%;
-  --foreground: 222 47% 13%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 13%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 13%;
-  --primary: 170 84% 32%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 210 35% 94%;
-  --secondary-foreground: 222 47% 13%;
-  --muted: 210 35% 95%;
-  --muted-foreground: 215 20% 38%;
-  --accent: 170 84% 32%;
-  --accent-foreground: 0 0% 100%;
-  --border: 214 32% 86%;
-  --input: 0 0% 100%;
-  --ring: 170 84% 32%;
-  --sidebar-background: 0 0% 100%;
-  --sidebar-foreground: 222 47% 18%;
-  --sidebar-primary: 170 84% 32%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 210 35% 94%;
-  --sidebar-accent-foreground: 222 47% 13%;
-  --sidebar-border: 214 32% 88%;
-  --sidebar-ring: 170 84% 32%;
-}
-
-html.light-mode body {
-  background: #f5f8fb !important;
-  color: #132033 !important;
-}
-
-html.light-mode .stat-card,
-html.light-mode .modal-panel {
-  background: linear-gradient(135deg, #ffffff, #f8fbfd) !important;
-  border-color: #d7e1ea !important;
-  color: #132033 !important;
-  box-shadow: 0 16px 40px rgba(15, 25, 35, 0.06);
-}
-
-html.light-mode .page-title,
-html.light-mode .section-title,
-html.light-mode .text-white {
-  color: #132033 !important;
-}
-
-html.light-mode .text-slate-200,
-html.light-mode .text-slate-300,
-html.light-mode .text-slate-400 {
-  color: #334155 !important;
-}
-
-html.light-mode .text-slate-500 {
-  color: #64748b !important;
-}
-
-html.light-mode .input-dark,
-html.light-mode input,
-html.light-mode textarea,
-html.light-mode select {
-  background: #ffffff !important;
-  border-color: #cbd5e1 !important;
-  color: #132033 !important;
-}
-
-html.light-mode .data-table th {
-  background: #eef4f8 !important;
-  border-color: #d7e1ea !important;
-  color: #334155 !important;
-}
-
-html.light-mode .data-table td {
-  border-color: #e5edf3 !important;
-  color: #1e293b !important;
-}
-
-html.light-mode .nav-item-active {
-  background: rgba(13, 148, 136, 0.12) !important;
-  color: #0f766e !important;
-  border-color: rgba(13, 148, 136, 0.25) !important;
-}
-
-html.light-mode .nav-item-inactive {
-  color: #475569 !important;
-}
-
-html.light-mode .nav-item-inactive:hover {
-  background: #eef4f8 !important;
-  color: #132033 !important;
-}
-
-html.light-mode .bg-white\/5 {
-  background-color: rgba(15, 23, 42, 0.04) !important;
-}
-
-html.light-mode .border-\[\#2d4063\],
-html.light-mode .border-white\/10 {
-  border-color: #d7e1ea !important;
-}
-
-/* ===== Dawaa Pharmacy 2027 Final Aqua Theme ===== */
-html[data-palette='aqua'] {
-  --dawaa-aqua: #18d8c4;
-  --dawaa-aqua-2: #6ff7e8;
-  --dawaa-navy: #071522;
-  --dawaa-panel: #132944;
-}
-
-html[data-palette='aqua'] body:not(.light-mode body) {
-  background:
-    radial-gradient(circle at top right, rgba(24, 216, 196, 0.11), transparent 34%), #071522 !important;
-}
-
-html[data-palette='aqua'] .btn-primary,
-html[data-palette='aqua'] .theme-option-active {
-  background: linear-gradient(135deg, #6ff7e8 0%, #18d8c4 48%, #0ea5a0 100%) !important;
-  color: #06202e !important;
-  border-color: rgba(111, 247, 232, 0.55) !important;
-  box-shadow: 0 14px 30px rgba(24, 216, 196, 0.22) !important;
-}
-
-html[data-palette='aqua'] .stat-card,
-html[data-palette='aqua'] .modal-panel,
-html[data-palette='aqua'] [class*='bg-[#1B2B4B]'] {
-  background: linear-gradient(145deg, rgba(25, 48, 78, 0.97), rgba(13, 31, 52, 0.98)) !important;
-  border-color: rgba(111, 247, 232, 0.18) !important;
-}
-
-html[data-palette='aqua'] .nav-item-active {
-  background: linear-gradient(
-    135deg,
-    rgba(24, 216, 196, 0.17),
-    rgba(14, 165, 160, 0.11)
-  ) !important;
-  border-color: rgba(111, 247, 232, 0.42) !important;
-  color: #8ffcf0 !important;
-}
-
-html[data-palette='aqua'] .progress-fill {
-  background: linear-gradient(90deg, #6ff7e8, #18d8c4, #0ea5a0) !important;
-}
-
-html.light-mode[data-palette='aqua'] body,
-html.light-mode[data-palette='aqua'] main,
-html.light-mode[data-palette='aqua'] .bg-navy-900 {
-  background:
-    radial-gradient(circle at 94% 0%, rgba(24, 216, 196, 0.16), transparent 28%),
-    linear-gradient(180deg, #f3fffd 0%, #eff7fb 100%) !important;
-  color: #092339 !important;
-}
-
-html.light-mode[data-palette='aqua'] header,
-html.light-mode[data-palette='aqua'] aside {
-  background: rgba(250, 255, 254, 0.94) !important;
-  border-color: #c7ece7 !important;
-}
-
-html.light-mode[data-palette='aqua'] .stat-card,
-html.light-mode[data-palette='aqua'] .modal-panel,
-html.light-mode[data-palette='aqua'] [class*='bg-[#1B2B4B]'],
-html.light-mode[data-palette='aqua'] [class*='bg-[#151f34]'] {
-  background: linear-gradient(145deg, #ffffff 0%, #f3fffd 100%) !important;
-  border-color: #c8eee8 !important;
-  color: #092339 !important;
-  box-shadow: 0 16px 35px rgba(10, 45, 65, 0.07) !important;
-}
-
-html.light-mode[data-palette='aqua'] .text-white,
-html.light-mode[data-palette='aqua'] .section-title,
-html.light-mode[data-palette='aqua'] .page-title,
-html.light-mode[data-palette='aqua'] h1,
-html.light-mode[data-palette='aqua'] h2,
-html.light-mode[data-palette='aqua'] h3 {
-  color: #082033 !important;
-}
-
-html.light-mode[data-palette='aqua'] .text-slate-300,
-html.light-mode[data-palette='aqua'] .text-slate-400,
-html.light-mode[data-palette='aqua'] .text-slate-500 {
-  color: #41576b !important;
-}
-
-html.light-mode[data-palette='aqua'] .input-dark,
-html.light-mode[data-palette='aqua'] input,
-html.light-mode[data-palette='aqua'] select,
-html.light-mode[data-palette='aqua'] textarea {
-  background: #ffffff !important;
-  color: #092339 !important;
-  border-color: #bfe9e3 !important;
-}
-
-html.light-mode[data-palette='aqua'] .btn-secondary {
-  background: #effffc !important;
-  color: #0f3a4d !important;
-  border-color: #bfe9e3 !important;
-}
-
-html.light-mode[data-palette='aqua'] .nav-item-active {
-  background: #dffbf7 !important;
-  color: #04766d !important;
-  border-color: #88e7dc !important;
-}
-
-/* Customer 360 cards and timelines */
 .crm-card {
-  border: 1px solid rgba(111, 247, 232, 0.16);
   border-radius: 1.1rem;
-  background: rgba(255, 255, 255, 0.045);
   padding: 1rem;
 }
 
 .crm-timeline-item {
   position: relative;
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.04);
   padding: 0.85rem;
 }
 
-/* ===== Executive dashboard and staff profile polish ===== */
-.executive-dashboard-page {
-  color: #102033;
-}
-
 .card {
-  border: 1px solid #d7e5ee;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.96);
-  color: #102033;
   padding: 16px;
-  box-shadow: 0 12px 28px rgba(10, 45, 65, 0.06);
 }
 
-.card:hover {
-  border-color: #9ee9df;
-}
+.card:hover { border-color: var(--dawaa-theme-border-strong); }
 
 .dash-input {
   height: 40px;
   min-width: 138px;
   border-radius: 12px;
-  border: 1px solid #cfdde9;
-  background: #ffffff;
-  color: #102033;
+  border: 1px solid var(--dawaa-theme-border);
+  background: var(--dawaa-theme-input);
+  color: var(--dawaa-theme-text);
   padding: 0 12px;
   font-size: 0.875rem;
   font-weight: 800;
@@ -857,8 +343,8 @@ html.light-mode[data-palette='aqua'] .nav-item-active {
 }
 
 .dash-input:focus {
-  border-color: #49d8ca;
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.14);
+  border-color: var(--dawaa-theme-primary);
+  box-shadow: 0 0 0 3px var(--dawaa-theme-focus);
 }
 
 .top-icon,
@@ -870,34 +356,23 @@ html.light-mode[data-palette='aqua'] .nav-item-active {
   justify-content: center;
   gap: 8px;
   border-radius: 12px;
-  border: 1px solid transparent;
-  color: #102033;
+  border: 1px solid var(--dawaa-theme-border);
+  color: var(--dawaa-theme-text);
+  background: var(--dawaa-theme-surface-2);
   font-weight: 900;
-  transition:
-    background-color 0.2s,
-    border-color 0.2s,
-    color 0.2s;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
 }
 
-.top-icon {
-  position: relative;
-  width: 40px;
-  background: #f1f7fb;
-}
-
+.top-icon { position: relative; width: 40px; }
 .top-action,
-.subtle-button {
-  background: #f1f7fb;
-  padding: 0 12px;
-  font-size: 0.875rem;
-}
+.subtle-button { padding: 0 12px; font-size: 0.875rem; }
 
 .top-icon:hover,
 .top-action:hover,
 .subtle-button:hover {
-  border-color: #a7eee5;
-  background: #e4fbf7;
-  color: #04766d;
+  border-color: var(--dawaa-theme-border-strong);
+  background: var(--dawaa-theme-soft);
+  color: var(--dawaa-theme-primary-strong);
 }
 
 .notify-dot {
@@ -907,100 +382,14 @@ html.light-mode[data-palette='aqua'] .nav-item-active {
   min-width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: #0fb5a9;
-  color: #ffffff;
+  background: var(--dawaa-theme-primary);
+  color: var(--dawaa-theme-primary-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0 5px;
   font-size: 11px;
   line-height: 1;
-}
-
-html.light-mode .executive-dashboard-page .card,
-html.light-mode[data-palette='aqua'] .executive-dashboard-page .card {
-  background: rgba(255, 255, 255, 0.98) !important;
-  border-color: #d7e5ee !important;
-  color: #102033 !important;
-  box-shadow: 0 14px 30px rgba(10, 45, 65, 0.06) !important;
-}
-
-html.light-mode .executive-dashboard-page .card .text-slate-950,
-html.light-mode[data-palette='aqua'] .executive-dashboard-page .card .text-slate-950 {
-  color: #071827 !important;
-}
-
-html.light-mode .executive-dashboard-page .card .text-slate-700,
-html.light-mode .executive-dashboard-page .card .text-slate-600,
-html.light-mode .executive-dashboard-page .card .text-slate-500,
-html.light-mode[data-palette='aqua'] .executive-dashboard-page .card .text-slate-700,
-html.light-mode[data-palette='aqua'] .executive-dashboard-page .card .text-slate-600,
-html.light-mode[data-palette='aqua'] .executive-dashboard-page .card .text-slate-500 {
-  color: #42566e !important;
-}
-
-html.light-mode .staff-detail-page .staff-panel,
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel {
-  background: rgba(255, 255, 255, 0.96) !important;
-  border-color: #cfe2ee !important;
-  color: #102033 !important;
-  box-shadow: 0 14px 34px rgba(10, 45, 65, 0.08) !important;
-}
-
-html.light-mode .staff-detail-page .staff-panel h1,
-html.light-mode .staff-detail-page .staff-panel h2,
-html.light-mode .staff-detail-page .staff-panel h3,
-html.light-mode .staff-detail-page .staff-panel .text-white,
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel h1,
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel h2,
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel h3,
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel .text-white {
-  color: #071827 !important;
-}
-
-html.light-mode .staff-detail-page .staff-panel .text-slate-300,
-html.light-mode .staff-detail-page .staff-panel .text-slate-400,
-html.light-mode .staff-detail-page .staff-panel .text-slate-500,
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel .text-slate-300,
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel .text-slate-400,
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel .text-slate-500 {
-  color: #42566e !important;
-}
-
-html.light-mode .staff-detail-page .staff-panel [class*='bg-slate-950'],
-html.light-mode .staff-detail-page .staff-panel [class*='bg-slate-900'],
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel [class*='bg-slate-950'],
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel [class*='bg-slate-900'] {
-  background: #f1f8fb !important;
-  border-color: #d2e5ef !important;
-}
-
-html.light-mode .staff-detail-page .staff-panel [class*='text-teal-100'],
-html.light-mode .staff-detail-page .staff-panel [class*='text-teal-200'],
-html.light-mode .staff-detail-page .staff-panel [class*='text-teal-300'],
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel [class*='text-teal-100'],
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel [class*='text-teal-200'],
-html.light-mode[data-palette='aqua'] .staff-detail-page .staff-panel [class*='text-teal-300'] {
-  color: #04766d !important;
-}
-
-html.light-mode .crm-card,
-html.light-mode .crm-timeline-item {
-  background: #f8fdff !important;
-  border-color: #d7e9ee !important;
-}
-
-/* Executive Dashboard 2027 light command center */
-.dawaa-dashboard-light {
-  color: #0f172a;
-}
-
-.dawaa-hero,
-.dawaa-panel,
-.dawaa-card {
-  border: 1px solid #e5eaf0;
-  background: #ffffff;
-  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.06);
 }
 
 .dawaa-hero {
@@ -1012,31 +401,6 @@ html.light-mode .crm-timeline-item {
   padding: 1rem;
 }
 
-.dawaa-panel,
-.dawaa-card {
-  border-radius: 1.25rem;
-  padding: 1rem;
-}
-
-.dawaa-brand-chip,
-.dawaa-source-badge {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  border: 1px solid #bfe9e3;
-  background: #e6f7f6;
-  padding: 0.35rem 0.7rem;
-  font-size: 0.74rem;
-  font-weight: 900;
-  color: #007d76;
-}
-
-.dawaa-source-badge {
-  border-color: #dbe6f0;
-  background: #f1f5f9;
-  color: #475569;
-}
-
 .dawaa-controls {
   display: flex;
   flex-wrap: wrap;
@@ -1045,61 +409,32 @@ html.light-mode .crm-timeline-item {
   gap: 0.5rem;
 }
 
-.dawaa-input {
-  height: 2.6rem;
-  border-radius: 0.9rem;
-  border: 1px solid #dbe3ec;
-  background: #ffffff;
-  padding: 0 0.85rem;
-  color: #0f172a;
-  font-size: 0.875rem;
-  font-weight: 700;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-
-.dawaa-input:focus {
-  outline: 2px solid rgba(0, 175, 165, 0.18);
-  border-color: #00afa5;
-}
-
-.dawaa-button-primary {
+.dawaa-brand-chip,
+.dawaa-source-badge {
   display: inline-flex;
-  height: 2.6rem;
   align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  border-radius: 0.9rem;
-  background: #00afa5;
-  padding: 0 1rem;
-  color: #ffffff;
-  font-size: 0.875rem;
+  border-radius: 999px;
+  border: 1px solid var(--dawaa-theme-border-strong);
+  background: var(--dawaa-theme-soft);
+  padding: 0.35rem 0.7rem;
+  font-size: 0.74rem;
   font-weight: 900;
-  box-shadow: 0 12px 24px rgba(0, 175, 165, 0.16);
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    background 0.18s ease;
+  color: var(--dawaa-theme-primary-strong);
 }
 
-.dawaa-button-primary:hover {
-  transform: translateY(-1px);
-  background: #008c84;
-  box-shadow: 0 16px 28px rgba(0, 140, 132, 0.18);
-}
-
-.dawaa-button-primary:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-  transform: none;
+.dawaa-source-badge {
+  border-color: var(--dawaa-theme-border);
+  background: var(--dawaa-theme-surface-2);
+  color: var(--dawaa-theme-muted);
 }
 
 .dawaa-loading,
 .dawaa-error-details {
   border-radius: 1.25rem;
-  border: 1px solid #e5eaf0;
-  background: #ffffff;
+  border: 1px solid var(--dawaa-theme-border);
+  background: var(--dawaa-theme-surface-raised);
   padding: 1rem;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--dawaa-theme-shadow-soft);
 }
 
 .dawaa-loading {
@@ -1107,65 +442,24 @@ html.light-mode .crm-timeline-item {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  color: #475569;
+  color: var(--dawaa-theme-muted);
   font-weight: 800;
 }
 
 .dawaa-error-details {
-  background: #fff7e6;
-  color: #8a5a00;
+  background: var(--dawaa-status-warning-bg);
+  border-color: var(--dawaa-status-warning-border);
+  color: var(--dawaa-status-warning-text);
 }
 
-.dawaa-error-details summary {
-  cursor: pointer;
-  font-weight: 900;
-}
-
-.dawaa-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.875rem;
-}
-
-.dawaa-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: #f1f5f9;
-  color: #475569;
-  font-size: 0.75rem;
-  font-weight: 900;
-}
-
-.dawaa-table th,
-.dawaa-table td {
-  border-bottom: 1px solid #eef2f6;
-  padding: 0.75rem 0.65rem;
-  text-align: right;
-  color: #475569;
-}
-
-.dawaa-table tbody tr:hover td {
-  background: #f8fafc;
-}
+.dawaa-error-details summary { cursor: pointer; font-weight: 900; }
 
 @media (max-width: 900px) {
-  .dawaa-hero {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .dawaa-controls {
-    justify-content: stretch;
-  }
-
-  .dawaa-controls > * {
-    flex: 1 1 150px;
-  }
+  .dawaa-hero { align-items: stretch; flex-direction: column; }
+  .dawaa-controls { justify-content: stretch; }
+  .dawaa-controls > * { flex: 1 1 150px; }
 }
 
-/* Celebration effect */
 .dawaa-confetti-piece {
   position: fixed;
   top: -16px;
@@ -1178,800 +472,12 @@ html.light-mode .crm-timeline-item {
 }
 
 @keyframes dawaaConfettiFall {
-  0% {
-    transform: translateY(-20px) rotate(0deg);
-    opacity: 1;
-  }
-  80% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(110vh) rotate(720deg);
-    opacity: 0;
-  }
+  0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
 }
 
-/* Dawaa UI guard: one readable color language across legacy dark cards and the new light shell. */
-:root {
-  --dawaa-bg-app: #f4faf9;
-  --dawaa-bg-card: #ffffff;
-  --dawaa-bg-soft: #eefaf8;
-  --dawaa-sidebar-bg: #101f35;
-  --dawaa-primary: #11b8ac;
-  --dawaa-primary-dark: #087d77;
-  --dawaa-primary-soft: #dff8f5;
-  --dawaa-border: #cfe7e4;
-  --dawaa-border-strong: #9fe0d8;
-  --dawaa-text: #102033;
-  --dawaa-muted: #5d7088;
-  --dawaa-success: #047857;
-  --dawaa-success-soft: #dcfce7;
-  --dawaa-warning: #a16207;
-  --dawaa-warning-soft: #fef3c7;
-  --dawaa-danger: #b91c1c;
-  --dawaa-danger-soft: #fee2e2;
-  --dawaa-info: #1d4ed8;
-  --dawaa-info-soft: #dbeafe;
-  --dawaa-shadow-card: 0 14px 34px rgba(15, 32, 51, 0.07);
-}
-
-html.light-mode body,
-html.light-mode main {
-  background: var(--dawaa-bg-app) !important;
-  color: var(--dawaa-text) !important;
-}
-
-html.light-mode aside {
-  background: #ffffff !important;
-}
-
-html.light-mode .stat-card,
-html.light-mode .dawaa-card,
-html.light-mode .dawaa-panel,
-html.light-mode .modal-panel,
-html.light-mode [class*='bg-[#1B2B4B]'],
-html.light-mode [class*='bg-[#16253f]'],
-html.light-mode [class*='bg-[#151f34]'],
-html.light-mode [class*='bg-[#10213a]'] {
-  background: var(--dawaa-bg-card) !important;
-  border-color: var(--dawaa-border) !important;
-  color: var(--dawaa-text) !important;
-  box-shadow: var(--dawaa-shadow-card) !important;
-}
-
-html.light-mode [class*='bg-white/5'],
-html.light-mode [class*='bg-white/10'],
-html.light-mode .bg-white\/5,
-html.light-mode .bg-white\/10 {
-  background: var(--dawaa-bg-soft) !important;
-}
-
-html.light-mode h1,
-html.light-mode h2,
-html.light-mode h3,
-html.light-mode h4,
-html.light-mode .page-title,
-html.light-mode .section-title,
-html.light-mode .text-white,
-html.light-mode .text-slate-50,
-html.light-mode .text-slate-100,
-html.light-mode .text-slate-200 {
-  color: var(--dawaa-text) !important;
-}
-
-html.light-mode .text-slate-300,
-html.light-mode .text-slate-400,
-html.light-mode .text-slate-500,
-html.light-mode .text-slate-600 {
-  color: var(--dawaa-muted) !important;
-}
-
-html.light-mode .data-table,
-html.light-mode .dawaa-table {
-  background: var(--dawaa-bg-card) !important;
-  color: var(--dawaa-text) !important;
-}
-
-html.light-mode .data-table thead,
-html.light-mode .data-table th,
-html.light-mode .dawaa-table thead th {
-  background: #ecf7f5 !important;
-  border-color: var(--dawaa-border) !important;
-  color: #244158 !important;
-}
-
-html.light-mode .data-table td,
-html.light-mode .dawaa-table td {
-  background: #ffffff !important;
-  border-color: #dcebea !important;
-  color: #18304a !important;
-}
-
-html.light-mode .data-table tbody tr:hover td,
-html.light-mode .dawaa-table tbody tr:hover td {
-  background: #f3fbfa !important;
-}
-
-html.light-mode input,
-html.light-mode select,
-html.light-mode textarea,
-html.light-mode .input-dark,
-html.light-mode .dawaa-input {
-  background: #ffffff !important;
-  border-color: var(--dawaa-border) !important;
-  color: var(--dawaa-text) !important;
-}
-
-html.light-mode input::placeholder,
-html.light-mode textarea::placeholder,
-html.light-mode .input-dark::placeholder {
-  color: #8193aa !important;
-}
-
-html.light-mode .badge-success,
-html.light-mode [class*='bg-green-500/'],
-html.light-mode [class*='bg-emerald-500/'] {
-  background: var(--dawaa-success-soft) !important;
-  border-color: #a7f3d0 !important;
-  color: var(--dawaa-success) !important;
-}
-
-html.light-mode .badge-warning,
-html.light-mode [class*='bg-amber-500/'],
-html.light-mode [class*='bg-yellow-500/'] {
-  background: var(--dawaa-warning-soft) !important;
-  border-color: #fde68a !important;
-  color: var(--dawaa-warning) !important;
-}
-
-html.light-mode .badge-danger,
-html.light-mode [class*='bg-red-500/'],
-html.light-mode [class*='bg-rose-500/'] {
-  background: var(--dawaa-danger-soft) !important;
-  border-color: #fecaca !important;
-  color: var(--dawaa-danger) !important;
-}
-
-html.light-mode .badge-info,
-html.light-mode [class*='bg-blue-500/'],
-html.light-mode [class*='bg-purple-500/'],
-html.light-mode [class*='bg-violet-500/'] {
-  background: var(--dawaa-info-soft) !important;
-  border-color: #bfdbfe !important;
-  color: var(--dawaa-info) !important;
-}
-
-html.light-mode .btn-primary,
-html.light-mode .dawaa-button-primary {
-  background: var(--dawaa-primary) !important;
-  color: #ffffff !important;
-}
-
-html.light-mode .btn-secondary {
-  background: #ffffff !important;
-  border-color: var(--dawaa-border) !important;
-  color: var(--dawaa-text) !important;
-}
-
-html:not(.light-mode) .data-table th,
-html:not(.light-mode) .dawaa-table th {
-  background: #edf5f8 !important;
-  color: #17324d !important;
-}
-
-html:not(.light-mode) .data-table td,
-html:not(.light-mode) .dawaa-table td {
-  color: #e7f4f7 !important;
-}
-
-html:not(.light-mode) .data-table tbody tr:hover td,
-html:not(.light-mode) .dawaa-table tbody tr:hover td {
-  background: rgba(20, 184, 166, 0.08) !important;
-}
-
-html:not(.light-mode) .text-slate-500,
-html:not(.light-mode) .text-slate-400 {
-  color: #a7bdd3 !important;
-}
-
-/* ===== Final app-wide contrast contract =====
-   Light theme: light surfaces + dark readable text.
-   Dark theme: dark surfaces + light readable text.
-   This layer intentionally comes last to neutralize legacy mixed colors. */
-html {
-  --theme-bg: #071522;
-  --theme-surface: #10243d;
-  --theme-surface-2: #132d4d;
-  --theme-soft: rgba(20, 184, 166, 0.12);
-  --theme-border: rgba(125, 211, 252, 0.18);
-  --theme-border-strong: rgba(45, 212, 191, 0.42);
-  --theme-text: #eef8fb;
-  --theme-heading: #ffffff;
-  --theme-muted: #b8cbdb;
-  --theme-primary: #2dd4bf;
-  --theme-primary-text: #05202f;
-  --theme-input: #0b1d31;
-  --theme-table-head: #0e2239;
-  --theme-table-row: #10243d;
-  --theme-table-hover: #143253;
-  color-scheme: dark;
-}
-
-html.light-mode {
-  --theme-bg: #f4faf9;
-  --theme-surface: #ffffff;
-  --theme-surface-2: #f0f8f7;
-  --theme-soft: #e4f8f5;
-  --theme-border: #cfe7e4;
-  --theme-border-strong: #8ddfd7;
-  --theme-text: #102033;
-  --theme-heading: #071527;
-  --theme-muted: #5d7088;
-  --theme-primary: #0fafa3;
-  --theme-primary-text: #ffffff;
-  --theme-input: #ffffff;
-  --theme-table-head: #ecf7f5;
-  --theme-table-row: #ffffff;
-  --theme-table-hover: #f2fbfa;
-  color-scheme: light;
-}
-
-html body,
-html main,
-html .min-h-screen {
-  background: var(--theme-bg) !important;
-  color: var(--theme-text) !important;
-}
-
-html.light-mode body,
-html.light-mode main,
-html.light-mode .min-h-screen {
-  background:
-    radial-gradient(circle at top right, rgba(45, 212, 191, 0.16), transparent 30%), var(--theme-bg) !important;
-}
-
-html:not(.light-mode) body,
-html:not(.light-mode) main,
-html:not(.light-mode) .min-h-screen {
-  background:
-    radial-gradient(circle at top right, rgba(45, 212, 191, 0.13), transparent 30%),
-    linear-gradient(180deg, #071522 0%, #0a1727 100%) !important;
-}
-
-html .stat-card,
-html .dawaa-card,
-html .dawaa-panel,
-html .modal-panel,
-html .crm-card,
-html .crm-timeline-item,
-html [class*='bg-[#1B2B4B]'],
-html [class*='bg-[#16253f]'],
-html [class*='bg-[#151f34]'],
-html [class*='bg-[#10213a]'],
-html [class*='bg-slate-900'],
-html [class*='bg-slate-800'] {
-  background: var(--theme-surface) !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-text) !important;
-}
-
-html.light-mode [class*='bg-slate-900'],
-html.light-mode [class*='bg-slate-800'],
-html.light-mode [class*='bg-navy-900'] {
-  background: var(--theme-surface) !important;
-  color: var(--theme-text) !important;
-}
-
-html [class*='bg-white/5'],
-html [class*='bg-white/10'],
-html .bg-white\/5,
-html .bg-white\/10 {
-  background: var(--theme-soft) !important;
-}
-
-html h1,
-html h2,
-html h3,
-html h4,
-html .page-title,
-html .section-title,
-html .text-white,
-html .text-slate-50,
-html .text-slate-100,
-html .text-slate-200,
-html .text-slate-900,
-html .text-slate-950 {
-  color: var(--theme-heading) !important;
-}
-
-html .text-slate-300,
-html .text-slate-400,
-html .text-slate-500,
-html .text-slate-600,
-html .text-slate-700 {
-  color: var(--theme-muted) !important;
-}
-
-html.light-mode .text-slate-700,
-html.light-mode .text-slate-800,
-html.light-mode .text-slate-900,
-html.light-mode .text-slate-950 {
-  color: var(--theme-heading) !important;
-}
-
-html input,
-html select,
-html textarea,
-html .input-dark,
-html .dawaa-input {
-  background: var(--theme-input) !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-text) !important;
-}
-
-html input::placeholder,
-html textarea::placeholder,
-html .input-dark::placeholder,
-html .dawaa-input::placeholder {
-  color: var(--theme-muted) !important;
-  opacity: 0.9;
-}
-
-html .data-table,
-html .dawaa-table {
-  background: var(--theme-surface) !important;
-  color: var(--theme-text) !important;
-}
-
-html .data-table th,
-html .dawaa-table th,
-html thead th {
-  background: var(--theme-table-head) !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-heading) !important;
-}
-
-html .data-table td,
-html .dawaa-table td,
-html tbody td {
-  background: var(--theme-table-row) !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-text) !important;
-}
-
-html .data-table tbody tr:hover td,
-html .dawaa-table tbody tr:hover td,
-html tbody tr:hover td {
-  background: var(--theme-table-hover) !important;
-}
-
-html .btn-primary,
-html .dawaa-button-primary {
-  background: var(--theme-primary) !important;
-  color: var(--theme-primary-text) !important;
-  border-color: var(--theme-border-strong) !important;
-}
-
-html .btn-secondary {
-  background: var(--theme-surface-2) !important;
-  color: var(--theme-text) !important;
-  border-color: var(--theme-border) !important;
-}
-
-/* ===== Customers page contrast lock ===== */
-html .customers-page {
-  color: var(--theme-text) !important;
-}
-
-html .customers-page .dawaa-hero,
-html .customers-page .dawaa-panel,
-html .customers-page .dawaa-card,
-html .customers-page .crm-card,
-html .customers-page .crm-timeline-item,
-html .customers-page [class*='bg-white'],
-html .customers-page [class*='bg-teal-50'] {
-  background: var(--theme-surface) !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-text) !important;
-}
-
-html .customers-page .dawaa-hero {
-  background: linear-gradient(135deg, var(--theme-surface), var(--theme-surface-2)) !important;
-}
-
-html .customers-page h1,
-html .customers-page h2,
-html .customers-page h3,
-html .customers-page .text-slate-950,
-html .customers-page .text-slate-900,
-html .customers-page .text-slate-800,
-html .customers-page .text-slate-700,
-html .customers-page .text-teal-900,
-html .customers-page .font-black {
-  color: var(--theme-heading) !important;
-}
-
-html .customers-page .text-slate-600,
-html .customers-page .text-slate-500,
-html .customers-page .text-slate-400,
-html .customers-page .text-teal-700\/80 {
-  color: var(--theme-muted) !important;
-}
-
-html .customers-page .text-teal-700,
-html .customers-page .text-teal-800 {
-  color: var(--theme-primary) !important;
-}
-
-html .customers-page .dawaa-brand-chip,
-html .customers-page .dawaa-source-badge,
-html .customers-page [class*='bg-teal-50'][class*='text-teal'],
-html .customers-page [class*='bg-emerald'],
-html .customers-page [class*='bg-red'],
-html .customers-page [class*='bg-amber'],
-html .customers-page [class*='bg-violet'],
-html .customers-page [class*='bg-purple'] {
-  background: var(--theme-soft) !important;
-  border-color: var(--theme-border-strong) !important;
-  color: var(--theme-heading) !important;
-}
-
-html .customers-page .dawaa-table {
-  border-collapse: separate;
-  border-spacing: 0;
-  background: var(--theme-surface) !important;
-}
-
-html .customers-page .dawaa-table thead th {
-  background: var(--theme-table-head) !important;
-  color: var(--theme-heading) !important;
-  border-bottom: 1px solid var(--theme-border) !important;
-  white-space: nowrap;
-}
-
-html .customers-page .dawaa-table tbody td {
-  background: var(--theme-table-row) !important;
-  color: var(--theme-text) !important;
-  border-bottom: 1px solid var(--theme-border) !important;
-  vertical-align: middle;
-}
-
-html .customers-page .dawaa-table tbody tr:hover td {
-  background: var(--theme-table-hover) !important;
-}
-
-html.light-mode .customers-page {
-  --theme-surface: #ffffff;
-  --theme-surface-2: #f3fbfa;
-  --theme-soft: #e5faf6;
-  --theme-text: #153047;
-  --theme-heading: #071827;
-  --theme-muted: #52677f;
-  --theme-table-head: #eaf5f4;
-  --theme-table-row: #ffffff;
-  --theme-table-hover: #f1fbfa;
-}
-
-html:not(.light-mode) .customers-page {
-  --theme-surface: #10243d;
-  --theme-surface-2: #12304b;
-  --theme-soft: rgba(45, 212, 191, 0.14);
-  --theme-text: #eef8fb;
-  --theme-heading: #ffffff;
-  --theme-muted: #b8cbdb;
-  --theme-table-head: #e8f3f5;
-  --theme-table-row: #10243d;
-  --theme-table-hover: #143253;
-}
-
-html:not(.light-mode) .customers-page .dawaa-table thead th {
-  color: #102033 !important;
-}
-
-html .customers-page .rounded-2xl[class*='bg-teal-50'],
-html .customers-page .rounded-2xl[class*='bg-emerald-50'],
-html .customers-page .rounded-2xl[class*='bg-amber-50'],
-html .customers-page .rounded-2xl[class*='bg-red-50'],
-html .customers-page .rounded-2xl[class*='bg-blue-50'],
-html .customers-page .rounded-full[class*='bg-teal-50'],
-html .customers-page .rounded-full[class*='bg-emerald-50'],
-html .customers-page .rounded-full[class*='bg-amber-50'],
-html .customers-page .rounded-full[class*='bg-red-50'],
-html .customers-page .rounded-full[class*='bg-blue-50'] {
-  background: var(--theme-soft) !important;
-  border-color: var(--theme-border-strong) !important;
-  color: var(--theme-heading) !important;
-}
-
-html .customers-page .modal-panel,
-html .customers-page .modal-panel section,
-html .customers-page .modal-panel [class*='bg-white'],
-html .customers-page .modal-panel [class*='bg-slate-50'],
-html .customers-page .modal-panel [class*='bg-slate-100'] {
-  background: var(--theme-surface) !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-text) !important;
-}
-
-html .customers-page .modal-panel [class*='bg-teal-50'],
-html .customers-page .modal-panel [class*='bg-emerald-50'],
-html .customers-page .modal-panel [class*='bg-amber-50'],
-html .customers-page .modal-panel [class*='bg-red-50'] {
-  background: var(--theme-soft) !important;
-  border-color: var(--theme-border-strong) !important;
-  color: var(--theme-heading) !important;
-}
-
-html .customers-page .modal-panel .dawaa-table th,
-html .customers-page .modal-panel .dawaa-table td {
-  white-space: nowrap;
-}
-
-html.light-mode .customers-page .modal-panel,
-html.light-mode .customers-page .modal-panel section,
-html.light-mode .customers-page .modal-panel [class*='bg-white'],
-html.light-mode .customers-page .modal-panel [class*='bg-slate-50'],
-html.light-mode .customers-page .modal-panel [class*='bg-slate-100'] {
-  background: #ffffff !important;
-  color: #102033 !important;
-}
-
-/* ===== Customer service page contrast lock ===== */
-html .customer-service-page {
-  color: var(--theme-text) !important;
-}
-
-html .customer-service-page .dawaa-hero,
-html .customer-service-page .dawaa-panel,
-html .customer-service-page article,
-html .customer-service-page .modal-panel,
-html .customer-service-page [class*='bg-white'],
-html .customer-service-page [class*='bg-slate-50'],
-html .customer-service-page [class*='bg-slate-100'] {
-  background: var(--theme-surface) !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-text) !important;
-}
-
-html .customer-service-page h1,
-html .customer-service-page h2,
-html .customer-service-page h3,
-html .customer-service-page .text-slate-950,
-html .customer-service-page .text-slate-900,
-html .customer-service-page .text-slate-800,
-html .customer-service-page .font-black {
-  color: var(--theme-heading) !important;
-}
-
-html .customer-service-page .text-slate-700,
-html .customer-service-page .text-slate-600,
-html .customer-service-page .text-slate-500,
-html .customer-service-page .text-slate-400 {
-  color: var(--theme-muted) !important;
-}
-
-html .customer-service-page .rounded-2xl[class*='bg-teal-50'],
-html .customer-service-page .rounded-2xl[class*='bg-emerald-50'],
-html .customer-service-page .rounded-2xl[class*='bg-amber-50'],
-html .customer-service-page .rounded-2xl[class*='bg-red-50'],
-html .customer-service-page .rounded-2xl[class*='bg-blue-50'],
-html .customer-service-page .rounded-2xl[class*='bg-teal-500'],
-html .customer-service-page .rounded-2xl[class*='bg-teal-400'],
-html .customer-service-page .rounded-xl[class*='bg-teal-50'],
-html .customer-service-page .rounded-xl[class*='bg-emerald-50'],
-html .customer-service-page .rounded-xl[class*='bg-amber-50'],
-html .customer-service-page .rounded-xl[class*='bg-red-50'],
-html .customer-service-page .rounded-xl[class*='bg-blue-50'],
-html .customer-service-page .rounded-xl[class*='bg-teal-500'],
-html .customer-service-page .rounded-xl[class*='bg-teal-400'],
-html .customer-service-page .rounded-full[class*='bg-teal-50'],
-html .customer-service-page .rounded-full[class*='bg-emerald-50'],
-html .customer-service-page .rounded-full[class*='bg-amber-50'],
-html .customer-service-page .rounded-full[class*='bg-red-50'],
-html .customer-service-page .rounded-full[class*='bg-blue-50'] {
-  background: var(--theme-soft) !important;
-  border-color: var(--theme-border-strong) !important;
-  color: var(--theme-heading) !important;
-}
-
-html .customer-service-page .modal-panel .border-slate-200,
-html .customer-service-page .modal-panel [class*='border-slate-200'],
-html .customer-service-page .modal-panel [class*='border-teal-200'],
-html .customer-service-page .modal-panel [class*='border-amber-200'] {
-  border-color: var(--theme-border) !important;
-}
-
-html .customer-service-page .modal-panel [class*='bg-amber-50'] {
-  background: rgba(245, 158, 11, 0.14) !important;
-  border-color: rgba(245, 158, 11, 0.35) !important;
-  color: #fde68a !important;
-}
-
-html .customer-service-page .modal-panel button:hover {
-  background: var(--theme-soft) !important;
-  color: var(--theme-heading) !important;
-}
-
-html.light-mode .customer-service-page {
-  --theme-surface: #ffffff;
-  --theme-surface-2: #f3fbfa;
-  --theme-soft: #e5faf6;
-  --theme-text: #153047;
-  --theme-heading: #071827;
-  --theme-muted: #52677f;
-}
-
-html:not(.light-mode) .customer-service-page {
-  --theme-surface: #10243d;
-  --theme-surface-2: #12304b;
-  --theme-soft: rgba(45, 212, 191, 0.14);
-  --theme-text: #eef8fb;
-  --theme-heading: #ffffff;
-  --theme-muted: #b8cbdb;
-}
-
-/* ===== App-wide final surface lock ===== */
-html body .stat-card,
-html body .dawaa-panel,
-html body .dawaa-card,
-html body .modal-panel,
-html body .crm-card,
-html body .crm-timeline-item,
-html body .card,
-html body [class*='bg-slate-950'],
-html body [class*='bg-slate-900'],
-html body [class*='bg-slate-800'],
-html body [class*='bg-[#0d1b2a]'],
-html body [class*='bg-[#10213a]'],
-html body [class*='bg-[#151f34]'],
-html body [class*='bg-[#16253f]'],
-html body [class*='bg-[#1B2B4B]'] {
-  background: var(--theme-surface) !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-text) !important;
-}
-
-html.light-mode body .stat-card,
-html.light-mode body .dawaa-panel,
-html.light-mode body .dawaa-card,
-html.light-mode body .modal-panel,
-html.light-mode body .crm-card,
-html.light-mode body .crm-timeline-item,
-html.light-mode body .card,
-html.light-mode body [class*='bg-white'],
-html.light-mode body [class*='bg-slate-50'],
-html.light-mode body [class*='bg-slate-100'] {
-  background: #ffffff !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-text) !important;
-}
-
-html:not(.light-mode) body [class*='bg-white'],
-html:not(.light-mode) body [class*='bg-slate-50'],
-html:not(.light-mode) body [class*='bg-slate-100'] {
-  background: var(--theme-surface-2) !important;
-  border-color: var(--theme-border) !important;
-  color: var(--theme-text) !important;
-}
-
-html body .stat-card h1,
-html body .stat-card h2,
-html body .stat-card h3,
-html body .dawaa-panel h1,
-html body .dawaa-panel h2,
-html body .dawaa-panel h3,
-html body .modal-panel h1,
-html body .modal-panel h2,
-html body .modal-panel h3,
-html body .text-white,
-html body .text-slate-950,
-html body .text-slate-900,
-html body .text-slate-800 {
-  color: var(--theme-heading) !important;
-}
-
-html body .text-slate-700,
-html body .text-slate-600,
-html body .text-slate-500,
-html body .text-slate-400,
-html body .text-slate-300 {
-  color: var(--theme-muted) !important;
-}
-
-html body [class*='bg-teal-50'],
-html body [class*='bg-emerald-50'],
-html body [class*='bg-amber-50'],
-html body [class*='bg-red-50'],
-html body [class*='bg-violet-50'],
-html body [class*='bg-purple-50'] {
-  background: var(--theme-soft) !important;
-  border-color: var(--theme-border-strong) !important;
-  color: var(--theme-heading) !important;
-}
-
-html body table th {
-  background: var(--theme-table-head) !important;
-  color: var(--theme-heading) !important;
-}
-
-html:not(.light-mode) body table th {
-  color: #102033 !important;
-}
-
-html body table td {
-  background: var(--theme-table-row) !important;
-  color: var(--theme-text) !important;
-}
-
-html aside {
-  background: #0d1b2f !important;
-  color: #edf7fb !important;
-  border-color: rgba(125, 211, 252, 0.12) !important;
-}
-
-html.light-mode aside {
-  background: #ffffff !important;
-  color: #102033 !important;
-  border-color: #d9e7e5 !important;
-}
-
-html aside .nav-item-active {
-  background: rgba(45, 212, 191, 0.18) !important;
-  color: #8ffcf0 !important;
-  border-color: rgba(45, 212, 191, 0.42) !important;
-}
-
-html.light-mode aside .nav-item-active {
-  background: #dcf8f4 !important;
-  color: #04766d !important;
-  border-color: #8ddfd7 !important;
-}
-
-html aside .nav-item-inactive {
-  color: #bfd2e2 !important;
-}
-
-html.light-mode aside .nav-item-inactive {
-  color: #52677f !important;
-}
-
-html .badge-success {
-  background: rgba(16, 185, 129, 0.14) !important;
-  color: #34d399 !important;
-  border-color: rgba(52, 211, 153, 0.28) !important;
-}
-
-html.light-mode .badge-success {
-  background: #dcfce7 !important;
-  color: #047857 !important;
-  border-color: #a7f3d0 !important;
-}
-
-html .badge-warning {
-  background: rgba(245, 158, 11, 0.14) !important;
-  color: #fbbf24 !important;
-  border-color: rgba(251, 191, 36, 0.28) !important;
-}
-
-html.light-mode .badge-warning {
-  background: #fef3c7 !important;
-  color: #a16207 !important;
-  border-color: #fde68a !important;
-}
-
-html .badge-danger {
-  background: rgba(239, 68, 68, 0.14) !important;
-  color: #fca5a5 !important;
-  border-color: rgba(252, 165, 165, 0.28) !important;
-}
-
-html.light-mode .badge-danger {
-  background: #fee2e2 !important;
-  color: #b91c1c !important;
-  border-color: #fecaca !important;
-}
-
-/* Dawaa viewport guard */
+/* Viewport and responsive data-card geometry. */
 html,
 body,
 #root {
@@ -1979,22 +485,35 @@ body,
   overflow-x: hidden;
 }
 
-/* Dawaa Cashback Responsive Cards Fix V2 */
-.cashback-mobile-list {
+.cashback-mobile-list,
+.customers-mobile-list {
   display: grid;
   gap: 0.85rem;
 }
 
-.cashback-desktop-table {
+.cashback-desktop-table,
+.customers-desktop-table {
   display: none;
 }
 
-.cashback-responsive-card {
-  border: 1px solid var(--theme-border);
-  background: color-mix(in srgb, var(--theme-surface) 92%, transparent);
+.cashback-responsive-card,
+.customer-responsive-card {
+  border: 1px solid var(--dawaa-theme-border);
+  background: var(--dawaa-theme-surface);
   border-radius: 1.25rem;
   padding: 0.95rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--dawaa-theme-shadow-soft);
+}
+
+.customer-responsive-card {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.customer-responsive-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--dawaa-theme-border-strong);
+  box-shadow: var(--dawaa-theme-shadow);
 }
 
 .cashback-action-grid {
@@ -2009,32 +528,11 @@ body,
   white-space: nowrap;
 }
 
-@media (min-width: 1560px) {
-  .cashback-mobile-list {
-    display: none;
-  }
-  .cashback-desktop-table {
-    display: block;
-  }
+.customer-service-page,
+.customer-service-page .dawaa-panel {
+  max-width: 100%;
 }
 
-/* على الشاشات أقل من 1560px لا نعرض الجدول العريض نهائيًا */
-@media (max-width: 1559px) {
-  .customer-service-page,
-  .customer-service-page .dawaa-panel {
-    max-width: 100%;
-    overflow-x: hidden;
-  }
-}
-
-/* حماية من تداخل السايدبار مع المحتوى */
-@media (min-width: 1024px) {
-  .customer-service-page {
-    padding-inline-end: 0.5rem;
-  }
-}
-
-/* تحسين الأزرار داخل صفحة الكاش باك تحديدًا */
 .customer-service-page .cashback-action-grid button,
 .customer-service-page .cashback-action-grid a {
   min-height: 34px;
@@ -2042,98 +540,31 @@ body,
   text-decoration: none;
 }
 
-/* في الثيم الغامق: ممنوع أزرار بيضاء باهتة داخل الكاش باك */
-.dark .cashback-action-grid .bg-white,
-.dark .cashback-action-grid .bg-slate-100,
-[data-theme='dark'] .cashback-action-grid .bg-white,
-[data-theme='dark'] .cashback-action-grid .bg-slate-100 {
-  background: rgba(30, 41, 59, 0.9) !important;
-  color: #fff !important;
-  border-color: rgba(148, 163, 184, 0.45) !important;
-}
-
-/* تقليل ارتفاع الصفحات مع الحفاظ على القراءة */
-.customer-service-page .dawaa-panel {
-  padding: clamp(0.75rem, 1vw, 1.25rem);
-}
-
-@media (max-width: 900px) {
-  .cashback-action-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/* Dawaa Customers Responsive Cards Fix V1 */
-.customers-mobile-list {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.customers-desktop-table {
-  display: none;
-}
-
-.customer-responsive-card {
-  cursor: pointer;
-  border: 1px solid var(--theme-border);
-  background: color-mix(in srgb, var(--theme-surface) 92%, transparent);
-  border-radius: 1.25rem;
-  padding: 0.95rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.07);
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.customer-responsive-card:hover {
-  transform: translateY(-1px);
-  border-color: rgba(45, 212, 191, 0.55);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.12);
-}
-
-@media (min-width: 1560px) {
-  .customers-mobile-list {
-    display: none;
-  }
-  .customers-desktop-table {
-    display: block;
-  }
-}
-
-@media (max-width: 1559px) {
-  .customers-desktop-table {
-    display: none;
-  }
-
-  .customers-mobile-list {
-    padding: 0.75rem;
-  }
-
-  .customers-mobile-list .customer-responsive-card {
-    max-width: 100%;
-  }
-}
-
-@media (max-width: 900px) {
-  .customers-mobile-list {
-    padding: 0.5rem;
-  }
-
-  .customer-responsive-card {
-    padding: 0.75rem;
-    border-radius: 1rem;
-  }
-}
-
-/* إصلاح ألوان badges في صفحة العملاء */
 .customer-responsive-card .rounded-full,
 .customers-desktop-table .rounded-full {
   white-space: nowrap;
 }
 
-/* حماية صفحة العملاء من التمدد */
-.customer-service-page,
-.customer-service-page .dawaa-panel {
-  max-width: 100%;
+@media (min-width: 1024px) {
+  .customer-service-page { padding-inline-end: 0.5rem; }
+}
+
+@media (min-width: 1560px) {
+  .cashback-mobile-list,
+  .customers-mobile-list { display: none; }
+  .cashback-desktop-table,
+  .customers-desktop-table { display: block; }
+}
+
+@media (max-width: 1559px) {
+  .customer-service-page,
+  .customer-service-page .dawaa-panel { overflow-x: hidden; }
+  .customers-mobile-list { padding: 0.75rem; }
+  .customers-mobile-list .customer-responsive-card { max-width: 100%; }
+}
+
+@media (max-width: 900px) {
+  .cashback-action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .customers-mobile-list { padding: 0.5rem; }
+  .customer-responsive-card { padding: 0.75rem; border-radius: 1rem; }
 }

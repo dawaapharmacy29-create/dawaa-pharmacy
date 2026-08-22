@@ -19,28 +19,30 @@ const shiftNotesRuntime = ((globalThis as typeof globalThis & {
   timer: null,
 });
 
-const DONE_PATTERN = /completed|done|closed|cancelled|deleted|تم|مغلق|ملغي|محذوف/i;
-
-function isPendingShiftNote(row: Record<string, unknown>) {
-  if (row.deleted_at) return false;
-  if (row.completed_at) return false;
-  const status = String(row.status || '').trim();
-  if (!status) return true;
-  if (DONE_PATTERN.test(status)) return false;
-  return true;
-}
+const CACHE_TTL_MS = 30_000;
+const POLL_INTERVAL_MS = 120_000;
 
 export function usePendingShiftNotesCount() {
   const [count, setCount] = useState<number | null>(shiftNotesRuntime.count);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     if (!isSupabaseConfigured) {
       shiftNotesRuntime.count = null;
       setCount(null);
       return;
     }
 
-    if (shiftNotesRuntime.refreshPromise && Date.now() - shiftNotesRuntime.lastRefreshAt < 15_000) {
+    const cacheIsFresh =
+      !force &&
+      shiftNotesRuntime.count !== null &&
+      shiftNotesRuntime.lastRefreshAt > 0 &&
+      Date.now() - shiftNotesRuntime.lastRefreshAt < CACHE_TTL_MS;
+    if (cacheIsFresh) {
+      setCount(shiftNotesRuntime.count);
+      return;
+    }
+
+    if (shiftNotesRuntime.refreshPromise) {
       const sharedCount = await shiftNotesRuntime.refreshPromise;
       setCount(sharedCount);
       return;
@@ -48,13 +50,10 @@ export function usePendingShiftNotesCount() {
 
     shiftNotesRuntime.refreshPromise = (async () => {
       try {
-        const { data, error } = await supabase
-          .from('shift_notes')
-          .select('id,status,deleted_at,completed_at')
-          .is('deleted_at', null)
-          .limit(500);
+        const { data, error } = await supabase.rpc('count_pending_shift_notes_v1');
         if (error) throw error;
-        const pending = (data || []).filter((row) => isPendingShiftNote(row as Record<string, unknown>)).length;
+        const parsed = Number(data ?? 0);
+        const pending = Number.isFinite(parsed) ? parsed : 0;
         shiftNotesRuntime.count = pending;
         shiftNotesRuntime.lastRefreshAt = Date.now();
         return pending;
@@ -78,13 +77,13 @@ export function usePendingShiftNotesCount() {
     void refresh();
     const onDataChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ table?: string }>).detail;
-      if (!detail?.table || detail.table === 'shift_notes') void refresh();
+      if (!detail?.table || detail.table === 'shift_notes') void refresh(true);
     };
     window.addEventListener('dataChanged', onDataChanged);
 
     if (shiftNotesRuntime.subscribers === 1) {
       if (shiftNotesRuntime.timer) window.clearInterval(shiftNotesRuntime.timer);
-      shiftNotesRuntime.timer = window.setInterval(() => void refresh(), 120_000);
+      shiftNotesRuntime.timer = window.setInterval(() => void refresh(true), POLL_INTERVAL_MS);
     }
 
     return () => {

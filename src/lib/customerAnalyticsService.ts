@@ -16,16 +16,12 @@ export function cleanCustomerCode(value: unknown) {
   return code;
 }
 
-// تصنيف العملاء حسب المشتريات الشهرية:
-// مهم جدًا: >= 8000 شهريًا | مهم: >= 4000 | متوسط: >= 1500 | عادي: < 1500
 export function normalizeCustomerSegment(value: unknown, _totalSpent = 0, avgMonthly = 0) {
   const raw = String(value ?? '')
     .trim()
     .toLowerCase()
     .replace('جداً', 'جدًا')
     .replace('جدا', 'جدًا');
-  // القاعدة الذهبية الموحّدة (7 أغسطس 2026): >= مش > — عميل بالظبط عند 8000
-  // لازم يتصنّف "مهم جدًا" مش "مهم". الحكم النهائي من avg_monthly لو متاح.
   const avg = Number(avgMonthly || 0);
   if (avg >= 8000) return 'مهم جدًا';
   if (avg >= 4000) return 'مهم';
@@ -112,26 +108,15 @@ export function isValidEgyptPhone(phone?: string | null, customerCode?: string |
   const trimmed = String(phone || '')
     .trim()
     .toLowerCase();
-  if (!trimmed) return false;
-  if (trimmed.startsWith('code:')) return false;
+  if (!trimmed || trimmed.startsWith('code:')) return false;
 
   const codeDigits = String(customerCode || '').replace(/\D/g, '');
   const digits = trimmed.replace(/\D/g, '');
   if (!digits) return false;
   if (codeDigits && digits === codeDigits) return false;
-  if (
-    customerCode &&
-    trimmed ===
-      String(customerCode || '')
-        .trim()
-        .toLowerCase()
-  )
-    return false;
+  if (customerCode && trimmed === String(customerCode).trim().toLowerCase()) return false;
   if (digits.length < 10 || digits.length > 13) return false;
-
-  const clean = cleanEgyptianPhone(phone);
-  if (!clean) return false;
-  return true;
+  return Boolean(cleanEgyptianPhone(phone));
 }
 
 export function getBestCustomerPhone(
@@ -149,52 +134,16 @@ export function getBestCustomerPhone(
   } | null
 ): string | null {
   const customerCode = followup.customer_code || '';
-
-  // Priority 1: customer_metrics_summary.customer_phone if valid
-  if (
-    customerSummary?.customer_phone &&
-    isValidEgyptPhone(customerSummary.customer_phone, customerCode)
-  ) {
-    return customerSummary.customer_phone;
-  }
-
-  // Priority 2: customers.whatsapp_phone if valid
-  if (
-    customerDetails?.whatsapp_phone &&
-    isValidEgyptPhone(customerDetails.whatsapp_phone, customerCode)
-  ) {
-    return customerDetails.whatsapp_phone;
-  }
-
-  // Priority 3: customers.phone if valid
-  if (customerDetails?.phone && isValidEgyptPhone(customerDetails.phone, customerCode)) {
-    return customerDetails.phone;
-  }
-
-  // Priority 4: customers.phone_alt if valid
-  if (customerDetails?.phone_alt && isValidEgyptPhone(customerDetails.phone_alt, customerCode)) {
-    return customerDetails.phone_alt;
-  }
-
-  // Priority 5: daily_followups.customer_phone if valid
-  if (followup.customer_phone && isValidEgyptPhone(followup.customer_phone, customerCode)) {
-    return followup.customer_phone;
-  }
-
-  // Priority 6: daily_followups.phone if valid
-  if (followup.phone && isValidEgyptPhone(followup.phone, customerCode)) {
-    return followup.phone;
-  }
-
-  // Priority 7: customers.customer_phone if valid
-  if (
-    customerDetails?.customer_phone &&
-    isValidEgyptPhone(customerDetails.customer_phone, customerCode)
-  ) {
-    return customerDetails.customer_phone;
-  }
-
-  return null;
+  const candidates = [
+    customerSummary?.customer_phone,
+    customerDetails?.whatsapp_phone,
+    customerDetails?.phone,
+    customerDetails?.phone_alt,
+    followup.customer_phone,
+    followup.phone,
+    customerDetails?.customer_phone,
+  ];
+  return candidates.find((phone) => isValidEgyptPhone(phone, customerCode)) || null;
 }
 
 export function isPseudoCustomer(customer?: {
@@ -234,12 +183,6 @@ function monthSpan(first: string | null, last: string | null) {
 }
 
 async function fetchPaged(table: string, select = '*', pageSize = 1000, maxRows = 100000) {
-  if (table === 'sales_invoices') {
-    throw new Error(
-      'تحميل كل sales_invoices غير مسموح. استخدم customer_metrics_summary أو استعلامًا محدودًا.'
-    );
-  }
-
   const all: AnyRow[] = [];
   for (let from = 0; from < maxRows; from += pageSize) {
     const to = from + pageSize - 1;
@@ -252,29 +195,13 @@ async function fetchPaged(table: string, select = '*', pageSize = 1000, maxRows 
   return all;
 }
 
-function buildLookups(customers: AnyRow[]) {
-  const byCode = new Map<string, AnyRow>();
-  const byPhone = new Map<string, AnyRow>();
-  for (const customer of customers) {
-    const code = cleanCustomerCode(customer.customer_code);
-    const phone = cleanEgyptianPhone(
-      customer.phone || customer.whatsapp_phone || customer.phone_alt || ''
-    );
-    if (code) byCode.set(code, customer);
-    if (phone && !byPhone.has(phone)) byPhone.set(phone, customer);
-  }
-  return { byCode, byPhone };
-}
-
 /**
- * إثراء بيانات العملاء من الفواتير المستوردة مباشرةً (دون حفظ في DB).
- * يُستخدم لعرض التصنيف الصحيح في جميع الصفحات دون الحاجة لإعادة البناء الكاملة.
+ * Pure enrichment for already-loaded invoice rows. This function performs no database writes.
  */
 export function enrichCustomersFromInvoices<T extends AnyRow>(
   customers: T[],
   invoices: AnyRow[]
 ): T[] {
-  // بناء جدول lookup بالكود والهاتف
   const invoicesByCode = new Map<string, AnyRow[]>();
   const invoicesByPhone = new Map<string, AnyRow[]>();
 
@@ -300,15 +227,11 @@ export function enrichCustomersFromInvoices<T extends AnyRow>(
       .replace(/\s/g, '');
     const matched =
       (code && invoicesByCode.get(code)) || (phone && invoicesByPhone.get(phone)) || [];
-
     if (matched.length === 0) return customer;
 
     const total = matched.reduce((sum, inv) => sum + invoiceAmount(inv), 0);
     const count = matched.length;
-    const dates = matched
-      .map((inv) => invoiceDate(inv))
-      .filter(Boolean)
-      .sort();
+    const dates = matched.map(invoiceDate).filter(Boolean).sort();
     const first = dates[0] || null;
     const last = dates[dates.length - 1] || null;
     const avgMonthly = total / monthSpan(first, last);
@@ -337,93 +260,19 @@ export function enrichCustomersFromInvoices<T extends AnyRow>(
   });
 }
 
-export async function rebuildCustomerStats() {
+/**
+ * Historical patcher retired.
+ *
+ * The old implementation performed a full invoice-table scan and wrote guessed customer links back
+ * to invoices. It was unused and contradicted the canonical invoice/customer read-model architecture.
+ * Customer metrics are now produced by canonical projections/read models and invoice linking belongs
+ * to controlled import/migration flows, never a runtime analytics helper.
+ */
+export async function rebuildCustomerStats(): Promise<never> {
   if (!isSupabaseConfigured) throw new Error('Supabase غير مفعّل');
-
-  const customers = await fetchPaged('customers');
-  const invoices = await fetchPaged('sales_invoices');
-  const { byCode, byPhone } = buildLookups(customers);
-  const stats = new Map<
-    string,
-    { customer: AnyRow; total: number; count: number; first: string | null; last: string | null }
-  >();
-  const invoiceLinks: Array<{ id: string; customer_id: string }> = [];
-
-  for (const invoice of invoices) {
-    const code = cleanCustomerCode(invoice.customer_code);
-    const phone = cleanEgyptianPhone(invoice.customer_phone || invoice.phone || '');
-    const customer = (code && byCode.get(code)) || (phone && byPhone.get(phone)) || null;
-    if (!customer) continue;
-    const customerKey = String(customer.id || customer.customer_code);
-    const date = invoiceDate(invoice);
-    const current = stats.get(customerKey) || {
-      customer,
-      total: 0,
-      count: 0,
-      first: null,
-      last: null,
-    };
-    current.total += invoiceAmount(invoice);
-    current.count += 1;
-    if (date) {
-      if (!current.first || date < current.first) current.first = date;
-      if (!current.last || date > current.last) current.last = date;
-    }
-    stats.set(customerKey, current);
-    if (invoice.id && customer.id && invoice.customer_id !== customer.id) {
-      invoiceLinks.push({ id: invoice.id, customer_id: customer.id });
-    }
-  }
-
-  const updates = customers.map((customer) => {
-    const key = String(customer.id || customer.customer_code);
-    const current = stats.get(key);
-    const total = current?.total ?? 0;
-    const count = current?.count ?? 0;
-    const avgInvoice = count ? total / count : 0;
-    const avgMonthly = count ? total / monthSpan(current?.first || null, current?.last || null) : 0;
-    const segment = normalizeCustomerSegment(customer.segment, total, avgMonthly);
-    const status = normalizeCustomerStatus(
-      customer.status,
-      current?.last || null,
-      current?.first || null
-    );
-    const priority = normalizeCustomerPriority(customer.priority, segment, status);
-    return {
-      id: customer.id,
-      total_spent: total,
-      invoices_count: count,
-      avg_invoice: avgInvoice,
-      avg_monthly: avgMonthly,
-      first_purchase: current?.first || null,
-      last_purchase: current?.last || null,
-      last_order_date: current?.last || null,
-      segment,
-      status,
-      priority,
-    };
-  });
-
-  for (let i = 0; i < updates.length; i += 200) {
-    const chunk = updates.slice(i, i + 200);
-    const { error } = await supabase.from('customers').upsert(chunk, { onConflict: 'id' });
-    if (error) throw new Error(error.message);
-  }
-
-  for (let i = 0; i < invoiceLinks.length; i += 200) {
-    await Promise.all(
-      invoiceLinks
-        .slice(i, i + 200)
-        .map((link) =>
-          supabase
-            .from('sales_invoices')
-            .update({ customer_id: link.customer_id })
-            .eq('id', link.id)
-        )
-    );
-  }
-
-  return { customers: updates.length, linkedInvoices: invoiceLinks.length };
+  throw new Error(
+    'تم إيقاف rebuildCustomerStats القديم. استخدم customer_metrics_summary وعمليات الربط المعتمدة أثناء الاستيراد/المigrations.'
+  );
 }
 
 export async function getCustomerSegments() {

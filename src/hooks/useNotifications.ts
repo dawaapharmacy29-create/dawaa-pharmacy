@@ -33,6 +33,9 @@ const notificationRuntime = ((globalThis as typeof globalThis & {
   channel: null,
 });
 
+const NOTIFICATION_CACHE_TTL_MS = 30_000;
+const NOTIFICATION_POLL_INTERVAL_MS = 120_000;
+
 export type NotificationSettings = {
   customerService: boolean;
   delivery: boolean;
@@ -245,7 +248,7 @@ export function useNotifications() {
   const tableRef = useRef<NotificationTable>('notifications');
   const mountedRef = useRef(true);
 
-  const refreshNotifications = useCallback(async () => {
+  const refreshNotifications = useCallback(async (force = false) => {
     if (!isSupabaseConfigured) {
       notificationRuntime.available = false;
       notificationRuntime.loading = false;
@@ -254,7 +257,20 @@ export function useNotifications() {
       return;
     }
 
-    if (notificationRuntime.refreshPromise && Date.now() - notificationRuntime.lastRefreshAt < 15_000) {
+    const cacheIsFresh =
+      !force &&
+      notificationRuntime.lastRefreshAt > 0 &&
+      Date.now() - notificationRuntime.lastRefreshAt < NOTIFICATION_CACHE_TTL_MS;
+    if (cacheIsFresh) {
+      if (mountedRef.current) {
+        setRows(notificationRuntime.rows);
+        setAvailable(notificationRuntime.available);
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (notificationRuntime.refreshPromise) {
       const sharedRows = await notificationRuntime.refreshPromise;
       if (mountedRef.current) {
         setRows(sharedRows);
@@ -339,7 +355,10 @@ export function useNotifications() {
 
     if (notificationRuntime.subscribers === 1) {
       if (notificationRuntime.timer) window.clearInterval(notificationRuntime.timer);
-      notificationRuntime.timer = window.setInterval(() => void refreshNotifications(), 120_000);
+      notificationRuntime.timer = window.setInterval(
+        () => void refreshNotifications(true),
+        NOTIFICATION_POLL_INTERVAL_MS
+      );
 
       if (isSupabaseConfigured) {
         try {
@@ -349,7 +368,7 @@ export function useNotifications() {
             .on(
               'postgres_changes',
               { event: '*', schema: 'public', table: 'notifications' },
-              () => void refreshNotifications()
+              () => void refreshNotifications(true)
             );
 
           channel.subscribe((status) => {
@@ -455,7 +474,7 @@ export function useNotifications() {
       if (error) throw error;
     } catch (error) {
       console.warn('[notifications] mark all as read failed', error);
-      void refreshNotifications();
+      void refreshNotifications(true);
     }
   }, [notifications, refreshNotifications]);
 

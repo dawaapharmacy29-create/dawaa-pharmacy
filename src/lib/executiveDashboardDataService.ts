@@ -13,7 +13,6 @@ import {
   normalizeStaffName,
   type GroupedStaffSalesPerformance,
 } from '@/lib/staffIdentityService';
-import { getInvoiceKey } from '@/lib/dawaa2027';
 import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 
 type Row = Record<string, unknown>;
@@ -562,34 +561,6 @@ async function fetchCustomerPreview(branch: string): Promise<DashboardCustomerPr
   };
 }
 
-async function fetchLatestInvoices(
-  startDate: string,
-  endDate: string,
-  branch: string
-): Promise<{ rows: DashboardInvoicePreview[]; error: string | null }> {
-  let query = supabase
-    .from('sales_invoices')
-    .select('id,invoice_number,invoice_no,invoice_date,net_amount,discounted_amount,amount,branch')
-    .gte('invoice_date', startDate)
-    .lt('invoice_date', `${endDate}T23:59:59`)
-    .order('invoice_date', { ascending: false })
-    .limit(5);
-
-  if (branch && branch !== 'all') query = query.eq('branch', branch);
-  const { data, error } = await query;
-  if (error) return { rows: [], error: error.message };
-  return {
-    rows: ((data ?? []) as Row[]).map((row) => ({
-      id: String(readFirst(row, ['id'], crypto.randomUUID())),
-      invoiceNumber: getInvoiceKey(row) || null,
-      invoiceDate: readFirst(row, ['invoice_date'], null) as string | null,
-      amount: toNumber(readFirst(row, ['net_amount', 'discounted_amount', 'amount'], 0)),
-      branch: readFirst(row, ['branch'], null) as string | null,
-    })),
-    error: null,
-  };
-}
-
 function buildDeliveryTracking(rows: DeliveryPerformanceSummary[]) {
   const totalOrders = rows.reduce((sum, row) => sum + row.deliveriesCount, 0);
   const deliverySales = rows.reduce((sum, row) => sum + row.deliverySalesTotal, 0);
@@ -603,15 +574,6 @@ function buildDeliveryTracking(rows: DeliveryPerformanceSummary[]) {
   };
 }
 
-async function checkSalesSummaryGaps(startDate: string, endDate: string) {
-  const { data, error } = await supabase.rpc('check_sales_daily_summary_gaps', {
-    p_start_date: startDate,
-    p_end_date: endDate,
-  });
-  if (error) return { count: 0, error: error.message };
-  return { count: (data || []).length, error: null };
-}
-
 export async function loadExecutiveDashboardData(params: {
   startDate: string;
   endDate: string;
@@ -623,7 +585,7 @@ export async function loadExecutiveDashboardData(params: {
   if (!params.forceRefresh && dashboardCache.has(key)) return dashboardCache.get(key)!;
 
   const errorsBySection: Record<string, string> = {};
-  const [summaryResult, liveAnalyticsResult, trackingResult, staffIdentityResult, salesGapResult] =
+  const [summaryResult, liveAnalyticsResult, trackingResult, staffIdentityResult] =
     await Promise.allSettled([
       fetchExecutiveDashboardSummary(params),
       loadSalesAnalyticsSummary(
@@ -636,7 +598,6 @@ export async function loadExecutiveDashboardData(params: {
       ),
       loadOperationalTracking(errorsBySection),
       fetchStaffIdentityRows(),
-      checkSalesSummaryGaps(params.startDate, params.endDate),
     ]);
 
   if (summaryResult.status === 'rejected') {
@@ -661,10 +622,6 @@ export async function loadExecutiveDashboardData(params: {
     staffIdentityResult.status === 'fulfilled' ? staffIdentityResult.value : [];
   if (staffIdentityResult.status === 'rejected')
     errorsBySection.staffIdentity = 'تعذر تحميل ربط الدكاترة بملفات الفريق';
-
-  if (!liveSourceReady && salesGapResult.status === 'fulfilled' && salesGapResult.value.count > 0) {
-    errorsBySection.salesSummaryGap = `sales_daily_summary ناقص أو غير مطابق لبيانات sales_invoices في ${salesGapResult.value.count} يوم. يلزم تحديث ملخصات المبيعات.`;
-  }
 
   const liveKpis =
     liveSourceReady && liveAnalytics

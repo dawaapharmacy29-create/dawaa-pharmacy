@@ -13,8 +13,6 @@ import { normalizeBranchName } from '@/lib/branch';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
 import { cashbackStatusLabel, cashbackSummaryLine } from '@/lib/api/customerLoyalty';
 import { getCustomerServiceLiveMetrics } from '@/lib/customerServiceCustomerMetrics';
-import { buildCustomerLiveMetrics } from '@/lib/customers/buildCustomerLiveMetrics';
-import { getInvoiceDay } from '@/lib/invoices/invoiceCore';
 import { CustomerFlagChips, getCustomerCodeSafe, resolveCustomerBranch } from '@/lib/customerDisplay';
 
 type Props = {
@@ -40,16 +38,6 @@ type LivePurchaseStats = {
   recommendation: string;
 };
 
-function startOfMonth(offset = 0) {
-  const date = new Date();
-  return new Date(date.getFullYear(), date.getMonth() + offset, 1).toISOString().slice(0, 10);
-}
-
-function endOfMonth(offset = 0) {
-  const date = new Date();
-  return new Date(date.getFullYear(), date.getMonth() + offset + 1, 0).toISOString().slice(0, 10);
-}
-
 function frequencyStatus(current: number, previous: number) {
   if (current === 0 && previous >= 2) return 'بدون مشتريات هذا الشهر';
   if (previous >= 2 && current * 2 <= previous) return 'انخفاض واضح في الشراء';
@@ -70,55 +58,22 @@ function frequencyRecommendation(status: string) {
 }
 
 async function loadLivePurchaseStats(customer: CustomerMetric): Promise<LivePurchaseStats | null> {
-  const clauses = [
-    customer.customer_code ? `customer_code.eq.${customer.customer_code}` : '',
-    customer.customer_phone ? `customer_phone.eq.${customer.customer_phone}` : '',
-    customer.customer_name ? `customer_name.eq.${customer.customer_name}` : '',
-  ]
-    .filter(Boolean)
-    .join(',');
-  if (!clauses) return null;
+  const live = await getCustomerServiceLiveMetrics({
+    customer_id: customer.customer_id || customer.id,
+    customer_code: customer.customer_code,
+    customer_phone: customer.customer_phone || customer.phone,
+    customer_name: customer.customer_name || customer.name,
+    branch: customer.branch,
+  });
+  if (!live || live.invoices_matched_count <= 0) return null;
 
-  const currentStart = startOfMonth(0);
-  const currentEnd = endOfMonth(0);
-  const previousStart = startOfMonth(-1);
-  const previousEnd = endOfMonth(-1);
-
-  const [current, previous, all] = await Promise.all([
-    supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact', head: true })
-      .or(clauses)
-      .gte('invoice_date', currentStart)
-      .lte('invoice_date', currentEnd),
-    supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact', head: true })
-      .or(clauses)
-      .gte('invoice_date', previousStart)
-      .lte('invoice_date', previousEnd),
-    supabase
-      .from('sales_invoices')
-      .select('invoice_date,sale_date,invoice_datetime,date')
-      .or(clauses)
-      .limit(5000),
-  ]);
-
-  if (current.error || previous.error) return null;
-  const currentCount = Number(current.count || 0);
-  const previousCount = Number(previous.count || 0);
-  const months = new Set(
-    (all.data || []).map((row: any) => String(getInvoiceDay(row) || '').slice(0, 7)).filter(Boolean)
-  );
-  const totalRows = (all.data || []).length;
-  const avg = months.size
-    ? Math.round((totalRows / months.size) * 10) / 10
-    : Math.round(((currentCount + previousCount) / 2) * 10) / 10;
+  const currentCount = live.current_month_count;
+  const previousCount = live.previous_month_count;
   const status = frequencyStatus(currentCount, previousCount);
   return {
     currentMonthCount: currentCount,
     previousMonthCount: previousCount,
-    averageMonthlyCount: avg,
+    averageMonthlyCount: Math.round(live.average_monthly_purchase_count * 10) / 10,
     status,
     recommendation: frequencyRecommendation(status),
   };
@@ -189,73 +144,25 @@ async function loadCustomerMetric(input: Props): Promise<CustomerMetric> {
 
 async function enrichMetricFromInvoices(metric: CustomerMetric): Promise<CustomerMetric> {
   try {
-    // Prefer sales_invoices as source. Fetch by customer_code first, then fallback to phones.
-    const code = metric.customer_code || (metric as any).code;
-    const clauses: string[] = [];
-    if (code) clauses.push(`customer_code.eq.${code}`);
-    if (!code && metric.customer_phone) clauses.push(`customer_phone.eq.${metric.customer_phone}`);
-    if (!code && metric.phone) clauses.push(`phone.eq.${metric.phone}`);
-    if (!code && metric.customer_name) clauses.push(`customer_name.eq.${metric.customer_name}`);
+    const live = await getCustomerServiceLiveMetrics({
+      customer_id: metric.customer_id || metric.id,
+      customer_code: metric.customer_code,
+      customer_phone: metric.customer_phone || metric.phone,
+      customer_name: metric.customer_name || metric.name,
+      branch: metric.branch,
+    });
+    if (!live || live.invoices_matched_count <= 0) return metric;
 
-    let rows: Array<Record<string, unknown>> = [];
-    if (clauses.length) {
-      const { data, error } = await supabase
-        .from('sales_invoices')
-        .select('*')
-        .or(clauses.join(','))
-        .limit(10000);
-      if (!error && data) rows = data as Array<Record<string, unknown>>;
-    }
-
-    if (!rows.length) {
-      // fallback to the existing live metrics service
-      const live = await getCustomerServiceLiveMetrics({
-        customer_id: metric.customer_id || metric.id,
-        customer_code: metric.customer_code,
-        customer_phone: metric.customer_phone || metric.phone,
-        customer_name: metric.customer_name || metric.name,
-        branch: metric.branch,
-      });
-      if (!live) return metric;
-      const hasLiveData = (live as any).invoices_matched_count > 0 || (live as any).total_spent > 0;
-      if (!hasLiveData) return metric;
-      return {
-        ...metric,
-        total_spent: (live as any).total_spent || metric.total_spent,
-        total_purchases: (live as any).total_spent || metric.total_purchases,
-        invoices_count: (live as any).invoices_count || metric.invoices_count,
-        avg_invoice: (live as any).avg_invoice || metric.avg_invoice,
-        avg_monthly: (live as any).avg_monthly || metric.avg_monthly,
-        first_purchase: (live as any).first_purchase || metric.first_purchase,
-        last_purchase: (live as any).last_purchase || metric.last_purchase,
-        branch: (live as any).branch_last_purchase || (live as any).branch || metric.branch,
-      };
-    }
-
-    const liveMetrics = buildCustomerLiveMetrics(rows);
-    // consistency check: if live invoices exist but summary total is less than max invoice, prefer live
-    const useLive = liveMetrics.invoicesCount > 0 && (metric.total_purchases || 0) < (liveMetrics.maxInvoiceAmount || 0);
-    if (useLive) {
-      if (import.meta.env.DEV) console.warn('Customer totals inconsistent with live invoices; using live metrics', { customer_code: metric.customer_code });
-      return {
-        ...metric,
-        total_spent: liveMetrics.totalPurchases,
-        total_purchases: liveMetrics.totalPurchases,
-        invoices_count: liveMetrics.invoicesCount,
-        avg_invoice: liveMetrics.avgInvoice,
-        avg_monthly: metric.avg_monthly || 0,
-        first_purchase: liveMetrics.firstPurchase || metric.first_purchase,
-        last_purchase: liveMetrics.lastPurchase || metric.last_purchase,
-        branch: metric.branch || null,
-      };
-    }
-
-    // otherwise only patch counts but keep original totals if they're reasonable
     return {
       ...metric,
-      invoices_count: Math.max(metric.invoices_count || 0, liveMetrics.invoicesCount),
-      first_purchase: liveMetrics.firstPurchase || metric.first_purchase,
-      last_purchase: liveMetrics.lastPurchase || metric.last_purchase,
+      total_spent: live.total_spent,
+      total_purchases: live.total_spent,
+      invoices_count: live.invoices_count,
+      avg_invoice: live.avg_invoice,
+      avg_monthly: live.avg_monthly,
+      first_purchase: live.first_purchase || metric.first_purchase,
+      last_purchase: live.last_purchase || metric.last_purchase,
+      branch: live.branch_last_purchase || live.branch || metric.branch,
     };
   } catch (err) {
     if (import.meta.env.DEV) console.warn('[CustomerQuickDetailsModal] enrichMetricFromInvoices failed', err);
@@ -455,7 +362,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
             {details?.purchaseAnalysis || liveStats ? (
               <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface-2)] p-4">
                 <div className="mb-3 text-sm font-black text-[var(--theme-heading)]">
-                  تحليل تكرار الشراء من الفواتير المباشرة
+                  تحليل تكرار الشراء
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <MetricBox

@@ -13,7 +13,9 @@ export default function MonthlySalesChart({ data }: { data: any[] }) {
     };
   }, []);
 
-  if (!R) return <div className="h-full flex items-center justify-center">جاري تحميل الرسم...</div>;
+  if (!R) {
+    return <div className="dawaa-caption flex h-full items-center justify-center">جاري تحميل الرسم...</div>;
+  }
 
   const { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } = R;
 
@@ -24,21 +26,22 @@ export default function MonthlySalesChart({ data }: { data: any[] }) {
       <div
         dir="rtl"
         style={{
-          background: '#0f172a',
-          border: '1px solid rgba(45,212,191,0.25)',
+          background: 'var(--dawaa-chart-tooltip-bg)',
+          border: '1px solid var(--dawaa-chart-tooltip-border)',
           borderRadius: 16,
-          color: '#fff',
+          color: 'var(--dawaa-chart-tooltip-text)',
           padding: '10px 14px',
+          boxShadow: 'var(--dawaa-theme-shadow-soft)',
         }}
       >
         <div style={{ fontWeight: 900, marginBottom: 6 }}>{label}</div>
-        <div style={{ fontSize: 12, color: '#5eead4' }}>
+        <div style={{ fontSize: 12, color: 'var(--dawaa-chart-series-1)' }}>
           إجمالي المبيعات: {Number(point.sales_total || 0).toLocaleString()} جنيه
         </div>
-        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+        <div style={{ fontSize: 12, color: 'var(--dawaa-chart-tooltip-muted)', marginTop: 2 }}>
           عدد الفواتير: {Number(point.invoices_count || 0).toLocaleString()}
         </div>
-        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+        <div style={{ fontSize: 12, color: 'var(--dawaa-chart-tooltip-muted)', marginTop: 2 }}>
           متوسط الفاتورة: {Number(point.avg_invoice || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} جنيه
         </div>
       </div>
@@ -50,16 +53,34 @@ export default function MonthlySalesChart({ data }: { data: any[] }) {
       <LineChart data={data} margin={{ top: 10, right: 12, left: 12, bottom: 0 }}>
         <defs>
           <linearGradient id="monthSales" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.45} />
-            <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.02} />
+            <stop offset="5%" stopColor="var(--dawaa-chart-series-2)" stopOpacity={0.38} />
+            <stop offset="95%" stopColor="var(--dawaa-chart-series-2)" stopOpacity={0.02} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.14)" />
-        <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}K`} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--dawaa-chart-grid)" />
+        <XAxis
+          dataKey="label"
+          tick={{ fill: 'var(--dawaa-chart-axis)', fontSize: 12 }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          tick={{ fill: 'var(--dawaa-chart-axis)', fontSize: 11 }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(value) => `${Math.round(Number(value) / 1000)}K`}
+        />
         <Tooltip content={<MonthlyTooltip />} />
         <Legend />
-        <Line type="monotone" dataKey="sales_total" stroke="#2dd4bf" strokeWidth={4} dot={{ r: 4 }} name="إجمالي الشهر" />
+        <Line
+          type="monotone"
+          dataKey="sales_total"
+          stroke="var(--dawaa-chart-series-1)"
+          strokeWidth={4}
+          dot={{ r: 4, fill: 'var(--dawaa-chart-series-1)', stroke: 'var(--dawaa-theme-surface)' }}
+          activeDot={{ r: 6, fill: 'var(--dawaa-chart-series-1)', stroke: 'var(--dawaa-theme-surface)' }}
+          name="إجمالي الشهر"
+        />
       </LineChart>
     </ResponsiveContainer>
   );

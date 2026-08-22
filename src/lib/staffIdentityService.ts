@@ -1,9 +1,7 @@
 import { normalizeBranchName } from '@/lib/branch';
 import { normalizeRole } from '@/lib/permissionMatrix';
-import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 import type { StaffSalesSummary } from '@/lib/dashboardSummaryService';
-
-type Row = Record<string, unknown>;
 
 export type StaffIdentityRow = {
   id: string | null;
@@ -46,14 +44,6 @@ export function normalizeStaffName(value: unknown) {
     .toLowerCase();
 }
 
-function read(row: Row, keys: string[], fallback: unknown = null) {
-  for (const key of keys) {
-    const value = row[key];
-    if (value !== undefined && value !== null && value !== '') return value;
-  }
-  return fallback;
-}
-
 function uniqueIdentities(rows: StaffIdentityRow[]) {
   const map = new Map<string, StaffIdentityRow>();
   for (const row of rows.filter(Boolean)) {
@@ -63,63 +53,9 @@ function uniqueIdentities(rows: StaffIdentityRow[]) {
   return [...map.values()];
 }
 
-function staffIdentityFromRow(row: Row, idKeys: string[], nameKeys: string[]): StaffIdentityRow {
-  return {
-    id: text(read(row, idKeys, '')) || null,
-    name: text(read(row, nameKeys, '')) || null,
-    branch: normalizeBranchName(read(row, ['branch', 'branch_name'], null)) || null,
-    role: text(read(row, ['role', 'staff_role', 'job_title'], '')) || null,
-    active:
-      read(row, ['active'], true) !== false &&
-      read(row, ['is_active'], true) !== false &&
-      read(row, ['can_login'], true) !== false,
-  };
-}
-
 export async function fetchStaffIdentityRows(): Promise<StaffIdentityRow[]> {
-  if (!isSupabaseConfigured) return [];
-  const [staffResult, accountResult, aliasResult] = await Promise.all([
-    supabase.from('staff').select('id,name,branch,role,active,is_active').limit(800),
-    // staff_accounts محمي بـ RLS (المدراء بس بيشوفوا كل الحسابات مباشرة) —
-    // بنستخدم دالة آمنة عشان مطابقة الأسماء تفضل كاملة لأي مستخدم.
-    supabase.rpc('get_staff_accounts_directory'),
-    supabase
-      .from('staff_identity_aliases')
-      .select('staff_id,alias_name,active,confidence,priority')
-      .eq('active', true)
-      .limit(2000),
-  ]);
-  if (staffResult.error && accountResult.error) return [];
-
-  const staffRows = staffResult.error
-    ? []
-    : ((staffResult.data ?? []) as Row[])
-        .filter(Boolean)
-        .map((row) => staffIdentityFromRow(row, ['id'], ['name']));
-  const accountRows = accountResult.error
-    ? []
-    : ((accountResult.data ?? []) as Row[])
-        .filter(Boolean)
-        .map((row) => staffIdentityFromRow(row, ['staff_id'], ['staff_name', 'name']));
-
-  // Prefer the canonical staff row when both sources describe the same staff_id,
-  // but keep active account-only identities (for example migrated/legacy doctors).
-  const baseRows = uniqueIdentities([...staffRows, ...accountRows]);
-  const byId = new Map(baseRows.filter((row) => row.id).map((row) => [row.id as string, row]));
-
-  const aliasRows = aliasResult.error
-    ? []
-    : ((aliasResult.data ?? []) as Row[])
-        .filter(Boolean)
-        .map((alias) => {
-          const base = byId.get(text(alias.staff_id));
-          const aliasName = text(alias.alias_name);
-          if (!base || !aliasName || base.active === false) return null;
-          return { ...base, name: aliasName } satisfies StaffIdentityRow;
-        })
-        .filter((row): row is StaffIdentityRow => Boolean(row));
-
-  return [...baseRows, ...aliasRows];
+  const rows = await readStaffDirectory();
+  return rows.map(({ id, name, branch, role, active }) => ({ id, name, branch, role, active }));
 }
 
 export function findStaffIdentityForSalesRow(
@@ -172,7 +108,6 @@ export function groupStaffSalesPerformance(
     const identity = findStaffIdentityForSalesRow(row, staffRows);
     const normalizedName = normalizeStaffName(identity?.name || row.sellerName);
     if (!normalizedName) continue;
-    // The invoice branch is the sales truth. A doctor's home branch must not move a cross-branch sale.
     const branch = normalizeBranchName(row.branch || identity?.branch) || null;
     const key = identity?.id
       ? `id:${identity.id}:branch:${branch || 'all'}`

@@ -46,6 +46,21 @@ jobs:
       - name: Tests
         run: npm run test
 
+      - name: Invoice importer Vitest
+        run: npx vitest run src/lib/__tests__/invoiceImporter.test.ts
+
+      - name: Architecture data-access boundary
+        run: node scripts/check-data-access-boundaries.cjs
+
+      - name: Notification architecture boundary
+        run: node scripts/check-notification-architecture.cjs
+
+      - name: Theme architecture boundary
+        run: node scripts/check-theme-architecture.cjs
+
+      - name: Theme debt audit
+        run: node scripts/audit-theme-debt.cjs
+
       - name: TypeScript
         run: npm run typecheck
 
@@ -83,7 +98,7 @@ jobs:
       - name: Verify checks did not mutate tracked files
         run: |
           if ! git diff --quiet; then
-            echo "Tests, typecheck, or lint changed tracked repository files before build."
+            echo "Tests, typecheck, lint, or architecture checks changed tracked repository files before build."
             git status --short
             git diff --stat
             git diff
@@ -93,17 +108,8 @@ jobs:
       - name: Production build
         run: npm run build
 
-      - name: Verify guarded prebuild patches are stable
-        run: |
-          before="$(git diff -- src/pages/DoctorDashboardStable.tsx src/pages/ExecutiveDashboard2027.tsx src/lib/api/customers.ts)"
-          npm run prebuild
-          after="$(git diff -- src/pages/DoctorDashboardStable.tsx src/pages/ExecutiveDashboard2027.tsx src/lib/api/customers.ts)"
-          if [ "$before" != "$after" ]; then
-            echo "Guarded prebuild patches are not idempotent after the production build."
-            git diff --stat
-            git diff
-            exit 1
-          fi
+      - name: Runtime performance budget
+        run: npm run perf:budget
 
       - name: Capture repository mutation diagnostics
         if: always()
@@ -122,28 +128,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Verify build mutations are restricted to guarded legacy patches
+      - name: Verify production build is source-pure
         run: |
-          changed="$(git diff --name-only | sort)"
-          allowed="$(printf '%s\n' \
-            'src/lib/api/customers.ts' \
-            'src/pages/DoctorDashboardStable.tsx' \
-            'src/pages/ExecutiveDashboard2027.tsx' | sort)"
-
-          if [ -z "$changed" ]; then
-            echo "Build left tracked source clean."
-            exit 0
-          fi
-
-          unexpected="$(comm -23 <(printf '%s\n' "$changed") <(printf '%s\n' "$allowed"))"
-          if [ -n "$unexpected" ]; then
-            echo "Unexpected tracked files were changed by the production build:"
-            printf '%s\n' "$unexpected"
+          if ! git diff --quiet; then
+            echo "Architecture violation: production build changed tracked repository files."
+            echo "Build/prebuild steps must validate canonical source, never patch it."
             git status --short
             git diff --stat
             git diff
             exit 1
           fi
-
-          echo "Only the three audited guarded prebuild patches changed tracked source files."
-          git diff --stat
+          echo "Production build left tracked repository source clean."

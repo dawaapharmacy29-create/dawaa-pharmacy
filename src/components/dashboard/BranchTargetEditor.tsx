@@ -73,10 +73,14 @@ export default function BranchTargetEditor({ compact = false }: { compact?: bool
     void load();
   }, [load]);
 
-  const currentRows = useMemo(() => BRANCHES.map((branch) => {
-    const matches = rows.filter((item) => rowBranch(item) === branch);
-    return { branch, row: newestRow(matches), matches };
-  }), [rows]);
+  const currentRows = useMemo(
+    () =>
+      BRANCHES.map((branch) => {
+        const matches = rows.filter((item) => rowBranch(item) === branch);
+        return { branch, row: newestRow(matches), matches };
+      }),
+    [rows]
+  );
 
   const save = async (branch: string, matchingRows: TargetRow[]) => {
     const targetAmount = amount(drafts[branch]);
@@ -125,19 +129,24 @@ export default function BranchTargetEditor({ compact = false }: { compact?: bool
         return;
       }
 
-      const verifiedRows = ((verification.data || []) as TargetRow[])
-        .filter((item) => rowBranch(item) === branch);
+      const verifiedRows = ((verification.data || []) as TargetRow[]).filter(
+        (item) => rowBranch(item) === branch
+      );
       const exactMatch = verifiedRows.find((item) => rowAmount(item) === targetAmount);
 
       if (!exactMatch) {
         const readValues = [...new Set(verifiedRows.map(rowAmount))].filter((value) => value > 0);
-        toast.error(`لم يتم تثبيت القيمة الجديدة. القيم المقروءة حاليًا: ${readValues.length ? readValues.map((value) => value.toLocaleString('ar-EG')).join('، ') : 'لا توجد قيمة'}`);
+        toast.error(
+          `لم يتم تثبيت القيمة الجديدة. القيم المقروءة حاليًا: ${readValues.length ? readValues.map((value) => value.toLocaleString('ar-EG')).join('، ') : 'لا توجد قيمة'}`
+        );
         return;
       }
 
       clearDashboardCache();
       localStorage.setItem('dawaa_branch_target_refresh', String(Date.now()));
-      window.dispatchEvent(new CustomEvent('dawaa:branch-target-updated', { detail: { branch, targetAmount } }));
+      window.dispatchEvent(
+        new CustomEvent('dawaa:branch-target-updated', { detail: { branch, targetAmount } })
+      );
 
       setRows((current) => {
         const others = current.filter((item) => rowBranch(item) !== branch);
@@ -153,30 +162,68 @@ export default function BranchTargetEditor({ compact = false }: { compact?: bool
   if (!allowed) return null;
 
   return (
-    <section id="branch-target-editor" dir="rtl" className={`rounded-3xl border border-teal-300/25 bg-slate-900/85 text-white shadow-lg ${compact ? 'p-4' : 'p-5'}`}>
+    <section
+      id="branch-target-editor"
+      dir="rtl"
+      className={`dawaa-card dawaa-card--raised ${compact ? 'p-4' : 'p-5'}`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2"><Target className="h-5 w-5 text-teal-300" /><h2 className="text-lg font-black">تعديل تارجت الفروع</h2></div>
-          <p className="mt-1 text-xs font-bold text-slate-400">دورة {formatCycleDate(cycle.start)} إلى {formatCycleDate(cycle.end)} — يبدأ التارجت يوم 26 من كل شهر.</p>
+          <div className="flex items-center gap-2">
+            <span className="dawaa-status-info flex h-9 w-9 items-center justify-center rounded-xl border">
+              <Target className="h-5 w-5" />
+            </span>
+            <h2 className="dawaa-title text-lg">تعديل تارجت الفروع</h2>
+          </div>
+          <p className="dawaa-caption mt-2 text-xs font-bold">
+            دورة {formatCycleDate(cycle.start)} إلى {formatCycleDate(cycle.end)} — يبدأ التارجت يوم 26 من كل شهر.
+          </p>
         </div>
-        <button type="button" onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-2 rounded-xl border border-teal-300/25 bg-teal-400/10 px-3 py-2 text-xs font-black text-teal-100 disabled:opacity-50">
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="dawaa-button dawaa-button--secondary disabled:opacity-50"
+        >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> تحديث
         </button>
       </div>
+
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         {currentRows.map(({ branch, row, matches }) => (
-          <div key={branch} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+          <div key={branch} className="dawaa-card dawaa-card--soft p-4">
             <div className="flex items-center justify-between gap-2">
-              <div className="font-black">{branch}</div>
-              {matches.length > 1 && <span className="rounded-lg bg-amber-500/15 px-2 py-1 text-[10px] font-black text-amber-200">تم توحيد {matches.length} سجلات</span>}
+              <div className="dawaa-title font-black">{branch}</div>
+              {matches.length > 1 ? (
+                <span className="dawaa-badge dawaa-badge--warning">تم توحيد {matches.length} سجلات</span>
+              ) : null}
             </div>
+
             <div className="mt-3 flex gap-2">
-              <input type="number" min="1" step="1000" value={drafts[branch] ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [branch]: event.target.value }))} placeholder="اكتب تارجت الدورة بالجنيه" className="min-w-0 flex-1 rounded-xl border border-slate-600 bg-slate-950/70 px-3 py-2 font-bold text-white outline-none focus:border-teal-400" />
-              <button type="button" onClick={() => void save(branch, matches)} disabled={saving === branch} className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2 font-black text-slate-950 disabled:opacity-50">
+              <input
+                type="number"
+                min="1"
+                step="1000"
+                value={drafts[branch] ?? ''}
+                onChange={(event) =>
+                  setDrafts((current) => ({ ...current, [branch]: event.target.value }))
+                }
+                placeholder="اكتب تارجت الدورة بالجنيه"
+                className="dawaa-input min-w-0 flex-1 font-bold"
+              />
+              <button
+                type="button"
+                onClick={() => void save(branch, matches)}
+                disabled={saving === branch}
+                className="dawaa-button dawaa-button--primary disabled:opacity-50"
+              >
                 <Save className="h-4 w-4" /> {saving === branch ? 'حفظ...' : 'حفظ'}
               </button>
             </div>
-            <p className="mt-2 text-xs font-bold text-slate-400">القيمة المحفوظة: {row ? `${rowAmount(row).toLocaleString('ar-EG')} جنيه` : 'لم يتم تحديدها'}</p>
+
+            <p className="dawaa-caption mt-2 text-xs font-bold">
+              القيمة المحفوظة: {row ? `${rowAmount(row).toLocaleString('ar-EG')} جنيه` : 'لم يتم تحديدها'}
+            </p>
           </div>
         ))}
       </div>

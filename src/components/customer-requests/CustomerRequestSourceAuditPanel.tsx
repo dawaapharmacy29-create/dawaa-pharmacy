@@ -48,25 +48,25 @@ export default function CustomerRequestSourceAuditPanel({ branch }: { branch: st
   }, [audit]);
 
   if (loading && !audit) {
-    return <div className="rounded-2xl border border-cyan-400/15 bg-cyan-500/[0.04] p-4 text-sm font-bold text-cyan-100">جاري فحص بيانات Base44 مقابل الإدارة...</div>;
+    return <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-primary)]/[0.04] p-4 text-sm font-bold text-[var(--dawaa-theme-primary)]">جاري فحص بيانات Base44 مقابل الإدارة...</div>;
   }
   if (!audit) return null;
   const s = audit.summary;
   const exact = exactMismatch === 0;
 
   return (
-    <section className={`rounded-3xl border p-4 ${exact ? 'border-emerald-400/20 bg-emerald-500/[0.045]' : 'border-amber-400/25 bg-amber-500/[0.05]'}`}>
+    <section className={`rounded-3xl border p-4 ${exact ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]/[0.045]' : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.05]'}`}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="flex items-center gap-2 font-black text-white">
-            {exact ? <ShieldCheck size={20} className="text-emerald-300" /> : <AlertTriangle size={20} className="text-amber-300" />}
+          <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]">
+            {exact ? <ShieldCheck size={20} className="text-[var(--dawaa-status-success-text)]" /> : <AlertTriangle size={20} className="text-[var(--dawaa-status-warning-text)]" />}
             تدقيق Base44 ↔ تطبيق الإدارة
           </div>
-          <p className="mt-1 text-xs leading-6 text-slate-400">
+          <p className="mt-1 text-xs leading-6 text-[var(--dawaa-theme-muted)]">
             مقارنة مباشرة بين البيانات الخام المحفوظة من CustomerOrder والحقول التشغيلية بعد التطبيع، بدون تغيير حالة الطلب أو الرجوع بمراحله للخلف.
           </p>
         </div>
-        <button type="button" onClick={() => void load()} disabled={loading} className="h-9 rounded-xl border border-slate-700 px-3 text-xs font-black text-slate-300 hover:bg-slate-900">
+        <button type="button" onClick={() => void load()} disabled={loading} className="h-9 rounded-xl border border-[var(--dawaa-theme-border)] px-3 text-xs font-black text-[var(--dawaa-theme-text)] hover:bg-[var(--dawaa-theme-surface)]">
           <span className="inline-flex items-center gap-2"><RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> إعادة الفحص</span>
         </button>
       </div>
@@ -92,24 +92,24 @@ export default function CustomerRequestSourceAuditPanel({ branch }: { branch: st
       </div>
 
       {s.local_workflow_ahead > 0 && (
-        <div className="mt-3 rounded-xl border border-cyan-400/15 bg-cyan-500/[0.05] px-3 py-2 text-xs font-bold text-cyan-100">
+        <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-primary)]/[0.05] px-3 py-2 text-xs font-bold text-[var(--dawaa-theme-primary)]">
           {s.local_workflow_ahead.toLocaleString('ar-EG')} طلب حالته داخل الإدارة متقدمة عن الحالة القديمة القادمة من Base44؛ تم الاحتفاظ بالحالة الأحدث عمدًا لحماية سير العمل.
         </div>
       )}
 
       {!!audit.unresolved.length && (
-        <div className="mt-4 border-t border-slate-800 pt-3">
-          <div className="mb-2 text-xs font-black text-slate-300">أحدث سجلات تحتاج مراجعة بيانات</div>
+        <div className="mt-4 border-t border-[var(--dawaa-theme-border)] pt-3">
+          <div className="mb-2 text-xs font-black text-[var(--dawaa-theme-text)]">أحدث سجلات تحتاج مراجعة بيانات</div>
           <div className="grid gap-2 lg:grid-cols-2">
             {audit.unresolved.slice(0, 10).map((row) => (
-              <div key={row.id} className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
+              <div key={row.id} className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-black text-white">{row.medicine_name || 'صنف غير محدد'}</div>
-                  <div className="text-[10px] font-black text-cyan-200">{row.order_number || 'بدون رقم طلب'}</div>
+                  <div className="font-black text-[var(--dawaa-theme-heading)]">{row.medicine_name || 'صنف غير محدد'}</div>
+                  <div className="text-[10px] font-black text-[var(--dawaa-theme-primary)]">{row.order_number || 'بدون رقم طلب'}</div>
                 </div>
-                <div className="mt-1 text-xs text-slate-400">{row.customer_name || 'عميل غير محدد'} · {row.customer_code || 'بدون كود'} · {row.branch || 'بدون فرع'}</div>
+                <div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{row.customer_name || 'عميل غير محدد'} · {row.customer_code || 'بدون كود'} · {row.branch || 'بدون فرع'}</div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(row.issues || []).map((issue) => <span key={issue} className="rounded-lg border border-amber-400/15 bg-amber-500/10 px-2 py-1 text-[10px] font-black text-amber-100">{issue}</span>)}
+                  {(row.issues || []).map((issue) => <span key={issue} className="rounded-lg border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-1 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">{issue}</span>)}
                 </div>
               </div>
             ))}
@@ -122,15 +122,15 @@ export default function CustomerRequestSourceAuditPanel({ branch }: { branch: st
 
 function Metric({ icon, label, value, valueText, tone }: { icon: React.ReactNode; label: string; value?: number; valueText?: string; tone: 'cyan' | 'green' | 'amber' | 'red' | 'slate' }) {
   const tones = {
-    cyan: 'border-cyan-400/15 bg-cyan-500/[0.05] text-cyan-100',
-    green: 'border-emerald-400/15 bg-emerald-500/[0.05] text-emerald-100',
-    amber: 'border-amber-400/15 bg-amber-500/[0.05] text-amber-100',
-    red: 'border-red-400/15 bg-red-500/[0.05] text-red-100',
-    slate: 'border-slate-700 bg-slate-950/35 text-slate-200',
+    cyan: 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-primary)]/[0.05] text-[var(--dawaa-theme-primary)]',
+    green: 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]/[0.05] text-[var(--dawaa-status-success-text)]',
+    amber: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.05] text-[var(--dawaa-status-warning-text)]',
+    red: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]/[0.05] text-[var(--dawaa-status-danger-text)]',
+    slate: 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] text-[var(--dawaa-theme-heading)]',
   };
   return <div className={`rounded-xl border p-3 ${tones[tone]}`}><div className="flex items-center gap-1.5 text-[10px] font-black opacity-80">{icon}{label}</div><div className="mt-1 text-lg font-black">{valueText ?? (value || 0).toLocaleString('ar-EG')}</div></div>;
 }
 
 function Detail({ label, value }: { label: string; value: number }) {
-  return <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/30 px-3 py-2 text-xs"><span className="font-bold text-slate-400">{label}</span><strong className={value ? 'text-amber-200' : 'text-emerald-300'}>{value.toLocaleString('ar-EG')}</strong></div>;
+  return <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-xs"><span className="font-bold text-[var(--dawaa-theme-muted)]">{label}</span><strong className={value ? 'text-[var(--dawaa-status-warning-text)]' : 'text-[var(--dawaa-status-success-text)]'}>{value.toLocaleString('ar-EG')}</strong></div>;
 }
