@@ -1,6 +1,6 @@
 import { normalizeBranchName } from '@/lib/branch';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import type { StaffSalesSummary } from '@/lib/dashboardSummaryService';
+import type { SalesDailySummary, StaffSalesSummary } from '@/lib/dashboardSummaryService';
 import {
   fetchStaffIdentityRows,
   groupStaffSalesPerformance,
@@ -31,6 +31,8 @@ export type SalesAnalyticsSummary = {
     avgInvoice: number;
     uniqueCustomers: number;
   }>;
+  dailySales: SalesDailySummary[];
+  staffSalesSummary: StaffSalesSummary[];
   last5DaysByBranch: Array<{
     date: string;
     branch: string;
@@ -80,6 +82,7 @@ export type SalesAnalyticsSummary = {
 type RpcPayload = {
   kpis?: Record<string, unknown>;
   dailyTrend?: Array<Record<string, unknown>>;
+  dailySales?: Array<Record<string, unknown>>;
   last5DaysByBranch?: Array<Record<string, unknown>>;
   branchRows?: Array<Record<string, unknown>>;
   staffSales?: Array<Record<string, unknown>>;
@@ -138,6 +141,19 @@ function normalizeRpcPayload(data: unknown, fallbackDate: string) {
     }))
     .filter((row) => row.date);
 
+  const dailySales = (payload.dailySales || [])
+    .map((row) => ({
+      saleDate: text(row.saleDate),
+      branch: text(row.branch) || null,
+      shift: text(row.shift) || null,
+      netTotal: toNumber(row.netTotal),
+      invoicesCount: toNumber(row.invoicesCount),
+      avgInvoice: toNumber(row.avgInvoice),
+      uniqueCustomers: toNumber(row.uniqueCustomers),
+    }))
+    .filter((row) => row.saleDate)
+    .sort((a, b) => a.saleDate.localeCompare(b.saleDate) || String(a.branch || '').localeCompare(String(b.branch || ''))) satisfies SalesDailySummary[];
+
   const branchRows = (payload.branchRows || [])
     .map((row) => ({
       branch: text(row.branch) || 'غير محدد',
@@ -178,7 +194,7 @@ function normalizeRpcPayload(data: unknown, fallbackDate: string) {
     invoicesWithoutBranch: toNumber(dataHealthRaw.invoicesWithoutBranch),
   };
 
-  return { kpis, dailyTrend, branchRows, last5DaysByBranch, staffSales, dataHealth };
+  return { kpis, dailyTrend, dailySales, branchRows, last5DaysByBranch, staffSales, dataHealth };
 }
 
 export async function loadSalesAnalyticsSummary(
@@ -262,6 +278,8 @@ export async function loadSalesAnalyticsSummary(
   const result: SalesAnalyticsSummary = {
     kpis: sales.kpis,
     dailyTrend: sales.dailyTrend,
+    dailySales: sales.dailySales,
+    staffSalesSummary: sales.staffSales,
     last5DaysByBranch: sales.last5DaysByBranch,
     branchRows: sales.branchRows,
     doctorRows,
@@ -278,7 +296,7 @@ export async function loadSalesAnalyticsSummary(
     sourceHealth: [{
       source: SALES_ANALYTICS_SOURCE_ID,
       status: sales.kpis.invoicesCount > 0 ? 'ready' : 'empty',
-      message: `${SALES_ANALYTICS_PHYSICAL_SOURCE} عبر get_sales_analytics_summary_v1`,
+      message: null,
     }],
     errorsBySection,
   };
