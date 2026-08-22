@@ -13,6 +13,7 @@ const CLEAN_UI_FILES = new Set([
   'src/components/evaluations/ManagerLiveIncentiveCard.tsx',
   'src/components/evaluations/BranchesManagerExceptionsPanel.tsx',
   'src/components/dashboard/MonthlySalesChart.tsx',
+  'src/components/dashboard/DailySalesChart.tsx',
 ]);
 
 const textExts = new Set(['.css', '.ts', '.tsx', '.js', '.jsx']);
