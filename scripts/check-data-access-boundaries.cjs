@@ -3,12 +3,9 @@ const path = require('path');
 
 const ROOT = path.join(process.cwd(), 'src');
 
-// Exact debt ratchet: these files may keep only the currently known number of
-// direct sales_invoices readers. Any increase or decrease must update this map
-// in the same PR, so legacy debt can only move intentionally toward zero.
-const LEGACY_DIRECT_INVOICE_READER_BUDGETS = new Map([
-  ['src/lib/api/customers.ts', 4],
-]);
+// Exact debt ratchet: legacy direct sales_invoices readers are now fully retired.
+// Any new direct reader outside an approved boundary is a hard architecture failure.
+const LEGACY_DIRECT_INVOICE_READER_BUDGETS = new Map([]);
 
 const APPROVED_INVOICE_BOUNDARIES = new Set([
   'src/lib/invoiceImporter.ts',
