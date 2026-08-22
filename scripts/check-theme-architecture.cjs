@@ -112,7 +112,8 @@ if (!fs.existsSync(palettesPath)) {
   }
   for (const semanticVar of [
     '--dawaa-theme-bg', '--dawaa-theme-surface', '--dawaa-theme-surface-2',
-    '--dawaa-theme-surface-raised', '--dawaa-theme-text', '--dawaa-theme-heading',
+    '--dawaa-theme-surface-raised', '--dawaa-theme-soft', '--dawaa-theme-accent-soft',
+    '--dawaa-theme-accent-border', '--dawaa-theme-text', '--dawaa-theme-heading',
     '--dawaa-theme-muted', '--dawaa-theme-primary', '--dawaa-theme-border',
     '--dawaa-theme-sidebar', '--dawaa-status-success-bg', '--dawaa-status-warning-bg',
     '--dawaa-status-danger-bg', '--dawaa-status-info-bg',
@@ -149,4 +150,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log(`Theme architecture OK: one data-theme runtime, canonical palette and chart ownership, palette-neutral foundation/base/global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
+console.log(`Theme architecture OK: one data-theme runtime, canonical palette/chart/accent ownership, palette-neutral foundation/base/global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
