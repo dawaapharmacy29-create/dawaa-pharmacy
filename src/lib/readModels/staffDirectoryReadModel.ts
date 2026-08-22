@@ -13,6 +13,7 @@ export type StaffDirectoryIdentity = {
 };
 
 type Row = Record<string, unknown>;
+let inFlightDirectoryRead: Promise<StaffDirectoryIdentity[]> | null = null;
 
 function text(value: unknown) {
   return String(value ?? '').trim();
@@ -54,7 +55,6 @@ function uniqueBaseIdentities(rows: StaffDirectoryIdentity[]) {
   for (const row of rows) {
     if (row.id) {
       const existing = byId.get(row.id);
-      // Canonical staff rows outrank account-directory fallbacks.
       if (!existing || (existing.source !== 'staff' && row.source === 'staff')) byId.set(row.id, row);
       continue;
     }
@@ -65,19 +65,7 @@ function uniqueBaseIdentities(rows: StaffDirectoryIdentity[]) {
   return [...byId.values(), ...withoutId.values()];
 }
 
-/**
- * Canonical staff-directory read model.
- *
- * This boundary owns the knowledge that staff identity currently spans:
- * - staff (canonical employee record)
- * - get_staff_accounts_directory RPC (login/account directory)
- * - staff_identity_aliases (legacy/import aliases)
- *
- * Consumers should not independently merge these three sources.
- */
-export async function readStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
-  if (!isSupabaseConfigured) return [];
-
+async function loadStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
   const [staffResult, accountResult, aliasResult] = await Promise.all([
     supabase.from('staff').select('id,name,username,branch,role,status,active,is_active').limit(800),
     supabase.rpc('get_staff_accounts_directory'),
@@ -116,4 +104,24 @@ export async function readStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
       });
 
   return [...baseRows, ...aliases];
+}
+
+/**
+ * Canonical staff-directory read model.
+ *
+ * This boundary owns the knowledge that staff identity currently spans staff,
+ * the safe account directory RPC, and legacy/import aliases.
+ * Concurrent consumers share one in-flight load so a complex page cannot issue
+ * the same three directory requests repeatedly during a single render wave.
+ * No completed-result cache is retained, preserving fresh RLS/session semantics.
+ */
+export async function readStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
+  if (!isSupabaseConfigured) return [];
+  if (inFlightDirectoryRead) return inFlightDirectoryRead;
+
+  const load = loadStaffDirectory().finally(() => {
+    if (inFlightDirectoryRead === load) inFlightDirectoryRead = null;
+  });
+  inFlightDirectoryRead = load;
+  return load;
 }
