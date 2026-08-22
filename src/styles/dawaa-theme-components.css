@@ -245,6 +245,114 @@
 
 @keyframes dawaa-spin { to { transform: rotate(360deg); } }
 
+/*
+ * Current-app compatibility aliases
+ * ---------------------------------
+ * These names are used by the active 2027 pages today. They intentionally map
+ * to semantic tokens here (the last CSS layer) so those pages stop depending
+ * on the old fixed light palette in index.css. New code should prefer the
+ * canonical component names above; these aliases are removed as each consumer
+ * migrates.
+ */
+.dawaa-hero,
+.dawaa-panel {
+  border: 1px solid var(--dawaa-theme-border) !important;
+  background: var(--dawaa-theme-surface) !important;
+  color: var(--dawaa-theme-text) !important;
+  box-shadow: var(--dawaa-theme-shadow-soft), inset 0 1px 0 var(--dawaa-theme-highlight) !important;
+}
+
+.dawaa-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dawaa-space-4);
+  border-radius: var(--dawaa-radius-2xl);
+  padding: var(--dawaa-space-5);
+}
+
+.dawaa-panel {
+  border-radius: var(--dawaa-radius-xl);
+  padding: var(--dawaa-card-padding);
+}
+
+.dawaa-brand-chip,
+.dawaa-source-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--dawaa-radius-pill);
+  border: 1px solid var(--dawaa-theme-border-strong) !important;
+  background: var(--dawaa-theme-soft) !important;
+  color: var(--dawaa-theme-primary-strong) !important;
+  padding: 0.35rem 0.7rem;
+  font-size: var(--dawaa-font-xs);
+  font-weight: 800;
+}
+
+.dawaa-source-badge {
+  border-color: var(--dawaa-theme-border) !important;
+  background: var(--dawaa-theme-surface-2) !important;
+  color: var(--dawaa-theme-muted) !important;
+}
+
+.dawaa-input {
+  background: var(--dawaa-theme-input) !important;
+  border-color: var(--dawaa-theme-border) !important;
+  color: var(--dawaa-theme-heading) !important;
+  box-shadow: none !important;
+}
+.dawaa-input:hover { border-color: var(--dawaa-theme-border-strong) !important; }
+.dawaa-input:focus,
+.dawaa-input:focus-visible {
+  outline: none !important;
+  border-color: var(--dawaa-theme-primary) !important;
+  box-shadow: 0 0 0 3px var(--dawaa-theme-focus) !important;
+}
+
+.dawaa-button-primary {
+  display: inline-flex;
+  min-height: var(--dawaa-control-md);
+  align-items: center;
+  justify-content: center;
+  gap: var(--dawaa-space-2);
+  border-radius: var(--dawaa-radius-md);
+  border: 1px solid transparent !important;
+  background: var(--dawaa-theme-primary) !important;
+  color: var(--dawaa-theme-primary-text) !important;
+  padding-inline: var(--dawaa-space-4);
+  font-weight: 800;
+  box-shadow: var(--dawaa-theme-shadow-soft) !important;
+}
+.dawaa-button-primary:hover { background: var(--dawaa-theme-primary-strong) !important; }
+
+.dawaa-hero h1,
+.dawaa-hero h2,
+.dawaa-hero h3,
+.dawaa-panel h1,
+.dawaa-panel h2,
+.dawaa-panel h3,
+.dawaa-hero .text-slate-950,
+.dawaa-hero .text-slate-900,
+.dawaa-panel .text-slate-950,
+.dawaa-panel .text-slate-900 {
+  color: var(--dawaa-theme-heading) !important;
+}
+
+.dawaa-hero .text-slate-700,
+.dawaa-hero .text-slate-600,
+.dawaa-hero .text-slate-500,
+.dawaa-hero .text-slate-400,
+.dawaa-panel .text-slate-700,
+.dawaa-panel .text-slate-600,
+.dawaa-panel .text-slate-500,
+.dawaa-panel .text-slate-400 {
+  color: var(--dawaa-theme-muted) !important;
+}
+
+@media (max-width: 900px) {
+  .dawaa-hero { align-items: stretch; flex-direction: column; }
+}
+
 @media (max-width: 768px) {
   .dawaa-page-shell { padding: var(--dawaa-space-3); }
   .dawaa-card { --dawaa-card-padding: var(--dawaa-space-4); }
