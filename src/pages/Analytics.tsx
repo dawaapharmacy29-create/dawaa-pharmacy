@@ -215,24 +215,37 @@ export default function Analytics() {
 
   return (
     <div className="space-y-5" dir="rtl">
-      <section className="rounded-3xl border border-cyan-300/20 bg-slate-900/80 p-5 text-white shadow-sm">
+      <section className="dawaa-card dawaa-card--raised">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div><h1 className="text-2xl font-black">التحليلات والمبيعات</h1><p className="mt-1 text-sm font-bold text-slate-300">قراءة تحليلية موحدة من مصدر المبيعات المعتمد، بنفس مسار الداشبورد.</p></div>
-          <div className="flex items-center gap-3"><span className="text-xs text-slate-400">آخر تحديث: {lastUpdated || '—'}</span><button onClick={() => void load(true)} disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> تحديث</button></div>
+          <div>
+            <h1 className="dawaa-title text-2xl">التحليلات والمبيعات</h1>
+            <p className="dawaa-caption mt-1 font-bold">قراءة تحليلية موحدة من مصدر المبيعات المعتمد، بنفس مسار الداشبورد.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="dawaa-caption text-xs">آخر تحديث: {lastUpdated || '—'}</span>
+            <button onClick={() => void load(true)} disabled={loading} className="dawaa-button dawaa-button--primary disabled:opacity-50">
+              <RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> تحديث
+            </button>
+          </div>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-4 text-white">
+      <section className="dawaa-card">
         <div className="grid gap-3 md:grid-cols-5">
-          <Filter label="نوع الفترة"><select className="input-dark" value={periodType} onChange={(event) => applyPeriod(event.target.value as PeriodType)}><option value="cycle">الدورة الحالية</option><option value="previous_cycle">الدورة السابقة</option><option value="month">هذا الشهر</option><option value="last_30_days">آخر 30 يوم</option><option value="custom">مخصص</option></select></Filter>
-          <Filter label="بداية الفترة"><input className="input-dark" type="date" value={start} onChange={(event) => { setStart(event.target.value); setPeriodType('custom'); }} /></Filter>
-          <Filter label="نهاية الفترة"><input className="input-dark" type="date" value={end} onChange={(event) => { setEnd(event.target.value); setPeriodType('custom'); }} /></Filter>
-          <Filter label="الفرع"><select className="input-dark" value={branch} disabled={!canAll} onChange={(event) => setBranch(validBranch(event.target.value))}><option value={ALL}>{ALL}</option>{BRANCHES.map((item) => <option key={item} value={item}>{item}</option>)}</select></Filter>
-          <Filter label="الدكتور"><select className="input-dark" value={doctor} onChange={(event) => setDoctor(event.target.value)}><option value={ALL}>{ALL}</option>{doctors.map((item) => <option key={item} value={item}>{item}</option>)}</select></Filter>
+          <Filter label="نوع الفترة"><select className="dawaa-select" value={periodType} onChange={(event) => applyPeriod(event.target.value as PeriodType)}><option value="cycle">الدورة الحالية</option><option value="previous_cycle">الدورة السابقة</option><option value="month">هذا الشهر</option><option value="last_30_days">آخر 30 يوم</option><option value="custom">مخصص</option></select></Filter>
+          <Filter label="بداية الفترة"><input className="dawaa-input" type="date" value={start} onChange={(event) => { setStart(event.target.value); setPeriodType('custom'); }} /></Filter>
+          <Filter label="نهاية الفترة"><input className="dawaa-input" type="date" value={end} onChange={(event) => { setEnd(event.target.value); setPeriodType('custom'); }} /></Filter>
+          <Filter label="الفرع"><select className="dawaa-select" value={branch} disabled={!canAll} onChange={(event) => setBranch(validBranch(event.target.value))}><option value={ALL}>{ALL}</option>{BRANCHES.map((item) => <option key={item} value={item}>{item}</option>)}</select></Filter>
+          <Filter label="الدكتور"><select className="dawaa-select" value={doctor} onChange={(event) => setDoctor(event.target.value)}><option value={ALL}>{ALL}</option>{doctors.map((item) => <option key={item} value={item}>{item}</option>)}</select></Filter>
         </div>
       </section>
 
-      {errors.length > 0 ? <section className="rounded-2xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100"><div className="flex gap-2"><AlertTriangle size={18} /><div><div>ملاحظات التحميل:</div>{errors.map((item, index) => <div key={`${item}-${index}`} className="mt-1 text-xs text-amber-200">• {item}</div>)}</div></div></section> : null}
+      {errors.length > 0 ? (
+        <section className="dawaa-alert dawaa-alert--warning text-sm font-bold">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <div><div>ملاحظات التحميل:</div>{errors.map((item, index) => <div key={`${item}-${index}`} className="mt-1 text-xs">• {item}</div>)}</div>
+        </section>
+      ) : null}
 
       <section className="grid gap-3 md:grid-cols-4">
         <Kpi icon={TrendingUp} title="صافي المبيعات" value={money(kpis.sales)} />
@@ -242,11 +255,54 @@ export default function Analytics() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <Panel title="تطور المبيعات اليومي"><div className="space-y-2">{dailyTrend.slice(-31).map((row) => { const max = Math.max(1, ...dailyTrend.map((item) => item.sales)); return <div key={row.date} className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><div className="flex justify-between gap-3 text-sm font-bold"><span>{row.date}</span><span>{money(row.sales)} · {count(row.invoiceIds.size)} فاتورة</span></div><div className="mt-2 h-2 rounded-full bg-slate-800"><div className="h-2 rounded-full bg-teal-400" style={{ width: `${Math.max(2, (row.sales / max) * 100)}%` }} /></div></div>; })}{!dailyTrend.length ? <Empty text={loading ? 'جارٍ تحميل الفواتير...' : 'لا توجد بيانات في الفترة المحددة'} /> : null}</div></Panel>
-        <Panel title="أداء الفروع"><div className="space-y-3">{branchRows.map((row) => <div key={row.branch} className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><div className="flex items-center justify-between"><span className="font-black">{row.branch}</span><span className="font-black text-teal-300">{money(row.sales)}</span></div><div className="mt-2 text-xs text-slate-400">{count(row.invoiceIds.size)} فاتورة · متوسط {money(row.invoiceIds.size ? row.sales / row.invoiceIds.size : 0)}</div></div>)}{!branchRows.length ? <Empty text="لا توجد بيانات فروع" /> : null}</div></Panel>
+        <Panel title="تطور المبيعات اليومي">
+          <div className="space-y-2">
+            {dailyTrend.slice(-31).map((row) => {
+              const max = Math.max(1, ...dailyTrend.map((item) => item.sales));
+              return (
+                <div key={row.date} className="dawaa-card dawaa-card--soft p-3 shadow-none">
+                  <div className="flex justify-between gap-3 text-sm font-bold">
+                    <span>{row.date}</span>
+                    <span>{money(row.sales)} · {count(row.invoiceIds.size)} فاتورة</span>
+                  </div>
+                  <div className="progress-bar mt-2"><div className="progress-fill" style={{ width: `${Math.max(2, (row.sales / max) * 100)}%` }} /></div>
+                </div>
+              );
+            })}
+            {!dailyTrend.length ? <Empty text={loading ? 'جارٍ تحميل الفواتير...' : 'لا توجد بيانات في الفترة المحددة'} /> : null}
+          </div>
+        </Panel>
+
+        <Panel title="أداء الفروع">
+          <div className="space-y-3">
+            {branchRows.map((row) => (
+              <div key={row.branch} className="dawaa-card dawaa-card--soft p-4 shadow-none">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="dawaa-title text-sm">{row.branch}</span>
+                  <span className="font-black">{money(row.sales)}</span>
+                </div>
+                <div className="dawaa-caption mt-2 text-xs">{count(row.invoiceIds.size)} فاتورة · متوسط {money(row.invoiceIds.size ? row.sales / row.invoiceIds.size : 0)}</div>
+              </div>
+            ))}
+            {!branchRows.length ? <Empty text="لا توجد بيانات فروع" /> : null}
+          </div>
+        </Panel>
       </section>
 
-      <Panel title="أفضل الدكاترة"><div className="space-y-2">{doctorRows.slice(0, 20).map((row, index) => <div key={`${row.doctor}-${row.branch}`} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] p-3"><div><div className="font-black">{index + 1}. {row.doctor}</div><div className="mt-1 text-xs text-slate-400">{row.branch} · {count(row.invoiceIds.size)} فاتورة · {count(row.customers.size)} عميل</div></div><div className="font-black text-teal-300">{money(row.sales)}</div></div>)}{!doctorRows.length ? <Empty text="لا توجد بيانات دكاترة" /> : null}</div></Panel>
+      <Panel title="أفضل الدكاترة">
+        <div className="space-y-2">
+          {doctorRows.slice(0, 20).map((row, index) => (
+            <div key={`${row.doctor}-${row.branch}`} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-3 p-3 shadow-none">
+              <div>
+                <div className="dawaa-title text-sm">{index + 1}. {row.doctor}</div>
+                <div className="dawaa-caption mt-1 text-xs">{row.branch} · {count(row.invoiceIds.size)} فاتورة · {count(row.customers.size)} عميل</div>
+              </div>
+              <div className="font-black">{money(row.sales)}</div>
+            </div>
+          ))}
+          {!doctorRows.length ? <Empty text="لا توجد بيانات دكاترة" /> : null}
+        </div>
+      </Panel>
 
       <BranchTargetEditor />
     </div>
@@ -254,17 +310,25 @@ export default function Analytics() {
 }
 
 function Filter({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="space-y-1 text-xs font-bold text-slate-300"><span>{label}</span>{children}</label>;
+  return <label className="dawaa-caption space-y-1 text-xs font-bold"><span>{label}</span>{children}</label>;
 }
 
 function Kpi({ icon: Icon, title, value }: { icon: typeof TrendingUp; title: string; value: string }) {
-  return <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-4 text-white"><div className="flex items-center justify-between"><div className="text-sm font-bold text-slate-400">{title}</div><Icon size={20} className="text-teal-300" /></div><div className="mt-3 text-2xl font-black">{value}</div></div>;
+  return (
+    <div className="dawaa-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="dawaa-caption text-sm font-bold">{title}</div>
+        <span className="dawaa-icon-tile h-10 w-10"><Icon size={20} /></span>
+      </div>
+      <div className="dawaa-title mt-3 text-2xl">{value}</div>
+    </div>
+  );
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-4 text-white"><h2 className="mb-4 text-lg font-black">{title}</h2>{children}</section>;
+  return <section className="dawaa-card"><h2 className="dawaa-title mb-4 text-lg">{title}</h2>{children}</section>;
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="rounded-xl border border-dashed border-white/15 p-6 text-center text-sm font-bold text-slate-500">{text}</div>;
+  return <div className="dawaa-empty-state p-6 text-sm font-bold">{text}</div>;
 }
