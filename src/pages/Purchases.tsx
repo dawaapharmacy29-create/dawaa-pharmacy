@@ -97,48 +97,41 @@ export default function Purchases() {
 
   return (
     <div className="space-y-5" dir="rtl">
-      <div className="rounded-2xl border border-[#E5EAF0] bg-white p-5 shadow-sm">
+      <section className="dawaa-card dawaa-card--raised">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="text-2xl font-black text-slate-900">المشتريات ودليل الأصناف</h1>
-            <p className="mt-1 text-sm font-bold text-slate-500">
+            <h1 className="dawaa-title text-2xl">المشتريات ودليل الأصناف</h1>
+            <p className="dawaa-caption mt-1 font-bold">
               إدارة بسيطة للمشتريات مع دليل موحد يعتمد على كود الصنف والاسم وسعر البيع فقط.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setView('purchases')}
-              className={`rounded-xl px-4 py-2 text-sm font-black ${
-                view === 'purchases' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'
-              }`}
-            >
-              المشتريات
-            </button>
-            <button
-              type="button"
-              onClick={() => setView('catalog')}
-              className={`rounded-xl px-4 py-2 text-sm font-black ${
-                view === 'catalog' ? 'bg-teal-600 text-white' : 'bg-teal-50 text-teal-700'
-              }`}
-            >
-              دليل الأصناف ({catalogSummary.total.toLocaleString('ar-EG')})
-            </button>
-            <button
-              onClick={() => void load()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
-            >
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="dawaa-tabs">
+              <button
+                type="button"
+                onClick={() => setView('purchases')}
+                className={`dawaa-tab ${view === 'purchases' ? 'is-active' : ''}`}
+                aria-selected={view === 'purchases'}
+              >
+                المشتريات
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('catalog')}
+                className={`dawaa-tab ${view === 'catalog' ? 'is-active' : ''}`}
+                aria-selected={view === 'catalog'}
+              >
+                دليل الأصناف ({catalogSummary.total.toLocaleString('ar-EG')})
+              </button>
+            </div>
+            <button type="button" onClick={() => void load()} className="dawaa-button dawaa-button--secondary">
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
             </button>
           </div>
         </div>
-      </div>
+      </section>
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
-          {error}
-        </div>
-      )}
+      {error ? <div className="dawaa-alert dawaa-alert--danger text-sm font-bold">{error}</div> : null}
 
       {view === 'purchases' ? (
         <PurchasesOverview
@@ -179,52 +172,51 @@ function PurchasesOverview({
         <Card title="المتبقي للموردين" value={formatCurrency(totals.remaining)} icon={PackageSearch} />
       </div>
 
-      <div className="rounded-2xl border border-teal-100 bg-teal-50/70 p-4 text-sm font-bold text-teal-900">
+      <div className="dawaa-card dawaa-card--soft p-4 text-sm font-bold">
         <div className="flex items-start gap-3">
-          <Link2 className="mt-0.5 shrink-0" size={18} />
+          <span className="dawaa-icon-tile h-9 w-9 shrink-0"><Link2 size={18} /></span>
           <div>
-            <div className="font-black">الربط الذكي بسيط ومباشر</div>
-            <p className="mt-1 leading-7 text-teal-800">
+            <div className="dawaa-title text-sm">الربط الذكي بسيط ومباشر</div>
+            <p className="dawaa-body mt-1 leading-7">
               نفس الصنف يمكن ربطه بطلب العميل والنواقص وبنود أمر الشراء من خلال Product ID واحد، بدون تغيير طريقة العمل الحالية.
             </p>
           </div>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#E5EAF0] bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-lg font-black text-slate-900">آخر فواتير المشتريات</h2>
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 text-slate-600">
-                <th className="p-3 text-right">رقم الفاتورة</th>
-                <th className="p-3 text-right">الفرع</th>
-                <th className="p-3 text-right">التاريخ</th>
-                <th className="p-3 text-right">الصافي</th>
-                <th className="p-3 text-right">المتبقي</th>
-                <th className="p-3 text-right">الحالة</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map((row) => (
-                <tr key={row.id} className="border-t">
-                  <td className="p-3 font-bold">{row.invoice_no || '-'}</td>
-                  <td className="p-3">{row.branch || '-'}</td>
-                  <td className="p-3">{row.invoice_date || '-'}</td>
-                  <td className="p-3">{formatCurrency(n(row.net_total))}</td>
-                  <td className="p-3">{formatCurrency(n(row.remaining_amount))}</td>
-                  <td className="p-3">{row.status || '-'}</td>
+      <section className="dawaa-card">
+        <h2 className="dawaa-title mb-3 text-lg">آخر فواتير المشتريات</h2>
+        {invoices.length ? (
+          <div className="dawaa-table-shell shadow-none">
+            <table className="dawaa-table-semantic min-w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="text-right">رقم الفاتورة</th>
+                  <th className="text-right">الفرع</th>
+                  <th className="text-right">التاريخ</th>
+                  <th className="text-right">الصافي</th>
+                  <th className="text-right">المتبقي</th>
+                  <th className="text-right">الحالة</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {!invoices.length && (
-          <div className="rounded-xl bg-slate-50 p-5 text-center text-sm font-bold text-slate-500">
-            لا توجد فواتير مشتريات بعد.
+              </thead>
+              <tbody>
+                {invoices.map((row) => (
+                  <tr key={row.id}>
+                    <td className="font-bold">{row.invoice_no || '-'}</td>
+                    <td>{row.branch || '-'}</td>
+                    <td>{row.invoice_date || '-'}</td>
+                    <td>{formatCurrency(n(row.net_total))}</td>
+                    <td>{formatCurrency(n(row.remaining_amount))}</td>
+                    <td>{row.status || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        ) : (
+          <div className="dawaa-empty-state p-5 text-sm font-bold">لا توجد فواتير مشتريات بعد.</div>
         )}
-      </div>
+      </section>
     </>
   );
 }
@@ -318,16 +310,16 @@ function ProductCatalogPanel({
         />
       </div>
 
-      {isAdmin && (
-        <div className="rounded-2xl border border-[#E5EAF0] bg-white p-5 shadow-sm">
+      {isAdmin ? (
+        <section className="dawaa-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h2 className="text-lg font-black text-slate-900">تحديث دليل الأصناف</h2>
-              <p className="mt-1 max-w-2xl text-sm font-bold leading-7 text-slate-500">
+              <h2 className="dawaa-title text-lg">تحديث دليل الأصناف</h2>
+              <p className="dawaa-caption mt-1 max-w-2xl font-bold leading-7">
                 ارفع نفس ملف B-Connect كما هو. النظام يستخرج تلقائيًا كود الصنف والاسم وسعر البيع، ويحدّث الموجود ويضيف الجديد فقط. لا يتم حذف أي صنف قديم.
               </p>
             </div>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-teal-600 px-4 py-3 text-sm font-black text-white hover:bg-teal-700">
+            <label className="dawaa-button dawaa-button--primary cursor-pointer">
               <FileSpreadsheet size={18} />
               {parsing ? 'جاري قراءة الملف...' : 'اختيار ملف الأصناف'}
               <input
@@ -340,117 +332,109 @@ function ProductCatalogPanel({
             </label>
           </div>
 
-          {selectedFile && (
-            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-bold text-slate-600">
-              الملف: {selectedFile.name}
-            </div>
-          )}
+          {selectedFile ? <div className="dawaa-card dawaa-card--soft mt-3 p-3 text-sm font-bold">الملف: {selectedFile.name}</div> : null}
+          {message ? <div className="dawaa-alert dawaa-alert--info mt-3 text-sm font-bold">{message}</div> : null}
 
-          {message && (
-            <div className="mt-3 rounded-xl border border-teal-100 bg-teal-50 p-3 text-sm font-bold text-teal-900">
-              {message}
-            </div>
-          )}
-
-          {!!preview.length && (
+          {!!preview.length ? (
             <div className="mt-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm font-black text-slate-700">
+                <div className="dawaa-body text-sm font-black">
                   {preview.length.toLocaleString('ar-EG')} صنف · {pricedCount.toLocaleString('ar-EG')} بسعر صالح
                 </div>
                 <button
                   type="button"
                   onClick={() => void handleImport()}
                   disabled={importing}
-                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+                  className="dawaa-button dawaa-button--primary disabled:opacity-50"
                 >
                   <Upload size={17} /> {importing ? 'جاري الاستيراد...' : 'استيراد وتحديث'}
                 </button>
               </div>
-              <div className="overflow-auto rounded-xl border border-slate-200">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50 text-slate-600">
+              <div className="dawaa-table-shell shadow-none">
+                <table className="dawaa-table-semantic min-w-full text-sm">
+                  <thead>
                     <tr>
-                      <th className="p-3 text-right">الكود</th>
-                      <th className="p-3 text-right">اسم الصنف</th>
-                      <th className="p-3 text-right">السعر</th>
+                      <th className="text-right">الكود</th>
+                      <th className="text-right">اسم الصنف</th>
+                      <th className="text-right">السعر</th>
                     </tr>
                   </thead>
                   <tbody>
                     {preview.slice(0, 12).map((row) => (
-                      <tr key={row.code} className="border-t">
-                        <td className="p-3 font-black text-slate-700">{row.code}</td>
-                        <td className="p-3 font-bold text-slate-900">{row.name}</td>
-                        <td className="p-3">{row.price === null ? '-' : formatCurrency(row.price)}</td>
+                      <tr key={row.code}>
+                        <td className="font-black">{row.code}</td>
+                        <td className="font-bold">{row.name}</td>
+                        <td>{row.price === null ? '-' : formatCurrency(row.price)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="text-xs font-bold text-slate-400">المعاينة تعرض أول 12 صنف فقط.</div>
+              <div className="dawaa-caption text-xs font-bold">المعاينة تعرض أول 12 صنف فقط.</div>
             </div>
-          )}
-        </div>
-      )}
+          ) : null}
+        </section>
+      ) : null}
 
-      <div className="rounded-2xl border border-[#E5EAF0] bg-white p-5 shadow-sm">
+      <section className="dawaa-card">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-lg font-black text-slate-900">بحث سريع في الأصناف</h2>
-            <p className="mt-1 text-sm font-bold text-slate-500">ابحث بالكود أو بأي جزء من اسم الصنف.</p>
+            <h2 className="dawaa-title text-lg">بحث سريع في الأصناف</h2>
+            <p className="dawaa-caption mt-1 font-bold">ابحث بالكود أو بأي جزء من اسم الصنف.</p>
           </div>
           <div className="relative w-full md:max-w-md">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+            <Search className="dawaa-caption absolute right-3 top-1/2 -translate-y-1/2" size={17} />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="مثال: Valtrex أو 51733"
-              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pr-10 pl-3 text-sm font-bold outline-none focus:border-teal-400"
+              className="dawaa-input py-2.5 pr-10 pl-3 text-sm font-bold"
             />
           </div>
         </div>
 
-        <div className="mt-4 overflow-auto rounded-xl border border-slate-200">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="p-3 text-right">الكود</th>
-                <th className="p-3 text-right">الصنف</th>
-                <th className="p-3 text-right">السعر</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((row) => (
-                <tr key={row.id || row.code} className="border-t">
-                  <td className="p-3 font-black text-teal-700">{row.code}</td>
-                  <td className="p-3 font-bold text-slate-900">{row.name}</td>
-                  <td className="p-3">{row.price === null ? '-' : formatCurrency(row.price)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!results.length && (
-            <div className="p-6 text-center text-sm font-bold text-slate-500">
+        <div className="mt-4">
+          {results.length ? (
+            <div className="dawaa-table-shell shadow-none">
+              <table className="dawaa-table-semantic min-w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="text-right">الكود</th>
+                    <th className="text-right">الصنف</th>
+                    <th className="text-right">السعر</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((row) => (
+                    <tr key={row.id || row.code}>
+                      <td className="font-black">{row.code}</td>
+                      <td className="font-bold">{row.name}</td>
+                      <td>{row.price === null ? '-' : formatCurrency(row.price)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="dawaa-empty-state p-6 text-sm font-bold">
               {searching ? 'جاري البحث...' : summary.total ? 'لا توجد نتائج مطابقة.' : 'ارفع ملف الأصناف أولًا.'}
             </div>
           )}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
 
 function Card({ title, value, icon: Icon }: { title: string; value: string; icon: LucideIcon }) {
   return (
-    <div className="rounded-2xl border border-[#E5EAF0] bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between">
+    <div className="dawaa-card p-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-xs font-bold text-slate-500">{title}</div>
-          <div className="mt-2 text-2xl font-black text-slate-900">{value}</div>
+          <div className="dawaa-caption text-xs font-bold">{title}</div>
+          <div className="dawaa-title mt-2 text-2xl">{value}</div>
         </div>
-        <span className="rounded-2xl bg-teal-50 p-3 text-teal-700">
-          <Icon size={20} />
-        </span>
+        <span className="dawaa-icon-tile h-11 w-11 shrink-0"><Icon size={20} /></span>
       </div>
     </div>
   );
