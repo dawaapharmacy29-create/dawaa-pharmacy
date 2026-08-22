@@ -116,6 +116,9 @@ if (!fs.existsSync(palettesPath)) {
     '--dawaa-theme-muted', '--dawaa-theme-primary', '--dawaa-theme-border',
     '--dawaa-theme-sidebar', '--dawaa-status-success-bg', '--dawaa-status-warning-bg',
     '--dawaa-status-danger-bg', '--dawaa-status-info-bg',
+    '--dawaa-chart-series-1', '--dawaa-chart-series-2', '--dawaa-chart-series-3',
+    '--dawaa-chart-grid', '--dawaa-chart-axis', '--dawaa-chart-tooltip-bg',
+    '--dawaa-chart-tooltip-text', '--dawaa-chart-tooltip-muted', '--dawaa-chart-tooltip-border',
   ]) {
     if (!palettesText.includes(semanticVar)) violations.push(`src/styles/dawaa-theme-palettes.css: missing semantic palette variable ${semanticVar}`);
   }
@@ -146,4 +149,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log(`Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral foundation/base/global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
+console.log(`Theme architecture OK: one data-theme runtime, canonical palette and chart ownership, palette-neutral foundation/base/global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
