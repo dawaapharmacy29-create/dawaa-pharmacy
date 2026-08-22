@@ -9,6 +9,7 @@ const CANONICAL_PALETTE = 'src/styles/dawaa-theme-palettes.css';
 const CLEAN_UI_FILES = new Set([
   'src/pages/DataHealthCenter.tsx',
   'src/pages/OperationsCenter2027.tsx',
+  'src/components/system/OperationalReadinessPanel.tsx',
 ]);
 
 const textExts = new Set(['.css', '.ts', '.tsx', '.js', '.jsx']);
