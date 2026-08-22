@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const migratedUiFiles = [
   'src/pages/Invoices.tsx',
   'src/components/customerService/CustomerFollowupOperationsCompletionPanel.tsx',
+  'src/components/customerService/ContinueFollowupModal.tsx',
 ];
 
 const violations = [];
