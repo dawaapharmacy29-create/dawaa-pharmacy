@@ -46,6 +46,9 @@ jobs:
       - name: Tests
         run: npm run test
 
+      - name: Invoice importer Vitest
+        run: npx vitest run src/lib/__tests__/invoiceImporter.test.ts
+
       - name: Architecture data-access boundary
         run: node scripts/check-data-access-boundaries.cjs
 
