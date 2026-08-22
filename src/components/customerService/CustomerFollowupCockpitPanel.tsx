@@ -32,7 +32,7 @@ const CustomerQuickDetailsModal = lazy(() => import('@/components/customers/Cust
 const ALL_BRANCHES = 'كل الفروع';
 const PER_BRANCH_QUEUE_LIMIT = 25;
 const FETCH_BATCH = 1000;
-const MAX_FETCH_BATCHES = 20; // سقف أمان يمنع لوب لا نهائي لو حصل خلل غير متوقع في الترقيم
+const MAX_FETCH_BATCHES = 2; // سقف 2000 متابعة مفتوحة؛ الأولوية للاستحقاق بدل سحب التاريخ كله للمتصفح
 
 // تبويبات تنفيذ اليوم فقط. سجل المتابعات/الأداء/سجل التواصل بقوا في مساحات عمل
 // منفصلة (السجل والمتابعات / التقارير والإدارة) عشان محدش يتكرر ومحدش يزحم هنا.
@@ -247,6 +247,7 @@ export default function CustomerFollowupCockpitPanel() {
             .select('id,customer_id,customer_name,name,customer_code,customer_phone,phone,branch,priority,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_reason,request_details,notes,next_followup_date,created_at,contacted_at,first_attempt_at,last_attempt_at,attempt_count,needs_next_followup,needs_manager,total_spent,last_purchase_date,customer_metrics')
             .eq('is_hidden', false).is('completed_at', null).is('cancelled_at', null).is('archived_at', null)
             .or('is_duplicate.is.null,is_duplicate.eq.false').is('duplicate_of', null)
+            .order('next_followup_date', { ascending: true, nullsFirst: true })
             .order('created_at', { ascending: false }).range(start, start + FETCH_BATCH - 1);
           if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
           const { data, error } = await query;
@@ -258,15 +259,24 @@ export default function CustomerFollowupCockpitPanel() {
         return allRows;
       };
       const fetchAudit = async () => {
-        const since = new Date(); since.setDate(since.getDate() - 30);
-        let auditQuery = supabase.from('customer_followup_audit_log').select('id,followup_id,action,actor_name,created_at,branch,metadata').gte('created_at', since.toISOString()).order('created_at', { ascending: false }).limit(5000);
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        let auditQuery = supabase.from('customer_followup_audit_log')
+          .select('id,followup_id,action,actor_name,created_at,branch,metadata')
+          .eq('action', 'completed')
+          .gte('created_at', start.toISOString())
+          .lt('created_at', end.toISOString())
+          .order('created_at', { ascending: false })
+          .limit(500);
         if (branch !== ALL_BRANCHES) auditQuery = auditQuery.eq('branch', branch);
         const { data, error } = await auditQuery;
         if (error) throw error;
         return (data || []) as AuditEvent[];
       };
-      // allSettled بدل all: query السجل (آخر 30 يوم، مستخدم بس لمؤشر "مكتمل اليوم") لو فشل
-      // منفصل عن query الصفوف الأساسية — قائمة اليوم تفضل شغالة حتى لو السجل فشل مؤقتًا.
+      // سجل الـaudit هنا مطلوب فقط لعداد "مكتمل اليوم"؛ باقي التاريخ له شاشات مستقلة.
+      // allSettled يحافظ على قائمة اليوم شغالة حتى لو عداد السجل فشل مؤقتًا.
       const [rowsResult, auditResult] = await Promise.allSettled([fetchRows(), fetchAudit()]);
       if (rowsResult.status === 'fulfilled') {
         setRows(dedupeRows(rowsResult.value));
