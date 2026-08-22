@@ -10,9 +10,10 @@ import './styles/customer-cashback-polish.css';
 import './styles/reviews-modal-polish.css';
 /* Legacy compatibility bridge. New UI must not add selectors here. */
 import './styles/dawaa-theme.css';
-/* Canonical theme system: foundations -> palettes -> semantic components. */
+/* Canonical theme system: tokens -> foundation semantics -> palettes -> components. */
 import './styles/dawaa-theme-tokens.css';
 import './styles/dawaa-theme-foundation.css';
+import './styles/dawaa-theme-palettes.css';
 import './styles/dawaa-theme-components.css';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
 import { ThemeProvider } from '@/contexts/ThemeContext';
