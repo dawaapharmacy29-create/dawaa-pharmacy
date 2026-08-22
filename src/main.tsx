@@ -8,8 +8,12 @@ import './styles/v3-polish.css';
 import './styles/customer-service-followups.css';
 import './styles/customer-cashback-polish.css';
 import './styles/reviews-modal-polish.css';
+/* Legacy compatibility bridge. New UI must not add selectors here. */
 import './styles/dawaa-theme.css';
+/* Canonical theme system: foundations -> palettes -> semantic components. */
+import './styles/dawaa-theme-tokens.css';
 import './styles/dawaa-theme-foundation.css';
+import './styles/dawaa-theme-components.css';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { clearRecoveredRuntimeError, logRuntimeError } from '@/lib/appRecovery';
@@ -26,8 +30,8 @@ function BootstrapShell() {
   return (
     <div className="min-h-screen dawaa-app-bg flex items-center justify-center p-5" dir="rtl">
       <div className="flex flex-col items-center gap-4 text-center">
-        <div className="h-12 w-12 rounded-2xl border dawaa-border bg-teal-500/10" />
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-teal-500/20 border-t-teal-400" />
+        <div className="dawaa-loading-mark" />
+        <div className="dawaa-loading-spinner" />
         <p className="text-sm font-bold dawaa-muted">جاري التحميل...</p>
       </div>
     </div>
