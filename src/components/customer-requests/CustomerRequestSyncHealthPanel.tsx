@@ -68,39 +68,39 @@ export default function CustomerRequestSyncHealthPanel({ onReview }: { onReview?
   }, [load]);
 
   const state = useMemo(() => {
-    if (!health) return { label: 'جاري الفحص', tone: 'border-slate-600 bg-slate-900/50 text-slate-300', icon: Clock3, note: 'يتم فحص قناة الربط الآن.' };
+    if (!health) return { label: 'جاري الفحص', tone: 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] text-[var(--dawaa-theme-text)]', icon: Clock3, note: 'يتم فحص قناة الربط الآن.' };
     if (health.pending > 0 || health.failed_or_conflict > 0) {
-      return { label: 'المزامنة تحتاج تدخل', tone: 'border-red-400/30 bg-red-500/10 text-red-200', icon: AlertTriangle, note: 'هناك سجلات لم تُعالج بعد أو فشل تقني داخل صندوق المزامنة.' };
+      return { label: 'المزامنة تحتاج تدخل', tone: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]', icon: AlertTriangle, note: 'هناك سجلات لم تُعالج بعد أو فشل تقني داخل صندوق المزامنة.' };
     }
     const qualityIssues = Number(health.sync_conflicts || 0) + Number(health.no_branch || 0) + Number(health.unlinked_customer || 0);
     if (qualityIssues > 0) {
-      return { label: 'المزامنة تعمل • جودة البيانات تحتاج مراجعة', tone: 'border-amber-400/30 bg-amber-500/10 text-amber-200', icon: ShieldAlert, note: 'الطلبات تصل، لكن توجد سجلات تحتاج تنظيف فرع أو ربط عميل أو حسم تعارض.' };
+      return { label: 'المزامنة تعمل • جودة البيانات تحتاج مراجعة', tone: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]', icon: ShieldAlert, note: 'الطلبات تصل، لكن توجد سجلات تحتاج تنظيف فرع أو ربط عميل أو حسم تعارض.' };
     }
-    return { label: 'المزامنة سليمة', tone: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200', icon: CheckCircle2, note: 'لا توجد مشكلات معالجة أو جودة معلقة.' };
+    return { label: 'المزامنة سليمة', tone: 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]', icon: CheckCircle2, note: 'لا توجد مشكلات معالجة أو جودة معلقة.' };
   }, [health]);
   const StateIcon = state.icon;
 
   return (
-    <section className="rounded-3xl border border-cyan-400/20 bg-[#0a1e33] p-4 shadow-xl" dir="rtl">
+    <section className="rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex items-start gap-3">
-          <div className="rounded-2xl bg-cyan-400/10 p-3 text-cyan-300"><DatabaseZap size={22} /></div>
+          <div className="rounded-2xl bg-[var(--dawaa-theme-accent-soft)] p-3 text-[var(--dawaa-theme-primary)]"><DatabaseZap size={22} /></div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-black text-white">ربط DawaaWael → تطبيق الإدارة</h2>
+              <h2 className="text-base font-black text-[var(--dawaa-theme-heading)]">ربط DawaaWael → تطبيق الإدارة</h2>
               <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-black ${state.tone}`}><StateIcon size={13} />{state.label}</span>
             </div>
-            <p className="mt-1 text-xs font-bold leading-6 text-slate-400">إنشاء وتعديل طلبات Base44 يصل تلقائيًا إلى Supabase، مع مراجعة تصحيحية دورية لمنع فقد أي طلب.</p>
-            <p className="mt-1 text-[11px] font-bold leading-5 text-slate-500">{state.note}</p>
+            <p className="mt-1 text-xs font-bold leading-6 text-[var(--dawaa-theme-muted)]">إنشاء وتعديل طلبات Base44 يصل تلقائيًا إلى Supabase، مع مراجعة تصحيحية دورية لمنع فقد أي طلب.</p>
+            <p className="mt-1 text-[11px] font-bold leading-5 text-[var(--dawaa-theme-muted)]">{state.note}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {onReview && <button type="button" onClick={onReview} className="rounded-xl border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-black text-amber-100"><ShieldAlert size={14} className="ml-1 inline" /> فتح قائمة مراجعة الجودة</button>}
-          <button type="button" onClick={() => void load()} disabled={loading} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-black text-slate-200"><RefreshCw size={14} className={`ml-1 inline ${loading ? 'animate-spin' : ''}`} /> تحديث الحالة</button>
+          {onReview && <button type="button" onClick={onReview} className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-xs font-black text-[var(--dawaa-status-warning-text)]"><ShieldAlert size={14} className="ml-1 inline" /> فتح قائمة مراجعة الجودة</button>}
+          <button type="button" onClick={() => void load()} disabled={loading} className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-xs font-black text-[var(--dawaa-theme-heading)]"><RefreshCw size={14} className={`ml-1 inline ${loading ? 'animate-spin' : ''}`} /> تحديث الحالة</button>
         </div>
       </div>
 
-      {error ? <div className="mt-3 rounded-xl border border-rose-300/20 bg-rose-500/10 p-3 text-xs font-bold text-rose-200">{error}</div> : null}
+      {error ? <div className="mt-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</div> : null}
       {health ? <>
         <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
           <Metric label="طلبات من Base44" value={health.total_synced} />
@@ -114,20 +114,20 @@ export default function CustomerRequestSyncHealthPanel({ onReview }: { onReview?
         </div>
 
         <div className="mt-3 grid gap-2 md:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-[11px] font-bold text-slate-400">آخر وصول من Base44</div><div className="mt-1 font-black text-white">{cairoDateTime(health.last_received)}</div></div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-[11px] font-bold text-slate-400">منذ آخر دفعة وصلت</div><div className="mt-1 font-black text-slate-100">{health.sync_lag_minutes == null ? '—' : `${health.sync_lag_minutes} دقيقة`}</div><div className="mt-1 text-[10px] leading-4 text-slate-500">هذا المؤشر لا يعني عطلًا وحده إذا لم تُسجل طلبات جديدة على Base44.</div></div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-[11px] font-bold text-slate-400">توزيع الفروع</div><div className="mt-1 flex flex-wrap gap-2">{(health.branches || []).map((item) => <span key={item.branch} className="rounded-full bg-slate-800 px-2 py-1 text-[11px] font-black text-slate-200">{item.branch}: {item.total}</span>)}</div></div>
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]/[0.035] p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">آخر وصول من Base44</div><div className="mt-1 font-black text-[var(--dawaa-theme-heading)]">{cairoDateTime(health.last_received)}</div></div>
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]/[0.035] p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">منذ آخر دفعة وصلت</div><div className="mt-1 font-black text-[var(--dawaa-theme-heading)]">{health.sync_lag_minutes == null ? '—' : `${health.sync_lag_minutes} دقيقة`}</div><div className="mt-1 text-[10px] leading-4 text-[var(--dawaa-theme-muted)]">هذا المؤشر لا يعني عطلًا وحده إذا لم تُسجل طلبات جديدة على Base44.</div></div>
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]/[0.035] p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">توزيع الفروع</div><div className="mt-1 flex flex-wrap gap-2">{(health.branches || []).map((item) => <span key={item.branch} className="rounded-full bg-[var(--dawaa-theme-surface-2)] px-2 py-1 text-[11px] font-black text-[var(--dawaa-theme-heading)]">{item.branch}: {item.total}</span>)}</div></div>
         </div>
 
-        {(health.sync_conflicts > 0 || health.no_branch > 0 || health.unlinked_customer > 0) && onReview ? <button type="button" onClick={onReview} className="mt-3 w-full rounded-2xl border border-amber-300/20 bg-amber-400/[0.07] px-4 py-3 text-right text-xs font-black text-amber-100">يوجد {Number(health.sync_conflicts || 0) + Number(health.no_branch || 0) + Number(health.unlinked_customer || 0)} ملاحظة جودة مسجلة — افتح قائمة المراجعة بدل اعتبارها عطلًا في النقل.</button> : null}
+        {(health.sync_conflicts > 0 || health.no_branch > 0 || health.unlinked_customer > 0) && onReview ? <button type="button" onClick={onReview} className="mt-3 w-full rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.07] px-4 py-3 text-right text-xs font-black text-[var(--dawaa-status-warning-text)]">يوجد {Number(health.sync_conflicts || 0) + Number(health.no_branch || 0) + Number(health.unlinked_customer || 0)} ملاحظة جودة مسجلة — افتح قائمة المراجعة بدل اعتبارها عطلًا في النقل.</button> : null}
 
-        <button type="button" onClick={() => setExpanded((v) => !v)} className="mt-3 flex items-center gap-2 text-xs font-black text-cyan-200"><Link2 size={14} />{expanded ? 'إخفاء آخر الطلبات الواصلة' : 'عرض آخر الطلبات الواصلة'}</button>
-        {expanded ? <div className="mt-2 overflow-x-auto rounded-2xl border border-white/10"><table className="min-w-[850px] w-full text-xs"><thead className="bg-slate-950/60 text-slate-400"><tr>{['رقم الطلب','العميل','الصنف','الفرع','حالة Base44','وقت الوصول'].map((h) => <th key={h} className="p-2 text-right font-black">{h}</th>)}</tr></thead><tbody>{(health.latest || []).map((row) => <tr key={row.source_record_id} className="border-t border-white/5 text-slate-200"><td className="p-2 font-black text-cyan-200">{row.order_number || row.source_record_id.slice(-6)}</td><td className="p-2">{row.customer_name || '—'}</td><td className="p-2">{row.medicine_name || '—'}</td><td className="p-2">{row.branch || 'بدون فرع'}</td><td className="p-2">{row.source_status || '—'}</td><td className="p-2">{cairoDateTime(row.received_at)}</td></tr>)}</tbody></table></div> : null}
+        <button type="button" onClick={() => setExpanded((v) => !v)} className="mt-3 flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-primary)]"><Link2 size={14} />{expanded ? 'إخفاء آخر الطلبات الواصلة' : 'عرض آخر الطلبات الواصلة'}</button>
+        {expanded ? <div className="mt-2 overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)]"><table className="min-w-[850px] w-full text-xs"><thead className="bg-[var(--dawaa-theme-surface)] text-[var(--dawaa-theme-muted)]"><tr>{['رقم الطلب','العميل','الصنف','الفرع','حالة Base44','وقت الوصول'].map((h) => <th key={h} className="p-2 text-right font-black">{h}</th>)}</tr></thead><tbody>{(health.latest || []).map((row) => <tr key={row.source_record_id} className="border-t border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-heading)]"><td className="p-2 font-black text-[var(--dawaa-theme-primary)]">{row.order_number || row.source_record_id.slice(-6)}</td><td className="p-2">{row.customer_name || '—'}</td><td className="p-2">{row.medicine_name || '—'}</td><td className="p-2">{row.branch || 'بدون فرع'}</td><td className="p-2">{row.source_status || '—'}</td><td className="p-2">{cairoDateTime(row.received_at)}</td></tr>)}</tbody></table></div> : null}
       </> : null}
     </section>
   );
 }
 
 function Metric({ label, value, danger = false }: { label: string; value: number; danger?: boolean }) {
-  return <div className={`rounded-2xl border p-3 text-center ${danger ? 'border-amber-300/20 bg-amber-400/[0.06]' : 'border-white/10 bg-white/[0.035]'}`}><div className="text-[10px] font-bold text-slate-400">{label}</div><div className={`mt-1 text-xl font-black ${danger ? 'text-amber-200' : 'text-white'}`}>{Number(value || 0).toLocaleString('ar-EG')}</div></div>;
+  return <div className={`rounded-2xl border p-3 text-center ${danger ? 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.06]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]/[0.035]'}`}><div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{label}</div><div className={`mt-1 text-xl font-black ${danger ? 'text-[var(--dawaa-status-warning-text)]' : 'text-[var(--dawaa-theme-heading)]'}`}>{Number(value || 0).toLocaleString('ar-EG')}</div></div>;
 }

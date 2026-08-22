@@ -7,6 +7,14 @@ const SRC = path.join(ROOT, 'src');
 const rows = [];
 const CANONICAL_PALETTE = 'src/styles/dawaa-theme-palettes.css';
 const CLEAN_UI_FILES = new Set([
+  'src/components/customer-requests/CustomerRequestSourceAuditPanel.tsx',
+  'src/components/customer-requests/CustomerRequestSyncHealthPanel.tsx',
+  'src/components/customer-requests/CustomerRequestActionQueue.tsx',
+  'src/components/customer-requests/CustomerRequestDataQualityPanel.tsx',
+  'src/components/customer-requests/CustomerRequestCriticalToday.tsx',
+  'src/components/customer-requests/CustomerRequestWarehousePanel.tsx',
+  'src/components/customer-requests/CustomerRequestQualityCenter.tsx',
+  'src/components/customer-requests/CustomerRequestInsightsPanel.tsx',
   'src/pages/CustomerRequests.tsx',
   'src/pages/DataHealthCenter.tsx',
   'src/pages/OperationsCenter2027.tsx',
