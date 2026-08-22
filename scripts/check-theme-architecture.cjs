@@ -70,6 +70,7 @@ for (const importPath of expectedThemeImports) {
 const hardcodedPalette = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
 const declarationPalette = /:\s*(?:#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\()/g;
 const paletteNeutralFiles = [
+  'src/index.css',
   'src/styles/dawaa-theme-components.css',
   'src/styles/dawaa-theme-tokens.css',
   'src/styles/dawaa-theme-shell.css',
@@ -86,8 +87,6 @@ for (const rel of paletteNeutralFiles) {
   if (/\.light-mode|data-palette=|\[data-palette/.test(text)) violations.push(`${rel}: contains retired legacy theme selector(s)`);
 }
 
-// The compatibility bridge may name historical arbitrary Tailwind classes in selectors,
-// but it may not declare literal colors of its own. Selector debt is tracked separately.
 const bridgePath = path.join(SRC, 'styles', 'dawaa-theme.css');
 const bridgeText = fs.readFileSync(bridgePath, 'utf8');
 const bridgeDeclarationColors = bridgeText.match(declarationPalette) || [];
@@ -146,4 +145,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log(`Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
+console.log(`Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral base/global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
