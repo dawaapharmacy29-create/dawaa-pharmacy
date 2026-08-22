@@ -12,16 +12,6 @@ type SourceState = 'idle' | 'loading' | 'ready' | 'error';
 type FocusTone = 'success' | 'warning' | 'danger' | 'info';
 
 function text(value: unknown) { return String(value ?? '').trim(); }
-function normalizeName(value: unknown) {
-  return text(value)
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/\b(دكتور|دكتوره|د|dr)\b/gi, '')
-    .replace(/[\s/_.-]+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
 function isDueToday(value: unknown) {
   if (!value) return false;
   const date = new Date(text(value));
@@ -34,16 +24,6 @@ function isNearExpiry(row: Row) {
   if (!raw) return false;
   const days = (new Date(raw).getTime() - Date.now()) / 86400000;
   return Number.isFinite(days) && days <= 30;
-}
-function matchesDoctor(row: Row, staffId: string, doctorName: string) {
-  const idMatch = [row.responsible_doctor_id, row.doctor_id, row.staff_id]
-    .map(text)
-    .some((value) => Boolean(value) && value === staffId);
-  const target = normalizeName(doctorName);
-  const nameMatch = [row.responsible_doctor_name, row.responsible_doctor, row.doctor_name, row.staff_name]
-    .map(normalizeName)
-    .some((value) => Boolean(value) && value === target);
-  return idMatch || nameMatch;
 }
 
 function initialSources(): Record<SourceKey, SourceState> {
@@ -79,7 +59,6 @@ export default function DoctorTodayFocus({
     let cancelled = false;
     setSources({ assignments: 'loading', followups: 'loading', notifications: 'loading', reviews: 'loading' });
     setReviewCount(null);
-    const today = new Date().toISOString().slice(0, 10);
 
     const settle = (key: SourceKey, state: SourceState) => {
       if (!cancelled) setSources((prev) => ({ ...prev, [key]: state }));
@@ -123,39 +102,23 @@ export default function DoctorTodayFocus({
         settle('notifications', 'error');
       });
 
-    const reviewQueries: PromiseLike<{ data: Row[] | null; error: { message?: string } | null }>[] = [];
     if (staffId) {
-      reviewQueries.push(
-        supabase.from('conversation_sales_reviews').select('id,staff_id,doctor_id,doctor_name,staff_name').eq('staff_id', staffId).gte('created_at', `${today}T00:00:00`).limit(100) as any,
-        supabase.from('conversation_sales_reviews').select('id,staff_id,doctor_id,doctor_name,staff_name').eq('doctor_id', staffId).gte('created_at', `${today}T00:00:00`).limit(100) as any,
-      );
-      void supabase.rpc('get_doctor_today_review_count', { p_doctor_id: staffId }).then(({ data }) => {
-        if (!cancelled && typeof data === 'number') setReviewCount((prev) => Math.max(prev ?? 0, data));
-      });
-    }
-    if (doctorName) {
-      reviewQueries.push(
-        supabase.from('conversation_sales_reviews').select('id,staff_id,doctor_id,doctor_name,staff_name').eq('doctor_name', doctorName).gte('created_at', `${today}T00:00:00`).limit(100) as any,
-      );
-    }
-    Promise.all(reviewQueries.map((query) => Promise.resolve(query)))
-      .then((results) => {
-        if (cancelled) return;
-        const failed = results.find((result) => result.error);
-        if (failed?.error) throw new Error(failed.error.message || 'reviews query failed');
-        const unique = new Set<string>();
-        results.forEach((result) => {
-          (result.data || []).forEach((row) => {
-            if (matchesDoctor(row, staffId, doctorName)) unique.add(text(row.id) || `${text(row.doctor_name)}-${unique.size}`);
-          });
+      supabase
+        .rpc('get_doctor_today_review_count', { p_doctor_id: staffId })
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          if (error) throw error;
+          setReviewCount(Number(data || 0));
+          settle('reviews', 'ready');
+        })
+        .catch((error) => {
+          console.error('[DoctorTodayFocus] reviews failed', error);
+          settle('reviews', 'error');
         });
-        setReviewCount((prev) => Math.max(prev ?? 0, unique.size));
-        settle('reviews', 'ready');
-      })
-      .catch((error) => {
-        console.error('[DoctorTodayFocus] reviews failed', error);
-        settle('reviews', 'error');
-      });
+    } else {
+      setReviewCount(0);
+      settle('reviews', 'ready');
+    }
 
     return () => { cancelled = true; };
   }, [staffId, userId, doctorName, reloadKey]);
