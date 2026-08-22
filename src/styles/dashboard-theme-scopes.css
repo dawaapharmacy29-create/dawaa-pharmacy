@@ -74,6 +74,23 @@
   color: var(--dawaa-theme-text);
 }
 
+.doctor-dashboard-theme .recharts-cartesian-grid line,
+.customer-service-dashboard-theme .recharts-cartesian-grid line {
+  stroke: var(--dawaa-theme-border);
+}
+
+.doctor-dashboard-theme :is(.recharts-xAxis, .recharts-yAxis) text,
+.customer-service-dashboard-theme :is(.recharts-xAxis, .recharts-yAxis) text {
+  fill: var(--dawaa-theme-muted);
+}
+
+.doctor-dashboard-theme .recharts-tooltip-wrapper > div,
+.customer-service-dashboard-theme .recharts-tooltip-wrapper > div {
+  color: var(--dawaa-theme-text);
+  background: var(--dawaa-theme-surface);
+  border-color: var(--dawaa-theme-border);
+}
+
 html[data-theme='light'] .doctor-dashboard-theme,
 html[data-theme='pharmacy-green'] .doctor-dashboard-theme,
 html[data-theme='light'] .customer-service-dashboard-theme,
@@ -91,6 +108,13 @@ html[data-theme='dark'] .customer-service-dashboard-theme {
 .customer-service-dashboard-theme [class*='bg-white/5'][class*='rounded-full'],
 .customer-service-dashboard-theme [class*='bg-white/10'][class*='rounded-full'] {
   background: var(--dawaa-dashboard-track);
+}
+
+/* ProgressRing uses SVG presentation attributes in the legacy dashboard. A scoped
+   stylesheet rule safely owns the neutral track without changing its semantic
+   success/warning foreground ring. */
+.doctor-dashboard-theme svg.-rotate-90 circle:first-child {
+  stroke: var(--dawaa-dashboard-track);
 }
 
 /* Customer-service personal dashboard: accents remain distinct, but derive from
