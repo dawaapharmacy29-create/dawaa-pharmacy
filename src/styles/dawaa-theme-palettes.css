@@ -1,13 +1,13 @@
 /*
- * Dawaa Theme Palettes v4
+ * Dawaa Theme Palettes v5
  * -----------------------
  * Canonical color ownership lives here.
  * Components and pages consume semantic variables only.
  *
  * Visual direction:
- * - Light: neutral operational canvas; Dawaa teal is an accent, not a wash.
+ * - Light: calm neutral operational canvas; Dawaa teal is a deliberate accent only.
  * - Dark: charcoal / graphite depth with restrained teal accents.
- * - Pharmacy Green: calm healthcare green with the same surface hierarchy.
+ * - Pharmacy Green: branded healthcare green with the same surface hierarchy.
  */
 
 :root,
@@ -17,9 +17,11 @@ html[data-theme='dark'] {
   --dawaa-theme-surface: #12191d;
   --dawaa-theme-surface-2: #172126;
   --dawaa-theme-surface-raised: #1c272d;
-  --dawaa-theme-soft: rgba(49, 181, 166, 0.08);
+  --dawaa-theme-soft: rgba(177, 193, 200, 0.055);
+  --dawaa-theme-accent-soft: rgba(49, 181, 166, 0.08);
+  --dawaa-theme-accent-border: rgba(73, 184, 172, 0.3);
   --dawaa-theme-border: rgba(177, 193, 200, 0.13);
-  --dawaa-theme-border-strong: rgba(73, 184, 172, 0.3);
+  --dawaa-theme-border-strong: rgba(177, 193, 200, 0.24);
   --dawaa-theme-text: #d7e0e4;
   --dawaa-theme-heading: #f5f8f9;
   --dawaa-theme-muted: #8c9aa2;
@@ -29,7 +31,7 @@ html[data-theme='dark'] {
   --dawaa-theme-input: #0f161a;
   --dawaa-theme-table-head: #0f171b;
   --dawaa-theme-table-row: #12191d;
-  --dawaa-theme-table-hover: #19252a;
+  --dawaa-theme-table-hover: #192227;
   --dawaa-theme-overlay: rgba(3, 7, 9, 0.78);
   --dawaa-theme-focus: rgba(49, 181, 166, 0.22);
   --dawaa-theme-shadow: 0 20px 46px rgba(0, 0, 0, 0.32);
@@ -37,8 +39,8 @@ html[data-theme='dark'] {
   --dawaa-theme-highlight: rgba(255, 255, 255, 0.025);
   --dawaa-theme-divider: rgba(183, 198, 204, 0.085);
   --dawaa-theme-sidebar: #0d1418;
-  --dawaa-theme-sidebar-active: #13282a;
-  --dawaa-theme-sidebar-hover: #142024;
+  --dawaa-theme-sidebar-active: #172126;
+  --dawaa-theme-sidebar-hover: #141d21;
   --dawaa-theme-ambient: radial-gradient(circle at 88% -12%, rgba(49, 181, 166, 0.055), transparent 31rem);
 
   --dawaa-status-success-bg: rgba(61, 185, 129, 0.075);
@@ -90,54 +92,56 @@ html[data-theme='dark'] {
   --sidebar-foreground: 198 17% 87%;
   --sidebar-primary: 173 57% 45%;
   --sidebar-primary-foreground: 176 69% 5%;
-  --sidebar-accent: 185 27% 13%;
+  --sidebar-accent: 198 23% 12%;
   --sidebar-accent-foreground: 173 49% 69%;
   --sidebar-border: 198 12% 21%;
   --sidebar-ring: 173 57% 45%;
 }
 
 html[data-theme='light'] {
-  --dawaa-theme-bg: #f4f6f7;
-  --dawaa-theme-bg-soft: #f8f9fa;
+  --dawaa-theme-bg: #f2f4f5;
+  --dawaa-theme-bg-soft: #f7f8f9;
   --dawaa-theme-surface: #ffffff;
-  --dawaa-theme-surface-2: #f7f8f9;
-  --dawaa-theme-surface-raised: #fcfdfd;
-  --dawaa-theme-soft: #eef6f4;
-  --dawaa-theme-border: #dde3e6;
-  --dawaa-theme-border-strong: #b8cfcc;
-  --dawaa-theme-text: #344047;
-  --dawaa-theme-heading: #18242a;
-  --dawaa-theme-muted: #727e85;
+  --dawaa-theme-surface-2: #f6f7f8;
+  --dawaa-theme-surface-raised: #ffffff;
+  --dawaa-theme-soft: #f0f2f3;
+  --dawaa-theme-accent-soft: #edf7f5;
+  --dawaa-theme-accent-border: #b9d9d4;
+  --dawaa-theme-border: #d8dee1;
+  --dawaa-theme-border-strong: #c1cbd0;
+  --dawaa-theme-text: #354148;
+  --dawaa-theme-heading: #172229;
+  --dawaa-theme-muted: #69767d;
   --dawaa-theme-primary: #0b8f83;
-  --dawaa-theme-primary-strong: #08736a;
+  --dawaa-theme-primary-strong: #08766d;
   --dawaa-theme-primary-text: #ffffff;
   --dawaa-theme-input: #ffffff;
   --dawaa-theme-table-head: #f4f6f7;
   --dawaa-theme-table-row: #ffffff;
-  --dawaa-theme-table-hover: #f3f7f6;
-  --dawaa-theme-overlay: rgba(25, 35, 40, 0.24);
-  --dawaa-theme-focus: rgba(11, 143, 131, 0.16);
-  --dawaa-theme-shadow: 0 14px 32px rgba(26, 42, 50, 0.075);
-  --dawaa-theme-shadow-soft: 0 4px 14px rgba(26, 42, 50, 0.05);
-  --dawaa-theme-highlight: rgba(255, 255, 255, 0.9);
-  --dawaa-theme-divider: #e8ecee;
-  --dawaa-theme-sidebar: #fafbfb;
-  --dawaa-theme-sidebar-active: #e9f4f2;
-  --dawaa-theme-sidebar-hover: #f1f4f4;
+  --dawaa-theme-table-hover: #f2f4f5;
+  --dawaa-theme-overlay: rgba(24, 32, 36, 0.22);
+  --dawaa-theme-focus: rgba(11, 143, 131, 0.17);
+  --dawaa-theme-shadow: 0 14px 30px rgba(25, 38, 45, 0.07);
+  --dawaa-theme-shadow-soft: 0 3px 12px rgba(25, 38, 45, 0.045);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.95);
+  --dawaa-theme-divider: #e6eaec;
+  --dawaa-theme-sidebar: #fbfcfc;
+  --dawaa-theme-sidebar-active: #eef1f2;
+  --dawaa-theme-sidebar-hover: #f4f6f7;
   --dawaa-theme-ambient: none;
 
-  --dawaa-status-success-bg: #f3f9f6;
-  --dawaa-status-success-text: #176b4e;
-  --dawaa-status-success-border: #cbe3d7;
-  --dawaa-status-warning-bg: #fdf9f0;
-  --dawaa-status-warning-text: #80570f;
-  --dawaa-status-warning-border: #ebdcb8;
-  --dawaa-status-danger-bg: #fcf4f4;
-  --dawaa-status-danger-text: #993f3f;
-  --dawaa-status-danger-border: #e8cece;
-  --dawaa-status-info-bg: #f4f7fb;
-  --dawaa-status-info-text: #416588;
-  --dawaa-status-info-border: #d2dce7;
+  --dawaa-status-success-bg: #f5f8f6;
+  --dawaa-status-success-text: #256348;
+  --dawaa-status-success-border: #d3e2da;
+  --dawaa-status-warning-bg: #fbf8f1;
+  --dawaa-status-warning-text: #78551b;
+  --dawaa-status-warning-border: #e8dcc2;
+  --dawaa-status-danger-bg: #fbf5f5;
+  --dawaa-status-danger-text: #8d4545;
+  --dawaa-status-danger-border: #e6d2d2;
+  --dawaa-status-info-bg: #f5f7fa;
+  --dawaa-status-info-text: #46627c;
+  --dawaa-status-info-border: #d5dee6;
 
   --dawaa-chart-series-1: #0b8f83;
   --dawaa-chart-series-2: #4f80ad;
@@ -146,13 +150,13 @@ html[data-theme='light'] {
   --dawaa-chart-series-5: #a87521;
   --dawaa-chart-series-6: #b25555;
   --dawaa-chart-grid: rgba(75, 91, 100, 0.13);
-  --dawaa-chart-axis: #718087;
+  --dawaa-chart-axis: #6f7c83;
   --dawaa-chart-tooltip-bg: #ffffff;
   --dawaa-chart-tooltip-text: #27343a;
-  --dawaa-chart-tooltip-muted: #69767d;
-  --dawaa-chart-tooltip-border: #cedbd9;
+  --dawaa-chart-tooltip-muted: #68757c;
+  --dawaa-chart-tooltip-border: #d4dcdf;
 
-  --background: 200 14% 96%;
+  --background: 200 12% 95%;
   --foreground: 199 15% 24%;
   --card: 0 0% 100%;
   --card-foreground: 199 15% 24%;
@@ -160,24 +164,24 @@ html[data-theme='light'] {
   --popover-foreground: 199 15% 24%;
   --primary: 175 86% 30%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 200 12% 97%;
+  --secondary: 200 10% 97%;
   --secondary-foreground: 199 15% 24%;
-  --muted: 200 12% 96%;
-  --muted-foreground: 198 8% 48%;
-  --accent: 168 25% 94%;
+  --muted: 200 9% 95%;
+  --muted-foreground: 198 8% 46%;
+  --accent: 200 9% 94%;
   --accent-foreground: 175 80% 25%;
   --destructive: 0 48% 45%;
   --destructive-foreground: 0 0% 98%;
-  --border: 198 12% 88%;
+  --border: 198 10% 86%;
   --input: 0 0% 100%;
   --ring: 175 86% 30%;
   --sidebar-background: 180 5% 99%;
   --sidebar-foreground: 199 15% 24%;
   --sidebar-primary: 175 86% 30%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 165 25% 93%;
+  --sidebar-accent: 200 9% 94%;
   --sidebar-accent-foreground: 175 80% 25%;
-  --sidebar-border: 198 12% 88%;
+  --sidebar-border: 198 10% 86%;
   --sidebar-ring: 175 86% 30%;
 }
 
@@ -187,9 +191,11 @@ html[data-theme='pharmacy-green'] {
   --dawaa-theme-surface: #ffffff;
   --dawaa-theme-surface-2: #f6f8f6;
   --dawaa-theme-surface-raised: #fcfdfc;
-  --dawaa-theme-soft: #eef5f0;
+  --dawaa-theme-soft: #f0f3f1;
+  --dawaa-theme-accent-soft: #eef5f0;
+  --dawaa-theme-accent-border: #bdd2c3;
   --dawaa-theme-border: #dde5df;
-  --dawaa-theme-border-strong: #bdd2c3;
+  --dawaa-theme-border-strong: #c6d0c9;
   --dawaa-theme-text: #334139;
   --dawaa-theme-heading: #1a2d24;
   --dawaa-theme-muted: #737f78;
@@ -199,7 +205,7 @@ html[data-theme='pharmacy-green'] {
   --dawaa-theme-input: #ffffff;
   --dawaa-theme-table-head: #f3f6f4;
   --dawaa-theme-table-row: #ffffff;
-  --dawaa-theme-table-hover: #f2f6f3;
+  --dawaa-theme-table-hover: #f2f5f3;
   --dawaa-theme-overlay: rgba(24, 39, 31, 0.24);
   --dawaa-theme-focus: rgba(22, 118, 87, 0.16);
   --dawaa-theme-shadow: 0 14px 32px rgba(31, 53, 42, 0.075);
@@ -207,8 +213,8 @@ html[data-theme='pharmacy-green'] {
   --dawaa-theme-highlight: rgba(255, 255, 255, 0.9);
   --dawaa-theme-divider: #e8ece9;
   --dawaa-theme-sidebar: #fafbfa;
-  --dawaa-theme-sidebar-active: #eaf2ec;
-  --dawaa-theme-sidebar-hover: #f1f4f2;
+  --dawaa-theme-sidebar-active: #eef2ef;
+  --dawaa-theme-sidebar-hover: #f3f5f3;
   --dawaa-theme-ambient: none;
 
   --dawaa-status-success-bg: #f2f8f4;
