@@ -1489,7 +1489,7 @@ export default function ExecutiveDashboard2027() {
     let mounted = true;
     setDailyTasksLoading(true);
     setDailyTasksError(null);
-    withTimeout(summarizeTeamTasks(new Date().toISOString().slice(0, 10), scopedBranch, user), 7000, 'daily-tasks')
+    withTimeout(summarizeTeamTasks(new Date().toISOString().slice(0, 10), scopedBranch, user), 12000, 'daily-tasks')
       .then((result) => {
         if (!mounted) return;
         setTeamTaskSummary(result.summary);
