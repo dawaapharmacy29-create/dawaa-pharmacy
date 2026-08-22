@@ -6,7 +6,7 @@ import {
   groupStaffSalesPerformance,
 } from '@/lib/staffIdentityService';
 
-export const SALES_ANALYTICS_SOURCE_ID = 'sales_invoices_server_aggregate';
+export const SALES_ANALYTICS_SOURCE_ID = 'sales_invoices_live';
 export const SALES_ANALYTICS_PHYSICAL_SOURCE = 'dawaa_sales_invoices_dashboard_v1';
 
 export type SalesAnalyticsFilters = {
