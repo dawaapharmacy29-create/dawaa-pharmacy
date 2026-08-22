@@ -7,7 +7,9 @@ const ROOT = process.cwd();
 const DIST = path.join(ROOT, 'dist');
 const MANIFEST = path.join(DIST, '.vite', 'manifest.json');
 
-const INITIAL_GZIP_LIMIT = 500 * 1024;
+// 300 KiB gzip is intentionally strict enough that a hidden PDF/Excel dependency
+// cannot disappear inside vendor and still pass merely because its chunk name changed.
+const INITIAL_GZIP_LIMIT = 300 * 1024;
 const ROUTE_GZIP_LIMIT = 100 * 1024;
 const HEAVY_CHUNK_LIMITS = {
   excel: 500 * 1024,
