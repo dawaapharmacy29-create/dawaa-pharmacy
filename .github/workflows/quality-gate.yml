@@ -52,6 +52,9 @@ jobs:
       - name: Theme architecture boundary
         run: node scripts/check-theme-architecture.cjs
 
+      - name: Theme debt audit
+        run: node scripts/audit-theme-debt.cjs
+
       - name: TypeScript
         run: npm run typecheck
 
