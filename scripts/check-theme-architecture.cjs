@@ -11,6 +11,7 @@ const LEGACY_SHARED_CHROME_HEX_BASELINE = new Map([
   ['src/components/layout/Sidebar.tsx', 0],
 ]);
 const LEGACY_ARBITRARY_SELECTOR_BASELINE = 5;
+const ALLOWED_LEGACY_DARK_SURFACE_FAMILIES = new Set(['bg-slate-950', 'bg-slate-900', 'bg-slate-800']);
 
 const writerPatterns = [
   /document\.documentElement[\s\S]{0,240}(?:classList\.(?:add|remove|toggle)|dataset\.theme|setAttribute\(\s*['"]data-theme['"])/m,
@@ -102,6 +103,21 @@ if (arbitrarySelectorCount > LEGACY_ARBITRARY_SELECTOR_BASELINE) {
   violations.push(`src/styles/dawaa-theme.css: arbitrary legacy selector debt increased (${arbitrarySelectorCount} > ${LEGACY_ARBITRARY_SELECTOR_BASELINE})`);
 }
 
+const legacyDarkSurfaceFamilies = [...new Set(bridgeText.match(/bg-slate-\d+/g) || [])];
+for (const family of legacyDarkSurfaceFamilies) {
+  if (!ALLOWED_LEGACY_DARK_SURFACE_FAMILIES.has(family)) {
+    violations.push(`src/styles/dawaa-theme.css: temporary dark-surface bridge expanded to unsupported family ${family}`);
+  }
+}
+for (const line of bridgeText.split('\n')) {
+  if (!line.includes("[class*='bg-slate-")) continue;
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("html[data-theme='light']") && !trimmed.startsWith("html[data-theme='pharmacy-green']")) {
+    violations.push('src/styles/dawaa-theme.css: legacy dark-surface selector is not scoped to a non-dark canonical theme');
+    break;
+  }
+}
+
 const palettesPath = path.join(SRC, 'styles', 'dawaa-theme-palettes.css');
 if (!fs.existsSync(palettesPath)) {
   violations.push('src/styles/dawaa-theme-palettes.css: canonical palette owner is missing');
@@ -150,4 +166,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log(`Theme architecture OK: one data-theme runtime, canonical palette/chart/accent ownership, palette-neutral foundation/base/global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
+console.log(`Theme architecture OK: one data-theme runtime, canonical palette/chart/accent ownership, palette-neutral foundation/base/global utilities, canonical bootstrap, zero hard-coded chrome hex colors, ${arbitrarySelectorCount} tracked arbitrary legacy selector(s), and bounded dark-surface bridge families: ${legacyDarkSurfaceFamilies.sort().join(', ') || 'none'}.`);
