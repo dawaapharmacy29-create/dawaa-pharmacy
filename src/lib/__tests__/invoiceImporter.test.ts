@@ -46,6 +46,9 @@ const chain = {
   },
   range: async (from: number, to: number) => {
     mockRange(from, to);
+    if (currentTable === 'sales_invoices' && lastSelect.startsWith('id, branch, invoice_no')) {
+      return { data: mockExistingInvoiceRows.slice(from, to + 1), error: null };
+    }
     const pageNumber = Math.floor(from / 500);
     if (pageNumber === mockVerificationErrorPage) {
       return { data: null, error: { message: 'verification page failed' } };
@@ -224,7 +227,6 @@ describe('loadDatabaseDayComparison', () => {
     mockLt.mockReset();
     mockDatabaseRows = [];
   });
-
 
   it.each([999, 1000, 1001, 1599, 2001])(
     'reads all %i verification rows with 500-row pagination and reports no false missing invoices',
