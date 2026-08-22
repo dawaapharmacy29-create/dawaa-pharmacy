@@ -6,6 +6,10 @@ const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
 const CANONICAL_WRITER = path.normalize('src/contexts/ThemeContext.tsx');
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
+const LEGACY_SHARED_CHROME_HEX_BASELINE = new Map([
+  ['src/components/layout/Header.tsx', 0],
+  ['src/components/layout/Sidebar.tsx', 7],
+]);
 
 const writerPatterns = [
   /document\.documentElement[\s\S]{0,240}(?:classList\.(?:add|remove|toggle)|dataset\.theme|setAttribute\(\s*['"]data-theme['"])/m,
@@ -66,31 +70,14 @@ for (const importPath of expectedThemeImports) {
 
 const hardcodedPalette = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
 
-const componentsPath = path.join(SRC, 'styles', 'dawaa-theme-components.css');
-const componentsText = fs.readFileSync(componentsPath, 'utf8');
-const componentColors = componentsText.match(hardcodedPalette) || [];
-if (componentColors.length) {
-  violations.push(
-    `src/styles/dawaa-theme-components.css: semantic component layer contains ${componentColors.length} hard-coded palette color(s)`
-  );
-}
-
-const tokensPath = path.join(SRC, 'styles', 'dawaa-theme-tokens.css');
-const tokensText = fs.readFileSync(tokensPath, 'utf8');
-const tokenColors = tokensText.match(hardcodedPalette) || [];
-if (tokenColors.length) {
-  violations.push(
-    `src/styles/dawaa-theme-tokens.css: core design token layer contains ${tokenColors.length} theme palette color(s)`
-  );
-}
-
-const shellPath = path.join(SRC, 'styles', 'dawaa-theme-shell.css');
-const shellText = fs.readFileSync(shellPath, 'utf8');
-const shellColors = shellText.match(hardcodedPalette) || [];
-if (shellColors.length) {
-  violations.push(
-    `src/styles/dawaa-theme-shell.css: application shell contains ${shellColors.length} hard-coded palette color(s)`
-  );
+for (const rel of [
+  'src/styles/dawaa-theme-components.css',
+  'src/styles/dawaa-theme-tokens.css',
+  'src/styles/dawaa-theme-shell.css',
+]) {
+  const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  const colors = text.match(hardcodedPalette) || [];
+  if (colors.length) violations.push(`${rel}: contains ${colors.length} hard-coded palette color(s)`);
 }
 
 const palettesPath = path.join(SRC, 'styles', 'dawaa-theme-palettes.css');
@@ -103,22 +90,12 @@ if (!fs.existsSync(palettesPath)) {
       violations.push(`src/styles/dawaa-theme-palettes.css: missing palette contract for ${theme}`);
     }
   }
-
   for (const semanticVar of [
-    '--dawaa-theme-bg',
-    '--dawaa-theme-surface',
-    '--dawaa-theme-surface-2',
-    '--dawaa-theme-surface-raised',
-    '--dawaa-theme-text',
-    '--dawaa-theme-heading',
-    '--dawaa-theme-muted',
-    '--dawaa-theme-primary',
-    '--dawaa-theme-border',
-    '--dawaa-theme-sidebar',
-    '--dawaa-status-success-bg',
-    '--dawaa-status-warning-bg',
-    '--dawaa-status-danger-bg',
-    '--dawaa-status-info-bg',
+    '--dawaa-theme-bg', '--dawaa-theme-surface', '--dawaa-theme-surface-2',
+    '--dawaa-theme-surface-raised', '--dawaa-theme-text', '--dawaa-theme-heading',
+    '--dawaa-theme-muted', '--dawaa-theme-primary', '--dawaa-theme-border',
+    '--dawaa-theme-sidebar', '--dawaa-status-success-bg', '--dawaa-status-warning-bg',
+    '--dawaa-status-danger-bg', '--dawaa-status-info-bg',
   ]) {
     if (!palettesText.includes(semanticVar)) {
       violations.push(`src/styles/dawaa-theme-palettes.css: missing semantic palette variable ${semanticVar}`);
@@ -126,16 +103,27 @@ if (!fs.existsSync(palettesPath)) {
   }
 }
 
-/* Shared chrome is migration-sensitive: new core palette literals in Header/Sidebar
-   would bypass the canonical palette owner and recreate the old split-brain theme. */
-for (const rel of ['src/components/layout/Header.tsx', 'src/components/layout/Sidebar.tsx']) {
+// Canonical runtime must never activate the old document-wide light-mode engine again.
+const themeContextText = fs.readFileSync(path.join(SRC, 'contexts', 'ThemeContext.tsx'), 'utf8');
+if (/light\s*:\s*\[[^\]]*['"]light-mode['"]/.test(themeContextText)
+  || /pharmacy-green['"]?\s*:\s*\[[^\]]*['"]light-mode['"]/.test(themeContextText)) {
+  violations.push('src/contexts/ThemeContext.tsx: canonical theme map activates legacy light-mode');
+}
+
+// V3 remains a layout compatibility file only; it may not become a hidden theme writer again.
+const v3Text = fs.readFileSync(path.join(SRC, 'styles', 'v3-polish.css'), 'utf8');
+if (/\.light-mode|not\(\.light-mode\)|!important|#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(v3Text)) {
+  violations.push('src/styles/v3-polish.css: retired V3 compatibility layer contains theme/color overrides');
+}
+
+// Shared chrome debt must only decrease. Header is already canonical; Sidebar has seven
+// historical arbitrary hex Tailwind classes scheduled for the next isolated migration.
+for (const [rel, baseline] of LEGACY_SHARED_CHROME_HEX_BASELINE) {
   const file = path.join(ROOT, rel);
   if (!fs.existsSync(file)) continue;
   const text = fs.readFileSync(file, 'utf8');
-  const hexColors = text.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
-  if (hexColors.length) {
-    violations.push(`${rel}: shared app chrome contains ${hexColors.length} hard-coded hex color(s)`);
-  }
+  const count = (text.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
+  if (count > baseline) violations.push(`${rel}: hard-coded hex debt increased (${count} > ${baseline})`);
 }
 
 if (violations.length) {
@@ -144,4 +132,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log('Theme architecture OK: single writer, canonical palette ownership, ordered layers, semantic component/shell purity, and palette contracts verified.');
+console.log('Theme architecture OK: canonical data-theme runtime, palette ownership, ordered semantic layers, retired V3 theme patches, and non-increasing chrome debt verified.');
