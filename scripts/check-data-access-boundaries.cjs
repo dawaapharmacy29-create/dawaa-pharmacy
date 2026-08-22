@@ -3,12 +3,15 @@ const path = require('path');
 
 const ROOT = path.join(process.cwd(), 'src');
 
-const LEGACY_DIRECT_INVOICE_READERS = new Set([
-  'src/lib/api/customers.ts',
-  'src/lib/customerProfileService.ts',
-  'src/lib/dashboardSummaryService.ts',
-  'src/lib/executiveDashboardDataService.ts',
-  'src/lib/staff/staffPerformanceProfileService.ts',
+// Exact debt ratchet: these files may keep only the currently known number of
+// direct sales_invoices readers. Any increase or decrease must update this map
+// in the same PR, so legacy debt can only move intentionally toward zero.
+const LEGACY_DIRECT_INVOICE_READER_BUDGETS = new Map([
+  ['src/lib/api/customers.ts', 4],
+  ['src/lib/customerProfileService.ts', 3],
+  ['src/lib/dashboardSummaryService.ts', 3],
+  ['src/lib/executiveDashboardDataService.ts', 1],
+  ['src/lib/staff/staffPerformanceProfileService.ts', 1],
 ]);
 
 const APPROVED_INVOICE_BOUNDARIES = new Set([
@@ -83,12 +86,17 @@ function repoPath(file) {
   return path.relative(process.cwd(), file).replace(/\\/g, '/');
 }
 
+function countDirectAccess(content, table) {
+  const pattern = new RegExp(`\\.from\\(\\s*['\"]${table}['\"]\\s*\\)`, 'g');
+  return [...content.matchAll(pattern)].length;
+}
+
 function hasDirectAccess(content, table) {
-  return new RegExp(`\\.from\\(\\s*['\"]${table}['\"]\\s*\\)`).test(content);
+  return countDirectAccess(content, table) > 0;
 }
 
 const invoiceOffenders = [];
-const presentInvoiceLegacy = [];
+const presentInvoiceLegacy = new Map();
 const staffUiOffenders = [];
 const presentStaffUiLegacy = [];
 const employeeTxnUiOffenders = [];
@@ -100,13 +108,14 @@ for (const file of walk(ROOT)) {
   const relative = repoPath(file);
   const content = fs.readFileSync(file, 'utf8');
 
-  if (hasDirectAccess(content, 'sales_invoices')) {
+  const invoiceReadCount = countDirectAccess(content, 'sales_invoices');
+  if (invoiceReadCount > 0) {
     if (APPROVED_INVOICE_BOUNDARIES.has(relative)) {
       // Intentional boundary.
-    } else if (LEGACY_DIRECT_INVOICE_READERS.has(relative)) {
-      presentInvoiceLegacy.push(relative);
+    } else if (LEGACY_DIRECT_INVOICE_READER_BUDGETS.has(relative)) {
+      presentInvoiceLegacy.set(relative, invoiceReadCount);
     } else {
-      invoiceOffenders.push(relative);
+      invoiceOffenders.push(`${relative} (${invoiceReadCount} direct reads)`);
     }
   }
 
@@ -135,6 +144,20 @@ for (const file of walk(ROOT)) {
   }
 }
 
+for (const [file, budget] of LEGACY_DIRECT_INVOICE_READER_BUDGETS) {
+  const actual = presentInvoiceLegacy.get(file) || 0;
+  if (actual !== budget) {
+    console.error('\nInvoice direct-read debt ratchet changed.');
+    console.error(`  - ${file}: expected ${budget}, found ${actual}`);
+    if (actual < budget) {
+      console.error('Good migration detected. Lower the budget in the same PR so the removed debt cannot return.');
+    } else {
+      console.error('New legacy debt detected. Route the read through an approved read model/RPC instead.');
+    }
+    process.exit(1);
+  }
+}
+
 function failOnStaleDebt(register, present, label) {
   const stale = [...register].filter((file) => !present.includes(file));
   if (!stale.length) return;
@@ -144,7 +167,6 @@ function failOnStaleDebt(register, present, label) {
   process.exit(1);
 }
 
-failOnStaleDebt(LEGACY_DIRECT_INVOICE_READERS, presentInvoiceLegacy, 'Invoice');
 failOnStaleDebt(LEGACY_DIRECT_STAFF_UI_READERS, presentStaffUiLegacy, 'Staff UI');
 failOnStaleDebt(
   LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS,
@@ -213,6 +235,7 @@ if (staleDotPermissionDebt.length) {
   process.exit(1);
 }
 
+const legacyInvoiceReadTotal = [...presentInvoiceLegacy.values()].reduce((sum, count) => sum + count, 0);
 console.log(
-  `Architecture boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.length}. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}. Legacy employee transaction UI readers: ${presentEmployeeTxnUiLegacy.length}. Legacy attendance UI readers: ${presentAttendanceUiLegacy.length}. Routes checked: ${routePaths.length}. Legacy dot permissions: ${dotPermissionKeys.size}.`
+  `Architecture boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.size} files / ${legacyInvoiceReadTotal} direct reads. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}. Legacy employee transaction UI readers: ${presentEmployeeTxnUiLegacy.length}. Legacy attendance UI readers: ${presentAttendanceUiLegacy.length}. Routes checked: ${routePaths.length}. Legacy dot permissions: ${dotPermissionKeys.size}.`
 );
