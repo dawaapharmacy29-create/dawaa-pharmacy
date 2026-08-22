@@ -96,6 +96,9 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Runtime performance budget
+        run: npm run perf:budget
+
       - name: Capture repository mutation diagnostics
         if: always()
         run: |
