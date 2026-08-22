@@ -20,86 +20,115 @@ html[data-theme='pharmacy-green'] .min-h-screen {
   background-image: none !important;
 }
 
-/* Application chrome */
-html[data-theme] header {
-  background: color-mix(in srgb, var(--dawaa-theme-surface) 97%, transparent) !important;
-  color: var(--dawaa-theme-text) !important;
-  border-color: var(--dawaa-theme-divider) !important;
-  box-shadow: 0 1px 0 var(--dawaa-theme-divider) !important;
+/* Canonical application header. Header.tsx consumes these classes directly. */
+.dawaa-header {
+  background: color-mix(in srgb, var(--dawaa-theme-surface) 97%, transparent);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-divider);
+  box-shadow: 0 1px 0 var(--dawaa-theme-divider);
 }
 
-html[data-theme] aside {
-  background: var(--dawaa-theme-sidebar) !important;
-  color: var(--dawaa-theme-text) !important;
-  border-color: var(--dawaa-theme-divider) !important;
-  box-shadow: -8px 0 28px color-mix(in srgb, var(--dawaa-theme-heading) 4%, transparent) !important;
+.dawaa-header-title { color: var(--dawaa-theme-heading); }
+.dawaa-header-muted { color: var(--dawaa-theme-muted); }
+.dawaa-header-brand { color: var(--dawaa-theme-primary-strong); }
+
+.dawaa-header-icon-button {
+  color: var(--dawaa-theme-muted);
+  background: transparent;
+  border: 1px solid transparent;
+}
+.dawaa-header-icon-button:hover {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-surface-2);
+  border-color: var(--dawaa-theme-border);
 }
 
-/* Active Header.tsx compatibility while its JSX migrates to semantic classes. */
-html[data-theme] header .text-slate-950,
-html[data-theme] header .text-slate-900 {
-  color: var(--dawaa-theme-heading) !important;
+.dawaa-header-cycle {
+  background: var(--dawaa-theme-soft);
+  border: 1px solid var(--dawaa-theme-border-strong);
+  color: var(--dawaa-theme-primary-strong);
 }
 
-html[data-theme] header .text-slate-400,
-html[data-theme] header .text-slate-500,
-html[data-theme] header .text-slate-600,
-html[data-theme] header .text-slate-700 {
-  color: var(--dawaa-theme-muted) !important;
+.dawaa-header-popover {
+  background: var(--dawaa-theme-surface-raised);
+  border: 1px solid var(--dawaa-theme-border);
+  color: var(--dawaa-theme-text);
+  box-shadow: var(--dawaa-theme-shadow);
 }
 
-html[data-theme] header [class*='bg-white'],
-html[data-theme] header [class*='bg-slate-50'],
-html[data-theme] header [class*='bg-slate-100'] {
-  background: var(--dawaa-theme-surface) !important;
-  border-color: var(--dawaa-theme-border) !important;
+.dawaa-header-popover-divider { border-color: var(--dawaa-theme-divider); }
+
+.dawaa-header-toggle-group {
+  background: var(--dawaa-theme-surface-2);
+  border: 1px solid var(--dawaa-theme-border);
 }
 
-html[data-theme] header [class*='bg-teal-50'] {
-  background: var(--dawaa-theme-soft) !important;
-  border-color: var(--dawaa-theme-border-strong) !important;
+.dawaa-header-toggle {
+  color: var(--dawaa-theme-muted);
+  background: transparent;
+}
+.dawaa-header-toggle:hover {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-sidebar-hover);
+}
+.dawaa-header-toggle.is-active {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-surface-raised);
+  box-shadow: var(--dawaa-theme-shadow-soft);
 }
 
-html[data-theme] header [class*='text-teal-700'],
-html[data-theme] header [class*='text-teal-800'] {
-  color: var(--dawaa-theme-primary-strong) !important;
+.dawaa-header-notification-row {
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-divider);
+  background: transparent;
+}
+.dawaa-header-notification-row:hover { background: var(--dawaa-theme-surface-2); }
+.dawaa-header-notification-row.is-unread { background: var(--dawaa-theme-soft); }
+
+.dawaa-header-unread-dot,
+.dawaa-header-unread-count {
+  background: var(--dawaa-theme-primary);
+  color: var(--dawaa-theme-primary-text);
+}
+.dawaa-header-unread-count { border-color: var(--dawaa-theme-surface); }
+
+.dawaa-header-settings-row {
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-divider);
+  background: var(--dawaa-theme-surface);
 }
 
-html[data-theme] header [class*='bg-teal-500'],
-html[data-theme] header [class*='bg-teal-600'],
-html[data-theme] header [class*='bg-teal-700'] {
-  background: var(--dawaa-theme-primary) !important;
-  color: var(--dawaa-theme-primary-text) !important;
-  border-color: transparent !important;
+.dawaa-header-footer-action {
+  color: var(--dawaa-theme-primary-strong);
+  background: var(--dawaa-theme-surface-2);
+  border-color: var(--dawaa-theme-divider);
+}
+.dawaa-header-footer-action:hover { background: var(--dawaa-theme-soft); }
+
+.theme-switcher {
+  background: var(--dawaa-theme-surface-2);
+  border-color: var(--dawaa-theme-border);
+}
+.theme-option {
+  color: var(--dawaa-theme-muted);
+  background: transparent;
+}
+.theme-option:hover {
+  color: var(--dawaa-theme-heading);
+  background: var(--dawaa-theme-sidebar-hover);
+}
+.theme-option-active {
+  color: var(--dawaa-theme-primary-text);
+  background: var(--dawaa-theme-primary);
+  box-shadow: none;
 }
 
-html[data-theme] header .theme-switcher {
-  background: var(--dawaa-theme-surface-2) !important;
-  border-color: var(--dawaa-theme-border) !important;
-}
-
-html[data-theme] header .theme-option {
-  color: var(--dawaa-theme-muted) !important;
-  background: transparent !important;
-}
-
-html[data-theme] header .theme-option:hover {
-  color: var(--dawaa-theme-heading) !important;
-  background: var(--dawaa-theme-sidebar-hover) !important;
-}
-
-html[data-theme] header .theme-option-active {
-  color: var(--dawaa-theme-primary-text) !important;
-  background: var(--dawaa-theme-primary) !important;
-  box-shadow: none !important;
-}
-
-/* Canonical Sidebar semantic classes. Sidebar.tsx must use these instead of
-   Tailwind palette utilities or hard-coded colors. */
+/* Canonical Sidebar semantic classes. */
 .dawaa-sidebar {
   background: var(--dawaa-theme-sidebar);
   color: var(--dawaa-theme-text);
   border-color: var(--dawaa-theme-divider);
+  box-shadow: -8px 0 28px color-mix(in srgb, var(--dawaa-theme-heading) 4%, transparent);
 }
 
 .dawaa-sidebar-divider { border-color: var(--dawaa-theme-divider); }
