@@ -10,7 +10,7 @@ const textExts = new Set(['.css', '.ts', '.tsx', '.js', '.jsx']);
 const paletteUtility = /\b(?:bg|text|border|ring|from|to|via)-(?:slate|gray|zinc|neutral|stone|white|black)(?:-|\/|\b)/g;
 const hardcodedColor = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/g;
 const important = /!important/g;
-const semanticTokens = /var\(--dawaa-theme-|\b(?:dawaa-app-bg|dawaa-surface|dawaa-surface-soft|dawaa-surface-raised|dawaa-text|dawaa-heading|dawaa-muted|dawaa-border)\b/g;
+const semanticTokens = /var\(--dawaa-(?:theme|status|space|radius|font|control|duration|ease|z)-|\b(?:dawaa-app-bg|dawaa-page(?:-shell)?|dawaa-section|dawaa-surface(?:-soft|-raised|-interactive)?|dawaa-card(?:--soft|--raised|--interactive)?|dawaa-button(?:--primary|--secondary|--ghost)?|dawaa-input|dawaa-select|dawaa-textarea|dawaa-table(?:-shell|-semantic)?|dawaa-badge(?:--success|--warning|--danger|--info)?|dawaa-alert(?:--success|--warning|--danger|--info)?|dawaa-toolbar|dawaa-tabs?|dawaa-title|dawaa-body|dawaa-caption|dawaa-text|dawaa-heading|dawaa-muted|dawaa-border|dawaa-divider|dawaa-sidebar|dawaa-nav-item)\b/g;
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -56,5 +56,5 @@ for (const row of rows.sort((a, b) => b.debt - a.debt).slice(0, 20)) {
   console.log(`${row.debt.toString().padStart(4)} debt | ${row.paletteUtilities.toString().padStart(3)} palette | ${row.hardcodedColors.toString().padStart(3)} colors | ${row.important.toString().padStart(3)} !important | ${row.semanticTokens.toString().padStart(3)} semantic | ${row.file}`);
 }
 
-// Diagnostic only for the current legacy cleanup phase. The single-writer theme gate is enforced separately.
+// Diagnostic during legacy cleanup. Architecture constraints are enforced separately.
 process.exit(0);
