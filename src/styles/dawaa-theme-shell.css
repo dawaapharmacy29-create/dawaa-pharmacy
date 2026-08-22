@@ -49,6 +49,14 @@ html[data-theme='pharmacy-green'] .min-h-screen {
   color: var(--dawaa-theme-primary-strong);
 }
 
+.dawaa-header-status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
 .dawaa-header-popover {
   background: var(--dawaa-theme-surface-raised);
   border: 1px solid var(--dawaa-theme-border);
