@@ -226,6 +226,25 @@
   box-shadow: var(--dawaa-theme-shadow-soft);
 }
 
+.dawaa-loading-mark {
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--dawaa-radius-xl);
+  border: 1px solid var(--dawaa-theme-border);
+  background: var(--dawaa-theme-soft);
+}
+
+.dawaa-loading-spinner {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--dawaa-radius-pill);
+  border: 4px solid var(--dawaa-theme-border);
+  border-top-color: var(--dawaa-theme-primary);
+  animation: dawaa-spin 800ms linear infinite;
+}
+
+@keyframes dawaa-spin { to { transform: rotate(360deg); } }
+
 @media (max-width: 768px) {
   .dawaa-page-shell { padding: var(--dawaa-space-3); }
   .dawaa-card { --dawaa-card-padding: var(--dawaa-space-4); }
