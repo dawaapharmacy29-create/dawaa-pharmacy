@@ -24,23 +24,23 @@
 }
 
 html.light-mode {
-  --dawaa-theme-bg: #eefbf8;
-  --dawaa-theme-bg-soft: #f6fffd;
+  --dawaa-theme-bg: #f2f6f7;
+  --dawaa-theme-bg-soft: #f7fafb;
   --dawaa-theme-surface: #ffffff;
-  --dawaa-theme-surface-2: #f5fbfa;
-  --dawaa-theme-soft: rgba(20, 184, 166, 0.12);
-  --dawaa-theme-border: rgba(13, 148, 136, 0.2);
-  --dawaa-theme-border-strong: rgba(20, 184, 166, 0.48);
-  --dawaa-theme-text: #0f2637;
-  --dawaa-theme-heading: #071522;
-  --dawaa-theme-muted: #52687a;
-  --dawaa-theme-primary: #0fbaaa;
-  --dawaa-theme-primary-strong: #0d9488;
+  --dawaa-theme-surface-2: #f4f8f8;
+  --dawaa-theme-soft: rgba(14, 159, 144, 0.09);
+  --dawaa-theme-border: #d8e2e5;
+  --dawaa-theme-border-strong: #9ecbc5;
+  --dawaa-theme-text: #243740;
+  --dawaa-theme-heading: #102832;
+  --dawaa-theme-muted: #667a84;
+  --dawaa-theme-primary: #0e9f90;
+  --dawaa-theme-primary-strong: #0b7f74;
   --dawaa-theme-primary-text: #ffffff;
-  --dawaa-theme-input: #ffffff;
-  --dawaa-theme-table-head: #eaf4f3;
+  --dawaa-theme-input: #fbfdfd;
+  --dawaa-theme-table-head: #edf3f4;
   --dawaa-theme-table-row: #ffffff;
-  --dawaa-theme-table-hover: #e9fbf7;
+  --dawaa-theme-table-hover: #eef8f7;
   color-scheme: light;
 }
 
@@ -212,62 +212,38 @@ tbody tr:hover td {
   background: var(--dawaa-theme-table-hover) !important;
 }
 
+/* Legacy palette bridges now consume semantic status tokens. */
 .badge-success,
 [class*='bg-green-500/'],
 [class*='bg-emerald-500/'] {
-  background: rgba(16, 185, 129, 0.16) !important;
-  color: #34d399 !important;
-  border-color: rgba(52, 211, 153, 0.35) !important;
+  background: var(--dawaa-status-success-bg) !important;
+  color: var(--dawaa-status-success-text) !important;
+  border-color: var(--dawaa-status-success-border) !important;
 }
 
 .badge-warning,
 [class*='bg-amber-500/'],
 [class*='bg-yellow-500/'] {
-  background: rgba(245, 158, 11, 0.16) !important;
-  color: #fbbf24 !important;
-  border-color: rgba(251, 191, 36, 0.35) !important;
+  background: var(--dawaa-status-warning-bg) !important;
+  color: var(--dawaa-status-warning-text) !important;
+  border-color: var(--dawaa-status-warning-border) !important;
 }
 
 .badge-danger,
 [class*='bg-red-500/'],
 [class*='bg-rose-500/'] {
-  background: rgba(248, 113, 113, 0.16) !important;
-  color: #fca5a5 !important;
-  border-color: rgba(252, 165, 165, 0.35) !important;
+  background: var(--dawaa-status-danger-bg) !important;
+  color: var(--dawaa-status-danger-text) !important;
+  border-color: var(--dawaa-status-danger-border) !important;
 }
 
 .badge-info,
 [class*='bg-blue-500/'],
 [class*='bg-purple-500/'],
 [class*='bg-violet-500/'] {
-  background: rgba(96, 165, 250, 0.16) !important;
-  color: #93c5fd !important;
-  border-color: rgba(147, 197, 253, 0.35) !important;
-}
-
-html.light-mode .badge-success,
-html.light-mode [class*='bg-green-500/'],
-html.light-mode [class*='bg-emerald-500/'] {
-  color: #047857 !important;
-}
-
-html.light-mode .badge-warning,
-html.light-mode [class*='bg-amber-500/'],
-html.light-mode [class*='bg-yellow-500/'] {
-  color: #92400e !important;
-}
-
-html.light-mode .badge-danger,
-html.light-mode [class*='bg-red-500/'],
-html.light-mode [class*='bg-rose-500/'] {
-  color: #b91c1c !important;
-}
-
-html.light-mode .badge-info,
-html.light-mode [class*='bg-blue-500/'],
-html.light-mode [class*='bg-purple-500/'],
-html.light-mode [class*='bg-violet-500/'] {
-  color: #1d4ed8 !important;
+  background: var(--dawaa-status-info-bg) !important;
+  color: var(--dawaa-status-info-text) !important;
+  border-color: var(--dawaa-status-info-border) !important;
 }
 
 .recharts-cartesian-axis-tick-value,
@@ -356,30 +332,26 @@ html.light-mode .executive-dashboard-page .text-slate-500 {
 
 .executive-dashboard-page .decision-tone-danger,
 .executive-dashboard-page [class*='bg-red-50'] {
-  background: rgba(248, 113, 113, 0.12) !important;
-  color: #fca5a5 !important;
-}
-
-html.light-mode .executive-dashboard-page .decision-tone-danger,
-html.light-mode .executive-dashboard-page [class*='bg-red-50'] {
-  color: #b91c1c !important;
+  background: var(--dawaa-status-danger-bg) !important;
+  color: var(--dawaa-status-danger-text) !important;
 }
 
 .executive-dashboard-page .decision-tone-warning,
 .executive-dashboard-page [class*='bg-amber-50'] {
-  background: rgba(245, 158, 11, 0.12) !important;
-  color: #fbbf24 !important;
+  background: var(--dawaa-status-warning-bg) !important;
+  color: var(--dawaa-status-warning-text) !important;
 }
 
 .executive-dashboard-page .decision-tone-success,
 .executive-dashboard-page [class*='bg-teal-50'] {
-  background: var(--dawaa-theme-soft) !important;
+  background: var(--dawaa-status-success-bg) !important;
+  color: var(--dawaa-status-success-text) !important;
 }
 
 .executive-dashboard-page .decision-tone-info,
 .executive-dashboard-page [class*='bg-blue-50'] {
-  background: rgba(96, 165, 250, 0.12) !important;
-  color: #93c5fd !important;
+  background: var(--dawaa-status-info-bg) !important;
+  color: var(--dawaa-status-info-text) !important;
 }
 
 /* إلغاء طبقة index القديمة التي تعيد #1B2B4B */
