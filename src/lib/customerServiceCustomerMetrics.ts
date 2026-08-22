@@ -10,6 +10,8 @@ import {
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_INVOICES_PER_CUSTOMER = 700;
+const INVOICE_METRIC_FIELDS =
+  'id,invoice_no,invoice_number,invoice_date,sale_date,invoice_datetime,date,net_amount,net_total,discounted_amount,total_amount,amount,gross_total,gross_amount,branch,branch_name,customer_id,customer_code,customer_phone,phone,customer_name';
 
 export type CustomerServiceLiveMetrics = {
   total_spent: number;
@@ -37,6 +39,7 @@ export type CustomerServiceLiveMetrics = {
 type CacheEntry = { at: number; data: CustomerServiceLiveMetrics };
 
 const cache = new Map<string, CacheEntry>();
+const inFlight = new Map<string, Promise<CustomerServiceLiveMetrics | null>>();
 
 export type CustomerMetricsLookup = {
   customer_id?: string | number | null;
@@ -95,26 +98,8 @@ function monthEnd(offset = 0) {
   return new Date(date.getFullYear(), date.getMonth() + offset + 1, 0).toISOString().slice(0, 10);
 }
 
-function valueOf(row: InvoiceLike, keys: string[]) {
-  for (const key of keys) {
-    const value = row[key];
-    if (value !== undefined && value !== null && cleanText(value) !== '') return value;
-  }
-  return null;
-}
-
 function invoiceDate(row: InvoiceLike) {
   return getInvoiceDay(row);
-}
-
-function parseMoney(value: unknown) {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  const normalized = cleanText(value)
-    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
-    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
-    .replace(/[^0-9.\-]/g, '');
-  const amount = Number(normalized || 0);
-  return Number.isFinite(amount) ? amount : 0;
 }
 
 function invoiceAmount(row: InvoiceLike) {
@@ -152,13 +137,10 @@ function statusFrom(lastPurchase: string | null) {
 
 function summarizeInvoices(rows: InvoiceLike[], matchedBy: string | null): CustomerServiceLiveMetrics {
   const invoices = new Map<string, InvoiceLike>();
-  for (const row of rows) {
-    invoices.set(invoiceIdentity(row), row);
-  }
+  for (const row of rows) invoices.set(invoiceIdentity(row), row);
 
   const uniqueRows = [...invoices.values()];
-  const totals = uniqueRows.map(invoiceAmount).filter(Number.isFinite);
-  const total = totals.reduce((sum, value) => sum + value, 0);
+  const total = uniqueRows.reduce((sum, row) => sum + invoiceAmount(row), 0);
   const datedRows = uniqueRows
     .map((row) => ({ row, date: invoiceDate(row), amount: invoiceAmount(row), branch: invoiceBranch(row) }))
     .filter((item) => Boolean(item.date))
@@ -170,7 +152,6 @@ function summarizeInvoices(rows: InvoiceLike[], matchedBy: string | null): Custo
   const currentEnd = monthEnd(0);
   const previousStart = monthStart(-1);
   const previousEnd = monthEnd(-1);
-
   const currentMonthRows = datedRows.filter((item) => item.date! >= currentStart && item.date! <= currentEnd);
   const previousMonthRows = datedRows.filter((item) => item.date! >= previousStart && item.date! <= previousEnd);
 
@@ -217,7 +198,10 @@ function summarizeInvoices(rows: InvoiceLike[], matchedBy: string | null): Custo
 async function querySalesInvoices(column: string, operator: 'eq' | 'ilike', value: string) {
   if (!isSupabaseConfigured || !value) return { rows: [] as InvoiceLike[], error: null as unknown };
 
-  let query = supabase.from('sales_invoices').select('*').limit(MAX_INVOICES_PER_CUSTOMER);
+  let query = supabase
+    .from('sales_invoices')
+    .select(INVOICE_METRIC_FIELDS)
+    .limit(MAX_INVOICES_PER_CUSTOMER);
   query = operator === 'eq' ? query.eq(column, value) : query.ilike(column, value);
   const { data, error } = await query;
   if (error) return { rows: [] as InvoiceLike[], error };
@@ -234,38 +218,14 @@ async function fetchByStrategies(input: CustomerMetricsLookup) {
   const allRows: InvoiceLike[] = [];
   const matched: string[] = [];
 
+  // sales_invoices has one canonical set of customer columns. Older alias columns were
+  // causing sequential failed requests before the real column was tried.
   const strategies: Array<{ label: string; columns: string[]; op: 'eq' | 'ilike'; value: string }> = [];
-
-  if (code) {
-    strategies.push({ label: 'code', columns: ['customer_code', 'client_code', 'code'], op: 'eq', value: code });
-  }
-  if (customerId && isUuid(customerId)) {
-    strategies.push({ label: 'customer_id', columns: ['customer_id', 'client_id'], op: 'eq', value: customerId });
-  }
-  if (phone) {
-    strategies.push({
-      label: 'phone',
-      columns: ['customer_phone', 'phone', 'mobile', 'client_phone', 'whatsapp_phone'],
-      op: 'eq',
-      value: phone,
-    });
-  }
-  if (phoneTail.length >= 8) {
-    strategies.push({
-      label: 'phoneTail',
-      columns: ['customer_phone', 'phone', 'mobile', 'client_phone', 'whatsapp_phone'],
-      op: 'ilike',
-      value: `%${phoneTail}`,
-    });
-  }
-  if (name && normalizedName.length >= 3) {
-    strategies.push({
-      label: 'name',
-      columns: ['customer_name', 'name', 'client_name'],
-      op: 'ilike',
-      value: `%${name}%`,
-    });
-  }
+  if (code) strategies.push({ label: 'code', columns: ['customer_code'], op: 'eq', value: code });
+  if (customerId && isUuid(customerId)) strategies.push({ label: 'customer_id', columns: ['customer_id'], op: 'eq', value: customerId });
+  if (phone) strategies.push({ label: 'phone', columns: ['customer_phone', 'phone'], op: 'eq', value: phone });
+  if (phoneTail.length >= 8) strategies.push({ label: 'phoneTail', columns: ['customer_phone', 'phone'], op: 'ilike', value: `%${phoneTail}` });
+  if (name && normalizedName.length >= 3) strategies.push({ label: 'name', columns: ['customer_name'], op: 'ilike', value: `%${name}%` });
 
   for (const strategy of strategies) {
     for (const column of strategy.columns) {
@@ -274,26 +234,26 @@ async function fetchByStrategies(input: CustomerMetricsLookup) {
 
       let filteredRows = rows;
       if (strategy.label === 'name' && phoneTail.length >= 8) {
-        const phoneColumns = ['customer_phone', 'phone', 'mobile', 'client_phone', 'whatsapp_phone'];
         const phoneFiltered = rows.filter((row) =>
-          phoneColumns.some((columnName) => lastPhoneDigits(row[columnName]).endsWith(phoneTail))
+          ['customer_phone', 'phone'].some((columnName) => lastPhoneDigits(row[columnName]).endsWith(phoneTail))
         );
         if (phoneFiltered.length) filteredRows = phoneFiltered;
       }
 
       allRows.push(...filteredRows);
       matched.push(`${strategy.label}:${column}`);
-      if (strategy.label === 'code' || strategy.label === 'phone' || strategy.label === 'phoneTail') {
-        break;
-      }
+      if (strategy.label !== 'name') break;
     }
-    if (allRows.length && ['code', 'phone', 'phoneTail', 'customer_id'].some((key) => matched.some((m) => m.startsWith(key)))) {
-      // Stop after a strong match to avoid pulling unrelated name matches.
-      break;
-    }
+    if (allRows.length && ['code', 'phone', 'phoneTail', 'customer_id'].some((key) => matched.some((match) => match.startsWith(key)))) break;
   }
 
   return { rows: allRows, matchedBy: matched.join(',') || null };
+}
+
+async function loadLiveMetrics(input: CustomerMetricsLookup) {
+  const { rows, matchedBy } = await fetchByStrategies(input);
+  if (!rows.length) return null;
+  return summarizeInvoices(rows, matchedBy);
 }
 
 export async function getCustomerServiceLiveMetrics(
@@ -305,17 +265,22 @@ export async function getCustomerServiceLiveMetrics(
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.data;
 
-  try {
-    const { rows, matchedBy } = await fetchByStrategies(input);
-    if (!rows.length) return null;
+  const existingRequest = inFlight.get(key);
+  if (existingRequest) return existingRequest;
 
-    const metrics = summarizeInvoices(rows, matchedBy);
-    cache.set(key, { at: Date.now(), data: metrics });
-    return metrics;
-  } catch (error) {
-    if (import.meta.env.DEV) console.warn('[customerServiceCustomerMetrics] failed', error);
-    return null;
-  }
+  const request = loadLiveMetrics(input)
+    .then((metrics) => {
+      if (metrics) cache.set(key, { at: Date.now(), data: metrics });
+      return metrics;
+    })
+    .catch((error) => {
+      if (import.meta.env.DEV) console.warn('[customerServiceCustomerMetrics] failed', error);
+      return null;
+    })
+    .finally(() => inFlight.delete(key));
+
+  inFlight.set(key, request);
+  return request;
 }
 
 export async function batchEnrichCustomerServiceMetrics(
@@ -347,6 +312,7 @@ export async function batchEnrichCustomerServiceMetrics(
 
 export function clearCustomerServiceMetricsCache() {
   cache.clear();
+  inFlight.clear();
 }
 
 export function useCustomerServiceMetricsEnrichment(items: CustomerMetricsLookup[]) {

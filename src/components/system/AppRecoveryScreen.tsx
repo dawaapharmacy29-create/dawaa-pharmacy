@@ -1,4 +1,4 @@
-import { diagnosticsUrl, loginRecoveryUrl, redirectToLoginWithRecovery, startRecoveryCleanup } from '@/lib/appRecovery';
+import { diagnosticsUrl, loginRecoveryUrl, startRecoveryCleanup } from '@/lib/appRecovery';
 
 interface AppRecoveryScreenProps {
   title?: string;
@@ -7,26 +7,32 @@ interface AppRecoveryScreenProps {
 }
 
 export default function AppRecoveryScreen({
-  title = 'إصلاح تحميل التطبيق',
-  message = 'تعذر إكمال تحميل التطبيق. يمكنك فتح تسجيل الدخول فورًا أو تنظيف ملفات التشغيل المؤقتة ثم الدخول من جديد.',
+  title = 'استعادة تشغيل التطبيق',
+  message = 'حدث خطأ أثناء تحميل جزء من التطبيق. ابدأ بالتحديث الآمن أو التشخيص؛ لا تحتاج لإعادة تسجيل الدخول إلا إذا كانت الجلسة نفسها منتهية.',
   reason = 'app',
 }: AppRecoveryScreenProps) {
   const loginUrl = typeof window !== 'undefined' ? loginRecoveryUrl(reason) : '/login';
   const cleanLoginUrl = typeof window !== 'undefined' ? loginRecoveryUrl(`${reason}_clean`) : '/login';
   const diagnosticsHref = typeof window !== 'undefined' ? diagnosticsUrl(reason) : '/diagnostics';
 
-  const handleRepair = () => {
-    redirectToLoginWithRecovery(reason, true);
-  };
-
-  const handleFullClean = () => {
-    redirectToLoginWithRecovery(`${reason}_clean`, true);
-  };
-
   const handleReload = () => {
     const url = new URL(window.location.href);
     url.searchParams.set('_reload', Date.now().toString());
     window.location.replace(url.toString());
+  };
+
+  const handleRepair = () => {
+    // تنظيف ملفات التشغيل المؤقتة فقط. لا نمسح localStorage/sessionStorage
+    // وبالتالي تظل جلسة المستخدم محفوظة لو كانت سليمة.
+    startRecoveryCleanup();
+    window.setTimeout(handleReload, 450);
+  };
+
+  const handleFullClean = () => {
+    // هذا هو المسار الوحيد الذي يمسح بيانات التطبيق والجلسة، لذلك يظل خيارًا
+    // صريحًا وأخيرًا بدل أن يحدث تلقائيًا عند أي خطأ تحميل عابر.
+    startRecoveryCleanup({ clearAppStorage: true });
+    window.setTimeout(() => window.location.assign(cleanLoginUrl), 550);
   };
 
   return (
@@ -44,37 +50,36 @@ export default function AppRecoveryScreen({
           <button
             type="button"
             onClick={handleReload}
-            className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-black text-slate-200 transition hover:bg-slate-800"
-          >
-            تحديث
-          </button>
-          <a
-            href={loginUrl}
-            onClick={() => startRecoveryCleanup()}
             className="rounded-xl bg-teal-600 px-4 py-3 text-sm font-black text-white transition hover:bg-teal-500"
           >
-            فتح تسجيل الدخول فقط
-          </a>
-          <a
-            href={cleanLoginUrl}
+            تحديث آمن
+          </button>
+          <button
+            type="button"
             onClick={handleRepair}
             className="rounded-xl border border-teal-400/40 bg-teal-500/10 px-4 py-3 text-sm font-black text-teal-100 transition hover:bg-teal-500/20"
           >
-            إصلاح التحميل
-          </a>
-          <a
-            href={cleanLoginUrl}
-            onClick={handleFullClean}
-            className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm font-black text-amber-100 transition hover:bg-amber-500/20"
-          >
-            تنظيف كامل والدخول من جديد
-          </a>
+            إصلاح كاش التشغيل بدون تسجيل خروج
+          </button>
           <a
             href={diagnosticsHref}
             className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-black text-slate-200 transition hover:bg-slate-800"
           >
             فتح التشخيص
           </a>
+          <a
+            href={loginUrl}
+            className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-black text-slate-300 transition hover:bg-slate-800"
+          >
+            الذهاب لتسجيل الدخول فقط
+          </a>
+          <button
+            type="button"
+            onClick={handleFullClean}
+            className="rounded-xl border border-amber-400/35 bg-amber-500/5 px-4 py-3 text-xs font-black text-amber-100 transition hover:bg-amber-500/15"
+          >
+            تنظيف كامل وتسجيل خروج — كحل أخير
+          </button>
         </div>
       </section>
     </main>
