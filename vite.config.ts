@@ -35,6 +35,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // Granular chunks improve caching and keep route-only tools out of the first load.
+        // PDF libraries intentionally stay with their lazy route graph instead of being
+        // forced into a global manual chunk, which previously made that chunk static.
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.includes('react-dom') || id.includes('react/') || id.includes('scheduler'))
@@ -51,7 +53,6 @@ export default defineConfig({
             if (id.includes('framer-motion')) return 'motion';
             if (id.includes('leaflet') || id.includes('react-leaflet')) return 'maps';
             if (id.includes('xlsx') || id.includes('exceljs')) return 'excel';
-            if (id.includes('jspdf') || id.includes('html2canvas')) return 'pdf';
             if (id.includes('/qrcode/')) return 'qrcode';
             if (id.includes('react-calendar') || id.includes('react-day-picker')) return 'calendar';
             if (id.includes('react-dropzone')) return 'upload';
