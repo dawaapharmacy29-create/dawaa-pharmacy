@@ -17,10 +17,7 @@
   padding: var(--dawaa-space-5);
 }
 
-.dawaa-section {
-  display: grid;
-  gap: var(--dawaa-section-gap);
-}
+.dawaa-section { display: grid; gap: var(--dawaa-section-gap); }
 
 .dawaa-card {
   border: 1px solid var(--dawaa-theme-border);
@@ -31,16 +28,11 @@
   box-shadow: var(--dawaa-theme-shadow-soft), inset 0 1px 0 var(--dawaa-theme-highlight);
 }
 
-.dawaa-card--soft {
-  background: var(--dawaa-theme-surface-2);
-  box-shadow: none;
-}
-
+.dawaa-card--soft { background: var(--dawaa-theme-surface-2); box-shadow: none; }
 .dawaa-card--raised {
   background: var(--dawaa-theme-surface-raised);
   box-shadow: var(--dawaa-theme-shadow), inset 0 1px 0 var(--dawaa-theme-highlight);
 }
-
 .dawaa-card--interactive {
   cursor: pointer;
   transition:
@@ -49,22 +41,15 @@
     box-shadow var(--dawaa-duration-normal) var(--dawaa-ease-standard),
     transform var(--dawaa-duration-fast) var(--dawaa-ease-standard);
 }
-
 .dawaa-card--interactive:hover {
   background: var(--dawaa-theme-surface-2);
   border-color: var(--dawaa-theme-border-strong);
   box-shadow: var(--dawaa-theme-shadow);
   transform: translateY(-1px);
 }
-
 .dawaa-card--interactive:active { transform: translateY(0); }
 
-.dawaa-title {
-  color: var(--dawaa-theme-heading);
-  font-weight: 800;
-  line-height: var(--dawaa-line-tight);
-}
-
+.dawaa-title { color: var(--dawaa-theme-heading); font-weight: 800; line-height: var(--dawaa-line-tight); }
 .dawaa-body { color: var(--dawaa-theme-text); line-height: var(--dawaa-line-normal); }
 .dawaa-caption { color: var(--dawaa-theme-muted); font-size: var(--dawaa-font-sm); line-height: var(--dawaa-line-normal); }
 
@@ -93,23 +78,15 @@
   box-shadow: 0 0 0 3px var(--dawaa-theme-focus);
 }
 
-.dawaa-button--primary {
-  color: var(--dawaa-theme-primary-text);
-  background: var(--dawaa-theme-primary);
-}
+.dawaa-button--primary { color: var(--dawaa-theme-primary-text); background: var(--dawaa-theme-primary); }
 .dawaa-button--primary:hover { background: var(--dawaa-theme-primary-strong); }
-
 .dawaa-button--secondary {
   color: var(--dawaa-theme-heading);
   background: var(--dawaa-theme-surface-2);
   border-color: var(--dawaa-theme-border);
 }
 .dawaa-button--secondary:hover { border-color: var(--dawaa-theme-border-strong); }
-
-.dawaa-button--ghost {
-  color: var(--dawaa-theme-text);
-  background: transparent;
-}
+.dawaa-button--ghost { color: var(--dawaa-theme-text); background: transparent; }
 .dawaa-button--ghost:hover { background: var(--dawaa-theme-surface-2); }
 
 .dawaa-input,
@@ -127,7 +104,6 @@
     box-shadow var(--dawaa-duration-fast) var(--dawaa-ease-standard),
     background-color var(--dawaa-duration-fast) var(--dawaa-ease-standard);
 }
-
 .dawaa-textarea { padding-block: var(--dawaa-space-3); }
 .dawaa-input:hover,
 .dawaa-select:hover,
@@ -245,21 +221,14 @@
 
 @keyframes dawaa-spin { to { transform: rotate(360deg); } }
 
-/*
- * Current-app compatibility aliases
- * ---------------------------------
- * These names are used by the active 2027 pages today. They intentionally map
- * to semantic tokens here (the last CSS layer) so those pages stop depending
- * on the old fixed light palette in index.css. New code should prefer the
- * canonical component names above; these aliases are removed as each consumer
- * migrates.
- */
+/* Current-app compatibility aliases. These names remain while active pages migrate,
+   but they now participate in the normal cascade and consume semantic tokens only. */
 .dawaa-hero,
 .dawaa-panel {
-  border: 1px solid var(--dawaa-theme-border) !important;
-  background: var(--dawaa-theme-surface) !important;
-  color: var(--dawaa-theme-text) !important;
-  box-shadow: var(--dawaa-theme-shadow-soft), inset 0 1px 0 var(--dawaa-theme-highlight) !important;
+  border: 1px solid var(--dawaa-theme-border);
+  background: var(--dawaa-theme-surface);
+  color: var(--dawaa-theme-text);
+  box-shadow: var(--dawaa-theme-shadow-soft), inset 0 1px 0 var(--dawaa-theme-highlight);
 }
 
 .dawaa-hero {
@@ -271,42 +240,39 @@
   padding: var(--dawaa-space-5);
 }
 
-.dawaa-panel {
-  border-radius: var(--dawaa-radius-xl);
-  padding: var(--dawaa-card-padding);
-}
+.dawaa-panel { border-radius: var(--dawaa-radius-xl); padding: var(--dawaa-card-padding); }
 
 .dawaa-brand-chip,
 .dawaa-source-badge {
   display: inline-flex;
   align-items: center;
   border-radius: var(--dawaa-radius-pill);
-  border: 1px solid var(--dawaa-theme-border-strong) !important;
-  background: var(--dawaa-theme-soft) !important;
-  color: var(--dawaa-theme-primary-strong) !important;
+  border: 1px solid var(--dawaa-theme-border-strong);
+  background: var(--dawaa-theme-soft);
+  color: var(--dawaa-theme-primary-strong);
   padding: 0.35rem 0.7rem;
   font-size: var(--dawaa-font-xs);
   font-weight: 800;
 }
 
 .dawaa-source-badge {
-  border-color: var(--dawaa-theme-border) !important;
-  background: var(--dawaa-theme-surface-2) !important;
-  color: var(--dawaa-theme-muted) !important;
+  border-color: var(--dawaa-theme-border);
+  background: var(--dawaa-theme-surface-2);
+  color: var(--dawaa-theme-muted);
 }
 
 .dawaa-input {
-  background: var(--dawaa-theme-input) !important;
-  border-color: var(--dawaa-theme-border) !important;
-  color: var(--dawaa-theme-heading) !important;
-  box-shadow: none !important;
+  background: var(--dawaa-theme-input);
+  border-color: var(--dawaa-theme-border);
+  color: var(--dawaa-theme-heading);
+  box-shadow: none;
 }
-.dawaa-input:hover { border-color: var(--dawaa-theme-border-strong) !important; }
+.dawaa-input:hover { border-color: var(--dawaa-theme-border-strong); }
 .dawaa-input:focus,
 .dawaa-input:focus-visible {
-  outline: none !important;
-  border-color: var(--dawaa-theme-primary) !important;
-  box-shadow: 0 0 0 3px var(--dawaa-theme-focus) !important;
+  outline: none;
+  border-color: var(--dawaa-theme-primary);
+  box-shadow: 0 0 0 3px var(--dawaa-theme-focus);
 }
 
 .dawaa-button-primary {
@@ -316,14 +282,14 @@
   justify-content: center;
   gap: var(--dawaa-space-2);
   border-radius: var(--dawaa-radius-md);
-  border: 1px solid transparent !important;
-  background: var(--dawaa-theme-primary) !important;
-  color: var(--dawaa-theme-primary-text) !important;
+  border: 1px solid transparent;
+  background: var(--dawaa-theme-primary);
+  color: var(--dawaa-theme-primary-text);
   padding-inline: var(--dawaa-space-4);
   font-weight: 800;
-  box-shadow: var(--dawaa-theme-shadow-soft) !important;
+  box-shadow: var(--dawaa-theme-shadow-soft);
 }
-.dawaa-button-primary:hover { background: var(--dawaa-theme-primary-strong) !important; }
+.dawaa-button-primary:hover { background: var(--dawaa-theme-primary-strong); }
 
 .dawaa-hero h1,
 .dawaa-hero h2,
@@ -335,7 +301,7 @@
 .dawaa-hero .text-slate-900,
 .dawaa-panel .text-slate-950,
 .dawaa-panel .text-slate-900 {
-  color: var(--dawaa-theme-heading) !important;
+  color: var(--dawaa-theme-heading);
 }
 
 .dawaa-hero .text-slate-700,
@@ -346,7 +312,7 @@
 .dawaa-panel .text-slate-600,
 .dawaa-panel .text-slate-500,
 .dawaa-panel .text-slate-400 {
-  color: var(--dawaa-theme-muted) !important;
+  color: var(--dawaa-theme-muted);
 }
 
 @media (max-width: 900px) {
