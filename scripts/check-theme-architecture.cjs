@@ -47,7 +47,9 @@ const expectedThemeImports = [
   "./styles/dawaa-theme.css",
   "./styles/dawaa-theme-tokens.css",
   "./styles/dawaa-theme-foundation.css",
+  "./styles/dawaa-theme-palettes.css",
   "./styles/dawaa-theme-components.css",
+  "./styles/dawaa-theme-shell.css",
 ];
 let previousIndex = -1;
 for (const importPath of expectedThemeImports) {
@@ -62,9 +64,10 @@ for (const importPath of expectedThemeImports) {
   previousIndex = index;
 }
 
+const hardcodedPalette = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
+
 const componentsPath = path.join(SRC, 'styles', 'dawaa-theme-components.css');
 const componentsText = fs.readFileSync(componentsPath, 'utf8');
-const hardcodedPalette = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
 const componentColors = componentsText.match(hardcodedPalette) || [];
 if (componentColors.length) {
   violations.push(
@@ -81,11 +84,57 @@ if (tokenColors.length) {
   );
 }
 
-const foundationPath = path.join(SRC, 'styles', 'dawaa-theme-foundation.css');
-const foundationText = fs.readFileSync(foundationPath, 'utf8');
-for (const theme of ['dark', 'light', 'pharmacy-green']) {
-  if (!foundationText.includes(`data-theme='${theme}'`)) {
-    violations.push(`src/styles/dawaa-theme-foundation.css: missing palette contract for ${theme}`);
+const shellPath = path.join(SRC, 'styles', 'dawaa-theme-shell.css');
+const shellText = fs.readFileSync(shellPath, 'utf8');
+const shellColors = shellText.match(hardcodedPalette) || [];
+if (shellColors.length) {
+  violations.push(
+    `src/styles/dawaa-theme-shell.css: application shell contains ${shellColors.length} hard-coded palette color(s)`
+  );
+}
+
+const palettesPath = path.join(SRC, 'styles', 'dawaa-theme-palettes.css');
+if (!fs.existsSync(palettesPath)) {
+  violations.push('src/styles/dawaa-theme-palettes.css: canonical palette owner is missing');
+} else {
+  const palettesText = fs.readFileSync(palettesPath, 'utf8');
+  for (const theme of ['dark', 'light', 'pharmacy-green']) {
+    if (!palettesText.includes(`data-theme='${theme}'`)) {
+      violations.push(`src/styles/dawaa-theme-palettes.css: missing palette contract for ${theme}`);
+    }
+  }
+
+  for (const semanticVar of [
+    '--dawaa-theme-bg',
+    '--dawaa-theme-surface',
+    '--dawaa-theme-surface-2',
+    '--dawaa-theme-surface-raised',
+    '--dawaa-theme-text',
+    '--dawaa-theme-heading',
+    '--dawaa-theme-muted',
+    '--dawaa-theme-primary',
+    '--dawaa-theme-border',
+    '--dawaa-theme-sidebar',
+    '--dawaa-status-success-bg',
+    '--dawaa-status-warning-bg',
+    '--dawaa-status-danger-bg',
+    '--dawaa-status-info-bg',
+  ]) {
+    if (!palettesText.includes(semanticVar)) {
+      violations.push(`src/styles/dawaa-theme-palettes.css: missing semantic palette variable ${semanticVar}`);
+    }
+  }
+}
+
+/* Shared chrome is migration-sensitive: new core palette literals in Header/Sidebar
+   would bypass the canonical palette owner and recreate the old split-brain theme. */
+for (const rel of ['src/components/layout/Header.tsx', 'src/components/layout/Sidebar.tsx']) {
+  const file = path.join(ROOT, rel);
+  if (!fs.existsSync(file)) continue;
+  const text = fs.readFileSync(file, 'utf8');
+  const hexColors = text.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+  if (hexColors.length) {
+    violations.push(`${rel}: shared app chrome contains ${hexColors.length} hard-coded hex color(s)`);
   }
 }
 
@@ -95,4 +144,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log('Theme architecture OK: single writer, canonical layers, semantic component purity, and palette contracts verified.');
+console.log('Theme architecture OK: single writer, canonical palette ownership, ordered layers, semantic component/shell purity, and palette contracts verified.');
