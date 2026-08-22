@@ -27,7 +27,11 @@ export default function CustomerServiceCommandOverview() {
     try {
       let query = supabase.from('daily_followups')
         .select('id,branch,status,followup_status,contact_status,response_status,followup_result,next_followup_date,contacted_at,created_at,needs_manager,data_quality_status,data_issues,customer_code,customer_phone,phone,completed_at,is_hidden')
-        .eq('is_hidden', false).is('completed_at', null).limit(5000);
+        .eq('is_hidden', false)
+        .is('completed_at', null)
+        .order('next_followup_date', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(2000);
       if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
       const { data, error } = await query;
       if (error) throw error;
