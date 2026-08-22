@@ -89,11 +89,35 @@ type RpcPayload = {
   dataHealth?: Record<string, unknown>;
 };
 
-const cache = new Map<string, SalesAnalyticsSummary>();
+type CacheEntry = {
+  data: SalesAnalyticsSummary;
+  savedAt: number;
+};
+
+const cache = new Map<string, CacheEntry>();
 const inFlightLoads = new Map<string, Promise<SalesAnalyticsSummary>>();
+const LIVE_CACHE_TTL_MS = 60 * 1000;
+const HISTORICAL_CACHE_TTL_MS = 15 * 60 * 1000;
 
 function isAll(value?: string | null) {
   return !value || value === 'الكل' || value === 'كل الفروع' || value === 'all';
+}
+
+function cairoToday() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Cairo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function cacheTtlForRange(endDate: string) {
+  return endDate >= cairoToday() ? LIVE_CACHE_TTL_MS : HISTORICAL_CACHE_TTL_MS;
 }
 
 function toNumber(value: unknown) {
@@ -312,8 +336,11 @@ export async function loadSalesAnalyticsSummary(
 ): Promise<SalesAnalyticsSummary> {
   if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
   const key = JSON.stringify(filters);
-  const cached = cache.get(key);
-  if (!forceRefresh && cached) return cached;
+  const cacheEntry = cache.get(key);
+  const cached = cacheEntry?.data;
+  const cacheFresh =
+    !!cacheEntry && Date.now() - cacheEntry.savedAt <= cacheTtlForRange(filters.endDate);
+  if (!forceRefresh && cacheFresh && cached) return cached;
 
   if (!forceRefresh) {
     const existing = inFlightLoads.get(key);
@@ -321,7 +348,7 @@ export async function loadSalesAnalyticsSummary(
   }
 
   const load = loadSalesAnalyticsSummaryOnce(filters, cached).then((result) => {
-    cache.set(key, result);
+    cache.set(key, { data: result, savedAt: Date.now() });
     return result;
   });
 
