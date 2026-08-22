@@ -8,14 +8,13 @@ Every theme renders the same information hierarchy and component behavior with a
 
 1. **Legacy/base styles**
    - `index.css`
-   - historical design/polish CSS
-   - compatibility only; this layer must shrink over time
+   - structural/layout compatibility only
+   - palette ownership is forbidden and this layer must shrink over time
 
 2. **Legacy compatibility bridge**
    - `src/styles/dawaa-theme.css`
-   - translates historical hard-coded selectors to semantic variables
-   - MUST NOT become the home for new component design
-   - broad selectors and `!important` are migration debt only
+   - temporary aliases for known historical consumers
+   - MUST NOT become the home for new component design or palette values
 
 3. **Core design tokens**
    - `src/styles/dawaa-theme-tokens.css`
@@ -24,30 +23,30 @@ Every theme renders the same information hierarchy and component behavior with a
 
 4. **Foundation semantics**
    - `src/styles/dawaa-theme-foundation.css`
-   - declares semantic roles and compatibility utilities used during migration
-   - does not own the final product palette anymore
+   - semantic surface/text/status/navigation utilities only
+   - palette-neutral; it never declares Dark/Light/Green values
 
 5. **Canonical palettes**
    - `src/styles/dawaa-theme-palettes.css`
-   - single owner of Dark, Light and Pharmacy Green color values
-   - owns background, surfaces, text, borders, primary, statuses, focus, shadow and navigation values
-   - Light is neutral-first; Dark is graphite-first; brand teal is an accent rather than a page wash
+   - the single owner of Dark, Light and Pharmacy Green color values
+   - owns canvas, surfaces, text, borders, primary, statuses, focus, shadow and navigation values
+   - v4 direction: Light is neutral-first; Dark is charcoal/graphite-first; brand teal is an accent rather than a page wash
 
 6. **Semantic components**
    - `src/styles/dawaa-theme-components.css`
-   - cards, buttons, inputs, tables, badges, alerts, toolbars, tabs and shared primitives
+   - cards, buttons, inputs, tables, badges, alerts, toolbars, tabs and operational primitives
    - consumes semantic variables only
    - MUST NOT contain hard-coded palette colors
 
 7. **Application shell**
    - `src/styles/dawaa-theme-shell.css`
-   - shared page canvas, header, sidebar, navigation and status-surface behavior
+   - shared page canvas, header, sidebar and navigation behavior
    - owns application chrome only, never feature-specific design
 
 8. **Pages/features**
    - consume semantic components or shadcn semantic utilities
    - never own theme state
-   - new/refactored UI must not introduce palette-specific core surfaces such as `bg-slate-*`, `bg-white`, `text-white`, fixed dark overlays or hard-coded hex values
+   - migrated UI must not introduce palette-specific core surfaces such as `bg-slate-*`, `bg-white`, `text-white`, fixed dark overlays or hard-coded hex values
 
 ## Runtime ownership
 `ThemeContext` is the only writer of theme state and `<html data-theme>`.
@@ -57,7 +56,7 @@ Supported themes:
 - `light`
 - `pharmacy-green`
 
-`data-theme` is canonical. Legacy `light-mode`/`dark-mode` classes exist only while old CSS is retired.
+`data-theme` is the only runtime theme contract. Retired `light-mode`, `dark-mode` and `data-palette` engines must not be reintroduced.
 
 ## Semantic surface hierarchy
 Every theme exposes the same roles:
@@ -77,16 +76,25 @@ Pages never infer hierarchy from literal colors.
 ## Color philosophy
 
 ### Light
-Neutral canvas + white surfaces + restrained status tints. Teal is reserved for brand, focus, active navigation and primary actions. Large empty areas must not carry aqua/mint washes.
+Neutral operational canvas + white/near-white surfaces + restrained status accents. Teal is reserved for brand, focus, active navigation and primary actions. Large empty areas must not carry aqua/mint washes.
 
 ### Dark
-Graphite/navy hierarchy with three controlled elevation levels. Teal remains a deliberate accent. Depth comes from surfaces and soft borders, not saturated blue/teal backgrounds.
+Charcoal/graphite hierarchy with controlled elevation levels. Teal remains a deliberate accent. Depth comes from surfaces, typography and soft borders—not saturated blue/teal backgrounds.
 
 ### Pharmacy Green
 A branded green alternative with the same neutral hierarchy and component contract, not a renamed Light theme.
 
-## Status colors
-Success, warning, danger and info are independent semantic roles. Status cards use low-saturation backgrounds and readable text/borders; color must communicate state without dominating the whole page.
+## Status color policy
+Success, warning, danger and info are semantic states—not alternative card themes.
+
+Default rule:
+- operational cards stay on neutral `surface` / `surface-2`
+- state is communicated with a semantic badge, icon, small accent or compact indicator
+- a full tinted surface is reserved for a real alert/message where the status itself is the content
+- large grids must not become a mosaic of green/yellow/red backgrounds
+- status meaning must always include text/iconography, not color alone
+
+This rule applies to dashboards, KPI cards, data-health checks, notification centers and doctor pages.
 
 ## Accessibility rules
 - text/background contrast targets WCAG AA (4.5:1 normal text)
@@ -98,17 +106,20 @@ Success, warning, danger and info are independent semantic roles. Status cards u
 A theme cleanup is complete only when it **removes or isolates old palette ownership**. Adding another page override is not accepted architecture.
 
 For every refactored page:
-1. replace page-level theme colors with semantic classes/tokens
+1. replace page-level palette colors with semantic classes/tokens
 2. remove the corresponding compatibility selectors when no longer needed
 3. keep Dark and Light structure identical
-4. verify loading, empty, error, modal, dropdown, table, hover and focus states
-5. remove fixed page-wide gradients/overlays unless they are represented by a semantic ambient token
+4. use neutral cards with status accents unless the component is an actual alert
+5. verify loading, empty, error, modal, dropdown, table, hover and focus states
+6. remove fixed page-wide gradients/overlays unless represented by a semantic ambient token
+7. lock the migrated file to zero theme debt in `audit-theme-debt.cjs`
 
 ## CI expectations
 The theme architecture gate must enforce:
 - ThemeContext is the only runtime theme writer
 - canonical CSS layer order in `main.tsx`
-- palette values live only in the palette/foundation compatibility area
-- semantic component CSS contains no hard-coded palette colors
-- application shell does not contain feature-specific selectors
-- theme debt is measured and must not expand during migration
+- palette values live only in `dawaa-theme-palettes.css`
+- foundation/base/components/shell/polish files remain palette-neutral
+- application shell does not contain feature-specific palette ownership
+- migrated zero-debt UI files cannot regress
+- global theme debt is measured and must trend downward during migration
