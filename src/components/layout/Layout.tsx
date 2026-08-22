@@ -96,14 +96,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <NavigationGuardProvider>
-      <div className="flex h-screen bg-navy-900 overflow-hidden" dir="rtl">
+      <div className="dawaa-app-bg flex h-screen overflow-hidden" dir="rtl">
         <Sidebar
           collapsed={collapsed}
           onToggle={() => setCollapsed(!collapsed)}
           mobileOpen={mobileOpen}
           onMobileClose={() => setMobileOpen(false)}
         />
-        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Header onMobileMenuOpen={() => setMobileOpen(true)} title={title} />
           <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
             <div className="animate-fade-in mx-auto min-h-[calc(100vh-120px)] max-w-[1720px] space-y-4">
@@ -113,17 +113,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {hasChildren ? (
                 children
               ) : (
-                <section className="rounded-2xl border border-amber-300/30 bg-slate-900 p-6 text-center text-slate-100">
-                  <h1 className="text-xl font-black text-white">لم يتم تحميل محتوى الصفحة</h1>
-                  <p className="mt-2 text-sm text-slate-300">
-                    الصفحة فتحت لكن لم يصل محتوى قابل للعرض. افتح التشخيص لمعرفة آخر خطأ تشغيل.
-                  </p>
-                  <Link
-                    to="/diagnostics"
-                    className="mt-4 inline-flex rounded-xl bg-teal-600 px-4 py-3 text-sm font-black text-white"
-                  >
-                    فتح التشخيص
-                  </Link>
+                <section className="dawaa-card dawaa-alert--warning text-center">
+                  <div className="w-full">
+                    <h1 className="dawaa-title text-xl">لم يتم تحميل محتوى الصفحة</h1>
+                    <p className="dawaa-caption mt-2">
+                      الصفحة فتحت لكن لم يصل محتوى قابل للعرض. افتح التشخيص لمعرفة آخر خطأ تشغيل.
+                    </p>
+                    <Link to="/diagnostics" className="dawaa-button dawaa-button--primary mt-4">
+                      فتح التشخيص
+                    </Link>
+                  </div>
                 </section>
               )}
             </div>
