@@ -71,9 +71,14 @@ for (const importPath of expectedThemeImports) {
 const hardcodedPalette = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
 
 for (const rel of [
+  'src/styles/dawaa-theme.css',
   'src/styles/dawaa-theme-components.css',
   'src/styles/dawaa-theme-tokens.css',
   'src/styles/dawaa-theme-shell.css',
+  'src/styles/v3-polish.css',
+  'src/styles/customer-service-followups.css',
+  'src/styles/customer-cashback-polish.css',
+  'src/styles/reviews-modal-polish.css',
 ]) {
   const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   const colors = text.match(hardcodedPalette) || [];
@@ -109,9 +114,9 @@ if (/light\s*:\s*\[[^\]]*['"]light-mode['"]/.test(themeContextText)
   violations.push('src/contexts/ThemeContext.tsx: canonical theme map activates legacy light-mode');
 }
 
-const v3Text = fs.readFileSync(path.join(SRC, 'styles', 'v3-polish.css'), 'utf8');
-if (/\.light-mode|not\(\.light-mode\)|!important|#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(v3Text)) {
-  violations.push('src/styles/v3-polish.css: retired V3 compatibility layer contains theme/color overrides');
+const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+if (/dataset\.palette\s*=|classList\.add\([^)]*['"]light-mode['"]|setAttribute\(\s*['"]data-palette['"]/.test(indexHtml)) {
+  violations.push('index.html: bootstrap activates legacy palette/light-mode engine');
 }
 
 for (const [rel, baseline] of LEGACY_SHARED_CHROME_HEX_BASELINE) {
@@ -128,4 +133,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log('Theme architecture OK: canonical data-theme runtime, palette ownership, ordered semantic layers, retired V3 theme patches, and zero hard-coded chrome hex colors verified.');
+console.log('Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral global polish, canonical bootstrap, and zero hard-coded chrome hex colors verified.');
