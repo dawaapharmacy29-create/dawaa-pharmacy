@@ -88,11 +88,17 @@ function countDirectAccess(content, table) {
   return [...content.matchAll(pattern)].length;
 }
 
+function countBulkInvoicePaging(content) {
+  const pattern = /selectAllPaged(?:<[^>]+>)?\s*\(\s*\{[\s\S]{0,2500}?table\s*:\s*['"]sales_invoices['"]/g;
+  return [...content.matchAll(pattern)].length;
+}
+
 function hasDirectAccess(content, table) {
   return countDirectAccess(content, table) > 0;
 }
 
 const invoiceOffenders = [];
+const bulkInvoicePagingOffenders = [];
 const presentInvoiceLegacy = new Map();
 const staffUiOffenders = [];
 const presentStaffUiLegacy = [];
@@ -114,6 +120,11 @@ for (const file of walk(ROOT)) {
     } else {
       invoiceOffenders.push(`${relative} (${invoiceReadCount} direct reads)`);
     }
+  }
+
+  const bulkInvoicePagingCount = countBulkInvoicePaging(content);
+  if (bulkInvoicePagingCount > 0 && !APPROVED_INVOICE_BOUNDARIES.has(relative)) {
+    bulkInvoicePagingOffenders.push(`${relative} (${bulkInvoicePagingCount} bulk paged reads)`);
   }
 
   const isUi = relative.startsWith('src/pages/') || relative.startsWith('src/components/');
@@ -178,6 +189,13 @@ if (invoiceOffenders.length) {
   process.exit(1);
 }
 
+if (bulkInvoicePagingOffenders.length) {
+  console.error('\nArchitecture boundary violation: hidden bulk sales_invoices paging detected.');
+  console.error('Route staff/customer analytics through scoped read models or aggregate RPCs instead of selectAllPaged raw invoice scans.');
+  bulkInvoicePagingOffenders.forEach((file) => console.error(`  - ${file}`));
+  process.exit(1);
+}
+
 if (staffUiOffenders.length) {
   console.error('\nArchitecture boundary violation: UI must not query the staff table directly.');
   staffUiOffenders.forEach((file) => console.error(`  - ${file}`));
@@ -234,5 +252,5 @@ if (staleDotPermissionDebt.length) {
 
 const legacyInvoiceReadTotal = [...presentInvoiceLegacy.values()].reduce((sum, count) => sum + count, 0);
 console.log(
-  `Architecture boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.size} files / ${legacyInvoiceReadTotal} direct reads. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}. Legacy employee transaction UI readers: ${presentEmployeeTxnUiLegacy.length}. Legacy attendance UI readers: ${presentAttendanceUiLegacy.length}. Routes checked: ${routePaths.length}. Legacy dot permissions: ${dotPermissionKeys.size}.`
+  `Architecture boundaries OK. Legacy invoice readers: ${presentInvoiceLegacy.size} files / ${legacyInvoiceReadTotal} direct reads. Hidden bulk invoice paging: 0 outside approved boundaries. Legacy direct staff UI readers: ${presentStaffUiLegacy.length}. Legacy employee transaction UI readers: ${presentEmployeeTxnUiLegacy.length}. Legacy attendance UI readers: ${presentAttendanceUiLegacy.length}. Routes checked: ${routePaths.length}. Legacy dot permissions: ${dotPermissionKeys.size}.`
 );
