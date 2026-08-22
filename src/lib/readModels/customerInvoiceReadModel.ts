@@ -118,35 +118,17 @@ function summarizeMatch(strategies: CustomerInvoiceMatch[]): CustomerInvoiceRead
   return unique.length === 1 ? unique[0] : 'mixed';
 }
 
-function nameRowsBelongToIdentity(
-  rows: CustomerInvoiceReadRow[],
-  lookup: { code: string; customerId: string; phone: string; tail: string }
-) {
-  return rows.filter((row) => {
-    const rowCode = text(row.customer_code);
-    if (lookup.code && rowCode) return rowCode === lookup.code;
-
-    const rowId = text(row.customer_id);
-    if (lookup.customerId && rowId) return rowId === lookup.customerId;
-
-    const rowPhone = normalizePhone(row.customer_phone);
-    if (lookup.phone && rowPhone) return rowPhone === lookup.phone;
-    if (lookup.tail.length >= 8 && rowPhone) return phoneTail(rowPhone) === lookup.tail;
-
-    return !lookup.code && !lookup.customerId && !lookup.phone;
-  });
-}
-
 /**
  * Transitional read-model adapter for customer invoice history.
  *
- * Consumers depend on this boundary rather than querying sales_invoices directly. Strong identity
- * strategies are combined so legacy rows linked by different identifiers do not silently disappear.
- * Name-only matching is used only when strong identifiers are unavailable, or to add rows that can
- * be independently verified against one of those identifiers.
+ * Runtime policy:
+ * 1) exact canonical identities (code/id/phone) run in parallel;
+ * 2) expensive wildcard phone-tail matching only runs when exact identity found nothing;
+ * 3) name matching is the final compatibility fallback only.
  *
+ * This preserves legacy recovery without making every normal customer profile pay for wildcard scans.
  * Removal condition: replace `sales_invoices_adapter` with a canonical customer-invoice RPC/read view
- * after parity tests cover code/phone/name matching and full-history counts.
+ * after parity tests cover identity matching and full-history counts.
  */
 export async function readCustomerInvoices(
   lookup: CustomerInvoiceLookup
@@ -160,24 +142,21 @@ export async function readCustomerInvoices(
   const name = text(lookup.customerName).replace(/[%_,]/g, ' ').replace(/\s+/g, ' ').trim();
   const warnings: string[] = [];
 
-  const strongAttempts: Array<{
+  const exactAttempts: Array<{
     label: CustomerInvoiceMatch;
     run: () => Promise<CustomerInvoiceReadRow[]>;
   }> = [];
-  if (code) strongAttempts.push({ label: 'code', run: () => queryEq('customer_code', code) });
+  if (code) exactAttempts.push({ label: 'code', run: () => queryEq('customer_code', code) });
   if (customerId && isUuid(customerId)) {
-    strongAttempts.push({ label: 'customer_id', run: () => queryEq('customer_id', customerId) });
+    exactAttempts.push({ label: 'customer_id', run: () => queryEq('customer_id', customerId) });
   }
-  if (phone) strongAttempts.push({ label: 'phone', run: () => queryEq('customer_phone', phone) });
-  if (tail.length >= 8) {
-    strongAttempts.push({ label: 'phone_tail', run: () => queryIlike('customer_phone', `%${tail}`) });
-  }
+  if (phone) exactAttempts.push({ label: 'phone', run: () => queryEq('customer_phone', phone) });
 
   const matchedStrategies: CustomerInvoiceMatch[] = [];
   const rowsByKey = new Map<string, CustomerInvoiceReadRow>();
 
   await Promise.all(
-    strongAttempts.map(async (attempt) => {
+    exactAttempts.map(async (attempt) => {
       try {
         const rows = dedupe(await attempt.run());
         if (rows.length) matchedStrategies.push(attempt.label);
@@ -188,12 +167,21 @@ export async function readCustomerInvoices(
     })
   );
 
-  if (normalizeName(name).length >= 3) {
+  if (!rowsByKey.size && tail.length >= 8) {
     try {
-      const rawNameRows = dedupe(await queryIlike('customer_name', `%${name}%`));
-      const verifiedNameRows = nameRowsBelongToIdentity(rawNameRows, { code, customerId, phone, tail });
-      if (verifiedNameRows.length) matchedStrategies.push('name');
-      for (const row of verifiedNameRows) rowsByKey.set(invoiceKey(row), row);
+      const rows = dedupe(await queryIlike('customer_phone', `%${tail}`));
+      if (rows.length) matchedStrategies.push('phone_tail');
+      for (const row of rows) rowsByKey.set(invoiceKey(row), row);
+    } catch (error) {
+      warnings.push(`phone_tail: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (!rowsByKey.size && normalizeName(name).length >= 3) {
+    try {
+      const rows = dedupe(await queryIlike('customer_name', `%${name}%`));
+      if (rows.length) matchedStrategies.push('name');
+      for (const row of rows) rowsByKey.set(invoiceKey(row), row);
     } catch (error) {
       warnings.push(`name: ${error instanceof Error ? error.message : String(error)}`);
     }
