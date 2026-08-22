@@ -1,365 +1,142 @@
 /*
-  Dawaa Pharmacy 2027 unified app theme.
-  Loaded after legacy CSS to neutralize old palette/light-mode overrides.
-*/
-:root {
-  --dawaa-theme-bg: #071522;
-  --dawaa-theme-bg-soft: #0b1d31;
-  --dawaa-theme-surface: #10243d;
-  --dawaa-theme-surface-2: #132d4d;
-  --dawaa-theme-soft: rgba(45, 212, 191, 0.12);
-  --dawaa-theme-border: rgba(148, 211, 226, 0.2);
-  --dawaa-theme-border-strong: rgba(45, 212, 191, 0.42);
-  --dawaa-theme-text: #eef8fb;
-  --dawaa-theme-heading: #ffffff;
-  --dawaa-theme-muted: #bad0df;
-  --dawaa-theme-primary: #2dd4bf;
-  --dawaa-theme-primary-strong: #14b8a6;
-  --dawaa-theme-primary-text: #05202f;
-  --dawaa-theme-input: #0b1d31;
-  --dawaa-theme-table-head: #0d2239;
-  --dawaa-theme-table-row: #10243d;
-  --dawaa-theme-table-hover: #143253;
-  color-scheme: dark;
-}
+ * Dawaa legacy theme compatibility bridge.
+ * ---------------------------------------
+ * This file is intentionally narrow. It does NOT own palettes, app-shell styling,
+ * generic typography, buttons, or global tables. Canonical ownership lives in:
+ *   tokens -> foundation -> palettes -> components -> shell
+ *
+ * Rules here only keep named legacy primitives readable while their remaining
+ * consumers migrate. Every selector in this file is deletion debt.
+ */
 
-html.light-mode {
-  --dawaa-theme-bg: #f2f6f7;
-  --dawaa-theme-bg-soft: #f7fafb;
-  --dawaa-theme-surface: #ffffff;
-  --dawaa-theme-surface-2: #f4f8f8;
-  --dawaa-theme-soft: rgba(14, 159, 144, 0.09);
-  --dawaa-theme-border: #d8e2e5;
-  --dawaa-theme-border-strong: #9ecbc5;
-  --dawaa-theme-text: #243740;
-  --dawaa-theme-heading: #102832;
-  --dawaa-theme-muted: #667a84;
-  --dawaa-theme-primary: #0e9f90;
-  --dawaa-theme-primary-strong: #0b7f74;
-  --dawaa-theme-primary-text: #ffffff;
-  --dawaa-theme-input: #fbfdfd;
-  --dawaa-theme-table-head: #edf3f4;
-  --dawaa-theme-table-row: #ffffff;
-  --dawaa-theme-table-hover: #eef8f7;
-  color-scheme: light;
-}
-
-html,
-body,
-#root {
-  background: var(--dawaa-theme-bg) !important;
-  color: var(--dawaa-theme-text) !important;
-}
-
-body,
-main,
-.min-h-screen,
-.bg-navy-900,
-[class*='bg-navy-900'],
-[class*='bg-slate-950'],
-[class*='bg-slate-900'],
-[class*='bg-[#071522]'],
-[class*='bg-[#0A1628]'],
-[class*='bg-[#0b1220]'],
-[class*='bg-[#10213a]'] {
-  background: var(--dawaa-theme-bg) !important;
-  color: var(--dawaa-theme-text) !important;
-}
-
-header {
-  background: color-mix(in srgb, var(--dawaa-theme-surface) 94%, transparent) !important;
-  color: var(--dawaa-theme-heading) !important;
-  border-color: var(--dawaa-theme-border) !important;
-}
-
-aside {
-  background: var(--dawaa-theme-surface) !important;
-  color: var(--dawaa-theme-text) !important;
-  border-color: var(--dawaa-theme-border) !important;
-}
-
+/* Legacy card/panel names still used by older feature pages. */
 .stat-card,
-.dawaa-card,
-.dawaa-panel,
 .modal-panel,
 .crm-card,
 .chart-card,
 .section-card,
-.dashboard-card,
-[class*='bg-white'],
+.dashboard-card {
+  background: var(--dawaa-theme-surface);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
+}
+
+/* Historical arbitrary dark Tailwind values. These are explicit debt markers, not
+   a generic repaint rule. Remove each selector when code search reaches zero. */
 [class*='bg-[#1B2B4B]'],
-[class*='bg-[#16253f]'],
 [class*='bg-[#151f34]'],
-[class*='bg-[#10213a]'],
-[class*='bg-slate-800'] {
-  background: var(--dawaa-theme-surface) !important;
-  color: var(--dawaa-theme-text) !important;
-  border-color: var(--dawaa-theme-border) !important;
+[class*='bg-[#16253f]'],
+[class*='bg-[#10213a]'] {
+  background: var(--dawaa-theme-surface);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
 }
 
-html.light-mode .stat-card,
-html.light-mode .dawaa-card,
-html.light-mode .dawaa-panel,
-html.light-mode .modal-panel,
-html.light-mode .crm-card,
-html.light-mode .chart-card,
-html.light-mode .section-card,
-html.light-mode .dashboard-card,
-html.light-mode [class*='bg-white'],
-html.light-mode [class*='bg-slate-800'],
-html.light-mode [class*='bg-slate-900'],
-html.light-mode [class*='bg-[#1B2B4B]'],
-html.light-mode [class*='bg-[#16253f]'],
-html.light-mode [class*='bg-[#151f34]'],
-html.light-mode [class*='bg-[#10213a]'] {
-  background: var(--dawaa-theme-surface) !important;
-  color: var(--dawaa-theme-text) !important;
+[class*='border-[#2d4063]'] {
+  border-color: var(--dawaa-theme-border);
 }
 
-h1,
-h2,
-h3,
-h4,
-.page-title,
-.section-title,
-.text-white,
-.text-slate-50,
-.text-slate-100,
-.text-slate-200,
-.text-slate-900,
-.text-slate-950 {
-  color: var(--dawaa-theme-heading) !important;
+/* Legacy form primitive. */
+.input-dark {
+  background: var(--dawaa-theme-input);
+  color: var(--dawaa-theme-heading);
+  border-color: var(--dawaa-theme-border-strong);
 }
 
-.text-slate-300,
-.text-slate-400,
-.text-slate-500,
-.text-slate-600,
-.text-slate-700,
-.text-muted,
-.muted {
-  color: var(--dawaa-theme-muted) !important;
-}
-
-input,
-select,
-textarea,
-.input-dark,
-.dawaa-input {
-  background: var(--dawaa-theme-input) !important;
-  color: var(--dawaa-theme-heading) !important;
-  border-color: var(--dawaa-theme-border-strong) !important;
-}
-
-input::placeholder,
-textarea::placeholder,
 .input-dark::placeholder {
-  color: color-mix(in srgb, var(--dawaa-theme-muted) 78%, transparent) !important;
-  opacity: 1 !important;
+  color: color-mix(in srgb, var(--dawaa-theme-muted) 78%, transparent);
+  opacity: 1;
 }
 
-.btn-primary,
-.dawaa-button-primary,
-.nav-item-active,
-.theme-option-active {
-  background: linear-gradient(
-    135deg,
-    var(--dawaa-theme-primary),
-    var(--dawaa-theme-primary-strong)
-  ) !important;
-  color: var(--dawaa-theme-primary-text) !important;
-  border-color: transparent !important;
-}
-
-.btn-secondary,
-.theme-option,
-button {
-  border-color: var(--dawaa-theme-border) !important;
-}
-
-.data-table,
-.dawaa-table,
-table {
-  background: var(--dawaa-theme-surface) !important;
-  color: var(--dawaa-theme-text) !important;
-  border-color: var(--dawaa-theme-border) !important;
+/* Legacy data-table primitive only. Generic table/th/td are deliberately not
+   overridden here because page-wide table repainting caused the old cascade drift. */
+.data-table {
+  background: var(--dawaa-theme-surface);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
 }
 
 .data-table thead,
-.data-table th,
-.dawaa-table thead,
-.dawaa-table th,
-thead,
-th {
-  background: var(--dawaa-theme-table-head) !important;
-  color: var(--dawaa-theme-heading) !important;
-  border-color: var(--dawaa-theme-border) !important;
+.data-table th {
+  background: var(--dawaa-theme-table-head);
+  color: var(--dawaa-theme-muted);
+  border-color: var(--dawaa-theme-border);
 }
 
-.data-table td,
-.dawaa-table td,
-td,
-tbody,
-tr {
-  background: var(--dawaa-theme-table-row) !important;
-  color: var(--dawaa-theme-text) !important;
-  border-color: var(--dawaa-theme-border) !important;
+.data-table td {
+  background: var(--dawaa-theme-table-row);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
 }
 
-.data-table tbody tr:hover td,
-.dawaa-table tbody tr:hover td,
-tbody tr:hover td {
-  background: var(--dawaa-theme-table-hover) !important;
+.data-table tbody tr:hover td {
+  background: var(--dawaa-theme-table-hover);
 }
 
-/* Legacy palette bridges now consume semantic status tokens. */
-.badge-success,
-[class*='bg-green-500/'],
-[class*='bg-emerald-500/'] {
-  background: var(--dawaa-status-success-bg) !important;
-  color: var(--dawaa-status-success-text) !important;
-  border-color: var(--dawaa-status-success-border) !important;
+/* Named legacy status primitives consume canonical status tokens. */
+.badge-success {
+  background: var(--dawaa-status-success-bg);
+  color: var(--dawaa-status-success-text);
+  border-color: var(--dawaa-status-success-border);
 }
 
-.badge-warning,
-[class*='bg-amber-500/'],
-[class*='bg-yellow-500/'] {
-  background: var(--dawaa-status-warning-bg) !important;
-  color: var(--dawaa-status-warning-text) !important;
-  border-color: var(--dawaa-status-warning-border) !important;
+.badge-warning {
+  background: var(--dawaa-status-warning-bg);
+  color: var(--dawaa-status-warning-text);
+  border-color: var(--dawaa-status-warning-border);
 }
 
-.badge-danger,
-[class*='bg-red-500/'],
-[class*='bg-rose-500/'] {
-  background: var(--dawaa-status-danger-bg) !important;
-  color: var(--dawaa-status-danger-text) !important;
-  border-color: var(--dawaa-status-danger-border) !important;
+.badge-danger {
+  background: var(--dawaa-status-danger-bg);
+  color: var(--dawaa-status-danger-text);
+  border-color: var(--dawaa-status-danger-border);
 }
 
 .badge-info,
-[class*='bg-blue-500/'],
-[class*='bg-purple-500/'],
-[class*='bg-violet-500/'] {
-  background: var(--dawaa-status-info-bg) !important;
-  color: var(--dawaa-status-info-text) !important;
-  border-color: var(--dawaa-status-info-border) !important;
+.badge-purple {
+  background: var(--dawaa-status-info-bg);
+  color: var(--dawaa-status-info-text);
+  border-color: var(--dawaa-status-info-border);
 }
 
+/* Charts need an SVG bridge until chart components consume semantic props directly. */
 .recharts-cartesian-axis-tick-value,
 .recharts-text,
 .recharts-legend-item-text {
-  fill: var(--dawaa-theme-muted) !important;
-  color: var(--dawaa-theme-muted) !important;
+  fill: var(--dawaa-theme-muted);
+  color: var(--dawaa-theme-muted);
 }
 
 .recharts-cartesian-grid line {
-  stroke: var(--dawaa-theme-border) !important;
+  stroke: var(--dawaa-theme-border);
 }
 
-/* روابط ونصوص كانت مخفية على الخلفية الداكنة */
-.text-blue-600,
-.text-blue-700,
-.text-blue-800,
 .dash-link {
-  color: var(--dawaa-theme-primary) !important;
+  color: var(--dawaa-theme-primary);
 }
 
-html.light-mode .text-blue-600,
-html.light-mode .text-blue-700,
-html.light-mode .text-blue-800,
-html.light-mode .dash-link {
-  color: var(--dawaa-theme-primary-strong) !important;
+/* Executive dashboard legacy decision-tone names. The page shell/cards themselves
+   are owned by semantic components and the application shell, not this bridge. */
+.executive-dashboard-page .decision-tone-danger {
+  background: var(--dawaa-status-danger-bg);
+  color: var(--dawaa-status-danger-text);
+  border-color: var(--dawaa-status-danger-border);
 }
 
-/* لوحة القيادة 2027 — نفس طبقة الثيم بدل ألوان ثابتة */
-.executive-dashboard-page {
-  background: var(--dawaa-theme-bg-soft) !important;
-  color: var(--dawaa-theme-text) !important;
+.executive-dashboard-page .decision-tone-warning {
+  background: var(--dawaa-status-warning-bg);
+  color: var(--dawaa-status-warning-text);
+  border-color: var(--dawaa-status-warning-border);
 }
 
-.executive-dashboard-page .card,
-.executive-dashboard-page header {
-  background: var(--dawaa-theme-surface) !important;
-  border-color: var(--dawaa-theme-border) !important;
-  color: var(--dawaa-theme-text) !important;
+.executive-dashboard-page .decision-tone-success {
+  background: var(--dawaa-status-success-bg);
+  color: var(--dawaa-status-success-text);
+  border-color: var(--dawaa-status-success-border);
 }
 
-.executive-dashboard-page .text-slate-950,
-.executive-dashboard-page .text-slate-900,
-.executive-dashboard-page .text-slate-700,
-.executive-dashboard-page .text-slate-600,
-.executive-dashboard-page .text-slate-500 {
-  color: var(--dawaa-theme-text) !important;
-}
-
-.executive-dashboard-page .text-slate-950,
-.executive-dashboard-page h1,
-.executive-dashboard-page h2,
-.executive-dashboard-page h3 {
-  color: var(--dawaa-theme-heading) !important;
-}
-
-html.light-mode .executive-dashboard-page .text-white,
-html.light-mode .executive-dashboard-page .text-slate-100,
-html.light-mode .executive-dashboard-page .text-slate-200,
-html.light-mode .executive-dashboard-page .text-slate-300,
-html.light-mode .executive-dashboard-page .text-slate-400,
-html.light-mode .executive-dashboard-page .text-slate-500 {
-  color: var(--dawaa-theme-text) !important;
-}
-
-.executive-dashboard-page .bg-slate-50,
-.executive-dashboard-page .bg-white,
-.executive-dashboard-page .bg-\[\#F7F9FB\],
-.executive-dashboard-page .bg-\[\#E6F7F6\] {
-  background: var(--dawaa-theme-surface-2) !important;
-}
-
-.executive-dashboard-page .border-\[\#E5EAF0\],
-.executive-dashboard-page .border-slate-200 {
-  border-color: var(--dawaa-theme-border) !important;
-}
-
-.executive-dashboard-page .bg-teal-50 {
-  background: var(--dawaa-theme-soft) !important;
-}
-
-.executive-dashboard-page .text-teal-700,
-.executive-dashboard-page .text-teal-800 {
-  color: var(--dawaa-theme-primary) !important;
-}
-
-.executive-dashboard-page .decision-tone-danger,
-.executive-dashboard-page [class*='bg-red-50'] {
-  background: var(--dawaa-status-danger-bg) !important;
-  color: var(--dawaa-status-danger-text) !important;
-}
-
-.executive-dashboard-page .decision-tone-warning,
-.executive-dashboard-page [class*='bg-amber-50'] {
-  background: var(--dawaa-status-warning-bg) !important;
-  color: var(--dawaa-status-warning-text) !important;
-}
-
-.executive-dashboard-page .decision-tone-success,
-.executive-dashboard-page [class*='bg-teal-50'] {
-  background: var(--dawaa-status-success-bg) !important;
-  color: var(--dawaa-status-success-text) !important;
-}
-
-.executive-dashboard-page .decision-tone-info,
-.executive-dashboard-page [class*='bg-blue-50'] {
-  background: var(--dawaa-status-info-bg) !important;
-  color: var(--dawaa-status-info-text) !important;
-}
-
-/* إلغاء طبقة index القديمة التي تعيد #1B2B4B */
-[class*='bg-[#1B2B4B]'],
-[class*='bg-[#151f34]'],
-[class*='bg-[#16253f]'],
-[class*='border-[#2d4063]'] {
-  background: var(--dawaa-theme-surface) !important;
-  border-color: var(--dawaa-theme-border) !important;
-  color: var(--dawaa-theme-text) !important;
+.executive-dashboard-page .decision-tone-info {
+  background: var(--dawaa-status-info-bg);
+  color: var(--dawaa-status-info-text);
+  border-color: var(--dawaa-status-info-border);
 }
