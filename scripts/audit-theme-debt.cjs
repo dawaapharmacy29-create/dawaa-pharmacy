@@ -6,12 +6,16 @@ const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
 const rows = [];
 const CANONICAL_PALETTE = 'src/styles/dawaa-theme-palettes.css';
+const CLEAN_UI_FILES = new Set([
+  'src/pages/DataHealthCenter.tsx',
+  'src/pages/OperationsCenter2027.tsx',
+]);
 
 const textExts = new Set(['.css', '.ts', '.tsx', '.js', '.jsx']);
 const paletteUtility = /\b(?:bg|text|border|ring|from|to|via)-(?:slate|gray|zinc|neutral|stone|white|black|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|red|orange|amber|yellow|lime|green|emerald)(?:-|\/|\b)/g;
 const hardcodedColor = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/g;
 const important = /!important/g;
-const semanticTokens = /var\(--dawaa-(?:theme|status|space|radius|font|control|duration|ease|z)-|\b(?:dawaa-app-bg|dawaa-page(?:-shell)?|dawaa-section|dawaa-surface(?:-soft|-raised|-interactive)?|dawaa-card(?:--soft|--raised|--interactive)?|dawaa-button(?:--primary|--secondary|--ghost)?|dawaa-input|dawaa-select|dawaa-textarea|dawaa-table(?:-shell|-semantic)?|dawaa-badge(?:--success|--warning|--danger|--info)?|dawaa-alert(?:--success|--warning|--danger|--info)?|dawaa-toolbar|dawaa-tabs?|dawaa-title|dawaa-body|dawaa-caption|dawaa-text|dawaa-heading|dawaa-muted|dawaa-border|dawaa-divider|dawaa-sidebar|dawaa-header|dawaa-nav-item)\b/g;
+const semanticTokens = /var\(--dawaa-(?:theme|status|space|radius|font|control|duration|ease|z)-|\b(?:dawaa-app-bg|dawaa-page(?:-shell)?|dawaa-section|dawaa-surface(?:-soft|-raised|-interactive)?|dawaa-card(?:--soft|--raised|--interactive)?|dawaa-button(?:--primary|--secondary|--ghost)?|dawaa-input|dawaa-select|dawaa-textarea|dawaa-table(?:-shell|-semantic)?|dawaa-row--highlight|dawaa-badge(?:--success|--warning|--danger|--info)?|dawaa-alert(?:--success|--warning|--danger|--info)?|dawaa-icon-tile|dawaa-action-icon|dawaa-empty-state|dawaa-toolbar|dawaa-tabs?|dawaa-title|dawaa-body|dawaa-caption|dawaa-text|dawaa-heading|dawaa-muted|dawaa-border|dawaa-divider|dawaa-sidebar|dawaa-header|dawaa-nav-item)\b/g;
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -45,7 +49,7 @@ for (const file of walk(SRC)) {
     semanticTokens: count(text, semanticTokens),
   };
   row.debt = row.paletteUtilities + row.hardcodedColors + row.important;
-  if (row.debt || row.semanticTokens) rows.push(row);
+  if (row.debt || row.semanticTokens || CLEAN_UI_FILES.has(rel)) rows.push(row);
 }
 
 const totals = rows.reduce((acc, row) => {
@@ -59,7 +63,7 @@ const totals = rows.reduce((acc, row) => {
 console.log('[theme-debt] totals (canonical palette excluded)');
 console.log(JSON.stringify(totals, null, 2));
 console.log('[theme-debt] top files');
-for (const row of rows.sort((a, b) => b.debt - a.debt).slice(0, 25)) {
+for (const row of [...rows].sort((a, b) => b.debt - a.debt).slice(0, 25)) {
   console.log(`${row.debt.toString().padStart(4)} debt | ${row.paletteUtilities.toString().padStart(3)} palette | ${row.hardcodedColors.toString().padStart(3)} colors | ${row.important.toString().padStart(3)} !important | ${row.semanticTokens.toString().padStart(3)} semantic | ${row.file}`);
 }
 
@@ -71,4 +75,14 @@ for (const row of pageDebt) {
   console.log(`${row.debt.toString().padStart(4)} debt | ${row.paletteUtilities.toString().padStart(3)} palette | ${row.hardcodedColors.toString().padStart(3)} colors | ${row.file}`);
 }
 
+const cleanViolations = rows.filter((row) => CLEAN_UI_FILES.has(row.file) && row.debt > 0);
+if (cleanViolations.length) {
+  console.error('[theme-debt] migrated page regression:');
+  for (const row of cleanViolations) {
+    console.error(`- ${row.file}: ${row.paletteUtilities} palette utilities, ${row.hardcodedColors} hard-coded colors`);
+  }
+  process.exit(1);
+}
+
+console.log(`[theme-debt] migrated zero-debt pages locked: ${CLEAN_UI_FILES.size}`);
 process.exit(0);
