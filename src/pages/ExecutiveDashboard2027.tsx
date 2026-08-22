@@ -65,7 +65,7 @@ import { loadAppDataHealthSummary, summarizeDataHealth, type DataHealthIssue } f
 import { summarizeTeamTasks, type EmployeeTaskSummary } from '@/lib/employeeDailyTasks';
 
 const ALL_BRANCHES = DASHBOARD_ALL_BRANCHES;
-const COLORS = ['#2dd4bf', '#38bdf8', '#8b5cf6', '#22c55e', '#f59e0b', '#ef4444'];
+const COLORS = ['var(--dawaa-chart-series-1)', 'var(--dawaa-chart-series-2)', 'var(--dawaa-chart-series-3)', 'var(--dawaa-chart-series-4)', 'var(--dawaa-chart-series-5)', 'var(--dawaa-chart-series-6)'];
 type SalesSummary = {
   invoices_count?: number | string | null;
   sales_total?: number | string | null;
@@ -855,7 +855,7 @@ function Panel({
   return (
     <section
       id={id}
-      className={`card rounded-3xl border border-cyan-300/10 bg-[#0b1d31]/85 shadow-[0_18px_80px_rgba(0,0,0,0.28)] backdrop-blur ${className}`}
+      className={`dawaa-card dawaa-card--raised rounded-3xl ${className}`}
     >
       {children}
     </section>
@@ -874,10 +874,10 @@ function SectionTitle({
   return (
     <div className="mb-4 flex items-center justify-between gap-3">
       <div>
-        <h2 className="text-xl font-black text-white">{title}</h2>
-        {subtitle ? <p className="mt-1 text-xs font-bold text-slate-400">{subtitle}</p> : null}
+        <h2 className="dawaa-title text-xl">{title}</h2>
+        {subtitle ? <p className="dawaa-caption mt-1 text-xs font-bold">{subtitle}</p> : null}
       </div>
-      {icon ? <div className="rounded-2xl bg-cyan-400/10 p-3 text-cyan-200">{icon}</div> : null}
+      {icon ? <div className="dawaa-icon-tile p-3">{icon}</div> : null}
     </div>
   );
 }
@@ -910,12 +910,12 @@ function KpiCard({
   stale?: boolean;
 }) {
   const toneClass = {
-    cyan: 'from-cyan-500/12 to-cyan-400/5 border-cyan-300/22',
-    green: 'from-emerald-500/12 to-emerald-400/5 border-emerald-300/22',
-    amber: 'from-amber-500/15 to-amber-400/5 border-amber-300/25',
-    blue: 'from-sky-500/12 to-sky-400/5 border-sky-300/22',
-    purple: 'from-violet-500/12 to-violet-400/5 border-violet-300/22',
-    red: 'from-red-500/12 to-red-400/5 border-red-300/22',
+    cyan: 'dawaa-badge--info',
+    green: 'dawaa-badge--success',
+    amber: 'dawaa-badge--warning',
+    blue: 'dawaa-badge--info',
+    purple: 'dawaa-badge--info',
+    red: 'dawaa-badge--danger',
   }[tone];
 
   return (
@@ -930,28 +930,28 @@ function KpiCard({
           onClick();
         }
       }}
-      className={`relative overflow-hidden rounded-3xl border bg-gradient-to-br ${toneClass} p-5 transition ${onClick ? 'cursor-pointer hover:-translate-y-0.5 hover:border-cyan-200/45 focus:outline-none focus:ring-2 focus:ring-cyan-300/50' : ''}`}
+      className={`dawaa-card dawaa-card--interactive relative overflow-hidden p-5 ${onClick ? 'cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--dawaa-theme-focus)]' : ''}`}
     >
-      <div className="absolute -left-8 -top-8 h-24 w-24 rounded-full bg-white/5 blur-2xl" />
+      <div className="absolute -left-8 -top-8 h-24 w-24 rounded-full bg-[var(--dawaa-theme-soft)] blur-2xl" />
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="flex items-center gap-1.5 text-sm font-black text-slate-300">
+          <p className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-text)]">
             {title}
             {stale ? (
               <span
                 title="آخر بيانات ناجحة — جاري محاولة التحديث"
-                className="h-1.5 w-1.5 rounded-full bg-amber-300"
+                className="h-1.5 w-1.5 rounded-full bg-[var(--dawaa-status-warning-bg)]"
               />
             ) : null}
           </p>
           {loading ? (
-            <div className="mt-3 h-8 w-28 animate-pulse rounded-lg bg-white/10" />
+            <div className="mt-3 h-8 w-28 animate-pulse rounded-lg bg-[var(--dawaa-theme-soft)]" />
           ) : (
-            <p className="mt-3 text-3xl font-black tracking-tight text-white">{value}</p>
+            <p className="mt-3 text-3xl font-black tracking-tight text-[var(--dawaa-theme-heading)]">{value}</p>
           )}
-          <p className="mt-2 text-xs font-bold text-slate-400">{subtitle}</p>
+          <p className="mt-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">{subtitle}</p>
         </div>
-        <div className="rounded-2xl bg-slate-950/55 p-3 text-cyan-200">{icon}</div>
+        <div className={`dawaa-icon-tile p-3 ${toneClass}`}>{icon}</div>
       </div>
       {showAction && onAction ? (
         <button
@@ -960,7 +960,7 @@ function KpiCard({
             event.stopPropagation();
             onAction();
           }}
-          className="mt-3 rounded-xl border border-cyan-300/20 bg-slate-950/55 px-3 py-2 text-xs font-black text-cyan-100 hover:bg-cyan-400/15"
+          className="mt-3 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-xs font-black text-[var(--dawaa-theme-primary-strong)] hover:bg-[var(--dawaa-theme-accent-soft)]"
         >
           {actionLabel || 'إعادة تحميل القسم'}
         </button>
@@ -982,14 +982,14 @@ function EmptyState({
   // ده للمستخدم بدل رسالة "لا توجد بيانات" المضللة، ونديله زرار يعيد تحميل نفس القسم.
   if (error) {
     return (
-      <div className="flex h-full min-h-56 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-red-400/25 bg-red-500/[0.04] p-4 text-center">
-        <span className="text-sm font-black text-red-200">تعذر تحميل البيانات</span>
-        <span className="text-xs font-bold text-red-200/70">قد يكون الاتصال بطيء، جرّب إعادة المحاولة.</span>
+      <div className="flex h-full min-h-56 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]/[0.04] p-4 text-center">
+        <span className="text-sm font-black text-[var(--dawaa-status-danger-text)]">تعذر تحميل البيانات</span>
+        <span className="text-xs font-bold text-[var(--dawaa-status-danger-text)]/70">قد يكون الاتصال بطيء، جرّب إعادة المحاولة.</span>
         {onRetry ? (
           <button
             type="button"
             onClick={onRetry}
-            className="mt-1 rounded-xl border border-red-300/25 bg-slate-950/55 px-3 py-2 text-xs font-black text-red-100 hover:bg-red-400/15"
+            className="mt-1 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-xs font-black text-[var(--dawaa-status-danger-text)] hover:bg-[var(--dawaa-status-danger-bg)]"
           >
             إعادة المحاولة
           </button>
@@ -998,7 +998,7 @@ function EmptyState({
     );
   }
   return (
-    <div className="flex h-full min-h-56 items-center justify-center rounded-2xl border border-dashed border-cyan-300/15 bg-slate-950/30 text-sm font-black text-slate-500">
+    <div className="flex h-full min-h-56 items-center justify-center rounded-2xl border border-dashed border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] text-sm font-black text-[var(--dawaa-theme-muted)]">
       {label}
     </div>
   );
@@ -1014,16 +1014,16 @@ function MiniBox({
   tone?: 'cyan' | 'green' | 'amber' | 'red' | 'blue';
 }) {
   const classes = {
-    cyan: 'border-cyan-400/20 bg-cyan-500/10 text-cyan-100',
-    green: 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100',
-    amber: 'border-amber-400/20 bg-amber-500/10 text-amber-100',
-    red: 'border-red-400/20 bg-red-500/10 text-red-100',
-    blue: 'border-sky-400/20 bg-sky-500/10 text-sky-100',
+    cyan: 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)]',
+    green: 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]',
+    amber: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
+    red: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]',
+    blue: 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]',
   }[tone];
   return (
     <div className={`rounded-2xl border p-4 ${classes}`}>
-      <p className="text-xs font-black text-slate-300">{label}</p>
-      <p className="mt-2 text-2xl font-black text-white">{value}</p>
+      <p className="text-xs font-black text-[var(--dawaa-theme-text)]">{label}</p>
+      <p className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{value}</p>
     </div>
   );
 }
@@ -1107,24 +1107,24 @@ function PaymentTypeBreakdownCards({
           key={row.invoice_type}
           className={`rounded-2xl border p-4 ${
             {
-              cyan: 'border-cyan-400/20 bg-cyan-500/10 text-cyan-100',
-              green: 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100',
-              amber: 'border-amber-400/20 bg-amber-500/10 text-amber-100',
-              red: 'border-red-400/20 bg-red-500/10 text-red-100',
-              blue: 'border-sky-400/20 bg-sky-500/10 text-sky-100',
+              cyan: 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)]',
+              green: 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]',
+              amber: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
+              red: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]',
+              blue: 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]',
             }[PAYMENT_TYPE_TONE[row.invoice_type] || 'cyan']
           } ${rows === null ? 'animate-pulse' : ''}`}
         >
-          <p className="text-xs font-black text-slate-300">{row.invoice_type}</p>
-          <p className="mt-2 text-xl font-black text-white">
+          <p className="text-xs font-black text-[var(--dawaa-theme-text)]">{row.invoice_type}</p>
+          <p className="mt-2 text-xl font-black text-[var(--dawaa-theme-heading)]">
             {rows === null ? '—' : `${money(row.total_value)} ج.م`}
           </p>
-          <p className="mt-1 text-[11px] font-bold text-slate-400">
+          <p className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
             {rows === null
               ? ''
               : `${row.invoice_count.toLocaleString('ar-EG')} فاتورة (${row.pct_of_count}%) · ${row.pct_of_value}% من القيمة`}
           </p>
-          <p className="mt-1 text-[11px] font-bold text-slate-500">
+          <p className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
             {rows === null ? '' : `متوسط الفاتورة: ${money(row.avg_invoice)} ج.م`}
           </p>
         </div>
@@ -1143,15 +1143,15 @@ function HealthSummaryBox({
   tone?: 'cyan' | 'green' | 'amber' | 'red';
 }) {
   const classes = {
-    cyan: 'border-cyan-300/25 bg-cyan-400/12 shadow-cyan-950/20',
-    green: 'border-emerald-300/25 bg-emerald-400/12 shadow-emerald-950/20',
-    amber: 'border-amber-300/35 bg-amber-400/14 shadow-amber-950/20',
-    red: 'border-rose-300/35 bg-rose-400/14 shadow-rose-950/20',
+    cyan: 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] shadow-cyan-950/20',
+    green: 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] shadow-emerald-950/20',
+    amber: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] shadow-amber-950/20',
+    red: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] shadow-rose-950/20',
   }[tone];
   return (
     <div className={`rounded-3xl border p-5 shadow-lg ${classes}`}>
-      <p className="text-sm font-black text-slate-100">{label}</p>
-      <p className="mt-4 text-4xl font-black tracking-tight text-white drop-shadow-sm">{value}</p>
+      <p className="text-sm font-black text-[var(--dawaa-theme-text)]">{label}</p>
+      <p className="mt-4 text-4xl font-black tracking-tight text-[var(--dawaa-theme-heading)] drop-shadow-sm">{value}</p>
     </div>
   );
 }
@@ -1980,14 +1980,14 @@ export default function ExecutiveDashboard2027() {
     return map;
   }, [state.recentInvoices]);
   const funnelData = [
-    { name: 'المتابعات المفتوحة', value: Math.max(n(service.open_followups), 1), fill: '#2dd4bf' },
+    { name: 'المتابعات المفتوحة', value: Math.max(n(service.open_followups), 1), fill: 'var(--dawaa-chart-series-1)' },
     {
       name: 'قيد المعالجة',
       value: Math.max(Math.round(n(service.open_followups) * 0.68), 1),
-      fill: '#38bdf8',
+      fill: 'var(--dawaa-chart-series-2)',
     },
-    { name: 'تحتاج مدير', value: Math.max(n(service.needs_manager), 1), fill: '#8b5cf6' },
-    { name: 'مكتملة اليوم', value: Math.max(n(service.completed_today), 1), fill: '#22c55e' },
+    { name: 'تحتاج مدير', value: Math.max(n(service.needs_manager), 1), fill: 'var(--dawaa-chart-series-3)' },
+    { name: 'مكتملة اليوم', value: Math.max(n(service.completed_today), 1), fill: 'var(--dawaa-chart-series-4)' },
   ];
 
   const serviceOwners = useMemo(() => {
@@ -2098,11 +2098,11 @@ export default function ExecutiveDashboard2027() {
 
   if (!canViewExecutive) {
     return (
-      <div dir="rtl" className="flex min-h-[60vh] items-center justify-center bg-[#06131f] p-6 text-slate-100">
-        <div className="max-w-md rounded-3xl border border-cyan-300/15 bg-slate-900/80 p-6 text-center shadow-2xl">
-          <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-cyan-300" />
-          <h1 className="text-xl font-black text-white">هذه اللوحة مخصصة للإدارة</h1>
-          <p className="mt-2 text-sm font-bold leading-6 text-slate-300">
+      <div dir="rtl" className="flex min-h-[60vh] items-center justify-center bg-[var(--dawaa-theme-bg)] p-6 text-[var(--dawaa-theme-text)]">
+        <div className="max-w-md rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-6 text-center shadow-2xl">
+          <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-[var(--dawaa-theme-primary-strong)]" />
+          <h1 className="dawaa-title text-xl">هذه اللوحة مخصصة للإدارة</h1>
+          <p className="mt-2 text-sm font-bold leading-6 text-[var(--dawaa-theme-text)]">
             سيتم توجيهك إلى لوحة الدكتور المناسبة لصلاحياتك.
           </p>
           <button
@@ -2116,7 +2116,7 @@ export default function ExecutiveDashboard2027() {
               if (role === 'inventory_assistant') return navigate('/inventory-counts');
               return navigate('/time-off');
             }}
-            className="mt-5 rounded-xl bg-cyan-500 px-5 py-2 text-sm font-black text-slate-950 hover:bg-cyan-400"
+            className="mt-5 rounded-xl bg-[var(--dawaa-theme-accent-soft)] px-5 py-2 text-sm font-black text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-accent-soft)]"
           >
             الانتقال الآن
           </button>
@@ -2126,15 +2126,14 @@ export default function ExecutiveDashboard2027() {
   }
 
   return (
-    <div dir="rtl" className="executive-dashboard-page min-h-screen bg-[#06131f] text-slate-100">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_12%,rgba(45,212,191,0.14),transparent_25%),radial-gradient(circle_at_82%_0%,rgba(56,189,248,0.12),transparent_30%),linear-gradient(180deg,rgba(15,23,42,0),rgba(2,6,23,0.82))]" />
+    <div dir="rtl" className="executive-dashboard-page dawaa-page min-h-screen">
       <main className="relative mx-auto max-w-[1920px] space-y-4 px-5 py-5">
         {initialLoadTimedOut && loading && !state.loadedAt ? (
-          <Panel className="border-amber-300/25 bg-amber-500/10 p-4">
+          <Panel className="border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <h2 className="text-base font-black text-amber-100">تعذر تحميل بيانات لوحة القيادة بسرعة</h2>
-                <p className="mt-1 text-sm font-bold text-amber-50/80">
+                <h2 className="text-base font-black text-[var(--dawaa-status-warning-text)]">تعذر تحميل بيانات لوحة القيادة بسرعة</h2>
+                <p className="mt-1 text-sm font-bold text-[var(--dawaa-status-warning-text)]/80">
                   تم عرض الصفحة بالبيانات المتاحة، وستظهر أخطاء الأقسام داخل كل قسم عند الحاجة.
                 </p>
               </div>
@@ -2145,14 +2144,14 @@ export default function ExecutiveDashboard2027() {
                     noCacheRef.current = true;
                     void load();
                   }}
-                  className="rounded-xl bg-amber-300 px-4 py-2 text-sm font-black text-slate-950 hover:bg-amber-200"
+                  className="rounded-xl bg-[var(--dawaa-status-warning-bg)] px-4 py-2 text-sm font-black text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-status-warning-bg)]"
                 >
                   إعادة المحاولة
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/diagnostics')}
-                  className="rounded-xl border border-amber-200/40 px-4 py-2 text-sm font-black text-amber-50 hover:bg-amber-200/10"
+                  className="rounded-xl border border-[var(--dawaa-status-warning-border)] px-4 py-2 text-sm font-black text-[var(--dawaa-status-warning-text)] hover:bg-[var(--dawaa-status-warning-bg)]"
                 >
                   فتح التشخيص
                 </button>
@@ -2175,7 +2174,7 @@ export default function ExecutiveDashboard2027() {
         <Panel className="p-5">
           <div className="grid gap-5 xl:grid-cols-[1.3fr_1fr] xl:items-center">
             <div className="order-2 grid gap-3 md:grid-cols-2 xl:order-1 xl:grid-cols-6">
-              <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-300/40 bg-cyan-500/15 px-4 py-3 text-sm font-black text-cyan-50 hover:bg-cyan-500/25">
+              <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-primary-strong)] hover:bg-[var(--dawaa-theme-accent-soft)]">
                 <Download className="h-4 w-4" />
                 تصدير
               </button>
@@ -2187,24 +2186,24 @@ export default function ExecutiveDashboard2027() {
                   void load();
                 }}
                 disabled={loading}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-500/20 px-4 py-3 text-sm font-black text-cyan-100 ring-1 ring-cyan-300/30 hover:bg-cyan-500/30 disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-primary-strong)] ring-1 ring-[var(--dawaa-theme-accent-border)] hover:bg-[var(--dawaa-theme-accent-soft)] disabled:opacity-60"
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 تحديث
               </button>
               <div className="relative xl:col-span-2">
-                <Search className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--dawaa-theme-muted)]" />
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="بحث سريع عن عميل، فاتورة، منتج..."
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 py-3 pr-11 pl-4 text-sm font-bold text-white outline-none focus:border-cyan-400"
+                  className="w-full rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] py-3 pr-11 pl-4 text-sm font-bold text-[var(--dawaa-theme-heading)] outline-none focus:border-[var(--dawaa-theme-accent-border)]"
                 />
               </div>
               <select
                 value={branch}
                 onChange={(event) => setBranch(event.target.value)}
-                className="rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm font-bold text-white outline-none focus:border-cyan-400"
+                className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-sm font-bold text-[var(--dawaa-theme-heading)] outline-none focus:border-[var(--dawaa-theme-accent-border)]"
               >
                 {branchOptions.map((item) => (
                   <option key={item} value={item}>
@@ -2215,7 +2214,7 @@ export default function ExecutiveDashboard2027() {
               <button
                 type="button"
                 onClick={() => navigate('/analytics#branch-targets')}
-                className="rounded-2xl border border-emerald-300/30 bg-emerald-500/15 px-4 py-3 text-sm font-black text-emerald-100 hover:bg-emerald-500/25"
+                className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-4 py-3 text-sm font-black text-[var(--dawaa-status-success-text)] hover:bg-[var(--dawaa-status-success-bg)]"
               >
                 تعديل تارجت الفروع
               </button>
@@ -2224,7 +2223,7 @@ export default function ExecutiveDashboard2027() {
                   setStartDate(formatCycleDate(currentCycle.start));
                   setEndDate(formatCycleDate(currentCycle.end));
                 }}
-                className="rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm font-black text-slate-200 hover:border-cyan-300/40"
+                className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-text)] hover:border-[var(--dawaa-theme-accent-border)]"
               >
                 الدورة الحالية
               </button>
@@ -2232,46 +2231,46 @@ export default function ExecutiveDashboard2027() {
                 type="date"
                 value={startDate}
                 onChange={(event) => setStartDate(event.target.value)}
-                className="rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm font-bold text-white outline-none focus:border-cyan-400"
+                className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-sm font-bold text-[var(--dawaa-theme-heading)] outline-none focus:border-[var(--dawaa-theme-accent-border)]"
               />
               <input
                 type="date"
                 value={endDate}
                 onChange={(event) => setEndDate(event.target.value)}
-                className="rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm font-bold text-white outline-none focus:border-cyan-400"
+                className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-sm font-bold text-[var(--dawaa-theme-heading)] outline-none focus:border-[var(--dawaa-theme-accent-border)]"
               />
               <button
                 onClick={() => {
                   setStartDate(formatCycleDate(previousCycle.start));
                   setEndDate(formatCycleDate(previousCycle.end));
                 }}
-                className="rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm font-black text-slate-200 hover:border-cyan-300/40"
+                className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-text)] hover:border-[var(--dawaa-theme-accent-border)]"
               >
                 السابقة
               </button>
-              <div className="xl:col-span-3 flex items-center gap-2 rounded-2xl border border-cyan-300/10 bg-slate-950/45 px-4 py-3 text-xs font-bold text-slate-300">
-                <CalendarDays className="h-4 w-4 text-cyan-300" />
+              <div className="xl:col-span-3 flex items-center gap-2 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-xs font-bold text-[var(--dawaa-theme-text)]">
+                <CalendarDays className="h-4 w-4 text-[var(--dawaa-theme-primary-strong)]" />
                 الفترة: {startDate} إلى {endDate}
               </div>
               <div className="xl:col-span-3 grid gap-2">
-                <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 px-4 py-3 text-xs font-bold text-slate-400">
+                <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                   آخر تحديث: {safeDateTime(state.loadedAt)}
                 </div>
-                <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 px-4 py-3 text-xs font-bold text-cyan-200">
+                <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-xs font-bold text-[var(--dawaa-theme-primary-strong)]">
                   {branchScopeLabel}
                 </div>
               </div>
             </div>
 
             <div className="order-1 text-right xl:order-2">
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-400/10 px-4 py-1 text-xs font-black text-cyan-200">
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-1 text-xs font-black text-[var(--dawaa-theme-primary-strong)]">
                 <Sparkles className="h-4 w-4" />
                 Dawaa Pharmacy 2027
               </div>
-              <h1 className="text-4xl font-black leading-tight tracking-tight text-white md:text-5xl">
+              <h1 className="text-4xl font-black leading-tight tracking-tight text-[var(--dawaa-theme-heading)] md:text-5xl">
                 مركز القيادة التشغيلي
               </h1>
-              <p className="mt-2 text-sm font-semibold text-slate-300">
+              <p className="mt-2 text-sm font-semibold text-[var(--dawaa-theme-text)]">
                 لوحة قيادة تنفيذية شاملة للمبيعات، الفروع، الموظفين، خدمة العملاء، والتشغيل.
               </p>
             </div>
@@ -2304,36 +2303,36 @@ export default function ExecutiveDashboard2027() {
           />
           {teamTaskSummary && teamTaskSummary.total > 0 ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-              <button onClick={() => navigate('/employee-operating-system')} className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-right hover:bg-cyan-400/15">
-                <div className="text-xs font-black text-cyan-100">إجمالي المهام</div>
-                <div className="mt-2 text-2xl font-black text-white">{count(teamTaskSummary.total)}</div>
+              <button onClick={() => navigate('/employee-operating-system')} className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-4 text-right hover:bg-[var(--dawaa-theme-accent-soft)]">
+                <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">إجمالي المهام</div>
+                <div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{count(teamTaskSummary.total)}</div>
               </button>
-              <button onClick={() => navigate('/employee-operating-system?status=completed')} className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-4 text-right hover:bg-emerald-400/15">
-                <div className="text-xs font-black text-emerald-100">مكتمل</div>
-                <div className="mt-2 text-2xl font-black text-white">{count(teamTaskSummary.completed)}</div>
+              <button onClick={() => navigate('/employee-operating-system?status=completed')} className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4 text-right hover:bg-[var(--dawaa-status-success-bg)]">
+                <div className="text-xs font-black text-[var(--dawaa-status-success-text)]">مكتمل</div>
+                <div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{count(teamTaskSummary.completed)}</div>
               </button>
-              <button onClick={() => navigate('/employee-operating-system?status=late')} className="rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-right hover:bg-rose-400/15">
-                <div className="text-xs font-black text-rose-100">متأخر</div>
-                <div className="mt-2 text-2xl font-black text-white">{count(teamTaskSummary.late)}</div>
+              <button onClick={() => navigate('/employee-operating-system?status=late')} className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-right hover:bg-[var(--dawaa-status-danger-bg)]">
+                <div className="text-xs font-black text-[var(--dawaa-status-danger-text)]">متأخر</div>
+                <div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{count(teamTaskSummary.late)}</div>
               </button>
-              <button onClick={() => navigate('/employee-operating-system?status=pending')} className="rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4 text-right hover:bg-amber-400/15">
-                <div className="text-xs font-black text-amber-100">يحتاج تدخل</div>
-                <div className="mt-2 text-2xl font-black text-white">{count(teamTaskSummary.needsIntervention)}</div>
+              <button onClick={() => navigate('/employee-operating-system?status=pending')} className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 text-right hover:bg-[var(--dawaa-status-warning-bg)]">
+                <div className="text-xs font-black text-[var(--dawaa-status-warning-text)]">يحتاج تدخل</div>
+                <div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{count(teamTaskSummary.needsIntervention)}</div>
               </button>
-              <button onClick={() => navigate(teamTaskSummary.topLateRole ? `/employee-operating-system?role=${encodeURIComponent(teamTaskSummary.topLateRole)}` : '/employee-operating-system?status=late')} className="rounded-2xl border border-slate-700 bg-slate-950/45 p-4 text-right hover:bg-slate-900">
-                <div className="text-xs font-black text-slate-400">أعلى دور متأخر</div>
-                <div className="mt-2 truncate text-lg font-black text-white">{teamTaskSummary.topLateRole || 'لا يوجد'}</div>
+              <button onClick={() => navigate(teamTaskSummary.topLateRole ? `/employee-operating-system?role=${encodeURIComponent(teamTaskSummary.topLateRole)}` : '/employee-operating-system?status=late')} className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 text-right hover:bg-[var(--dawaa-theme-surface)]">
+                <div className="text-xs font-black text-[var(--dawaa-theme-muted)]">أعلى دور متأخر</div>
+                <div className="mt-2 truncate text-lg font-black text-[var(--dawaa-theme-heading)]">{teamTaskSummary.topLateRole || 'لا يوجد'}</div>
               </button>
-              <button onClick={() => navigate('/employee-operating-system?status=completed')} className="rounded-2xl border border-slate-700 bg-slate-950/45 p-4 text-right hover:bg-slate-900">
-                <div className="text-xs font-black text-slate-400">أفضل التزام اليوم</div>
-                <div className="mt-2 truncate text-lg font-black text-white">{teamTaskSummary.bestCommitment || 'لا يوجد'}</div>
+              <button onClick={() => navigate('/employee-operating-system?status=completed')} className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 text-right hover:bg-[var(--dawaa-theme-surface)]">
+                <div className="text-xs font-black text-[var(--dawaa-theme-muted)]">أفضل التزام اليوم</div>
+                <div className="mt-2 truncate text-lg font-black text-[var(--dawaa-theme-heading)]">{teamTaskSummary.bestCommitment || 'لا يوجد'}</div>
               </button>
             </div>
           ) : (
-            <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-6 text-center">
-              <div className="font-black text-white">لم يتم إنشاء مهام اليوم بعد</div>
-              <p className="mt-2 text-sm font-bold text-slate-400">{teamTaskIssue || 'افتح صفحة مهام الفريق لإنشاء مهام اليوم حسب الدور.'}</p>
-              <button onClick={() => navigate('/employee-operating-system')} className="mt-4 rounded-2xl bg-cyan-500 px-5 py-2 text-sm font-black text-slate-950">
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-6 text-center">
+              <div className="font-black text-[var(--dawaa-theme-heading)]">لم يتم إنشاء مهام اليوم بعد</div>
+              <p className="mt-2 text-sm font-bold text-[var(--dawaa-theme-muted)]">{teamTaskIssue || 'افتح صفحة مهام الفريق لإنشاء مهام اليوم حسب الدور.'}</p>
+              <button onClick={() => navigate('/employee-operating-system')} className="mt-4 rounded-2xl bg-[var(--dawaa-theme-accent-soft)] px-5 py-2 text-sm font-black text-[var(--dawaa-theme-heading)]">
                 فتح مهام الفريق
               </button>
             </div>
@@ -2358,24 +2357,24 @@ export default function ExecutiveDashboard2027() {
               { label: 'مساعدو الصيدلي', rows: onShiftAssistants, tone: 'emerald' },
               { label: 'الدليفري', rows: onShiftDelivery, tone: 'amber' },
             ].map((group) => (
-              <div key={group.label} className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4">
+              <div key={group.label} className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="font-black text-white">{group.label}</h3>
-                  <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-100">{count(group.rows.length)}</span>
+                  <h3 className="font-black text-[var(--dawaa-theme-heading)]">{group.label}</h3>
+                  <span className="rounded-full bg-[var(--dawaa-theme-accent-soft)] px-3 py-1 text-xs font-black text-[var(--dawaa-theme-primary-strong)]">{count(group.rows.length)}</span>
                 </div>
                 <div className="space-y-2">
                   {group.rows.length ? group.rows.slice(0, 12).map((member) => (
                     <button
                       key={`${staffId(member)}-${staffName(member)}-${branchName(member.branch)}`}
                       onClick={() => void navigateToStaff(staffName(member), member.branch)}
-                      className="w-full rounded-xl border border-cyan-300/10 bg-slate-900/75 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
+                      className="w-full rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-right text-xs hover:bg-[var(--dawaa-theme-accent-soft)]"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <b className="block text-white">{roleGroup(member.role) === 'doctor' ? normalizeDoctorName(staffName(member)) : staffName(member)}</b>
-                          <span className="text-slate-400">{branchName(member.branch)} · {String(member.role || 'فريق')}</span>
+                          <b className="block text-[var(--dawaa-theme-heading)]">{roleGroup(member.role) === 'doctor' ? normalizeDoctorName(staffName(member)) : staffName(member)}</b>
+                          <span className="text-[var(--dawaa-theme-muted)]">{branchName(member.branch)} · {String(member.role || 'فريق')}</span>
                         </div>
-                        <span className="text-cyan-200">
+                        <span className="text-[var(--dawaa-theme-primary-strong)]">
                           {member.shifts.map((shift, index) => (
                             <span key={index}>{index > 0 ? '، ' : ''}<ShiftTimeRange shift={shift} /></span>
                           ))}
@@ -2383,7 +2382,7 @@ export default function ExecutiveDashboard2027() {
                       </div>
                     </button>
                   )) : (
-                    <p className="rounded-xl bg-slate-900/60 p-4 text-center text-xs font-bold text-slate-500">لا يوجد أحد حاليًا.</p>
+                    <p className="rounded-xl bg-[var(--dawaa-theme-surface)] p-4 text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يوجد أحد حاليًا.</p>
                   )}
                 </div>
               </div>
@@ -2392,7 +2391,7 @@ export default function ExecutiveDashboard2027() {
         </Panel>
 
         {!!state.errors.length && (
-          <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 px-5 py-3 text-sm font-bold text-amber-100">
+          <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-5 py-3 text-sm font-bold text-[var(--dawaa-status-warning-text)]">
             لم يتم تحميل مصدر الداشبورد v171 بالكامل. راجع رسائل Console وشغّل ملف دعم v17.1 ثم أعد
             النشر بدون كاش.
           </div>
@@ -2400,79 +2399,79 @@ export default function ExecutiveDashboard2027() {
 
         {diagnosticsOpen && canAllBranches && state.salesReconciliation && (
           <Panel
-            className={`p-4 ${state.salesReconciliation.difference > 1 ? 'border-red-300/40 bg-red-500/10' : 'border-emerald-300/20 bg-emerald-500/5'}`}
+            className={`p-4 ${state.salesReconciliation.difference > 1 ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]' : 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]'}`}
           >
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div className="text-xs font-black uppercase tracking-wide text-cyan-200">
+                <div className="text-xs font-black uppercase tracking-wide text-[var(--dawaa-theme-primary-strong)]">
                   Sales Data Reconciliation
                 </div>
-                <h3 className="mt-1 text-lg font-black text-white">
+                <h3 className="mt-1 text-lg font-black text-[var(--dawaa-theme-heading)]">
                   صحة بيانات المبيعات من sales_invoices_live
                 </h3>
                 {state.salesReconciliation.difference > 1 ? (
-                  <p className="mt-1 text-sm font-black text-red-200">
+                  <p className="mt-1 text-sm font-black text-[var(--dawaa-status-danger-text)]">
                     يوجد اختلاف بين الداشبورد ومصدر الفواتير
                   </p>
                 ) : (
-                  <p className="mt-1 text-sm font-bold text-emerald-200">
+                  <p className="mt-1 text-sm font-bold text-[var(--dawaa-status-success-text)]">
                     الأرقام متطابقة مع معادلة SQL الداخلية.
                   </p>
                 )}
               </div>
-              <div className="grid gap-2 text-xs font-bold text-slate-200 md:grid-cols-4 xl:grid-cols-8">
-                <span className="rounded-xl bg-slate-950/55 px-3 py-2">
+              <div className="grid gap-2 text-xs font-bold text-[var(--dawaa-theme-text)] md:grid-cols-4 xl:grid-cols-8">
+                <span className="rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2">
                   dashboardTotal
                   <br />
-                  <b className="text-white">{money(state.salesReconciliation.dashboardTotal, 2)}</b>
+                  <b className="text-[var(--dawaa-theme-heading)]">{money(state.salesReconciliation.dashboardTotal, 2)}</b>
                 </span>
-                <span className="rounded-xl bg-slate-950/55 px-3 py-2">
+                <span className="rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2">
                   sqlEquivalentTotal
                   <br />
-                  <b className="text-white">
+                  <b className="text-[var(--dawaa-theme-heading)]">
                     {money(state.salesReconciliation.sqlEquivalentTotal, 2)}
                   </b>
                 </span>
-                <span className="rounded-xl bg-slate-950/55 px-3 py-2">
+                <span className="rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2">
                   difference
                   <br />
                   <b
                     className={
-                      state.salesReconciliation.difference > 1 ? 'text-red-200' : 'text-emerald-200'
+                      state.salesReconciliation.difference > 1 ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-status-success-text)]'
                     }
                   >
                     {money(state.salesReconciliation.difference, 2)}
                   </b>
                 </span>
-                <span className="rounded-xl bg-slate-950/55 px-3 py-2">
+                <span className="rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2">
                   invoicesCount
                   <br />
-                  <b className="text-white">{count(state.salesReconciliation.invoicesCount)}</b>
+                  <b className="text-[var(--dawaa-theme-heading)]">{count(state.salesReconciliation.invoicesCount)}</b>
                 </span>
-                <span className="rounded-xl bg-slate-950/55 px-3 py-2">
+                <span className="rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2">
                   rowsRead
                   <br />
-                  <b className="text-white">{count(state.salesReconciliation.rowsRead)}</b>
+                  <b className="text-[var(--dawaa-theme-heading)]">{count(state.salesReconciliation.rowsRead)}</b>
                 </span>
-                <span className="rounded-xl bg-slate-950/55 px-3 py-2">
+                <span className="rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2">
                   period
                   <br />
-                  <b className="text-white">
+                  <b className="text-[var(--dawaa-theme-heading)]">
                     {state.salesReconciliation.selectedStartDate} /{' '}
                     {state.salesReconciliation.selectedEndDate}
                   </b>
                 </span>
-                <span className="rounded-xl bg-slate-950/55 px-3 py-2">
+                <span className="rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2">
                   branches
                   <br />
-                  <b className="text-white">
+                  <b className="text-[var(--dawaa-theme-heading)]">
                     {state.salesReconciliation.branchesIncluded.join('، ') || 'لا يوجد'}
                   </b>
                 </span>
-                <span className="rounded-xl bg-slate-950/55 px-3 py-2">
+                <span className="rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2">
                   missing
                   <br />
-                  <b className="text-white">
+                  <b className="text-[var(--dawaa-theme-heading)]">
                     فرع {count(state.salesReconciliation.missingBranchCount)} · دكتور{' '}
                     {count(state.salesReconciliation.missingDoctorCount)} · رقم{' '}
                     {count(state.salesReconciliation.missingInvoiceKeyCount)}
@@ -2606,17 +2605,17 @@ export default function ExecutiveDashboard2027() {
           <button
             type="button"
             onClick={() => setDiagnosticsOpen((open) => !open)}
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-cyan-300/10 bg-slate-950/40 px-4 py-3 text-right hover:bg-cyan-400/10"
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-right hover:bg-[var(--dawaa-theme-accent-soft)]"
           >
             <div>
-              <div className="font-black text-white">التشخيص وصحة البيانات</div>
-              <div className="mt-1 text-xs font-bold text-slate-400">مخفي افتراضيًا — افتحه فقط عند المراجعة الفنية</div>
+              <div className="font-black text-[var(--dawaa-theme-heading)]">التشخيص وصحة البيانات</div>
+              <div className="dawaa-caption mt-1 text-xs font-bold">مخفي افتراضيًا — افتحه فقط عند المراجعة الفنية</div>
             </div>
             <div className="flex items-center gap-2">
               {dataHealthError || dataHealthIssues.length ? (
-                <span className="rounded-full bg-amber-400/15 px-3 py-1 text-xs font-black text-amber-100">{dataHealthError ? 'تعذر الفحص' : `${dataHealthIssues.length} مؤشر`}</span>
+                <span className="rounded-full bg-[var(--dawaa-status-warning-bg)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{dataHealthError ? 'تعذر الفحص' : `${dataHealthIssues.length} مؤشر`}</span>
               ) : null}
-              <span className="text-cyan-200">{diagnosticsOpen ? 'إخفاء' : 'عرض'}</span>
+              <span className="text-[var(--dawaa-theme-primary-strong)]">{diagnosticsOpen ? 'إخفاء' : 'عرض'}</span>
             </div>
           </button>
           {diagnosticsOpen ? (
@@ -2628,7 +2627,7 @@ export default function ExecutiveDashboard2027() {
                 onNavigate={(route) => navigate(route)}
                 onRetry={() => setDataHealthRetryToken((token) => token + 1)}
               />
-              <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/35 p-4">
+              <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
                 <SectionTitle title="تشخيص تحميل الداشبورد" subtitle="حالة الأقسام الأساسية" icon={<AlertTriangle className="h-5 w-5" />} />
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                   {[
@@ -2638,9 +2637,9 @@ export default function ExecutiveDashboard2027() {
                     { key: 'competition', label: 'competition', state: doctorCompetitionLoading ? 'loading' : doctorCompetitionError ? 'error' : doctorCompetitionLoadedAt ? 'loaded' : 'loading' },
                     { key: 'health', label: 'health', state: dataHealthLoading ? 'loading' : dataHealthError ? 'error' : 'loaded' },
                   ].map((item) => (
-                    <div key={item.key} className="rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4">
-                      <div className="text-sm font-black text-white">{item.label}</div>
-                      <div className="mt-3 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{item.state}</div>
+                    <div key={item.key} className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
+                      <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">{item.label}</div>
+                      <div className="mt-3 text-xs font-bold uppercase tracking-[0.2em] text-[var(--dawaa-theme-muted)]">{item.state}</div>
                     </div>
                   ))}
                 </div>
@@ -2656,7 +2655,7 @@ export default function ExecutiveDashboard2027() {
               subtitle="إجمالي اليوم مقارنة بفرع شكري وفرع الشامي لكل يوم"
               icon={<TrendingUp className="h-5 w-5" />}
             />
-            <div className="flex flex-wrap gap-2 rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-1.5">
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-1.5">
               {(
                 [
                   ['sales', 'المبيعات'],
@@ -2668,7 +2667,7 @@ export default function ExecutiveDashboard2027() {
                   key={value}
                   type="button"
                   onClick={() => setDailyChartMetric(value)}
-                  className={`rounded-xl px-4 py-2 text-xs font-black transition ${dailyChartMetric === value ? 'bg-cyan-500/20 text-cyan-100 ring-1 ring-cyan-300/30' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                  className={`rounded-xl px-4 py-2 text-xs font-black transition ${dailyChartMetric === value ? 'bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)] ring-1 ring-[var(--dawaa-theme-accent-border)]' : 'text-[var(--dawaa-theme-muted)] hover:bg-[var(--dawaa-theme-surface-2)] hover:text-[var(--dawaa-theme-heading)]'}`}
                 >
                   {label}
                 </button>
@@ -2693,11 +2692,11 @@ export default function ExecutiveDashboard2027() {
             />
           </div>
           <PaymentTypeBreakdownCards startDate={startDate} endDate={endDate} scopedBranch={scopedBranch} />
-          <div className="h-[380px] rounded-3xl border border-cyan-300/10 bg-slate-950/25 p-3">
+          <div className="h-[380px] rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-3">
             {dailyChart.length && chartDataDays.length ? (
               <Suspense
                 fallback={
-                  <div className="flex h-full items-center justify-center text-slate-400">
+                  <div className="flex h-full items-center justify-center text-[var(--dawaa-theme-muted)]">
                     جارٍ تحميل الرسم...
                   </div>
                 }
@@ -2784,7 +2783,7 @@ export default function ExecutiveDashboard2027() {
                 </ResponsiveContainer>
               </Suspense>
             ) : dailyChart.length ? (
-              <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-cyan-300/15 bg-slate-950/25 p-6 text-center text-sm font-bold leading-7 text-slate-300">
+              <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-6 text-center text-sm font-bold leading-7 text-[var(--dawaa-theme-text)]">
                 لا توجد مبيعات فعلية داخل الفترة المختارة حتى الآن. تم تجهيز أيام الدورة كلها على الرسم، وستظهر القيم فور وجود فواتير.
               </div>
             ) : (
@@ -2795,7 +2794,7 @@ export default function ExecutiveDashboard2027() {
               />
             )}
           </div>
-          <p className="mt-3 text-xs font-bold text-slate-400">
+          <p className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
             الرسم يعرض كل أيام الفترة المختارة، والأيام بدون فواتير تظهر بصفر حتى لا يختفي اتجاه الدورة.
           </p>
         </Panel>
@@ -2808,7 +2807,7 @@ export default function ExecutiveDashboard2027() {
           />
           <div className="h-[320px]">
             {monthlyTrendLoading && !monthlyTrendLoadedAt ? (
-              <div className="h-full animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40" />
+              <div className="h-full animate-pulse rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]" />
             ) : (monthlyTrendError || monthlyTrendTimedOut) && !monthlyChart.length ? (
               <EmptyState
                 label="لا توجد بيانات كافية لآخر 5 شهور"
@@ -2818,7 +2817,7 @@ export default function ExecutiveDashboard2027() {
             ) : monthlyChart.length ? (
               <Suspense
                 fallback={
-                  <div className="flex h-full items-center justify-center text-slate-400">
+                  <div className="flex h-full items-center justify-center text-[var(--dawaa-theme-muted)]">
                     جارٍ تحميل الرسم...
                   </div>
                 }
@@ -2830,12 +2829,12 @@ export default function ExecutiveDashboard2027() {
             )}
           </div>
           {monthlyTrendError && monthlyChart.length ? (
-            <p className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-red-400/25 bg-red-500/[0.06] px-3 py-2 text-xs font-bold text-red-200">
+            <p className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]/[0.06] px-3 py-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
               <span>تعذر تحديث بيانات آخر 5 شهور (البيانات المعروضة قد تكون قديمة).</span>
               <button
                 type="button"
                 onClick={() => setMonthlyTrendRetryToken((token) => token + 1)}
-                className="rounded-lg border border-red-300/25 bg-slate-950/55 px-2 py-1 font-black text-red-100 hover:bg-red-400/15"
+                className="rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-theme-surface)] px-2 py-1 font-black text-[var(--dawaa-status-danger-text)] hover:bg-[var(--dawaa-status-danger-bg)]"
               >
                 إعادة المحاولة
               </button>
@@ -2889,9 +2888,9 @@ export default function ExecutiveDashboard2027() {
               subtitle="اضغط على أي دكتور لفتح صفحة الفريق والبحث عنه"
               icon={<Users className="h-5 w-5" />}
             />
-            <div className="max-h-[340px] overflow-auto rounded-2xl border border-cyan-300/10">
+            <div className="max-h-[340px] overflow-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)]">
               <table className="w-full text-right text-sm">
-                <thead className="sticky top-0 bg-slate-950/90 text-xs text-slate-400">
+                <thead className="sticky top-0 bg-[var(--dawaa-theme-surface)] text-xs text-[var(--dawaa-theme-muted)]">
                   <tr>
                     <th className="p-3">#</th>
                     <th className="p-3">الموظف</th>
@@ -2907,21 +2906,21 @@ export default function ExecutiveDashboard2027() {
                       <tr
                         key={`${row.doctor_name}-${row.branch}-${index}`}
                         onClick={() => void navigateToStaff(row.doctor_name, row.branch)}
-                        className="cursor-pointer border-t border-cyan-300/10 hover:bg-cyan-400/8"
+                        className="cursor-pointer border-t border-[var(--dawaa-theme-accent-border)] hover:bg-[var(--dawaa-theme-accent-soft)]"
                       >
-                        <td className="p-3 font-black text-cyan-200">{index + 1}</td>
-                        <td className="p-3 font-black text-white">
+                        <td className="p-3 font-black text-[var(--dawaa-theme-primary-strong)]">{index + 1}</td>
+                        <td className="p-3 font-black text-[var(--dawaa-theme-heading)]">
                           {row.doctor_name || 'غير محدد'}
                         </td>
-                        <td className="p-3 text-slate-300">{branchName(row.branch)}</td>
-                        <td className="p-3 text-emerald-200">{money(row.sales_total)}</td>
-                        <td className="p-3 text-slate-200">{count(row.invoices_count)}</td>
-                        <td className="p-3 text-slate-200">{money(row.avg_invoice, 2)}</td>
+                        <td className="p-3 text-[var(--dawaa-theme-text)]">{branchName(row.branch)}</td>
+                        <td className="p-3 text-[var(--dawaa-status-success-text)]">{money(row.sales_total)}</td>
+                        <td className="p-3 text-[var(--dawaa-theme-text)]">{count(row.invoices_count)}</td>
+                        <td className="p-3 text-[var(--dawaa-theme-text)]">{money(row.avg_invoice, 2)}</td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-slate-500">
+                      <td colSpan={6} className="p-8 text-center text-[var(--dawaa-theme-muted)]">
                         لا توجد بيانات دكاترة بعد
                       </td>
                     </tr>
@@ -2956,70 +2955,70 @@ export default function ExecutiveDashboard2027() {
                   return (
                     <div
                       key={branchLabel}
-                      className="rounded-2xl border border-cyan-300/10 bg-slate-950/50 p-4"
+                      className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4"
                     >
                       <div className="mb-3 flex items-center justify-between">
-                        <h3 className="text-lg font-black text-white">
+                        <h3 className="text-lg font-black text-[var(--dawaa-theme-heading)]">
                           {branchName(target.branch)}
                         </h3>
                         <span
-                          className={`rounded-full px-3 py-1 text-sm font-black ${achievement >= 90 ? 'bg-emerald-500/20 text-emerald-200' : achievement >= 65 ? 'bg-amber-500/20 text-amber-200' : 'bg-red-500/20 text-red-200'}`}
+                          className={`rounded-full px-3 py-1 text-sm font-black ${achievement >= 90 ? 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : achievement >= 65 ? 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]' : 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]'}`}
                         >
                           {pct(achievement)}
                         </span>
                       </div>
-                      <div className="grid grid-cols-2 gap-3 text-xs font-bold text-slate-300 md:grid-cols-4">
+                      <div className="grid grid-cols-2 gap-3 text-xs font-bold text-[var(--dawaa-theme-text)] md:grid-cols-4">
                         <span>
                           التارجت
                           <br />
-                          <b className="text-white">{money(target.target_amount)}</b>
+                          <b className="text-[var(--dawaa-theme-heading)]">{money(target.target_amount)}</b>
                         </span>
                         <span>
                           المحقق
                           <br />
-                          <b className="text-emerald-200">{money(target.sales_total)}</b>
+                          <b className="text-[var(--dawaa-status-success-text)]">{money(target.sales_total)}</b>
                         </span>
                         <span>
                           المتوقع
                           <br />
-                          <b className="text-sky-200">{money(target.projected_sales)}</b>
+                          <b className="text-[var(--dawaa-status-info-text)]">{money(target.projected_sales)}</b>
                         </span>
                         <span>
                           المتبقي
                           <br />
-                          <b className="text-amber-200">{money(target.remaining_amount)}</b>
+                          <b className="text-[var(--dawaa-status-warning-text)]">{money(target.remaining_amount)}</b>
                         </span>
                       </div>
-                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-800">
+                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-[var(--dawaa-theme-surface-2)]">
                         <div
-                          className="h-full rounded-full bg-gradient-to-l from-cyan-300 to-emerald-400"
+                          className="h-full rounded-full bg-gradient-to-l "
                           style={{ width: `${Math.min(100, Math.max(0, achievement))}%` }}
                         />
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-slate-400">
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                         <span>
                           متوسط الشيفت اليومي:{' '}
-                          <b className="text-white">
+                          <b className="text-[var(--dawaa-theme-heading)]">
                             {money(n(target.sales_total) / Math.max(1, activeDaysCount))}
                           </b>
                         </span>
                         <span>
                           متوسط الفاتورة:{' '}
-                          <b className="text-white">{money(target.avg_invoice, 2)}</b>
+                          <b className="text-[var(--dawaa-theme-heading)]">{money(target.avg_invoice, 2)}</b>
                         </span>
                         <span>
-                          عدد الفواتير: <b className="text-white">{count(target.invoices_count)}</b>
+                          عدد الفواتير: <b className="text-[var(--dawaa-theme-heading)]">{count(target.invoices_count)}</b>
                         </span>
                         <span>
                           نسبة متوقعة:{' '}
-                          <b className="text-white">{pct(target.projected_achievement_percent)}</b>
+                          <b className="text-[var(--dawaa-theme-heading)]">{pct(target.projected_achievement_percent)}</b>
                         </span>
                       </div>
-                      <div className="mt-4 rounded-2xl border border-emerald-300/10 bg-emerald-400/5 p-3 text-xs font-bold text-slate-300">
+                      <div className="mt-4 rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3 text-xs font-bold text-[var(--dawaa-theme-text)]">
                         أفضل دكتور حاليا:{' '}
-                        <b className="text-white">{bestDoctor?.doctor_name || 'غير محدد'}</b>
+                        <b className="text-[var(--dawaa-theme-heading)]">{bestDoctor?.doctor_name || 'غير محدد'}</b>
                         {bestDoctor ? (
-                          <span className="text-emerald-200">
+                          <span className="text-[var(--dawaa-status-success-text)]">
                             {' '}
                             · {money(bestDoctor.sales_total)} جنيه ·{' '}
                             {count(bestDoctor.invoices_count)} فاتورة
@@ -3027,7 +3026,7 @@ export default function ExecutiveDashboard2027() {
                         ) : null}
                       </div>
                       <div className="mt-4 space-y-2">
-                        <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-3 rounded-xl border border-cyan-300/10 bg-cyan-400/10 px-3 py-2 text-right text-xs font-black text-cyan-100">
+                        <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-3 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-3 py-2 text-right text-xs font-black text-[var(--dawaa-theme-primary-strong)]">
                           <span>#</span>
                           <span>الدكتور</span>
                           <span>المبيعات</span>
@@ -3038,28 +3037,28 @@ export default function ExecutiveDashboard2027() {
                           <button
                             key={`${doctor.doctor_name}-${index}`}
                             onClick={() => void navigateToStaff(doctor.doctor_name, doctor.branch)}
-                            className="grid w-full grid-cols-[auto_1fr_auto_auto_auto] gap-3 rounded-xl border border-cyan-300/10 bg-slate-900/70 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
+                            className="grid w-full grid-cols-[auto_1fr_auto_auto_auto] gap-3 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-right text-xs hover:bg-[var(--dawaa-theme-accent-soft)]"
                           >
-                            <span className="font-black text-cyan-200">{index + 1}</span>
-                            <span className="font-black text-white">
+                            <span className="font-black text-[var(--dawaa-theme-primary-strong)]">{index + 1}</span>
+                            <span className="font-black text-[var(--dawaa-theme-heading)]">
                               {doctor.doctor_name || 'غير محدد'}
                             </span>
-                            <span className="text-emerald-200">
+                            <span className="text-[var(--dawaa-status-success-text)]">
                               {money(doctor.sales_total)} جنيه
                             </span>
-                            <span className="text-sky-200">
+                            <span className="text-[var(--dawaa-status-info-text)]">
                               {money(doctor.avg_invoice, 2)} متوسط
                             </span>
-                            <span className="text-slate-300">
+                            <span className="text-[var(--dawaa-theme-text)]">
                               {count(doctor.invoices_count)} فاتورة
                             </span>
                           </button>
                         ))}
                       </div>
-                      <div className="mt-4 rounded-2xl border border-sky-300/10 bg-sky-400/5 p-4">
+                      <div className="mt-4 rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
                         <div className="mb-3 flex items-center justify-between gap-3">
-                          <h4 className="text-sm font-black text-white">تحليل آخر 5 أيام</h4>
-                          <span className="rounded-full bg-sky-400/10 px-3 py-1 text-xs font-black text-sky-100">
+                          <h4 className="text-sm font-black text-[var(--dawaa-theme-heading)]">تحليل آخر 5 أيام</h4>
+                          <span className="rounded-full bg-[var(--dawaa-status-info-bg)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-info-text)]">
                             {recent ? `${money(recent.total)} جنيه` : 'لا توجد بيانات'}
                           </span>
                         </div>
@@ -3081,8 +3080,8 @@ export default function ExecutiveDashboard2027() {
                           />
                         </div>
                         <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                          <div className="rounded-xl border border-cyan-300/10 bg-slate-950/50 p-3">
-                            <p className="mb-2 text-xs font-black text-cyan-100">
+                          <div className="rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-3">
+                            <p className="mb-2 text-xs font-black text-[var(--dawaa-theme-primary-strong)]">
                               المبيعات اليومية
                             </p>
                             <div className="space-y-2">
@@ -3090,26 +3089,26 @@ export default function ExecutiveDashboard2027() {
                                 recentDays.map(([day, row]) => (
                                   <div
                                     key={day}
-                                    className="grid grid-cols-[1fr_auto_auto] gap-2 rounded-lg bg-slate-900/70 px-3 py-2 text-xs font-bold"
+                                    className="grid grid-cols-[1fr_auto_auto] gap-2 rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2 text-xs font-bold"
                                   >
-                                    <span className="text-white">{safeDate(day)}</span>
-                                    <span className="text-emerald-200">
+                                    <span className="text-[var(--dawaa-theme-heading)]">{safeDate(day)}</span>
+                                    <span className="text-[var(--dawaa-status-success-text)]">
                                       {money(row.sales)} جنيه
                                     </span>
-                                    <span className="text-slate-300">
+                                    <span className="text-[var(--dawaa-theme-text)]">
                                       {count(row.invoices)} فاتورة
                                     </span>
                                   </div>
                                 ))
                               ) : (
-                                <p className="rounded-lg bg-slate-900/70 p-3 text-center text-xs font-bold text-slate-500">
+                                <p className="rounded-lg bg-[var(--dawaa-theme-surface)] p-3 text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">
                                   لا توجد فواتير آخر 5 أيام
                                 </p>
                               )}
                             </div>
                           </div>
-                          <div className="rounded-xl border border-cyan-300/10 bg-slate-950/50 p-3">
-                            <p className="mb-2 text-xs font-black text-cyan-100">
+                          <div className="rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-3">
+                            <p className="mb-2 text-xs font-black text-[var(--dawaa-theme-primary-strong)]">
                               أداء الدكاترة آخر 5 أيام
                             </p>
                             <div className="space-y-2">
@@ -3118,20 +3117,20 @@ export default function ExecutiveDashboard2027() {
                                   <button
                                     key={`${branchLabel}-${doctorName}`}
                                     onClick={() => void navigateToStaff(doctorName, branchLabel)}
-                                    className="grid w-full grid-cols-[auto_1fr_auto_auto] gap-2 rounded-lg bg-slate-900/70 px-3 py-2 text-right text-xs font-bold hover:bg-cyan-400/10"
+                                    className="grid w-full grid-cols-[auto_1fr_auto_auto] gap-2 rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2 text-right text-xs font-bold hover:bg-[var(--dawaa-theme-accent-soft)]"
                                   >
-                                    <span className="text-cyan-200">{index + 1}</span>
-                                    <span className="text-white">{doctorName}</span>
-                                    <span className="text-emerald-200">
+                                    <span className="text-[var(--dawaa-theme-primary-strong)]">{index + 1}</span>
+                                    <span className="text-[var(--dawaa-theme-heading)]">{doctorName}</span>
+                                    <span className="text-[var(--dawaa-status-success-text)]">
                                       {money(row.sales)} جنيه
                                     </span>
-                                    <span className="text-slate-300">
+                                    <span className="text-[var(--dawaa-theme-text)]">
                                       {count(row.invoices)} فاتورة
                                     </span>
                                   </button>
                                 ))
                               ) : (
-                                <p className="rounded-lg bg-slate-900/70 p-3 text-center text-xs font-bold text-slate-500">
+                                <p className="rounded-lg bg-[var(--dawaa-theme-surface)] p-3 text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">
                                   لا توجد بيانات دكاترة آخر 5 أيام
                                 </p>
                               )}
@@ -3139,7 +3138,7 @@ export default function ExecutiveDashboard2027() {
                           </div>
                         </div>
                       </div>
-                      <p className="mt-3 text-xs font-bold text-cyan-100">
+                      <p className="mt-3 text-xs font-bold text-[var(--dawaa-theme-primary-strong)]">
                         {target.manager_advice}
                       </p>
                     </div>
@@ -3173,23 +3172,23 @@ export default function ExecutiveDashboard2027() {
               <MiniBox label="أذونات معلقة" value={count(staff.pending_time_off)} tone="amber" />
               <MiniBox label="غياب اليوم" value={count(staff.absences_today)} tone="blue" />
             </div>
-            <div className="mt-5 rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4">
-              <h3 className="mb-3 text-sm font-black text-white">الأداء الأقل يحتاج متابعة</h3>
+            <div className="mt-5 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
+              <h3 className="mb-3 text-sm font-black text-[var(--dawaa-theme-heading)]">الأداء الأقل يحتاج متابعة</h3>
               <div className="space-y-2">
                 {lowDoctors.length ? (
                   lowDoctors.slice(0, 5).map((row, index) => (
                     <button
                       key={`${row.doctor_name}-${index}`}
                       onClick={() => void navigateToStaff(row.doctor_name, row.branch)}
-                      className="grid w-full grid-cols-[1fr_auto_auto] gap-2 rounded-xl bg-slate-900/80 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
+                      className="grid w-full grid-cols-[1fr_auto_auto] gap-2 rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2 text-right text-xs hover:bg-[var(--dawaa-theme-accent-soft)]"
                     >
-                      <span className="font-black text-white">{row.doctor_name || 'غير محدد'}</span>
-                      <span className="text-slate-300">{count(row.invoices_count)} فاتورة</span>
-                      <span className="text-amber-200">{money(row.sales_total)}</span>
+                      <span className="font-black text-[var(--dawaa-theme-heading)]">{row.doctor_name || 'غير محدد'}</span>
+                      <span className="text-[var(--dawaa-theme-text)]">{count(row.invoices_count)} فاتورة</span>
+                      <span className="text-[var(--dawaa-status-warning-text)]">{money(row.sales_total)}</span>
                     </button>
                   ))
                 ) : (
-                  <p className="text-center text-xs font-bold text-slate-500">لا توجد بيانات</p>
+                  <p className="text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات</p>
                 )}
               </div>
             </div>
@@ -3257,23 +3256,23 @@ export default function ExecutiveDashboard2027() {
               <MiniBox label="أذونات معلقة" value={count(staff.pending_time_off)} tone="amber" />
               <MiniBox label="غياب اليوم" value={count(staff.absences_today)} tone="blue" />
             </div>
-            <div className="mt-5 rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-4">
-              <h3 className="mb-3 text-sm font-black text-white">الأداء الأقل يحتاج متابعة</h3>
+            <div className="mt-5 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
+              <h3 className="mb-3 text-sm font-black text-[var(--dawaa-theme-heading)]">الأداء الأقل يحتاج متابعة</h3>
               <div className="space-y-2">
                 {lowDoctors.length ? (
                   lowDoctors.slice(0, 5).map((row, index) => (
                     <button
                       key={`${row.doctor_name}-${index}`}
                       onClick={() => void navigateToStaff(row.doctor_name, row.branch)}
-                      className="grid w-full grid-cols-[1fr_auto_auto] gap-2 rounded-xl bg-slate-900/80 px-3 py-2 text-right text-xs hover:bg-cyan-400/10"
+                      className="grid w-full grid-cols-[1fr_auto_auto] gap-2 rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2 text-right text-xs hover:bg-[var(--dawaa-theme-accent-soft)]"
                     >
-                      <span className="font-black text-white">{row.doctor_name || 'غير محدد'}</span>
-                      <span className="text-slate-300">{count(row.invoices_count)} فاتورة</span>
-                      <span className="text-amber-200">{money(row.sales_total)}</span>
+                      <span className="font-black text-[var(--dawaa-theme-heading)]">{row.doctor_name || 'غير محدد'}</span>
+                      <span className="text-[var(--dawaa-theme-text)]">{count(row.invoices_count)} فاتورة</span>
+                      <span className="text-[var(--dawaa-status-warning-text)]">{money(row.sales_total)}</span>
                     </button>
                   ))
                 ) : (
-                  <p className="text-center text-xs font-bold text-slate-500">لا توجد بيانات</p>
+                  <p className="text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات</p>
                 )}
               </div>
             </div>
@@ -3285,9 +3284,9 @@ export default function ExecutiveDashboard2027() {
               subtitle="ترتيب تقديري لحين ربط Ledger الحوافز النهائي"
               icon={<Sparkles className="h-5 w-5" />}
             />
-            <div className="max-h-80 overflow-auto rounded-2xl border border-cyan-300/10">
+            <div className="max-h-80 overflow-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)]">
               <table className="w-full text-right text-sm">
-                <thead className="sticky top-0 bg-slate-950/90 text-xs text-slate-400">
+                <thead className="sticky top-0 bg-[var(--dawaa-theme-surface)] text-xs text-[var(--dawaa-theme-muted)]">
                   <tr>
                     <th className="p-3">الموظف</th>
                     <th className="p-3">النقاط</th>
@@ -3300,13 +3299,13 @@ export default function ExecutiveDashboard2027() {
                     return (
                       <tr
                         key={`${row.doctor_name}-points-${index}`}
-                        className="border-t border-cyan-300/10"
+                        className="border-t border-[var(--dawaa-theme-accent-border)]"
                       >
-                        <td className="p-3 font-black text-white">
+                        <td className="p-3 font-black text-[var(--dawaa-theme-heading)]">
                           {row.doctor_name || 'غير محدد'}
                         </td>
-                        <td className="p-3 text-cyan-200">{count(points)}</td>
-                        <td className="p-3 text-emerald-200">
+                        <td className="p-3 text-[var(--dawaa-theme-primary-strong)]">{count(points)}</td>
+                        <td className="p-3 text-[var(--dawaa-status-success-text)]">
                           {money(n(row.incentive_value) || points * 3)} جنيه
                         </td>
                       </tr>
@@ -3371,9 +3370,9 @@ function DashboardDoctorCompetitionPanel({
         icon={<Trophy className="h-5 w-5" />}
       />
       {showStaleWarning ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
           <span>البيانات المعروضة من آخر تحميل ناجح — تعذر تحديثها الآن.</span>
-          <button type="button" onClick={onRetry} className="rounded-lg border border-amber-300/40 bg-amber-400/15 px-3 py-1 font-black text-amber-50 hover:bg-amber-400/25">
+          <button type="button" onClick={onRetry} className="rounded-lg border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-1 font-black text-[var(--dawaa-status-warning-text)] hover:bg-[var(--dawaa-status-warning-bg)]">
             إعادة المحاولة
           </button>
         </div>
@@ -3381,21 +3380,21 @@ function DashboardDoctorCompetitionPanel({
       {loading && !metrics ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" aria-busy="true">
           {Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="h-28 animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40" />
+            <div key={index} className="h-28 animate-pulse rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]" />
           ))}
         </div>
       ) : !hasRows && error ? (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-red-400/25 bg-red-950/20 px-4 py-6 text-center">
-          <AlertTriangle className="h-6 w-6 text-red-300" />
-          <p className="text-sm font-bold text-red-100">تعذر تحميل مسابقة الدكاترة الآن.</p>
-          <p className="max-w-md text-xs text-red-200/70">{error.slice(0, 160)}</p>
-          <button type="button" onClick={onRetry} className="rounded-xl border border-red-300/30 bg-red-400/10 px-4 py-2 text-xs font-black text-red-100 hover:bg-red-400/20">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-[var(--dawaa-status-danger-border)] bg-red-950/20 px-4 py-6 text-center">
+          <AlertTriangle className="h-6 w-6 text-[var(--dawaa-status-danger-text)]" />
+          <p className="text-sm font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل مسابقة الدكاترة الآن.</p>
+          <p className="max-w-md text-xs text-[var(--dawaa-status-danger-text)]/70">{error.slice(0, 160)}</p>
+          <button type="button" onClick={onRetry} className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-4 py-2 text-xs font-black text-[var(--dawaa-status-danger-text)] hover:bg-[var(--dawaa-status-danger-bg)]">
             إعادة محاولة تحميل القسم
           </button>
         </div>
       ) : !hasRows ? (
-        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-cyan-300/15 bg-slate-950/30 px-4 py-6 text-center text-sm font-black text-slate-500">
-          <Trophy className="h-6 w-6 text-slate-600" />
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-4 py-6 text-center text-sm font-black text-[var(--dawaa-theme-muted)]">
+          <Trophy className="h-6 w-6 text-[var(--dawaa-theme-muted)]" />
           لا توجد بيانات كافية للمسابقة في الفترة الحالية
         </div>
       ) : hasRows ? (
@@ -3456,16 +3455,16 @@ function DashboardDoctorCompetitionPanel({
                 type="button"
                 key={`${row.staffId || row.name}-${row.branch}-${index}`}
                 onClick={() => onNavigate('overall')}
-                className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-cyan-300/10 bg-slate-900/60 px-3 py-2.5 text-right hover:bg-cyan-400/10"
+                className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2.5 text-right hover:bg-[var(--dawaa-theme-accent-soft)]"
               >
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-cyan-400/15 text-xs font-black text-cyan-200">{index + 1}</span>
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--dawaa-theme-accent-soft)] text-xs font-black text-[var(--dawaa-theme-primary-strong)]">{index + 1}</span>
                 <span className="min-w-0">
-                  <span className="block truncate font-black text-white">{row.name}</span>
-                  <span className="block text-[11px] font-bold text-slate-400">{row.branch} · {count(row.invoices)} فاتورة · متوسط {row.avgInvoiceEligible ? `${money(row.avgInvoice)} ج` : 'غير كافٍ'}{row.reviewCount ? ` · تقييم ${avgReview(row).toFixed(1)}/100` : ''}</span>
+                  <span className="block truncate font-black text-[var(--dawaa-theme-heading)]">{row.name}</span>
+                  <span className="block text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{row.branch} · {count(row.invoices)} فاتورة · متوسط {row.avgInvoiceEligible ? `${money(row.avgInvoice)} ج` : 'غير كافٍ'}{row.reviewCount ? ` · تقييم ${avgReview(row).toFixed(1)}/100` : ''}</span>
                 </span>
                 <span className="text-left">
-                  <span className="block text-sm font-black text-emerald-200">{money(row.totalSales)} ج</span>
-                  <span className="block text-[10px] font-bold text-amber-200">{row.overallScore.toFixed(1)} نقطة</span>
+                  <span className="block text-sm font-black text-[var(--dawaa-status-success-text)]">{money(row.totalSales)} ج</span>
+                  <span className="block text-[10px] font-bold text-[var(--dawaa-status-warning-text)]">{row.overallScore.toFixed(1)} نقطة</span>
                 </span>
               </button>
             ))}
@@ -3474,25 +3473,25 @@ function DashboardDoctorCompetitionPanel({
             <button
               type="button"
               onClick={() => setShowFullRanking((value) => !value)}
-              className="mt-3 w-full rounded-xl border border-cyan-300/15 bg-slate-900/50 py-2 text-xs font-black text-cyan-200 hover:bg-cyan-400/10"
+              className="mt-3 w-full rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] py-2 text-xs font-black text-[var(--dawaa-theme-primary-strong)] hover:bg-[var(--dawaa-theme-accent-soft)]"
             >
               {showFullRanking ? 'إخفاء الترتيب الكامل' : 'عرض الترتيب الكامل'}
             </button>
           ) : null}
           {showFullRanking ? (
-            <div className="mt-3 overflow-hidden rounded-2xl border border-cyan-300/10">
+            <div className="mt-3 overflow-hidden rounded-2xl border border-[var(--dawaa-theme-accent-border)]">
               <table className="w-full min-w-[860px] text-right text-sm">
-                <thead className="bg-gradient-to-l from-slate-950 via-slate-900 to-cyan-950/80 text-slate-50 shadow-[inset_0_-1px_0_rgba(103,232,249,0.22)]">
-                  <tr className="border-b border-cyan-300/20">
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الترتيب</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الدكتور</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفرع</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">المبيعات</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">الفواتير</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">متوسط الفاتورة</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">تقييم المحادثات</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">المتابعات المكتملة</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-slate-50">النقاط الشاملة</th>
+                <thead className="bg-gradient-to-l from-slate-950 via-slate-900 text-[var(--dawaa-theme-text)] shadow-[inset_0_-1px_0_rgba(103,232,249,0.22)]">
+                  <tr className="border-b border-[var(--dawaa-theme-accent-border)]">
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">الترتيب</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">الدكتور</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">الفرع</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">المبيعات</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">الفواتير</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">متوسط الفاتورة</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">تقييم المحادثات</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">المتابعات المكتملة</th>
+                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">النقاط الشاملة</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3500,17 +3499,17 @@ function DashboardDoctorCompetitionPanel({
                     <tr
                       key={`${row.staffId || row.name}-${row.branch}-${index}`}
                       onClick={() => onNavigate('overall')}
-                      className="cursor-pointer border-t border-cyan-300/10 hover:bg-cyan-400/8"
+                      className="cursor-pointer border-t border-[var(--dawaa-theme-accent-border)] hover:bg-[var(--dawaa-theme-accent-soft)]"
                     >
-                      <td className="p-3 font-black text-cyan-200">{index + 1}</td>
-                      <td className="p-3 font-black text-white">{row.name}</td>
-                      <td className="p-3 text-slate-300">{row.branch}</td>
-                      <td className="p-3 text-emerald-200">{money(row.totalSales)} جنيه</td>
+                      <td className="p-3 font-black text-[var(--dawaa-theme-primary-strong)]">{index + 1}</td>
+                      <td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.name}</td>
+                      <td className="p-3 text-[var(--dawaa-theme-text)]">{row.branch}</td>
+                      <td className="p-3 text-[var(--dawaa-status-success-text)]">{money(row.totalSales)} جنيه</td>
                       <td className="p-3">{count(row.invoices)}</td>
                       <td className="p-3">{row.avgInvoiceEligible ? `${money(row.avgInvoice)} جنيه` : 'عدد فواتير غير كافٍ'}</td>
                       <td className="p-3">{row.reviewCount ? `${avgReview(row).toFixed(1)}/100` : 'غير متاح'}</td>
                       <td className="p-3">{count(row.completedFollowups)}</td>
-                      <td className="p-3 font-black text-amber-200">{row.overallScore.toFixed(1)}</td>
+                      <td className="p-3 font-black text-[var(--dawaa-status-warning-text)]">{row.overallScore.toFixed(1)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3542,15 +3541,15 @@ function DoctorWinnerCard({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-right transition hover:-translate-y-0.5 hover:border-amber-200/50"
+      className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 text-right transition hover:-translate-y-0.5 hover:border-[var(--dawaa-status-warning-border)]"
     >
-      <div className="flex items-center gap-2 text-xs font-black text-amber-200">
+      <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-status-warning-text)]">
         {trophy ? <Trophy className="h-4 w-4" /> : <PackageSearch className="h-4 w-4" />} {title}
       </div>
-      <div className="mt-3 text-xl font-black text-white">{row?.name || 'لا يوجد'}</div>
-      <div className="mt-1 text-xs font-bold text-slate-400">{row?.branch || 'بيانات غير كافية'}</div>
-      <div className="mt-3 rounded-xl bg-slate-950/55 px-3 py-2 text-sm font-black text-amber-100">{value}</div>
-      <p className="mt-2 min-h-10 text-xs leading-5 text-slate-300">{detail}</p>
+      <div className="mt-3 text-xl font-black text-[var(--dawaa-theme-heading)]">{row?.name || 'لا يوجد'}</div>
+      <div className="dawaa-caption mt-1 text-xs font-bold">{row?.branch || 'بيانات غير كافية'}</div>
+      <div className="mt-3 rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2 text-sm font-black text-[var(--dawaa-status-warning-text)]">{value}</div>
+      <p className="mt-2 min-h-10 text-xs leading-5 text-[var(--dawaa-theme-text)]">{detail}</p>
     </button>
   );
 }
@@ -3579,21 +3578,21 @@ function DashboardDataHealthPanel({
 
   return (
     <Panel id="dashboard-data-health" className="p-5">
-      <div className="mb-5 flex items-start justify-between gap-4 rounded-3xl border border-cyan-300/10 bg-gradient-to-l from-cyan-400/10 via-slate-950/20 to-transparent p-4">
+      <div className="mb-5 flex items-start justify-between gap-4 rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-gradient-to-l via-slate-950/20 to-transparent p-4">
         <div>
-          <h2 className="text-2xl font-black text-white drop-shadow-sm">صحة البيانات</h2>
-          <p className="mt-2 text-sm font-bold leading-6 text-cyan-50/85">
+          <h2 className="text-2xl font-black text-[var(--dawaa-theme-heading)] drop-shadow-sm">صحة البيانات</h2>
+          <p className="mt-2 text-sm font-bold leading-6 text-[var(--dawaa-theme-primary-strong)]/85">
             مؤشرات مختصرة وواضحة على الفواتير والعملاء والحسابات التي تحتاج مراجعة قبل التقارير.
           </p>
         </div>
-        <div className="rounded-2xl bg-cyan-300/15 p-3 text-cyan-100 ring-1 ring-cyan-200/20">
+        <div className="rounded-2xl bg-[var(--dawaa-theme-accent-soft)] p-3 text-[var(--dawaa-theme-primary-strong)] ring-1 ring-[var(--dawaa-theme-accent-border)]">
           <ShieldCheck className="h-5 w-5" />
         </div>
       </div>
       {error ? (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-100">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-3 py-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
           <span>تعذر فحص صحة البيانات الآن — النتيجة الظاهرة قد تكون قديمة أو غير مكتملة، ومش معناها إن كل حاجة سليمة فعلًا.</span>
-          <button type="button" onClick={onRetry} className="rounded-lg border border-red-300/40 bg-red-400/15 px-3 py-1 font-black text-red-50 hover:bg-red-400/25">
+          <button type="button" onClick={onRetry} className="rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-3 py-1 font-black text-[var(--dawaa-status-danger-text)] hover:bg-[var(--dawaa-status-danger-bg)]">
             إعادة المحاولة
           </button>
         </div>
@@ -3601,7 +3600,7 @@ function DashboardDataHealthPanel({
       {loading && !issues.length ? (
         <div className="grid gap-3 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="h-24 animate-pulse rounded-2xl border border-slate-700/60 bg-slate-800/40" />
+            <div key={index} className="h-24 animate-pulse rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]" />
           ))}
         </div>
       ) : (
@@ -3621,25 +3620,25 @@ function DashboardDataHealthPanel({
                     key={issue.key}
                     type="button"
                     onClick={() => onNavigate(route)}
-                    className="rounded-2xl border border-cyan-300/15 bg-slate-950/55 p-4 text-right transition hover:border-cyan-200/35 hover:bg-cyan-400/10"
+                    className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 text-right transition hover:border-[var(--dawaa-theme-accent-border)] hover:bg-[var(--dawaa-theme-accent-soft)]"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-black text-white">{issue.label}</span>
-                      <span className={`rounded-full px-2 py-1 text-[11px] font-black ${issue.severity === 'danger' ? 'bg-red-500/15 text-red-200' : issue.severity === 'warning' ? 'bg-amber-500/15 text-amber-200' : 'bg-cyan-500/15 text-cyan-200'}`}>
+                      <span className="text-sm font-black text-[var(--dawaa-theme-heading)]">{issue.label}</span>
+                      <span className={`rounded-full px-2 py-1 text-[11px] font-black ${issue.severity === 'danger' ? 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]' : issue.severity === 'warning' ? 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]' : 'bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)]'}`}>
                         {issue.source}
                       </span>
                     </div>
-                    <div className="mt-3 text-2xl font-black text-white">{issue.count === null ? 'غير متاح' : count(issue.count)}</div>
-                    <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-slate-300">{issue.error ? 'لا توجد بيانات كافية أو المصدر غير متاح حاليا.' : issue.suggestedFix}</p>
+                    <div className="mt-3 text-2xl font-black text-[var(--dawaa-theme-heading)]">{issue.count === null ? 'غير متاح' : count(issue.count)}</div>
+                    <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-[var(--dawaa-theme-text)]">{issue.error ? 'لا توجد بيانات كافية أو المصدر غير متاح حاليا.' : issue.suggestedFix}</p>
                   </button>
                 );
               })
             ) : error ? (
-              <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 text-sm font-bold text-slate-400 md:col-span-2 xl:col-span-4">
+              <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 text-sm font-bold text-[var(--dawaa-theme-muted)] md:col-span-2 xl:col-span-4">
                 لا يمكن تأكيد حالة صحة البيانات حاليًا بسبب فشل الفحص أعلاه.
               </div>
             ) : (
-              <div className="rounded-2xl border border-emerald-300/15 bg-emerald-500/10 p-4 text-sm font-bold text-emerald-100 md:col-span-2 xl:col-span-4">
+              <div className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-success-text)] md:col-span-2 xl:col-span-4">
                 لا توجد بنود حرجة ظاهرة في ملخص صحة البيانات.
               </div>
             )}
@@ -3661,13 +3660,13 @@ function CriticalItem({
 }) {
   return (
     <div
-      className={`flex items-center justify-between rounded-2xl border p-4 ${danger ? 'border-red-400/25 bg-red-500/10' : 'border-cyan-300/10 bg-slate-900/60'}`}
+      className={`flex items-center justify-between rounded-2xl border p-4 ${danger ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]' : 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)]'}`}
     >
       <div>
-        <p className="font-black text-white">{title}</p>
-        <p className="mt-1 text-sm font-bold text-slate-300">{value}</p>
+        <p className="font-black text-[var(--dawaa-theme-heading)]">{title}</p>
+        <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-text)]">{value}</p>
       </div>
-      <button className="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-white hover:bg-white/10">
+      <button className="rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2 text-xs font-black text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-soft)]">
         معالجة الآن
       </button>
     </div>
