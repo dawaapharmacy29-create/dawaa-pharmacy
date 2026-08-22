@@ -28,6 +28,20 @@ html[data-theme='dark'] {
   --dawaa-theme-table-hover: #143253;
   --dawaa-theme-overlay: rgba(2, 8, 23, 0.72);
   --dawaa-theme-focus: rgba(45, 212, 191, 0.28);
+  --dawaa-theme-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+
+  --dawaa-status-success-bg: rgba(16, 185, 129, 0.16);
+  --dawaa-status-success-text: #6ee7b7;
+  --dawaa-status-success-border: rgba(52, 211, 153, 0.35);
+  --dawaa-status-warning-bg: rgba(245, 158, 11, 0.16);
+  --dawaa-status-warning-text: #fbbf24;
+  --dawaa-status-warning-border: rgba(251, 191, 36, 0.35);
+  --dawaa-status-danger-bg: rgba(248, 113, 113, 0.16);
+  --dawaa-status-danger-text: #fca5a5;
+  --dawaa-status-danger-border: rgba(252, 165, 165, 0.35);
+  --dawaa-status-info-bg: rgba(96, 165, 250, 0.16);
+  --dawaa-status-info-text: #93c5fd;
+  --dawaa-status-info-border: rgba(147, 197, 253, 0.35);
 
   /* shadcn/Tailwind semantic tokens: keep them aligned with Dawaa tokens. */
   --background: 209 66% 8%;
@@ -59,118 +73,157 @@ html[data-theme='dark'] {
   --sidebar-ring: 172 66% 50%;
 }
 
+/*
+ * Light is intentionally neutral first and teal second.
+ * The old mint-heavy palette made page/card/input/table surfaces visually collapse
+ * into one another. Neutral surfaces restore hierarchy; Dawaa teal remains the accent.
+ */
 html[data-theme='light'] {
-  --dawaa-theme-bg: #eefbf8;
-  --dawaa-theme-bg-soft: #f6fffd;
+  --dawaa-theme-bg: #f2f6f7;
+  --dawaa-theme-bg-soft: #f7fafb;
   --dawaa-theme-surface: #ffffff;
-  --dawaa-theme-surface-2: #f5fbfa;
+  --dawaa-theme-surface-2: #f4f8f8;
   --dawaa-theme-surface-raised: #ffffff;
-  --dawaa-theme-soft: rgba(20, 184, 166, 0.1);
-  --dawaa-theme-border: rgba(13, 148, 136, 0.2);
-  --dawaa-theme-border-strong: rgba(13, 148, 136, 0.42);
-  --dawaa-theme-text: #0f2637;
-  --dawaa-theme-heading: #071522;
-  --dawaa-theme-muted: #52687a;
-  --dawaa-theme-primary: #0fbaaa;
-  --dawaa-theme-primary-strong: #0d9488;
+  --dawaa-theme-soft: rgba(14, 159, 144, 0.09);
+  --dawaa-theme-border: #d8e2e5;
+  --dawaa-theme-border-strong: #9ecbc5;
+  --dawaa-theme-text: #243740;
+  --dawaa-theme-heading: #102832;
+  --dawaa-theme-muted: #667a84;
+  --dawaa-theme-primary: #0e9f90;
+  --dawaa-theme-primary-strong: #0b7f74;
   --dawaa-theme-primary-text: #ffffff;
-  --dawaa-theme-input: #ffffff;
-  --dawaa-theme-table-head: #eaf4f3;
+  --dawaa-theme-input: #fbfdfd;
+  --dawaa-theme-table-head: #edf3f4;
   --dawaa-theme-table-row: #ffffff;
-  --dawaa-theme-table-hover: #e9fbf7;
-  --dawaa-theme-overlay: rgba(15, 38, 55, 0.38);
-  --dawaa-theme-focus: rgba(13, 148, 136, 0.2);
+  --dawaa-theme-table-hover: #eef8f7;
+  --dawaa-theme-overlay: rgba(16, 40, 50, 0.34);
+  --dawaa-theme-focus: rgba(14, 159, 144, 0.2);
+  --dawaa-theme-shadow: 0 10px 28px rgba(21, 55, 64, 0.08);
 
-  --background: 167 100% 98%;
-  --foreground: 206 57% 14%;
+  --dawaa-status-success-bg: #e9f8f1;
+  --dawaa-status-success-text: #087a55;
+  --dawaa-status-success-border: #b9e4d1;
+  --dawaa-status-warning-bg: #fff7e6;
+  --dawaa-status-warning-text: #9a5b08;
+  --dawaa-status-warning-border: #f2d49d;
+  --dawaa-status-danger-bg: #fff0f0;
+  --dawaa-status-danger-text: #b52a2a;
+  --dawaa-status-danger-border: #efc0c0;
+  --dawaa-status-info-bg: #edf5ff;
+  --dawaa-status-info-text: #245fab;
+  --dawaa-status-info-border: #bfd6f3;
+
+  --background: 195 24% 96%;
+  --foreground: 198 28% 20%;
   --card: 0 0% 100%;
-  --card-foreground: 206 57% 14%;
+  --card-foreground: 198 28% 20%;
   --popover: 0 0% 100%;
-  --popover-foreground: 206 57% 14%;
-  --primary: 174 85% 39%;
+  --popover-foreground: 198 28% 20%;
+  --primary: 174 84% 34%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 168 35% 96%;
-  --secondary-foreground: 206 57% 14%;
-  --muted: 168 35% 96%;
-  --muted-foreground: 207 20% 40%;
-  --accent: 168 45% 94%;
-  --accent-foreground: 206 57% 14%;
-  --destructive: 0 72% 51%;
+  --secondary: 190 20% 96%;
+  --secondary-foreground: 198 28% 20%;
+  --muted: 190 20% 96%;
+  --muted-foreground: 198 13% 46%;
+  --accent: 174 42% 94%;
+  --accent-foreground: 176 84% 27%;
+  --destructive: 0 64% 48%;
   --destructive-foreground: 0 0% 98%;
-  --border: 174 24% 80%;
-  --input: 0 0% 100%;
-  --ring: 175 84% 32%;
+  --border: 192 18% 87%;
+  --input: 190 25% 99%;
+  --ring: 174 84% 34%;
   --sidebar-background: 0 0% 100%;
-  --sidebar-foreground: 206 57% 14%;
-  --sidebar-primary: 174 85% 39%;
+  --sidebar-foreground: 198 28% 20%;
+  --sidebar-primary: 174 84% 34%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 168 35% 96%;
-  --sidebar-accent-foreground: 206 57% 14%;
-  --sidebar-border: 174 24% 80%;
-  --sidebar-ring: 175 84% 32%;
+  --sidebar-accent: 174 34% 95%;
+  --sidebar-accent-foreground: 176 84% 27%;
+  --sidebar-border: 192 18% 87%;
+  --sidebar-ring: 174 84% 34%;
 }
 
+/* Pharmacy green is a distinct branded alternative, not a renamed light theme. */
 html[data-theme='pharmacy-green'] {
-  --dawaa-theme-bg: #edf9f3;
-  --dawaa-theme-bg-soft: #f7fcf9;
+  --dawaa-theme-bg: #f1f7f3;
+  --dawaa-theme-bg-soft: #f7faf8;
   --dawaa-theme-surface: #ffffff;
-  --dawaa-theme-surface-2: #f0f8f4;
+  --dawaa-theme-surface-2: #f0f6f2;
   --dawaa-theme-surface-raised: #ffffff;
-  --dawaa-theme-soft: rgba(5, 150, 105, 0.1);
-  --dawaa-theme-border: rgba(5, 150, 105, 0.2);
-  --dawaa-theme-border-strong: rgba(5, 150, 105, 0.42);
-  --dawaa-theme-text: #15372c;
-  --dawaa-theme-heading: #08251d;
-  --dawaa-theme-muted: #55766b;
-  --dawaa-theme-primary: #059669;
-  --dawaa-theme-primary-strong: #047857;
+  --dawaa-theme-soft: rgba(5, 150, 105, 0.09);
+  --dawaa-theme-border: #d5e4da;
+  --dawaa-theme-border-strong: #9bc9ad;
+  --dawaa-theme-text: #254037;
+  --dawaa-theme-heading: #102d24;
+  --dawaa-theme-muted: #677d74;
+  --dawaa-theme-primary: #07885f;
+  --dawaa-theme-primary-strong: #056d4c;
   --dawaa-theme-primary-text: #ffffff;
-  --dawaa-theme-input: #ffffff;
-  --dawaa-theme-table-head: #e4f3eb;
+  --dawaa-theme-input: #fbfdfc;
+  --dawaa-theme-table-head: #eaf2ed;
   --dawaa-theme-table-row: #ffffff;
-  --dawaa-theme-table-hover: #eaf8f1;
-  --dawaa-theme-overlay: rgba(8, 37, 29, 0.36);
-  --dawaa-theme-focus: rgba(5, 150, 105, 0.2);
+  --dawaa-theme-table-hover: #edf7f1;
+  --dawaa-theme-overlay: rgba(16, 45, 36, 0.34);
+  --dawaa-theme-focus: rgba(7, 136, 95, 0.2);
+  --dawaa-theme-shadow: 0 10px 28px rgba(16, 63, 47, 0.08);
 
-  --background: 150 50% 95%;
-  --foreground: 158 45% 15%;
+  --dawaa-status-success-bg: #e8f6ed;
+  --dawaa-status-success-text: #087246;
+  --dawaa-status-success-border: #b7ddc5;
+  --dawaa-status-warning-bg: #fff7e7;
+  --dawaa-status-warning-text: #915908;
+  --dawaa-status-warning-border: #efd49f;
+  --dawaa-status-danger-bg: #fff0f0;
+  --dawaa-status-danger-text: #af2c2c;
+  --dawaa-status-danger-border: #ecc2c2;
+  --dawaa-status-info-bg: #edf5fb;
+  --dawaa-status-info-text: #285f86;
+  --dawaa-status-info-border: #c4d8e7;
+
+  --background: 140 27% 96%;
+  --foreground: 157 27% 20%;
   --card: 0 0% 100%;
-  --card-foreground: 158 45% 15%;
+  --card-foreground: 157 27% 20%;
   --popover: 0 0% 100%;
-  --popover-foreground: 158 45% 15%;
-  --primary: 160 94% 30%;
+  --popover-foreground: 157 27% 20%;
+  --primary: 159 92% 28%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 150 32% 95%;
-  --secondary-foreground: 158 45% 15%;
-  --muted: 150 32% 95%;
-  --muted-foreground: 158 16% 40%;
-  --accent: 150 38% 92%;
-  --accent-foreground: 158 45% 15%;
-  --destructive: 0 72% 51%;
+  --secondary: 142 20% 95%;
+  --secondary-foreground: 157 27% 20%;
+  --muted: 142 20% 95%;
+  --muted-foreground: 157 11% 46%;
+  --accent: 148 30% 93%;
+  --accent-foreground: 159 92% 24%;
+  --destructive: 0 62% 48%;
   --destructive-foreground: 0 0% 98%;
-  --border: 158 24% 80%;
-  --input: 0 0% 100%;
-  --ring: 160 94% 30%;
+  --border: 143 18% 86%;
+  --input: 140 25% 99%;
+  --ring: 159 92% 28%;
   --sidebar-background: 0 0% 100%;
-  --sidebar-foreground: 158 45% 15%;
-  --sidebar-primary: 160 94% 30%;
+  --sidebar-foreground: 157 27% 20%;
+  --sidebar-primary: 159 92% 28%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 150 32% 95%;
-  --sidebar-accent-foreground: 158 45% 15%;
-  --sidebar-border: 158 24% 80%;
-  --sidebar-ring: 160 94% 30%;
+  --sidebar-accent: 148 26% 94%;
+  --sidebar-accent-foreground: 159 92% 24%;
+  --sidebar-border: 143 18% 86%;
+  --sidebar-ring: 159 92% 28%;
 }
 
 /* Canonical semantic surfaces for new/refactored UI. */
 .dawaa-app-bg { background: var(--dawaa-theme-bg); color: var(--dawaa-theme-text); }
 .dawaa-surface { background: var(--dawaa-theme-surface); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); }
 .dawaa-surface-soft { background: var(--dawaa-theme-surface-2); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); }
-.dawaa-surface-raised { background: var(--dawaa-theme-surface-raised); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); }
+.dawaa-surface-raised { background: var(--dawaa-theme-surface-raised); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); box-shadow: var(--dawaa-theme-shadow); }
 .dawaa-text { color: var(--dawaa-theme-text); }
 .dawaa-heading { color: var(--dawaa-theme-heading); }
 .dawaa-muted { color: var(--dawaa-theme-muted); }
 .dawaa-border { border-color: var(--dawaa-theme-border); }
 .dawaa-focus-ring:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--dawaa-theme-focus); }
+
+.dawaa-status-success { background: var(--dawaa-status-success-bg); color: var(--dawaa-status-success-text); border-color: var(--dawaa-status-success-border); }
+.dawaa-status-warning { background: var(--dawaa-status-warning-bg); color: var(--dawaa-status-warning-text); border-color: var(--dawaa-status-warning-border); }
+.dawaa-status-danger { background: var(--dawaa-status-danger-bg); color: var(--dawaa-status-danger-text); border-color: var(--dawaa-status-danger-border); }
+.dawaa-status-info { background: var(--dawaa-status-info-bg); color: var(--dawaa-status-info-text); border-color: var(--dawaa-status-info-border); }
 
 /* Modal/overlay consistency. */
 .modal-backdrop,
