@@ -119,32 +119,32 @@ function openFollowup(customer: QueueCustomer | IntelligenceRow) {
 }
 
 function trendTone(state = '') {
-  if (state === 'خطر فقد' || state === 'تراجع قوي') return 'border-rose-300/25 bg-rose-400/10 text-rose-200';
-  if (state === 'تراجع') return 'border-orange-300/25 bg-orange-400/10 text-orange-200';
-  if (state === 'نمو قوي' || state === 'نمو' || state === 'عميل صاعد جديد') return 'border-emerald-300/25 bg-emerald-400/10 text-emerald-200';
-  return 'border-slate-300/20 bg-white/5 text-slate-300';
+  if (state === 'خطر فقد' || state === 'تراجع قوي') return 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]';
+  if (state === 'تراجع') return 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]';
+  if (state === 'نمو قوي' || state === 'نمو' || state === 'عميل صاعد جديد') return 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]';
+  return 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-text)]';
 }
 
 function QueueCard({ customer, onPointDone }: { customer: QueueCustomer; onPointDone?: (customer: QueueCustomer) => void }) {
-  return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+  return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="truncate text-sm font-black text-white">{customer.name}</div>
+          <div className="truncate text-sm font-black text-[var(--dawaa-theme-heading)]">{customer.name}</div>
           {customer.trendState ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${trendTone(customer.trendState)}`}>{customer.trendState}</span> : null}
         </div>
-        <div className="mt-1 text-[11px] font-bold text-slate-400">كود {customer.code} · {customer.branch}</div>
-        <div className="mt-2 text-xs font-black text-cyan-200">{customer.label}</div>
+        <div className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-text)]">كود {customer.code} · {customer.branch}</div>
+        <div className="mt-2 text-xs font-black text-[var(--dawaa-theme-primary)]">{customer.label}</div>
         {customer.queueType === 'vip_recent' && customer.currentSales != null ? <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] font-bold">
-          <div className="rounded-lg bg-white/5 p-1.5 text-slate-300">الحالي<br/><span className="text-white">{money(customer.currentSales)}</span></div>
-          <div className="rounded-lg bg-white/5 p-1.5 text-slate-300">السابق<br/><span className="text-white">{money(customer.previousSales || 0)}</span></div>
-          <div className="rounded-lg bg-white/5 p-1.5 text-slate-300">قبله<br/><span className="text-white">{money(customer.priorSales || 0)}</span></div>
+          <div className="rounded-lg bg-[var(--dawaa-theme-surface-2)] p-1.5 text-[var(--dawaa-theme-text)]">الحالي<br/><span className="text-[var(--dawaa-theme-heading)]">{money(customer.currentSales)}</span></div>
+          <div className="rounded-lg bg-[var(--dawaa-theme-surface-2)] p-1.5 text-[var(--dawaa-theme-text)]">السابق<br/><span className="text-[var(--dawaa-theme-heading)]">{money(customer.previousSales || 0)}</span></div>
+          <div className="rounded-lg bg-[var(--dawaa-theme-surface-2)] p-1.5 text-[var(--dawaa-theme-text)]">قبله<br/><span className="text-[var(--dawaa-theme-heading)]">{money(customer.priorSales || 0)}</span></div>
         </div> : null}
-        {!!customer.invoiceValues?.length && <div className="mt-1 text-[11px] font-bold leading-5 text-slate-300">الفواتير: {customer.invoiceValues.map((item) => `${item.invoiceNumber ? `#${item.invoiceNumber} ` : ''}${money(item.value)}`).join(' · ')}</div>}
+        {!!customer.invoiceValues?.length && <div className="mt-1 text-[11px] font-bold leading-5 text-[var(--dawaa-theme-text)]">الفواتير: {customer.invoiceValues.map((item) => `${item.invoiceNumber ? `#${item.invoiceNumber} ` : ''}${money(item.value)}`).join(' · ')}</div>}
       </div>
       <div className="flex shrink-0 flex-col gap-2">
-        <button type="button" onClick={() => openFollowup(customer)} className="rounded-xl bg-cyan-400 px-3 py-2 text-xs font-black text-slate-950 hover:bg-cyan-300">متابعة</button>
-        {customer.queueType === 'points' && onPointDone ? <button type="button" onClick={() => onPointDone(customer)} className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-[11px] font-black text-emerald-200 hover:bg-emerald-400/20">تم إبلاغه</button> : null}
+        <button type="button" onClick={() => openFollowup(customer)} className="rounded-xl bg-[var(--dawaa-theme-accent-soft)] px-3 py-2 text-xs font-black text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-accent-soft)]">متابعة</button>
+        {customer.queueType === 'points' && onPointDone ? <button type="button" onClick={() => onPointDone(customer)} className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-3 py-2 text-[11px] font-black text-[var(--dawaa-status-success-text)] hover:bg-[var(--dawaa-status-success-bg)]">تم إبلاغه</button> : null}
       </div>
     </div>
   </div>;
@@ -153,37 +153,37 @@ function QueueCard({ customer, onPointDone }: { customer: QueueCustomer; onPoint
 function BranchQueue({ title, customers, onPointDone, loading }: { title: string; customers: QueueCustomer[]; onPointDone?: (customer: QueueCustomer) => void; loading?: boolean }) {
   const groups = ['فرع شكري', 'فرع الشامي'].map((branch) => ({ branch, rows: customers.filter((c) => c.branch === branch) })).filter((g) => g.rows.length);
   return <div className="space-y-2">
-    <div className="text-sm font-black text-white">{title} ({customers.length})</div>
-    {groups.map((group) => <div key={group.branch} className="space-y-2 rounded-2xl border border-white/5 bg-black/10 p-2">
-      <div className="sticky top-0 z-10 rounded-lg bg-[#0b2035]/95 px-2 py-1 text-xs font-black text-teal-200">{group.branch} · {group.rows.length}</div>
+    <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">{title} ({customers.length})</div>
+    {groups.map((group) => <div key={group.branch} className="space-y-2 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-2">
+      <div className="sticky top-0 z-10 rounded-lg bg-[var(--dawaa-theme-surface-raised)] px-2 py-1 text-xs font-black text-[var(--dawaa-theme-primary)]">{group.branch} · {group.rows.length}</div>
       {group.rows.map((c, index) => <QueueCard key={`${c.queueType}-${c.branch}-${c.code}-${index}`} customer={c} onPointDone={onPointDone}/>) }
     </div>)}
-    {!customers.length ? <div className="rounded-xl border border-white/10 p-3 text-xs text-slate-400">{loading ? 'جارٍ التحميل...' : 'لا توجد بيانات مؤهلة حاليًا.'}</div> : null}
+    {!customers.length ? <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs text-[var(--dawaa-theme-text)]">{loading ? 'جارٍ التحميل...' : 'لا توجد بيانات مؤهلة حاليًا.'}</div> : null}
   </div>;
 }
 
 function IntelligenceCard({ row, mode }: { row: IntelligenceRow; mode: 'risk' | 'growth' | 'stable' }) {
   const difference = Number(row.current_period_sales || 0) - Number(row.baseline_sales || 0);
-  return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+  return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="truncate text-sm font-black text-white">{row.customer_name || 'عميل'}</span>
+          <span className="truncate text-sm font-black text-[var(--dawaa-theme-heading)]">{row.customer_name || 'عميل'}</span>
           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${trendTone(row.trend_state)}`}>{row.trend_state}</span>
         </div>
-        <div className="mt-1 text-[11px] font-bold text-slate-400">#{row.customer_rank} ضمن أهم 50 · كود {row.customer_code} · {row.branch}</div>
+        <div className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-text)]">#{row.customer_rank} ضمن أهم 50 · كود {row.customer_code} · {row.branch}</div>
         <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] font-bold">
-          <div className="rounded-lg bg-white/5 p-1.5 text-slate-300">الفترة الحالية<br/><span className="text-white">{money(Number(row.current_period_sales || 0))}</span></div>
-          <div className="rounded-lg bg-white/5 p-1.5 text-slate-300">نفس المدة السابقة<br/><span className="text-white">{money(Number(row.previous_period_sales || 0))}</span></div>
-          <div className="rounded-lg bg-white/5 p-1.5 text-slate-300">نفس المدة قبلها<br/><span className="text-white">{money(Number(row.prior_period_sales || 0))}</span></div>
+          <div className="rounded-lg bg-[var(--dawaa-theme-surface-2)] p-1.5 text-[var(--dawaa-theme-text)]">الفترة الحالية<br/><span className="text-[var(--dawaa-theme-heading)]">{money(Number(row.current_period_sales || 0))}</span></div>
+          <div className="rounded-lg bg-[var(--dawaa-theme-surface-2)] p-1.5 text-[var(--dawaa-theme-text)]">نفس المدة السابقة<br/><span className="text-[var(--dawaa-theme-heading)]">{money(Number(row.previous_period_sales || 0))}</span></div>
+          <div className="rounded-lg bg-[var(--dawaa-theme-surface-2)] p-1.5 text-[var(--dawaa-theme-text)]">نفس المدة قبلها<br/><span className="text-[var(--dawaa-theme-heading)]">{money(Number(row.prior_period_sales || 0))}</span></div>
         </div>
         <div className="mt-2 text-[11px] font-black">
-          {mode === 'risk' ? <span className="text-rose-200">فجوة عن المعتاد: {money(Math.max(0, -difference))} · التغير {pct(row.change_vs_baseline_pct)}</span> : null}
-          {mode === 'growth' ? <span className="text-emerald-200">زيادة عن المعتاد: {money(Math.max(0, difference))} · التغير {pct(row.change_vs_baseline_pct)}</span> : null}
-          {mode === 'stable' ? <span className="text-cyan-200">قيمة آخر 3 شهور: {money(Number(row.recent_sales || 0))} · آخر شراء {row.last_purchase || '—'}</span> : null}
+          {mode === 'risk' ? <span className="text-[var(--dawaa-status-danger-text)]">فجوة عن المعتاد: {money(Math.max(0, -difference))} · التغير {pct(row.change_vs_baseline_pct)}</span> : null}
+          {mode === 'growth' ? <span className="text-[var(--dawaa-status-success-text)]">زيادة عن المعتاد: {money(Math.max(0, difference))} · التغير {pct(row.change_vs_baseline_pct)}</span> : null}
+          {mode === 'stable' ? <span className="text-[var(--dawaa-theme-primary)]">قيمة آخر 3 شهور: {money(Number(row.recent_sales || 0))} · آخر شراء {row.last_purchase || '—'}</span> : null}
         </div>
       </div>
-      <button type="button" onClick={() => openFollowup(row)} className="shrink-0 rounded-xl bg-cyan-400 px-3 py-2 text-xs font-black text-slate-950 hover:bg-cyan-300">متابعة</button>
+      <button type="button" onClick={() => openFollowup(row)} className="shrink-0 rounded-xl bg-[var(--dawaa-theme-accent-soft)] px-3 py-2 text-xs font-black text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-accent-soft)]">متابعة</button>
     </div>
   </div>;
 }
@@ -452,32 +452,32 @@ export default function CustomerDailyPriorityQueues() {
   const growthValue = useMemo(() => growthCustomers.reduce((sum, r) => sum + Math.max(0, Number(r.current_period_sales || 0) - Number(r.baseline_sales || 0)), 0), [growthCustomers]);
   const period = intelligence[0];
 
-  return <section className="space-y-4 rounded-3xl border border-cyan-300/15 bg-[#0b2035] p-4 md:p-5" dir="rtl">
+  return <section className="space-y-4 rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface-raised)] p-4 md:p-5" dir="rtl">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <p className="text-xs font-black text-cyan-300">مركز ذكاء ومتابعة العملاء</p>
-        <h2 className="mt-1 text-xl font-black text-white">قائمة عمل مسؤول خدمة العملاء — مبنية على حركة أفضل العملاء</h2>
-        <p className="mt-1 max-w-5xl text-xs font-bold leading-6 text-slate-400">نختار أهم 50 عميل في كل فرع ممن اشتروا خلال آخر 3 شهور، ثم نقارن نفس عدد أيام دورة الصيدلية الحالية مع نفس المدة من الدورتين السابقتين. الهدف ليس مجرد قائمة أسماء: نكشف العميل المهم الذي بدأ يقلل تعامله، العميل الذي ينمو، وأفضل العملاء المستقرين للحفاظ عليهم.</p>
-        {period ? <p className="mt-1 text-[11px] font-black text-cyan-200">المقارنة العادلة: {period.current_period_start} → {period.current_period_end} مقابل {period.previous_period_start} → {period.previous_period_end} ومقابل {period.prior_period_start} → {period.prior_period_end}</p> : null}
+        <p className="text-xs font-black text-[var(--dawaa-theme-primary)]">مركز ذكاء ومتابعة العملاء</p>
+        <h2 className="mt-1 text-xl font-black text-[var(--dawaa-theme-heading)]">قائمة عمل مسؤول خدمة العملاء — مبنية على حركة أفضل العملاء</h2>
+        <p className="mt-1 max-w-5xl text-xs font-bold leading-6 text-[var(--dawaa-theme-text)]">نختار أهم 50 عميل في كل فرع ممن اشتروا خلال آخر 3 شهور، ثم نقارن نفس عدد أيام دورة الصيدلية الحالية مع نفس المدة من الدورتين السابقتين. الهدف ليس مجرد قائمة أسماء: نكشف العميل المهم الذي بدأ يقلل تعامله، العميل الذي ينمو، وأفضل العملاء المستقرين للحفاظ عليهم.</p>
+        {period ? <p className="mt-1 text-[11px] font-black text-[var(--dawaa-theme-primary)]">المقارنة العادلة: {period.current_period_start} → {period.current_period_end} مقابل {period.previous_period_start} → {period.previous_period_end} ومقابل {period.prior_period_start} → {period.prior_period_end}</p> : null}
       </div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => void exportExcel()} className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs font-black text-emerald-100"><Download size={14} className="ml-1 inline"/>تصدير Excel كامل</button>
-        <button type="button" onClick={() => setImportOpen(true)} className="rounded-xl border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-xs font-black text-amber-100"><FileUp size={14} className="ml-1 inline"/>استيراد النتائج</button>
-        <button type="button" onClick={() => void load()} disabled={loading} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-black text-slate-200"><RefreshCw size={14} className={`ml-1 inline ${loading ? 'animate-spin' : ''}`}/>تحديث</button>
+        <button type="button" onClick={() => void exportExcel()} className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-3 py-2 text-xs font-black text-[var(--dawaa-status-success-text)]"><Download size={14} className="ml-1 inline"/>تصدير Excel كامل</button>
+        <button type="button" onClick={() => setImportOpen(true)} className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-xs font-black text-[var(--dawaa-status-warning-text)]"><FileUp size={14} className="ml-1 inline"/>استيراد النتائج</button>
+        <button type="button" onClick={() => void load()} disabled={loading} className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-3 py-2 text-xs font-black text-[var(--dawaa-theme-text)]"><RefreshCw size={14} className={`ml-1 inline ${loading ? 'animate-spin' : ''}`}/>تحديث</button>
       </div>
     </div>
 
-    {error ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-300/20 bg-rose-500/10 p-3 text-xs font-bold text-rose-200"><span>{error}</span><button type="button" onClick={() => void load()} className="rounded-lg border border-rose-300/30 bg-rose-400/10 px-3 py-1.5 text-[11px] font-black text-rose-100 hover:bg-rose-400/20">إعادة المحاولة</button></div> : null}
+    {error ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]"><span>{error}</span><button type="button" onClick={() => void load()} className="rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-3 py-1.5 text-[11px] font-black text-[var(--dawaa-status-danger-text)] hover:bg-[var(--dawaa-status-danger-bg)]">إعادة المحاولة</button></div> : null}
 
     {completion.length ? <div className="grid gap-2 sm:grid-cols-2">
       {completion.map((row) => {
         const total = row.vip_total + row.plus500_total + row.points_total;
         const handled = row.vip_handled + row.plus500_handled + row.points_handled;
         const pctValue = total ? Math.round((handled / total) * 100) : null;
-        const tone = pctValue === null ? 'text-slate-400' : pctValue >= 70 ? 'text-emerald-300' : pctValue >= 40 ? 'text-amber-300' : 'text-rose-300';
-        return <div key={row.branch} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
-          <div className="flex items-center gap-2 text-xs font-black text-white"><Gauge size={14} className="text-cyan-300"/>{row.branch} · إنجاز اليوم</div>
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
+        const tone = pctValue === null ? 'text-[var(--dawaa-theme-text)]' : pctValue >= 70 ? 'text-[var(--dawaa-status-success-text)]' : pctValue >= 40 ? 'text-[var(--dawaa-status-warning-text)]' : 'text-[var(--dawaa-status-danger-text)]';
+        return <div key={row.branch} className="flex items-center justify-between rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-3 py-2">
+          <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-heading)]"><Gauge size={14} className="text-[var(--dawaa-theme-primary)]"/>{row.branch} · إنجاز اليوم</div>
+          <div className="flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-text)]">
             <span>VIP {row.vip_handled}/{row.vip_total} · 500+ {row.plus500_handled}/{row.plus500_total} · نقاط {row.points_handled}/{row.points_total}</span>
             <span className={`text-sm font-black ${tone}`}>{pctValue === null ? '—' : `${pctValue}%`}</span>
           </div>
@@ -486,44 +486,44 @@ export default function CustomerDailyPriorityQueues() {
     </div> : null}
 
     <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-      <div className="rounded-2xl border border-rose-300/15 bg-rose-400/[0.06] p-3"><div className="flex items-center gap-2 text-xs font-black text-rose-200"><ShieldAlert size={15}/>عملاء مهمون معرضون للفقد</div><div className="mt-2 text-2xl font-black text-white">{riskCustomers.length}</div><div className="text-[11px] font-bold text-slate-400">من أفضل 100 عميل</div></div>
-      <div className="rounded-2xl border border-rose-300/15 bg-rose-400/[0.035] p-3"><div className="text-xs font-black text-rose-200">فجوة مبيعات تستحق الاسترجاع</div><div className="mt-2 text-xl font-black text-white">{money(protectedValue)}</div><div className="text-[11px] font-bold text-slate-400">الحالي مقابل متوسط الفترتين السابقتين</div></div>
-      <div className="rounded-2xl border border-emerald-300/15 bg-emerald-400/[0.05] p-3"><div className="flex items-center gap-2 text-xs font-black text-emerald-200"><TrendingUp size={15}/>عملاء نمو وصعود</div><div className="mt-2 text-2xl font-black text-white">{growthCustomers.length}</div><div className="text-[11px] font-bold text-slate-400">نحافظ على سبب زيادة تعاملهم</div></div>
-      <div className="rounded-2xl border border-emerald-300/15 bg-emerald-400/[0.03] p-3"><div className="text-xs font-black text-emerald-200">نمو إضافي مكتسب</div><div className="mt-2 text-xl font-black text-white">{money(growthValue)}</div><div className="text-[11px] font-bold text-slate-400">فوق متوسط الفترتين السابقتين</div></div>
-      <div className="rounded-2xl border border-cyan-300/15 bg-cyan-400/[0.04] p-3"><div className="flex items-center gap-2 text-xs font-black text-cyan-200"><UsersRound size={15}/>أفضل عملاء مستقرين</div><div className="mt-2 text-2xl font-black text-white">{stableCustomers.length}</div><div className="text-[11px] font-bold text-slate-400">علاقة قوية يجب الحفاظ عليها</div></div>
+      <div className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3"><div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-status-danger-text)]"><ShieldAlert size={15}/>عملاء مهمون معرضون للفقد</div><div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{riskCustomers.length}</div><div className="text-[11px] font-bold text-[var(--dawaa-theme-text)]">من أفضل 100 عميل</div></div>
+      <div className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3"><div className="text-xs font-black text-[var(--dawaa-status-danger-text)]">فجوة مبيعات تستحق الاسترجاع</div><div className="mt-2 text-xl font-black text-[var(--dawaa-theme-heading)]">{money(protectedValue)}</div><div className="text-[11px] font-bold text-[var(--dawaa-theme-text)]">الحالي مقابل متوسط الفترتين السابقتين</div></div>
+      <div className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3"><div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-status-success-text)]"><TrendingUp size={15}/>عملاء نمو وصعود</div><div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{growthCustomers.length}</div><div className="text-[11px] font-bold text-[var(--dawaa-theme-text)]">نحافظ على سبب زيادة تعاملهم</div></div>
+      <div className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3"><div className="text-xs font-black text-[var(--dawaa-status-success-text)]">نمو إضافي مكتسب</div><div className="mt-2 text-xl font-black text-[var(--dawaa-theme-heading)]">{money(growthValue)}</div><div className="text-[11px] font-bold text-[var(--dawaa-theme-text)]">فوق متوسط الفترتين السابقتين</div></div>
+      <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3"><div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-primary)]"><UsersRound size={15}/>أفضل عملاء مستقرين</div><div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{stableCustomers.length}</div><div className="text-[11px] font-bold text-[var(--dawaa-theme-text)]">علاقة قوية يجب الحفاظ عليها</div></div>
     </div>
 
-    <button type="button" onClick={() => setShowIntelligence((v) => !v)} className="flex w-full items-center justify-between rounded-2xl border border-cyan-300/15 bg-cyan-300/[0.035] px-4 py-3 text-right">
-      <span><span className="font-black text-white">لوحة قرارات مسؤول خدمة العملاء</span><span className="mr-3 text-xs font-bold text-slate-400">تراجع {riskCustomers.length} · نمو {growthCustomers.length} · مستقر {stableCustomers.length}</span></span>{showIntelligence ? <ChevronUp className="text-cyan-300"/> : <ChevronDown className="text-cyan-300"/>}
+    <button type="button" onClick={() => setShowIntelligence((v) => !v)} className="flex w-full items-center justify-between rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-right">
+      <span><span className="font-black text-[var(--dawaa-theme-heading)]">لوحة قرارات مسؤول خدمة العملاء</span><span className="mr-3 text-xs font-bold text-[var(--dawaa-theme-text)]">تراجع {riskCustomers.length} · نمو {growthCustomers.length} · مستقر {stableCustomers.length}</span></span>{showIntelligence ? <ChevronUp className="text-[var(--dawaa-theme-primary)]"/> : <ChevronDown className="text-[var(--dawaa-theme-primary)]"/>}
     </button>
 
     {showIntelligence ? <div className="grid gap-4 xl:grid-cols-3">
-      <div className="max-h-[620px] overflow-auto rounded-2xl border border-rose-300/15 bg-rose-400/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-rose-200"><TrendingDown size={18}/><span className="font-black">أولوية الاسترجاع — العملاء الذين قل تعاملهم</span></div><div className="space-y-2">{riskCustomers.slice(0, 20).map((row) => <IntelligenceCard key={`risk-${row.branch}-${row.customer_code}`} row={row} mode="risk"/>)}{!riskCustomers.length && <div className="text-xs text-slate-400">لا توجد حالات تراجع مؤهلة.</div>}</div></div>
-      <div className="max-h-[620px] overflow-auto rounded-2xl border border-emerald-300/15 bg-emerald-400/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-emerald-200"><TrendingUp size={18}/><span className="font-black">عملاء نمو — نعرف سبب الزيادة ونحافظ عليها</span></div><div className="space-y-2">{growthCustomers.slice(0, 20).map((row) => <IntelligenceCard key={`growth-${row.branch}-${row.customer_code}`} row={row} mode="growth"/>)}{!growthCustomers.length && <div className="text-xs text-slate-400">لا توجد حالات نمو مؤهلة.</div>}</div></div>
-      <div className="max-h-[620px] overflow-auto rounded-2xl border border-cyan-300/15 bg-cyan-400/[0.02] p-3"><div className="mb-3 flex items-center gap-2 text-cyan-200"><Crown size={18}/><span className="font-black">أفضل العملاء المستقرين — متابعة علاقة ورضا</span></div><div className="space-y-2">{stableCustomers.slice(0, 20).map((row) => <IntelligenceCard key={`stable-${row.branch}-${row.customer_code}`} row={row} mode="stable"/>)}{!stableCustomers.length && <div className="text-xs text-slate-400">لا توجد حالات مستقرة مؤهلة.</div>}</div></div>
+      <div className="max-h-[620px] overflow-auto rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-danger-text)]"><TrendingDown size={18}/><span className="font-black">أولوية الاسترجاع — العملاء الذين قل تعاملهم</span></div><div className="space-y-2">{riskCustomers.slice(0, 20).map((row) => <IntelligenceCard key={`risk-${row.branch}-${row.customer_code}`} row={row} mode="risk"/>)}{!riskCustomers.length && <div className="text-xs text-[var(--dawaa-theme-text)]">لا توجد حالات تراجع مؤهلة.</div>}</div></div>
+      <div className="max-h-[620px] overflow-auto rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-success-text)]"><TrendingUp size={18}/><span className="font-black">عملاء نمو — نعرف سبب الزيادة ونحافظ عليها</span></div><div className="space-y-2">{growthCustomers.slice(0, 20).map((row) => <IntelligenceCard key={`growth-${row.branch}-${row.customer_code}`} row={row} mode="growth"/>)}{!growthCustomers.length && <div className="text-xs text-[var(--dawaa-theme-text)]">لا توجد حالات نمو مؤهلة.</div>}</div></div>
+      <div className="max-h-[620px] overflow-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-theme-primary)]"><Crown size={18}/><span className="font-black">أفضل العملاء المستقرين — متابعة علاقة ورضا</span></div><div className="space-y-2">{stableCustomers.slice(0, 20).map((row) => <IntelligenceCard key={`stable-${row.branch}-${row.customer_code}`} row={row} mode="stable"/>)}{!stableCustomers.length && <div className="text-xs text-[var(--dawaa-theme-text)]">لا توجد حالات مستقرة مؤهلة.</div>}</div></div>
     </div> : null}
 
-    <div className="rounded-2xl border border-white/10 bg-black/10 p-3">
-      <div className="mb-3"><div className="text-sm font-black text-white">مهام اليوم التنفيذية</div><div className="mt-1 text-[11px] font-bold text-slate-400">هنا تتحول التحليلات إلى شغل يومي واضح: 7 من أهم العملاء + كل فواتير 500+ + 20 عميل لإبلاغ النقاط.</div></div>
+    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
+      <div className="mb-3"><div className="text-sm font-black text-[var(--dawaa-theme-heading)]">مهام اليوم التنفيذية</div><div className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-text)]">هنا تتحول التحليلات إلى شغل يومي واضح: 7 من أهم العملاء + كل فواتير 500+ + 20 عميل لإبلاغ النقاط.</div></div>
       <div className="grid gap-4 xl:grid-cols-3">
-        <div className="max-h-[590px] overflow-auto rounded-2xl border border-amber-300/10 bg-amber-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-amber-200"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم</span></div><BranchQueue title="VIP آخر 3 شهور" customers={vipDaily} loading={loading}/></div>
-        <div className="max-h-[590px] overflow-auto rounded-2xl border border-emerald-300/10 bg-emerald-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-emerald-200"><BadgeDollarSign size={18}/><span className="font-black">كل عملاء +500 أمس</span></div><BranchQueue title={`فواتير ${ymd(yesterday)}`} customers={largeInvoices} loading={loading}/></div>
-        <div className="max-h-[590px] overflow-auto rounded-2xl border border-cyan-300/10 bg-cyan-300/[0.025] p-3"><div className="mb-3 flex items-center gap-2 text-cyan-200"><Gift size={18}/><span className="font-black">20 عميل نقاط اليوم</span></div><BranchQueue title="الأقدم في الإبلاغ أولًا" customers={pointsDaily} onPointDone={(c) => void markPointDone(c)} loading={loading}/></div>
+        <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-warning-text)]"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم</span></div><BranchQueue title="VIP آخر 3 شهور" customers={vipDaily} loading={loading}/></div>
+        <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-success-text)]"><BadgeDollarSign size={18}/><span className="font-black">كل عملاء +500 أمس</span></div><BranchQueue title={`فواتير ${ymd(yesterday)}`} customers={largeInvoices} loading={loading}/></div>
+        <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-theme-primary)]"><Gift size={18}/><span className="font-black">20 عميل نقاط اليوم</span></div><BranchQueue title="الأقدم في الإبلاغ أولًا" customers={pointsDaily} onPointDone={(c) => void markPointDone(c)} loading={loading}/></div>
       </div>
     </div>
 
-    <button type="button" onClick={() => setShowTop50((v) => !v)} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-right">
-      <span><span className="font-black text-white">قائمة أهم 50 عميل لكل فرع — آخر 3 شهور فقط</span><span className="mr-3 text-xs font-bold text-slate-400">شكري {topCounts.shokry}/50 · الشامي {topCounts.shamy}/50</span></span>{showTop50 ? <ChevronUp className="text-cyan-300"/> : <ChevronDown className="text-cyan-300"/>}
+    <button type="button" onClick={() => setShowTop50((v) => !v)} className="flex w-full items-center justify-between rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-4 py-3 text-right">
+      <span><span className="font-black text-[var(--dawaa-theme-heading)]">قائمة أهم 50 عميل لكل فرع — آخر 3 شهور فقط</span><span className="mr-3 text-xs font-bold text-[var(--dawaa-theme-text)]">شكري {topCounts.shokry}/50 · الشامي {topCounts.shamy}/50</span></span>{showTop50 ? <ChevronUp className="text-[var(--dawaa-theme-primary)]"/> : <ChevronDown className="text-[var(--dawaa-theme-primary)]"/>}
     </button>
 
     {showTop50 ? <div className="grid gap-4 xl:grid-cols-2">{['فرع شكري', 'فرع الشامي'].map((branch) => {
       const rows = top50.filter((r) => r.branch === branch);
       if (!rows.length) return null;
-      return <div key={branch} className="max-h-[560px] overflow-auto rounded-2xl border border-white/10">
-        <div className="sticky top-0 z-10 bg-[#173252] px-4 py-3 text-sm font-black text-white">{branch} — {rows.length} عميل</div>
-        <table className="min-w-[1040px] w-full text-xs"><thead className="bg-[#102941] text-slate-400"><tr>{['#','العميل','الحالة','الحالي','السابق','قبله','تغير %','مبيعات 3 شهور','آخر شراء'].map((h) => <th key={h} className="p-2 text-right">{h}</th>)}</tr></thead><tbody>{rows.map((r) => {
+      return <div key={branch} className="max-h-[560px] overflow-auto rounded-2xl border border-[var(--dawaa-theme-border)]">
+        <div className="sticky top-0 z-10 bg-[var(--dawaa-theme-surface-raised)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-heading)]">{branch} — {rows.length} عميل</div>
+        <table className="min-w-[1040px] w-full text-xs"><thead className="bg-[var(--dawaa-theme-surface-raised)] text-[var(--dawaa-theme-text)]"><tr>{['#','العميل','الحالة','الحالي','السابق','قبله','تغير %','مبيعات 3 شهور','آخر شراء'].map((h) => <th key={h} className="p-2 text-right">{h}</th>)}</tr></thead><tbody>{rows.map((r) => {
           const signal = intelligence.find((item) => item.branch === branch && item.customer_code === r.customer_code);
-          return <tr key={`${branch}-${r.customer_code}`} className="border-t border-white/5 text-slate-200"><td className="p-2 font-black text-cyan-300">{r.customer_rank}</td><td className="p-2"><div className="font-black text-white">{r.customer_name}</div><div className="text-[10px] text-slate-500">كود {r.customer_code}</div></td><td className="p-2">{signal ? <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${trendTone(signal.trend_state)}`}>{signal.trend_state}</span> : '—'}</td><td className="p-2 font-bold">{money(Number(signal?.current_period_sales || 0))}</td><td className="p-2">{money(Number(signal?.previous_period_sales || 0))}</td><td className="p-2">{money(Number(signal?.prior_period_sales || 0))}</td><td className="p-2 font-black">{pct(signal?.change_vs_baseline_pct)}</td><td className="p-2 font-bold">{money(Number(r.recent_sales || 0))}</td><td className="p-2">{r.last_purchase || '—'}</td></tr>;
+          return <tr key={`${branch}-${r.customer_code}`} className="border-t border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-text)]"><td className="p-2 font-black text-[var(--dawaa-theme-primary)]">{r.customer_rank}</td><td className="p-2"><div className="font-black text-[var(--dawaa-theme-heading)]">{r.customer_name}</div><div className="text-[10px] text-[var(--dawaa-theme-muted)]">كود {r.customer_code}</div></td><td className="p-2">{signal ? <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${trendTone(signal.trend_state)}`}>{signal.trend_state}</span> : '—'}</td><td className="p-2 font-bold">{money(Number(signal?.current_period_sales || 0))}</td><td className="p-2">{money(Number(signal?.previous_period_sales || 0))}</td><td className="p-2">{money(Number(signal?.prior_period_sales || 0))}</td><td className="p-2 font-black">{pct(signal?.change_vs_baseline_pct)}</td><td className="p-2 font-bold">{money(Number(r.recent_sales || 0))}</td><td className="p-2">{r.last_purchase || '—'}</td></tr>;
         })}</tbody></table>
       </div>;
     })}</div> : null}
