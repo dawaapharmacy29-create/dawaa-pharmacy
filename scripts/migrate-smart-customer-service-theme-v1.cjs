@@ -52,10 +52,7 @@ function map(kind, family, shadeRaw) {
 src = src
   .replaceAll('bg-[#071827]/95', 'bg-[var(--dawaa-theme-surface-raised)]')
   .replaceAll('shadow-black/20', '')
-  .replace(utility, (_m, kind, family, shade) => map(kind, family, shade))
-  .replace(/\s{2,}/g, ' ')
-  .replace(/className="\s+/g, 'className="')
-  .replace(/\s+"/g, '"');
+  .replace(utility, (_m, kind, family, shade) => map(kind, family, shade));
 
 const leftovers = src.match(/\b(?:bg|text|border|ring)-(?:slate|gray|zinc|neutral|stone|white|black|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|red|orange|amber|yellow|lime|green|emerald)(?:-|\/|\b)|#[0-9a-fA-F]{3,8}\b|rgba?\(/g) || [];
 if (leftovers.length) throw new Error(`SmartCustomerService theme leftovers: ${[...new Set(leftovers)].join(', ')}`);
