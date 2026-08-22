@@ -3,13 +3,15 @@ import { StrictMode, Suspense, lazy, useEffect, useState, type ComponentType } f
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './index.css';
-import './styles/dawaa-theme.css';
 import './styles/dawaa-design-system.css';
 import './styles/v3-polish.css';
 import './styles/customer-service-followups.css';
 import './styles/customer-cashback-polish.css';
 import './styles/reviews-modal-polish.css';
+import './styles/dawaa-theme.css';
+import './styles/dawaa-theme-foundation.css';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import { clearRecoveredRuntimeError, logRuntimeError } from '@/lib/appRecovery';
 
 const APP_IMPORT_TIMEOUT_MS = 25000;
@@ -22,11 +24,11 @@ declare global {
 
 function BootstrapShell() {
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-5" dir="rtl">
+    <div className="min-h-screen daw aa-app-bg flex items-center justify-center p-5" dir="rtl">
       <div className="flex flex-col items-center gap-4 text-center">
-        <div className="h-12 w-12 rounded-2xl border border-teal-400/30 bg-teal-500/10" />
+        <div className="h-12 w-12 rounded-2xl border daw aa-border bg-teal-500/10" />
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-teal-500/20 border-t-teal-400" />
-        <p className="text-sm font-bold text-slate-300">جاري التحميل...</p>
+        <p className="text-sm font-bold daw aa-muted">جاري التحميل...</p>
       </div>
     </div>
   );
@@ -177,10 +179,12 @@ if (!rootElement) {
 } else {
   createRoot(rootElement).render(
     <StrictMode>
-      <Suspense fallback={<BootstrapShell />}>
-        <SafeApp />
-        <OptionalRuntimeAddons />
-      </Suspense>
+      <ThemeProvider>
+        <Suspense fallback={<BootstrapShell />}>
+          <SafeApp />
+          <OptionalRuntimeAddons />
+        </Suspense>
+      </ThemeProvider>
     </StrictMode>
   );
   window.requestAnimationFrame(() => initOptionalRuntimeServices());
