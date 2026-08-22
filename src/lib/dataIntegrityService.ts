@@ -31,23 +31,24 @@ export async function checkDataHealth(): Promise<DataHealthReport> {
   const issues: DataHealthIssue[] = [];
 
   // Invoice integrity checks live behind a dedicated transactional read boundary.
+  // Counts are exact while affectedIds are intentionally bounded diagnostic samples.
   const invoiceHealth = await readInvoiceDataHealth();
 
-  if (invoiceHealth.withoutDoctorIds.length) {
+  if (invoiceHealth.withoutDoctorCount > 0) {
     issues.push({
       type: 'invoice_no_doctor',
       severity: 'high',
-      count: invoiceHealth.withoutDoctorIds.length,
+      count: invoiceHealth.withoutDoctorCount,
       description: 'فواتير بدون دكتور مسجل',
       affectedIds: invoiceHealth.withoutDoctorIds,
     });
   }
 
-  if (invoiceHealth.withoutCustomerIds.length) {
+  if (invoiceHealth.withoutCustomerCount > 0) {
     issues.push({
       type: 'invoice_no_customer',
       severity: 'medium',
-      count: invoiceHealth.withoutCustomerIds.length,
+      count: invoiceHealth.withoutCustomerCount,
       description: 'فواتير بدون عميل مسجل',
       affectedIds: invoiceHealth.withoutCustomerIds,
     });
@@ -106,11 +107,11 @@ export async function checkDataHealth(): Promise<DataHealthReport> {
     });
   }
 
-  if (invoiceHealth.withoutClassificationIds.length) {
+  if (invoiceHealth.withoutClassificationCount > 0) {
     issues.push({
       type: 'classification_issue',
       severity: 'low',
-      count: invoiceHealth.withoutClassificationIds.length,
+      count: invoiceHealth.withoutClassificationCount,
       description: 'فواتير بدون تصنيف عميل',
       affectedIds: invoiceHealth.withoutClassificationIds,
     });
