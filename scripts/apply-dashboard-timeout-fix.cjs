@@ -82,6 +82,10 @@ replaceAllOrThrow(
     ["    await new Promise((resolve) => window.setTimeout(resolve, 500));", "    await new Promise((resolve) => window.setTimeout(resolve, 250));"],
     ["      2500,\n      'get_user_permissions'", "      1000,\n      'get_user_permissions'"],
     [
+      "  if (outcome.networkFailure && !outcome.data) {\n    logRuntimeError('auth login rpc failed', new Error('staff_account_login timed out after retry'));\n  }",
+      "  if (outcome.networkFailure && !outcome.data) {\n    logRuntimeError('auth login rpc failed', new Error('staff_account_login timed out after retry'));\n    throw new Error('تعذر الاتصال بخدمة تسجيل الدخول. تحقق من الإنترنت وحاول مرة أخرى.');\n  }",
+    ],
+    [
       "    const shouldBlockForRefresh = Date.now() - lastAccountRefreshAt >= ACCOUNT_REFRESH_TTL_MS;\n    setLoading(shouldBlockForRefresh);",
       "    // A valid cached user opens the app immediately. Account validation still runs\n    // in the background and can revoke the session if the account was disabled, but a\n    // slow network no longer traps the whole app behind the login-loading screen.\n    setLoading(false);",
     ],
