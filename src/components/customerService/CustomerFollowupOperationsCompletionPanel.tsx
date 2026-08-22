@@ -16,46 +16,16 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
-import { supabase } from '@/lib/supabase';
+import {
+  correctCustomerFollowupData,
+  loadFollowupOperationsSnapshot,
+  mergeOpenFollowupDuplicates,
+  type FollowupAuditRow,
+  type FollowupDuplicateGroup,
+  type FollowupPerformanceRow,
+} from '@/lib/customerService/followupOperationsService';
 
 const ALL_BRANCHES = 'كل الفروع';
-
-type PerformanceRow = {
-  responsible_name: string;
-  branch: string;
-  total_count: number;
-  completed_count: number;
-  open_count: number;
-  no_answer_count: number;
-  postponed_count: number;
-  manager_count: number;
-  invalid_phone_count: number;
-  avg_close_hours: number | null;
-};
-
-type DuplicateGroup = {
-  identity_key: string;
-  branch: string;
-  request_type: string;
-  open_count: number;
-  canonical_id: string;
-  duplicate_ids: string[] | null;
-  customer_name: string;
-  customer_code: string;
-  customer_phone: string;
-  newest_at: string;
-};
-
-type AuditRow = {
-  id: number;
-  followup_id: string;
-  customer_id: string | null;
-  action: string;
-  actor_name: string | null;
-  branch: string | null;
-  created_at: string;
-  metadata: Record<string, unknown> | null;
-};
 
 type CorrectionForm = {
   followupId: string;
@@ -106,9 +76,9 @@ export default function CustomerFollowupOperationsCompletionPanel() {
   const [branch, setBranch] = useState(managerView ? ALL_BRANCHES : userBranch);
   const [day, setDay] = useState(todayKey());
   const [loading, setLoading] = useState(false);
-  const [performance, setPerformance] = useState<PerformanceRow[]>([]);
-  const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
-  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
+  const [performance, setPerformance] = useState<FollowupPerformanceRow[]>([]);
+  const [duplicates, setDuplicates] = useState<FollowupDuplicateGroup[]>([]);
+  const [auditRows, setAuditRows] = useState<FollowupAuditRow[]>([]);
   const [auditSearch, setAuditSearch] = useState('');
   const [correction, setCorrection] = useState<CorrectionForm>(EMPTY_CORRECTION);
   const [savingCorrection, setSavingCorrection] = useState(false);
@@ -128,25 +98,13 @@ export default function CustomerFollowupOperationsCompletionPanel() {
   async function loadAll() {
     setLoading(true);
     try {
-      const branchArg = branch === ALL_BRANCHES ? null : branch;
-      const [performanceResult, duplicateResult, auditResult] = await Promise.all([
-        supabase.rpc('customer_followup_daily_performance_v1', {
-          p_branch: branchArg,
-          p_day: day,
-        }),
-        supabase.rpc('list_open_followup_duplicate_groups_v1', { p_branch: branchArg }),
-        supabase
-          .from('customer_followup_audit_log')
-          .select('id,followup_id,customer_id,action,actor_name,branch,created_at,metadata')
-          .order('created_at', { ascending: false })
-          .limit(100),
-      ]);
-      if (performanceResult.error) throw performanceResult.error;
-      if (duplicateResult.error) throw duplicateResult.error;
-      if (auditResult.error) throw auditResult.error;
-      setPerformance((performanceResult.data || []) as PerformanceRow[]);
-      setDuplicates((duplicateResult.data || []) as DuplicateGroup[]);
-      setAuditRows((auditResult.data || []) as AuditRow[]);
+      const snapshot = await loadFollowupOperationsSnapshot({
+        branch: branch === ALL_BRANCHES ? null : branch,
+        day,
+      });
+      setPerformance(snapshot.performance);
+      setDuplicates(snapshot.duplicates);
+      setAuditRows(snapshot.auditRows);
     } catch (error) {
       toast.error(`تعذر تحميل لوحة التشغيل: ${(error as Error).message}`);
     } finally {
@@ -186,7 +144,7 @@ export default function CustomerFollowupOperationsCompletionPanel() {
     );
   }, [auditRows, auditSearch]);
 
-  async function mergeDuplicates(group: DuplicateGroup) {
+  async function mergeDuplicates(group: FollowupDuplicateGroup) {
     if (!canMerge) {
       toast.error('دمج التكرارات متاح للمدير فقط');
       return;
@@ -201,15 +159,12 @@ export default function CustomerFollowupOperationsCompletionPanel() {
       return;
     setMergingKey(group.identity_key);
     try {
-      const { data, error } = await supabase.rpc('merge_open_followup_duplicates_v1', {
-        p_canonical_id: group.canonical_id,
-        p_duplicate_ids: duplicateIds,
-        p_actor_staff_id: actorStaffId,
-        p_actor_name: actorName,
-        p_reason: 'دمج يدوي من لوحة إدارة متابعات العملاء',
+      const mergedCount = await mergeOpenFollowupDuplicates({
+        canonicalId: group.canonical_id,
+        duplicateIds,
+        actorStaffId,
+        actorName,
       });
-      if (error) throw error;
-      const mergedCount = Number((data as { merged_count?: number } | null)?.merged_count || 0);
       toast.success(`تم دمج ${mergedCount} متابعة مكررة مع المتابعة الأساسية`);
       await loadAll();
     } catch (error) {
@@ -230,22 +185,18 @@ export default function CustomerFollowupOperationsCompletionPanel() {
     }
     setSavingCorrection(true);
     try {
-      const { data, error } = await supabase.rpc('correct_customer_followup_data_v1', {
-        p_followup_id: correction.followupId.trim(),
-        p_customer_name: correction.name.trim() || null,
-        p_customer_code: correction.code.trim() || null,
-        p_customer_phone: correction.phone.trim() || null,
-        p_branch: correction.branch || null,
-        p_actor_staff_id: actorStaffId,
-        p_actor_name: actorName,
-        p_note: correction.note.trim() || 'تصحيح من لوحة خدمة العملاء',
+      const result = await correctCustomerFollowupData({
+        followupId: correction.followupId.trim(),
+        customerName: correction.name.trim() || null,
+        customerCode: correction.code.trim() || null,
+        customerPhone: correction.phone.trim() || null,
+        branch: correction.branch || null,
+        actorStaffId,
+        actorName,
+        note: correction.note.trim() || 'تصحيح من لوحة خدمة العملاء',
       });
-      if (error) throw error;
-      const result = data as { followups_updated?: number; customers_updated?: number } | null;
       toast.success(
-        `تم تصحيح ${Number(result?.followups_updated || 0)} متابعة وتحديث ${Number(
-          result?.customers_updated || 0
-        )} ملف عميل`
+        `تم تصحيح ${result.followupsUpdated} متابعة وتحديث ${result.customersUpdated} ملف عميل`
       );
       setCorrection(EMPTY_CORRECTION);
       await loadAll();
