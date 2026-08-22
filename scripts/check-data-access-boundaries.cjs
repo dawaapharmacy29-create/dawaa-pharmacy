@@ -8,7 +8,6 @@ const LEGACY_DIRECT_INVOICE_READERS = new Set([
   'src/lib/customerProfileService.ts',
   'src/lib/dashboardSummaryService.ts',
   'src/lib/executiveDashboardDataService.ts',
-  'src/lib/staff/staffDataHealthService.ts',
   'src/lib/staff/staffPerformanceProfileService.ts',
 ]);
 
