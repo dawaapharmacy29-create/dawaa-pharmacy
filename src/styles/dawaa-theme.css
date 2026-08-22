@@ -66,6 +66,15 @@ html[data-theme='pharmacy-green'] [class*='bg-slate-800'] {
   border-color: var(--dawaa-theme-border);
 }
 
+/* Legacy page roots that encode a full dark Tailwind gradient instead of a bg-* utility.
+   Keep this exact pattern narrow; it exists only while those pages migrate. */
+html[data-theme='light'] [class*='from-slate-950'][class*='via-slate-900'][class*='to-slate-950'],
+html[data-theme='pharmacy-green'] [class*='from-slate-950'][class*='via-slate-900'][class*='to-slate-950'] {
+  background-color: var(--dawaa-theme-bg);
+  background-image: none;
+  color: var(--dawaa-theme-text);
+}
+
 html[data-theme='light'] [class*='bg-slate-950'][class*='text-white'],
 html[data-theme='light'] [class*='bg-slate-900'][class*='text-white'],
 html[data-theme='light'] [class*='bg-slate-800'][class*='text-white'],
