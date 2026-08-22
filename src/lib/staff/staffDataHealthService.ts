@@ -1,10 +1,9 @@
 import { supabase } from '@/lib/supabase';
-import { normalizeStaffName } from '@/lib/staffIdentityService';
 
 export interface StaffDataHealthReport {
   staffId: string;
   staffName: string;
-  overallHealthScore: number; // 0-100
+  overallHealthScore: number;
   criticalIssues: DataHealthIssue[];
   warnings: DataHealthIssue[];
   info: DataHealthIssue[];
@@ -27,57 +26,100 @@ export interface DataHealthCheckResult {
   score: number;
 }
 
-export async function checkStaffDataHealth(
-  staffId: string,
-  staffName: string
-): Promise<StaffDataHealthReport> {
+type InvoiceHealth = {
+  scopeStart?: string;
+  invoicesCount?: number;
+  missingStaffId?: number;
+  missingCustomerData?: number;
+  invalidPhoneRows?: number;
+  customersMissingValidPhone?: number;
+  missingClassification?: number;
+  mismatchedInvoiceNames?: number;
+  sellerNames?: Array<{ sellerName?: string; invoices?: number }>;
+};
+
+async function loadInvoiceHealth(staffId: string): Promise<InvoiceHealth> {
+  try {
+    const { data, error } = await supabase.rpc('get_staff_invoice_health_read_v1', {
+      p_staff_id: staffId,
+    });
+    if (error || !data || typeof data !== 'object') return {};
+    return data as InvoiceHealth;
+  } catch {
+    return {};
+  }
+}
+
+function invoiceHealthIssues(health: InvoiceHealth): DataHealthIssue[] {
   const issues: DataHealthIssue[] = [];
-  const startTime = new Date();
+  const scopeSuffix = health.scopeStart ? ` خلال فترة القياس منذ ${health.scopeStart}` : '';
 
-  // Check 1: Staff identity resolution
-  const identityIssues = await checkStaffIdentityResolution(staffId, staffName);
-  issues.push(...identityIssues);
+  const mismatched = Number(health.mismatchedInvoiceNames || 0);
+  if (mismatched > 0) {
+    issues.push({
+      severity: 'warning',
+      category: 'identity',
+      table: 'sales_invoices',
+      description: `يوجد ${mismatched} فاتورة مرتبطة باسم بائع بديل${scopeSuffix}`,
+      affectedRecords: mismatched,
+      suggestedAction: 'راجع staff_identity_aliases وتأكد أن الأسماء البديلة تخص الموظف نفسه',
+      relatedMetric: 'unresolvedSellerNames',
+    });
+  }
 
-  // Check 2: Sales data linkage
-  const salesIssues = await checkSalesDataLinkage(staffId, staffName);
-  issues.push(...salesIssues);
+  const missingStaffId = Number(health.missingStaffId || 0);
+  if (missingStaffId > 0) {
+    issues.push({
+      severity: 'info',
+      category: 'sales',
+      table: 'sales_invoices',
+      description: `يوجد ${missingStaffId} فاتورة مرتبطة بالاسم لكن بدون staff_id${scopeSuffix}`,
+      affectedRecords: missingStaffId,
+      suggestedAction: 'استكمل staff_id في الفواتير التاريخية لتحسين الربط وتقليل الاعتماد على الأسماء',
+      relatedMetric: 'missingStaffIdInSales',
+    });
+  }
 
-  // Check 3: Incentive data linkage
-  const incentiveIssues = await checkIncentiveDataLinkage(staffId);
-  issues.push(...incentiveIssues);
+  const missingCustomerData = Number(health.missingCustomerData || 0);
+  if (missingCustomerData > 0) {
+    issues.push({
+      severity: 'warning',
+      category: 'sales',
+      table: 'sales_invoices',
+      description: `يوجد ${missingCustomerData} فاتورة ناقصة اسم العميل أو كوده${scopeSuffix}`,
+      affectedRecords: missingCustomerData,
+      suggestedAction: 'تأكد من تسجيل اسم العميل وكوده عند البيع كلما كان العميل معروفًا',
+      relatedMetric: 'missingCustomerInInvoices',
+    });
+  }
 
-  // Check 4: Customer data completeness
-  const customerIssues = await checkCustomerDataCompleteness(staffId, staffName);
-  issues.push(...customerIssues);
+  const customersMissingPhone = Number(health.customersMissingValidPhone || 0);
+  if (customersMissingPhone > 0) {
+    issues.push({
+      severity: 'warning',
+      category: 'customers',
+      table: 'sales_invoices',
+      description: `يوجد ${customersMissingPhone} عميل بدون رقم هاتف مصري صالح${scopeSuffix}`,
+      affectedRecords: customersMissingPhone,
+      suggestedAction: 'استكمل أرقام الهاتف الصحيحة لتحسين المتابعة وخدمة العملاء',
+      relatedMetric: 'customersWithMissingPhone',
+    });
+  }
 
-  // Check 5: Stagnant/List assignment
-  const stagnantIssues = await checkStagnantListAssignment(staffId, staffName);
-  issues.push(...stagnantIssues);
+  const missingClassification = Number(health.missingClassification || 0);
+  if (missingClassification > 0) {
+    issues.push({
+      severity: 'warning',
+      category: 'classification',
+      table: 'sales_invoices',
+      description: `يوجد ${missingClassification} فاتورة بدون تصنيف عميل${scopeSuffix}`,
+      affectedRecords: missingClassification,
+      suggestedAction: 'استكمل تصنيف العميل من مصدر العميل المركزي بدل إعادة إدخاله يدويًا',
+      relatedMetric: 'missingClassification',
+    });
+  }
 
-  // Check 6: Attendance data
-  const attendanceIssues = await checkAttendanceData(staffId);
-  issues.push(...attendanceIssues);
-
-  // Check 7: Classification quality
-  const classificationIssues = await checkClassificationQuality(staffId, staffName);
-  issues.push(...classificationIssues);
-
-  // Calculate overall health score
-  const criticalCount = issues.filter((i) => i.severity === 'critical').length;
-  const warningCount = issues.filter((i) => i.severity === 'warning').length;
-  const infoCount = issues.filter((i) => i.severity === 'info').length;
-
-  const score = Math.max(0, 100 - criticalCount * 25 - warningCount * 10 - infoCount * 2);
-
-  return {
-    staffId,
-    staffName,
-    overallHealthScore: score,
-    criticalIssues: issues.filter((i) => i.severity === 'critical'),
-    warnings: issues.filter((i) => i.severity === 'warning'),
-    info: issues.filter((i) => i.severity === 'info'),
-    lastChecked: startTime.toISOString(),
-  };
+  return issues;
 }
 
 async function checkStaffIdentityResolution(
@@ -85,232 +127,110 @@ async function checkStaffIdentityResolution(
   staffName: string
 ): Promise<DataHealthIssue[]> {
   const issues: DataHealthIssue[] = [];
-
   try {
-    // Check for inactive duplicates
     const { data: sameNameStaff } = await supabase
       .from('staff')
-      .select('id,name,branch,active,is_active')
+      .select('id,name,branch,active,is_active,status')
       .neq('id', staffId)
       .eq('name', staffName)
-      .limit(10);
+      .limit(20);
 
-    if (sameNameStaff && sameNameStaff.length > 0) {
-      const inactiveCount = sameNameStaff.filter((row) => !row.is_active || !row.active).length;
-      const activeCount = sameNameStaff.filter((row) => row.is_active && row.active).length;
+    const rows = sameNameStaff || [];
+    const isActive = (row: Record<string, unknown>) =>
+      row.active !== false && row.is_active !== false && String(row.status || '').toLowerCase() !== 'inactive';
+    const activeCount = rows.filter((row) => isActive(row as Record<string, unknown>)).length;
+    const inactiveCount = Math.max(0, rows.length - activeCount);
 
-      if (activeCount > 0) {
-        issues.push({
-          severity: 'critical',
-          category: 'identity',
-          table: 'staff',
-          description: `يوجد ${activeCount} موظف نشط بنفس الاسم`,
-          affectedRecords: activeCount,
-          suggestedAction: 'راجع سجلات الموظفين ودمج الحسابات المكررة',
-          relatedMetric: 'duplicateStaff',
-        });
-      }
-
-      if (inactiveCount > 0) {
-        issues.push({
-          severity: 'warning',
-          category: 'identity',
-          table: 'staff',
-          description: `يوجد ${inactiveCount} موظف غير نشط بنفس الاسم`,
-          affectedRecords: inactiveCount,
-          suggestedAction: 'تأكد من أن الموظف غير النشط هو الحساب الصحيح',
-          relatedMetric: 'inactiveDuplicates',
-        });
-      }
-    }
-
-    // Check for unresolved seller names in invoices
-    const { data: invoiceNames } = await supabase
-      .from('sales_invoices')
-      .select('seller_name')
-      .ilike('seller_name', `%${staffName}%`)
-      .limit(100);
-
-    if (invoiceNames && invoiceNames.length > 0) {
-      const normalizedStaffName = normalizeStaffName(staffName);
-      const mismatchedNames = invoiceNames.filter((row) => {
-        const sellerName = String(row.seller_name || '');
-        return normalizeStaffName(sellerName) !== normalizedStaffName;
+    if (activeCount > 0) {
+      issues.push({
+        severity: 'critical',
+        category: 'identity',
+        table: 'staff',
+        description: `يوجد ${activeCount} موظف نشط آخر بنفس الاسم`,
+        affectedRecords: activeCount,
+        suggestedAction: 'راجع الهوية المركزية للموظف وادمج الحسابات المكررة قبل احتساب الأداء',
+        relatedMetric: 'duplicateStaff',
       });
-
-      if (mismatchedNames.length > 0) {
-        issues.push({
-          severity: 'warning',
-          category: 'identity',
-          table: 'sales_invoices',
-          description: `يوجد ${mismatchedNames.length} فاتورة باسم موظف غير مطابق تماماً`,
-          affectedRecords: mismatchedNames.length,
-          suggestedAction: 'استخدم staff_identity_aliases لربط الأسماء المختلفة',
-          relatedMetric: 'unresolvedSellerNames',
-        });
-      }
     }
-  } catch (error) {
-    // Ignore errors in identity check
+    if (inactiveCount > 0) {
+      issues.push({
+        severity: 'warning',
+        category: 'identity',
+        table: 'staff',
+        description: `يوجد ${inactiveCount} سجل موظف غير نشط بنفس الاسم`,
+        affectedRecords: inactiveCount,
+        suggestedAction: 'احتفظ بسجل تاريخي واحد واربطه بالهوية المركزية للموظف',
+        relatedMetric: 'inactiveDuplicates',
+      });
+    }
+  } catch {
+    // Health checks are best-effort and should not break the staff page.
   }
-
   return issues;
 }
 
-async function checkSalesDataLinkage(
-  staffId: string,
-  staffName: string
-): Promise<DataHealthIssue[]> {
-  const issues: DataHealthIssue[] = [];
-
+async function checkSalesSummaryLinkage(staffId: string): Promise<DataHealthIssue[]> {
   try {
-    // Check staff_sales_summary linkage
-    const { data: summaryData, error: summaryError } = await supabase
+    const { data, error } = await supabase
       .from('staff_sales_summary')
-      .select('*')
+      .select('staff_id')
       .eq('staff_id', staffId)
-      .limit(10);
-
-    if (!summaryError && (!summaryData || summaryData.length === 0)) {
-      issues.push({
-        severity: 'warning',
-        category: 'sales',
-        table: 'staff_sales_summary',
-        description: 'لا توجد بيانات ملخص مبيعات مرتبطة بـ staff_id',
-        affectedRecords: 0,
-        suggestedAction: 'تأكد من أن staff_sales_summary يتم تحديثه بشكل صحيح',
-        relatedMetric: 'salesLinked',
-      });
-    }
-
-    // Check for missing staff_id in sales_invoices
-    const { data: invoicesWithoutStaff } = await supabase
-      .from('sales_invoices')
-      .select('id, invoice_no, invoice_number')
-      .ilike('seller_name', `%${staffName}%`)
-      .is('staff_id', null)
-      .limit(100);
-
-    if (invoicesWithoutStaff && invoicesWithoutStaff.length > 0) {
-      issues.push({
-        severity: 'info',
-        category: 'sales',
-        table: 'sales_invoices',
-        description: `يوجد ${invoicesWithoutStaff.length} فاتورة بدون staff_id`,
-        affectedRecords: invoicesWithoutStaff.length,
-        suggestedAction: 'قم بتحديث staff_id في الفواتير لتحسين الربط',
-        relatedMetric: 'missingStaffIdInSales',
-      });
-    }
-
-    // Check for missing customer data
-    const { data: invoicesWithoutCustomer } = await supabase
-      .from('sales_invoices')
-      .select('id, invoice_no, invoice_number')
-      .ilike('seller_name', `%${staffName}%`)
-      .or('customer_name.is.null,customer_code.is.null')
-      .limit(100);
-
-    if (invoicesWithoutCustomer && invoicesWithoutCustomer.length > 0) {
-      issues.push({
-        severity: 'warning',
-        category: 'sales',
-        table: 'sales_invoices',
-        description: `يوجد ${invoicesWithoutCustomer.length} فاتورة بدون بيانات عميل`,
-        affectedRecords: invoicesWithoutCustomer.length,
-        suggestedAction: 'تأكد من تسجيل اسم العميل أو الكود في كل فاتورة',
-        relatedMetric: 'missingCustomerInInvoices',
-      });
-    }
-  } catch (error) {
-    // Ignore errors in sales check
+      .limit(1);
+    if (error || (data && data.length > 0)) return [];
+    return [{
+      severity: 'warning',
+      category: 'sales',
+      table: 'staff_sales_summary',
+      description: 'لا توجد بيانات ملخص مبيعات مرتبطة بـ staff_id',
+      affectedRecords: 0,
+      suggestedAction: 'راجع ربط هوية البائع قبل الاعتماد على تقارير الموظف',
+      relatedMetric: 'salesLinked',
+    }];
+  } catch {
+    return [];
   }
-
-  return issues;
 }
 
 async function checkIncentiveDataLinkage(staffId: string): Promise<DataHealthIssue[]> {
   const issues: DataHealthIssue[] = [];
-
   try {
-    // Check employee_transactions linkage
-    const { data: transactions, error: txError } = await supabase
-      .from('employee_transactions')
-      .select('*')
-      .eq('staff_id', staffId)
-      .limit(10);
+    const [anyTx, pendingTx] = await Promise.all([
+      supabase.from('employee_transactions').select('id').eq('staff_id', staffId).limit(1),
+      supabase
+        .from('employee_transactions')
+        .select('id')
+        .eq('staff_id', staffId)
+        .in('status', ['pending', 'review'])
+        .limit(50),
+    ]);
 
-    if (!txError && (!transactions || transactions.length === 0)) {
+    if (!anyTx.error && (!anyTx.data || anyTx.data.length === 0)) {
       issues.push({
         severity: 'info',
         category: 'incentives',
         table: 'employee_transactions',
         description: 'لا توجد معاملات حوافز مرتبطة بـ staff_id',
         affectedRecords: 0,
-        suggestedAction: 'تأكد من أن employee_transactions يتم تحديثه بشكل صحيح',
+        suggestedAction: 'تأكد من ربط معاملات النقاط والحوافز بالهوية المركزية للموظف',
         relatedMetric: 'missingStaffIdInIncentives',
       });
     }
 
-    // Check for transactions without proper status
-    const { data: pendingTransactions } = await supabase
-      .from('employee_transactions')
-      .select('id')
-      .eq('staff_id', staffId)
-      .in('status', ['pending', 'review'])
-      .limit(50);
-
-    if (pendingTransactions && pendingTransactions.length > 10) {
+    const pendingCount = pendingTx.data?.length || 0;
+    if (pendingCount > 10) {
       issues.push({
         severity: 'warning',
         category: 'incentives',
         table: 'employee_transactions',
-        description: `يوجد ${pendingTransactions.length} معاملة معلقة أو قيد المراجعة`,
-        affectedRecords: pendingTransactions.length,
-        suggestedAction: 'راجع واعتمد أو رفض المعاملات المعلقة',
+        description: `يوجد ${pendingCount} معاملة معلقة أو قيد المراجعة`,
+        affectedRecords: pendingCount,
+        suggestedAction: 'راجع واعتمد أو ارفض المعاملات المعلقة',
         relatedMetric: 'pendingTransactions',
       });
     }
-  } catch (error) {
-    // Ignore errors in incentive check
+  } catch {
+    // Best-effort diagnostic.
   }
-
-  return issues;
-}
-
-async function checkCustomerDataCompleteness(
-  staffId: string,
-  staffName: string
-): Promise<DataHealthIssue[]> {
-  const issues: DataHealthIssue[] = [];
-
-  try {
-    // Check for customers without phone
-    const { data: customersWithoutPhone } = await supabase
-      .from('sales_invoices')
-      .select('customer_name')
-      .ilike('seller_name', `%${staffName}%`)
-      .or("customer_phone.is.null,customer_phone.eq.'',customer_phone.length.lt.10")
-      .limit(100);
-
-    if (customersWithoutPhone && customersWithoutPhone.length > 0) {
-      const uniqueCustomers = new Set(
-        customersWithoutPhone.map((r) => String(r.customer_name || ''))
-      ).size;
-      issues.push({
-        severity: 'warning',
-        category: 'customers',
-        table: 'sales_invoices',
-        description: `يوجد ${uniqueCustomers} عميل بدون رقم هاتف صحيح`,
-        affectedRecords: uniqueCustomers,
-        suggestedAction: 'حاول الحصول على أرقام هواتف العملاء لتحسين التواصل',
-        relatedMetric: 'customersWithMissingPhone',
-      });
-    }
-  } catch (error) {
-    // Ignore errors in customer check
-  }
-
   return issues;
 }
 
@@ -319,130 +239,102 @@ async function checkStagnantListAssignment(
   staffName: string
 ): Promise<DataHealthIssue[]> {
   const issues: DataHealthIssue[] = [];
-
   try {
-    // Check stagnant_medicines assignment
-    const { data: stagnantAssignments } = await supabase
-      .from('stagnant_medicines')
-      .select('id')
-      .eq('responsible_doctor_id', staffId)
-      .limit(10);
+    const [stagnantById, stagnantByName, listById, listByName] = await Promise.all([
+      supabase.from('stagnant_medicines').select('id').eq('responsible_doctor_id', staffId).limit(1),
+      supabase.from('stagnant_medicines').select('id').eq('responsible_doctor_name', staffName).limit(1),
+      supabase.from('incentive_medicines').select('id').eq('doctor_id', staffId).limit(1),
+      supabase.from('incentive_medicines').select('id').eq('responsible_doctor', staffName).limit(1),
+    ]);
 
-    if (!stagnantAssignments || stagnantAssignments.length === 0) {
-      // Try by name
-      const { data: byName } = await supabase
-        .from('stagnant_medicines')
-        .select('id')
-        .eq('responsible_doctor_name', staffName)
-        .limit(10);
-
-      if (!byName || byName.length === 0) {
-        issues.push({
-          severity: 'info',
-          category: 'stagnant_list',
-          table: 'stagnant_medicines',
-          description: 'لا توجد أصناف راكدة مسندة لهذا الموظف',
-          affectedRecords: 0,
-          suggestedAction: 'يمكن تعيين أصناف راكدة للموظف إذا لزم الأمر',
-          relatedMetric: 'hasStagnant',
-        });
-      }
+    if (!(stagnantById.data?.length || stagnantByName.data?.length)) {
+      issues.push({
+        severity: 'info',
+        category: 'stagnant_list',
+        table: 'stagnant_medicines',
+        description: 'لا توجد أصناف راكدة مسندة لهذا الموظف',
+        affectedRecords: 0,
+        suggestedAction: 'يمكن تعيين أصناف راكدة للموظف إذا كانت ضمن خطة الفرع',
+        relatedMetric: 'hasStagnant',
+      });
     }
-
-    // Check incentive_medicines assignment
-    const { data: listAssignments } = await supabase
-      .from('incentive_medicines')
-      .select('id')
-      .eq('doctor_id', staffId)
-      .limit(10);
-
-    if (!listAssignments || listAssignments.length === 0) {
-      // Try by name
-      const { data: byName } = await supabase
-        .from('incentive_medicines')
-        .select('id')
-        .eq('responsible_doctor', staffName)
-        .limit(10);
-
-      if (!byName || byName.length === 0) {
-        issues.push({
-          severity: 'info',
-          category: 'stagnant_list',
-          table: 'incentive_medicines',
-          description: 'لا توجد أصناف لستة مسندة لهذا الموظف',
-          affectedRecords: 0,
-          suggestedAction: 'يمكن تعيين أصناف لستة للموظف إذا لزم الأمر',
-          relatedMetric: 'hasList',
-        });
-      }
+    if (!(listById.data?.length || listByName.data?.length)) {
+      issues.push({
+        severity: 'info',
+        category: 'stagnant_list',
+        table: 'incentive_medicines',
+        description: 'لا توجد أصناف لستة مسندة لهذا الموظف',
+        affectedRecords: 0,
+        suggestedAction: 'يمكن تعيين أصناف لستة للموظف إذا كانت ضمن خطة الحافز',
+        relatedMetric: 'hasList',
+      });
     }
-  } catch (error) {
-    // Ignore errors in stagnant/list check
+  } catch {
+    // Best-effort diagnostic.
   }
-
   return issues;
 }
 
 async function checkAttendanceData(staffId: string): Promise<DataHealthIssue[]> {
-  const issues: DataHealthIssue[] = [];
-
   try {
-    // Check for schedule data
-    const { data: scheduleData } = await supabase
+    const { data } = await supabase
       .from('staff_schedule')
       .select('id')
       .eq('staff_id', staffId)
-      .limit(10);
-
-    if (!scheduleData || scheduleData.length === 0) {
-      issues.push({
-        severity: 'info',
-        category: 'attendance',
-        table: 'staff_schedule',
-        description: 'لا يوجد جدول عمل مسجل لهذا الموظف',
-        affectedRecords: 0,
-        suggestedAction: 'قم بإضافة جدول عمل للموظف',
-        relatedMetric: 'hasSchedule',
-      });
-    }
-  } catch (error) {
-    // Ignore errors in attendance check
+      .limit(1);
+    if (data?.length) return [];
+    return [{
+      severity: 'info',
+      category: 'attendance',
+      table: 'staff_schedule',
+      description: 'لا يوجد جدول عمل مسجل لهذا الموظف',
+      affectedRecords: 0,
+      suggestedAction: 'أضف جدول عمل للموظف حتى تكون مؤشرات الحضور قابلة للمقارنة',
+      relatedMetric: 'hasSchedule',
+    }];
+  } catch {
+    return [];
   }
-
-  return issues;
 }
 
-async function checkClassificationQuality(
+export async function checkStaffDataHealth(
   staffId: string,
   staffName: string
-): Promise<DataHealthIssue[]> {
-  const issues: DataHealthIssue[] = [];
+): Promise<StaffDataHealthReport> {
+  const startTime = new Date();
+  const [invoiceHealth, identityIssues, salesIssues, incentiveIssues, stagnantIssues, attendanceIssues] =
+    await Promise.all([
+      loadInvoiceHealth(staffId),
+      checkStaffIdentityResolution(staffId, staffName),
+      checkSalesSummaryLinkage(staffId),
+      checkIncentiveDataLinkage(staffId),
+      checkStagnantListAssignment(staffId, staffName),
+      checkAttendanceData(staffId),
+    ]);
 
-  try {
-    // Check for missing customer classification
-    const { data: invoicesWithoutCustomerClass } = await supabase
-      .from('sales_invoices')
-      .select('id, invoice_no, invoice_number')
-      .ilike('seller_name', `%${staffName}%`)
-      .is('customer_segment', null)
-      .limit(100);
+  const issues = [
+    ...identityIssues,
+    ...invoiceHealthIssues(invoiceHealth),
+    ...salesIssues,
+    ...incentiveIssues,
+    ...stagnantIssues,
+    ...attendanceIssues,
+  ];
 
-    if (invoicesWithoutCustomerClass && invoicesWithoutCustomerClass.length > 0) {
-      issues.push({
-        severity: 'warning',
-        category: 'classification',
-        table: 'sales_invoices',
-        description: `يوجد ${invoicesWithoutCustomerClass.length} فاتورة بدون تصنيف العميل`,
-        affectedRecords: invoicesWithoutCustomerClass.length,
-        suggestedAction: 'تأكد من تصنيف العميل في كل فاتورة',
-        relatedMetric: 'missingClassification',
-      });
-    }
-  } catch (error) {
-    // Ignore errors in classification check
-  }
+  const criticalCount = issues.filter((issue) => issue.severity === 'critical').length;
+  const warningCount = issues.filter((issue) => issue.severity === 'warning').length;
+  const infoCount = issues.filter((issue) => issue.severity === 'info').length;
+  const score = Math.max(0, 100 - criticalCount * 25 - warningCount * 10 - infoCount * 2);
 
-  return issues;
+  return {
+    staffId,
+    staffName,
+    overallHealthScore: score,
+    criticalIssues: issues.filter((issue) => issue.severity === 'critical'),
+    warnings: issues.filter((issue) => issue.severity === 'warning'),
+    info: issues.filter((issue) => issue.severity === 'info'),
+    lastChecked: startTime.toISOString(),
+  };
 }
 
 export async function checkAllStaffDataHealth(limit = 50): Promise<StaffDataHealthReport[]> {
@@ -452,20 +344,14 @@ export async function checkAllStaffDataHealth(limit = 50): Promise<StaffDataHeal
     .eq('is_active', true)
     .limit(limit);
 
-  if (!staff || staff.length === 0) {
-    return [];
-  }
+  if (!staff?.length) return [];
 
   const reports: StaffDataHealthReport[] = [];
-
   for (const staffMember of staff) {
-    const report = await checkStaffDataHealth(
-      String(staffMember.id),
-      String(staffMember.name || '')
+    reports.push(
+      await checkStaffDataHealth(String(staffMember.id), String(staffMember.name || ''))
     );
-    reports.push(report);
   }
-
   return reports.sort((a, b) => a.overallHealthScore - b.overallHealthScore);
 }
 
@@ -477,17 +363,14 @@ export function getDataHealthSummary(reports: StaffDataHealthReport[]): {
   avgHealthScore: number;
 } {
   const totalStaff = reports.length;
-  const healthyStaff = reports.filter((r) => r.overallHealthScore >= 80).length;
-  const criticalIssues = reports.reduce((sum, r) => sum + r.criticalIssues.length, 0);
-  const warnings = reports.reduce((sum, r) => sum + r.warnings.length, 0);
-  const avgHealthScore =
-    totalStaff > 0 ? reports.reduce((sum, r) => sum + r.overallHealthScore, 0) / totalStaff : 0;
-
   return {
     totalStaff,
-    healthyStaff,
-    criticalIssues,
-    warnings,
-    avgHealthScore,
+    healthyStaff: reports.filter((report) => report.overallHealthScore >= 80).length,
+    criticalIssues: reports.reduce((sum, report) => sum + report.criticalIssues.length, 0),
+    warnings: reports.reduce((sum, report) => sum + report.warnings.length, 0),
+    avgHealthScore:
+      totalStaff > 0
+        ? reports.reduce((sum, report) => sum + report.overallHealthScore, 0) / totalStaff
+        : 0,
   };
 }
