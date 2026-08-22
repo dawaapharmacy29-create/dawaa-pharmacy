@@ -34,9 +34,10 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
-        // Granular chunks improve caching and keep route-only tools out of the first load.
-        // PDF libraries intentionally stay with their lazy route graph instead of being
-        // forced into a global manual chunk, which previously made that chunk static.
+        // Only truly shared/runtime-critical libraries are forced into named chunks.
+        // Unclassified node_modules intentionally return undefined so Rollup can keep
+        // route-only dependencies (PDF tools, niche editors, etc.) inside lazy graphs.
+        // A catch-all `vendor` chunk previously made lazy-only packages part of startup.
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.includes('react-dom') || id.includes('react/') || id.includes('scheduler'))
@@ -60,8 +61,9 @@ export default defineConfig({
             if (id.includes('embla-carousel')) return 'carousel';
             if (id.includes('zustand')) return 'state';
             if (id.includes('sonner') || id.includes('vaul') || id.includes('cmdk')) return 'ui-feedback';
-            return 'vendor';
+            return undefined;
           }
+          return undefined;
         },
       },
     },
