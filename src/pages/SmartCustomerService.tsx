@@ -19,19 +19,19 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import CustomerFollowupCockpitPanel from '@/components/customerService/CustomerFollowupCockpitPanel';
-import CustomerFollowupFullExportPanel from '@/components/customerService/CustomerFollowupFullExportPanel';
-import CustomerFollowupOperationsCompletionPanel from '@/components/customerService/CustomerFollowupOperationsCompletionPanel';
-import CustomerFollowupFinalQualityPanel from '@/components/customerService/CustomerFollowupFinalQualityPanel';
-import CustomerFollowupRecordsAndPerformance from '@/components/customerService/CustomerFollowupRecordsAndPerformance';
-import CustomerHistoricalFollowupLedger from '@/components/customerService/CustomerHistoricalFollowupLedger';
-import CustomerDailyPriorityQueues from '@/components/customerService/CustomerDailyPriorityQueues';
-import CustomerServiceDoctorWorkbookCenter from '@/components/customerService/CustomerServiceDoctorWorkbookCenter';
-import ExceptionalFollowupCenter from '@/components/customerService/ExceptionalFollowupCenter';
-import QuickFollowupModal from '@/components/common/QuickFollowupModal';
-import ExceptionalFollowupModal from '@/components/customerService/ExceptionalFollowupModal';
 import SectionErrorBoundary, { SectionSkeleton } from '@/components/customerService/SectionBoundary';
 import '@/styles/customerServiceTheme.css';
 
+const CustomerFollowupFullExportPanel = lazy(() => import('@/components/customerService/CustomerFollowupFullExportPanel'));
+const CustomerFollowupOperationsCompletionPanel = lazy(() => import('@/components/customerService/CustomerFollowupOperationsCompletionPanel'));
+const CustomerFollowupFinalQualityPanel = lazy(() => import('@/components/customerService/CustomerFollowupFinalQualityPanel'));
+const CustomerFollowupRecordsAndPerformance = lazy(() => import('@/components/customerService/CustomerFollowupRecordsAndPerformance'));
+const CustomerHistoricalFollowupLedger = lazy(() => import('@/components/customerService/CustomerHistoricalFollowupLedger'));
+const CustomerDailyPriorityQueues = lazy(() => import('@/components/customerService/CustomerDailyPriorityQueues'));
+const CustomerServiceDoctorWorkbookCenter = lazy(() => import('@/components/customerService/CustomerServiceDoctorWorkbookCenter'));
+const ExceptionalFollowupCenter = lazy(() => import('@/components/customerService/ExceptionalFollowupCenter'));
+const QuickFollowupModal = lazy(() => import('@/components/common/QuickFollowupModal'));
+const ExceptionalFollowupModal = lazy(() => import('@/components/customerService/ExceptionalFollowupModal'));
 const CustomerServiceDataTools = lazy(() => import('@/components/customerService/CustomerServiceDataTools'));
 const CustomerServiceScriptEditor = lazy(() => import('@/components/customerService/CustomerServiceScriptEditor'));
 const CustomerCashback = lazy(() => import('@/pages/CustomerCashback'));
@@ -254,7 +254,7 @@ export default function SmartCustomerService() {
     </div>
     </main>
 
-    <QuickFollowupModal
+    {quickOpen ? <Suspense fallback={null}><QuickFollowupModal
       key={`${quickOpen}-${pendingCustomer?.code || ''}`}
       open={quickOpen}
       onClose={() => { setQuickOpen(false); setPendingCustomer(null); }}
@@ -263,7 +263,7 @@ export default function SmartCustomerService() {
       initialCustomerCode={pendingCustomer?.code || null}
       initialCustomerName={pendingCustomer?.name || null}
       initialCustomerPhone={pendingCustomer?.phone || null}
-    />
-    <ExceptionalFollowupModal open={exceptionalOpen} onClose={() => setExceptionalOpen(false)} onCreated={() => { refreshWorkspace(); setWorkspace('log'); setLogTab('exceptional'); }} />
+    /></Suspense> : null}
+    {exceptionalOpen ? <Suspense fallback={null}><ExceptionalFollowupModal open={exceptionalOpen} onClose={() => setExceptionalOpen(false)} onCreated={() => { refreshWorkspace(); setWorkspace('log'); setLogTab('exceptional'); }} /></Suspense> : null}
   </div>;
 }
