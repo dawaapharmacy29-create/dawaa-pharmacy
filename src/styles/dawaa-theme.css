@@ -196,57 +196,12 @@ html[data-theme='pharmacy-green'] [class*='bg-slate-800'] [class*='border-slate-
   color: var(--dawaa-theme-primary);
 }
 
-/* Executive dashboard migration boundary.
-   The active page still contains a legacy dark shell in JSX. Keep this scope local to
-   the executive page so both Light and Dark consume the canonical V6 surface hierarchy
-   while the large page is decomposed into semantic sections. Delete with that migration. */
+/* The Executive root is safe to bind semantically in every theme without expanding
+   the legacy dark-surface selector family. Child slate utilities remain explicit
+   migration debt and are only bridged in non-dark themes above. */
 .executive-dashboard-page {
   background: var(--dawaa-theme-bg);
   color: var(--dawaa-theme-text);
-}
-
-.executive-dashboard-page[class*='bg-[#06131f]'],
-.executive-dashboard-page [class*='bg-[#06131f]'] {
-  background: var(--dawaa-theme-bg);
-}
-
-.executive-dashboard-page [class*='bg-slate-950'] {
-  background: var(--dawaa-theme-input);
-  border-color: var(--dawaa-theme-border);
-}
-
-.executive-dashboard-page [class*='bg-slate-900'] {
-  background: var(--dawaa-theme-surface);
-  border-color: var(--dawaa-theme-border);
-}
-
-.executive-dashboard-page [class*='bg-slate-800'] {
-  background: var(--dawaa-theme-surface-2);
-  border-color: var(--dawaa-theme-border);
-}
-
-.executive-dashboard-page :is(.text-white, .text-slate-100) {
-  color: var(--dawaa-theme-heading);
-}
-
-.executive-dashboard-page :is(.text-slate-200, .text-slate-300) {
-  color: var(--dawaa-theme-text);
-}
-
-.executive-dashboard-page :is(.text-slate-400, .text-slate-500) {
-  color: var(--dawaa-theme-muted);
-}
-
-.executive-dashboard-page [class*='border-slate-'] {
-  border-color: var(--dawaa-theme-border);
-}
-
-.executive-dashboard-page :is(input, select, textarea):disabled,
-.executive-dashboard-page button:disabled {
-  background: var(--dawaa-theme-disabled-bg);
-  color: var(--dawaa-theme-disabled-text);
-  border-color: var(--dawaa-theme-disabled-border);
-  opacity: 1;
 }
 
 /* Executive dashboard legacy decision-tone names. */
