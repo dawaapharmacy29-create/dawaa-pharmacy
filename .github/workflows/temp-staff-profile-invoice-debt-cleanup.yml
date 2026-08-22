@@ -1,0 +1,74 @@
+name: Temporary staff profile invoice debt cleanup
+
+on:
+  push:
+    branches:
+      - fix/final-unified-theme-pages-performance-20260822
+    paths:
+      - '.github/temp-staff-profile-cleanup-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply exact staff profile cleanup
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'src/lib/staff/staffPerformanceProfileService.ts';
+          let source = fs.readFileSync(path, 'utf8');
+
+          const oldBlock = `  // Fetch raw seller names from sales_invoices\n  try {\n    const { data: invoiceNames } = await supabase\n      .from('sales_invoices')\n      .select('seller_name')\n      .ilike('seller_name', \`%\${staff.name}%\`)\n      .limit(100);\n\n    if (invoiceNames) {\n      const uniqueNames = new Set(\n        (invoiceNames as Array<Row | null | undefined>)\n          .filter(Boolean)\n          .map((r) => String((r as Row).seller_name || ''))\n      );\n      rawSellerNames.push(...Array.from(uniqueNames));\n\n      // Check if any names don't match exactly\n      const mismatchedNames = Array.from(uniqueNames).filter((name) => {\n        const nameNorm = normalizeStaffName(name);\n        return !normalizedNames.includes(nameNorm);\n      });\n\n      if (mismatchedNames.length > 0) {\n        warnings.push(\n          \`يوجد أسماء في الفواتير غير مربوطة تمامًا: \${mismatchedNames.slice(0, 3).join(', ')}\`\n        );\n      }\n    }\n  } catch (error) {\n    // Ignore errors in seller name check\n  }\n\n`;
+
+          if (!source.includes(oldBlock)) {
+            throw new Error('Expected direct seller diagnostic block not found');
+          }
+          source = source.replace(oldBlock, '');
+
+          const truthMarker = `    invoiceTruth = await getStaffInvoiceTruth(effectiveStaffId, cycleStart, cycleEnd);\n    sources.push('sales_invoices');\n`;
+          const truthReplacement = `    invoiceTruth = await getStaffInvoiceTruth(effectiveStaffId, cycleStart, cycleEnd);\n    sources.push('sales_invoices');\n\n    // Seller-name diagnostics are already part of the scoped StaffInvoiceTruth read model.\n    // Reuse them here instead of issuing another direct sales_invoices query.\n    identity.rawSellerNames = [...invoiceTruth.matchedSellerNames];\n    const mismatchedSellerNames = invoiceTruth.matchedSellerNames.filter((name) => {\n      const normalizedName = normalizeStaffName(name);\n      return normalizedName && !identity.normalizedNames.includes(normalizedName);\n    });\n    if (mismatchedSellerNames.length > 0) {\n      identity.warnings.push(\n        \`يوجد أسماء في الفواتير غير مربوطة تمامًا: \${mismatchedSellerNames.slice(0, 3).join(', ')}\`\n      );\n    }\n`;
+          if (!source.includes(truthMarker)) throw new Error('StaffInvoiceTruth marker not found');
+          source = source.replace(truthMarker, truthReplacement);
+          fs.writeFileSync(path, source);
+
+          const gatePath = 'scripts/check-data-access-boundaries.cjs';
+          let gate = fs.readFileSync(gatePath, 'utf8');
+          const budgetLine = "  ['src/lib/staff/staffPerformanceProfileService.ts', 1],\n";
+          if (!gate.includes(budgetLine)) throw new Error('Staff profile debt budget not found');
+          gate = gate.replace(budgetLine, '');
+          fs.writeFileSync(gatePath, gate);
+          NODE
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Validate targeted change
+        run: |
+          node scripts/check-data-access-boundaries.cjs
+          npm run typecheck
+
+      - name: Commit cleanup to current branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/staff/staffPerformanceProfileService.ts scripts/check-data-access-boundaries.cjs
+          if git diff --cached --quiet; then
+            echo "No cleanup changes"
+            exit 0
+          fi
+          git commit -m "refactor: route staff seller diagnostics through invoice truth"
+          git push origin HEAD:${GITHUB_REF_NAME}
