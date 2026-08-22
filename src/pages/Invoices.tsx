@@ -27,6 +27,7 @@ import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { logActivity } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { createNotification } from '@/lib/notificationService';
 import { getInvoiceKey } from '@/lib/dawaa2027';
 import { clearCustomersCache } from '@/lib/api/customers';
 import { clearCustomerServiceCommandCenterCache } from '@/lib/api/customerServiceCommandCenter';
@@ -181,10 +182,10 @@ function dayMatchStatusLabel(status: ImportSummary['dayDatabaseComparison'] exte
 }
 
 function dayMatchStatusClass(status: string) {
-  if (status === 'matched') return 'bg-emerald-400/15 text-emerald-100';
-  if (status === 'missing_in_database') return 'bg-red-400/15 text-red-100';
-  if (status === 'partial') return 'bg-amber-400/15 text-amber-100';
-  return 'bg-slate-400/15 text-slate-100';
+  if (status === 'matched') return 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]';
+  if (status === 'missing_in_database') return 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]';
+  if (status === 'partial') return 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]';
+  return 'bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-heading)]';
 }
 
 type DaySalesChartRow = {
@@ -265,17 +266,17 @@ function buildDaySalesChartRows(summary: ImportSummary): DaySalesChartRow[] {
 }
 
 function chartBarColor(status: string) {
-  if (status === 'matched') return 'bg-emerald-400';
-  if (status === 'missing_in_database') return 'bg-red-400';
-  if (status === 'partial') return 'bg-amber-400';
-  return 'bg-slate-400';
+  if (status === 'matched') return 'bg-[var(--dawaa-status-success-bg)]';
+  if (status === 'missing_in_database') return 'bg-[var(--dawaa-status-danger-bg)]';
+  if (status === 'partial') return 'bg-[var(--dawaa-status-warning-bg)]';
+  return 'bg-[var(--dawaa-theme-soft)]';
 }
 
 function MetricMiniCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-      <div className="text-[11px] font-bold text-slate-400">{label}</div>
-      <div className="mt-1 text-sm font-bold text-white">{value}</div>
+    <div className="rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2">
+      <div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{label}</div>
+      <div className="mt-1 text-sm font-bold text-[var(--dawaa-theme-heading)]">{value}</div>
     </div>
   );
 }
@@ -293,20 +294,20 @@ function importCompletion(summary: ImportSummary) {
   if (missingDays || savedButNotFound) {
     return {
       label: 'غير مكتمل',
-      tone: 'border-red-300/35 bg-red-400/10 text-red-50',
+      tone: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]',
       message: 'توجد أيام كاملة من الملف لم تظهر في قاعدة البيانات. راجع جدول المطابقة وأسباب التخطي.',
     };
   }
   if (hasDifferences || (summary.conflictReviewRows || 0) > 0) {
     return {
       label: 'يحتاج مراجعة',
-      tone: 'border-amber-300/35 bg-amber-400/10 text-amber-50',
+      tone: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
       message: 'يوجد فرق بين الملف وقاعدة البيانات أو فواتير متعارضة تحتاج مراجعة.',
     };
   }
   return {
     label: 'مكتمل',
-    tone: 'border-emerald-300/35 bg-emerald-400/10 text-emerald-50',
+    tone: 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]',
     message: 'كل أيام الملف ظهرت في قاعدة البيانات داخل مدى الملف بدون فروق مؤثرة.',
   };
 }
@@ -860,16 +861,18 @@ export default function Invoices() {
         ]);
         await loadManagedInvoices();
         await loadInvoiceSummarySnapshot();
-        await supabase.from('notifications').insert({
+        await createNotification({
           title: 'استيراد ملف فواتير جديد',
           message: `تم قراءة ${summary.distinctInvoicesInFile || summary.totalRows} فاتورة من ${fileName}. تمت إضافة ${summary.insertedRows} وتأكيد/تحديث ${summary.confirmedExistingInvoices ?? summary.updatedInvoices ?? 0}. صافي الملف ${formatCurrency(summary.fileNetSales || 0)}، وصافي الجديد + الموجود المؤكد ${formatCurrency(summary.processedNetSales ?? summary.savedNetSales ?? summary.importedNetSales ?? 0)}.`,
-          type: 'sales_import',
-          severity: summary.errors.length ? 'medium' : 'info',
-          entity_type: 'sales_invoices',
-          entity_id: summary.importBatch,
-          route_path: '/analytics',
+          type: 'sales_performance',
+          priority: summary.errors.length ? 'high' : 'normal',
+          target_type: 'sales_invoices',
+          target_id: summary.importBatch,
+          target_route: '/analytics',
           is_read: false,
-          created_at: new Date().toISOString(),
+          created_by: user?.id || null,
+          created_by_name: user?.name || null,
+          metadata: { import_batch: summary.importBatch, source: 'invoice_import' },
         });
       }
     } catch (error) {
@@ -1349,15 +1352,15 @@ export default function Invoices() {
         : 'تم التخطي';
   const summaryRefreshTone =
     summaryRefreshState === 'refreshed'
-      ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-50'
+      ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'
       : summaryRefreshState === 'manual_required' || summaryRefreshState === 'unavailable'
-        ? 'border-amber-300/35 bg-amber-400/10 text-amber-50'
-        : 'border-sky-300/30 bg-sky-400/10 text-sky-50';
+        ? 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'
+        : 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]';
 
   if (!canAccessInvoices) {
     return (
       <div className="flex min-h-[400px] items-center justify-center p-6" dir="rtl">
-        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-6 py-5 text-center text-amber-100">
+        <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-6 py-5 text-center text-[var(--dawaa-status-warning-text)]">
           ليس لديك صلاحية للوصول إلى صفحة استيراد الفواتير.
         </div>
       </div>
@@ -1367,17 +1370,17 @@ export default function Invoices() {
   return (
     <div className="space-y-5 max-w-5xl">
       {sellerNameFilter && (
-        <div className="bg-teal-500/10 border border-teal-500/30 rounded-xl p-4 flex items-center justify-between">
+        <div className="bg-[var(--dawaa-theme-accent-soft)] border border-[var(--dawaa-theme-accent-border)] rounded-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="text-teal-300">
-              عرض فواتير: <span className="font-bold text-white">{sellerNameFilter}</span>
+            <div className="text-[var(--dawaa-theme-primary)]">
+              عرض فواتير: <span className="font-bold text-[var(--dawaa-theme-heading)]">{sellerNameFilter}</span>
             </div>
           </div>
           <button
             onClick={() => {
               setSearchParams({});
             }}
-            className="rounded-lg border border-teal-400/30 bg-teal-500/10 px-3 py-1.5 text-teal-200 hover:bg-teal-500/20 flex items-center gap-2 text-sm"
+            className="rounded-lg border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-3 py-1.5 text-[var(--dawaa-theme-primary)] hover:bg-[var(--dawaa-theme-accent-soft)] flex items-center gap-2 text-sm"
           >
             <X size={14} />
             مسح التصفية
@@ -1385,7 +1388,7 @@ export default function Invoices() {
         </div>
       )}
 
-      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
+      <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl p-5">
         <div className="section-title mb-3">استيراد يومي ثابت</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
           <InfoBox
@@ -1416,23 +1419,23 @@ export default function Invoices() {
         </div>
         <button
           onClick={generateTemplateFile}
-          className="btn-secondary mt-4 flex items-center gap-2"
+          className="dawaa-button dawaa-button--secondary mt-4 flex items-center gap-2"
         >
           <Download size={15} /> تحميل نموذج مبيعات
         </button>
       </div>
 
-      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
+      <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl p-5 space-y-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="section-title">استيراد وتحديث العملاء من CSV / Excel</div>
-            <div className="text-sm text-slate-400">
+            <div className="text-sm text-[var(--dawaa-theme-muted)]">
               يضيف العملاء الجدد ويصلح بيانات العملاء الموجودين في public.customers فقط، ولا يلمس
               sales_invoices أو customer_metrics_summary مباشرة.
             </div>
           </div>
           <div className="flex flex-col items-start gap-2">
-            <label className="flex items-center gap-2 text-xs font-bold text-slate-200">
+            <label className="flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-heading)]">
               <input
                 type="checkbox"
                 checked={copyPhoneToWhatsapp}
@@ -1441,7 +1444,7 @@ export default function Invoices() {
               />
               استخدم نفس الرقم للواتساب إذا كان واتساب فارغًا
             </label>
-            <label className="btn-secondary flex w-fit cursor-pointer items-center gap-2">
+            <label className="dawaa-button dawaa-button--secondary flex w-fit cursor-pointer items-center gap-2">
               <Upload size={15} /> اختيار ملف العملاء
               <input
                 type="file"
@@ -1459,7 +1462,7 @@ export default function Invoices() {
         </div>
 
         {phoneUpdateBusy && (
-          <div className="flex items-center gap-2 rounded-xl border border-teal-300/25 bg-teal-400/10 px-4 py-3 text-sm text-teal-50">
+          <div className="flex items-center gap-2 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm text-[var(--dawaa-theme-primary)]">
             <Loader2 size={16} className="animate-spin" /> جاري فحص ملف العملاء وإنشاء معاينة
             آمنة...
           </div>
@@ -1467,17 +1470,17 @@ export default function Invoices() {
 
         {phoneUpdateResult && (
           <div className="space-y-4">
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+            <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-sm text-[var(--dawaa-theme-heading)]">
               الملف:{' '}
-              <span className="font-bold text-white">{phoneUpdateFileName || 'ملف العملاء'}</span>
-              <span className="mx-2 text-slate-500">|</span>
+              <span className="font-bold text-[var(--dawaa-theme-heading)]">{phoneUpdateFileName || 'ملف العملاء'}</span>
+              <span className="mx-2 text-[var(--dawaa-theme-muted)]">|</span>
               الحالة:{' '}
-              <span className="font-bold text-teal-300">
+              <span className="font-bold text-[var(--dawaa-theme-primary)]">
                 {phoneUpdateResult.apply ? 'تم التطبيق' : 'معاينة فقط بدون كتابة'}
               </span>
             </div>
             {phoneUpdateParseResult && (
-              <div className="rounded-xl border border-teal-300/20 bg-teal-400/10 px-4 py-3 text-sm text-teal-50">
+              <div className="rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm text-[var(--dawaa-theme-primary)]">
                 <div className="font-black">خريطة الأعمدة المكتشفة</div>
                 <div className="mt-2 grid gap-2 md:grid-cols-3">
                   <span>
@@ -1510,7 +1513,7 @@ export default function Invoices() {
                 </div>
                 {(phoneUpdateParseResult.mapping.ambiguousPhoneColumns.length > 1 ||
                   phoneUpdateParseResult.mapping.ambiguousWhatsappColumns.length > 1) && (
-                  <div className="mt-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-amber-50">
+                  <div className="mt-2 rounded-lg border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-[var(--dawaa-status-warning-text)]">
                     يوجد أكثر من عمود رقم. تم اختيار أول عمود للهاتف والثاني للواتساب عند توفره.
                     راجع أول 200 صف قبل التطبيق.
                   </div>
@@ -1544,15 +1547,15 @@ export default function Invoices() {
             </div>
 
             {!phoneUpdateResult.apply && (
-              <div className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-4">
-                <div className="font-bold text-amber-100">تأكيد الكتابة</div>
-                <div className="mt-1 text-sm text-amber-50/85">
+              <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4">
+                <div className="font-bold text-[var(--dawaa-status-warning-text)]">تأكيد الكتابة</div>
+                <div className="mt-1 text-sm text-[var(--dawaa-status-warning-text)]">
                   لن يتم تحديث أي عميل إلا بعد كتابة العبارة التالية حرفيًا:{' '}
                   {CUSTOMER_PHONE_CONFIRMATION}
                 </div>
                 <div className="mt-3 flex flex-col gap-3 md:flex-row">
                   <input
-                    className="input-dark flex-1"
+                    className="dawaa-input flex-1"
                     value={phoneUpdateConfirmText}
                     onChange={(event) => setPhoneUpdateConfirmText(event.target.value)}
                     placeholder={CUSTOMER_PHONE_CONFIRMATION}
@@ -1565,7 +1568,7 @@ export default function Invoices() {
                       phoneUpdateBusy ||
                       phoneUpdateConfirmText.trim() !== CUSTOMER_PHONE_CONFIRMATION
                     }
-                    className="btn-primary disabled:opacity-50"
+                    className="dawaa-button dawaa-button--primary disabled:opacity-50"
                   >
                     تطبيق استيراد العملاء
                   </button>
@@ -1573,48 +1576,48 @@ export default function Invoices() {
               </div>
             )}
 
-            <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3 text-sm font-bold text-white">
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--dawaa-theme-border)] px-4 py-3 text-sm font-bold text-[var(--dawaa-theme-heading)]">
                 <span>أول 200 صف من نتيجة الفحص</span>
                 <button
                   type="button"
                   onClick={() => downloadPhoneUpdatePreviewReport('all')}
-                  className="btn-secondary px-3 py-1 text-xs"
+                  className="dawaa-button dawaa-button--secondary px-3 py-1 text-xs"
                 >
                   كل المعاينة
                 </button>
                 <button
                   type="button"
                   onClick={() => downloadPhoneUpdatePreviewReport('repair')}
-                  className="btn-secondary px-3 py-1 text-xs"
+                  className="dawaa-button dawaa-button--secondary px-3 py-1 text-xs"
                 >
                   سيتم إصلاحهم
                 </button>
                 <button
                   type="button"
                   onClick={() => downloadPhoneUpdatePreviewReport('review')}
-                  className="btn-secondary px-3 py-1 text-xs"
+                  className="dawaa-button dawaa-button--secondary px-3 py-1 text-xs"
                 >
                   تحتاج مراجعة
                 </button>
                 <button
                   type="button"
                   onClick={() => downloadPhoneUpdatePreviewReport('invalid')}
-                  className="btn-secondary px-3 py-1 text-xs"
+                  className="dawaa-button dawaa-button--secondary px-3 py-1 text-xs"
                 >
                   أرقام مرفوضة
                 </button>
                 <button
                   type="button"
                   onClick={() => downloadPhoneUpdatePreviewReport('unmatched')}
-                  className="btn-secondary px-3 py-1 text-xs"
+                  className="dawaa-button dawaa-button--secondary px-3 py-1 text-xs"
                 >
                   غير مطابق
                 </button>
               </div>
               <div className="max-h-72 overflow-auto">
                 <table className="data-table">
-                  <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
+                  <thead className="sticky top-0 z-10 bg-[var(--dawaa-theme-surface)]">
                     <tr>
                       <th>#</th>
                       <th>الكود</th>
@@ -1630,24 +1633,24 @@ export default function Invoices() {
                   <tbody>
                     {phoneUpdateResult.rows.map((row) => (
                       <tr key={row.row_no}>
-                        <td className="text-slate-500 text-xs">{row.row_no}</td>
+                        <td className="text-[var(--dawaa-theme-muted)] text-xs">{row.row_no}</td>
                         <td className="num">{row.customer_code || '-'}</td>
-                        <td className="text-white font-medium">{row.customer_name || '-'}</td>
+                        <td className="text-[var(--dawaa-theme-heading)] font-medium">{row.customer_name || '-'}</td>
                         <td>{row.branch || '-'}</td>
                         <td className="max-w-[220px] truncate">{row.address || '-'}</td>
-                        <td className="num text-teal-300">{row.new_phone || '-'}</td>
-                        <td className="num text-teal-300">{row.new_whatsapp_phone || '-'}</td>
-                        <td className="num text-teal-300">{row.phone_alt || '-'}</td>
+                        <td className="num text-[var(--dawaa-theme-primary)]">{row.new_phone || '-'}</td>
+                        <td className="num text-[var(--dawaa-theme-primary)]">{row.new_whatsapp_phone || '-'}</td>
+                        <td className="num text-[var(--dawaa-theme-primary)]">{row.phone_alt || '-'}</td>
                         <td>
                           <span
                             className={`rounded-full px-2 py-1 text-xs font-bold ${
                               row.status === 'ready_to_update'
-                                ? 'bg-emerald-400/15 text-emerald-100'
+                                ? 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'
                                 : row.status.includes('review')
-                                  ? 'bg-amber-400/15 text-amber-100'
+                                  ? 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'
                                   : row.status === 'unmatched' || row.status === 'invalid_phone'
-                                    ? 'bg-rose-400/15 text-rose-100'
-                                    : 'bg-slate-400/15 text-slate-100'
+                                    ? 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]'
+                                    : 'bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-heading)]'
                             }`}
                           >
                             {customerImportStatusLabel(row.status)}
@@ -1664,14 +1667,14 @@ export default function Invoices() {
       </div>
 
       {isAdmin && (
-        <div className="bg-[#1B2B4B] border border-red-500/25 rounded-2xl p-5 space-y-5">
+        <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-status-danger-border)] rounded-2xl p-5 space-y-5">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
               <div className="section-title flex items-center gap-2">
-                <ShieldAlert size={18} className="text-red-300" />
+                <ShieldAlert size={18} className="text-[var(--dawaa-status-danger-text)]" />
                 إدارة الفواتير المستوردة
               </div>
-              <div className="text-slate-400 text-xs mt-1">
+              <div className="text-[var(--dawaa-theme-muted)] text-xs mt-1">
                 هذا القسم ظاهر للمدير العام فقط. استخدمه لمسح بيانات التجربة أو تعديل فاتورة قبل
                 إعادة الرفع المنظم.
               </div>
@@ -1680,18 +1683,18 @@ export default function Invoices() {
               type="button"
               onClick={loadManagedInvoices}
               disabled={managedLoading || adminBusy}
-              className="btn-secondary px-4 py-2 text-sm flex items-center gap-2"
+              className="dawaa-button dawaa-button--secondary px-4 py-2 text-sm flex items-center gap-2"
             >
               <RefreshCw size={15} className={managedLoading ? 'animate-spin' : ''} />
               تحديث القائمة
             </button>
           </div>
 
-          <div className="grid md:grid-cols-[1fr_auto] gap-3 items-end rounded-xl border border-red-500/20 bg-red-500/5 p-4">
-            <label className="block text-xs text-slate-300 space-y-1">
+          <div className="grid md:grid-cols-[1fr_auto] gap-3 items-end rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4">
+            <label className="block text-xs text-[var(--dawaa-theme-text)] space-y-1">
               <span>لمسح كل الفواتير التجريبية اكتب: مسح الفواتير</span>
               <input
-                className="input-dark"
+                className="dawaa-input"
                 value={deleteConfirmText}
                 onChange={(event) => setDeleteConfirmText(event.target.value)}
                 placeholder="مسح الفواتير"
@@ -1701,7 +1704,7 @@ export default function Invoices() {
               type="button"
               onClick={deleteAllInvoices}
               disabled={adminBusy || deleteConfirmText.trim() !== 'مسح الفواتير'}
-              className="rounded-xl bg-red-500/20 border border-red-400/30 px-4 py-2 text-sm font-bold text-red-200 hover:bg-red-500/30 disabled:opacity-50 flex items-center gap-2"
+              className="rounded-xl bg-[var(--dawaa-status-danger-bg)] border border-[var(--dawaa-status-danger-border)] px-4 py-2 text-sm font-bold text-[var(--dawaa-status-danger-text)] hover:bg-[var(--dawaa-status-danger-bg)] disabled:opacity-50 flex items-center gap-2"
             >
               <Trash2 size={15} />
               مسح كل الفواتير
@@ -1709,12 +1712,12 @@ export default function Invoices() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatTile value={managedInvoices.length} label="فواتير محملة" color="text-white" />
-            <StatTile value={invoiceBatches.length} label="دفعات ظاهرة" color="text-teal-400" />
+            <StatTile value={managedInvoices.length} label="فواتير محملة" color="text-[var(--dawaa-theme-heading)]" />
+            <StatTile value={invoiceBatches.length} label="دفعات ظاهرة" color="text-[var(--dawaa-theme-primary)]" />
             <StatTile
               value={managedInvoices.reduce((sum, row) => sum + invoiceSalesValue(row), 0)}
               label="إجمالي الظاهر"
-              color="text-amber-400"
+              color="text-[var(--dawaa-status-warning-text)]"
               isCurrency
             />
             <StatTile
@@ -1726,15 +1729,15 @@ export default function Invoices() {
                 ).size
               }
               label="عملاء ظاهرين"
-              color="text-purple-300"
+              color="text-[var(--dawaa-status-info-text)]"
             />
           </div>
 
-          <div className="rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4">
+          <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <div className="font-bold text-amber-100">فحص الفواتير المكررة</div>
-                <div className="mt-1 text-xs text-amber-50/80">
+                <div className="font-bold text-[var(--dawaa-status-warning-text)]">فحص الفواتير المكررة</div>
+                <div className="mt-1 text-xs text-[var(--dawaa-status-warning-text)]">
                   فحص محدود وآمن لأحدث الفواتير حسب رقم الفاتورة + الفرع + التاريخ، بدون تحميل كل
                   جدول المبيعات.
                 </div>
@@ -1743,26 +1746,26 @@ export default function Invoices() {
                 type="button"
                 onClick={loadDuplicateAudit}
                 disabled={duplicateAuditLoading}
-                className="rounded-xl border border-amber-200/40 bg-amber-300/15 px-4 py-2 text-sm font-bold text-amber-50 hover:bg-amber-300/25 disabled:opacity-50"
+                className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-4 py-2 text-sm font-bold text-[var(--dawaa-status-warning-text)] hover:bg-[var(--dawaa-status-warning-bg)] disabled:opacity-50"
               >
                 {duplicateAuditLoading ? 'جاري الفحص...' : 'عرض الفواتير المكررة'}
               </button>
             </div>
             {duplicateAudit.length > 0 && (
-              <div className="mt-4 rounded-xl border border-amber-200/30 bg-slate-950/25 p-3">
-                <div className="mb-2 text-sm font-bold text-amber-100">
+              <div className="mt-4 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-theme-surface)] p-3">
+                <div className="mb-2 text-sm font-bold text-[var(--dawaa-status-warning-text)]">
                   يوجد فواتير مكررة قديمة تحتاج مراجعة
                 </div>
                 <div className="max-h-56 space-y-2 overflow-auto">
                   {duplicateAudit.map((group) => (
                     <div
                       key={`${group.invoice_number}-${group.branch}-${group.sale_date}`}
-                      className="grid grid-cols-4 gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-100"
+                      className="grid grid-cols-4 gap-2 rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2 text-xs text-[var(--dawaa-theme-heading)]"
                     >
                       <span className="font-bold">#{group.invoice_number}</span>
                       <span>{group.branch}</span>
                       <span>{group.sale_date}</span>
-                      <span className="text-amber-100">
+                      <span className="text-[var(--dawaa-status-warning-text)]">
                         {group.count.toLocaleString('ar-EG')} مرات
                       </span>
                     </div>
@@ -1771,19 +1774,19 @@ export default function Invoices() {
               </div>
             )}
             {!duplicateAuditLoading && duplicateAudit.length === 0 && (
-              <div className="mt-3 text-xs text-amber-50/70">
+              <div className="mt-3 text-xs text-[var(--dawaa-status-warning-text)]">
                 اضغط زر الفحص لعرض أحدث مجموعات التكرار إن وجدت.
               </div>
             )}
           </div>
 
-          <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">
+          <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-heading)] font-semibold text-sm">
               آخر دفعات الرفع
             </div>
             <div className="overflow-x-auto">
               <table className="data-table">
-                <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
+                <thead className="sticky top-0 z-10 bg-[var(--dawaa-theme-surface)]">
                   <tr>
                     <th>الدفعة</th>
                     <th>الفترة</th>
@@ -1796,18 +1799,18 @@ export default function Invoices() {
                 <tbody>
                   {invoiceBatches.map((batchRow) => (
                     <tr key={batchRow.batch}>
-                      <td className="text-white font-medium max-w-xs truncate">{batchRow.batch}</td>
-                      <td className="text-slate-300">
+                      <td className="text-[var(--dawaa-theme-heading)] font-medium max-w-xs truncate">{batchRow.batch}</td>
+                      <td className="text-[var(--dawaa-theme-text)]">
                         {batchRow.firstDate} إلى {batchRow.lastDate}
                       </td>
-                      <td className="text-slate-300">{[...batchRow.branches].join('، ') || '-'}</td>
+                      <td className="text-[var(--dawaa-theme-text)]">{[...batchRow.branches].join('، ') || '-'}</td>
                       <td className="num">{batchRow.count.toLocaleString('ar-EG')}</td>
-                      <td className="text-amber-300 font-bold">{formatCurrency(batchRow.total)}</td>
+                      <td className="text-[var(--dawaa-status-warning-text)] font-bold">{formatCurrency(batchRow.total)}</td>
                       <td>
                         <div className="flex gap-2">
                           <Link
                             to={`/analytics?start=${batchRow.firstDate}&end=${batchRow.lastDate}`}
-                            className="rounded-lg border border-teal-400/30 bg-teal-500/10 p-2 text-teal-200 hover:bg-teal-500/20 disabled:opacity-50"
+                            className="rounded-lg border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-2 text-[var(--dawaa-theme-primary)] hover:bg-[var(--dawaa-theme-accent-soft)] disabled:opacity-50"
                             title="فتح في التحليلات"
                           >
                             <BarChart3 size={15} />
@@ -1816,7 +1819,7 @@ export default function Invoices() {
                             type="button"
                             onClick={() => deleteInvoiceBatch(batchRow.batch)}
                             disabled={adminBusy}
-                            className="rounded-lg border border-red-400/30 bg-red-500/10 p-2 text-red-200 hover:bg-red-500/20 disabled:opacity-50"
+                            className="rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-2 text-[var(--dawaa-status-danger-text)] hover:bg-[var(--dawaa-status-danger-bg)] disabled:opacity-50"
                             title="مسح هذه الدفعة"
                           >
                             <Trash2 size={15} />
@@ -1827,7 +1830,7 @@ export default function Invoices() {
                   ))}
                   {invoiceBatches.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="text-center text-slate-400 py-6">
+                      <td colSpan={6} className="text-center text-[var(--dawaa-theme-muted)] py-6">
                         لا توجد فواتير مستوردة حاليا.
                       </td>
                     </tr>
@@ -1837,13 +1840,13 @@ export default function Invoices() {
             </div>
           </div>
 
-          <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/10 text-white font-semibold text-sm">
+          <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-heading)] font-semibold text-sm">
               آخر الفواتير للتعديل السريع
             </div>
             <div className="overflow-x-auto max-h-80 overflow-y-auto">
               <table className="data-table">
-                <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
+                <thead className="sticky top-0 z-10 bg-[var(--dawaa-theme-surface)]">
                   <tr>
                     <th>رقم الفاتورة</th>
                     <th>التاريخ</th>
@@ -1864,7 +1867,7 @@ export default function Invoices() {
                       <td>{invoice.branch || '-'}</td>
                       <td>{invoice.customer_name || invoice.customer_code || '-'}</td>
                       <td>{invoice.seller_name || '-'}</td>
-                      <td className="text-teal-300 font-bold">
+                      <td className="text-[var(--dawaa-theme-primary)] font-bold">
                         {formatCurrency(invoiceSalesValue(invoice))}
                       </td>
                       <td>
@@ -1872,7 +1875,7 @@ export default function Invoices() {
                           type="button"
                           onClick={() => startEditInvoice(invoice)}
                           disabled={adminBusy}
-                          className="rounded-lg border border-teal-400/30 bg-teal-500/10 p-2 text-teal-200 hover:bg-teal-500/20 disabled:opacity-50"
+                          className="rounded-lg border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-2 text-[var(--dawaa-theme-primary)] hover:bg-[var(--dawaa-theme-accent-soft)] disabled:opacity-50"
                           title="تعديل الفاتورة"
                         >
                           <Pencil size={15} />
@@ -1882,7 +1885,7 @@ export default function Invoices() {
                   ))}
                   {managedInvoices.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="text-center text-slate-400 py-6">
+                      <td colSpan={7} className="text-center text-[var(--dawaa-theme-muted)] py-6">
                         لا توجد فواتير للتعديل.
                       </td>
                     </tr>
@@ -1894,10 +1897,10 @@ export default function Invoices() {
         </div>
       )}
 
-      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
+      <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl p-5 space-y-4">
         <div className="flex flex-col md:flex-row gap-3 md:items-center">
-          <span className="text-slate-300 text-sm font-medium w-24">نوع الملف</span>
-          <div className="flex gap-2 bg-white/5 border border-[#2d4063] p-1 rounded-xl w-fit">
+          <span className="text-[var(--dawaa-theme-text)] text-sm font-medium w-24">نوع الملف</span>
+          <div className="flex gap-2 bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] p-1 rounded-xl w-fit">
             <button
               onClick={() => setImportKind('sales')}
               disabled={step === 'importing'}
@@ -1917,12 +1920,12 @@ export default function Invoices() {
 
         {importKind === 'sales' && (
           <div className="flex items-center gap-3">
-            <label className="text-slate-300 text-sm font-medium w-24">الفرع</label>
+            <label className="text-[var(--dawaa-theme-text)] text-sm font-medium w-24">الفرع</label>
             <select
               value={branch}
               onChange={(event) => setBranch(event.target.value)}
               disabled={step === 'importing'}
-              className="input-dark max-w-xs"
+              className="dawaa-input max-w-xs"
             >
               {BRANCHES.map((item) => (
                 <option key={item}>{item}</option>
@@ -1947,8 +1950,8 @@ export default function Invoices() {
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer ${
               dragging
-                ? 'border-teal-400 bg-teal-500/5'
-                : 'border-[#2d4063] hover:border-teal-500/50'
+                ? 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)]'
+                : 'border-[var(--dawaa-theme-border)] hover:border-[var(--dawaa-theme-accent-border)]'
             }`}
           >
             <input
@@ -1963,16 +1966,16 @@ export default function Invoices() {
             />
             {step === 'parsing' ? (
               <div className="flex flex-col items-center gap-3">
-                <Loader2 size={34} className="animate-spin text-teal-400" />
-                <div className="text-slate-300 font-medium">جاري تحليل الملف...</div>
+                <Loader2 size={34} className="animate-spin text-[var(--dawaa-theme-primary)]" />
+                <div className="text-[var(--dawaa-theme-text)] font-medium">جاري تحليل الملف...</div>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3">
-                <div className="w-14 h-14 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center">
-                  <Upload size={26} className="text-teal-400" />
+                <div className="w-14 h-14 rounded-2xl bg-[var(--dawaa-theme-accent-soft)] border border-[var(--dawaa-theme-accent-border)] flex items-center justify-center">
+                  <Upload size={26} className="text-[var(--dawaa-theme-primary)]" />
                 </div>
-                <div className="text-white font-bold">اسحب الملف هنا أو اضغط للاختيار</div>
-                <div className="text-slate-400 text-sm">
+                <div className="text-[var(--dawaa-theme-heading)] font-bold">اسحب الملف هنا أو اضغط للاختيار</div>
+                <div className="text-[var(--dawaa-theme-muted)] text-sm">
                   {importKind === 'sales' ? 'ملف مبيعات الفرعين اليومي' : 'ملف بيانات العملاء'}
                 </div>
               </div>
@@ -1983,47 +1986,47 @@ export default function Invoices() {
 
       {(step === 'preview' || step === 'importing' || step === 'done') && parseResult && (
         <div className="space-y-4">
-          <div className="flex items-center gap-3 bg-[#1B2B4B] border border-[#2d4063] rounded-2xl px-5 py-3">
-            <FileSpreadsheet size={20} className="text-teal-400" />
+          <div className="flex items-center gap-3 bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl px-5 py-3">
+            <FileSpreadsheet size={20} className="text-[var(--dawaa-theme-primary)]" />
             <div className="flex-1 min-w-0">
-              <div className="text-white text-sm font-medium truncate">{fileName}</div>
-              <div className="text-slate-400 text-xs">
+              <div className="text-[var(--dawaa-theme-heading)] text-sm font-medium truncate">{fileName}</div>
+              <div className="text-[var(--dawaa-theme-muted)] text-xs">
                 {importKind === 'sales' ? 'مبيعات يومية' : 'بيانات العملاء'}
               </div>
             </div>
             {step === 'preview' && (
-              <button onClick={handleReset} className="text-slate-500 hover:text-slate-300">
+              <button onClick={handleReset} className="text-[var(--dawaa-theme-muted)] hover:text-[var(--dawaa-theme-text)]">
                 <XCircle size={18} />
               </button>
             )}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatTile value={validCount + errorCount} label="إجمالي الصفوف" color="text-white" />
-            <StatTile value={validCount} label="صفوف صالحة" color="text-teal-400" />
+            <StatTile value={validCount + errorCount} label="إجمالي الصفوف" color="text-[var(--dawaa-theme-heading)]" />
+            <StatTile value={validCount} label="صفوف صالحة" color="text-[var(--dawaa-theme-primary)]" />
             <StatTile
               value={errorCount}
               label="أخطاء"
-              color={errorCount ? 'text-red-400' : 'text-slate-400'}
+              color={errorCount ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-theme-muted)]'}
             />
             <StatTile
               value={importKind === 'sales' ? totalAmount : validCount}
               label={importKind === 'sales' ? 'إجمالي المبالغ' : 'عملاء جاهزون'}
-              color="text-amber-400"
+              color="text-[var(--dawaa-status-warning-text)]"
               isCurrency={importKind === 'sales'}
             />
           </div>
 
           {errorCount > 0 && (
-            <div className="rounded-2xl border border-red-300/35 bg-red-500/15 p-4">
-              <div className="text-red-100 font-semibold text-sm flex items-center gap-2 mb-3">
+            <div className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4">
+              <div className="text-[var(--dawaa-status-danger-text)] font-semibold text-sm flex items-center gap-2 mb-3">
                 <AlertCircle size={16} /> أخطاء القراءة
               </div>
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {parseResult.errors.slice(0, 80).map((error, index) => (
                   <div
                     key={index}
-                    className="text-red-50 text-xs bg-slate-950/25 rounded-lg px-3 py-2"
+                    className="text-[var(--dawaa-status-danger-text)] text-xs bg-[var(--dawaa-theme-surface)] rounded-lg px-3 py-2"
                   >
                     {error.message}
                   </div>
@@ -2033,13 +2036,13 @@ export default function Invoices() {
           )}
 
           {validCount > 0 && (
-            <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl overflow-hidden">
-              <div className="px-5 py-3 border-b border-[#2d4063] flex items-center gap-2 text-white font-semibold text-sm">
-                <FileCheck size={16} className="text-teal-400" /> معاينة أول الصفوف
+            <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-[var(--dawaa-theme-border)] flex items-center gap-2 text-[var(--dawaa-theme-heading)] font-semibold text-sm">
+                <FileCheck size={16} className="text-[var(--dawaa-theme-primary)]" /> معاينة أول الصفوف
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="data-table">
-                  <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
+                  <thead className="sticky top-0 z-10 bg-[var(--dawaa-theme-surface)]">
                     <tr>
                       <th>#</th>
                       <th>العميل</th>
@@ -2052,25 +2055,25 @@ export default function Invoices() {
                   <tbody>
                     {rowsForPreview.map((row, index) => (
                       <tr key={index}>
-                        <td className="text-slate-500 text-xs">{row.rowIndex}</td>
-                        <td className="text-white font-medium">{row.name}</td>
+                        <td className="text-[var(--dawaa-theme-muted)] text-xs">{row.rowIndex}</td>
+                        <td className="text-[var(--dawaa-theme-heading)] font-medium">{row.name}</td>
                         <td className="num">
                           {importKind === 'sales'
                             ? (row as ParseResult['rows'][number]).customerCode
                             : (row as CustomerParseResult['rows'][number]).code}
                         </td>
-                        <td className="text-teal-400 font-bold num">
+                        <td className="text-[var(--dawaa-theme-primary)] font-bold num">
                           {importKind === 'sales'
                             ? formatCurrency((row as ParseResult['rows'][number]).amount)
                             : (row as CustomerParseResult['rows'][number]).phone || '-'}
                         </td>
-                        <td className="text-slate-400">
+                        <td className="text-[var(--dawaa-theme-muted)]">
                           {importKind === 'sales'
                             ? formatDate((row as ParseResult['rows'][number]).date)
                             : (row as CustomerParseResult['rows'][number]).address || '-'}
                         </td>
                         {importKind === 'sales' && (
-                          <td className="text-slate-300">
+                          <td className="text-[var(--dawaa-theme-text)]">
                             {(row as ParseResult['rows'][number]).seller || '-'}
                           </td>
                         )}
@@ -2083,12 +2086,12 @@ export default function Invoices() {
           )}
 
           {step === 'importing' && (
-            <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
+            <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl p-5">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-white font-semibold text-sm flex items-center gap-2">
-                  <Loader2 size={16} className="animate-spin text-teal-400" /> جاري الاستيراد...
+                <div className="text-[var(--dawaa-theme-heading)] font-semibold text-sm flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-[var(--dawaa-theme-primary)]" /> جاري الاستيراد...
                 </div>
-                <span className="text-teal-400 font-bold text-sm num">{progress}%</span>
+                <span className="text-[var(--dawaa-theme-primary)] font-bold text-sm num">{progress}%</span>
               </div>
               <div className="progress-bar">
                 <div className="progress-fill" style={{ width: `${progress}%` }} />
@@ -2097,12 +2100,12 @@ export default function Invoices() {
           )}
 
           {step === 'preview' && branchMismatchWarning && (
-            <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm">
-              <div className="flex items-start gap-2 font-bold text-red-300">
+            <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm">
+              <div className="flex items-start gap-2 font-bold text-[var(--dawaa-status-danger-text)]">
                 <AlertTriangle size={18} className="mt-0.5 shrink-0" />
                 <span>{branchMismatchWarning}</span>
               </div>
-              <label className="mt-3 flex items-center gap-2 text-xs text-red-200">
+              <label className="mt-3 flex items-center gap-2 text-xs text-[var(--dawaa-status-danger-text)]">
                 <input
                   type="checkbox"
                   checked={branchMismatchAcknowledged}
@@ -2118,12 +2121,12 @@ export default function Invoices() {
               <button
                 onClick={handleConfirmImport}
                 disabled={Boolean(branchMismatchWarning) && !branchMismatchAcknowledged}
-                className="btn-primary flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="dawaa-button dawaa-button--primary flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <CheckCircle size={16} /> تأكيد استيراد {validCount.toLocaleString('ar-EG')}{' '}
                 {importKind === 'sales' ? 'فاتورة' : 'عميل'}
               </button>
-              <button onClick={handleReset} className="btn-secondary flex items-center gap-2">
+              <button onClick={handleReset} className="dawaa-button dawaa-button--secondary flex items-center gap-2">
                 <XCircle size={16} /> إلغاء
               </button>
             </div>
@@ -2132,26 +2135,26 @@ export default function Invoices() {
       )}
 
       {step === 'done' && importSummary && (
-        <div className="bg-[#1B2B4B] border border-teal-500/20 rounded-2xl p-6 space-y-5">
+        <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-accent-border)] rounded-2xl p-6 space-y-5">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-teal-500/15 flex items-center justify-center">
-              <CheckCircle size={24} className="text-teal-400" />
+            <div className="w-12 h-12 rounded-2xl bg-[var(--dawaa-theme-accent-soft)] flex items-center justify-center">
+              <CheckCircle size={24} className="text-[var(--dawaa-theme-primary)]" />
             </div>
             <div>
-              <div className="text-white font-bold text-lg">اكتمل الاستيراد</div>
-              <div className="text-slate-400 text-sm">
+              <div className="text-[var(--dawaa-theme-heading)] font-bold text-lg">اكتمل الاستيراد</div>
+              <div className="text-[var(--dawaa-theme-muted)] text-sm">
                 {importKind === 'sales' ? 'تم تحديث الفواتير والعملاء' : 'تم تحديث بيانات العملاء'}
               </div>
             </div>
           </div>
           {importKind === 'sales' && (
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-4 text-emerald-50">
-                <div className="text-xs font-bold uppercase tracking-wide text-emerald-100/80">
+              <div className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4 text-[var(--dawaa-status-success-text)]">
+                <div className="text-xs font-bold uppercase tracking-wide text-[var(--dawaa-status-success-text)]">
                   الاستيراد
                 </div>
                 <div className="mt-1 text-lg font-bold">نجح</div>
-                <div className="mt-1 text-sm text-emerald-50/80">
+                <div className="mt-1 text-sm text-[var(--dawaa-status-success-text)]">
                   تم حفظ/تأكيد الفواتير، وأي ملاحظات بيانات تظهر منفصلة أدناه.
                 </div>
               </div>
@@ -2185,15 +2188,15 @@ export default function Invoices() {
               <button
                 type="button"
                 onClick={() => downloadImportReviewCsv(importSummary)}
-                className="btn-secondary mt-3 px-3 py-2 text-sm"
+                className="dawaa-button dawaa-button--secondary mt-3 px-3 py-2 text-sm"
               >
                 تحميل تقرير المراجعة CSV
               </button>
             </div>
           )}
           {importKind === 'sales' && (
-            <div className="rounded-xl border border-fuchsia-300/25 bg-fuchsia-400/10 p-4 text-fuchsia-50">
-              <div className="text-xs font-bold uppercase tracking-wide text-fuchsia-100/80">
+            <div className="rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4 text-[var(--dawaa-status-info-text)]">
+              <div className="text-xs font-bold uppercase tracking-wide text-[var(--dawaa-status-info-text)]">
                 تشخيص الحفظ
               </div>
               <div className="mt-3 grid gap-2 text-sm md:grid-cols-5">
@@ -2203,7 +2206,7 @@ export default function Invoices() {
                 <span>فشل حفظه: {(importSummary.rowsFailedToSaveCount || 0).toLocaleString('ar-EG')}</span>
                 <span>لم يتم محاولة حفظه: {(importSummary.rowsSaveNotAttemptedCount || 0).toLocaleString('ar-EG')}</span>
               </div>
-              <div className="mt-2 text-sm text-fuchsia-50/85">
+              <div className="mt-2 text-sm text-[var(--dawaa-status-info-text)]">
                 صافي المجهز للحفظ: {formatCurrency(importSummary.rowsPreparedForSaveNet || 0)} | صافي المرسل:
                 {' '}{formatCurrency(importSummary.rowsActuallySentToSupabaseNet || 0)}
               </div>
@@ -2219,13 +2222,13 @@ export default function Invoices() {
                   .sort((a, b) => b[1] - a[1])
                   .slice(0, 6)
                   .map(([reason, count]) => (
-                    <span key={reason} className="rounded-full bg-white/15 px-2 py-1 font-bold">
+                    <span key={reason} className="rounded-full bg-[var(--dawaa-theme-surface)] px-2 py-1 font-bold">
                       {reason}: {count.toLocaleString('ar-EG')}
                     </span>
                   ))}
               </div>
               {(importSummary.supabaseInsertErrorsSample || []).length > 0 && (
-                <div className="mt-3 rounded-lg border border-red-300/25 bg-red-400/10 p-3 text-sm text-red-50">
+                <div className="mt-3 rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-sm text-[var(--dawaa-status-danger-text)]">
                   أول خطأ Supabase: {importSummary.supabaseInsertErrorsSample?.[0]?.error}
                 </div>
               )}
@@ -2259,7 +2262,7 @@ export default function Invoices() {
                     </tbody>
                   </table>
                   {(importSummary.saveBatchReports || []).length > 6 && (
-                    <div className="mt-2 text-xs text-fuchsia-50/75">
+                    <div className="mt-2 text-xs text-[var(--dawaa-status-info-text)]">
                       تم عرض أول 6 batches فقط. التقرير CSV يحتوي تفاصيل الصفوف.
                     </div>
                   )}
@@ -2267,7 +2270,7 @@ export default function Invoices() {
               )}
               {(importSummary.postSaveVerificationRows || []).length > 0 && (
                 <div className="mt-3 overflow-x-auto">
-                  <div className="mb-2 text-xs font-bold text-fuchsia-100/80">
+                  <div className="mb-2 text-xs font-bold text-[var(--dawaa-status-info-text)]">
                     أول 20 صف من تشخيص المطابقة بعد الحفظ
                   </div>
                   <table className="data-table text-xs">
@@ -2386,37 +2389,37 @@ export default function Invoices() {
           </div>
           {importKind === 'sales' && (
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-4">
-                <div className="font-bold text-sky-100">حالة الملخصات الخفيفة</div>
-                <div className="mt-2 text-sm text-sky-50/85">
+              <div className="rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
+                <div className="font-bold text-[var(--dawaa-status-info-text)]">حالة الملخصات الخفيفة</div>
+                <div className="mt-2 text-sm text-[var(--dawaa-status-info-text)]">
                   {summarySnapshotMessage || (summarySnapshot?.latestUpdatedAt ? `آخر تحديث: ${formatDate(summarySnapshot.latestUpdatedAt)}` : 'لم يتم تسجيل تحديث بعد الاستيراد.')}
                 </div>
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  <div className="space-y-2 text-xs text-sky-50/80">
-                    <div className="font-semibold text-sky-100">حسب اليوم</div>
+                  <div className="space-y-2 text-xs text-[var(--dawaa-status-info-text)]">
+                    <div className="font-semibold text-[var(--dawaa-status-info-text)]">حسب اليوم</div>
                     {(summarySnapshot?.dailyRows || []).slice(0, 4).map((row) => (
-                      <div key={row.summary_date} className="flex justify-between rounded-lg bg-slate-950/20 px-3 py-2">
+                      <div key={row.summary_date} className="flex justify-between rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2">
                         <span>{row.summary_date}</span>
                         <span>{row.invoices_count.toLocaleString('ar-EG')} | {formatCurrency(row.net_total)}</span>
                       </div>
                     ))}
-                    {!summarySnapshot?.dailyRows?.length && <div className="rounded-lg bg-slate-950/20 px-3 py-2">لا توجد بيانات يومية حتى الآن</div>}
+                    {!summarySnapshot?.dailyRows?.length && <div className="rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2">لا توجد بيانات يومية حتى الآن</div>}
                   </div>
-                  <div className="space-y-2 text-xs text-sky-50/80">
-                    <div className="font-semibold text-sky-100">حسب الفرع</div>
+                  <div className="space-y-2 text-xs text-[var(--dawaa-status-info-text)]">
+                    <div className="font-semibold text-[var(--dawaa-status-info-text)]">حسب الفرع</div>
                     {(summarySnapshot?.branchRows || []).slice(0, 4).map((row) => (
-                      <div key={row.branch_name} className="flex justify-between rounded-lg bg-slate-950/20 px-3 py-2">
+                      <div key={row.branch_name} className="flex justify-between rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2">
                         <span>{row.branch_name}</span>
                         <span>{row.invoices_count.toLocaleString('ar-EG')} | {formatCurrency(row.net_total)}</span>
                       </div>
                     ))}
-                    {!summarySnapshot?.branchRows?.length && <div className="rounded-lg bg-slate-950/20 px-3 py-2">لا توجد بيانات فرعية حتى الآن</div>}
+                    {!summarySnapshot?.branchRows?.length && <div className="rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2">لا توجد بيانات فرعية حتى الآن</div>}
                   </div>
                 </div>
               </div>
-              <div className="rounded-xl border border-teal-300/25 bg-teal-400/10 p-4">
-                <div className="font-bold text-teal-100">تفاصيل تحديث الملخصات</div>
-                <div className="mt-2 text-sm text-teal-50/85">
+              <div className="rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-4">
+                <div className="font-bold text-[var(--dawaa-theme-primary)]">تفاصيل تحديث الملخصات</div>
+                <div className="mt-2 text-sm text-[var(--dawaa-theme-primary)]">
                   {importSummary.summaryRefreshMessage || 'لم يتم طلب تحديث ملخصات إضافي.'}
                 </div>
                 <div className="mt-4 space-y-2">
@@ -2428,15 +2431,15 @@ export default function Invoices() {
                         key={refreshStep.key}
                         className={`rounded-xl border px-3 py-2 text-sm ${
                           isSuccess
-                            ? 'border-emerald-300/35 bg-emerald-300/15 text-emerald-50'
+                            ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'
                             : isFailed
-                              ? 'border-amber-300/35 bg-amber-300/15 text-amber-50'
-                              : 'border-amber-300/35 bg-amber-300/15 text-amber-50'
+                              ? 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'
+                              : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-bold">{refreshStep.label}</span>
-                          <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs">
+                          <span className="shrink-0 rounded-full bg-[var(--dawaa-theme-surface)] px-2 py-0.5 text-xs">
                             {isSuccess ? 'تم' : isFailed ? 'يحتاج تحديث يدوي' : 'تخطي'}
                           </span>
                         </div>
@@ -2446,22 +2449,22 @@ export default function Invoices() {
                   })}
                 </div>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <label className="text-xs text-slate-300">
+                  <label className="text-xs text-[var(--dawaa-theme-text)]">
                     <span>من</span>
                     <input
                       type="date"
                       value={summaryRangeStart}
                       onChange={(event) => setSummaryRangeStart(event.target.value)}
-                      className="input-dark mt-1"
+                      className="dawaa-input mt-1"
                     />
                   </label>
-                  <label className="text-xs text-slate-300">
+                  <label className="text-xs text-[var(--dawaa-theme-text)]">
                     <span>إلى</span>
                     <input
                       type="date"
                       value={summaryRangeEnd}
                       onChange={(event) => setSummaryRangeEnd(event.target.value)}
-                      className="input-dark mt-1"
+                      className="dawaa-input mt-1"
                     />
                   </label>
                 </div>
@@ -2470,14 +2473,14 @@ export default function Invoices() {
                   onClick={() => rebuildSalesSummaries()}
                   disabled={true}
                   title="تحديث الملخصات غير مفعل حاليًا، سيتم الاعتماد على الفواتير المباشرة"
-                  className="mt-3 rounded-xl border border-teal-200/40 bg-teal-300/15 px-4 py-2 text-sm font-bold text-teal-50 hover:bg-teal-300/25 disabled:opacity-50"
+                  className="mt-3 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-2 text-sm font-bold text-[var(--dawaa-theme-primary)] hover:bg-[var(--dawaa-theme-accent-soft)] disabled:opacity-50"
                 >
                   {summaryRefreshBusy ? 'جاري تحديث الملخصات...' : 'تحديث الملخصات غير مفعل'}
                 </button>
               </div>
-              <div className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-4">
-                <div className="font-bold text-sky-100">ربط الدكاترة</div>
-                <div className="mt-2 text-sm text-sky-50/85">
+              <div className="rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
+                <div className="font-bold text-[var(--dawaa-status-info-text)]">ربط الدكاترة</div>
+                <div className="mt-2 text-sm text-[var(--dawaa-status-info-text)]">
                   {importSummary.staffLinkingMode === 'staff_id'
                     ? 'تم الربط عبر staff_id عندما كان متاحًا، مع الاحتفاظ باسم الدكتور.'
                     : 'staff_id غير متاح أو غير مطابق، يتم الربط مؤقتًا بالاسم بعد التطبيع والفرع.'}
@@ -2488,16 +2491,16 @@ export default function Invoices() {
           {importKind === 'sales' && (
             <>
               <div className="grid gap-3 lg:grid-cols-2">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <div className="mb-1 font-bold text-white">فواتير مفهومة من الملف حسب اليوم</div>
-                <div className="mb-3 text-xs text-slate-400">
+                <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+                  <div className="mb-1 font-bold text-[var(--dawaa-theme-heading)]">فواتير مفهومة من الملف حسب اليوم</div>
+                <div className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">
                   عدد وقيمة الفواتير التي تم استخراجها من الملف قبل الحفظ.
                 </div>
                 <div className="max-h-48 space-y-2 overflow-auto">
                   {(importSummary.parsedRowsByDate || []).map((row) => (
                     <div
                       key={row.date}
-                      className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
+                      className="flex items-center justify-between rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2 text-sm text-[var(--dawaa-theme-heading)]"
                     >
                       <span>{row.date}</span>
                       <span>
@@ -2507,16 +2510,16 @@ export default function Invoices() {
                   ))}
                 </div>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-1 font-bold text-white">عدد الفواتير المحفوظة حسب اليوم</div>
-                <div className="mb-3 text-xs text-slate-400">
+              <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+                <div className="mb-1 font-bold text-[var(--dawaa-theme-heading)]">عدد الفواتير المحفوظة حسب اليوم</div>
+                <div className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">
                   عدد وقيمة الفواتير التي وصلت للحفظ أو التحديث في قاعدة البيانات.
                 </div>
                 <div className="max-h-48 space-y-2 overflow-auto">
                   {(importSummary.savedRowsByDate || []).map((row) => (
                     <div
                       key={row.date}
-                      className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
+                      className="flex items-center justify-between rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2 text-sm text-[var(--dawaa-theme-heading)]"
                     >
                       <span>{row.date}</span>
                       <span>
@@ -2528,12 +2531,12 @@ export default function Invoices() {
               </div>
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-1 font-bold text-white">استعلام قاعدة البيانات</div>
-                <div className="mb-3 text-xs text-slate-400">
+              <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+                <div className="mb-1 font-bold text-[var(--dawaa-theme-heading)]">استعلام قاعدة البيانات</div>
+                <div className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">
                   معلومات حول استعلام يومية فواتير `sales_invoices`.
                 </div>
-                <div className="space-y-2 text-sm text-slate-200">
+                <div className="space-y-2 text-sm text-[var(--dawaa-theme-heading)]">
                   <div>الجدول: {importSummary.databaseComparisonQuery?.table || '-'}</div>
                   <div>العمود: {importSummary.databaseComparisonQuery?.dateColumn || '-'}</div>
                   <div>gte: {importSummary.databaseComparisonQuery?.gte || '-'}</div>
@@ -2545,16 +2548,16 @@ export default function Invoices() {
                   <div>endExclusive: {importSummary.databaseComparisonQuery?.endExclusive || '-'}</div>
                 </div>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-1 font-bold text-white">عدد الفواتير في القاعدة حسب اليوم</div>
-                <div className="mb-3 text-xs text-slate-400">
+              <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+                <div className="mb-1 font-bold text-[var(--dawaa-theme-heading)]">عدد الفواتير في القاعدة حسب اليوم</div>
+                <div className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">
                   عدد وقيمة الفواتير التي تم قراءتها من `sales_invoices` لكل يوم.
                 </div>
                 <div className="max-h-48 space-y-2 overflow-auto">
                   {(importSummary.databaseByDay || []).map((row) => (
                     <div
                       key={row.date}
-                      className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
+                      className="flex items-center justify-between rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2 text-sm text-[var(--dawaa-theme-heading)]"
                     >
                       <span>{row.date}</span>
                       <span>
@@ -2565,20 +2568,20 @@ export default function Invoices() {
                 </div>
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-1 font-bold text-white">أول 10 صفوف تم تخطيها</div>
-              <div className="mb-3 text-xs text-slate-400">
+            <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+              <div className="mb-1 font-bold text-[var(--dawaa-theme-heading)]">أول 10 صفوف تم تخطيها</div>
+              <div className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">
                 عرض عينة من الصفوف التي لم تدخل لسبب تخطي.
               </div>
-              <div className="mb-4 rounded-xl border border-white/10 bg-slate-950/20 p-4">
+              <div className="mb-4 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="font-bold text-white">مبيعات الفترة حسب الأيام والفروع</div>
-                    <div className="text-xs text-slate-400">
+                    <div className="font-bold text-[var(--dawaa-theme-heading)]">مبيعات الفترة حسب الأيام والفروع</div>
+                    <div className="text-xs text-[var(--dawaa-theme-muted)]">
                       الرسم يعرض الأيام التي لها فواتير في الملف أو القاعدة افتراضيًا لتجنب هبوط الصفر المضلل.
                     </div>
                   </div>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-slate-100">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-xs font-bold text-[var(--dawaa-theme-heading)]">
                     <input
                       type="checkbox"
                       className="h-4 w-4 accent-teal-400"
@@ -2592,7 +2595,7 @@ export default function Invoices() {
                 {(importSummary.dayDatabaseComparison || []).some(
                   (row) => row.status === 'missing_in_database' || row.status === 'partial'
                 ) && (
-                  <div className="mb-3 rounded-lg border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-sm font-bold text-amber-50">
+                  <div className="mb-3 rounded-lg border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-sm font-bold text-[var(--dawaa-status-warning-text)]">
                     يوجد أيام في الفترة لا تحتوي فواتير في قاعدة البيانات أو بها فرق يحتاج مراجعة.
                   </div>
                 )}
@@ -2611,55 +2614,55 @@ export default function Invoices() {
                   />
                 </div>
 
-                <div className="mb-3 flex flex-wrap gap-3 text-xs text-slate-300">
+                <div className="mb-3 flex flex-wrap gap-3 text-xs text-[var(--dawaa-theme-text)]">
                   <span className="flex items-center gap-1">
-                    <span className="h-3 w-3 rounded-sm bg-cyan-400" />
+                    <span className="h-3 w-3 rounded-sm bg-[var(--dawaa-theme-accent-soft)]" />
                     {BRANCHES[0]}
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="h-3 w-3 rounded-sm bg-violet-400" />
+                    <span className="h-3 w-3 rounded-sm bg-[var(--dawaa-status-info-bg)]" />
                     {BRANCHES[1]}
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="h-3 w-3 rounded-sm bg-slate-400" />
+                    <span className="h-3 w-3 rounded-sm bg-[var(--dawaa-theme-soft)]" />
                     فروع أخرى
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="h-3 w-3 rounded-sm bg-teal-300" />
+                    <span className="h-3 w-3 rounded-sm bg-[var(--dawaa-theme-accent-soft)]" />
                     إجمالي القاعدة
                   </span>
                 </div>
 
                 {visibleDaySalesChartRows.length === 0 ? (
-                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-6 text-center text-sm text-slate-300">
+                  <div className="rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-6 text-center text-sm text-[var(--dawaa-theme-text)]">
                     لا توجد أيام كافية لعرض الرسم.
                   </div>
                 ) : (
                   <div className="overflow-x-auto pb-2">
                     <div
-                      className="flex min-h-[250px] items-end gap-3 border-b border-l border-white/10 px-3 pt-8"
+                      className="flex min-h-[250px] items-end gap-3 border-b border-l border-[var(--dawaa-theme-border)] px-3 pt-8"
                       style={{ minWidth: Math.max(680, visibleDaySalesChartRows.length * 74) }}
                     >
                       {visibleDaySalesChartRows.map((row, index) => {
                         const bars = [
-                          { key: 'shokry', value: row.shokryTotal, className: 'bg-cyan-400' },
-                          { key: 'shamy', value: row.shamyTotal, className: 'bg-violet-400' },
-                          { key: 'other', value: row.otherTotal, className: 'bg-slate-400' },
-                          { key: 'database', value: row.databaseTotal, className: 'bg-teal-300' },
+                          { key: 'shokry', value: row.shokryTotal, className: 'bg-[var(--dawaa-theme-accent-soft)]' },
+                          { key: 'shamy', value: row.shamyTotal, className: 'bg-[var(--dawaa-status-info-bg)]' },
+                          { key: 'other', value: row.otherTotal, className: 'bg-[var(--dawaa-theme-soft)]' },
+                          { key: 'database', value: row.databaseTotal, className: 'bg-[var(--dawaa-theme-accent-soft)]' },
                         ];
                         return (
                           <div
                             key={row.date}
                             className="group relative flex w-16 shrink-0 flex-col items-center justify-end gap-2"
                           >
-                            <div className="absolute bottom-full left-1/2 z-20 mb-3 hidden w-64 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-950 p-3 text-right text-xs shadow-xl group-hover:block">
+                            <div className="absolute bottom-full left-1/2 z-20 mb-3 hidden w-64 -translate-x-1/2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 text-right text-xs shadow-xl group-hover:block">
                               <div className="mb-2 flex items-center justify-between gap-2">
                                 <span className={`rounded-full px-2 py-1 ${dayMatchStatusClass(row.status)}`}>
                                   {dayMatchStatusLabel(row.status)}
                                 </span>
-                                <span className="font-bold text-white">{row.date}</span>
+                                <span className="font-bold text-[var(--dawaa-theme-heading)]">{row.date}</span>
                               </div>
-                              <div className="space-y-1 text-slate-200">
+                              <div className="space-y-1 text-[var(--dawaa-theme-heading)]">
                                 <div>إجمالي اليوم: {formatCurrency(row.fileTotal)}</div>
                                 <div>{BRANCHES[0]}: {formatCurrency(row.shokryTotal)}</div>
                                 <div>{BRANCHES[1]}: {formatCurrency(row.shamyTotal)}</div>
@@ -2674,7 +2677,7 @@ export default function Invoices() {
                               {bars.map((bar) => (
                                 <div
                                   key={bar.key}
-                                  className={`w-2.5 rounded-t ${bar.value > 0 ? bar.className : 'bg-white/10'}`}
+                                  className={`w-2.5 rounded-t ${bar.value > 0 ? bar.className : 'bg-[var(--dawaa-theme-surface)]'}`}
                                   style={{
                                     height: bar.value > 0 ? Math.max(6, (bar.value / chartMaxTotal) * 160) : 2,
                                   }}
@@ -2682,7 +2685,7 @@ export default function Invoices() {
                               ))}
                             </div>
                             <div className={`h-1.5 w-12 rounded-full ${chartBarColor(row.status)}`} />
-                            <div className="h-8 text-center text-[11px] font-bold text-slate-300">
+                            <div className="h-8 text-center text-[11px] font-bold text-[var(--dawaa-theme-text)]">
                               {index % chartTickStep === 0 || index === visibleDaySalesChartRows.length - 1
                                 ? row.label
                                 : ''}
@@ -2695,7 +2698,7 @@ export default function Invoices() {
                 )}
 
                 {!showEmptyChartDays && hiddenEmptyChartDaysCount > 0 && (
-                  <div className="mt-3 rounded-lg border border-sky-300/20 bg-sky-400/10 px-3 py-2 text-xs text-sky-100">
+                  <div className="mt-3 rounded-lg border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-3 py-2 text-xs text-[var(--dawaa-status-info-text)]">
                     تم إخفاء الأيام الفارغة من الرسم لتوضيح الاتجاه. يمكن إظهارها من خيار إظهار الأيام الفارغة.
                   </div>
                 )}
@@ -2725,9 +2728,9 @@ export default function Invoices() {
                 </table>
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-1 font-bold text-white">أول 10 صفوف تم حفظها أو إرسالها للحفظ</div>
-              <div className="mb-3 text-xs text-slate-400">
+            <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+              <div className="mb-1 font-bold text-[var(--dawaa-theme-heading)]">أول 10 صفوف تم حفظها أو إرسالها للحفظ</div>
+              <div className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">
                 عرض عينة من الصفوف التي تم حفظها أو تحديثها بنجاح.
               </div>
               <div className="overflow-x-auto">
@@ -2749,7 +2752,7 @@ export default function Invoices() {
                         <td>{row.branch}</td>
                         <td>{row.originalDate}</td>
                         <td>{row.invoiceDate}</td>
-                        <td className="text-amber-300">{formatCurrency(row.netTotal)}</td>
+                        <td className="text-[var(--dawaa-status-warning-text)]">{formatCurrency(row.netTotal)}</td>
                         <td>{row.duplicateKey}</td>
                       </tr>
                     ))}
@@ -2757,9 +2760,9 @@ export default function Invoices() {
                 </table>
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-1 font-bold text-white">مقارنة الملف مع القاعدة لكل يوم</div>
-              <div className="mb-3 text-xs text-slate-400">
+            <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+              <div className="mb-1 font-bold text-[var(--dawaa-theme-heading)]">مقارنة الملف مع القاعدة لكل يوم</div>
+              <div className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">
                 يظهر هنا نتيجة المقارنة اليومية لكل يوم ملف.
               </div>
               <div className="overflow-x-auto">
@@ -2781,16 +2784,16 @@ export default function Invoices() {
                       <tr key={row.date}>
                         <td className="num">{row.date}</td>
                         <td className="num">{row.fileCount.toLocaleString('ar-EG')}</td>
-                        <td className="text-amber-300 font-bold">{formatCurrency(row.fileTotal)}</td>
+                        <td className="text-[var(--dawaa-status-warning-text)] font-bold">{formatCurrency(row.fileTotal)}</td>
                         <td className="num">{row.databaseCount.toLocaleString('ar-EG')}</td>
-                        <td className="text-teal-300 font-bold">{formatCurrency(row.databaseTotal)}</td>
+                        <td className="text-[var(--dawaa-theme-primary)] font-bold">{formatCurrency(row.databaseTotal)}</td>
                         <td className={
-                            row.countDifference !== 0 ? 'text-red-200 font-bold' : 'text-slate-300'
+                            row.countDifference !== 0 ? 'text-[var(--dawaa-status-danger-text)] font-bold' : 'text-[var(--dawaa-theme-text)]'
                           }>
                           {row.countDifference.toLocaleString('ar-EG')}
                         </td>
                         <td className={
-                            Math.abs(row.difference) >= 0.01 ? 'text-red-200 font-bold' : 'text-slate-300'
+                            Math.abs(row.difference) >= 0.01 ? 'text-[var(--dawaa-status-danger-text)] font-bold' : 'text-[var(--dawaa-theme-text)]'
                           }>
                           {formatCurrency(row.difference)}
                         </td>
@@ -2812,16 +2815,16 @@ export default function Invoices() {
           </>
           )}
           {importKind === 'sales' && (importSummary.dayDatabaseComparison?.length || 0) > 0 && (
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-1 font-bold text-white">مطابقة أيام الملف مع قاعدة البيانات</div>
-              <div className="mb-3 text-xs text-slate-400">
+            <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+              <div className="mb-1 font-bold text-[var(--dawaa-theme-heading)]">مطابقة أيام الملف مع قاعدة البيانات</div>
+              <div className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">
                 مدى الملف: {importSummary.fileMinDate || '-'} إلى {importSummary.fileMaxDate || '-'} | مدى القاعدة بعد الاستيراد: {importSummary.databaseMinDateAfterImport || '-'} إلى{' '}
                 {importSummary.databaseMaxDateAfterImport || '-'}
               </div>
               {(importSummary.dayDatabaseComparison || []).some(
                 (row) => row.status === 'missing_in_database'
               ) && (
-                <div className="mb-3 rounded-lg border border-red-300/30 bg-red-400/10 px-3 py-2 text-sm font-bold text-red-100">
+                <div className="mb-3 rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-3 py-2 text-sm font-bold text-[var(--dawaa-status-danger-text)]">
                   يوجد أيام في الملف لم تظهر في قاعدة البيانات بعد الاستيراد
                 </div>
               )}
@@ -2844,14 +2847,14 @@ export default function Invoices() {
                       <tr key={row.date}>
                         <td className="num">{row.date}</td>
                         <td className="num">{row.fileCount.toLocaleString('ar-EG')}</td>
-                        <td className="text-amber-300 font-bold">{formatCurrency(row.fileTotal)}</td>
+                        <td className="text-[var(--dawaa-status-warning-text)] font-bold">{formatCurrency(row.fileTotal)}</td>
                         <td className="num">{row.databaseCount.toLocaleString('ar-EG')}</td>
-                        <td className="text-teal-300 font-bold">
+                        <td className="text-[var(--dawaa-theme-primary)] font-bold">
                           {formatCurrency(row.databaseTotal)}
                         </td>
                         <td
                           className={
-                            row.countDifference !== 0 ? 'text-red-200 font-bold' : 'text-slate-300'
+                            row.countDifference !== 0 ? 'text-[var(--dawaa-status-danger-text)] font-bold' : 'text-[var(--dawaa-theme-text)]'
                           }
                         >
                           {row.countDifference.toLocaleString('ar-EG')}
@@ -2859,8 +2862,8 @@ export default function Invoices() {
                         <td
                           className={
                             Math.abs(row.difference) >= 0.01
-                              ? 'text-red-200 font-bold'
-                              : 'text-slate-300'
+                              ? 'text-[var(--dawaa-status-danger-text)] font-bold'
+                              : 'text-[var(--dawaa-theme-text)]'
                           }
                         >
                           {formatCurrency(row.difference)}
@@ -2882,13 +2885,13 @@ export default function Invoices() {
             </div>
           )}
           {importKind === 'sales' && (importSummary.skippedDuplicateInvoices?.length || 0) > 0 && (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-              <div className="mb-3 font-bold text-amber-200">فواتير مكررة تم تخطيها</div>
+            <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4">
+              <div className="mb-3 font-bold text-[var(--dawaa-status-warning-text)]">فواتير مكررة تم تخطيها</div>
               <div className="max-h-44 space-y-2 overflow-auto">
                 {(importSummary.skippedDuplicateInvoices || []).slice(0, 30).map((row, index) => (
                   <div
                     key={`${row.branch}-${row.date}-${row.invoiceNumber}-${index}`}
-                    className="flex items-center justify-between rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-slate-200"
+                    className="flex items-center justify-between rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2 text-sm text-[var(--dawaa-theme-heading)]"
                   >
                     <span>{row.invoiceNumber}</span>
                     <span>
@@ -2898,7 +2901,7 @@ export default function Invoices() {
                 ))}
               </div>
               {(importSummary.skippedDuplicateInvoices?.length || 0) > 30 && (
-                <div className="mt-2 text-xs text-amber-100/80">
+                <div className="mt-2 text-xs text-[var(--dawaa-status-warning-text)]">
                   تم عرض أول 30 فقط من التكرارات.
                 </div>
               )}
@@ -2934,7 +2937,7 @@ export default function Invoices() {
               )}
             </div>
           )}
-          <button onClick={handleReset} className="btn-primary flex items-center gap-2">
+          <button onClick={handleReset} className="dawaa-button dawaa-button--primary flex items-center gap-2">
             <RefreshCw size={16} /> استيراد ملف آخر
           </button>
         </div>
@@ -2942,23 +2945,23 @@ export default function Invoices() {
 
       {isAdmin && editInvoice && editForm && (
         <div
-          className="modal-backdrop"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--dawaa-theme-overlay)] p-4"
           onClick={() => {
             setEditInvoice(null);
             setEditForm(null);
           }}
         >
-          <div className="modal-panel max-w-3xl p-6" onClick={(event) => event.stopPropagation()}>
+          <div className="dawaa-card dawaa-card--raised w-full max-w-3xl p-6" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 mb-5">
               <div>
                 <div className="section-title">تعديل فاتورة</div>
-                <div className="text-slate-400 text-xs mt-1">
+                <div className="text-[var(--dawaa-theme-muted)] text-xs mt-1">
                   أي تعديل هنا ينعكس على التحليلات بعد تحديث الصفحة.
                 </div>
               </div>
               <button
                 type="button"
-                className="text-slate-400 hover:text-white"
+                className="text-[var(--dawaa-theme-muted)] hover:text-[var(--dawaa-theme-heading)]"
                 onClick={() => {
                   setEditInvoice(null);
                   setEditForm(null);
@@ -2979,10 +2982,10 @@ export default function Invoices() {
                 value={editForm.invoice_number}
                 onChange={(value) => setEditForm({ ...editForm, invoice_number: value })}
               />
-              <label className="text-slate-300 text-xs space-y-1 block">
+              <label className="text-[var(--dawaa-theme-text)] text-xs space-y-1 block">
                 <span>تاريخ الفاتورة</span>
                 <input
-                  className="input-dark"
+                  className="dawaa-input"
                   type="date"
                   value={editForm.invoice_date}
                   onChange={(event) =>
@@ -3038,7 +3041,7 @@ export default function Invoices() {
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
-                className="btn-primary flex items-center gap-2"
+                className="dawaa-button dawaa-button--primary flex items-center gap-2"
                 onClick={saveInvoiceEdit}
                 disabled={adminBusy}
               >
@@ -3047,7 +3050,7 @@ export default function Invoices() {
               </button>
               <button
                 type="button"
-                className="btn-secondary"
+                className="dawaa-button dawaa-button--secondary"
                 onClick={() => {
                   setEditInvoice(null);
                   setEditForm(null);
@@ -3065,17 +3068,17 @@ export default function Invoices() {
 }
 
 function kindButton(active: boolean) {
-  return `px-4 py-2 rounded-lg text-sm font-semibold transition-all ${active ? 'bg-teal-500 text-navy-900' : 'text-slate-400 hover:text-white hover:bg-white/5'}`;
+  return `px-4 py-2 rounded-lg text-sm font-semibold transition-all ${active ? 'bg-[var(--dawaa-theme-primary)] text-[var(--dawaa-theme-primary-text)]' : 'text-[var(--dawaa-theme-muted)] hover:text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-surface)]'}`;
 }
 
 function InfoBox({ title, items }: { title: string; items: string[] }) {
   return (
-    <div className="bg-teal-500/10 rounded-xl p-3 border border-white/5">
-      <div className="text-slate-300 font-semibold mb-2 text-xs">{title}</div>
+    <div className="bg-[var(--dawaa-theme-accent-soft)] rounded-xl p-3 border border-[var(--dawaa-theme-border)]">
+      <div className="text-[var(--dawaa-theme-text)] font-semibold mb-2 text-xs">{title}</div>
       <ul className="space-y-1">
         {items.map((item) => (
-          <li key={item} className="text-slate-400 text-xs flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-teal-400 flex-shrink-0" />
+          <li key={item} className="text-[var(--dawaa-theme-muted)] text-xs flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--dawaa-theme-accent-soft)] flex-shrink-0" />
             {item}
           </li>
         ))}
@@ -3096,11 +3099,11 @@ function StatTile({
   isCurrency?: boolean;
 }) {
   return (
-    <div className="stat-card text-center">
+    <div className="dawaa-card dawaa-card--soft text-center">
       <div className={`text-xl font-bold ${color} num`}>
         {isCurrency ? formatCurrency(value) : value.toLocaleString('ar-EG')}
       </div>
-      <div className="text-slate-400 text-xs mt-1">{label}</div>
+      <div className="text-[var(--dawaa-theme-muted)] text-xs mt-1">{label}</div>
     </div>
   );
 }
@@ -3117,10 +3120,10 @@ function EditField({
   type?: string;
 }) {
   return (
-    <label className="text-slate-300 text-xs space-y-1 block">
+    <label className="text-[var(--dawaa-theme-text)] text-xs space-y-1 block">
       <span>{label}</span>
       <input
-        className="input-dark"
+        className="dawaa-input"
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -3141,11 +3144,11 @@ function ResultTile({
   const safeValue = Number(value);
   const displayValue = Number.isFinite(safeValue) ? safeValue : 0;
   return (
-    <div className="bg-teal-500/10 border border-white/5 rounded-2xl p-4">
-      <div className="text-xl font-bold text-teal-400 num">
+    <div className="bg-[var(--dawaa-theme-accent-soft)] border border-[var(--dawaa-theme-border)] rounded-2xl p-4">
+      <div className="text-xl font-bold text-[var(--dawaa-theme-primary)] num">
         {isCurrency ? formatCurrency(displayValue) : displayValue.toLocaleString('ar-EG')}
       </div>
-      <div className="text-slate-400 text-xs mt-1">{label}</div>
+      <div className="text-[var(--dawaa-theme-muted)] text-xs mt-1">{label}</div>
     </div>
   );
 }
@@ -3162,9 +3165,9 @@ function WarningGroup({
   tone: 'danger' | 'warning' | 'info';
 }) {
   const styles = {
-    danger: 'border-red-300/35 bg-red-500/15 text-red-50',
-    warning: 'border-amber-300/35 bg-amber-400/10 text-amber-50',
-    info: 'border-sky-300/35 bg-sky-400/10 text-sky-50',
+    danger: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]',
+    warning: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
+    info: 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]',
   }[tone];
 
   return (
@@ -3172,7 +3175,7 @@ function WarningGroup({
       <div className="mb-3 font-bold">{title}</div>
       <div className="space-y-2">
         {(items.length > 0 ? items : [emptyText]).slice(0, 8).map((item, index) => (
-          <div key={`${title}-${index}`} className="rounded-lg bg-slate-950/25 px-3 py-2 text-sm">
+          <div key={`${title}-${index}`} className="rounded-lg bg-[var(--dawaa-theme-surface)] px-3 py-2 text-sm">
             {item}
           </div>
         ))}
