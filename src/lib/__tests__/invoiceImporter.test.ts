@@ -147,7 +147,7 @@ beforeEach(() => {
 });
 
 describe('buildInvoiceDuplicateIdentity', () => {
-  it('uses invoice number, branch and date to create a stable duplicate key', () => {
+  it('uses invoice number, branch and date to create a stable file-row key', () => {
     expect(buildInvoiceDuplicateIdentity('INV-100', 'فرع شكري', '2026-07-01')).toBe(
       'INV-100|فرع شكري|2026-07-01'
     );
@@ -165,7 +165,7 @@ describe('buildInvoiceDuplicateIdentity', () => {
     expect(key1).toBe(key2);
   });
 
-  it('returns different keys for same invoice number with different dates or branches', () => {
+  it('keeps different file rows distinguishable by date or branch before database reconciliation', () => {
     const baseKey = buildInvoiceDuplicateIdentity('INV-400', 'فرع شكري', '2026-07-02');
     const differentDateKey = buildInvoiceDuplicateIdentity('INV-400', 'فرع شكري', '2026-07-03');
     const differentBranchKey = buildInvoiceDuplicateIdentity('INV-400', 'فرع الشامي', '2026-07-02');
@@ -174,7 +174,7 @@ describe('buildInvoiceDuplicateIdentity', () => {
     expect(differentBranchKey).not.toBe(baseKey);
   });
 
-  it('does not treat blank invoice numbers as the same invoice across different dates or normalized branches', () => {
+  it('does not treat blank invoice numbers as the same file row across different dates or normalized branches', () => {
     const keyA = buildInvoiceDuplicateIdentity('', 'فرع شكري', '2026-07-02');
     const keyB = buildInvoiceDuplicateIdentity('', 'فرع الشامي', '2026-07-02');
     const keyC = buildInvoiceDuplicateIdentity('', 'فرع شكري', '2026-07-03');
@@ -645,7 +645,7 @@ describe('loadDatabaseDayComparison', () => {
     expect(lastUpdatePayload).toMatchObject({ invoice_number: 'IDEMP-1' });
   });
 
-  it('inserts same invoice_number on a different date instead of updating the old row', async () => {
+  it('updates same invoice_number in the same branch when the incoming date differs', async () => {
     const row = makeInvoiceRow({ rowIndex: 1, invoiceNumber: 'SAME-NO', date: '2026-07-05', amount: 180 });
     mockExistingInvoiceRows = [
       {
@@ -659,8 +659,8 @@ describe('loadDatabaseDayComparison', () => {
       },
     ];
     mockDatabaseRows = [
-      ...mockExistingInvoiceRows,
       {
+        id: 'old-date',
         invoice_date: '2026-07-05',
         invoice_number: 'SAME-NO',
         invoice_no: 'SAME-NO',
@@ -672,14 +672,17 @@ describe('loadDatabaseDayComparison', () => {
 
     const summary = await importInvoicesToDB([row], 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'same-number-new-date');
 
-    expect(summary.insertedRows).toBe(1);
-    expect(summary.confirmedExistingInvoices || 0).toBe(0);
-    expect(lastUpdatePayload).toBeNull();
-    expect(lastSalesInvoiceInsertPayload[0]).toMatchObject({
+    expect(summary.insertedRows).toBe(0);
+    expect(summary.confirmedExistingInvoices).toBe(1);
+    expect(summary.valueChangedUpdates).toBe(1);
+    expect(summary.rowsSavedSuccessfullyCount).toBe(1);
+    expect(lastSalesInvoiceInsertPayload).toEqual([]);
+    expect(lastUpdatePayload).toMatchObject({
       invoice_number: 'SAME-NO',
       invoice_date: '2026-07-05',
       sale_date: '2026-07-05',
       date: '2026-07-05',
+      net_amount: 180,
     });
   });
 
