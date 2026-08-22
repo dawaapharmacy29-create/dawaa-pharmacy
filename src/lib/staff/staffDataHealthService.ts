@@ -347,10 +347,15 @@ export async function checkAllStaffDataHealth(limit = 50): Promise<StaffDataHeal
   if (!staff?.length) return [];
 
   const reports: StaffDataHealthReport[] = [];
-  for (const staffMember of staff) {
-    reports.push(
-      await checkStaffDataHealth(String(staffMember.id), String(staffMember.name || ''))
+  const concurrency = 4;
+  for (let index = 0; index < staff.length; index += concurrency) {
+    const batch = staff.slice(index, index + concurrency);
+    const batchReports = await Promise.all(
+      batch.map((staffMember) =>
+        checkStaffDataHealth(String(staffMember.id), String(staffMember.name || ''))
+      )
     );
+    reports.push(...batchReports);
   }
   return reports.sort((a, b) => a.overallHealthScore - b.overallHealthScore);
 }
