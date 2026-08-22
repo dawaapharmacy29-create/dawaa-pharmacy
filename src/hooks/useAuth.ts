@@ -238,23 +238,40 @@ function refreshCurrentStaffAccount(user: User): Promise<User | null> {
 
 async function loginWithStaffAccount(username: string, password: string): Promise<User | null> {
   if (!isSupabaseConfigured) return null;
-  let data: unknown;
-  try {
-    const result = await withTimeout<SupabaseRpcResult<unknown>>(
-      supabase.rpc('staff_account_login', { p_username: username, p_password: password }),
-      7000,
-      'staff_account_login'
-    );
-    data = result.data;
-    if (result.error) {
-      console.warn('[Dawaa auth] login failed reason', result.error.message || result.error);
-      return null;
+
+  const attemptLogin = async (): Promise<{ data: unknown; networkFailure: boolean }> => {
+    try {
+      const result = await withTimeout<SupabaseRpcResult<unknown>>(
+        supabase.rpc('staff_account_login', { p_username: username, p_password: password }),
+        15000,
+        'staff_account_login'
+      );
+      if (result.error) {
+        console.warn('[Dawaa auth] login failed reason', result.error.message || result.error);
+        // خطأ من السيرفر نفسه (مش تايم آوت شبكة) — مفيش داعي نعيد المحاولة، الرد واضح
+        return { data: null, networkFailure: false };
+      }
+      return { data: result.data, networkFailure: false };
+    } catch (error) {
+      console.warn('[Dawaa auth] login failed reason', error);
+      return { data: null, networkFailure: true };
     }
-  } catch (error) {
-    console.warn('[Dawaa auth] login failed reason', error);
-    logRuntimeError('auth login rpc failed', error);
-    return null;
+  };
+
+  let outcome = await attemptLogin();
+  // لو فشلت بسبب انقطاع شبكة مؤقت (مش رفض من السيرفر)، نجرب مرة واحدة تانية
+  // بعد نص ثانية — الشبكات المتقطعة (زي واي فاي الصيدلية) بتحتاج فرصة تانية
+  // قبل ما نرجّع "فشل تسجيل الدخول" للمستخدم.
+  if (outcome.networkFailure) {
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+    outcome = await attemptLogin();
   }
+
+  if (outcome.networkFailure && !outcome.data) {
+    logRuntimeError('auth login rpc failed', new Error('staff_account_login timed out after retry'));
+  }
+
+  const data = outcome.data;
 
   const row = Array.isArray(data) ? (data[0] as StaffAccountLoginRow | undefined) : (data as StaffAccountLoginRow | null);
   if (!row?.id || row.active === false || row.can_login === false) return null;
