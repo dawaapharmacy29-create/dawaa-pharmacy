@@ -12,6 +12,8 @@ const CLEAN_UI_FILES = new Set([
   'src/pages/Purchases.tsx',
   'src/pages/Analytics.tsx',
   'src/pages/StaffPayroll.tsx',
+  'src/pages/BranchComparison.tsx',
+  'src/pages/LoyaltyTiers.tsx',
   'src/components/common/QuickCustomerCodingModal.tsx',
   'src/components/common/QuickShiftNotesModal.tsx',
   'src/components/customerService/FollowupResultModal.tsx',
