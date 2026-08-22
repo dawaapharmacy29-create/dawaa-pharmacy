@@ -31,6 +31,14 @@ export default defineConfig({
     target: ['es2019', 'safari13'],
     minify: 'esbuild',
     chunkSizeWarningLimit: 1000,
+    modulePreload: {
+      resolveDependencies(_filename, deps, context) {
+        // Export engines are large and optional. Do not make Login/startup wait for
+        // PDF/Excel code; dynamic routes still fetch them normally when needed.
+        if (context.hostType !== 'html') return deps;
+        return deps.filter((dep) => !/(?:^|\/)assets\/(?:pdf|excel)-/i.test(dep));
+      },
+    },
     rollupOptions: {
       output: {
         // Granular chunks improve caching and keep route-only tools out of the first load.
