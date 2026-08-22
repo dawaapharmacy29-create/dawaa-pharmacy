@@ -9,7 +9,6 @@ const ROOT = path.join(process.cwd(), 'src');
 const LEGACY_DIRECT_INVOICE_READER_BUDGETS = new Map([
   ['src/lib/api/customers.ts', 4],
   ['src/lib/customerProfileService.ts', 3],
-  ['src/lib/dashboardSummaryService.ts', 3],
   ['src/lib/executiveDashboardDataService.ts', 1],
   ['src/lib/staff/staffPerformanceProfileService.ts', 1],
 ]);
@@ -19,7 +18,6 @@ const APPROVED_INVOICE_BOUNDARIES = new Set([
   'src/lib/readModels/customerInvoiceReadModel.ts',
   'src/lib/readModels/invoiceDataHealthReadModel.ts',
   'src/lib/readModels/invoiceRecordReadModel.ts',
-  'src/lib/readModels/unlinkedSellerNamesReadModel.ts',
   'src/lib/invoices/invoiceManagementService.ts',
 ]);
 
