@@ -8,10 +8,15 @@ const rows = [];
 const CANONICAL_PALETTE = 'src/styles/dawaa-theme-palettes.css';
 const CLEAN_UI_FILES = new Set([
   'src/styles/customerServiceTheme.css',
+  'src/styles/dashboard-theme-scopes.css',
   'src/components/customerService/ExceptionalFollowupCenter.tsx',
   'src/components/customerService/CustomerFollowupCockpitPanel.tsx',
   'src/components/customerService/CustomerDailyPriorityQueues.tsx',
+  'src/components/customerService/CustomerServicePersonalDashboard.tsx',
   'src/pages/SmartCustomerService.tsx',
+  'src/pages/CustomerServiceManagerDashboard.tsx',
+  'src/pages/DoctorDashboardEnhanced.tsx',
+  'src/pages/ReviewsEnhanced.tsx',
   'src/pages/Invoices.tsx',
   'src/components/customer-requests/CustomerRequestSourceAuditPanel.tsx',
   'src/components/customer-requests/CustomerRequestSyncHealthPanel.tsx',
