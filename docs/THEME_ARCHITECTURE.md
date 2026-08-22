@@ -29,8 +29,8 @@ Every theme renders the same information hierarchy and component behavior with a
 5. **Canonical palettes**
    - `src/styles/dawaa-theme-palettes.css`
    - the single owner of Dark, Light and Pharmacy Green color values
-   - owns canvas, surfaces, text, borders, primary, statuses, focus, shadow and navigation values
-   - v4 direction: Light is neutral-first; Dark is charcoal/graphite-first; brand teal is an accent rather than a page wash
+   - owns canvas, surfaces, text, borders, primary, statuses, focus, shadow, chart and navigation values
+   - v5 direction: Light is truly neutral-first; general soft surfaces are separated from brand accent-soft surfaces; Dark remains charcoal/graphite-first
 
 6. **Semantic components**
    - `src/styles/dawaa-theme-components.css`
@@ -66,6 +66,9 @@ Every theme exposes the same roles:
 - `--dawaa-theme-surface`: default card/panel
 - `--dawaa-theme-surface-2`: secondary/hover/soft surface
 - `--dawaa-theme-surface-raised`: elevated/high-focus surface
+- `--dawaa-theme-soft`: neutral low-emphasis fill; never a brand wash
+- `--dawaa-theme-accent-soft`: restrained brand-tinted fill for deliberate brand/selection emphasis
+- `--dawaa-theme-accent-border`: restrained brand-tinted border for selected/brand elements
 - `--dawaa-theme-input`: form controls
 - `--dawaa-theme-table-head`, `--dawaa-theme-table-row`, `--dawaa-theme-table-hover`
 - `--dawaa-theme-sidebar`, `--dawaa-theme-sidebar-active`, `--dawaa-theme-sidebar-hover`
@@ -75,8 +78,21 @@ Pages never infer hierarchy from literal colors.
 
 ## Color philosophy
 
-### Light
-Neutral operational canvas + white/near-white surfaces + restrained status accents. Teal is reserved for brand, focus, active navigation and primary actions. Large empty areas must not carry aqua/mint washes.
+### Light — v5
+The Light theme is an operational neutral theme, not a pale-green version of the brand.
+
+Rules:
+- canvas is a soft neutral gray, not mint
+- cards are white/near-white with subtle neutral borders
+- secondary surfaces are neutral gray and must be visibly distinct from both canvas and cards
+- sidebar active/hover backgrounds remain neutral; teal may appear in active text/icon/accent only
+- `--dawaa-theme-soft` is neutral and safe for repeated use across large grids
+- `--dawaa-theme-accent-soft` is intentionally scarce: brand chips, selected choices, unread indicators, focus-related emphasis and small identity accents
+- primary teal is reserved for important actions, active identity, links and focus
+- success/warning/danger/info backgrounds stay low-saturation and should not dominate large areas
+- charts use their own semantic series/axis/grid/tooltip contract and must remain readable on white surfaces
+
+The desired result is calm hierarchy: canvas → card → soft inner surface → selected/accent state, without aqua/mint wash or white-on-white ambiguity.
 
 ### Dark
 Charcoal/graphite hierarchy with controlled elevation levels. Teal remains a deliberate accent. Depth comes from surfaces, typography and soft borders—not saturated blue/teal backgrounds.
@@ -119,6 +135,7 @@ The theme architecture gate must enforce:
 - ThemeContext is the only runtime theme writer
 - canonical CSS layer order in `main.tsx`
 - palette values live only in `dawaa-theme-palettes.css`
+- every palette implements neutral soft + accent-soft + accent-border contracts
 - foundation/base/components/shell/polish files remain palette-neutral
 - application shell does not contain feature-specific palette ownership
 - migrated zero-debt UI files cannot regress
