@@ -54,6 +54,19 @@ html[data-theme='dark'] {
   --dawaa-status-info-text: #9dbddd;
   --dawaa-status-info-border: rgba(101, 151, 202, 0.2);
 
+  --dawaa-chart-series-1: #31b5a6;
+  --dawaa-chart-series-2: #6fa8d8;
+  --dawaa-chart-series-3: #9a88cf;
+  --dawaa-chart-series-4: #70bd91;
+  --dawaa-chart-series-5: #d7a653;
+  --dawaa-chart-series-6: #d36f6f;
+  --dawaa-chart-grid: rgba(177, 193, 200, 0.12);
+  --dawaa-chart-axis: #87969e;
+  --dawaa-chart-tooltip-bg: #151d21;
+  --dawaa-chart-tooltip-text: #e9eff1;
+  --dawaa-chart-tooltip-muted: #95a3aa;
+  --dawaa-chart-tooltip-border: rgba(73, 184, 172, 0.28);
+
   --background: 200 29% 5%;
   --foreground: 198 17% 87%;
   --card: 198 23% 9%;
@@ -126,6 +139,19 @@ html[data-theme='light'] {
   --dawaa-status-info-text: #416588;
   --dawaa-status-info-border: #d2dce7;
 
+  --dawaa-chart-series-1: #0b8f83;
+  --dawaa-chart-series-2: #4f80ad;
+  --dawaa-chart-series-3: #7763a7;
+  --dawaa-chart-series-4: #438a63;
+  --dawaa-chart-series-5: #a87521;
+  --dawaa-chart-series-6: #b25555;
+  --dawaa-chart-grid: rgba(75, 91, 100, 0.13);
+  --dawaa-chart-axis: #718087;
+  --dawaa-chart-tooltip-bg: #ffffff;
+  --dawaa-chart-tooltip-text: #27343a;
+  --dawaa-chart-tooltip-muted: #69767d;
+  --dawaa-chart-tooltip-border: #cedbd9;
+
   --background: 200 14% 96%;
   --foreground: 199 15% 24%;
   --card: 0 0% 100%;
@@ -197,6 +223,19 @@ html[data-theme='pharmacy-green'] {
   --dawaa-status-info-bg: #f3f6f8;
   --dawaa-status-info-text: #466678;
   --dawaa-status-info-border: #d4dfe4;
+
+  --dawaa-chart-series-1: #167657;
+  --dawaa-chart-series-2: #527b92;
+  --dawaa-chart-series-3: #73668f;
+  --dawaa-chart-series-4: #4b855f;
+  --dawaa-chart-series-5: #9b752d;
+  --dawaa-chart-series-6: #a95b5b;
+  --dawaa-chart-grid: rgba(71, 90, 78, 0.13);
+  --dawaa-chart-axis: #718078;
+  --dawaa-chart-tooltip-bg: #ffffff;
+  --dawaa-chart-tooltip-text: #2c3932;
+  --dawaa-chart-tooltip-muted: #6c7971;
+  --dawaa-chart-tooltip-border: #d0ddd3;
 }
 
 html[data-theme='light'] body,
