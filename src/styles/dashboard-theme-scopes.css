@@ -92,3 +92,87 @@ html[data-theme='dark'] .customer-service-dashboard-theme {
 .customer-service-dashboard-theme [class*='bg-white/10'][class*='rounded-full'] {
   background: var(--dawaa-dashboard-track);
 }
+
+/* Customer-service personal dashboard: accents remain distinct, but derive from
+   theme/status tokens rather than fixed hex values or a permanently pink hero. */
+.customer-service-dashboard-theme .cs-personal-hero {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--dawaa-theme-primary) 8%, var(--dawaa-theme-surface)),
+      color-mix(in srgb, var(--dawaa-status-info-bg) 45%, var(--dawaa-theme-surface))
+    );
+  border-color: var(--dawaa-theme-border);
+}
+
+.customer-service-dashboard-theme .cs-quick-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--dawaa-theme-border);
+  border-radius: 1rem;
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  color: var(--dawaa-theme-heading);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.customer-service-dashboard-theme .cs-quick-link:hover {
+  transform: translateY(-1px);
+  border-color: var(--dawaa-theme-border-strong);
+}
+
+.customer-service-dashboard-theme .cs-quick-link:active {
+  transform: scale(0.98);
+}
+
+.customer-service-dashboard-theme .cs-quick-link--followups,
+.customer-service-dashboard-theme .cs-personal-icon--followups {
+  background: color-mix(in srgb, var(--dawaa-status-info-bg) 66%, var(--dawaa-theme-surface));
+  color: var(--dawaa-status-info-text);
+}
+
+.customer-service-dashboard-theme .cs-quick-link--reviews,
+.customer-service-dashboard-theme .cs-quick-link--evaluation,
+.customer-service-dashboard-theme .cs-personal-icon--reviews {
+  background: color-mix(in srgb, var(--dawaa-status-warning-bg) 72%, var(--dawaa-theme-surface));
+  color: var(--dawaa-status-warning-text);
+}
+
+.customer-service-dashboard-theme .cs-quick-link--welcome,
+.customer-service-dashboard-theme .cs-quick-link--credit,
+.customer-service-dashboard-theme .cs-personal-icon--success {
+  background: color-mix(in srgb, var(--dawaa-status-success-bg) 72%, var(--dawaa-theme-surface));
+  color: var(--dawaa-status-success-text);
+}
+
+.customer-service-dashboard-theme .cs-quick-link--requests,
+.customer-service-dashboard-theme .cs-personal-icon--info {
+  background: color-mix(in srgb, var(--dawaa-theme-primary) 12%, var(--dawaa-theme-surface));
+  color: var(--dawaa-theme-primary);
+}
+
+.customer-service-dashboard-theme .cs-quick-link--points,
+.customer-service-dashboard-theme .cs-quick-link--schedule {
+  background: var(--dawaa-theme-surface-2);
+  color: var(--dawaa-theme-heading);
+}
+
+.customer-service-dashboard-theme .cs-personal-icon {
+  display: flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dawaa-theme-border);
+  border-radius: 0.75rem;
+}
+
+.customer-service-dashboard-theme .dawaa-status-text-success {
+  color: var(--dawaa-status-success-text);
+}
+
+.customer-service-dashboard-theme .dawaa-status-text-warning {
+  color: var(--dawaa-status-warning-text);
+}
