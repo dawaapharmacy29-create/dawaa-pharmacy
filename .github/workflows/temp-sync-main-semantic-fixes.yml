@@ -1,0 +1,59 @@
+name: Temporary sync main semantic fixes
+
+on:
+  push:
+    branches:
+      - fix/final-unified-theme-pages-performance-20260822
+    paths:
+      - '.github/temp-sync-main-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply exact main semantic deltas
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const reviewsPath = 'src/lib/conversationReviews.ts';
+          let reviews = fs.readFileSync(reviewsPath, 'utf8');
+          const oldReviews = `export function baseDoctorImpactFromScore(score: number) {\n  // هيكلة جديدة (21 أغسطس 2026) بناءً على طلب صريح: سلم بسيط وواضح\n  // بدل التدرج القديم متعدد المستويات:\n  //   >= 95   ممتازة  -> +5 (أقصى مكافأة)\n  //   >= 90   قوية    -> 0  (لا تأثير، محادثة سليمة بدون تميز)\n  //   >= 85   جيدة    -> -3\n  //   < 85    ضعيفة   -> -5\n  // أي خصم إضافي عن مشكلة محددة (extraPenaltyPoints) بيتجمع على القيمة دي،\n  // لكن سقف الخصم الكلي لأي محادثة واحدة محدود بـ -20 (شوف MAX_CONVERSATION_PENALTY تحت).\n  if (score >= 95) return 5;\n  if (score >= 90) return 0;\n  if (score >= 85) return -3;\n  return -5;\n}`;
+          const newReviews = `export function baseDoctorImpactFromScore(score: number) {\n  // السلم النهائي المعتمد: 100% = +5، 90-99% = +2، 80-89% = -3، أقل من 80% = -10.\n  // ده يمنع المنطقة الميتة عند 90% ويحافظ على فرق واضح بين الأداء المقبول والخطأ الحقيقي.\n  if (score >= 100) return 5;\n  if (score >= 90) return 2;\n  if (score >= 80) return -3;\n  return -10;\n}`;
+          if (!reviews.includes(oldReviews)) throw new Error('conversation score block changed; refusing blind patch');
+          reviews = reviews.replace(oldReviews, newReviews);
+          fs.writeFileSync(reviewsPath, reviews);
+
+          const dashboardPath = 'src/pages/ExecutiveDashboard2027.tsx';
+          let dashboard = fs.readFileSync(dashboardPath, 'utf8');
+          const oldTimeout = "withTimeout(summarizeTeamTasks(new Date().toISOString().slice(0, 10), scopedBranch, user), 7000, 'daily-tasks')";
+          const newTimeout = "withTimeout(summarizeTeamTasks(new Date().toISOString().slice(0, 10), scopedBranch, user), 12000, 'daily-tasks')";
+          if (!dashboard.includes(oldTimeout)) throw new Error('dashboard task timeout marker changed; refusing blind patch');
+          dashboard = dashboard.replace(oldTimeout, newTimeout);
+          fs.writeFileSync(dashboardPath, dashboard);
+          NODE
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Validate exact changes
+        run: |
+          npm run typecheck
+          npm run test
+      - name: Commit to current branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/conversationReviews.ts src/pages/ExecutiveDashboard2027.tsx
+          git commit -m "fix: preserve main scoring and dashboard timeout" || exit 0
+          git push origin HEAD:${GITHUB_REF_NAME}
