@@ -78,13 +78,13 @@ export default function CustomerServiceDataTools() {
   }
 
   return (
-    <section className="mb-4 rounded-3xl border border-cyan-400/20 bg-cyan-500/[0.06] p-4" dir="rtl">
+    <section className="mb-4 rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)]/[0.06] p-4" dir="rtl">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-3">
-          <div className="rounded-2xl bg-cyan-500/15 p-3 text-cyan-200"><Info size={21} /></div>
+          <div className="rounded-2xl bg-[var(--dawaa-theme-accent-soft)] p-3 text-[var(--dawaa-theme-primary)]"><Info size={21} /></div>
           <div>
-            <h2 className="font-black text-white">توضيح سجل خدمة العملاء</h2>
-            <p className="mt-1 max-w-4xl text-sm leading-7 text-slate-300">
+            <h2 className="font-black text-[var(--dawaa-theme-heading)]">توضيح سجل خدمة العملاء</h2>
+            <p className="mt-1 max-w-4xl text-sm leading-7 text-[var(--dawaa-theme-muted)]">
               رقم «كل المتابعات» هو إجمالي السجل التاريخي القديم والجديد، ويشمل المكتمل والملغي والمؤرشف، وليس المطلوب تنفيذه اليوم. استخدم بطاقات «مفتوحة» و«اليوم» و«متأخرة» للعمل اليومي.
             </p>
           </div>
@@ -93,7 +93,7 @@ export default function CustomerServiceDataTools() {
           type="button"
           onClick={() => void exportFullLog()}
           disabled={exporting}
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:opacity-60"
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-[var(--dawaa-status-success-bg)] px-5 py-3 text-sm font-black text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-status-success-bg)] disabled:opacity-60"
         >
           {exporting ? <Loader2 size={18} className="animate-spin" /> : <FileSpreadsheet size={18} />}
           {exporting ? 'جاري تجهيز الملف...' : 'تصدير السجل الكامل Excel'}

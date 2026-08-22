@@ -7,6 +7,17 @@ const SRC = path.join(ROOT, 'src');
 const rows = [];
 const CANONICAL_PALETTE = 'src/styles/dawaa-theme-palettes.css';
 const CLEAN_UI_FILES = new Set([
+  'src/components/customerService/CustomerFollowupFullExportPanel.tsx',
+  'src/components/customerService/CustomerFollowupOperationsCompletionPanel.tsx',
+  'src/components/customerService/CustomerFollowupFinalQualityPanel.tsx',
+  'src/components/customerService/CustomerFollowupRecordsAndPerformance.tsx',
+  'src/components/customerService/CustomerHistoricalFollowupLedger.tsx',
+  'src/components/customerService/CustomerServiceDoctorWorkbookCenter.tsx',
+  'src/components/customerService/ExceptionalFollowupModal.tsx',
+  'src/components/common/QuickFollowupModal.tsx',
+  'src/components/customerService/SectionBoundary.tsx',
+  'src/components/customerService/CustomerServiceDataTools.tsx',
+  'src/components/customerService/CustomerServiceScriptEditor.tsx',
   'src/styles/customerServiceTheme.css',
   'src/components/customerService/ExceptionalFollowupCenter.tsx',
   'src/components/customerService/CustomerFollowupCockpitPanel.tsx',

@@ -153,19 +153,19 @@ export default function CustomerServiceScriptEditor() {
   if (!canEdit) return null;
 
   return (
-    <section className="mb-5 overflow-hidden rounded-3xl border border-cyan-400/20 bg-slate-950/45" dir="rtl">
+    <section className="mb-5 overflow-hidden rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface-2)]" dir="rtl">
       <header className="flex flex-wrap items-center justify-between gap-3 p-4">
         <div>
-          <div className="flex items-center gap-2 text-lg font-black text-white"><MessageSquareText className="text-cyan-300" size={20} />إدارة سكريبتات خدمة العملاء</div>
-          <p className="mt-1 text-xs text-slate-400">إنشاء وتعديل ونسخ السكريبتات من داخل صفحة المتابعة.</p>
+          <div className="flex items-center gap-2 text-lg font-black text-[var(--dawaa-theme-heading)]"><MessageSquareText className="text-[var(--dawaa-theme-primary)]" size={20} />إدارة سكريبتات خدمة العملاء</div>
+          <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">إنشاء وتعديل ونسخ السكريبتات من داخل صفحة المتابعة.</p>
         </div>
         <div className="flex gap-2">
           <button type="button" className="btn-secondary text-xs" onClick={startNew}><Plus size={15} className="ml-1 inline" />سكريبت جديد</button>
-          <button type="button" className="rounded-xl border border-white/10 p-2 text-slate-300" onClick={() => setExpanded((value) => !value)}><ChevronDown size={18} className={expanded ? 'rotate-180 transition' : 'transition'} /></button>
+          <button type="button" className="rounded-xl border border-[var(--dawaa-theme-border)] p-2 text-[var(--dawaa-theme-muted)]" onClick={() => setExpanded((value) => !value)}><ChevronDown size={18} className={expanded ? 'rotate-180 transition' : 'transition'} /></button>
         </div>
       </header>
 
-      {expanded && <div className="space-y-4 border-t border-white/10 p-4">
+      {expanded && <div className="space-y-4 border-t border-[var(--dawaa-theme-border)] p-4">
         <div id="customer-service-script-form" className="grid gap-3 lg:grid-cols-2">
           <input className="input-dark" value={draft.shortcut || ''} onChange={(event) => setDraft((current) => ({ ...current, shortcut: event.target.value }))} placeholder="الاختصار مثل /اطمئنان" />
           <input className="input-dark" value={draft.title || ''} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="اسم السكريبت" />
@@ -178,7 +178,7 @@ export default function CustomerServiceScriptEditor() {
           </select>
           <label className="input-dark flex items-center gap-2"><input type="checkbox" checked={draft.active !== false} onChange={(event) => setDraft((current) => ({ ...current, active: event.target.checked }))} />نشط</label>
           <textarea className="input-dark lg:col-span-2" rows={7} value={draft.message_body || ''} onChange={(event) => setDraft((current) => ({ ...current, message_body: event.target.value }))} placeholder="اكتب السكريبت هنا. المتغيرات: {{customer_name}} و {{doctor_name}}" />
-          <div className="rounded-2xl border border-cyan-400/20 bg-slate-900/70 p-4 text-sm leading-8 text-slate-100 lg:col-span-2 whitespace-pre-line">{preview}</div>
+          <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface-2)] p-4 text-sm leading-8 text-[var(--dawaa-theme-muted)] lg:col-span-2 whitespace-pre-line">{preview}</div>
           <div className="flex flex-wrap justify-end gap-2 lg:col-span-2">
             <button type="button" className="btn-secondary" onClick={() => void copyPreview(preview)}><ClipboardCopy size={15} className="ml-1 inline" />نسخ المعاينة</button>
             <button type="button" className="btn-secondary" onClick={startNew}><X size={15} className="ml-1 inline" />تفريغ</button>
@@ -192,9 +192,9 @@ export default function CustomerServiceScriptEditor() {
         </div>
 
         <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((script) => <article key={script.id} className="rounded-2xl border border-white/10 bg-slate-950/55 p-3">
-            <div className="flex items-start justify-between gap-2"><div><h3 className="font-black text-white">{script.title}</h3><p className="text-xs text-slate-400">{script.shortcut} · {script.branch || ALL_BRANCHES}</p></div><span className={script.active ? 'text-xs text-emerald-300' : 'text-xs text-slate-500'}>{script.active ? 'نشط' : 'متوقف'}</span></div>
-            <p className="mt-3 line-clamp-5 whitespace-pre-line text-sm leading-7 text-slate-300">{script.message_body}</p>
+          {filtered.map((script) => <article key={script.id} className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
+            <div className="flex items-start justify-between gap-2"><div><h3 className="font-black text-[var(--dawaa-theme-heading)]">{script.title}</h3><p className="text-xs text-[var(--dawaa-theme-muted)]">{script.shortcut} · {script.branch || ALL_BRANCHES}</p></div><span className={script.active ? 'text-xs text-[var(--dawaa-status-success-text)]' : 'text-xs text-[var(--dawaa-theme-muted)]'}>{script.active ? 'نشط' : 'متوقف'}</span></div>
+            <p className="mt-3 line-clamp-5 whitespace-pre-line text-sm leading-7 text-[var(--dawaa-theme-muted)]">{script.message_body}</p>
             <div className="mt-3 grid grid-cols-3 gap-2">
               <button type="button" className="btn-secondary text-xs" onClick={() => edit(script)}>تعديل</button>
               <button type="button" className="btn-secondary text-xs" onClick={() => duplicate(script)}><CopyPlus size={14} className="ml-1 inline" />نسخة</button>

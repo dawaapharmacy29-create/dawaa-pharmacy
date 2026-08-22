@@ -327,22 +327,22 @@ export default function QuickFollowupModal({
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center" dir="rtl">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-cyan-400/20 bg-slate-950 p-5 shadow-2xl">
+      <div className="absolute inset-0 bg-[var(--dawaa-theme-surface-2)] backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface-2)] p-5 shadow-2xl">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-xl font-black text-white">المتابعات الاستثنائية</h3>
-            <p className="mt-1 text-sm text-slate-400">نفّذ متابعة كاملة الآن، أو سجّل طلبًا ليتم تنفيذه لاحقًا.</p>
+            <h3 className="text-xl font-black text-[var(--dawaa-theme-heading)]">المتابعات الاستثنائية</h3>
+            <p className="mt-1 text-sm text-[var(--dawaa-theme-muted)]">نفّذ متابعة كاملة الآن، أو سجّل طلبًا ليتم تنفيذه لاحقًا.</p>
           </div>
-          <button type="button" className="rounded-xl border border-slate-700 p-2 text-slate-200 hover:bg-slate-800" onClick={onClose} aria-label="إغلاق"><X className="h-4 w-4" /></button>
+          <button type="button" className="rounded-xl border border-[var(--dawaa-theme-border)] p-2 text-[var(--dawaa-theme-muted)] hover:bg-[var(--dawaa-theme-surface-2)]" onClick={onClose} aria-label="إغلاق"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="mb-5 grid gap-3 md:grid-cols-2">
-          <button type="button" onClick={() => setMode('execute')} className={`rounded-2xl border p-4 text-right ${mode === 'execute' ? 'border-emerald-400 bg-emerald-500/15 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'}`}>
+          <button type="button" onClick={() => setMode('execute')} className={`rounded-2xl border p-4 text-right ${mode === 'execute' ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]'}`}>
             <span className="block text-base font-black">متابعة استثنائية سريعة</span>
             <span className="mt-1 block text-xs">اختيار العميل، عرض بياناته، تسجيل التواصل والنتيجة فورًا.</span>
           </button>
-          <button type="button" onClick={() => setMode('request')} className={`rounded-2xl border p-4 text-right ${mode === 'request' ? 'border-cyan-400 bg-cyan-500/15 text-cyan-100' : 'border-slate-700 bg-slate-900 text-slate-300'}`}>
+          <button type="button" onClick={() => setMode('request')} className={`rounded-2xl border p-4 text-right ${mode === 'request' ? 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]'}`}>
             <span className="block text-base font-black">تسجيل طلب متابعة استثنائية</span>
             <span className="mt-1 block text-xs">إنشاء طلب بمسؤول وموعد ليظهر في سجل الطلبات.</span>
           </button>
@@ -350,18 +350,18 @@ export default function QuickFollowupModal({
 
         <div className="relative mb-3">
           <input className="input-dark" placeholder="ابحث بالاسم أو الهاتف أو كود العميل" value={search} onChange={(event) => setSearch(event.target.value)} />
-          {searching && <div className="mt-1 text-xs text-slate-400">جارٍ البحث...</div>}
-          {results.length > 0 && <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-700 bg-slate-800 shadow-xl">
-            {results.map((customer) => <button key={customer.id} type="button" className="block w-full border-b border-slate-700 px-3 py-2 text-right text-sm text-white last:border-0 hover:bg-slate-700" onClick={() => selectCustomer(customer)}>
+          {searching && <div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">جارٍ البحث...</div>}
+          {results.length > 0 && <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] shadow-xl">
+            {results.map((customer) => <button key={customer.id} type="button" className="block w-full border-b border-[var(--dawaa-theme-border)] px-3 py-2 text-right text-sm text-[var(--dawaa-theme-heading)] last:border-0 hover:bg-[var(--dawaa-theme-surface-2)]" onClick={() => selectCustomer(customer)}>
               <span className="block font-semibold">{customer.name || 'بدون اسم'}</span>
-              <span className="text-xs text-slate-400">{[customer.phone, customer.customer_code, customer.branch].filter(Boolean).join(' — ')}</span>
+              <span className="text-xs text-[var(--dawaa-theme-muted)]">{[customer.phone, customer.customer_code, customer.branch].filter(Boolean).join(' — ')}</span>
             </button>)}
           </div>}
         </div>
 
-        {mode === 'execute' && selectedCustomer && <div className="mb-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><strong className="text-emerald-100">بيانات العميل قبل المتابعة</strong><a className="text-sm font-bold text-cyan-300 underline" href={`/customer-360?customerId=${encodeURIComponent(selectedCustomer.id)}&code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`} target="_blank" rel="noreferrer">فتح ملف العميل 360</a></div>
-          <div className="grid gap-2 text-sm text-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+        {mode === 'execute' && selectedCustomer && <div className="mb-4 rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><strong className="text-[var(--dawaa-status-success-text)]">بيانات العميل قبل المتابعة</strong><a className="text-sm font-bold text-[var(--dawaa-theme-primary)] underline" href={`/customer-360?customerId=${encodeURIComponent(selectedCustomer.id)}&code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`} target="_blank" rel="noreferrer">فتح ملف العميل 360</a></div>
+          <div className="grid gap-2 text-sm text-[var(--dawaa-theme-muted)] sm:grid-cols-2 lg:grid-cols-4">
             <div>الاسم: <b>{name || 'غير مسجل'}</b></div><div>الكود: <b>{code || 'غير مسجل'}</b></div><div>الهاتف: <b>{phone || 'غير مسجل'}</b></div><div>الفرع: <b>{selectedCustomer.branch || branch}</b></div>
             <div>إجمالي المشتريات: <b>{Number(selectedCustomer.total_spent || 0).toLocaleString('ar-EG')} ج.م</b></div><div>المتوسط الشهري: <b>{Number(selectedCustomer.avg_monthly || 0).toLocaleString('ar-EG')} ج.م</b></div><div>متوسط الفاتورة: <b>{Number(selectedCustomer.avg_invoice || 0).toLocaleString('ar-EG')} ج.م</b></div><div>عدد الفواتير: <b>{Number(selectedCustomer.invoices_count || 0).toLocaleString('ar-EG')}</b></div>
             <div className="sm:col-span-2">آخر شراء: <b>{selectedCustomer.last_purchase || 'غير متاح'}</b></div><div className="sm:col-span-2">التصنيف: <b>{selectedCustomer.segment || 'غير محدد'}</b></div>
@@ -407,12 +407,12 @@ export default function QuickFollowupModal({
             <input className="input-dark" type="date" value={nextFollowup} onChange={(event) => setNextFollowup(event.target.value)} aria-label="موعد المتابعة القادمة" />
             <textarea className="input-dark md:col-span-2" placeholder="ما تم مع العميل وملخص المحادثة *" value={summary} onChange={(event) => setSummary(event.target.value)} rows={4} required />
             <textarea className="input-dark md:col-span-2" placeholder="ملاحظات إضافية" value={note} onChange={(event) => setNote(event.target.value)} rows={2} />
-            <label className="flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-3 text-sm text-slate-200"><input type="checkbox" checked={purchaseAfter} onChange={(event) => setPurchaseAfter(event.target.checked)} /> تمت عملية شراء بعد المتابعة</label>
+            <label className="flex items-center gap-2 rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-3 text-sm text-[var(--dawaa-theme-muted)]"><input type="checkbox" checked={purchaseAfter} onChange={(event) => setPurchaseAfter(event.target.checked)} /> تمت عملية شراء بعد المتابعة</label>
             <input className="input-dark" type="number" min="0" step="0.01" placeholder="قيمة عملية الشراء" value={purchaseAmount} onChange={(event) => setPurchaseAmount(event.target.value)} disabled={!purchaseAfter} />
           </>}
         </div>
 
-        <p className="my-3 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100">{mode === 'execute' ? 'اختر العميل من البحث ثم سجّل نتيجة التواصل كاملة. ستظهر في سجل المتابعات الاستثنائية المنفذة.' : 'هذا المسار يسجل طلبًا فقط، وسيظهر في سجل طلبات المتابعة الاستثنائية حتى يتم تنفيذه.'}</p>
+        <p className="my-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-xs font-bold text-[var(--dawaa-status-warning-text)]">{mode === 'execute' ? 'اختر العميل من البحث ثم سجّل نتيجة التواصل كاملة. ستظهر في سجل المتابعات الاستثنائية المنفذة.' : 'هذا المسار يسجل طلبًا فقط، وسيظهر في سجل طلبات المتابعة الاستثنائية حتى يتم تنفيذه.'}</p>
         <div className="flex flex-wrap justify-end gap-2"><button className="btn-secondary" onClick={onClose}>إلغاء</button><button className="btn-primary disabled:opacity-60" onClick={() => void submit()} disabled={loading}>{loading ? 'جارٍ الحفظ...' : mode === 'execute' ? 'حفظ المتابعة المنفذة' : 'تسجيل طلب المتابعة'}</button></div>
       </div>
     </div>

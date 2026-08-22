@@ -257,14 +257,14 @@ export default function CustomerFollowupOperationsCompletionPanel() {
   }
 
   return (
-    <section className="space-y-4 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
+    <section className="space-y-4 rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xl font-black text-white">
-            <ShieldCheck size={22} className="text-cyan-300" />
+          <div className="flex items-center gap-2 text-xl font-black text-[var(--dawaa-theme-heading)]">
+            <ShieldCheck size={22} className="text-[var(--dawaa-theme-primary)]" />
             مركز تشغيل ومراجعة متابعات العملاء
           </div>
-          <p className="mt-1 text-sm font-bold text-slate-400">
+          <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">
             أداء اليوم، تصحيح بيانات العملاء، سجل التعديلات ودمج التكرارات تحت مراجعة الإدارة.
           </p>
         </div>
@@ -276,7 +276,7 @@ export default function CustomerFollowupOperationsCompletionPanel() {
               <option>فرع شكري</option>
             </select>
           ) : (
-            <div className="input-dark font-black text-cyan-100">{userBranch}</div>
+            <div className="input-dark font-black text-[var(--dawaa-theme-primary)]">{userBranch}</div>
           )}
           <input className="input-dark" type="date" value={day} onChange={(event) => setDay(event.target.value)} />
           <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void loadAll()} disabled={loading}>
@@ -293,9 +293,9 @@ export default function CustomerFollowupOperationsCompletionPanel() {
         <Stat label="تحتاج مديرًا" value={totals.manager} icon={AlertTriangle} />
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-white/10">
+      <div className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)]">
         <table className="min-w-full text-sm">
-          <thead className="bg-white/5 text-right text-xs font-black text-slate-300">
+          <thead className="bg-[var(--dawaa-theme-surface-2)] text-right text-xs font-black text-[var(--dawaa-theme-muted)]">
             <tr>
               <th className="p-3">المسؤول</th>
               <th className="p-3">الفرع</th>
@@ -310,29 +310,29 @@ export default function CustomerFollowupOperationsCompletionPanel() {
           </thead>
           <tbody>
             {performance.map((row) => (
-              <tr key={`${row.responsible_name}-${row.branch}`} className="border-t border-white/5 text-slate-100">
+              <tr key={`${row.responsible_name}-${row.branch}`} className="border-t border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]">
                 <td className="p-3 font-black">{row.responsible_name}</td>
                 <td className="p-3">{row.branch}</td>
                 <td className="p-3">{metric(row.total_count)}</td>
-                <td className="p-3 text-emerald-300">{metric(row.completed_count)}</td>
-                <td className="p-3 text-amber-300">{metric(row.open_count)}</td>
+                <td className="p-3 text-[var(--dawaa-status-success-text)]">{metric(row.completed_count)}</td>
+                <td className="p-3 text-[var(--dawaa-status-warning-text)]">{metric(row.open_count)}</td>
                 <td className="p-3">{metric(row.no_answer_count)}</td>
                 <td className="p-3">{metric(row.postponed_count)}</td>
-                <td className="p-3 text-red-300">{metric(row.manager_count)}</td>
+                <td className="p-3 text-[var(--dawaa-status-danger-text)]">{metric(row.manager_count)}</td>
                 <td className="p-3">{row.avg_close_hours == null ? 'غير متاح' : `${row.avg_close_hours} س`}</td>
               </tr>
             ))}
             {!loading && performance.length === 0 ? (
-              <tr><td colSpan={9} className="p-6 text-center font-bold text-slate-400">لا توجد بيانات في اليوم المحدد</td></tr>
+              <tr><td colSpan={9} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات في اليوم المحدد</td></tr>
             ) : null}
           </tbody>
         </table>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="mb-3 flex items-center gap-2 text-lg font-black text-white">
-            <UserRoundCog size={19} className="text-cyan-300" />
+        <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]/[0.03] p-4">
+          <div className="mb-3 flex items-center gap-2 text-lg font-black text-[var(--dawaa-theme-heading)]">
+            <UserRoundCog size={19} className="text-[var(--dawaa-theme-primary)]" />
             تصحيح بيانات العميل
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -353,22 +353,22 @@ export default function CustomerFollowupOperationsCompletionPanel() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]/[0.03] p-4">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-lg font-black text-white">
-              <Merge size={19} className="text-amber-300" />
+            <div className="flex items-center gap-2 text-lg font-black text-[var(--dawaa-theme-heading)]">
+              <Merge size={19} className="text-[var(--dawaa-status-warning-text)]" />
               التكرارات المفتوحة
             </div>
-            <span className="rounded-full bg-amber-500/15 px-3 py-1 text-xs font-black text-amber-200">{duplicates.length} مجموعة</span>
+            <span className="rounded-full bg-[var(--dawaa-status-warning-bg)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{duplicates.length} مجموعة</span>
           </div>
           <div className="max-h-96 space-y-2 overflow-auto">
             {duplicates.map((group) => (
-              <div key={`${group.identity_key}-${group.branch}-${group.request_type}`} className="rounded-xl border border-white/10 bg-[#102b46] p-3">
+              <div key={`${group.identity_key}-${group.branch}-${group.request_type}`} className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <div className="font-black text-white">{group.customer_name || 'عميل غير مسجل'}</div>
-                    <div className="mt-1 text-xs font-bold text-slate-400">{group.customer_code || 'بدون كود'} · {group.customer_phone || 'بدون هاتف'} · {group.branch}</div>
-                    <div className="mt-1 text-xs font-bold text-amber-200">{group.open_count} متابعات مفتوحة · الأساسية {group.canonical_id}</div>
+                    <div className="font-black text-[var(--dawaa-theme-heading)]">{group.customer_name || 'عميل غير مسجل'}</div>
+                    <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{group.customer_code || 'بدون كود'} · {group.customer_phone || 'بدون هاتف'} · {group.branch}</div>
+                    <div className="mt-1 text-xs font-bold text-[var(--dawaa-status-warning-text)]">{group.open_count} متابعات مفتوحة · الأساسية {group.canonical_id}</div>
                   </div>
                   <button type="button" className="btn-secondary text-xs" disabled={!canMerge || mergingKey === group.identity_key} onClick={() => void mergeDuplicates(group)}>
                     {mergingKey === group.identity_key ? 'جارٍ الدمج' : 'مراجعة ودمج'}
@@ -376,30 +376,30 @@ export default function CustomerFollowupOperationsCompletionPanel() {
                 </div>
               </div>
             ))}
-            {!loading && duplicates.length === 0 ? <div className="p-6 text-center font-bold text-emerald-300">لا توجد تكرارات مفتوحة حاليًا</div> : null}
+            {!loading && duplicates.length === 0 ? <div className="p-6 text-center font-bold text-[var(--dawaa-status-success-text)]">لا توجد تكرارات مفتوحة حاليًا</div> : null}
           </div>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]/[0.03] p-4">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 text-lg font-black text-white">
-            <ClipboardCheck size={19} className="text-teal-300" />
+          <div className="flex items-center gap-2 text-lg font-black text-[var(--dawaa-theme-heading)]">
+            <ClipboardCheck size={19} className="text-[var(--dawaa-theme-primary)]" />
             آخر تعديلات المتابعات
           </div>
           <div className="relative">
-            <Search size={15} className="absolute right-3 top-3 text-slate-400" />
+            <Search size={15} className="absolute right-3 top-3 text-[var(--dawaa-theme-muted)]" />
             <input className="input-dark pr-9" placeholder="بحث في السجل" value={auditSearch} onChange={(event) => setAuditSearch(event.target.value)} />
           </div>
         </div>
-        <div className="max-h-96 overflow-auto rounded-xl border border-white/5">
+        <div className="max-h-96 overflow-auto rounded-xl border border-[var(--dawaa-theme-border)]">
           <table className="min-w-full text-sm">
-            <thead className="sticky top-0 bg-[#112a44] text-right text-xs font-black text-slate-300">
+            <thead className="sticky top-0 bg-[var(--dawaa-theme-surface)] text-right text-xs font-black text-[var(--dawaa-theme-muted)]">
               <tr><th className="p-3">الوقت</th><th className="p-3">الإجراء</th><th className="p-3">المتابعة</th><th className="p-3">المنفذ</th><th className="p-3">الفرع</th></tr>
             </thead>
             <tbody>
               {filteredAudit.map((row) => (
-                <tr key={row.id} className="border-t border-white/5 text-slate-100">
+                <tr key={row.id} className="border-t border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]">
                   <td className="p-3 whitespace-nowrap">{new Date(row.created_at).toLocaleString('ar-EG')}</td>
                   <td className="p-3 font-black">{actionLabel(row.action)}</td>
                   <td className="p-3 font-mono text-xs">{row.followup_id}</td>
@@ -407,7 +407,7 @@ export default function CustomerFollowupOperationsCompletionPanel() {
                   <td className="p-3">{row.branch || 'غير محدد'}</td>
                 </tr>
               ))}
-              {!loading && filteredAudit.length === 0 ? <tr><td colSpan={5} className="p-6 text-center font-bold text-slate-400">لا توجد تعديلات مطابقة</td></tr> : null}
+              {!loading && filteredAudit.length === 0 ? <tr><td colSpan={5} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد تعديلات مطابقة</td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -418,12 +418,12 @@ export default function CustomerFollowupOperationsCompletionPanel() {
 
 function Stat({ label, value, icon: Icon }: { label: string; value: number; icon: typeof Activity }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]/[0.04] p-4">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-black text-slate-400">{label}</div>
-        <Icon size={18} className="text-cyan-300" />
+        <div className="text-xs font-black text-[var(--dawaa-theme-muted)]">{label}</div>
+        <Icon size={18} className="text-[var(--dawaa-theme-primary)]" />
       </div>
-      <div className="mt-2 text-3xl font-black text-white">{value.toLocaleString('ar-EG')}</div>
+      <div className="mt-2 text-3xl font-black text-[var(--dawaa-theme-heading)]">{value.toLocaleString('ar-EG')}</div>
     </div>
   );
 }
