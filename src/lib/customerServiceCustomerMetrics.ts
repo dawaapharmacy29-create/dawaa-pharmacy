@@ -35,6 +35,7 @@ export type CustomerServiceLiveMetrics = {
 
 type CacheEntry = { at: number; data: CustomerServiceLiveMetrics };
 const cache = new Map<string, CacheEntry>();
+const inFlight = new Map<string, Promise<CustomerServiceLiveMetrics | null>>();
 
 export type CustomerMetricsLookup = {
   customer_id?: string | number | null;
@@ -186,22 +187,32 @@ export async function getCustomerServiceLiveMetrics(
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.data;
 
-  try {
-    const result = await readCustomerInvoices({
-      customerId: input.customer_id,
-      customerCode: input.customer_code,
-      customerPhone: input.customer_phone,
-      customerName: input.customer_name,
-    });
-    if (!result.rows.length) return null;
+  const pending = inFlight.get(key);
+  if (pending) return pending;
 
-    const metrics = summarizeInvoices(result.rows, result.matchedBy);
-    cache.set(key, { at: Date.now(), data: metrics });
-    return metrics;
-  } catch (error) {
-    if (import.meta.env.DEV) console.warn('[customerServiceCustomerMetrics] failed', error);
-    return null;
-  }
+  const request = (async () => {
+    try {
+      const result = await readCustomerInvoices({
+        customerId: input.customer_id,
+        customerCode: input.customer_code,
+        customerPhone: input.customer_phone,
+        customerName: input.customer_name,
+      });
+      if (!result.rows.length) return null;
+
+      const metrics = summarizeInvoices(result.rows, result.matchedBy);
+      cache.set(key, { at: Date.now(), data: metrics });
+      return metrics;
+    } catch (error) {
+      if (import.meta.env.DEV) console.warn('[customerServiceCustomerMetrics] failed', error);
+      return null;
+    } finally {
+      inFlight.delete(key);
+    }
+  })();
+
+  inFlight.set(key, request);
+  return request;
 }
 
 export async function batchEnrichCustomerServiceMetrics(
@@ -233,6 +244,7 @@ export async function batchEnrichCustomerServiceMetrics(
 
 export function clearCustomerServiceMetricsCache() {
   cache.clear();
+  inFlight.clear();
 }
 
 export function useCustomerServiceMetricsEnrichment(items: CustomerMetricsLookup[]) {
