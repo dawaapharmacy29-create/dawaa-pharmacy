@@ -71,6 +71,7 @@ const hardcodedPalette = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
 const declarationPalette = /:\s*(?:#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\()/g;
 const paletteNeutralFiles = [
   'src/index.css',
+  'src/styles/dawaa-theme-foundation.css',
   'src/styles/dawaa-theme-components.css',
   'src/styles/dawaa-theme-tokens.css',
   'src/styles/dawaa-theme-shell.css',
@@ -145,4 +146,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log(`Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral base/global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
+console.log(`Theme architecture OK: one data-theme runtime, canonical palette ownership, palette-neutral foundation/base/global utilities, canonical bootstrap, zero hard-coded chrome hex colors, and ${arbitrarySelectorCount} tracked arbitrary legacy selector(s).`);
