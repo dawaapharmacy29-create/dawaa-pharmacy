@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, Loader2, ShieldAlert } from 'lucide-react';
 import { fetchBranchesManagerExceptions, type ManagerException } from '@/lib/evaluations/branchesManagerExceptions';
 
-const SEVERITY_STYLES: Record<string, string> = {
-  حرجة: 'border-red-500/40 bg-red-500/10 text-red-200',
-  مهمة: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
-  عادية: 'border-slate-500/40 bg-slate-500/10 text-slate-200',
+const SEVERITY_BADGES: Record<string, string> = {
+  حرجة: 'dawaa-badge--danger',
+  مهمة: 'dawaa-badge--warning',
+  عادية: 'dawaa-badge--info',
 };
 
 export function BranchesManagerExceptionsPanel({ branchScope }: { branchScope: string | null }) {
@@ -37,32 +37,45 @@ export function BranchesManagerExceptionsPanel({ branchScope }: { branchScope: s
   const sorted = [...critical, ...important];
 
   return (
-    <div className="rounded-2xl border border-red-500/25 bg-gradient-to-br from-red-950/30 to-slate-900/40 p-4">
-      <div className="flex items-center gap-2">
-        <ShieldAlert size={18} className="text-red-300" />
-        <h2 className="text-lg font-black text-white">يحتاج تدخلك الآن</h2>
-        {!loading && <span className="text-xs text-slate-400">({sorted.length})</span>}
+    <div className="dawaa-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <div className="dawaa-icon-tile h-9 w-9"><ShieldAlert size={18} /></div>
+          <div>
+            <h2 className="dawaa-title text-lg">يحتاج تدخلك الآن</h2>
+            <p className="dawaa-caption mt-1 text-xs">
+              استثناءات فقط — مش تقرير شامل. لو الصفحة فاضية يبقى مفيش حاجة عاجلة النهاردة.
+            </p>
+          </div>
+        </div>
+        {!loading ? (
+          <span className={`dawaa-badge ${critical.length ? 'dawaa-badge--danger' : sorted.length ? 'dawaa-badge--warning' : 'dawaa-badge--success'}`}>
+            {sorted.length} استثناء
+          </span>
+        ) : null}
       </div>
-      <p className="mt-1 text-xs text-slate-400">استثناءات فقط — مش تقرير شامل. لو الصفحة فاضية يبقى مفيش حاجة عاجلة النهاردة.</p>
 
       {loading ? (
-        <div className="mt-3 flex items-center gap-2 text-sm text-slate-400">
+        <div className="dawaa-caption mt-3 flex items-center gap-2 text-sm">
           <Loader2 size={16} className="animate-spin" /> جارٍ الفحص...
         </div>
       ) : error ? (
-        <p className="mt-3 text-sm text-red-400">{error}</p>
+        <div className="dawaa-alert dawaa-alert--danger mt-3 text-sm">{error}</div>
       ) : !sorted.length ? (
-        <p className="mt-3 text-sm text-emerald-300">مفيش استثناءات مفتوحة دلوقتي 🎉</p>
+        <div className="dawaa-alert dawaa-alert--success mt-3 text-sm">مفيش استثناءات مفتوحة دلوقتي 🎉</div>
       ) : (
         <div className="mt-3 space-y-2">
           {sorted.map((item) => (
-            <div key={item.id} className={`flex items-start gap-2 rounded-xl border p-3 text-sm ${SEVERITY_STYLES[item.severity]}`}>
-              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              <div>
-                <div className="font-black">
-                  {item.title} — {item.branch}
+            <div key={item.id} className="dawaa-card dawaa-card--soft flex items-start gap-3 p-3 text-sm">
+              <AlertTriangle size={16} className="dawaa-muted mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="dawaa-title text-sm">{item.title} — {item.branch}</span>
+                  <span className={`dawaa-badge ${SEVERITY_BADGES[item.severity] || 'dawaa-badge--info'}`}>
+                    {item.severity}
+                  </span>
                 </div>
-                <div className="mt-0.5 text-xs opacity-90">{item.detail}</div>
+                <div className="dawaa-caption mt-1 text-xs leading-5">{item.detail}</div>
               </div>
             </div>
           ))}
