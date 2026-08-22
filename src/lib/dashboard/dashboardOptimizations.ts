@@ -1,69 +1,35 @@
 import type { DashboardSalesTruth } from '@/lib/dashboard/dashboardTruthService';
 
-// Versioned after the 2026-08-21 sales-truth recovery so an old session can never
-// keep showing totals calculated with the previous exclusion/fallback rules.
-const DASHBOARD_CACHE_KEY = 'dawaa_dashboard_cache_v3_resilient_20260822';
-// The dashboard is operationally more useful with a slightly stale snapshot than with
-// a blank/crashed screen while Supabase or the pharmacy network is temporarily slow.
-// Fresh data is still requested by the page; this TTL only controls whether the last
-// known-good snapshot can be used as an immediate/fallback render.
-const DASHBOARD_CACHE_STALE_TIME = 15 * 60 * 1000;
-
-export type DashboardCacheEntry = {
-  state: any;
-  timestamp: number;
-  branch: string;
-  dateRange: { start: string; end: string };
-};
-
-function buildDashboardCacheKey(
-  branch: string,
-  dateRange: { start: string; end: string },
-  userRole?: string
-) {
-  return `${DASHBOARD_CACHE_KEY}__${branch}__${dateRange.start}__${dateRange.end}__${userRole || ''}`;
-}
-
+/**
+ * Legacy dashboard session snapshots are intentionally retired.
+ *
+ * The executive dashboard now gets its sales truth from dashboardTruthService,
+ * which owns the bounded/server-side data path and its own request caching.
+ * The old page-level sessionStorage snapshot became unsafe after that migration:
+ * the page could write a stale React closure after fresh data had already been
+ * rendered, while the corresponding read result was no longer applied by the
+ * page. Keeping those writes only created stale-data debt and storage churn.
+ *
+ * These compatibility functions remain so older imports do not need a risky
+ * large-file rewrite. They deliberately do not hydrate or persist dashboard
+ * state anymore. clearDashboardCache still removes historical snapshots left
+ * by older deployments.
+ */
 export function saveDashboardCache(
-  state: any,
-  branch: string,
-  dateRange: { start: string; end: string },
-  userRole?: string
+  _state: unknown,
+  _branch: string,
+  _dateRange: { start: string; end: string },
+  _userRole?: string
 ): void {
-  if (typeof sessionStorage === 'undefined') return;
-  try {
-    const entry: DashboardCacheEntry = { state, timestamp: Date.now(), branch, dateRange };
-    sessionStorage.setItem(buildDashboardCacheKey(branch, dateRange, userRole), JSON.stringify(entry));
-  } catch (error) {
-    // sessionStorage quota failures must never break the dashboard itself.
-    console.debug('[Dashboard Cache] Failed to save cache:', error);
-  }
+  // No-op by design. dashboardTruthService is the canonical cache/data owner.
 }
 
 export function loadDashboardCache(
-  branch: string,
-  dateRange: { start: string; end: string },
-  userRole?: string
-): any | null {
-  if (typeof sessionStorage === 'undefined') return null;
-  try {
-    const key = buildDashboardCacheKey(branch, dateRange, userRole);
-    const cached = sessionStorage.getItem(key);
-    if (!cached) return null;
-    const entry: DashboardCacheEntry = JSON.parse(cached);
-    if (!entry?.state || !Number.isFinite(Number(entry.timestamp))) {
-      sessionStorage.removeItem(key);
-      return null;
-    }
-    if (Date.now() - Number(entry.timestamp) > DASHBOARD_CACHE_STALE_TIME) {
-      sessionStorage.removeItem(key);
-      return null;
-    }
-    return entry.state;
-  } catch (error) {
-    console.debug('[Dashboard Cache] Failed to load cache:', error);
-    return null;
-  }
+  _branch: string,
+  _dateRange: { start: string; end: string },
+  _userRole?: string
+): null {
+  return null;
 }
 
 export function clearDashboardCache(): void {
@@ -74,28 +40,12 @@ export function clearDashboardCache(): void {
       if (key && key.startsWith('dawaa_dashboard_cache_')) sessionStorage.removeItem(key);
     }
   } catch (error) {
-    console.debug('[Dashboard Cache] Failed to clear cache:', error);
+    console.debug('[Dashboard Cache] Failed to clear legacy cache:', error);
   }
 }
 
 export function getDashboardCacheTimestamp(): Date | null {
-  if (typeof sessionStorage === 'undefined') return null;
-  try {
-    let latest: number | null = null;
-    for (let i = 0; i < sessionStorage.length; i += 1) {
-      const key = sessionStorage.key(i) || '';
-      if (!key.startsWith(DASHBOARD_CACHE_KEY)) continue;
-      try {
-        const entry: DashboardCacheEntry = JSON.parse(sessionStorage.getItem(key) || '{}');
-        if (entry?.timestamp && (latest === null || entry.timestamp > latest)) latest = entry.timestamp;
-      } catch {
-        // Ignore malformed cache entries.
-      }
-    }
-    return latest ? new Date(latest) : null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export function ensureValidDashboardData(data: Partial<DashboardSalesTruth>): DashboardSalesTruth {
@@ -125,8 +75,10 @@ export function ensureValidDashboardData(data: Partial<DashboardSalesTruth>): Da
       difference: data.reconciliation?.difference ?? 0,
       invoicesCount: data.reconciliation?.invoicesCount ?? 0,
       rowsRead: data.reconciliation?.rowsRead ?? 0,
-      selectedStartDate: data.reconciliation?.selectedStartDate ?? new Date().toISOString().slice(0, 10),
-      selectedEndDate: data.reconciliation?.selectedEndDate ?? new Date().toISOString().slice(0, 10),
+      selectedStartDate:
+        data.reconciliation?.selectedStartDate ?? new Date().toISOString().slice(0, 10),
+      selectedEndDate:
+        data.reconciliation?.selectedEndDate ?? new Date().toISOString().slice(0, 10),
       branchesIncluded: data.reconciliation?.branchesIncluded || [],
       firstInvoiceDate: data.reconciliation?.firstInvoiceDate || null,
       lastInvoiceDate: data.reconciliation?.lastInvoiceDate || null,
