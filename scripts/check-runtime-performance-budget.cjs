@@ -8,14 +8,14 @@ const DIST = path.join(ROOT, 'dist');
 const MANIFEST = path.join(DIST, '.vite', 'manifest.json');
 
 // 300 KiB gzip is intentionally strict enough that a hidden PDF/Excel dependency
-// cannot disappear inside vendor and still pass merely because its chunk name changed.
+// cannot disappear inside a shared chunk and still pass merely because its name changed.
 const INITIAL_GZIP_LIMIT = 300 * 1024;
 const ROUTE_GZIP_LIMIT = 100 * 1024;
-const HEAVY_CHUNK_LIMITS = {
-  excel: 500 * 1024,
-  pdf: 200 * 1024,
-  charts: 150 * 1024,
-};
+const HEAVY_TOOL_RULES = [
+  { name: 'excel', limit: 500 * 1024, prefixes: ['excel'] },
+  { name: 'pdf', limit: 200 * 1024, prefixes: ['pdf', 'jspdf', 'html2canvas'] },
+  { name: 'charts', limit: 150 * 1024, prefixes: ['charts'] },
+];
 
 if (!fs.existsSync(MANIFEST)) {
   throw new Error('Missing Vite manifest. Build must use build.manifest=true before performance budget checks.');
@@ -51,6 +51,11 @@ function collectStaticGraph(entry, seen = new Set()) {
   return seen;
 }
 
+function matchesPrefix(file, prefixes) {
+  const base = path.basename(file);
+  return prefixes.some((prefix) => base.startsWith(`${prefix}-`) || base.startsWith(`${prefix}.`) || base.startsWith(`${prefix}_`));
+}
+
 const entry = findEntry();
 if (!entry) throw new Error('Could not find Vite entry chunk in manifest.');
 
@@ -62,29 +67,29 @@ if (initialGzip > INITIAL_GZIP_LIMIT) {
   failures.push(`Initial JS graph is ${(initialGzip / 1024).toFixed(1)} KiB gzip; limit is ${(INITIAL_GZIP_LIMIT / 1024).toFixed(0)} KiB.`);
 }
 
-for (const heavyName of Object.keys(HEAVY_CHUNK_LIMITS)) {
-  const leaked = [...initialFiles].filter((file) => path.basename(file).startsWith(`${heavyName}-`));
-  if (leaked.length) failures.push(`${heavyName} leaked into the initial static graph: ${leaked.join(', ')}`);
-}
+for (const rule of HEAVY_TOOL_RULES) {
+  const leaked = [...initialFiles].filter((file) => matchesPrefix(file, rule.prefixes));
+  if (leaked.length) failures.push(`${rule.name} leaked into the initial static graph: ${leaked.join(', ')}`);
 
-for (const [name, limit] of Object.entries(HEAVY_CHUNK_LIMITS)) {
-  const matches = [...byFile.keys()].filter((file) => path.basename(file).startsWith(`${name}-`));
+  const matches = [...byFile.keys()].filter((file) => matchesPrefix(file, rule.prefixes));
   for (const file of matches) {
     const size = gzipBytes(file);
-    if (size > limit) failures.push(`${file} is ${(size / 1024).toFixed(1)} KiB gzip; ${name} budget is ${(limit / 1024).toFixed(0)} KiB.`);
+    if (size > rule.limit) {
+      failures.push(`${file} is ${(size / 1024).toFixed(1)} KiB gzip; ${rule.name} budget is ${(rule.limit / 1024).toFixed(0)} KiB.`);
+    }
   }
 }
 
 const sharedPrefixes = new Set([
   'react-core', 'router', 'supabase', 'query', 'charts', 'forms', 'date-fns', 'radix',
-  'icons', 'motion', 'maps', 'excel', 'pdf', 'qrcode', 'calendar', 'upload', 'virtual-list',
-  'carousel', 'state', 'ui-feedback', 'vendor',
+  'icons', 'motion', 'maps', 'excel', 'pdf', 'jspdf', 'html2canvas', 'qrcode', 'calendar',
+  'upload', 'virtual-list', 'carousel', 'state', 'ui-feedback', 'vendor',
 ]);
 
 for (const file of byFile.keys()) {
   if (!file.endsWith('.js')) continue;
   const base = path.basename(file);
-  if ([...sharedPrefixes].some((prefix) => base.startsWith(`${prefix}-`))) continue;
+  if ([...sharedPrefixes].some((prefix) => base.startsWith(`${prefix}-`) || base.startsWith(`${prefix}.`) || base.startsWith(`${prefix}_`))) continue;
   const size = gzipBytes(file);
   if (size > ROUTE_GZIP_LIMIT) failures.push(`${file} is ${(size / 1024).toFixed(1)} KiB gzip; route/module budget is ${(ROUTE_GZIP_LIMIT / 1024).toFixed(0)} KiB.`);
 }
