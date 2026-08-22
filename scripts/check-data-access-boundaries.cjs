@@ -8,7 +8,6 @@ const ROOT = path.join(process.cwd(), 'src');
 // in the same PR, so legacy debt can only move intentionally toward zero.
 const LEGACY_DIRECT_INVOICE_READER_BUDGETS = new Map([
   ['src/lib/api/customers.ts', 4],
-  ['src/lib/staff/staffPerformanceProfileService.ts', 1],
 ]);
 
 const APPROVED_INVOICE_BOUNDARIES = new Set([
