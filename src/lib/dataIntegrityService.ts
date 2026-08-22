@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { readInvoiceDataHealth } from '@/lib/readModels/invoiceDataHealthReadModel';
 
 export type DataHealthIssue = {
   type:
@@ -29,39 +30,26 @@ export type DataHealthReport = {
 export async function checkDataHealth(): Promise<DataHealthReport> {
   const issues: DataHealthIssue[] = [];
 
-  // Check invoices without doctor
-  const { data: invoicesWithoutDoctor, error: invoicesError } = await supabase
-    .from('sales_invoices')
-    .select('id, invoice_no, invoice_number')
-    .is('doctor_name', null)
-    .is('staff_name', null)
-    .is('seller_name', null);
+  // Invoice integrity checks live behind a dedicated transactional read boundary.
+  const invoiceHealth = await readInvoiceDataHealth();
 
-  if (!invoicesError && invoicesWithoutDoctor) {
+  if (invoiceHealth.withoutDoctorIds.length) {
     issues.push({
       type: 'invoice_no_doctor',
       severity: 'high',
-      count: invoicesWithoutDoctor.length,
+      count: invoiceHealth.withoutDoctorIds.length,
       description: 'فواتير بدون دكتور مسجل',
-      affectedIds: invoicesWithoutDoctor.map((i: any) => i.id),
+      affectedIds: invoiceHealth.withoutDoctorIds,
     });
   }
 
-  // Check invoices without customer
-  const { data: invoicesWithoutCustomer, error: customerError } = await supabase
-    .from('sales_invoices')
-    .select('id, invoice_no, invoice_number')
-    .is('customer_name', null)
-    .is('customer_code', null)
-    .is('customer_id', null);
-
-  if (!customerError && invoicesWithoutCustomer) {
+  if (invoiceHealth.withoutCustomerIds.length) {
     issues.push({
       type: 'invoice_no_customer',
       severity: 'medium',
-      count: invoicesWithoutCustomer.length,
+      count: invoiceHealth.withoutCustomerIds.length,
       description: 'فواتير بدون عميل مسجل',
-      affectedIds: invoicesWithoutCustomer.map((i: any) => i.id),
+      affectedIds: invoiceHealth.withoutCustomerIds,
     });
   }
 
@@ -84,7 +72,7 @@ export async function checkDataHealth(): Promise<DataHealthReport> {
   // Check cash rewards recorded as points
   const { data: cashAsPoints, error: cashError } = await supabase
     .from('employee_transactions')
-    .select('id, reason')
+    .select('id, reason, points_delta')
     .ilike('reason', '%راكد%')
     .or('reason.ilike.%لستة%,reason.ilike.%incentive%');
 
@@ -118,25 +106,18 @@ export async function checkDataHealth(): Promise<DataHealthReport> {
     });
   }
 
-  // Check classification issues (invoices without customer classification)
-  const { data: noClassification, error: classError } = await supabase
-    .from('sales_invoices')
-    .select('id')
-    .is('customer_segment', null)
-    .is('customer_type', null);
-
-  if (!classError && noClassification) {
+  if (invoiceHealth.withoutClassificationIds.length) {
     issues.push({
       type: 'classification_issue',
       severity: 'low',
-      count: noClassification.length,
+      count: invoiceHealth.withoutClassificationIds.length,
       description: 'فواتير بدون تصنيف عميل',
-      affectedIds: noClassification.map((i: any) => i.id),
+      affectedIds: invoiceHealth.withoutClassificationIds,
     });
   }
 
   return {
-    totalInvoices: 0, // Would need actual count
+    totalInvoices: invoiceHealth.totalInvoices,
     invoicesWithoutDoctor: issues.find((i) => i.type === 'invoice_no_doctor')?.count || 0,
     invoicesWithoutCustomer: issues.find((i) => i.type === 'invoice_no_customer')?.count || 0,
     duplicateStaffCount: issues.find((i) => i.type === 'duplicate_staff')?.count || 0,

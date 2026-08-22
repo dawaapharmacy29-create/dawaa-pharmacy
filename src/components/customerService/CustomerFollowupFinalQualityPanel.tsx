@@ -147,10 +147,10 @@ export default function CustomerFollowupFinalQualityPanel() {
 
   const qualityState = useMemo(() => {
     const totalIssues = summary.missingCode + summary.missingPhone;
-    if (!totalIssues) return { label: 'جودة البيانات مستقرة', tone: 'text-emerald-300', icon: CheckCircle2 };
+    if (!totalIssues) return { label: 'جودة البيانات مستقرة', tone: 'text-[var(--dawaa-status-success-text)]', icon: CheckCircle2 };
     return {
       label: `${totalIssues.toLocaleString('ar-EG')} متابعة تحتاج مراجعة بيانات`,
-      tone: 'text-amber-300',
+      tone: 'text-[var(--dawaa-status-warning-text)]',
       icon: AlertTriangle,
     };
   }, [summary.missingCode, summary.missingPhone]);
@@ -158,14 +158,14 @@ export default function CustomerFollowupFinalQualityPanel() {
   const QualityIcon = qualityState.icon;
 
   return (
-    <section className="space-y-4 rounded-3xl border border-cyan-400/20 bg-[#0d2238] p-4 shadow-xl" dir="rtl">
+    <section className="space-y-4 rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-xl" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xl font-black text-white">
-            <ShieldCheck size={22} className="text-cyan-300" />
+          <div className="flex items-center gap-2 text-xl font-black text-[var(--dawaa-theme-heading)]">
+            <ShieldCheck size={22} className="text-[var(--dawaa-theme-primary)]" />
             المراجعة النهائية لجودة قائمة المتابعات
           </div>
-          <p className="mt-1 text-sm font-bold text-slate-400">
+          <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">
             أرقام حية من المتابعات المفتوحة وسجل التعديلات بعد تطبيق الفرع والتاريخ المختارين.
           </p>
         </div>
@@ -177,7 +177,7 @@ export default function CustomerFollowupFinalQualityPanel() {
               <option>فرع شكري</option>
             </select>
           ) : (
-            <div className="input-dark font-black text-cyan-100">{userBranch}</div>
+            <div className="input-dark font-black text-[var(--dawaa-theme-primary)]">{userBranch}</div>
           )}
           <input className="input-dark" type="date" value={day} onChange={(event) => setDay(event.target.value)} />
           <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void load()} disabled={loading}>
@@ -194,18 +194,18 @@ export default function CustomerFollowupFinalQualityPanel() {
         <MetricCard label="تحتاج مديرًا" value={summary.needsManager} icon={AlertTriangle} warning={summary.needsManager > 0} />
       </div>
 
-      <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+      <div className="flex items-center gap-2 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]/[0.04] px-4 py-3">
         <QualityIcon size={19} className={qualityState.tone} />
         <span className={`font-black ${qualityState.tone}`}>{qualityState.label}</span>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-white/10">
-        <div className="border-b border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-white">
+      <div className="overflow-hidden rounded-2xl border border-[var(--dawaa-theme-border)]">
+        <div className="border-b border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]/[0.04] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-heading)]">
           آخر تعديلات اليوم بعد فلتر الفرع
         </div>
         <div className="max-h-80 overflow-auto">
           <table className="min-w-full text-sm">
-            <thead className="sticky top-0 bg-[#102a44] text-right text-xs font-black text-slate-300">
+            <thead className="sticky top-0 bg-[var(--dawaa-theme-surface)] text-right text-xs font-black text-[var(--dawaa-theme-muted)]">
               <tr>
                 <th className="p-3">الوقت</th>
                 <th className="p-3">الإجراء</th>
@@ -216,7 +216,7 @@ export default function CustomerFollowupFinalQualityPanel() {
             </thead>
             <tbody>
               {auditRows.map((row) => (
-                <tr key={row.id} className="border-t border-white/5 text-slate-100">
+                <tr key={row.id} className="border-t border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]">
                   <td className="whitespace-nowrap p-3">{new Date(row.created_at).toLocaleTimeString('ar-EG')}</td>
                   <td className="p-3 font-black">{actionLabel(row.action)}</td>
                   <td className="p-3 font-mono text-xs">{row.followup_id}</td>
@@ -226,7 +226,7 @@ export default function CustomerFollowupFinalQualityPanel() {
               ))}
               {!loading && auditRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center font-bold text-slate-400">
+                  <td colSpan={5} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">
                     لا توجد تعديلات في التاريخ والفرع المحددين
                   </td>
                 </tr>
@@ -251,12 +251,12 @@ function MetricCard({
   warning?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]/[0.04] p-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-black text-slate-400">{label}</span>
-        <Icon size={18} className={warning ? 'text-amber-300' : 'text-cyan-300'} />
+        <span className="text-xs font-black text-[var(--dawaa-theme-muted)]">{label}</span>
+        <Icon size={18} className={warning ? 'text-[var(--dawaa-status-warning-text)]' : 'text-[var(--dawaa-theme-primary)]'} />
       </div>
-      <div className={`mt-2 text-3xl font-black ${warning ? 'text-amber-200' : 'text-white'}`}>
+      <div className={`mt-2 text-3xl font-black ${warning ? 'text-[var(--dawaa-status-warning-text)]' : 'text-[var(--dawaa-theme-heading)]'}`}>
         {value.toLocaleString('ar-EG')}
       </div>
     </div>

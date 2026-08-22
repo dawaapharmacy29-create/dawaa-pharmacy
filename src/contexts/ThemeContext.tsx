@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState } from 'react';
 
 export type AppTheme = 'light' | 'dark' | 'pharmacy-green';
 
@@ -14,12 +14,22 @@ interface ThemeContextValue {
 const THEME_STORAGE_KEY = 'dawaa_theme';
 const LEGACY_PALETTE_KEY = 'dawaa_palette';
 const ALLOWED_THEMES = ['light', 'dark', 'pharmacy-green'] as const satisfies readonly AppTheme[];
+
+// Canonical runtime classes only. `light-mode` and legacy palette classes are intentionally
+// not applied here: they activate historical global CSS overrides in index.css and create a
+// second theme engine beside the data-theme based design system.
 const THEME_CLASS_MAP: Record<AppTheme, string[]> = {
-  light: ['light-mode', 'theme-light'],
-  dark: ['dark-mode', 'theme-dark', 'dark'],
-  'pharmacy-green': ['light-mode', 'theme-pharmacy-green'],
+  light: ['theme-light'],
+  dark: ['theme-dark', 'dark'],
+  'pharmacy-green': ['theme-pharmacy-green'],
 };
-const ALL_THEME_CLASSES = Array.from(new Set(Object.values(THEME_CLASS_MAP).flat()));
+
+// Remove both canonical and historical classes when switching themes so stale sessions cannot
+// keep the legacy engine alive after an upgrade.
+const LEGACY_THEME_CLASSES = ['light-mode', 'dark-mode'];
+const ALL_THEME_CLASSES = Array.from(
+  new Set([...Object.values(THEME_CLASS_MAP).flat(), ...LEGACY_THEME_CLASSES])
+);
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function isAllowedTheme(value: unknown): value is AppTheme {
@@ -52,7 +62,9 @@ function applyTheme(theme: AppTheme) {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<AppTheme>(() => getInitialTheme());
 
-  useEffect(() => applyTheme(theme), [theme]);
+  // Theme state affects the whole document. Apply it before browser paint to avoid
+  // dark/light flashes and split-frame legacy styles during bootstrap/navigation.
+  useLayoutEffect(() => applyTheme(theme), [theme]);
 
   const setTheme = useCallback((nextTheme: AppTheme) => {
     if (!isAllowedTheme(nextTheme)) return;
@@ -73,6 +85,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
         try {
           window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+          window.localStorage.removeItem(LEGACY_PALETTE_KEY);
         } catch (e) {
           console.debug('Failed to save theme to localStorage:', e);
         }

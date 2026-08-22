@@ -6,6 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { stableKeyValue } from '@/lib/queryKeys';
 
+export type DataFreshness = 'live' | 'standard' | 'historical';
+
 interface QueryOptions {
   table: string;
   select?: string;
@@ -14,9 +16,11 @@ interface QueryOptions {
   limit?: number;
   realtimeEnabled?: boolean; // default: false — enable only where live updates are truly needed
   timeoutMs?: number;
-  /** Cache lifetime before a navigation back to the same page triggers a new network request. */
+  /** Explicit freshness class. Prefer this over hand-tuned cache values. */
+  freshness?: DataFreshness;
+  /** Cache lifetime override. Use only when a screen has a measured reason. */
   staleTimeMs?: number;
-  /** How long unused query data stays reusable in memory. */
+  /** Unused-query retention override. Use only when a screen has a measured reason. */
   gcTimeMs?: number;
 }
 
@@ -25,6 +29,38 @@ type QueryBuilder = ReturnType<ReturnType<typeof supabase.from>['select']>;
 type SupabaseResultLike<T = unknown> = {
   data?: T | null;
   error?: { message?: string } | null;
+};
+
+type FreshnessPolicy = {
+  staleTimeMs: number;
+  gcTimeMs: number;
+  refetchOnMount: boolean | 'always';
+  refetchOnReconnect: boolean | 'always';
+  refetchOnWindowFocus: boolean | 'always';
+};
+
+const FRESHNESS_POLICIES: Record<DataFreshness, FreshnessPolicy> = {
+  live: {
+    staleTimeMs: 15_000,
+    gcTimeMs: 5 * 60_000,
+    refetchOnMount: true,
+    refetchOnReconnect: 'always',
+    refetchOnWindowFocus: false,
+  },
+  standard: {
+    staleTimeMs: 2 * 60_000,
+    gcTimeMs: 15 * 60_000,
+    refetchOnMount: true,
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: false,
+  },
+  historical: {
+    staleTimeMs: 30 * 60_000,
+    gcTimeMs: 60 * 60_000,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  },
 };
 
 function friendlySupabaseError(message: string): string {
@@ -57,6 +93,8 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, label: strin
 export function useSupabaseQuery<T>(options: QueryOptions) {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const queryClient = useQueryClient();
+  const freshness = options.freshness ?? 'standard';
+  const policy = FRESHNESS_POLICIES[freshness];
 
   const buildQuery = () => {
     let query: QueryBuilder = supabase.from(options.table).select(options.select || '*');
@@ -115,11 +153,11 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   const { data = [], isLoading: loading, error } = useQuery<T[], Error>({
     queryKey,
     queryFn: fetcher,
-    staleTime: options.staleTimeMs ?? 5 * 60_000,
-    gcTime: options.gcTimeMs ?? 30 * 60_000,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchOnMount: false,
+    staleTime: options.staleTimeMs ?? policy.staleTimeMs,
+    gcTime: options.gcTimeMs ?? policy.gcTimeMs,
+    refetchOnWindowFocus: policy.refetchOnWindowFocus,
+    refetchOnReconnect: policy.refetchOnReconnect,
+    refetchOnMount: policy.refetchOnMount,
     retry: 1,
     retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 5000),
   });

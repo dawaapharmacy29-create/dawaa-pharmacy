@@ -92,16 +92,16 @@ export default function CustomerFollowupFullExportPanel() {
 
   return (
     <section
-      className="rounded-3xl border border-teal-400/20 bg-[#10243d] p-4 shadow-xl"
+      className="rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-xl"
       dir="rtl"
     >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-lg font-black text-white">
-            <FileSpreadsheet size={20} className="text-teal-300" />
+          <div className="flex items-center gap-2 text-lg font-black text-[var(--dawaa-theme-heading)]">
+            <FileSpreadsheet size={20} className="text-[var(--dawaa-theme-primary)]" />
             تصدير سجل متابعات العملاء الكامل
           </div>
-          <p className="mt-1 text-sm font-bold text-slate-400">
+          <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">
             يجلب كل الصفحات من قاعدة البيانات، وليس أول 1000 صف فقط، ويضيف حالة جودة البيانات
             والمعرفات.
           </p>
@@ -119,7 +119,7 @@ export default function CustomerFollowupFullExportPanel() {
               <option>فرع شكري</option>
             </select>
           ) : (
-            <div className="input-dark flex items-center font-black text-teal-100">{userBranch}</div>
+            <div className="input-dark flex items-center font-black text-[var(--dawaa-theme-primary)]">{userBranch}</div>
           )}
 
           <select
@@ -150,7 +150,7 @@ export default function CustomerFollowupFullExportPanel() {
           </button>
         </div>
       </div>
-      {progress ? <div className="mt-3 text-xs font-black text-teal-200">{progress}</div> : null}
+      {progress ? <div className="mt-3 text-xs font-black text-[var(--dawaa-theme-primary)]">{progress}</div> : null}
     </section>
   );
 }

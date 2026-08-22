@@ -534,15 +534,15 @@ export default function CustomerServiceDoctorWorkbookCenter({ onImported }: { on
       : [];
 
   return (
-    <section className="rounded-3xl border border-cyan-300/15 bg-[#0b2035] p-4 shadow-xl md:p-5" dir="rtl">
+    <section className="rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-xl md:p-5" dir="rtl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs font-black text-cyan-300">مسار عمل الدكاترة</p>
-            <span className="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-black text-emerald-200">V5 — مراجعة ذكية قبل التسجيل</span>
+            <p className="text-xs font-black text-[var(--dawaa-theme-primary)]">مسار عمل الدكاترة</p>
+            <span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-success-text)]">V5 — مراجعة ذكية قبل التسجيل</span>
           </div>
-          <h2 className="mt-1 text-xl font-black text-white">تصدير ملف الفرع → تنفيذ مرتب → مراجعة ذكية → استيراد النتائج</h2>
-          <p className="mt-1 max-w-4xl text-xs font-bold leading-6 text-slate-400">
+          <h2 className="mt-1 text-xl font-black text-[var(--dawaa-theme-heading)]">تصدير ملف الفرع → تنفيذ مرتب → مراجعة ذكية → استيراد النتائج</h2>
+          <p className="mt-1 max-w-4xl text-xs font-bold leading-6 text-[var(--dawaa-theme-muted)]">
             الملف أصبح يبدأ بلوحة اليوم ويشرح سبب وجود كل عميل والإجراء المقترح، والدكتور يكتب فقط نتيجة التواصل. عند الرفع نعرض الردود والمبيعات والنواقص قبل أي تسجيل.
           </p>
         </div>
@@ -553,12 +553,12 @@ export default function CustomerServiceDoctorWorkbookCenter({ onImported }: { on
               type="button"
               onClick={() => void exportBranchWorkbook(branch)}
               disabled={loading}
-              className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-sm font-black text-emerald-100 disabled:opacity-50"
+              className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-4 py-3 text-sm font-black text-[var(--dawaa-status-success-text)] disabled:opacity-50"
             >
               <Download className="ml-1 inline" size={17} /> تصدير {branch}
             </button>
           ))}
-          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3 text-sm font-black text-slate-950 hover:bg-cyan-300">
+          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-accent-soft)]">
             <Upload size={17} />
             {loading ? 'جارٍ المعالجة...' : 'مراجعة واستيراد ملف الدكاترة'}
             <input
@@ -581,48 +581,48 @@ export default function CustomerServiceDoctorWorkbookCenter({ onImported }: { on
         ].map(([Icon, title, desc]) => {
           const I = Icon as typeof Workflow;
           return (
-            <div key={String(title)} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
-              <div className="flex items-center gap-2 text-sm font-black text-white"><I size={17} className="text-cyan-300" />{String(title)}</div>
-              <p className="mt-2 text-xs font-bold leading-5 text-slate-400">{String(desc)}</p>
+            <div key={String(title)} className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]/[0.035] p-3">
+              <div className="flex items-center gap-2 text-sm font-black text-[var(--dawaa-theme-heading)]"><I size={17} className="text-[var(--dawaa-theme-primary)]" />{String(title)}</div>
+              <p className="mt-2 text-xs font-bold leading-5 text-[var(--dawaa-theme-muted)]">{String(desc)}</p>
             </div>
           );
         })}
       </div>
 
       {preview ? (
-        <div className="mt-4 rounded-2xl border border-white/10 bg-black/10 p-4">
+        <div className="mt-4 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <div className="font-black text-white">{preview.fileName}</div>
+                <div className="font-black text-[var(--dawaa-theme-heading)]">{preview.fileName}</div>
                 {branchBreakdown.map((item) => (
-                  <span key={item.branch} className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-black text-slate-300">
+                  <span key={item.branch} className="rounded-full border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-2 py-1 text-[10px] font-black text-[var(--dawaa-theme-muted)]">
                     {item.branch.replace('فرع ', '')}: {item.executed}/{item.total}
                   </span>
                 ))}
               </div>
-              <div className="mt-1 text-xs font-bold text-slate-400">مصدر القراءة: {preview.sourceSheets.join('، ')}</div>
+              <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">مصدر القراءة: {preview.sourceSheets.join('، ')}</div>
             </div>
-            <button type="button" onClick={() => setPreview(null)} className="rounded-xl border border-white/10 p-2 text-slate-300"><XCircle size={17} /></button>
+            <button type="button" onClick={() => setPreview(null)} className="rounded-xl border border-[var(--dawaa-theme-border)] p-2 text-[var(--dawaa-theme-muted)]"><XCircle size={17} /></button>
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
             {[
-              ['كل المهام', preview.rows.length, 'bg-white/5', ListChecks],
-              ['منفذ', readyRows.length, 'bg-emerald-400/10', BadgeCheck],
-              ['ناقص بيانات', incompleteRows.length, 'bg-rose-400/10', AlertTriangle],
-              ['جاهز للتسجيل', safeRows.length, 'bg-cyan-400/10', ShieldCheck],
-              ['رد العميل', previewStats.responded, 'bg-sky-400/10', CheckCircle2],
-              ['لم يرد', previewStats.noAnswer, 'bg-amber-400/10', PhoneMissed],
-              ['عمليات شراء', previewStats.purchases, 'bg-violet-400/10', ShoppingCart],
-              ['متابعة قادمة', previewStats.next, 'bg-fuchsia-400/10', Workflow],
+              ['كل المهام', preview.rows.length, 'bg-[var(--dawaa-theme-surface-2)]', ListChecks],
+              ['منفذ', readyRows.length, 'bg-[var(--dawaa-status-success-bg)]', BadgeCheck],
+              ['ناقص بيانات', incompleteRows.length, 'bg-[var(--dawaa-status-danger-bg)]', AlertTriangle],
+              ['جاهز للتسجيل', safeRows.length, 'bg-[var(--dawaa-theme-accent-soft)]', ShieldCheck],
+              ['رد العميل', previewStats.responded, 'bg-[var(--dawaa-status-info-bg)]', CheckCircle2],
+              ['لم يرد', previewStats.noAnswer, 'bg-[var(--dawaa-status-warning-bg)]', PhoneMissed],
+              ['عمليات شراء', previewStats.purchases, 'bg-[var(--dawaa-status-info-bg)]', ShoppingCart],
+              ['متابعة قادمة', previewStats.next, 'bg-[var(--dawaa-status-info-bg)]', Workflow],
             ].map(([label, value, tone, Icon]) => {
               const I = Icon as typeof Workflow;
               return (
                 <div key={String(label)} className={`rounded-xl p-3 text-center ${String(tone)}`}>
-                  <I size={15} className="mx-auto text-slate-300" />
-                  <div className="mt-1 text-[10px] font-bold text-slate-400">{String(label)}</div>
-                  <div className="mt-1 text-xl font-black text-white">{Number(value)}</div>
+                  <I size={15} className="mx-auto text-[var(--dawaa-theme-muted)]" />
+                  <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{String(label)}</div>
+                  <div className="mt-1 text-xl font-black text-[var(--dawaa-theme-heading)]">{Number(value)}</div>
                 </div>
               );
             })}
@@ -630,37 +630,37 @@ export default function CustomerServiceDoctorWorkbookCenter({ onImported }: { on
 
           {readyRows.length > 0 ? (
             <div className="mt-3 grid gap-2 md:grid-cols-3">
-              <div className="rounded-xl border border-sky-300/15 bg-sky-400/5 p-3"><div className="text-[11px] font-bold text-slate-400">معدل الرد</div><div className="mt-1 text-xl font-black text-sky-200">{previewStats.responseRate}%</div></div>
-              <div className="rounded-xl border border-violet-300/15 bg-violet-400/5 p-3"><div className="text-[11px] font-bold text-slate-400">تحويل الرد إلى شراء</div><div className="mt-1 text-xl font-black text-violet-200">{previewStats.conversionRate}%</div></div>
-              <div className="rounded-xl border border-emerald-300/15 bg-emerald-400/5 p-3"><div className="text-[11px] font-bold text-slate-400">قيمة الشراء بعد المتابعة</div><div className="mt-1 text-xl font-black text-emerald-200">{money(previewStats.purchaseAmount)}</div></div>
+              <div className="rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">معدل الرد</div><div className="mt-1 text-xl font-black text-[var(--dawaa-status-info-text)]">{previewStats.responseRate}%</div></div>
+              <div className="rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">تحويل الرد إلى شراء</div><div className="mt-1 text-xl font-black text-[var(--dawaa-status-info-text)]">{previewStats.conversionRate}%</div></div>
+              <div className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">قيمة الشراء بعد المتابعة</div><div className="mt-1 text-xl font-black text-[var(--dawaa-status-success-text)]">{money(previewStats.purchaseAmount)}</div></div>
             </div>
           ) : null}
 
           {incompleteRows.length ? (
-            <div className="mt-3 rounded-xl border border-rose-300/20 bg-rose-500/10 p-3">
-              <div className="flex items-center gap-2 text-sm font-black text-rose-100"><AlertTriangle size={17} />يوجد {incompleteRows.length} صف منفذ يحتاج تصحيح قبل التسجيل</div>
+            <div className="mt-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3">
+              <div className="flex items-center gap-2 text-sm font-black text-[var(--dawaa-status-danger-text)]"><AlertTriangle size={17} />يوجد {incompleteRows.length} صف منفذ يحتاج تصحيح قبل التسجيل</div>
               <div className="mt-2 grid gap-2 lg:grid-cols-2">
                 {incompleteRows.slice(0, 8).map((row) => (
-                  <div key={rowIdentity(row)} className="rounded-lg border border-rose-200/10 bg-black/10 p-2 text-xs font-bold text-rose-100">
+                  <div key={rowIdentity(row)} className="rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-theme-surface-2)] p-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
                     <div className="font-black">{row.customerName || 'عميل'} · كود {row.customerCode || '—'} · {queueLabel(row.queueType)}</div>
-                    <div className="mt-1 text-rose-200/80">{issueForRow(row)}</div>
+                    <div className="mt-1 text-[var(--dawaa-status-danger-text)]">{issueForRow(row)}</div>
                   </div>
                 ))}
               </div>
-              {incompleteRows.length > 8 ? <div className="mt-2 text-[11px] font-bold text-rose-200/70">+ {incompleteRows.length - 8} صفوف أخرى ناقصة.</div> : null}
+              {incompleteRows.length > 8 ? <div className="mt-2 text-[11px] font-bold text-[var(--dawaa-status-danger-text)]">+ {incompleteRows.length - 8} صفوف أخرى ناقصة.</div> : null}
             </div>
           ) : readyRows.length ? (
-            <div className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-3 text-sm font-black text-emerald-100"><BadgeCheck size={18} />كل المتابعات المنفذة مستوفية البيانات وجاهزة للاستيراد.</div>
+            <div className="mt-3 flex items-center gap-2 rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3 text-sm font-black text-[var(--dawaa-status-success-text)]"><BadgeCheck size={18} />كل المتابعات المنفذة مستوفية البيانات وجاهزة للاستيراد.</div>
           ) : null}
 
           {readyRows.length > 0 ? (
-            <div className="mt-3 overflow-x-auto rounded-xl border border-white/10">
+            <div className="mt-3 overflow-x-auto rounded-xl border border-[var(--dawaa-theme-border)]">
               <table className="min-w-full text-right text-xs">
-                <thead className="bg-white/5 text-slate-400"><tr><th className="px-3 py-2">العميل</th><th className="px-3 py-2">القائمة</th><th className="px-3 py-2">الرد</th><th className="px-3 py-2">شراء</th><th className="px-3 py-2">متابعة قادمة</th><th className="px-3 py-2">الجاهزية</th></tr></thead>
+                <thead className="bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]"><tr><th className="px-3 py-2">العميل</th><th className="px-3 py-2">القائمة</th><th className="px-3 py-2">الرد</th><th className="px-3 py-2">شراء</th><th className="px-3 py-2">متابعة قادمة</th><th className="px-3 py-2">الجاهزية</th></tr></thead>
                 <tbody>
                   {readyRows.slice(0, 10).map((row) => {
                     const issue = issueForRow(row);
-                    return <tr key={rowIdentity(row)} className="border-t border-white/5 text-slate-200"><td className="px-3 py-2"><div className="font-black text-white">{row.customerName}</div><div className="text-[10px] text-slate-500">{row.customerCode || 'بدون كود'} · {row.branch.replace('فرع ', '')}</div></td><td className="px-3 py-2">{queueLabel(row.queueType)}</td><td className="px-3 py-2">{row.responded ? 'تم الرد' : 'لم يرد'}</td><td className="px-3 py-2">{row.purchaseAfterFollowup ? money(row.purchaseAmount) : '—'}</td><td className="px-3 py-2">{row.needsNextFollowup ? row.nextFollowupDate || 'ناقص موعد' : 'لا'}</td><td className="px-3 py-2">{issue ? <span className="font-black text-rose-200">{issue}</span> : <span className="font-black text-emerald-200">جاهز</span>}</td></tr>;
+                    return <tr key={rowIdentity(row)} className="border-t border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]"><td className="px-3 py-2"><div className="font-black text-[var(--dawaa-theme-heading)]">{row.customerName}</div><div className="text-[10px] text-[var(--dawaa-theme-muted)]">{row.customerCode || 'بدون كود'} · {row.branch.replace('فرع ', '')}</div></td><td className="px-3 py-2">{queueLabel(row.queueType)}</td><td className="px-3 py-2">{row.responded ? 'تم الرد' : 'لم يرد'}</td><td className="px-3 py-2">{row.purchaseAfterFollowup ? money(row.purchaseAmount) : '—'}</td><td className="px-3 py-2">{row.needsNextFollowup ? row.nextFollowupDate || 'ناقص موعد' : 'لا'}</td><td className="px-3 py-2">{issue ? <span className="font-black text-[var(--dawaa-status-danger-text)]">{issue}</span> : <span className="font-black text-[var(--dawaa-status-success-text)]">جاهز</span>}</td></tr>;
                   })}
                 </tbody>
               </table>
@@ -668,17 +668,17 @@ export default function CustomerServiceDoctorWorkbookCenter({ onImported }: { on
           ) : null}
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs font-bold text-slate-400">سيتم تجاهل {Math.max(0, preview.rows.length - readyRows.length)} مهمة غير منفذة تلقائيًا.</div>
+            <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">سيتم تجاهل {Math.max(0, preview.rows.length - readyRows.length)} مهمة غير منفذة تلقائيًا.</div>
             <button
               type="button"
               onClick={() => void importReadyRows()}
               disabled={loading || !safeRows.length || !!incompleteRows.length}
-              className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-xl bg-[var(--dawaa-status-success-bg)] px-5 py-2.5 text-sm font-black text-[var(--dawaa-theme-heading)] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <CheckCircle2 className="ml-1 inline" size={16} /> تسجيل النتائج في التطبيق
             </button>
           </div>
-          {summary ? <div className="mt-3 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-3 text-xs font-black text-emerald-100">تم: {summary.imported} · تحديث: {summary.updated || 0} · مكرر: {summary.duplicates} · متوقف: {summary.skipped}</div> : null}
+          {summary ? <div className="mt-3 rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3 text-xs font-black text-[var(--dawaa-status-success-text)]">تم: {summary.imported} · تحديث: {summary.updated || 0} · مكرر: {summary.duplicates} · متوقف: {summary.skipped}</div> : null}
         </div>
       ) : null}
     </section>

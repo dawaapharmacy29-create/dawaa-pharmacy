@@ -43,9 +43,6 @@ interface HeaderProps {
 
 const SOUND_KEY = 'dawaa_notif_sound';
 
-// المتصفحات بتمنع تشغيل أي صوت قبل أول تفاعل حقيقي من المستخدم (دوسة/لمسة).
-// بنجهّز ونفعّل AudioContext واحد من أول تفاعل ونحتفظ بيه، عشان أي صوت إشعار
-// بعد كده يشتغل فعليًا وبسرعة من غير ما يستنى تفاعل جديد كل مرة.
 let sharedAudioContext: AudioContext | null = null;
 function ensureAudioUnlocked() {
   if (sharedAudioContext) {
@@ -70,16 +67,16 @@ if (typeof window !== 'undefined') {
   window.addEventListener('keydown', unlock, { once: true });
 }
 
-const notifColors: Record<string, string> = {
-  reward: 'bg-emerald-50 border-emerald-200 text-emerald-700',
-  deduction: 'bg-red-50 border-red-200 text-red-700',
-  task: 'bg-blue-50 border-blue-200 text-blue-700',
-  followup: 'bg-teal-50 border-teal-200 text-teal-700',
-  conversation_review: 'bg-purple-50 border-purple-200 text-purple-700',
-  customer_alert: 'bg-amber-50 border-amber-200 text-amber-700',
-  delivery: 'bg-cyan-50 border-cyan-200 text-cyan-700',
-  attendance: 'bg-emerald-50 border-emerald-200 text-emerald-700',
-  system: 'bg-slate-50 border-slate-200 text-slate-700',
+const notificationTone: Record<string, string> = {
+  reward: 'dawaa-badge--success',
+  deduction: 'dawaa-badge--danger',
+  task: 'dawaa-badge--info',
+  followup: 'dawaa-badge--info',
+  conversation_review: 'dawaa-badge--info',
+  customer_alert: 'dawaa-badge--warning',
+  delivery: 'dawaa-badge--info',
+  attendance: 'dawaa-badge--success',
+  system: 'dawaa-badge--info',
 };
 
 function playNotificationBeep() {
@@ -97,12 +94,7 @@ function playNotificationBeep() {
     oscillator.frequency.value = mode === 'distinct' ? 880 : 520;
     gain.gain.value = 0.08;
     oscillator.start();
-    setTimeout(
-      () => {
-        oscillator.stop();
-      },
-      mode === 'distinct' ? 220 : 140
-    );
+    setTimeout(() => oscillator.stop(), mode === 'distinct' ? 220 : 140);
   } catch {
     // Browser audio may be blocked until user interaction.
   }
@@ -126,23 +118,15 @@ function inferNotificationRoute(n: Partial<NotifItem & AppNotification>) {
   const detailsRoute = parseDetailsRoute(n.details) || parseDetailsRoute(n.metadata);
   if (detailsRoute) return detailsRoute;
 
-  const text =
-    `${n.type || ''} ${n.title || ''} ${n.body || ''} ${n.message || ''} ${n.target_type || ''}`.toLowerCase();
+  const text = `${n.type || ''} ${n.title || ''} ${n.body || ''} ${n.message || ''} ${n.target_type || ''}`.toLowerCase();
   if (text.includes('attendance') || text.includes('حضور') || text.includes('انصراف')) return '/attendance-report';
   if (text.includes('follow') || text.includes('متابعة')) return '/customer-service';
   if (text.includes('review') || text.includes('تقييم')) return '/reviews';
-  if (
-    text.includes('deduction') ||
-    text.includes('reward') ||
-    text.includes('خصم') ||
-    text.includes('مكاف')
-  )
-    return '/points';
+  if (text.includes('deduction') || text.includes('reward') || text.includes('خصم') || text.includes('مكاف')) return '/points';
   if (text.includes('invoice') || text.includes('فاتور')) return '/invoices';
   if (text.includes('shift') || text.includes('شيفت')) return '/shift-performance';
   if (text.includes('stagnant') || text.includes('راكد')) return '/stagnant-medicines';
-  if (text.includes('delivery') || text.includes('دليفري') || text.includes('توصيل'))
-    return '/delivery';
+  if (text.includes('delivery') || text.includes('دليفري') || text.includes('توصيل')) return '/delivery';
   if (text.includes('customer') || text.includes('عميل')) return '/customers';
   return '/operations-center';
 }
@@ -157,11 +141,7 @@ function canSeeNotification(item: AppNotification, user: ReturnType<typeof useAu
 
   if (isAdmin) return true;
   if (item.user_id && (item.user_id === user.id || item.user_id === safeUserId)) return true;
-  if (
-    item.recipient_user_id &&
-    (item.recipient_user_id === user.id || item.recipient_user_id === safeUserId)
-  )
-    return true;
+  if (item.recipient_user_id && (item.recipient_user_id === user.id || item.recipient_user_id === safeUserId)) return true;
   if (item.recipient_staff_id && item.recipient_staff_id === user.staffId) return true;
   if (item.recipient_role && normalizeRole(item.recipient_role) === role) return true;
   if (isBranchManager && item.branch && normalizeBranchName(item.branch) === userBranch) return true;
@@ -225,8 +205,6 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
       return;
     }
     const newest = visibleNotifications[0];
-    // أي إشعار جديد بيوصل (مش بس العاجل) لازم يعمل صوت — الدكتور والفريق كله
-    // محتاجين يعرفوا لحظيًا من غير ما يفوتهم حاجة.
     if (visibleUnreadCount > prevUnread.current && newest) playNotificationBeep();
     prevUnread.current = visibleUnreadCount;
   }, [visibleNotifications, visibleUnreadCount]);
@@ -247,23 +225,16 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   };
 
   return (
-    <header
-      className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur"
-      dir="rtl"
-    >
-      <button
-        type="button"
-        onClick={onMobileMenuOpen}
-        className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 lg:hidden"
-      >
+    <header className="dawaa-header sticky top-0 z-30 flex h-14 items-center gap-3 border-b px-4 backdrop-blur" dir="rtl">
+      <button type="button" onClick={onMobileMenuOpen} className="dawaa-header-icon-button rounded-lg p-2 transition lg:hidden">
         <Menu size={20} />
       </button>
-      <h1 className="flex-1 truncate text-base font-black text-slate-950">{title}</h1>
+      <h1 className="dawaa-header-title flex-1 truncate text-base font-black">{title}</h1>
 
       <button
         type="button"
         onClick={() => navigate('/attendance-report')}
-        className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-xs font-black text-white shadow-sm transition hover:bg-teal-700"
+        className="dawaa-button dawaa-button--primary px-3 py-2 text-xs font-black"
         title="تسجيل حضور / انصراف"
       >
         <Fingerprint size={16} />
@@ -271,75 +242,52 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
       </button>
 
       {!isSupabaseConfigured && (
-        <div className="hidden items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 sm:flex">
-          <span className="h-2 w-2 rounded-full bg-amber-400" />
-          <span className="text-xs font-bold text-amber-700">قاعدة البيانات غير مفعلة</span>
+        <div className="dawaa-status-warning hidden items-center gap-2 rounded-xl border px-3 py-1.5 sm:flex">
+          <span className="h-2 w-2 rounded-full currentColor" />
+          <span className="text-xs font-bold">قاعدة البيانات غير مفعلة</span>
         </div>
       )}
 
-      <div className="hidden items-center gap-2 rounded-xl border border-teal-100 bg-teal-50 px-3 py-1.5 md:flex">
-        <span className="h-2 w-2 rounded-full bg-teal-500" />
-        <span className="text-xs font-black text-teal-700">{cycle.shortLabel}</span>
-        <span className="text-xs text-slate-500">({remaining} يوم)</span>
+      <div className="dawaa-header-cycle hidden items-center gap-2 rounded-xl px-3 py-1.5 md:flex">
+        <span className="h-2 w-2 rounded-full bg-current" />
+        <span className="text-xs font-black">{cycle.shortLabel}</span>
+        <span className="dawaa-header-muted text-xs">({remaining} يوم)</span>
       </div>
-      <div className="theme-switcher flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
-        <button
-          type="button"
-          onClick={() => setTheme('light')}
-          className={cn('theme-option', theme === 'light' && 'theme-option-active')}
-          title="الوضع الفاتح"
-          aria-pressed={theme === 'light'}
-        >
-          <Sun size={15} />
-          <span className="hidden sm:inline">فاتح</span>
+
+      <div className="theme-switcher flex items-center gap-1 rounded-xl border p-1">
+        <button type="button" onClick={() => setTheme('light')} className={cn('theme-option', theme === 'light' && 'theme-option-active')} title="الوضع الفاتح" aria-pressed={theme === 'light'}>
+          <Sun size={15} /><span className="hidden sm:inline">فاتح</span>
         </button>
-        <button
-          type="button"
-          onClick={() => setTheme('dark')}
-          className={cn('theme-option', theme === 'dark' && 'theme-option-active')}
-          title="الوضع الغامق"
-          aria-pressed={theme === 'dark'}
-        >
-          <Moon size={15} />
-          <span className="hidden sm:inline">غامق</span>
+        <button type="button" onClick={() => setTheme('dark')} className={cn('theme-option', theme === 'dark' && 'theme-option-active')} title="الوضع الغامق" aria-pressed={theme === 'dark'}>
+          <Moon size={15} /><span className="hidden sm:inline">غامق</span>
         </button>
       </div>
 
       <div className="relative">
-        <button
-          type="button"
-          onClick={() => setShowNotifs((value) => !value)}
-          className="relative rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
-          aria-label="الإشعارات"
-        >
+        <button type="button" onClick={() => setShowNotifs((value) => !value)} className="dawaa-header-icon-button relative rounded-lg p-2 transition" aria-label="الإشعارات">
           <Bell size={18} />
           {visibleUnreadCount > 0 && (
-            <span
-              className={cn(
-                'absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white px-1 text-[10px] font-black',
-                'bg-teal-500 text-white'
-              )}
-            >
+            <span className="dawaa-header-unread-count absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border px-1 text-[10px] font-black">
               {visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}
             </span>
           )}
         </button>
 
         {showNotifs && (
-          <div className="absolute left-0 top-12 z-50 w-80 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-200/80 sm:w-96">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+          <div className="dawaa-header-popover absolute left-0 top-12 z-50 w-80 overflow-hidden rounded-2xl sm:w-96">
+            <div className="dawaa-header-popover-divider flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
               <div>
-                <div className="text-sm font-black text-slate-950">الإشعارات</div>
-                <div className="text-xs font-semibold text-slate-500">{visibleUnreadCount} غير مقروء</div>
+                <div className="dawaa-header-title text-sm font-black">الإشعارات</div>
+                <div className="dawaa-header-muted text-xs font-semibold">{visibleUnreadCount} غير مقروء</div>
               </div>
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-                  <button type="button" className={cn('rounded-md p-1.5 text-slate-500', soundMode === 'off' && 'bg-white text-slate-900 shadow-sm')} title="بدون صوت" onClick={() => setSound('off')}><VolumeX size={14} /></button>
-                  <button type="button" className={cn('rounded-md p-1.5 text-slate-500', soundMode === 'soft' && 'bg-white text-slate-900 shadow-sm')} title="تنبيه خفيف" onClick={() => setSound('soft')}><Volume2 size={14} className="opacity-70" /></button>
-                  <button type="button" className={cn('rounded-md p-1.5 text-slate-500', soundMode === 'distinct' && 'bg-white text-slate-900 shadow-sm')} title="نغمة أوضح" onClick={() => { setSound('distinct'); playNotificationBeep(); }}><Volume2 size={14} /></button>
+                <div className="dawaa-header-toggle-group flex items-center gap-1 rounded-lg p-0.5">
+                  <button type="button" className={cn('dawaa-header-toggle rounded-md p-1.5', soundMode === 'off' && 'is-active')} title="بدون صوت" onClick={() => setSound('off')}><VolumeX size={14} /></button>
+                  <button type="button" className={cn('dawaa-header-toggle rounded-md p-1.5', soundMode === 'soft' && 'is-active')} title="تنبيه خفيف" onClick={() => setSound('soft')}><Volume2 size={14} className="opacity-70" /></button>
+                  <button type="button" className={cn('dawaa-header-toggle rounded-md p-1.5', soundMode === 'distinct' && 'is-active')} title="نغمة أوضح" onClick={() => { setSound('distinct'); playNotificationBeep(); }}><Volume2 size={14} /></button>
                 </div>
-                {visibleUnreadCount > 0 && <button type="button" onClick={markAllRead} className="inline-flex items-center gap-1 text-xs font-black text-teal-700"><CheckCheck size={14} /> قراءة الكل</button>}
-                <button type="button" onClick={() => setShowNotifSettings((value) => !value)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50" title="إعدادات الإشعارات"><Settings2 size={14} /></button>
+                {visibleUnreadCount > 0 && <button type="button" onClick={markAllRead} className="dawaa-header-brand inline-flex items-center gap-1 text-xs font-black"><CheckCheck size={14} /> قراءة الكل</button>}
+                <button type="button" onClick={() => setShowNotifSettings((value) => !value)} className="dawaa-header-icon-button rounded-lg border p-1.5" title="إعدادات الإشعارات"><Settings2 size={14} /></button>
               </div>
             </div>
             {showNotifSettings ? (
@@ -347,50 +295,40 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
             ) : (
               <div className="max-h-96 overflow-y-auto">
                 {notificationsLoading ? (
-                  <div className="py-8 text-center text-sm font-bold text-slate-500">جاري تحميل الإشعارات...</div>
+                  <div className="dawaa-header-muted py-8 text-center text-sm font-bold">جاري تحميل الإشعارات...</div>
                 ) : !notificationsAvailable ? (
-                  <div className="py-8 text-center text-sm font-bold text-slate-500">نظام الإشعارات يحتاج تفعيل قاعدة البيانات</div>
+                  <div className="dawaa-header-muted py-8 text-center text-sm font-bold">نظام الإشعارات يحتاج تفعيل قاعدة البيانات</div>
                 ) : visibleNotifications.length === 0 ? (
-                  <div className="py-8 text-center text-sm font-bold text-slate-500">لا توجد إشعارات مسجلة حاليًا</div>
+                  <div className="dawaa-header-muted py-8 text-center text-sm font-bold">لا توجد إشعارات مسجلة حاليًا</div>
                 ) : visibleNotifications.slice(0, 10).map((n) => (
                   <button
                     key={n.id}
                     type="button"
                     onClick={() => void openNotification(n)}
-                    className={cn(
-                      'w-full border-b border-slate-100 px-4 py-3 text-right transition last:border-0 hover:bg-slate-50',
-                      !n.read && !n.is_read ? 'bg-teal-50/50' : ''
-                    )}
+                    className={cn('dawaa-header-notification-row w-full border-b px-4 py-3 text-right transition last:border-0', !n.read && !n.is_read && 'is-unread')}
                   >
                     <div className="flex items-start gap-2.5">
-                      <span
-                        className={cn(
-                          'mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-xs font-black',
-                          isUrgent(n)
-                            ? 'border-red-200 bg-red-50 text-red-700'
-                            : notifColors[String(n.type)] || notifColors.system
-                        )}
-                      >
+                      <span className={cn('dawaa-badge mt-0.5 shrink-0 px-2 py-0.5 text-xs font-black', isUrgent(n) ? 'dawaa-badge--danger' : notificationTone[String(n.type)] || notificationTone.system)}>
                         {String(n.priority || n.type || 'تنبيه')}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1 text-xs font-black text-slate-950">
+                        <div className="dawaa-header-title flex items-center gap-1 text-xs font-black">
                           <span className="truncate">{n.title}</span>
-                          <ExternalLink size={12} className="shrink-0 text-slate-400" />
+                          <ExternalLink size={12} className="dawaa-header-muted shrink-0" />
                         </div>
-                        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                        <div className="dawaa-header-muted mt-1 flex items-center justify-between gap-2 text-[10px]">
                           <span>{String(n.type || 'نوع غير محدد')}</span>
                           <span>{formatNotificationDate(n.created_at)}</span>
                         </div>
-                        <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{n.body || n.message}</div>
+                        <div className="dawaa-header-muted mt-1 line-clamp-2 text-xs leading-relaxed">{n.body || n.message}</div>
                       </div>
-                      {!n.read && !n.is_read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-teal-500" />}
+                      {!n.read && !n.is_read && <span className="dawaa-header-unread-dot mt-1 h-2 w-2 shrink-0 rounded-full" />}
                     </div>
                   </button>
                 ))}
               </div>
             )}
-            <button type="button" onClick={() => { setShowNotifs(false); navigate('/operations-center'); }} className="w-full border-t border-slate-100 bg-slate-50 px-4 py-3 text-center text-xs font-black text-teal-700 hover:bg-teal-50">فتح مركز التنبيهات</button>
+            <button type="button" onClick={() => { setShowNotifs(false); navigate('/operations-center'); }} className="dawaa-header-footer-action w-full border-t px-4 py-3 text-center text-xs font-black">فتح مركز التنبيهات</button>
           </div>
         )}
       </div>
@@ -411,10 +349,10 @@ function NotificationSettingsPanel({ settings, onChange }: { settings: ReturnTyp
     ['highPriorityOnly', 'إظهار عالية الأهمية فقط'],
   ];
   return <div className="max-h-96 space-y-2 overflow-y-auto p-4">
-    <div className="mb-3 text-xs font-black text-slate-900">إعدادات الإشعارات</div>
-    {options.map(([key, label]) => <label key={key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-2 text-xs font-bold text-slate-700"><span>{label}</span><input type="checkbox" checked={Boolean(settings[key])} onChange={(event) => onChange({ ...settings, [key]: event.target.checked })} /></label>)}
-    <label className="block text-xs font-bold text-slate-700">مدة الاحتفاظ
-      <select value={settings.retentionDays} onChange={(event) => onChange({ ...settings, retentionDays: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 p-2">
+    <div className="dawaa-header-title mb-3 text-xs font-black">إعدادات الإشعارات</div>
+    {options.map(([key, label]) => <label key={key} className="dawaa-header-settings-row flex items-center justify-between gap-3 rounded-xl border p-2 text-xs font-bold"><span>{label}</span><input type="checkbox" checked={Boolean(settings[key])} onChange={(event) => onChange({ ...settings, [key]: event.target.checked })} /></label>)}
+    <label className="dawaa-header-title block text-xs font-bold">مدة الاحتفاظ
+      <select value={settings.retentionDays} onChange={(event) => onChange({ ...settings, retentionDays: Number(event.target.value) })} className="dawaa-input mt-1 w-full">
         <option value={7}>7 أيام</option><option value={30}>30 يومًا</option><option value={90}>90 يومًا</option>
       </select>
     </label>

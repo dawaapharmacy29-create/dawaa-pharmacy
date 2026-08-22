@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { clearInvoiceCache } from '@/lib/invoiceCache';
 import {
   applyCustomerSalesMetrics,
   getCustomerMetrics,
@@ -32,45 +32,13 @@ export interface NormalizedInvoice {
   customerPhone: string;
 }
 
-const INVOICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-let _invoiceCache: { data: InvoiceLike[]; ts: number } | null = null;
-let _invoiceFetchPromise: Promise<InvoiceLike[]> | null = null;
-
-export async function fetchSalesInvoices(limit = 100000): Promise<InvoiceLike[]> {
-  if (_invoiceCache && Date.now() - _invoiceCache.ts < INVOICE_CACHE_TTL) {
-    return _invoiceCache.data;
-  }
-  if (_invoiceFetchPromise) return _invoiceFetchPromise;
-
-  _invoiceFetchPromise = (async () => {
-    const pageSize = 1000;
-    const rows: InvoiceLike[] = [];
-
-    for (let from = 0; from < limit; from += pageSize) {
-      const to = Math.min(from + pageSize - 1, limit - 1);
-      const { data, error } = await supabase
-        .from('sales_invoices')
-        .select('*')
-        .order('invoice_date', { ascending: false })
-        .range(from, to);
-
-      if (error) throw new Error(error.message);
-      const page = (data ?? []) as InvoiceLike[];
-      rows.push(...page);
-      if (page.length < pageSize) break;
-    }
-
-    _invoiceCache = { data: rows, ts: Date.now() };
-    return rows;
-  })().finally(() => {
-    _invoiceFetchPromise = null;
-  });
-
-  return _invoiceFetchPromise;
-}
-
+/**
+ * Compatibility cache invalidation entry point used by the invoice import screen.
+ * The historical full-table loader was removed; canonical invoice reads now use
+ * salesInvoiceQueries/read models and the shared invoice cache.
+ */
 export function invalidateInvoiceCache() {
-  _invoiceCache = null;
+  clearInvoiceCache();
 }
 
 export function normalizeInvoice(invoice: InvoiceLike): NormalizedInvoice {

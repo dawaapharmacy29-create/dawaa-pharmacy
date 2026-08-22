@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
-import { Search, Plus, Phone, Edit2, UserCheck, Loader2, Eye, ClipboardList } from 'lucide-react';
-import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
+import { Search, Plus, Phone, Edit2, Loader2, Eye, ClipboardList } from 'lucide-react';
+import { logActivity } from '@/hooks/useSupabaseQuery';
 import { isCurrentlyOnShift, matchesOrderedSegments, percent } from '@/lib/utils';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
 import {
@@ -22,17 +22,12 @@ import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
 import { toast } from 'sonner';
 import type { User } from '@/types';
-import { Link } from 'react-router-dom';
 import { useStaff } from '@/hooks/useStaff';
-import {
-  filterActiveStaffRows,
-  staffRowVisibleInSchedule,
-} from '@/lib/staffActiveFilter';
+import { filterActiveStaffRows, staffRowVisibleInSchedule } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices } from '@/lib/staffFallback';
 import { useShiftSchedules } from '@/hooks/useShiftSchedules';
 import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
-import { friendlySupabaseError, logSupabaseError } from '@/lib/supabaseError';
-import { TABLES } from '@/lib/supabaseTables';
+import { friendlySupabaseError } from '@/lib/supabaseError';
 import {
   createStaff,
   updateStaff,
@@ -69,37 +64,15 @@ interface Employee {
 
 function staffRoleLabel(role: string) {
   if (role === 'pharmacist' || role === 'صيدلاني') return 'صيدلانية';
-  if (
-    role === 'shift_supervisor_morning' ||
-    role === 'مسئولة شيفت صباحي' ||
-    role === 'مسئول شيفت صباحي'
-  )
-    return 'مسئولة شيفت صباحي';
-  if (
-    role === 'shift_supervisor_evening' ||
-    role === 'مسئولة شيفت مسائي' ||
-    role === 'مسئول شيفت مسائي'
-  )
-    return 'مسئول شيفت مسائي';
+  if (role === 'shift_supervisor_morning' || role === 'مسئولة شيفت صباحي' || role === 'مسئول شيفت صباحي') return 'مسئولة شيفت صباحي';
+  if (role === 'shift_supervisor_evening' || role === 'مسئولة شيفت مسائي' || role === 'مسئول شيفت مسائي') return 'مسئول شيفت مسائي';
   return role;
 }
 
 function canonicalStaffRole(role: string) {
   if (role === 'صيدلاني' || role === 'صيدلي' || role === 'pharmacist') return 'pharmacist';
-  if (
-    role === 'مسئولة شيفت صباحي' ||
-    role === 'مسئول شيفت صباحي' ||
-    role === 'مشرف شيفت صباحي' ||
-    role === 'shift_supervisor_morning'
-  )
-    return 'shift_supervisor_morning';
-  if (
-    role === 'مسئولة شيفت مسائي' ||
-    role === 'مسئول شيفت مسائي' ||
-    role === 'مشرف شيفت مسائي' ||
-    role === 'shift_supervisor_evening'
-  )
-    return 'shift_supervisor_evening';
+  if (role === 'مسئولة شيفت صباحي' || role === 'مسئول شيفت صباحي' || role === 'مشرف شيفت صباحي' || role === 'shift_supervisor_morning') return 'shift_supervisor_morning';
+  if (role === 'مسئولة شيفت مسائي' || role === 'مسئول شيفت مسائي' || role === 'مشرف شيفت مسائي' || role === 'shift_supervisor_evening') return 'shift_supervisor_evening';
   if (role === 'توصيل') return 'delivery';
   if (role === 'خدمة عملاء') return 'customer_service';
   return role;
@@ -114,10 +87,7 @@ function staffTypeForRole(role: string) {
 
 function onlyChanged<T extends Record<string, unknown>>(next: T, current: Record<string, unknown>) {
   return Object.fromEntries(
-    Object.entries(next).filter(([key, value]) => {
-      const previous = current[key];
-      return String(previous ?? '') !== String(value ?? '');
-    })
+    Object.entries(next).filter(([key, value]) => String(current[key] ?? '') !== String(value ?? ''))
   ) as Partial<T>;
 }
 
@@ -188,15 +158,18 @@ function uniqueEmployeesByIdentity(rows: Employee[]) {
   return [...map.values()];
 }
 
-function staffDisplayName(
-  employee: Pick<Employee, 'name' | 'branch' | 'role'>,
-  allRows: Employee[]
-) {
+function staffDisplayName(employee: Pick<Employee, 'name' | 'branch' | 'role'>, allRows: Employee[]) {
   const key = normalizeStaffName(employee.name);
   const duplicates = allRows.filter((row) => normalizeStaffName(row.name) === key);
   if (duplicates.length <= 1) return employee.name;
   const suffix = [employee.branch, employee.role].filter(Boolean).join(' - ');
   return suffix ? `${employee.name} (${suffix})` : employee.name;
+}
+
+function pointsTone(pointsPct: number) {
+  if (pointsPct >= 90) return 'dawaa-badge--success';
+  if (pointsPct >= 70) return 'dawaa-badge--warning';
+  return 'dawaa-badge--danger';
 }
 
 export default function Team() {
@@ -208,9 +181,9 @@ export default function Team() {
   const debouncedSearch = useDebounce(search, 300);
 
   useEffect(() => {
-    const q = searchParams.get('search') || '';
-    setSearch(q);
+    setSearch(searchParams.get('search') || '');
   }, [searchParams]);
+
   const [branchFilter, setBranchFilter] = useState(() => canViewAllBranches(user) ? 'الكل' : (normalizeBranchName(user?.branch || '') || 'الكل'));
   const [roleFilter, setRoleFilter] = useState('الكل');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -242,17 +215,12 @@ export default function Team() {
       .catch(() => {
         if (mounted) setLivePresence(null);
       });
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   const { data: staffRows, loading, refetch } = useStaff<Employee>();
   const employees = useMemo(
-    () =>
-      mergeStaffChoices(
-        filterActiveStaffRows(staffRows).filter(staffRowVisibleInSchedule)
-      ),
+    () => mergeStaffChoices(filterActiveStaffRows(staffRows).filter(staffRowVisibleInSchedule)),
     [staffRows]
   );
   const { data: schedules, loading: schedulesLoading } = useShiftSchedules<ShiftSchedule>();
@@ -261,47 +229,37 @@ export default function Team() {
   const cycle = getCurrentCycle();
   const todayName = DAYS_AR[new Date().getDay()];
 
-  const todayShift = (employee: Employee) =>
-    schedules.find(
-      (item) =>
-        (item.staff_id === employee.id || item.staff_name === employee.name) &&
-        item.branch === employee.branch &&
-        item.day_name === todayName
-    );
+  const todayShift = (employee: Employee) => schedules.find(
+    (item) =>
+      (item.staff_id === employee.id || item.staff_name === employee.name) &&
+      item.branch === employee.branch &&
+      item.day_name === todayName
+  );
 
   const holidayDay = (employee: Employee) =>
     schedules.find(
-      (item) =>
-        (item.staff_id === employee.id || item.staff_name === employee.name) &&
-        item.branch === employee.branch &&
-        item.is_off
-    )?.day_name ||
-    employee.holiday_day ||
-    'غير محدد';
+      (item) => (item.staff_id === employee.id || item.staff_name === employee.name) && item.branch === employee.branch && item.is_off
+    )?.day_name || employee.holiday_day || 'غير محدد';
 
-  const getEmployeeTransactions = (employee: Employee) => {
-    return (employeeTransactions || []).filter((transaction) =>
-      recordBelongsToStaff(transaction as PointLedgerRecord, employee)
-    );
-  };
+  const getEmployeeTransactions = (employee: Employee) =>
+    (employeeTransactions || []).filter((transaction) => recordBelongsToStaff(transaction as PointLedgerRecord, employee));
 
   const filtered = useMemo(
-    () =>
-      employees.filter((e) => {
-        const raw = debouncedSearch.trim();
-        const haystack = `${e.name} ${e.phone || ''} ${e.role || ''}`;
-        const matchSearch = !raw || matchesOrderedSegments(haystack, raw);
-        const matchBranch = branchFilter === 'الكل' || e.branch === branchFilter;
-        const matchRole = roleFilter === 'الكل' || e.role === roleFilter;
-        return matchSearch && matchBranch && matchRole;
-      }),
+    () => employees.filter((e) => {
+      const raw = debouncedSearch.trim();
+      const haystack = `${e.name} ${e.phone || ''} ${e.role || ''}`;
+      const matchSearch = !raw || matchesOrderedSegments(haystack, raw);
+      const matchBranch = branchFilter === 'الكل' || e.branch === branchFilter;
+      const matchRole = roleFilter === 'الكل' || e.role === roleFilter;
+      return matchSearch && matchBranch && matchRole;
+    }),
     [employees, debouncedSearch, branchFilter, roleFilter]
   );
   const displayEmployees = useMemo(() => uniqueEmployeesByIdentity(filtered), [filtered]);
 
   const onShiftNow = employees.filter((e) => {
     const shift = todayShift(e);
-    return (
+    return Boolean(
       shift?.shift_start &&
       shift?.shift_end &&
       !shift.is_off &&
@@ -315,18 +273,20 @@ export default function Team() {
 
   const liveCards = (livePresence?.total
     ? [
-        { title: 'صيادلة على الشيفت', list: livePresence.doctors, color: 'teal' },
-        { title: 'مساعدون على الشيفت', list: livePresence.assistants, color: 'blue' },
-        { title: 'توصيل على الشيفت', list: livePresence.delivery, color: 'amber' },
+        { title: 'صيادلة على الشيفت', list: livePresence.doctors },
+        { title: 'مساعدون على الشيفت', list: livePresence.assistants },
+        { title: 'توصيل على الشيفت', list: livePresence.delivery },
       ]
     : [
-        { title: 'صيادلة على الشيفت', list: doctors as LiveShiftRow[], color: 'teal' },
-        { title: 'مساعدون على الشيفت', list: assistants as LiveShiftRow[], color: 'blue' },
-        { title: 'توصيل على الشيفت', list: deliveryNow as LiveShiftRow[], color: 'amber' },
+        { title: 'صيادلة على الشيفت', list: doctors as LiveShiftRow[] },
+        { title: 'مساعدون على الشيفت', list: assistants as LiveShiftRow[] },
+        { title: 'توصيل على الشيفت', list: deliveryNow as LiveShiftRow[] },
       ]
   ).map((card) => ({
     ...card,
-    list: canViewAllBranches(user) ? card.list : card.list.filter((row) => normalizeBranchName(row.branch) === normalizeBranchName(user?.branch || '')),
+    list: canViewAllBranches(user)
+      ? card.list
+      : card.list.filter((row) => normalizeBranchName(row.branch) === normalizeBranchName(user?.branch || '')),
   }));
 
   const roles = [...new Set(employees.map((e) => e.role))];
@@ -341,21 +301,13 @@ export default function Team() {
         .filter((employee) => employee.branch === branch)
         .map((employee) => ({
           ...employee,
-          cyclePoints: calculateStaffCycleIncentiveFromRows({
-            staff: employee,
-            records: pointRecords || [],
-            cycle,
-          }).finalPoints,
+          cyclePoints: calculateStaffCycleIncentiveFromRows({ staff: employee, records: pointRecords || [], cycle }).finalPoints,
         }))
         .sort((a, b) => b.cyclePoints - a.cyclePoints);
       return {
         branch,
-        doctors: branchEmployees.filter((employee) =>
-          /صيد|دكتور|pharmacist|doctor/i.test(employee.role || '')
-        ),
-        delivery: branchEmployees.filter((employee) =>
-          /توصيل|دليفري|delivery/i.test(employee.role || '')
-        ),
+        doctors: branchEmployees.filter((employee) => /صيد|دكتور|pharmacist|doctor/i.test(employee.role || '')),
+        delivery: branchEmployees.filter((employee) => /توصيل|دليفري|delivery/i.test(employee.role || '')),
       };
     }).filter((group) => group.doctors.length || group.delivery.length);
   }, [cycle, employees, pointRecords, visibleBranches]);
@@ -363,126 +315,80 @@ export default function Team() {
   if (loading || schedulesLoading) return <LoadingState />;
 
   return (
-    <div className="space-y-5">
-      {/* Live Status */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {liveCards.map(({ title, list, color }) => (
-          <div key={title} className="stat-card">
-            <div className="flex items-center justify-between mb-3">
-              <div className="section-title text-sm">{title}</div>
-              <span
-                className={`text-lg font-bold num ${color === 'teal' ? 'text-teal-400' : color === 'blue' ? 'text-blue-400' : 'text-amber-400'}`}
-              >
-                {list.length}
-              </span>
+    <div className="dawaa-page space-y-5" dir="rtl">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {liveCards.map(({ title, list }) => (
+          <article key={title} className="dawaa-card p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="dawaa-title text-sm">{title}</div>
+              <span className="dawaa-badge dawaa-badge--info num text-sm">{list.length}</span>
             </div>
             <div className="space-y-2">
               {list.length === 0 ? (
-                <div className="text-slate-400 text-xs py-2">لا يوجد حالياً</div>
+                <div className="dawaa-caption py-2 text-xs">لا يوجد حالياً</div>
               ) : (
                 list.map((e) => (
                   <div key={e.id} className="flex items-center gap-2.5">
-                    <div
-                      className={`w-2 h-2 rounded-full ${color === 'teal' ? 'bg-teal-400' : color === 'blue' ? 'bg-blue-400' : 'bg-amber-400'} animate-pulse-soft`}
-                    />
-                    <span className="text-white text-xs font-medium">{e.name}</span>
-                    <span className="text-slate-400 text-xs mr-auto">
-                      {e.shift_start || '-'}–{e.shift_end || '-'}
-                    </span>
-                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-slate-300">
-                      {e.attendance_status || 'مجدول'}
-                    </span>
+                    <span className="h-2 w-2 rounded-full bg-[var(--dawaa-status-success-text)]" />
+                    <span className="dawaa-body text-xs font-medium">{e.name}</span>
+                    <span className="dawaa-caption mr-auto text-xs">{e.shift_start || '-'}–{e.shift_end || '-'}</span>
+                    <span className="dawaa-badge text-[10px]">{e.attendance_status || 'مجدول'}</span>
                   </div>
                 ))
               )}
             </div>
-          </div>
+          </article>
         ))}
-      </div>
+      </section>
+
       {livePresence?.debug && (
-        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-xs font-bold text-cyan-100">
+        <div className="dawaa-alert dawaa-alert--info px-4 py-3 text-xs font-bold">
           مصدر جدول الشيفت: {livePresence.debug}. يتم عرض المجدولين حتى لو لم يبصموا.
         </div>
       )}
 
-      <div className="stat-card space-y-4">
-        <div className="section-title text-sm">ترتيب الفريق حسب الفروع</div>
-        <div className="grid lg:grid-cols-2 gap-4">
+      <section className="dawaa-card space-y-4 p-5">
+        <div className="dawaa-title text-sm">ترتيب الفريق حسب الفروع</div>
+        <div className="grid gap-4 lg:grid-cols-2">
           {branchRankings.map((group) => (
-            <div
-              key={group.branch}
-              className="rounded-xl border border-[#2d4063] bg-white/5 overflow-hidden"
-            >
-              <div className="px-4 py-3 bg-[#16253f] text-white font-bold">{group.branch}</div>
+            <article key={group.branch} className="overflow-hidden rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]">
+              <div className="dawaa-title border-b border-[var(--dawaa-theme-divider)] px-4 py-3">{group.branch}</div>
               <RankingList title="الدكاترة والصيادلة" rows={group.doctors} />
               <RankingList title="الدليفري" rows={group.delivery} />
-            </div>
+            </article>
           ))}
         </div>
-      </div>
+      </section>
 
-      {/* Filters */}
-      <div className="flex flex-col md:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="بحث في الفريق..."
-            className="input-dark pr-10"
-          />
+      <section className="dawaa-toolbar">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--dawaa-theme-muted)]" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث في الفريق..." className="dawaa-input pr-10" />
         </div>
         {canViewAllBranches(user) ? (
-          <select
-            value={branchFilter}
-            onChange={(e) => setBranchFilter(e.target.value)}
-            className="input-dark md:w-40"
-          >
+          <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="dawaa-select md:w-40">
             <option value="الكل">كل الفروع</option>
-            {BRANCHES.map((b) => (
-              <option key={b}>{b}</option>
-            ))}
+            {BRANCHES.map((b) => <option key={b}>{b}</option>)}
           </select>
         ) : (
-          <div className="input-dark md:w-40 flex items-center text-slate-200">{branchFilter}</div>
+          <div className="dawaa-input flex items-center md:w-40">{branchFilter}</div>
         )}
-        <select
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value)}
-          className="input-dark md:w-40"
-        >
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="dawaa-select md:w-40">
           <option value="الكل">كل الأدوار</option>
-          {roles.map((r) => (
-            <option key={r}>{r}</option>
-          ))}
+          {roles.map((r) => <option key={r}>{r}</option>)}
         </select>
         {canCreateTeam && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Plus size={16} />
-            موظف جديد
-          </button>
+          <button onClick={() => setShowAddModal(true)} className="dawaa-button dawaa-button--primary"><Plus size={16} /> موظف جديد</button>
         )}
-      </div>
+      </section>
 
-      {/* Employee Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {displayEmployees.map((emp) => {
           const shift = todayShift(emp);
           const onShift = Boolean(
-            shift?.shift_start &&
-            shift?.shift_end &&
-            !shift.is_off &&
-            isCurrentlyOnShift(shift.shift_start, shift.shift_end) &&
-            emp.status === 'نشط'
+            shift?.shift_start && shift?.shift_end && !shift.is_off && isCurrentlyOnShift(shift.shift_start, shift.shift_end) && emp.status === 'نشط'
           );
-          const incentive = calculateStaffCycleIncentiveFromRows({
-            staff: emp,
-            records: pointRecords || [],
-            cycle,
-          });
+          const incentive = calculateStaffCycleIncentiveFromRows({ staff: emp, records: pointRecords || [], cycle });
           const points = incentive.finalPoints;
           const maxPoints = incentive.startingPoints;
           const pointsPct = percent(points, maxPoints);
@@ -490,145 +396,60 @@ export default function Team() {
           const bonuses = incentive.rewardTransactions.length;
           const penaltyPoints = incentive.approvedDeductionPoints;
           const bonusPoints = incentive.approvedRewardPoints;
+
           return (
-            <div key={emp.id} className="stat-card card-glow">
+            <article key={emp.id} className="dawaa-card dawaa-card--interactive p-5">
               <div className="flex items-start gap-3">
                 <div className="relative">
-                  <div className="w-12 h-12 rounded-full bg-teal-500/20 flex items-center justify-center text-teal-400 text-lg font-bold">
-                    {emp.name[0]}
-                  </div>
-                  {onShift && (
-                    <span className="absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-teal-400 border-2 border-[#243558]" />
-                  )}
+                  <div className="dawaa-icon-tile h-12 w-12 rounded-full text-lg font-bold">{emp.name[0]}</div>
+                  {onShift && <span className="absolute -bottom-0.5 -left-0.5 h-3.5 w-3.5 rounded-full border-2 border-[var(--dawaa-theme-surface)] bg-[var(--dawaa-status-success-text)]" />}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-white font-bold text-sm">{emp.name}</div>
-                  <div className="flex gap-2 mt-1 flex-wrap">
-                    <span className="badge-info">{emp.role}</span>
-                    <span className="text-slate-400 text-xs">{emp.branch}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="dawaa-title text-sm">{emp.name}</div>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <span className="dawaa-badge dawaa-badge--info">{emp.role}</span>
+                    <span className="dawaa-caption text-xs">{emp.branch}</span>
                   </div>
                 </div>
-                {canEditTeam && (
-                  <button
-                    onClick={() => setEditing(emp)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5"
-                  >
-                    <Edit2 size={14} />
-                  </button>
-                )}
-                <Link
-                  to={staffProfilePath(emp)}
-                  className="p-1.5 rounded-lg text-teal-400 hover:text-white hover:bg-teal-500/10"
-                  title="ملف الأداء الشامل"
-                >
-                  <ClipboardList size={14} />
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => setViewing(emp)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5"
-                  title="تفاصيل الموظف"
-                >
-                  <Eye size={14} />
-                </button>
+                {canEditTeam && <button onClick={() => setEditing(emp)} className="dawaa-action-icon p-1.5" title="تعديل الموظف"><Edit2 size={14} /></button>}
+                <Link to={staffProfilePath(emp)} className="dawaa-action-icon p-1.5" title="ملف الأداء الشامل"><ClipboardList size={14} /></Link>
+                <button type="button" onClick={() => setViewing(emp)} className="dawaa-action-icon p-1.5" title="تفاصيل الموظف"><Eye size={14} /></button>
               </div>
+
               <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-white/5 rounded-lg p-2.5">
-                  <div className="text-slate-400">الشيفت</div>
-                  <div className="text-white font-medium mt-0.5">
-                    {shift?.is_off
-                      ? 'إجازة اليوم'
-                      : `${shift?.shift_start || '-'} — ${shift?.shift_end || '-'}`}
-                  </div>
-                </div>
-                <div className="bg-white/5 rounded-lg p-2.5">
-                  <div className="text-slate-400">إجازة</div>
-                  <div className="text-white font-medium mt-0.5">{holidayDay(emp)}</div>
-                </div>
+                <div className="rounded-lg bg-[var(--dawaa-theme-surface-2)] p-2.5"><div className="dawaa-caption">الشيفت</div><div className="dawaa-body mt-0.5 font-medium">{shift?.is_off ? 'إجازة اليوم' : `${shift?.shift_start || '-'} — ${shift?.shift_end || '-'}`}</div></div>
+                <div className="rounded-lg bg-[var(--dawaa-theme-surface-2)] p-2.5"><div className="dawaa-caption">إجازة</div><div className="dawaa-body mt-0.5 font-medium">{holidayDay(emp)}</div></div>
               </div>
+
               <div className="mt-3">
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span className="text-slate-400">النقاط</span>
-                  <span
-                    className={`font-bold num ${pointsPct >= 90 ? 'text-teal-400' : pointsPct >= 70 ? 'text-amber-400' : 'text-red-400'}`}
-                  >
-                    {points} / {maxPoints}
-                  </span>
-                </div>
-                <div className="progress-bar">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${pointsPct >= 90 ? 'bg-gradient-to-r from-teal-500 to-teal-400' : pointsPct >= 70 ? 'bg-gradient-to-r from-amber-500 to-amber-400' : 'bg-gradient-to-r from-red-500 to-red-400'}`}
-                    style={{ width: `${pointsPct}%` }}
-                  />
+                <div className="mb-1.5 flex items-center justify-between text-xs"><span className="dawaa-caption">النقاط</span><span className={`dawaa-badge ${pointsTone(pointsPct)} num`}>{points} / {maxPoints}</span></div>
+                <div className="h-2 overflow-hidden rounded-full bg-[var(--dawaa-theme-soft)]"><div className="h-full rounded-full bg-[var(--dawaa-theme-primary)] transition-all duration-500" style={{ width: `${Math.max(0, Math.min(100, pointsPct))}%` }} /></div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2"><Phone size={12} className="text-[var(--dawaa-theme-muted)]" /><span className="dawaa-caption text-xs">{emp.phone || 'بدون رقم'}</span></div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {penalties > 0 && <Link to={`/points?staff_id=${emp.id}`} className="dawaa-badge dawaa-badge--danger hover:underline">جزاء: {penalties} / {penaltyPoints} نقطة</Link>}
+                  {bonuses > 0 && <Link to={`/points?staff_id=${emp.id}`} className="dawaa-badge dawaa-badge--success hover:underline">مكافأة: {bonuses} / {bonusPoints} نقطة</Link>}
+                  <span className={`dawaa-badge ${onShift ? 'dawaa-badge--success' : ''}`}>{onShift ? '● على الشيفت' : '○ خارج الشيفت'}</span>
                 </div>
               </div>
-              <div className="mt-3 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <Phone size={12} className="text-slate-400" />
-                  <span className="text-slate-400 text-xs">{emp.phone || 'بدون رقم'}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  {penalties > 0 && (
-                    <Link
-                      to={`/points?staff_id=${emp.id}`}
-                      className="text-red-400 text-xs font-bold hover:underline"
-                    >
-                      جزاء: {penalties} / {penaltyPoints} نقطة
-                    </Link>
-                  )}
-                  {bonuses > 0 && (
-                    <Link
-                      to={`/points?staff_id=${emp.id}`}
-                      className="text-green-400 text-xs font-bold hover:underline"
-                    >
-                      مكافأة: {bonuses} / {bonusPoints} نقطة
-                    </Link>
-                  )}
-                  <span
-                    className={`text-xs font-medium ${onShift ? 'text-teal-400' : 'text-slate-500'}`}
-                  >
-                    {onShift ? '● على الشيفت' : '○ خارج الشيفت'}
-                  </span>
-                </div>
-              </div>
+
               <div className="mt-3 flex gap-2">
-                <Link
-                  to={`/invoices?seller_name=${encodeURIComponent(emp.name)}`}
-                  className="flex-1 text-center btn-secondary py-2 text-xs"
-                >
-                  الفواتير
-                </Link>
-                <Link
-                  to={`/points?staff_id=${emp.id}`}
-                  className="flex-1 text-center btn-secondary py-2 text-xs"
-                >
-                  النقاط
-                </Link>
+                <Link to={`/invoices?seller_name=${encodeURIComponent(emp.name)}`} className="dawaa-button dawaa-button--secondary flex-1 py-2 text-center text-xs">الفواتير</Link>
+                <Link to={`/points?staff_id=${emp.id}`} className="dawaa-button dawaa-button--secondary flex-1 py-2 text-center text-xs">النقاط</Link>
               </div>
-            </div>
+            </article>
           );
         })}
-      </div>
+      </section>
 
-      {showAddModal && (
-        <EmployeeModal onClose={() => setShowAddModal(false)} onSaved={refetch} user={user} />
-      )}
-      {editing && (
-        <EmployeeModal
-          employee={editing}
-          onClose={() => setEditing(null)}
-          onSaved={refetch}
-          user={user}
-        />
-      )}
+      {showAddModal && <EmployeeModal onClose={() => setShowAddModal(false)} onSaved={refetch} user={user} />}
+      {editing && <EmployeeModal employee={editing} onClose={() => setEditing(null)} onSaved={refetch} user={user} />}
       {viewing && (
         <EmployeeDetailsModal
           employee={viewing}
-          schedules={schedules.filter(
-            (item) =>
-              (item.staff_id === viewing.id || item.staff_name === viewing.name) &&
-              item.branch === viewing.branch
-          )}
+          schedules={schedules.filter((item) => (item.staff_id === viewing.id || item.staff_name === viewing.name) && item.branch === viewing.branch)}
           transactions={getEmployeeTransactions(viewing)}
           onClose={() => setViewing(null)}
         />
@@ -645,68 +466,37 @@ interface DaySchedule {
   use_custom_schedule: boolean;
 }
 
-function EmployeeModal({
-  employee,
-  onClose,
-  onSaved,
-  user,
-}: {
-  employee?: Employee;
-  onClose: () => void;
-  onSaved: () => void;
-  user: User | null;
-}) {
+function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employee; onClose: () => void; onSaved: () => void; user: User | null }) {
   const [saving, setSaving] = useState(false);
   useEscapeKey(onClose, true);
   const [form, setForm] = useState({
-    name: '',
-    username: '',
-    password: '',
-    account_status: 'active',
-    phone: '',
-    role: 'صيدلاني',
-    role_label: 'صيدلانية',
-    job_title: 'صيدلانية',
-    branch: 'فرع شكري',
-    default_shift_start: '09:00',
-    default_shift_end: '19:00',
-    notes: '',
+    name: '', username: '', password: '', account_status: 'active', phone: '', role: 'صيدلاني', role_label: 'صيدلانية', job_title: 'صيدلانية', branch: 'فرع شكري', default_shift_start: '09:00', default_shift_end: '19:00', notes: '',
   });
-  const [daySchedules, setDaySchedules] = useState<DaySchedule[]>(
-    DAYS_AR.map((day) => ({
-      day,
-      shift_start: '09:00',
-      shift_end: '19:00',
-      is_day_off: day === 'الجمعة',
-      use_custom_schedule: false,
-    }))
-  );
+  const [daySchedules, setDaySchedules] = useState<DaySchedule[]>(DAYS_AR.map((day) => ({
+    day, shift_start: '09:00', shift_end: '19:00', is_day_off: day === 'الجمعة', use_custom_schedule: false,
+  })));
 
   useEffect(() => {
-    if (employee) {
-      setForm({
-        name: employee.name || '',
-        username: employee.username || '',
-        password: '',
-        account_status: employee.status === 'inactive' ? 'inactive' : 'active',
-        phone: employee.phone || '',
-        role: employee.role || 'صيدلاني',
-        role_label: employee.role_label || staffRoleLabel(employee.role || 'صيدلاني'),
-        job_title: employee.job_title || staffRoleLabel(employee.role || 'صيدلاني'),
-        branch: employee.branch || 'فرع شكري',
-        default_shift_start: employee.shift_start || '09:00',
-        default_shift_end: employee.shift_end || '19:00',
-        notes: employee.notes || '',
-      });
-      // Load existing schedules if editing
-      // This would need to fetch from shift_schedules table
-    }
+    if (!employee) return;
+    setForm({
+      name: employee.name || '',
+      username: employee.username || '',
+      password: '',
+      account_status: employee.status === 'inactive' ? 'inactive' : 'active',
+      phone: employee.phone || '',
+      role: employee.role || 'صيدلاني',
+      role_label: employee.role_label || staffRoleLabel(employee.role || 'صيدلاني'),
+      job_title: employee.job_title || staffRoleLabel(employee.role || 'صيدلاني'),
+      branch: employee.branch || 'فرع شكري',
+      default_shift_start: employee.shift_start || '09:00',
+      default_shift_end: employee.shift_end || '19:00',
+      notes: employee.notes || '',
+    });
   }, [employee]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-
     try {
       const isActive = form.account_status === 'active';
       const canonicalRole = canonicalStaffRole(form.role);
@@ -729,7 +519,6 @@ function EmployeeModal({
 
       let staffId = '';
       let error: string | null = null;
-
       if (employee) {
         const updatePayload = onlyChanged(payload, {
           ...employee,
@@ -741,9 +530,7 @@ function EmployeeModal({
           is_active: employee.status !== 'inactive',
           status: employee.status === 'inactive' ? 'inactive' : 'active',
         });
-        const { error: updateError } = Object.keys(updatePayload).length
-          ? await updateStaff(employee.id, updatePayload)
-          : { error: null };
+        const { error: updateError } = Object.keys(updatePayload).length ? await updateStaff(employee.id, updatePayload) : { error: null };
         error = updateError ? friendlySupabaseError(updateError) : null;
         if (!error) staffId = employee.id;
       } else {
@@ -758,7 +545,6 @@ function EmployeeModal({
         return;
       }
 
-      // Create shift schedules for all 7 days
       if (!employee) {
         const accountResult = await createStaffAccount({
           staff_id: staffId!,
@@ -777,9 +563,7 @@ function EmployeeModal({
           visible_in_admin: true,
           permissions: {},
         });
-        if (accountResult.error) {
-          toast.warning('تم حفظ الموظف لكن حساب الدخول يحتاج مراجعة.');
-        }
+        if (accountResult.error) toast.warning('تم حفظ الموظف لكن حساب الدخول يحتاج مراجعة.');
       } else {
         await updateStaffAccountByStaffId(employee.id, {
           name: form.name,
@@ -800,53 +584,30 @@ function EmployeeModal({
         branch: form.branch,
         day_name: schedule.day,
         day_of_week: index,
-        shift_start: schedule.is_day_off
-          ? null
-          : schedule.use_custom_schedule
-            ? schedule.shift_start
-            : form.default_shift_start,
-        shift_end: schedule.is_day_off
-          ? null
-          : schedule.use_custom_schedule
-            ? schedule.shift_end
-            : form.default_shift_end,
+        shift_start: schedule.is_day_off ? null : schedule.use_custom_schedule ? schedule.shift_start : form.default_shift_start,
+        shift_end: schedule.is_day_off ? null : schedule.use_custom_schedule ? schedule.shift_end : form.default_shift_end,
         is_off: schedule.is_day_off,
         is_day_off: schedule.is_day_off,
         is_different: !schedule.is_day_off && schedule.use_custom_schedule,
         has_custom_time: !schedule.is_day_off && schedule.use_custom_schedule,
-        notes: schedule.is_day_off
-          ? 'day_off'
-          : schedule.use_custom_schedule
-            ? 'custom_time'
-            : null,
+        notes: schedule.is_day_off ? 'day_off' : schedule.use_custom_schedule ? 'custom_time' : null,
       }));
 
       const { error: scheduleError } = await replaceStaffShiftSchedules(staffId!, scheduleRecords);
-
-      if (scheduleError) {
-        toast.error('تم حفظ الموظف لكن حدث خطأ في حفظ المواعيد: ' + scheduleError.message);
-      }
+      if (scheduleError) toast.error('تم حفظ الموظف لكن حدث خطأ في حفظ المواعيد: ' + scheduleError.message);
 
       toast.success(employee ? 'تم تعديل بيانات الموظف' : 'تم إضافة الموظف بنجاح');
-      // لا تجعل تسجيل النشاط سببًا في فشل حفظ الموظف؛ أحيانًا يكون الحساب الحالي محليًا أو غير مرتبط بـ UUID.
       try {
         const actorId = getSafeCurrentUserId();
         if (user && actorId) {
-          await logActivity(
-            actorId,
-            user.name || 'النظام',
-            employee ? 'تعديل موظف' : 'إضافة موظف',
-            'الفريق',
-            `${employee ? 'تعديل' : 'إضافة'} ${form.name}`,
-            form.branch
-          );
+          await logActivity(actorId, user.name || 'النظام', employee ? 'تعديل موظف' : 'إضافة موظف', 'الفريق', `${employee ? 'تعديل' : 'إضافة'} ${form.name}`, form.branch);
         }
-      } catch (logError) {
-        // Activity log skipped silently
+      } catch {
+        // Activity log is secondary to saving the employee.
       }
       onSaved();
       onClose();
-    } catch (err) {
+    } catch {
       toast.error('حدث خطأ غير متوقع أثناء الحفظ');
     }
     setSaving(false);
@@ -854,207 +615,61 @@ function EmployeeModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-panel max-w-2xl max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-5 border-b border-[#2d4063] sticky top-0 bg-[#1a2d4d] z-10">
-          <div className="text-white font-bold text-lg">
-            {employee ? 'تعديل بيانات الموظف' : 'إضافة موظف جديد'}
-          </div>
+      <div className="modal-panel max-h-[90vh] max-w-2xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 border-b border-[var(--dawaa-theme-divider)] bg-[var(--dawaa-theme-surface-raised)] p-5">
+          <div className="dawaa-title text-lg">{employee ? 'تعديل بيانات الموظف' : 'إضافة موظف جديد'}</div>
         </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 p-5">
           <div className="grid grid-cols-2 gap-3">
-            <input
-              placeholder="الاسم الكامل *"
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              className="input-dark col-span-2"
-              required
-            />
-            <input
-              placeholder={employee ? 'اسم المستخدم الحالي' : 'اسم المستخدم *'}
-              value={form.username}
-              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-              className="input-dark"
-              readOnly={Boolean(employee)}
-              required={!employee}
-            />
+            <input placeholder="الاسم الكامل *" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="dawaa-input col-span-2" required />
+            <input placeholder={employee ? 'اسم المستخدم الحالي' : 'اسم المستخدم *'} value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} className="dawaa-input" readOnly={Boolean(employee)} required={!employee} />
             {!employee ? (
-              <input
-                placeholder="كلمة المرور *"
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                className="input-dark"
-                required
-              />
+              <input placeholder="كلمة المرور *" type="password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} className="dawaa-input" required />
             ) : (
-              <div className="input-dark flex items-center text-sm text-slate-400">
-                كلمة المرور لا تتغير من شاشة تعديل البيانات
-              </div>
+              <div className="dawaa-input flex items-center text-sm">كلمة المرور لا تتغير من شاشة تعديل البيانات</div>
             )}
-            <input
-              placeholder="رقم الهاتف"
-              value={form.phone}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              className="input-dark"
-            />
-            <select
-              value={form.role}
-              onChange={(e) => {
-                const role = e.target.value;
-                const label = staffRoleLabel(role);
-                setForm((f) => ({ ...f, role, role_label: label, job_title: label }));
-              }}
-              className="input-dark"
-            >
-              {Array.from(new Set([form.role, ...ROLES])).filter(Boolean).map((r) => (
-                <option key={r}>{r}</option>
-              ))}
+            <input placeholder="رقم الهاتف" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} className="dawaa-input" />
+            <select value={form.role} onChange={(e) => { const role = e.target.value; const label = staffRoleLabel(role); setForm((f) => ({ ...f, role, role_label: label, job_title: label })); }} className="dawaa-select">
+              {Array.from(new Set([form.role, ...ROLES])).filter(Boolean).map((r) => <option key={r}>{r}</option>)}
             </select>
-            <input
-              placeholder="وسم الدور"
-              value={form.role_label}
-              onChange={(e) => setForm((f) => ({ ...f, role_label: e.target.value }))}
-              className="input-dark"
-            />
-            <input
-              placeholder="المسمى الوظيفي"
-              value={form.job_title}
-              onChange={(e) => setForm((f) => ({ ...f, job_title: e.target.value }))}
-              className="input-dark"
-            />
-            <select
-              value={form.branch}
-              onChange={(e) => setForm((f) => ({ ...f, branch: e.target.value }))}
-              className="input-dark"
-            >
-              {BRANCHES.map((b) => (
-                <option key={b}>{b}</option>
-              ))}
-            </select>
-            <select
-              value={form.account_status}
-              onChange={(e) => setForm((f) => ({ ...f, account_status: e.target.value }))}
-              className="input-dark"
-            >
-              <option value="active">نشط</option>
-              <option value="inactive">موقوف</option>
-            </select>
+            <input placeholder="وسم الدور" value={form.role_label} onChange={(e) => setForm((f) => ({ ...f, role_label: e.target.value }))} className="dawaa-input" />
+            <input placeholder="المسمى الوظيفي" value={form.job_title} onChange={(e) => setForm((f) => ({ ...f, job_title: e.target.value }))} className="dawaa-input" />
+            <select value={form.branch} onChange={(e) => setForm((f) => ({ ...f, branch: e.target.value }))} className="dawaa-select">{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select>
+            <select value={form.account_status} onChange={(e) => setForm((f) => ({ ...f, account_status: e.target.value }))} className="dawaa-select"><option value="active">نشط</option><option value="inactive">موقوف</option></select>
           </div>
 
-          <div className="bg-white/5 rounded-xl p-4 border border-[#2d4063]">
-            <div className="text-white font-bold text-sm mb-3">الميعاد الأساسي</div>
+          <section className="dawaa-card dawaa-card--soft p-4">
+            <div className="dawaa-title mb-3 text-sm">الميعاد الأساسي</div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-slate-400 text-xs mb-1 block">من</label>
-                <input
-                  type="time"
-                  value={form.default_shift_start}
-                  onChange={(e) => setForm((f) => ({ ...f, default_shift_start: e.target.value }))}
-                  className="input-dark"
-                />
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs mb-1 block">إلى</label>
-                <input
-                  type="time"
-                  value={form.default_shift_end}
-                  onChange={(e) => setForm((f) => ({ ...f, default_shift_end: e.target.value }))}
-                  className="input-dark"
-                />
-              </div>
+              <label className="dawaa-caption text-xs">من<input type="time" value={form.default_shift_start} onChange={(e) => setForm((f) => ({ ...f, default_shift_start: e.target.value }))} className="dawaa-input mt-1" /></label>
+              <label className="dawaa-caption text-xs">إلى<input type="time" value={form.default_shift_end} onChange={(e) => setForm((f) => ({ ...f, default_shift_end: e.target.value }))} className="dawaa-input mt-1" /></label>
             </div>
-          </div>
+          </section>
 
-          <div className="bg-white/5 rounded-xl p-4 border border-[#2d4063]">
-            <div className="text-white font-bold text-sm mb-3">المواعيد الأسبوعية</div>
+          <section className="dawaa-card dawaa-card--soft p-4">
+            <div className="dawaa-title mb-3 text-sm">المواعيد الأسبوعية</div>
             <div className="space-y-2">
               {daySchedules.map((schedule, index) => (
-                <div
-                  key={schedule.day}
-                  className="flex items-center gap-3 p-2 rounded-lg bg-white/5"
-                >
-                  <div className="w-20 text-slate-300 text-sm font-medium">{schedule.day}</div>
-                  <label className="flex items-center gap-2 text-slate-400 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={schedule.is_day_off}
-                      onChange={(e) => {
-                        const newSchedules = [...daySchedules];
-                        newSchedules[index].is_day_off = e.target.checked;
-                        setDaySchedules(newSchedules);
-                      }}
-                      className="rounded"
-                    />
-                    إجازة
-                  </label>
+                <div key={schedule.day} className="flex flex-wrap items-center gap-3 rounded-lg bg-[var(--dawaa-theme-surface)] p-2">
+                  <div className="dawaa-body w-20 text-sm font-medium">{schedule.day}</div>
+                  <label className="dawaa-caption flex items-center gap-2 text-xs"><input type="checkbox" checked={schedule.is_day_off} onChange={(e) => { const next = [...daySchedules]; next[index].is_day_off = e.target.checked; setDaySchedules(next); }} /> إجازة</label>
                   {!schedule.is_day_off && (
                     <>
-                      <label className="flex items-center gap-2 text-slate-400 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={schedule.use_custom_schedule}
-                          onChange={(e) => {
-                            const newSchedules = [...daySchedules];
-                            newSchedules[index].use_custom_schedule = e.target.checked;
-                            setDaySchedules(newSchedules);
-                          }}
-                          className="rounded"
-                        />
-                        ميعاد مختلف
-                      </label>
+                      <label className="dawaa-caption flex items-center gap-2 text-xs"><input type="checkbox" checked={schedule.use_custom_schedule} onChange={(e) => { const next = [...daySchedules]; next[index].use_custom_schedule = e.target.checked; setDaySchedules(next); }} /> ميعاد مختلف</label>
                       {schedule.use_custom_schedule && (
-                        <>
-                          <input
-                            type="time"
-                            value={schedule.shift_start}
-                            onChange={(e) => {
-                              const newSchedules = [...daySchedules];
-                              newSchedules[index].shift_start = e.target.value;
-                              setDaySchedules(newSchedules);
-                            }}
-                            className="input-dark text-xs py-1"
-                          />
-                          <span className="text-slate-400">-</span>
-                          <input
-                            type="time"
-                            value={schedule.shift_end}
-                            onChange={(e) => {
-                              const newSchedules = [...daySchedules];
-                              newSchedules[index].shift_end = e.target.value;
-                              setDaySchedules(newSchedules);
-                            }}
-                            className="input-dark text-xs py-1"
-                          />
-                        </>
+                        <><input type="time" value={schedule.shift_start} onChange={(e) => { const next = [...daySchedules]; next[index].shift_start = e.target.value; setDaySchedules(next); }} className="dawaa-input max-w-32 py-1 text-xs" /><span className="dawaa-caption">-</span><input type="time" value={schedule.shift_end} onChange={(e) => { const next = [...daySchedules]; next[index].shift_end = e.target.value; setDaySchedules(next); }} className="dawaa-input max-w-32 py-1 text-xs" /></>
                       )}
                     </>
                   )}
                 </div>
               ))}
             </div>
-          </div>
+          </section>
 
-          <textarea
-            placeholder="ملاحظات"
-            value={form.notes}
-            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-            rows={2}
-            className="input-dark resize-none"
-          />
+          <textarea placeholder="ملاحظات" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} className="dawaa-textarea resize-none" />
           <div className="flex gap-3 pt-1">
-            <button
-              type="submit"
-              disabled={saving}
-              className="btn-primary flex-1 flex items-center justify-center gap-2"
-            >
-              {saving && <Loader2 size={16} className="animate-spin" />} حفظ
-            </button>
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">
-              إلغاء
-            </button>
+            <button type="submit" disabled={saving} className="dawaa-button dawaa-button--primary flex-1">{saving && <Loader2 size={16} className="animate-spin" />} حفظ</button>
+            <button type="button" onClick={onClose} className="dawaa-button dawaa-button--secondary flex-1">إلغاء</button>
           </div>
         </form>
       </div>
@@ -1062,203 +677,106 @@ function EmployeeModal({
   );
 }
 
-function RankingList({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: Array<Employee & { cyclePoints: number }>;
-}) {
+function RankingList({ title, rows }: { title: string; rows: Array<Employee & { cyclePoints: number }> }) {
   return (
-    <div className="p-3 border-t border-[#2d4063]">
-      <div className="text-slate-300 text-xs font-bold mb-2">{title}</div>
+    <div className="border-t border-[var(--dawaa-theme-divider)] p-3">
+      <div className="dawaa-caption mb-2 text-xs font-bold">{title}</div>
       <div className="space-y-2">
         {rows.slice(0, 8).map((employee, index) => (
-          <Link
-            key={employee.id}
-            to={staffProfilePath(employee)}
-            className="flex items-center gap-3 rounded-lg bg-[#1B2B4B] px-3 py-2 hover:bg-white/10 transition-colors"
-          >
-            <span className="w-6 h-6 rounded-full bg-teal-500/15 text-teal-300 text-xs flex items-center justify-center num">
-              {index + 1}
-            </span>
-            <span className="text-white text-sm font-bold flex-1">
-              {staffDisplayName(employee, rows)}
-            </span>
-            <span className="text-slate-400 text-xs">{employee.role}</span>
-            <span className="text-teal-300 font-bold num">{employee.cyclePoints}</span>
+          <Link key={employee.id} to={staffProfilePath(employee)} className="dawaa-card dawaa-card--interactive flex items-center gap-3 rounded-lg px-3 py-2">
+            <span className="dawaa-badge dawaa-badge--info flex h-6 w-6 items-center justify-center p-0 num">{index + 1}</span>
+            <span className="dawaa-title flex-1 text-sm">{staffDisplayName(employee, rows)}</span>
+            <span className="dawaa-caption text-xs">{employee.role}</span>
+            <span className="dawaa-badge num">{employee.cyclePoints}</span>
           </Link>
         ))}
-        {rows.length === 0 && (
-          <div className="text-slate-500 text-xs py-2">لا توجد بيانات في هذا القسم.</div>
-        )}
+        {rows.length === 0 && <div className="dawaa-caption py-2 text-xs">لا توجد بيانات في هذا القسم.</div>}
       </div>
     </div>
   );
 }
 
-function EmployeeDetailsModal({
-  employee,
-  schedules,
-  transactions,
-  onClose,
-}: {
-  employee: Employee;
-  schedules: ShiftSchedule[];
-  transactions: EmployeeTransaction[];
-  onClose: () => void;
-}) {
+function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { employee: Employee; schedules: ShiftSchedule[]; transactions: EmployeeTransaction[]; onClose: () => void }) {
   useEscapeKey(onClose, true);
   const cycle = getCurrentCycle();
   const pointRecords = transactions as PointLedgerRecord[];
-  const incentive = calculateStaffCycleIncentiveFromRows({
-    staff: employee,
-    records: pointRecords,
-    cycle,
-  });
+  const incentive = calculateStaffCycleIncentiveFromRows({ staff: employee, records: pointRecords, cycle });
   const points = incentive.finalPoints;
   const maxPoints = incentive.startingPoints;
-  const activeTransactions = transactions.filter(
-    (t) =>
-      isApprovedPointRecord(t as PointLedgerRecord) &&
-      isRecordInCycle(t as PointLedgerRecord, cycle)
-  );
-  const penaltyRows = activeTransactions.filter(
-    (t) => pointRecordDelta(t as PointLedgerRecord) < 0
-  );
+  const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord) && isRecordInCycle(t as PointLedgerRecord, cycle));
+  const penaltyRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) < 0);
   const bonusRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) > 0);
-  const penalties = penaltyRows.length;
-  const bonuses = bonusRows.length;
   const permissions = schedules.filter((item) => item.is_off).length;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel max-w-3xl" onClick={(e) => e.stopPropagation()}>
-        <div className="p-5 border-b border-[#2d4063]">
-          <div className="text-white font-bold text-lg">
-            {staffDisplayName(employee, [employee])}
-          </div>
-          <div className="text-slate-400 text-sm">
-            {employee.role} - {employee.branch}
-          </div>
+        <div className="border-b border-[var(--dawaa-theme-divider)] p-5">
+          <div className="dawaa-title text-lg">{staffDisplayName(employee, [employee])}</div>
+          <div className="dawaa-caption text-sm">{employee.role} - {employee.branch}</div>
         </div>
-        <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 p-5 md:grid-cols-3">
           <InfoBox label="التقييم الحالي" value={`${points} / ${maxPoints}`} />
-          <InfoBox label="جزاءات" value={`${penalties}`} />
-          <InfoBox label="مكافآت" value={`${bonuses}`} />
+          <InfoBox label="جزاءات" value={`${penaltyRows.length}`} />
+          <InfoBox label="مكافآت" value={`${bonusRows.length}`} />
           <InfoBox label="إجازات/أذونات" value={`${permissions}`} />
           <InfoBox label="أداء 3 شهور" value="جاهز للربط مع النقاط" />
           <InfoBox label="أداء سنوي" value="جاهز للربط مع التقييمات" />
         </div>
         <div className="px-5 pb-5">
-          <div className="bg-white/5 rounded-xl p-4">
-            <div className="text-white font-bold text-sm mb-3">جدول الموظف</div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <section className="dawaa-card dawaa-card--soft p-4">
+            <div className="dawaa-title mb-3 text-sm">جدول الموظف</div>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               {schedules.map((item) => (
-                <div
-                  key={item.id}
-                  className={`rounded-xl border p-3 text-center ${item.is_off ? 'bg-red-500/15 border-red-400/40 text-red-200' : 'bg-white/5 border-[#2d4063] text-slate-200'}`}
-                >
-                  <div className="text-xs text-slate-400">{item.day_name}</div>
-                  <div className="text-sm font-bold mt-1">
-                    {item.is_off
-                      ? 'إجازة'
-                      : `${item.shift_start || '-'} - ${item.shift_end || '-'}`}
-                  </div>
+                <div key={item.id} className={`rounded-xl border p-3 text-center ${item.is_off ? 'dawaa-badge--danger' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]'}`}>
+                  <div className="dawaa-caption text-xs">{item.day_name}</div>
+                  <div className="dawaa-body mt-1 text-sm font-bold">{item.is_off ? 'إجازة' : `${item.shift_start || '-'} - ${item.shift_end || '-'}`}</div>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         </div>
         <div className="px-5 pb-5">
-          <div className="bg-white/5 rounded-xl p-4">
-            <div className="text-white font-bold text-sm mb-3">الجزاءات والمكافآت</div>
+          <section className="dawaa-card dawaa-card--soft p-4">
+            <div className="dawaa-title mb-3 text-sm">الجزاءات والمكافآت</div>
             {activeTransactions.length === 0 ? (
-              <div className="text-slate-400 text-sm py-4 text-center">
-                لا توجد جزاءات أو مكافآت مسجلة لهذا الموظف.
-              </div>
+              <div className="dawaa-empty-state p-4 text-sm">لا توجد جزاءات أو مكافآت مسجلة لهذا الموظف.</div>
             ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
+              <div className="max-h-64 space-y-2 overflow-y-auto">
                 {activeTransactions.map((t) => {
                   const isPenalty = pointRecordDelta(t as PointLedgerRecord) < 0;
                   return (
-                    <div
-                      key={t.id}
-                      className={`rounded-lg border p-3 ${isPenalty ? 'bg-red-500/10 border-red-400/30' : 'bg-green-500/10 border-green-400/30'}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span
-                          className={`text-xs font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}
-                        >
-                          {isPenalty ? 'جزاء' : 'مكافأة'}
-                        </span>
-                        <span className="text-slate-400 text-xs">
-                          {new Date(t.created_at).toLocaleDateString('ar-EG')}
-                        </span>
+                    <article key={t.id} className={`rounded-lg border p-3 ${isPenalty ? 'dawaa-badge--danger' : 'dawaa-badge--success'}`}>
+                      <div className="mb-1 flex items-center justify-between"><span className="text-xs font-bold">{isPenalty ? 'جزاء' : 'مكافأة'}</span><span className="dawaa-caption text-xs">{new Date(t.created_at).toLocaleDateString('ar-EG')}</span></div>
+                      <div className="dawaa-title text-sm">{getTransactionShortReason(t)}</div>
+                      {t.description && <div className="dawaa-caption mt-1 text-xs">{t.description}</div>}
+                      <div className="mt-2 flex flex-wrap gap-4 text-xs">
+                        {(t.points !== null && t.points !== undefined) || (t.points_delta !== null && t.points_delta !== undefined) ? <span className="font-bold">النقاط: {transactionPoints(t)}</span> : null}
+                        {t.amount !== null && t.amount !== undefined && <span className="font-bold">المبلغ: {t.amount} ج.م</span>}
+                        {t.source && <span className="dawaa-caption">المصدر: {t.source}</span>}
                       </div>
-                      <div className="text-white text-sm font-medium">
-                        {getTransactionShortReason(t)}
-                      </div>
-                      {t.description && (
-                        <div className="text-slate-400 text-xs mt-1">{t.description}</div>
-                      )}
-                      <div className="flex gap-4 mt-2 text-xs">
-                        {(t.points !== null && t.points !== undefined) ||
-                        (t.points_delta !== null && t.points_delta !== undefined) ? (
-                          <span
-                            className={`font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}
-                          >
-                            النقاط: {transactionPoints(t)}
-                          </span>
-                        ) : null}
-                        {t.amount !== null && t.amount !== undefined && (
-                          <span
-                            className={`font-bold ${isPenalty ? 'text-red-300' : 'text-green-300'}`}
-                          >
-                            المبلغ: {t.amount} ج.م
-                          </span>
-                        )}
-                        {t.source && <span className="text-slate-400">المصدر: {t.source}</span>}
-                      </div>
-                    </div>
+                    </article>
                   );
                 })}
               </div>
             )}
-          </div>
+          </section>
         </div>
-        <div className="px-5 pb-5">
-          <button onClick={onClose} className="btn-secondary w-full">
-            إغلاق
-          </button>
-        </div>
+        <div className="px-5 pb-5"><button onClick={onClose} className="dawaa-button dawaa-button--secondary w-full">إغلاق</button></div>
       </div>
     </div>
   );
 }
 
 function InfoBox({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-white/5 border border-[#2d4063] rounded-xl p-3">
-      <div className="text-slate-400 text-xs">{label}</div>
-      <div className="text-white font-bold mt-1">{value}</div>
-    </div>
-  );
+  return <div className="dawaa-card dawaa-card--soft p-3"><div className="dawaa-caption text-xs">{label}</div><div className="dawaa-title mt-1">{value}</div></div>;
 }
 
 function LoadingState() {
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="stat-card h-32 animate-pulse bg-white/5" />
-        ))}
-      </div>
-      <div className="grid grid-cols-3 gap-4">
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div key={i} className="stat-card h-48 animate-pulse bg-white/5" />
-        ))}
-      </div>
+    <div className="dawaa-page space-y-4">
+      <div className="grid grid-cols-3 gap-4">{[1, 2, 3].map((i) => <div key={i} className="dawaa-card h-32 animate-pulse bg-[var(--dawaa-theme-soft)]" />)}</div>
+      <div className="grid grid-cols-3 gap-4">{[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="dawaa-card h-48 animate-pulse bg-[var(--dawaa-theme-soft)]" />)}</div>
     </div>
   );
 }

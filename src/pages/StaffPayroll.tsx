@@ -23,7 +23,13 @@ const STATUS_LABELS: Record<string,string> = { draft: 'مسودة', pending_revi
 function n(v: unknown) { const x = Number(v || 0); return Number.isFinite(x) ? x : 0; }
 function statusKey(value: unknown) { return String(value || 'draft').trim().toLowerCase(); }
 function statusLabel(value: unknown) { const key = statusKey(value); return STATUS_LABELS[key] || String(value || 'مسودة'); }
-function statusClass(value: unknown) { const key = statusKey(value); if (key === 'paid' || key === 'approved') return 'bg-emerald-50 text-emerald-700 border-emerald-200'; if (key === 'rejected') return 'bg-red-50 text-red-700 border-red-200'; if (key === 'pending_review' || key === 'manager_review') return 'bg-amber-50 text-amber-700 border-amber-200'; return 'bg-slate-50 text-slate-600 border-slate-200'; }
+function statusClass(value: unknown) {
+  const key = statusKey(value);
+  if (key === 'paid' || key === 'approved') return 'dawaa-badge--success';
+  if (key === 'rejected') return 'dawaa-badge--danger';
+  if (key === 'pending_review' || key === 'manager_review') return 'dawaa-badge--warning';
+  return '';
+}
 
 export default function StaffPayroll() {
   const { user } = useAuth();
@@ -120,20 +126,108 @@ export default function StaffPayroll() {
   };
 
   return <div className="space-y-5" dir="rtl">
-    <div className="rounded-2xl border border-[#E5EAF0] bg-white p-5 shadow-sm"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-slate-900">تفاصيل قبض الموظفين</h1><p className="mt-1 text-sm font-bold text-slate-500">مسودة ← مراجعة ← اعتماد ← صرف، مع البنود اليدوية والإشعارات الشخصية.</p>{canEditPayroll ? <p className="mt-2 text-xs font-black text-teal-700">أي بند ظاهر للدكتور يُسجل ويصل له كإشعار شخصي.</p> : null}</div><button onClick={() => void load()} className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-black text-white hover:bg-teal-700"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث</button></div></div>
-    {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div> : null}
-    {success ? <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm font-bold text-teal-700">{success}</div> : null}
+    <section className="dawaa-card dawaa-card--raised">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="dawaa-title text-2xl">تفاصيل قبض الموظفين</h1>
+          <p className="dawaa-caption mt-1 font-bold">مسودة ← مراجعة ← اعتماد ← صرف، مع البنود اليدوية والإشعارات الشخصية.</p>
+          {canEditPayroll ? <p className="dawaa-caption mt-2 text-xs font-black">أي بند ظاهر للدكتور يُسجل ويصل له كإشعار شخصي.</p> : null}
+        </div>
+        <button onClick={() => void load()} className="dawaa-button dawaa-button--primary">
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
+        </button>
+      </div>
+    </section>
 
-    <div className="grid gap-3 md:grid-cols-4"><Card title="إجمالي الصافي" value={formatCurrency(totals.net)} icon={Wallet} /><Card title="إجمالي الأساسي" value={formatCurrency(totals.base)} icon={Wallet} /><Card title="الحوافز" value={formatCurrency(totals.incentives)} icon={Star} /><Card title="الخصومات" value={formatCurrency(totals.deductions)} icon={TrendingUp} /></div>
+    {error ? <div className="dawaa-alert dawaa-alert--danger text-sm font-bold">{error}</div> : null}
+    {success ? <div className="dawaa-alert dawaa-alert--success text-sm font-bold">{success}</div> : null}
 
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{['draft','pending_review','manager_review','approved','paid'].map((key) => <button key={key} onClick={() => setStatusFilter(key)} className={`rounded-2xl border p-4 text-right ${statusFilter === key ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white'}`}><div className="flex items-center justify-between"><span className="text-sm font-black text-slate-700">{statusLabel(key)}</span>{key === 'paid' || key === 'approved' ? <CheckCircle2 size={18} className="text-emerald-600" /> : <Clock3 size={18} className="text-amber-600" />}</div><div className="mt-2 text-2xl font-black text-slate-900">{statusSummary[key] || 0}</div></button>)}</div>
+    <div className="grid gap-3 md:grid-cols-4">
+      <Card title="إجمالي الصافي" value={formatCurrency(totals.net)} icon={Wallet} />
+      <Card title="إجمالي الأساسي" value={formatCurrency(totals.base)} icon={Wallet} />
+      <Card title="الحوافز" value={formatCurrency(totals.incentives)} icon={Star} />
+      <Card title="الخصومات" value={formatCurrency(totals.deductions)} icon={TrendingUp} />
+    </div>
 
-    <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-3"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث بالاسم أو staff_id" className="rounded-xl border border-slate-200 p-3" /><select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="rounded-xl border border-slate-200 p-3"><option value="all">كل الفروع</option>{branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 p-3"><option value="all">كل الحالات</option>{Object.entries(STATUS_LABELS).map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></div>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      {['draft','pending_review','manager_review','approved','paid'].map((key) => {
+        const active = statusFilter === key;
+        return (
+          <button key={key} onClick={() => setStatusFilter(key)} className={`dawaa-card dawaa-card--interactive p-4 text-right ${active ? 'dawaa-card--raised' : ''}`} aria-pressed={active}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="dawaa-title text-sm">{statusLabel(key)}</span>
+              <span className={`dawaa-badge ${key === 'paid' || key === 'approved' ? 'dawaa-badge--success' : 'dawaa-badge--warning'}`}>
+                {key === 'paid' || key === 'approved' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}
+              </span>
+            </div>
+            <div className="dawaa-title mt-2 text-2xl">{statusSummary[key] || 0}</div>
+          </button>
+        );
+      })}
+    </div>
 
-    <div className="rounded-2xl border border-[#E5EAF0] bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-black text-slate-900">قائمة القبض</h2><span className="text-sm font-black text-teal-700">{visibleRows.length} موظف</span></div><div className="overflow-auto"><table className="min-w-full text-sm"><thead><tr className="bg-slate-50 text-slate-600"><th className="p-3 text-right">الموظف</th><th className="p-3 text-right">الفرع</th><th className="p-3 text-right">الحالة</th><th className="p-3 text-right">الأساسي</th><th className="p-3 text-right">الساعات</th><th className="p-3 text-right">حافز الأداء</th><th className="p-3 text-right">حافز التارجت</th><th className="p-3 text-right">حوافز أخرى</th><th className="p-3 text-right">الخصومات</th><th className="p-3 text-right">الصافي</th>{canEditPayroll ? <th className="p-3 text-right">إدارة</th> : null}</tr></thead><tbody>{visibleRows.map((r,i) => <tr key={`${r.staff_id || r.username}-${i}`} className="border-t"><td className="p-3 font-black">{r.staff_name || r.username || '-'}</td><td className="p-3">{r.branch || '-'}</td><td className="p-3"><span className={`rounded-full border px-2 py-1 text-xs font-black ${statusClass(r.status)}`}>{statusLabel(r.status)}</span></td><td className="p-3">{formatCurrency(n(r.base_salary))}</td><td className="p-3">{n(r.worked_hours).toLocaleString('ar-EG')}</td><td className="p-3 font-bold text-teal-700">{formatCurrency(n(r.performance_incentive))}</td><td className="p-3 font-bold text-amber-700">{formatCurrency(n(r.target_bonus))}</td><td className="p-3">{formatCurrency(n(r.incentives_total)+n(r.quarterly_bonus))}</td><td className="p-3">{formatCurrency(n(r.deductions_total))}</td><td className="p-3 font-black text-teal-700">{formatCurrency(n(r.calculated_net_salary))}</td>{canEditPayroll ? <td className="p-3"><button onClick={() => openEditor(r)} className="inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-black text-teal-700"><Edit3 size={14} /> التفاصيل</button></td> : null}</tr>)}</tbody></table></div>{!visibleRows.length ? <div className="rounded-xl bg-slate-50 p-5 text-center text-sm font-bold text-slate-500">لا توجد كشوف مطابقة للفلاتر.</div> : null}</div>
+    <section className="dawaa-card grid gap-3 md:grid-cols-3">
+      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث بالاسم أو staff_id" className="dawaa-input" />
+      <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="dawaa-select"><option value="all">كل الفروع</option>{branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select>
+      <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="dawaa-select"><option value="all">كل الحالات</option>{Object.entries(STATUS_LABELS).map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select>
+    </section>
 
-    {selected && canEditPayroll ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelected(null); }}><div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h2 className="text-2xl font-black text-slate-900">تفاصيل قبض {selected.staff_name || selected.username}</h2><p className="mt-1 text-sm font-bold text-slate-500">الدورة {formatCycleDate(cycle.start)} إلى {formatCycleDate(cycle.end)}</p></div><button onClick={() => setSelected(null)} className="rounded-xl bg-slate-100 p-2 text-slate-600"><X /></button></div>{!selected.staff_id ? <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-black text-amber-800">لا يمكن إضافة بند قبل ربط صف القبض بـ staff_id الحقيقي.</div> : null}<div className="mt-5 grid gap-4 md:grid-cols-2"><label className="text-sm font-black text-slate-700">نوع البند<select value={form.entryType} onChange={(e) => setForm((c) => ({...c,entryType:e.target.value}))} className="mt-2 w-full rounded-xl border border-slate-200 p-3">{ENTRY_TYPES.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="text-sm font-black text-slate-700">القيمة بالجنيه<input type="number" value={form.amount} disabled={form.entryType === 'manual_note'} onChange={(e) => setForm((c) => ({...c,amount:e.target.value}))} className="mt-2 w-full rounded-xl border border-slate-200 p-3" /></label><label className="text-sm font-black text-slate-700 md:col-span-2">عنوان البند<input value={form.title} onChange={(e) => setForm((c) => ({...c,title:e.target.value}))} className="mt-2 w-full rounded-xl border border-slate-200 p-3" /></label><label className="text-sm font-black text-slate-700 md:col-span-2">التفاصيل<textarea value={form.details} onChange={(e) => setForm((c) => ({...c,details:e.target.value}))} rows={4} className="mt-2 w-full rounded-xl border border-slate-200 p-3" /></label><label className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-sm font-black text-slate-700 md:col-span-2"><input type="checkbox" checked={form.visibleToStaff} onChange={(e) => setForm((c) => ({...c,visibleToStaff:e.target.checked}))} /> يظهر للدكتور ويصله إشعار شخصي</label></div><button disabled={saving || !selected.staff_id} onClick={() => void saveEntry()} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-3 font-black text-white disabled:opacity-50"><Save size={18} /> {saving ? 'جارٍ الحفظ...' : 'حفظ البند وتسجيله'}</button><div className="mt-6"><h3 className="text-lg font-black text-slate-900">السجل اليدوي</h3><div className="mt-3 space-y-2">{selectedEntries.map((entry) => <div key={entry.id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start justify-between gap-3"><div><div className="font-black text-slate-900">{entry.title}</div><p className="mt-1 text-sm text-slate-600">{entry.details || 'بدون تفاصيل إضافية'}</p></div><div className={entry.entry_type === 'deduction' ? 'font-black text-red-600' : 'font-black text-teal-700'}>{formatCurrency(n(entry.amount))}</div></div><div className="mt-2 text-xs font-bold text-slate-400">{entry.entry_type} · {entry.visible_to_staff ? 'ظاهر للدكتور' : 'إداري فقط'}</div></div>)}{!selectedEntries.length ? <div className="rounded-xl bg-slate-50 p-4 text-center text-sm font-bold text-slate-500">لا توجد بنود يدوية.</div> : null}</div></div></div></div> : null}
+    <section className="dawaa-card">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="dawaa-title text-lg">قائمة القبض</h2>
+        <span className="dawaa-source-badge">{visibleRows.length} موظف</span>
+      </div>
+      {visibleRows.length ? (
+        <div className="dawaa-table-shell shadow-none">
+          <table className="dawaa-table-semantic min-w-full text-sm">
+            <thead><tr><th className="text-right">الموظف</th><th className="text-right">الفرع</th><th className="text-right">الحالة</th><th className="text-right">الأساسي</th><th className="text-right">الساعات</th><th className="text-right">حافز الأداء</th><th className="text-right">حافز التارجت</th><th className="text-right">حوافز أخرى</th><th className="text-right">الخصومات</th><th className="text-right">الصافي</th>{canEditPayroll ? <th className="text-right">إدارة</th> : null}</tr></thead>
+            <tbody>{visibleRows.map((r,i) => <tr key={`${r.staff_id || r.username}-${i}`}><td className="font-black">{r.staff_name || r.username || '-'}</td><td>{r.branch || '-'}</td><td><span className={`dawaa-badge ${statusClass(r.status)}`}>{statusLabel(r.status)}</span></td><td>{formatCurrency(n(r.base_salary))}</td><td>{n(r.worked_hours).toLocaleString('ar-EG')}</td><td>{formatCurrency(n(r.performance_incentive))}</td><td>{formatCurrency(n(r.target_bonus))}</td><td>{formatCurrency(n(r.incentives_total)+n(r.quarterly_bonus))}</td><td>{formatCurrency(n(r.deductions_total))}</td><td className="font-black">{formatCurrency(n(r.calculated_net_salary))}</td>{canEditPayroll ? <td><button onClick={() => openEditor(r)} className="dawaa-button dawaa-button--secondary min-h-0 px-3 py-2 text-xs"><Edit3 size={14} /> التفاصيل</button></td> : null}</tr>)}</tbody>
+          </table>
+        </div>
+      ) : <div className="dawaa-empty-state p-5 text-sm font-bold">لا توجد كشوف مطابقة للفلاتر.</div>}
+    </section>
+
+    {selected && canEditPayroll ? (
+      <div className="modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelected(null); }}>
+        <div className="modal-panel max-w-3xl p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div><h2 className="dawaa-title text-2xl">تفاصيل قبض {selected.staff_name || selected.username}</h2><p className="dawaa-caption mt-1 font-bold">الدورة {formatCycleDate(cycle.start)} إلى {formatCycleDate(cycle.end)}</p></div>
+            <button onClick={() => setSelected(null)} className="dawaa-action-icon h-10 w-10"><X /></button>
+          </div>
+
+          {!selected.staff_id ? <div className="dawaa-alert dawaa-alert--warning mt-4 text-sm font-black">لا يمكن إضافة بند قبل ربط صف القبض بـ staff_id الحقيقي.</div> : null}
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="dawaa-caption text-sm font-black">نوع البند<select value={form.entryType} onChange={(e) => setForm((c) => ({...c,entryType:e.target.value}))} className="dawaa-select mt-2">{ENTRY_TYPES.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label className="dawaa-caption text-sm font-black">القيمة بالجنيه<input type="number" value={form.amount} disabled={form.entryType === 'manual_note'} onChange={(e) => setForm((c) => ({...c,amount:e.target.value}))} className="dawaa-input mt-2" /></label>
+            <label className="dawaa-caption text-sm font-black md:col-span-2">عنوان البند<input value={form.title} onChange={(e) => setForm((c) => ({...c,title:e.target.value}))} className="dawaa-input mt-2" /></label>
+            <label className="dawaa-caption text-sm font-black md:col-span-2">التفاصيل<textarea value={form.details} onChange={(e) => setForm((c) => ({...c,details:e.target.value}))} rows={4} className="dawaa-textarea mt-2" /></label>
+            <label className="dawaa-card dawaa-card--soft flex items-center gap-3 p-3 text-sm font-black md:col-span-2"><input type="checkbox" checked={form.visibleToStaff} onChange={(e) => setForm((c) => ({...c,visibleToStaff:e.target.checked}))} /> يظهر للدكتور ويصله إشعار شخصي</label>
+          </div>
+
+          <button disabled={saving || !selected.staff_id} onClick={() => void saveEntry()} className="dawaa-button dawaa-button--primary mt-4 w-full disabled:opacity-50"><Save size={18} /> {saving ? 'جارٍ الحفظ...' : 'حفظ البند وتسجيله'}</button>
+
+          <div className="mt-6">
+            <h3 className="dawaa-title text-lg">السجل اليدوي</h3>
+            <div className="mt-3 space-y-2">
+              {selectedEntries.map((entry) => (
+                <div key={entry.id} className="dawaa-card dawaa-card--soft p-3 shadow-none">
+                  <div className="flex items-start justify-between gap-3">
+                    <div><div className="dawaa-title text-sm">{entry.title}</div><p className="dawaa-body mt-1 text-sm">{entry.details || 'بدون تفاصيل إضافية'}</p></div>
+                    {entry.entry_type === 'deduction' ? <span className="dawaa-badge dawaa-badge--danger">{formatCurrency(n(entry.amount))}</span> : <div className="font-black">{formatCurrency(n(entry.amount))}</div>}
+                  </div>
+                  <div className="dawaa-caption mt-2 text-xs font-bold">{entry.entry_type} · {entry.visible_to_staff ? 'ظاهر للدكتور' : 'إداري فقط'}</div>
+                </div>
+              ))}
+              {!selectedEntries.length ? <div className="dawaa-empty-state p-4 text-sm font-bold">لا توجد بنود يدوية.</div> : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : null}
   </div>;
 }
 
-function Card({ title, value, icon: Icon }: { title: string; value: string; icon: typeof Wallet }) { return <div className="rounded-2xl border border-[#E5EAF0] bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><div><div className="text-xs font-bold text-slate-500">{title}</div><div className="mt-2 text-2xl font-black text-slate-900">{value}</div></div><span className="rounded-2xl bg-teal-50 p-3 text-teal-700"><Icon size={20} /></span></div></div>; }
+function Card({ title, value, icon: Icon }: { title: string; value: string; icon: typeof Wallet }) {
+  return <div className="dawaa-card p-4"><div className="flex items-center justify-between gap-3"><div><div className="dawaa-caption text-xs font-bold">{title}</div><div className="dawaa-title mt-2 text-2xl">{value}</div></div><span className="dawaa-icon-tile h-11 w-11"><Icon size={20} /></span></div></div>;
+}

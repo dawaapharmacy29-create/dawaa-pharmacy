@@ -3,7 +3,7 @@
  * Ensures we never miss rows due to the default 1000-row limit.
  *
  * IMPROVEMENT: fetchAllPages now fetches pages in PARALLEL (not sequential)
- * which is significantly faster for large datasets (e.g. 5000 invoices = 5 parallel
+ * which is significantly faster for large datasets (e.g. 5000 rows = 5 parallel
  * requests instead of 5 sequential ones).
  */
 
@@ -20,7 +20,7 @@ const PAGE_SIZE = 1000;
  *
  * Usage:
  *   const rows = await fetchAllPages(
- *     supabase.from("sales_invoices").select("id, amount").eq("branch", "فرع شكري")
+ *     supabase.from("some_table").select("id, amount").eq("branch", "فرع شكري")
  *   );
  */
 export async function fetchAllPages<T = unknown>(

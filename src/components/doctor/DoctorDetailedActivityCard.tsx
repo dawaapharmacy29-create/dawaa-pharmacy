@@ -22,12 +22,17 @@ type StockItem = {
 type CustomerRequestRow = { id: string; medicine_name: string | null; status: string | null; points_awarded: number | null };
 type FollowupRow = { id: string; customer_name: string | null; followup_reason: string | null; points_value: number | null };
 type PillarRow = { pillar_key: string; points: number };
-
 type TabKey = 'conversations' | 'stock' | 'requests' | 'followups';
 
 function monthCycleNow() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function scoreBadge(score: number) {
+  if (score >= 90) return 'dawaa-badge--success';
+  if (score >= 70) return 'dawaa-badge--warning';
+  return 'dawaa-badge--danger';
 }
 
 export default function DoctorDetailedActivityCard({ staffId, doctorName }: { staffId: string; doctorName?: string }) {
@@ -36,7 +41,6 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
   const [requests, setRequests] = useState<CustomerRequestRow[]>([]);
   const [followups, setFollowups] = useState<FollowupRow[]>([]);
   const [pillars, setPillars] = useState<PillarRow[]>([]);
-  // مقفولة افتراضيًا — الصفحة متطولش أول ما تفتحها، وتختار انت التاب اللي عايزه
   const [tab, setTab] = useState<TabKey | null>(null);
 
   useEffect(() => {
@@ -72,7 +76,6 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
   }, [staffId, doctorName]);
 
   const pillarPoints = (key: string) => pillars.find((p) => p.pillar_key === key)?.points ?? 0;
-  const scoreColor = (score: number) => (score >= 90 ? 'text-emerald-300' : score >= 70 ? 'text-amber-300' : 'text-rose-300');
 
   const tabs: Array<{ key: TabKey; icon: typeof MessageSquare; label: string; count: number; points: number }> = [
     { key: 'conversations', icon: MessageSquare, label: 'المحادثات', count: reviews.length, points: pillarPoints('محادثات') },
@@ -82,7 +85,7 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
   ];
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-5">
+    <div className="dawaa-card p-5">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {tabs.map((t) => {
           const Icon = t.icon;
@@ -92,11 +95,12 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
               key={t.key}
               type="button"
               onClick={() => setTab(active ? null : t.key)}
-              className={`flex flex-col items-center gap-1 rounded-2xl border p-3 text-center transition ${active ? 'border-teal-400/40 bg-teal-500/15' : 'border-white/10 bg-black/20 hover:bg-black/30'}`}
+              className={`dawaa-card dawaa-card--interactive flex flex-col items-center gap-1 p-3 text-center ${active ? 'dawaa-card--raised' : 'dawaa-card--soft'}`}
+              aria-pressed={active}
             >
-              <Icon size={16} className={active ? 'text-teal-200' : 'text-slate-400'} />
-              <span className={`text-xs font-black ${active ? 'text-white' : 'text-slate-300'}`}>{t.label}</span>
-              <span className="text-[11px] font-bold text-slate-400">{t.count} · {t.points} نقطة</span>
+              <Icon size={16} className={active ? 'dawaa-heading' : 'dawaa-muted'} />
+              <span className="dawaa-title text-xs">{t.label}</span>
+              <span className="dawaa-caption text-[11px] font-bold">{t.count} · {t.points} نقطة</span>
             </button>
           );
         })}
@@ -105,20 +109,20 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
       {tab === 'conversations' ? (
         <div className="mt-4 space-y-2">
           {reviews.length === 0 ? (
-            <p className="text-sm text-slate-400">لسه مفيش تقييمات محادثات مسجّلة لك.</p>
+            <EmptyText>لسه مفيش تقييمات محادثات مسجّلة لك.</EmptyText>
           ) : (
             reviews.map((r, i) => (
-              <div key={i} className="flex items-center justify-between rounded-xl bg-black/20 p-3">
+              <div key={i} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-3 p-3">
                 <div>
-                  <p className="text-xs font-bold text-slate-400">{r.review_date}</p>
+                  <p className="dawaa-caption text-xs font-bold">{r.review_date}</p>
                   {r.top_deduction_reason && r.top_deduction_reason !== 'تقييم محادثة ممتاز' ? (
-                    <p className="mt-1 text-xs text-amber-200">{r.top_deduction_reason}</p>
+                    <p className="dawaa-caption mt-1 text-xs">{r.top_deduction_reason}</p>
                   ) : null}
                 </div>
-                <div className="text-left">
-                  <p className={`text-lg font-black ${scoreColor(r.total_score)}`}>{r.total_score}/100</p>
+                <div className="flex flex-col items-end gap-1">
+                  <span className={`dawaa-badge ${scoreBadge(r.total_score)}`}>{r.total_score}/100</span>
                   {r.points_value != null ? (
-                    <p className="text-xs font-bold text-teal-300">{r.points_value > 0 ? '+' : ''}{r.points_value} نقطة</p>
+                    <span className="dawaa-badge dawaa-badge--info">{r.points_value > 0 ? '+' : ''}{r.points_value} نقطة</span>
                   ) : null}
                 </div>
               </div>
@@ -130,18 +134,16 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
       {tab === 'stock' ? (
         <div className="mt-4 space-y-4">
           <div>
-            <h3 className="text-sm font-black text-white">أهم أصناف اللستة محتاجة تركيزك</h3>
+            <h3 className="dawaa-title text-sm">أهم أصناف اللستة محتاجة تركيزك</h3>
             <div className="mt-2 space-y-2">
               {!stock?.list_priority?.length ? (
-                <p className="text-sm text-slate-400">لسه مفيش أصناف لستة متاحة.</p>
+                <EmptyText>لسه مفيش أصناف لستة متاحة.</EmptyText>
               ) : (
                 stock.list_priority.map((item, i) => (
-                  <div key={i} className="rounded-xl bg-black/20 p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-black text-white">{item.name}</span>
-                      <span className="text-xs font-bold text-slate-400">
-                        {item.sold_quantity || 0} من {item.target_min_quantity || '؟'}
-                      </span>
+                  <div key={i} className="dawaa-card dawaa-card--soft p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="dawaa-title text-sm">{item.name}</span>
+                      <span className="dawaa-caption text-xs font-bold">{item.sold_quantity || 0} من {item.target_min_quantity || '؟'}</span>
                     </div>
                   </div>
                 ))
@@ -149,15 +151,15 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
             </div>
           </div>
           <div>
-            <h3 className="flex items-center gap-1.5 text-sm font-black text-rose-300"><Timer size={14} /> أصناف قربت تنتهي صلاحيتها</h3>
+            <h3 className="dawaa-title flex items-center gap-1.5 text-sm"><Timer size={14} /> أصناف قربت تنتهي صلاحيتها</h3>
             <div className="mt-2 space-y-2">
               {!stock?.expiry_priority?.length ? (
-                <p className="text-sm text-slate-400">مفيش أصناف قريبة من الانتهاء حاليًا.</p>
+                <EmptyText>مفيش أصناف قريبة من الانتهاء حاليًا.</EmptyText>
               ) : (
                 stock.expiry_priority.map((item, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-xl border border-rose-400/20 bg-rose-500/5 p-3">
-                    <span className="font-black text-white">{item.name}</span>
-                    <span className="text-xs font-bold text-rose-300">باقي {item.days_left} يوم</span>
+                  <div key={i} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-3 p-3">
+                    <span className="dawaa-title text-sm">{item.name}</span>
+                    <span className="dawaa-badge dawaa-badge--danger">باقي {item.days_left} يوم</span>
                   </div>
                 ))
               )}
@@ -169,15 +171,15 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
       {tab === 'requests' ? (
         <div className="mt-4 space-y-2">
           {requests.length === 0 ? (
-            <p className="text-sm text-slate-400">لسه مفيش طلبات عملاء مسجّلة لك الشهر ده.</p>
+            <EmptyText>لسه مفيش طلبات عملاء مسجّلة لك الشهر ده.</EmptyText>
           ) : (
             requests.map((r) => (
-              <div key={r.id} className="flex items-center justify-between rounded-xl bg-black/20 p-3">
+              <div key={r.id} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-3 p-3">
                 <div>
-                  <p className="font-black text-white">{r.medicine_name || 'صنف غير محدد'}</p>
-                  <p className="mt-1 text-xs font-bold text-slate-400">{r.status || '—'}</p>
+                  <p className="dawaa-title text-sm">{r.medicine_name || 'صنف غير محدد'}</p>
+                  <p className="dawaa-caption mt-1 text-xs font-bold">{r.status || '—'}</p>
                 </div>
-                {r.points_awarded != null ? <p className="text-sm font-black text-teal-300">+{r.points_awarded} نقطة</p> : null}
+                {r.points_awarded != null ? <span className="dawaa-badge dawaa-badge--info">+{r.points_awarded} نقطة</span> : null}
               </div>
             ))
           )}
@@ -187,15 +189,15 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
       {tab === 'followups' ? (
         <div className="mt-4 space-y-2">
           {followups.length === 0 ? (
-            <p className="text-sm text-slate-400">لسه مفيش طلبات متابعة مسجّلة لك الشهر ده.</p>
+            <EmptyText>لسه مفيش طلبات متابعة مسجّلة لك الشهر ده.</EmptyText>
           ) : (
             followups.map((f) => (
-              <div key={f.id} className="flex items-center justify-between rounded-xl bg-black/20 p-3">
+              <div key={f.id} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-3 p-3">
                 <div>
-                  <p className="font-black text-white">{f.customer_name || 'عميل غير محدد'}</p>
-                  <p className="mt-1 text-xs font-bold text-slate-400">{f.followup_reason || '—'}</p>
+                  <p className="dawaa-title text-sm">{f.customer_name || 'عميل غير محدد'}</p>
+                  <p className="dawaa-caption mt-1 text-xs font-bold">{f.followup_reason || '—'}</p>
                 </div>
-                {f.points_value != null ? <p className="text-sm font-black text-teal-300">+{f.points_value} نقطة</p> : null}
+                {f.points_value != null ? <span className="dawaa-badge dawaa-badge--info">+{f.points_value} نقطة</span> : null}
               </div>
             ))
           )}
@@ -203,4 +205,8 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
       ) : null}
     </div>
   );
+}
+
+function EmptyText({ children }: { children: React.ReactNode }) {
+  return <p className="dawaa-caption text-sm">{children}</p>;
 }

@@ -28,12 +28,16 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    manifest: true,
     target: ['es2019', 'safari13'],
     minify: 'esbuild',
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
-        // Granular chunks improve caching and keep route-only tools out of the first load.
+        // Only truly shared/runtime-critical libraries are forced into named chunks.
+        // Unclassified node_modules intentionally return undefined so Rollup can keep
+        // route-only dependencies (PDF tools, niche editors, etc.) inside lazy graphs.
+        // A catch-all `vendor` chunk previously made lazy-only packages part of startup.
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.includes('react-dom') || id.includes('react/') || id.includes('scheduler'))
@@ -50,7 +54,6 @@ export default defineConfig({
             if (id.includes('framer-motion')) return 'motion';
             if (id.includes('leaflet') || id.includes('react-leaflet')) return 'maps';
             if (id.includes('xlsx') || id.includes('exceljs')) return 'excel';
-            if (id.includes('jspdf') || id.includes('html2canvas')) return 'pdf';
             if (id.includes('/qrcode/')) return 'qrcode';
             if (id.includes('react-calendar') || id.includes('react-day-picker')) return 'calendar';
             if (id.includes('react-dropzone')) return 'upload';
@@ -58,8 +61,9 @@ export default defineConfig({
             if (id.includes('embla-carousel')) return 'carousel';
             if (id.includes('zustand')) return 'state';
             if (id.includes('sonner') || id.includes('vaul') || id.includes('cmdk')) return 'ui-feedback';
-            return 'vendor';
+            return undefined;
           }
+          return undefined;
         },
       },
     },

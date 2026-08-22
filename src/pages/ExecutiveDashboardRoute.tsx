@@ -22,12 +22,12 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 
 function AdvancedLoadingShell() {
   return (
-    <main className="space-y-6 text-slate-100" dir="rtl">
-      <section className="rounded-2xl border border-teal-400/20 bg-slate-900 p-6">
-        <div className="h-8 w-64 animate-pulse rounded-xl bg-slate-700/70" />
-        <div className="mt-4 h-4 w-96 max-w-full animate-pulse rounded-xl bg-slate-800" />
+    <main className="dawaa-page space-y-4" dir="rtl">
+      <section className="dawaa-card dawaa-card--soft p-6">
+        <div className="h-8 w-64 animate-pulse rounded-xl bg-[var(--dawaa-theme-soft)]" />
+        <div className="mt-4 h-4 w-96 max-w-full animate-pulse rounded-xl bg-[var(--dawaa-theme-soft)]" />
       </section>
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm font-bold text-slate-300">
+      <section className="dawaa-card p-5 text-sm font-bold dawaa-body">
         جاري تحميل النسخة المتقدمة... إذا تأخر التحميل يتم الانتقال إلى النسخة الآمنة تلقائيًا.
       </section>
     </main>
@@ -42,6 +42,14 @@ function dashboardMode() {
     return 'advanced';
   }
   return 'advanced';
+}
+
+function SafeModeNotice({ children }: { children: ReactNode }) {
+  return (
+    <div className="dawaa-alert dawaa-alert--warning text-sm font-bold leading-7">
+      {children}
+    </div>
+  );
 }
 
 class DashboardRuntimeErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -59,9 +67,9 @@ class DashboardRuntimeErrorBoundary extends Component<{ children: ReactNode }, {
     if (this.state.error) {
       return (
         <div className="space-y-4" dir="rtl">
-          <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold leading-7 text-amber-100">
+          <SafeModeNotice>
             تعذر عرض النسخة المتقدمة بشكل صحيح. تم تشغيل النسخة الآمنة بدلاً منها.
-          </div>
+          </SafeModeNotice>
           <ExecutiveDashboardSafe />
         </div>
       );
@@ -126,9 +134,7 @@ export default function ExecutiveDashboardRoute() {
 
   return (
     <div className="space-y-4" dir="rtl">
-      <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold leading-7 text-amber-100">
-        {state.message}
-      </div>
+      <SafeModeNotice>{state.message}</SafeModeNotice>
       <ExecutiveDashboardSafe />
     </div>
   );

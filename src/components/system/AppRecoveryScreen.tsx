@@ -30,49 +30,31 @@ export default function AppRecoveryScreen({
   };
 
   return (
-    <main
-      className="min-h-screen bg-slate-950 flex items-center justify-center p-5 text-slate-100"
-      dir="rtl"
-    >
-      <section className="w-full max-w-lg rounded-2xl border border-teal-400/25 bg-slate-900 p-6 text-center shadow-2xl">
-        <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-teal-500/15 text-2xl">
+    <main className="min-h-screen dawaa-app-bg flex items-center justify-center p-5" dir="rtl">
+      <section className="dawaa-card dawaa-surface-raised w-full max-w-lg p-6 text-center">
+        <div className="dawaa-status-info mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl text-2xl font-black">
           !
         </div>
-        <h1 className="text-2xl font-black text-white">{title}</h1>
-        <p className="mt-3 text-sm leading-7 text-slate-300">{message}</p>
+        <h1 className="dawaa-title text-2xl">{title}</h1>
+        <p className="dawaa-muted mt-3 text-sm leading-7">{message}</p>
         <div className="mt-6 grid gap-3">
-          <button
-            type="button"
-            onClick={handleReload}
-            className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-black text-slate-200 transition hover:bg-slate-800"
-          >
+          <button type="button" onClick={handleReload} className="dawaa-button dawaa-button-secondary w-full">
             تحديث
           </button>
           <a
             href={loginUrl}
             onClick={() => startRecoveryCleanup()}
-            className="rounded-xl bg-teal-600 px-4 py-3 text-sm font-black text-white transition hover:bg-teal-500"
+            className="dawaa-button dawaa-button-primary w-full"
           >
             فتح تسجيل الدخول فقط
           </a>
-          <a
-            href={cleanLoginUrl}
-            onClick={handleRepair}
-            className="rounded-xl border border-teal-400/40 bg-teal-500/10 px-4 py-3 text-sm font-black text-teal-100 transition hover:bg-teal-500/20"
-          >
+          <a href={cleanLoginUrl} onClick={handleRepair} className="dawaa-button dawaa-button-secondary w-full">
             إصلاح التحميل
           </a>
-          <a
-            href={cleanLoginUrl}
-            onClick={handleFullClean}
-            className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm font-black text-amber-100 transition hover:bg-amber-500/20"
-          >
+          <a href={cleanLoginUrl} onClick={handleFullClean} className="dawaa-alert dawaa-alert-warning w-full justify-center">
             تنظيف كامل والدخول من جديد
           </a>
-          <a
-            href={diagnosticsHref}
-            className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-black text-slate-200 transition hover:bg-slate-800"
-          >
+          <a href={diagnosticsHref} className="dawaa-button dawaa-button-secondary w-full">
             فتح التشخيص
           </a>
         </div>

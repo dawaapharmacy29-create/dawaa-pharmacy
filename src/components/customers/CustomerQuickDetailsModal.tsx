@@ -13,8 +13,6 @@ import { normalizeBranchName } from '@/lib/branch';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
 import { cashbackStatusLabel, cashbackSummaryLine } from '@/lib/api/customerLoyalty';
 import { getCustomerServiceLiveMetrics } from '@/lib/customerServiceCustomerMetrics';
-import { buildCustomerLiveMetrics } from '@/lib/customers/buildCustomerLiveMetrics';
-import { getInvoiceDay } from '@/lib/invoices/invoiceCore';
 import { CustomerFlagChips, getCustomerCodeSafe, resolveCustomerBranch } from '@/lib/customerDisplay';
 
 type Props = {
@@ -40,16 +38,6 @@ type LivePurchaseStats = {
   recommendation: string;
 };
 
-function startOfMonth(offset = 0) {
-  const date = new Date();
-  return new Date(date.getFullYear(), date.getMonth() + offset, 1).toISOString().slice(0, 10);
-}
-
-function endOfMonth(offset = 0) {
-  const date = new Date();
-  return new Date(date.getFullYear(), date.getMonth() + offset + 1, 0).toISOString().slice(0, 10);
-}
-
 function frequencyStatus(current: number, previous: number) {
   if (current === 0 && previous >= 2) return 'بدون مشتريات هذا الشهر';
   if (previous >= 2 && current * 2 <= previous) return 'انخفاض واضح في الشراء';
@@ -70,55 +58,22 @@ function frequencyRecommendation(status: string) {
 }
 
 async function loadLivePurchaseStats(customer: CustomerMetric): Promise<LivePurchaseStats | null> {
-  const clauses = [
-    customer.customer_code ? `customer_code.eq.${customer.customer_code}` : '',
-    customer.customer_phone ? `customer_phone.eq.${customer.customer_phone}` : '',
-    customer.customer_name ? `customer_name.eq.${customer.customer_name}` : '',
-  ]
-    .filter(Boolean)
-    .join(',');
-  if (!clauses) return null;
+  const live = await getCustomerServiceLiveMetrics({
+    customer_id: customer.customer_id || customer.id,
+    customer_code: customer.customer_code,
+    customer_phone: customer.customer_phone || customer.phone,
+    customer_name: customer.customer_name || customer.name,
+    branch: customer.branch,
+  });
+  if (!live || live.invoices_matched_count <= 0) return null;
 
-  const currentStart = startOfMonth(0);
-  const currentEnd = endOfMonth(0);
-  const previousStart = startOfMonth(-1);
-  const previousEnd = endOfMonth(-1);
-
-  const [current, previous, all] = await Promise.all([
-    supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact', head: true })
-      .or(clauses)
-      .gte('invoice_date', currentStart)
-      .lte('invoice_date', currentEnd),
-    supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact', head: true })
-      .or(clauses)
-      .gte('invoice_date', previousStart)
-      .lte('invoice_date', previousEnd),
-    supabase
-      .from('sales_invoices')
-      .select('invoice_date,sale_date,invoice_datetime,date')
-      .or(clauses)
-      .limit(5000),
-  ]);
-
-  if (current.error || previous.error) return null;
-  const currentCount = Number(current.count || 0);
-  const previousCount = Number(previous.count || 0);
-  const months = new Set(
-    (all.data || []).map((row: any) => String(getInvoiceDay(row) || '').slice(0, 7)).filter(Boolean)
-  );
-  const totalRows = (all.data || []).length;
-  const avg = months.size
-    ? Math.round((totalRows / months.size) * 10) / 10
-    : Math.round(((currentCount + previousCount) / 2) * 10) / 10;
+  const currentCount = live.current_month_count;
+  const previousCount = live.previous_month_count;
   const status = frequencyStatus(currentCount, previousCount);
   return {
     currentMonthCount: currentCount,
     previousMonthCount: previousCount,
-    averageMonthlyCount: avg,
+    averageMonthlyCount: Math.round(live.average_monthly_purchase_count * 10) / 10,
     status,
     recommendation: frequencyRecommendation(status),
   };
@@ -189,73 +144,25 @@ async function loadCustomerMetric(input: Props): Promise<CustomerMetric> {
 
 async function enrichMetricFromInvoices(metric: CustomerMetric): Promise<CustomerMetric> {
   try {
-    // Prefer sales_invoices as source. Fetch by customer_code first, then fallback to phones.
-    const code = metric.customer_code || (metric as any).code;
-    const clauses: string[] = [];
-    if (code) clauses.push(`customer_code.eq.${code}`);
-    if (!code && metric.customer_phone) clauses.push(`customer_phone.eq.${metric.customer_phone}`);
-    if (!code && metric.phone) clauses.push(`phone.eq.${metric.phone}`);
-    if (!code && metric.customer_name) clauses.push(`customer_name.eq.${metric.customer_name}`);
+    const live = await getCustomerServiceLiveMetrics({
+      customer_id: metric.customer_id || metric.id,
+      customer_code: metric.customer_code,
+      customer_phone: metric.customer_phone || metric.phone,
+      customer_name: metric.customer_name || metric.name,
+      branch: metric.branch,
+    });
+    if (!live || live.invoices_matched_count <= 0) return metric;
 
-    let rows: Array<Record<string, unknown>> = [];
-    if (clauses.length) {
-      const { data, error } = await supabase
-        .from('sales_invoices')
-        .select('*')
-        .or(clauses.join(','))
-        .limit(10000);
-      if (!error && data) rows = data as Array<Record<string, unknown>>;
-    }
-
-    if (!rows.length) {
-      // fallback to the existing live metrics service
-      const live = await getCustomerServiceLiveMetrics({
-        customer_id: metric.customer_id || metric.id,
-        customer_code: metric.customer_code,
-        customer_phone: metric.customer_phone || metric.phone,
-        customer_name: metric.customer_name || metric.name,
-        branch: metric.branch,
-      });
-      if (!live) return metric;
-      const hasLiveData = (live as any).invoices_matched_count > 0 || (live as any).total_spent > 0;
-      if (!hasLiveData) return metric;
-      return {
-        ...metric,
-        total_spent: (live as any).total_spent || metric.total_spent,
-        total_purchases: (live as any).total_spent || metric.total_purchases,
-        invoices_count: (live as any).invoices_count || metric.invoices_count,
-        avg_invoice: (live as any).avg_invoice || metric.avg_invoice,
-        avg_monthly: (live as any).avg_monthly || metric.avg_monthly,
-        first_purchase: (live as any).first_purchase || metric.first_purchase,
-        last_purchase: (live as any).last_purchase || metric.last_purchase,
-        branch: (live as any).branch_last_purchase || (live as any).branch || metric.branch,
-      };
-    }
-
-    const liveMetrics = buildCustomerLiveMetrics(rows);
-    // consistency check: if live invoices exist but summary total is less than max invoice, prefer live
-    const useLive = liveMetrics.invoicesCount > 0 && (metric.total_purchases || 0) < (liveMetrics.maxInvoiceAmount || 0);
-    if (useLive) {
-      if (import.meta.env.DEV) console.warn('Customer totals inconsistent with live invoices; using live metrics', { customer_code: metric.customer_code });
-      return {
-        ...metric,
-        total_spent: liveMetrics.totalPurchases,
-        total_purchases: liveMetrics.totalPurchases,
-        invoices_count: liveMetrics.invoicesCount,
-        avg_invoice: liveMetrics.avgInvoice,
-        avg_monthly: metric.avg_monthly || 0,
-        first_purchase: liveMetrics.firstPurchase || metric.first_purchase,
-        last_purchase: liveMetrics.lastPurchase || metric.last_purchase,
-        branch: metric.branch || null,
-      };
-    }
-
-    // otherwise only patch counts but keep original totals if they're reasonable
     return {
       ...metric,
-      invoices_count: Math.max(metric.invoices_count || 0, liveMetrics.invoicesCount),
-      first_purchase: liveMetrics.firstPurchase || metric.first_purchase,
-      last_purchase: liveMetrics.lastPurchase || metric.last_purchase,
+      total_spent: live.total_spent,
+      total_purchases: live.total_spent,
+      invoices_count: live.invoices_count,
+      avg_invoice: live.avg_invoice,
+      avg_monthly: live.avg_monthly,
+      first_purchase: live.first_purchase || metric.first_purchase,
+      last_purchase: live.last_purchase || metric.last_purchase,
+      branch: live.branch_last_purchase || live.branch || metric.branch,
     };
   } catch (err) {
     if (import.meta.env.DEV) console.warn('[CustomerQuickDetailsModal] enrichMetricFromInvoices failed', err);
@@ -380,13 +287,13 @@ export default function CustomerQuickDetailsModal(props: Props) {
               <span>كود {safeCustomerCode || props.customerCode || 'بدون كود'}</span>
               <span>{resolvedBranch.branch}</span>
               {resolvedBranch.needsReview ? (
-                <span className="rounded-full border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs font-black text-amber-200">
+                <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">
                   فرع غير مؤكد
                 </span>
               ) : null}
               <CustomerFlagChips row={customer || props.fallbackMetric || props} />
               {liveStats?.status || details?.purchaseFrequencyStatus ? (
-                <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-1 text-xs font-black text-teal-700">
+                <span className="rounded-full border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-2 py-1 text-xs font-black text-[var(--dawaa-theme-primary)]">
                   {liveStats?.status || details?.purchaseFrequencyStatus}
                 </span>
               ) : null}
@@ -432,10 +339,10 @@ export default function CustomerQuickDetailsModal(props: Props) {
 
         {loading ? (
           <div className="flex items-center justify-center gap-2 p-10 text-sm font-black text-[var(--theme-muted)]">
-            <Loader2 className="h-5 w-5 animate-spin text-teal-600" /> جاري تحميل التفاصيل...
+            <Loader2 className="h-5 w-5 animate-spin text-[var(--dawaa-theme-primary)]" /> جاري تحميل التفاصيل...
           </div>
         ) : error ? (
-          <div className="p-6 text-center text-sm font-black text-red-600">{error}</div>
+          <div className="p-6 text-center text-sm font-black text-[var(--dawaa-status-danger-text)]">{error}</div>
         ) : customer ? (
           <div className="space-y-4 p-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -455,7 +362,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
             {details?.purchaseAnalysis || liveStats ? (
               <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface-2)] p-4">
                 <div className="mb-3 text-sm font-black text-[var(--theme-heading)]">
-                  تحليل تكرار الشراء من الفواتير المباشرة
+                  تحليل تكرار الشراء
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <MetricBox
@@ -491,7 +398,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
                     }
                   />
                 </div>
-                <div className="mt-3 rounded-2xl bg-teal-600/10 p-3 text-sm font-black text-teal-700 dark:text-teal-100">
+                <div className="mt-3 rounded-2xl bg-[var(--dawaa-theme-accent-soft)] p-3 text-sm font-black text-[var(--dawaa-theme-primary)] dark:text-[var(--dawaa-theme-primary)]">
                   التوصية:{' '}
                   {liveStats?.recommendation ||
                     details?.purchaseAnalysis?.recommendation ||
@@ -502,9 +409,9 @@ export default function CustomerQuickDetailsModal(props: Props) {
             ) : null}
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border-2 border-emerald-300/70 bg-[var(--theme-surface)] p-4 shadow-sm">
-                <div className="mb-2 font-black text-emerald-900">نقاط العميل / الكاش باك</div>
-                <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-[var(--theme-text)]">
+              <div className="rounded-2xl border-2 border-[var(--dawaa-status-success-border)] bg-[var(--theme-surface)] p-4 shadow-sm">
+                <div className="mb-2 font-black text-[var(--dawaa-status-success-text)]">نقاط العميل / الكاش باك</div>
+                <div className="rounded-xl bg-[var(--dawaa-status-success-bg)] p-3 text-sm font-bold text-[var(--theme-text)]">
                   {cashbackSummaryLine(details?.cashback || null)}
                 </div>
                 {details?.cashback ? (
@@ -538,8 +445,8 @@ export default function CustomerQuickDetailsModal(props: Props) {
                 )}
               </div>
 
-              <div className="rounded-2xl border-2 border-sky-300/70 bg-[var(--theme-surface)] p-4 shadow-sm">
-                <div className="mb-2 font-black text-sky-900">الرسالة الترحيبية وتكويد العميل</div>
+              <div className="rounded-2xl border-2 border-[var(--dawaa-status-info-border)] bg-[var(--theme-surface)] p-4 shadow-sm">
+                <div className="mb-2 font-black text-[var(--dawaa-status-info-text)]">الرسالة الترحيبية وتكويد العميل</div>
                 {details?.welcomeStatus ? (
                   <div className="grid gap-2 text-xs font-bold text-[var(--theme-text)] sm:grid-cols-2">
                     <div className="rounded-xl bg-[var(--theme-surface-2)] p-2">
@@ -596,7 +503,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
                       </div>
                     ))}
                     {(details?.invoices || []).slice(0, 3).map((invoice, index) => (
-                      <div key={`invoice-timeline-${invoice.invoice_number || index}`} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-950">
+                      <div key={`invoice-timeline-${invoice.invoice_number || index}`} className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3 text-sm font-bold text-[var(--dawaa-status-success-text)]">
                         شراء / فاتورة {invoice.invoice_number || 'غير متاح'} · {formatDate(invoice.invoice_date)} · {formatCurrency(invoice.amount)}
                       </div>
                     ))}
@@ -626,7 +533,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
                           </div>
                         </div>
                         <div>{formatDate(invoice.invoice_date)}</div>
-                        <div className="text-left text-emerald-700">
+                        <div className="text-left text-[var(--dawaa-status-success-text)]">
                           {formatCurrency(invoice.amount)}
                         </div>
                       </div>
@@ -654,7 +561,7 @@ export default function CustomerQuickDetailsModal(props: Props) {
                           <span className="text-[var(--theme-heading)]">
                             {followup.responsible_name || followup.assigned_to || 'غير محدد'}
                           </span>
-                          <span className="rounded-full bg-white px-2 py-1 text-xs">
+                          <span className="rounded-full bg-[var(--dawaa-theme-surface-2)] px-2 py-1 text-xs">
                             {followup.status || 'معلق'}
                           </span>
                         </div>

@@ -99,10 +99,10 @@ export default function CustomerRequestQualityCenter({
 
       {!loading && rows.length > 0 && <CustomerRequestBulkRepairPanel rows={rows} onChanged={() => void load()} />}
 
-      <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-3">
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
           <div className="relative flex-1">
-            <Search size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--dawaa-theme-muted)]" />
             <input
               className="input-dark h-10 w-full pr-9 text-sm"
               value={search}
@@ -115,35 +115,35 @@ export default function CustomerRequestQualityCenter({
             <option value="newest">الأحدث أولًا</option>
             <option value="issues">الأكثر مشاكل أولًا</option>
           </select>
-          <button type="button" onClick={() => void load()} className="h-10 rounded-xl border border-slate-700 px-3 text-xs font-black text-slate-300 hover:bg-slate-900">
+          <button type="button" onClick={() => void load()} className="h-10 rounded-xl border border-[var(--dawaa-theme-border)] px-3 text-xs font-black text-[var(--dawaa-theme-text)] hover:bg-[var(--dawaa-theme-surface)]">
             <span className="inline-flex items-center gap-2"><RefreshCw size={14} /> تحديث الفحص</span>
           </button>
         </div>
 
-        <div className="mt-3 border-t border-slate-800 pt-3">
-          <div className="text-[10px] font-black text-slate-500">الأولوية التشغيلية</div>
+        <div className="mt-3 border-t border-[var(--dawaa-theme-border)] pt-3">
+          <div className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">الأولوية التشغيلية</div>
           <div className="mt-2 overflow-x-auto">
             <div className="flex min-w-max gap-1.5">
               {PRIORITY_TABS.map((tab) => {
                 const count = tab.id === 'all' ? counts.all : priorityCounts[tab.id];
-                return <button key={tab.id} type="button" onClick={() => setPriority(tab.id)} className={`h-9 rounded-xl px-3 text-[11px] font-black transition ${priority === tab.id ? 'bg-red-500/15 text-red-100 ring-1 ring-red-400/30' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}>{tab.label}<span className="mr-2 rounded-full bg-slate-900/70 px-1.5 py-0.5 text-[10px]">{count.toLocaleString('ar-EG')}</span></button>;
+                return <button key={tab.id} type="button" onClick={() => setPriority(tab.id)} className={`h-9 rounded-xl px-3 text-[11px] font-black transition ${priority === tab.id ? 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)] ring-1 ring-[var(--dawaa-status-danger-border)]' : 'text-[var(--dawaa-theme-muted)] hover:bg-[var(--dawaa-theme-surface)] hover:text-[var(--dawaa-theme-heading)]'}`}>{tab.label}<span className="mr-2 rounded-full bg-[var(--dawaa-theme-surface)] px-1.5 py-0.5 text-[10px]">{count.toLocaleString('ar-EG')}</span></button>;
               })}
             </div>
           </div>
         </div>
 
-        <div className="mt-3 overflow-x-auto border-t border-slate-800 pt-3">
-          <div className="text-[10px] font-black text-slate-500">نوع مشكلة البيانات</div>
+        <div className="mt-3 overflow-x-auto border-t border-[var(--dawaa-theme-border)] pt-3">
+          <div className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">نوع مشكلة البيانات</div>
           <div className="mt-2 flex min-w-max gap-1.5">
             {ISSUE_TABS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setIssue(tab.id)}
-                className={`h-10 rounded-xl px-3 text-xs font-black transition ${issue === tab.id ? 'bg-amber-500/15 text-amber-100 ring-1 ring-amber-400/30' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}
+                className={`h-10 rounded-xl px-3 text-xs font-black transition ${issue === tab.id ? 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)] ring-1 ring-[var(--dawaa-status-warning-border)]' : 'text-[var(--dawaa-theme-muted)] hover:bg-[var(--dawaa-theme-surface)] hover:text-[var(--dawaa-theme-heading)]'}`}
               >
                 {tab.label}
-                <span className="mr-2 rounded-full bg-slate-900/70 px-1.5 py-0.5 text-[10px]">{counts[tab.id].toLocaleString('ar-EG')}</span>
+                <span className="mr-2 rounded-full bg-[var(--dawaa-theme-surface)] px-1.5 py-0.5 text-[10px]">{counts[tab.id].toLocaleString('ar-EG')}</span>
               </button>
             ))}
           </div>
@@ -151,12 +151,12 @@ export default function CustomerRequestQualityCenter({
       </div>
 
       {loading ? (
-        <div className="flex min-h-52 items-center justify-center rounded-2xl border border-slate-700 bg-slate-950/45"><Loader2 className="animate-spin text-cyan-300" /></div>
+        <div className="flex min-h-52 items-center justify-center rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]"><Loader2 className="animate-spin text-[var(--dawaa-theme-primary)]" /></div>
       ) : rows.length === 0 ? (
-        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.06] p-8 text-center">
-          <CheckCircle2 className="mx-auto text-emerald-300" size={34} />
-          <div className="mt-3 font-black text-emerald-100">لا توجد مشاكل في هذا الفلتر</div>
-          <div className="mt-1 text-xs text-slate-400">جرّب أولوية أو نوع مشكلة آخر أو غيّر البحث.</div>
+        <div className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]/[0.06] p-8 text-center">
+          <CheckCircle2 className="mx-auto text-[var(--dawaa-status-success-text)]" size={34} />
+          <div className="mt-3 font-black text-[var(--dawaa-status-success-text)]">لا توجد مشاكل في هذا الفلتر</div>
+          <div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">جرّب أولوية أو نوع مشكلة آخر أو غيّر البحث.</div>
         </div>
       ) : (
         <div className="space-y-2">
@@ -165,22 +165,22 @@ export default function CustomerRequestQualityCenter({
               key={request.id}
               type="button"
               onClick={() => onOpenRequest(request)}
-              className={`w-full rounded-2xl border p-3 text-right transition ${priorityBand === 'critical' ? 'border-red-400/25 bg-red-500/[0.055] hover:border-red-300/45' : priorityBand === 'high' ? 'border-orange-400/20 bg-orange-500/[0.04] hover:border-orange-300/40' : 'border-slate-700 bg-slate-950/45 hover:border-amber-400/30 hover:bg-amber-500/[0.05]'}`}
+              className={`w-full rounded-2xl border p-3 text-right transition ${priorityBand === 'critical' ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]/[0.055] hover:border-[var(--dawaa-status-danger-border)]' : priorityBand === 'high' ? 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.04] hover:border-[var(--dawaa-status-warning-border)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] hover:border-[var(--dawaa-status-warning-border)] hover:bg-[var(--dawaa-status-warning-bg)]/[0.05]'}`}
             >
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <PriorityBadge band={priorityBand} score={priorityScore} />
-                    <span className="font-black text-white">{request.medicine_name || 'صنف غير محدد'}</span>
-                    <span className="text-xs font-bold text-slate-500">#{request.product_code || 'بدون كود'}</span>
+                    <span className="font-black text-[var(--dawaa-theme-heading)]">{request.medicine_name || 'صنف غير محدد'}</span>
+                    <span className="text-xs font-bold text-[var(--dawaa-theme-muted)]">#{request.product_code || 'بدون كود'}</span>
                   </div>
-                  <div className="mt-1 text-xs text-slate-400">{request.customer_name || 'عميل غير محدد'} · كود {request.customer_code || '—'} · {request.customer_phone || 'بدون هاتف'} · {request.branch || 'بدون فرع'}</div>
-                  {!!priorityReasons.length && <div className="mt-2 text-[10px] font-black text-red-200/90">سبب الأولوية: {priorityReasons.join(' · ')}</div>}
+                  <div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{request.customer_name || 'عميل غير محدد'} · كود {request.customer_code || '—'} · {request.customer_phone || 'بدون هاتف'} · {request.branch || 'بدون فرع'}</div>
+                  {!!priorityReasons.length && <div className="mt-2 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">سبب الأولوية: {priorityReasons.join(' · ')}</div>}
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {issues.map((problem) => <IssuePill key={problem} issue={problem} />)}
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2 text-xs font-black text-cyan-200">
+                <div className="flex shrink-0 items-center gap-2 text-xs font-black text-[var(--dawaa-theme-primary)]">
                   مراجعة وإصلاح <ChevronLeft size={16} />
                 </div>
               </div>
@@ -194,24 +194,24 @@ export default function CustomerRequestQualityCenter({
 
 function PriorityBadge({ band, score }: { band: QualityPriorityBand; score: number }) {
   const styles: Record<QualityPriorityBand, string> = {
-    critical: 'border-red-400/30 bg-red-500/15 text-red-100',
-    high: 'border-orange-400/30 bg-orange-500/15 text-orange-100',
-    medium: 'border-amber-400/25 bg-amber-500/10 text-amber-100',
-    low: 'border-slate-600 bg-slate-800 text-slate-300',
+    critical: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]',
+    high: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
+    medium: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
+    low: 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-text)]',
   };
   return <span className={`rounded-lg border px-2 py-1 text-[10px] font-black ${styles[band]}`}>{qualityPriorityLabel(band)} · {score}</span>;
 }
 
 function IssuePill({ issue }: { issue: QualityIssueKey }) {
-  return <span className="inline-flex items-center gap-1 rounded-lg border border-amber-400/15 bg-amber-500/10 px-2 py-1 text-[10px] font-black text-amber-100"><AlertTriangle size={10} />{qualityIssueLabel(issue)}</span>;
+  return <span className="inline-flex items-center gap-1 rounded-lg border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-1 text-[10px] font-black text-[var(--dawaa-status-warning-text)]"><AlertTriangle size={10} />{qualityIssueLabel(issue)}</span>;
 }
 
 function SummaryCard({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: number; tone: 'amber' | 'red' | 'cyan' | 'violet' }) {
   const tones = {
-    amber: 'border-amber-400/20 bg-amber-500/[0.07] text-amber-200',
-    red: 'border-red-400/20 bg-red-500/[0.07] text-red-200',
-    cyan: 'border-cyan-400/20 bg-cyan-500/[0.07] text-cyan-200',
-    violet: 'border-violet-400/20 bg-violet-500/[0.07] text-violet-200',
+    amber: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.07] text-[var(--dawaa-status-warning-text)]',
+    red: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]/[0.07] text-[var(--dawaa-status-danger-text)]',
+    cyan: 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-primary)]/[0.07] text-[var(--dawaa-theme-primary)]',
+    violet: 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)]/[0.07] text-[var(--dawaa-status-info-text)]',
   };
   return <div className={`rounded-2xl border p-4 ${tones[tone]}`}><div className="flex items-center gap-2 text-xs font-black">{icon}{label}</div><div className="mt-2 text-3xl font-black">{value.toLocaleString('ar-EG')}</div></div>;
 }
