@@ -1,0 +1,37 @@
+name: Executive Theme Source Migration
+
+on:
+  push:
+    branches:
+      - architecture/stability-phase-1
+    paths:
+      - scripts/migrate-executive-theme-source.cjs
+      - .github/workflows/executive-theme-source-migration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: architecture/stability-phase-1
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply deterministic source migration
+        run: node scripts/migrate-executive-theme-source.cjs
+      - name: Commit migrated source
+        run: |
+          if git diff --quiet -- src/pages/ExecutiveDashboard2027.tsx; then
+            echo "No migration changes needed."
+            exit 0
+          fi
+          git config user.name "dawaa-theme-migration"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/pages/ExecutiveDashboard2027.tsx
+          git commit -m "refactor(theme): migrate active executive dashboard source"
+          git push origin HEAD:architecture/stability-phase-1
