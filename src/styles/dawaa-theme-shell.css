@@ -1,0 +1,138 @@
+/*
+ * Dawaa Theme System — Application Shell
+ * ---------------------------------------
+ * Shared chrome only: app background, header, sidebar, page roots and semantic
+ * status surfaces. No feature/page-specific palette values belong here.
+ */
+
+html[data-theme] body,
+html[data-theme] #root {
+  color: var(--dawaa-theme-text);
+}
+
+/* Legacy index.css used to paint every .min-h-screen with an aqua/dark gradient.
+   Page roots are neutral now; deliberate ambient effects must use a semantic class. */
+html[data-theme] .min-h-screen {
+  background-color: var(--dawaa-theme-bg) !important;
+  background-image: var(--dawaa-theme-ambient) !important;
+}
+
+html[data-theme='light'] .min-h-screen,
+html[data-theme='pharmacy-green'] .min-h-screen {
+  background-image: none !important;
+}
+
+/* Application chrome */
+html[data-theme] header {
+  background: color-mix(in srgb, var(--dawaa-theme-surface) 97%, transparent) !important;
+  color: var(--dawaa-theme-text) !important;
+  border-color: var(--dawaa-theme-divider) !important;
+  box-shadow: 0 1px 0 var(--dawaa-theme-divider) !important;
+}
+
+html[data-theme] aside {
+  background: var(--dawaa-theme-sidebar) !important;
+  color: var(--dawaa-theme-text) !important;
+  border-color: var(--dawaa-theme-divider) !important;
+  box-shadow: -8px 0 28px color-mix(in srgb, var(--dawaa-theme-heading) 4%, transparent) !important;
+}
+
+/* Shared navigation states. */
+html[data-theme] .dawaa-sidebar,
+html[data-theme] .sidebar-shell {
+  background: var(--dawaa-theme-sidebar) !important;
+  border-color: var(--dawaa-theme-divider) !important;
+}
+
+html[data-theme] .dawaa-nav-item,
+html[data-theme] .sidebar-item {
+  color: var(--dawaa-theme-muted) !important;
+}
+
+html[data-theme] .dawaa-nav-item:hover,
+html[data-theme] .sidebar-item:hover {
+  background: var(--dawaa-theme-sidebar-hover) !important;
+  color: var(--dawaa-theme-heading) !important;
+}
+
+html[data-theme] .dawaa-nav-item.is-active,
+html[data-theme] .dawaa-nav-item[aria-current='page'],
+html[data-theme] .sidebar-item.is-active,
+html[data-theme] .sidebar-item[aria-current='page'] {
+  background: var(--dawaa-theme-sidebar-active) !important;
+  color: var(--dawaa-theme-primary-strong) !important;
+  border-color: var(--dawaa-theme-border-strong) !important;
+}
+
+/* Status surfaces: color communicates state without turning the whole UI into
+   saturated pastel blocks. */
+.dawaa-status-success,
+.dawaa-status-warning,
+.dawaa-status-danger,
+.dawaa-status-info {
+  border-style: solid;
+  border-width: 1px;
+  box-shadow: none;
+}
+
+.dawaa-status-success {
+  background: var(--dawaa-status-success-bg) !important;
+  color: var(--dawaa-status-success-text) !important;
+  border-color: var(--dawaa-status-success-border) !important;
+}
+
+.dawaa-status-warning {
+  background: var(--dawaa-status-warning-bg) !important;
+  color: var(--dawaa-status-warning-text) !important;
+  border-color: var(--dawaa-status-warning-border) !important;
+}
+
+.dawaa-status-danger {
+  background: var(--dawaa-status-danger-bg) !important;
+  color: var(--dawaa-status-danger-text) !important;
+  border-color: var(--dawaa-status-danger-border) !important;
+}
+
+.dawaa-status-info {
+  background: var(--dawaa-status-info-bg) !important;
+  color: var(--dawaa-status-info-text) !important;
+  border-color: var(--dawaa-status-info-border) !important;
+}
+
+/* Current executive route: remove old page-wide wash and make the command center
+   a normal consumer of the global theme. */
+html[data-theme] .executive-dashboard-page {
+  background: var(--dawaa-theme-bg) !important;
+  color: var(--dawaa-theme-text) !important;
+}
+
+html[data-theme='light'] .executive-dashboard-page,
+html[data-theme='pharmacy-green'] .executive-dashboard-page {
+  background-image: none !important;
+}
+
+html[data-theme] .executive-dashboard-page > main {
+  background: transparent !important;
+}
+
+/* Current shared 2027 hero/panel visual hierarchy. */
+html[data-theme] .dawaa-hero {
+  background: var(--dawaa-theme-surface-raised) !important;
+  border-color: var(--dawaa-theme-border) !important;
+  box-shadow: var(--dawaa-theme-shadow-soft), inset 0 1px 0 var(--dawaa-theme-highlight) !important;
+}
+
+html[data-theme] .dawaa-panel,
+html[data-theme] .dawaa-card {
+  border-color: var(--dawaa-theme-border) !important;
+}
+
+/* Light keeps brand color out of large empty surfaces. */
+html[data-theme='light'] .dawaa-hero,
+html[data-theme='light'] .dawaa-panel,
+html[data-theme='light'] .dawaa-card,
+html[data-theme='pharmacy-green'] .dawaa-hero,
+html[data-theme='pharmacy-green'] .dawaa-panel,
+html[data-theme='pharmacy-green'] .dawaa-card {
+  background-image: none !important;
+}
