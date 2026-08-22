@@ -9,6 +9,8 @@ export type CustomerSearchResult = {
   category: string;
 };
 
+const CUSTOMER_SEARCH_FIELDS = 'id,name,phone,customer_code,branch,segment,status';
+
 export function normalizePhone(value: unknown) {
   const digits = String(value ?? '').replace(/[^\d+]/g, '');
   if (digits.startsWith('+20')) return `0${digits.slice(3)}`;
@@ -51,11 +53,11 @@ function cleanCustomerCode(value: unknown) {
 export function normalizeCustomerRow(row: Record<string, unknown>): CustomerSearchResult {
   return {
     id: pick(row, ['id', 'customer_id']),
-    name: pick(row, ['customer_name', 'name', 'full_name']) || 'عميل بدون اسم',
+    name: pick(row, ['name', 'customer_name', 'full_name']) || 'عميل بدون اسم',
     code: cleanCustomerCode(pick(row, ['customer_code', 'code'])),
-    phone: pick(row, ['customer_phone', 'phone', 'mobile']),
+    phone: pick(row, ['phone', 'customer_phone', 'mobile']),
     branch: pick(row, ['branch', 'branch_name']),
-    category: pick(row, ['category', 'customer_category', 'status']),
+    category: pick(row, ['segment', 'status', 'category', 'customer_category']),
   };
 }
 
@@ -65,43 +67,31 @@ export async function searchCustomers(query: string, limit = 30): Promise<Custom
   const pattern = wildcardToIlikePattern(raw);
   const phone = normalizePhone(raw);
 
-  // تطابق تام بالكود أو الاسم أو الهاتف الأول، عشان بحث بكود أو رقم محدد يلاقي
-  // صاحبه دايمًا حتى لو فيه عشرات العملاء التانيين مشتركين في نفس الأرقام كجزء من
-  // كود أو اسم أو رقم أطول — استعلام substring وحده من غير ترتيب مش بيضمن كده.
+  // customers now has one canonical search schema. Using it directly avoids several
+  // sequential failed requests against legacy aliases on every keystroke.
   if (!raw.includes('*')) {
-    const exactAttempts = [
-      `customer_name.eq.${raw},name.eq.${raw},customer_code.eq.${raw},code.eq.${raw},customer_phone.eq.${phone},phone.eq.${phone}`,
-      `customer_name.eq.${raw},customer_code.eq.${raw},customer_phone.eq.${phone}`,
-      `name.eq.${raw},code.eq.${raw},phone.eq.${phone}`,
-    ];
-    for (const filter of exactAttempts) {
-      const { data, error } = await supabase.from('customers').select('*').or(filter).limit(limit);
-      if (!error && data && data.length) {
-        return data
-          .filter(Boolean)
-          .map((row) => normalizeCustomerRow(row as Record<string, unknown>));
-      }
-      if (!error) break; // الأعمدة موجودة لكن مفيش تطابق تام؛ منكملش نجرب صيغ تانية، نروح لبحث substring
-    }
+    const exactFilter = `name.eq.${raw},customer_code.eq.${raw},phone.eq.${phone}`;
+    const { data, error } = await supabase
+      .from('customers')
+      .select(CUSTOMER_SEARCH_FIELDS)
+      .or(exactFilter)
+      .limit(limit);
+    if (!error && data?.length) return data.filter(Boolean).map((row) => normalizeCustomerRow(row as Record<string, unknown>));
   }
 
-  const attempts = [
-    `customer_name.ilike.${pattern},name.ilike.${pattern},customer_code.ilike.${pattern},code.ilike.${pattern},customer_phone.ilike.%${phone}%,phone.ilike.%${phone}%`,
-    `customer_name.ilike.${pattern},customer_code.ilike.${pattern},customer_phone.ilike.%${phone}%`,
-    `name.ilike.${pattern},code.ilike.${pattern},phone.ilike.%${phone}%`,
-  ];
+  const substringFilter = `name.ilike.${pattern},customer_code.ilike.${pattern},phone.ilike.%${phone}%`;
+  const { data, error } = await supabase
+    .from('customers')
+    .select(CUSTOMER_SEARCH_FIELDS)
+    .or(substringFilter)
+    .order('customer_code', { ascending: true, nullsFirst: false })
+    .limit(limit);
+  if (!error) return (data || []).filter(Boolean).map((row) => normalizeCustomerRow(row as Record<string, unknown>));
 
-  for (const filter of attempts) {
-    const { data, error } = await supabase.from('customers').select('*').or(filter).order('customer_code', { ascending: true, nullsFirst: false }).limit(limit);
-    if (!error)
-      return (data || [])
-        .filter(Boolean)
-        .map((row) => normalizeCustomerRow(row as Record<string, unknown>));
-  }
-
-  const { data } = await supabase.from('customers').select('*').limit(500);
+  // Last-resort compatibility fallback stays bounded and only selects fields needed by the UI.
+  const fallback = await supabase.from('customers').select(CUSTOMER_SEARCH_FIELDS).limit(250);
   const normalizedQuery = normalizeArabicText(raw.replace(/\*/g, ''));
-  return ((data || []) as Record<string, unknown>[])
+  return ((fallback.data || []) as Record<string, unknown>[])
     .filter(Boolean)
     .map(normalizeCustomerRow)
     .filter((customer) => {
@@ -131,7 +121,7 @@ export async function createCustomerFromSearch(input: {
 
   let next: Record<string, unknown> = payload;
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const { data, error } = await supabase.from('customers').insert(next).select('*').single();
+    const { data, error } = await supabase.from('customers').insert(next).select(CUSTOMER_SEARCH_FIELDS).single();
     if (!error && data) return normalizeCustomerRow(data as Record<string, unknown>);
     const column =
       error?.message.match(/column "([^"]+)"/)?.[1] ||
