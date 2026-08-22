@@ -12,5 +12,12 @@ import ExecutiveDashboard2027 from '@/pages/ExecutiveDashboard2027';
  * fallback semantics inside ExecutiveDashboard2027.
  */
 export default function ExecutiveDashboard2027Resilient() {
-  return <ExecutiveDashboard2027 />;
+  return (
+    <div
+      className="[&_.executive-dashboard-page>div.pointer-events-none.fixed.inset-0]:hidden"
+      data-theme-runtime="executive-2027"
+    >
+      <ExecutiveDashboard2027 />
+    </div>
+  );
 }
