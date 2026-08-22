@@ -35,16 +35,64 @@ for (const file of walk(SRC)) {
   const text = fs.readFileSync(file, 'utf8');
   for (const pattern of writerPatterns) {
     if (pattern.test(text)) {
-      violations.push(rel);
+      violations.push(`${rel}: runtime theme writer`);
       break;
     }
   }
 }
 
+const mainPath = path.join(SRC, 'main.tsx');
+const mainText = fs.readFileSync(mainPath, 'utf8');
+const expectedThemeImports = [
+  "./styles/dawaa-theme.css",
+  "./styles/dawaa-theme-tokens.css",
+  "./styles/dawaa-theme-foundation.css",
+  "./styles/dawaa-theme-components.css",
+];
+let previousIndex = -1;
+for (const importPath of expectedThemeImports) {
+  const index = mainText.indexOf(importPath);
+  if (index < 0) {
+    violations.push(`src/main.tsx: missing canonical theme layer ${importPath}`);
+    continue;
+  }
+  if (index <= previousIndex) {
+    violations.push(`src/main.tsx: canonical theme layer order is invalid near ${importPath}`);
+  }
+  previousIndex = index;
+}
+
+const componentsPath = path.join(SRC, 'styles', 'dawaa-theme-components.css');
+const componentsText = fs.readFileSync(componentsPath, 'utf8');
+const hardcodedPalette = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
+const componentColors = componentsText.match(hardcodedPalette) || [];
+if (componentColors.length) {
+  violations.push(
+    `src/styles/dawaa-theme-components.css: semantic component layer contains ${componentColors.length} hard-coded palette color(s)`
+  );
+}
+
+const tokensPath = path.join(SRC, 'styles', 'dawaa-theme-tokens.css');
+const tokensText = fs.readFileSync(tokensPath, 'utf8');
+const tokenColors = tokensText.match(hardcodedPalette) || [];
+if (tokenColors.length) {
+  violations.push(
+    `src/styles/dawaa-theme-tokens.css: core design token layer contains ${tokenColors.length} theme palette color(s)`
+  );
+}
+
+const foundationPath = path.join(SRC, 'styles', 'dawaa-theme-foundation.css');
+const foundationText = fs.readFileSync(foundationPath, 'utf8');
+for (const theme of ['dark', 'light', 'pharmacy-green']) {
+  if (!foundationText.includes(`data-theme='${theme}'`)) {
+    violations.push(`src/styles/dawaa-theme-foundation.css: missing palette contract for ${theme}`);
+  }
+}
+
 if (violations.length) {
-  console.error('Theme architecture violation: ThemeContext must be the only runtime theme writer.');
-  for (const file of [...new Set(violations)].sort()) console.error(`- ${file}`);
+  console.error('Theme architecture violation:');
+  for (const violation of [...new Set(violations)].sort()) console.error(`- ${violation}`);
   process.exit(1);
 }
 
-console.log('Theme architecture OK: ThemeContext is the single runtime theme writer.');
+console.log('Theme architecture OK: single writer, canonical layers, semantic component purity, and palette contracts verified.');
