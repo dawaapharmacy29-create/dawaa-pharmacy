@@ -8,7 +8,6 @@ const ALLOWED_DIRECT_WRITERS = new Set([
   'src/lib/notificationService.ts',
   'src/lib/staffNotificationService.ts',
   // Transitional legacy writers. This list may only shrink.
-  'src/pages/Invoices.tsx',
   'src/lib/api/shiftPerformance.ts',
   'src/pages/MedicineExpiryTracker.tsx',
   'src/pages/StaffMonthlyEvaluation.tsx',
