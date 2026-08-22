@@ -16,6 +16,8 @@ export type EmployeeTransactionReadParams = {
  *
  * This is intentionally a read model, not an incentive calculator. Final payroll values
  * must come from settled payroll projections such as staff_payroll_incentive_truth_v1.
+ * Branch/date/staff filters are pushed to PostgreSQL so report pages do not download a
+ * cross-branch ledger and filter it in the browser.
  */
 export async function readEmployeeTransactions(
   params: EmployeeTransactionReadParams = {}
@@ -27,17 +29,13 @@ export async function readEmployeeTransactions(
   if (params.startDate) query = query.gte('created_at', `${params.startDate.slice(0, 10)}T00:00:00`);
   if (params.endDate) query = query.lte('created_at', `${params.endDate.slice(0, 10)}T23:59:59.999`);
 
+  const branch = normalizeBranchName(params.branch || '');
+  if (branch) query = query.eq('branch', branch);
+
   const { data, error } = await query
     .order('created_at', { ascending: false })
     .limit(Math.min(Math.max(params.limit || 3000, 1), 5000));
 
   if (error) throw new Error(error.message);
-  const rows = (data || []) as EmployeeTransactionReadRow[];
-  const branch = normalizeBranchName(params.branch || '');
-  if (!branch) return rows;
-
-  return rows.filter((row) => {
-    const rowBranch = normalizeBranchName(String(row.branch || ''));
-    return rowBranch === branch;
-  });
+  return (data || []) as EmployeeTransactionReadRow[];
 }
