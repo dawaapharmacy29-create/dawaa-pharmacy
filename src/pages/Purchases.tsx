@@ -335,7 +335,7 @@ function ProductCatalogPanel({
           {selectedFile ? <div className="dawaa-card dawaa-card--soft mt-3 p-3 text-sm font-bold">الملف: {selectedFile.name}</div> : null}
           {message ? <div className="dawaa-alert dawaa-alert--info mt-3 text-sm font-bold">{message}</div> : null}
 
-          {!!preview.length ? (
+          {preview.length > 0 ? (
             <div className="mt-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="dawaa-body text-sm font-black">
