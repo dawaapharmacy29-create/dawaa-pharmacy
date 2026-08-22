@@ -6,10 +6,10 @@ import { formatNumber } from '@/lib/dawaa2027';
 import OperationalReadinessPanel from '@/components/system/OperationalReadinessPanel';
 
 const severityText = { danger: 'حرج', warning: 'يحتاج مراجعة', info: 'معلومة' } as const;
-const severityClass = {
-  danger: 'dawaa-status-danger',
-  warning: 'dawaa-status-warning',
-  info: 'dawaa-status-info',
+const severityBadge = {
+  danger: 'dawaa-badge--danger',
+  warning: 'dawaa-badge--warning',
+  info: 'dawaa-badge--info',
 } as const;
 
 function issueValue(issue: DataHealthIssue) {
@@ -51,7 +51,7 @@ export default function DataHealthCenter() {
       <section className="dawaa-card dawaa-card--raised">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
-            <div className="dawaa-status-info flex h-12 w-12 items-center justify-center rounded-2xl border">
+            <div className="dawaa-icon-tile h-12 w-12">
               <DatabaseZap size={24} />
             </div>
             <div>
@@ -92,20 +92,22 @@ export default function DataHealthCenter() {
       ) : (
         <section className="grid gap-4 xl:grid-cols-2">
           {orderedIssues.map((issue) => (
-            <article key={issue.key} className={`rounded-2xl border p-4 ${severityClass[issue.severity]}`}>
+            <article key={issue.key} className="dawaa-card p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
-                  <div className="mt-1">
-                    {issue.severity === 'info' ? <CheckCircle2 size={20} /> : <ShieldAlert size={20} />}
+                  <div className="dawaa-icon-tile mt-1 h-9 w-9">
+                    {issue.severity === 'info' ? <CheckCircle2 size={18} /> : <ShieldAlert size={18} />}
                   </div>
                   <div>
-                    <h2 className="text-base font-black">{issue.label}</h2>
-                    <p className="mt-1 text-xs opacity-75">المصدر: {issue.source}</p>
+                    <h2 className="dawaa-title text-base">{issue.label}</h2>
+                    <p className="dawaa-caption mt-1 text-xs">المصدر: {issue.source}</p>
                   </div>
                 </div>
                 <div className="text-left">
-                  <div className="text-2xl font-black">{issueValue(issue)}</div>
-                  <div className="text-xs opacity-75">{severityText[issue.severity]}</div>
+                  <div className="dawaa-title text-2xl">{issueValue(issue)}</div>
+                  <span className={`dawaa-badge mt-1 ${severityBadge[issue.severity]}`}>
+                    {severityText[issue.severity]}
+                  </span>
                 </div>
               </div>
 
@@ -151,16 +153,26 @@ function SummaryCard({
   tone: 'ready' | 'warning' | 'danger' | 'info';
 }) {
   const toneClass = {
-    ready: 'dawaa-status-success',
-    warning: 'dawaa-status-warning',
-    danger: 'dawaa-status-danger',
-    info: 'dawaa-status-info',
+    ready: 'dawaa-badge--success',
+    warning: 'dawaa-badge--warning',
+    danger: 'dawaa-badge--danger',
+    info: 'dawaa-badge--info',
+  } as const;
+
+  const toneLabel = {
+    ready: 'مستقر',
+    warning: 'مراجعة',
+    danger: 'حرج',
+    info: 'معلومة',
   } as const;
 
   return (
-    <div className={`rounded-2xl border p-4 ${toneClass[tone]}`}>
-      <div className="text-xs opacity-75">{label}</div>
-      <div className="mt-2 text-2xl font-black">{value}</div>
+    <div className="dawaa-card dawaa-card--soft p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="dawaa-caption text-xs">{label}</div>
+        <span className={`dawaa-badge ${toneClass[tone]}`}>{toneLabel[tone]}</span>
+      </div>
+      <div className="dawaa-title mt-3 text-2xl">{value}</div>
     </div>
   );
 }
