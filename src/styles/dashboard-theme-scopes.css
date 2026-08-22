@@ -1,0 +1,94 @@
+/*
+ * Theme boundaries for the two role dashboards that still contain legacy
+ * Tailwind neutral utilities inside otherwise token-driven components.
+ *
+ * Keep this file scoped. It deliberately does not repaint the rest of the app.
+ * As the underlying components migrate to semantic classes, these selectors can
+ * be deleted without changing global theme behavior.
+ */
+
+.doctor-dashboard-theme,
+.customer-service-dashboard-theme {
+  color: var(--dawaa-theme-text);
+}
+
+.doctor-dashboard-theme .text-white,
+.customer-service-dashboard-theme .text-white {
+  color: var(--dawaa-theme-heading);
+}
+
+.doctor-dashboard-theme :is(.text-slate-100, .text-slate-200, .text-slate-300),
+.customer-service-dashboard-theme :is(.text-slate-100, .text-slate-200, .text-slate-300) {
+  color: var(--dawaa-theme-text);
+}
+
+.doctor-dashboard-theme :is(.text-slate-400, .text-slate-500, .text-white\/80),
+.customer-service-dashboard-theme :is(.text-slate-400, .text-slate-500, .text-white\/80) {
+  color: var(--dawaa-theme-muted);
+}
+
+.doctor-dashboard-theme [class*='bg-white/5'],
+.doctor-dashboard-theme [class*='bg-white/10'],
+.doctor-dashboard-theme [class*='bg-black/10'],
+.doctor-dashboard-theme [class*='bg-black/20'],
+.customer-service-dashboard-theme [class*='bg-white/5'],
+.customer-service-dashboard-theme [class*='bg-white/10'],
+.customer-service-dashboard-theme [class*='bg-black/10'],
+.customer-service-dashboard-theme [class*='bg-black/20'] {
+  background: var(--dawaa-theme-surface-2);
+}
+
+.doctor-dashboard-theme [class*='border-white/5'],
+.doctor-dashboard-theme [class*='border-white/10'],
+.doctor-dashboard-theme [class*='border-white/15'],
+.customer-service-dashboard-theme [class*='border-white/5'],
+.customer-service-dashboard-theme [class*='border-white/10'],
+.customer-service-dashboard-theme [class*='border-white/15'] {
+  border-color: var(--dawaa-theme-border);
+}
+
+.doctor-dashboard-theme .bg-teal-500\/15,
+.doctor-dashboard-theme .bg-teal-400\/15,
+.customer-service-dashboard-theme .bg-teal-500\/15,
+.customer-service-dashboard-theme .bg-teal-400\/15 {
+  background: color-mix(in srgb, var(--dawaa-theme-primary) 14%, transparent);
+}
+
+.doctor-dashboard-theme :is(.text-teal-200, .text-teal-300),
+.customer-service-dashboard-theme :is(.text-teal-200, .text-teal-300) {
+  color: var(--dawaa-theme-primary);
+}
+
+.doctor-dashboard-theme .border-teal-400\/30,
+.customer-service-dashboard-theme .border-teal-400\/30 {
+  border-color: color-mix(in srgb, var(--dawaa-theme-primary) 36%, var(--dawaa-theme-border));
+}
+
+.doctor-dashboard-theme .bg-teal-500\/10,
+.customer-service-dashboard-theme .bg-teal-500\/10 {
+  background: color-mix(in srgb, var(--dawaa-theme-primary) 10%, var(--dawaa-theme-surface));
+}
+
+.doctor-dashboard-theme .recharts-wrapper,
+.customer-service-dashboard-theme .recharts-wrapper {
+  color: var(--dawaa-theme-text);
+}
+
+html[data-theme='light'] .doctor-dashboard-theme,
+html[data-theme='pharmacy-green'] .doctor-dashboard-theme,
+html[data-theme='light'] .customer-service-dashboard-theme,
+html[data-theme='pharmacy-green'] .customer-service-dashboard-theme {
+  --dawaa-dashboard-track: color-mix(in srgb, var(--dawaa-theme-border) 72%, transparent);
+}
+
+html[data-theme='dark'] .doctor-dashboard-theme,
+html[data-theme='dark'] .customer-service-dashboard-theme {
+  --dawaa-dashboard-track: color-mix(in srgb, var(--dawaa-theme-heading) 16%, transparent);
+}
+
+.doctor-dashboard-theme [class*='bg-white/5'][class*='rounded-full'],
+.doctor-dashboard-theme [class*='bg-white/10'][class*='rounded-full'],
+.customer-service-dashboard-theme [class*='bg-white/5'][class*='rounded-full'],
+.customer-service-dashboard-theme [class*='bg-white/10'][class*='rounded-full'] {
+  background: var(--dawaa-dashboard-track);
+}
