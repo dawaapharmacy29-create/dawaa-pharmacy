@@ -2,19 +2,16 @@ import { supabase } from '@/lib/supabase';
 import { filterActiveStaffRows } from '@/lib/staffActiveFilter';
 import {
   formatMoney,
-  getInvoiceAmount,
-  getInvoiceDoctor,
   normalizeArabicName,
   quarterlyPillars2027,
 } from '@/lib/dawaa2027';
-import { matchStaffInvoice, matchStaffName } from '@/lib/dawaa2027Data';
+import { matchStaffName } from '@/lib/dawaa2027Data';
 import { isApprovedPointRecord, pointRecordDelta, recordBelongsToStaff } from '@/lib/pointsLedger';
 import {
   calculateQuarterlyIncentive,
   getQuarterRange,
   QUARTERLY_BASE_BONUS_EGP,
 } from '@/lib/incentives/incentiveRulesEngine';
-import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 
 type Row = Record<string, unknown>;
 
@@ -53,24 +50,38 @@ export type QuarterlyIncentiveSummary = {
   warnings: string[];
 };
 
+function sameBranch(left: unknown, right: unknown) {
+  const a = String(left || '').trim();
+  const b = String(right || '').trim();
+  return !a || !b || a === b;
+}
+
+function findSalesMetric(metrics: Row[], doctor: Row) {
+  const staffId = String(doctor.id || '');
+  const exact = metrics.find((metric) => String(metric.staff_id || '') === staffId);
+  if (exact) return exact;
+  return metrics.find(
+    (metric) =>
+      sameBranch(metric.branch, doctor.branch) &&
+      matchStaffName(metric, doctor, ['doctor_name'])
+  );
+}
+
 export async function loadQuarterlyIncentiveSummary(
   date = new Date()
 ): Promise<QuarterlyIncentiveSummary> {
   const quarter = getQuarterRange(date);
   const start = quarter.start.toISOString();
   const end = quarter.end.toISOString();
-  const invoiceWarnings: string[] = [];
-  const [staffRes, invoices, targetsRes, listSalesRes, stagnantRes, txRes] = await Promise.all([
+  const [staffRes, salesMetricsRes, targetsRes, listSalesRes, stagnantRes, txRes] = await Promise.all([
     supabase
       .from('staff')
       .select('id,name,role,branch,active,is_active,status')
       .eq('active', true)
       .limit(500),
-    fetchSalesInvoicesPagedSafe({
-      startDate: start.slice(0, 10),
-      endDate: end.slice(0, 10),
-      branch: 'كل الفروع',
-      errors: invoiceWarnings,
+    supabase.rpc('get_quarterly_staff_sales_metrics_v1', {
+      p_start: start.slice(0, 10),
+      p_end: end.slice(0, 10),
     }),
     supabase.from('doctor_incentive_targets').select('*').limit(5000),
     supabase
@@ -93,12 +104,11 @@ export async function loadQuarterlyIncentiveSummary(
       .limit(5000),
   ]);
 
-  const warnings = [staffRes, targetsRes, listSalesRes, stagnantRes, txRes]
+  const warnings = [staffRes, salesMetricsRes, targetsRes, listSalesRes, stagnantRes, txRes]
     .filter((res) => res.error)
     .map((res) => res.error?.message || 'تعذر تحميل مصدر بيانات');
   const staff = filterActiveStaffRows((staffRes.data || []) as Row[]) as Row[];
-  warnings.push(...invoiceWarnings);
-  const invoiceRows = (invoices || []) as Row[];
+  const salesMetrics = (salesMetricsRes.data || []) as Row[];
   const targets = (targetsRes.data || []) as Row[];
   const listSales = (listSalesRes.data || []) as Row[];
   const stagnantDispenses = (stagnantRes.data || []) as Row[];
@@ -113,17 +123,13 @@ export async function loadQuarterlyIncentiveSummary(
 
   const rawRows = doctors
     .map((doctor) => {
-      const doctorInvoices = invoiceRows.filter((invoice) => matchStaffInvoice(invoice, doctor));
-      const sales = doctorInvoices.reduce((sum, invoice) => sum + getInvoiceAmount(invoice), 0);
-      const invoiceCount = doctorInvoices.length;
-      const customerValues = new Map<string, number>();
-      doctorInvoices.forEach((invoice) => {
-        const customer = String(invoice.customer_name || invoice.customer_code || 'عميل غير محدد');
-        customerValues.set(
-          customer,
-          (customerValues.get(customer) || 0) + getInvoiceAmount(invoice)
-        );
-      });
+      const metric = findSalesMetric(salesMetrics, doctor);
+      const sales = Number(metric?.sales || 0);
+      const invoiceCount = Number(metric?.invoices || 0);
+      const customersCount = Number(metric?.customers_count || 0);
+      const dataQuality = Number(metric?.data_quality || 0);
+      const topCustomerName = String(metric?.top_customer_name || '').trim();
+      const topCustomerValue = Number(metric?.top_customer_value || 0);
       const targetRows = targets.filter(
         (target) =>
           String(target.staff_id || '') === String(doctor.id || '') ||
@@ -147,16 +153,12 @@ export async function loadQuarterlyIncentiveSummary(
           String(row.staff_id || row.doctor_id || '') === String(doctor.id || '') ||
           matchStaffName(row, doctor, ['staff_name', 'doctor_name', 'responsible_doctor_name'])
       );
-      const dataQualityInvoices = doctorInvoices.filter(
-        (invoice) =>
-          Boolean(invoice.customer_code || invoice.customer_name) &&
-          Boolean(getInvoiceDoctor(invoice))
-      ).length;
       const deductions = transactions.filter(
         (t) =>
           isApprovedPointRecord(t) && pointRecordDelta(t) < 0 && recordBelongsToStaff(t, doctor)
       );
-      const topCustomer = [...customerValues.entries()].sort((a, b) => b[1] - a[1])[0];
+      const topCustomer: [string, number] | undefined =
+        topCustomerName && topCustomerValue > 0 ? [topCustomerName, topCustomerValue] : undefined;
       return {
         id: String(doctor.id || normalizeArabicName(String(doctor.name || ''))),
         name: String(doctor.name || 'غير محدد'),
@@ -164,11 +166,11 @@ export async function loadQuarterlyIncentiveSummary(
         sales,
         invoices: invoiceCount,
         avgInvoice: invoiceCount ? sales / invoiceCount : 0,
-        customersCount: customerValues.size,
+        customersCount,
         targetQty,
         achievedQty,
         stagnantCount: stagnantRows.length,
-        dataQuality: invoiceCount ? dataQualityInvoices / invoiceCount : 0,
+        dataQuality,
         deductionsCount: deductions.length,
         topCustomer,
       };
@@ -192,7 +194,6 @@ export async function loadQuarterlyIncentiveSummary(
       );
       const score = scoreSales + scoreAvg + scoreCustomers + scoreList + scoreStock + scoreQuality;
 
-      // Calculate quarterly money rewards from stagnant/list items
       const doctorTransactions = transactions.filter(
         (t) => isApprovedPointRecord(t) && recordBelongsToStaff(t, r)
       );
@@ -203,7 +204,6 @@ export async function loadQuarterlyIncentiveSummary(
           const moneyAmount = Number(
             meta.money_amount || meta.reward_amount || meta.total_incentive || 0
           );
-          // Check if this is a stagnant/list cash reward
           const text = [
             t.source_type,
             t.source,
@@ -237,13 +237,11 @@ export async function loadQuarterlyIncentiveSummary(
           );
         }, 0);
 
-      // Calculate quarterly money deductions
       const quarterlyMoneyDeductions = doctorTransactions
         .filter((t) => pointRecordDelta(t) < 0)
         .reduce((sum, t) => {
           const meta = (t.metadata as Record<string, unknown>) || {};
           const moneyAmount = Number(meta.money_amount || meta.money_delta || 0);
-          // Check if this is a quarterly money deduction
           const text = [
             t.source_type,
             t.source,
@@ -273,7 +271,6 @@ export async function loadQuarterlyIncentiveSummary(
           );
         }, 0);
 
-      // Calculate quarterly final value: base 2000 + money rewards - money deductions
       const quarterlyFinalValue = Math.round(
         calculateQuarterlyIncentive({
           approvedQuarterlyRewards: quarterlyMoneyRewards,
@@ -305,7 +302,7 @@ export async function loadQuarterlyIncentiveSummary(
     rows,
     sourceBreakdown: [
       'staff',
-      'sales_invoices date-limited',
+      'get_quarterly_staff_sales_metrics_v1',
       'doctor_incentive_targets',
       'doctor_incentive_sales',
       'stagnant_medicine_dispenses',
