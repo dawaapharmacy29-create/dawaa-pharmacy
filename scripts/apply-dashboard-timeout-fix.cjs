@@ -49,3 +49,86 @@ replaceAllOrThrow(
   ]],
   'historical monthly sales fast path'
 );
+
+replaceAllOrThrow(
+  path.join(root, 'src/App.tsx'),
+  [
+    [
+      "import { diagnosticsUrl, logRuntimeError, loginRecoveryUrl } from '@/lib/appRecovery';",
+      "import { diagnosticsUrl, logRuntimeError } from '@/lib/appRecovery';",
+    ],
+    [
+      "    const timerId = window.setTimeout(() => setIsSlow(true), 8000);",
+      "    const timerId = window.setTimeout(() => setIsSlow(true), 12000);",
+    ],
+    [
+      "      <p className=\"mt-2 text-sm leading-7 text-slate-300\">استغرق تحميل هذه الصفحة أكثر من المعتاد. التطبيق ما زال يعمل، ويمكنك فتح التشخيص أو تسجيل الدخول من جديد.</p>",
+      "      <p className=\"mt-2 text-sm leading-7 text-slate-300\">استغرق تحميل هذه الصفحة أكثر من المعتاد. جلستك ما زالت محفوظة؛ أعد المحاولة أو افتح التشخيص إذا استمر البطء.</p>",
+    ],
+    [
+      "        <a href={loginRecoveryUrl('route_slow_loading')} className=\"rounded-2xl border border-teal-400/40 px-5 py-3 text-sm font-black text-teal-100 hover:bg-teal-400/10\">تسجيل الدخول</a>\n",
+      "",
+    ],
+  ],
+  'slow-route recovery messaging'
+);
+
+replaceAllOrThrow(
+  path.join(root, 'src/hooks/useAuth.ts'),
+  [
+    ["const ACCOUNT_REFRESH_TTL_MS = 5 * 60 * 1000;", "const ACCOUNT_REFRESH_TTL_MS = 15 * 60 * 1000;"],
+    ["const ACCOUNT_REFRESH_TIMEOUT_MS = 3500;", "const ACCOUNT_REFRESH_TIMEOUT_MS = 2000;"],
+    ["        15000,\n        'staff_account_login'", "        8000,\n        'staff_account_login'"],
+    ["    await new Promise((resolve) => window.setTimeout(resolve, 500));", "    await new Promise((resolve) => window.setTimeout(resolve, 250));"],
+    ["      2500,\n      'get_user_permissions'", "      1000,\n      'get_user_permissions'"],
+    [
+      "    const shouldBlockForRefresh = Date.now() - lastAccountRefreshAt >= ACCOUNT_REFRESH_TTL_MS;\n    setLoading(shouldBlockForRefresh);",
+      "    // A valid cached user opens the app immediately. Account validation still runs\n    // in the background and can revoke the session if the account was disabled, but a\n    // slow network no longer traps the whole app behind the login-loading screen.\n    setLoading(false);",
+    ],
+  ],
+  'non-blocking auth refresh'
+);
+
+replaceAllOrThrow(
+  path.join(root, 'src/lib/api/dailyFollowups.ts'),
+  [
+    [
+      "  const requestedLimit = Math.max(1, Math.min(options.limit || 5000, 10000));",
+      "  const requestedLimit = Math.max(1, Math.min(options.limit || 2000, 4000));",
+    ],
+  ],
+  'followup history load cap'
+);
+
+replaceAllOrThrow(
+  path.join(root, 'src/components/customerService/CustomerFollowupCockpitPanel.tsx'),
+  [
+    ["import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';", "import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';"],
+    ["const MAX_FETCH_BATCHES = 20; // سقف أمان يمنع لوب لا نهائي لو حصل خلل غير متوقع في الترقيم", "const MAX_FETCH_BATCHES = 2; // أول 2000 متابعة مستحقة كحد أقصى؛ التاريخ الأقدم يُحمّل من السجل عند الطلب"],
+    [
+      ".order('created_at', { ascending: false }).range(start, start + FETCH_BATCH - 1);",
+      ".order('next_followup_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false }).range(start, start + FETCH_BATCH - 1);",
+    ],
+    [
+      "        const since = new Date(); since.setDate(since.getDate() - 30);\n        let auditQuery = supabase.from('customer_followup_audit_log').select('id,followup_id,action,actor_name,created_at,branch,metadata').gte('created_at', since.toISOString()).order('created_at', { ascending: false }).limit(5000);",
+      "        const since = new Date(); since.setHours(0, 0, 0, 0);\n        let auditQuery = supabase.from('customer_followup_audit_log').select('id,followup_id,action,actor_name,created_at,branch,metadata').gte('created_at', since.toISOString()).order('created_at', { ascending: false }).limit(1000);",
+    ],
+    [
+      "  const [purchaseValue, setPurchaseValue] = useState('');",
+      "  const [purchaseValue, setPurchaseValue] = useState('');\n  const loadRunRef = useRef(0);",
+    ],
+    [
+      "    setLoading(true);\n    setLoadError('');\n    try {",
+      "    const loadRunId = ++loadRunRef.current;\n    setLoading(true);\n    setLoadError('');\n    try {",
+    ],
+    [
+      "      const [rowsResult, auditResult] = await Promise.allSettled([fetchRows(), fetchAudit()]);\n      if (rowsResult.status === 'fulfilled') {",
+      "      const [rowsResult, auditResult] = await Promise.allSettled([fetchRows(), fetchAudit()]);\n      if (loadRunId !== loadRunRef.current) return;\n      if (rowsResult.status === 'fulfilled') {",
+    ],
+    [
+      "      // allSettled بدل all: query السجل (آخر 30 يوم، مستخدم بس لمؤشر \"مكتمل اليوم\") لو فشل",
+      "      // allSettled بدل all: سجل اليوم فقط مطلوب لمؤشر \"مكتمل اليوم\"؛ فشله لا يوقف قائمة التنفيذ.",
+    ],
+  ],
+  'customer followup cockpit stability'
+);
