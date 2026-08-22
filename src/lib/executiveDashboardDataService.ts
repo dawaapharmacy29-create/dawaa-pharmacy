@@ -13,7 +13,6 @@ import {
   normalizeStaffName,
   type GroupedStaffSalesPerformance,
 } from '@/lib/staffIdentityService';
-import { getInvoiceKey } from '@/lib/dawaa2027';
 import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 
 type Row = Record<string, unknown>;
@@ -558,34 +557,6 @@ async function fetchCustomerPreview(branch: string): Promise<DashboardCustomerPr
     avgMonthly: row ? toNumber(readFirst(row, ['avg_monthly'], 0)) : null,
     lastPurchase: readFirst(row, ['last_purchase'], null) as string | null,
     source: 'customer_metrics_summary',
-    error: null,
-  };
-}
-
-async function fetchLatestInvoices(
-  startDate: string,
-  endDate: string,
-  branch: string
-): Promise<{ rows: DashboardInvoicePreview[]; error: string | null }> {
-  let query = supabase
-    .from('sales_invoices')
-    .select('id,invoice_number,invoice_no,invoice_date,net_amount,discounted_amount,amount,branch')
-    .gte('invoice_date', startDate)
-    .lt('invoice_date', `${endDate}T23:59:59`)
-    .order('invoice_date', { ascending: false })
-    .limit(5);
-
-  if (branch && branch !== 'all') query = query.eq('branch', branch);
-  const { data, error } = await query;
-  if (error) return { rows: [], error: error.message };
-  return {
-    rows: ((data ?? []) as Row[]).map((row) => ({
-      id: String(readFirst(row, ['id'], crypto.randomUUID())),
-      invoiceNumber: getInvoiceKey(row) || null,
-      invoiceDate: readFirst(row, ['invoice_date'], null) as string | null,
-      amount: toNumber(readFirst(row, ['net_amount', 'discounted_amount', 'amount'], 0)),
-      branch: readFirst(row, ['branch'], null) as string | null,
-    })),
     error: null,
   };
 }
