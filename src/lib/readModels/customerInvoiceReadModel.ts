@@ -19,6 +19,15 @@ export type CustomerInvoiceReadResult = {
   warnings: string[];
 };
 
+export type CustomerInvoiceAggregate = {
+  customerCode: string;
+  count: number;
+  total: number;
+  first: string | null;
+  last: string | null;
+  activeMonths: number;
+};
+
 const SELECT = [
   'id',
   'invoice_no',
@@ -44,9 +53,20 @@ const SELECT = [
 ].join(',');
 
 const MAX_ROWS_PER_STRATEGY = 1200;
+const BATCH_AGGREGATE_PAGE_SIZE = 1000;
+const BATCH_AGGREGATE_MAX_ROWS = 10000;
 
 function text(value: unknown) {
   return String(value ?? '').trim();
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function dateOnly(value: unknown) {
+  return text(value).slice(0, 10);
 }
 
 function normalizePhone(value: unknown) {
@@ -119,6 +139,74 @@ function summarizeMatch(strategies: CustomerInvoiceMatch[]): CustomerInvoiceRead
 }
 
 /**
+ * Batch aggregate adapter for customer list metrics.
+ * Keeps one batched invoice read for the visible customer codes instead of N per-customer queries.
+ * Pagination avoids silently truncating the first 1,000 rows while preserving a hard safety ceiling.
+ */
+export async function readCustomerInvoiceAggregatesByCodes(
+  customerCodes: Array<string | number | null | undefined>
+): Promise<Map<string, CustomerInvoiceAggregate>> {
+  if (!isSupabaseConfigured) return new Map();
+
+  const codes = [...new Set(customerCodes.map(text).filter(Boolean))];
+  if (!codes.length) return new Map();
+
+  const rows: CustomerInvoiceReadRow[] = [];
+  for (let offset = 0; offset < BATCH_AGGREGATE_MAX_ROWS; offset += BATCH_AGGREGATE_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('sales_invoices')
+      .select('id,customer_code,invoice_date,net_amount,discounted_amount,amount,gross_amount')
+      .in('customer_code', codes)
+      .order('invoice_date', { ascending: false })
+      .range(offset, offset + BATCH_AGGREGATE_PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data || []) as CustomerInvoiceReadRow[];
+    rows.push(...page);
+    if (page.length < BATCH_AGGREGATE_PAGE_SIZE) break;
+  }
+
+  const working = new Map<
+    string,
+    { count: number; total: number; first: string | null; last: string | null; months: Set<string> }
+  >();
+
+  for (const row of dedupe(rows)) {
+    const code = text(row.customer_code);
+    if (!code) continue;
+    const invoiceDate = dateOnly(row.invoice_date);
+    const current = working.get(code) || {
+      count: 0,
+      total: 0,
+      first: null,
+      last: null,
+      months: new Set<string>(),
+    };
+    current.count += 1;
+    current.total += numberValue(row.net_amount ?? row.discounted_amount ?? row.amount ?? row.gross_amount);
+    if (invoiceDate) {
+      if (!current.first || invoiceDate < current.first) current.first = invoiceDate;
+      if (!current.last || invoiceDate > current.last) current.last = invoiceDate;
+      current.months.add(invoiceDate.slice(0, 7));
+    }
+    working.set(code, current);
+  }
+
+  return new Map(
+    [...working.entries()].map(([customerCode, aggregate]) => [
+      customerCode,
+      {
+        customerCode,
+        count: aggregate.count,
+        total: aggregate.total,
+        first: aggregate.first,
+        last: aggregate.last,
+        activeMonths: aggregate.months.size,
+      },
+    ])
+  );
+}
+
+/**
  * Transitional read-model adapter for customer invoice history.
  *
  * Runtime policy:
@@ -158,9 +246,9 @@ export async function readCustomerInvoices(
   await Promise.all(
     exactAttempts.map(async (attempt) => {
       try {
-        const rows = dedupe(await attempt.run());
-        if (rows.length) matchedStrategies.push(attempt.label);
-        for (const row of rows) rowsByKey.set(invoiceKey(row), row);
+        const matchedRows = dedupe(await attempt.run());
+        if (matchedRows.length) matchedStrategies.push(attempt.label);
+        for (const row of matchedRows) rowsByKey.set(invoiceKey(row), row);
       } catch (error) {
         warnings.push(`${attempt.label}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -169,9 +257,9 @@ export async function readCustomerInvoices(
 
   if (!rowsByKey.size && tail.length >= 8) {
     try {
-      const rows = dedupe(await queryIlike('customer_phone', `%${tail}`));
-      if (rows.length) matchedStrategies.push('phone_tail');
-      for (const row of rows) rowsByKey.set(invoiceKey(row), row);
+      const matchedRows = dedupe(await queryIlike('customer_phone', `%${tail}`));
+      if (matchedRows.length) matchedStrategies.push('phone_tail');
+      for (const row of matchedRows) rowsByKey.set(invoiceKey(row), row);
     } catch (error) {
       warnings.push(`phone_tail: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -179,21 +267,21 @@ export async function readCustomerInvoices(
 
   if (!rowsByKey.size && normalizeName(name).length >= 3) {
     try {
-      const rows = dedupe(await queryIlike('customer_name', `%${name}%`));
-      if (rows.length) matchedStrategies.push('name');
-      for (const row of rows) rowsByKey.set(invoiceKey(row), row);
+      const matchedRows = dedupe(await queryIlike('customer_name', `%${name}%`));
+      if (matchedRows.length) matchedStrategies.push('name');
+      for (const row of matchedRows) rowsByKey.set(invoiceKey(row), row);
     } catch (error) {
       warnings.push(`name: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  const rows = [...rowsByKey.values()].sort((a, b) =>
+  const resultRows = [...rowsByKey.values()].sort((a, b) =>
     text(b.invoice_date || b.sale_date).localeCompare(text(a.invoice_date || a.sale_date))
   );
   const uniqueStrategies = [...new Set(matchedStrategies)];
 
   return {
-    rows,
+    rows: resultRows,
     matchedBy: summarizeMatch(uniqueStrategies),
     matchedStrategies: uniqueStrategies,
     source: 'sales_invoices_adapter',
