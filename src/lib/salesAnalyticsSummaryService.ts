@@ -90,6 +90,7 @@ type RpcPayload = {
 };
 
 const cache = new Map<string, SalesAnalyticsSummary>();
+const inFlightLoads = new Map<string, Promise<SalesAnalyticsSummary>>();
 
 function isAll(value?: string | null) {
   return !value || value === 'الكل' || value === 'كل الفروع' || value === 'all';
@@ -152,7 +153,11 @@ function normalizeRpcPayload(data: unknown, fallbackDate: string) {
       uniqueCustomers: toNumber(row.uniqueCustomers),
     }))
     .filter((row) => row.saleDate)
-    .sort((a, b) => a.saleDate.localeCompare(b.saleDate) || String(a.branch || '').localeCompare(String(b.branch || ''))) satisfies SalesDailySummary[];
+    .sort(
+      (a, b) =>
+        a.saleDate.localeCompare(b.saleDate) ||
+        String(a.branch || '').localeCompare(String(b.branch || ''))
+    ) satisfies SalesDailySummary[];
 
   const branchRows = (payload.branchRows || [])
     .map((row) => ({
@@ -197,15 +202,10 @@ function normalizeRpcPayload(data: unknown, fallbackDate: string) {
   return { kpis, dailyTrend, dailySales, branchRows, last5DaysByBranch, staffSales, dataHealth };
 }
 
-export async function loadSalesAnalyticsSummary(
+async function loadSalesAnalyticsSummaryOnce(
   filters: SalesAnalyticsFilters,
-  forceRefresh = false
+  cached: SalesAnalyticsSummary | undefined
 ): Promise<SalesAnalyticsSummary> {
-  if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
-  const key = JSON.stringify(filters);
-  const cached = cache.get(key);
-  if (!forceRefresh && cached) return cached;
-
   const errorsBySection: Record<string, string> = {};
   const branchParam = isAll(filters.branch) ? null : normalizeBranchName(filters.branch);
   const doctorParam = isAll(filters.doctor) ? null : text(filters.doctor) || null;
@@ -233,19 +233,20 @@ export async function loadSalesAnalyticsSummary(
   ]);
 
   if (salesResult.status === 'rejected') {
-    const message = salesResult.reason instanceof Error
-      ? salesResult.reason.message
-      : String(salesResult.reason);
+    const message =
+      salesResult.reason instanceof Error ? salesResult.reason.message : String(salesResult.reason);
     errorsBySection.sales = message;
     if (cached) {
       return {
         ...cached,
         errorsBySection: { ...cached.errorsBySection, sales: message },
-        sourceHealth: [{
-          source: SALES_ANALYTICS_SOURCE_ID,
-          status: cached.kpis.invoicesCount > 0 ? 'ready' : 'empty',
-          message: `تم عرض آخر قراءة سليمة مؤقتًا: ${message}`,
-        }],
+        sourceHealth: [
+          {
+            source: SALES_ANALYTICS_SOURCE_ID,
+            status: cached.kpis.invoicesCount > 0 ? 'ready' : 'empty',
+            message: `تم عرض آخر قراءة سليمة مؤقتًا: ${message}`,
+          },
+        ],
       };
     }
     throw new Error(`تعذر تحميل مصدر المبيعات التحليلي: ${message}`);
@@ -259,7 +260,8 @@ export async function loadSalesAnalyticsSummary(
   }
 
   const sales = salesResult.value;
-  const staffIdentityRows = staffIdentityResult.status === 'fulfilled' ? staffIdentityResult.value : [];
+  const staffIdentityRows =
+    staffIdentityResult.status === 'fulfilled' ? staffIdentityResult.value : [];
   const doctorRows = groupStaffSalesPerformance(sales.staffSales, staffIdentityRows)
     .map((row) => ({
       staffId: row.staffId,
@@ -275,7 +277,7 @@ export async function loadSalesAnalyticsSummary(
     .sort((a, b) => b.netSales - a.netSales)
     .slice(0, 30);
 
-  const result: SalesAnalyticsSummary = {
+  return {
     kpis: sales.kpis,
     dailyTrend: sales.dailyTrend,
     dailySales: sales.dailySales,
@@ -293,18 +295,45 @@ export async function loadSalesAnalyticsSummary(
           }
         : { important: null, stopped: null, threatened: null, invalidPhone: null },
     dataHealth: sales.dataHealth,
-    sourceHealth: [{
-      source: SALES_ANALYTICS_SOURCE_ID,
-      status: sales.kpis.invoicesCount > 0 ? 'ready' : 'empty',
-      message: null,
-    }],
+    sourceHealth: [
+      {
+        source: SALES_ANALYTICS_SOURCE_ID,
+        status: sales.kpis.invoicesCount > 0 ? 'ready' : 'empty',
+        message: null,
+      },
+    ],
     errorsBySection,
   };
+}
 
-  cache.set(key, result);
-  return result;
+export async function loadSalesAnalyticsSummary(
+  filters: SalesAnalyticsFilters,
+  forceRefresh = false
+): Promise<SalesAnalyticsSummary> {
+  if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
+  const key = JSON.stringify(filters);
+  const cached = cache.get(key);
+  if (!forceRefresh && cached) return cached;
+
+  if (!forceRefresh) {
+    const existing = inFlightLoads.get(key);
+    if (existing) return existing;
+  }
+
+  const load = loadSalesAnalyticsSummaryOnce(filters, cached).then((result) => {
+    cache.set(key, result);
+    return result;
+  });
+
+  if (!forceRefresh) inFlightLoads.set(key, load);
+  try {
+    return await load;
+  } finally {
+    if (inFlightLoads.get(key) === load) inFlightLoads.delete(key);
+  }
 }
 
 export function clearSalesAnalyticsSummaryCache() {
   cache.clear();
+  inFlightLoads.clear();
 }
