@@ -170,47 +170,140 @@ export default function FollowupResultModal({ followup, onClose, onSave, mode = 
   const branch = valueOf(source, ['branch'], 'فرع غير محدد');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" dir="rtl">
-      <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-700 bg-[#101b31] shadow-2xl">
-        <header className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-700 bg-[#101b31]/95 p-5 backdrop-blur">
-          <div><h2 className="text-xl font-black text-white">{mode === 'edit' ? 'تعديل نتيجة المتابعة' : 'تسجيل نتيجة المتابعة'}</h2><p className="mt-1 text-sm font-bold text-slate-300">{customerName} · {customerCode} · {branch}</p><div className="mt-3 h-2 w-56 overflow-hidden rounded-full bg-slate-800"><div className="h-full bg-teal-400 transition-all" style={{ width: `${completion}%` }} /></div><p className="mt-1 text-xs text-slate-400">اكتمال النموذج: {completion}%</p></div>
-          <button type="button" onClick={onClose} disabled={saving} className="rounded-xl p-2 text-slate-400 hover:bg-white/10 hover:text-white"><X size={22} /></button>
+    <div className="modal-backdrop items-center p-3" dir="rtl">
+      <div className="modal-panel max-h-[94vh] max-w-5xl overflow-y-auto p-0">
+        <header className="sticky top-0 z-10 flex items-start justify-between border-b p-5 backdrop-blur" style={{ background: 'color-mix(in srgb, var(--dawaa-theme-surface-raised) 96%, transparent)', borderColor: 'var(--dawaa-theme-divider)' }}>
+          <div>
+            <h2 className="dawaa-title text-xl">{mode === 'edit' ? 'تعديل نتيجة المتابعة' : 'تسجيل نتيجة المتابعة'}</h2>
+            <p className="dawaa-caption mt-1 text-sm font-bold">{customerName} · {customerCode} · {branch}</p>
+            <div className="progress-bar mt-3 w-56"><div className="progress-fill" style={{ width: `${completion}%` }} /></div>
+            <p className="dawaa-caption mt-1 text-xs">اكتمال النموذج: {completion}%</p>
+          </div>
+          <button type="button" onClick={onClose} disabled={saving} className="dawaa-action-icon h-10 w-10"><X size={22} /></button>
         </header>
 
         <div className="grid gap-5 p-5 lg:grid-cols-[1.55fr_1fr]">
           <main className="space-y-5">
-            <section><h3 className="mb-3 font-black text-white">نتيجة التواصل *</h3><div className="grid gap-2 sm:grid-cols-2">{RESULT_OPTIONS.map(({ value, icon: Icon }) => <button key={value} type="button" onClick={() => setResult(value)} className={`flex items-center gap-2 rounded-2xl border p-3 text-right text-sm font-bold transition ${result === value ? 'border-teal-400 bg-teal-500/20 text-white' : 'border-slate-700 bg-slate-900/45 text-slate-200 hover:border-slate-500'}`}><Icon size={18} />{value}</button>)}</div></section>
-            <label className="block space-y-2 text-sm font-bold text-slate-200"><span>ملخص المتابعة والنتيجة الفعلية *</span><textarea className="input-dark min-h-32 resize-y" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="اكتب ما تم مع العميل، وما المشكلة، وما النتيجة، والخطوة القادمة..." /></label>
-            <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4"><h3 className="mb-4 font-black text-cyan-100">تقييم جودة المتابعة</h3><div className="grid gap-5 md:grid-cols-2"><RatingControl label="جودة المتابعة" value={qualityRating} onChange={setQualityRating} /><RatingControl label="جودة التواصل الداخلي *" value={internalRating} onChange={setInternalRating} /></div><div className="mt-4 grid gap-3 md:grid-cols-2"><SelectField label="رضا العميل" value={customerSatisfaction} onChange={setCustomerSatisfaction} options={[{ value: 'غير واضح', label: 'غير واضح' }, { value: 'نعم', label: 'نعم' }, { value: 'لا', label: 'لا' }]} /><SelectField label="هل تم فهم احتياج العميل؟" value={needUnderstood === null ? '' : needUnderstood ? 'yes' : 'no'} onChange={(value) => setNeedUnderstood(value === '' ? null : value === 'yes')} options={[{ value: '', label: 'غير محدد' }, { value: 'yes', label: 'نعم' }, { value: 'no', label: 'لا' }]} /></div><div className="mt-4 grid gap-3 sm:grid-cols-3"><CheckBox label="تم عرض Cross Sell" checked={crossSellOffered} onChange={setCrossSellOffered} /><CheckBox label="تم عرض Up Sell" checked={upSellOffered} onChange={setUpSellOffered} /><CheckBox label="يحتاج متابعة لاحقة" checked={needsNextFollowup} onChange={setNeedsNextFollowup} /></div></section>
+            <section>
+              <h3 className="dawaa-title mb-3 text-sm">نتيجة التواصل *</h3>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {RESULT_OPTIONS.map(({ value, icon: Icon }) => {
+                  const selected = result === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setResult(value)}
+                      className="dawaa-card dawaa-card--interactive flex items-center gap-2 p-3 text-right text-sm font-bold shadow-none"
+                      style={selected ? { background: 'var(--dawaa-theme-accent-soft)', borderColor: 'var(--dawaa-theme-accent-border)', color: 'var(--dawaa-theme-heading)' } : undefined}
+                      aria-pressed={selected}
+                    >
+                      <Icon size={18} style={{ color: selected ? 'var(--dawaa-theme-primary-strong)' : 'var(--dawaa-theme-muted)' }} />
+                      {value}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <label className="dawaa-caption block space-y-2 text-sm font-bold">
+              <span>ملخص المتابعة والنتيجة الفعلية *</span>
+              <textarea className="dawaa-textarea min-h-32 resize-y" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="اكتب ما تم مع العميل، وما المشكلة، وما النتيجة، والخطوة القادمة..." />
+            </label>
+
+            <section className="dawaa-card dawaa-card--soft p-4 shadow-none">
+              <h3 className="dawaa-title mb-4 text-sm">تقييم جودة المتابعة</h3>
+              <div className="grid gap-5 md:grid-cols-2">
+                <RatingControl label="جودة المتابعة" value={qualityRating} onChange={setQualityRating} />
+                <RatingControl label="جودة التواصل الداخلي *" value={internalRating} onChange={setInternalRating} />
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <SelectField label="رضا العميل" value={customerSatisfaction} onChange={setCustomerSatisfaction} options={[{ value: 'غير واضح', label: 'غير واضح' }, { value: 'نعم', label: 'نعم' }, { value: 'لا', label: 'لا' }]} />
+                <SelectField label="هل تم فهم احتياج العميل؟" value={needUnderstood === null ? '' : needUnderstood ? 'yes' : 'no'} onChange={(value) => setNeedUnderstood(value === '' ? null : value === 'yes')} options={[{ value: '', label: 'غير محدد' }, { value: 'yes', label: 'نعم' }, { value: 'no', label: 'لا' }]} />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <CheckBox label="تم عرض Cross Sell" checked={crossSellOffered} onChange={setCrossSellOffered} />
+                <CheckBox label="تم عرض Up Sell" checked={upSellOffered} onChange={setUpSellOffered} />
+                <CheckBox label="يحتاج متابعة لاحقة" checked={needsNextFollowup} onChange={setNeedsNextFollowup} />
+              </div>
+            </section>
           </main>
 
           <aside className="space-y-4">
-            {needsNextFollowup && <section className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4"><div className="mb-2 flex items-center gap-2 font-black text-blue-100"><CalendarClock size={18} /> المتابعة القادمة</div><input type="date" min={localDateInput()} value={nextFollowupDate} onChange={(event) => setNextFollowupDate(event.target.value)} className="input-dark" /><div className="mt-2 flex gap-2"><button type="button" className="btn-secondary flex-1 text-xs" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); setNextFollowupDate(localDateInput(d)); }}>بكرة</button><button type="button" className="btn-secondary flex-1 text-xs" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 2); setNextFollowupDate(localDateInput(d)); }}>بعد يومين</button></div></section>}
-            {(purchaseResult || invoiceNumber || purchaseAmount) && <section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4"><h3 className="mb-3 font-black text-emerald-100">الشراء بعد المتابعة</h3><div className="space-y-3"><InputField label="رقم الفاتورة" value={invoiceNumber} onChange={setInvoiceNumber} /><InputField label="قيمة الشراء" type="number" value={purchaseAmount} onChange={setPurchaseAmount} /></div></section>}
-            {noPurchaseResult && <SelectField label="سبب عدم الشراء *" value={noPurchaseReason} onChange={setNoPurchaseReason} options={NO_PURCHASE_OPTIONS} />}
-            <section className="rounded-2xl border border-slate-700 bg-slate-900/45 p-4"><h3 className="mb-3 font-black text-white">قرارات المتابعة</h3><div className="space-y-2"><CheckBox label="تم حل المشكلة" checked={problemSolved} onChange={setProblemSolved} /><CheckBox label="العميل راضي" checked={customerSatisfied} onChange={setCustomerSatisfied} /></div></section>
-            <label className="block space-y-2 text-sm font-bold text-slate-200"><span>ملاحظة داخلية للدكتور</span><textarea className="input-dark min-h-24 resize-y" value={doctorInternalNote} onChange={(event) => setDoctorInternalNote(event.target.value)} placeholder="ملاحظات داخلية لا تُرسل للعميل" /></label>
+            {needsNextFollowup ? (
+              <section className="dawaa-card dawaa-card--soft p-4 shadow-none">
+                <div className="dawaa-title mb-2 flex items-center gap-2 text-sm"><CalendarClock size={18} /> المتابعة القادمة</div>
+                <input type="date" min={localDateInput()} value={nextFollowupDate} onChange={(event) => setNextFollowupDate(event.target.value)} className="dawaa-input" />
+                <div className="mt-2 flex gap-2">
+                  <button type="button" className="dawaa-button dawaa-button--secondary min-h-0 flex-1 px-3 py-2 text-xs" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); setNextFollowupDate(localDateInput(d)); }}>بكرة</button>
+                  <button type="button" className="dawaa-button dawaa-button--secondary min-h-0 flex-1 px-3 py-2 text-xs" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 2); setNextFollowupDate(localDateInput(d)); }}>بعد يومين</button>
+                </div>
+              </section>
+            ) : null}
+
+            {(purchaseResult || invoiceNumber || purchaseAmount) ? (
+              <section className="dawaa-card dawaa-card--soft p-4 shadow-none">
+                <h3 className="dawaa-title mb-3 text-sm">الشراء بعد المتابعة</h3>
+                <div className="space-y-3">
+                  <InputField label="رقم الفاتورة" value={invoiceNumber} onChange={setInvoiceNumber} />
+                  <InputField label="قيمة الشراء" type="number" value={purchaseAmount} onChange={setPurchaseAmount} />
+                </div>
+              </section>
+            ) : null}
+
+            {noPurchaseResult ? <SelectField label="سبب عدم الشراء *" value={noPurchaseReason} onChange={setNoPurchaseReason} options={NO_PURCHASE_OPTIONS} /> : null}
+
+            <section className="dawaa-card dawaa-card--soft p-4 shadow-none">
+              <h3 className="dawaa-title mb-3 text-sm">قرارات المتابعة</h3>
+              <div className="space-y-2">
+                <CheckBox label="تم حل المشكلة" checked={problemSolved} onChange={setProblemSolved} />
+                <CheckBox label="العميل راضي" checked={customerSatisfied} onChange={setCustomerSatisfied} />
+              </div>
+            </section>
+
+            <label className="dawaa-caption block space-y-2 text-sm font-bold">
+              <span>ملاحظة داخلية للدكتور</span>
+              <textarea className="dawaa-textarea min-h-24 resize-y" value={doctorInternalNote} onChange={(event) => setDoctorInternalNote(event.target.value)} placeholder="ملاحظات داخلية لا تُرسل للعميل" />
+            </label>
           </aside>
         </div>
 
-        <footer className="sticky bottom-0 flex gap-3 border-t border-slate-700 bg-[#101b31]/95 p-4 backdrop-blur"><button type="button" onClick={submit} disabled={saving} className="btn-primary flex-1">{saving ? 'جاري الحفظ...' : mode === 'edit' ? 'حفظ تعديل النتيجة' : 'حفظ النتيجة الكاملة'}</button><button type="button" onClick={onClose} disabled={saving} className="btn-secondary flex-1">إلغاء</button></footer>
+        <footer className="sticky bottom-0 flex gap-3 border-t p-4 backdrop-blur" style={{ background: 'color-mix(in srgb, var(--dawaa-theme-surface-raised) 96%, transparent)', borderColor: 'var(--dawaa-theme-divider)' }}>
+          <button type="button" onClick={submit} disabled={saving} className="dawaa-button dawaa-button--primary flex-1 disabled:opacity-60">{saving ? 'جاري الحفظ...' : mode === 'edit' ? 'حفظ تعديل النتيجة' : 'حفظ النتيجة الكاملة'}</button>
+          <button type="button" onClick={onClose} disabled={saving} className="dawaa-button dawaa-button--secondary flex-1">إلغاء</button>
+        </footer>
       </div>
     </div>
   );
 }
 
 function RatingControl({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return <div><label className="mb-2 block text-sm font-bold text-slate-200">{label}</label><div className="flex items-center gap-1">{[1, 2, 3, 4, 5].map((rating) => <button key={rating} type="button" onClick={() => onChange(rating)} className={value >= rating ? 'p-1 text-yellow-300' : 'p-1 text-slate-600'}><Star size={22} fill={value >= rating ? 'currentColor' : 'none'} /></button>)}<span className="mr-2 text-xs text-slate-400">{value || 0}/5</span></div></div>;
+  return (
+    <div>
+      <label className="dawaa-caption mb-2 block text-sm font-bold">{label}</label>
+      <div className="flex items-center gap-1">
+        {[1, 2, 3, 4, 5].map((rating) => {
+          const active = value >= rating;
+          return (
+            <button key={rating} type="button" onClick={() => onChange(rating)} className="p-1" style={{ color: active ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-muted)' }}>
+              <Star size={22} fill={active ? 'currentColor' : 'none'} />
+            </button>
+          );
+        })}
+        <span className="dawaa-caption mr-2 text-xs">{value || 0}/5</span>
+      </div>
+    </div>
+  );
 }
 
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: SelectOption[] }) {
-  return <label className="block space-y-2 text-sm font-bold text-slate-200"><span>{label}</span><select className="input-dark" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={`${option.value}-${option.label}`} value={option.value}>{option.label}</option>)}</select></label>;
+  return <label className="dawaa-caption block space-y-2 text-sm font-bold"><span>{label}</span><select className="dawaa-select" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={`${option.value}-${option.label}`} value={option.value}>{option.label}</option>)}</select></label>;
 }
 
 function InputField({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label className="block space-y-2 text-sm font-bold text-slate-200"><span>{label}</span><input className="input-dark" type={type} value={value} min={type === 'number' ? '0' : undefined} onChange={(event) => onChange(event.target.value)} /></label>;
+  return <label className="dawaa-caption block space-y-2 text-sm font-bold"><span>{label}</span><input className="dawaa-input" type={type} value={value} min={type === 'number' ? '0' : undefined} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
 function CheckBox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/35 p-3 text-sm font-bold text-slate-200"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded" />{label}</label>;
+  return <label className="dawaa-card dawaa-card--soft flex items-center gap-2 p-3 text-sm font-bold shadow-none"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded" />{label}</label>;
 }
