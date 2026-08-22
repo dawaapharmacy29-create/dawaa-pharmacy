@@ -32,10 +32,8 @@ const CustomerQuickDetailsModal = lazy(() => import('@/components/customers/Cust
 const ALL_BRANCHES = 'كل الفروع';
 const PER_BRANCH_QUEUE_LIMIT = 25;
 const FETCH_BATCH = 1000;
-const MAX_FETCH_BATCHES = 20; // سقف أمان يمنع لوب لا نهائي لو حصل خلل غير متوقع في الترقيم
+const MAX_FETCH_BATCHES = 2;
 
-// تبويبات تنفيذ اليوم فقط. سجل المتابعات/الأداء/سجل التواصل بقوا في مساحات عمل
-// منفصلة (السجل والمتابعات / التقارير والإدارة) عشان محدش يتكرر ومحدش يزحم هنا.
 type WorkspaceTab = 'queue' | 'waiting' | 'review';
 type QuickAction = 'message_sent' | 'no_answer' | 'replied' | 'scheduled' | 'completed';
 type ReviewAction = 'approved' | 'returned_for_completion' | 'escalated';
@@ -216,8 +214,6 @@ export default function CustomerFollowupCockpitPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    // staff_accounts محمي بـ RLS (المدراء بس بيشوفوا كل الحسابات مباشرة) —
-    // بنستخدم دالة آمنة بدل القراءة المباشرة عشان الدليل يفضل كامل لأي حد.
     supabase.rpc('get_staff_accounts_directory', { p_roles: ['customer_service_manager', 'branches_manager', 'general_manager'] }).then(({ data, error }) => {
       if (cancelled) return;
       if (error) { console.error('[customer-followup-cockpit] staff directory failed', error); return; }
@@ -247,6 +243,7 @@ export default function CustomerFollowupCockpitPanel() {
             .select('id,customer_id,customer_name,name,customer_code,customer_phone,phone,branch,priority,status,followup_status,contact_status,response_status,followup_result,contact_result,followup_summary,followup_reason,request_details,notes,next_followup_date,created_at,contacted_at,first_attempt_at,last_attempt_at,attempt_count,needs_next_followup,needs_manager,total_spent,last_purchase_date,customer_metrics')
             .eq('is_hidden', false).is('completed_at', null).is('cancelled_at', null).is('archived_at', null)
             .or('is_duplicate.is.null,is_duplicate.eq.false').is('duplicate_of', null)
+            .order('next_followup_date', { ascending: true, nullsFirst: true })
             .order('created_at', { ascending: false }).range(start, start + FETCH_BATCH - 1);
           if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
           const { data, error } = await query;
@@ -258,15 +255,22 @@ export default function CustomerFollowupCockpitPanel() {
         return allRows;
       };
       const fetchAudit = async () => {
-        const since = new Date(); since.setDate(since.getDate() - 30);
-        let auditQuery = supabase.from('customer_followup_audit_log').select('id,followup_id,action,actor_name,created_at,branch,metadata').gte('created_at', since.toISOString()).order('created_at', { ascending: false }).limit(5000);
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        let auditQuery = supabase.from('customer_followup_audit_log')
+          .select('id,followup_id,action,actor_name,created_at,branch,metadata')
+          .eq('action', 'completed')
+          .gte('created_at', start.toISOString())
+          .lt('created_at', end.toISOString())
+          .order('created_at', { ascending: false })
+          .limit(500);
         if (branch !== ALL_BRANCHES) auditQuery = auditQuery.eq('branch', branch);
         const { data, error } = await auditQuery;
         if (error) throw error;
         return (data || []) as AuditEvent[];
       };
-      // allSettled بدل all: query السجل (آخر 30 يوم، مستخدم بس لمؤشر "مكتمل اليوم") لو فشل
-      // منفصل عن query الصفوف الأساسية — قائمة اليوم تفضل شغالة حتى لو السجل فشل مؤقتًا.
       const [rowsResult, auditResult] = await Promise.allSettled([fetchRows(), fetchAudit()]);
       if (rowsResult.status === 'fulfilled') {
         setRows(dedupeRows(rowsResult.value));
@@ -403,8 +407,6 @@ export default function CustomerFollowupCockpitPanel() {
     ['waiting', 'انتظار الرد', waitingRows.length, Clock3],
     ['review', 'مراجعة', reviewRows.length, ShieldCheck],
   ];
-  // توزيع الحالات المفتوحة اليوم — نفس الألوان المستخدمة في بطاقات الـKPI فوق، عشان
-  // العين تربط الشريط بالأرقام على طول من غير مكتبة رسم بياني تقيلة على أول شاشة تفتح.
   const openTotal = queue.length + waitingRows.length + reviewRows.length;
   const composition: Array<[string, number, string]> = [
     ['قائمة اليوم', queue.length, 'bg-cyan-400'],
@@ -446,23 +448,15 @@ export default function CustomerFollowupCockpitPanel() {
 
     {selected && !detailsOpen ? <div className="fixed inset-0 z-[100] flex justify-end bg-black/65" dir="rtl"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-[#091b2d] p-5">
       <div className="flex justify-between gap-3"><div><p className="text-xs font-black text-cyan-300">بطاقة التنفيذ · {assignedExecutor(selected.branch, directory)}</p><h3 className="text-2xl font-black text-white">{customerName(selected)}</h3><p className="text-sm text-slate-400">{selected.branch} · {selected.customer_code || 'بدون كود'}</p></div><button className="btn-secondary" onClick={() => setSelected(null)}><X size={18}/></button></div>
-
       <div className="mt-4 rounded-2xl border border-cyan-300/15 bg-cyan-400/[0.06] p-4"><div className="text-xs font-black text-cyan-300">1) تواصل مع العميل</div><div className="mt-3 grid gap-2 sm:grid-cols-3">{customerPhone(selected) ? <a className="btn-primary text-center" href={generateWhatsAppLink(customerPhone(selected), `أهلًا أ/ ${customerName(selected)}، مع حضرتك صيدليات دواء. حابين نطمن على حضرتك ونعرف هل في أي احتياج نقدر نساعد فيه؟`)} target="_blank" rel="noreferrer">فتح واتساب</a> : null}<button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('message_sent')}><Send size={16} className="inline ms-2"/> أرسلت رسالة</button><button className="btn-secondary" disabled={saving || !canExecute || isPendingReview(selected)} onClick={() => void executeAction('no_answer')}><PhoneOff size={16} className="inline ms-2"/> لم يرد</button></div></div>
-
       {!isPendingReview(selected) ? <>
         <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="text-xs font-black text-slate-300">2) اختر نتيجة التواصل</div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">{outcomeOptions.map((option) => <button key={option.id} type="button" onClick={() => chooseOutcome(option)} className={`rounded-xl border px-3 py-3 text-sm font-black transition ${outcome === option.id ? option.tone : 'border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.06]'}`}>{option.label}</button>)}</div>{outcome === 'purchased' ? <label className="mt-3 block text-sm font-black text-white">قيمة عملية الشراء<input type="number" min="0" step="0.01" className="input-dark mt-2 w-full" value={purchaseValue} onChange={(event) => setPurchaseValue(event.target.value)} placeholder="مثال: 650"/></label> : null}</div>
-
         <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="text-xs font-black text-slate-300">3) الموعد والتفاصيل</div><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm font-black text-white">وسيلة التواصل<select className="input-dark mt-2 w-full" value={contactChannel} onChange={(event) => setContactChannel(event.target.value)}><option>واتساب</option><option>اتصال هاتفي</option><option>رسالة SMS</option><option>زيارة داخل الفرع</option></select></label><label className="text-sm font-black text-white">المتابعة القادمة<input type="date" className="input-dark mt-2 w-full" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)}/></label></div><textarea className="input-dark mt-3 min-h-24 w-full" value={actionNote} onChange={(event) => setActionNote(event.target.value)} placeholder="ملخص النتيجة أو ملاحظة إضافية..."/></div>
-
         <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-400/[0.06] p-4"><div className="text-xs font-black text-emerald-200">4) احفظ النتيجة</div><div className="mt-3 grid gap-2 sm:grid-cols-3"><button className="btn-secondary" disabled={saving || !canExecute || actionNote.trim().length < 3} onClick={() => void executeAction('replied')}><MessageCircle size={16} className="inline ms-2"/> حفظ الرد والاستمرار</button><button className="btn-secondary" disabled={saving || !canExecute || !scheduledDate} onClick={() => void executeAction('scheduled')}>حفظ الموعد فقط</button><button className="btn-primary" disabled={saving || !canExecute || actionNote.trim().length < 3} onClick={() => void executeAction('completed')}><CheckCircle2 size={16} className="inline ms-2"/> إكمال وإرسال للمراجعة</button></div></div>
       </> : null}
-
       <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="text-xs font-black text-slate-400">سبب المتابعة</div><div className="mt-1 text-sm font-bold text-white">{selected.followup_reason || selected.request_details || selected.notes || 'غير مسجل'}</div><div className="mt-3 text-xs font-black text-slate-400">آخر نتيجة</div><div className="mt-1 text-sm font-bold text-white">{selected.followup_result || selected.contact_result || selected.followup_summary || 'لم تسجل نتيجة بعد'}</div></div>
-
       {historyOpen ? <div className="mt-3 space-y-2 rounded-2xl bg-black/20 p-4">{history.map((event) => <div key={event.id} className="rounded-xl border border-white/10 p-3"><div className="font-black text-cyan-100">{event.action}</div><div className="text-xs text-slate-400">{actorProfile(event.actor_name, directory).displayName} · {formatDateTime(event.created_at)}</div><div className="mt-2 text-sm text-white">{text(event.metadata?.notes) || text(event.metadata?.result) || 'بدون تفاصيل'}</div></div>)}</div> : null}
-
       {isPendingReview(selected) && ['reviewer', 'general_manager'].includes(currentProfile.role) ? <div className="mt-4 rounded-2xl border border-violet-400/20 bg-violet-400/10 p-4"><div className="font-black text-violet-100">قرار المراجعة</div><textarea className="input-dark mt-3 min-h-20 w-full" value={actionNote} onChange={(event) => setActionNote(event.target.value)} placeholder="سبب الإعادة أو التصعيد..."/><div className="mt-3 grid gap-2 sm:grid-cols-3"><button className="btn-primary" disabled={saving} onClick={() => void executeReviewAction('approved')}>اعتماد وإغلاق</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('returned_for_completion')}>إعادة للاستكمال</button><button className="btn-secondary" disabled={saving} onClick={() => void executeReviewAction('escalated')}>تصعيد للإدارة</button></div></div> : null}
-
       <button className="mt-4 w-full rounded-2xl border border-emerald-300/30 bg-emerald-400/10 p-3 font-black text-emerald-100" onClick={() => setDetailsOpen(true)}>فتح ملف العميل 360</button>
     </aside></div> : null}
 
