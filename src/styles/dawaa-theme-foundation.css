@@ -8,69 +8,81 @@
 
 :root,
 html[data-theme='dark'] {
-  --dawaa-theme-bg: #071522;
-  --dawaa-theme-bg-soft: #0b1d31;
-  --dawaa-theme-surface: #10243d;
-  --dawaa-theme-surface-2: #132d4d;
-  --dawaa-theme-surface-raised: #173554;
-  --dawaa-theme-soft: rgba(45, 212, 191, 0.12);
-  --dawaa-theme-border: rgba(148, 211, 226, 0.2);
-  --dawaa-theme-border-strong: rgba(45, 212, 191, 0.42);
-  --dawaa-theme-text: #eef8fb;
-  --dawaa-theme-heading: #ffffff;
-  --dawaa-theme-muted: #bad0df;
-  --dawaa-theme-primary: #2dd4bf;
-  --dawaa-theme-primary-strong: #14b8a6;
-  --dawaa-theme-primary-text: #05202f;
-  --dawaa-theme-input: #0b1d31;
-  --dawaa-theme-table-head: #0d2239;
-  --dawaa-theme-table-row: #10243d;
-  --dawaa-theme-table-hover: #143253;
-  --dawaa-theme-overlay: rgba(2, 8, 23, 0.72);
-  --dawaa-theme-focus: rgba(45, 212, 191, 0.28);
-  --dawaa-theme-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+  /*
+   * Dark v2 — graphite/navy first, Dawaa teal second.
+   * The previous palette put too much blue/teal into every surface and made cards,
+   * tables and navigation visually collapse into one layer. This hierarchy keeps
+   * the brand accent strong while giving the interface quieter professional depth.
+   */
+  --dawaa-theme-bg: #071117;
+  --dawaa-theme-bg-soft: #0a151d;
+  --dawaa-theme-surface: #0e1b25;
+  --dawaa-theme-surface-2: #12232f;
+  --dawaa-theme-surface-raised: #172b38;
+  --dawaa-theme-soft: rgba(34, 197, 181, 0.1);
+  --dawaa-theme-border: rgba(154, 184, 199, 0.15);
+  --dawaa-theme-border-strong: rgba(65, 205, 190, 0.34);
+  --dawaa-theme-text: #dce9ee;
+  --dawaa-theme-heading: #f7fbfc;
+  --dawaa-theme-muted: #8fa8b3;
+  --dawaa-theme-primary: #31c7b7;
+  --dawaa-theme-primary-strong: #1fa999;
+  --dawaa-theme-primary-text: #041a1d;
+  --dawaa-theme-input: #0b1820;
+  --dawaa-theme-table-head: #0b1922;
+  --dawaa-theme-table-row: #0e1b25;
+  --dawaa-theme-table-hover: #142a36;
+  --dawaa-theme-overlay: rgba(1, 7, 11, 0.78);
+  --dawaa-theme-focus: rgba(49, 199, 183, 0.26);
+  --dawaa-theme-shadow: 0 18px 46px rgba(0, 0, 0, 0.32);
+  --dawaa-theme-shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.2);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.035);
+  --dawaa-theme-divider: rgba(173, 199, 211, 0.1);
+  --dawaa-theme-sidebar: #0a161e;
+  --dawaa-theme-sidebar-active: #112c34;
+  --dawaa-theme-sidebar-hover: #10232d;
 
-  --dawaa-status-success-bg: rgba(16, 185, 129, 0.16);
-  --dawaa-status-success-text: #6ee7b7;
-  --dawaa-status-success-border: rgba(52, 211, 153, 0.35);
-  --dawaa-status-warning-bg: rgba(245, 158, 11, 0.16);
-  --dawaa-status-warning-text: #fbbf24;
-  --dawaa-status-warning-border: rgba(251, 191, 36, 0.35);
-  --dawaa-status-danger-bg: rgba(248, 113, 113, 0.16);
-  --dawaa-status-danger-text: #fca5a5;
-  --dawaa-status-danger-border: rgba(252, 165, 165, 0.35);
-  --dawaa-status-info-bg: rgba(96, 165, 250, 0.16);
-  --dawaa-status-info-text: #93c5fd;
-  --dawaa-status-info-border: rgba(147, 197, 253, 0.35);
+  --dawaa-status-success-bg: rgba(52, 211, 153, 0.11);
+  --dawaa-status-success-text: #7de2b8;
+  --dawaa-status-success-border: rgba(82, 210, 158, 0.25);
+  --dawaa-status-warning-bg: rgba(245, 183, 70, 0.11);
+  --dawaa-status-warning-text: #f1c66c;
+  --dawaa-status-warning-border: rgba(236, 181, 74, 0.26);
+  --dawaa-status-danger-bg: rgba(244, 105, 105, 0.11);
+  --dawaa-status-danger-text: #f2a0a0;
+  --dawaa-status-danger-border: rgba(239, 128, 128, 0.26);
+  --dawaa-status-info-bg: rgba(96, 165, 250, 0.11);
+  --dawaa-status-info-text: #9dc7ef;
+  --dawaa-status-info-border: rgba(124, 175, 226, 0.25);
 
-  /* shadcn/Tailwind semantic tokens: keep them aligned with Dawaa tokens. */
-  --background: 209 66% 8%;
-  --foreground: 194 62% 96%;
-  --card: 213 58% 15%;
-  --card-foreground: 194 62% 96%;
-  --popover: 213 58% 15%;
-  --popover-foreground: 194 62% 96%;
-  --primary: 172 66% 50%;
-  --primary-foreground: 201 81% 10%;
-  --secondary: 213 60% 19%;
-  --secondary-foreground: 194 62% 96%;
-  --muted: 212 63% 12%;
-  --muted-foreground: 204 37% 80%;
-  --accent: 213 60% 19%;
-  --accent-foreground: 194 62% 96%;
-  --destructive: 0 72% 51%;
+  /* shadcn/Tailwind semantic tokens aligned with the Dawaa dark hierarchy. */
+  --background: 204 53% 6%;
+  --foreground: 196 34% 90%;
+  --card: 203 45% 10%;
+  --card-foreground: 196 34% 90%;
+  --popover: 202 45% 11%;
+  --popover-foreground: 196 34% 90%;
+  --primary: 174 57% 49%;
+  --primary-foreground: 188 76% 7%;
+  --secondary: 202 45% 13%;
+  --secondary-foreground: 196 34% 90%;
+  --muted: 202 42% 9%;
+  --muted-foreground: 199 17% 63%;
+  --accent: 190 48% 14%;
+  --accent-foreground: 174 57% 70%;
+  --destructive: 0 62% 50%;
   --destructive-foreground: 0 0% 98%;
-  --border: 207 24% 31%;
-  --input: 212 63% 12%;
-  --ring: 172 66% 50%;
-  --sidebar-background: 213 58% 15%;
-  --sidebar-foreground: 194 62% 96%;
-  --sidebar-primary: 172 66% 50%;
-  --sidebar-primary-foreground: 201 81% 10%;
-  --sidebar-accent: 213 60% 19%;
-  --sidebar-accent-foreground: 194 62% 96%;
-  --sidebar-border: 207 24% 31%;
-  --sidebar-ring: 172 66% 50%;
+  --border: 199 18% 25%;
+  --input: 202 47% 8%;
+  --ring: 174 57% 49%;
+  --sidebar-background: 202 50% 8%;
+  --sidebar-foreground: 196 34% 90%;
+  --sidebar-primary: 174 57% 49%;
+  --sidebar-primary-foreground: 188 76% 7%;
+  --sidebar-accent: 190 48% 14%;
+  --sidebar-accent-foreground: 174 57% 70%;
+  --sidebar-border: 199 18% 23%;
+  --sidebar-ring: 174 57% 49%;
 }
 
 /*
@@ -100,6 +112,12 @@ html[data-theme='light'] {
   --dawaa-theme-overlay: rgba(16, 40, 50, 0.34);
   --dawaa-theme-focus: rgba(14, 159, 144, 0.2);
   --dawaa-theme-shadow: 0 10px 28px rgba(21, 55, 64, 0.08);
+  --dawaa-theme-shadow-soft: 0 5px 16px rgba(21, 55, 64, 0.06);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.76);
+  --dawaa-theme-divider: #e4ebed;
+  --dawaa-theme-sidebar: #ffffff;
+  --dawaa-theme-sidebar-active: #e8f6f4;
+  --dawaa-theme-sidebar-hover: #f2f7f7;
 
   --dawaa-status-success-bg: #e9f8f1;
   --dawaa-status-success-text: #087a55;
@@ -166,6 +184,12 @@ html[data-theme='pharmacy-green'] {
   --dawaa-theme-overlay: rgba(16, 45, 36, 0.34);
   --dawaa-theme-focus: rgba(7, 136, 95, 0.2);
   --dawaa-theme-shadow: 0 10px 28px rgba(16, 63, 47, 0.08);
+  --dawaa-theme-shadow-soft: 0 5px 16px rgba(16, 63, 47, 0.06);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.76);
+  --dawaa-theme-divider: #e0e9e3;
+  --dawaa-theme-sidebar: #ffffff;
+  --dawaa-theme-sidebar-active: #e6f3eb;
+  --dawaa-theme-sidebar-hover: #f0f6f2;
 
   --dawaa-status-success-bg: #e8f6ed;
   --dawaa-status-success-text: #087246;
@@ -210,20 +234,63 @@ html[data-theme='pharmacy-green'] {
 }
 
 /* Canonical semantic surfaces for new/refactored UI. */
-.dawaa-app-bg { background: var(--dawaa-theme-bg); color: var(--dawaa-theme-text); }
-.dawaa-surface { background: var(--dawaa-theme-surface); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); }
-.dawaa-surface-soft { background: var(--dawaa-theme-surface-2); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); }
-.dawaa-surface-raised { background: var(--dawaa-theme-surface-raised); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); box-shadow: var(--dawaa-theme-shadow); }
+.dawaa-app-bg {
+  background:
+    radial-gradient(circle at 88% -8%, color-mix(in srgb, var(--dawaa-theme-primary) 7%, transparent), transparent 28rem),
+    var(--dawaa-theme-bg);
+  color: var(--dawaa-theme-text);
+}
+.dawaa-surface {
+  background: var(--dawaa-theme-surface);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
+  box-shadow: inset 0 1px 0 var(--dawaa-theme-highlight);
+}
+.dawaa-surface-soft {
+  background: var(--dawaa-theme-surface-2);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
+}
+.dawaa-surface-raised {
+  background: var(--dawaa-theme-surface-raised);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
+  box-shadow: var(--dawaa-theme-shadow), inset 0 1px 0 var(--dawaa-theme-highlight);
+}
+.dawaa-surface-interactive {
+  background: var(--dawaa-theme-surface);
+  color: var(--dawaa-theme-text);
+  border-color: var(--dawaa-theme-border);
+  box-shadow: var(--dawaa-theme-shadow-soft), inset 0 1px 0 var(--dawaa-theme-highlight);
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.dawaa-surface-interactive:hover {
+  background: var(--dawaa-theme-surface-2);
+  border-color: var(--dawaa-theme-border-strong);
+  box-shadow: var(--dawaa-theme-shadow);
+}
 .dawaa-text { color: var(--dawaa-theme-text); }
 .dawaa-heading { color: var(--dawaa-theme-heading); }
 .dawaa-muted { color: var(--dawaa-theme-muted); }
 .dawaa-border { border-color: var(--dawaa-theme-border); }
+.dawaa-divider { border-color: var(--dawaa-theme-divider); }
 .dawaa-focus-ring:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--dawaa-theme-focus); }
 
 .dawaa-status-success { background: var(--dawaa-status-success-bg); color: var(--dawaa-status-success-text); border-color: var(--dawaa-status-success-border); }
 .dawaa-status-warning { background: var(--dawaa-status-warning-bg); color: var(--dawaa-status-warning-text); border-color: var(--dawaa-status-warning-border); }
 .dawaa-status-danger { background: var(--dawaa-status-danger-bg); color: var(--dawaa-status-danger-text); border-color: var(--dawaa-status-danger-border); }
 .dawaa-status-info { background: var(--dawaa-status-info-bg); color: var(--dawaa-status-info-text); border-color: var(--dawaa-status-info-border); }
+
+/* Navigation primitives use the same hierarchy in all three themes. */
+.dawaa-sidebar { background: var(--dawaa-theme-sidebar); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); }
+.dawaa-nav-item { color: var(--dawaa-theme-muted); border-color: transparent; }
+.dawaa-nav-item:hover { background: var(--dawaa-theme-sidebar-hover); color: var(--dawaa-theme-heading); }
+.dawaa-nav-item[aria-current='page'],
+.dawaa-nav-item.is-active {
+  background: var(--dawaa-theme-sidebar-active);
+  color: var(--dawaa-theme-heading);
+  border-color: var(--dawaa-theme-border-strong);
+}
 
 /* Modal/overlay consistency. */
 .modal-backdrop,
