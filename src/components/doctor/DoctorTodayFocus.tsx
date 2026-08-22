@@ -12,7 +12,6 @@ type SourceState = 'idle' | 'loading' | 'ready' | 'error';
 type FocusTone = 'success' | 'warning' | 'danger' | 'info';
 
 function text(value: unknown) { return String(value ?? '').trim(); }
-function num(value: unknown) { const parsed = Number(value ?? 0); return Number.isFinite(parsed) ? parsed : 0; }
 function normalizeName(value: unknown) {
   return text(value)
     .replace(/[أإآ]/g, 'ا')
@@ -86,31 +85,15 @@ export default function DoctorTodayFocus({
       if (!cancelled) setSources((prev) => ({ ...prev, [key]: state }));
     };
 
-    Promise.all([
-      supabase
-        .from('stagnant_medicines')
-        .select('*')
-        .order('nearest_expiry_date', { ascending: true })
-        .limit(250),
-      supabase
-        .from('incentive_medicines')
-        .select('*')
-        .eq('active', true)
-        .order('expiry_date', { ascending: true })
-        .limit(250),
-    ])
-      .then(([stagnantResult, incentiveResult]) => {
+    supabase
+      .rpc('get_doctor_today_requirements_v1', {
+        p_staff_id: staffId,
+        p_doctor_name: doctorName || null,
+      })
+      .then(({ data, error }) => {
         if (cancelled) return;
-        if (stagnantResult.error) throw stagnantResult.error;
-        if (incentiveResult.error) throw incentiveResult.error;
-        const stagnantRows = ((stagnantResult.data || []) as Row[])
-          .filter((row) => matchesDoctor(row, staffId, doctorName))
-          .filter((row) => num(row.remaining_quantity ?? row.quantity_available ?? row.total_quantity) > 0)
-          .map((row) => ({ ...row, requirement_source: 'stagnant' }));
-        const incentiveRows = ((incentiveResult.data || []) as Row[])
-          .filter((row) => matchesDoctor(row, staffId, doctorName))
-          .map((row) => ({ ...row, requirement_source: 'incentive' }));
-        setAssignments([...stagnantRows, ...incentiveRows]);
+        if (error) throw error;
+        setAssignments(Array.isArray(data) ? (data as Row[]) : []);
         settle('assignments', 'ready');
       })
       .catch((error) => {
