@@ -1,22 +1,14 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useEscapeKey } from '@/hooks/useEscapeKey';
-import {
-  Activity,
-  Database,
-  Search,
-  ExternalLink,
-  X,
-  AlertCircle,
-  CheckCircle2,
-  ChevronDown,
-} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, Database, ExternalLink, RefreshCw, Search, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { BRANCHES } from '@/lib/constants';
-import { formatDateTime, matchesOrderedSegments } from '@/lib/utils';
+import { formatDateTime } from '@/lib/utils';
 import { formatActivityDetails } from '@/lib/activityLog';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { useNavigate } from 'react-router-dom';
+import { useDebounce } from '@/hooks/useDebounce';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 
-interface ActivityLogEntry {
+type ActivityLogEntry = {
   id: string;
   user_id?: string | null;
   user_name?: string | null;
@@ -30,440 +22,219 @@ interface ActivityLogEntry {
   details?: string | Record<string, unknown> | null;
   branch?: string | null;
   branch_name?: string | null;
-  branch_id?: string | null;
   target_type?: string | null;
   target_id?: string | null;
   old_value?: Record<string, unknown> | null;
   new_value?: Record<string, unknown> | null;
   route_path?: string | null;
   created_at: string;
-}
-
-const ALL = 'الكل';
-
-const MODULE_BADGES: Record<string, string> = {
-  النظام: 'dawaa-badge dawaa-badge--info',
-  النقاط: 'dawaa-badge dawaa-badge--success',
-  العملاء: 'dawaa-badge dawaa-badge--info',
-  'خدمة العملاء': 'dawaa-badge dawaa-badge--info',
-  الفواتير: 'dawaa-badge dawaa-badge--warning',
-  التوصيل: 'dawaa-badge dawaa-badge--warning',
-  الفريق: 'dawaa-badge dawaa-badge--info',
-  'تقييم المحادثات': 'dawaa-badge dawaa-badge--info',
-  'تقييم الشيفتات': 'dawaa-badge dawaa-badge--warning',
-  'أدوية الحوافز': 'dawaa-badge dawaa-badge--success',
-  'الأدوية الرواكد': 'dawaa-badge dawaa-badge--danger',
-  'حسابات وصلاحيات الفريق': 'dawaa-badge dawaa-badge--info',
 };
 
-function moduleBadge(moduleName: string) {
-  return MODULE_BADGES[moduleName] || 'dawaa-badge dawaa-badge--info';
+type ActivityPage = {
+  rows: ActivityLogEntry[];
+  total: number;
+  today_count: number;
+  week_count: number;
+  unique_users: number;
+  source: string;
+};
+
+const ALL = 'الكل';
+const PAGE_SIZE = 100;
+
+function text(value: unknown, fallback = '') {
+  return value === undefined || value === null ? fallback : String(value);
 }
 
-function normalizeSearch(value: string) {
-  return value.replace(/\s+/g, ' ').trim();
+function branchOf(row: ActivityLogEntry) {
+  return text(row.branch_name || row.branch, 'غير محدد');
 }
 
-function safeString(value: unknown, fallback = '') {
-  if (value === undefined || value === null) return fallback;
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return fallback;
-    }
-  }
-  return String(value);
+function actionOf(row: ActivityLogEntry) {
+  return text(row.operation || row.action, 'عملية');
 }
 
-function logBranch(log: ActivityLogEntry) {
-  return safeString(log.branch_name || log.branch, 'غير محدد');
-}
-
-function isPermissionDenied(message?: string | null) {
-  const value = String(message || '').toLowerCase();
-  return value.includes('permission denied') || value.includes('row-level security');
-}
-
-function isMissingSource(message?: string | null) {
-  const value = String(message || '').toLowerCase();
-  return (
-    value.includes('does not exist') ||
-    value.includes('schema cache') ||
-    value.includes('could not find the table')
-  );
-}
-
-async function readActivitySource(table: 'activity_log' | 'activity_logs') {
-  return supabase.from(table).select('*').order('created_at', { ascending: false }).limit(500);
+function moduleOf(row: ActivityLogEntry) {
+  return text(row.module || row.entity_type, 'النظام');
 }
 
 export default function ActivityLog() {
   const navigate = useNavigate();
+  const requestIdRef = useRef(0);
   const [search, setSearch] = useState('');
-  const [branchFilter, setBranchFilter] = useState(ALL);
-  const [moduleFilter, setModuleFilter] = useState(ALL);
-  const [userFilter, setUserFilter] = useState(ALL);
-  const [actionFilter, setActionFilter] = useState(ALL);
+  const debouncedSearch = useDebounce(search, 300);
+  const [branch, setBranch] = useState(ALL);
+  const [moduleFilter, setModuleFilter] = useState('');
+  const [userFilter, setUserFilter] = useState('');
+  const [actionFilter, setActionFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
-  const [logs, setLogs] = useState<ActivityLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [sourceTable, setSourceTable] = useState<'activity_log' | 'activity_logs'>('activity_log');
-  const [sourceIssue, setSourceIssue] = useState<string | null>(null);
-  const [selectedLog, setSelectedLog] = useState<ActivityLogEntry | null>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const unavailableSourcesRef = useRef(new Set<string>());
-  const diagnosticsRef = useRef<{
-    primary: { status: 'success' | 'permission' | 'missing' | 'error'; message: string; timestamp: string };
-    secondary: { status: 'success' | 'permission' | 'missing' | 'error'; message: string; timestamp: string };
-  }>({
-    primary: { status: 'error', message: 'لم يتم الفحص بعد', timestamp: '' },
-    secondary: { status: 'error', message: 'لم يتم الفحص بعد', timestamp: '' },
+  const [page, setPage] = useState(0);
+  const [result, setResult] = useState<ActivityPage>({
+    rows: [], total: 0, today_count: 0, week_count: 0, unique_users: 0, source: 'activity_log',
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ActivityLogEntry | null>(null);
 
-  const loadLogs = useCallback(async () => {
-    if (!isSupabaseConfigured) {
-      setLogs([]);
-      setLoading(false);
-      return;
-    }
+  useEscapeKey(() => setSelected(null), Boolean(selected));
 
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    const requestId = ++requestIdRef.current;
     setLoading(true);
-    setSourceIssue(null);
-    let table: 'activity_log' | 'activity_logs' = 'activity_log';
-    const now = new Date().toISOString();
-
-    const primary = unavailableSourcesRef.current.has('activity_log')
-      ? { data: null, error: { message: 'source previously unavailable' } }
-      : await readActivitySource('activity_log');
-
-    if (!primary.error) {
-      diagnosticsRef.current.primary = {
-        status: 'success',
-        message: `تم قراءة ${(primary.data as any[])?.length || 0} سجل بنجاح`,
-        timestamp: now,
-      };
-
-      const primaryRows = (primary.data || []) as ActivityLogEntry[];
-      if (primaryRows.length > 0) {
-        setLogs(primaryRows);
-        table = 'activity_log';
-      } else {
-        const secondary = unavailableSourcesRef.current.has('activity_logs')
-          ? { data: null, error: { message: 'source previously unavailable' } }
-          : await readActivitySource('activity_logs');
-
-        if (!secondary.error && Array.isArray(secondary.data) && secondary.data.length > 0) {
-          setLogs(secondary.data as ActivityLogEntry[]);
-          table = 'activity_logs';
-          diagnosticsRef.current.secondary = {
-            status: 'success',
-            message: `الجدول الأساسي فارغ، وتم قراءة ${secondary.data.length} سجل من الجدول البديل`,
-            timestamp: now,
-          };
-          setSourceIssue('الجدول الأساسي activity_log فارغ حاليًا؛ تم العرض من activity_logs مؤقتًا.');
-        } else {
-          setLogs([]);
-          table = 'activity_log';
-          diagnosticsRef.current.secondary = secondary.error
-            ? {
-                status: isMissingSource(secondary.error.message)
-                  ? 'missing'
-                  : isPermissionDenied(secondary.error.message)
-                    ? 'permission'
-                    : 'error',
-                message: secondary.error.message,
-                timestamp: now,
-              }
-            : { status: 'success', message: 'الجدول البديل متاح لكنه فارغ أيضًا', timestamp: now };
-          setSourceIssue(
-            'لا توجد سجلات نشاط محفوظة في المصدر الحالي. تأكد أن عمليات التطبيق تستدعي logActivity وأن RLS يسمح بالقراءة.'
-          );
-        }
-      }
-    } else {
-      let primaryStatus: 'permission' | 'missing' | 'error' = 'error';
-      if (isPermissionDenied(primary.error.message)) {
-        primaryStatus = 'permission';
-        unavailableSourcesRef.current.add('activity_log');
-      } else if (isMissingSource(primary.error.message)) {
-        primaryStatus = 'missing';
-        unavailableSourcesRef.current.add('activity_log');
-      }
-      diagnosticsRef.current.primary = {
-        status: primaryStatus,
-        message: primary.error.message,
-        timestamp: now,
-      };
-
-      const secondary = unavailableSourcesRef.current.has('activity_logs')
-        ? { data: null, error: { message: 'source previously unavailable' } }
-        : await readActivitySource('activity_logs');
-
-      if (!secondary.error) {
-        setLogs((secondary.data || []) as ActivityLogEntry[]);
-        table = 'activity_logs';
-        diagnosticsRef.current.secondary = {
-          status: 'success',
-          message: `تم قراءة ${(secondary.data as any[])?.length || 0} سجل من الجدول البديل بنجاح`,
-          timestamp: now,
-        };
-        if (!secondary.data?.length) setSourceIssue('المصدر البديل متاح لكنه فارغ.');
-      } else {
-        let secondaryStatus: 'permission' | 'missing' | 'error' = 'error';
-        if (isPermissionDenied(secondary.error.message)) {
-          secondaryStatus = 'permission';
-          unavailableSourcesRef.current.add('activity_logs');
-        } else if (isMissingSource(secondary.error.message)) {
-          secondaryStatus = 'missing';
-          unavailableSourcesRef.current.add('activity_logs');
-        }
-        diagnosticsRef.current.secondary = {
-          status: secondaryStatus,
-          message: secondary.error.message,
-          timestamp: now,
-        };
-
-        setLogs([]);
-        if (
-          diagnosticsRef.current.primary.status === 'permission' ||
-          diagnosticsRef.current.secondary.status === 'permission'
-        ) {
-          setSourceIssue(
-            'لا توجد صلاحية قراءة سجل الأنشطة. راجع سياسات RLS في Supabase أو صلاحيات دورك الحالي.'
-          );
-        } else if (
-          diagnosticsRef.current.primary.status === 'missing' &&
-          diagnosticsRef.current.secondary.status === 'missing'
-        ) {
-          setSourceIssue(
-            'جدول سجل الأنشطة غير موجود: لم يتم إنشاء activity_log أو activity_logs في قاعدة البيانات.'
-          );
-        } else {
-          setSourceIssue('تعذر قراءة جداول سجل الأنشطة. تفاصيل التشخيص متاحة في لوحة المراقبة.');
-        }
-      }
+    setError(null);
+    try {
+      const { data, error: rpcError } = await supabase.rpc('get_activity_log_page_v1', {
+        p_search: debouncedSearch.trim() || null,
+        p_branch: branch === ALL ? null : branch,
+        p_module: moduleFilter.trim() || null,
+        p_user: userFilter.trim() || null,
+        p_action: actionFilter.trim() || null,
+        p_date_from: dateFrom || null,
+        p_offset: page * PAGE_SIZE,
+        p_limit: PAGE_SIZE,
+      });
+      if (requestId !== requestIdRef.current) return;
+      if (rpcError) throw rpcError;
+      const next = (data || {}) as ActivityPage;
+      setResult({
+        rows: Array.isArray(next.rows) ? next.rows : [],
+        total: Number(next.total || 0),
+        today_count: Number(next.today_count || 0),
+        week_count: Number(next.week_count || 0),
+        unique_users: Number(next.unique_users || 0),
+        source: String(next.source || 'activity_log'),
+      });
+    } catch (cause) {
+      if (requestId !== requestIdRef.current) return;
+      setResult((current) => ({ ...current, rows: [] }));
+      setError(cause instanceof Error ? cause.message : 'تعذر تحميل سجل الأنشطة.');
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-
-    setSourceTable(table);
-    setLoading(false);
-  }, []);
+  }, [actionFilter, branch, dateFrom, debouncedSearch, moduleFilter, page, userFilter]);
 
   useEffect(() => {
-    loadLogs();
-  }, [loadLogs]);
+    setPage(0);
+  }, [actionFilter, branch, dateFrom, debouncedSearch, moduleFilter, userFilter]);
 
-  const users = useMemo(
-    () => [
-      ALL,
-      ...new Set(logs.map((log) => safeString(log.user_name)).filter((value) => value !== '')),
-    ],
-    [logs]
-  );
+  useEffect(() => {
+    void load();
+    return () => { requestIdRef.current += 1; };
+  }, [load]);
 
-  const actions = useMemo(
-    () => [
-      ALL,
-      ...new Set(logs.map((log) => safeString(log.operation || log.action)).filter((value) => value !== '')),
-    ],
-    [logs]
-  );
-
-  const modules = useMemo(
-    () => [
-      ALL,
-      ...new Set(logs.map((log) => safeString(log.module || log.entity_type)).filter((value) => value !== '')),
-    ],
-    [logs]
-  );
-
-  const filtered = useMemo(() => {
-    const query = normalizeSearch(search);
-    const fromTime = dateFrom ? new Date(dateFrom).getTime() : 0;
-
-    return logs.filter((log) => {
-      const details = formatActivityDetails(log.details);
-      const operation = safeString(log.operation || log.action);
-      const module = safeString(log.module || log.entity_type);
-      const matchSearch =
-        !query ||
-        matchesOrderedSegments(safeString(log.user_name), query) ||
-        matchesOrderedSegments(safeString(log.user_role), query) ||
-        matchesOrderedSegments(operation, query) ||
-        matchesOrderedSegments(module, query) ||
-        matchesOrderedSegments(safeString(log.target_type), query) ||
-        matchesOrderedSegments(safeString(log.target_id), query) ||
-        matchesOrderedSegments(safeString(log.entity_type), query) ||
-        matchesOrderedSegments(safeString(log.entity_id), query) ||
-        matchesOrderedSegments(details, query);
-      const matchBranch = branchFilter === ALL || logBranch(log) === branchFilter;
-      const matchModule = moduleFilter === ALL || module === moduleFilter;
-      const matchUser = userFilter === ALL || safeString(log.user_name) === userFilter;
-      const matchAction = actionFilter === ALL || operation === actionFilter;
-      const matchDate = !fromTime || new Date(log.created_at).getTime() >= fromTime;
-      return matchSearch && matchBranch && matchModule && matchUser && matchAction && matchDate;
-    });
-  }, [logs, search, branchFilter, moduleFilter, userFilter, actionFilter, dateFrom]);
-
-  const today = new Date().toDateString();
-  useEscapeKey(() => setSelectedLog(null), Boolean(selectedLog));
+  const pageCount = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
+  const moduleSuggestions = useMemo(() => [...new Set(result.rows.map(moduleOf).filter(Boolean))], [result.rows]);
+  const userSuggestions = useMemo(() => [...new Set(result.rows.map((row) => text(row.user_name)).filter(Boolean))], [result.rows]);
+  const actionSuggestions = useMemo(() => [...new Set(result.rows.map(actionOf).filter(Boolean))], [result.rows]);
 
   if (!isSupabaseConfigured) {
     return <div className="dawaa-empty-state py-16 text-center">فعّل Supabase لمشاهدة سجل الأنشطة الحقيقي.</div>;
   }
-
-  const todayCount = filtered.filter((log) => new Date(log.created_at).toDateString() === today).length;
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const weekCount = filtered.filter((log) => new Date(log.created_at).getTime() >= weekAgo).length;
-  const uniqueUsers = new Set(filtered.map((log) => log.user_name || log.user_id).filter(Boolean)).size;
 
   return (
     <div className="space-y-5" dir="rtl">
       <div className="dawaa-card dawaa-card--soft">
         <div className="flex items-center gap-3 text-sm">
           <span className="dawaa-icon-tile h-10 w-10 shrink-0"><Database className="h-5 w-5" /></span>
-          <span className="dawaa-body">
-            هذا السجل يعرض العمليات المهمة داخل النظام: النقاط، التقييمات، المتابعات، الفواتير، والإجراءات الإدارية.
-            مصدر البيانات الحالي: <span className="dawaa-heading font-mono font-black">{sourceTable}</span>.
-          </span>
-        </div>
-      </div>
-
-      {sourceIssue ? (
-        <div className="dawaa-alert dawaa-alert--warning">
-          <div className="flex items-center gap-3 text-sm font-bold">
-            <AlertCircle className="h-5 w-5" />
-            {sourceIssue}
+          <div className="dawaa-body flex-1">
+            سجل موحّد من <span className="dawaa-heading font-mono font-black">activity_log</span> مع بحث وفلاتر Server-side على كامل التاريخ، بدون fallback للجدول القديم الفارغ.
           </div>
+          <button type="button" onClick={() => void load()} className="dawaa-button dawaa-button--secondary" disabled={loading}>
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
+          </button>
         </div>
-      ) : null}
+      </div>
 
-      <button
-        type="button"
-        onClick={() => setShowDiagnostics((value) => !value)}
-        className="dawaa-button dawaa-button--secondary w-full justify-between"
-      >
-        <span>لوحة التشخيص للمسؤولين</span>
-        <ChevronDown className={`h-4 w-4 transition ${showDiagnostics ? 'rotate-180' : ''}`} />
-      </button>
+      {error ? <div className="dawaa-alert dawaa-alert--danger text-sm font-bold">{error}</div> : null}
 
-      {showDiagnostics ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          {(['primary', 'secondary'] as const).map((key) => {
-            const successful = diagnosticsRef.current[key].status === 'success';
-            return (
-              <div key={key} className="dawaa-card dawaa-card--soft">
-                <div className="mb-2 flex items-center gap-2 text-sm font-black">
-                  {successful ? (
-                    <span className="dawaa-badge dawaa-badge--success"><CheckCircle2 className="h-4 w-4" /></span>
-                  ) : (
-                    <span className="dawaa-badge dawaa-badge--warning"><AlertCircle className="h-4 w-4" /></span>
-                  )}
-                  <span className="dawaa-heading">{key === 'primary' ? 'activity_log' : 'activity_logs'}</span>
-                </div>
-                <p className="dawaa-body text-xs leading-6">{diagnosticsRef.current[key].message}</p>
-                <p className="dawaa-caption mt-2 text-[11px]">{diagnosticsRef.current[key].timestamp}</p>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat label="مطابق للفلاتر" value={result.total} />
+        <Stat label="اليوم" value={result.today_count} />
+        <Stat label="آخر 7 أيام" value={result.week_count} />
+        <Stat label="مستخدمون مختلفون" value={result.unique_users} />
+      </section>
+
+      <section className="dawaa-card grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <label className="relative xl:col-span-2">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+          <input className="dawaa-input w-full pr-9" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث في المستخدم، العملية، الهدف أو التفاصيل..." />
+        </label>
+        <select className="dawaa-select" value={branch} onChange={(e) => setBranch(e.target.value)}>
+          <option value={ALL}>كل الفروع</option>
+          {BRANCHES.map((item) => <option key={item}>{item}</option>)}
+        </select>
+        <input list="activity-modules" className="dawaa-input" value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} placeholder="الموديول" />
+        <input list="activity-users" className="dawaa-input" value={userFilter} onChange={(e) => setUserFilter(e.target.value)} placeholder="المستخدم" />
+        <input list="activity-actions" className="dawaa-input" value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} placeholder="العملية" />
+        <datalist id="activity-modules">{moduleSuggestions.map((v) => <option key={v} value={v} />)}</datalist>
+        <datalist id="activity-users">{userSuggestions.map((v) => <option key={v} value={v} />)}</datalist>
+        <datalist id="activity-actions">{actionSuggestions.map((v) => <option key={v} value={v} />)}</datalist>
+        <input type="date" className="dawaa-input" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+      </section>
+
+      <section className="dawaa-card overflow-hidden p-0">
+        {loading && !result.rows.length ? (
+          <div className="py-16 text-center text-slate-400"><RefreshCw className="mx-auto mb-3 animate-spin" /> جاري التحميل...</div>
+        ) : !result.rows.length ? (
+          <div className="dawaa-empty-state py-16 text-center">لا توجد سجلات مطابقة للفلاتر الحالية.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--dawaa-theme-border)] text-right text-slate-500">
+                  {['الوقت','المستخدم','الموديول','العملية','الفرع','التفاصيل'].map((h) => <th key={h} className="p-3">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((row) => (
+                  <tr key={row.id} className="border-b border-[var(--dawaa-theme-border)]/60 hover:bg-white/5">
+                    <td className="whitespace-nowrap p-3 text-xs text-slate-400">{formatDateTime(row.created_at)}</td>
+                    <td className="p-3"><div className="font-bold">{row.user_name || 'النظام'}</div><div className="text-xs text-slate-500">{row.user_role || ''}</div></td>
+                    <td className="p-3"><span className="dawaa-badge dawaa-badge--info">{moduleOf(row)}</span></td>
+                    <td className="p-3 font-bold">{actionOf(row)}</td>
+                    <td className="p-3">{branchOf(row)}</td>
+                    <td className="p-3">
+                      <button type="button" onClick={() => setSelected(row)} className="dawaa-button dawaa-button--ghost text-xs">
+                        <Activity size={14} /> عرض
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs text-slate-500">صفحة {page + 1} من {pageCount} · {result.total.toLocaleString('ar-EG')} سجل</div>
+        <div className="flex gap-2">
+          <button type="button" className="dawaa-button dawaa-button--secondary" disabled={page <= 0 || loading} onClick={() => setPage((p) => Math.max(0, p - 1))}>السابق</button>
+          <button type="button" className="dawaa-button dawaa-button--secondary" disabled={page + 1 >= pageCount || loading} onClick={() => setPage((p) => p + 1)}>التالي</button>
+        </div>
+      </div>
+
+      {selected ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelected(null); }}>
+          <div className="dawaa-card max-h-[85vh] w-full max-w-3xl overflow-y-auto">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="dawaa-title text-lg">{actionOf(selected)}</div>
+                <div className="mt-1 text-xs text-slate-500">{formatDateTime(selected.created_at)} · {selected.user_name || 'النظام'}</div>
               </div>
-            );
-          })}
-        </div>
-      ) : null}
-
-      <div className="grid gap-3 md:grid-cols-4">
-        <Stat label="إجمالي السجلات" value={filtered.length} />
-        <Stat label="اليوم" value={todayCount} />
-        <Stat label="هذا الأسبوع" value={weekCount} />
-        <Stat label="مستخدمون" value={uniqueUsers} />
-      </div>
-
-      <div className="dawaa-card dawaa-card--soft grid gap-3 p-3 md:grid-cols-6">
-        <div className="relative md:col-span-2">
-          <Search className="dawaa-caption absolute right-3 top-3 h-4 w-4" />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="بحث في المستخدم أو العملية أو التفاصيل..."
-            className="dawaa-input pr-10"
-          />
-        </div>
-        <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)} className="dawaa-select">
-          {[ALL, ...BRANCHES, 'غير محدد'].map((item) => <option key={item}>{item}</option>)}
-        </select>
-        <select value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)} className="dawaa-select">
-          {modules.map((item) => <option key={item}>{item}</option>)}
-        </select>
-        <select value={actionFilter} onChange={(event) => setActionFilter(event.target.value)} className="dawaa-select">
-          {actions.map((item) => <option key={item}>{item}</option>)}
-        </select>
-        <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="dawaa-input" />
-        <button type="button" onClick={loadLogs} className="dawaa-button dawaa-button--secondary">تحديث</button>
-      </div>
-
-      {loading ? (
-        <div className="dawaa-empty-state py-16 text-center">جاري تحميل السجل...</div>
-      ) : filtered.length === 0 ? (
-        <div className="dawaa-empty-state py-20 text-center">
-          <Activity className="dawaa-caption mx-auto mb-4 h-10 w-10" />
-          لا توجد سجلات نشاط محفوظة في المصدر الحالي
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map((log) => {
-            const operation = safeString(log.operation || log.action, 'عملية');
-            const moduleName = safeString(log.module || log.entity_type, 'النظام');
-            const details = formatActivityDetails(log.details);
-            return (
-              <button
-                type="button"
-                key={log.id}
-                onClick={() => setSelectedLog(log)}
-                className="dawaa-card dawaa-card--interactive w-full p-4 text-right"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={moduleBadge(moduleName)}>{moduleName}</span>
-                    <span className="dawaa-heading text-sm font-black">{operation}</span>
-                  </div>
-                  <span className="dawaa-caption text-xs">{formatDateTime(log.created_at)}</span>
-                </div>
-                <div className="dawaa-caption mt-2 grid gap-2 text-xs md:grid-cols-3">
-                  <span>المستخدم: {safeString(log.user_name || log.user_id, '-')}</span>
-                  <span>الدور: {safeString(log.user_role, '-')}</span>
-                  <span>الفرع: {logBranch(log)}</span>
-                </div>
-                {details ? <p className="dawaa-body mt-3 line-clamp-2 text-sm">{details}</p> : null}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {selectedLog ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'color-mix(in srgb, var(--dawaa-theme-bg) 72%, transparent)' }}
-          onClick={() => setSelectedLog(null)}
-        >
-          <div
-            className="dawaa-card dawaa-card--raised max-h-[90vh] w-full max-w-3xl overflow-auto p-5"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="dawaa-title text-xl">تفاصيل النشاط</h2>
-              <button type="button" onClick={() => setSelectedLog(null)} className="dawaa-button dawaa-button--secondary">
-                <X className="h-4 w-4" />
-              </button>
+              <button type="button" onClick={() => setSelected(null)} className="dawaa-button dawaa-button--ghost"><X size={16} /></button>
             </div>
-            <pre className="dawaa-surface-soft whitespace-pre-wrap rounded-2xl p-4 text-xs leading-6">
-              {JSON.stringify(selectedLog, null, 2)}
-            </pre>
-            {selectedLog.route_path ? (
-              <button
-                type="button"
-                onClick={() => navigate(selectedLog.route_path || '/')}
-                className="dawaa-button dawaa-button--primary mt-4 flex items-center gap-2"
-              >
-                فتح الصفحة المرتبطة <ExternalLink className="h-4 w-4" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Detail label="الموديول" value={moduleOf(selected)} />
+              <Detail label="الفرع" value={branchOf(selected)} />
+              <Detail label="نوع الهدف" value={text(selected.target_type || selected.entity_type, '—')} />
+              <Detail label="معرف الهدف" value={text(selected.target_id || selected.entity_id, '—')} />
+            </div>
+            <div className="mt-4 rounded-2xl bg-black/10 p-4 text-sm leading-7 whitespace-pre-wrap">{formatActivityDetails(selected.details) || 'لا توجد تفاصيل إضافية.'}</div>
+            {selected.route_path?.startsWith('/') ? (
+              <button type="button" onClick={() => navigate(selected.route_path!)} className="dawaa-button dawaa-button--primary mt-4">
+                <ExternalLink size={15} /> فتح الصفحة المرتبطة
               </button>
             ) : null}
           </div>
@@ -474,10 +245,9 @@ export default function ActivityLog() {
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="dawaa-card">
-      <div className="dawaa-title text-2xl">{value}</div>
-      <div className="dawaa-caption mt-1 text-xs">{label}</div>
-    </div>
-  );
+  return <div className="stat-card"><div className="text-xs font-bold text-slate-500">{label}</div><div className="num mt-2 text-2xl font-black">{Number(value || 0).toLocaleString('ar-EG')}</div></div>;
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl border border-white/10 bg-white/5 p-3"><div className="text-xs text-slate-500">{label}</div><div className="mt-1 break-all text-sm font-bold">{value}</div></div>;
 }
