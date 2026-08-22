@@ -132,7 +132,9 @@
     <div id="root"></div>
     <script>
       (function () {
-        var RECOVERY_DELAY_MS = 8000;
+        // Recovery is a last-resort guard. Weak pharmacy networks and heavy dashboards can
+        // legitimately take several seconds, so normal slowness must not be treated as logout.
+        var RECOVERY_DELAY_MS = 20000;
         var shown = false;
 
         function recoveryUrl(path, reason) {
@@ -200,31 +202,38 @@
             '<main dir="rtl" style="min-height:100vh;background:var(--dawaa-theme-bg,#081014);color:var(--dawaa-theme-text,#d9e5e9);display:flex;align-items:center;justify-content:center;padding:20px;font-family:Cairo,Tajawal,system-ui,sans-serif">' +
               '<section style="width:100%;max-width:520px;background:var(--dawaa-theme-surface,#101b21);border:1px solid var(--dawaa-theme-border,rgba(160,181,190,.14));border-radius:18px;padding:24px;text-align:center;box-shadow:var(--dawaa-theme-shadow,0 18px 42px rgba(0,0,0,.3))">' +
                 '<div style="margin:0 auto 14px;width:54px;height:54px;border-radius:16px;background:var(--dawaa-theme-soft,rgba(37,188,169,.09));display:grid;place-items:center;font-size:28px;color:var(--dawaa-theme-primary,#25bca9)">!</div>' +
-                '<h1 style="margin:0;font-size:24px;font-weight:900;color:var(--dawaa-theme-heading,#f7fafb)">إصلاح تحميل التطبيق</h1>' +
-                '<p style="margin:12px 0 0;color:var(--dawaa-theme-muted,#91a4ad);line-height:1.8;font-size:14px">لم يكتمل تحميل التطبيق. استخدم تسجيل الدخول أو التشخيص مباشرة، وسيتم تنظيف ملفات التشغيل القديمة في الخلفية عند اختيار الإصلاح.</p>' +
+                '<h1 style="margin:0;font-size:24px;font-weight:900;color:var(--dawaa-theme-heading,#f7fafb)">تعذر إكمال تحميل التطبيق</h1>' +
+                '<p style="margin:12px 0 0;color:var(--dawaa-theme-muted,#91a4ad);line-height:1.8;font-size:14px">جلستك محفوظة. ابدأ بإعادة المحاولة أو إصلاح كاش التشغيل؛ التنظيف الكامل وتسجيل الدخول من جديد مطلوبان فقط إذا استمرت المشكلة.</p>' +
                 '<div style="display:grid;gap:10px;margin-top:22px">' +
-                  '<a href="' + loginUrl + '" style="background:var(--dawaa-theme-primary,#25bca9);color:var(--dawaa-theme-primary-text,#031b1d);text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">فتح تسجيل الدخول فقط</a>' +
-                  '<a id="dawaa-index-repair" href="' + cleanLoginUrl + '" style="background:var(--dawaa-theme-surface-2,#15242b);border:1px solid var(--dawaa-theme-border-strong,rgba(62,192,176,.34));color:var(--dawaa-theme-heading,#f7fafb);text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">إصلاح التحميل</a>' +
-                  '<a id="dawaa-index-clean" href="' + cleanLoginUrl + '" style="background:var(--dawaa-status-warning-bg,rgba(236,175,63,.09));border:1px solid var(--dawaa-status-warning-border,rgba(230,174,69,.23));color:var(--dawaa-status-warning-text,#e9c26f);text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">تنظيف كامل والدخول من جديد</a>' +
+                  '<a id="dawaa-index-retry" href="#" style="background:var(--dawaa-theme-primary,#25bca9);color:var(--dawaa-theme-primary-text,#031b1d);text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">إعادة المحاولة</a>' +
+                  '<a id="dawaa-index-repair" href="#" style="background:var(--dawaa-theme-surface-2,#15242b);border:1px solid var(--dawaa-theme-border-strong,rgba(62,192,176,.34));color:var(--dawaa-theme-heading,#f7fafb);text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">إصلاح كاش التشغيل بدون تسجيل خروج</a>' +
                   '<a href="' + diagnosticsUrl + '" style="border:1px solid var(--dawaa-theme-border,#334155);color:var(--dawaa-theme-text,#d9e5e9);text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">فتح التشخيص</a>' +
+                  '<a id="dawaa-index-clean" href="' + cleanLoginUrl + '" style="background:var(--dawaa-status-warning-bg,rgba(236,175,63,.09));border:1px solid var(--dawaa-status-warning-border,rgba(230,174,69,.23));color:var(--dawaa-status-warning-text,#e9c26f);text-decoration:none;border-radius:12px;padding:13px 16px;font-weight:900">تنظيف كامل وتسجيل الدخول من جديد</a>' +
+                  '<a href="' + loginUrl + '" style="color:var(--dawaa-theme-muted,#91a4ad);text-decoration:none;padding:8px 12px;font-weight:700;font-size:12px">فتح صفحة تسجيل الدخول فقط</a>' +
                 '</div>' +
               '</section>' +
             '</main>';
 
+          var retry = document.getElementById('dawaa-index-retry');
           var repair = document.getElementById('dawaa-index-repair');
           var clean = document.getElementById('dawaa-index-clean');
+          if (retry) {
+            retry.addEventListener('click', function (event) {
+              event.preventDefault();
+              window.location.reload();
+            });
+          }
           if (repair) {
-            repair.addEventListener('click', function () {
-              cleanupInBackground(true);
-              console.info('[Dawaa recovery] redirecting to login', cleanLoginUrl);
-              window.location.assign(cleanLoginUrl);
+            repair.addEventListener('click', function (event) {
+              event.preventDefault();
+              cleanupInBackground(false);
+              window.setTimeout(function () { window.location.reload(); }, 250);
             });
           }
           if (clean) {
             clean.addEventListener('click', function () {
               cleanupInBackground(true);
-              console.info('[Dawaa recovery] redirecting to login', cleanLoginUrl);
-              window.location.assign(cleanLoginUrl);
+              console.info('[Dawaa recovery] full cleanup requested', cleanLoginUrl);
             });
           }
         }
