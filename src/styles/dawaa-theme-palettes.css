@@ -1,0 +1,218 @@
+/*
+ * Dawaa Theme Palettes v3
+ * -----------------------
+ * Canonical color ownership lives here.
+ * This file contains palette values only; component styling belongs in
+ * daw aa-theme-components.css and legacy compatibility belongs in daw aa-theme.css.
+ */
+
+:root,
+html[data-theme='dark'] {
+  --dawaa-theme-bg: #081014;
+  --dawaa-theme-bg-soft: #0b151a;
+  --dawaa-theme-surface: #101b21;
+  --dawaa-theme-surface-2: #15242b;
+  --dawaa-theme-surface-raised: #1a2b33;
+  --dawaa-theme-soft: rgba(37, 188, 169, 0.09);
+  --dawaa-theme-border: rgba(160, 181, 190, 0.14);
+  --dawaa-theme-border-strong: rgba(62, 192, 176, 0.34);
+  --dawaa-theme-text: #d9e5e9;
+  --dawaa-theme-heading: #f7fafb;
+  --dawaa-theme-muted: #91a4ad;
+  --dawaa-theme-primary: #25bca9;
+  --dawaa-theme-primary-strong: #159b8c;
+  --dawaa-theme-primary-text: #031b1d;
+  --dawaa-theme-input: #0d181d;
+  --dawaa-theme-table-head: #0d181e;
+  --dawaa-theme-table-row: #101b21;
+  --dawaa-theme-table-hover: #162a31;
+  --dawaa-theme-overlay: rgba(2, 7, 10, 0.76);
+  --dawaa-theme-focus: rgba(37, 188, 169, 0.24);
+  --dawaa-theme-shadow: 0 18px 42px rgba(0, 0, 0, 0.3);
+  --dawaa-theme-shadow-soft: 0 7px 22px rgba(0, 0, 0, 0.18);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.03);
+  --dawaa-theme-divider: rgba(171, 194, 203, 0.09);
+  --dawaa-theme-sidebar: #0a151a;
+  --dawaa-theme-sidebar-active: #112b30;
+  --dawaa-theme-sidebar-hover: #102228;
+  --dawaa-theme-ambient: radial-gradient(circle at 88% -10%, rgba(37, 188, 169, 0.08), transparent 30rem);
+
+  --dawaa-status-success-bg: rgba(60, 203, 145, 0.09);
+  --dawaa-status-success-text: #82dcb8;
+  --dawaa-status-success-border: rgba(87, 202, 155, 0.22);
+  --dawaa-status-warning-bg: rgba(236, 175, 63, 0.09);
+  --dawaa-status-warning-text: #e9c26f;
+  --dawaa-status-warning-border: rgba(230, 174, 69, 0.23);
+  --dawaa-status-danger-bg: rgba(235, 100, 100, 0.09);
+  --dawaa-status-danger-text: #eba1a1;
+  --dawaa-status-danger-border: rgba(231, 116, 116, 0.23);
+  --dawaa-status-info-bg: rgba(91, 151, 218, 0.09);
+  --dawaa-status-info-text: #9fc2e7;
+  --dawaa-status-info-border: rgba(112, 164, 220, 0.22);
+
+  --background: 196 32% 5%;
+  --foreground: 195 25% 88%;
+  --card: 195 35% 10%;
+  --card-foreground: 195 25% 88%;
+  --popover: 195 34% 11%;
+  --popover-foreground: 195 25% 88%;
+  --primary: 173 67% 44%;
+  --primary-foreground: 184 79% 6%;
+  --secondary: 194 34% 13%;
+  --secondary-foreground: 195 25% 88%;
+  --muted: 194 30% 9%;
+  --muted-foreground: 197 13% 62%;
+  --accent: 187 39% 14%;
+  --accent-foreground: 173 57% 69%;
+  --destructive: 0 60% 49%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 194 15% 24%;
+  --input: 194 32% 8%;
+  --ring: 173 67% 44%;
+  --sidebar-background: 195 34% 7%;
+  --sidebar-foreground: 195 25% 88%;
+  --sidebar-primary: 173 67% 44%;
+  --sidebar-primary-foreground: 184 79% 6%;
+  --sidebar-accent: 187 39% 14%;
+  --sidebar-accent-foreground: 173 57% 69%;
+  --sidebar-border: 194 15% 22%;
+  --sidebar-ring: 173 67% 44%;
+}
+
+html[data-theme='light'] {
+  /* Neutral-first light palette: brand teal is an accent, not a page tint. */
+  --dawaa-theme-bg: #f5f7f8;
+  --dawaa-theme-bg-soft: #fafbfc;
+  --dawaa-theme-surface: #ffffff;
+  --dawaa-theme-surface-2: #f7f9fa;
+  --dawaa-theme-surface-raised: #ffffff;
+  --dawaa-theme-soft: #edf8f6;
+  --dawaa-theme-border: #dce3e7;
+  --dawaa-theme-border-strong: #b7d8d3;
+  --dawaa-theme-text: #2b3940;
+  --dawaa-theme-heading: #14242c;
+  --dawaa-theme-muted: #74828b;
+  --dawaa-theme-primary: #0d9488;
+  --dawaa-theme-primary-strong: #0a766d;
+  --dawaa-theme-primary-text: #ffffff;
+  --dawaa-theme-input: #ffffff;
+  --dawaa-theme-table-head: #f3f6f7;
+  --dawaa-theme-table-row: #ffffff;
+  --dawaa-theme-table-hover: #f2f7f6;
+  --dawaa-theme-overlay: rgba(20, 36, 44, 0.28);
+  --dawaa-theme-focus: rgba(13, 148, 136, 0.18);
+  --dawaa-theme-shadow: 0 12px 30px rgba(34, 55, 64, 0.08);
+  --dawaa-theme-shadow-soft: 0 4px 14px rgba(34, 55, 64, 0.055);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.82);
+  --dawaa-theme-divider: #e6ebee;
+  --dawaa-theme-sidebar: #fbfcfd;
+  --dawaa-theme-sidebar-active: #eaf6f3;
+  --dawaa-theme-sidebar-hover: #f2f5f6;
+  --dawaa-theme-ambient: none;
+
+  --dawaa-status-success-bg: #f1faf6;
+  --dawaa-status-success-text: #08734f;
+  --dawaa-status-success-border: #c7e7d8;
+  --dawaa-status-warning-bg: #fff9ed;
+  --dawaa-status-warning-text: #8b590b;
+  --dawaa-status-warning-border: #efdbad;
+  --dawaa-status-danger-bg: #fff4f4;
+  --dawaa-status-danger-text: #a93636;
+  --dawaa-status-danger-border: #eccaca;
+  --dawaa-status-info-bg: #f3f7fd;
+  --dawaa-status-info-text: #2c5f9a;
+  --dawaa-status-info-border: #ccdced;
+
+  --background: 200 16% 97%;
+  --foreground: 197 20% 21%;
+  --card: 0 0% 100%;
+  --card-foreground: 197 20% 21%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 197 20% 21%;
+  --primary: 174 84% 32%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 200 16% 97%;
+  --secondary-foreground: 197 20% 21%;
+  --muted: 200 15% 96%;
+  --muted-foreground: 198 9% 49%;
+  --accent: 168 35% 95%;
+  --accent-foreground: 174 82% 26%;
+  --destructive: 0 57% 47%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 198 14% 88%;
+  --input: 0 0% 100%;
+  --ring: 174 84% 32%;
+  --sidebar-background: 210 17% 99%;
+  --sidebar-foreground: 197 20% 21%;
+  --sidebar-primary: 174 84% 32%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 165 32% 94%;
+  --sidebar-accent-foreground: 174 82% 26%;
+  --sidebar-border: 198 14% 88%;
+  --sidebar-ring: 174 84% 32%;
+}
+
+html[data-theme='pharmacy-green'] {
+  --dawaa-theme-bg: #f4f7f4;
+  --dawaa-theme-bg-soft: #fafcf9;
+  --dawaa-theme-surface: #ffffff;
+  --dawaa-theme-surface-2: #f5f8f5;
+  --dawaa-theme-surface-raised: #ffffff;
+  --dawaa-theme-soft: #edf7f0;
+  --dawaa-theme-border: #dce5df;
+  --dawaa-theme-border-strong: #bad5c4;
+  --dawaa-theme-text: #2d4037;
+  --dawaa-theme-heading: #183027;
+  --dawaa-theme-muted: #718079;
+  --dawaa-theme-primary: #087b57;
+  --dawaa-theme-primary-strong: #066447;
+  --dawaa-theme-primary-text: #ffffff;
+  --dawaa-theme-input: #ffffff;
+  --dawaa-theme-table-head: #f1f5f2;
+  --dawaa-theme-table-row: #ffffff;
+  --dawaa-theme-table-hover: #f1f7f3;
+  --dawaa-theme-overlay: rgba(18, 43, 34, 0.28);
+  --dawaa-theme-focus: rgba(8, 123, 87, 0.18);
+  --dawaa-theme-shadow: 0 12px 30px rgba(31, 62, 48, 0.08);
+  --dawaa-theme-shadow-soft: 0 4px 14px rgba(31, 62, 48, 0.055);
+  --dawaa-theme-highlight: rgba(255, 255, 255, 0.82);
+  --dawaa-theme-divider: #e5ebe7;
+  --dawaa-theme-sidebar: #fbfcfb;
+  --dawaa-theme-sidebar-active: #eaf4ed;
+  --dawaa-theme-sidebar-hover: #f2f6f3;
+  --dawaa-theme-ambient: none;
+
+  --dawaa-status-success-bg: #eef8f1;
+  --dawaa-status-success-text: #087047;
+  --dawaa-status-success-border: #c6e2cf;
+  --dawaa-status-warning-bg: #fff9ed;
+  --dawaa-status-warning-text: #87570b;
+  --dawaa-status-warning-border: #efdbad;
+  --dawaa-status-danger-bg: #fff4f4;
+  --dawaa-status-danger-text: #a73535;
+  --dawaa-status-danger-border: #eccaca;
+  --dawaa-status-info-bg: #f2f6fa;
+  --dawaa-status-info-text: #37627f;
+  --dawaa-status-info-border: #cfdee8;
+}
+
+/* Palette-level runtime normalization. This intentionally defeats legacy page-wide
+   aqua/dark washes while leaving component-specific styling to semantic classes. */
+html[data-theme='light'] body,
+html[data-theme='light'] #root,
+html[data-theme='pharmacy-green'] body,
+html[data-theme='pharmacy-green'] #root {
+  background: var(--dawaa-theme-bg) !important;
+  background-image: none !important;
+}
+
+html[data-theme='dark'] body,
+html[data-theme='dark'] #root {
+  background-color: var(--dawaa-theme-bg) !important;
+  background-image: var(--dawaa-theme-ambient) !important;
+}
+
+html[data-theme] .dawaa-app-bg {
+  background-color: var(--dawaa-theme-bg) !important;
+  background-image: var(--dawaa-theme-ambient) !important;
+}
