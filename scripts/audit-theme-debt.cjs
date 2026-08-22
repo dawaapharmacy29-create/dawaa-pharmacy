@@ -11,13 +11,14 @@ const CLEAN_UI_FILES = new Set([
   'src/pages/OperationsCenter2027.tsx',
   'src/components/system/OperationalReadinessPanel.tsx',
   'src/components/evaluations/ManagerLiveIncentiveCard.tsx',
+  'src/components/dashboard/MonthlySalesChart.tsx',
 ]);
 
 const textExts = new Set(['.css', '.ts', '.tsx', '.js', '.jsx']);
 const paletteUtility = /\b(?:bg|text|border|ring|from|to|via)-(?:slate|gray|zinc|neutral|stone|white|black|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|red|orange|amber|yellow|lime|green|emerald)(?:-|\/|\b)/g;
 const hardcodedColor = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/g;
 const important = /!important/g;
-const semanticTokens = /var\(--dawaa-(?:theme|status|space|radius|font|control|duration|ease|z)-|\b(?:dawaa-app-bg|dawaa-page(?:-shell)?|dawaa-section|dawaa-surface(?:-soft|-raised|-interactive)?|dawaa-card(?:--soft|--raised|--interactive)?|dawaa-button(?:--primary|--secondary|--ghost)?|dawaa-input|dawaa-select|dawaa-textarea|dawaa-table(?:-shell|-semantic)?|dawaa-row--highlight|dawaa-badge(?:--success|--warning|--danger|--info)?|dawaa-alert(?:--success|--warning|--danger|--info)?|dawaa-icon-tile|dawaa-action-icon|dawaa-empty-state|dawaa-toolbar|dawaa-tabs?|dawaa-title|dawaa-body|dawaa-caption|dawaa-text|dawaa-heading|dawaa-muted|dawaa-border|dawaa-divider|dawaa-sidebar|dawaa-header|dawaa-nav-item)\b/g;
+const semanticTokens = /var\(--dawaa-(?:theme|status|chart|space|radius|font|control|duration|ease|z)-|\b(?:dawaa-app-bg|dawaa-page(?:-shell)?|dawaa-section|dawaa-surface(?:-soft|-raised|-interactive)?|dawaa-card(?:--soft|--raised|--interactive)?|dawaa-button(?:--primary|--secondary|--ghost)?|dawaa-input|dawaa-select|dawaa-textarea|dawaa-table(?:-shell|-semantic)?|dawaa-row--highlight|dawaa-badge(?:--success|--warning|--danger|--info)?|dawaa-alert(?:--success|--warning|--danger|--info)?|dawaa-icon-tile|dawaa-action-icon|dawaa-empty-state|dawaa-toolbar|dawaa-tabs?|dawaa-title|dawaa-body|dawaa-caption|dawaa-text|dawaa-heading|dawaa-muted|dawaa-border|dawaa-divider|dawaa-sidebar|dawaa-header|dawaa-nav-item)\b/g;
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
