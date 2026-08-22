@@ -11,6 +11,13 @@ const auditFile = 'scripts/audit-theme-debt.cjs';
 const paletteFamilies = ['slate','gray','zinc','neutral','stone','white','black','teal','cyan','sky','blue','indigo','violet','purple','fuchsia','pink','rose','red','orange','amber','yellow','lime','green','emerald'];
 const familyPattern = paletteFamilies.join('|');
 const utility = new RegExp(`\\b(bg|text|border|ring|from|to|via)-(${familyPattern})(?:-(\\d{2,3}))?(?:\\/(?:\\[[^\\]]+\\]|\\d{1,3}))?`, 'g');
+const whiteBracketBg = new RegExp('\\bbg-white\\/\\[[^\\]]+\\]', 'g');
+const arbitraryBg = new RegExp('\\bbg-\\[#[0-9a-fA-F]{3,8}\\](?:\\/\\d{1,3})?', 'g');
+const arbitraryText = new RegExp('\\btext-\\[#[0-9a-fA-F]{3,8}\\](?:\\/\\d{1,3})?', 'g');
+const arbitraryBorder = new RegExp('\\bborder-\\[#[0-9a-fA-F]{3,8}\\](?:\\/\\d{1,3})?', 'g');
+const arbitraryRing = new RegExp('\\bring-\\[#[0-9a-fA-F]{3,8}\\](?:\\/\\d{1,3})?', 'g');
+const arbitraryShadow = new RegExp('\\bshadow-\\[[^\\]]*(?:#[0-9a-fA-F]{3,8}|rgba?\\([^\\]]+\\))[^\\]]*\\]', 'g');
+const debtPattern = new RegExp(`\\b(?:bg|text|border|ring|from|to|via)-(?:${familyPattern})(?:-|\\/|\\b)|#[0-9a-fA-F]{3,8}\\b|rgba?\\([^)]*\\)|hsla?\\([^)]*\\)`, 'g');
 
 function map(kind, family, shadeRaw) {
   const shade = Number(shadeRaw || 0);
@@ -63,16 +70,14 @@ function map(kind, family, shadeRaw) {
 
 function migrate(source) {
   return source
-    .replace(/\\bbg-white\\/\\[[^\\]]+\\]/g, 'bg-[var(--dawaa-theme-surface-2)]')
-    .replace(/\\bbg-\\[#[0-9a-fA-F]{3,8}\\](?:\\/\\d{1,3})?/g, 'bg-[var(--dawaa-theme-surface-raised)]')
-    .replace(/\\btext-\\[#[0-9a-fA-F]{3,8}\\](?:\\/\\d{1,3})?/g, 'text-[var(--dawaa-theme-heading)]')
-    .replace(/\\bborder-\\[#[0-9a-fA-F]{3,8}\\](?:\\/\\d{1,3})?/g, 'border-[var(--dawaa-theme-border)]')
-    .replace(/\\bring-\\[#[0-9a-fA-F]{3,8}\\](?:\\/\\d{1,3})?/g, 'ring-[var(--dawaa-theme-focus)]')
-    .replace(/\\bshadow-\\[[^\\]]*(?:#[0-9a-fA-F]{3,8}|rgba?\\([^\\]]+\\))[^\\]]*\\]/g, 'shadow-[var(--dawaa-theme-shadow-soft)]')
+    .replace(whiteBracketBg, 'bg-[var(--dawaa-theme-surface-2)]')
+    .replace(arbitraryBg, 'bg-[var(--dawaa-theme-surface-raised)]')
+    .replace(arbitraryText, 'text-[var(--dawaa-theme-heading)]')
+    .replace(arbitraryBorder, 'border-[var(--dawaa-theme-border)]')
+    .replace(arbitraryRing, 'ring-[var(--dawaa-theme-focus)]')
+    .replace(arbitraryShadow, 'shadow-[var(--dawaa-theme-shadow-soft)]')
     .replace(utility, (_match, kind, family, shade) => map(kind, family, shade));
 }
-
-const debtPattern = /\\b(?:bg|text|border|ring|from|to|via)-(?:slate|gray|zinc|neutral|stone|white|black|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|red|orange|amber|yellow|lime|green|emerald)(?:-|\\/|\\b)|#[0-9a-fA-F]{3,8}\\b|rgba?\\([^)]*\\)|hsla?\\([^)]*\\)/g;
 
 for (const file of files) {
   const before = fs.readFileSync(file, 'utf8');
@@ -82,19 +87,19 @@ for (const file of files) {
     const samples = leftovers.slice(0, 12).map((match) => {
       const start = Math.max(0, (match.index || 0) - 80);
       const end = Math.min(after.length, (match.index || 0) + match[0].length + 80);
-      return after.slice(start, end).replace(/\\n/g, ' ');
+      return after.slice(start, end).replace(/\n/g, ' ');
     });
-    throw new Error(`${file} still has ${leftovers.length} theme-debt token(s):\\n${samples.join('\\n---\\n')}`);
+    throw new Error(`${file} still has ${leftovers.length} theme-debt token(s):\n${samples.join('\n---\n')}`);
   }
   fs.writeFileSync(file, after);
   console.log(`[customer-service-theme] migrated ${file}`);
 }
 
 let audit = fs.readFileSync(auditFile, 'utf8');
-const anchor = "const CLEAN_UI_FILES = new Set([\\n";
+const anchor = 'const CLEAN_UI_FILES = new Set([\n';
 if (!audit.includes(anchor)) throw new Error('theme audit clean-list anchor missing');
 for (const file of files) {
-  if (!audit.includes(`'${file}'`)) audit = audit.replace(anchor, `${anchor}  '${file}',\\n`);
+  if (!audit.includes(`'${file}'`)) audit = audit.replace(anchor, `${anchor}  '${file}',\n`);
 }
 fs.writeFileSync(auditFile, audit);
 console.log('Customer service core panels migration complete.');
