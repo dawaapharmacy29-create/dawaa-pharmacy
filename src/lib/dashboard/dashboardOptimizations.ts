@@ -2,8 +2,12 @@ import type { DashboardSalesTruth } from '@/lib/dashboard/dashboardTruthService'
 
 // Versioned after the 2026-08-21 sales-truth recovery so an old session can never
 // keep showing totals calculated with the previous exclusion/fallback rules.
-const DASHBOARD_CACHE_KEY = 'dawaa_dashboard_cache_v2_sales_truth_20260821';
-const DASHBOARD_CACHE_STALE_TIME = 3 * 60 * 1000;
+const DASHBOARD_CACHE_KEY = 'dawaa_dashboard_cache_v3_resilient_20260822';
+// The dashboard is operationally more useful with a slightly stale snapshot than with
+// a blank/crashed screen while Supabase or the pharmacy network is temporarily slow.
+// Fresh data is still requested by the page; this TTL only controls whether the last
+// known-good snapshot can be used as an immediate/fallback render.
+const DASHBOARD_CACHE_STALE_TIME = 15 * 60 * 1000;
 
 export type DashboardCacheEntry = {
   state: any;
@@ -11,6 +15,14 @@ export type DashboardCacheEntry = {
   branch: string;
   dateRange: { start: string; end: string };
 };
+
+function buildDashboardCacheKey(
+  branch: string,
+  dateRange: { start: string; end: string },
+  userRole?: string
+) {
+  return `${DASHBOARD_CACHE_KEY}__${branch}__${dateRange.start}__${dateRange.end}__${userRole || ''}`;
+}
 
 export function saveDashboardCache(
   state: any,
@@ -21,9 +33,9 @@ export function saveDashboardCache(
   if (typeof sessionStorage === 'undefined') return;
   try {
     const entry: DashboardCacheEntry = { state, timestamp: Date.now(), branch, dateRange };
-    const key = `${DASHBOARD_CACHE_KEY}__${branch}__${dateRange.start}__${dateRange.end}__${userRole || ''}`;
-    sessionStorage.setItem(key, JSON.stringify(entry));
+    sessionStorage.setItem(buildDashboardCacheKey(branch, dateRange, userRole), JSON.stringify(entry));
   } catch (error) {
+    // sessionStorage quota failures must never break the dashboard itself.
     console.debug('[Dashboard Cache] Failed to save cache:', error);
   }
 }
@@ -35,11 +47,15 @@ export function loadDashboardCache(
 ): any | null {
   if (typeof sessionStorage === 'undefined') return null;
   try {
-    const key = `${DASHBOARD_CACHE_KEY}__${branch}__${dateRange.start}__${dateRange.end}__${userRole || ''}`;
+    const key = buildDashboardCacheKey(branch, dateRange, userRole);
     const cached = sessionStorage.getItem(key);
     if (!cached) return null;
     const entry: DashboardCacheEntry = JSON.parse(cached);
-    if (Date.now() - entry.timestamp > DASHBOARD_CACHE_STALE_TIME) {
+    if (!entry?.state || !Number.isFinite(Number(entry.timestamp))) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    if (Date.now() - Number(entry.timestamp) > DASHBOARD_CACHE_STALE_TIME) {
       sessionStorage.removeItem(key);
       return null;
     }
