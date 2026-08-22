@@ -54,10 +54,10 @@ type NavItem<T extends string> = { id: T; title: string; icon: typeof Workflow }
 // الحالة الدلالية (Cyan=إجراء رئيسي فعّال، Amber=تنبيه، Red=خطر، Green=نجاح) عشان محدش
 // يفهم شارة تنقل عادية على إنها تحذير.
 const workspaceItems: Array<NavItem<Workspace> & { chip: string }> = [
-  { id: 'execution', title: 'التنفيذ اليومي', icon: Workflow, chip: 'bg-cyan-400/15 text-cyan-200' },
-  { id: 'customers', title: 'العملاء والأولويات', icon: Target, chip: 'bg-violet-400/15 text-violet-200' },
-  { id: 'log', title: 'السجل والمتابعات', icon: History, chip: 'bg-sky-400/15 text-sky-200' },
-  { id: 'reports', title: 'التقارير والإدارة', icon: BarChart3, chip: 'bg-indigo-400/15 text-indigo-200' },
+  { id: 'execution', title: 'التنفيذ اليومي', icon: Workflow, chip: 'bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]' },
+  { id: 'customers', title: 'العملاء والأولويات', icon: Target, chip: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]' },
+  { id: 'log', title: 'السجل والمتابعات', icon: History, chip: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]' },
+  { id: 'reports', title: 'التقارير والإدارة', icon: BarChart3, chip: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]' },
 ];
 
 const customersTabs: NavItem<CustomersTab>[] = [
@@ -101,7 +101,7 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function MissingBranchGuard() {
-  return <section className="mt-4 rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 text-center" dir="rtl"><AlertTriangle className="mx-auto text-amber-300" size={34}/><h2 className="mt-3 text-xl font-black text-white">لا يمكن فتح مساحة التشغيل بدون فرع محدد</h2><p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-amber-100/80">الحساب الحالي غير مربوط بفرع الشامي أو فرع شكري. تم إيقاف تحميل بيانات العملاء بدل فتح فرع افتراضي أو إظهار بيانات فرع آخر.</p></section>;
+  return <section className="mt-4 rounded-3xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-6 text-center" dir="rtl"><AlertTriangle className="mx-auto text-[var(--dawaa-status-warning-text)]" size={34}/><h2 className="mt-3 text-xl font-black text-[var(--dawaa-theme-heading)]">لا يمكن فتح مساحة التشغيل بدون فرع محدد</h2><p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-[var(--dawaa-status-warning-text)]">الحساب الحالي غير مربوط بفرع الشامي أو فرع شكري. تم إيقاف تحميل بيانات العملاء بدل فتح فرع افتراضي أو إظهار بيانات فرع آخر.</p></section>;
 }
 
 function TabRow<T extends string>({ items, value, onChange, label }: {
@@ -113,7 +113,7 @@ function TabRow<T extends string>({ items, value, onChange, label }: {
   return <nav className="flex flex-wrap gap-1.5" aria-label={label}>
     {items.map(({ id, title, icon: Icon }) => {
       const active = id === value;
-      return <button key={id} type="button" onClick={() => onChange(id)} className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-black transition ${active ? 'border-cyan-300/60 bg-cyan-400/15 text-cyan-100' : 'border-white/5 bg-white/[0.03] text-slate-300 hover:border-white/15 hover:bg-white/[0.06]'}`} aria-pressed={active}>
+      return <button key={id} type="button" onClick={() => onChange(id)} className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-black transition ${active ? 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-text)] hover:border-[var(--dawaa-theme-border)] hover:bg-[var(--dawaa-theme-surface-2)]'}`} aria-pressed={active}>
         <Icon size={13}/>{title}
       </button>;
     })}
@@ -198,26 +198,26 @@ export default function SmartCustomerService() {
   };
 
   return <div className="customer-service-page min-h-screen space-y-3" dir="rtl">
-    <section className="sticky top-0 z-40 rounded-2xl border border-cyan-300/15 bg-[#071827]/95 px-3 py-2.5 shadow-lg shadow-black/20 backdrop-blur-xl">
+    <section className="sticky top-0 z-40 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface-raised)] px-3 py-2.5 shadow-lg  backdrop-blur-xl">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-cyan-400/15 text-cyan-200"><HeadphonesIcon size={17}/></span>
-          <h1 className="text-lg font-black text-white">متابعة العملاء</h1>
-          <span className="rounded-full border border-cyan-300/15 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-black text-cyan-200">{normalizedUserBranch || (managerView ? 'كل الفروع' : 'غير محدد')}</span>
-          <span className="hidden items-center gap-1 text-[11px] font-bold text-slate-400 sm:flex"><Clock3 size={12}/> آخر تحديث {formatClock(lastUpdatedAt)}</span>
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]"><HeadphonesIcon size={17}/></span>
+          <h1 className="text-lg font-black text-[var(--dawaa-theme-heading)]">متابعة العملاء</h1>
+          <span className="rounded-full border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-2.5 py-1 text-[11px] font-black text-[var(--dawaa-theme-primary)]">{normalizedUserBranch || (managerView ? 'كل الفروع' : 'غير محدد')}</span>
+          <span className="hidden items-center gap-1 text-[11px] font-bold text-[var(--dawaa-theme-text)] sm:flex"><Clock3 size={12}/> آخر تحديث {formatClock(lastUpdatedAt)}</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <button type="button" onClick={refreshWorkspace} className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-black text-slate-200 hover:bg-white/10"><RefreshCw size={14}/> تحديث</button>
-          <button type="button" onClick={() => setQuickOpen(true)} className="flex items-center gap-1.5 rounded-xl border border-cyan-300/30 bg-cyan-400/15 px-3 py-1.5 text-xs font-black text-cyan-100 hover:bg-cyan-400/20"><Plus size={14}/> متابعة سريعة</button>
-          <button type="button" onClick={openExceptional} className="flex items-center gap-1.5 rounded-xl border-2 border-amber-200 bg-amber-500 px-3 py-1.5 text-xs font-black text-slate-950 hover:bg-amber-400"><Sparkles size={14}/> متابعة استثنائية</button>
+          <button type="button" onClick={refreshWorkspace} className="flex items-center gap-1.5 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-3 py-1.5 text-xs font-black text-[var(--dawaa-theme-text)] hover:bg-[var(--dawaa-theme-surface-2)]"><RefreshCw size={14}/> تحديث</button>
+          <button type="button" onClick={() => setQuickOpen(true)} className="flex items-center gap-1.5 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-3 py-1.5 text-xs font-black text-[var(--dawaa-theme-primary)] hover:bg-[var(--dawaa-theme-accent-soft)]"><Plus size={14}/> متابعة سريعة</button>
+          <button type="button" onClick={openExceptional} className="flex items-center gap-1.5 rounded-xl border-2 border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-1.5 text-xs font-black text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-status-warning-bg)]"><Sparkles size={14}/> متابعة استثنائية</button>
         </div>
       </div>
 
       <nav className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4" aria-label="مساحات العمل الرئيسية لخدمة العملاء">
         {workspaceItems.map(({ id, title, icon: Icon, chip }) => {
           const active = id === workspace;
-          return <button key={id} type="button" onClick={() => setWorkspace(id)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-black transition ${active ? 'border-cyan-300/70 bg-cyan-400/15 text-cyan-100 shadow-lg shadow-cyan-950/20' : 'border-white/10 bg-white/[0.035] text-slate-200 hover:border-cyan-300/25 hover:bg-white/[0.06]'}`} aria-pressed={active}>
-            <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${active ? 'bg-cyan-400/20 text-cyan-100' : chip}`}><Icon size={15}/></span>{title}
+          return <button key={id} type="button" onClick={() => setWorkspace(id)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-black transition ${active ? 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)] shadow-lg shadow-cyan-950/20' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-text)] hover:border-[var(--dawaa-theme-accent-border)] hover:bg-[var(--dawaa-theme-surface-2)]'}`} aria-pressed={active}>
+            <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${active ? 'bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]' : chip}`}><Icon size={15}/></span>{title}
           </button>;
         })}
       </nav>
