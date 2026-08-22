@@ -1,0 +1,184 @@
+/*
+ * Dawaa Theme Foundation
+ * ----------------------
+ * Canonical semantic token bridge for the whole application.
+ * This file MUST be loaded after legacy/polish styles and after daw-aa-theme.css.
+ * New UI should consume semantic variables/classes instead of hard-coded palette utilities.
+ */
+
+:root,
+html[data-theme='dark'] {
+  --dawaa-theme-bg: #071522;
+  --dawaa-theme-bg-soft: #0b1d31;
+  --dawaa-theme-surface: #10243d;
+  --dawaa-theme-surface-2: #132d4d;
+  --dawaa-theme-surface-raised: #173554;
+  --dawaa-theme-soft: rgba(45, 212, 191, 0.12);
+  --dawaa-theme-border: rgba(148, 211, 226, 0.2);
+  --dawaa-theme-border-strong: rgba(45, 212, 191, 0.42);
+  --dawaa-theme-text: #eef8fb;
+  --dawaa-theme-heading: #ffffff;
+  --dawaa-theme-muted: #bad0df;
+  --dawaa-theme-primary: #2dd4bf;
+  --dawaa-theme-primary-strong: #14b8a6;
+  --dawaa-theme-primary-text: #05202f;
+  --dawaa-theme-input: #0b1d31;
+  --dawaa-theme-table-head: #0d2239;
+  --dawaa-theme-table-row: #10243d;
+  --dawaa-theme-table-hover: #143253;
+  --dawaa-theme-overlay: rgba(2, 8, 23, 0.72);
+  --dawaa-theme-focus: rgba(45, 212, 191, 0.28);
+
+  /* shadcn/Tailwind semantic tokens: keep them aligned with Dawaa tokens. */
+  --background: 209 66% 8%;
+  --foreground: 194 62% 96%;
+  --card: 213 58% 15%;
+  --card-foreground: 194 62% 96%;
+  --popover: 213 58% 15%;
+  --popover-foreground: 194 62% 96%;
+  --primary: 172 66% 50%;
+  --primary-foreground: 201 81% 10%;
+  --secondary: 213 60% 19%;
+  --secondary-foreground: 194 62% 96%;
+  --muted: 212 63% 12%;
+  --muted-foreground: 204 37% 80%;
+  --accent: 213 60% 19%;
+  --accent-foreground: 194 62% 96%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 207 24% 31%;
+  --input: 212 63% 12%;
+  --ring: 172 66% 50%;
+  --sidebar-background: 213 58% 15%;
+  --sidebar-foreground: 194 62% 96%;
+  --sidebar-primary: 172 66% 50%;
+  --sidebar-primary-foreground: 201 81% 10%;
+  --sidebar-accent: 213 60% 19%;
+  --sidebar-accent-foreground: 194 62% 96%;
+  --sidebar-border: 207 24% 31%;
+  --sidebar-ring: 172 66% 50%;
+}
+
+html[data-theme='light'] {
+  --dawaa-theme-bg: #eefbf8;
+  --dawaa-theme-bg-soft: #f6fffd;
+  --dawaa-theme-surface: #ffffff;
+  --dawaa-theme-surface-2: #f5fbfa;
+  --dawaa-theme-surface-raised: #ffffff;
+  --dawaa-theme-soft: rgba(20, 184, 166, 0.1);
+  --dawaa-theme-border: rgba(13, 148, 136, 0.2);
+  --dawaa-theme-border-strong: rgba(13, 148, 136, 0.42);
+  --dawaa-theme-text: #0f2637;
+  --dawaa-theme-heading: #071522;
+  --dawaa-theme-muted: #52687a;
+  --dawaa-theme-primary: #0fbaaa;
+  --dawaa-theme-primary-strong: #0d9488;
+  --dawaa-theme-primary-text: #ffffff;
+  --dawaa-theme-input: #ffffff;
+  --dawaa-theme-table-head: #eaf4f3;
+  --dawaa-theme-table-row: #ffffff;
+  --dawaa-theme-table-hover: #e9fbf7;
+  --dawaa-theme-overlay: rgba(15, 38, 55, 0.38);
+  --dawaa-theme-focus: rgba(13, 148, 136, 0.2);
+
+  --background: 167 100% 98%;
+  --foreground: 206 57% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 206 57% 14%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 206 57% 14%;
+  --primary: 174 85% 39%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 168 35% 96%;
+  --secondary-foreground: 206 57% 14%;
+  --muted: 168 35% 96%;
+  --muted-foreground: 207 20% 40%;
+  --accent: 168 45% 94%;
+  --accent-foreground: 206 57% 14%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 174 24% 80%;
+  --input: 0 0% 100%;
+  --ring: 175 84% 32%;
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 206 57% 14%;
+  --sidebar-primary: 174 85% 39%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 168 35% 96%;
+  --sidebar-accent-foreground: 206 57% 14%;
+  --sidebar-border: 174 24% 80%;
+  --sidebar-ring: 175 84% 32%;
+}
+
+html[data-theme='pharmacy-green'] {
+  --dawaa-theme-bg: #edf9f3;
+  --dawaa-theme-bg-soft: #f7fcf9;
+  --dawaa-theme-surface: #ffffff;
+  --dawaa-theme-surface-2: #f0f8f4;
+  --dawaa-theme-surface-raised: #ffffff;
+  --dawaa-theme-soft: rgba(5, 150, 105, 0.1);
+  --dawaa-theme-border: rgba(5, 150, 105, 0.2);
+  --dawaa-theme-border-strong: rgba(5, 150, 105, 0.42);
+  --dawaa-theme-text: #15372c;
+  --dawaa-theme-heading: #08251d;
+  --dawaa-theme-muted: #55766b;
+  --dawaa-theme-primary: #059669;
+  --dawaa-theme-primary-strong: #047857;
+  --dawaa-theme-primary-text: #ffffff;
+  --dawaa-theme-input: #ffffff;
+  --dawaa-theme-table-head: #e4f3eb;
+  --dawaa-theme-table-row: #ffffff;
+  --dawaa-theme-table-hover: #eaf8f1;
+  --dawaa-theme-overlay: rgba(8, 37, 29, 0.36);
+  --dawaa-theme-focus: rgba(5, 150, 105, 0.2);
+
+  --background: 150 50% 95%;
+  --foreground: 158 45% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 158 45% 15%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 158 45% 15%;
+  --primary: 160 94% 30%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 150 32% 95%;
+  --secondary-foreground: 158 45% 15%;
+  --muted: 150 32% 95%;
+  --muted-foreground: 158 16% 40%;
+  --accent: 150 38% 92%;
+  --accent-foreground: 158 45% 15%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 158 24% 80%;
+  --input: 0 0% 100%;
+  --ring: 160 94% 30%;
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 158 45% 15%;
+  --sidebar-primary: 160 94% 30%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 150 32% 95%;
+  --sidebar-accent-foreground: 158 45% 15%;
+  --sidebar-border: 158 24% 80%;
+  --sidebar-ring: 160 94% 30%;
+}
+
+/* Canonical semantic surfaces for new/refactored UI. */
+.dawaa-app-bg { background: var(--dawaa-theme-bg); color: var(--dawaa-theme-text); }
+.dawaa-surface { background: var(--dawaa-theme-surface); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); }
+.dawaa-surface-soft { background: var(--dawaa-theme-surface-2); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); }
+.dawaa-surface-raised { background: var(--dawaa-theme-surface-raised); color: var(--dawaa-theme-text); border-color: var(--dawaa-theme-border); }
+.dawaa-text { color: var(--dawaa-theme-text); }
+.dawaa-heading { color: var(--dawaa-theme-heading); }
+.dawaa-muted { color: var(--dawaa-theme-muted); }
+.dawaa-border { border-color: var(--dawaa-theme-border); }
+.dawaa-focus-ring:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--dawaa-theme-focus); }
+
+/* Modal/overlay consistency. */
+.modal-backdrop,
+[data-dawaa-overlay='true'] {
+  background: var(--dawaa-theme-overlay) !important;
+}
+
+/* Prevent browser-native controls from mixing the opposite color scheme. */
+html[data-theme='dark'] { color-scheme: dark; }
+html[data-theme='light'],
+html[data-theme='pharmacy-green'] { color-scheme: light; }
