@@ -8,7 +8,7 @@ const CANONICAL_WRITER = path.normalize('src/contexts/ThemeContext.tsx');
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 const LEGACY_SHARED_CHROME_HEX_BASELINE = new Map([
   ['src/components/layout/Header.tsx', 0],
-  ['src/components/layout/Sidebar.tsx', 7],
+  ['src/components/layout/Sidebar.tsx', 0],
 ]);
 
 const writerPatterns = [
@@ -103,21 +103,17 @@ if (!fs.existsSync(palettesPath)) {
   }
 }
 
-// Canonical runtime must never activate the old document-wide light-mode engine again.
 const themeContextText = fs.readFileSync(path.join(SRC, 'contexts', 'ThemeContext.tsx'), 'utf8');
 if (/light\s*:\s*\[[^\]]*['"]light-mode['"]/.test(themeContextText)
   || /pharmacy-green['"]?\s*:\s*\[[^\]]*['"]light-mode['"]/.test(themeContextText)) {
   violations.push('src/contexts/ThemeContext.tsx: canonical theme map activates legacy light-mode');
 }
 
-// V3 remains a layout compatibility file only; it may not become a hidden theme writer again.
 const v3Text = fs.readFileSync(path.join(SRC, 'styles', 'v3-polish.css'), 'utf8');
 if (/\.light-mode|not\(\.light-mode\)|!important|#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(v3Text)) {
   violations.push('src/styles/v3-polish.css: retired V3 compatibility layer contains theme/color overrides');
 }
 
-// Shared chrome debt must only decrease. Header is already canonical; Sidebar has seven
-// historical arbitrary hex Tailwind classes scheduled for the next isolated migration.
 for (const [rel, baseline] of LEGACY_SHARED_CHROME_HEX_BASELINE) {
   const file = path.join(ROOT, rel);
   if (!fs.existsSync(file)) continue;
@@ -132,4 +128,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log('Theme architecture OK: canonical data-theme runtime, palette ownership, ordered semantic layers, retired V3 theme patches, and non-increasing chrome debt verified.');
+console.log('Theme architecture OK: canonical data-theme runtime, palette ownership, ordered semantic layers, retired V3 theme patches, and zero hard-coded chrome hex colors verified.');
