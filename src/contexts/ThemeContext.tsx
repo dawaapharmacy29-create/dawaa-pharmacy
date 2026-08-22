@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState } from 'react';
 
 export type AppTheme = 'light' | 'dark' | 'pharmacy-green';
 
@@ -52,7 +52,9 @@ function applyTheme(theme: AppTheme) {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<AppTheme>(() => getInitialTheme());
 
-  useEffect(() => applyTheme(theme), [theme]);
+  // Theme state affects the whole document. Apply it before browser paint to avoid
+  // dark/light flashes and split-frame legacy styles during bootstrap/navigation.
+  useLayoutEffect(() => applyTheme(theme), [theme]);
 
   const setTheme = useCallback((nextTheme: AppTheme) => {
     if (!isAllowedTheme(nextTheme)) return;
