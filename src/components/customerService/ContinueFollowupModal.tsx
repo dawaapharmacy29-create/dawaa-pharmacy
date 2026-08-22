@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { saveFollowupContinuation } from '@/lib/customerService/followupContinuationService';
 
 type Row = Record<string, any>;
 
@@ -58,10 +58,9 @@ export default function ContinueFollowupModal({ row, onClose, onSaved }: { row: 
     };
     setSaving(true);
     try {
-      const { data, error } = await supabase.from('daily_followups').update(payload).eq('id', row.id).select('*').single();
-      if (error) throw error;
+      const data = await saveFollowupContinuation(String(row.id || ''), payload);
       toast.success('تم استكمال المتابعة وتحديث نفس سجل العميل');
-      onSaved(data || { ...row, ...payload });
+      onSaved((data || { ...row, ...payload }) as Row);
       onClose();
     } catch (error) {
       console.error(error);
@@ -71,20 +70,20 @@ export default function ContinueFollowupModal({ row, onClose, onSaved }: { row: 
     }
   };
 
-  return <div className="fixed inset-0 z-[190] flex items-center justify-center bg-black/80 p-3" dir="rtl">
-    <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-emerald-300/25 bg-[#071827] p-5 shadow-2xl">
-      <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-white">استكمال متابعة {row.customer_name || row.name || 'العميل'}</h2><p className="mt-1 text-xs font-bold text-slate-400">يتم تحديث نفس المتابعة الحالية بدون إنشاء سجل مكرر.</p></div><button className="btn-secondary" onClick={onClose}><X size={18}/></button></div>
-      <div className="mt-4 grid gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-slate-200 md:grid-cols-2"><div>الكود: {row.customer_code || 'غير مسجل'}</div><div>الهاتف: {row.customer_phone || row.phone || 'غير مسجل'}</div><div>الفرع: {row.branch || 'غير محدد'}</div><div>الحالة السابقة: {row.followup_status || row.status || 'غير محددة'}</div></div>
+  return <div className="fixed inset-0 z-[190] flex items-center justify-center bg-[var(--dawaa-theme-overlay)] p-3" dir="rtl">
+    <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-5 shadow-[var(--dawaa-theme-shadow)]">
+      <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-[var(--dawaa-theme-heading)]">استكمال متابعة {row.customer_name || row.name || 'العميل'}</h2><p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">يتم تحديث نفس المتابعة الحالية بدون إنشاء سجل مكرر.</p></div><button className="dawaa-button dawaa-button--secondary" onClick={onClose}><X size={18}/></button></div>
+      <div className="mt-4 grid gap-2 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-4 text-sm font-bold text-[var(--dawaa-theme-text)] md:grid-cols-2"><div>الكود: {row.customer_code || 'غير مسجل'}</div><div>الهاتف: {row.customer_phone || row.phone || 'غير مسجل'}</div><div>الفرع: {row.branch || 'غير محدد'}</div><div>الحالة السابقة: {row.followup_status || row.status || 'غير محددة'}</div></div>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <select className="input-dark" value={contactMethod} onChange={(e)=>setContactMethod(e.target.value)}><option>واتساب</option><option>اتصال</option><option>رسالة</option><option>زيارة</option></select>
-        <select className="input-dark" value={result} onChange={(e)=>setResult(e.target.value)}><option>تم الرد والعميل راضي</option><option>تم الرد ولا يحتاج الآن</option><option>تم الشراء بعد المتابعة</option><option>تم تنفيذ الطلب والتأكد من العميل</option><option>تم حل الشكوى</option><option>لم يرد</option><option>طلب التواصل لاحقًا</option><option>يحتاج متابعة مدير</option></select>
-        <textarea className="input-dark md:col-span-2" rows={4} placeholder="ما تم مع العميل *" value={summary} onChange={(e)=>setSummary(e.target.value)} />
-        <textarea className="input-dark md:col-span-2" rows={3} placeholder="ملاحظات إضافية" value={notes} onChange={(e)=>setNotes(e.target.value)} />
-        <label className="flex items-center gap-2 rounded-xl border border-white/10 p-3 text-sm font-bold text-white"><input type="checkbox" checked={purchase} onChange={(e)=>setPurchase(e.target.checked)} /> تمت عملية شراء</label>
-        <input className="input-dark" type="number" min="0" placeholder="قيمة عملية الشراء" disabled={!purchase} value={amount} onChange={(e)=>setAmount(e.target.value)} />
-        <label className="text-xs font-bold text-slate-400">موعد المتابعة القادمة<input className="input-dark mt-1 w-full" type="datetime-local" value={nextDate} onChange={(e)=>setNextDate(e.target.value)} /></label>
+        <select className="dawaa-select" value={contactMethod} onChange={(e)=>setContactMethod(e.target.value)}><option>واتساب</option><option>اتصال</option><option>رسالة</option><option>زيارة</option></select>
+        <select className="dawaa-select" value={result} onChange={(e)=>setResult(e.target.value)}><option>تم الرد والعميل راضي</option><option>تم الرد ولا يحتاج الآن</option><option>تم الشراء بعد المتابعة</option><option>تم تنفيذ الطلب والتأكد من العميل</option><option>تم حل الشكوى</option><option>لم يرد</option><option>طلب التواصل لاحقًا</option><option>يحتاج متابعة مدير</option></select>
+        <textarea className="dawaa-textarea md:col-span-2" rows={4} placeholder="ما تم مع العميل *" value={summary} onChange={(e)=>setSummary(e.target.value)} />
+        <textarea className="dawaa-textarea md:col-span-2" rows={3} placeholder="ملاحظات إضافية" value={notes} onChange={(e)=>setNotes(e.target.value)} />
+        <label className="flex items-center gap-2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-sm font-bold text-[var(--dawaa-theme-heading)]"><input type="checkbox" checked={purchase} onChange={(e)=>setPurchase(e.target.checked)} /> تمت عملية شراء</label>
+        <input className="dawaa-input" type="number" min="0" placeholder="قيمة عملية الشراء" disabled={!purchase} value={amount} onChange={(e)=>setAmount(e.target.value)} />
+        <label className="text-xs font-bold text-[var(--dawaa-theme-muted)]">موعد المتابعة القادمة<input className="dawaa-input mt-1 w-full" type="datetime-local" value={nextDate} onChange={(e)=>setNextDate(e.target.value)} /></label>
       </div>
-      <div className="mt-5 flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>إلغاء</button><button className="btn-primary" disabled={saving} onClick={()=>void save()}>{saving ? 'جارٍ الحفظ...' : 'حفظ واستكمال المتابعة'}</button></div>
+      <div className="mt-5 flex justify-end gap-2"><button className="dawaa-button dawaa-button--secondary" onClick={onClose}>إلغاء</button><button className="dawaa-button dawaa-button--primary" disabled={saving} onClick={()=>void save()}>{saving ? 'جارٍ الحفظ...' : 'حفظ واستكمال المتابعة'}</button></div>
     </section>
   </div>;
 }
