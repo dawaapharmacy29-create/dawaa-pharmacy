@@ -130,6 +130,14 @@ replaceAllOrThrow(
       "      const [rowsResult, auditResult] = await Promise.allSettled([fetchRows(), fetchAudit()]);\n      if (loadRunId !== loadRunRef.current) return;\n      if (rowsResult.status === 'fulfilled') {",
     ],
     [
+      "        setRows(dedupeRows(rowsResult.value));\n      } else {\n        setLoadError(`تعذر تحميل قائمة المتابعات: ${(rowsResult.reason as Error)?.message || 'خطأ غير معروف'}`);\n        toast.error(`تعذر تحميل قائمة المتابعات: ${(rowsResult.reason as Error)?.message || 'خطأ غير معروف'}`);\n      }",
+      "        const nextRows = dedupeRows(rowsResult.value);\n        setRows(nextRows);\n        try { localStorage.setItem(`dawaa_followup_cockpit_v1:${branch}`, JSON.stringify({ at: Date.now(), rows: nextRows })); } catch {}\n      } else {\n        const baseMessage = `تعذر تحميل قائمة المتابعات: ${(rowsResult.reason as Error)?.message || 'خطأ غير معروف'}`;\n        let restored = false;\n        try {\n          const raw = localStorage.getItem(`dawaa_followup_cockpit_v1:${branch}`);\n          const cached = raw ? JSON.parse(raw) as { at?: number; rows?: FollowupRow[] } : null;\n          if (cached?.rows && Array.isArray(cached.rows) && Date.now() - Number(cached.at || 0) <= 15 * 60 * 1000) {\n            setRows(cached.rows);\n            restored = true;\n          }\n        } catch {}\n        setLoadError(restored ? `${baseMessage} — يتم عرض آخر نسخة سليمة محفوظة.` : baseMessage);\n        if (restored) toast.warning('تعذر التحديث اللحظي؛ يتم عرض آخر نسخة سليمة محفوظة.');\n        else toast.error(baseMessage);\n      }",
+    ],
+    [
+      "      if (auditResult.status === 'fulfilled') {\n        setEvents(auditResult.value);\n      } else {\n        console.error('[customer-followup-cockpit] audit log fetch failed', auditResult.reason);\n        setEvents([]);\n      }",
+      "      if (auditResult.status === 'fulfilled') {\n        setEvents(auditResult.value);\n        try { localStorage.setItem(`dawaa_followup_audit_v1:${branch}`, JSON.stringify({ at: Date.now(), events: auditResult.value })); } catch {}\n      } else {\n        console.error('[customer-followup-cockpit] audit log fetch failed', auditResult.reason);\n        try {\n          const raw = localStorage.getItem(`dawaa_followup_audit_v1:${branch}`);\n          const cached = raw ? JSON.parse(raw) as { at?: number; events?: AuditEvent[] } : null;\n          if (cached?.events && Array.isArray(cached.events) && Date.now() - Number(cached.at || 0) <= 15 * 60 * 1000) setEvents(cached.events);\n        } catch {}\n      }",
+    ],
+    [
       "      // allSettled بدل all: query السجل (آخر 30 يوم، مستخدم بس لمؤشر \"مكتمل اليوم\") لو فشل",
       "      // allSettled بدل all: سجل اليوم فقط مطلوب لمؤشر \"مكتمل اليوم\"؛ فشله لا يوقف قائمة التنفيذ.",
     ],
