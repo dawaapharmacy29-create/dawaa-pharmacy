@@ -2,21 +2,13 @@ import { supabase } from '@/lib/supabase';
 
 /**
  * Read boundary for seller identities found on transactional invoices but not yet linked to staff.
- * Keeps staff identity services independent from the sales_invoices schema.
+ * PostgreSQL owns the aggregation so callers receive unique names instead of raw invoice rows.
  */
 export async function readUnlinkedInvoiceSellerNames(): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('sales_invoices')
-    .select('seller_name')
-    .not('seller_name', 'is', null)
-    .is('staff_id', null);
-
+  const { data, error } = await supabase.rpc('get_unlinked_invoice_seller_names_v1');
   if (error) throw error;
 
-  const names = new Set<string>();
-  for (const row of data || []) {
-    const name = String(row.seller_name || '').trim();
-    if (name) names.add(name);
-  }
-  return [...names];
+  return (data || [])
+    .map((row: { seller_name?: string | null }) => String(row.seller_name || '').trim())
+    .filter(Boolean);
 }
