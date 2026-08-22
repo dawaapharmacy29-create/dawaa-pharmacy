@@ -3,7 +3,7 @@
  * -----------------------
  * Canonical color ownership lives here.
  * This file contains palette values only; component styling belongs in
- * daw aa-theme-components.css and legacy compatibility belongs in daw aa-theme.css.
+ * dawaa-theme-components.css and legacy compatibility belongs in dawaa-theme.css.
  */
 
 :root,
@@ -80,7 +80,6 @@ html[data-theme='dark'] {
 }
 
 html[data-theme='light'] {
-  /* Neutral-first light palette: brand teal is an accent, not a page tint. */
   --dawaa-theme-bg: #f5f7f8;
   --dawaa-theme-bg-soft: #fafbfc;
   --dawaa-theme-surface: #ffffff;
@@ -196,23 +195,21 @@ html[data-theme='pharmacy-green'] {
   --dawaa-status-info-border: #cfdee8;
 }
 
-/* Palette-level runtime normalization. This intentionally defeats legacy page-wide
-   aqua/dark washes while leaving component-specific styling to semantic classes. */
 html[data-theme='light'] body,
 html[data-theme='light'] #root,
 html[data-theme='pharmacy-green'] body,
 html[data-theme='pharmacy-green'] #root {
-  background: var(--dawaa-theme-bg) !important;
-  background-image: none !important;
+  background: var(--dawaa-theme-bg);
+  background-image: none;
 }
 
 html[data-theme='dark'] body,
 html[data-theme='dark'] #root {
-  background-color: var(--dawaa-theme-bg) !important;
-  background-image: var(--dawaa-theme-ambient) !important;
+  background-color: var(--dawaa-theme-bg);
+  background-image: var(--dawaa-theme-ambient);
 }
 
 html[data-theme] .dawaa-app-bg {
-  background-color: var(--dawaa-theme-bg) !important;
-  background-image: var(--dawaa-theme-ambient) !important;
+  background-color: var(--dawaa-theme-bg);
+  background-image: var(--dawaa-theme-ambient);
 }
