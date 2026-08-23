@@ -46,11 +46,17 @@ export default function ExpiryDiscounts() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    let query = supabase
       .from('expiry_discount_items')
       .select('id,medicine_name,branch,quantity,expiry_date,suggested_discount,status,notes,created_at,updated_at')
       .order('expiry_date', { ascending: true })
       .limit(500);
+
+    if (!allBranches && ownBranch) {
+      query = query.eq('branch', ownBranch);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       setRows([]);
@@ -59,7 +65,7 @@ export default function ExpiryDiscounts() {
       setRows((data || []) as Row[]);
     }
     setLoading(false);
-  }, []);
+  }, [allBranches, ownBranch]);
 
   useEffect(() => {
     void load();
