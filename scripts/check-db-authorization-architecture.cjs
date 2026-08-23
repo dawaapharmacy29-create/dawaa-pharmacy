@@ -21,7 +21,8 @@ const reviewCeilingPath = path.join(ROOT, 'supabase/migrations/20260823191800_al
 const managerReviewRlsPath = path.join(ROOT, 'supabase/migrations/20260823192200_harden_customer_service_manager_reviews_rls_v1.sql');
 const branchInspectionRlsPath = path.join(ROOT, 'supabase/migrations/20260823194000_harden_branch_inspection_authorization_v1.sql');
 const employeeTransactionRlsPath = path.join(ROOT, 'supabase/migrations/20260823195000_harden_employee_transactions_active_actor_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, employeeTransactionRlsPath]) {
+const pointsCeilingPath = path.join(ROOT, 'supabase/migrations/20260823200000_align_db_points_permission_ceiling_v1.sql');
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, employeeTransactionRlsPath, pointsCeilingPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
 }
 
@@ -96,10 +97,25 @@ if (fs.existsSync(employeeTransactionRlsPath)) {
   if (/drop\s+policy[^;]*(?:select|read)/i.test(source)) failures.push('First-stage employee transaction hardening must not change read policies yet.');
 }
 
+if (fs.existsSync(pointsCeilingPath)) {
+  const source = fs.readFileSync(pointsCeilingPath, 'utf8');
+  for (const permission of ['view_points', 'manage_points', 'approve_points', 'create_reward', 'create_deduction', 'edit_points_transaction', 'export_points_report']) {
+    if (!source.includes(permission)) failures.push(`DB points ceiling must define ${permission}.`);
+  }
+  for (const role of ['branch_manager', 'shift_supervisor_morning', 'shift_supervisor_evening', 'customer_service_manager', 'pharmacist']) {
+    if (!source.includes(role)) failures.push(`DB points ceiling must cover ${role}.`);
+  }
+  if (!/v_can_view_points\s*:=\s*true/.test(source) || !/v_can_create_reward\s*:=\s*true/.test(source) || !/v_can_approve_points\s*:=\s*true/.test(source)) {
+    failures.push('DB points ceiling must contain explicit role grants, not legacy key-existence rules.');
+  }
+  if (!source.includes("'admin'")) failures.push('DB permission ceilings must preserve the admin all-access role ceiling.');
+  if (/\bstaff_role\b/.test(source) || /\bis_active\b/.test(source)) failures.push('DB points ceiling must use canonical role and active/can_login only.');
+}
+
 if (failures.length) {
   console.error('\nDB authorization architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review role ceiling, branch inspection authorization, employee transaction active-actor writes and boolean permission truth remain centralized.');
+console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review/points role ceilings, branch inspection authorization, employee transaction active-actor writes and boolean permission truth remain centralized.');
