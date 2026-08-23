@@ -83,6 +83,32 @@
   border-color: var(--dawaa-status-info-border);
 }
 
+/* Soft semantic/status surfaces were authored with some legacy white labels. */
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-teal-500/10'], [class*='bg-teal-500/20'], [class*='bg-cyan-500/10'], [class*='bg-cyan-500/20']) .text-white {
+  color: var(--dawaa-theme-primary-strong);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-emerald-500/10'], [class*='bg-emerald-500/20'], [class*='bg-green-500/10'], [class*='bg-green-500/20']) .text-white {
+  color: var(--dawaa-status-success-text);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-amber-500/10'], [class*='bg-amber-500/20'], [class*='bg-yellow-500/10'], [class*='bg-yellow-500/20']) .text-white {
+  color: var(--dawaa-status-warning-text);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-red-500/10'], [class*='bg-red-500/20'], [class*='bg-rose-500/10'], [class*='bg-rose-500/20']) .text-white {
+  color: var(--dawaa-status-danger-text);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-blue-500/10'], [class*='bg-sky-500/10'], [class*='bg-indigo-500/10'], [class*='bg-violet-500/10']) .text-white {
+  color: var(--dawaa-status-info-text);
+}
+
 /* Legacy stat-card content was authored for dark cards. The stat-card primitive is
  * now semantic, so only its old light-on-dark descendants need a non-dark bridge. */
 :is(html[data-theme='light'], html[data-theme='pharmacy-green'])
@@ -122,6 +148,17 @@
 :is(html[data-theme='light'], html[data-theme='pharmacy-green'])
   [class*='from-teal-500/10'][class*='to-teal-600/5'] :is(.text-slate-300, .text-slate-400, .text-slate-500) {
   color: var(--dawaa-theme-muted);
+}
+
+/* Semantic surfaces can still contain large legacy dark-theme headings/values. */
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  [style*='--dawaa-theme-surface'] :is(h1, h2, h3, h4, h5, h6).text-white {
+  color: var(--dawaa-theme-heading);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  [style*='--dawaa-theme-surface'] :is(.text-xl, .text-2xl, .text-3xl, .text-4xl).font-black.text-white {
+  color: var(--dawaa-theme-heading);
 }
 
 /* Customer Service primary workspace choice must be unmistakable in dense screens. */
