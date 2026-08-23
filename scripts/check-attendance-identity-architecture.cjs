@@ -7,6 +7,10 @@ const migrationPath = path.join(
   ROOT,
   'supabase/migrations/20260823214500_canonicalize_staff_attendance_log_identity_v1.sql'
 );
+const backfillPath = path.join(
+  ROOT,
+  'supabase/migrations/20260823215500_backfill_staff_attendance_log_identity_v1.sql'
+);
 const failures = [];
 
 if (!fs.existsSync(migrationPath)) {
@@ -40,10 +44,34 @@ if (!fs.existsSync(migrationPath)) {
   }
 }
 
+if (!fs.existsSync(backfillPath)) {
+  failures.push('Missing deterministic attendance identity backfill migration.');
+} else {
+  const source = fs.readFileSync(backfillPath, 'utf8');
+  if (!source.includes('direct_account_matches')) {
+    failures.push('Attendance backfill must preserve direct account-id matching.');
+  }
+  if (!source.includes('unique_name_branch') || !source.includes('candidate_count=1')) {
+    failures.push('Attendance backfill must only use unique active name+branch candidates.');
+  }
+  if (!/sa\.active\s*=\s*true/i.test(source) || !/sa\.can_login\s*=\s*true/i.test(source)) {
+    failures.push('Attendance backfill candidates must be active and login-enabled accounts.');
+  }
+  if (!/coalesce\(u\.branch,''\)\s*=\s*coalesce\(l\.branch_name,''\)/i.test(source)) {
+    failures.push('Attendance name matching must also require the same branch.');
+  }
+  if (!/set\s+staff_id\s*=\s*r\.subject_id[\s\S]{0,120}created_by\s*=\s*r\.account_id/i.test(source)) {
+    failures.push('Attendance backfill must set canonical subject and account executor IDs together.');
+  }
+  if (/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(source)) {
+    failures.push('Attendance backfill must not hardcode generated account/staff UUIDs.');
+  }
+}
+
 if (failures.length) {
   console.error('\nAttendance identity architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[attendance-identity-architecture] PASS: new attendance logs are canonicalized at the database boundary and legacy rows remain audit-visible for explicit review.');
+console.log('[attendance-identity-architecture] PASS: new attendance logs are canonicalized at the database boundary and historical identities are backfilled only through deterministic direct or unique active name+branch matches.');
