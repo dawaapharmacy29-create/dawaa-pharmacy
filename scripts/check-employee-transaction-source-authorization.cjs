@@ -7,6 +7,7 @@ const migrationPath = path.join(ROOT, 'supabase/migrations/20260823201000_employ
 const readMigrationPath = path.join(ROOT, 'supabase/migrations/20260823202000_harden_employee_transactions_reads_active_actor_v1.sql');
 const tightenedSourcesPath = path.join(ROOT, 'supabase/migrations/20260823204000_tighten_employee_transaction_transitional_sources_v1.sql');
 const scopedReadPath = path.join(ROOT, 'supabase/migrations/20260823205000_scope_employee_transaction_reads_v1.sql');
+const finalSourcesPath = path.join(ROOT, 'supabase/migrations/20260823206000_remove_employee_transaction_transitional_sources_v1.sql');
 const failures = [];
 
 if (!fs.existsSync(migrationPath)) {
@@ -71,32 +72,6 @@ if (!fs.existsSync(readMigrationPath)) {
 
 if (!fs.existsSync(tightenedSourcesPath)) {
   failures.push('Missing tightened employee transaction transitional-source migration.');
-} else {
-  const source = fs.readFileSync(tightenedSourcesPath, 'utf8');
-  const remainingTransitional = [
-    'followup_activity_pillar',
-    'followup_expire_auto',
-    'invoice_quality_vs_branch_baseline',
-    'assistant_checklist_settlement',
-    'target_achievement_settlement',
-  ];
-  for (const item of remainingTransitional) {
-    if (!source.includes(`'${item}'`)) failures.push(`Tightened ledger migration must preserve active transitional source ${item}.`);
-  }
-
-  const removedSources = [
-    'delivery',
-    'delivery_deduction',
-    'delivery_evaluation',
-    'penalty_incentive',
-    'penalty_management',
-    'point_records_migration',
-  ];
-  for (const item of removedSources) {
-    if (source.includes(`'${item}'`)) failures.push(`Obsolete ledger source ${item} must not remain allowlisted.`);
-  }
-
-  if (!/return\s+false\s*;[\s\S]*end\s*;/i.test(source)) failures.push('Tightened ledger migration must keep unknown sources fail-closed.');
 }
 
 if (!fs.existsSync(scopedReadPath)) {
@@ -116,10 +91,39 @@ if (!fs.existsSync(scopedReadPath)) {
   if (/using\s*\(\s*true\s*\)/i.test(source)) failures.push('Scoped ledger read policy must not be unconditional true.');
 }
 
+if (!fs.existsSync(finalSourcesPath)) {
+  failures.push('Missing final employee transaction source-lockdown migration.');
+} else {
+  const source = fs.readFileSync(finalSourcesPath, 'utf8');
+  const classifiedSources = [
+    'conversation_evaluation','conversation_review','conversation_sales_reviews',
+    'branch_visit','shift_review','time_off','manual_admin','manual',
+    'stagnant_medicine_dispense','incentive_medicines',
+  ];
+  for (const item of classifiedSources) {
+    if (!source.includes(`'${item}'`)) failures.push(`Final ledger source lockdown must preserve classified source ${item}.`);
+  }
+
+  const forbiddenClientFallbacks = [
+    'delivery','delivery_deduction','delivery_evaluation',
+    'penalty_incentive','penalty_management','point_records_migration',
+    'followup_activity_pillar','followup_expire_auto',
+    'invoice_quality_vs_branch_baseline','assistant_checklist_settlement','target_achievement_settlement',
+  ];
+  for (const item of forbiddenClientFallbacks) {
+    if (source.includes(`'${item}'`)) failures.push(`Final ledger source lockdown must not allow client source ${item}.`);
+  }
+
+  if (!source.includes('SECURITY DEFINER') || !source.includes('BYPASSRLS')) {
+    failures.push('Final source-lockdown migration must document why automated settlements do not need client RLS exceptions.');
+  }
+  if (!/return\s+false\s*;[\s\S]*end\s*;/i.test(source)) failures.push('Final ledger source lockdown must fail closed.');
+}
+
 if (failures.length) {
   console.error('\nEmployee transaction source authorization check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[employee-transaction-source-authorization] PASS: ledger writes are source-authorized, obsolete transitional sources cannot return, unknown sources fail closed, and reads are permission/role/branch/staff scoped.');
+console.log('[employee-transaction-source-authorization] PASS: ledger writes have no transitional client fallback, unknown sources fail closed, and reads are permission/role/branch/staff scoped.');
