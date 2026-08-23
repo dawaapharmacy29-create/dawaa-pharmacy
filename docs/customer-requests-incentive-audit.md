@@ -1,58 +1,84 @@
-# Customer Requests Incentive Audit
+# Customer Requests Incentive Audit — Approved Policy
 
-## Scope
+## Verified architecture
 
-This audit verifies whether an authoritative numeric doctor-points policy already exists for Customer Requests before the refactor starts settling points automatically.
+- Canonical employee identity is `staff.id`.
+- `staff_incentive_tiers` is the current source of doctor tier assignment.
+- Current tier keys used by the system are `senior_doctor`, `mid_doctor`, and `assistant`.
+- `employee_transactions` is the canonical approved employee points ledger.
+- Customer Request points are performance points only; `amount` remains zero and cash settlement stays in the central incentive/payroll domain.
 
-## Verified findings
+## Approved Customer Request point schedule
 
-1. The employee performance architecture defines `employee_transactions` as the canonical approved points/money event ledger. New feature events must carry canonical `staff_id`, explicit source, stable source id, lifecycle status, and must keep money separate from performance points.
-2. Customer Requests already has a strong negative-policy signal in historical conversation-evaluation transactions: failure to register a promised/customer request is treated as a performance error (`unregistered_customer_request`). Historical point values vary because these records span older policies and recalculations; they are not a safe source for deriving a new positive award value.
-3. No authoritative positive numeric rule was found in the repository, prior Customer Requests PRs, or current production employee transactions for:
-   - registering a valid customer request;
-   - starting sourcing;
-   - fulfilling the requested product;
-   - contacting the customer;
-   - completing/delivering the request.
-4. Therefore the refactor must fail closed: an eligible request event may be attributed to the correct doctor, but it must not produce payable/final points until a versioned central policy explicitly provides the value.
+Policy: `customer_requests_doctor_points`
+Version: `2026-08-24-v1`
 
-## Canonical events
+| Doctor category | Current tier key | Valid request registration | Request achievement |
+|---|---|---:|---:|
+| First category | `senior_doctor` | 2 | 4 |
+| Second category | `mid_doctor` | 1 | 2 |
+| Third category | `assistant` | 0.5 | 1 |
 
-- `request_registered`
-- `request_sourcing_started`
-- `request_fulfilled`
+These are event points, not Egyptian-pound conversion rates. They must not be derived from `point_rate_egp`.
+
+## Canonical point events
+
+Only two Customer Request events award this policy:
+
+- `request_registered`: a valid request has been registered by the doctor.
+- `request_achieved`: the request first reaches a fulfilled state.
+
+A request is considered achieved when it first enters one of the states already used by the Customer Requests fulfillment KPI:
+
+- `available`
+- `arrived`
 - `customer_contacted`
-- `request_delivered`
+- `delivered`
+- `closed`
 
-## Eligibility gates
-
-No positive Customer Request event is settleable when any of the following is true:
-
-- customer is not linked by canonical customer id;
-- customer code is missing;
-- product name or canonical product code is missing;
-- registrar/doctor is not linked;
-- unresolved sync conflict exists;
-- the request is identified as duplicate/invalid.
+The achievement event is paid once only. `cancelled` and `not_available` do not qualify for achievement points.
 
 ## Attribution
 
-Registration credit belongs to the canonical registrar (`doctor_id`/`created_by` migrated to `staff.id`). Future sourcing/contact/delivery credit can be attributed independently to the canonical employee who performed that event; this avoids giving one doctor credit for work performed by another.
+Both registration and achievement points belong to the canonical doctor who owns the registered request. Attribution requires a real `staff.id`; name-only matching is not allowed for new settlements.
 
-## Settlement contract
+Migration compatibility may resolve `created_by` through `staff_accounts.staff_id`, but the resulting settlement still stores the canonical staff id.
 
-Customer Requests emits an auditable candidate containing:
+## Eligibility gates
 
-- request id;
-- event key;
-- canonical staff id;
-- policy key/version;
-- configured points or `null`;
-- eligibility/block reasons;
-- settlement-ready flag.
+No points are settled until the request has:
 
-`points = null` means the policy is not configured. It must never be converted to zero and must never be written as an approved employee transaction.
+- canonical customer id;
+- customer code;
+- product name;
+- product code;
+- canonical doctor/staff id;
+- a valid current tier in `staff_incentive_tiers`;
+- no unresolved sync conflict;
+- no duplicate/invalid marker.
 
-## Required decision before numeric rollout
+If product/customer/doctor identity is repaired after creation, settlement retries automatically and idempotently.
 
-A single versioned policy must explicitly define the positive points for each event. Until that policy is approved, the system records attribution/evidence only and does not invent numeric awards.
+## Anti-duplication contract
+
+The event ledger uses the unique identity:
+
+`request_id + event_key + staff_id + policy_version`
+
+The linked `employee_transactions` entry also has a unique source/source-id guard for Customer Request incentive events. Repeated status changes, migration reruns, or later identity repairs therefore cannot double-credit the same event.
+
+## Production implementation
+
+The production database now contains:
+
+- `customer_request_incentive_policy`
+- `customer_request_incentive_events`
+- idempotent registration/achievement settlement functions and trigger
+- retry settlement when canonical identity fields are repaired
+- `customer_request_doctor_points_summary_v1` for doctor/cycle reporting
+
+The policy is effective from 2026-08-24 00:00 Africa/Cairo. Requests before the effective policy are not silently back-awarded by this migration.
+
+## UI/read-model rule
+
+Pages do not recalculate these values independently. Doctor profiles, monthly performance views, and Customer Requests analytics should consume the canonical event/transaction projection so registration points, achievement points, and totals stay identical everywhere.
