@@ -75,10 +75,6 @@ patchFile('src/components/ui/chart.tsx', (source) =>
   source.replaceAll('@ts-expect-error', '@ts-ignore')
 );
 
-patchFile('src/hooks/useDataProcessor.ts', (source) =>
-  source.replace(/\blet requestIdRef\b/, 'const requestIdRef')
-);
-
 patchFile('src/lib/customers/loyaltyTiersService.ts', (source) =>
   source.replace(/while \(true\)/, 'for (;;)')
 );
