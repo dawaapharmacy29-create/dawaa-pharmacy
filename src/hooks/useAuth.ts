@@ -109,13 +109,16 @@ function capPermissionsToRole(role: unknown, extra?: unknown): Record<string, bo
   const roleKey = normalizeRole(safeText(role, 'assistant'));
   if (roleKey === 'general_manager') return Object.fromEntries(ALL_PERMISSION_KEYS.map((key) => [key, true]));
   const roleDefaults = getDefaultPermissionsForRole(roleKey);
+  const explicit = normalizePermissionInput(extra);
   const capped: Record<string, boolean> = { ...roleDefaults };
-  for (const [key, value] of Object.entries(normalizePermissionInput(extra))) {
+  for (const [key, value] of Object.entries(explicit)) {
     if (!(key in roleDefaults) && !EXPLICIT_OVERRIDABLE_PERMISSIONS.has(key)) continue;
     capped[key] = value === true;
   }
-  if (roleKey === 'pharmacist' || roleKey === 'shift_supervisor_morning' || roleKey === 'shift_supervisor_evening') {
-    for (const key of DOCTOR_WORKSPACE_PERMISSIONS) capped[key] = true;
+  if (roleKey === 'shift_supervisor_morning' || roleKey === 'shift_supervisor_evening') {
+    for (const key of DOCTOR_WORKSPACE_PERMISSIONS) {
+      if (!(key in explicit) || explicit[key] !== false) capped[key] = true;
+    }
   }
   return capped;
 }
