@@ -53,7 +53,7 @@ export default function OperationalReadinessPanel() {
       countRows('notifications', (q) => q.eq('is_read', false)),
       countRows('staff_assignments', (q) => q.not('status', 'in', '(completed,cancelled)')),
       countRows('employee_monthly_statements', (q) => q.in('status', ['draft','pending_review','manager_review'])),
-      countRows('offers', (q) => q.eq('active', true)),
+      countRows('offers', (q) => q.eq('status', 'active')),
     ]);
 
     setChecks([
