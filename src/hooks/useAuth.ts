@@ -109,13 +109,16 @@ function capPermissionsToRole(role: unknown, extra?: unknown): Record<string, bo
   const roleKey = normalizeRole(safeText(role, 'assistant'));
   if (roleKey === 'general_manager') return Object.fromEntries(ALL_PERMISSION_KEYS.map((key) => [key, true]));
   const roleDefaults = getDefaultPermissionsForRole(roleKey);
+  const explicit = normalizePermissionInput(extra);
   const capped: Record<string, boolean> = { ...roleDefaults };
-  for (const [key, value] of Object.entries(normalizePermissionInput(extra))) {
+  for (const [key, value] of Object.entries(explicit)) {
     if (!(key in roleDefaults) && !EXPLICIT_OVERRIDABLE_PERMISSIONS.has(key)) continue;
     capped[key] = value === true;
   }
-  if (roleKey === 'pharmacist' || roleKey === 'shift_supervisor_morning' || roleKey === 'shift_supervisor_evening' || roleKey === 'assistant') {
-    for (const key of DOCTOR_WORKSPACE_PERMISSIONS) capped[key] = true;
+  if (roleKey === 'shift_supervisor_morning' || roleKey === 'shift_supervisor_evening') {
+    for (const key of DOCTOR_WORKSPACE_PERMISSIONS) {
+      if (!(key in explicit) || explicit[key] !== false) capped[key] = true;
+    }
   }
   return capped;
 }
@@ -176,6 +179,24 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
+async function loadEffectivePermissions(accountId: string, role: unknown, fallback?: unknown): Promise<Record<string, boolean>> {
+  const roleKey = normalizeRole(safeText(role, 'assistant'));
+  let effectivePermissions = capPermissionsToRole(roleKey, fallback || {});
+  try {
+    const { data: permsData, error: permsError } = await withTimeout<SupabaseRpcResult<unknown>>(
+      supabase.rpc('get_user_permissions', { p_user_id: accountId }),
+      2500,
+      'get_user_permissions'
+    );
+    if (!permsError && permsData) {
+      effectivePermissions = capPermissionsToRole(roleKey, permsData as Record<string, boolean>);
+    }
+  } catch (error) {
+    if (import.meta.env.DEV) console.warn('[Dawaa auth] permission refresh skipped', error);
+  }
+  return effectivePermissions;
+}
+
 async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
   if (!isSupabaseConfigured) return sanitizeUser(user);
 
@@ -199,16 +220,18 @@ async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
       const resolvedName = isPlaceholderName(row.name)
         ? safeText(row.staff_name, safeText(row.username, user.name))
         : safeText(row.name);
+      const accountId = safeText(row.id, user.id);
+      const effectivePermissions = await loadEffectivePermissions(accountId, role, row.permissions || user.permissions || {});
       return sanitizeUser({
         ...user,
-        id: safeText(row.id, user.id),
+        id: accountId,
         staffId: safeText(row.staff_id, user.staffId),
         username: safeText(row.username, user.username),
         name: resolvedName,
         role,
         branch: safeText(row.branch, user.branch),
         active: row.active !== false,
-        permissions: capPermissionsToRole(role, user.permissions || {}),
+        permissions: effectivePermissions,
       } as User);
     } catch (error) {
       if (import.meta.env.DEV) console.warn('[Dawaa auth] account refresh skipped', error);
@@ -248,7 +271,6 @@ async function loginWithStaffAccount(username: string, password: string): Promis
       );
       if (result.error) {
         console.warn('[Dawaa auth] login failed reason', result.error.message || result.error);
-        // خطأ من السيرفر نفسه (مش تايم آوت شبكة) — مفيش داعي نعيد المحاولة، الرد واضح
         return { data: null, networkFailure: false };
       }
       return { data: result.data, networkFailure: false };
@@ -259,9 +281,6 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   };
 
   let outcome = await attemptLogin();
-  // لو فشلت بسبب انقطاع شبكة مؤقت (مش رفض من السيرفر)، نجرب مرة واحدة تانية
-  // بعد نص ثانية — الشبكات المتقطعة (زي واي فاي الصيدلية) بتحتاج فرصة تانية
-  // قبل ما نرجّع "فشل تسجيل الدخول" للمستخدم.
   if (outcome.networkFailure) {
     await new Promise((resolve) => window.setTimeout(resolve, 500));
     outcome = await attemptLogin();
@@ -272,7 +291,6 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   }
 
   const data = outcome.data;
-
   const row = Array.isArray(data) ? (data[0] as StaffAccountLoginRow | undefined) : (data as StaffAccountLoginRow | null);
   if (!row?.id || row.active === false || row.can_login === false) return null;
 
@@ -283,17 +301,7 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   ).catch(() => {});
 
   const roleKey = normalizeRole(safeText(row.role, 'assistant'));
-  let effectivePermissions = capPermissionsToRole(roleKey, row.permissions || {});
-  try {
-    const { data: permsData, error: permsError } = await withTimeout<SupabaseRpcResult<unknown>>(
-      supabase.rpc('get_user_permissions', { p_user_id: row.id }),
-      2500,
-      'get_user_permissions'
-    );
-    if (!permsError && permsData) effectivePermissions = capPermissionsToRole(roleKey, permsData as Record<string, boolean>);
-  } catch (error) {
-    if (import.meta.env.DEV) console.warn('[Dawaa auth] permission refresh skipped', error);
-  }
+  const effectivePermissions = await loadEffectivePermissions(safeText(row.id), roleKey, row.permissions || {});
 
   const resolvedName = isPlaceholderName(row.name)
     ? safeText(row.staff_name, safeText(row.username, 'حساب موظف'))
@@ -337,7 +345,8 @@ export function useAuth() {
           freshUser.id !== currentUser?.id ||
           freshUser.role !== currentUser?.role ||
           freshUser.branch !== currentUser?.branch ||
-          freshUser.name !== currentUser?.name
+          freshUser.name !== currentUser?.name ||
+          JSON.stringify(freshUser.permissions || {}) !== JSON.stringify(currentUser?.permissions || {})
         ) {
           setCurrentUser(freshUser);
         }
