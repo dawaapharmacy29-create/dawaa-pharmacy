@@ -67,6 +67,11 @@ function findSalesMetric(metrics: Row[], doctor: Row) {
   );
 }
 
+function isQuarterlyDoctor(row: Row) {
+  const role = String(row.role || '').trim().toLowerCase();
+  return role === 'صيدلاني' || role === 'صيدلي' || role === 'pharmacist';
+}
+
 export async function loadQuarterlyIncentiveSummary(
   date = new Date()
 ): Promise<QuarterlyIncentiveSummary> {
@@ -114,12 +119,7 @@ export async function loadQuarterlyIncentiveSummary(
   const stagnantDispenses = (stagnantRes.data || []) as Row[];
   const transactions = (txRes.data || []) as Row[];
 
-  const staffDoctors = staff.filter(
-    (s) =>
-      /صيدلي|صيدلاني|دكتور|doctor|pharmacist/i.test(String(s.role || '')) ||
-      String(s.name || '').includes('د')
-  );
-  const doctors = staffDoctors.length ? staffDoctors : staff;
+  const doctors = staff.filter(isQuarterlyDoctor);
 
   const rawRows = doctors
     .map((doctor) => {
