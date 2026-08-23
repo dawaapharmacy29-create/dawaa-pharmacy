@@ -13,9 +13,17 @@ import { LOGO_URL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
 import { isDoctorRole } from '@/lib/security/userDataScope';
-import { normalizeRole } from '@/lib/core/permissionSystem';
+import { getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 
-type NavItem = { path: string; icon: ElementType; label: string; permission?: string | string[]; adminOnly?: boolean; excludeRoles?: string[] };
+type NavItem = {
+  path: string;
+  icon: ElementType;
+  label: string;
+  permission?: string | string[];
+  adminOnly?: boolean;
+  excludeRoles?: string[];
+  allowedRoles?: string[];
+};
 type NavGroup = { title: string; icon: ElementType; items: NavItem[] };
 
 const ENABLE_INTERNAL_DELIVERY_MODULE = false;
@@ -24,7 +32,6 @@ const SHIFT_NOTES_ITEM: NavItem = { path: '/shift-notes', icon: ClipboardList, l
 const GROUPS: NavGroup[] = [
   { title: 'لوحة القيادة', icon: Crown, items: [
     { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة 2027', permission: 'view_dashboard' },
-    { path: '/executive-2027', icon: Crown, label: 'الداشبورد التنفيذي', permission: ['view_executive_dashboard','view_branch_dashboard'] },
     { path: '/branch-inspection', icon: ClipboardList, label: 'مرور مدير الفروع', permission: 'view_branch_inspection' },
     { path: '/operations-center', icon: BellRing, label: 'المهام والتنبيهات', permission: 'view_operations' },
     { path: '/data-health', icon: ShieldCheck, label: 'صحة البيانات', permission: 'view_data_health' },
@@ -44,8 +51,7 @@ const GROUPS: NavGroup[] = [
   ]},
   { title: 'العملاء وخدمة العملاء', icon: HeadphonesIcon, items: [
     { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة العملاء', permission: 'view_customer_service' },
-    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهامي اليومية' },
-    { path: '/my-daily-checklist', icon: ClipboardCheck, label: 'التشيك ليست اليومي (نظافة ومساعدين)' },
+    { path: '/my-daily-checklist', icon: ClipboardCheck, label: 'التشيك ليست اليومي', allowedRoles: ['assistant', 'cleaning_supervisor'] },
     { path: '/customer-coding', icon: UserPlus, label: 'تكويد العملاء', permission: 'view_customer_service' },
     { path: '/customers', icon: Users, label: 'قاعدة العملاء', permission: 'view_customers' },
     { path: '/customer-monthly-performance', icon: TrendingDown, label: 'أداء العملاء الشهري', permission: 'view_customers' },
@@ -121,7 +127,7 @@ const PHARMACIST_GROUPS: NavGroup[] = [{
 function basePath(path: string) { return path.split('?')[0]; }
 function activeItem(itemPath: string, pathname: string, search: string) {
   const base = basePath(itemPath);
-  if (base === '/') return pathname === '/' || pathname === '/executive-2027';
+  if (base === '/') return pathname === '/';
   if (base === '/team' && pathname.startsWith('/staff/')) return true;
   if (pathname !== base && !pathname.startsWith(`${base}/`)) return false;
   const expectedTab = new URLSearchParams(itemPath.split('?')[1] || '').get('tab');
@@ -143,14 +149,27 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
 
   const canAccess = (item: NavItem) => {
     if (item.adminOnly && !privileged) return false;
+    if (item.allowedRoles?.length && !item.allowedRoles.includes(role)) return false;
     if (item.excludeRoles?.includes(role)) return false;
-    if (!item.permission) return true;
-    return Array.isArray(item.permission) ? item.permission.some(checkPermission) : checkPermission(item.permission);
+
+    if (item.permission) {
+      const allowedByItem = Array.isArray(item.permission)
+        ? item.permission.some(checkPermission)
+        : checkPermission(item.permission);
+      if (!allowedByItem) return false;
+    }
+
+    // The route guard is the final source of truth. A navigation item must never be
+    // visible when clicking it would immediately produce "ليس لديك صلاحية".
+    const routePermissions = getRoutePermissions(basePath(item.path));
+    if (routePermissions?.length && !routePermissions.some(checkPermission)) return false;
+
+    return true;
   };
   const groups = useMemo(() => (pharmacistView ? PHARMACIST_GROUPS : GROUPS)
     .filter((group) => group.title !== 'الدليفري' || ENABLE_INTERNAL_DELIVERY_MODULE)
     .map((group) => ({ ...group, items: group.items.filter(canAccess) }))
-    .filter((group) => group.items.length), [checkPermission, pharmacistView, privileged, user]);
+    .filter((group) => group.items.length), [checkPermission, pharmacistView, privileged, role]);
 
   useEffect(() => {
     setExpandedGroups((previous) => {
