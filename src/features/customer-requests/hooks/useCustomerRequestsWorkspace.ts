@@ -73,6 +73,7 @@ export function useCustomerRequestsWorkspace(options: UseCustomerRequestsWorkspa
   const [listError, setListError] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [selectedRequestSnapshot, setSelectedRequestSnapshot] = useState<CustomerRequest | null>(null);
   const listRequestId = useRef(0);
   const summaryRequestId = useRef(0);
   const debounceMs = Math.max(0, options.debounceMs ?? 250);
@@ -90,6 +91,10 @@ export function useCustomerRequestsWorkspace(options: UseCustomerRequestsWorkspa
       const next = await customerRequestsRepository.getPage(queryOptions);
       if (requestId !== listRequestId.current) return;
       setResult(next);
+      setSelectedRequestSnapshot((current) => {
+        if (!current) return current;
+        return next.rows.find((row) => row.id === current.id) || current;
+      });
     } catch (error) {
       if (requestId !== listRequestId.current) return;
       setListError(error instanceof Error ? error.message : 'تعذر تحميل طلبات العملاء');
@@ -134,13 +139,33 @@ export function useCustomerRequestsWorkspace(options: UseCustomerRequestsWorkspa
   }, []);
 
   const selectRequest = useCallback((request: CustomerRequest | string | null) => {
-    setSelectedRequestId(typeof request === 'string' ? request : request?.id || null);
+    if (!request) {
+      setSelectedRequestId(null);
+      setSelectedRequestSnapshot(null);
+      return;
+    }
+    if (typeof request === 'string') {
+      setSelectedRequestId(request);
+      setSelectedRequestSnapshot((current) => current?.id === request ? current : null);
+      return;
+    }
+    setSelectedRequestId(request.id);
+    setSelectedRequestSnapshot(request);
   }, []);
 
-  const selectedRequest = useMemo(
-    () => result.rows.find((row) => row.id === selectedRequestId) || null,
-    [result.rows, selectedRequestId]
-  );
+  const updateSelectedRequest = useCallback((request: CustomerRequest) => {
+    setSelectedRequestId(request.id);
+    setSelectedRequestSnapshot(request);
+    setResult((current) => ({
+      ...current,
+      rows: current.rows.map((row) => row.id === request.id ? request : row),
+    }));
+  }, []);
+
+  const selectedRequest = useMemo(() => {
+    if (!selectedRequestId) return null;
+    return result.rows.find((row) => row.id === selectedRequestId) || selectedRequestSnapshot;
+  }, [result.rows, selectedRequestId, selectedRequestSnapshot]);
 
   const operationalRows = useMemo(
     () => result.rows.map((row) => ({ request: row, view: customerRequestOperationalView(row) })),
@@ -175,6 +200,7 @@ export function useCustomerRequestsWorkspace(options: UseCustomerRequestsWorkspa
     selectedRequest,
     selectedRequestId,
     selectRequest,
+    updateSelectedRequest,
     refresh,
   };
 }
