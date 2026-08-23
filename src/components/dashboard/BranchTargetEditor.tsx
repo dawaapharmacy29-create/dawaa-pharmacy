@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { clearDashboardCache } from '@/lib/dashboard/dashboardOptimizations';
 
@@ -33,19 +34,16 @@ function newestRow(items: TargetRow[]) {
   return [...items].sort((a, b) => rowTimestamp(b) - rowTimestamp(a))[0];
 }
 
-function canManage(role: unknown) {
-  const value = String(role || '').toLowerCase();
-  return ['general_manager', 'admin', 'manager', 'branch_manager', 'area_manager'].some((item) => value.includes(item));
-}
-
 export default function BranchTargetEditor({ compact = false }: { compact?: boolean }) {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
   const cycle = getCurrentCycle();
   const [rows, setRows] = useState<TargetRow[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
-  const allowed = canManage(user?.role);
+  const role = normalizeRole(user?.role);
+  const allowed = ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager'].includes(role)
+    || checkPermission('manage_settings');
 
   const load = useCallback(async () => {
     if (!allowed) return;
@@ -82,41 +80,24 @@ export default function BranchTargetEditor({ compact = false }: { compact?: bool
     [rows]
   );
 
-  const save = async (branch: string, matchingRows: TargetRow[]) => {
+  const save = async (branch: string) => {
     const targetAmount = amount(drafts[branch]);
     if (targetAmount <= 0) {
       toast.error('اكتب تارجت صحيح أكبر من صفر');
       return;
     }
+    if (!user?.id) {
+      toast.error('تعذر تحديد الحساب الحالي');
+      return;
+    }
 
     setSaving(branch);
     try {
-      const ids = matchingRows.map((item) => String(item.id || '')).filter(Boolean);
-      let writeError: { message?: string } | null = null;
-
-      if (ids.length > 0) {
-        const update = await supabase
-          .from('branch_sales_targets')
-          .update({ target_amount: targetAmount, updated_at: new Date().toISOString() })
-          .in('id', ids)
-          .select('*');
-        writeError = update.error;
-      } else {
-        const updateByName = await supabase
-          .from('branch_sales_targets')
-          .update({ target_amount: targetAmount, updated_at: new Date().toISOString() })
-          .eq('branch_name', branch)
-          .select('*');
-        writeError = updateByName.error;
-
-        if (!writeError && (!updateByName.data || updateByName.data.length === 0)) {
-          const inserted = await supabase
-            .from('branch_sales_targets')
-            .insert({ branch_name: branch, target_amount: targetAmount })
-            .select('*');
-          writeError = inserted.error;
-        }
-      }
+      const { error: writeError } = await supabase.rpc('set_branch_sales_target', {
+        p_branch_name: branch,
+        p_target_amount: targetAmount,
+        p_actor_id: user.id,
+      });
 
       if (writeError) {
         toast.error(`تعذر حفظ التارجت: ${writeError.message || 'خطأ غير معروف'}`);
@@ -213,7 +194,7 @@ export default function BranchTargetEditor({ compact = false }: { compact?: bool
               />
               <button
                 type="button"
-                onClick={() => void save(branch, matches)}
+                onClick={() => void save(branch)}
                 disabled={saving === branch}
                 className="dawaa-button dawaa-button--primary disabled:opacity-50"
               >
