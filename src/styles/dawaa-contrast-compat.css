@@ -83,6 +83,47 @@
   border-color: var(--dawaa-status-info-border);
 }
 
+/* Legacy stat-card content was authored for dark cards. The stat-card primitive is
+ * now semantic, so only its old light-on-dark descendants need a non-dark bridge. */
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  .stat-card :is(h1, h2, h3, h4, h5, h6).text-white,
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  .stat-card .num.text-white {
+  color: var(--dawaa-theme-heading);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  .stat-card :is(.text-slate-400, .text-slate-500) {
+  color: var(--dawaa-theme-muted);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  .stat-card :is(a, div)[class*='bg-white/5'] {
+  background: var(--dawaa-theme-bg-soft);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  .stat-card [class*='border-white/10'] {
+  border-color: var(--dawaa-theme-border);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  .stat-card :is(a, div)[class*='bg-white/5'] .text-white {
+  color: var(--dawaa-theme-heading);
+}
+
+/* Soft teal profile/header strips should read like brand-tinted light surfaces,
+ * not like dark cards with white text. */
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  [class*='from-teal-500/10'][class*='to-teal-600/5'] .text-white {
+  color: var(--dawaa-theme-heading);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  [class*='from-teal-500/10'][class*='to-teal-600/5'] :is(.text-slate-300, .text-slate-400, .text-slate-500) {
+  color: var(--dawaa-theme-muted);
+}
+
 /* Customer Service primary workspace choice must be unmistakable in dense screens. */
 .customer-service-page button[aria-pressed='true'] {
   background: var(--dawaa-theme-primary);
