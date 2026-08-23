@@ -12,7 +12,6 @@ const warnings = [];
 // Existing debt is explicitly baselined while it is migrated to canonical permissions.
 const BASELINED_ACTION_ROLE_DEBT = new Set([
   'src/pages/Reviews.tsx',
-  'src/pages/ShiftNotes.tsx',
 ]);
 
 function walk(dir) {
