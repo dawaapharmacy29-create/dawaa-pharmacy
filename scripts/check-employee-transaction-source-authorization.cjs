@@ -8,6 +8,7 @@ const readMigrationPath = path.join(ROOT, 'supabase/migrations/20260823202000_ha
 const tightenedSourcesPath = path.join(ROOT, 'supabase/migrations/20260823204000_tighten_employee_transaction_transitional_sources_v1.sql');
 const scopedReadPath = path.join(ROOT, 'supabase/migrations/20260823205000_scope_employee_transaction_reads_v1.sql');
 const finalSourcesPath = path.join(ROOT, 'supabase/migrations/20260823206000_remove_employee_transaction_transitional_sources_v1.sql');
+const penaltySourcePath = path.join(ROOT, 'supabase/migrations/20260823211000_restore_penalty_incentive_source_authorization_v1.sql');
 const failures = [];
 
 if (!fs.existsSync(migrationPath)) {
@@ -70,9 +71,7 @@ if (!fs.existsSync(readMigrationPath)) {
   }
 }
 
-if (!fs.existsSync(tightenedSourcesPath)) {
-  failures.push('Missing tightened employee transaction transitional-source migration.');
-}
+if (!fs.existsSync(tightenedSourcesPath)) failures.push('Missing tightened employee transaction transitional-source migration.');
 
 if (!fs.existsSync(scopedReadPath)) {
   failures.push('Missing row-scoped employee transaction read migration.');
@@ -106,12 +105,11 @@ if (!fs.existsSync(finalSourcesPath)) {
 
   const forbiddenClientFallbacks = [
     'delivery','delivery_deduction','delivery_evaluation',
-    'penalty_incentive','penalty_management','point_records_migration',
-    'followup_activity_pillar','followup_expire_auto',
+    'point_records_migration','followup_activity_pillar','followup_expire_auto',
     'invoice_quality_vs_branch_baseline','assistant_checklist_settlement','target_achievement_settlement',
   ];
   for (const item of forbiddenClientFallbacks) {
-    if (source.includes(`'${item}'`)) failures.push(`Final ledger source lockdown must not allow client source ${item}.`);
+    if (source.includes(`'${item}'`)) failures.push(`Final ledger source lockdown must not allow client fallback ${item}.`);
   }
 
   if (!source.includes('SECURITY DEFINER') || !source.includes('BYPASSRLS')) {
@@ -120,10 +118,26 @@ if (!fs.existsSync(finalSourcesPath)) {
   if (!/return\s+false\s*;[\s\S]*end\s*;/i.test(source)) failures.push('Final ledger source lockdown must fail closed.');
 }
 
+if (!fs.existsSync(penaltySourcePath)) {
+  failures.push('Missing penalty-incentive source authorization correction.');
+} else {
+  const source = fs.readFileSync(penaltySourcePath, 'utf8');
+  if (!source.includes("'penalty_incentive'") || !source.includes("'penalty_management'")) {
+    failures.push('Penalty incentive writers must be explicitly classified, not handled by a fallback.');
+  }
+  if (!/penalty_incentive[\s\S]{0,500}create_deduction/.test(source) || !/penalty_incentive[\s\S]{0,700}create_reward/.test(source)) {
+    failures.push('Penalty incentive source must use canonical reward/deduction permissions.');
+  }
+  if (!source.includes('approve_points') || !source.includes('edit_points_transaction')) {
+    failures.push('Penalty incentive updates must use canonical points approval/edit permissions.');
+  }
+  if (!/return\s+false\s*;[\s\S]*end\s*;/i.test(source)) failures.push('Penalty source correction must keep unknown sources fail-closed.');
+}
+
 if (failures.length) {
   console.error('\nEmployee transaction source authorization check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[employee-transaction-source-authorization] PASS: ledger writes have no transitional client fallback, unknown sources fail closed, and reads are permission/role/branch/staff scoped.');
+console.log('[employee-transaction-source-authorization] PASS: ledger writes are explicitly source-authorized with no generic client fallback, and reads are permission/role/branch/staff scoped.');
