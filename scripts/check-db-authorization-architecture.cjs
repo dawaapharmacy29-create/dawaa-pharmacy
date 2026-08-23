@@ -20,7 +20,8 @@ const activeWorkflowRlsPath = path.join(ROOT, 'supabase/migrations/2026082319150
 const reviewCeilingPath = path.join(ROOT, 'supabase/migrations/20260823191800_align_db_review_permission_ceiling_v1.sql');
 const managerReviewRlsPath = path.join(ROOT, 'supabase/migrations/20260823192200_harden_customer_service_manager_reviews_rls_v1.sql');
 const branchInspectionRlsPath = path.join(ROOT, 'supabase/migrations/20260823194000_harden_branch_inspection_authorization_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath]) {
+const employeeTransactionRlsPath = path.join(ROOT, 'supabase/migrations/20260823195000_harden_employee_transactions_active_actor_v1.sql');
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, employeeTransactionRlsPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
 }
 
@@ -47,12 +48,8 @@ if (fs.existsSync(activeWorkflowRlsPath)) {
   for (const permission of ['view_reviews', 'add_reviews', 'edit_reviews', 'approve_reviews']) {
     if (!source.includes(permission)) failures.push(`Review RLS must reference canonical permission ${permission}.`);
   }
-  if (!/dawaa_current_staff_account_id_strict\(\)/.test(source)) {
-    failures.push('Shift-note RLS must require a canonical active staff actor.');
-  }
-  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) {
-    failures.push('Active review/shift-note RLS must not reintroduce unconditional true write/read policies.');
-  }
+  if (!/dawaa_current_staff_account_id_strict\(\)/.test(source)) failures.push('Shift-note RLS must require a canonical active staff actor.');
+  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) failures.push('Active review/shift-note RLS must not reintroduce unconditional true write/read policies.');
 }
 
 if (fs.existsSync(reviewCeilingPath)) {
@@ -63,23 +60,15 @@ if (fs.existsSync(reviewCeilingPath)) {
   for (const role of ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening', 'branch_manager', 'customer_service_manager']) {
     if (!source.includes(role)) failures.push(`DB review ceiling must cover ${role}.`);
   }
-  if (!/v_can_view_reviews\s*:=\s*true/.test(source) || !/v_can_add_reviews\s*:=\s*true/.test(source)) {
-    failures.push('DB review ceiling must contain explicit role grants, not legacy key-existence rules.');
-  }
-  if (/\bstaff_role\b/.test(source) || /\bis_active\b/.test(source)) {
-    failures.push('DB review ceiling must use canonical role and active/can_login only.');
-  }
+  if (!/v_can_view_reviews\s*:=\s*true/.test(source) || !/v_can_add_reviews\s*:=\s*true/.test(source)) failures.push('DB review ceiling must contain explicit role grants, not legacy key-existence rules.');
+  if (/\bstaff_role\b/.test(source) || /\bis_active\b/.test(source)) failures.push('DB review ceiling must use canonical role and active/can_login only.');
 }
 
 if (fs.existsSync(managerReviewRlsPath)) {
   const source = fs.readFileSync(managerReviewRlsPath, 'utf8');
   if (!source.includes('customer_service_manager_reviews')) failures.push('Manager review RLS migration must cover customer_service_manager_reviews.');
-  if (!source.includes('view_reviews') || !source.includes('approve_reviews')) {
-    failures.push('Manager review RLS must use view_reviews for reads and approve_reviews for writes.');
-  }
-  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) {
-    failures.push('Manager review RLS must not use unconditional true policies.');
-  }
+  if (!source.includes('view_reviews') || !source.includes('approve_reviews')) failures.push('Manager review RLS must use view_reviews for reads and approve_reviews for writes.');
+  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) failures.push('Manager review RLS must not use unconditional true policies.');
 }
 
 if (fs.existsSync(branchInspectionRlsPath)) {
@@ -87,21 +76,24 @@ if (fs.existsSync(branchInspectionRlsPath)) {
   for (const table of ['branch_inspections', 'branch_visit_staff_reviews']) {
     if (!source.includes(table)) failures.push(`Branch inspection RLS migration must cover ${table}.`);
   }
-  if (!/dawaa_can_branch_inspection/.test(source)) {
-    failures.push('Branch inspection RLS must use the canonical branch-inspection helper.');
-  }
+  if (!/dawaa_can_branch_inspection/.test(source)) failures.push('Branch inspection RLS must use the canonical branch-inspection helper.');
   for (const role of ['general_manager', 'executive_manager', 'branches_manager']) {
     if (!source.includes(role)) failures.push(`Branch inspection role ceiling must cover ${role}.`);
   }
   for (const permission of ['view_branch_inspection', 'manage_branch_inspection']) {
     if (!source.includes(permission)) failures.push(`Branch inspection authorization must respect ${permission} restrictions.`);
   }
-  if (!/dawaa_current_staff_account_id_strict\(\)/.test(source)) {
-    failures.push('Branch inspection authorization must resolve a canonical active staff actor.');
-  }
-  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) {
-    failures.push('Branch inspection RLS must not use unconditional true policies.');
-  }
+  if (!/dawaa_current_staff_account_id_strict\(\)/.test(source)) failures.push('Branch inspection authorization must resolve a canonical active staff actor.');
+  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) failures.push('Branch inspection RLS must not use unconditional true policies.');
+}
+
+if (fs.existsSync(employeeTransactionRlsPath)) {
+  const source = fs.readFileSync(employeeTransactionRlsPath, 'utf8');
+  if (!source.includes('employee_transactions')) failures.push('Employee transaction RLS migration must cover employee_transactions.');
+  if (!/dawaa_current_staff_account_id_strict\(\)/.test(source)) failures.push('Employee transaction writes must require a canonical active staff actor.');
+  if (!/for\s+insert/i.test(source) || !/for\s+update/i.test(source)) failures.push('Employee transaction hardening must cover both inserts and updates.');
+  if (/\bwith\s+check\s*\(\s*true\s*\)/i.test(source) || /\busing\s*\(\s*true\s*\)/i.test(source)) failures.push('Employee transaction write policies must not be unconditional true.');
+  if (/drop\s+policy[^;]*(?:select|read)/i.test(source)) failures.push('First-stage employee transaction hardening must not change read policies yet.');
 }
 
 if (failures.length) {
@@ -110,4 +102,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review role ceiling, branch inspection authorization and boolean permission truth remain centralized.');
+console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review role ceiling, branch inspection authorization, employee transaction active-actor writes and boolean permission truth remain centralized.');
