@@ -71,7 +71,7 @@ export default function CustomerRequestsWorkspace() {
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-primary flex items-center gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} /> تسجيل طلب</button>
             <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void workspace.refresh()} disabled={workspace.loading}><RefreshCw size={16} className={workspace.loading ? 'animate-spin' : ''} /> تحديث</button>
-            <Link to="/customer-requests-legacy" className="btn-secondary flex items-center gap-2 text-xs"><ShieldCheck size={15} /> النسخة القديمة</Link>
+            <Link to="/customer-requests?legacy=1" className="btn-secondary flex items-center gap-2 text-xs"><ShieldCheck size={15} /> النسخة القديمة</Link>
           </div>
         </div>
 
