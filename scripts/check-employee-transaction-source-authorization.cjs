@@ -28,7 +28,6 @@ if (!fs.existsSync(migrationPath)) {
 
   const requiredPermissions = [
     'add_reviews',
-    'manage_branch_inspection',
     'create_shift_evaluation',
     'approve_leave_request',
     'manage_time_off',
@@ -43,9 +42,10 @@ if (!fs.existsSync(migrationPath)) {
     if (!source.includes(permission)) failures.push(`Ledger source authorization must reference ${permission}.`);
   }
 
-  if (!/return\s+false\s*;[\s\S]*end\s*;/i.test(source)) {
-    failures.push('Unknown ledger sources must fail closed.');
+  if (!/v_source\s*=\s*'branch_visit'[\s\S]{0,180}dawaa_can_branch_inspection\s*\(\s*true\s*\)/.test(source)) {
+    failures.push('branch_visit ledger effects must delegate to canonical branch-inspection management authorization.');
   }
+  if (!/return\s+false\s*;[\s\S]*end\s*;/i.test(source)) failures.push('Unknown ledger sources must fail closed.');
   if (!/employee_transactions_insert_source_authorized/.test(source) || !/employee_transactions_update_source_authorized/.test(source)) {
     failures.push('Employee transaction INSERT and UPDATE must use source-aware RLS policies.');
   }
