@@ -81,11 +81,63 @@ export interface CustomerRequestsRepository {
 }
 
 const CLOSED = ['closed', 'delivered', 'cancelled', 'not_available'];
+const CAIRO_TZ = 'Africa/Cairo';
+
+function timeZoneOffsetMs(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const asUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second)
+  );
+  return asUtc - Math.floor(date.getTime() / 1000) * 1000;
+}
+
+export function cairoDateBoundaryIso(dateText: string, end = false) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
+  if (!match) throw new Error('صيغة التاريخ غير صحيحة');
+  const desiredLocalAsUtc = Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    end ? 23 : 0,
+    end ? 59 : 0,
+    end ? 59 : 0,
+    end ? 999 : 0
+  );
+  let candidate = new Date(desiredLocalAsUtc);
+  for (let index = 0; index < 2; index += 1) {
+    candidate = new Date(desiredLocalAsUtc - timeZoneOffsetMs(candidate, CAIRO_TZ));
+  }
+  return candidate.toISOString();
+}
+
+function cairoTodayDateText() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: CAIRO_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
 
 function startOfTodayIso() {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date.toISOString();
+  return cairoDateBoundaryIso(cairoTodayDateText());
 }
 
 function daysAgoIso(days: number) {
@@ -120,24 +172,16 @@ export async function getCustomerRequestsPage(
     });
     if (error) throw new Error(error.message);
     overdueIds = Array.isArray(data) ? (data as string[]) : [];
-    if (overdueIds.length === 0) {
-      return { rows: [], count: 0, page: 1, pageSize, pages: 1 };
-    }
+    if (overdueIds.length === 0) return { rows: [], count: 0, page: 1, pageSize, pages: 1 };
   }
 
   let query = supabase.from('customer_requests').select('*', { count: 'exact' });
   if ((options.quickFilter || 'all') === 'followup_due') {
-    query = query
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .order('is_urgent', { ascending: false });
+    query = query.order('due_date', { ascending: true, nullsFirst: false }).order('is_urgent', { ascending: false });
   } else {
-    query = query
-      .order('is_urgent', { ascending: false })
-      .order('updated_at', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false, nullsFirst: false });
+    query = query.order('is_urgent', { ascending: false }).order('updated_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false, nullsFirst: false });
   }
 
-  // Deep-link context filters stay exact by design. They should never degrade into fuzzy search.
   if (options.requestId) query = query.eq('id', options.requestId);
   if (options.customerId) query = query.eq('customer_id', options.customerId);
   if (options.customerCode) query = query.eq('customer_code', options.customerCode);
@@ -146,9 +190,7 @@ export async function getCustomerRequestsPage(
   if (options.medicineName && !options.productCode) query = query.ilike('medicine_name', options.medicineName);
   if (options.registrar) {
     const registrar = safeSearch(options.registrar);
-    query = query.or(
-      `doctor_name.ilike.${registrar},created_by_name.ilike.${registrar},source_assigned_employee.ilike.${registrar}`
-    );
+    query = query.or(`doctor_name.ilike.${registrar},created_by_name.ilike.${registrar},source_assigned_employee.ilike.${registrar}`);
   }
 
   if (options.status && options.status !== 'all') query = query.eq('status', options.status);
@@ -158,77 +200,46 @@ export async function getCustomerRequestsPage(
     if (options.sourceSystem === 'manual') query = query.is('source_system', null);
     else query = query.eq('source_system', options.sourceSystem);
   }
-  if (options.sourceChannel && options.sourceChannel !== 'all') {
-    query = query.eq('source_request_channel', options.sourceChannel);
-  }
+  if (options.sourceChannel && options.sourceChannel !== 'all') query = query.eq('source_request_channel', options.sourceChannel);
   if (options.urgency && options.urgency !== 'all') {
-    if (options.urgency === 'urgent') {
-      query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
-    } else {
-      query = query.eq('urgency', options.urgency);
-    }
+    if (options.urgency === 'urgent') query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
+    else query = query.eq('urgency', options.urgency);
   }
   if (options.assignee && options.assignee !== 'all') {
-    if (options.assignee === 'unassigned') {
-      query = query.is('purchasing_assignee', null).is('source_assigned_employee', null);
-    } else {
+    if (options.assignee === 'unassigned') query = query.is('purchasing_assignee', null).is('source_assigned_employee', null);
+    else {
       const term = safeSearch(options.assignee);
-      query = query.or(
-        `purchasing_assignee.ilike.%${term}%,source_assigned_employee.ilike.%${term}%`
-      );
+      query = query.or(`purchasing_assignee.ilike.%${term}%,source_assigned_employee.ilike.%${term}%`);
     }
   }
-  if (options.dateFrom) query = query.gte('requested_at', `${options.dateFrom}T00:00:00+02:00`);
-  if (options.dateTo) query = query.lte('requested_at', `${options.dateTo}T23:59:59+02:00`);
+  if (options.dateFrom) query = query.gte('requested_at', cairoDateBoundaryIso(options.dateFrom));
+  if (options.dateTo) query = query.lte('requested_at', cairoDateBoundaryIso(options.dateTo, true));
 
   const quick = options.quickFilter || 'all';
   if (quick === 'today') query = query.gte('requested_at', startOfTodayIso());
   if (quick === 'recent') query = query.gte('requested_at', daysAgoIso(7));
-  if (quick === 'followup_due') {
-    query = query
-      .not('status', 'in', `(${CLOSED.join(',')})`)
-      .not('due_date', 'is', null)
-      .lte('due_date', new Date().toISOString());
-  }
-  if (quick === 'urgent') {
-    query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
-  }
+  if (quick === 'followup_due') query = query.not('status', 'in', `(${CLOSED.join(',')})`).not('due_date', 'is', null).lte('due_date', new Date().toISOString());
+  if (quick === 'urgent') query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
   if (quick === 'unlinked') query = query.is('customer_id', null);
-  if (quick === 'unassigned') {
-    query = query.is('purchasing_assignee', null).is('source_assigned_employee', null);
-  }
-  if (quick === 'sync_review') {
-    query = query
-      .eq('sync_conflict', true)
-      .eq('sync_conflict_reason', 'branch_unresolved_after_customer_match');
-  }
-  if (quick === 'backlog') {
-    query = query
-      .not('status', 'in', `(${CLOSED.join(',')})`)
-      .lt('requested_at', daysAgoIso(7));
-  }
-  if (quick === 'attention') {
-    query = query
-      .not('status', 'in', `(${CLOSED.join(',')})`)
-      .gte('requested_at', daysAgoIso(7));
-  }
+  if (quick === 'unassigned') query = query.is('purchasing_assignee', null).is('source_assigned_employee', null);
+  if (quick === 'sync_review') query = query.eq('sync_conflict', true).eq('sync_conflict_reason', 'branch_unresolved_after_customer_match');
+  if (quick === 'backlog') query = query.not('status', 'in', `(${CLOSED.join(',')})`).lt('requested_at', daysAgoIso(7));
+  if (quick === 'attention') query = query.not('status', 'in', `(${CLOSED.join(',')})`).gte('requested_at', daysAgoIso(7));
   if (quick === 'overdue' && overdueIds) query = query.in('id', overdueIds);
 
   const search = safeSearch(options.search || '');
   if (search) {
-    query = query.or(
-      [
-        `customer_name.ilike.%${search}%`,
-        `customer_code.ilike.%${search}%`,
-        `customer_phone.ilike.%${search}%`,
-        `medicine_name.ilike.%${search}%`,
-        `product_code.ilike.%${search}%`,
-        `doctor_name.ilike.%${search}%`,
-        `supplier_hint.ilike.%${search}%`,
-        `source_order_number.ilike.%${search}%`,
-        `source_assigned_employee.ilike.%${search}%`,
-      ].join(',')
-    );
+    query = query.or([
+      `customer_name.ilike.%${search}%`,
+      `customer_code.ilike.%${search}%`,
+      `customer_phone.ilike.%${search}%`,
+      `medicine_name.ilike.%${search}%`,
+      `product_code.ilike.%${search}%`,
+      `doctor_name.ilike.%${search}%`,
+      `supplier_hint.ilike.%${search}%`,
+      `source_order_number.ilike.%${search}%`,
+      `source_assigned_employee.ilike.%${search}%`,
+    ].join(','));
   }
 
   const { data, error, count } = await query.range(from, to);
@@ -246,10 +257,7 @@ export async function getCustomerRequestsPage(
 
   const exactCount = count || 0;
   return {
-    rows: rows.map((row) => ({
-      ...row,
-      customer_segment: row.customer_id ? segmentById.get(row.customer_id) || null : null,
-    })),
+    rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? segmentById.get(row.customer_id) || null : null })),
     count: exactCount,
     page,
     pageSize,
@@ -261,12 +269,7 @@ export function customerRequestIsClosed(request: CustomerRequest) {
   return customerRequestIsClosedStatus(request.status);
 }
 
-export {
-  customerRequestAgeHours,
-  customerRequestIsOverdue,
-  customerRequestIsUrgent,
-  customerRequestQualityIssues,
-};
+export { customerRequestAgeHours, customerRequestIsOverdue, customerRequestIsUrgent, customerRequestQualityIssues };
 
 export const customerRequestsRepository: CustomerRequestsRepository = {
   getSummary: getCustomerRequestsCommandSummary,
