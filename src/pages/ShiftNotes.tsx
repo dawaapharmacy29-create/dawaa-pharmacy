@@ -84,7 +84,7 @@ function noteBadge(row: Row) {
 }
 
 export default function ShiftNotesV2() {
-  const { user, isAdmin } = useAuth();
+  const { user, checkPermission } = useAuth();
   const { data: staffRows } = useSupabaseQuery<Staff>({
     table: 'staff', filters: isActiveStaffFilter(), realtimeEnabled: false,
   });
@@ -114,13 +114,34 @@ export default function ShiftNotesV2() {
   const [occurrences, setOccurrences] = useState<Row[]>([]);
 
   useEscapeKey(() => setSelected(null), Boolean(selected));
-  const canManage = isAdmin || /مدير|admin/i.test(user?.role || '');
+  const canManage = checkPermission('edit_shift_evaluation');
+  const canHandover = canManage;
+  const seniorBranchScope = ['كل الفروع', 'all'].includes(String(user?.branch || '').trim());
+  const branchOptions = seniorBranchScope
+    ? ['فرع شكري', 'فرع الشامي', 'كل الفروع']
+    : [String(user?.branch || 'فرع شكري')];
+
+  const isOwnNote = (row: Row) =>
+    String(row.author_id || '') === String(user?.id || '') ||
+    (!row.author_id && Boolean(user?.name) && row.author_name === user?.name);
+  const isAssignedNote = (row: Row) => {
+    const assigned = String(row.assigned_to_id || '');
+    return assigned === String(user?.staffId || '') || assigned === String(user?.id || '') ||
+      (!assigned && Boolean(user?.name) && row.assigned_to_name === user?.name) ||
+      String(row.received_by_id || '') === String(user?.id || '');
+  };
+  const canOperateNote = (row: Row) => canManage || isOwnNote(row) || isAssignedNote(row);
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => window.clearTimeout(id);
   }, [search]);
   useEffect(() => setPage(0), [filter, dimension, debouncedSearch]);
+  useEffect(() => {
+    if (!editing && !seniorBranchScope && user?.branch) {
+      setForm((current) => current.branch === user.branch ? current : { ...current, branch: user.branch });
+    }
+  }, [editing, seniorBranchScope, user?.branch]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -192,7 +213,7 @@ export default function ShiftNotesV2() {
       customer_code: String(row.customer_code || row.code || ''),
       customer_phone: String(row.phone || row.customer_phone || ''),
       whatsapp_phone: String(row.whatsapp_phone || row.phone || row.customer_phone || ''),
-      branch: row.branch ? String(row.branch) : f.branch,
+      branch: seniorBranchScope && row.branch ? String(row.branch) : f.branch,
     }));
     setCustomerQuery('');
     setCustomerResults([]);
@@ -200,7 +221,7 @@ export default function ShiftNotesV2() {
 
   const resetForm = () => {
     setEditing(null);
-    setForm({ ...emptyForm, due_at: nowInput() });
+    setForm({ ...emptyForm, branch: seniorBranchScope ? 'فرع شكري' : String(user?.branch || 'فرع شكري'), due_at: nowInput() });
     setCustomerQuery('');
     setCustomerResults([]);
   };
@@ -225,6 +246,8 @@ export default function ShiftNotesV2() {
 
   const save = async () => {
     if (!form.title.trim()) return toast.error('اكتب عنوان الملحوظة');
+    if (editing && !canManage && !isOwnNote(editing)) return toast.error('ليس لديك صلاحية تعديل هذه الملحوظة');
+    if (!seniorBranchScope && user?.branch && form.branch !== user.branch) return toast.error('يمكنك إنشاء الملاحظات داخل فرعك فقط');
     setSaving(true);
     const staff = staffChoices.find((item) => item.name === form.assigned_to_name);
     const payload: Row = {
@@ -271,6 +294,7 @@ export default function ShiftNotesV2() {
   };
 
   const startEdit = (row: Row) => {
+    if (!canManage && !isOwnNote(row)) return toast.error('ليس لديك صلاحية تعديل هذه الملحوظة');
     setEditing(row);
     setForm({
       ...emptyForm,
@@ -289,6 +313,7 @@ export default function ShiftNotesV2() {
   };
 
   const updateStatus = async (row: Row, status: NoteStatus) => {
+    if (!canOperateNote(row)) return toast.error('المهمة ليست ضمن صلاحياتك');
     let reason = '';
     if (status === 'completed' && row.note_kind === 'action_task' && ['important', 'urgent', 'critical'].includes(String(row.priority || ''))) {
       reason = window.prompt('اكتب تعليق التنفيذ قبل إغلاق المهمة')?.trim() || '';
@@ -308,6 +333,7 @@ export default function ShiftNotesV2() {
   };
 
   const receive = async (row: Row) => {
+    if (!canManage && !isAssignedNote(row)) return toast.error('المهمة غير مسندة إليك');
     const { error } = await supabase.from('shift_notes').update({
       status: 'in_progress', received_by_id: user?.id || null, received_by_name: user?.name || null,
       received_at: new Date().toISOString(), updated_at: new Date().toISOString(),
@@ -318,6 +344,7 @@ export default function ShiftNotesV2() {
   };
 
   const postpone = async (row: Row) => {
+    if (!canOperateNote(row)) return toast.error('المهمة ليست ضمن صلاحياتك');
     const raw = window.prompt('أجل كام؟ اكتب 30m أو 1h أو tomorrow أو تاريخ مثل 2026-08-24 09:00', '1h');
     if (!raw) return;
     const next = new Date();
@@ -340,7 +367,7 @@ export default function ShiftNotesV2() {
   };
 
   const softDelete = async (row: Row) => {
-    if (!canManage && row.author_name !== user?.name) return toast.error('ليس لديك صلاحية الحذف');
+    if (!canManage && !isOwnNote(row)) return toast.error('ليس لديك صلاحية الحذف');
     if (!window.confirm(`حذف «${row.title}»؟ يمكن استرجاعها لاحقًا.`)) return;
     const { error } = await supabase.from('shift_notes').update({
       deleted_at: new Date().toISOString(), deleted_by_id: user?.id || null, deleted_by_name: user?.name || null, updated_at: new Date().toISOString(),
@@ -351,6 +378,7 @@ export default function ShiftNotesV2() {
   };
 
   const restore = async (row: Row) => {
+    if (!canManage && !isOwnNote(row)) return toast.error('ليس لديك صلاحية الاسترجاع');
     const { error } = await supabase.from('shift_notes').update({ deleted_at: null, deleted_by_id: null, deleted_by_name: null, updated_at: new Date().toISOString() }).eq('id', row.id);
     if (error) return toast.error(`تعذر الاسترجاع: ${error.message}`);
     await addLog(row.id, 'restore', 'تم استرجاع الملحوظة');
@@ -358,6 +386,7 @@ export default function ShiftNotesV2() {
   };
 
   const handover = async () => {
+    if (!canHandover) return toast.error('تسليم الشيفت متاح لمدير الفرع أو مشرف الشيفت فقط');
     const note = window.prompt('تعليق تسليم اختياري للشيفت التالي') || '';
     const { data, error } = await supabase.rpc('handover_open_shift_notes_v1', {
       p_user_id: user?.id || '', p_user_name: user?.name || 'النظام', p_note: note || null,
@@ -378,6 +407,7 @@ export default function ShiftNotesV2() {
   };
 
   const completeOccurrence = async (row: Row) => {
+    if (!selected || !canOperateNote(selected)) return toast.error('التكرار ليس ضمن صلاحياتك');
     const note = window.prompt('تعليق تنفيذ هذه المرة')?.trim();
     if (!note) return;
     const { error } = await supabase.from('shift_note_occurrences').update({
@@ -408,7 +438,7 @@ export default function ShiftNotesV2() {
           <p className="dawaa-caption mt-1">مسار واحد سريع للملاحظات، مع pagination من السيرفر وبحث العميل عند الطلب فقط.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => void handover()} className="dawaa-button dawaa-button--primary"><Send size={16} /> تسليم المفتوح للشيفت التالي</button>
+          {canHandover ? <button onClick={() => void handover()} className="dawaa-button dawaa-button--primary"><Send size={16} /> تسليم المفتوح للشيفت التالي</button> : null}
           <button onClick={() => void load()} className="dawaa-button dawaa-button--secondary"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث</button>
         </div>
       </div>
@@ -428,7 +458,7 @@ export default function ShiftNotesV2() {
         <select className="dawaa-select" value={form.action_required} disabled={form.note_kind !== 'action_task'} onChange={(e) => setForm((f) => ({ ...f, action_required: e.target.value }))}>{Object.entries(actionLabels).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select>
         <select className="dawaa-select" value={form.note_type} onChange={(e) => setForm((f) => ({ ...f, note_type: e.target.value }))}>{Object.entries(typeLabels).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select>
         <select className="dawaa-select" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value as NotePriority }))}>{Object.entries(priorityLabels).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select>
-        <select className="dawaa-select" value={form.branch} onChange={(e) => setForm((f) => ({ ...f, branch: e.target.value }))}><option>فرع شكري</option><option>فرع الشامي</option><option>كل الفروع</option></select>
+        <select className="dawaa-select" value={form.branch} onChange={(e) => setForm((f) => ({ ...f, branch: e.target.value }))}>{branchOptions.map((value) => <option key={value}>{value}</option>)}</select>
         <input type="datetime-local" className="dawaa-input" value={form.due_at} onChange={(e) => setForm((f) => ({ ...f, due_at: e.target.value }))} />
 
         <div className="relative md:col-span-2 xl:col-span-4">
@@ -461,17 +491,20 @@ export default function ShiftNotesV2() {
 
     {loading ? <div className="dawaa-card py-12 text-center"><Loader2 className="mx-auto animate-spin" /></div> : !workspace.rows.length ? <div className="dawaa-empty-state py-12 text-center">لا توجد ملاحظات مطابقة.</div> : <div className="grid gap-4 xl:grid-cols-2">{workspace.rows.map((row) => {
       const phone = cleanEgyptianPhone(row.customer_phone || '');
+      const canOperate = canOperateNote(row);
+      const canEdit = canManage || isOwnNote(row);
+      const canReceive = canManage || isAssignedNote(row);
       return <article key={row.id} className="dawaa-card">
         <div className="flex items-start justify-between gap-3"><div><h3 className="dawaa-title text-lg">{row.title}</h3><div className="mt-2 flex flex-wrap gap-1"><span className={`dawaa-badge ${noteBadge(row)}`}>{isOverdue(row) ? 'متأخرة' : statusLabels[row.status || 'new'] || row.status}</span><span className="dawaa-badge dawaa-badge--info">{typeLabels[row.note_type || 'general'] || row.note_type}</span><span className="dawaa-badge dawaa-badge--info">{row.branch || 'غير محدد'}</span>{row.handed_over ? <span className="dawaa-badge dawaa-badge--warning">تم التسليم</span> : null}</div></div><button onClick={() => void openDetails(row)} className="dawaa-button dawaa-button--ghost">التفاصيل</button></div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2"><Mini label="العميل" value={row.customer_name || 'لا يوجد'} /><Mini label="وقت التنفيذ" value={dateLabel(row.due_at)} /><Mini label="المسؤول" value={row.assigned_to_name || 'غير محدد'} /><Mini label="الأولوية" value={priorityLabels[row.priority as NotePriority] || row.priority || 'عادي'} /></div>
         {row.details ? <p className="dawaa-body mt-3 line-clamp-2 text-sm">{row.details}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">
-          {row.status === 'assigned_pending' ? <button onClick={() => void receive(row)} className="dawaa-button dawaa-button--primary"><CheckCircle2 size={14} /> استلام</button> : null}
-          {row.status !== 'completed' ? <button onClick={() => void updateStatus(row, 'completed')} className="dawaa-button dawaa-button--secondary">تم التنفيذ</button> : null}
-          {!['completed','cancelled'].includes(String(row.status || '')) ? <button onClick={() => void postpone(row)} className="dawaa-button dawaa-button--secondary"><Clock3 size={14} /> تأجيل</button> : null}
-          <button onClick={() => startEdit(row)} className="dawaa-button dawaa-button--secondary"><Edit3 size={14} /> تعديل</button>
-          {!['completed','cancelled'].includes(String(row.status || '')) ? <button onClick={() => void updateStatus(row, 'cancelled')} className="dawaa-button dawaa-button--ghost">إلغاء</button> : null}
-          <button onClick={() => void softDelete(row)} className="dawaa-button dawaa-button--ghost"><Trash2 size={14} /> مسح</button>
+          {row.status === 'assigned_pending' && canReceive ? <button onClick={() => void receive(row)} className="dawaa-button dawaa-button--primary"><CheckCircle2 size={14} /> استلام</button> : null}
+          {row.status !== 'completed' && canOperate ? <button onClick={() => void updateStatus(row, 'completed')} className="dawaa-button dawaa-button--secondary">تم التنفيذ</button> : null}
+          {!['completed','cancelled'].includes(String(row.status || '')) && canOperate ? <button onClick={() => void postpone(row)} className="dawaa-button dawaa-button--secondary"><Clock3 size={14} /> تأجيل</button> : null}
+          {canEdit ? <button onClick={() => startEdit(row)} className="dawaa-button dawaa-button--secondary"><Edit3 size={14} /> تعديل</button> : null}
+          {!['completed','cancelled'].includes(String(row.status || '')) && canOperate ? <button onClick={() => void updateStatus(row, 'cancelled')} className="dawaa-button dawaa-button--ghost">إلغاء</button> : null}
+          {canEdit ? <button onClick={() => void softDelete(row)} className="dawaa-button dawaa-button--ghost"><Trash2 size={14} /> مسح</button> : null}
           {phone ? <a href={`tel:${phone}`} className="dawaa-button dawaa-button--ghost"><Phone size={14} /> اتصال</a> : null}
           {phone ? <a target="_blank" rel="noreferrer" href={generateWhatsAppLink(phone, 'حضرتك مع صيدليات دواء، بنتابع مع حضرتك بخصوص الملاحظة المسجلة لدينا.')} className="dawaa-button dawaa-button--ghost"><MessageSquare size={14} /> واتساب</a> : null}
         </div>
@@ -480,9 +513,9 @@ export default function ShiftNotesV2() {
 
     <div className="flex items-center justify-between gap-3"><div className="dawaa-caption">صفحة {page + 1} من {pageCount} · {workspace.total.toLocaleString('ar-EG')} نتيجة</div><div className="flex gap-2"><button className="dawaa-button dawaa-button--secondary" disabled={page === 0 || loading} onClick={() => setPage((p) => Math.max(0, p - 1))}><ChevronRight size={15} /> السابق</button><button className="dawaa-button dawaa-button--secondary" disabled={page + 1 >= pageCount || loading} onClick={() => setPage((p) => p + 1)}>التالي <ChevronLeft size={15} /></button></div></div>
 
-    <section className="dawaa-card"><button onClick={() => setShowDeleted((v) => !v)} className="dawaa-button dawaa-button--secondary"><Trash2 size={15} /> {showDeleted ? 'إخفاء المحذوفات' : `المحذوفات (${workspace.deleted_rows.length})`}</button>{showDeleted ? <div className="mt-3 space-y-2">{workspace.deleted_rows.map((row) => <div key={row.id} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-3 p-3"><div><div className="dawaa-title text-sm">{row.title}</div><div className="dawaa-caption text-xs">حذفها {row.deleted_by_name || 'غير محدد'} · {dateLabel(row.deleted_at)}</div></div><button onClick={() => void restore(row)} className="dawaa-button dawaa-button--ghost"><RotateCcw size={14} /> استرجاع</button></div>)}</div> : null}</section>
+    <section className="dawaa-card"><button onClick={() => setShowDeleted((v) => !v)} className="dawaa-button dawaa-button--secondary"><Trash2 size={15} /> {showDeleted ? 'إخفاء المحذوفات' : `المحذوفات (${workspace.deleted_rows.length})`}</button>{showDeleted ? <div className="mt-3 space-y-2">{workspace.deleted_rows.map((row) => <div key={row.id} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-3 p-3"><div><div className="dawaa-title text-sm">{row.title}</div><div className="dawaa-caption text-xs">حذفها {row.deleted_by_name || 'غير محدد'} · {dateLabel(row.deleted_at)}</div></div>{canManage || isOwnNote(row) ? <button onClick={() => void restore(row)} className="dawaa-button dawaa-button--ghost"><RotateCcw size={14} /> استرجاع</button> : null}</div>)}</div> : null}</section>
 
-    {selected ? <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'color-mix(in srgb, var(--dawaa-theme-bg) 75%, transparent)' }} onMouseDown={(e) => { if (e.currentTarget === e.target) setSelected(null); }}><div className="dawaa-card max-h-[88vh] w-full max-w-4xl overflow-y-auto"><div className="flex items-start justify-between"><div><h2 className="dawaa-title text-xl">{selected.title}</h2><div className="dawaa-caption mt-1">{selected.author_name || 'النظام'} · {dateLabel(selected.created_at)}</div></div><button onClick={() => setSelected(null)} className="dawaa-button dawaa-button--ghost"><X size={16} /></button></div><div className="mt-4 grid gap-2 sm:grid-cols-3"><Mini label="النوع" value={typeLabels[selected.note_type || 'general'] || selected.note_type} /><Mini label="الحالة" value={isOverdue(selected) ? 'متأخرة' : statusLabels[selected.status || 'new'] || selected.status} /><Mini label="الفرع" value={selected.branch || 'غير محدد'} /><Mini label="العميل" value={selected.customer_name || 'لا يوجد'} /><Mini label="الهاتف" value={selected.customer_phone || 'لا يوجد'} /><Mini label="الفاتورة" value={selected.invoice_no || 'لا يوجد'} /></div>{selected.details ? <div className="dawaa-card dawaa-card--soft mt-4 p-3">{selected.details}</div> : null}<div className="mt-5 grid gap-4 lg:grid-cols-2"><div><h3 className="dawaa-title mb-2">سجل الإجراءات</h3><div className="space-y-2">{logs.length ? logs.map((log) => <div key={log.id} className="dawaa-card dawaa-card--soft p-3 text-sm"><div className="font-bold">{log.action} — {log.actor_name || 'النظام'}</div><div className="dawaa-caption text-xs">{dateLabel(log.created_at)}</div>{log.details ? <div className="mt-1">{log.details}</div> : null}</div>) : <div className="dawaa-caption">لا يوجد سجل.</div>}</div></div><div><h3 className="dawaa-title mb-2">التكرارات</h3><div className="space-y-2">{occurrences.length ? occurrences.map((occ) => <div key={occ.id} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-2 p-3 text-sm"><div><div>{dateLabel(occ.scheduled_time || occ.occurrence_at)}</div>{occ.completion_note ? <div className="dawaa-caption text-xs">{occ.completion_note}</div> : null}</div>{occ.status !== 'completed' ? <button onClick={() => void completeOccurrence(occ)} className="dawaa-button dawaa-button--ghost">تمت</button> : <span className="dawaa-badge dawaa-badge--success">مكتملة</span>}</div>) : <div className="dawaa-caption">لا توجد تكرارات.</div>}</div></div></div></div></div> : null}
+    {selected ? <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'color-mix(in srgb, var(--dawaa-theme-bg) 75%, transparent)' }} onMouseDown={(e) => { if (e.currentTarget === e.target) setSelected(null); }}><div className="dawaa-card max-h-[88vh] w-full max-w-4xl overflow-y-auto"><div className="flex items-start justify-between"><div><h2 className="dawaa-title text-xl">{selected.title}</h2><div className="dawaa-caption mt-1">{selected.author_name || 'النظام'} · {dateLabel(selected.created_at)}</div></div><button onClick={() => setSelected(null)} className="dawaa-button dawaa-button--ghost"><X size={16} /></button></div><div className="mt-4 grid gap-2 sm:grid-cols-3"><Mini label="النوع" value={typeLabels[selected.note_type || 'general'] || selected.note_type} /><Mini label="الحالة" value={isOverdue(selected) ? 'متأخرة' : statusLabels[selected.status || 'new'] || selected.status} /><Mini label="الفرع" value={selected.branch || 'غير محدد'} /><Mini label="العميل" value={selected.customer_name || 'لا يوجد'} /><Mini label="الهاتف" value={selected.customer_phone || 'لا يوجد'} /><Mini label="الفاتورة" value={selected.invoice_no || 'لا يوجد'} /></div>{selected.details ? <div className="dawaa-card dawaa-card--soft mt-4 p-3">{selected.details}</div> : null}<div className="mt-5 grid gap-4 lg:grid-cols-2"><div><h3 className="dawaa-title mb-2">سجل الإجراءات</h3><div className="space-y-2">{logs.length ? logs.map((log) => <div key={log.id} className="dawaa-card dawaa-card--soft p-3 text-sm"><div className="font-bold">{log.action} — {log.actor_name || 'النظام'}</div><div className="dawaa-caption text-xs">{dateLabel(log.created_at)}</div>{log.details ? <div className="mt-1">{log.details}</div> : null}</div>) : <div className="dawaa-caption">لا يوجد سجل.</div>}</div></div><div><h3 className="dawaa-title mb-2">التكرارات</h3><div className="space-y-2">{occurrences.length ? occurrences.map((occ) => <div key={occ.id} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-2 p-3 text-sm"><div><div>{dateLabel(occ.scheduled_time || occ.occurrence_at)}</div>{occ.completion_note ? <div className="dawaa-caption text-xs">{occ.completion_note}</div> : null}</div>{occ.status !== 'completed' && canOperateNote(selected) ? <button onClick={() => void completeOccurrence(occ)} className="dawaa-button dawaa-button--ghost">تمت</button> : occ.status === 'completed' ? <span className="dawaa-badge dawaa-badge--success">مكتملة</span> : null}</div>) : <div className="dawaa-caption">لا توجد تكرارات.</div>}</div></div></div></div></div> : null}
   </div>;
 }
 
