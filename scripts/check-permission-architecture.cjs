@@ -33,6 +33,12 @@ for (const file of walk(SRC)) {
       failures.push(`Parallel role/screen permission map defined in ${rel}`);
     }
   }
+
+  const legacyUserPermissionWrite =
+    /\.from\(\s*(?:TABLES\.userPermissions|['\"]user_permissions['\"])\s*\)[\s\S]{0,500}\.(?:insert|update|upsert|delete)\s*\(/s;
+  if (legacyUserPermissionWrite.test(source)) {
+    failures.push(`Legacy user_permissions write path found in ${rel}; write staff_accounts.permissions only.`);
+  }
 }
 
 const requiredCoreConsumers = [
@@ -79,4 +85,4 @@ if (failures.length) {
 }
 
 console.log(`[permission-architecture] sidebar routes checked: ${sidebarRoutes.size}`);
-console.log('[permission-architecture] PASS: core permission system remains the single decision source.');
+console.log('[permission-architecture] PASS: core permission system remains the single decision and write source.');
