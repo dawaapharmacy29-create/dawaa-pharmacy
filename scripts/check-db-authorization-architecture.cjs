@@ -23,7 +23,8 @@ const branchInspectionRlsPath = path.join(ROOT, 'supabase/migrations/20260823194
 const employeeTransactionRlsPath = path.join(ROOT, 'supabase/migrations/20260823195000_harden_employee_transactions_active_actor_v1.sql');
 const pointsCeilingPath = path.join(ROOT, 'supabase/migrations/20260823200000_align_db_points_permission_ceiling_v1.sql');
 const activityLogRlsPath = path.join(ROOT, 'supabase/migrations/20260823213000_harden_activity_logs_append_only_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, employeeTransactionRlsPath, pointsCeilingPath, activityLogRlsPath]) {
+const coachingNotesRlsPath = path.join(ROOT, 'supabase/migrations/20260823231500_harden_staff_coaching_notes_rls_v1.sql');
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, employeeTransactionRlsPath, pointsCeilingPath, activityLogRlsPath, coachingNotesRlsPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
 }
 
@@ -127,10 +128,27 @@ if (fs.existsSync(activityLogRlsPath)) {
   if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) failures.push('Activity log policies must not use unconditional true authorization.');
 }
 
+if (fs.existsSync(coachingNotesRlsPath)) {
+  const source = fs.readFileSync(coachingNotesRlsPath, 'utf8');
+  if (!source.includes('staff_coaching_notes')) failures.push('Coaching-note hardening must cover staff_coaching_notes.');
+  for (const helper of ['dawaa_current_staff_subject_uuid_v1', 'dawaa_can_read_staff_coaching_note', 'dawaa_current_staff_account_id_strict', 'dawaa_current_actor_can']) {
+    if (!source.includes(helper)) failures.push(`Coaching-note authorization must include ${helper}.`);
+  }
+  for (const permission of ['view_reviews', 'add_reviews', 'edit_reviews', 'approve_reviews']) {
+    if (!source.includes(permission)) failures.push(`Coaching-note authorization must reference ${permission}.`);
+  }
+  for (const role of ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'customer_service_manager', 'shift_supervisor_morning', 'shift_supervisor_evening']) {
+    if (!source.includes(role)) failures.push(`Coaching-note read scope must cover ${role}.`);
+  }
+  if (!source.includes('staff_coaching_notes_anon_all')) failures.push('Coaching-note hardening must explicitly remove the legacy anonymous-all policy.');
+  if (/create\s+policy[\s\S]{0,180}for\s+(update|delete)/i.test(source)) failures.push('Coaching notes must remain append-only until an authorized acknowledgement RPC exists.');
+  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) failures.push('Coaching-note policies must not use unconditional true authorization.');
+}
+
 if (failures.length) {
   console.error('\nDB authorization architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review/points role ceilings, branch inspection authorization, employee transaction authorization, append-only activity audit streams and boolean permission truth remain centralized.');
+console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review/points role ceilings, branch inspection authorization, employee transaction authorization, append-only activity/coaching streams and boolean permission truth remain centralized.');
