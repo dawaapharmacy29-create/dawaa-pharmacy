@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
+import { customerRequestBranchAliases, customerRequestSourceBranch } from '@/lib/customerRequestsBranch';
 
 export type CustomerRequestQuickFilter = 'all' | 'today' | 'recent' | 'attention' | 'followup_due' | 'overdue' | 'urgent' | 'unassigned' | 'unlinked' | 'sync_review' | 'backlog';
 
@@ -85,11 +86,12 @@ export async function getCustomerRequestsPage(options: CustomerRequestPageOption
   const pageSize = Math.min(100, Math.max(10, options.pageSize || 30));
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
+  const branchAliases = customerRequestBranchAliases(options.branch);
 
   let overdueIds: string[] | null = null;
   if ((options.quickFilter || 'all') === 'overdue') {
     const { data, error } = await supabase.rpc('get_customer_request_overdue_ids', {
-      p_branch: options.branch && options.branch !== 'all' ? options.branch : null,
+      p_branch: customerRequestSourceBranch(options.branch),
     });
     if (error) throw new Error(error.message);
     overdueIds = Array.isArray(data) ? (data as string[]) : [];
@@ -119,7 +121,8 @@ export async function getCustomerRequestsPage(options: CustomerRequestPageOption
   }
 
   if (options.status && options.status !== 'all') query = query.eq('status', options.status);
-  if (options.branch && options.branch !== 'all') query = query.eq('branch', options.branch);
+  if (branchAliases.length === 1) query = query.eq('branch', branchAliases[0]);
+  if (branchAliases.length > 1) query = query.in('branch', branchAliases);
   if (options.sourceSystem && options.sourceSystem !== 'all') {
     if (options.sourceSystem === 'manual') query = query.is('source_system', null);
     else query = query.eq('source_system', options.sourceSystem);

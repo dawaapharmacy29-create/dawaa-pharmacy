@@ -9,6 +9,7 @@ import './styles/customer-service-followups.css';
 import './styles/customer-cashback-polish.css';
 import './styles/reviews-modal-polish.css';
 import './styles/doctor-dashboard-hero.css';
+import './styles/customer-requests-polish.css';
 /* Legacy compatibility bridge. New UI must not add selectors here. */
 import './styles/dawaa-theme.css';
 /* Canonical theme system: tokens -> foundation semantics -> palettes -> components -> app shell. */
@@ -124,7 +125,7 @@ const SafeApp = lazy(async () => {
         <AppRecoveryScreen
           reason="app_import_failed"
           title="تعذر تحميل التطبيق"
-          message="فشل التحميل بعد محاولة استرداد تلقائي آمنة. جرّب إصلاح كاش التشغيل؛ لا تحتاج لتسجيل الخروج إلا إذا كانت الجلسة نفسها منتهية."
+          message="فشل التحميل بعد محاولة استرداد تلقائية آمنة. جرّب إصلاح كاش التشغيل؛ لا تحتاج لتسجيل الخروج إلا إذا كانت الجلسة نفسها منتهية."
         />
       ),
     };
