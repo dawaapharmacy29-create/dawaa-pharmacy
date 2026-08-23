@@ -1,5 +1,5 @@
-export { loadShiftMembers } from './shiftMemberLoaderV2';
-export type { ShiftMembersResult } from './shiftMemberLoaderV2';
+export { loadShiftMembers } from './shiftMemberLoader';
+export type { ShiftMembersResult } from './shiftMemberLoader';
 export {
   fetchShiftPerformanceStats,
   saveShiftPerformanceReview,
