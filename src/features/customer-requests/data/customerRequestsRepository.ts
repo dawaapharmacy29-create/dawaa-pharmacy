@@ -15,6 +15,7 @@ export type CustomerRequestQuickFilter =
   | 'recent'
   | 'attention'
   | 'followup_due'
+  | 'ready'
   | 'overdue'
   | 'urgent'
   | 'unassigned'
@@ -43,6 +44,7 @@ export interface CustomerRequestCommandSummary {
   moved_to_shortage: number;
   fulfillment_rate: number;
   avg_fulfillment_hours: number;
+  followup_due?: number;
 }
 
 export interface CustomerRequestPageOptions {
@@ -153,7 +155,19 @@ export async function getCustomerRequestsCommandSummary(branch = 'all') {
     p_branch: branch === 'all' ? null : branch,
   });
   if (error) throw new Error(error.message);
-  return (data || {}) as CustomerRequestCommandSummary;
+
+  const branchAliases = customerRequestBranchAliases(branch);
+  let followupQuery = supabase
+    .from('customer_requests')
+    .select('id', { count: 'exact', head: true })
+    .not('status', 'in', `(${CLOSED.join(',')})`)
+    .not('due_date', 'is', null)
+    .lte('due_date', new Date().toISOString());
+  if (branchAliases.length === 1) followupQuery = followupQuery.eq('branch', branchAliases[0]);
+  if (branchAliases.length > 1) followupQuery = followupQuery.in('branch', branchAliases);
+  const { count: followupCount } = await followupQuery;
+
+  return { ...((data || {}) as CustomerRequestCommandSummary), followup_due: Number(followupCount || 0) };
 }
 
 export async function getCustomerRequestsPage(
@@ -219,6 +233,7 @@ export async function getCustomerRequestsPage(
   if (quick === 'today') query = query.gte('requested_at', startOfTodayIso());
   if (quick === 'recent') query = query.gte('requested_at', daysAgoIso(7));
   if (quick === 'followup_due') query = query.not('status', 'in', `(${CLOSED.join(',')})`).not('due_date', 'is', null).lte('due_date', new Date().toISOString());
+  if (quick === 'ready') query = query.in('status', ['available', 'arrived']);
   if (quick === 'urgent') query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
   if (quick === 'unlinked') query = query.is('customer_id', null);
   if (quick === 'unassigned') query = query.is('purchasing_assignee', null).is('source_assigned_employee', null);
