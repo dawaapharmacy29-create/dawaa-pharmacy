@@ -161,6 +161,12 @@
   color: var(--dawaa-theme-heading);
 }
 
+/* Legacy points modal panel is semantic now, but its title was still authored for dark. */
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  .modal-panel .text-lg.font-bold.text-white {
+  color: var(--dawaa-theme-heading);
+}
+
 /* Customer Service primary workspace choice must be unmistakable in dense screens. */
 .customer-service-page button[aria-pressed='true'] {
   background: var(--dawaa-theme-primary);
