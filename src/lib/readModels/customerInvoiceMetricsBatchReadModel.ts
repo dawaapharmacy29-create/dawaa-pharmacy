@@ -1,5 +1,3 @@
-import { supabase } from '@/lib/supabase';
-
 export type CustomerInvoiceMetricsBatchRow = {
   customerCode: string;
   invoicesCount: number;
@@ -9,44 +7,22 @@ export type CustomerInvoiceMetricsBatchRow = {
   activeMonths: number;
 };
 
-type RpcRow = {
-  customer_code?: unknown;
-  invoices_count?: unknown;
-  total_spent?: unknown;
-  first_purchase?: unknown;
-  last_purchase?: unknown;
-  active_months?: unknown;
-};
-
-function numberValue(value: unknown) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function dateValue(value: unknown) {
-  const text = String(value ?? '').slice(0, 10);
-  return text || null;
-}
-
+/**
+ * Compatibility shim for the legacy customer-list patch path.
+ *
+ * Customer list metrics now come from dawAA_customer_metrics_app_view / customer_metrics_summary,
+ * which is refreshed incrementally from the canonical operational invoice truth on every affected
+ * INSERT/UPDATE/DELETE statement. Re-querying invoice aggregates for every rendered customer page
+ * duplicated database work and, historically, the caller merged values with Math.max(), which could
+ * hide legitimate downward corrections after returns.
+ *
+ * Keep the exported function temporarily so older callers remain source-compatible while returning
+ * no patch rows. The caller therefore keeps the canonical summary values unchanged and performs no
+ * additional network request. Once the large customers API module is split, this shim can be removed
+ * together with its legacy patch function/import.
+ */
 export async function fetchCustomerInvoiceMetricsBatch(
-  customerCodes: string[]
+  _customerCodes: string[]
 ): Promise<CustomerInvoiceMetricsBatchRow[]> {
-  const codes = [
-    ...new Set(customerCodes.map((code) => String(code || '').trim()).filter(Boolean)),
-  ];
-  if (!codes.length) return [];
-
-  const { data, error } = await supabase.rpc('get_customer_invoice_metrics_batch_v1', {
-    p_customer_codes: codes,
-  });
-  if (error) throw error;
-
-  return ((data || []) as RpcRow[]).map((row) => ({
-    customerCode: String(row.customer_code ?? '').trim(),
-    invoicesCount: numberValue(row.invoices_count),
-    totalSpent: numberValue(row.total_spent),
-    firstPurchase: dateValue(row.first_purchase),
-    lastPurchase: dateValue(row.last_purchase),
-    activeMonths: numberValue(row.active_months),
-  }));
+  return [];
 }
