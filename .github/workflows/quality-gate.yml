@@ -64,6 +64,9 @@ jobs:
       - name: Database authorization architecture boundary
         run: node scripts/check-db-authorization-architecture.cjs
 
+      - name: Shift performance architecture boundary
+        run: node scripts/check-shift-performance-architecture.cjs
+
       - name: Attendance identity architecture boundary
         run: node scripts/check-attendance-identity-architecture.cjs
 
