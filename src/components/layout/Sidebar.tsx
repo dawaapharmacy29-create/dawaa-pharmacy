@@ -12,7 +12,6 @@ import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
 import { LOGO_URL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
-import { isDoctorRole } from '@/lib/security/userDataScope';
 import { getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 
 type NavItem = {
@@ -28,6 +27,8 @@ type NavGroup = { title: string; icon: ElementType; items: NavItem[] };
 
 const ENABLE_INTERNAL_DELIVERY_MODULE = false;
 const SHIFT_NOTES_ITEM: NavItem = { path: '/shift-notes', icon: ClipboardList, label: 'ملاحظات الشيفت', permission: 'view_schedule' };
+const QUICK_FOLLOWUP_ITEM: NavItem = { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة سريعة', permission: 'view_customer_service' };
+const CUSTOMER_CODING_ITEM: NavItem = { path: '/customer-coding', icon: UserPlus, label: 'تكويد عميل', permission: 'view_customer_service' };
 
 const GROUPS: NavGroup[] = [
   { title: 'لوحة القيادة', icon: Crown, items: [
@@ -113,7 +114,6 @@ const PHARMACIST_GROUPS: NavGroup[] = [{
     { path: '/points', icon: Star, label: 'النقاط والحافز', permission: 'view_points' },
     { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضاتي على النقاط' },
     { path: '/doctor-dashboard?tab=payroll', icon: WalletCards, label: 'حسابي والقبض', permission: 'view_doctor_dashboard' },
-    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهامي اليومية', excludeRoles: ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening'] },
     { path: '/doctor-dashboard?tab=notifications', icon: BellRing, label: 'إشعاراتي', permission: 'view_doctor_dashboard' },
     { path: '/doctor-dashboard?tab=activity', icon: Activity, label: 'سجل نشاطي', permission: 'view_doctor_dashboard' },
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
@@ -145,7 +145,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const pendingShiftNotes = usePendingShiftNotesCount();
   const role = normalizeRole(user?.role);
   const privileged = isAdmin || ['general_manager','executive_manager','branches_manager'].includes(role);
-  const pharmacistView = isDoctorRole(user) && !checkPermission('view_executive_dashboard');
+  const pharmacistView = ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(role)
+    && !checkPermission('view_executive_dashboard');
 
   const canAccess = (item: NavItem) => {
     if (item.adminOnly && !privileged) return false;
@@ -159,13 +160,20 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
       if (!allowedByItem) return false;
     }
 
-    // The route guard is the final source of truth. A navigation item must never be
-    // visible when clicking it would immediately produce "ليس لديك صلاحية".
+    // Route guard and sidebar must agree. Never show a link that the route itself
+    // will reject immediately with a permission error.
     const routePermissions = getRoutePermissions(basePath(item.path));
     if (routePermissions?.length && !routePermissions.some(checkPermission)) return false;
 
     return true;
   };
+
+  const canQuickFollowup = pharmacistView
+    ? checkPermission('view_doctor_dashboard')
+    : canAccess(QUICK_FOLLOWUP_ITEM);
+  const canQuickCoding = canAccess(CUSTOMER_CODING_ITEM);
+  const quickFollowupPath = pharmacistView ? '/doctor-dashboard?tab=followups' : QUICK_FOLLOWUP_ITEM.path;
+
   const groups = useMemo(() => (pharmacistView ? PHARMACIST_GROUPS : GROUPS)
     .filter((group) => group.title !== 'الدليفري' || ENABLE_INTERNAL_DELIVERY_MODULE)
     .map((group) => ({ ...group, items: group.items.filter(canAccess) }))
@@ -186,7 +194,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const content = <div className="flex h-full flex-col">
     <div className={cn('dawaa-sidebar-divider flex items-center gap-3 border-b p-4', collapsed && 'justify-center')}><div className="logo-tile flex h-10 w-10 items-center justify-center rounded-xl"><img src={LOGO_URL} alt="Dawaa Pharmacy 2027" className="h-8 w-8 object-contain" /></div>{!collapsed ? <div className="min-w-0"><div className="dawaa-sidebar-title text-sm font-bold">Dawaa Pharmacy 2027</div><div className="dawaa-sidebar-brand truncate text-xs">نظام تشغيل الصيدلية الذكي</div></div> : null}<button onClick={onToggle} className="dawaa-sidebar-muted mr-auto hidden rounded-lg p-1.5 lg:flex"><ChevronLeft className={collapsed ? 'rotate-180' : ''} /></button></div>
     <div className="dawaa-sidebar-divider border-b p-3"><div className="dawaa-sidebar-user-card rounded-xl p-2.5 text-xs"><div className="dawaa-sidebar-title font-semibold">{user?.name}</div>{!collapsed ? <div className="dawaa-sidebar-muted">{user?.role} - {user?.branch}</div> : null}</div></div>
-    {!collapsed ? <div className="px-3 py-2"><div className="flex gap-2"><button onClick={() => go(pharmacistView ? '/doctor-dashboard?tab=followups' : '/customer-service?quickFollowup=1')} className="dawaa-sidebar-quick flex-1 rounded-lg px-3 py-2 text-xs font-bold">متابعة سريعة</button><button onClick={() => go('/customer-coding')} className="dawaa-sidebar-quick dawaa-sidebar-quick--secondary flex-1 rounded-lg px-3 py-2 text-xs font-bold">تكويد عميل</button></div></div> : null}
+    {!collapsed && (canQuickFollowup || canQuickCoding) ? <div className="px-3 py-2"><div className="flex gap-2">{canQuickFollowup ? <button onClick={() => go(quickFollowupPath)} className="dawaa-sidebar-quick flex-1 rounded-lg px-3 py-2 text-xs font-bold">متابعة سريعة</button> : null}{canQuickCoding ? <button onClick={() => go(CUSTOMER_CODING_ITEM.path)} className="dawaa-sidebar-quick dawaa-sidebar-quick--secondary flex-1 rounded-lg px-3 py-2 text-xs font-bold">تكويد عميل</button> : null}</div></div> : null}
     {canAccess(SHIFT_NOTES_ITEM) ? <button onClick={() => go(SHIFT_NOTES_ITEM.path)} className="nav-item nav-item-inactive mx-3 my-2"><ClipboardList size={18} />{!collapsed ? <span className="flex w-full justify-between">ملاحظات الشيفت{pendingShiftNotes ? <b className="dawaa-sidebar-count rounded-full px-2">{pendingShiftNotes}</b> : null}</span> : null}</button> : null}
     <nav className="flex-1 space-y-2 overflow-y-auto p-3">{groups.map((group) => { const active = group.items.some((item) => activeItem(item.path, location.pathname, location.search)); const expanded = collapsed || expandedGroups[group.title] || active; return <div key={group.title} className="space-y-1">{!collapsed ? <button type="button" onClick={() => setExpandedGroups((value) => ({...value,[group.title]:!value[group.title]}))} className={cn('dawaa-sidebar-group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold', active && 'is-active')}><group.icon size={15} /><span className="flex-1 text-right">{group.title}</span><ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></button> : null}{expanded ? <div className={cn('space-y-0.5', !collapsed && 'pr-2')}>{group.items.map((item) => { const itemActive = activeItem(item.path, location.pathname, location.search); const sections = getVisibleSectionsForPath(basePath(item.path), checkPermission); return <div key={`${item.path}-${item.label}`}><NavLink to={item.path} onClick={(event) => { if (guard?.hasActiveDirtyGuard()) { event.preventDefault(); guard.requestNavigation(item.path); } onMobileClose(); }} className={cn('nav-item', itemActive ? 'nav-item-active' : 'nav-item-inactive', collapsed && 'justify-center px-2')}><item.icon size={18} />{!collapsed ? <span>{item.label}</span> : null}</NavLink>{!collapsed && itemActive && sections.length ? <div className="dawaa-sidebar-section-label mr-8 border-r pr-3">{sections.map((section) => <div key={section.key} className="px-2 py-1 text-[11px]">{section.label}</div>)}</div> : null}</div>;})}</div> : null}</div>;})}</nav>
     <div className="dawaa-sidebar-divider border-t p-3"><button onClick={() => { logout(); navigate('/login'); }} className="nav-item nav-item-inactive dawaa-sidebar-logout w-full"><LogOut size={18} />{!collapsed ? 'تسجيل الخروج' : null}</button></div>
