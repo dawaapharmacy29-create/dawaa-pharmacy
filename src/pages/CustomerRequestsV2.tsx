@@ -3,13 +3,24 @@ import { BarChart3, Boxes, DatabaseZap, ListChecks, ShieldAlert, UsersRound } fr
 import { Link } from 'react-router-dom';
 import CustomerRequestInsightsPanel from '@/components/customer-requests/CustomerRequestInsightsPanel';
 import CustomerRequestQualityCenter from '@/components/customer-requests/CustomerRequestQualityCenter';
+import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { CustomerRequestsWorkspace } from '@/features/customer-requests';
 
 type Tab = 'operations' | 'analytics' | 'quality';
 
+function openOperations(params: URLSearchParams) {
+  window.location.href = `/customer-requests${params.toString() ? `?${params.toString()}` : ''}`;
+}
+
 export default function CustomerRequestsV2() {
   const [tab, setTab] = useState<Tab>('operations');
   const [analyticsBranch, setAnalyticsBranch] = useState('all');
+
+  const openRequest = (request: CustomerRequest) => {
+    const params = new URLSearchParams();
+    params.set('requestId', request.id);
+    openOperations(params);
+  };
 
   return (
     <div className="mx-auto w-full max-w-[1680px] space-y-4 pb-10" dir="rtl">
@@ -48,13 +59,13 @@ export default function CustomerRequestsV2() {
               if (action.customerName) params.set('customerName', action.customerName);
               if (action.productCode) params.set('productCode', action.productCode);
               if (action.medicineName) params.set('medicineName', action.medicineName);
-              window.location.href = `/customer-requests?${params.toString()}`;
+              openOperations(params);
             }}
           />
         </div>
       ) : null}
 
-      {tab === 'quality' ? <CustomerRequestQualityCenter branch={analyticsBranch} /> : null}
+      {tab === 'quality' ? <CustomerRequestQualityCenter branch={analyticsBranch} onOpenRequest={openRequest} /> : null}
     </div>
   );
 }
