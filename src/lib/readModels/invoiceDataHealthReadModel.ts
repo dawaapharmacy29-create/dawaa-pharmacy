@@ -10,55 +10,31 @@ export type InvoiceDataHealthSnapshot = {
   withoutClassificationIds: string[];
 };
 
-const SAMPLE_LIMIT = 100;
+type HealthPayload = Partial<InvoiceDataHealthSnapshot>;
 
-function ids(rows: Array<{ id?: string | null }> | null | undefined) {
-  return (rows || []).map((row) => String(row.id || '')).filter(Boolean);
+function stringIds(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item || '')).filter(Boolean) : [];
 }
 
 /**
  * Transactional invoice data-health boundary.
  *
- * Counts are exact PostgreSQL counts while IDs are intentionally bounded samples for diagnostics.
- * Feature/report services must not download every unhealthy invoice merely to render counters.
+ * The database RPC owns exact counts and bounded samples. This avoids direct
+ * schema-sensitive REST checks against sales_invoices and prevents full-table
+ * diagnostic scans from blocking operational pages.
  */
 export async function readInvoiceDataHealth(): Promise<InvoiceDataHealthSnapshot> {
-  const [total, withoutDoctor, withoutCustomer, withoutClassification] = await Promise.all([
-    supabase.from('sales_invoices').select('id', { count: 'exact', head: true }),
-    supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact' })
-      .is('doctor_name', null)
-      .is('staff_name', null)
-      .is('seller_name', null)
-      .limit(SAMPLE_LIMIT),
-    supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact' })
-      .is('customer_name', null)
-      .is('customer_code', null)
-      .is('customer_id', null)
-      .limit(SAMPLE_LIMIT),
-    supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact' })
-      .is('customer_segment', null)
-      .is('customer_type', null)
-      .limit(SAMPLE_LIMIT),
-  ]);
+  const { data, error } = await supabase.rpc('get_invoice_data_health_v1');
+  if (error) throw error;
 
-  if (total.error) throw total.error;
-  if (withoutDoctor.error) throw withoutDoctor.error;
-  if (withoutCustomer.error) throw withoutCustomer.error;
-  if (withoutClassification.error) throw withoutClassification.error;
-
+  const payload = (data || {}) as HealthPayload;
   return {
-    totalInvoices: Number(total.count || 0),
-    withoutDoctorCount: Number(withoutDoctor.count || 0),
-    withoutDoctorIds: ids(withoutDoctor.data),
-    withoutCustomerCount: Number(withoutCustomer.count || 0),
-    withoutCustomerIds: ids(withoutCustomer.data),
-    withoutClassificationCount: Number(withoutClassification.count || 0),
-    withoutClassificationIds: ids(withoutClassification.data),
+    totalInvoices: Number(payload.totalInvoices || 0),
+    withoutDoctorCount: Number(payload.withoutDoctorCount || 0),
+    withoutDoctorIds: stringIds(payload.withoutDoctorIds),
+    withoutCustomerCount: Number(payload.withoutCustomerCount || 0),
+    withoutCustomerIds: stringIds(payload.withoutCustomerIds),
+    withoutClassificationCount: Number(payload.withoutClassificationCount || 0),
+    withoutClassificationIds: stringIds(payload.withoutClassificationIds),
   };
 }
