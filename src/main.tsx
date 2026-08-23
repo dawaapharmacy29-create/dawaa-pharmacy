@@ -18,9 +18,11 @@ import './styles/dawaa-theme-components.css';
 import './styles/dawaa-theme-shell.css';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
 import { ThemeProvider } from '@/contexts/ThemeContext';
-import { clearRecoveredRuntimeError, logRuntimeError } from '@/lib/appRecovery';
+import { clearRecoveredRuntimeError, logRuntimeError, startRecoveryCleanup } from '@/lib/appRecovery';
 
 const APP_IMPORT_TIMEOUT_MS = 25000;
+const STALE_CHUNK_RECOVERY_KEY = 'dawaa_stale_chunk_reload_at';
+const STALE_CHUNK_RECOVERY_COOLDOWN_MS = 60_000;
 
 declare global {
   interface Window {
@@ -79,6 +81,22 @@ function isStaleChunkImportError(error: unknown) {
   return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
 }
 
+async function recoverFromStaleChunkOnce() {
+  try {
+    const last = Number(sessionStorage.getItem(STALE_CHUNK_RECOVERY_KEY) || 0);
+    if (Date.now() - last <= STALE_CHUNK_RECOVERY_COOLDOWN_MS) return false;
+    sessionStorage.setItem(STALE_CHUNK_RECOVERY_KEY, String(Date.now()));
+  } catch {
+    // If sessionStorage is unavailable, still attempt one cache-clean reload for this execution.
+  }
+
+  await startRecoveryCleanup();
+  const url = new URL(window.location.href);
+  url.searchParams.set('_r', Date.now().toString());
+  window.location.replace(url.toString());
+  return true;
+}
+
 const SafeApp = lazy(async () => {
   console.info('[Dawaa bootstrap] start');
   try {
@@ -86,20 +104,14 @@ const SafeApp = lazy(async () => {
     console.info('[Dawaa bootstrap] App imported');
     window.__DAWAA_REACT_BOOTSTRAPPED = true;
     clearRecoveredRuntimeError();
-    try { sessionStorage.removeItem('dawaa_stale_chunk_reload_at'); } catch { /* ignore storage failures */ }
+    try { sessionStorage.removeItem(STALE_CHUNK_RECOVERY_KEY); } catch { /* ignore storage failures */ }
     return normalizeDefault(module);
   } catch (error) {
     console.error('[Dawaa bootstrap] App import failed', error);
     logRuntimeError('bootstrap App import failed', error);
     if (isStaleChunkImportError(error)) {
-      const key = 'dawaa_stale_chunk_reload_at';
-      const last = Number(sessionStorage.getItem(key) || 0);
-      if (Date.now() - last > 15000) {
-        sessionStorage.setItem(key, String(Date.now()));
-        window.location.href = window.location.pathname + window.location.search
-          + (window.location.search ? '&' : '?') + '_r=' + Date.now() + window.location.hash;
-        return { default: BootstrapShell };
-      }
+      const recovering = await recoverFromStaleChunkOnce();
+      if (recovering) return { default: BootstrapShell };
     }
     const rescueRoute = await loadRescueRoute().catch((rescueError) => {
       logRuntimeError('bootstrap rescue route failed', rescueError);
@@ -111,7 +123,7 @@ const SafeApp = lazy(async () => {
         <AppRecoveryScreen
           reason="app_import_failed"
           title="تعذر تحميل التطبيق"
-          message="فشل تحميل ملفات التطبيق الأساسية. افتح تسجيل الدخول أو التشخيص، ويمكن تشغيل التنظيف في الخلفية بدون انتظار."
+          message="فشل التحميل بعد محاولة استرداد تلقائي آمنة. جرّب إصلاح كاش التشغيل؛ لا تحتاج لتسجيل الخروج إلا إذا كانت الجلسة نفسها منتهية."
         />
       ),
     };
