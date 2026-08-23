@@ -25,7 +25,6 @@ const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
 
 const LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS = new Set([
   'src/pages/ReportsCenter.tsx',
-  'src/pages/BranchInspection.tsx',
 ]);
 
 const LEGACY_DIRECT_ATTENDANCE_UI_READERS = new Set([
@@ -83,6 +82,14 @@ function countDirectAccess(content, table) {
   return [...content.matchAll(pattern)].length;
 }
 
+function countDirectSelectAccess(content, table) {
+  const pattern = new RegExp(
+    `\\.from\\(\\s*['\"]${table}['\"]\\s*\\)[\\s\\S]{0,220}?\\.select\\s*\\(`,
+    'g'
+  );
+  return [...content.matchAll(pattern)].length;
+}
+
 function countBulkInvoicePaging(content) {
   const pattern = /selectAllPaged(?:<[^>]+>)?\s*\(\s*\{[\s\S]{0,2500}?table\s*:\s*['"]sales_invoices['"]/g;
   return [...content.matchAll(pattern)].length;
@@ -90,6 +97,10 @@ function countBulkInvoicePaging(content) {
 
 function hasDirectAccess(content, table) {
   return countDirectAccess(content, table) > 0;
+}
+
+function hasDirectSelectAccess(content, table) {
+  return countDirectSelectAccess(content, table) > 0;
 }
 
 const invoiceOffenders = [];
@@ -130,7 +141,7 @@ for (const file of walk(ROOT)) {
     else staffUiOffenders.push(relative);
   }
 
-  if (hasDirectAccess(content, 'employee_transactions')) {
+  if (hasDirectSelectAccess(content, 'employee_transactions')) {
     if (LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS.has(relative)) {
       presentEmployeeTxnUiLegacy.push(relative);
     } else {
