@@ -1,3 +1,4 @@
+import { fetchAttendanceReportRows } from '@/lib/attendance/attendanceReportRows';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { filterActiveStaffRows } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices } from '@/lib/staffFallback';
@@ -77,14 +78,11 @@ export async function loadShiftMembers(params: {
         .eq('date', params.date)
         .limit(200)
     ),
-    readRows(
-      supabase
-        .from('attendance')
-        .select('*')
-        .eq('branch', branch)
-        .or(`attendance_date.eq.${params.date},date.eq.${params.date}`)
-        .limit(200)
-    ),
+    fetchAttendanceReportRows({
+      startDate: params.date,
+      endDate: params.date,
+      branchFilter: branch,
+    }).then((rows) => rows as Row[]),
   ]);
 
   const staffChoices = mergeStaffChoices(
@@ -136,12 +134,14 @@ export async function loadShiftMembers(params: {
 
   const attendanceByName = new Map<string, Row>();
   const attendanceById = new Map<string, Row>();
-  attendanceRows.forEach((row) => {
-    const name = rowName(row);
-    const id = rowStaffId(row);
-    if (name) attendanceByName.set(name, row);
-    if (id) attendanceById.set(id, row);
-  });
+  attendanceRows
+    .filter((row) => !/rejected|manual_review/i.test(String(row.status || '')))
+    .forEach((row) => {
+      const name = rowName(row);
+      const id = rowStaffId(row);
+      if (name) attendanceByName.set(name, row);
+      if (id) attendanceById.set(id, row);
+    });
 
   const members = candidates
     .map((staff) => {
@@ -182,7 +182,7 @@ export async function loadShiftMembers(params: {
     members,
     hasEnoughData: branchSchedules.length > 0,
     message: branchSchedules.length
-      ? 'تم تحديد أعضاء الشيفت من جدول الفرع واليوم فقط مع مراعاة الإجازات والحضور.'
+      ? 'تم تحديد أعضاء الشيفت من جدول الفرع واليوم فقط مع مراعاة الإجازات والحضور الموحد.'
       : 'لا توجد بيانات جدول كافية لهذا الفرع واليوم، يمكنك اختيار الأعضاء يدويًا.',
   };
 }
