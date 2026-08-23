@@ -22,7 +22,8 @@ const managerReviewRlsPath = path.join(ROOT, 'supabase/migrations/20260823192200
 const branchInspectionRlsPath = path.join(ROOT, 'supabase/migrations/20260823194000_harden_branch_inspection_authorization_v1.sql');
 const employeeTransactionRlsPath = path.join(ROOT, 'supabase/migrations/20260823195000_harden_employee_transactions_active_actor_v1.sql');
 const pointsCeilingPath = path.join(ROOT, 'supabase/migrations/20260823200000_align_db_points_permission_ceiling_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, employeeTransactionRlsPath, pointsCeilingPath]) {
+const activityLogRlsPath = path.join(ROOT, 'supabase/migrations/20260823213000_harden_activity_logs_append_only_v1.sql');
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, employeeTransactionRlsPath, pointsCeilingPath, activityLogRlsPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
 }
 
@@ -112,10 +113,24 @@ if (fs.existsSync(pointsCeilingPath)) {
   if (/\bstaff_role\b/.test(source) || /\bis_active\b/.test(source)) failures.push('DB points ceiling must use canonical role and active/can_login only.');
 }
 
+if (fs.existsSync(activityLogRlsPath)) {
+  const source = fs.readFileSync(activityLogRlsPath, 'utf8');
+  for (const table of ['activity_log', 'activity_logs']) {
+    if (!source.includes(table)) failures.push(`Activity log hardening must cover ${table}.`);
+  }
+  if (!source.includes('dawaa_current_actor_can')) failures.push('Activity log reads must use canonical permission authorization.');
+  for (const permission of ['view_activity_log', 'view_activity_logs']) {
+    if (!source.includes(permission)) failures.push(`Activity log reads must reference ${permission}.`);
+  }
+  if (!source.includes('dawaa_current_staff_account_id_strict')) failures.push('Activity log inserts must require a canonical active staff actor.');
+  if (/for\s+update/i.test(source) || /for\s+delete/i.test(source)) failures.push('Activity logs must remain append-only for client access.');
+  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) failures.push('Activity log policies must not use unconditional true authorization.');
+}
+
 if (failures.length) {
   console.error('\nDB authorization architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review/points role ceilings, branch inspection authorization, employee transaction active-actor writes and boolean permission truth remain centralized.');
+console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review/points role ceilings, branch inspection authorization, employee transaction authorization, append-only activity audit streams and boolean permission truth remain centralized.');
