@@ -8,6 +8,7 @@ import './styles/v3-polish.css';
 import './styles/customer-service-followups.css';
 import './styles/customer-cashback-polish.css';
 import './styles/reviews-modal-polish.css';
+import './styles/doctor-dashboard-hero.css';
 /* Legacy compatibility bridge. New UI must not add selectors here. */
 import './styles/dawaa-theme.css';
 /* Canonical theme system: tokens -> foundation semantics -> palettes -> components -> app shell. */
