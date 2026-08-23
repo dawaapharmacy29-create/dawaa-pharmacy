@@ -86,13 +86,16 @@ export function PageSectionsPreview({ path }: { path: string }) {
     <div
       className="mb-4 rounded-2xl border p-3 shadow-sm"
       style={{
-        borderColor: 'var(--dawaa-theme-border)',
+        borderColor: 'var(--dawaa-theme-border-strong)',
         background: 'var(--dawaa-theme-surface-raised)',
         color: 'var(--dawaa-theme-text)',
       }}
       dir="rtl"
     >
-      <div className="mb-2 flex items-center justify-between gap-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+      <div
+        className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs font-black"
+        style={{ color: 'var(--dawaa-theme-heading)' }}
+      >
         <span>الأقسام المتاحة لحسابك داخل هذه الصفحة</span>
         <PermissionScopeBadge />
       </div>
@@ -100,7 +103,7 @@ export function PageSectionsPreview({ path }: { path: string }) {
         {sections.map((section) => (
           <span
             key={section.key}
-            className="rounded-full border px-3 py-1 text-xs font-black"
+            className="rounded-full border px-3 py-1 text-xs font-black shadow-sm"
             style={{
               borderColor: 'var(--dawaa-theme-accent-border)',
               background: 'var(--dawaa-theme-accent-soft)',
