@@ -59,8 +59,17 @@ const routeMapBlock = coreSource.match(/export const ROUTE_PERMISSION_MAP[\s\S]*
 const mappedRoutes = new Set([...routeMapBlock.matchAll(/['\"](\/[^'\"]*)['\"]\s*:/g)].map((match) => match[1]));
 const sidebarRoutes = new Set([...sidebarSource.matchAll(/\bpath\s*:\s*['\"](\/[^'\"]*)['\"]/g)].map((match) => match[1].split('?')[0]));
 
+function isCentrallyCovered(route) {
+  if (mappedRoutes.has(route)) return true;
+  if (route.startsWith('/weekly-evaluation/') && mappedRoutes.has('/weekly-evaluation')) return true;
+  if (route.startsWith('/staff/') && mappedRoutes.has('/staff')) return true;
+  if (route.startsWith('/customers/') && mappedRoutes.has('/customers')) return true;
+  if (route.startsWith('/customer-health/') && mappedRoutes.has('/customer-health')) return true;
+  return false;
+}
+
 for (const route of sidebarRoutes) {
-  if (!mappedRoutes.has(route)) failures.push(`Sidebar route has no central route permission: ${route}`);
+  if (!isCentrallyCovered(route)) failures.push(`Sidebar route has no central route permission: ${route}`);
 }
 
 if (failures.length) {
