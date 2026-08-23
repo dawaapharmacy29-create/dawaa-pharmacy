@@ -18,7 +18,8 @@ const authMigrationPath = path.join(ROOT, 'supabase/migrations/20260823184000_ha
 const targetMigrationPath = path.join(ROOT, 'supabase/migrations/20260823184100_harden_branch_target_authorization_v1.sql');
 const activeWorkflowRlsPath = path.join(ROOT, 'supabase/migrations/20260823191500_harden_active_reviews_and_shift_notes_rls_v1.sql');
 const reviewCeilingPath = path.join(ROOT, 'supabase/migrations/20260823191800_align_db_review_permission_ceiling_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath]) {
+const managerReviewRlsPath = path.join(ROOT, 'supabase/migrations/20260823192200_harden_customer_service_manager_reviews_rls_v1.sql');
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
 }
 
@@ -66,6 +67,17 @@ if (fs.existsSync(reviewCeilingPath)) {
   }
   if (/\bstaff_role\b/.test(source) || /\bis_active\b/.test(source)) {
     failures.push('DB review ceiling must use canonical role and active/can_login only.');
+  }
+}
+
+if (fs.existsSync(managerReviewRlsPath)) {
+  const source = fs.readFileSync(managerReviewRlsPath, 'utf8');
+  if (!source.includes('customer_service_manager_reviews')) failures.push('Manager review RLS migration must cover customer_service_manager_reviews.');
+  if (!source.includes('view_reviews') || !source.includes('approve_reviews')) {
+    failures.push('Manager review RLS must use view_reviews for reads and approve_reviews for writes.');
+  }
+  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) {
+    failures.push('Manager review RLS must not use unconditional true policies.');
   }
 }
 
