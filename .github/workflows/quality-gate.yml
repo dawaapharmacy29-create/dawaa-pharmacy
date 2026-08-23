@@ -58,6 +58,9 @@ jobs:
       - name: Permission architecture boundary
         run: node scripts/check-permission-architecture.cjs
 
+      - name: Action permission architecture boundary
+        run: node scripts/check-action-permission-boundaries.cjs
+
       - name: Database authorization architecture boundary
         run: node scripts/check-db-authorization-architecture.cjs
 
