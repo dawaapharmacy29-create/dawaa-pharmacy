@@ -118,23 +118,42 @@ if (!fs.existsSync(legacyReadOnlyPath)) {
   }
 }
 
-function scanLegacyAttendanceWrites(dir) {
+const legacyAttendanceReaders = new Set();
+const allowedLegacyAttendanceReaders = new Set([
+  'src/lib/readModels/attendanceReadModel.ts',
+  'src/lib/attendance/attendanceReportRows.ts',
+  // Temporary debt: this page still duplicates the monthly evidence queries and should be
+  // migrated to employeeMonthlyEvidenceService before removing the legacy table entirely.
+  'src/pages/StaffMonthlyEvaluation.tsx',
+]);
+
+function scanLegacyAttendanceAccess(dir) {
   if (!fs.existsSync(dir)) return;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      scanLegacyAttendanceWrites(full);
+      scanLegacyAttendanceAccess(full);
       continue;
     }
     if (!/\.(?:ts|tsx|js|jsx)$/.test(entry.name)) continue;
     const source = fs.readFileSync(full, 'utf8');
+    const relative = path.relative(ROOT, full).replaceAll('\\', '/');
+    const accessPattern = /\.from\(\s*['"]attendance['"]\s*\)/g;
     const writePattern = /\.from\(\s*['"]attendance['"]\s*\)[\s\S]{0,300}\.(?:insert|update|upsert|delete)\s*\(/g;
+
+    if (accessPattern.test(source)) legacyAttendanceReaders.add(relative);
     if (writePattern.test(source)) {
-      failures.push(`Legacy attendance table must remain read-only in app source: ${path.relative(ROOT, full)}.`);
+      failures.push(`Legacy attendance table must remain read-only in app source: ${relative}.`);
     }
   }
 }
-scanLegacyAttendanceWrites(path.join(ROOT, 'src'));
+scanLegacyAttendanceAccess(path.join(ROOT, 'src'));
+
+for (const reader of legacyAttendanceReaders) {
+  if (!allowedLegacyAttendanceReaders.has(reader)) {
+    failures.push(`New direct legacy attendance reader is not allowed: ${reader}. Use a canonical attendance read model.`);
+  }
+}
 
 if (failures.length) {
   console.error('\nAttendance identity architecture check failed:');
@@ -142,4 +161,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-identity-architecture] PASS: modern attendance uses canonical scoped append-only storage, and legacy attendance remains a read-only compatibility source.');
+console.log(`[attendance-identity-architecture] PASS: modern attendance uses canonical scoped append-only storage; legacy attendance is read-only and limited to ${legacyAttendanceReaders.size} approved compatibility readers.`);
