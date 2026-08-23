@@ -67,6 +67,9 @@ jobs:
       - name: Employee transaction write boundary
         run: node scripts/check-employee-transaction-write-boundary.cjs
 
+      - name: Employee transaction source authorization
+        run: node scripts/check-employee-transaction-source-authorization.cjs
+
       - name: Theme architecture boundary
         run: node scripts/check-theme-architecture.cjs
 
