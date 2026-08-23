@@ -15,6 +15,10 @@ const rlsPath = path.join(
   ROOT,
   'supabase/migrations/20260823225200_harden_staff_attendance_logs_rls_v1.sql'
 );
+const legacyReadOnlyPath = path.join(
+  ROOT,
+  'supabase/migrations/20260823230000_retire_legacy_attendance_client_writes_v1.sql'
+);
 const failures = [];
 
 if (!fs.existsSync(migrationPath)) {
@@ -102,10 +106,40 @@ if (!fs.existsSync(rlsPath)) {
   }
 }
 
+if (!fs.existsSync(legacyReadOnlyPath)) {
+  failures.push('Missing legacy attendance read-only migration.');
+} else {
+  const source = fs.readFileSync(legacyReadOnlyPath, 'utf8');
+  for (const policy of ['attendance_auth_insert', 'attendance_insert_app', 'attendance_auth_update', 'attendance_update_app']) {
+    if (!source.includes(policy)) failures.push(`Legacy attendance retirement must drop ${policy}.`);
+  }
+  if (/create\s+policy/i.test(source)) {
+    failures.push('Legacy attendance retirement must not create new client write policies.');
+  }
+}
+
+function scanLegacyAttendanceWrites(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      scanLegacyAttendanceWrites(full);
+      continue;
+    }
+    if (!/\.(?:ts|tsx|js|jsx)$/.test(entry.name)) continue;
+    const source = fs.readFileSync(full, 'utf8');
+    const writePattern = /\.from\(\s*['"]attendance['"]\s*\)[\s\S]{0,300}\.(?:insert|update|upsert|delete)\s*\(/g;
+    if (writePattern.test(source)) {
+      failures.push(`Legacy attendance table must remain read-only in app source: ${path.relative(ROOT, full)}.`);
+    }
+  }
+}
+scanLegacyAttendanceWrites(path.join(ROOT, 'src'));
+
 if (failures.length) {
   console.error('\nAttendance identity architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[attendance-identity-architecture] PASS: attendance identities are canonical, deterministic historical repairs are guarded, and modern attendance logs use scoped append-only RLS.');
+console.log('[attendance-identity-architecture] PASS: modern attendance uses canonical scoped append-only storage, and legacy attendance remains a read-only compatibility source.');
