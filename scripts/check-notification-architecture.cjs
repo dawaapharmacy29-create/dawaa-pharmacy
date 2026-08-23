@@ -12,6 +12,11 @@ const ALLOWED_DIRECT_WRITERS = new Set([
   'src/pages/MedicineExpiryTracker.tsx',
   'src/pages/StaffMonthlyEvaluation.tsx',
 ]);
+const TRANSITIONAL_DIRECT_WRITERS = new Set([
+  'src/lib/api/shiftPerformanceReviewService.ts',
+  'src/pages/MedicineExpiryTracker.tsx',
+  'src/pages/StaffMonthlyEvaluation.tsx',
+]);
 
 function walk(dir) {
   const out = [];
@@ -25,11 +30,15 @@ function walk(dir) {
 }
 
 const directWriters = [];
+const writerSources = new Map();
 const rawRouteMaps = [];
 for (const file of walk(SRC)) {
   const rel = path.relative(ROOT, file).replace(/\\/g, '/');
   const source = fs.readFileSync(file, 'utf8');
-  if (/\.from\(['"]notifications['"]\)\s*\.insert\s*\(/s.test(source)) directWriters.push(rel);
+  if (/\.from\(['"]notifications['"]\)\s*\.insert\s*\(/s.test(source)) {
+    directWriters.push(rel);
+    writerSources.set(rel, source);
+  }
   if (rel !== 'src/hooks/useNotifications.ts' && /notificationRoute\s*\(|routes\s*:\s*Record<.*notification/si.test(source)) rawRouteMaps.push(rel);
 }
 
@@ -38,6 +47,17 @@ const staleAllowlist = [...ALLOWED_DIRECT_WRITERS].filter((file) => !directWrite
 const failures = [];
 if (unexpected.length) failures.push(`New direct notification writer(s): ${unexpected.join(', ')}`);
 if (staleAllowlist.length) failures.push(`Notification writer debt decreased; remove stale allowlist entry(s): ${staleAllowlist.join(', ')}`);
+
+for (const rel of TRANSITIONAL_DIRECT_WRITERS) {
+  const source = writerSources.get(rel);
+  if (!source) continue;
+  if (!/\btype\s*:\s*['"`][^'"`]+['"`]/s.test(source)) {
+    failures.push(`Transitional notification writer must set a non-empty type: ${rel}`);
+  }
+  if (/\btype\s*:\s*(?:null|undefined)\b/s.test(source)) {
+    failures.push(`Transitional notification writer must not write a null type: ${rel}`);
+  }
+}
 
 for (const required of [
   'src/lib/notifications/notificationDomain.ts',
@@ -55,4 +75,4 @@ if (failures.length) {
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[notification-architecture] PASS: no new direct notification writer was introduced.');
+console.log('[notification-architecture] PASS: direct writers did not expand and transitional writers declare a notification type.');
