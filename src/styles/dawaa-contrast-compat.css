@@ -1,0 +1,97 @@
+/*
+ * Temporary contrast compatibility for legacy Tailwind color utilities.
+ *
+ * The canonical palette remains owned by daw aa-theme-palettes.css. This layer owns
+ * no color values: it only maps old light-on-dark utility choices to semantic theme
+ * tokens when the application is running in a non-dark theme.
+ *
+ * Delete selectors as the remaining legacy consumers migrate to semantic classes.
+ */
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='text-teal-100'], [class*='text-teal-200'], [class*='text-teal-300'], [class*='text-cyan-100'], [class*='text-cyan-200'], [class*='text-cyan-300']) {
+  color: var(--dawaa-theme-primary-strong);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-teal-500/10'], [class*='bg-cyan-500/10'], [class*='bg-teal-500/20'], [class*='bg-cyan-500/20']) {
+  background-color: var(--dawaa-theme-accent-soft);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='border-teal-'], [class*='border-cyan-']) {
+  border-color: var(--dawaa-theme-accent-border);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='text-emerald-100'], [class*='text-emerald-200'], [class*='text-green-100'], [class*='text-green-200']) {
+  color: var(--dawaa-status-success-text);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-emerald-500/10'], [class*='bg-green-500/10'], [class*='bg-emerald-500/20'], [class*='bg-green-500/20']) {
+  background-color: var(--dawaa-status-success-bg);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='border-emerald-'], [class*='border-green-']) {
+  border-color: var(--dawaa-status-success-border);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='text-amber-100'], [class*='text-amber-200'], [class*='text-yellow-100'], [class*='text-yellow-200']) {
+  color: var(--dawaa-status-warning-text);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-amber-500/10'], [class*='bg-yellow-500/10'], [class*='bg-amber-500/20'], [class*='bg-yellow-500/20']) {
+  background-color: var(--dawaa-status-warning-bg);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='border-amber-'], [class*='border-yellow-']) {
+  border-color: var(--dawaa-status-warning-border);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='text-red-100'], [class*='text-red-200'], [class*='text-rose-100'], [class*='text-rose-200']) {
+  color: var(--dawaa-status-danger-text);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-red-500/10'], [class*='bg-rose-500/10'], [class*='bg-red-500/20'], [class*='bg-rose-500/20']) {
+  background-color: var(--dawaa-status-danger-bg);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='border-red-'], [class*='border-rose-']) {
+  border-color: var(--dawaa-status-danger-border);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='text-blue-100'], [class*='text-blue-200'], [class*='text-sky-100'], [class*='text-sky-200'], [class*='text-indigo-100'], [class*='text-indigo-200'], [class*='text-violet-100'], [class*='text-violet-200']) {
+  color: var(--dawaa-status-info-text);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='bg-blue-500/10'], [class*='bg-sky-500/10'], [class*='bg-indigo-500/10'], [class*='bg-violet-500/10']) {
+  background-color: var(--dawaa-status-info-bg);
+}
+
+:is(html[data-theme='light'], html[data-theme='pharmacy-green'])
+  :is([class*='border-blue-'], [class*='border-sky-'], [class*='border-indigo-'], [class*='border-violet-']) {
+  border-color: var(--dawaa-status-info-border);
+}
+
+/* Customer Service primary workspace choice must be unmistakable in dense screens. */
+.customer-service-page button[aria-pressed='true'] {
+  background: var(--dawaa-theme-primary);
+  border-color: var(--dawaa-theme-primary-strong);
+  color: var(--dawaa-theme-primary-text);
+  box-shadow: var(--dawaa-theme-shadow-soft);
+}
+
+.customer-service-page button[aria-pressed='true'] > span {
+  background: color-mix(in srgb, var(--dawaa-theme-primary-text) 16%, transparent);
+  color: var(--dawaa-theme-primary-text);
+}

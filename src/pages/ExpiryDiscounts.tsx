@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, PackagePlus, Percent } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
-import { safeRows, safeNumber, safeText } from '@/lib/safeSupabase';
+import { safeNumber, safeText } from '@/lib/safeSupabase';
 import { CommandHeader, MetricCard, SectionState } from '@/components/command/CommandUI';
+import { useAuth } from '@/hooks/useAuth';
+import { canViewAllBranches } from '@/lib/security/userDataScope';
+import { BRANCHES } from '@/lib/constants';
 
 type Row = Record<string, unknown>;
 const initial = {
@@ -27,35 +30,52 @@ function discount(days: number) {
 }
 
 export default function ExpiryDiscounts() {
+  const { user, checkPermission } = useAuth();
+  const allBranches = canViewAllBranches(user);
+  const canManage = checkPermission('manage_medicines');
+  const ownBranch = safeText(user?.branch);
   const [rows, setRows] = useState<Row[]>([]);
   const [form, setForm] = useState(initial);
   const [loading, setLoading] = useState(true);
-  const [available, setAvailable] = useState(true);
+
+  useEffect(() => {
+    if (!allBranches && ownBranch) {
+      setForm((current) => ({ ...current, branch: ownBranch }));
+    }
+  }, [allBranches, ownBranch]);
+
   const load = useCallback(async () => {
     setLoading(true);
-    const primary = await safeRows<Row>('expiry_discount_items', (q) =>
-      q.order('expiry_date', { ascending: true }).limit(500)
-    );
-    if (primary.available) {
-      setRows(primary.rows);
-      setAvailable(true);
+    let query = supabase
+      .from('expiry_discount_items')
+      .select('id,medicine_name,branch,quantity,expiry_date,suggested_discount,status,notes,created_at,updated_at')
+      .order('expiry_date', { ascending: true })
+      .limit(500);
+
+    if (!allBranches && ownBranch) {
+      query = query.eq('branch', ownBranch);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      setRows([]);
+      toast.error(`تعذر تحميل خصومات الصلاحية: ${error.message}`);
     } else {
-      const fallback = await safeRows<Row>('medicine_expiry', (q) =>
-        q.order('expiry_date', { ascending: true }).limit(500)
-      );
-      setRows(fallback.rows);
-      setAvailable(false);
+      setRows((data || []) as Row[]);
     }
     setLoading(false);
-  }, []);
+  }, [allBranches, ownBranch]);
+
   useEffect(() => {
     void load();
   }, [load]);
+
   const enriched = useMemo<Array<Row & { days: number; suggested: number }>>(
     () =>
       rows
         .map((r) => {
-          const days = daysLeft(r.expiry_date ?? r.nearest_expiry_date);
+          const days = daysLeft(r.expiry_date);
           return { ...r, days, suggested: discount(days) } as Row & {
             days: number;
             suggested: number;
@@ -64,9 +84,14 @@ export default function ExpiryDiscounts() {
         .sort((a, b) => a.days - b.days),
     [rows]
   );
+
   const save = async () => {
-    if (!form.medicine_name.trim() || !form.expiry_date) {
-      toast.error('أكمل اسم الصنف وتاريخ الانتهاء');
+    if (!canManage) {
+      toast.error('ليس لديك صلاحية إدارة أصناف الصلاحية.');
+      return;
+    }
+    if (!form.medicine_name.trim() || !form.expiry_date || !form.branch.trim()) {
+      toast.error('أكمل اسم الصنف والفرع وتاريخ الانتهاء');
       return;
     }
     const days = daysLeft(form.expiry_date);
@@ -74,13 +99,14 @@ export default function ExpiryDiscounts() {
       .from('expiry_discount_items')
       .insert({ ...form, suggested_discount: discount(days) });
     if (error) {
-      toast.error('طبّق ملف SUPABASE_EXPIRY_DISCOUNTS_SETUP.sql لإتاحة الإدخال اليدوي');
+      toast.error(`تعذر إضافة الصنف: ${error.message}`);
       return;
     }
     toast.success('تمت إضافة الصنف');
-    setForm(initial);
+    setForm({ ...initial, branch: allBranches ? '' : ownBranch });
     void load();
   };
+
   return (
     <div className="space-y-5" dir="rtl">
       <CommandHeader
@@ -107,50 +133,61 @@ export default function ExpiryDiscounts() {
           value={enriched.reduce((s, r) => s + safeNumber(r.quantity), 0)}
         />
       </section>
-      <section className="dawaa-panel">
-        <h2 className="mb-4 text-lg font-black text-slate-950 dark:text-white">إدخال يدوي</h2>
-        {!available && (
-          <p className="mb-4 rounded-xl bg-amber-500/10 p-3 text-sm font-bold text-amber-600">
-            بيانات الصلاحية الأساسية غير مكتملة؛ يمكن تفعيل الإدخال اليدوي بتطبيق ملف SQL الاختياري.
-          </p>
-        )}
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <input
-            className="dawaa-input"
-            placeholder="اسم الصنف"
-            value={form.medicine_name}
-            onChange={(e) => setForm({ ...form, medicine_name: e.target.value })}
-          />
-          <input
-            className="dawaa-input"
-            placeholder="الفرع"
-            value={form.branch}
-            onChange={(e) => setForm({ ...form, branch: e.target.value })}
-          />
-          <input
-            className="dawaa-input"
-            type="number"
-            min={1}
-            value={form.quantity}
-            onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
-          />
-          <input
-            className="dawaa-input"
-            type="date"
-            value={form.expiry_date}
-            onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
-          />
-          <input
-            className="dawaa-input"
-            placeholder="ملاحظات"
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          />
-        </div>
-        <button onClick={() => void save()} className="dawaa-button-primary mt-4">
-          إضافة الصنف
-        </button>
-      </section>
+
+      {canManage ? (
+        <section className="dawaa-panel">
+          <h2 className="mb-4 text-lg font-black text-slate-950 dark:text-white">إدخال يدوي</h2>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <input
+              className="dawaa-input"
+              placeholder="اسم الصنف"
+              value={form.medicine_name}
+              onChange={(e) => setForm({ ...form, medicine_name: e.target.value })}
+            />
+            {allBranches ? (
+              <select
+                className="dawaa-input"
+                value={form.branch}
+                onChange={(e) => setForm({ ...form, branch: e.target.value })}
+              >
+                <option value="">اختر الفرع</option>
+                {BRANCHES.map((branch) => (
+                  <option key={branch} value={branch}>{branch}</option>
+                ))}
+              </select>
+            ) : (
+              <input className="dawaa-input" value={form.branch} readOnly aria-label="الفرع" />
+            )}
+            <input
+              className="dawaa-input"
+              type="number"
+              min={1}
+              value={form.quantity}
+              onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
+            />
+            <input
+              className="dawaa-input"
+              type="date"
+              value={form.expiry_date}
+              onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
+            />
+            <input
+              className="dawaa-input"
+              placeholder="ملاحظات"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+          </div>
+          <button onClick={() => void save()} className="dawaa-button-primary mt-4">
+            إضافة الصنف
+          </button>
+        </section>
+      ) : (
+        <section className="dawaa-panel text-sm font-bold text-slate-600 dark:text-slate-300">
+          الصفحة للعرض فقط على حسابك. إضافة أو تعديل أصناف الصلاحية متاح للمسؤولين عن إدارة الأدوية.
+        </section>
+      )}
+
       <SectionState loading={loading} empty={!enriched.length}>
         <section className="dawaa-panel overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -171,10 +208,10 @@ export default function ExpiryDiscounts() {
                   key={safeText(r.id, String(i))}
                   className="border-b border-slate-100 dark:border-slate-800"
                 >
-                  <td className="p-3 font-bold">{safeText(r.medicine_name ?? r.item_name)}</td>
+                  <td className="p-3 font-bold">{safeText(r.medicine_name)}</td>
                   <td className="p-3">{safeText(r.branch)}</td>
                   <td className="p-3">{safeNumber(r.quantity)}</td>
-                  <td className="p-3">{safeText(r.expiry_date ?? r.nearest_expiry_date)}</td>
+                  <td className="p-3">{safeText(r.expiry_date)}</td>
                   <td className="p-3">{r.days}</td>
                   <td className="p-3 font-black">{r.suggested}%</td>
                   <td className="p-3">{safeText(r.status, 'new')}</td>

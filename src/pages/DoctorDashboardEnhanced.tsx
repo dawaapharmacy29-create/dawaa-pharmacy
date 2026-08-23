@@ -6,6 +6,7 @@ import DoctorTodayFocus from '@/components/doctor/DoctorTodayFocus';
 import DoctorIncentiveSummaryCard from '@/components/doctor/DoctorIncentiveSummaryCard';
 import DoctorDetailedActivityCard from '@/components/doctor/DoctorDetailedActivityCard';
 import { canAccessFullConversationReviewWorkspace } from '@/lib/reviewWorkspaceAccess';
+import '@/styles/dashboard-theme-scopes.css';
 
 export default function DoctorDashboardEnhanced() {
   const { user, checkPermission } = useAuth();
@@ -16,7 +17,7 @@ export default function DoctorDashboardEnhanced() {
     return <Navigate to="/reviews" replace />;
   }
 
-  return <div className="space-y-5" dir="rtl">
+  return <div className="doctor-dashboard-theme space-y-5" dir="rtl">
     {(!tab || tab === 'overview') ? <>
       <DoctorIncentiveSummaryCard staffId={String(user?.staffId || '')} onNavigate={() => setParams({ tab: 'payroll' })} />
       <DoctorDetailedActivityCard staffId={String(user?.staffId || '')} doctorName={String(user?.name || '')} />

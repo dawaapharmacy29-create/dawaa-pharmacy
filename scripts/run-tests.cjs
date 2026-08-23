@@ -128,6 +128,7 @@ const testFiles = [
   'src/lib/__tests__/customerFollowupGuards.test.ts',
   'src/lib/__tests__/customerFollowupStatus.integration.test.ts',
   'src/lib/__tests__/customerFollowupExport.test.ts',
+  'src/lib/__tests__/pointsLedgerIdentity.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

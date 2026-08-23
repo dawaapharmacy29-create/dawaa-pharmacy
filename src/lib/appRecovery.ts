@@ -51,47 +51,44 @@ export function diagnosticsUrl(reason = 'recovery') {
   return url.toString();
 }
 
-export function startRecoveryCleanup(options: { clearAppStorage?: boolean } = {}) {
+export async function startRecoveryCleanup(options: { clearAppStorage?: boolean } = {}) {
   if (typeof window === 'undefined') return;
 
-  void (async () => {
-    try {
-      if ('caches' in window) {
-        const keys = await window.caches.keys();
-        console.info('[Dawaa recovery] cache names found', keys);
-        await Promise.all(keys.map((key) => window.caches.delete(key)));
-      }
-    } catch (error) {
-      logRuntimeError('recovery cache cleanup failed', error);
+  try {
+    if ('caches' in window) {
+      const keys = await window.caches.keys();
+      console.info('[Dawaa recovery] cache names found', keys);
+      await Promise.all(keys.map((key) => window.caches.delete(key)));
     }
+  } catch (error) {
+    logRuntimeError('recovery cache cleanup failed', error);
+  }
 
-    try {
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        console.info('[Dawaa sw] registrations found/removed', registrations.length);
-        await Promise.all(registrations.map((registration) => registration.unregister()));
-      }
-    } catch (error) {
-      logRuntimeError('sw cleanup failed', error);
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      console.info('[Dawaa sw] registrations found/removed', registrations.length);
+      await Promise.all(registrations.map((registration) => registration.unregister()));
     }
+  } catch (error) {
+    logRuntimeError('sw cleanup failed', error);
+  }
 
-    if (!options.clearAppStorage) return;
+  if (!options.clearAppStorage) return;
 
-    try {
-      removeMatchingStorageKeys(window.localStorage);
-      removeMatchingStorageKeys(window.sessionStorage);
-    } catch (error) {
-      logRuntimeError('recovery storage cleanup failed', error);
-    }
-  })();
+  try {
+    removeMatchingStorageKeys(window.localStorage);
+    removeMatchingStorageKeys(window.sessionStorage);
+  } catch (error) {
+    logRuntimeError('recovery storage cleanup failed', error);
+  }
 }
 
 export function redirectToLoginWithRecovery(reason = 'recovery', clearAppStorage = false) {
   if (typeof window === 'undefined') return;
   const target = loginRecoveryUrl(reason);
   console.info('[Dawaa recovery] redirecting to login', target);
-  startRecoveryCleanup({ clearAppStorage });
-  window.location.assign(target);
+  void startRecoveryCleanup({ clearAppStorage }).finally(() => window.location.assign(target));
 }
 
 export function removeMatchingStorageKeys(storage: Storage) {

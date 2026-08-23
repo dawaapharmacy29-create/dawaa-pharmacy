@@ -1,9 +1,7 @@
-import { getCurrentCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
+import { getCurrentCycle, getCycleForDate, type PharmacyCycle } from '@/lib/pharmacy-cycle';
 import { STARTING_POINTS, MAX_BASE_INCENTIVE } from '@/lib/points';
 import { calculateMonthlyIncentive } from '@/lib/performance/performanceRulesEngine';
 import {
-  canonicalMaxPoints,
-  canonicalSnapshotPoints,
   formatTransactionSource,
   getTransactionShortReason,
   isApprovedPointRecord,
@@ -14,9 +12,9 @@ import {
   type PointLedgerRecord,
   type StaffLedgerTarget,
 } from '@/lib/pointsLedger';
-import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { filterActiveStaffRows } from '@/lib/staffActiveFilter';
-import { TABLES } from '@/lib/supabaseTables';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { readEmployeeTransactions } from '@/lib/readModels/employeeTransactionReadModel';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 
 export type StaffIncentiveTransaction = PointLedgerRecord & {
   normalizedDelta: number;
@@ -57,16 +55,6 @@ export type StaffCycleIncentive = {
 
 function dateKey(date: Date) {
   return date.toISOString().slice(0, 10);
-}
-
-function normalizeName(value: unknown) {
-  return String(value || '')
-    .replace(/[\u0623\u0625\u0622]/g, 'ا')
-    .replace(/\u0629/g, 'ه')
-    .replace(/^(\u062f|dr|doctor)\s*\/?\s*/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
 }
 
 function numberOrZero(value: unknown) {
@@ -138,7 +126,6 @@ export function getQuarterlyCashAmount(row: PointLedgerRecord) {
   return Math.abs(pointRecordDelta(row));
 }
 
-// منع التكرار باستخدام مفتاح مركب من source_type, source_id, staff_id, date, points_delta, reason
 function createDuplicateKey(row: PointLedgerRecord): string {
   const sourceType = row.source_type || row.source || 'unknown';
   const sourceId = row.source_id || '';
@@ -149,45 +136,26 @@ function createDuplicateKey(row: PointLedgerRecord): string {
   return `${sourceType}:${sourceId}:${staffId}:${date}:${delta}:${reason}`;
 }
 
-function deduplicatePointRecords(records: PointLedgerRecord[]): {
-  records: PointLedgerRecord[];
-  duplicates: Map<string, PointLedgerRecord[]>;
-} {
+function deduplicatePointRecords(records: PointLedgerRecord[]) {
   const seen = new Map<string, PointLedgerRecord>();
   const duplicates = new Map<string, PointLedgerRecord[]>();
 
   for (const row of records) {
     const key = row.id ? `id:${row.id}` : createDuplicateKey(row);
-
     if (seen.has(key)) {
       const existing = seen.get(key)!;
-      if (!duplicates.has(key)) {
-        duplicates.set(key, [existing]);
-      }
+      if (!duplicates.has(key)) duplicates.set(key, [existing]);
       duplicates.get(key)!.push(row);
     } else {
       seen.set(key, row);
     }
   }
-
   return { records: [...seen.values()], duplicates };
-}
-
-function uniqById(rows: PointLedgerRecord[]) {
-  const map = new Map<string, PointLedgerRecord>();
-  for (const row of rows) {
-    const key = String(
-      row.id ||
-        `${row.source_type || row.source}:${row.source_id || ''}:${row.created_at || ''}:${row.points_delta || row.points || ''}`
-    );
-    if (!map.has(key)) map.set(key, row);
-  }
-  return [...map.values()];
 }
 
 function normalizeTxn(
   row: PointLedgerRecord,
-  includedInFinalPoints: boolean = true,
+  includedInFinalPoints = true,
   exclusionReason?: string,
   duplicateWarning?: string
 ): StaffIncentiveTransaction {
@@ -216,10 +184,9 @@ export function calculateStaffCycleIncentiveFromRows(args: {
 }): StaffCycleIncentive {
   const cycle = args.cycle || getCurrentCycle();
   const staff = args.staff;
-  const startingPoints = STARTING_POINTS; // هدف نقاط الدورة (500) — مش رصيد افتتاحي، الموظف بيبدأ من صفر ويجمّع لحد الهدف ده
+  const startingPoints = STARTING_POINTS;
   const warnings: string[] = [];
 
-  // منع التكرار
   const { records: dedupedRecords, duplicates } = deduplicatePointRecords(args.records);
   if (duplicates.size > 0) {
     warnings.push(`تم اكتشاف ${duplicates.size} سجل مكرر. تم احتسابهم مرة واحدة فقط.`);
@@ -280,6 +247,7 @@ export function calculateStaffCycleIncentiveFromRows(args: {
   const pendingDeductionPoints = monthlyPending
     .filter((row) => row.normalizedDelta < 0)
     .reduce((sum, row) => sum + row.absPoints, 0);
+
   const monthly = calculateMonthlyIncentive({
     startingPoints,
     approvedDeductionPoints,
@@ -288,10 +256,11 @@ export function calculateStaffCycleIncentiveFromRows(args: {
     pendingRewardPoints,
   });
   const finalPoints = monthly.finalPoints;
-  if (monthly.distinctionPointsAbove500 > 0)
+  if (monthly.distinctionPointsAbove500 > 0) {
     warnings.push(
       'النقاط النهائية أعلى من 500؛ الحافز النقدي الشهري مقفول عند 1500 جنيه، والزيادة تظهر كنقاط تميز فقط.'
     );
+  }
 
   const sourceMap = new Map<string, { source: string; points: number; count: number }>();
   for (const row of monthlyApproved) {
@@ -302,7 +271,6 @@ export function calculateStaffCycleIncentiveFromRows(args: {
     sourceMap.set(source, current);
   }
 
-  // التحقق من صحة الحساب
   const expectedFinalPoints = startingPoints + approvedRewardPoints - approvedDeductionPoints;
   if (Math.abs(finalPoints - expectedFinalPoints) > 0.01) {
     warnings.push(
@@ -336,6 +304,71 @@ export function calculateStaffCycleIncentiveFromRows(args: {
   };
 }
 
+function cycleForArgs(start?: string, end?: string): PharmacyCycle {
+  if (!start) return getCurrentCycle();
+  const cycle = getCycleForDate(new Date(`${start.slice(0, 10)}T12:00:00`));
+  if (end && dateKey(cycle.end) !== end.slice(0, 10)) {
+    return {
+      ...cycle,
+      start: new Date(`${start.slice(0, 10)}T00:00:00`),
+      end: new Date(`${end.slice(0, 10)}T23:59:59`),
+    };
+  }
+  return cycle;
+}
+
+function ledgerRow(row: Record<string, unknown>): PointLedgerRecord {
+  const rawPoints = numberOrZero(row.points);
+  const explicitDelta = row.points_delta === null || row.points_delta === undefined
+    ? null
+    : numberOrZero(row.points_delta);
+  const type = String(row.type || '').toLowerCase();
+  const derivedDelta =
+    explicitDelta !== null
+      ? explicitDelta
+      : type === 'penalty' || type === 'deduction'
+        ? -Math.abs(rawPoints)
+        : Math.abs(rawPoints);
+
+  return {
+    ...(row as PointLedgerRecord),
+    source_type: String(row.source || 'employee_transactions'),
+    source_id: (row.source_id as string | null | undefined) || (row.id as string | null | undefined),
+    staff_id: (row.staff_id as string | null | undefined) || (row.employee_id as string | null | undefined),
+    employee_id: row.employee_id as string | null | undefined,
+    employee_name: row.employee_name as string | null | undefined,
+    points_delta: derivedDelta,
+    points: Math.abs(rawPoints || derivedDelta),
+    reason: String(row.reason || row.description || ''),
+    created_at: String(row.created_at || row.transaction_date || ''),
+    status: String(row.status || 'active'),
+  };
+}
+
+async function staffTarget(args: {
+  staffId?: string | null;
+  staffName?: string | null;
+  branch?: string | null;
+}): Promise<StaffLedgerTarget> {
+  const directory = await readStaffDirectory();
+  const id = String(args.staffId || '').trim();
+  const name = String(args.staffName || '').trim();
+  const normalizedName = name.toLowerCase();
+  const candidates = directory.filter((row) => {
+    if (row.source === 'alias') return false;
+    if (id && row.id === id) return true;
+    return !id && name && String(row.name || '').trim().toLowerCase() === normalizedName;
+  });
+  const selected = candidates.length === 1 ? candidates[0] : candidates.find((row) => row.id === id);
+  return {
+    id: selected?.id || args.staffId || null,
+    name: selected?.name || args.staffName || 'غير محدد',
+    branch: selected?.branch || args.branch || null,
+    points: STARTING_POINTS,
+    max_points: STARTING_POINTS,
+  } as StaffLedgerTarget;
+}
+
 export async function getStaffCycleIncentive(args: {
   staffId?: string | null;
   staffName?: string | null;
@@ -344,212 +377,23 @@ export async function getStaffCycleIncentive(args: {
   cycleEnd?: string;
 }): Promise<StaffCycleIncentive> {
   if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
-  const cycle = getCurrentCycle();
-  const staffQuery = args.staffId
-    ? supabase
-        .from('staff')
-        .select('id,name,points,max_points,branch')
-        .eq('id', args.staffId)
-        .maybeSingle()
-    : supabase
-        .from('staff')
-        .select('id,name,points,max_points,branch')
-        .eq('name', args.staffName || '')
-        .maybeSingle();
-  const { data: staffData, error: staffError } = await staffQuery;
-  if (staffError) {
-    console.warn('[getStaffCycleIncentive] staff lookup failed:', staffError.message);
-  }
-  const staff = (staffData || {
-    id: args.staffId || null,
-    name: args.staffName || 'غير محدد',
-    branch: args.branch || null,
-    points: STARTING_POINTS,
-    max_points: STARTING_POINTS,
-  }) as StaffLedgerTarget;
+  const cycle = cycleForArgs(args.cycleStart, args.cycleEnd);
+  const staff = await staffTarget(args);
+  const staffId = String(staff.id || '').trim();
+  if (!staffId) throw new Error('تعذر تحديد staff_id للحافز.');
 
-  const name = String(staff.name || args.staffName || '');
-  const normalized = normalizeName(name);
-
-  // جمع البيانات من جميع المصادر الممكنة
-  const [
-    employeeTxnsById,
-    employeeTxnsByEmployeeId,
-    employeeTxnsByName,
-    pointsTxns,
-    pointRecords,
-    conversationReviews,
-    stagnantMedicines,
-    incentiveMedicines,
-  ] = await Promise.all([
-    // employee_transactions
-    staff.id
-      ? supabase.from(TABLES.employeeTransactions).select('*').eq('staff_id', staff.id).limit(300)
-      : Promise.resolve({ data: [], error: null } as any),
-    staff.id
-      ? supabase
-          .from(TABLES.employeeTransactions)
-          .select('*')
-          .eq('employee_id', staff.id)
-          .limit(300)
-      : Promise.resolve({ data: [], error: null } as any),
-    name
-      ? supabase.from(TABLES.employeeTransactions).select('*').eq('employee_name', name).limit(300)
-      : Promise.resolve({ data: [], error: null } as any),
-    // points_transactions
-    staff.id
-      ? supabase.from('points_transactions').select('*').eq('staff_id', staff.id).limit(300)
-      : Promise.resolve({ data: [], error: null } as any),
-    // point_records
-    staff.id
-      ? supabase.from('point_records').select('*').eq('staff_id', staff.id).limit(300)
-      : Promise.resolve({ data: [], error: null } as any),
-    // conversation_sales_reviews
-    staff.id
-      ? supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staff.id).limit(300)
-      : Promise.resolve({ data: [], error: null } as any),
-    // stagnant_medicine_dispenses
-    staff.id
-      ? supabase.from('stagnant_medicine_dispenses').select('*').eq('staff_id', staff.id).limit(300)
-      : Promise.resolve({ data: [], error: null } as any),
-    // incentive_medicine_sales
-    staff.id
-      ? supabase.from('incentive_medicine_sales').select('*').eq('staff_id', staff.id).limit(300)
-      : Promise.resolve({ data: [], error: null } as any),
-  ]);
-
-  // تحويل جميع البيانات إلى PointLedgerRecord
-  const allRows: PointLedgerRecord[] = [];
-
-  // employee_transactions
-  for (const row of [
-    ...(employeeTxnsById.data || []),
-    ...(employeeTxnsByEmployeeId.data || []),
-    ...(employeeTxnsByName.data || []),
-  ]) {
-    allRows.push({
-      ...row,
-      source_type: 'employee_transactions',
-      source_id: row.id,
-      staff_id: row.staff_id || row.employee_id,
-      employee_id: row.employee_id,
-      employee_name: row.employee_name,
-      points_delta:
-        row.points_delta ||
-        (row.type === 'penalty' ? -Math.abs(row.points || 0) : Math.abs(row.points || 0)),
-      points: Math.abs(row.points || 0),
-      reason: row.reason || row.description || '',
-      created_at: row.created_at,
-      status: row.status || 'active',
-    } as PointLedgerRecord);
-  }
-
-  // points_transactions
-  for (const row of pointsTxns.data || []) {
-    allRows.push({
-      ...row,
-      source_type: 'points_transactions',
-      source_id: row.id,
-      staff_id: row.staff_id,
-      employee_id: row.staff_id,
-      employee_name: row.staff_name || name,
-      points_delta: row.points_delta || row.points || 0,
-      points: Math.abs(row.points_delta || row.points || 0),
-      reason: row.reason || '',
-      created_at: row.created_at,
-      status: row.status || 'active',
-    } as PointLedgerRecord);
-  }
-
-  // point_records
-  for (const row of pointRecords.data || []) {
-    allRows.push({
-      ...row,
-      source_type: 'point_records',
-      source_id: row.id,
-      staff_id: row.staff_id,
-      employee_id: row.staff_id,
-      employee_name: row.staff_name || name,
-      points_delta: row.points_delta || row.points || 0,
-      points: Math.abs(row.points_delta || row.points || 0),
-      reason: row.reason || '',
-      created_at: row.created_at,
-      status: row.status || 'active',
-    } as PointLedgerRecord);
-  }
-
-  // conversation_sales_reviews
-  for (const row of conversationReviews.data || []) {
-    const points = row.doctor_points_impact || row.base_points_impact || 0;
-    const delta = row.extra_penalty_points ? points - row.extra_penalty_points : points;
-    allRows.push({
-      ...row,
-      source_type: 'conversation_sales_reviews',
-      source_id: row.id,
-      staff_id: row.staff_id,
-      employee_id: row.staff_id,
-      employee_name: row.staff_name || name,
-      points_delta: delta,
-      points: Math.abs(delta),
-      reason: `تقييم محادثة: ${row.customer_name || ''}`,
-      created_at: row.conversation_date || row.created_at,
-      status: row.status || 'active',
-    } as PointLedgerRecord);
-  }
-
-  // stagnant_medicine_dispenses: cash rewards go to quarterly incentive, not monthly points
-  for (const row of stagnantMedicines.data || []) {
-    const cash =
-      row.total_incentive ||
-      row.incentive_total ||
-      row.money_amount ||
-      row.reward_amount ||
-      row.points_awarded ||
-      row.points_impact ||
-      0;
-    allRows.push({
-      ...row,
-      source_type: 'stagnant_medicine_dispenses',
-      source_id: row.id,
-      staff_id: row.staff_id || row.doctor_id,
-      employee_id: row.staff_id || row.doctor_id,
-      employee_name: row.staff_name || row.doctor_name || name,
-      points_delta: cash,
-      points: Math.abs(cash),
-      reason: `مكافأة مالية رواكد: ${row.medicine_name || row.product_name || ''}`,
-      created_at: row.created_at || row.dispensed_at || row.transaction_date,
-      status: row.status || 'active',
-    } as PointLedgerRecord);
-  }
-
-  // incentive_medicine_sales: cash rewards go to quarterly incentive, not monthly points
-  for (const row of incentiveMedicines.data || []) {
-    const cash =
-      row.incentive_total ||
-      row.total_incentive ||
-      row.money_amount ||
-      row.reward_amount ||
-      row.points_awarded ||
-      row.points_impact ||
-      0;
-    allRows.push({
-      ...row,
-      source_type: 'incentive_medicine_sales',
-      source_id: row.id,
-      staff_id: row.staff_id || row.doctor_id,
-      employee_id: row.staff_id || row.doctor_id,
-      employee_name: row.staff_name || row.doctor_name || name,
-      points_delta: cash,
-      points: Math.abs(cash),
-      reason: `مكافأة مالية لستة: ${row.medicine_name || row.product_name || ''}`,
-      created_at: row.created_at || row.sale_date,
-      status: row.status || 'active',
-    } as PointLedgerRecord);
-  }
-
-  const result = calculateStaffCycleIncentiveFromRows({ staff, records: allRows, cycle });
-  if (normalized && allRows.length === 0)
-    result.warnings.push(`لم يتم العثور على سجلات نقاط باسم ${name}.`);
+  const rows = await readEmployeeTransactions({
+    staffId,
+    startDate: dateKey(cycle.start),
+    endDate: dateKey(cycle.end),
+    limit: 5000,
+  });
+  const result = calculateStaffCycleIncentiveFromRows({
+    staff,
+    records: rows.map(ledgerRow),
+    cycle,
+  });
+  if (!rows.length) result.warnings.push('لا توجد حركات Ledger للموظف في الدورة المحددة.');
   return result;
 }
 
@@ -557,86 +401,33 @@ export async function getStaffIncentiveSummaryForCycle(args: {
   cycle?: PharmacyCycle;
   branch?: string | null;
 }) {
+  if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
   const cycle = args.cycle || getCurrentCycle();
-  let staffQuery = supabase
-    .from('staff')
-    .select('id,name,points,max_points,branch,active,is_active,status')
-    .eq('active', true)
-    .limit(500);
-  if (args.branch && args.branch !== 'الكل') staffQuery = staffQuery.eq('branch', args.branch);
-
-  const [staffResult, employeeTxnsResult, pointsTxnsResult, pointRecordsResult] = await Promise.all(
-    [
-      staffQuery,
-      supabase.from(TABLES.employeeTransactions).select('*').limit(5000),
-      supabase.from('points_transactions').select('*').limit(5000),
-      supabase.from('point_records').select('*').limit(5000),
-    ]
+  const directory = await readStaffDirectory();
+  const branch = String(args.branch || '').trim();
+  const activeStaff = directory.filter(
+    (row) =>
+      row.source !== 'alias' &&
+      row.active !== false &&
+      (!branch || branch === 'الكل' || row.branch === branch)
   );
+  const rows = await readEmployeeTransactions({
+    startDate: dateKey(cycle.start),
+    endDate: dateKey(cycle.end),
+    limit: 5000,
+  });
+  const records = rows.map(ledgerRow);
 
-  if (staffResult.error) throw new Error(staffResult.error.message);
-  const activeStaff = filterActiveStaffRows((staffResult.data || []) as StaffLedgerTarget[]);
-
-  // جمع جميع السجلات من المصادر المختلفة
-  const allRecords: PointLedgerRecord[] = [];
-
-  // employee_transactions
-  for (const row of employeeTxnsResult.data || []) {
-    allRecords.push({
-      ...row,
-      source_type: 'employee_transactions',
-      source_id: row.id,
-      staff_id: row.staff_id || row.employee_id,
-      employee_id: row.employee_id,
-      employee_name: row.employee_name,
-      points_delta:
-        row.points_delta ||
-        (row.type === 'penalty' ? -Math.abs(row.points || 0) : Math.abs(row.points || 0)),
-      points: Math.abs(row.points || 0),
-      reason: row.reason || row.description || '',
-      created_at: row.created_at,
-      status: row.status || 'active',
-    } as PointLedgerRecord);
-  }
-
-  // points_transactions
-  for (const row of pointsTxnsResult.data || []) {
-    allRecords.push({
-      ...row,
-      source_type: 'points_transactions',
-      source_id: row.id,
-      staff_id: row.staff_id,
-      employee_id: row.staff_id,
-      employee_name: row.staff_name,
-      points_delta: row.points_delta || row.points || 0,
-      points: Math.abs(row.points_delta || row.points || 0),
-      reason: row.reason || '',
-      created_at: row.created_at,
-      status: row.status || 'active',
-    } as PointLedgerRecord);
-  }
-
-  // point_records
-  for (const row of pointRecordsResult.data || []) {
-    allRecords.push({
-      ...row,
-      source_type: 'point_records',
-      source_id: row.id,
-      staff_id: row.staff_id,
-      employee_id: row.staff_id,
-      employee_name: row.staff_name,
-      points_delta: row.points_delta || row.points || 0,
-      points: Math.abs(row.points_delta || row.points || 0),
-      reason: row.reason || '',
-      created_at: row.created_at,
-      status: row.status || 'active',
-    } as PointLedgerRecord);
-  }
-
-  return activeStaff.map((staff) =>
+  return activeStaff.map((row) =>
     calculateStaffCycleIncentiveFromRows({
-      staff,
-      records: allRecords,
+      staff: {
+        id: row.id,
+        name: row.name,
+        branch: row.branch,
+        points: STARTING_POINTS,
+        max_points: STARTING_POINTS,
+      } as StaffLedgerTarget,
+      records,
       cycle,
     })
   );

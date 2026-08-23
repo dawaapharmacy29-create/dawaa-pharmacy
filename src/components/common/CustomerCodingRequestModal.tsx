@@ -114,28 +114,27 @@ export default function CustomerCodingRequestModal({ open, onClose, onCreated }:
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-3" dir="rtl">
-      <button type="button" aria-label="إغلاق" className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={() => !saving && onClose()} />
-      <div className="relative z-10 max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-sky-400/25 bg-slate-950 p-5 shadow-2xl">
+    <div className="modal-backdrop items-center p-3" dir="rtl" onMouseDown={(event) => { if (event.currentTarget === event.target && !saving) onClose(); }}>
+      <div className="modal-panel max-w-xl p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-xl font-black text-white">طلب تكويد عميل</h2>
-            <p className="mt-1 text-sm text-slate-400">سيظهر الطلب مباشرة في سجل صفحة تكويد العملاء.</p>
+            <h2 className="dawaa-title text-xl">طلب تكويد عميل</h2>
+            <p className="dawaa-caption mt-1 text-sm">سيظهر الطلب مباشرة في سجل صفحة تكويد العملاء.</p>
           </div>
-          <button type="button" disabled={saving} onClick={onClose} className="rounded-xl border border-slate-700 p-2 text-slate-200 hover:bg-slate-800 disabled:opacity-50">
+          <button type="button" disabled={saving} onClick={onClose} className="dawaa-action-icon h-10 w-10 disabled:opacity-50">
             <X size={17} />
           </button>
         </div>
 
-        <div className="mb-4 rounded-xl border border-teal-400/20 bg-teal-500/10 px-3 py-2 text-sm font-bold text-teal-100">
+        <div className="dawaa-alert dawaa-alert--info mb-4 text-sm font-bold">
           سيتم التسجيل باسم <span className="font-black">{user?.name || 'المستخدم الحالي'}</span> — {fixedBranch || 'الفرع المسجل بالحساب'}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <input className="input-dark" value={name} onChange={(event) => setName(event.target.value)} placeholder="اسم العميل *" autoFocus />
-          <input className="input-dark" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="رقم الموبايل *" />
-          <input className="input-dark sm:col-span-2" value={address} onChange={(event) => setAddress(event.target.value)} placeholder="العنوان أو المنطقة" />
-          <select className="input-dark" value={source} onChange={(event) => setSource(event.target.value)}>
+          <input className="dawaa-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="اسم العميل *" autoFocus />
+          <input className="dawaa-input" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="رقم الموبايل *" />
+          <input className="dawaa-input sm:col-span-2" value={address} onChange={(event) => setAddress(event.target.value)} placeholder="العنوان أو المنطقة" />
+          <select className="dawaa-select" value={source} onChange={(event) => setSource(event.target.value)}>
             <option>داخل الفرع</option>
             <option>واتساب</option>
             <option>دليفري</option>
@@ -143,13 +142,13 @@ export default function CustomerCodingRequestModal({ open, onClose, onCreated }:
             <option>عميل دائم غير مسجل</option>
             <option>أخرى</option>
           </select>
-          <input className="input-dark" value={fixedBranch} readOnly aria-label="الفرع" />
-          <textarea className="input-dark sm:col-span-2" rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات إضافية" />
+          <input className="dawaa-input" value={fixedBranch} readOnly aria-label="الفرع" />
+          <textarea className="dawaa-textarea sm:col-span-2" rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات إضافية" />
         </div>
 
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className="btn-secondary" disabled={saving} onClick={onClose}>إلغاء</button>
-          <button type="button" className="btn-primary disabled:opacity-60" disabled={saving} onClick={() => void submit()}>
+          <button type="button" className="dawaa-button dawaa-button--secondary" disabled={saving} onClick={onClose}>إلغاء</button>
+          <button type="button" className="dawaa-button dawaa-button--primary disabled:opacity-60" disabled={saving} onClick={() => void submit()}>
             {saving ? 'جارٍ التسجيل…' : 'تسجيل طلب التكويد'}
           </button>
         </div>

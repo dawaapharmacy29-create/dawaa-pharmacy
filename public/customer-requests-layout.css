@@ -1,5 +1,6 @@
 /* Customer requests execution workspace — desktop density/readability overrides.
-   Loaded globally but scoped to #customer-request-list so the rest of the app is untouched. */
+   Loaded globally but scoped to #customer-request-list so the rest of the app is untouched.
+   Palette is owned by the canonical Dawaa theme system. */
 #customer-request-list {
   padding: 12px !important;
 }
@@ -52,22 +53,56 @@
 }
 
 #customer-request-list table tbody tr:hover {
-  background: rgba(34, 211, 238, 0.06);
+  background: var(--dawaa-theme-table-hover);
+}
+
+/* Executive Dashboard 2027 — card sizing only.
+   Keep this deliberately scoped to the dashboard so no other page/card system is affected. */
+@media (min-width: 1280px) {
+  /* Main six KPI cards: 3 wider cards per row instead of 6 compressed cards. */
+  .executive-dashboard-page > main > section[class~="xl:grid-cols-6"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 16px !important;
+  }
+
+  .executive-dashboard-page > main > section[class~="xl:grid-cols-6"] > .dawaa-card {
+    min-height: 172px;
+    padding: 24px !important;
+  }
+
+  .executive-dashboard-page > main > section[class~="xl:grid-cols-6"] > .dawaa-card p[class*="text-3xl"] {
+    font-size: clamp(1.9rem, 2vw, 2.35rem) !important;
+    line-height: 1.15;
+  }
+
+  /* Doctor competition winner cards: give names and values enough horizontal room. */
+  #doctor-competitions > div[class~="xl:grid-cols-5"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 16px !important;
+  }
+
+  #doctor-competitions > div[class~="xl:grid-cols-5"] > * {
+    min-height: 168px;
+  }
+}
+
+@media (min-width: 1800px) {
+  .executive-dashboard-page > main > section[class~="xl:grid-cols-6"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  #doctor-competitions > div[class~="xl:grid-cols-5"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
 }
 
 @media (min-width: 1440px) {
-  #customer-request-list {
-    border-radius: 20px !important;
-  }
+  #customer-request-list { border-radius: 20px !important; }
 }
 
 @media (max-width: 1199px) {
-  #customer-request-list {
-    padding: 10px !important;
-  }
-  #customer-request-list table {
-    min-width: 1180px !important;
-  }
+  #customer-request-list { padding: 10px !important; }
+  #customer-request-list table { min-width: 1180px !important; }
 }
 
 @media (max-width: 767px) {
@@ -75,7 +110,5 @@
     padding: 8px !important;
     border-radius: 16px !important;
   }
-  #customer-request-list table {
-    min-width: 1080px !important;
-  }
+  #customer-request-list table { min-width: 1080px !important; }
 }

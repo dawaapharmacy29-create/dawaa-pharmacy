@@ -2,18 +2,20 @@
 import { supabase } from '@/lib/supabase';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 import { getInvoiceNetValue } from '@/lib/analyticsService';
-import {
-  getInvoiceAmount as getCoreInvoiceAmount,
-  getInvoiceBranch as getCoreInvoiceBranch,
-  getInvoiceCustomerKey,
-  getInvoiceDay,
-  getInvoiceId,
-  getInvoiceSellerName,
-} from '@/lib/invoices/invoiceCore';
+import { getInvoiceAmount as getCoreInvoiceAmount } from '@/lib/invoices/invoiceCore';
 
 export const DASHBOARD_ALL_BRANCHES = 'كل الفروع';
 const UNKNOWN_LABEL = 'غير محدد';
+const RECENT_INVOICE_MAX_PAGES = 10;
 type RpcRow = Record<string, unknown>;
+
+type DashboardWorkspace = {
+  summary?: RpcRow;
+  daily_sales?: RpcRow[];
+  branch_distribution?: RpcRow[];
+  doctor_sales?: RpcRow[];
+  audit?: RpcRow;
+};
 
 export type DashboardInvoiceRow = {
   id?: string | number | null;
@@ -99,28 +101,6 @@ export function dashboardInvoiceAmount(row: DashboardInvoiceRow) {
   return getCoreInvoiceAmount(row as Record<string, unknown>) || getInvoiceNetValue(row as Record<string, unknown>);
 }
 
-function invoiceDate(row: DashboardInvoiceRow) {
-  return getInvoiceDay(row as Record<string, unknown>) || '';
-}
-
-function invoiceBranch(row: DashboardInvoiceRow) {
-  return getCoreInvoiceBranch(row as Record<string, unknown>, UNKNOWN_LABEL);
-}
-
-function invoiceDoctorName(row: DashboardInvoiceRow) {
-  return getInvoiceSellerName(row as Record<string, unknown>) || row.doctor_name || '';
-}
-
-function invoiceIdentityKey(row: DashboardInvoiceRow) {
-  return getInvoiceId(row as Record<string, unknown>);
-}
-
-function isLinkedInvoice(row: DashboardInvoiceRow) {
-  const code = getInvoiceCustomerKey(row as Record<string, unknown>);
-  const name = String(row.customer_name || '').trim();
-  return Boolean(code && !['0', '-', 'null', 'NULL'].includes(code) && !name.includes('غير مسجل'));
-}
-
 function daysBefore(dateText: string, daysBack: number) {
   const date = new Date(`${dateText}T12:00:00`);
   if (Number.isNaN(date.getTime())) return dateText;
@@ -159,6 +139,7 @@ export async function fetchMonthlySalesFromTruth(endDate: string, branch: string
     const naturalEnd = `${monthKey(lastDay)}-${String(lastDay.getDate()).padStart(2, '0')}`;
     return { key, start: `${key}-01`, end: key === endDate.slice(0, 7) && endDate < naturalEnd ? endDate : naturalEnd };
   });
+
   return Promise.all(jobs.map(async ({ key, start, end }) => {
     const rows = await rpcRows<RpcRow>('get_dashboard_sales_summary_v171', { p_start: start, p_end: end, p_branch: branch });
     const summary = rows[0] || {};
@@ -185,18 +166,40 @@ function mapDoctorRows(rows: RpcRow[]) {
   });
 }
 
-async function fetchAggregatedTruth(params: { startDate: string; endDate: string; branch: string; errors?: string[]; noCache?: boolean }): Promise<DashboardSalesTruth> {
+async function fetchRecentInvoicesBounded(params: { startDate: string; endDate: string; branch: string; errors?: string[] }) {
+  const today = localToday();
+  const recentEnd = params.endDate < today ? params.endDate : today;
+  const safeRecentEnd = recentEnd < params.startDate ? params.endDate : recentEnd;
+  const recentStart = [params.startDate, daysBefore(safeRecentEnd, 4)].sort().at(-1) || params.startDate;
+  try {
+    return (await fetchSalesInvoicesPagedSafe({
+      startDate: recentStart,
+      endDate: safeRecentEnd,
+      branch: params.branch,
+      errors: params.errors,
+      pageSize: 1000,
+      maxPages: RECENT_INVOICE_MAX_PAGES,
+      noCache: true,
+    })) as DashboardInvoiceRow[];
+  } catch (error) {
+    params.errors?.push(`recent invoices: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
+}
+
+async function fetchWorkspace(range: Record<string, unknown>): Promise<DashboardWorkspace> {
+  const { data, error } = await supabase.rpc('get_dashboard_workspace_v1', range as any);
+  if (error) throw new Error(error.message || 'get_dashboard_workspace_v1 failed');
+  return (data || {}) as DashboardWorkspace;
+}
+
+async function fetchAggregatedTruth(params: { startDate: string; endDate: string; branch: string; errors?: string[] }): Promise<DashboardSalesTruth> {
   const branch = params.branch || DASHBOARD_ALL_BRANCHES;
   const range = { p_start: params.startDate, p_end: params.endDate, p_branch: branch };
-  const [summaryRows, dailyRows, branchRows, doctorRows, auditRows] = await Promise.all([
-    rpcRows<RpcRow>('get_dashboard_sales_summary_v171', range),
-    rpcRows<RpcRow>('get_dashboard_daily_sales_v171', range),
-    rpcRows<RpcRow>('get_dashboard_branch_distribution_v171', range),
-    rpcRows<RpcRow>('get_dashboard_doctor_sales_v171', range),
-    rpcRows<RpcRow>('get_dashboard_sales_truth_audit_v1', range),
-  ]);
-  const rawSummary = summaryRows[0];
-  if (!rawSummary) throw new Error('Dashboard sales summary returned no row');
+  const workspace = await fetchWorkspace(range);
+  const rawSummary = workspace.summary;
+  if (!rawSummary) throw new Error('Dashboard workspace returned no summary');
+
   const summary = {
     invoices_count: numberRow(rawSummary, 'invoices_count'),
     sales_total: numberRow(rawSummary, 'sales_total'),
@@ -208,22 +211,32 @@ async function fetchAggregatedTruth(params: { startDate: string; endDate: string
     customer_link_rate_percent: numberRow(rawSummary, 'customer_link_rate_percent'),
     linked_customers: numberRow(rawSummary, 'linked_customers'),
   };
-  const dailySales = dailyRows.map((row) => ({ sale_date: String(row.sale_date || '').slice(0, 10), branch: String(row.branch || UNKNOWN_LABEL), daily_sales: numberRow(row, 'daily_sales'), invoices_count: numberRow(row, 'invoices_count') }));
-  const branchDistribution = branchRows.map((row) => ({ branch: String(row.branch || UNKNOWN_LABEL), sales_total: numberRow(row, 'sales_total'), invoices_count: numberRow(row, 'invoices_count'), avg_invoice: numberRow(row, 'avg_invoice'), linked_customers: numberRow(row, 'linked_customers') }));
-  const doctorSales = mapDoctorRows(doctorRows);
 
-  const today = localToday();
-  const recentEnd = params.endDate < today ? params.endDate : today;
-  const safeRecentEnd = recentEnd < params.startDate ? params.endDate : recentEnd;
-  const recentStart = [params.startDate, daysBefore(safeRecentEnd, 4)].sort().at(-1) || params.startDate;
-  const recentInvoices = await fetchSalesInvoicesPagedSafe({ startDate: recentStart, endDate: safeRecentEnd, branch, errors: params.errors, noCache: true }) as DashboardInvoiceRow[];
-  const audit = auditRows[0] || {};
+  const dailySales = (workspace.daily_sales || []).map((row) => ({
+    sale_date: String(row.sale_date || '').slice(0, 10),
+    branch: String(row.branch || UNKNOWN_LABEL),
+    daily_sales: numberRow(row, 'daily_sales'),
+    invoices_count: numberRow(row, 'invoices_count'),
+  }));
+  const branchDistribution = (workspace.branch_distribution || []).map((row) => ({
+    branch: String(row.branch || UNKNOWN_LABEL),
+    sales_total: numberRow(row, 'sales_total'),
+    invoices_count: numberRow(row, 'invoices_count'),
+    avg_invoice: numberRow(row, 'avg_invoice'),
+    linked_customers: numberRow(row, 'linked_customers'),
+  }));
+  const doctorSales = mapDoctorRows(workspace.doctor_sales || []);
+
+  // Detail is deliberately secondary: the dashboard remains usable even if this bounded read fails.
+  const recentInvoices = await fetchRecentInvoicesBounded({ ...params, branch });
+  const audit = workspace.audit || {};
   const cleanTotal = numberRow(audit, 'clean_total') || summary.sales_total;
   const cleanRows = numberRow(audit, 'clean_rows') || summary.invoices_count;
   const dates = dailySales.map((row) => row.sale_date).filter(Boolean).sort();
+
   return {
     sourceRows: recentInvoices,
-    cycleRows: recentInvoices,
+    cycleRows: [],
     summary,
     dailySales,
     monthlySales: [],
@@ -231,78 +244,21 @@ async function fetchAggregatedTruth(params: { startDate: string; endDate: string
     doctorSales,
     recentInvoices,
     reconciliation: {
-      source: 'dashboard_aggregate_rpcs_v171', dashboardTotal: summary.sales_total, sqlEquivalentTotal: cleanTotal,
-      difference: Math.abs(summary.sales_total - cleanTotal), invoicesCount: summary.invoices_count, rowsRead: cleanRows,
-      selectedStartDate: params.startDate, selectedEndDate: params.endDate,
+      source: 'dashboard_workspace_v1',
+      dashboardTotal: summary.sales_total,
+      sqlEquivalentTotal: cleanTotal,
+      difference: Math.abs(summary.sales_total - cleanTotal),
+      invoicesCount: summary.invoices_count,
+      rowsRead: cleanRows,
+      selectedStartDate: params.startDate,
+      selectedEndDate: params.endDate,
       branchesIncluded: branchDistribution.map((row) => row.branch).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ar')),
-      firstInvoiceDate: dates[0] || null, lastInvoiceDate: dates.at(-1) || null,
-      missingBranchCount: 0, missingDoctorCount: 0, missingInvoiceKeyCount: 0,
+      firstInvoiceDate: dates[0] || null,
+      lastInvoiceDate: dates.at(-1) || null,
+      missingBranchCount: 0,
+      missingDoctorCount: 0,
+      missingInvoiceKeyCount: 0,
       missingCustomerCodeCount: summary.unregistered_customer_invoices,
-    },
-  };
-}
-
-function buildFallbackTruth(rows: DashboardInvoiceRow[]) {
-  // IMPORTANT: rows already come from dawaa_sales_invoices_dashboard_v1. That view is the
-  // single source of truth for the exact five excluded codes + non-final invoices. Never add
-  // wholesale/B2B exclusions here or fallback totals will diverge from the RPC path.
-  const invoiceRows = rows.filter((row) => Boolean(invoiceDate(row)));
-  const linkedRows = invoiceRows.filter(isLinkedInvoice);
-  const total = invoiceRows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0);
-  const daily = new Map<string, { sale_date: string; branch: string; daily_sales: number; invoices_count: number }>();
-  const branches = new Map<string, { branch: string; sales_total: number; invoices_count: number; avg_invoice: number; linked_customers: number }>();
-  const branchCustomers = new Map<string, Set<string>>();
-  for (const row of invoiceRows) {
-    const day = invoiceDate(row); const branch = invoiceBranch(row); const amount = dashboardInvoiceAmount(row);
-    const dk = `${day}__${branch}`; const d = daily.get(dk) || { sale_date: day, branch, daily_sales: 0, invoices_count: 0 };
-    d.daily_sales += amount; d.invoices_count += 1; daily.set(dk, d);
-    const b = branches.get(branch) || { branch, sales_total: 0, invoices_count: 0, avg_invoice: 0, linked_customers: 0 };
-    b.sales_total += amount; b.invoices_count += 1; branches.set(branch, b);
-    if (isLinkedInvoice(row)) {
-      if (!branchCustomers.has(branch)) branchCustomers.set(branch, new Set());
-      branchCustomers.get(branch)?.add(String(row.customer_code || '').trim());
-    }
-  }
-  const linkedSales = linkedRows.reduce((sum, row) => sum + dashboardInvoiceAmount(row), 0);
-  return {
-    summary: {
-      invoices_count: invoiceRows.length, sales_total: total, avg_invoice: invoiceRows.length ? total / invoiceRows.length : 0,
-      linked_invoices: linkedRows.length, unregistered_customer_invoices: invoiceRows.length - linkedRows.length,
-      linked_sales: linkedSales, unregistered_customer_sales: total - linkedSales,
-      customer_link_rate_percent: invoiceRows.length ? linkedRows.length / invoiceRows.length * 100 : 0,
-      linked_customers: new Set(linkedRows.map((row) => String(row.customer_code || '').trim()).filter(Boolean)).size,
-    },
-    dailySales: [...daily.values()].sort((a, b) => `${a.sale_date}__${a.branch}`.localeCompare(`${b.sale_date}__${b.branch}`)),
-    branchDistribution: [...branches.values()].map((row) => ({ ...row, avg_invoice: row.invoices_count ? row.sales_total / row.invoices_count : 0, linked_customers: branchCustomers.get(row.branch)?.size || 0 })).sort((a, b) => b.sales_total - a.sales_total),
-  };
-}
-
-async function fetchFallbackTruth(params: { startDate: string; endDate: string; branch: string; errors?: string[]; noCache?: boolean }): Promise<DashboardSalesTruth> {
-  const rows = await fetchSalesInvoicesPagedSafe({ startDate: params.startDate, endDate: params.endDate, branch: params.branch, errors: params.errors, noCache: true }) as DashboardInvoiceRow[];
-  const truth = buildFallbackTruth(rows);
-  let doctorSales: DashboardSalesTruth['doctorSales'] = [];
-  try {
-    const doctorRows = await rpcRows<RpcRow>('get_dashboard_doctor_sales_v171', { p_start: params.startDate, p_end: params.endDate, p_branch: params.branch });
-    doctorSales = mapDoctorRows(doctorRows);
-  } catch (error) {
-    params.errors?.push(`doctor sales fallback: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  const anchor = rows.map(invoiceDate).filter(Boolean).sort().at(-1) || params.endDate;
-  const recentStart = daysBefore(anchor, 4);
-  const recentInvoices = rows.filter((row) => { const day = invoiceDate(row); return day >= recentStart && day <= anchor; });
-  const total = truth.summary.sales_total;
-  return {
-    sourceRows: rows, cycleRows: rows, ...truth, monthlySales: [], doctorSales, recentInvoices,
-    reconciliation: {
-      source: 'dawaa_sales_invoices_dashboard_v1_fallback', dashboardTotal: total, sqlEquivalentTotal: total, difference: 0,
-      invoicesCount: truth.summary.invoices_count, rowsRead: rows.length,
-      selectedStartDate: params.startDate, selectedEndDate: params.endDate,
-      branchesIncluded: [...new Set(rows.map(invoiceBranch))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'ar')),
-      firstInvoiceDate: rows.map(invoiceDate).filter(Boolean).sort()[0] || null, lastInvoiceDate: anchor || null,
-      missingBranchCount: rows.filter((row) => !String(row.branch_name || row.branch || '').trim()).length,
-      missingDoctorCount: rows.filter((row) => !String(invoiceDoctorName(row) || '').trim()).length,
-      missingInvoiceKeyCount: rows.filter((row) => !invoiceIdentityKey(row)).length,
-      missingCustomerCodeCount: rows.filter((row) => !String(row.customer_code || '').trim()).length,
     },
   };
 }
@@ -310,10 +266,15 @@ async function fetchFallbackTruth(params: { startDate: string; endDate: string; 
 export async function fetchDashboardSalesTruth(params: { startDate: string; endDate: string; branch: string; errors?: string[]; noCache?: boolean }): Promise<DashboardSalesTruth> {
   try {
     return await fetchAggregatedTruth(params);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    params.errors?.push(`dashboard aggregate RPCs: ${message}`);
-    if (import.meta.env.DEV) console.warn('[DashboardTruth] aggregate path failed; using clean-view fallback', error);
-    return fetchFallbackTruth(params);
+  } catch (firstError) {
+    try {
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      return await fetchAggregatedTruth(params);
+    } catch (secondError) {
+      const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
+      const secondMessage = secondError instanceof Error ? secondError.message : String(secondError);
+      params.errors?.push(`dashboard workspace: ${firstMessage}; retry: ${secondMessage}`);
+      throw secondError;
+    }
   }
 }

@@ -119,11 +119,11 @@ export default function CustomerRequestActionQueue({
   };
 
   return (
-    <section className="rounded-3xl border border-fuchsia-400/20 bg-gradient-to-l from-[#102640] via-[#102239] to-[#12152b] p-4 shadow-xl">
+    <section className="rounded-3xl border border-[var(--dawaa-status-info-border)] bg-gradient-to-l from-[var(--dawaa-theme-surface-2)] via-[var(--dawaa-theme-surface-2)] to-[var(--dawaa-theme-surface-2)] p-4 shadow-xl">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 font-black text-white"><Sparkles size={18} className="text-fuchsia-300" /> قائمة التدخل الذكية</div>
-          <p className="mt-1 text-xs font-semibold text-slate-400">الأعلى أولوية حسب الأهمية، تجاوز وقت المتابعة، المرحلة ومدة الانتظار.</p>
+          <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><Sparkles size={18} className="text-[var(--dawaa-status-info-text)]" /> قائمة التدخل الذكية</div>
+          <p className="mt-1 text-xs font-semibold text-[var(--dawaa-theme-muted)]">الأعلى أولوية حسب الأهمية، تجاوز وقت المتابعة، المرحلة ومدة الانتظار.</p>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading} className="btn-secondary flex items-center gap-2 px-3 py-2 text-xs">
           {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} تحديث الأولويات
@@ -131,11 +131,11 @@ export default function CustomerRequestActionQueue({
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-red-400/25 bg-red-500/10 p-3 text-xs font-bold text-red-200">تعذر تحميل قائمة التدخل: {error}</div>
+        <div className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل قائمة التدخل: {error}</div>
       ) : loading && items.length === 0 ? (
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-44 animate-pulse rounded-2xl bg-slate-800/70" />)}</div>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-44 animate-pulse rounded-2xl bg-[var(--dawaa-theme-surface-2)]" />)}</div>
       ) : items.length === 0 ? (
-        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm font-bold text-emerald-200">لا توجد طلبات حرجة حاليًا.</div>
+        <div className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-success-text)]">لا توجد طلبات حرجة حاليًا.</div>
       ) : (
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
           {items.map((item, index) => {
@@ -143,23 +143,23 @@ export default function CustomerRequestActionQueue({
             const currentStage = stageIndex(item.status);
             const ActionIcon = action?.icon;
             return (
-              <div key={item.id} className={`rounded-2xl border p-3 text-right ${item.is_overdue ? 'border-amber-400/30 bg-amber-500/[0.07]' : 'border-slate-700 bg-slate-950/45'}`}>
+              <div key={item.id} className={`rounded-2xl border p-3 text-right ${item.is_overdue ? 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.07]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]'}`}>
                 <button type="button" onClick={() => onSelect?.(item)} className="w-full text-right">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2"><span className="num flex h-6 min-w-6 items-center justify-center rounded-full bg-fuchsia-500/15 px-1.5 text-[11px] font-black text-fuchsia-200">{index + 1}</span><div className="truncate text-sm font-black text-white">{item.medicine_name}</div></div>
-                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-bold text-slate-400"><span><Clock3 size={10} className="inline ms-1" />{exactTime(item)}</span><span>{importance(item)}</span><span>سجله: {registrarName(item)}</span></div>
+                      <div className="flex items-center gap-2"><span className="num flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--dawaa-status-info-bg)] px-1.5 text-[11px] font-black text-[var(--dawaa-status-info-text)]">{index + 1}</span><div className="truncate text-sm font-black text-[var(--dawaa-theme-heading)]">{item.medicine_name}</div></div>
+                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]"><span><Clock3 size={10} className="inline ms-1" />{exactTime(item)}</span><span>{importance(item)}</span><span>سجله: {registrarName(item)}</span></div>
                     </div>
-                    <span className="rounded-full bg-slate-800 px-2 py-1 text-[10px] font-black text-slate-200">{requestStatusLabel(item.status)}</span>
+                    <span className="rounded-full bg-[var(--dawaa-theme-surface-2)] px-2 py-1 text-[10px] font-black text-[var(--dawaa-theme-heading)]">{requestStatusLabel(item.status)}</span>
                   </div>
                 </button>
 
                 <div className="mt-3 grid grid-cols-5 gap-1">
-                  {WORKFLOW.map((step, stepIndex) => <div key={step.key} className="text-center"><div className={`mx-auto h-1.5 rounded-full ${stepIndex <= currentStage ? 'bg-cyan-400' : 'bg-slate-700'}`} /><div className={`mt-1 text-[9px] font-bold ${stepIndex === currentStage ? 'text-cyan-200' : 'text-slate-500'}`}>{step.label}</div></div>)}
+                  {WORKFLOW.map((step, stepIndex) => <div key={step.key} className="text-center"><div className={`mx-auto h-1.5 rounded-full ${stepIndex <= currentStage ? 'bg-[var(--dawaa-theme-accent-soft)]' : 'bg-[var(--dawaa-theme-surface-2)]'}`} /><div className={`mt-1 text-[9px] font-bold ${stepIndex === currentStage ? 'text-[var(--dawaa-theme-primary)]' : 'text-[var(--dawaa-theme-muted)]'}`}>{step.label}</div></div>)}
                 </div>
 
-                <div className="mt-3 rounded-xl border border-cyan-400/15 bg-cyan-500/[0.07] px-3 py-2 text-[11px] font-black text-cyan-100">{item.reason}</div>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold text-slate-400"><span>{item.customer_name || 'عميل غير محدد'} · {item.branch || 'بدون فرع'}</span><span className={item.is_overdue ? 'text-amber-300' : 'text-slate-300'}>{item.is_overdue && <AlertTriangle size={10} className="inline ms-1" />}{item.stage_age_hours}س / SLA {item.sla_hours}س</span></div>
+                <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-primary)]/[0.07] px-3 py-2 text-[11px] font-black text-[var(--dawaa-theme-primary)]">{item.reason}</div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]"><span>{item.customer_name || 'عميل غير محدد'} · {item.branch || 'بدون فرع'}</span><span className={item.is_overdue ? 'text-[var(--dawaa-status-warning-text)]' : 'text-[var(--dawaa-theme-text)]'}>{item.is_overdue && <AlertTriangle size={10} className="inline ms-1" />}{item.stage_age_hours}س / SLA {item.sla_hours}س</span></div>
 
                 <div className="mt-3 flex gap-2">
                   {action && ActionIcon && <button type="button" disabled={savingId === item.id} onClick={() => void advance(item)} className="btn-primary flex flex-1 items-center justify-center gap-1.5 px-2 py-2 text-[11px]">{savingId === item.id ? <Loader2 size={13} className="animate-spin" /> : <ActionIcon size={13} />}{action.label}</button>}

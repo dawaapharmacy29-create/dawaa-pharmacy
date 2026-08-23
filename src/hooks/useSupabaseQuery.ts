@@ -6,6 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { stableKeyValue } from '@/lib/queryKeys';
 
+export type DataFreshness = 'live' | 'standard' | 'historical';
+
 interface QueryOptions {
   table: string;
   select?: string;
@@ -14,9 +16,11 @@ interface QueryOptions {
   limit?: number;
   realtimeEnabled?: boolean; // default: false — enable only where live updates are truly needed
   timeoutMs?: number;
-  /** Cache lifetime before a navigation back to the same page triggers a new network request. */
+  /** Explicit freshness class. Prefer this over hand-tuned cache values. */
+  freshness?: DataFreshness;
+  /** Cache lifetime override. Use only when a screen has a measured reason. */
   staleTimeMs?: number;
-  /** How long unused query data stays reusable in memory. */
+  /** Unused-query retention override. Use only when a screen has a measured reason. */
   gcTimeMs?: number;
 }
 
@@ -26,6 +30,49 @@ type SupabaseResultLike<T = unknown> = {
   data?: T | null;
   error?: { message?: string } | null;
 };
+
+type FreshnessPolicy = {
+  staleTimeMs: number;
+  gcTimeMs: number;
+  refetchOnMount: boolean | 'always';
+  refetchOnReconnect: boolean | 'always';
+  refetchOnWindowFocus: boolean | 'always';
+};
+
+const FRESHNESS_POLICIES: Record<DataFreshness, FreshnessPolicy> = {
+  live: {
+    staleTimeMs: 15_000,
+    gcTimeMs: 5 * 60_000,
+    refetchOnMount: true,
+    refetchOnReconnect: 'always',
+    refetchOnWindowFocus: false,
+  },
+  standard: {
+    staleTimeMs: 2 * 60_000,
+    gcTimeMs: 15 * 60_000,
+    refetchOnMount: true,
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: false,
+  },
+  historical: {
+    staleTimeMs: 30 * 60_000,
+    gcTimeMs: 60 * 60_000,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  },
+};
+
+const HIGH_VOLUME_LOOKUP_TABLES = new Set(['customers', 'sales_invoices']);
+const DISALLOWED_UNFILTERED_BULK_LIMIT = 10_000;
+
+function isDisallowedUnfilteredBulkRead(options: QueryOptions) {
+  return (
+    HIGH_VOLUME_LOOKUP_TABLES.has(options.table) &&
+    (options.limit ?? 0) >= DISALLOWED_UNFILTERED_BULK_LIMIT &&
+    (!options.filters || options.filters.length === 0)
+  );
+}
 
 function friendlySupabaseError(message: string): string {
   const lower = message.toLowerCase();
@@ -57,6 +104,9 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, label: strin
 export function useSupabaseQuery<T>(options: QueryOptions) {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const queryClient = useQueryClient();
+  const freshness = options.freshness ?? 'standard';
+  const policy = FRESHNESS_POLICIES[freshness];
+  const blockedBulkRead = isDisallowedUnfilteredBulkRead(options);
 
   const buildQuery = () => {
     let query: QueryBuilder = supabase.from(options.table).select(options.select || '*');
@@ -92,9 +142,18 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     stableKeyValue(options.filters ?? null),
     stableKeyValue(options.orderBy ?? null),
     String(options.limit ?? 'all'),
+    blockedBulkRead ? 'blocked-bulk-read' : 'allowed-read',
   ] as const;
 
   const fetcher = async () => {
+    if (blockedBulkRead) {
+      if (import.meta.env.DEV) {
+        console.warn(
+          `[useSupabaseQuery] blocked unfiltered ${options.limit}-row read from ${options.table}; use server search/read model instead.`
+        );
+      }
+      return [] as T[];
+    }
     if (!isSupabaseConfigured) {
       throw new Error('إعدادات Supabase غير موجودة. أضف ملف .env لتفعيل البيانات الحقيقية.');
     }
@@ -115,17 +174,17 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   const { data = [], isLoading: loading, error } = useQuery<T[], Error>({
     queryKey,
     queryFn: fetcher,
-    staleTime: options.staleTimeMs ?? 5 * 60_000,
-    gcTime: options.gcTimeMs ?? 30 * 60_000,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchOnMount: false,
-    retry: 1,
+    staleTime: options.staleTimeMs ?? policy.staleTimeMs,
+    gcTime: options.gcTimeMs ?? policy.gcTimeMs,
+    refetchOnWindowFocus: policy.refetchOnWindowFocus,
+    refetchOnReconnect: policy.refetchOnReconnect,
+    refetchOnMount: policy.refetchOnMount,
+    retry: blockedBulkRead ? false : 1,
     retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 
   useEffect(() => {
-    if (!isSupabaseConfigured || options.realtimeEnabled !== true) return;
+    if (!isSupabaseConfigured || options.realtimeEnabled !== true || blockedBulkRead) return;
 
     channelRef.current = supabase
       .channel(`realtime:${options.table}`)
@@ -140,7 +199,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options.table, options.realtimeEnabled]);
+  }, [options.table, options.realtimeEnabled, blockedBulkRead]);
 
   return { data, loading, error: error ? error.message : null, refetch: () => queryClient.invalidateQueries({ queryKey }) };
 }

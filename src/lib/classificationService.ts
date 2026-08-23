@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { readInvoiceRecordById } from './readModels/invoiceRecordReadModel';
 
 export interface ClassificationRule {
   id: string;
@@ -36,9 +37,6 @@ export interface ClassificationSummary {
  * خدمة إدارة قواعد التصنيف للعملاء والفواتير
  */
 export class ClassificationService {
-  /**
-   * الحصول على جميع قواعد التصنيف النشطة
-   */
   static async getActiveClassificationRules(): Promise<ClassificationRule[]> {
     const { data, error } = await supabase
       .from('classification_rules')
@@ -49,9 +47,6 @@ export class ClassificationService {
     return data || [];
   }
 
-  /**
-   * إضافة قاعدة تصنيف جديدة
-   */
   static async addClassificationRule(rule: {
     rule_type: 'customer' | 'invoice';
     condition: string;
@@ -74,9 +69,6 @@ export class ClassificationService {
     return data;
   }
 
-  /**
-   * تحديث قاعدة تصنيف
-   */
   static async updateClassificationRule(
     ruleId: string,
     updates: Partial<ClassificationRule>
@@ -92,9 +84,6 @@ export class ClassificationService {
     return data;
   }
 
-  /**
-   * حذف قاعدة تصنيف (تعطيلها فقط)
-   */
   static async deactivateClassificationRule(ruleId: string): Promise<void> {
     const { error } = await supabase
       .from('classification_rules')
@@ -104,9 +93,6 @@ export class ClassificationService {
     if (error) throw new Error(error.message);
   }
 
-  /**
-   * فحص عميل للتأكد من الامتثال لقواعد التصنيف
-   */
   static async checkCustomerCompliance(
     customerId: string,
     staffId: string,
@@ -117,7 +103,6 @@ export class ClassificationService {
     const rules = await this.getActiveClassificationRules();
     const customerRules = rules.filter((r) => r.rule_type === 'customer');
 
-    // الحصول على بيانات العميل
     const { data: customer, error: customerError } = await supabase
       .from('customers')
       .select('*')
@@ -126,14 +111,12 @@ export class ClassificationService {
 
     if (customerError) throw new Error(customerError.message);
 
-    // الحصول على اسم الموظف
     const { data: staff } = await supabase
       .from('staff')
       .select('name')
       .eq('id', staffId)
       .maybeSingle();
 
-    // فحص كل قاعدة
     for (const rule of customerRules) {
       const violation = await this.evaluateCustomerRule(
         customer,
@@ -143,17 +126,12 @@ export class ClassificationService {
         cycleStart,
         cycleEnd
       );
-      if (violation) {
-        violations.push(violation);
-      }
+      if (violation) violations.push(violation);
     }
 
     return violations;
   }
 
-  /**
-   * فحص فاتورة للتأكد من الامتثال لقواعد التصنيف
-   */
   static async checkInvoiceCompliance(
     invoiceId: string,
     staffId: string,
@@ -164,23 +142,14 @@ export class ClassificationService {
     const rules = await this.getActiveClassificationRules();
     const invoiceRules = rules.filter((r) => r.rule_type === 'invoice');
 
-    // الحصول على بيانات الفاتورة
-    const { data: invoice, error: invoiceError } = await supabase
-      .from('sales_invoices')
-      .select('*')
-      .eq('id', invoiceId)
-      .maybeSingle();
+    const invoice = await readInvoiceRecordById(invoiceId);
 
-    if (invoiceError) throw new Error(invoiceError.message);
-
-    // الحصول على اسم الموظف
     const { data: staff } = await supabase
       .from('staff')
       .select('name')
       .eq('id', staffId)
       .maybeSingle();
 
-    // فحص كل قاعدة
     for (const rule of invoiceRules) {
       const violation = await this.evaluateInvoiceRule(
         invoice,
@@ -190,17 +159,12 @@ export class ClassificationService {
         cycleStart,
         cycleEnd
       );
-      if (violation) {
-        violations.push(violation);
-      }
+      if (violation) violations.push(violation);
     }
 
     return violations;
   }
 
-  /**
-   * تقييم قاعدة تصنيف للعميل
-   */
   private static async evaluateCustomerRule(
     customer: any,
     rule: ClassificationRule,
@@ -209,11 +173,6 @@ export class ClassificationService {
     cycleStart: string,
     cycleEnd: string
   ): Promise<ClassificationViolation | null> {
-    // أمثلة على الشروط:
-    // - customer_phone is null or empty
-    // - customer_code is null or empty
-    // - customer_classification is null or empty
-
     const condition = rule.condition.toLowerCase();
     let violated = false;
 
@@ -221,24 +180,18 @@ export class ClassificationService {
       condition.includes('phone') &&
       (condition.includes('null') || condition.includes('empty'))
     ) {
-      if (!customer.phone || customer.phone.trim() === '') {
-        violated = true;
-      }
+      if (!customer.phone || customer.phone.trim() === '') violated = true;
     }
 
     if (condition.includes('code') && (condition.includes('null') || condition.includes('empty'))) {
-      if (!customer.customer_code || customer.customer_code.trim() === '') {
-        violated = true;
-      }
+      if (!customer.customer_code || customer.customer_code.trim() === '') violated = true;
     }
 
     if (
       condition.includes('classification') &&
       (condition.includes('null') || condition.includes('empty'))
     ) {
-      if (!customer.segment || customer.segment.trim() === '') {
-        violated = true;
-      }
+      if (!customer.segment || customer.segment.trim() === '') violated = true;
     }
 
     if (violated) {
@@ -260,9 +213,6 @@ export class ClassificationService {
     return null;
   }
 
-  /**
-   * تقييم قاعدة تصنيف للفاتورة
-   */
   private static async evaluateInvoiceRule(
     invoice: any,
     rule: ClassificationRule,
@@ -271,11 +221,6 @@ export class ClassificationService {
     cycleStart: string,
     cycleEnd: string
   ): Promise<ClassificationViolation | null> {
-    // أمثلة على الشروط:
-    // - customer_code is null or empty
-    // - customer_phone is null or empty
-    // - invoice_amount is zero
-
     const condition = rule.condition.toLowerCase();
     let violated = false;
 
@@ -283,27 +228,21 @@ export class ClassificationService {
       condition.includes('customer_code') &&
       (condition.includes('null') || condition.includes('empty'))
     ) {
-      if (!invoice.customer_code || invoice.customer_code.trim() === '') {
-        violated = true;
-      }
+      if (!invoice?.customer_code || invoice.customer_code.trim() === '') violated = true;
     }
 
     if (
       condition.includes('customer_phone') &&
       (condition.includes('null') || condition.includes('empty'))
     ) {
-      if (!invoice.customer_phone || invoice.customer_phone.trim() === '') {
-        violated = true;
-      }
+      if (!invoice?.customer_phone || invoice.customer_phone.trim() === '') violated = true;
     }
 
     if (condition.includes('amount') && condition.includes('zero')) {
-      if (!invoice.amount || invoice.amount === 0) {
-        violated = true;
-      }
+      if (!invoice?.amount || invoice.amount === 0) violated = true;
     }
 
-    if (violated) {
+    if (violated && invoice) {
       return {
         id: crypto.randomUUID(),
         staff_id: staffId,
@@ -312,7 +251,7 @@ export class ClassificationService {
         rule_type: rule.rule_type,
         violation_type: rule.description,
         deduction_points: rule.deduction_points,
-        record_id: invoice.id,
+        record_id: String(invoice.id),
         cycle_start: cycleStart,
         cycle_end: cycleEnd,
         created_at: new Date().toISOString(),
@@ -322,9 +261,6 @@ export class ClassificationService {
     return null;
   }
 
-  /**
-   * الحصول على ملخص الانتهاكات في دورة معينة
-   */
   static async getClassificationSummary(
     cycleStart: string,
     cycleEnd: string
@@ -340,14 +276,12 @@ export class ClassificationService {
     const totalViolations = violations?.length || 0;
     const totalDeduction = violations?.reduce((sum, v) => sum + (v.deduction_points || 0), 0) || 0;
 
-    // تجميع حسب النوع
     const violationsByType: Record<string, number> = {};
     for (const v of violations || []) {
       const type = v.violation_type || 'غير محدد';
       violationsByType[type] = (violationsByType[type] || 0) + 1;
     }
 
-    // تجميع حسب الموظف
     const violationsByStaff = new Map<
       string,
       { staff_name: string; violations: number; deduction: number }
@@ -364,7 +298,6 @@ export class ClassificationService {
       violationsByStaff.set(key, existing);
     }
 
-    // أكثر الانتهاكات شيوعاً
     const violationCounts = new Map<string, number>();
     for (const v of violations || []) {
       const type = v.violation_type || 'غير محدد';

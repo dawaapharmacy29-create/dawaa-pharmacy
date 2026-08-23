@@ -26,19 +26,25 @@ export default function BranchChecklistReview() {
   const today = new Date().toISOString().slice(0, 10);
 
   const load = useCallback(async () => {
-    if (!branch) return;
+    if (!branch) {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const { data, error } = await supabase
       .from('staff_daily_checklist_submissions')
       .select(
-        'id, staff_id, branch, completed, photo_url, staff_note, review_status, reviewer_note, staff_daily_checklist_items(title, description, requires_photo), staff(name, role)'
+        'id, staff_id, branch, completed, photo_url, staff_note, review_status, reviewer_note, staff_daily_checklist_items(title, description, requires_photo), staff:staff!staff_daily_checklist_submissions_staff_id_fkey(name, role)'
       )
       .eq('branch', branch)
       .eq('submission_date', today)
       .eq('completed', true)
       .order('created_at', { ascending: true });
     if (error) {
-      toast.error(error.message);
+      toast.error('تعذر تحميل مراجعات التشيك ليست');
+      console.error('[BranchChecklistReview] load failed', error);
+      setRows([]);
     } else {
       setRows((data || []) as unknown as Row[]);
     }
@@ -65,7 +71,7 @@ export default function BranchChecklistReview() {
         toast.error(error.message);
         return;
       }
-      toast.success(status === 'approved' ? 'اتعتمد' : 'اترفض وهيتسجل خصم تلقائي');
+      toast.success(status === 'approved' ? 'تم الاعتماد' : 'تم الرفض وتسجيل الإجراء');
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, review_status: status } : r)));
     },
     [noteDraft, user]
@@ -75,38 +81,40 @@ export default function BranchChecklistReview() {
   const reviewed = rows.filter((r) => r.review_status !== 'pending');
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-4 pb-24">
-      <div>
-        <h1 className="text-xl font-black text-white">مراجعة تشيك ليست النظافة والمساعدين — {new Date().toLocaleDateString('ar-EG')}</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          راجع كل بند بالصورة المرفقة. الرفض بيسجل خصم تلقائي فورًا على الموظف المسؤول.
+    <div className="mx-auto max-w-2xl space-y-6 p-4 pb-24" dir="rtl">
+      <div className="dawaa-card dawaa-card--raised p-5">
+        <h1 className="dawaa-title text-xl">مراجعة تشيك ليست النظافة والمساعدين — {new Date().toLocaleDateString('ar-EG')}</h1>
+        <p className="dawaa-caption mt-1 text-sm font-semibold">
+          راجع كل بند والصورة المرفقة. الرفض يسجل الإجراء المعتمد على الموظف المسؤول.
         </p>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-400" /></div>
+        <div className="dawaa-card flex justify-center py-10"><Loader2 className="animate-spin text-[var(--dawaa-theme-primary)]" /></div>
       ) : (
         <>
           <section className="space-y-3">
-            <h2 className="text-sm font-black text-amber-300">بانتظار المراجعة ({pending.length})</h2>
-            {pending.length === 0 ? <p className="text-sm text-slate-500">مفيش حاجة محتاجة مراجعة دلوقتي.</p> : null}
+            <h2 className="text-sm font-black text-[var(--dawaa-status-warning-text)]">بانتظار المراجعة ({pending.length})</h2>
+            {pending.length === 0 ? (
+              <div className="dawaa-card dawaa-card--soft p-4 text-sm font-semibold text-[var(--dawaa-theme-muted)]">لا توجد بنود تحتاج مراجعة الآن.</div>
+            ) : null}
             {pending.map((row) => (
-              <div key={row.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="flex items-center justify-between">
-                  <p className="font-black text-white">{row.staff_daily_checklist_items?.title}</p>
-                  <span className="text-xs text-slate-400">{row.staff?.name}</span>
+              <div key={row.id} className="dawaa-card p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-black text-[var(--dawaa-theme-heading)]">{row.staff_daily_checklist_items?.title || 'بند بدون عنوان'}</p>
+                  <span className="text-xs font-bold text-[var(--dawaa-theme-muted)]">{row.staff?.name || 'موظف غير محدد'}</span>
                 </div>
                 {row.staff_daily_checklist_items?.description ? (
-                  <p className="mt-1 text-xs text-slate-400">{row.staff_daily_checklist_items.description}</p>
+                  <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{row.staff_daily_checklist_items.description}</p>
                 ) : null}
                 {row.photo_url ? (
-                  <img src={row.photo_url} alt="دليل" className="mt-3 h-40 w-full rounded-xl object-cover" />
+                  <img src={row.photo_url} alt="دليل تنفيذ البند" className="mt-3 h-40 w-full rounded-xl border border-[var(--dawaa-theme-border)] object-cover" />
                 ) : (
-                  <p className="mt-3 text-xs text-rose-300">مفيش صورة مرفقة.</p>
+                  <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs font-bold">لا توجد صورة مرفقة.</div>
                 )}
                 <textarea
-                  placeholder="ملاحظة الرفض (اختياري بس بتتسجل مع الخصم)"
-                  className="mt-3 w-full rounded-lg border border-white/10 bg-black/20 p-2 text-xs text-white placeholder:text-slate-500"
+                  placeholder="ملاحظة الرفض (اختياري)"
+                  className="dawaa-input mt-3 w-full p-2 text-xs"
                   rows={2}
                   value={noteDraft[row.id] || ''}
                   onChange={(e) => setNoteDraft((prev) => ({ ...prev, [row.id]: e.target.value }))}
@@ -114,13 +122,13 @@ export default function BranchChecklistReview() {
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => void review(row, 'approved')}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-500/20 py-2 text-sm font-black text-emerald-300"
+                    className="dawaa-button dawaa-button--primary flex flex-1 items-center justify-center gap-1.5"
                   >
                     <Check size={16} /> اعتماد
                   </button>
                   <button
                     onClick={() => void review(row, 'rejected')}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-500/20 py-2 text-sm font-black text-rose-300"
+                    className="dawaa-button dawaa-button--danger flex flex-1 items-center justify-center gap-1.5"
                   >
                     <X size={16} /> رفض
                   </button>
@@ -130,11 +138,11 @@ export default function BranchChecklistReview() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-sm font-black text-slate-400">اتراجعت النهاردة ({reviewed.length})</h2>
+            <h2 className="text-sm font-black text-[var(--dawaa-theme-muted)]">تمت مراجعتها اليوم ({reviewed.length})</h2>
             {reviewed.map((row) => (
-              <div key={row.id} className="flex items-center justify-between rounded-xl bg-black/20 px-3 py-2 text-xs">
-                <span className="text-slate-300">{row.staff_daily_checklist_items?.title} — {row.staff?.name}</span>
-                <span className={row.review_status === 'approved' ? 'text-emerald-300' : 'text-rose-300'}>
+              <div key={row.id} className="dawaa-card dawaa-card--soft flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                <span className="font-semibold text-[var(--dawaa-theme-text)]">{row.staff_daily_checklist_items?.title || 'بند'} — {row.staff?.name || 'موظف غير محدد'}</span>
+                <span className={row.review_status === 'approved' ? 'font-black text-[var(--dawaa-status-success-text)]' : 'font-black text-[var(--dawaa-status-danger-text)]'}>
                   {row.review_status === 'approved' ? 'معتمد' : 'مرفوض'}
                 </span>
               </div>

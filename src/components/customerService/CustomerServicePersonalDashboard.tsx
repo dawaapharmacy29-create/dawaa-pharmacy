@@ -8,19 +8,20 @@ import { supabase } from '@/lib/supabase';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 
 const QUICK_LINKS = [
-  { label: 'متابعة العملاء', icon: ClipboardList, color: '#f472b6', path: '/customer-service' },
-  { label: 'تقييم المحادثات', icon: Star, color: '#fbbf24', path: '/reviews' },
-  { label: 'رسائل الترحيب', icon: MessageCircle, color: '#2dd4bf', path: '/welcome-messages' },
-  { label: 'طلبات العملاء', icon: Package, color: '#38bdf8', path: '/customer-requests' },
-  { label: 'نقاط العملاء', icon: Gift, color: '#a78bfa', path: '/customer-points-ledger' },
-  { label: 'جدولي', icon: Calendar, color: '#fb7185', path: '/schedule' },
-  { label: 'كريدت خدمة العملاء', icon: CreditCard, color: '#22c55e', path: '/customer-service-credit' },
-  { label: 'تقييمي الشهري', icon: Award, color: '#eab308', path: '/staff-monthly-evaluation' },
-];
+  { label: 'متابعة العملاء', icon: ClipboardList, tone: 'followups', path: '/customer-service' },
+  { label: 'تقييم المحادثات', icon: Star, tone: 'reviews', path: '/reviews' },
+  { label: 'رسائل الترحيب', icon: MessageCircle, tone: 'welcome', path: '/welcome-messages' },
+  { label: 'طلبات العملاء', icon: Package, tone: 'requests', path: '/customer-requests' },
+  { label: 'نقاط العملاء', icon: Gift, tone: 'points', path: '/customer-points-ledger' },
+  { label: 'جدولي', icon: Calendar, tone: 'schedule', path: '/schedule' },
+  { label: 'كريدت خدمة العملاء', icon: CreditCard, tone: 'credit', path: '/customer-service-credit' },
+  { label: 'تقييمي الشهري', icon: Award, tone: 'evaluation', path: '/staff-monthly-evaluation' },
+] as const;
 
 const card = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
-const softCard = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
+const softCard = { background: 'var(--dawaa-theme-surface-2)', borderColor: 'var(--dawaa-theme-border)' };
 const mutedText = { color: 'var(--dawaa-theme-muted)' };
+const headingText = { color: 'var(--dawaa-theme-heading)' };
 
 type SourceKey = 'followups' | 'reviews' | 'ops';
 type SourceStatus = 'loading' | 'ready' | 'error';
@@ -87,29 +88,30 @@ function numberText(value: number | null | undefined) {
 }
 
 function StatusValue({ status, value }: { status: SourceStatus; value: string | number }) {
-  if (status === 'loading') return <span className="text-slate-400">…</span>;
-  if (status === 'error') return <span className="text-amber-300">—</span>;
+  if (status === 'loading') return <span style={mutedText}>…</span>;
+  if (status === 'error') return <span className="dawaa-status-text-warning">—</span>;
   return <>{value}</>;
 }
 
-function StatCard({ icon: Icon, label, status, value, accent }: { icon: any; label: string; status: SourceStatus; value: string | number; accent: string }) {
-  return <div className={`rounded-2xl border p-4 ${status === 'error' ? 'border-dashed border-amber-400/35' : ''}`} style={card}>
-    <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: `${accent}22`, color: accent }}><Icon size={18} /></div>
-    <div className="mt-3 text-2xl font-black text-white"><StatusValue status={status} value={value} /></div>
+function StatCard({ icon: Icon, label, status, value, tone }: { icon: any; label: string; status: SourceStatus; value: string | number; tone: string }) {
+  return <div className={`rounded-2xl border p-4 ${status === 'error' ? 'border-dashed' : ''}`} style={card}>
+    <div className={`cs-personal-icon cs-personal-icon--${tone}`}><Icon size={18} /></div>
+    <div className="mt-3 text-2xl font-black" style={headingText}><StatusValue status={status} value={value} /></div>
     <div className="mt-1 text-xs font-bold" style={mutedText}>{label}</div>
-    {status === 'error' ? <div className="mt-2 text-[10px] font-bold text-amber-300">تعذر تحميل المصدر — ليست قيمة صفر</div> : null}
+    {status === 'error' ? <div className="dawaa-status-text-warning mt-2 text-[10px] font-bold">تعذر تحميل المصدر — ليست قيمة صفر</div> : null}
   </div>;
 }
 
 function Section({ title, icon: Icon, status, children }: { title: string; icon: any; status: SourceStatus; children: React.ReactNode }) {
+  const badgeClass = status === 'ready' ? 'dawaa-badge--success' : status === 'loading' ? 'dawaa-badge--info' : 'dawaa-badge--warning';
   return <div className="rounded-3xl border p-5" style={card}>
     <div className="flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2 font-black text-teal-200"><Icon size={18} />{title}</div>
-      <span className={`rounded-full px-2 py-1 text-[10px] font-black ${status === 'ready' ? 'bg-emerald-400/10 text-emerald-300' : status === 'loading' ? 'bg-sky-400/10 text-sky-300' : 'bg-amber-400/10 text-amber-300'}`}>
+      <div className="flex items-center gap-2 font-black" style={{ color: 'var(--dawaa-theme-primary)' }}><Icon size={18} />{title}</div>
+      <span className={`dawaa-badge ${badgeClass} px-2 py-1 text-[10px] font-black`}>
         {status === 'ready' ? 'محدّث' : status === 'loading' ? 'جاري التحميل' : 'المصدر غير متاح'}
       </span>
     </div>
-    {status === 'error' ? <p className="mt-3 text-xs font-bold text-amber-200">هذا القسم لم يرجع بيانات مؤكدة؛ لم يتم تحويل الفشل إلى أرقام صفرية.</p> : children}
+    {status === 'error' ? <p className="dawaa-status-text-warning mt-3 text-xs font-bold">هذا القسم لم يرجع بيانات مؤكدة؛ لم يتم تحويل الفشل إلى أرقام صفرية.</p> : children}
   </div>;
 }
 
@@ -174,88 +176,81 @@ export default function CustomerServicePersonalDashboard({ branch, staffName }: 
     return () => { cancelled = true; };
   }, [branch, staffName, cycle.start, cycle.end, retryKey]);
 
-  const failed = (Object.keys(errors) as SourceKey[]);
+  const failed = Object.keys(errors) as SourceKey[];
   const loading = Object.values(status).some((value) => value === 'loading');
   const f = data.my_followups;
   const completionRate = f.total_count ? Math.round((f.completed_count / f.total_count) * 100) : 0;
   const myRank = data.team_ranking.findIndex((row) => row.rep_name === staffName);
 
   return <div className="space-y-4" dir="rtl">
-    <div className="rounded-3xl border p-5" style={{ background: 'linear-gradient(135deg, rgba(244,114,182,0.1), rgba(45,212,191,0.08))', borderColor: 'var(--dawaa-theme-border)' }}>
+    <div className="cs-personal-hero rounded-3xl border p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-pink-200"><Sparkles size={18} /><span className="text-xs font-black">لوحتك الشخصية</span></div>
-          <h2 className="mt-1 text-2xl font-black text-white">أهلًا يا {staffName}</h2>
+          <div className="flex items-center gap-2" style={{ color: 'var(--dawaa-theme-primary)' }}><Sparkles size={18} /><span className="text-xs font-black">لوحتك الشخصية</span></div>
+          <h2 className="mt-1 text-2xl font-black" style={headingText}>أهلًا يا {staffName}</h2>
           <p className="mt-1 text-xs font-bold" style={mutedText}>الدورة الحالية: {cycle.start} — {cycle.end} · فرعك: {branch}</p>
         </div>
-        <button type="button" onClick={() => setRetryKey((value) => value + 1)} disabled={loading} className="btn-secondary flex items-center gap-2 disabled:opacity-60"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> تحديث بياناتي</button>
+        <button type="button" onClick={() => setRetryKey((value) => value + 1)} disabled={loading} className="dawaa-button dawaa-button--secondary flex items-center gap-2 disabled:opacity-60"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> تحديث بياناتي</button>
       </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        {(['followups', 'reviews', 'ops'] as SourceKey[]).map((key) => <div key={key} className={`rounded-xl border px-3 py-2 text-xs font-black ${status[key] === 'ready' ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200' : status[key] === 'loading' ? 'border-sky-400/20 bg-sky-500/10 text-sky-200' : 'border-amber-400/30 bg-amber-500/10 text-amber-200'}`}>
-          {key === 'followups' ? 'المتابعات' : key === 'reviews' ? 'التقييمات' : 'التشغيل'}: {status[key] === 'ready' ? 'محدّث' : status[key] === 'loading' ? 'جاري التحميل' : 'تعذر مؤقتًا'}
-        </div>)}
+        {(['followups', 'reviews', 'ops'] as SourceKey[]).map((key) => {
+          const badgeClass = status[key] === 'ready' ? 'dawaa-badge--success' : status[key] === 'loading' ? 'dawaa-badge--info' : 'dawaa-badge--warning';
+          return <div key={key} className={`dawaa-badge ${badgeClass} justify-start rounded-xl px-3 py-2 text-xs font-black`}>
+            {key === 'followups' ? 'المتابعات' : key === 'reviews' ? 'التقييمات' : 'التشغيل'}: {status[key] === 'ready' ? 'محدّث' : status[key] === 'loading' ? 'جاري التحميل' : 'تعذر مؤقتًا'}
+          </div>;
+        })}
       </div>
     </div>
 
-    {failed.length ? <div className="flex items-start gap-2 rounded-2xl border border-amber-400/35 bg-amber-500/10 p-4 text-xs font-bold text-amber-100"><AlertTriangle size={17} className="mt-0.5 shrink-0" /><div>تم تحميل الأجزاء المتاحة من اللوحة. الأقسام التي عليها شرطة (—) لم ترجع بيانات مؤكدة، ولن تُعرض كصفر. يمكنك إعادة المحاولة بدون إعادة تحميل الصفحة كلها.</div></div> : null}
+    {failed.length ? <div className="dawaa-alert dawaa-alert--warning flex items-start gap-2 p-4 text-xs font-bold"><AlertTriangle size={17} className="mt-0.5 shrink-0" /><div>تم تحميل الأجزاء المتاحة من اللوحة. الأقسام التي عليها شرطة (—) لم ترجع بيانات مؤكدة، ولن تُعرض كصفر. يمكنك إعادة المحاولة بدون إعادة تحميل الصفحة كلها.</div></div> : null}
 
     <div className="grid grid-cols-4 gap-2.5 sm:gap-3 lg:grid-cols-8">
-      {QUICK_LINKS.map((link) => <button key={link.path} type="button" onClick={() => navigate(link.path)} className="flex flex-col items-center gap-2 rounded-2xl px-2 py-3 text-center transition hover:brightness-110 active:scale-95" style={{ background: link.color }}><link.icon size={23} className="text-white" /><span className="text-[10px] font-black leading-tight text-white">{link.label}</span></button>)}
+      {QUICK_LINKS.map((link) => <button key={link.path} type="button" onClick={() => navigate(link.path)} className={`cs-quick-link cs-quick-link--${link.tone}`}><link.icon size={23} /><span className="text-[10px] font-black leading-tight">{link.label}</span></button>)}
     </div>
 
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <StatCard icon={ClipboardList} label="متابعاتي هذه الدورة" status={status.followups} value={numberText(f.total_count)} accent="#f472b6" />
-      <StatCard icon={CheckCircle2} label="نسبة إنجاز متابعاتي" status={status.followups} value={`${completionRate}%`} accent="#2dd4bf" />
-      <StatCard icon={Star} label="مراجعاتي للمحادثات" status={status.reviews} value={numberText(data.my_reviews_this_cycle.review_count)} accent="#fbbf24" />
-      <StatCard icon={Users} label="عملاء نشطون آخر 3 شهور" status={status.ops} value={numberText(data.active_customers.last_3_months)} accent="#38bdf8" />
+      <StatCard icon={ClipboardList} label="متابعاتي هذه الدورة" status={status.followups} value={numberText(f.total_count)} tone="followups" />
+      <StatCard icon={CheckCircle2} label="نسبة إنجاز متابعاتي" status={status.followups} value={`${completionRate}%`} tone="success" />
+      <StatCard icon={Star} label="مراجعاتي للمحادثات" status={status.reviews} value={numberText(data.my_reviews_this_cycle.review_count)} tone="reviews" />
+      <StatCard icon={Users} label="عملاء نشطون آخر 3 شهور" status={status.ops} value={numberText(data.active_customers.last_3_months)} tone="info" />
     </div>
 
     <div className="grid gap-4 lg:grid-cols-2">
       <Section title="تفصيل متابعاتي" icon={ClipboardList} status={status.followups}>
         <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>مكتملة</div><div className="font-black text-emerald-300">{f.completed_count}</div></div>
-          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>استثنائية</div><div className="font-black text-white">{f.exceptional_count}</div></div>
-          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>من التطبيق</div><div className="font-black text-white">{f.app_assigned_count}</div></div>
-          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>بطلب دكتور</div><div className="font-black text-white">{f.doctor_requested_count}</div></div>
-          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>بمبادرتي</div><div className="font-black text-white">{f.self_initiated_count}</div></div>
-          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>نسبة الإنجاز</div><div className="font-black text-teal-300">{completionRate}%</div></div>
+          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>مكتملة</div><div className="font-black dawaa-status-text-success">{f.completed_count}</div></div>
+          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>استثنائية</div><div className="font-black" style={headingText}>{f.exceptional_count}</div></div>
+          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>من التطبيق</div><div className="font-black" style={headingText}>{f.app_assigned_count}</div></div>
+          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>بطلب دكتور</div><div className="font-black" style={headingText}>{f.doctor_requested_count}</div></div>
+          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>بمبادرتي</div><div className="font-black" style={headingText}>{f.self_initiated_count}</div></div>
+          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>نسبة الإنجاز</div><div className="font-black" style={{ color: 'var(--dawaa-theme-primary)' }}>{completionRate}%</div></div>
         </div>
-        {data.top_followed_customers.length ? <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}><div className="mb-2 text-xs font-black text-slate-300">أكثر العملاء متابعة</div>{data.top_followed_customers.slice(0, 5).map((row, index) => <div key={`${row.customer_name}-${index}`} className="flex justify-between py-1 text-xs"><span className="text-white">{row.customer_name || 'عميل غير مسجل الاسم'}</span><span className="font-black text-pink-200">{row.followups_count || 0} متابعة</span></div>)}</div> : null}
+        {data.top_followed_customers.length ? <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}><div className="mb-2 text-xs font-black" style={mutedText}>أكثر العملاء متابعة</div>{data.top_followed_customers.slice(0, 5).map((row, index) => <div key={`${row.customer_name}-${index}`} className="flex justify-between py-1 text-xs"><span style={headingText}>{row.customer_name || 'عميل غير مسجل الاسم'}</span><span className="font-black" style={{ color: 'var(--dawaa-theme-primary)' }}>{row.followups_count || 0} متابعة</span></div>)}</div> : null}
       </Section>
 
       <Section title="التقييمات وجودة المحادثات" icon={Star} status={status.reviews}>
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>مراجعاتي هذه الدورة</div><div className="mt-1 text-2xl font-black text-white">{data.my_reviews_this_cycle.review_count}</div></div>
-          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>متوسط الفرع</div><div className="mt-1 text-2xl font-black text-amber-200">{data.branch_reviews.branch_avg_score ?? '—'}</div></div>
+          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>مراجعاتي هذه الدورة</div><div className="mt-1 text-2xl font-black" style={headingText}>{data.my_reviews_this_cycle.review_count}</div></div>
+          <div className="rounded-xl border p-3" style={softCard}><div className="text-xs" style={mutedText}>متوسط الفرع</div><div className="dawaa-status-text-warning mt-1 text-2xl font-black">{data.branch_reviews.branch_avg_score ?? '—'}</div></div>
         </div>
         <div className="mt-3 text-xs font-bold" style={mutedText}>ترتيبي بعدد المراجعات: {myRank >= 0 ? `${myRank + 1} من ${data.team_ranking.length}` : 'غير متاح'}</div>
-        {data.doctor_ratings.length ? <div className="mt-3 space-y-1.5">{data.doctor_ratings.slice(0, 5).map((row) => <div key={row.doctor_name} className="flex items-center justify-between rounded-xl border px-3 py-2 text-xs" style={softCard}><span className="font-bold text-white">{row.doctor_name}</span><span className="font-black text-amber-200">{row.avg_score}/100 · {row.review_count}</span></div>)}</div> : null}
+        {data.doctor_ratings.length ? <div className="mt-3 space-y-1.5">{data.doctor_ratings.slice(0, 5).map((row) => <div key={row.doctor_name} className="flex items-center justify-between rounded-xl border px-3 py-2 text-xs" style={softCard}><span className="font-bold" style={headingText}>{row.doctor_name}</span><span className="dawaa-status-text-warning font-black">{row.avg_score}/100 · {row.review_count}</span></div>)}</div> : null}
       </Section>
     </div>
 
     <div className="grid gap-4 lg:grid-cols-3">
-      <Section title="طلبات العملاء" icon={Package} status={status.ops}>
-        <div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span style={mutedText}>سجلتها</span><span className="font-black text-white">{data.my_customer_requests.logged_count}</span></div><div className="flex justify-between"><span style={mutedText}>مفتوحة</span><span className="font-black text-amber-300">{data.my_customer_requests.open_count}</span></div></div>
-      </Section>
-      <Section title="الرسائل الترحيبية" icon={MessageCircle} status={status.ops}>
-        <div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span style={mutedText}>مرسلة</span><span className="font-black text-white">{data.my_welcome_messages.sent_count}</span></div><div className="flex justify-between"><span style={mutedText}>وصلت/تم تسليمها</span><span className="font-black text-teal-300">{data.my_welcome_messages.delivered_count}</span></div></div>
-      </Section>
-      <Section title="حقيقة الفرع التشغيلية" icon={Heart} status={status.ops}>
-        <div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span style={mutedText}>فواتير الفرع بالدورة</span><span className="font-black text-white">{numberText(data.branch_sales.invoices)}</span></div><div className="flex justify-between"><span style={mutedText}>مبيعات الفرع بالدورة</span><span className="font-black text-emerald-300">{numberText(data.branch_sales.total_sales)} ج.م</span></div></div>
-      </Section>
+      <Section title="طلبات العملاء" icon={Package} status={status.ops}><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span style={mutedText}>سجلتها</span><span className="font-black" style={headingText}>{data.my_customer_requests.logged_count}</span></div><div className="flex justify-between"><span style={mutedText}>مفتوحة</span><span className="dawaa-status-text-warning font-black">{data.my_customer_requests.open_count}</span></div></div></Section>
+      <Section title="الرسائل الترحيبية" icon={MessageCircle} status={status.ops}><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span style={mutedText}>مرسلة</span><span className="font-black" style={headingText}>{data.my_welcome_messages.sent_count}</span></div><div className="flex justify-between"><span style={mutedText}>وصلت/تم تسليمها</span><span className="font-black" style={{ color: 'var(--dawaa-theme-primary)' }}>{data.my_welcome_messages.delivered_count}</span></div></div></Section>
+      <Section title="حقيقة الفرع التشغيلية" icon={Heart} status={status.ops}><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span style={mutedText}>فواتير الفرع بالدورة</span><span className="font-black" style={headingText}>{numberText(data.branch_sales.invoices)}</span></div><div className="flex justify-between"><span style={mutedText}>مبيعات الفرع بالدورة</span><span className="dawaa-status-text-success font-black">{numberText(data.branch_sales.total_sales)} ج.م</span></div></div></Section>
     </div>
 
     <div className="grid gap-4 lg:grid-cols-2">
-      <Section title="فعالية استرجاع العملاء" icon={Heart} status={status.reviews}>
-        <div className="mt-4 flex items-end gap-4"><div className="text-3xl font-black text-white">{data.recovery_stats.recovery_rate == null ? '—' : `${data.recovery_stats.recovery_rate}%`}</div><div className="pb-1 text-xs font-bold" style={mutedText}>{data.recovery_stats.recovered_count} رجعوا للشراء من {data.recovery_stats.total_followups} متابعة قابلة للقياس</div></div>
-      </Section>
-      <Section title="جدولي القادم" icon={Calendar} status={status.ops}>
-        <div className="mt-3 space-y-2">{data.my_upcoming_shifts.length ? data.my_upcoming_shifts.slice(0, 5).map((shift) => <div key={`${shift.shift_date}-${shift.start_time}`} className="flex justify-between rounded-xl border p-2 text-xs" style={softCard}><span className="font-bold text-white">{shift.day_name || shift.shift_date}</span><span style={mutedText}>{shift.start_time?.slice(0, 5)} — {shift.end_time?.slice(0, 5)}</span></div>) : <p className="text-xs" style={mutedText}>لا يوجد جدول قادم مسجل.</p>}</div>
-      </Section>
+      <Section title="فعالية استرجاع العملاء" icon={Heart} status={status.reviews}><div className="mt-4 flex items-end gap-4"><div className="text-3xl font-black" style={headingText}>{data.recovery_stats.recovery_rate == null ? '—' : `${data.recovery_stats.recovery_rate}%`}</div><div className="pb-1 text-xs font-bold" style={mutedText}>{data.recovery_stats.recovered_count} رجعوا للشراء من {data.recovery_stats.total_followups} متابعة قابلة للقياس</div></div></Section>
+      <Section title="جدولي القادم" icon={Calendar} status={status.ops}><div className="mt-3 space-y-2">{data.my_upcoming_shifts.length ? data.my_upcoming_shifts.slice(0, 5).map((shift) => <div key={`${shift.shift_date}-${shift.start_time}`} className="flex justify-between rounded-xl border p-2 text-xs" style={softCard}><span className="font-bold" style={headingText}>{shift.day_name || shift.shift_date}</span><span style={mutedText}>{shift.start_time?.slice(0, 5)} — {shift.end_time?.slice(0, 5)}</span></div>) : <p className="text-xs" style={mutedText}>لا يوجد جدول قادم مسجل.</p>}</div></Section>
     </div>
 
     <div className="rounded-2xl border p-4 text-xs font-bold" style={softCard}>
-      <div className="flex items-center gap-2 text-teal-200"><Trophy size={15} /> قاعدة عرض البيانات</div>
+      <div className="flex items-center gap-2" style={{ color: 'var(--dawaa-theme-primary)' }}><Trophy size={15} /> قاعدة عرض البيانات</div>
       <p className="mt-2" style={mutedText}>الصفر يظهر فقط عندما ينجح المصدر ويعيد صفرًا فعليًا. أي timeout أو خطأ اتصال يظهر كشرطة (—) مع حالة المصدر، لذلك لا تختلط مشكلة التحميل مع الأداء الحقيقي.</p>
     </div>
   </div>;

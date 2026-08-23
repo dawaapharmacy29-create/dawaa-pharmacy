@@ -405,6 +405,19 @@ export async function loadStaffPerformanceProfile(
     // getStaffInvoiceTruth never throws — it returns a full object even on errors
     invoiceTruth = await getStaffInvoiceTruth(effectiveStaffId, cycleStart, cycleEnd);
     sources.push('sales_invoices');
+
+    // Seller-name diagnostics are already part of the scoped StaffInvoiceTruth read model.
+    // Reuse them here instead of issuing another direct sales_invoices query.
+    identity.rawSellerNames = [...invoiceTruth.matchedSellerNames];
+    const mismatchedSellerNames = invoiceTruth.matchedSellerNames.filter((name) => {
+      const normalizedName = normalizeStaffName(name);
+      return normalizedName && !identity.normalizedNames.includes(normalizedName);
+    });
+    if (mismatchedSellerNames.length > 0) {
+      identity.warnings.push(
+        `يوجد أسماء في الفواتير غير مربوطة تمامًا: ${mismatchedSellerNames.slice(0, 3).join(', ')}`
+      );
+    }
     if (invoiceTruth.diagnostics.errors.length > 0) {
       errorsBySection.invoice_truth = invoiceTruth.diagnostics.errors.join('; ');
     }
@@ -641,38 +654,6 @@ async function resolveStaffIdentity(staff: StaffBaseProfile): Promise<StaffIdent
     } catch (error) {
       // Ignore errors in duplicate check
     }
-  }
-
-  // Fetch raw seller names from sales_invoices
-  try {
-    const { data: invoiceNames } = await supabase
-      .from('sales_invoices')
-      .select('seller_name')
-      .ilike('seller_name', `%${staff.name}%`)
-      .limit(100);
-
-    if (invoiceNames) {
-      const uniqueNames = new Set(
-        (invoiceNames as Array<Row | null | undefined>)
-          .filter(Boolean)
-          .map((r) => String((r as Row).seller_name || ''))
-      );
-      rawSellerNames.push(...Array.from(uniqueNames));
-
-      // Check if any names don't match exactly
-      const mismatchedNames = Array.from(uniqueNames).filter((name) => {
-        const nameNorm = normalizeStaffName(name);
-        return !normalizedNames.includes(nameNorm);
-      });
-
-      if (mismatchedNames.length > 0) {
-        warnings.push(
-          `يوجد أسماء في الفواتير غير مربوطة تمامًا: ${mismatchedNames.slice(0, 3).join(', ')}`
-        );
-      }
-    }
-  } catch (error) {
-    // Ignore errors in seller name check
   }
 
   return {

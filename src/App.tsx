@@ -119,18 +119,25 @@ function PageLoadingFallback({ pageName }: { pageName: string }) {
   }, []);
 
   if (isSlow) {
-    return <div className="rounded-3xl border border-amber-400/25 bg-slate-900 p-6 text-center text-slate-200 shadow-xl" dir="rtl">
-      <div className="text-4xl">⚠️</div><h2 className="mt-3 text-xl font-black text-white">تعذر تحميل {pageName}</h2>
-      <p className="mt-2 text-sm leading-7 text-slate-300">استغرق تحميل هذه الصفحة أكثر من المعتاد. التطبيق ما زال يعمل، ويمكنك فتح التشخيص أو تسجيل الدخول من جديد.</p>
+    return <div className="dawaa-card dawaa-card--raised p-6 text-center" dir="rtl">
+      <div className="dawaa-icon-tile mx-auto text-2xl">⚠️</div>
+      <h2 className="dawaa-title mt-3 text-xl">تعذر تحميل {pageName}</h2>
+      <p className="dawaa-body mx-auto mt-2 max-w-2xl text-sm leading-7">استغرق تحميل هذه الصفحة أكثر من المعتاد. التطبيق ما زال يعمل، ويمكنك فتح التشخيص أو تسجيل الدخول من جديد.</p>
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
-        <button onClick={() => window.location.reload()} className="rounded-2xl bg-teal-600 px-5 py-3 text-sm font-black text-white hover:bg-teal-500">إعادة المحاولة</button>
-        <a href={diagnosticsUrl('route_slow_loading')} className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-black text-slate-200 hover:bg-slate-800">فتح التشخيص</a>
-        <a href={loginRecoveryUrl('route_slow_loading')} className="rounded-2xl border border-teal-400/40 px-5 py-3 text-sm font-black text-teal-100 hover:bg-teal-400/10">تسجيل الدخول</a>
+        <button onClick={() => window.location.reload()} className="dawaa-button dawaa-button--primary px-5 py-3 text-sm font-black">إعادة المحاولة</button>
+        <a href={diagnosticsUrl('route_slow_loading')} className="dawaa-button dawaa-button--secondary px-5 py-3 text-sm font-black">فتح التشخيص</a>
+        <a href={loginRecoveryUrl('route_slow_loading')} className="dawaa-button dawaa-button--ghost px-5 py-3 text-sm font-black">تسجيل الدخول</a>
       </div>
     </div>;
   }
 
-  return <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 text-slate-200" dir="rtl"><div className="flex items-center gap-3"><div className="h-6 w-6 animate-spin rounded-full border-4 border-teal-500/20 border-t-teal-400"/><div className="text-sm font-black text-slate-300">جاري تحميل {pageName}...</div></div><div className="mt-5 grid gap-3 md:grid-cols-3">{Array.from({ length: 3 }).map((_, index) => <div key={index} className="h-24 animate-pulse rounded-2xl bg-slate-800/80"/>)}</div></div>;
+  return <div className="dawaa-card dawaa-card--soft p-6" dir="rtl">
+    <div className="flex items-center gap-3">
+      <div className="h-6 w-6 animate-spin rounded-full border-4 border-[var(--dawaa-theme-border)] border-t-[var(--dawaa-theme-primary)]" />
+      <div className="dawaa-body text-sm font-black">جاري تحميل {pageName}...</div>
+    </div>
+    <div className="mt-5 grid gap-3 md:grid-cols-3">{Array.from({ length: 3 }).map((_, index) => <div key={index} className="h-24 animate-pulse rounded-2xl bg-[var(--dawaa-theme-soft)]" />)}</div>
+  </div>;
 }
 
 function routeSuspense(component: ReactNode, pageName: string) {
@@ -151,14 +158,14 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
   if (!user) return <Navigate to="/login" replace />;
   if (location.pathname === '/' && isDoctorRole(user) && !checkPermission('view_executive_dashboard')) return <Navigate to="/doctor-dashboard" replace />;
   if (effectivePermissions && (Array.isArray(effectivePermissions) ? !effectivePermissions.some((item) => checkPermission(item)) : !checkPermission(effectivePermissions))) {
-    return <Layout><div className="stat-card text-center text-slate-300 py-16" dir="rtl">ليس لديك صلاحية للوصول إلى هذه الصفحة.</div></Layout>;
+    return <Layout><div className="dawaa-card dawaa-card--soft dawaa-body py-16 text-center" dir="rtl">ليس لديك صلاحية للوصول إلى هذه الصفحة.</div></Layout>;
   }
   return <Layout>{children}</Layout>;
 }
 
 function AdminRoute({ children, permission }: { children: ReactNode; permission?: string }) {
   const { isAdmin, checkPermission } = useAuth();
-  if (!isAdmin && (!permission || !checkPermission(permission))) return <div className="stat-card text-center text-slate-300 py-16" dir="rtl">ليس لديك صلاحية للوصول إلى هذه الصفحة.</div>;
+  if (!isAdmin && (!permission || !checkPermission(permission))) return <div className="dawaa-card dawaa-card--soft dawaa-body py-16 text-center" dir="rtl">ليس لديك صلاحية للوصول إلى هذه الصفحة.</div>;
   return <>{children}</>;
 }
 

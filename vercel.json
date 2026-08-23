@@ -1,7 +1,7 @@
 {
   "framework": "vite",
   "installCommand": "npm install -g npm@10.9.2 && npm ci --legacy-peer-deps --no-audit --no-fund",
-  "buildCommand": "node scripts/apply-cashback-fast-settlement.cjs && node scripts/apply-quarterly-cashback-cycle-fix.cjs && node scripts/apply-cashback-page-performance.cjs && npm run build",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     {

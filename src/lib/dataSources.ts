@@ -1,4 +1,4 @@
-export const CANONICAL_DATA_SOURCES = {
+export const TRANSACTIONAL_DATA_SOURCES = {
   customerSales: 'sales_invoices',
   customerBasics: 'customers',
   customerNotes: 'customers',
@@ -10,6 +10,18 @@ export const CANONICAL_DATA_SOURCES = {
   incentiveMedicines: 'incentive_medicines',
   delivery: 'delivery_orders',
 } as const;
+
+export const ANALYTICS_DATA_SOURCES = {
+  salesInvoices: 'dawaa_sales_invoices_dashboard_v1',
+} as const;
+
+/**
+ * Backwards-compatible alias while call sites migrate to the explicit
+ * transactional/read contracts above. New analytics code should use
+ * ANALYTICS_DATA_SOURCES and the shared sales truth reader, not direct
+ * `sales_invoices` queries.
+ */
+export const CANONICAL_DATA_SOURCES = TRANSACTIONAL_DATA_SOURCES;
 
 export function isLegacySalesCache(table: string) {
   return ['customer_analysis'].includes(table);
