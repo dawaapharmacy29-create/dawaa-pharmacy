@@ -85,6 +85,9 @@ jobs:
       - name: Task evidence architecture boundary
         run: node scripts/check-task-evidence-architecture.cjs
 
+      - name: Review coverage architecture boundary
+        run: node scripts/check-review-coverage-architecture.cjs
+
       - name: Theme architecture boundary
         run: node scripts/check-theme-architecture.cjs
 
