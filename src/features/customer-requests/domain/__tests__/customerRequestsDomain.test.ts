@@ -4,6 +4,8 @@ import {
   customerRequestIncentiveCandidate,
   customerRequestOperationalStage,
   customerRequestPrimaryAction,
+  customerRequestTierPoints,
+  normalizeCustomerRequestDoctorTier,
   normalizeCustomerRequestStatus,
 } from '../index';
 
@@ -26,51 +28,40 @@ describe('customer requests domain', () => {
     expect(customerRequestOperationalStage('delivered')).toBe('completed');
   });
 
-  it('fails closed when customer request incentive points are not configured', () => {
-    const request = {
-      id: 'request-1',
-      customer_id: 'customer-1',
-      customer_code: 'C100',
-      customer_name: 'عميل اختبار',
-      customer_phone: '01000000000',
-      branch: 'فرع شكري',
-      medicine_name: 'Product',
-      product_code: 'P100',
-      doctor_id: 'staff-1',
-      doctor_name: 'د اختبار',
-      status: 'new',
-    } as any;
+  it('maps current staff incentive tier keys to the three doctor categories', () => {
+    expect(normalizeCustomerRequestDoctorTier('senior_doctor')).toBe('tier_1');
+    expect(normalizeCustomerRequestDoctorTier('mid_doctor')).toBe('tier_2');
+    expect(normalizeCustomerRequestDoctorTier('assistant')).toBe('tier_3');
+  });
 
+  it('uses the approved registration and achievement points exactly', () => {
+    expect(customerRequestTierPoints('tier_1', 'request_registered')).toBe(2);
+    expect(customerRequestTierPoints('tier_2', 'request_registered')).toBe(1);
+    expect(customerRequestTierPoints('tier_3', 'request_registered')).toBe(0.5);
+    expect(customerRequestTierPoints('tier_1', 'request_achieved')).toBe(4);
+    expect(customerRequestTierPoints('tier_2', 'request_achieved')).toBe(2);
+    expect(customerRequestTierPoints('tier_3', 'request_achieved')).toBe(1);
+  });
+
+  it('fails closed when the doctor tier is missing', () => {
+    const request = {
+      id: 'request-1', customer_id: 'customer-1', customer_code: 'C100', customer_name: 'عميل اختبار',
+      customer_phone: '01000000000', branch: 'فرع شكري', medicine_name: 'Product', product_code: 'P100',
+      doctor_id: 'staff-1', doctor_name: 'د اختبار', status: 'new',
+    } as any;
     const candidate = customerRequestIncentiveCandidate(request, 'request_registered', null);
     expect(candidate.points).toBeNull();
     expect(candidate.settlementReady).toBe(false);
-    expect(candidate.blockedReasons).toContain('incentive_policy_missing');
+    expect(candidate.blockedReasons).toContain('doctor_tier_missing');
   });
 
-  it('settles only an eligible event with an explicit versioned policy value', () => {
+  it('creates the exact tier-one registration and achievement candidates', () => {
     const request = {
-      id: 'request-2',
-      customer_id: 'customer-2',
-      customer_code: 'C200',
-      customer_name: 'عميل اختبار',
-      customer_phone: '01000000001',
-      branch: 'فرع الشامي',
-      medicine_name: 'Product',
-      product_code: 'P200',
-      doctor_id: 'staff-2',
-      doctor_name: 'د اختبار 2',
-      status: 'new',
+      id: 'request-2', customer_id: 'customer-2', customer_code: 'C200', customer_name: 'عميل اختبار',
+      customer_phone: '01000000001', branch: 'فرع الشامي', medicine_name: 'Product', product_code: 'P200',
+      doctor_id: 'staff-2', doctor_name: 'د اختبار 2', status: 'available',
     } as any;
-
-    const candidate = customerRequestIncentiveCandidate(request, 'request_registered', {
-      policyKey: 'customer_requests',
-      version: 'test-v1',
-      effectiveFrom: null,
-      pointsByEvent: { request_registered: 1 },
-    });
-
-    expect(candidate.points).toBe(1);
-    expect(candidate.policyVersion).toBe('test-v1');
-    expect(candidate.settlementReady).toBe(true);
+    expect(customerRequestIncentiveCandidate(request, 'request_registered', 'senior_doctor').points).toBe(2);
+    expect(customerRequestIncentiveCandidate(request, 'request_achieved', 'senior_doctor').points).toBe(4);
   });
 });
