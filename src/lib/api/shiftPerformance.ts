@@ -3,5 +3,5 @@ export type { ShiftMembersResult } from './shiftMemberLoader';
 export {
   fetchShiftPerformanceStats,
   saveShiftPerformanceReview,
-} from './shiftPerformanceLegacy';
-export type { SaveShiftReviewInput } from './shiftPerformanceLegacy';
+} from './shiftPerformanceReviewService';
+export type { SaveShiftReviewInput } from './shiftPerformanceReviewService';
