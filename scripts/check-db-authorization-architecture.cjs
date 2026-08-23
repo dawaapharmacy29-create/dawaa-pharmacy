@@ -16,7 +16,8 @@ if (/\.from\(['"]branch_sales_targets['"]\)[\s\S]{0,250}\.(?:insert|update|upser
 
 const authMigrationPath = path.join(ROOT, 'supabase/migrations/20260823184000_harden_db_authorization_permission_truth_v1.sql');
 const targetMigrationPath = path.join(ROOT, 'supabase/migrations/20260823184100_harden_branch_target_authorization_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath]) {
+const activeWorkflowRlsPath = path.join(ROOT, 'supabase/migrations/20260823191500_harden_active_reviews_and_shift_notes_rls_v1.sql');
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
 }
 
@@ -35,10 +36,26 @@ if (fs.existsSync(targetMigrationPath)) {
   if (/permissions\s*\?\s*['"]/.test(source)) failures.push('Branch-target authorization must not authorize by JSON key existence.');
 }
 
+if (fs.existsSync(activeWorkflowRlsPath)) {
+  const source = fs.readFileSync(activeWorkflowRlsPath, 'utf8');
+  for (const table of ['conversation_sales_reviews', 'shift_notes', 'shift_note_logs', 'shift_note_occurrences']) {
+    if (!source.includes(table)) failures.push(`Active workflow RLS migration must cover ${table}.`);
+  }
+  for (const permission of ['view_reviews', 'add_reviews', 'edit_reviews', 'approve_reviews']) {
+    if (!source.includes(permission)) failures.push(`Review RLS must reference canonical permission ${permission}.`);
+  }
+  if (!/dawaa_current_staff_account_id_strict\(\)/.test(source)) {
+    failures.push('Shift-note RLS must require a canonical active staff actor.');
+  }
+  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) {
+    failures.push('Active review/shift-note RLS must not reintroduce unconditional true write/read policies.');
+  }
+}
+
 if (failures.length) {
   console.error('\nDB authorization architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[db-authorization-architecture] PASS: protected writes and boolean permission truth remain centralized.');
+console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS and boolean permission truth remain centralized.');
