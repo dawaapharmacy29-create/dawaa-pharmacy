@@ -98,9 +98,9 @@ export default function ExecutiveDashboardRoute() {
     async function loadAdvancedDashboard() {
       try {
         const module = await withTimeout(
-          import('@/pages/ExecutiveDashboard2027Resilient'),
+          import('@/pages/ExecutiveDashboard2027'),
           DASHBOARD_IMPORT_TIMEOUT_MS,
-          'ExecutiveDashboard2027Resilient import'
+          'ExecutiveDashboard2027 import'
         );
         if (!cancelled) setState({ status: 'ready-advanced', Component: module.default });
       } catch (error) {
@@ -125,7 +125,9 @@ export default function ExecutiveDashboardRoute() {
     const Component = state.Component;
     return (
       <DashboardRuntimeErrorBoundary>
-        <Component />
+        <div data-theme-runtime="executive-2027">
+          <Component />
+        </div>
       </DashboardRuntimeErrorBoundary>
     );
   }
