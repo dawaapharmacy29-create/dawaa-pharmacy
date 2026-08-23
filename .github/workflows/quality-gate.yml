@@ -67,6 +67,9 @@ jobs:
       - name: Shift performance architecture boundary
         run: node scripts/check-shift-performance-architecture.cjs
 
+      - name: Shift notes architecture boundary
+        run: node scripts/check-shift-notes-architecture.cjs
+
       - name: Attendance identity architecture boundary
         run: node scripts/check-attendance-identity-architecture.cjs
 
