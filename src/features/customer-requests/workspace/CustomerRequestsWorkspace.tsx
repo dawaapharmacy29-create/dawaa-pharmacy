@@ -1,12 +1,15 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { customerRequestOperationalView } from '../domain/request';
 import { customerRequestStatusLabel } from '../domain/status';
 import { useCustomerRequestsWorkspace } from '../hooks';
 import CustomerRequestQueueStrip from './CustomerRequestQueueStrip';
 import CustomerRequestsOperationsTable from './CustomerRequestsOperationsTable';
+import CanonicalCreateRequestDialog from './CanonicalCreateRequestDialog';
 
 export default function CustomerRequestsWorkspace() {
   const workspace = useCustomerRequestsWorkspace();
+  const [showCreate, setShowCreate] = useState(false);
   const selectedView = useMemo(
     () => (workspace.selectedRequest ? customerRequestOperationalView(workspace.selectedRequest) : null),
     [workspace.selectedRequest]
@@ -37,6 +40,9 @@ export default function CustomerRequestsWorkspace() {
             <option value="shokry">دواء شكري</option>
             <option value="elshamy">دواء الشامي</option>
           </select>
+          <button type="button" className="btn-primary flex items-center justify-center gap-2" onClick={() => setShowCreate(true)}>
+            <Plus size={16} /> طلب جديد
+          </button>
           <button type="button" className="btn-secondary" onClick={() => void workspace.refresh()}>
             تحديث
           </button>
@@ -136,6 +142,16 @@ export default function CustomerRequestsWorkspace() {
           </aside>
         ) : null}
       </div>
+
+      {showCreate ? (
+        <CanonicalCreateRequestDialog
+          onClose={() => setShowCreate(false)}
+          onCreated={async (request) => {
+            await workspace.refresh();
+            workspace.selectRequest(request.id);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
