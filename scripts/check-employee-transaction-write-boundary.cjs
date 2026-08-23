@@ -5,18 +5,15 @@ const path = require('node:path');
 const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
 
-// Transitional direct writers that already exist today. The goal is to shrink
-// this set as writers move behind a canonical authorization-aware service/RPC.
-// New direct writers are forbidden.
+// Transitional direct writers that still exist today. Keep shrinking this set as
+// writers move behind a canonical authorization-aware service/RPC. New direct
+// writers are forbidden.
 const BASELINED_DIRECT_WRITERS = new Set([
   'src/lib/pointsPersistence.ts',
   'src/services/employeeTransactionService.ts',
   'src/pages/BranchInspection.tsx',
   'src/pages/Points.tsx',
-  'src/pages/PointAppeals.tsx',
-  'src/pages/Delivery.tsx',
   'src/pages/PenaltyIncentiveManagement.tsx',
-  'src/pages/Team.tsx',
   'src/lib/api/shiftPerformanceReviewService.ts',
 ]);
 
@@ -60,8 +57,11 @@ console.log(`[employee-transaction-write-boundary] direct writers: ${directWrite
 for (const file of directWriters) console.log(`- ${file}`);
 
 if (staleBaseline.length) {
-  console.log('[employee-transaction-write-boundary] baseline entries ready to remove:');
-  for (const file of staleBaseline) console.log(`- ${file}`);
+  console.error('\nEmployee transaction write boundary failed:');
+  for (const file of staleBaseline) {
+    console.error(`- ${file} no longer writes employee_transactions directly; remove it from the transitional baseline`);
+  }
+  process.exit(1);
 }
 
 if (unexpected.length) {
@@ -72,4 +72,4 @@ if (unexpected.length) {
   process.exit(1);
 }
 
-console.log('[employee-transaction-write-boundary] PASS: no new direct employee transaction writers detected.');
+console.log('[employee-transaction-write-boundary] PASS: direct writer baseline is exact and no new ledger writer was introduced.');
