@@ -11,6 +11,10 @@ const backfillPath = path.join(
   ROOT,
   'supabase/migrations/20260823215500_backfill_staff_attendance_log_identity_v1.sql'
 );
+const rlsPath = path.join(
+  ROOT,
+  'supabase/migrations/20260823225200_harden_staff_attendance_logs_rls_v1.sql'
+);
 const failures = [];
 
 if (!fs.existsSync(migrationPath)) {
@@ -68,10 +72,40 @@ if (!fs.existsSync(backfillPath)) {
   }
 }
 
+if (!fs.existsSync(rlsPath)) {
+  failures.push('Missing scoped staff attendance log RLS migration.');
+} else {
+  const source = fs.readFileSync(rlsPath, 'utf8');
+  for (const token of [
+    'dawaa_can_read_staff_attendance_log',
+    'dawaa_current_attendance_subject_id',
+    'dawaa_current_staff_account_id_strict',
+    'staff_attendance_logs_insert_own',
+    'staff_attendance_logs_select_scoped',
+  ]) {
+    if (!source.includes(token)) failures.push(`Attendance RLS migration must include ${token}.`);
+  }
+  for (const role of ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'shift_supervisor_morning', 'shift_supervisor_evening']) {
+    if (!source.includes(role)) failures.push(`Attendance read scope must explicitly cover ${role}.`);
+  }
+  if (!/staff_id\s*=\s*public\.dawaa_current_attendance_subject_id\(\)/i.test(source)) {
+    failures.push('Attendance insert policy must restrict writes to the canonical current subject.');
+  }
+  if (!/created_by\s*=\s*public\.dawaa_current_staff_account_id_strict\(\)/i.test(source)) {
+    failures.push('Attendance insert policy must bind created_by to the canonical current account.');
+  }
+  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) {
+    failures.push('Attendance RLS must not reintroduce unconditional true policies.');
+  }
+  if (/create\s+policy[\s\S]{0,160}for\s+(update|delete)/i.test(source)) {
+    failures.push('Modern attendance logs must remain append-only for clients.');
+  }
+}
+
 if (failures.length) {
   console.error('\nAttendance identity architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[attendance-identity-architecture] PASS: new attendance logs are canonicalized at the database boundary and historical identities are backfilled only through deterministic direct or unique active name+branch matches.');
+console.log('[attendance-identity-architecture] PASS: attendance identities are canonical, deterministic historical repairs are guarded, and modern attendance logs use scoped append-only RLS.');
