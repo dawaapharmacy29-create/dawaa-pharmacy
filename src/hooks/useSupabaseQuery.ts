@@ -63,6 +63,17 @@ const FRESHNESS_POLICIES: Record<DataFreshness, FreshnessPolicy> = {
   },
 };
 
+const HIGH_VOLUME_LOOKUP_TABLES = new Set(['customers', 'sales_invoices']);
+const DISALLOWED_UNFILTERED_BULK_LIMIT = 10_000;
+
+function isDisallowedUnfilteredBulkRead(options: QueryOptions) {
+  return (
+    HIGH_VOLUME_LOOKUP_TABLES.has(options.table) &&
+    (options.limit ?? 0) >= DISALLOWED_UNFILTERED_BULK_LIMIT &&
+    (!options.filters || options.filters.length === 0)
+  );
+}
+
 function friendlySupabaseError(message: string): string {
   const lower = message.toLowerCase();
   if (lower.includes('timed out') || lower.includes('timeout')) {
@@ -95,6 +106,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   const queryClient = useQueryClient();
   const freshness = options.freshness ?? 'standard';
   const policy = FRESHNESS_POLICIES[freshness];
+  const blockedBulkRead = isDisallowedUnfilteredBulkRead(options);
 
   const buildQuery = () => {
     let query: QueryBuilder = supabase.from(options.table).select(options.select || '*');
@@ -130,9 +142,18 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     stableKeyValue(options.filters ?? null),
     stableKeyValue(options.orderBy ?? null),
     String(options.limit ?? 'all'),
+    blockedBulkRead ? 'blocked-bulk-read' : 'allowed-read',
   ] as const;
 
   const fetcher = async () => {
+    if (blockedBulkRead) {
+      if (import.meta.env.DEV) {
+        console.warn(
+          `[useSupabaseQuery] blocked unfiltered ${options.limit}-row read from ${options.table}; use server search/read model instead.`
+        );
+      }
+      return [] as T[];
+    }
     if (!isSupabaseConfigured) {
       throw new Error('إعدادات Supabase غير موجودة. أضف ملف .env لتفعيل البيانات الحقيقية.');
     }
@@ -158,12 +179,12 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     refetchOnWindowFocus: policy.refetchOnWindowFocus,
     refetchOnReconnect: policy.refetchOnReconnect,
     refetchOnMount: policy.refetchOnMount,
-    retry: 1,
+    retry: blockedBulkRead ? false : 1,
     retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 
   useEffect(() => {
-    if (!isSupabaseConfigured || options.realtimeEnabled !== true) return;
+    if (!isSupabaseConfigured || options.realtimeEnabled !== true || blockedBulkRead) return;
 
     channelRef.current = supabase
       .channel(`realtime:${options.table}`)
@@ -178,7 +199,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options.table, options.realtimeEnabled]);
+  }, [options.table, options.realtimeEnabled, blockedBulkRead]);
 
   return { data, loading, error: error ? error.message : null, refetch: () => queryClient.invalidateQueries({ queryKey }) };
 }
