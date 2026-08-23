@@ -19,7 +19,8 @@ const targetMigrationPath = path.join(ROOT, 'supabase/migrations/20260823184100_
 const activeWorkflowRlsPath = path.join(ROOT, 'supabase/migrations/20260823191500_harden_active_reviews_and_shift_notes_rls_v1.sql');
 const reviewCeilingPath = path.join(ROOT, 'supabase/migrations/20260823191800_align_db_review_permission_ceiling_v1.sql');
 const managerReviewRlsPath = path.join(ROOT, 'supabase/migrations/20260823192200_harden_customer_service_manager_reviews_rls_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath]) {
+const branchInspectionRlsPath = path.join(ROOT, 'supabase/migrations/20260823194000_harden_branch_inspection_authorization_v1.sql');
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
 }
 
@@ -81,10 +82,32 @@ if (fs.existsSync(managerReviewRlsPath)) {
   }
 }
 
+if (fs.existsSync(branchInspectionRlsPath)) {
+  const source = fs.readFileSync(branchInspectionRlsPath, 'utf8');
+  for (const table of ['branch_inspections', 'branch_visit_staff_reviews']) {
+    if (!source.includes(table)) failures.push(`Branch inspection RLS migration must cover ${table}.`);
+  }
+  if (!/dawaa_can_branch_inspection/.test(source)) {
+    failures.push('Branch inspection RLS must use the canonical branch-inspection helper.');
+  }
+  for (const role of ['general_manager', 'executive_manager', 'branches_manager']) {
+    if (!source.includes(role)) failures.push(`Branch inspection role ceiling must cover ${role}.`);
+  }
+  for (const permission of ['view_branch_inspection', 'manage_branch_inspection']) {
+    if (!source.includes(permission)) failures.push(`Branch inspection authorization must respect ${permission} restrictions.`);
+  }
+  if (!/dawaa_current_staff_account_id_strict\(\)/.test(source)) {
+    failures.push('Branch inspection authorization must resolve a canonical active staff actor.');
+  }
+  if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) {
+    failures.push('Branch inspection RLS must not use unconditional true policies.');
+  }
+}
+
 if (failures.length) {
   console.error('\nDB authorization architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review role ceiling and boolean permission truth remain centralized.');
+console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review role ceiling, branch inspection authorization and boolean permission truth remain centralized.');
