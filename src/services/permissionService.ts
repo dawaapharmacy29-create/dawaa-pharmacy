@@ -1,23 +1,22 @@
-import { supabase } from '@/lib/supabase';
-import { logSupabaseError } from '@/lib/supabaseError';
-import { TABLES } from '@/lib/supabaseTables';
+export interface LegacyPermissionWriteResult {
+  data: null;
+  error: null;
+  legacy: true;
+}
 
+/**
+ * Compatibility shim for the retired `user_permissions` write path.
+ *
+ * Effective account permissions are persisted only in `staff_accounts.permissions`
+ * and resolved through the canonical permission RPC/system. Keeping this function
+ * as a no-op lets older callers migrate without re-introducing a second source of
+ * permission truth.
+ */
 export async function upsertUserPermission(
-  userId: string,
-  permissionKey: string,
-  allowed: boolean,
-  createdBy?: string | null
-) {
-  const payload: Record<string, unknown> = {
-    user_id: userId,
-    permission_key: permissionKey,
-    allowed,
-  };
-  if (createdBy) payload.created_by = createdBy;
-
-  const result = await supabase
-    .from(TABLES.userPermissions)
-    .upsert(payload, { onConflict: 'user_id,permission_key' });
-  if (result.error) logSupabaseError('upsert user permission', result.error);
-  return result;
+  _userId: string,
+  _permissionKey: string,
+  _allowed: boolean,
+  _createdBy?: string | null
+): Promise<LegacyPermissionWriteResult> {
+  return { data: null, error: null, legacy: true };
 }
