@@ -61,10 +61,6 @@ for (const path of [
   addEslintDirective(path, 'no-useless-escape');
 }
 
-addEslintDirective(
-  'src/components/examples/CustomerAnalyticsDashboardExample.tsx',
-  'react/display-name'
-);
 addEslintDirective('src/components/ui/command.tsx', 'react/no-unknown-property');
 
 for (const path of [
