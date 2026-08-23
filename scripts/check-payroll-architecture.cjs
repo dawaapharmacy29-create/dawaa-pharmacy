@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 
 const migrationPath = 'supabase/migrations/20260824004500_harden_payroll_permission_contract_v1.sql';
+const alignmentPath = 'supabase/migrations/20260824004600_align_payroll_permission_contract_v2.sql';
 const permissionPath = 'src/lib/core/permissionSystem.ts';
 const payrollPagePath = 'src/pages/PayrollManagement.tsx';
 const failures = [];
@@ -12,7 +13,6 @@ if (!fs.existsSync(migrationPath)) {
   const sql = fs.readFileSync(migrationPath, 'utf8');
   const required = [
     'view_salary_calculator',
-    'manage_salary_calculator',
     'manage_payroll',
     'dawaa_can_manage_payroll_staff_v1',
     'staff_payroll_profiles_v13',
@@ -41,11 +41,26 @@ if (!fs.existsSync(migrationPath)) {
   }
 }
 
+if (!fs.existsSync(alignmentPath)) {
+  failures.push(`Missing canonical payroll alignment migration: ${alignmentPath}`);
+} else {
+  const alignmentSql = fs.readFileSync(alignmentPath, 'utf8');
+  if (!alignmentSql.includes("v_effective := v_effective - 'manage_salary_calculator'")) {
+    failures.push('Payroll alignment must remove the non-canonical manage_salary_calculator key.');
+  }
+  for (const key of ['view_salary_calculator', 'manage_payroll']) {
+    if (!alignmentSql.includes(key)) failures.push(`Payroll alignment missing ${key}`);
+  }
+}
+
 const permissionSource = fs.readFileSync(permissionPath, 'utf8');
-for (const key of ['view_salary_calculator', 'manage_salary_calculator', 'manage_payroll']) {
+for (const key of ['view_salary_calculator', 'manage_payroll']) {
   if (!permissionSource.includes(key)) failures.push(`Canonical permission system missing ${key}`);
 }
-if (!permissionSource.includes("'/staff-payroll': ['manage_payroll']")) {
+if (permissionSource.includes('manage_salary_calculator')) {
+  failures.push('Non-canonical manage_salary_calculator must not be added to permissionSystem.ts.');
+}
+if (!/['"]\/staff-payroll['"]\s*:\s*['"]manage_payroll['"]/.test(permissionSource)) {
   failures.push('staff-payroll route must remain guarded by manage_payroll.');
 }
 
@@ -59,4 +74,4 @@ if (failures.length) {
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[payroll-architecture] PASS: payroll permission ceiling, branch scope, and RLS boundary are present.');
+console.log('[payroll-architecture] PASS: canonical payroll permissions, branch scope, and RLS boundary are present.');
