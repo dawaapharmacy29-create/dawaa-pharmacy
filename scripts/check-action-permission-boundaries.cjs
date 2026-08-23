@@ -7,10 +7,9 @@ const SRC = path.join(ROOT, 'src');
 const failures = [];
 const warnings = [];
 
-// Role checks are still valid for data scoping / role-specific workspace shape.
-// This gate targets page/component code where a role list is used as the decision
-// for sensitive actions such as edit/delete/approve/manage. Existing debt is
-// explicitly baselined so new copies cannot spread while we migrate it safely.
+// Role checks are valid for data scoping, role-specific workspace shape and copy.
+// This gate only targets *authorization guard declarations* for sensitive actions.
+// Existing debt is explicitly baselined while it is migrated to canonical permissions.
 const BASELINED_ACTION_ROLE_DEBT = new Set([
   'src/pages/Reviews.tsx',
 ]);
@@ -26,26 +25,30 @@ function walk(dir) {
   return out;
 }
 
-const roleDecisionPattern = /(?:includes\s*\(\s*normalizeRole\([^)]*role[^)]*\)\s*\)|includes\s*\(\s*[^)]*\.role\s*\)|normalizeRole\([^)]*role[^)]*\)\s*===|\.role\s*===|role\s*===|isGeneralManager\s*\()/s;
-const sensitiveActionPattern = /\b(?:canManage|canEdit|canDelete|canApprove|canSave|saveEdit|saveManager|approve|delete|manage|edit)\w*\b/i;
+const guardDeclarationPattern = /\bconst\s+(can(?:Manage|Edit|Delete|Approve|Save|Create|Update|Disable|Reset|Assign|Import|Export)\w*)\s*=\s*([^;]+);/gi;
+const roleOnlyPattern = /(?:\brole\b|\.role\b|normalizeRole\s*\(|isGeneralManager\s*\(|isAdminRole\s*\(|getRoleLevel\s*\()/i;
+const canonicalPermissionPattern = /(?:checkPermission\s*\(|hasPermission\s*\()/i;
 
 for (const file of walk(SRC)) {
   const rel = path.relative(ROOT, file).replace(/\\/g, '/');
   if (!rel.startsWith('src/pages/') && !rel.startsWith('src/components/')) continue;
   const source = fs.readFileSync(file, 'utf8');
-  if (!roleDecisionPattern.test(source) || !sensitiveActionPattern.test(source)) continue;
+  const offenders = [];
 
+  for (const match of source.matchAll(guardDeclarationPattern)) {
+    const guardName = match[1];
+    const expression = match[2];
+    if (!roleOnlyPattern.test(expression)) continue;
+    if (canonicalPermissionPattern.test(expression)) continue;
+    offenders.push(guardName);
+  }
+
+  if (!offenders.length) continue;
   if (BASELINED_ACTION_ROLE_DEBT.has(rel)) {
-    warnings.push(rel);
+    warnings.push(`${rel}: ${offenders.join(', ')}`);
     continue;
   }
-
-  // Canonical permission consumers are allowed when the role check is only for
-  // scope/UI shape and the sensitive action itself is permission-backed.
-  const usesCanonicalPermission = /checkPermission\s*\(|hasPermission\s*\(/.test(source);
-  if (!usesCanonicalPermission) {
-    failures.push(`${rel} contains a role-only sensitive action decision without checkPermission/hasPermission`);
-  }
+  failures.push(`${rel}: role-only sensitive guard(s): ${offenders.join(', ')}`);
 }
 
 if (warnings.length) {
