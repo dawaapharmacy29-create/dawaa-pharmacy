@@ -64,6 +64,9 @@ jobs:
       - name: Database authorization architecture boundary
         run: node scripts/check-db-authorization-architecture.cjs
 
+      - name: Employee transaction write boundary
+        run: node scripts/check-employee-transaction-write-boundary.cjs
+
       - name: Theme architecture boundary
         run: node scripts/check-theme-architecture.cjs
 
