@@ -17,7 +17,8 @@ if (/\.from\(['"]branch_sales_targets['"]\)[\s\S]{0,250}\.(?:insert|update|upser
 const authMigrationPath = path.join(ROOT, 'supabase/migrations/20260823184000_harden_db_authorization_permission_truth_v1.sql');
 const targetMigrationPath = path.join(ROOT, 'supabase/migrations/20260823184100_harden_branch_target_authorization_v1.sql');
 const activeWorkflowRlsPath = path.join(ROOT, 'supabase/migrations/20260823191500_harden_active_reviews_and_shift_notes_rls_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath]) {
+const reviewCeilingPath = path.join(ROOT, 'supabase/migrations/20260823191800_align_db_review_permission_ceiling_v1.sql');
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
 }
 
@@ -52,10 +53,26 @@ if (fs.existsSync(activeWorkflowRlsPath)) {
   }
 }
 
+if (fs.existsSync(reviewCeilingPath)) {
+  const source = fs.readFileSync(reviewCeilingPath, 'utf8');
+  for (const permission of ['view_reviews', 'add_reviews', 'edit_reviews', 'approve_reviews', 'delete_reviews']) {
+    if (!source.includes(permission)) failures.push(`DB review ceiling must define ${permission}.`);
+  }
+  for (const role of ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening', 'branch_manager', 'customer_service_manager']) {
+    if (!source.includes(role)) failures.push(`DB review ceiling must cover ${role}.`);
+  }
+  if (!/v_can_view_reviews\s*:=\s*true/.test(source) || !/v_can_add_reviews\s*:=\s*true/.test(source)) {
+    failures.push('DB review ceiling must contain explicit role grants, not legacy key-existence rules.');
+  }
+  if (/\bstaff_role\b/.test(source) || /\bis_active\b/.test(source)) {
+    failures.push('DB review ceiling must use canonical role and active/can_login only.');
+  }
+}
+
 if (failures.length) {
   console.error('\nDB authorization architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
 
-console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS and boolean permission truth remain centralized.');
+console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review role ceiling and boolean permission truth remain centralized.');
