@@ -74,13 +74,10 @@ for (const path of [
   addEslintDirective(path, '@typescript-eslint/no-var-requires');
 }
 
-for (const path of [
-  'src/components/ui/chart.tsx',
-  'src/lib/staff/staffQuerySafety.ts',
-]) {
-  addEslintDirective(path, '@typescript-eslint/ban-ts-comment');
-  patchFile(path, (source) => source.replaceAll('@ts-expect-error', '@ts-ignore'));
-}
+addEslintDirective('src/components/ui/chart.tsx', '@typescript-eslint/ban-ts-comment');
+patchFile('src/components/ui/chart.tsx', (source) =>
+  source.replaceAll('@ts-expect-error', '@ts-ignore')
+);
 
 patchFile('src/hooks/useDataProcessor.ts', (source) =>
   source.replace(/\blet requestIdRef\b/, 'const requestIdRef')
