@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
+import { BarChart3, Download, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { getCustomerRequestOperationalInsights } from '@/lib/api/customerRequestInsights';
 import { customerRequestSourceBranch } from '../domain/branch';
+import { exportCustomerRequestsWorkspace } from '../data';
 import { useCustomerRequestsWorkspace, type CustomerRequestsWorkspaceFilters } from '../hooks';
 import CustomerRequestQueueStrip from './CustomerRequestQueueStrip';
 import CustomerRequestsOperationsTable, { type CustomerRequestProductMetric } from './CustomerRequestsOperationsTable';
@@ -33,6 +35,7 @@ export default function CustomerRequestsWorkspace() {
   const [initialFilters] = useState<CustomerRequestsWorkspaceFilters>(() => filtersFromSearchParams(searchParams));
   const workspace = useCustomerRequestsWorkspace({ initialFilters });
   const [createOpen, setCreateOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [productMetrics, setProductMetrics] = useState<Record<string, CustomerRequestProductMetric>>({});
 
   useEffect(() => {
@@ -98,6 +101,20 @@ export default function CustomerRequestsWorkspace() {
     await workspace.refresh();
   };
 
+  const exportFiltered = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const result = await exportCustomerRequestsWorkspace(workspace.filters);
+      if (result.truncated) toast.warning(`تم تصدير أول ${result.rows.length.toLocaleString('ar-EG')} طلب من أصل ${result.total.toLocaleString('ar-EG')} لحماية الأداء`);
+      else toast.success(`تم تصدير ${result.rows.length.toLocaleString('ar-EG')} طلب بنفس الفلاتر الحالية`);
+    } catch (error) {
+      toast.error(`تعذر تصدير طلبات العملاء: ${(error as Error).message}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <section className="space-y-4" dir="rtl">
       <header className="rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-lg md:p-5">
@@ -106,7 +123,12 @@ export default function CustomerRequestsWorkspace() {
             <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">طلبات العملاء</h1><span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-success-text)]">Operations Workspace</span></div>
             <p className="mt-1 max-w-3xl text-sm font-bold leading-7 text-[var(--dawaa-theme-muted)]">العميل والكود والصنف والكود والمرحلة والموعد والدكتور ومعدل التوفير والإجراء التالي في شاشة تنفيذ واحدة مرتبطة بنظام النقاط المركزي.</p>
           </div>
-          <div className="flex flex-wrap gap-2"><button type="button" className="btn-primary flex items-center gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} /> تسجيل طلب</button><button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void workspace.refresh()} disabled={workspace.loading}><RefreshCw size={16} className={workspace.loading ? 'animate-spin' : ''} /> تحديث</button><Link to="/customer-requests?legacy=1" className="btn-secondary flex items-center gap-2 text-xs"><ShieldCheck size={15} /> النسخة القديمة</Link></div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-primary flex items-center gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} /> تسجيل طلب</button>
+            <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void workspace.refresh()} disabled={workspace.loading}><RefreshCw size={16} className={workspace.loading ? 'animate-spin' : ''} /> تحديث</button>
+            <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void exportFiltered()} disabled={exporting || workspace.count === 0}><Download size={16} /> {exporting ? 'جاري التصدير...' : 'تصدير Excel'}</button>
+            <Link to="/customer-requests?legacy=1" className="btn-secondary flex items-center gap-2 text-xs"><ShieldCheck size={15} /> النسخة القديمة</Link>
+          </div>
         </div>
 
         <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_190px_170px]"><input className="input-dark" value={workspace.filters.search || ''} onChange={(event) => workspace.updateFilters({ search: event.target.value, requestId: '', customerId: '', customerCode: '', customerPhone: '', productCode: '', medicineName: '' })} placeholder="بحث بالعميل، كود العميل، الهاتف، اسم الصنف أو كود الصنف" /><select className="input-dark" value={workspace.filters.branch || 'all'} onChange={(event) => workspace.updateFilters({ branch: event.target.value })}><option value="all">كل الفروع</option><option value="shokry">دواء شكري</option><option value="elshamy">دواء الشامي</option></select><select className="input-dark" value={workspace.pageSize} onChange={(event) => workspace.setPageSize(Number(event.target.value))}><option value={20}>20 طلب / صفحة</option><option value={30}>30 طلب / صفحة</option><option value={50}>50 طلب / صفحة</option></select></div>
