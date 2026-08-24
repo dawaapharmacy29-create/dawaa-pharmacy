@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, Copy, History, Loader2, MessageCircle, PackageCheck, Phone, ShoppingCart, Truck, UsersRound, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, History, Loader2, MessageCircle, PackageCheck, Pencil, Phone, ShoppingCart, Truck, UsersRound, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { displayEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
-import { getCustomerRequestEvents, type CustomerRequest, type CustomerRequestEvent } from '@/lib/api/customerRequests';
+import {
+  getCustomerRequestEvents,
+  updateCustomerRequestDetails,
+  type CustomerRequest,
+  type CustomerRequestEvent,
+} from '@/lib/api/customerRequests';
 import {
   cancelCustomerRequest,
   contactCustomerForRequest,
@@ -67,11 +72,28 @@ export default function CustomerRequestDetailsDrawer({
   const [followupAt, setFollowupAt] = useState('');
   const [sourcingExpectedArrival, setSourcingExpectedArrival] = useState('');
   const [sourcingOutcome, setSourcingOutcome] = useState<'available' | 'needs_customer_confirmation' | 'not_available'>('available');
+  const [editing, setEditing] = useState(false);
+  const [editQuantity, setEditQuantity] = useState(Number(request.quantity || 1));
+  const [editUrgency, setEditUrgency] = useState(String(request.urgency || 'normal'));
+  const [editRequestType, setEditRequestType] = useState(String(request.request_type || 'missing_medicine'));
+  const [editChannel, setEditChannel] = useState(String(request.source_request_channel || 'داخل الصيدلية'));
+  const [editPhone, setEditPhone] = useState(String(request.customer_phone || ''));
+  const [editDoctorNotes, setEditDoctorNotes] = useState(String(request.doctor_notes || ''));
 
   const view = useMemo(() => customerRequestOperationalView(request), [request]);
   const primary = customerRequestPrimaryAction(request.status);
   const currentStageIndex = stageIndex(request.status);
   const actor = { id: user?.id || null, name: user?.name || null };
+
+  useEffect(() => {
+    setEditing(false);
+    setEditQuantity(Number(request.quantity || 1));
+    setEditUrgency(String(request.urgency || 'normal'));
+    setEditRequestType(String(request.request_type || 'missing_medicine'));
+    setEditChannel(String(request.source_request_channel || 'داخل الصيدلية'));
+    setEditPhone(String(request.customer_phone || ''));
+    setEditDoctorNotes(String(request.doctor_notes || ''));
+  }, [request.id]);
 
   const reloadDetails = async () => {
     setLoadingDetails(true);
@@ -106,10 +128,25 @@ export default function CustomerRequestDetailsDrawer({
 
   const primaryAction = async () => {
     if (primary.action === 'record_sourcing' || primary.action === 'contact_customer' || primary.action === 'review_exception') return;
+    await run(() => executeCustomerRequestPrimaryAction(request, { actor, notes }), primary.label);
+  };
+
+  const saveDetails = async () => {
     await run(
-      () => executeCustomerRequestPrimaryAction(request, { actor, notes }),
-      primary.label
+      () => updateCustomerRequestDetails(request, {
+        medicine_name: request.medicine_name,
+        quantity: editQuantity,
+        urgency: editUrgency,
+        request_type: editRequestType,
+        source_request_channel: editChannel,
+        customer_phone: editPhone,
+        doctor_notes: editDoctorNotes,
+        user_id: user?.id || null,
+        user_name: user?.name || null,
+      }),
+      'تم تحديث بيانات الطلب'
     );
+    setEditing(false);
   };
 
   const openWhatsApp = () => {
@@ -179,9 +216,11 @@ export default function CustomerRequestDetailsDrawer({
             <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><PackageCheck size={17} className="text-[var(--dawaa-status-success-text)]" /> الطلب والتوفير</div>
               <div className="mt-3 space-y-2 text-sm"><div><span className="text-[var(--dawaa-theme-muted)]">الأولوية: </span><strong>{request.urgency || request.priority || 'normal'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">مطلوب قبل: </span><strong>{request.needed_by_date || '—'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">مصدر التوفير: </span><strong>{request.supplier_hint || request.potential_source_text || '—'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">موعد الوصول: </span><strong>{request.expected_arrival_date || '—'}</strong></div></div>
-              <button type="button" disabled={saving || Boolean(request.shortage_item_id)} onClick={() => void run(async () => (await sendCustomerRequestToShortages(request, actor)).request, 'تم ربط الطلب بالنواقص')} className="btn-secondary mt-3 flex items-center gap-2 text-xs"><ShoppingCart size={14} /> {request.shortage_item_id ? 'مربوط بالنواقص' : 'إرسال للنواقص'}</button>
+              <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setEditing((value) => !value)} disabled={saving} className="btn-secondary flex items-center gap-2 text-xs"><Pencil size={14} /> تعديل التفاصيل</button><button type="button" disabled={saving || Boolean(request.shortage_item_id)} onClick={() => void run(async () => (await sendCustomerRequestToShortages(request, actor)).request, 'تم ربط الطلب بالنواقص')} className="btn-secondary flex items-center gap-2 text-xs"><ShoppingCart size={14} /> {request.shortage_item_id ? 'مربوط بالنواقص' : 'إرسال للنواقص'}</button></div>
             </div>
           </section>
+
+          {editing ? <section className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface-2)] p-4"><div className="font-black text-[var(--dawaa-theme-heading)]">تعديل تفاصيل التنفيذ</div><p className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">هوية العميل والصنف والكود لا تتغير من هنا حتى لا ينفصل الطلب عن البيانات المعيارية.</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الكمية<input type="number" min={1} className="input-dark mt-1" value={editQuantity} onChange={(event) => setEditQuantity(Number(event.target.value || 1))} /></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الأولوية<select className="input-dark mt-1" value={editUrgency} onChange={(event) => setEditUrgency(event.target.value)}><option value="normal">عادي</option><option value="high">مهم</option><option value="urgent">عاجل</option></select></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">التصنيف<select className="input-dark mt-1" value={editRequestType} onChange={(event) => setEditRequestType(event.target.value)}><option value="missing_medicine">صنف ناقص</option><option value="normal_request">طلب عادي</option><option value="urgent_request">طلب عاجل</option><option value="inquiry">استفسار</option></select></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">قناة الطلب<select className="input-dark mt-1" value={editChannel} onChange={(event) => setEditChannel(event.target.value)}><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">هاتف التواصل<input className="input-dark mt-1" value={editPhone} onChange={(event) => setEditPhone(event.target.value)} /></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">ملاحظات الدكتور<input className="input-dark mt-1" value={editDoctorNotes} onChange={(event) => setEditDoctorNotes(event.target.value)} /></label></div><div className="mt-3 flex gap-2"><button type="button" disabled={saving} onClick={() => void saveDetails()} className="btn-primary">حفظ التعديلات</button><button type="button" disabled={saving} onClick={() => setEditing(false)} className="btn-secondary">إلغاء التعديل</button></div></section> : null}
 
           {view.identityIssues.length ? <section className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4"><div className="flex items-center gap-2 font-black text-[var(--dawaa-status-warning-text)]"><AlertTriangle size={16} /> بيانات تمنع الاعتماد الكامل</div><div className="mt-2 text-xs font-bold leading-6">{view.identityIssues.join(' · ')}</div></section> : null}
 
@@ -196,6 +235,8 @@ export default function CustomerRequestDetailsDrawer({
             {primary.action === 'contact_customer' ? <div className="mt-3 space-y-2"><div className="grid grid-cols-3 gap-2"><button type="button" disabled={saving} onClick={() => void run(() => contactCustomerForRequest(request, { outcome: 'answered', notes, actor }), 'تم تسجيل تواصل العميل')} className="btn-primary">تم الرد</button><button type="button" disabled={saving} onClick={() => void run(() => contactCustomerForRequest(request, { outcome: 'no_answer', notes, actor }), 'تم تسجيل عدم الرد')} className="btn-secondary">لم يرد</button><button type="button" disabled={saving || !followupAt} onClick={() => void run(() => contactCustomerForRequest(request, { outcome: 'later', notes, followupAt: new Date(followupAt).toISOString(), actor }), 'تم تحديد المتابعة القادمة')} className="btn-secondary">لاحقًا</button></div><label className="block text-xs font-black text-[var(--dawaa-theme-muted)]">موعد المتابعة القادمة<input type="datetime-local" className="input-dark mt-1" value={followupAt} onChange={(event) => setFollowupAt(event.target.value)} /></label></div> : null}
 
             {primary.action === 'review_exception' ? <div className="mt-3 grid gap-2 sm:grid-cols-2"><button type="button" disabled={saving || !notes.trim()} onClick={() => void run(() => reopenCustomerRequestSearch(request, notes, actor), 'تم إعادة فتح البحث عن الصنف أو البديل')} className="btn-primary flex items-center justify-center gap-2"><Truck size={15} /> إعادة البحث / بديل</button><button type="button" disabled={saving || !notes.trim()} onClick={() => void run(() => cancelCustomerRequest(request, notes, actor), 'تم إلغاء الطلب بالسبب المسجل')} className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-4 py-3 text-sm font-black text-[var(--dawaa-status-danger-text)]">إلغاء الطلب بسبب موثق</button></div> : null}
+
+            {primary.action !== 'review_exception' ? <button type="button" disabled={saving || !notes.trim()} onClick={() => void run(() => cancelCustomerRequest(request, notes, actor), 'تم إلغاء الطلب بالسبب المسجل')} className="mt-3 w-full rounded-xl border border-[var(--dawaa-status-danger-border)] bg-transparent px-4 py-2.5 text-xs font-black text-[var(--dawaa-status-danger-text)]">إلغاء الطلب بسبب الملاحظة المكتوبة</button> : null}
           </section> : null}
 
           <section className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
