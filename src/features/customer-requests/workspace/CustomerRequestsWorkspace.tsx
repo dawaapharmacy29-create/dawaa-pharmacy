@@ -20,6 +20,7 @@ function filtersFromSearchParams(params: URLSearchParams): CustomerRequestsWorks
     status: params.get('status') || 'all',
     assignee: params.get('assignee') || 'all',
     registrar: params.get('registrar') || '',
+    registrarId: params.get('registrarId') || '',
     requestId: params.get('requestId') || '',
     customerId: params.get('customerId') || '',
     customerCode: params.get('customerCode') || '',
@@ -46,6 +47,7 @@ export default function CustomerRequestsWorkspace() {
     if (filters.status && filters.status !== 'all') next.set('status', filters.status);
     if (filters.assignee && filters.assignee !== 'all') next.set('assignee', filters.assignee);
     if (filters.registrar) next.set('registrar', filters.registrar);
+    if (filters.registrarId) next.set('registrarId', filters.registrarId);
     if (filters.requestId) next.set('requestId', filters.requestId);
     if (filters.customerId) next.set('customerId', filters.customerId);
     if (filters.customerCode) next.set('customerCode', filters.customerCode);
@@ -115,6 +117,10 @@ export default function CustomerRequestsWorkspace() {
     }
   };
 
+  const clearEntityFilters = {
+    requestId: '', customerId: '', customerCode: '', customerPhone: '', productCode: '', medicineName: '', registrar: '', registrarId: '',
+  } as const;
+
   return (
     <section className="space-y-4" dir="rtl">
       <header className="rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-lg md:p-5">
@@ -131,14 +137,14 @@ export default function CustomerRequestsWorkspace() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_190px_170px]"><input className="input-dark" value={workspace.filters.search || ''} onChange={(event) => workspace.updateFilters({ search: event.target.value, requestId: '', customerId: '', customerCode: '', customerPhone: '', productCode: '', medicineName: '' })} placeholder="بحث بالعميل، كود العميل، الهاتف، اسم الصنف أو كود الصنف" /><select className="input-dark" value={workspace.filters.branch || 'all'} onChange={(event) => workspace.updateFilters({ branch: event.target.value })}><option value="all">كل الفروع</option><option value="shokry">دواء شكري</option><option value="elshamy">دواء الشامي</option></select><select className="input-dark" value={workspace.pageSize} onChange={(event) => workspace.setPageSize(Number(event.target.value))}><option value={20}>20 طلب / صفحة</option><option value={30}>30 طلب / صفحة</option><option value={50}>50 طلب / صفحة</option></select></div>
+        <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_190px_170px]"><input className="input-dark" value={workspace.filters.search || ''} onChange={(event) => workspace.updateFilters({ search: event.target.value, ...clearEntityFilters })} placeholder="بحث بالعميل، كود العميل، الهاتف، اسم الصنف أو كود الصنف" /><select className="input-dark" value={workspace.filters.branch || 'all'} onChange={(event) => workspace.updateFilters({ branch: event.target.value })}><option value="all">كل الفروع</option><option value="shokry">دواء شكري</option><option value="elshamy">دواء الشامي</option></select><select className="input-dark" value={workspace.pageSize} onChange={(event) => workspace.setPageSize(Number(event.target.value))}><option value={20}>20 طلب / صفحة</option><option value={30}>30 طلب / صفحة</option><option value={50}>50 طلب / صفحة</option></select></div>
       </header>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">{[['مفتوحة', workspace.summary.open], ['عاجلة', workspace.summary.urgent], ['متأخرة', workspace.summary.overdue], ['جاهزة للتواصل', workspace.summary.ready], ['بدون مسئول', workspace.summary.unassigned], ['تم التسليم', workspace.summary.delivered], ['توفير الأصناف', fulfillmentContext === null ? '—' : `${fulfillmentContext.toLocaleString('ar-EG', { maximumFractionDigits: 1 })}%`]].map(([label, value]) => <div key={String(label)} className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3"><div className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">{label}</div><div className="mt-1 text-2xl font-black text-[var(--dawaa-theme-heading)]">{typeof value === 'number' ? value.toLocaleString('ar-EG') : value}</div></div>)}</div>
 
       {workspace.summaryError ? <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-sm font-bold text-[var(--dawaa-status-warning-text)]">تعذر تحميل المؤشرات فقط، لكن قائمة التنفيذ مستقلة وما زالت تعمل: {workspace.summaryError}</div> : null}
 
-      <CustomerRequestQueueStrip summary={workspace.summary} activeFilter={workspace.filters.quickFilter} onSelect={(quickFilter) => workspace.updateFilters({ quickFilter, requestId: '', customerId: '', customerCode: '', customerPhone: '', productCode: '', medicineName: '' })} />
+      <CustomerRequestQueueStrip summary={workspace.summary} activeFilter={workspace.filters.quickFilter} onSelect={(quickFilter) => workspace.updateFilters({ quickFilter, ...clearEntityFilters })} />
 
       <section className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 shadow-lg md:p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><BarChart3 size={17} className="text-[var(--dawaa-theme-primary)]" /> قائمة التنفيذ</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{workspace.count.toLocaleString('ar-EG')} طلب مطابق · معدل توفير الصنف مبني على آخر 90 يومًا عندما تتوفر عينة للصنف.</div></div>{workspace.listLoading ? <span className="text-xs font-bold text-[var(--dawaa-theme-primary)]">جاري تحديث القائمة...</span> : null}</div>
