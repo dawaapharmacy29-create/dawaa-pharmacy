@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { updateCustomerRequestStatus, type CustomerRequest } from '@/lib/api/customerRequests';
+import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { customerRequestPrimaryAction, normalizeCustomerRequestStatus } from '../domain/status';
 import { assertCustomerRequestTransition } from '../domain/transitions';
 import { moveCustomerRequestToShortageSecure } from './moveCustomerRequestToShortageSecure';
@@ -12,29 +12,42 @@ export interface CustomerRequestCommandActor {
 export type CustomerRequestSourcingOutcome = 'available' | 'needs_customer_confirmation' | 'not_available';
 export type CustomerRequestContactOutcome = 'answered' | 'no_answer' | 'later';
 
-function actorInput(actor?: CustomerRequestCommandActor | null) {
-  return { user_id: actor?.id || null, user_name: actor?.name || null };
+async function runAtomicTransition(
+  request: CustomerRequest,
+  action: string,
+  notes?: string | null,
+  expectedArrivalDate?: string | null
+) {
+  const { data, error } = await supabase.rpc('advance_customer_request_v2', {
+    p_request_id: request.id,
+    p_action: action,
+    p_notes: notes?.trim() || null,
+    p_expected_arrival_date: expectedArrivalDate || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as CustomerRequest;
 }
 
-export async function startCustomerRequestSearch(request: CustomerRequest, actor?: CustomerRequestCommandActor | null) {
+export async function startCustomerRequestSearch(request: CustomerRequest, _actor?: CustomerRequestCommandActor | null) {
   const status = normalizeCustomerRequestStatus(request.status);
   if (!['new', 'purchasing_review', 'not_available'].includes(status)) {
     throw new Error('لا يمكن بدء البحث من المرحلة الحالية');
   }
-  const next = status === 'new' ? 'purchasing_review' : 'searching_suppliers';
-  assertCustomerRequestTransition(status, next);
-  return updateCustomerRequestStatus(request, {
-    status: next,
-    notes: next === 'purchasing_review' ? 'تم استلام طلب العميل للمراجعة' : status === 'not_available' ? 'إعادة فتح البحث عن الصنف أو البديل' : 'بدأ البحث عن الصنف',
-    purchasing_assignee: actor?.name || request.purchasing_assignee || null,
-    ...actorInput(actor),
-  });
+  if (status === 'new') {
+    assertCustomerRequestTransition(status, 'purchasing_review');
+    return runAtomicTransition(request, 'start_review');
+  }
+  if (status === 'purchasing_review') {
+    assertCustomerRequestTransition(status, 'searching_suppliers');
+    return runAtomicTransition(request, 'start_search');
+  }
+  throw new Error('الطلب غير متوفر يحتاج سببًا موثقًا لإعادة فتح البحث');
 }
 
 export async function reopenCustomerRequestSearch(
   request: CustomerRequest,
   reason: string,
-  actor?: CustomerRequestCommandActor | null
+  _actor?: CustomerRequestCommandActor | null
 ) {
   const normalizedReason = reason.trim();
   if (!normalizedReason) throw new Error('سجل سبب إعادة البحث أو البديل قبل المتابعة');
@@ -42,13 +55,7 @@ export async function reopenCustomerRequestSearch(
     throw new Error('إعادة فتح البحث متاحة للطلب غير المتوفر فقط');
   }
   assertCustomerRequestTransition(request.status, 'searching_suppliers');
-  return updateCustomerRequestStatus(request, {
-    status: 'searching_suppliers',
-    notes: `إعادة فتح البحث: ${normalizedReason}`,
-    purchasing_notes: normalizedReason,
-    purchasing_assignee: actor?.name || request.purchasing_assignee || null,
-    ...actorInput(actor),
-  });
+  return runAtomicTransition(request, 'reopen_search', normalizedReason);
 }
 
 export async function recordCustomerRequestSourcing(
@@ -64,39 +71,17 @@ export async function recordCustomerRequestSourcing(
   if (!notes) throw new Error('سجل نتيجة البحث أو التوفير قبل الحفظ');
   assertCustomerRequestTransition(request.status, input.outcome);
   if (input.outcome === 'not_available') {
-    return updateCustomerRequestStatus(request, {
-      status: 'not_available',
-      notes,
-      purchasing_notes: notes,
-      ...actorInput(input.actor),
-    });
+    return runAtomicTransition(request, 'sourcing_not_available', notes);
   }
   if (input.outcome === 'needs_customer_confirmation') {
-    return updateCustomerRequestStatus(request, {
-      status: 'needs_customer_confirmation',
-      notes,
-      purchasing_notes: notes,
-      customer_confirmation_status: 'pending',
-      ...actorInput(input.actor),
-    });
+    return runAtomicTransition(request, 'sourcing_needs_confirmation', notes);
   }
-  return updateCustomerRequestStatus(request, {
-    status: 'available',
-    notes,
-    purchasing_notes: notes,
-    expected_arrival_date: input.expectedArrivalDate || null,
-    ...actorInput(input.actor),
-  });
+  return runAtomicTransition(request, 'sourcing_available', notes, input.expectedArrivalDate || null);
 }
 
-export async function confirmCustomerRequest(request: CustomerRequest, notes: string, actor?: CustomerRequestCommandActor | null) {
+export async function confirmCustomerRequest(request: CustomerRequest, notes: string, _actor?: CustomerRequestCommandActor | null) {
   assertCustomerRequestTransition(request.status, 'customer_confirmed');
-  return updateCustomerRequestStatus(request, {
-    status: 'customer_confirmed',
-    notes: notes.trim() || 'تم تأكيد احتياج العميل للطلب',
-    customer_confirmation_status: 'confirmed',
-    ...actorInput(actor),
-  });
+  return runAtomicTransition(request, 'confirm_customer', notes.trim() || null);
 }
 
 export async function contactCustomerForRequest(
@@ -120,25 +105,16 @@ export async function contactCustomerForRequest(
   return data as CustomerRequest;
 }
 
-export async function deliverCustomerRequest(request: CustomerRequest, notes: string, actor?: CustomerRequestCommandActor | null) {
+export async function deliverCustomerRequest(request: CustomerRequest, notes: string, _actor?: CustomerRequestCommandActor | null) {
   assertCustomerRequestTransition(request.status, 'delivered');
-  return updateCustomerRequestStatus(request, {
-    status: 'delivered',
-    notes: notes.trim() || 'تم تسليم الصنف للعميل / إتمام البيع',
-    contact_summary: notes.trim() || request.contact_summary || 'تم التسليم',
-    ...actorInput(actor),
-  });
+  return runAtomicTransition(request, 'deliver', notes.trim() || null);
 }
 
-export async function cancelCustomerRequest(request: CustomerRequest, reason: string, actor?: CustomerRequestCommandActor | null) {
+export async function cancelCustomerRequest(request: CustomerRequest, reason: string, _actor?: CustomerRequestCommandActor | null) {
   const normalizedReason = reason.trim();
   if (!normalizedReason) throw new Error('سبب إلغاء الطلب مطلوب');
   assertCustomerRequestTransition(request.status, 'cancelled');
-  return updateCustomerRequestStatus(request, {
-    status: 'cancelled',
-    notes: normalizedReason,
-    ...actorInput(actor),
-  });
+  return runAtomicTransition(request, 'cancel', normalizedReason);
 }
 
 export async function executeCustomerRequestPrimaryAction(
