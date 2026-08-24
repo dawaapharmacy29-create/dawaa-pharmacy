@@ -297,6 +297,9 @@ if (/insertResilient\(\s*['"]customer_requests['"]/.test(legacyRequestApi) ||
 if (!legacyRequestApi.includes('تم إيقاف مسار إنشاء طلبات العملاء القديم')) {
   failures.push('legacy non-canonical request creation must remain explicitly retired');
 }
+if (!legacyRequestApi.includes('تم إيقاف الكتابة المباشرة في سجل أحداث طلبات العملاء')) {
+  failures.push('direct client-side Customer Request event writing must remain retired');
+}
 
 function walkSourceFiles(dir) {
   if (!fs.existsSync(dir)) return [];
@@ -311,6 +314,9 @@ for (const full of walkSourceFiles(path.join(ROOT, 'src'))) {
   const source = fs.readFileSync(full, 'utf8');
   if (/\bcreateCustomerRequest\s*\(/.test(source)) {
     failures.push(`retired createCustomerRequest compatibility API is still called by ${path.relative(ROOT, full)}`);
+  }
+  if (/\baddCustomerRequestEvent\s*\(/.test(source)) {
+    failures.push(`retired addCustomerRequestEvent compatibility API is still called by ${path.relative(ROOT, full)}`);
   }
 }
 
