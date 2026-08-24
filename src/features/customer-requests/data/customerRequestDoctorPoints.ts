@@ -40,24 +40,19 @@ function normalizeRow(row: Record<string, unknown>): CustomerRequestDoctorPoints
 }
 
 export async function getCustomerRequestDoctorPointsSummary(staffId: string, monthCycle?: string | null) {
-  let query = supabase
-    .from('customer_request_doctor_points_summary_v1')
-    .select('*')
-    .eq('staff_id', staffId);
-  if (monthCycle) query = query.eq('month_cycle', monthCycle);
-  const { data, error } = await query.order('month_cycle', { ascending: false });
+  const { data, error } = await supabase.rpc('get_customer_request_doctor_points_summary', {
+    p_staff_id: staffId,
+    p_month_cycle: monthCycle || null,
+  });
   if (error) throw new Error(error.message);
-  return (data || []).map((row) => normalizeRow(row as Record<string, unknown>));
+  return (Array.isArray(data) ? data : []).map((row) => normalizeRow(row as Record<string, unknown>));
 }
 
 export async function getCustomerRequestDoctorPointsLeaderboard(monthCycle: string, branch?: string | null) {
-  let query = supabase
-    .from('customer_request_doctor_points_summary_v1')
-    .select('*')
-    .eq('month_cycle', monthCycle)
-    .order('total_points', { ascending: false });
-  if (branch?.trim()) query = query.eq('branch', branch.trim());
-  const { data, error } = await query;
+  const { data, error } = await supabase.rpc('get_customer_request_doctor_points_leaderboard', {
+    p_month_cycle: monthCycle,
+    p_branch: branch?.trim() || null,
+  });
   if (error) throw new Error(error.message);
-  return (data || []).map((row) => normalizeRow(row as Record<string, unknown>));
+  return (Array.isArray(data) ? data : []).map((row) => normalizeRow(row as Record<string, unknown>));
 }
