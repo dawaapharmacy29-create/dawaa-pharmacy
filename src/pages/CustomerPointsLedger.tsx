@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
+import { hasPermission } from '@/lib/core/permissionSystem';
 import { exportToExcel } from '@/lib/exportExcel';
 import { supabase } from '@/lib/supabase';
 import {
@@ -53,6 +54,8 @@ export default function CustomerPointsLedger() {
   const { user } = useAuth();
   const [params] = useSearchParams();
   const managerView = canViewAllBranches(user);
+  const canManagePoints = hasPermission(user, 'manage_points');
+  const canApprovePoints = hasPermission(user, 'approve_points');
   const [workBranch, setWorkBranch] = useState(() => normalizeBranchName(user?.branch || '') || BRANCHES[0]);
   const [pendingCustomers, setPendingCustomers] = useState<CustomerWithPendingPoints[]>([]);
   const [pendingLoading, setPendingLoading] = useState(false);
@@ -350,7 +353,7 @@ export default function CustomerPointsLedger() {
           <CalendarClock className="text-cyan-300" size={18}/>
           <span className="font-bold text-white">آخر دورة محسوبة: {effectiveQuarterBounds.quarter_label}</span>
           <span className="text-slate-400">({effectiveQuarterBounds.period_start} — {effectiveQuarterBounds.period_end})</span>
-          {managerView ? (
+          {managerView && canApprovePoints ? (
             <button className="btn-secondary mr-auto text-xs" onClick={() => void runBatchNow()} disabled={runningBatch}>
               {runningBatch ? <RefreshCw className="ml-1 inline h-4 w-4 animate-spin"/> : <Sparkles className="ml-1 inline h-4 w-4"/>} إعادة تشغيل الاحتساب يدويًا
             </button>
@@ -506,17 +509,17 @@ export default function CustomerPointsLedger() {
       <div className="rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4"><div className="text-xs font-black text-violet-200">الاستحقاق القادم</div><div className="mt-2 font-black text-white">{setting ? formatDate(setting.next_due_date) : 'الإعداد غير محفوظ'}</div><div className="mt-1 text-xs text-slate-400">كل 3 شهور · نسبة {(rate*100).toFixed(0)}%</div></div>
     </section>
 
-    <section className="dawaa-panel space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="flex items-center gap-2 font-black text-white"><Settings2 className="text-cyan-300"/> إعداد دورة العميل</h2><p className="text-xs text-slate-400">يُحفظ الإعداد للعميل ويُستخدم في الاستحقاقات القادمة.</p></div><button className="btn-secondary" onClick={() => void runAutomaticDue()} disabled={saving}><Sparkles className="ml-1 inline h-4 w-4"/> تشغيل كل الاستحقاقات المستحقة الآن</button></div>
+    {canManagePoints ? <section className="dawaa-panel space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="flex items-center gap-2 font-black text-white"><Settings2 className="text-cyan-300"/> إعداد دورة العميل</h2><p className="text-xs text-slate-400">يُحفظ الإعداد للعميل ويُستخدم في الاستحقاقات القادمة.</p></div>{managerView && canApprovePoints ? <button className="btn-secondary" onClick={() => void runAutomaticDue()} disabled={saving}><Sparkles className="ml-1 inline h-4 w-4"/> تشغيل كل الاستحقاقات المستحقة الآن</button> : null}</div>
       <div className="grid gap-3 lg:grid-cols-4">
         <select className="input-dark" value={mode} onChange={(e) => setMode(e.target.value as 'automatic'|'manual')}><option value="automatic">تلقائي من فواتير السيستم</option><option value="manual">إدخال إجمالي المبيعات يدويًا</option></select>
         <select className="input-dark" value={rate} onChange={(e) => setRate(Number(e.target.value) as 0.03|0.05)}><option value={0.05}>5% من المشتريات</option><option value={0.03}>3% من المشتريات</option></select>
         <label className="text-xs font-black text-slate-300">بداية أول دورة<input type="date" className="input-dark mt-1 w-full" value={cycleStartDate} onChange={(e) => setCycleStartDate(e.target.value)}/></label>
         <button className="btn-primary self-end" onClick={() => void saveSetting()} disabled={saving}>حفظ إعداد الـ3 شهور</button>
       </div>
-    </section>
+    </section> : null}
 
-    <section className="dawaa-panel space-y-4">
+    {canManagePoints ? <section className="dawaa-panel space-y-4">
       <h2 className="flex items-center gap-2 font-black text-white"><Calculator className="text-emerald-300"/> احتساب دورة نقاط</h2>
       <div className="grid gap-3 lg:grid-cols-4">
         <label className="text-xs font-black text-slate-300">من<input type="date" className="input-dark mt-1 w-full" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)}/></label>
@@ -525,12 +528,12 @@ export default function CustomerPointsLedger() {
         <div className="rounded-xl bg-white/5 p-3 text-sm text-white"><div>المبيعات: <b>{formatCurrency(calculatedTotal)}</b></div><div>النسبة: <b>{(rate*100).toFixed(0)}%</b></div><div className="text-emerald-200">قيمة النقاط: <b>{formatCurrency(calculatedPoints)}</b></div></div>
       </div>
       <button className="btn-primary w-full" onClick={() => void calculateCycle()} disabled={saving || !setting}><Gift className="ml-1 inline h-4 w-4"/> اعتماد واحتساب هذه الدورة</button>
-    </section>
+    </section> : null}
 
-    <section className="dawaa-panel space-y-3">
+    {canManagePoints ? <section className="dawaa-panel space-y-3">
       <h2 className="flex items-center gap-2 font-black text-white"><Plus className="text-amber-300"/> تعديل يدوي استثنائي على الرصيد</h2>
       <div className="grid gap-3 lg:grid-cols-3"><input className="input-dark" type="number" placeholder="قيمة الإضافة أو الخصم" value={adjustment.points_amount} onChange={(e) => setAdjustment((c) => ({...c,points_amount:e.target.value}))}/><select className="input-dark" value={adjustment.transaction_type} onChange={(e) => setAdjustment((c) => ({...c,transaction_type:e.target.value as typeof c.transaction_type}))}><option value="credit">إضافة</option><option value="debit">خصم</option><option value="correction">تصحيح</option></select><input className="input-dark" placeholder="سبب التعديل" value={adjustment.points_reason} onChange={(e) => setAdjustment((c) => ({...c,points_reason:e.target.value}))}/><textarea className="input-dark lg:col-span-2" placeholder="ملاحظات" value={adjustment.notes} onChange={(e) => setAdjustment((c) => ({...c,notes:e.target.value}))}/><button className="btn-secondary" onClick={() => void saveAdjustment()} disabled={saving}>حفظ التعديل</button></div>
-    </section>
+    </section> : null}
 
     <section className="space-y-3">
       <div className="flex items-center gap-2 text-lg font-black text-white"><History className="text-cyan-300"/> التاريخ الكامل لنقاط العميل</div>
