@@ -17,8 +17,8 @@ where cr.customer_id = c.id::text
 with exact_product_candidates as (
   select
     cr.id as request_id,
-    min(p.id) as product_id,
-    min(p.product_code) as product_code,
+    (array_agg(p.id order by p.id))[1] as product_id,
+    (array_agg(p.product_code order by p.id))[1] as product_code,
     count(distinct p.id) as candidate_count
   from public.customer_requests cr
   join public.products p
