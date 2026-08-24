@@ -11,6 +11,8 @@ export type CustomerRequestIdentityIssue =
   | 'missing_phone'
   | 'missing_registrar';
 
+type RequestWithExactNextAction = CustomerRequest & { next_action_at?: string | null };
+
 export function customerRequestTimestamp(request: CustomerRequest) {
   return request.requested_at || request.created_at || null;
 }
@@ -50,6 +52,10 @@ export function customerRequestSlaHours(request: CustomerRequest) {
 export function customerRequestIsOverdue(request: CustomerRequest) {
   if (customerRequestIsClosedStatus(request.status)) return false;
   return customerRequestStageAgeHours(request) > customerRequestSlaHours(request);
+}
+
+export function customerRequestNextActionAt(request: CustomerRequest) {
+  return (request as RequestWithExactNextAction).next_action_at || request.due_date || request.needed_by_date || null;
 }
 
 export function customerRequestIdentityIssues(request: CustomerRequest): CustomerRequestIdentityIssue[] {
@@ -109,7 +115,7 @@ export function customerRequestOperationalView(request: CustomerRequest) {
     overdue: customerRequestIsOverdue(request),
     ageHours,
     slaHours,
-    dueAt: request.due_date || request.needed_by_date || null,
+    dueAt: customerRequestNextActionAt(request),
     owner: request.purchasing_assignee?.trim() || request.source_assigned_employee?.trim() || request.searching_by_name?.trim() || null,
     registrar: {
       id: request.doctor_id || request.created_by || null,
