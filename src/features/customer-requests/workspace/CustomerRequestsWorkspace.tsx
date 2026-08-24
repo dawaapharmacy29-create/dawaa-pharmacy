@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { getCustomerRequestOperationalInsights } from '@/lib/api/customerRequestInsights';
+import { useAuth, userHasPermission } from '@/hooks/useAuth';
 import { customerRequestSourceBranch } from '../domain/branch';
 import { exportCustomerRequestsWorkspace } from '../data';
 import { useCustomerRequestsWorkspace, type CustomerRequestsWorkspaceFilters } from '../hooks';
@@ -32,6 +33,8 @@ function filtersFromSearchParams(params: URLSearchParams): CustomerRequestsWorks
 }
 
 export default function CustomerRequestsWorkspace() {
+  const { user } = useAuth();
+  const canManageRequests = userHasPermission(user, 'manage_customer_requests');
   const [searchParams, setSearchParams] = useSearchParams();
   const [initialFilters] = useState<CustomerRequestsWorkspaceFilters>(() => filtersFromSearchParams(searchParams));
   const workspace = useCustomerRequestsWorkspace({ initialFilters });
@@ -59,9 +62,14 @@ export default function CustomerRequestsWorkspace() {
   }, [setSearchParams, workspace.filters]);
 
   useEffect(() => {
-    if (!initialFilters.requestId || workspace.selectedRequestId) return;
+    if (!canManageRequests || !initialFilters.requestId || workspace.selectedRequestId) return;
     workspace.selectRequest(initialFilters.requestId);
-  }, [initialFilters.requestId, workspace]);
+  }, [canManageRequests, initialFilters.requestId, workspace]);
+
+  useEffect(() => {
+    if (!canManageRequests && createOpen) setCreateOpen(false);
+    if (!canManageRequests && workspace.selectedRequestId) workspace.selectRequest(null);
+  }, [canManageRequests, createOpen, workspace]);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,16 +129,24 @@ export default function CustomerRequestsWorkspace() {
     requestId: '', customerId: '', customerCode: '', customerPhone: '', productCode: '', medicineName: '', registrar: '', registrarId: '',
   } as const;
 
+  const selectRequest = (requestId: string | null) => {
+    if (!canManageRequests) {
+      toast.info('الحساب الحالي للعرض فقط ولا يملك صلاحية تنفيذ أو تعديل طلبات العملاء.');
+      return;
+    }
+    workspace.selectRequest(requestId);
+  };
+
   return (
     <section className="space-y-4" dir="rtl">
       <header className="rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-lg md:p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">طلبات العملاء</h1><span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-success-text)]">Operations Workspace</span></div>
+            <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">طلبات العملاء</h1><span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-success-text)]">Operations Workspace</span>{!canManageRequests ? <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">عرض فقط</span> : null}</div>
             <p className="mt-1 max-w-3xl text-sm font-bold leading-7 text-[var(--dawaa-theme-muted)]">العميل والكود والصنف والكود والمرحلة والموعد والدكتور ومعدل التوفير والإجراء التالي في شاشة تنفيذ واحدة مرتبطة بنظام النقاط المركزي.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-primary flex items-center gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} /> تسجيل طلب</button>
+            {canManageRequests ? <button type="button" className="btn-primary flex items-center gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} /> تسجيل طلب</button> : null}
             <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void workspace.refresh()} disabled={workspace.loading}><RefreshCw size={16} className={workspace.loading ? 'animate-spin' : ''} /> تحديث</button>
             <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void exportFiltered()} disabled={exporting || workspace.count === 0}><Download size={16} /> {exporting ? 'جاري التصدير...' : 'تصدير Excel'}</button>
             <Link to="/customer-requests?legacy=1" className="btn-secondary flex items-center gap-2 text-xs"><ShieldCheck size={15} /> النسخة القديمة</Link>
@@ -149,12 +165,12 @@ export default function CustomerRequestsWorkspace() {
       <section className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 shadow-lg md:p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><BarChart3 size={17} className="text-[var(--dawaa-theme-primary)]" /> قائمة التنفيذ</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{workspace.count.toLocaleString('ar-EG')} طلب مطابق · معدل توفير الصنف مبني على آخر 90 يومًا عندما تتوفر عينة للصنف.</div></div>{workspace.listLoading ? <span className="text-xs font-bold text-[var(--dawaa-theme-primary)]">جاري تحديث القائمة...</span> : null}</div>
         {workspace.listError ? <div className="mb-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-3 py-2 text-sm font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل القائمة: {workspace.listError}</div> : null}
-        <CustomerRequestsOperationsTable rows={workspace.rows} selectedId={workspace.selectedRequestId} onSelect={workspace.selectRequest} productMetrics={productMetrics} />
+        <CustomerRequestsOperationsTable rows={workspace.rows} selectedId={workspace.selectedRequestId} onSelect={selectRequest} productMetrics={productMetrics} />
         <div className="mt-3 flex items-center justify-between gap-3 text-sm font-bold text-[var(--dawaa-theme-muted)]"><span>صفحة {workspace.page} من {workspace.pages}</span><div className="flex gap-2"><button type="button" className="btn-secondary" disabled={workspace.page <= 1 || workspace.listLoading} onClick={() => workspace.setPage(Math.max(1, workspace.page - 1))}>السابق</button><button type="button" className="btn-secondary" disabled={workspace.page >= workspace.pages || workspace.listLoading} onClick={() => workspace.setPage(Math.min(workspace.pages, workspace.page + 1))}>التالي</button></div></div>
       </section>
 
-      {createOpen ? <CanonicalCreateRequestDialog onClose={() => setCreateOpen(false)} onCreated={onCreated} /> : null}
-      {workspace.selectedRequest ? <CustomerRequestDetailsDrawer request={workspace.selectedRequest} onClose={() => workspace.selectRequest(null)} onUpdated={onUpdated} /> : null}
+      {canManageRequests && createOpen ? <CanonicalCreateRequestDialog onClose={() => setCreateOpen(false)} onCreated={onCreated} /> : null}
+      {canManageRequests && workspace.selectedRequest ? <CustomerRequestDetailsDrawer request={workspace.selectedRequest} onClose={() => workspace.selectRequest(null)} onUpdated={onUpdated} /> : null}
     </section>
   );
 }
