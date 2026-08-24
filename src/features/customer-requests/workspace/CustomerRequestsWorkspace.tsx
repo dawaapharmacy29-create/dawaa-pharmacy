@@ -90,24 +90,29 @@ export default function CustomerRequestsWorkspace() {
   useEffect(() => {
     if (!canManageRequests || !initialFilters.requestId || workspace.selectedRequestId) return;
     workspace.selectRequest(initialFilters.requestId);
-  }, [canManageRequests, initialFilters.requestId, workspace]);
+  }, [canManageRequests, initialFilters.requestId, workspace.selectedRequestId, workspace.selectRequest]);
 
   useEffect(() => {
     if (!canManageRequests && createOpen) setCreateOpen(false);
     if (!canManageRequests && workspace.selectedRequestId) workspace.selectRequest(null);
-  }, [canManageRequests, createOpen, workspace]);
+  }, [canManageRequests, createOpen, workspace.selectedRequestId, workspace.selectRequest]);
+
+  const visibleProductCodes = useMemo(
+    () => Array.from(
+      new Set(workspace.rows.map((row) => String(row.product_code || '').trim()).filter(Boolean))
+    ).sort(),
+    [workspace.rows]
+  );
+  const visibleProductCodesKey = visibleProductCodes.join('|');
 
   useEffect(() => {
     let cancelled = false;
-    const productCodes = Array.from(
-      new Set(workspace.rows.map((row) => String(row.product_code || '').trim()).filter(Boolean))
-    );
-    if (!productCodes.length) {
+    if (!visibleProductCodes.length) {
       setProductMetrics({});
       return () => { cancelled = true; };
     }
 
-    void getCustomerRequestProductMetrics(productCodes, workspace.filters.branch || 'all', 90)
+    void getCustomerRequestProductMetrics(visibleProductCodes, workspace.filters.branch || 'all', 90)
       .then((rows) => {
         if (cancelled) return;
         const next: Record<string, CustomerRequestProductMetric> = {};
@@ -124,7 +129,7 @@ export default function CustomerRequestsWorkspace() {
       .catch(() => { if (!cancelled) setProductMetrics({}); });
 
     return () => { cancelled = true; };
-  }, [workspace.rows, workspace.filters.branch]);
+  }, [visibleProductCodesKey, workspace.filters.branch]);
 
   const fulfillmentContext = useMemo(() => {
     const values = Object.values(productMetrics).filter((item) => item.requestsCount > 0 && item.fulfillmentRate !== null);
