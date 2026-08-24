@@ -449,6 +449,8 @@ const MANAGER_BASE = [
   'import_customers',
   'view_customer_360',
   'view_customer_service',
+  'view_customer_requests',
+  'manage_customer_requests',
   'create_followup',
   'edit_followup',
   'close_followup',
