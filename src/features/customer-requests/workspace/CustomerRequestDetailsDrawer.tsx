@@ -6,7 +6,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { displayEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
 import {
   getCustomerRequestEvents,
-  updateCustomerRequestDetails,
   type CustomerRequest,
   type CustomerRequestEvent,
 } from '@/lib/api/customerRequests';
@@ -17,6 +16,7 @@ import {
   recordCustomerRequestSourcing,
   reopenCustomerRequestSearch,
   sendCustomerRequestToShortages,
+  updateCustomerRequestDetailsV2,
 } from '../commands';
 import { getCustomerRequestIncentiveEvents, type CustomerRequestIncentiveEventRow } from '../data';
 import { customerRequestOperationalView } from '../domain/request';
@@ -133,16 +133,13 @@ export default function CustomerRequestDetailsDrawer({
 
   const saveDetails = async () => {
     await run(
-      () => updateCustomerRequestDetails(request, {
-        medicine_name: request.medicine_name,
+      () => updateCustomerRequestDetailsV2(request, {
         quantity: editQuantity,
         urgency: editUrgency,
-        request_type: editRequestType,
-        source_request_channel: editChannel,
-        customer_phone: editPhone,
-        doctor_notes: editDoctorNotes,
-        user_id: user?.id || null,
-        user_name: user?.name || null,
+        requestType: editRequestType,
+        channel: editChannel,
+        customerPhone: editPhone,
+        doctorNotes: editDoctorNotes,
       }),
       'تم تحديث بيانات الطلب'
     );
