@@ -85,6 +85,10 @@ export interface CustomerRequest {
   sync_conflict?: boolean | null;
   sync_conflict_reason?: string | null;
   customer_segment?: string | null;
+  product_id?: string | null;
+  product_code?: string | null;
+  product_price?: number | null;
+  next_action_at?: string | null;
 }
 
 export interface CustomerRequestEvent {
