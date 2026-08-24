@@ -40,6 +40,8 @@ requireTokens('src/pages/CustomerRequestsV2.tsx', [
   'canSeeAllBranches',
   'getUserBranch',
   'effectiveAnalyticsBranch',
+  'lazy(() => import',
+  'Suspense',
 ]);
 
 requireTokens('src/features/customer-requests/workspace/CustomerRequestsWorkspace.tsx', [
@@ -201,6 +203,14 @@ for (const requiredPermission of ['view_customer_requests', 'manage_customer_req
   if (!doctorWorkspaceBlock.includes(requiredPermission)) {
     failures.push(`doctor workspace permission cap must preserve ${requiredPermission}`);
   }
+}
+
+const exportExcelSource = read('src/lib/exportExcel.ts');
+if (/^\s*import\s+\*\s+as\s+XLSX\s+from\s+['"]xlsx['"]/m.test(exportExcelSource)) {
+  failures.push('XLSX must stay dynamically imported so Customer Requests operations do not pay the spreadsheet bundle cost on first load');
+}
+if (!exportExcelSource.includes("await import('xlsx')")) {
+  failures.push('Excel export must preserve lazy XLSX loading');
 }
 
 const v2Page = read('src/pages/CustomerRequestsV2.tsx');
