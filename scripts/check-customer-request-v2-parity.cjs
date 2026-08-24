@@ -171,6 +171,7 @@ requireTokens('src/lib/api/customerRequestDataQuality.ts', [
   'repair_customer_request_customer_v2',
   'p_customer_id',
   'p_keep_request_branch',
+  'normalizeBranchName',
 ]);
 
 requireTokens('supabase/migrations/20260824193000_customer_request_registrar_attribution_v2.sql', [
@@ -264,6 +265,13 @@ requireTokens('src/lib/api/customerRequestQualityCenter.ts', [
   "'registrar'",
   "issues.push('registrar')",
   'مسجل الطلب غير مربوط',
+]);
+
+requireTokens('src/components/customer-requests/CustomerRequestDataQualityPanel.tsx', [
+  'registrarMissing',
+  'هوية مسجل الطلب',
+  'الاسم وحده لا يمنح نقاطًا',
+  "workspace=quality",
 ]);
 
 requireTokens('src/components/customer-requests/CustomerRequestQualityCenter.tsx', [
