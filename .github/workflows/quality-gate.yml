@@ -67,6 +67,9 @@ jobs:
       - name: Payroll architecture boundary
         run: node scripts/check-payroll-architecture.cjs
 
+      - name: Incentive governance architecture boundary
+        run: node scripts/check-incentive-governance-architecture.cjs
+
       - name: Shift performance architecture boundary
         run: node scripts/check-shift-performance-architecture.cjs
 
@@ -81,6 +84,12 @@ jobs:
 
       - name: Employee transaction source authorization
         run: node scripts/check-employee-transaction-source-authorization.cjs
+
+      - name: Task evidence architecture boundary
+        run: node scripts/check-task-evidence-architecture.cjs
+
+      - name: Review coverage architecture boundary
+        run: node scripts/check-review-coverage-architecture.cjs
 
       - name: Theme architecture boundary
         run: node scripts/check-theme-architecture.cjs
