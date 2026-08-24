@@ -138,6 +138,31 @@ export async function executeCustomerRequestPrimaryAction(
   }
 }
 
+export async function updateCustomerRequestDetailsV2(
+  request: CustomerRequest,
+  input: {
+    quantity: number;
+    urgency: string;
+    requestType: string;
+    channel?: string | null;
+    customerPhone?: string | null;
+    doctorNotes?: string | null;
+  }
+) {
+  if (!Number.isFinite(input.quantity) || input.quantity < 1) throw new Error('الكمية غير صحيحة');
+  const { data, error } = await supabase.rpc('update_customer_request_details_v2', {
+    p_request_id: request.id,
+    p_quantity: input.quantity,
+    p_urgency: input.urgency,
+    p_request_type: input.requestType,
+    p_channel: input.channel || null,
+    p_customer_phone: input.customerPhone?.trim() || null,
+    p_doctor_notes: input.doctorNotes?.trim() || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as CustomerRequest;
+}
+
 export async function sendCustomerRequestToShortages(request: CustomerRequest, _actor?: CustomerRequestCommandActor | null) {
   const updated = await moveCustomerRequestToShortageSecure(request);
   return { request: updated };
