@@ -95,6 +95,13 @@ requireTokens('supabase/migrations/20260824153500_customer_request_next_action_a
   'idx_customer_requests_next_action_at_open',
 ]);
 
+requireTokens('supabase/migrations/20260824173000_customer_request_summary_v2.sql', [
+  'get_customer_requests_command_center_summary_v2',
+  'get_customer_requests_command_center_summary',
+  'followup_due',
+  'next_action_at',
+]);
+
 requireTokens('supabase/migrations/20260824172000_customer_request_product_metrics_v2.sql', [
   'get_customer_request_product_metrics_v2',
   'p_product_codes text[]',
@@ -224,6 +231,13 @@ if (!requestRepository.includes('CUSTOMER_REQUEST_OPERATIONAL_SELECT')) {
 if (/\.select\(\s*['"]\*['"]\s*,\s*\{\s*count:\s*['"]exact['"]/.test(requestRepository)) {
   failures.push('operations list must not select source_payload and other full-row baggage on every page');
 }
+if (!requestRepository.includes('get_customer_requests_command_center_summary_v2')) {
+  failures.push('operations summary should use the one-round-trip V2 RPC');
+}
+if (!requestRepository.includes('includeCount?: boolean')) {
+  failures.push('bulk export should be able to skip repeated exact counts after the first page');
+}
+
 if (!requestRepository.includes('customerSegmentCache')) {
   failures.push('canonical customer segment enrichment should be cached across request pages');
 }
@@ -234,6 +248,11 @@ if (requestWorkspace.includes('getCustomerRequestOperationalInsights')) {
 }
 if (!requestWorkspace.includes('getCustomerRequestProductMetrics')) {
   failures.push('operations workspace must request focused fulfillment metrics for visible products');
+}
+
+const requestExport = read('src/features/customer-requests/data/customerRequestExport.ts');
+if (!requestExport.includes('includeCount: page === 1')) {
+  failures.push('request export must only request an exact count on the first page');
 }
 
 const commands = read('src/features/customer-requests/commands/customerRequestCommands.ts');
