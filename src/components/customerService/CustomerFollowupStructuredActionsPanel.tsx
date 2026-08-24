@@ -20,6 +20,7 @@ import { isValidEgyptianMobile, normalizeEgyptianPhone } from '@/lib/customerFol
 import { readFollowupResult } from '@/lib/customerServiceFollowupStatus';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { supabase } from '@/lib/supabase';
+import { updateFollowupResult } from '@/lib/api/customerServiceCommandCenter';
 
 const ALL_BRANCHES = 'كل الفروع';
 
@@ -104,7 +105,6 @@ export default function CustomerFollowupStructuredActionsPanel() {
   const [saving, setSaving] = useState(false);
 
   const actorStaffId = String(user?.staffId || user?.id || '');
-  const actorName = String(user?.name || 'مستخدم خدمة العملاء');
 
   async function loadOpenFollowups() {
     setLoading(true);
@@ -156,9 +156,6 @@ export default function CustomerFollowupStructuredActionsPanel() {
         updated_by: actorStaffId || null,
         updated_at: now,
       };
-      let eventType = 'scheduled';
-      let eventStatus = 'مؤجل';
-
       if (action.kind === 'postpone') {
         payload.postponed_until = `${action.nextDate}T10:00:00`;
         payload.next_followup_date = action.nextDate;
@@ -167,8 +164,6 @@ export default function CustomerFollowupStructuredActionsPanel() {
         payload.followup_status = 'مؤجل';
         if (action.notes.trim()) payload.followup_notes = action.notes.trim();
       } else if (action.kind === 'cancel') {
-        eventType = 'cancelled';
-        eventStatus = 'ملغي';
         payload.cancelled_at = now;
         payload.cancelled_by = actorStaffId || null;
         payload.cancelled_reason = action.reason.trim();
@@ -181,8 +176,6 @@ export default function CustomerFollowupStructuredActionsPanel() {
         payload.needs_next_followup = false;
         payload.next_followup_date = null;
       } else {
-        eventType = 'archived';
-        eventStatus = 'مؤرشف';
         payload.archived_at = now;
         payload.archive_reason = action.reason.trim();
         payload.is_hidden = true;
@@ -194,27 +187,7 @@ export default function CustomerFollowupStructuredActionsPanel() {
         if (action.notes.trim()) payload.followup_notes = action.notes.trim();
       }
 
-      const { error: updateError } = await supabase
-        .from('daily_followups')
-        .update(payload)
-        .eq('id', selected.id);
-      if (updateError) throw updateError;
-
-      const { error: eventError } = await supabase.from('customer_service_followup_events').insert({
-        followup_id: selected.id,
-        event_type: eventType,
-        event_status: eventStatus,
-        actor_staff_id: actorStaffId || null,
-        actor_name: actorName,
-        notes: action.notes.trim() || action.reason.trim() || null,
-        metadata: {
-          action: action.kind,
-          next_date: action.nextDate || null,
-          reason: action.reason || null,
-          source: 'structured_actions_panel',
-        },
-      });
-      if (eventError) throw eventError;
+      await updateFollowupResult(selected.id, payload);
 
       toast.success(
         action.kind === 'postpone'
