@@ -329,6 +329,9 @@ for (const full of walkSourceFiles(path.join(ROOT, 'src'))) {
       failures.push(`retired ${name} compatibility API is still called by ${path.relative(ROOT, full)}`);
     }
   }
+  if (/\.from\(\s*['"]customer_requests['"]\s*\)\s*\.(?:insert|update|delete|upsert)\b/.test(source)) {
+    failures.push(`direct client mutation of customer_requests is forbidden outside atomic RPC commands: ${path.relative(ROOT, full)}`);
+  }
 }
 
 const queueRepository = read('src/features/customer-requests/data/customerRequestsRepository.ts');
