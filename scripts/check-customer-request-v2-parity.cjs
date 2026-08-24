@@ -267,6 +267,11 @@ requireTokens('src/lib/api/customerRequestQualityCenter.ts', [
   'مسجل الطلب غير مربوط',
 ]);
 
+requireTokens('src/components/customer-requests/CustomerRequestBulkRepairPanel.tsx', [
+  'normalizeBranchName',
+  'confidentUniqueProductMatch',
+]);
+
 requireTokens('src/components/customer-requests/CustomerRequestDataQualityPanel.tsx', [
   'registrarMissing',
   'هوية مسجل الطلب',
