@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { customerRequestSourceBranch } from '@/lib/customerRequestsBranch';
 
 export type CustomerRequestInsights = {
   period_days: number;
@@ -83,8 +84,9 @@ export type CustomerRequestInsights = {
 };
 
 export async function getCustomerRequestOperationalInsights(branch = 'all', days = 30) {
+  const normalizedBranch = branch === 'all' ? null : customerRequestSourceBranch(branch);
   const { data, error } = await supabase.rpc('get_customer_request_operational_insights', {
-    p_branch: branch === 'all' ? null : branch,
+    p_branch: normalizedBranch,
     p_days: days,
   });
   if (error) throw new Error(error.message);
