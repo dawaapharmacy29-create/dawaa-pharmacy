@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { displayEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
+import CustomerRequestDataQualityPanel from '@/components/customer-requests/CustomerRequestDataQualityPanel';
 import {
   getCustomerRequestEvents,
   type CustomerRequest,
@@ -241,6 +242,14 @@ export default function CustomerRequestDetailsDrawer({
           </section>
 
           {editing ? <section className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface-2)] p-4"><div className="font-black text-[var(--dawaa-theme-heading)]">تعديل تفاصيل التنفيذ</div><p className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">هوية العميل والصنف والكود لا تتغير من هنا حتى لا ينفصل الطلب عن البيانات المعيارية.</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الكمية<input type="number" min={1} className="input-dark mt-1" value={editQuantity} onChange={(event) => setEditQuantity(Number(event.target.value || 1))} /></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الأولوية<select className="input-dark mt-1" value={editUrgency} onChange={(event) => setEditUrgency(event.target.value)}><option value="normal">عادي</option><option value="high">مهم</option><option value="urgent">عاجل</option></select></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">التصنيف<select className="input-dark mt-1" value={editRequestType} onChange={(event) => setEditRequestType(event.target.value)}><option value="missing_medicine">صنف ناقص</option><option value="normal_request">طلب عادي</option><option value="urgent_request">طلب عاجل</option><option value="inquiry">استفسار</option></select></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">قناة الطلب<select className="input-dark mt-1" value={editChannel} onChange={(event) => setEditChannel(event.target.value)}><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">هاتف التواصل<input className="input-dark mt-1" value={editPhone} onChange={(event) => setEditPhone(event.target.value)} /></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">ملاحظات الدكتور<input className="input-dark mt-1" value={editDoctorNotes} onChange={(event) => setEditDoctorNotes(event.target.value)} /></label></div><div className="mt-3 flex gap-2"><button type="button" disabled={saving} onClick={() => void saveDetails()} className="btn-primary">حفظ التعديلات</button><button type="button" disabled={saving} onClick={() => setEditing(false)} className="btn-secondary">إلغاء التعديل</button></div></section> : null}
+
+          <CustomerRequestDataQualityPanel
+            request={request}
+            onUpdated={(updated) => {
+              void onUpdated(updated);
+              void reloadDetails();
+            }}
+          />
 
           {view.identityIssues.length ? <section className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4"><div className="flex items-center gap-2 font-black text-[var(--dawaa-status-warning-text)]"><AlertTriangle size={16} /> بيانات تمنع الاعتماد الكامل</div><div className="mt-2 text-xs font-bold leading-6">{view.identityIssues.join(' · ')}</div></section> : null}
 
