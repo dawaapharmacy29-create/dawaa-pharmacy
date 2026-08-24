@@ -15,6 +15,13 @@ export type CustomerRequestStaffAttributionRow = {
   match_state: CustomerRequestStaffAttributionMatchState;
 };
 
+export type CustomerRequestStaffAttributionPreview = {
+  approved: boolean;
+  requests_to_attribute: number;
+  currently_points_identity_ready: number;
+  points_are_still_subject_to_tier_policy_and_effective_date: boolean;
+};
+
 export async function getCustomerRequestStaffAttributionReview(
   branch: string,
   limit = 100
@@ -33,4 +40,57 @@ export async function getCustomerRequestStaffAttributionReview(
     suggested_staff_role: row.suggested_staff_role ? String(row.suggested_staff_role) : null,
     match_state: String(row.match_state || 'unmatched') as CustomerRequestStaffAttributionMatchState,
   }));
+}
+
+export async function reviewCustomerRequestStaffAttribution(input: {
+  sourceLabel: string;
+  branch: string | null;
+  staffId: string;
+  decision: 'approved' | 'rejected';
+  reason: string;
+}) {
+  const { data, error } = await supabase.rpc('review_customer_request_staff_attribution_v1', {
+    p_source_label: input.sourceLabel,
+    p_branch: input.branch,
+    p_staff_id: input.staffId,
+    p_decision: input.decision,
+    p_reason: input.reason,
+  });
+  if (error) throw new Error(error.message);
+  return String(data || '');
+}
+
+export async function previewCustomerRequestStaffAttributionApply(input: {
+  sourceLabel: string;
+  branch: string | null;
+  staffId: string;
+}): Promise<CustomerRequestStaffAttributionPreview> {
+  const { data, error } = await supabase.rpc('get_customer_request_staff_attribution_apply_preview_v1', {
+    p_source_label: input.sourceLabel,
+    p_branch: input.branch,
+    p_staff_id: input.staffId,
+  });
+  if (error) throw new Error(error.message);
+  const row = (data || {}) as Record<string, unknown>;
+  return {
+    approved: Boolean(row.approved),
+    requests_to_attribute: Number(row.requests_to_attribute || 0),
+    currently_points_identity_ready: Number(row.currently_points_identity_ready || 0),
+    points_are_still_subject_to_tier_policy_and_effective_date: Boolean(row.points_are_still_subject_to_tier_policy_and_effective_date),
+  };
+}
+
+export async function applyCustomerRequestStaffAttribution(input: {
+  sourceLabel: string;
+  branch: string | null;
+  staffId: string;
+}) {
+  const { data, error } = await supabase.rpc('apply_customer_request_staff_attribution_v1', {
+    p_source_label: input.sourceLabel,
+    p_branch: input.branch,
+    p_staff_id: input.staffId,
+    p_confirm: 'APPLY_CONFIRMED_MAPPING',
+  });
+  if (error) throw new Error(error.message);
+  return Number(data || 0);
 }
