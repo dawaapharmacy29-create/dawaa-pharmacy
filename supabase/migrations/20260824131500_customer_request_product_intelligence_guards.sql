@@ -16,6 +16,60 @@ grant execute on function public.get_customer_request_product_candidates_core_v2
 grant execute on function public.get_customer_request_product_match_queue_core_v2(text, integer) to service_role;
 grant execute on function public.auto_link_customer_request_products_core_v2(boolean, text) to service_role;
 
+-- Preserve the legacy internal function name for the queue/autolink cores, but
+-- never expose it directly to the browser roles. It checks the request branch
+-- against the current app staff session before delegating to the scoring core.
+create or replace function public.get_customer_request_product_candidates_v2(
+  p_request_id uuid,
+  p_limit integer default 5
+)
+returns table(
+  product_id uuid,
+  product_code text,
+  product_name text,
+  price numeric,
+  match_score numeric,
+  name_similarity numeric,
+  alias_confirmations bigint,
+  fulfilled_history bigint,
+  movement_qty_180 numeric,
+  movement_events_180 bigint,
+  last_movement_date date,
+  strength_match boolean,
+  form_match boolean,
+  blocked_reason text,
+  confidence_label text
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_branch text;
+begin
+  if public.dawaa_current_staff_account_id_strict() is null then
+    raise exception 'not_authorized' using errcode = '42501';
+  end if;
+
+  select cr.branch into v_branch
+  from public.customer_requests cr
+  where cr.id = p_request_id;
+  if not found then raise exception 'customer_request_not_found'; end if;
+
+  if not public.dawaa_can_access_customer_request_branch('view_customer_requests', v_branch) then
+    raise exception 'not_authorized' using errcode = '42501';
+  end if;
+
+  return query
+  select *
+  from public.get_customer_request_product_candidates_core_v2(p_request_id, p_limit);
+end;
+$$;
+
+revoke execute on function public.get_customer_request_product_candidates_v2(uuid, integer) from public, anon, authenticated;
+grant execute on function public.get_customer_request_product_candidates_v2(uuid, integer) to service_role;
+
 create or replace function public.get_customer_request_product_match_queue_v2(
   p_branch text default null,
   p_limit integer default 80
