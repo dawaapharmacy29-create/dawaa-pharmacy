@@ -136,6 +136,7 @@ async function downloadStaffPdfReport(profile: StaffPerformanceProfile, finalPay
   const attendance = profile.attendance;
   const monthly = profile.monthlyIncentive;
   const quarterly = profile.quarterlyIncentive;
+  const customerRequestPoints = profile.customerRequestPoints;
   const cashDeductions = (monthly?.deductionTransactions || []).reduce(
     (sum, row) => sum + Math.abs(Number(row.moneyAmount || 0)),
     0
@@ -731,6 +732,50 @@ export default function StaffDetail() {
             onClick={() => setDrilldown('quarterly')}
           />
         </div>
+      </Section>
+
+      <Section title="طلبات العملاء">
+        {profile.errorsBySection.customer_request_points ? (
+          <Unavailable text={`تعذر تحميل نقاط طلبات العملاء: ${profile.errorsBySection.customer_request_points}`} />
+        ) : customerRequestPoints ? (
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <MiniPanel
+                label="طلبات مسجلة مؤهلة"
+                value={formatNumber(customerRequestPoints.eligible_registered_requests)}
+              />
+              <MiniPanel
+                label="طلبات محققة"
+                value={formatNumber(customerRequestPoints.achieved_requests)}
+              />
+              <MiniPanel
+                label="نسبة التحقيق"
+                value={percentText(customerRequestPoints.achievement_rate)}
+              />
+              <MiniPanel
+                label="نقاط التسجيل"
+                value={`${formatNumber(customerRequestPoints.registration_points)} نقطة`}
+              />
+              <MiniPanel
+                label="إجمالي نقاط الطلبات"
+                value={`${formatNumber(customerRequestPoints.total_points)} نقطة`}
+              />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-400/20 bg-teal-500/10 p-3">
+              <div className="text-xs font-bold text-teal-100">
+                نقاط التحقيق: {formatNumber(customerRequestPoints.achievement_points)} · دورة {customerRequestPoints.month_cycle}
+              </div>
+              <Link
+                to={`/customer-requests?registrarId=${encodeURIComponent(profile.staff.id)}&quick=all`}
+                className="btn-secondary inline-flex text-xs"
+              >
+                فتح طلبات الموظف
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <Unavailable text="لا توجد نقاط طلبات عملاء معتمدة لهذا الموظف في الدورة الحالية." />
+        )}
       </Section>
 
       <Section title="نظام تشغيل الموظف">
