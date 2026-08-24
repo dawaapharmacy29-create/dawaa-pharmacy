@@ -80,9 +80,9 @@ as $$
     c.source_label,
     c.branch,
     max(c.requests_count)::bigint,
-    case when max(c.candidate_count) = 1 then max(c.staff_id) else null end,
-    case when max(c.candidate_count) = 1 then max(c.staff_name) else null end,
-    case when max(c.candidate_count) = 1 then max(c.staff_role) else null end,
+    case when max(c.candidate_count) = 1 then min(c.staff_id::text)::uuid else null end,
+    case when max(c.candidate_count) = 1 then min(c.staff_name) else null end,
+    case when max(c.candidate_count) = 1 then min(c.staff_role) else null end,
     case
       when max(c.candidate_count) = 1 then 'unique_exact_normalized'
       when max(c.candidate_count) > 1 then 'ambiguous'
