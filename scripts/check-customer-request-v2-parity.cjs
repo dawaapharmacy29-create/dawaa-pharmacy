@@ -94,6 +94,13 @@ requireTokens('supabase/migrations/20260824153000_customer_request_next_action_a
   'idx_customer_requests_next_action_at_open',
 ]);
 
+requireTokens('supabase/migrations/20260824162000_customer_request_single_points_ledger_v1.sql', [
+  'drop trigger if exists request_self_log_settlement',
+  'drop trigger if exists trg_set_customer_request_points_tier',
+  'customer_request_incentive_events',
+  "employee_transactions(source='customer_request_incentive')",
+]);
+
 requireTokens('supabase/migrations/20260824154000_record_customer_request_contact_v2.sql', [
   'record_customer_request_contact_v2',
   'security definer',
@@ -141,6 +148,12 @@ if (/medicine_name:\s*edit/i.test(drawer)) {
 const contactMigration = read('supabase/migrations/20260824154000_record_customer_request_contact_v2.sql');
 if (/p_(?:actor|user|staff|created_by)(?:_id|_name)?\s+/i.test(contactMigration)) {
   failures.push('atomic contact command must derive actor identity from the app staff context');
+}
+
+const pointSettlementMigration = read('supabase/migrations/20260824162000_customer_request_single_points_ledger_v1.sql');
+if (!pointSettlementMigration.includes('drop trigger if exists request_self_log_settlement') ||
+    !pointSettlementMigration.includes('drop trigger if exists trg_set_customer_request_points_tier')) {
+  failures.push('legacy Customer Request point writers must remain retired so the versioned incentive ledger is the only active point source');
 }
 
 const commands = read('src/features/customer-requests/commands/customerRequestCommands.ts');
