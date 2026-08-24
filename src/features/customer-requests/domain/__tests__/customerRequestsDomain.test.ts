@@ -4,6 +4,7 @@ import {
   customerRequestBranchIdentity,
   customerRequestCanTransition,
   customerRequestIncentiveCandidate,
+  customerRequestIsClosedStatus,
   customerRequestOperationalStage,
   customerRequestPrimaryAction,
   customerRequestTierPoints,
@@ -40,7 +41,9 @@ describe('customer requests domain', () => {
     expect(customerRequestCanTransition('delivered', 'searching_suppliers')).toBe(false);
   });
 
-  it('can reopen a not-available request for a documented new search', () => {
+  it('keeps not-available requests actionable for alternative review', () => {
+    expect(customerRequestIsClosedStatus('not_available')).toBe(false);
+    expect(customerRequestPrimaryAction('not_available')).toEqual({ action: 'review_exception', label: 'راجع البديل أو الإغلاق' });
     expect(customerRequestCanTransition('not_available', 'searching_suppliers')).toBe(true);
     expect(() => assertCustomerRequestTransition('not_available', 'searching_suppliers')).not.toThrow();
   });
