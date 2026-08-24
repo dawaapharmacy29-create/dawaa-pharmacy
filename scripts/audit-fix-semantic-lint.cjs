@@ -63,10 +63,7 @@ for (const path of [
 
 addEslintDirective('src/components/ui/command.tsx', 'react/no-unknown-property');
 
-for (const path of [
-  'src/lib/staff/__tests__/staffPerformanceProfileService.integration.ts',
-  'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts',
-]) {
+for (const path of ['src/lib/staff/__tests__/staffPerformanceProfileService.integration.ts']) {
   addEslintDirective(path, '@typescript-eslint/no-var-requires');
 }
 
