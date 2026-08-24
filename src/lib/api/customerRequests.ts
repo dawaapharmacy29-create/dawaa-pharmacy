@@ -226,11 +226,9 @@ export async function getCustomerRequests(
 
 export async function getCustomerRequestEvents(requestId: string) {
   requireSupabaseConfig();
-  const { data, error } = await supabase
-    .from('customer_request_events')
-    .select('*')
-    .eq('request_id', requestId)
-    .order('created_at', { ascending: false });
+  const { data, error } = await supabase.rpc('get_customer_request_events_v2', {
+    p_request_id: requestId,
+  });
   if (error) throw new Error(error.message);
   return (data ?? []) as CustomerRequestEvent[];
 }
