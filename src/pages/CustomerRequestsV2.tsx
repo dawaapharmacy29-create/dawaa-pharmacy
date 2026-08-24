@@ -1,15 +1,16 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { BarChart3, Boxes, DatabaseZap, ListChecks, PackageSearch, ShieldAlert, ShoppingCart, UsersRound } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import CustomerRequestInsightsPanel from '@/components/customer-requests/CustomerRequestInsightsPanel';
-import CustomerRequestQualityCenter from '@/components/customer-requests/CustomerRequestQualityCenter';
-import CustomerRequestCriticalToday from '@/components/customer-requests/CustomerRequestCriticalToday';
-import CustomerRequestWarehousePanel from '@/components/customer-requests/CustomerRequestWarehousePanel';
-import CustomerRequestStaffAttributionPanel from '@/components/customer-requests/CustomerRequestStaffAttributionPanel';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { useAuth } from '@/hooks/useAuth';
 import { canSeeAllBranches, getUserBranch } from '@/lib/core/branchScope';
 import { CustomerRequestsWorkspace } from '@/features/customer-requests';
+
+const CustomerRequestInsightsPanel = lazy(() => import('@/components/customer-requests/CustomerRequestInsightsPanel'));
+const CustomerRequestQualityCenter = lazy(() => import('@/components/customer-requests/CustomerRequestQualityCenter'));
+const CustomerRequestCriticalToday = lazy(() => import('@/components/customer-requests/CustomerRequestCriticalToday'));
+const CustomerRequestWarehousePanel = lazy(() => import('@/components/customer-requests/CustomerRequestWarehousePanel'));
+const CustomerRequestStaffAttributionPanel = lazy(() => import('@/components/customer-requests/CustomerRequestStaffAttributionPanel'));
 
 type Tab = 'operations' | 'sourcing' | 'analytics' | 'quality';
 
@@ -83,6 +84,7 @@ export default function CustomerRequestsV2() {
       {tab === 'operations' ? <CustomerRequestsWorkspace /> : null}
 
       {tab === 'sourcing' ? (
+        <Suspense fallback={<WorkspaceLoading />}>
         <div className="space-y-4">
           <ScopeBranch value={effectiveAnalyticsBranch} onChange={setAnalyticsBranch} canAccessAll={canAccessAllBranches} ownBranch={userBranch} />
           <CustomerRequestCriticalToday branch={effectiveAnalyticsBranch} onOpenRequest={openRequest} />
@@ -93,9 +95,11 @@ export default function CustomerRequestsV2() {
             <RouteCard to="/supplier-performance" title="أداء الموردين" description="مراجعة مصادر التوفير والأداء من المسار التحليلي المتخصص." />
           </section>
         </div>
+        </Suspense>
       ) : null}
 
       {tab === 'analytics' ? (
+        <Suspense fallback={<WorkspaceLoading />}>
         <div className="space-y-3">
           <ScopeBranch value={effectiveAnalyticsBranch} onChange={setAnalyticsBranch} canAccessAll={canAccessAllBranches} ownBranch={userBranch} />
           <CustomerRequestInsightsPanel
@@ -116,14 +120,17 @@ export default function CustomerRequestsV2() {
             }}
           />
         </div>
+        </Suspense>
       ) : null}
 
       {tab === 'quality' ? (
+        <Suspense fallback={<WorkspaceLoading />}>
         <div className="space-y-3">
           <ScopeBranch value={effectiveAnalyticsBranch} onChange={setAnalyticsBranch} canAccessAll={canAccessAllBranches} ownBranch={userBranch} />
           <CustomerRequestStaffAttributionPanel branch={effectiveAnalyticsBranch} />
           <CustomerRequestQualityCenter branch={effectiveAnalyticsBranch} onOpenRequest={openRequest} />
         </div>
+        </Suspense>
       ) : null}
     </div>
   );
@@ -139,4 +146,13 @@ function ScopeBranch({ value, onChange, canAccessAll, ownBranch }: { value: stri
 
 function RouteCard({ to, title, description }: { to: string; title: string; description: string }) {
   return <Link to={to} className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 transition hover:border-[var(--dawaa-theme-accent-border)]"><div className="font-black text-[var(--dawaa-theme-heading)]">{title}</div><p className="mt-1 text-xs font-bold leading-6 text-[var(--dawaa-theme-muted)]">{description}</p></Link>;
+}
+
+
+function WorkspaceLoading() {
+  return (
+    <div className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-8 text-center text-sm font-black text-[var(--dawaa-theme-muted)]">
+      جاري تحميل مساحة العمل المطلوبة...
+    </div>
+  );
 }
