@@ -98,7 +98,7 @@ function WorkspaceTab({ active, onClick, icon: Icon, title, description }: { act
 }
 
 function ScopeBranch({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <div className="flex justify-end"><select className="input-dark w-auto min-w-44" value={value} onChange={(event) => onChange(event.target.value)}><option value="all">كل الفروع</option><option value="دواء شكري">دواء شكري</option><option value="دواء الشامي">دواء الشامي</option></select></div>;
+  return <div className="flex justify-end"><select className="input-dark w-auto min-w-44" value={value} onChange={(event) => onChange(event.target.value)}><option value="all">كل الفروع</option><option value="فرع شكري">دواء شكري</option><option value="فرع الشامي">دواء الشامي</option></select></div>;
 }
 
 function RouteCard({ to, title, description }: { to: string; title: string; description: string }) {
