@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, DatabaseZap, Link2, RefreshCw, ShieldAlert } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 
 type BranchHealth = { branch: string; total: number; open: number; last_received: string | null };
@@ -30,6 +31,8 @@ type SyncHealth = {
   latest: LatestRow[];
 };
 
+const SYNC_HEALTH_ROLES = new Set(['general_manager', 'executive_manager', 'branches_manager', 'customer_service_manager', 'admin']);
+
 function cairoDateTime(value?: string | null) {
   if (!value) return 'لم يصل سجل بعد';
   const date = new Date(value);
@@ -42,16 +45,19 @@ function cairoDateTime(value?: string | null) {
 }
 
 export default function CustomerRequestSyncHealthPanel({ onReview }: { onReview?: () => void }) {
+  const { user } = useAuth();
+  const canViewSyncHealth = SYNC_HEALTH_ROLES.has(String(user?.role || '').trim().toLowerCase());
   const [health, setHealth] = useState<SyncHealth | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(false);
 
   const load = useCallback(async () => {
+    if (!canViewSyncHealth) return;
     setLoading(true);
     setError('');
     try {
-      const { data, error: rpcError } = await supabase.rpc('get_customer_request_sync_health_v1');
+      const { data, error: rpcError } = await supabase.rpc('get_customer_request_sync_health_v2');
       if (rpcError) throw rpcError;
       setHealth((data || null) as SyncHealth | null);
     } catch (e) {
@@ -59,13 +65,14 @@ export default function CustomerRequestSyncHealthPanel({ onReview }: { onReview?
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canViewSyncHealth]);
 
   useEffect(() => {
+    if (!canViewSyncHealth) return undefined;
     void load();
     const timer = window.setInterval(() => void load(), 60_000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [canViewSyncHealth, load]);
 
   const state = useMemo(() => {
     if (!health) return { label: 'جاري الفحص', tone: 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] text-[var(--dawaa-theme-text)]', icon: Clock3, note: 'يتم فحص قناة الربط الآن.' };
@@ -79,6 +86,8 @@ export default function CustomerRequestSyncHealthPanel({ onReview }: { onReview?
     return { label: 'المزامنة سليمة', tone: 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]', icon: CheckCircle2, note: 'لا توجد مشكلات معالجة أو جودة معلقة.' };
   }, [health]);
   const StateIcon = state.icon;
+
+  if (!canViewSyncHealth) return null;
 
   return (
     <section className="rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-xl" dir="rtl">
