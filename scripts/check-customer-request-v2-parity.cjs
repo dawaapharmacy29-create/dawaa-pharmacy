@@ -158,6 +158,13 @@ requireTokens('supabase/migrations/20260824175000_customer_request_operational_i
   'status, requested_at desc',
 ]);
 
+requireTokens('supabase/migrations/20260824183500_customer_request_events_read_v2.sql', [
+  'get_customer_request_events_v2',
+  "dawaa_can_access_customer_request_branch('view_customer_requests'",
+  'customer_request_events',
+  'security definer',
+]);
+
 requireTokens('supabase/migrations/20260824183000_customer_request_summary_v2.sql', [
   'get_customer_requests_command_center_summary_v2',
   'get_customer_requests_command_center_summary',
@@ -300,6 +307,9 @@ if (/insertResilient\(\s*['"]customer_requests['"]/.test(legacyRequestApi) ||
     /updateResilient\(\s*['"]customer_requests['"]/.test(legacyRequestApi) ||
     /\.from\(\s*['"]customer_requests['"]\s*\)\s*\.\s*(?:insert|update|delete|upsert)\b/.test(legacyRequestApi)) {
   failures.push('legacy customer request API must not mutate customer_requests directly; all state writes belong to canonical atomic commands');
+}
+if (!legacyRequestApi.includes('get_customer_request_events_v2')) {
+  failures.push('Customer Request timeline reader should use the branch-scoped RPC');
 }
 if (!legacyRequestApi.includes('getCustomerRequestsPage')) {
   failures.push('legacy request list reader should delegate to the canonical repository');
