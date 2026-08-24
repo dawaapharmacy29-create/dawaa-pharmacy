@@ -298,6 +298,9 @@ if (/insertResilient\(\s*['"]customer_requests['"]/.test(legacyRequestApi) ||
     /\.from\(\s*['"]customer_requests['"]\s*\)\s*\.\s*(?:insert|update|delete|upsert)\b/.test(legacyRequestApi)) {
   failures.push('legacy customer request API must not mutate customer_requests directly; all state writes belong to canonical atomic commands');
 }
+if (!legacyRequestApi.includes('getCustomerRequestsPage')) {
+  failures.push('legacy request list reader should delegate to the canonical repository');
+}
 if (!legacyRequestApi.includes('تم إيقاف مسار إنشاء طلبات العملاء القديم')) {
   failures.push('legacy non-canonical request creation must remain explicitly retired');
 }
