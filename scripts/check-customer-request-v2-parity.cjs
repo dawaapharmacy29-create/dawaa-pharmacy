@@ -139,7 +139,7 @@ requireTokens('src/features/customer-requests/commands/moveCustomerRequestToShor
   'الطلب المحدث من العملية الذرية',
 ]);
 
-requireTokens('supabase/migrations/20260824180000_customer_request_summary_alignment_v2.sql', [
+requireTokens('supabase/migrations/20260824185000_customer_request_summary_alignment_v2.sql', [
   "'attention'",
   "'ready'",
   'dawaa_customer_request_sla_hours',
