@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Loader2, PackagePlus, ShieldCheck, UserRound, UsersRound, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, PackagePlus, ShieldCheck, UserRound, UsersRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import CustomerSmartSearch, { type CustomerSearchResult } from '@/components/CustomerSmartSearch';
 import ProductSmartSearch from '@/components/ProductSmartSearch';
@@ -15,7 +15,7 @@ import {
   getCanonicalCustomerRequestDoctorIncentivePreview,
   type CanonicalCustomerRequestIncentivePreview,
 } from '../create';
-import { customerRequestBranchLabel, customerRequestSourceBranch } from '../domain/branch';
+import { customerRequestBranchKey, customerRequestBranchLabel, customerRequestSourceBranch } from '../domain/branch';
 
 type StaffOption = { id: string; name: string; role: string | null; branch: string | null };
 
@@ -45,7 +45,8 @@ export default function CanonicalCreateRequestDialog({
     realtimeEnabled: false,
   });
   const doctors = useMemo(() => (staff || []).filter(doctorLike), [staff]);
-  const selfDoctorId = isDoctorRole(user) ? String(user?.staffId || user?.id || '') : '';
+  // Never fall back to the account id here. customer_requests.doctor_id must be staff.id.
+  const selfDoctorId = isDoctorRole(user) && user?.staffId ? String(user.staffId) : '';
 
   const [customer, setCustomer] = useState<CustomerSearchResult | null>(null);
   const [product, setProduct] = useState<CatalogProduct | null>(null);
@@ -64,7 +65,10 @@ export default function CanonicalCreateRequestDialog({
   const [incentivePreview, setIncentivePreview] = useState<CanonicalCustomerRequestIncentivePreview | null>(null);
 
   const selectedDoctor = doctors.find((doctor) => doctor.id === doctorId) || null;
-  const resolvedBranch = customerRequestSourceBranch(customer?.branch || selectedDoctor?.branch) || '';
+  const doctorBranchKey = customerRequestBranchKey(selectedDoctor?.branch);
+  const customerBranchKey = customerRequestBranchKey(customer?.branch);
+  const resolvedBranch = customerRequestSourceBranch(doctorBranchKey ? selectedDoctor?.branch : customer?.branch) || '';
+  const branchMismatch = Boolean(doctorBranchKey && customerBranchKey && doctorBranchKey !== customerBranchKey);
 
   useEffect(() => {
     if (!doctorId) {
@@ -84,8 +88,8 @@ export default function CanonicalCreateRequestDialog({
     event.preventDefault();
     if (!customer?.id || !customer.code) return toast.error('اختر عميلًا مربوطًا وله كود عميل');
     if (!product?.id || !product.code) return toast.error('اختر صنفًا مربوطًا بكود الصنف');
-    if (!selectedDoctor?.id) return toast.error('اختر الدكتور المسجل للطلب');
-    if (!resolvedBranch) return toast.error('تعذر تحديد الفرع من العميل أو الدكتور');
+    if (!selectedDoctor?.id) return toast.error('اختر الدكتور المسجل للطلب من سجل الموظفين');
+    if (!resolvedBranch) return toast.error('تعذر تحديد الفرع التشغيلي من الدكتور أو العميل');
 
     setSaving(true);
     try {
@@ -143,7 +147,7 @@ export default function CanonicalCreateRequestDialog({
               <section className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
                 <div className="mb-3 flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><UsersRound size={18} className="text-[var(--dawaa-theme-primary)]" /> 1. العميل المعتمد</div>
                 <CustomerSmartSearch value={customer} onSelect={setCustomer} placeholder="اسم العميل أو الكود أو الهاتف" disabled={saving} allowCreate />
-                {customer ? <div className="mt-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-4"><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2"><span className="text-[var(--dawaa-theme-muted)]">الاسم</span><strong className="mt-1 block">{customer.name}</strong></div><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2"><span className="text-[var(--dawaa-theme-muted)]">الكود</span><strong className="mt-1 block">{customer.code || 'غير موجود'}</strong></div><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2"><span className="text-[var(--dawaa-theme-muted)]">الهاتف</span><strong className="mt-1 block">{customer.phone || '—'}</strong></div><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2"><span className="text-[var(--dawaa-theme-muted)]">الفرع</span><strong className="mt-1 block">{customerRequestBranchLabel(customer.branch)}</strong></div></div> : null}
+                {customer ? <div className="mt-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-4"><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2"><span className="text-[var(--dawaa-theme-muted)]">الاسم</span><strong className="mt-1 block">{customer.name}</strong></div><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2"><span className="text-[var(--dawaa-theme-muted)]">الكود</span><strong className="mt-1 block">{customer.code || 'غير موجود'}</strong></div><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2"><span className="text-[var(--dawaa-theme-muted)]">الهاتف</span><strong className="mt-1 block">{customer.phone || '—'}</strong></div><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2"><span className="text-[var(--dawaa-theme-muted)]">الفرع المرجعي للعميل</span><strong className="mt-1 block">{customerRequestBranchLabel(customer.branch)}</strong></div></div> : null}
               </section>
 
               <section className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-theme-surface)] p-4">
@@ -159,13 +163,14 @@ export default function CanonicalCreateRequestDialog({
               <section className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-theme-surface)] p-4">
                 <div className="mb-3 flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><UserRound size={18} className="text-[var(--dawaa-status-info-text)]" /> 3. الدكتور والموعد</div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  <label className="text-xs font-black text-[var(--dawaa-theme-text)]">الدكتور المسجل{selfDoctorId ? <div className="input-dark mt-1 flex items-center gap-2"><ShieldCheck size={14} /> {user?.name || selectedDoctor?.name || 'محدد تلقائيًا'}</div> : <select className="input-dark mt-1" value={doctorId} onChange={(event) => setDoctorId(event.target.value)}><option value="">اختر الدكتور</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} — {customerRequestBranchLabel(doctor.branch)}</option>)}</select>}</label>
+                  <label className="text-xs font-black text-[var(--dawaa-theme-text)]">الدكتور المسجل{selfDoctorId ? <div className="input-dark mt-1 flex items-center gap-2"><ShieldCheck size={14} /> {user?.name || selectedDoctor?.name || 'محدد تلقائيًا'}</div> : <select className="input-dark mt-1" value={doctorId} onChange={(event) => setDoctorId(event.target.value)}><option value="">اختر الدكتور من سجل الموظفين</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} — {customerRequestBranchLabel(doctor.branch)}</option>)}</select>}</label>
                   <label className="text-xs font-black text-[var(--dawaa-theme-text)]">قناة الطلب<select className="input-dark mt-1" value={channel} onChange={(event) => setChannel(event.target.value)}><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select></label>
-                  <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3"><span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الفرع الذي سيحفظ</span><strong className="mt-1 block text-sm text-[var(--dawaa-theme-primary)]">{customerRequestBranchLabel(resolvedBranch)}</strong></div>
+                  <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3"><span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الفرع التشغيلي للطلب</span><strong className="mt-1 block text-sm text-[var(--dawaa-theme-primary)]">{customerRequestBranchLabel(resolvedBranch)}</strong><span className="mt-1 block text-[9px] font-bold text-[var(--dawaa-theme-muted)]">يُؤخذ من فرع الدكتور عندما يكون محددًا، ثم من العميل كخيار احتياطي.</span></div>
                   <label className="text-xs font-black text-[var(--dawaa-theme-text)]">مطلوب قبل<input type="date" className="input-dark mt-1" value={neededBy} onChange={(event) => setNeededBy(event.target.value)} /></label>
                   <label className="text-xs font-black text-[var(--dawaa-theme-text)]">مدة التوفير المتوقعة<input type="number" min={0} className="input-dark mt-1" value={expectedDays} onChange={(event) => setExpectedDays(Number(event.target.value || 0))} /></label>
                   <label className="text-xs font-black text-[var(--dawaa-theme-text)]">مصدر محتمل<input className="input-dark mt-1" value={supplierHint} onChange={(event) => setSupplierHint(event.target.value)} placeholder="اختياري" /></label>
                 </div>
+                {branchMismatch ? <div className="mt-3 flex items-start gap-2 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-[11px] font-bold leading-6 text-[var(--dawaa-status-warning-text)]"><AlertTriangle size={15} className="mt-0.5 shrink-0" />العميل مرتبط مرجعيًا بـ{customerRequestBranchLabel(customer?.branch)} بينما الدكتور يعمل في {customerRequestBranchLabel(selectedDoctor?.branch)}. سيُحفظ الطلب في فرع الدكتور لأنه مكان التنفيذ الحالي، بدون تغيير فرع العميل الأصلي.</div> : null}
                 <div className={`mt-3 rounded-xl border p-3 text-xs font-black ${incentivePreview?.pointsEligible ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'}`}>
                   {previewLoading ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> جاري مراجعة فئة الدكتور والنقاط...</span> : pointsText(incentivePreview)}
                 </div>
@@ -184,10 +189,10 @@ export default function CanonicalCreateRequestDialog({
                 <ReviewLine label="العميل" value={customer ? `${customer.name} · ${customer.code || 'بدون كود'}` : 'غير محدد'} valid={Boolean(customer?.id && customer?.code)} />
                 <ReviewLine label="الصنف" value={product ? `${product.name} · ${product.code}` : 'غير محدد'} valid={Boolean(product?.id && product?.code)} />
                 <ReviewLine label="الدكتور" value={selectedDoctor?.name || 'غير محدد'} valid={Boolean(selectedDoctor?.id)} />
-                <ReviewLine label="الفرع" value={customerRequestBranchLabel(resolvedBranch)} valid={Boolean(resolvedBranch)} />
+                <ReviewLine label="الفرع التشغيلي" value={customerRequestBranchLabel(resolvedBranch)} valid={Boolean(resolvedBranch)} />
                 <ReviewLine label="النقاط" value={pointsText(incentivePreview)} valid={Boolean(incentivePreview?.pointsEligible)} />
               </div>
-              <div className="mt-4 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3 text-[11px] font-bold leading-6 text-[var(--dawaa-theme-primary)]">قبل الإنشاء يفحص النظام طلبًا مفتوحًا لنفس العميل والصنف خلال 24 ساعة لمنع التكرار.</div>
+              <div className="mt-4 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3 text-[11px] font-bold leading-6 text-[var(--dawaa-theme-primary)]">قبل الإنشاء يفحص النظام طلبًا مفتوحًا لنفس العميل والصنف والفرع خلال 24 ساعة لمنع التكرار.</div>
             </aside>
           </div>
 
