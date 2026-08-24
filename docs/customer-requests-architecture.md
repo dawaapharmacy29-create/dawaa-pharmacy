@@ -2,7 +2,7 @@
 
 ## الهدف
 
-تحويل `Customer Requests` من صفحة تراكمية كبيرة إلى وحدة تشغيل مستقلة تربط العميل والصنف والفرع والدكتور والتوفير والمتابعة والتحليلات والحوافز من مصادر حقيقة واحدة، مع الحفاظ على النسخة القديمة كـfallback مؤقت على برانش إعادة الهيكلة فقط.
+تحويل `Customer Requests` من صفحة تراكمية كبيرة إلى وحدة تشغيل مستقلة تربط العميل والصنف والفرع والدكتور والتوفير والمتابعة والتحليلات والحوافز من مصادر حقيقة واحدة. المسار الحالي يستخدم V2 فقط ولا يوجد routed write surface قديم موازٍ.
 
 ## 1. حدود الوحدة
 
@@ -62,7 +62,7 @@ Audit ledger وسيط يثبت حدث نقاط طلب العميل وربطه ب
 
 المسار المعياري هو RPC:
 
-`create_customer_request_canonical_v1`
+`create_customer_request_canonical_v2`
 
 داخل Transaction واحدة يقوم بـ:
 1. التحقق من App Staff Context.
@@ -77,6 +77,23 @@ Audit ledger وسيط يثبت حدث نقاط طلب العميل وربطه ب
 10. تشغيل Trigger النقاط بعد اكتمال الهوية.
 
 لا توجد بعد الآن سلسلة `insert request -> link product` للطلبات الجديدة، وبالتالي لا يمكن أن يبقى طلب جزئي إذا فشل ربط الصنف.
+
+### Base44 / DawaaWael Source Contract
+
+حد المزامنة الخارجي Fail-closed ولا يخمن الهوية:
+
+- `customer_code` يُقبل كهوية مصدر مستقرة ويذهب لمسار ربط العميل.
+- `product_code` / `productCode` / `item_code` يربط الصنف فقط عند تطابق كود واحد Exact في `products`.
+- `recorded_staff_id` / `recordedStaffId` أو `doctor_id` يُقبل فقط إذا كان UUID صالحًا لـ`staff.id` نشطًا وفي نفس نطاق الفرع.
+- `assigned_employee` يظل مسئول التوفير التشغيلي ولا يصبح `doctor_id`.
+- أي اسم فقط يذهب للمراجعة البشرية ولا ينشئ نقاطًا تلقائيًا.
+- الـenrichment اللاحق لا يجوز له مسح UUID مصدر ثابت تم اعتماده بالفعل.
+
+وبالتالي شكل المصدر المفضل للطلبات الجديدة هو:
+
+`customer_code + product_code + recorded_staff_id + branch`
+
+ولو نقص أي Stable ID يظل الطلب في Data Quality حتى الإصلاح بدل منح نقاط لشخص أو صنف بالخطأ.
 
 ## 6. الحالات والانتقالات
 
@@ -142,7 +159,7 @@ Effective from: `2026-08-24 00:00 Africa/Cairo`
 
 ## 11. الطلبات التاريخية وهوية الموظف
 
-لا يوجد Auto-attribution من الاسم.
+لا يوجد Auto-attribution من الاسم، والمقصود بالهوية هنا **مسجل الطلب الأصلي** وليس الموظف المسند إليه التوفير.
 
 المسار:
 1. Review RPC يعرض أسماء المصدر، الفرع، عدد الطلبات، والتطابق المقترح.
@@ -199,7 +216,7 @@ Effective from: `2026-08-24 00:00 Africa/Cairo`
 - table-first execution view
 - Create Dialog
 - Details Drawer
-- Doctor Points Card
+- Staff Performance Profile projection لنقاط الطلبات
 
 ## 14. V2 Workspace
 
@@ -218,6 +235,7 @@ Operations Inbox هو العرض الافتراضي، ويعرض العميل و
 ## 15. Drawer التنفيذ
 
 عند فتح الطلب:
+- Data Quality repair للعميل والصنف من البحث المعياري.
 - العميل + الكود + الهاتف + رابط الملف.
 - الصنف + الكود + الكمية.
 - المسجل والمسئول.
@@ -261,4 +279,4 @@ Operations Inbox هو العرض الافتراضي، ويعرض العميل و
 - لا إعادة حساب نقاط في الواجهة.
 - `employee_transactions` هو Ledger النهائي.
 - `not_available` يظل قابلًا لمراجعة البديل حتى إغلاقه صراحة.
-- Legacy route يبقى fallback حتى اكتمال parity والتحقق النهائي.
+- لا يعود Legacy route كمسار كتابة ثانٍ بعد اعتماد V2.
