@@ -172,7 +172,7 @@ requireTokens('src/lib/api/customerRequestDataQuality.ts', [
   'p_keep_request_branch',
 ]);
 
-requireTokens('supabase/migrations/20260824190000_doctor_incentive_customer_request_alignment_v1.sql', [
+requireTokens('supabase/migrations/20260824192000_doctor_incentive_customer_request_alignment_v1.sql', [
   'calculate_staff_incentive_egp',
   'get_doctor_pillar_breakdown',
   'dawaa_current_points_cycle_label_v1',
