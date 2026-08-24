@@ -5,6 +5,7 @@ import CustomerRequestInsightsPanel from '@/components/customer-requests/Custome
 import CustomerRequestQualityCenter from '@/components/customer-requests/CustomerRequestQualityCenter';
 import CustomerRequestCriticalToday from '@/components/customer-requests/CustomerRequestCriticalToday';
 import CustomerRequestWarehousePanel from '@/components/customer-requests/CustomerRequestWarehousePanel';
+import CustomerRequestStaffAttributionPanel from '@/components/customer-requests/CustomerRequestStaffAttributionPanel';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { CustomerRequestsWorkspace } from '@/features/customer-requests';
 
@@ -33,7 +34,7 @@ export default function CustomerRequestsV2() {
             <WorkspaceTab active={tab === 'operations'} onClick={() => setTab('operations')} icon={ListChecks} title="التنفيذ" description="التسجيل والمتابعة والتسليم" />
             <WorkspaceTab active={tab === 'sourcing'} onClick={() => setTab('sourcing')} icon={PackageSearch} title="التوفير" description="النواقص والمخازن ودورة التوفير" />
             <WorkspaceTab active={tab === 'analytics'} onClick={() => setTab('analytics')} icon={BarChart3} title="التحليلات" description="معدلات التوفير والأصناف والفروع" />
-            <WorkspaceTab active={tab === 'quality'} onClick={() => setTab('quality')} icon={ShieldAlert} title="جودة البيانات" description="العملاء والأكواد والمزامنة" />
+            <WorkspaceTab active={tab === 'quality'} onClick={() => setTab('quality')} icon={ShieldAlert} title="جودة البيانات" description="العملاء والأكواد وهوية الموظفين" />
           </nav>
 
           <div className="flex flex-wrap gap-2 text-xs font-black">
@@ -86,6 +87,7 @@ export default function CustomerRequestsV2() {
       {tab === 'quality' ? (
         <div className="space-y-3">
           <ScopeBranch value={analyticsBranch} onChange={setAnalyticsBranch} />
+          <CustomerRequestStaffAttributionPanel branch={analyticsBranch} />
           <CustomerRequestQualityCenter branch={analyticsBranch} onOpenRequest={openRequest} />
         </div>
       ) : null}
