@@ -22,6 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { normalizeEgyptianPhone } from '@/lib/customerFollowupCore';
 import { classifyCustomer, customerStatus } from '@/lib/customerMetrics';
+import { executeFollowupCommand } from '@/lib/customerService/followupCommandService';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { supabase } from '@/lib/supabase';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
@@ -320,16 +321,6 @@ export default function CustomerFollowupCockpitPanel() {
     if (option.id !== 'purchased') setPurchaseValue('');
   };
 
-  const audit = async (row: FollowupRow, action: string, metadata: Record<string, unknown>) => {
-    const { error } = await supabase.from('customer_followup_audit_log').insert({
-      followup_id: row.id, customer_id: row.customer_id || null, action,
-      actor_staff_id: user?.staffId || user?.id || null, actor_name: currentProfile.displayName,
-      branch: row.branch || branch,
-      metadata: { ...metadata, actor_role: currentProfile.role, assigned_executor: assignedExecutor(row.branch, directory), contact_outcome: outcome || null, purchase_value: purchaseValue ? Number(purchaseValue) : null },
-    });
-    if (error) throw error;
-  };
-
   const executeAction = async (action: QuickAction) => {
     if (!selected) return;
     if (!canExecute) return toast.error('حسابك لا يملك صلاحية تنفيذ المتابعات.');
@@ -338,31 +329,25 @@ export default function CustomerFollowupCockpitPanel() {
     if (outcome === 'purchased' && purchaseValue && Number(purchaseValue) < 0) return toast.error('قيمة الشراء غير صحيحة.');
     setSaving(true);
     try {
-      const now = new Date().toISOString();
-      const isAttempt = ['message_sent', 'no_answer', 'replied'].includes(action);
-      const attempts = Number(selected.attempt_count || 0) + (isAttempt ? 1 : 0);
-      let payload: Record<string, unknown> = { updated_by: user?.id || null };
-      let result = '';
       let nextDate: string | null = null;
       if (action === 'message_sent') {
-        nextDate = tomorrowKey(); result = 'في انتظار رد العميل';
-        payload = { ...payload, contact_status: 'في انتظار الرد', followup_status: 'في انتظار الرد', response_status: 'waiting_reply', status: 'في انتظار الرد', contacted_at: now, first_attempt_at: selected.first_attempt_at || now, last_attempt_at: now, attempt_count: attempts, next_followup_date: nextDate, needs_next_followup: true, followup_summary: actionNote.trim() || selected.followup_summary };
+        nextDate = tomorrowKey();
       } else if (action === 'no_answer') {
-        nextDate = tomorrowKey(); result = 'لم يرد العميل';
-        payload = { ...payload, contact_status: 'لم يرد', followup_status: 'لم يرد', response_status: 'no_answer', status: 'لم يرد', last_attempt_at: now, attempt_count: attempts, next_followup_date: nextDate, needs_next_followup: true, followup_summary: actionNote.trim() || selected.followup_summary };
+        nextDate = tomorrowKey();
       } else if (action === 'replied') {
-        nextDate = scheduledDate || localDayKey(); result = 'تم تسجيل رد العميل';
-        payload = { ...payload, contact_status: 'تم الرد', followup_status: 'جارٍ التواصل', response_status: 'replied', status: 'جارٍ التواصل', last_attempt_at: now, attempt_count: attempts, next_followup_date: nextDate, needs_next_followup: true, followup_summary: actionNote.trim(), followup_result: actionNote.trim() };
+        nextDate = scheduledDate || localDayKey();
       } else if (action === 'scheduled') {
-        nextDate = scheduledDate; result = 'تم تحديد موعد متابعة جديد';
-        payload = { ...payload, next_followup_date: nextDate, followup_status: 'scheduled', status: 'open', needs_next_followup: true };
-      } else {
-        result = 'تم إكمال المتابعة';
-        payload = { ...payload, status: 'pending_review', followup_status: 'pending_review', contact_status: 'في انتظار المراجعة', followup_result: actionNote.trim(), followup_summary: actionNote.trim(), needs_next_followup: false, is_hidden: false, needs_manager: outcome === 'issue' ? true : selected.needs_manager };
+        nextDate = scheduledDate;
       }
-      const { error } = await supabase.from('daily_followups').update(payload).eq('id', selected.id);
-      if (error) throw error;
-      await audit(selected, action, { attempt_count: attempts, contact_channel: contactChannel, result, notes: actionNote.trim() || null, next_followup_date: nextDate, customer_name: customerName(selected), customer_code: selected.customer_code });
+      await executeFollowupCommand({
+        followupId: selected.id,
+        command: action === 'scheduled' ? 'schedule' : action === 'completed' ? 'submit_review' : action,
+        note: actionNote.trim() || null,
+        nextFollowupDate: nextDate,
+        contactChannel,
+        outcome: outcome || null,
+        purchaseValue: purchaseValue ? Number(purchaseValue) : null,
+      });
       toast.success(action === 'completed' ? 'تم إرسال المتابعة للمراجعة وظهر العميل التالي.' : 'تم حفظ الإجراء.');
       setSelected(null); setActionNote(''); setScheduledDate(''); setOutcome(''); setPurchaseValue('');
       await load();
@@ -382,15 +367,11 @@ export default function CustomerFollowupCockpitPanel() {
     if (action !== 'approved' && actionNote.trim().length < 3) return toast.error('اكتب سبب القرار قبل الحفظ.');
     setSaving(true);
     try {
-      const now = new Date().toISOString();
-      const payload = action === 'approved'
-        ? { completed_at: now, status: 'completed', followup_status: 'completed', contact_status: 'تم الاعتماد', needs_next_followup: false, is_hidden: true, hidden_at: now, hidden_by: currentProfile.displayName, hidden_reason: 'تم اعتماد المتابعة بعد المراجعة', updated_by: user?.id || null }
-        : action === 'returned_for_completion'
-          ? { status: 'open', followup_status: 'returned_for_completion', contact_status: 'أُعيدت للاستكمال', needs_next_followup: true, next_followup_date: localDayKey(), is_hidden: false, followup_summary: actionNote.trim(), updated_by: user?.id || null }
-          : { status: 'pending_review', followup_status: 'pending_review', contact_status: 'تم التصعيد', needs_manager: true, is_hidden: false, followup_summary: actionNote.trim(), updated_by: user?.id || null };
-      const { error } = await supabase.from('daily_followups').update(payload).eq('id', selected.id);
-      if (error) throw error;
-      await audit(selected, action, { notes: actionNote.trim() || null, customer_name: customerName(selected), customer_code: selected.customer_code });
+      await executeFollowupCommand({
+        followupId: selected.id,
+        command: action === 'approved' ? 'approve' : action === 'returned_for_completion' ? 'return_for_completion' : 'escalate',
+        note: actionNote.trim() || null,
+      });
       toast.success('تم حفظ قرار المراجعة.'); setSelected(null); setActionNote(''); await load();
     } catch (error) { toast.error(`تعذر حفظ القرار: ${(error as Error).message}`); }
     finally { setSaving(false); }

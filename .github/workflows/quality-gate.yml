@@ -70,6 +70,9 @@ jobs:
       - name: Customer Requests V2 parity boundary
         run: node scripts/check-customer-request-v2-parity.cjs
 
+      - name: Customer follow-up atomic command boundary
+        run: node scripts/check-customer-followup-command-boundary.cjs
+
       - name: Payroll architecture boundary
         run: node scripts/check-payroll-architecture.cjs
 
