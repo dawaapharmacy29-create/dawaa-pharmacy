@@ -75,6 +75,7 @@ requireTokens('src/features/customer-requests/workspace/CustomerRequestDetailsDr
   'customerFollowupHref',
   "params.set('quickFollowup', '1')",
   "'/customer-service?'",
+  "'/staff/'",
 ]);
 
 requireTokens('src/features/customer-requests/commands/customerRequestCommands.ts', [
