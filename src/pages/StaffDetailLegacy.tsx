@@ -266,7 +266,7 @@ async function downloadStaffPdfReport(profile: StaffPerformanceProfile, finalPay
   <h2>ماذا يحتاج الموظف في الفترة القادمة؟</h2><ul>${recRows}</ul>
   <h2>آخر الفواتير</h2><table><thead><tr><th>التاريخ</th><th>رقم الفاتورة</th><th>القيمة</th><th>العميل</th><th>الكود</th><th>التصنيف</th></tr></thead><tbody>${rowsHtml}</tbody></table>
   <h2>أفضل العملاء المرتبطين بالموظف</h2><table><thead><tr><th>العميل</th><th>الكود</th><th>الهاتف</th><th>التصنيف</th><th>عدد الفواتير</th><th>الإجمالي</th></tr></thead><tbody>${customerRows}</tbody></table>
-  <h2>الحوافز والخصومات</h2><div class="grid">${row('نقاط البداية', formatNumber(monthly?.startingPoints || 500))}${row('النقاط النهائية', formatNumber(monthly?.finalPoints || 0))}${row('نقاط تسجيل الطلبات', formatNumber(requestPoints?.registration_points || 0))}${row('نقاط تحقيق الطلبات', formatNumber(requestPoints?.achievement_points || 0))}${row('إجمالي نقاط طلبات العملاء', formatNumber(requestPoints?.total_points || 0))}${row('خصومات مالية', formatMoney(cashDeductions))}${row('درجة الربع', `${formatNumber(quarterly?.quarterlyScore || 0)}/100`)}${row('قيمة الربع النهائية', formatMoney(quarterly?.quarterlyFinalValue || 0))}${row('التزام الحضور', `${formatNumber(attendance?.attendanceCompliance || 0)}%`)}</div>
+  <h2>الحوافز والخصومات</h2><div class="grid">${row('نقاط البداية', formatNumber(monthly?.startingPoints || 500))}${row('النقاط النهائية', formatNumber(monthly?.finalPoints || 0))}${row('نقاط تسجيل الطلبات', formatNumber(customerRequestPoints?.registration_points || 0))}${row('نقاط تحقيق الطلبات', formatNumber(customerRequestPoints?.achievement_points || 0))}${row('إجمالي نقاط طلبات العملاء', formatNumber(customerRequestPoints?.total_points || 0))}${row('خصومات مالية', formatMoney(cashDeductions))}${row('درجة الربع', `${formatNumber(quarterly?.quarterlyScore || 0)}/100`)}${row('قيمة الربع النهائية', formatMoney(quarterly?.quarterlyFinalValue || 0))}${row('التزام الحضور', `${formatNumber(attendance?.attendanceCompliance || 0)}%`)}</div>
   <h2>مكافآت النقاط بالتفصيل</h2><table><thead><tr><th>البند</th><th>التاريخ</th><th>المصدر</th><th>النقاط</th><th>التفاصيل / المرجع / الاعتماد</th></tr></thead><tbody>${pointRewardRows}</tbody></table>
   <h2>المكافآت المالية بالتفصيل</h2><table><thead><tr><th>البند</th><th>التاريخ</th><th>المصدر</th><th>القيمة</th><th>التفاصيل / المرجع / الاعتماد</th></tr></thead><tbody>${rewardRows}</tbody></table>
   <h2>الخصومات بالتفصيل</h2><table><thead><tr><th>البند</th><th>التاريخ</th><th>المصدر</th><th>النقاط</th><th>التفاصيل / المرجع / الاعتماد</th></tr></thead><tbody>${deductionRows}</tbody></table>
@@ -559,6 +559,7 @@ export default function StaffDetail() {
 
   const monthly = profile.monthlyIncentive;
   const quarterly = profile.quarterlyIncentive;
+  const customerRequestPoints = profile.customerRequestPoints;
   const baseMonthlyIncentive = monthly?.incentiveValue || 0;
   const cashRewards = profile.cashRewards || 0;
   const cashDeductions = quarterly?.quarterlyCashDeductions || 0;
