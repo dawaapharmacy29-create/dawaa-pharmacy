@@ -94,6 +94,13 @@ requireTokens('supabase/migrations/20260824153000_customer_request_next_action_a
   'idx_customer_requests_next_action_at_open',
 ]);
 
+requireTokens('supabase/migrations/20260824163000_retire_customer_request_legacy_refresh_v1.sql', [
+  'revoke all on function public.settle_doctor_self_logged_request',
+  'create or replace function public.refresh_doctor_customer_request_points',
+  'return 0',
+  'revoke all on function public.refresh_doctor_customer_request_points',
+]);
+
 requireTokens('supabase/migrations/20260824162000_customer_request_single_points_ledger_v1.sql', [
   'drop trigger if exists request_self_log_settlement',
   'drop trigger if exists trg_set_customer_request_points_tier',
