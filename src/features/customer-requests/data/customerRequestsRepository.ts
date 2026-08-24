@@ -104,7 +104,8 @@ const CUSTOMER_REQUEST_OPERATIONAL_SELECT = [
   'source_assigned_staff_id','source_recorded_staff_id'
 ].join(',');
 
-const customerSegmentCache = new Map<string, string | null>();
+const CUSTOMER_SEGMENT_CACHE_TTL_MS = 5 * 60_000;
+const customerSegmentCache = new Map<string, { segment: string | null; expiresAt: number }>();
 
 const CLOSED = ['closed', 'delivered', 'cancelled'];
 const CAIRO_TZ = 'Africa/Cairo';
@@ -295,7 +296,11 @@ export async function getCustomerRequestsPage(
 
   const rows = (data || []) as CustomerRequest[];
   const customerIds = Array.from(new Set(rows.map((row) => row.customer_id).filter(Boolean))) as string[];
-  const missingCustomerIds = customerIds.filter((id) => !customerSegmentCache.has(id));
+  const nowMs = Date.now();
+  const missingCustomerIds = customerIds.filter((id) => {
+    const cached = customerSegmentCache.get(id);
+    return !cached || cached.expiresAt <= nowMs;
+  });
   if (missingCustomerIds.length) {
     const { data: customers } = await supabase
       .from('customers')
@@ -306,16 +311,24 @@ export async function getCustomerRequestsPage(
       const id = String(customer.id || '');
       if (!id) continue;
       returned.add(id);
-      customerSegmentCache.set(id, customer.segment ? String(customer.segment) : null);
+      customerSegmentCache.set(id, {
+        segment: customer.segment ? String(customer.segment) : null,
+        expiresAt: nowMs + CUSTOMER_SEGMENT_CACHE_TTL_MS,
+      });
     }
     for (const id of missingCustomerIds) {
-      if (!returned.has(id)) customerSegmentCache.set(id, null);
+      if (!returned.has(id)) {
+        customerSegmentCache.set(id, {
+          segment: null,
+          expiresAt: nowMs + CUSTOMER_SEGMENT_CACHE_TTL_MS,
+        });
+      }
     }
   }
 
   const exactCount = options.includeCount === false ? 0 : count || 0;
   return {
-    rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? customerSegmentCache.get(row.customer_id) || null : null })),
+    rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? customerSegmentCache.get(row.customer_id)?.segment || null : null })),
     count: exactCount,
     page,
     pageSize,
