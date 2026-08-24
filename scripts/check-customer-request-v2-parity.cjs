@@ -199,6 +199,7 @@ requireTokens('src/lib/staff/staffPerformanceProfileService.ts', [
   'customerRequestPoints: CustomerRequestDoctorPointsSummary | null',
   'customer_request_points',
   'customer_request_incentive_events',
+  'Promise.allSettled',
 ]);
 
 requireTokens('src/features/customer-requests/data/customerRequestDoctorPoints.ts', [
