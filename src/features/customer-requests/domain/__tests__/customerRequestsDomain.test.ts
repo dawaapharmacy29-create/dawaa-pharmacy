@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertCustomerRequestTransition,
   customerRequestBranchIdentity,
+  customerRequestCanTransition,
   customerRequestIncentiveCandidate,
   customerRequestOperationalStage,
   customerRequestPrimaryAction,
@@ -26,6 +28,21 @@ describe('customer requests domain', () => {
     expect(customerRequestOperationalStage('available')).toBe('ready');
     expect(customerRequestPrimaryAction('available')).toEqual({ action: 'contact_customer', label: 'تواصل مع العميل' });
     expect(customerRequestOperationalStage('delivered')).toBe('completed');
+  });
+
+  it('allows only workflow-safe status transitions', () => {
+    expect(customerRequestCanTransition('new', 'purchasing_review')).toBe(true);
+    expect(customerRequestCanTransition('purchasing_review', 'searching_suppliers')).toBe(true);
+    expect(customerRequestCanTransition('searching_suppliers', 'available')).toBe(true);
+    expect(customerRequestCanTransition('available', 'customer_contacted')).toBe(true);
+    expect(customerRequestCanTransition('customer_contacted', 'delivered')).toBe(true);
+    expect(customerRequestCanTransition('new', 'delivered')).toBe(false);
+    expect(customerRequestCanTransition('delivered', 'searching_suppliers')).toBe(false);
+  });
+
+  it('can reopen a not-available request for a documented new search', () => {
+    expect(customerRequestCanTransition('not_available', 'searching_suppliers')).toBe(true);
+    expect(() => assertCustomerRequestTransition('not_available', 'searching_suppliers')).not.toThrow();
   });
 
   it('maps current staff incentive tier keys to the three doctor categories', () => {
