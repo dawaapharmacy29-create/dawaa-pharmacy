@@ -316,11 +316,18 @@ function walkSourceFiles(dir) {
 for (const full of walkSourceFiles(path.join(ROOT, 'src'))) {
   if (full.endsWith(path.join('lib', 'api', 'customerRequests.ts'))) continue;
   const source = fs.readFileSync(full, 'utf8');
-  if (/\bcreateCustomerRequest\s*\(/.test(source)) {
-    failures.push(`retired createCustomerRequest compatibility API is still called by ${path.relative(ROOT, full)}`);
-  }
-  if (/\baddCustomerRequestEvent\s*\(/.test(source)) {
-    failures.push(`retired addCustomerRequestEvent compatibility API is still called by ${path.relative(ROOT, full)}`);
+  const retiredCompatibilityCalls = [
+    'createCustomerRequest',
+    'addCustomerRequestEvent',
+    'updateCustomerRequestStatus',
+    'recordCustomerRequestContactAttempt',
+    'updateCustomerRequestDetails',
+    'moveCustomerRequestToShortage',
+  ];
+  for (const name of retiredCompatibilityCalls) {
+    if (new RegExp(`\\b${name}\\s*\\(`).test(source)) {
+      failures.push(`retired ${name} compatibility API is still called by ${path.relative(ROOT, full)}`);
+    }
   }
 }
 
