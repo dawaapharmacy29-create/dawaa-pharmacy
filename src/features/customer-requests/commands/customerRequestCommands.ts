@@ -1,11 +1,11 @@
 import {
-  moveCustomerRequestToShortage,
   recordCustomerRequestContactAttempt,
   updateCustomerRequestStatus,
   type CustomerRequest,
 } from '@/lib/api/customerRequests';
 import { customerRequestPrimaryAction, normalizeCustomerRequestStatus } from '../domain/status';
 import { assertCustomerRequestTransition } from '../domain/transitions';
+import { moveCustomerRequestToShortageSecure } from './moveCustomerRequestToShortageSecure';
 
 export interface CustomerRequestCommandActor {
   id?: string | null;
@@ -143,6 +143,7 @@ export async function executeCustomerRequestPrimaryAction(
   }
 }
 
-export async function sendCustomerRequestToShortages(request: CustomerRequest, actor?: CustomerRequestCommandActor | null) {
-  return moveCustomerRequestToShortage(request, actorInput(actor));
+export async function sendCustomerRequestToShortages(request: CustomerRequest, _actor?: CustomerRequestCommandActor | null) {
+  const updated = await moveCustomerRequestToShortageSecure(request);
+  return { request: updated };
 }
