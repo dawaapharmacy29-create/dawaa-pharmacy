@@ -5,6 +5,7 @@ import { normalizePhone, searchCustomers, type CustomerSearchResult } from '@/li
 import { searchProductsCatalogSmart, linkCustomerRequestProduct, type CatalogProduct } from '@/lib/api/productsCatalog';
 import { confidentUniqueProductMatch, normalizeProductCode, normalizeProductName } from '@/lib/productMatching';
 import { repairCustomerRequestCustomer } from '@/lib/api/customerRequestDataQuality';
+import { normalizeBranchName } from '@/lib/branch';
 import type { QualityCenterRequest, QualityIssueKey } from '@/lib/api/customerRequestQualityCenter';
 
 type Row = { request: QualityCenterRequest; issues: QualityIssueKey[] };
@@ -100,7 +101,12 @@ export default function CustomerRequestBulkRepairPanel({ rows, onChanged }: { ro
           return;
         }
         const candidate = uniqueById[0];
-        const branchConflict = group.rows.some(({ request }) => request.branch && candidate.branch && request.branch !== candidate.branch);
+        const branchConflict = group.rows.some(
+          ({ request }) =>
+            request.branch &&
+            candidate.branch &&
+            normalizeBranchName(request.branch) !== normalizeBranchName(candidate.branch)
+        );
         if (branchConflict) {
           setStates((prev) => ({ ...prev, [group.id]: { status: 'blocked', customer: candidate, reason: `تعارض فرع: بعض الطلبات لا تتبع فرع العميل ${candidate.branch}.` } }));
           return;
