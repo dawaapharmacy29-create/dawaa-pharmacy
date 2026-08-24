@@ -390,35 +390,41 @@ export async function loadStaffPerformanceProfile(
   // Resolve staff identity
   const identity = await resolveStaffIdentity(staff);
 
-  // Load monthly incentive
+  // Load independent employee incentive projections in parallel so adding
+  // Customer Request points does not extend the Staff Detail critical path.
   let monthlyIncentive: StaffCycleIncentive | null = null;
-  try {
-    monthlyIncentive = await getStaffCycleIncentive({
+  let customerRequestPoints: CustomerRequestDoctorPointsSummary | null = null;
+  const monthCycle = cycleEnd.slice(0, 7);
+
+  const [monthlyIncentiveResult, customerRequestPointsResult] = await Promise.allSettled([
+    getStaffCycleIncentive({
       staffId: effectiveStaffId,
       staffName: staff.name,
       branch: staff.branch,
       cycleStart,
       cycleEnd,
-    });
+    }),
+    getCustomerRequestDoctorPointsSummary(effectiveStaffId, monthCycle),
+  ]);
+
+  if (monthlyIncentiveResult.status === 'fulfilled') {
+    monthlyIncentive = monthlyIncentiveResult.value;
     sources.push('employee_transactions');
-  } catch (error) {
-    errorsBySection.incentive = error instanceof Error ? error.message : String(error);
+  } else {
+    errorsBySection.incentive =
+      monthlyIncentiveResult.reason instanceof Error
+        ? monthlyIncentiveResult.reason.message
+        : String(monthlyIncentiveResult.reason);
   }
 
-  // Customer Request points are a staff-domain projection over the canonical
-  // request incentive ledger. They are not recalculated from request rows in the UI.
-  let customerRequestPoints: CustomerRequestDoctorPointsSummary | null = null;
-  try {
-    const monthCycle = cycleEnd.slice(0, 7);
-    const requestPointRows = await getCustomerRequestDoctorPointsSummary(
-      effectiveStaffId,
-      monthCycle
-    );
-    customerRequestPoints = requestPointRows[0] || null;
+  if (customerRequestPointsResult.status === 'fulfilled') {
+    customerRequestPoints = customerRequestPointsResult.value[0] || null;
     sources.push('customer_request_incentive_events');
-  } catch (error) {
+  } else {
     errorsBySection.customer_request_points =
-      error instanceof Error ? error.message : String(error);
+      customerRequestPointsResult.reason instanceof Error
+        ? customerRequestPointsResult.reason.message
+        : String(customerRequestPointsResult.reason);
   }
 
   let invoiceTruth: StaffInvoiceTruth | null = null;
