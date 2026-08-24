@@ -103,10 +103,10 @@ export default function CustomerRequestStaffAttributionPanel({ branch }: { branc
         <div>
           <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]">
             <UserRoundSearch size={18} className="text-[var(--dawaa-theme-primary)]" />
-            مراجعة هوية الموظف في الطلبات القديمة
+            مراجعة هوية مسجل الطلب في الطلبات القديمة
           </div>
           <p className="mt-1 max-w-4xl text-xs font-bold leading-6 text-[var(--dawaa-theme-muted)]">
-            لا يتم ربط Doctor ID أو احتساب نقاط من الاسم وحده. التطابق الوحيد يمر بمرحلتين منفصلتين: اعتماد بشري موثق، ثم معاينة عدد الطلبات قبل التطبيق الفعلي.
+            لا يتم ربط Doctor ID أو احتساب نقاط من اسم المسئول عن التوفير أو من الاسم وحده. هنا نراجع مسجل الطلب الأصلي فقط، ثم اعتماد بشري موثق، ثم معاينة عدد الطلبات قبل التطبيق الفعلي.
           </p>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading || saving} className="btn-secondary flex items-center gap-2 text-xs">
@@ -125,7 +125,7 @@ export default function CustomerRequestStaffAttributionPanel({ branch }: { branc
         <table className="min-w-[960px] w-full text-right text-xs">
           <thead className="bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]">
             <tr>
-              <th className="px-3 py-3">الاسم القادم من المصدر</th>
+              <th className="px-3 py-3">اسم مسجل الطلب من المصدر</th>
               <th className="px-3 py-3">الفرع</th>
               <th className="px-3 py-3">عدد الطلبات</th>
               <th className="px-3 py-3">الموظف المقترح</th>
@@ -168,14 +168,14 @@ export default function CustomerRequestStaffAttributionPanel({ branch }: { branc
           <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{review.row.branch || 'فرع غير محدد'} · {review.row.requests_count.toLocaleString('ar-EG')} طلب</div>
           {!review.approved ? (
             <div className="mt-3 space-y-2">
-              <textarea className="input-dark min-h-20" value={review.reason} onChange={(event) => setReview((current) => current ? { ...current, reason: event.target.value } : current)} placeholder="سبب اعتماد أن هذا الاسم يعود لنفس الموظف..." />
+              <textarea className="input-dark min-h-20" value={review.reason} onChange={(event) => setReview((current) => current ? { ...current, reason: event.target.value } : current)} placeholder="سبب اعتماد أن هذا الاسم يعود لمسجل الطلب نفسه..." />
               <div className="flex flex-wrap gap-2"><button type="button" disabled={saving || review.reason.trim().length < 5} onClick={() => void approveReview()} className="btn-primary">اعتماد المطابقة فقط</button><button type="button" disabled={saving} onClick={() => setReview(null)} className="btn-secondary">إلغاء</button></div>
             </div>
           ) : (
             <div className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3">
               <div className="font-black text-[var(--dawaa-status-warning-text)]">المعاينة قبل التطبيق</div>
               <div className="mt-2 grid gap-2 sm:grid-cols-2 text-xs"><div>طلبات سيتم ربطها: <strong>{Number(review.preview?.requests_to_attribute || 0).toLocaleString('ar-EG')}</strong></div><div>مكتملة الهوية للنقاط حاليًا: <strong>{Number(review.preview?.currently_points_identity_ready || 0).toLocaleString('ar-EG')}</strong></div></div>
-              <p className="mt-2 text-[11px] font-bold leading-6 text-[var(--dawaa-theme-muted)]">التطبيق يثبت هوية الدكتور فقط. أي نقطة تظل خاضعة لفئة الدكتور، اكتمال العميل والصنف، تاريخ سريان السياسة ومنع التكرار.</p>
+              <p className="mt-2 text-[11px] font-bold leading-6 text-[var(--dawaa-theme-muted)]">التطبيق يثبت هوية مسجل الطلب فقط ولا يغيّر الموظف المسئول عن التوفير. أي نقطة تظل خاضعة لفئة الدكتور، اكتمال العميل والصنف، تاريخ سريان السياسة ومنع التكرار.</p>
               <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={saving || !review.preview?.approved} onClick={() => void applyApprovedReview()} className="btn-primary">تطبيق الربط المعتمد</button><button type="button" disabled={saving} onClick={() => setReview(null)} className="btn-secondary">تركه معتمدًا بدون تطبيق الآن</button></div>
             </div>
           )}
