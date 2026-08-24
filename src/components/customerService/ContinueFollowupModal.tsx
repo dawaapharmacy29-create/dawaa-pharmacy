@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
+import { executeFollowupCommand } from '@/lib/customerService/followupCommandService';
 
 type Row = Record<string, any>;
 
 export default function ContinueFollowupModal({ row, onClose, onSaved }: { row: Row | null; onClose: () => void; onSaved: (updated: Row) => void }) {
-  const { user } = useAuth();
   const [contactMethod, setContactMethod] = useState('واتساب');
   const [result, setResult] = useState('تم الرد والعميل راضي');
   const [summary, setSummary] = useState('');
@@ -35,33 +33,22 @@ export default function ContinueFollowupModal({ row, onClose, onSaved }: { row: 
       toast.error('اكتب ما تم مع العميل');
       return;
     }
-    const now = new Date().toISOString();
     const isPending = result === 'لم يرد' || result === 'طلب التواصل لاحقًا';
-    const status = result === 'لم يرد' ? 'لم يرد' : result === 'طلب التواصل لاحقًا' ? 'مؤجل' : result === 'يحتاج متابعة مدير' ? 'يحتاج مدير' : 'تم';
-    const payload: Row = {
-      contact_method: contactMethod,
-      contact_result: result,
-      followup_result: result,
-      followup_summary: summary.trim(),
-      followup_notes: notes.trim() || null,
-      followup_status: status,
-      status,
-      purchase_after_followup: purchase,
-      purchase_amount: purchase ? Number(amount || 0) || null : null,
-      next_followup_date: nextDate || null,
-      contacted_at: now,
-      completed_at: isPending ? null : now,
-      updated_at: now,
-      updated_by: user?.id || null,
-      updated_by_name: user?.name || null,
-      contact_attempts: Number(row.contact_attempts || row.attempts_count || 0) + 1,
-    };
     setSaving(true);
     try {
-      const { data, error } = await supabase.from('daily_followups').update(payload).eq('id', row.id).select('*').single();
-      if (error) throw error;
+      const data = await executeFollowupCommand({
+        followupId: row.id,
+        command: 'continue',
+        note: summary.trim(),
+        result,
+        followupNotes: notes.trim() || null,
+        contactChannel: contactMethod,
+        purchaseValue: purchase ? Number(amount || 0) || null : null,
+        nextFollowupDate: nextDate || null,
+        needsNextFollowup: isPending,
+      });
       toast.success('تم استكمال المتابعة وتحديث نفس سجل العميل');
-      onSaved(data || { ...row, ...payload });
+      onSaved((data || row) as Row);
       onClose();
     } catch (error) {
       console.error(error);

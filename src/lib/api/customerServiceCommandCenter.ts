@@ -204,6 +204,17 @@ export type FollowupResultPayload = {
   updated_by?: string | null;
   status?: string | null;
   followup_status?: string | null;
+  cancelled_at?: string | null;
+  cancelled_reason?: string | null;
+  archived_at?: string | null;
+  archive_reason?: string | null;
+  is_hidden?: boolean | null;
+  hidden_reason?: string | null;
+  notes?: string | null;
+  responsible_name?: string | null;
+  request_type?: string | null;
+  request_details?: string | null;
+  request_status?: string | null;
 };
 
 type Row = Record<string, unknown>;
@@ -257,14 +268,6 @@ function isOverdue(row: FollowupRow) {
   if (isDone(row) || isPostponed(row)) return false;
   const due = row.followup_datetime || row.followup_date || row.date;
   return due ? new Date(due).getTime() < Date.now() : false;
-}
-function missingColumn(message: string) {
-  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || '';
-}
-function withoutColumn<T extends Row>(record: T, column: string) {
-  const next = { ...record };
-  delete next[column];
-  return next;
 }
 function publicFollowupReason(value?: unknown) {
   const raw = String(value || '').trim();
@@ -442,41 +445,6 @@ async function enrichFollowupRows(rows: FollowupRow[], filters: FollowupFilters)
     console.warn('customer metrics enrichment skipped', error);
     return rows;
   }
-}
-async function safeInsertFollowup(payload: Row) {
-  let current = payload;
-  const removed = new Set<string>();
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const { data, error } = await supabase
-      .from('daily_followups')
-      .insert(current)
-      .select('*')
-      .single();
-    if (!error) return normalizeFollowup(data || current);
-    const column = missingColumn(error.message);
-    if (!column || removed.has(column)) throw new Error(error.message);
-    removed.add(column);
-    current = withoutColumn(current, column);
-  }
-  throw new Error('daily_followups insert failed.');
-}
-async function safeUpdateFollowup(id: string, payload: Row) {
-  let current = payload;
-  const removed = new Set<string>();
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const { data, error } = await supabase
-      .from('daily_followups')
-      .update(current)
-      .eq('id', id)
-      .select('*')
-      .single();
-    if (!error) return normalizeFollowup(data || { id, ...current });
-    const column = missingColumn(error.message);
-    if (!column || removed.has(column)) throw new Error(error.message);
-    removed.add(column);
-    current = withoutColumn(current, column);
-  }
-  throw new Error('daily_followups update failed.');
 }
 export async function searchCustomerMetrics(
   search: string,
@@ -658,39 +626,42 @@ export async function createExceptionalFollowup(input: CreateExceptionalFollowup
   const publicReason =
     publicFollowupReason(input.followupReason || input.requestType) ||
     'الاطمئنان على العميل ومتابعة احتياجه';
-  return safeInsertFollowup({
-    date: todayDay(),
-    customer_id: input.customer?.customer_id || input.customer?.id || null,
-    customer_code: input.customer?.customer_code || input.customerCode || null,
-    customer_name: input.customerName || input.customer?.customer_name || null,
-    name: input.customerName || input.customer?.customer_name || null,
-    customer_phone: input.customerPhone || input.customer?.customer_phone || null,
-    phone: input.customerPhone || input.customer?.customer_phone || null,
-    branch: normalizeBranchName(input.branch || input.customer?.branch || ''),
-    priority: input.priority || 'مهم',
-    request_type: input.requestType || 'متابعة استثنائية',
-    followup_reason: publicReason,
-    request_details: publicFollowupReason(input.requestDetails || input.notes) || null,
-    assigned_doctor: input.assignedDoctor || null,
-    responsible_name: input.assignedDoctor || null,
-    followup_datetime: input.followupDatetime || new Date().toISOString(),
-    followup_date: input.followupDatetime || new Date().toISOString(),
-    status: 'معلق',
-    followup_status: 'معلق',
-    contact_status: input.contactStatus || null,
-    request_status: 'pending',
-    notes: input.notes || null,
-    created_by: input.createdBy || null,
-    requested_by_staff_id: input.requestedByStaffId || input.createdBy || null,
-    created_by_name: input.createdByName || null,
-    request_source: input.source || null,
+  const { data, error } = await supabase.rpc('dawaa_create_exceptional_followup_v2', {
+    p_customer_id: input.customer?.customer_id || input.customer?.id || null,
+    p_customer_code: input.customer?.customer_code || input.customerCode || null,
+    p_customer_name: input.customerName || input.customer?.customer_name || null,
+    p_customer_phone: input.customerPhone || input.customer?.customer_phone || null,
+    p_branch: normalizeBranchName(input.branch || input.customer?.branch || ''), p_priority: input.priority || 'مهم',
+    p_reason: publicReason, p_followup_datetime: input.followupDatetime || new Date().toISOString(),
+    p_assigned_doctor: input.assignedDoctor || null, p_request_details: publicFollowupReason(input.requestDetails || input.notes) || null,
+    p_notes: input.notes || null, p_created_by: null, p_created_by_name: null,
   });
+  if (error) throw new Error(error.message);
+  return normalizeFollowup(data as Row);
 }
 export async function updateFollowupResult(id: string, payload: FollowupResultPayload) {
-  const patch: Row = { ...payload, updated_at: new Date().toISOString() };
-  if (payload.followup_status === 'تم' || payload.status === 'تم' || payload.completed_at)
-    patch.completed_at = payload.completed_at || new Date().toISOString();
-  return safeUpdateFollowup(id, patch);
+  if (payload.cancelled_at || payload.status === 'ملغي') {
+    const { data, error } = await supabase.rpc('dawaa_cancel_customer_followup_v1', { p_followup_id:id, p_reason:payload.cancelled_reason || payload.followup_notes || 'إلغاء المتابعة', p_actor_id:null, p_actor_name:null });
+    if (error) throw new Error(error.message); return normalizeFollowup(data as Row);
+  }
+  if (payload.is_hidden || payload.archived_at || payload.status === 'archived') {
+    const { data, error } = await supabase.rpc('dawaa_archive_customer_followup_v1', { p_followup_id:id, p_reason:payload.archive_reason || payload.hidden_reason || payload.followup_notes || 'أرشفة المتابعة', p_actor:null });
+    if (error) throw new Error(error.message); return normalizeFollowup(data as Row);
+  }
+  if (payload.postponed_until || payload.status === 'مؤجل') {
+    const { data, error } = await supabase.rpc('dawaa_postpone_customer_followup_v1', { p_followup_id:id, p_postponed_until:payload.postponed_until || payload.next_followup_date, p_actor:null });
+    if (error) throw new Error(error.message); return normalizeFollowup(data as Row);
+  }
+  const result=String(payload.followup_result || payload.contact_result || '').trim();
+  const { data,error }=await supabase.rpc('dawaa_save_customer_followup_result_v1',{
+    p_followup_id:id,p_status:payload.status || payload.followup_status || 'تم',p_contact_status:payload.contact_status || null,
+    p_contact_result:result,p_summary:payload.followup_summary || result,p_notes:payload.followup_notes || payload.notes || null,
+    p_contact_method:payload.contact_method || null,p_next_followup_date:payload.next_followup_date || null,p_responsible_name:payload.responsible_name || null,
+    p_request_type:payload.request_type || null,p_request_details:payload.request_details || null,p_request_status:payload.request_status || null,
+    p_purchase_amount:payload.purchase_after_followup ? Number(payload.purchase_amount || 0) : null,p_quality_rating:payload.quality_rating ?? null,
+    p_internal_rating:payload.internal_rating ?? null,p_customer_satisfaction:payload.customer_satisfaction || null,p_purchase_invoice_no:payload.purchase_invoice_no || null,
+  });
+  if(error)throw new Error(error.message);return normalizeFollowup(data as Row);
 }
 
 function daysSince(value?: string | null) {

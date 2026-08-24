@@ -32,18 +32,6 @@ function startOfToday() {
   return start;
 }
 
-function missingColumn(message: string) {
-  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || '';
-}
-
-function withoutColumn<T extends Record<string, unknown>>(records: T[], column: string) {
-  return records.map((record) => {
-    const next = { ...record };
-    delete next[column];
-    return next;
-  });
-}
-
 function isSmartFollowup(row: DailyFollowup) {
   const notes = row.notes || '';
   return notes.includes('قائمة يومية ذكية') || /daily|smart/i.test(notes);
@@ -99,7 +87,7 @@ function enrichLocalGuards(row: DailyFollowup): DailyFollowup {
 }
 
 async function insertFollowupRecords(records: Array<Record<string, unknown>>) {
-  const guarded = records.map((record) => {
+  const guarded: Array<Record<string, unknown>> = records.map((record) => {
     const phone = normalizeEgyptianPhone(String(record.customer_phone || record.phone || ''));
     const identityKey = buildCustomerIdentity({
       customerId: String(record.customer_id || ''),
@@ -120,25 +108,24 @@ async function insertFollowupRecords(records: Array<Record<string, unknown>>) {
     };
   });
 
-  if (guarded.length === 1) {
-    const { data, error } = await supabase.rpc('create_or_link_customer_followup', {
-      p_payload: guarded[0],
+  const created: DailyFollowup[] = [];
+  for (const record of guarded) {
+    const { data: result, error } = await supabase.rpc('dawaa_create_or_link_customer_followup_v1', {
+      p_customer_id: record.customer_id || null, p_customer_code: record.customer_code || null,
+      p_customer_name: record.customer_name || record.name || null, p_customer_phone: record.customer_phone || record.phone || null,
+      p_branch: record.branch || null, p_request_type: record.request_type || record.followup_type || 'general',
+      p_request_details: record.request_details || record.notes || null, p_followup_reason: record.followup_reason || record.notes || null,
+      p_priority: record.priority || 'متوسطة', p_next_followup_date: record.next_followup_date || null,
+      p_client_request_id: record.client_request_id || null, p_source: record.request_source || 'daily_followups_api',
     });
-    if (!error && data) return [enrichLocalGuards(data as DailyFollowup)];
-    if (error && !/function .* does not exist|schema cache/i.test(error.message)) throw new Error(error.message);
+    if (error) throw new Error(error.message);
+    const followupId = String((result as Record<string, unknown> | null)?.followup_id || '');
+    if (!followupId) throw new Error('لم ترجع قاعدة البيانات رقم المتابعة');
+    const { data, error: loadError } = await supabase.from('daily_followups').select('*').eq('id', followupId).single();
+    if (loadError) throw new Error(loadError.message);
+    created.push(enrichLocalGuards(data as DailyFollowup));
   }
-
-  let payload = guarded;
-  const removed = new Set<string>();
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const { data, error } = await supabase.from('daily_followups').insert(payload).select('*');
-    if (!error) return ((data ?? []) as DailyFollowup[]).map(enrichLocalGuards);
-    const column = missingColumn(error.message);
-    if (!column || removed.has(column)) throw new Error(error.message);
-    removed.add(column);
-    payload = withoutColumn(payload, column);
-  }
-  throw new Error('تعذر إنشاء المتابعة بسبب اختلاف أعمدة جدول daily_followups.');
+  return created;
 }
 
 async function loadCustomerPhoneLookup(followups: DailyFollowup[]) {
@@ -214,24 +201,20 @@ export async function updateFollowupStatus(id: string, updates: DailyFollowupUpd
   if (!completed && result !== 'الرقم غير صحيح' && !record.next_followup_date)
     throw new Error('يجب تحديد موعد المتابعة القادمة قبل حفظ الحالة المفتوحة.');
 
-  const payload: Record<string, unknown> = {
-    ...updates,
-    open_case: !completed,
-    updated_at: new Date().toISOString(),
-  };
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const { data, error } = await supabase
-      .from('daily_followups')
-      .update(payload)
-      .eq('id', id)
-      .select()
-      .single();
-    if (!error) return enrichLocalGuards(data as DailyFollowup);
-    const column = missingColumn(error.message);
-    if (!column || !(column in payload)) throw new Error(error.message);
-    delete payload[column];
-  }
-  throw new Error('تعذر حفظ المتابعة.');
+  const { data, error } = await supabase.rpc('dawaa_save_customer_followup_result_v1', {
+    p_followup_id: id, p_status: nextStatus, p_contact_status: record.contact_status || null,
+    p_contact_result: result, p_summary: record.followup_summary || result, p_notes: record.notes || null,
+    p_contact_method: record.contact_method || null, p_next_followup_date: record.next_followup_date || null,
+    p_responsible_name: record.responsible_name || null, p_request_type: record.request_type || null,
+    p_request_details: record.request_details || null, p_request_status: record.request_status || null,
+    p_purchase_amount: record.purchase_after_followup ? Number(record.purchase_amount || 0) : null,
+    p_quality_rating: record.quality_rating == null ? null : Number(record.quality_rating),
+    p_internal_rating: record.internal_rating == null ? null : Number(record.internal_rating),
+    p_customer_satisfaction: record.customer_satisfaction || null,
+    p_purchase_invoice_no: record.purchase_invoice_no || null,
+  });
+  if (error) throw new Error(error.message);
+  return enrichLocalGuards(data as DailyFollowup);
 }
 
 export async function getFollowupHistory(
@@ -289,21 +272,7 @@ export async function generateTodayFollowups() {
 
 export async function clearTodayTrialFollowups() {
   requireSupabaseConfig();
-  const { data, error: loadError } = await supabase
-    .from('daily_followups')
-    .select('id, notes, followup_type, status, followup_status, created_at')
-    .order('created_at', { ascending: false })
-    .limit(1000);
-  if (loadError) throw new Error(loadError.message);
-  const rows = ((data ?? []) as DailyFollowup[]).filter((row) => {
-    const value = [row.notes, row.followup_type, row.status, row.followup_status].join(' ');
-    return isSmartFollowup(row) || /قائمة يومية|تجريبي|trial|test|daily smart/i.test(value);
-  });
-  if (rows.length === 0) return 0;
-  for (let index = 0; index < rows.length; index += 200) {
-    const chunk = rows.slice(index, index + 200).map((row) => row.id);
-    const { error } = await supabase.from('daily_followups').delete().in('id', chunk);
-    if (error) throw new Error(error.message);
-  }
-  return rows.length;
+  const { data, error } = await supabase.rpc('dawaa_archive_today_trial_followups_v1');
+  if (error) throw new Error(error.message);
+  return Number(data || 0);
 }
