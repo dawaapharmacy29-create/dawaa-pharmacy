@@ -102,6 +102,8 @@ const CUSTOMER_REQUEST_OPERATIONAL_SELECT = [
   'source_assigned_staff_id','source_recorded_staff_id'
 ].join(',');
 
+const customerSegmentCache = new Map<string, string | null>();
+
 const CLOSED = ['closed', 'delivered', 'cancelled'];
 const CAIRO_TZ = 'Africa/Cairo';
 
@@ -296,17 +298,27 @@ export async function getCustomerRequestsPage(
 
   const rows = (data || []) as CustomerRequest[];
   const customerIds = Array.from(new Set(rows.map((row) => row.customer_id).filter(Boolean))) as string[];
-  const segmentById = new Map<string, string>();
-  if (customerIds.length) {
-    const { data: customers } = await supabase.from('customers').select('id,segment').in('id', customerIds);
+  const missingCustomerIds = customerIds.filter((id) => !customerSegmentCache.has(id));
+  if (missingCustomerIds.length) {
+    const { data: customers } = await supabase
+      .from('customers')
+      .select('id,segment')
+      .in('id', missingCustomerIds);
+    const returned = new Set<string>();
     for (const customer of customers || []) {
-      if (customer.id && customer.segment) segmentById.set(String(customer.id), String(customer.segment));
+      const id = String(customer.id || '');
+      if (!id) continue;
+      returned.add(id);
+      customerSegmentCache.set(id, customer.segment ? String(customer.segment) : null);
+    }
+    for (const id of missingCustomerIds) {
+      if (!returned.has(id)) customerSegmentCache.set(id, null);
     }
   }
 
   const exactCount = count || 0;
   return {
-    rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? segmentById.get(row.customer_id) || null : null })),
+    rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? customerSegmentCache.get(row.customer_id) || null : null })),
     count: exactCount,
     page,
     pageSize,
