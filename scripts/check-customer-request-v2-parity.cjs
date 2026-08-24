@@ -80,7 +80,10 @@ requireTokens('src/features/customer-requests/commands/customerRequestCommands.t
   'recordCustomerRequestSourcing',
   'confirmCustomerRequest',
   'contactCustomerForRequest',
+  'startCustomerRequestSourcing',
+  'markCustomerRequestArrived',
   'deliverCustomerRequest',
+  'closeCustomerRequest',
   'cancelCustomerRequest',
   'reopenCustomerRequestSearch',
   'sendCustomerRequestToShortages',
@@ -283,6 +286,32 @@ const pointSettlementMigration = read('supabase/migrations/20260824162000_custom
 if (!pointSettlementMigration.includes('drop trigger if exists request_self_log_settlement') ||
     !pointSettlementMigration.includes('drop trigger if exists trg_set_customer_request_points_tier')) {
   failures.push('legacy Customer Request point writers must remain retired so the versioned incentive ledger is the only active point source');
+}
+
+const legacyRequestApi = read('src/lib/api/customerRequests.ts');
+if (/insertResilient\(\s*['"]customer_requests['"]/.test(legacyRequestApi) ||
+    /updateResilient\(\s*['"]customer_requests['"]/.test(legacyRequestApi) ||
+    /\.from\(\s*['"]customer_requests['"]\s*\)\s*\.\s*(?:insert|update|delete|upsert)\b/.test(legacyRequestApi)) {
+  failures.push('legacy customer request API must not mutate customer_requests directly; all state writes belong to canonical atomic commands');
+}
+if (!legacyRequestApi.includes('تم إيقاف مسار إنشاء طلبات العملاء القديم')) {
+  failures.push('legacy non-canonical request creation must remain explicitly retired');
+}
+
+function walkSourceFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return walkSourceFiles(full);
+    return /\.(?:ts|tsx)$/.test(entry.name) ? [full] : [];
+  });
+}
+for (const full of walkSourceFiles(path.join(ROOT, 'src'))) {
+  if (full.endsWith(path.join('lib', 'api', 'customerRequests.ts'))) continue;
+  const source = fs.readFileSync(full, 'utf8');
+  if (/\bcreateCustomerRequest\s*\(/.test(source)) {
+    failures.push(`retired createCustomerRequest compatibility API is still called by ${path.relative(ROOT, full)}`);
+  }
 }
 
 const queueRepository = read('src/features/customer-requests/data/customerRequestsRepository.ts');
