@@ -24,8 +24,6 @@ create table if not exists public.point_appeals (
   reviewed_at timestamptz null
 );
 
-create index if not exists idx_point_appeals_subject_created_v1
-  on public.point_appeals(subject_staff_id, created_at desc);
 create index if not exists idx_point_appeals_review_queue_v1
   on public.point_appeals(status, created_at)
   where status in ('pending','under_review');
