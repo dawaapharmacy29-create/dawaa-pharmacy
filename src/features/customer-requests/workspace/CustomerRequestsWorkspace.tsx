@@ -129,12 +129,12 @@ export default function CustomerRequestsWorkspace() {
     requestId: '', customerId: '', customerCode: '', customerPhone: '', productCode: '', medicineName: '', registrar: '', registrarId: '',
   } as const;
 
-  const selectRequest = (requestId: string | null) => {
+  const selectRequest = (request: CustomerRequest) => {
     if (!canManageRequests) {
       toast.info('الحساب الحالي للعرض فقط ولا يملك صلاحية تنفيذ أو تعديل طلبات العملاء.');
       return;
     }
-    workspace.selectRequest(requestId);
+    workspace.selectRequest(request.id);
   };
 
   return (
