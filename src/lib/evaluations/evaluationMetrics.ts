@@ -25,7 +25,8 @@ export interface EvaluationMetricProjection {
   sourceUnavailableCount: number;
   expectedSourceTypes: TaskEvidenceSourceType[];
   dataConfidence: EvaluationDataConfidence;
-  isEvaluationReady: boolean;
+  /** Readiness of the task-evidence slice only; never final employee evaluation readiness. */
+  isTaskEvidenceReady: boolean;
   confidenceReasons: string[];
 }
 
@@ -112,8 +113,8 @@ function confidenceForProjection(
  *
  * Source applicability must be supplied explicitly. A source outage in a domain
  * that does not apply to a staff member must never reduce that staff member's
- * data confidence. Missing applicability fails closed and cannot become an
- * evaluation-ready result.
+ * data confidence. Missing applicability fails closed and cannot make the task
+ * evidence slice ready.
  *
  * This layer intentionally does not create an evaluation score, points delta,
  * incentive amount, payroll amount, or settlement decision. Those require an
@@ -152,7 +153,7 @@ export function buildEvaluationMetrics(
       sourceUnavailableCount: confidence.unavailableCount,
       expectedSourceTypes: expectedSourceTypes || [],
       dataConfidence: confidence.level,
-      isEvaluationReady:
+      isTaskEvidenceReady:
         projection.resolved > 0 && confidence.level !== 'low' && confidence.level !== 'unavailable',
       confidenceReasons: confidence.reasons,
     };
