@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { useAuth, userHasPermission } from '@/hooks/useAuth';
 import { canSeeAllBranches, getUserBranch } from '@/lib/core/branchScope';
-import { customerRequestBranchKey, customerRequestSourceBranch } from '../domain/branch';
+import { customerRequestBranchKey } from '../domain/branch';
 import { exportCustomerRequestsWorkspace, getCustomerRequestProductMetrics } from '../data';
 import { useCustomerRequestsWorkspace, type CustomerRequestsWorkspaceFilters } from '../hooks';
 import CustomerRequestQueueStrip from './CustomerRequestQueueStrip';
