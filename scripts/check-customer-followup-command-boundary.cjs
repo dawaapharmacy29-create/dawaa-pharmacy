@@ -72,6 +72,12 @@ for (const token of [
 for (const file of walk('src')) {
   const source = fs.readFileSync(file, 'utf8');
   if (
+    /\.from\(['"]customer_service_daily_queue['"]\)|\.rpc\(['"](?:generate_customer_service_daily_queue|get_customer_service_queue_summary)['"]/.test(
+      source
+    )
+  )
+    failures.push(`Legacy customer-service queue contract is forbidden: ${file}`);
+  if (
     /\.from\(['"](?:customer_service_daily_queue_items|customer_service_followup_events)['"]\)[\s\S]{0,500}?\.(?:insert|update|upsert|delete)\s*\(/.test(
       source
     )
