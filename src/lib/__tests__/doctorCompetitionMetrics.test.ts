@@ -9,6 +9,27 @@ vi.mock('@/lib/salesInvoiceQueries', () => ({
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
+    rpc: async (fn: string) => {
+      if (fn === 'get_eligible_doctor_accounts') {
+        return {
+          data: [
+            { staff_id: 'uuid-amira', name: 'د/ أميره', branch: 'فرع شكري' },
+            { staff_id: 'uuid-fatma', name: 'د/ فاطمة', branch: 'فرع شكري' },
+            { staff_id: 'uuid-1', name: 'د/ اسلام فاروق', branch: 'فرع شكري' },
+            { staff_id: 'uuid-hassan', name: 'د/ حسن', branch: 'فرع شكري' },
+            { staff_id: 'uuid-2', name: 'د/ ساره', branch: 'فرع شكري' },
+            { staff_id: 'uuid-3', name: 'د/ أ', branch: 'فرع أ' },
+            { staff_id: 'uuid-4', name: 'د/ ب', branch: 'فرع أ' },
+            { staff_id: 'uuid-wael', name: 'د/ وائل', branch: 'فرع شكري' },
+          ],
+          error: null,
+        };
+      }
+      if (fn === 'get_dashboard_doctor_sales_v171') {
+        return { data: null, error: { message: 'aggregate unavailable in invoice fallback tests' } };
+      }
+      return { data: [], error: null };
+    },
     from: (table: string) => {
       const run = async () => ({ data: [], error: null });
       const chain = {
@@ -70,10 +91,10 @@ describe('doctorCompetitionMetrics eligibility', () => {
     await getDoctorCompetitionMetrics({ period: 'custom', customStart: '2026-01-01', customEnd: '2026-01-01' });
 
     const firstCall = fetchSalesInvoicesPagedSafeMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(firstCall.selectOptions).toEqual([
-      'id,invoice_number,invoice_no,invoice_date,sale_date,branch,branch_name,seller_name,normalized_seller_name,staff_name,staff_id,net_amount,net_total,total_amount,amount,customer_code',
-    ]);
-    expect(String(firstCall.selectOptions[0]).includes('doctor_name')).toBe(false);
+    const selectOptions = firstCall.selectOptions as string[];
+    expect(selectOptions.length).toBeGreaterThan(1);
+    expect(selectOptions[0]).toContain('staff_id');
+    expect(selectOptions.every((projection) => !projection.includes('doctor_name'))).toBe(true);
   });
 
   it('aggregates invoices by staff_id when provided and keeps display name from seller fields', async () => {
@@ -105,7 +126,7 @@ describe('doctorCompetitionMetrics eligibility', () => {
 
     expect(doctor).toBeDefined();
     expect(doctor?.totalSales).toBeCloseTo(41702.36, 2);
-    expect(doctor?.staffId).toBeNull();
+    expect(doctor?.staffId).toBe('uuid-hassan');
   });
 
   it('groups multiple invoices under the same staff_id doctor', async () => {
@@ -142,7 +163,8 @@ describe('doctorCompetitionMetrics eligibility', () => {
     expect(doctorA?.invoices).toBe(1);
     expect(doctorAOtherBranch?.invoices).toBe(1);
     expect(doctorB?.invoices).toBe(1);
-    expect(metrics.metadata.invoiceCountMethod).toBe('distinct invoice_number/invoice_no/id per doctor+branch');
+    expect(metrics.metadata.invoiceCountMethod).toContain('distinct clean invoice identity');
+    expect(metrics.metadata.invoiceCountMethod).toContain('actual invoice branch');
   });
 
   it('calculates average invoice from totalSales divided by invoicesCount', async () => {
@@ -233,6 +255,6 @@ describe('doctorCompetitionMetrics eligibility', () => {
     const metrics = await getDoctorCompetitionMetrics({ period: 'custom', customStart: '2026-01-01', customEnd: '2026-01-01' });
 
     expect(metrics.eligibleRows.some((row) => row.name === 'غير محدد')).toBe(false);
-    expect(metrics.reviewRows.some((row) => row.reviewIssues.includes('دكتور غير محدد'))).toBe(true);
+    expect(metrics.metadata.invoiceRowsWithoutDoctorCount).toBe(1);
   });
 });

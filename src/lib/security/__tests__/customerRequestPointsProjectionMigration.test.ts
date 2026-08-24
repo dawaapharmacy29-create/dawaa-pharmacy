@@ -39,7 +39,10 @@ describe('customer request doctor-points projection v2', () => {
   it('derives achieved requests only from the already-eligible request set', () => {
     const source = sql();
 
-    expect(source).toMatch(/from request_eligible re[\s\S]*count\(\*\) as eligible_registered_requests[\s\S]*count\(\*\) filter \([\s\S]*available[\s\S]*\) as achieved_requests/i);
+    const requestBase = source.match(/request_base as \(([\s\S]*?)\),\s*point_base as/i)?.[1] || '';
+    expect(requestBase).toContain('count(*) as eligible_registered_requests');
+    expect(requestBase).toMatch(/count\(\*\) filter \([\s\S]*available[\s\S]*\) as achieved_requests/i);
+    expect(requestBase).toContain('from request_eligible re');
     expect(source).not.toMatch(/count\(\*\) filter \([\s\S]{0,250}cr\.doctor_id is not null[\s\S]{0,100}\) as achieved_requests/i);
   });
 

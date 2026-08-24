@@ -98,7 +98,7 @@ export function classifyCustomerAccount(input: {
   if (PSEUDO_CUSTOMER_TERMS.some((term) => name.includes(normalizeCustomerName(term)))) {
     return 'pseudo_customer';
   }
-  if (!code || !name || name.length < 3 || /^[\d\W_]+$/u.test(name)) {
+  if (!code || !name || name.length < 3 || !/[\p{L}\p{N}]/u.test(name)) {
     return 'invalid_customer';
   }
   return 'real_customer';
