@@ -139,66 +139,6 @@ function requireSupabaseConfig() {
   }
 }
 
-function missingColumn(message: string) {
-  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || '';
-}
-
-function removeColumn<T extends Record<string, unknown>>(payload: T, column: string) {
-  const next = { ...payload };
-  delete next[column];
-  return next;
-}
-
-function isUuidLike(value: unknown) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(value ?? '').trim()
-  );
-}
-
-function safeUuid(value: unknown) {
-  const text = String(value ?? '').trim();
-  return isUuidLike(text) ? text : null;
-}
-
-async function insertResilient(table: string, payload: Record<string, unknown>) {
-  let nextPayload = payload;
-  const removed = new Set<string>();
-
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const { data, error } = await supabase.from(table).insert(nextPayload).select('*').single();
-    if (!error) return data;
-
-    const column = missingColumn(error.message);
-    if (!column || removed.has(column)) throw new Error(error.message);
-    removed.add(column);
-    nextPayload = removeColumn(nextPayload, column);
-  }
-
-  throw new Error(`تعذر حفظ البيانات في ${table}`);
-}
-
-async function updateResilient(table: string, id: string, payload: Record<string, unknown>) {
-  let nextPayload = payload;
-  const removed = new Set<string>();
-
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const { data, error } = await supabase
-      .from(table)
-      .update(nextPayload)
-      .eq('id', id)
-      .select('*')
-      .single();
-    if (!error) return data;
-
-    const column = missingColumn(error.message);
-    if (!column || removed.has(column) || !(column in nextPayload)) throw new Error(error.message);
-    removed.add(column);
-    nextPayload = removeColumn(nextPayload, column);
-  }
-
-  throw new Error(`تعذر تحديث البيانات في ${table}`);
-}
-
 export const REQUEST_STATUS_LABELS: Record<string, string> = {
   new: 'طلب جديد',
   purchasing_review: 'قيد مراجعة المشتريات',
@@ -453,8 +393,8 @@ export async function updateCustomerRequestDetails(
 }
 
 export async function addCustomerRequestEvent(
-  requestId: string,
-  input: {
+  _requestId: string,
+  _input: {
     old_status?: string | null;
     new_status?: string | null;
     action: string;
@@ -463,18 +403,7 @@ export async function addCustomerRequestEvent(
     created_by_name?: string | null;
   }
 ) {
-  requireSupabaseConfig();
-  const payload = {
-    request_id: requestId,
-    old_status: input.old_status || null,
-    new_status: input.new_status || null,
-    action: input.action,
-    notes: input.notes || null,
-    created_by: safeUuid(input.created_by),
-    created_by_name: input.created_by_name || null,
-    created_at: new Date().toISOString(),
-  };
-  await insertResilient('customer_request_events', payload);
+  throw new Error('تم إيقاف الكتابة المباشرة في سجل أحداث طلبات العملاء. الأحداث تُنشأ فقط داخل الأوامر الذرية المعتمدة.');
 }
 
 export async function moveCustomerRequestToShortage(
