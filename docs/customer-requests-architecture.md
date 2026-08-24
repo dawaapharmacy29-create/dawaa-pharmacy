@@ -1,4 +1,4 @@
-# Customer Requests Architecture v3
+# Customer Requests Architecture v4
 
 ## الهدف
 
@@ -31,54 +31,70 @@ Audit ledger وسيط يثبت حدث نقاط طلب العميل وربطه ب
 ### `employee_transactions`
 المصدر النهائي المعتمد لنقاط الموظف. لا يوجد رصيد Customer Requests مستقل قابل للاختلاف عنه.
 
-## 3. هوية العميل
+## 3. الهوية المعيارية
 
+### العميل
 - `customer_id` هو المفتاح الأساسي.
-- `customer_code` مطلوب لاستحقاق نقاط التسجيل والتحقيق.
-- الاسم والهاتف snapshots للعرض والبحث، وليسا بديلًا للهوية.
-- الطلب غير المربوط يدخل Data Quality ولا يحصل على نقاط حتى يتم إصلاحه.
+- `customer_code` مطلوب لاستحقاق النقاط.
+- الاسم والهاتف snapshots للعرض والبحث.
 
-## 4. هوية الصنف
+### الصنف
+- `product_id` هو رابط الكتالوج.
+- `product_code` مطلوب للنقاط والتحليلات ومعدل التوفير.
+- `medicine_name` للعرض.
 
-- `product_id` هو رابط الكتالوج عند توفره.
-- `product_code` مطلوب لاستحقاق النقاط وللتحليلات ومعدل التوفير.
-- `medicine_name` مطلوب للعرض.
-- ربط الصنف بعد الإنشاء يعيد محاولة تسوية نقطة التسجيل Idempotently.
+### الدكتور
+- `doctor_id` يجب أن يكون `staff.id` فقط.
+- لا يجوز استخدام `staff_accounts.id` أو الاسم كبديل في الطلبات الجديدة.
+- Deep links من ملف الدكتور إلى الطلبات تستخدم `registrarId=staff.id`.
 
-## 5. الفروع
+## 4. الفروع
 
 الهوية الدلالية داخل الـDomain:
 - `shokry`
 - `elshamy`
 
-وعند حدود البيانات يتم دعم aliases مثل:
-- `فرع شكري` / `دواء شكري` / `شكري`
-- `فرع الشامي` / `دواء الشامي` / `الشامي`
+وعند حدود البيانات ندعم aliases مثل `فرع شكري` / `دواء شكري` و`فرع الشامي` / `دواء الشامي`.
 
-الاستعلامات الخارجية تستخدم Source Branch المعياري حتى لا تتكرر مشكلة اختلاف أسماء الفروع بين التطبيق وBase44.
+في التسجيل الجديد، الفرع التشغيلي يؤخذ من فرع الدكتور عندما يكون محددًا؛ فرع العميل يظل مرجعًا لبيانات العميل ولا يتم تغييره. اختلافهما يظهر كتنبيه للمستخدم بدل تغيير العميل صامتًا.
 
-## 6. الحالات والـPrimary Action
+## 5. إنشاء الطلب الجديد — Atomic Boundary
+
+المسار المعياري هو RPC:
+
+`create_customer_request_canonical_v1`
+
+داخل Transaction واحدة يقوم بـ:
+1. التحقق من App Staff Context.
+2. التحقق من العميل وكوده.
+3. التحقق من الصنف وكوده.
+4. التحقق من الدكتور كـStaff نشط.
+5. التحقق من صلاحية المستخدم في نسبة الطلب لهذا الدكتور ونطاق الفرع.
+6. تحديد الفرع التشغيلي.
+7. فحص Duplicate لنفس العميل + الصنف + الفرع خلال 24 ساعة.
+8. إدخال الطلب بهويات العميل والصنف والدكتور كاملة من أول لحظة.
+9. إدخال أول Event في Timeline.
+10. تشغيل Trigger النقاط بعد اكتمال الهوية.
+
+لا توجد بعد الآن سلسلة `insert request -> link product` للطلبات الجديدة، وبالتالي لا يمكن أن يبقى طلب جزئي إذا فشل ربط الصنف.
+
+## 6. الحالات والانتقالات
 
 الحالات المعتمدة:
-- `new`
-- `purchasing_review`
-- `searching_suppliers`
-- `needs_customer_confirmation`
-- `customer_confirmed`
-- `sourcing`
-- `available`
-- `arrived`
-- `customer_contacted`
-- `delivered`
-- `closed`
-- `cancelled`
-- `not_available`
+`new`, `purchasing_review`, `searching_suppliers`, `needs_customer_confirmation`, `customer_confirmed`, `sourcing`, `available`, `arrived`, `customer_contacted`, `delivered`, `closed`, `cancelled`, `not_available`.
 
-كل حالة لها Primary Action واحد في Operations Workspace، بينما الإجراءات الاستثنائية تظهر كخيارات ثانوية.
+الانتقالات نفسها معرفة مرة واحدة في `domain/transitions.ts`، والـCommand Layer يرفض القفزات غير الصحيحة. أمثلة:
+- `new -> purchasing_review` مسموح.
+- `available -> customer_contacted` مسموح.
+- `customer_contacted -> delivered` مسموح.
+- `new -> delivered` مرفوض.
+- `delivered -> searching_suppliers` مرفوض.
+
+`not_available` ليس مغلقًا تشغيليًا؛ يبقى قابلًا لمراجعة بديل أو `not_available -> searching_suppliers`، أو إلغاء موثق عند انتهاء المحاولة. لكنه يظل نتيجة غير محققة في حساب Fulfillment.
 
 ## 7. تعريف تحقيق الطلب
 
-`request_achieved` يتحقق مرة واحدة عند أول دخول إلى إحدى حالات fulfillment المعتمدة أصلًا في تحليلات النظام:
+`request_achieved` يتحقق مرة واحدة عند أول دخول إلى:
 
 `available`, `arrived`, `customer_contacted`, `delivered`, `closed`
 
@@ -98,117 +114,84 @@ Effective from: `2026-08-24 00:00 Africa/Cairo`
 | الثانية | `mid_doctor` | +1 | +2 | 3 |
 | الثالثة | `assistant` | +0.5 | +1 | 1.5 |
 
-هذه Performance Points وليست جنيهات، ولا تُشتق من `point_rate_egp`.
+هذه Performance Points وليست جنيهات.
 
-## 9. صاحب النقاط
+## 9. شروط النقاط ومنع التكرار
 
-نقاط التسجيل والتحقيق تخص الدكتور صاحب الطلب المسجل، بالهوية المعيارية `staff.id`.
+لا تتم التسوية إذا كان العميل أو كوده أو الصنف أو كوده أو الدكتور أو فئته غير صالح، أو إذا كان هناك `sync_conflict` أو Duplicate/خطأ موثق.
 
-ترتيب حل الهوية أثناء الترحيل:
-1. `customer_requests.doctor_id` إذا كان Staff ID صالحًا.
-2. `created_by` إذا كان مطابقًا لـ`staff.id`.
-3. `created_by -> staff_accounts.staff_id` للبيانات القديمة.
-4. لا توجد تسوية جديدة بالاسم فقط.
+الحماية:
+- Duplicate check قبل الإنشاء.
+- Event unique identity على `request + event + policy`.
+- Employee transaction source/source-id فريد.
+- Single-owner guard يمنع إعادة نفس الحدث لدكتور آخر.
+- Trigger retries بعد إصلاح الهوية بطريقة Idempotent.
 
-بعد التسوية يتم قفل صاحب الحدث منطقيًا: يوجد Event إيجابي واحد فقط لكل `request_id + event_key + policy_version` حتى لو تغير `doctor_id` لاحقًا، لمنع Double Credit بين دكتورين.
+## 10. دورة النقاط وفصل المال
 
-## 10. شروط استحقاق النقاط
-
-لا تتم التسوية إذا كان أي مما يلي غير صالح:
-- `customer_id`
-- `customer_code`
-- `medicine_name`
-- `product_code`
-- الدكتور/`staff.id`
-- فئة الدكتور
-- وجود `sync_conflict`
-- وجود علامة Duplicate / مكرر / مسجل بالخطأ
-
-إصلاح الهوية يعيد محاولة التسوية تلقائيًا من غير تكرار.
-
-## 11. منع التكرار
-
-الحماية متعددة المستويات:
-
-1. قبل إنشاء الطلب: Duplicate check لنفس العميل + كود الصنف + الفرع ضمن نافذة 24 ساعة للطلبات المفتوحة.
-2. Event Ledger: Unique logical event على `request_id + event_key + policy_version`.
-3. Employee transaction: Unique source/source-id لحركة Customer Request incentive.
-4. Trigger retries آمنة بعد ربط العميل/الصنف/الدكتور.
-
-## 12. دورة النقاط 26 -> 25
-
-الـ`month_cycle` يتبع الاتفاق المعياري للتطبيق: **اسم دورة الشهر هو شهر انتهائها**.
-
-أمثلة:
-- 26 يوليو -> 25 أغسطس = `2026-08`
-- 26 أغسطس -> 25 سبتمبر = `2026-09`
-
-وبالتالي:
-- حدث يوم 1-25 يأخذ نفس شهر التاريخ.
-- حدث يوم 26 أو بعده يأخذ الشهر التالي.
-
-هذا متوافق مع الـcanonical staff points snapshot ولا ينشئ رصيدًا خارج الدورة الحالية.
-
-## 13. فصل النقاط عن المال
+الدورة 26 -> 25، واسم الدورة هو شهر انتهائها.
 
 في `employee_transactions`:
-- `points_delta` = قيمة الحدث المعتمدة.
-- `points` = نفس قيمة الحدث.
+- `points_delta` = قيمة الحدث.
+- `points` = نفس القيمة.
 - `amount = 0`.
 - `category = customer_requests`.
 - `source = customer_request_incentive`.
 
-تحويل النقاط إلى حافز مالي يظل مسؤولية منظومة الحوافز/الرواتب المركزية.
+التحويل النقدي يظل مسؤولية منظومة الحوافز/الرواتب المركزية.
 
-## 14. حدود القراءة والأمان
+## 11. الطلبات التاريخية وهوية الموظف
 
-لأن التطبيق يستخدم Custom Staff Auth فوق Supabase anon role:
-- جداول policy/events والـprojection الداخلية ليست مفتوحة مباشرة للـanon.
-- القراءة تتم عبر SECURITY DEFINER RPCs محدودة البيانات.
-- RPCs تتحقق من `auth.uid()` أو `x-dawaa-user-id` المرتبط بحساب Staff نشط قابل للدخول.
-- Direct client SELECT على doctor-points projection غير مطلوب.
+لا يوجد Auto-attribution من الاسم.
 
-RPCs الأساسية:
-- `get_customer_request_doctor_incentive_preview`
-- `get_customer_request_doctor_points_summary`
-- `get_customer_request_doctor_points_leaderboard`
-- `get_customer_request_incentive_events`
+المسار:
+1. Review RPC يعرض أسماء المصدر، الفرع، عدد الطلبات، والتطابق المقترح.
+2. التطابق الوحيد يمكن اعتماده بشريًا مع سبب مكتوب.
+3. الاعتماد وحده لا يعدل الطلبات.
+4. Preview مستقل يعرض عدد الطلبات التي ستتغير وعدد المكتمل منها لهوية النقاط.
+5. Apply منفصل يحتاج Mapping معتمد وExplicit confirmation.
+6. الأسماء الملتبسة أو غير المطابقة لا تطبق تلقائيًا.
 
-## 15. الهيكل البرمجي
+هذا يمنع منح نقاط تاريخية لشخص خطأ لمجرد تشابه الاسم.
+
+## 12. القراءة والأمان
+
+التطبيق يستخدم Custom Staff Auth فوق anon role، لذلك:
+- Policy/events/projections الحساسة ليست مفتوحة Direct SELECT للـanon.
+- القراءة تتم عبر SECURITY DEFINER RPCs تتحقق من `x-dawaa-user-id` أو Supabase Auth.
+- Staff attribution apply مسموح فقط للأدوار الإدارية المحددة.
+- المستخدم العادي لا يستطيع إنشاء طلب منسوب لدكتور آخر.
+
+## 13. هيكل الكود
 
 `src/features/customer-requests/domain`
 - branch normalization
-- workflow/status
+- status/workflow
+- transition guards
 - SLA/urgency/overdue
 - identity quality
 - operational queues
 - incentive policy/eligibility
+
+`src/features/customer-requests/create`
+- atomic canonical create contract
+- doctor incentive preview
+
+`src/features/customer-requests/commands`
+- start search
+- sourcing result
+- customer confirmation
+- contact/follow-up
+- delivery
+- cancellation
+- shortage link
 
 `src/features/customer-requests/data`
 - repository
 - paging/summary/deep links
 - doctor points read model
 - request incentive events
-
-`src/features/customer-requests/commands`
-- start search
-- record sourcing result
-- confirm customer
-- record contact result/follow-up
-- deliver
-- cancel
-- send to shortages
-
-`src/features/customer-requests/create`
-- canonical request creation
-- duplicate guard
-- doctor incentive preview
-
-`src/features/customer-requests/hooks`
-- workspace orchestration
-- separate list/summary loading
-- stale response protection
-- selected request state
+- Excel export
 
 `src/features/customer-requests/workspace`
 - Operations Workspace
@@ -218,111 +201,64 @@ RPCs الأساسية:
 - Details Drawer
 - Doctor Points Card
 
-## 16. Operations Workspace
+## 14. V2 Workspace
 
-الواجهة الافتراضية ليست Dashboard ثقيلًا، بل Inbox للتنفيذ:
-- بحث بالعميل/الكود/الهاتف/الصنف/كود الصنف.
-- اختيار الفرع.
-- طلب جديد.
-- تحديث مستقل.
-- Pagination.
+أربع مساحات فقط:
+1. التنفيذ.
+2. التوفير.
+3. التحليلات.
+4. جودة البيانات.
 
-Queues:
-- يحتاج إجراء
-- عاجل
-- متأخر
-- جاهز للتواصل
-- متابعة مستحقة
-- بدون مسئول
+Operations Inbox هو العرض الافتراضي، ويعرض العميل والكود والصنف والكود والدكتور والمرحلة والموعد ومعدل التوفير والإجراء التالي.
 
-الجدول يركز على:
-`الصنف/الكود | العميل/الكود | التصنيف | الفرع | الدكتور | الموعد | معدل التوفير | الحالة | العمر | الإجراء التالي`
+تحميل القائمة مستقل عن Summary، وفشل المؤشرات لا يوقف التنفيذ.
 
-## 17. Drawer التنفيذ
+`not_available` يظهر ضمن الطلبات القابلة للتدخل بدل الاختفاء من القوائم، بينما Summary وRepository يستخدمان نفس تعريف الإغلاق التشغيلي.
+
+## 15. Drawer التنفيذ
 
 عند فتح الطلب:
-- العميل + كوده + الهاتف + رابط ملف العميل.
+- العميل + الكود + الهاتف + رابط الملف.
 - الصنف + الكود + الكمية.
-- المسجل والمسئول الحالي.
+- المسجل والمسئول.
 - الحالة والإجراء المطلوب الآن.
-- البحث/التوفير.
-- التواصل وموعد المتابعة.
-- التسليم/الإغلاق.
+- التوفير والتواصل والمتابعة والتسليم.
 - الربط بالنواقص.
 - Timeline.
 - Events النقاط وقيم التسجيل/التحقيق.
 
-## 18. تسجيل الطلب الجديد
+كل Action يمر بالـCommand Layer والـTransition Guard، وليس بتعديل Status عشوائي من UI.
 
-المسار:
-1. اختيار عميل حقيقي من Customer Search.
-2. اختيار صنف حقيقي من Product Catalog.
-3. تثبيت الدكتور المسجل والفرع.
-4. تحديد الكمية والتصنيف والأولوية والقناة والموعد والملاحظات.
-5. عرض Preview لنقاط فئة الدكتور من Policy DB.
-6. Duplicate guard.
-7. إنشاء الطلب وربط الصنف فورًا.
-8. Trigger يسوي `request_registered` إذا أصبحت الهوية مكتملة.
+## 16. ملف الدكتور
 
-## 19. التوفير والمخازن
-
-V2 يفصل مساحة التوفير عن Inbox اليومي:
-- أعلى طلبات تحتاج تدخل.
-- دورة المخازن للأصناف غير المتوفرة.
-- روابط مباشرة إلى `/shortages`, `/purchases`, `/supplier-performance`.
-
-الطلب يظل الأصل المرتبط بالعميل؛ مسار النواقص/المشتريات لا يصبح نسخة أخرى من الطلب.
-
-## 20. التحليلات
-
-التحليلات تستخدم نفس تعريف fulfillment والفروع المعيارية، وتعرض:
-- عدد الطلبات.
-- المفتوح والمتأخر.
-- نسبة التوفير.
-- متوسط زمن الإغلاق/التوفير.
-- الأصناف الأكثر طلبًا ومعدل توفيرها.
-- أداء الفروع والمسئولين.
-- العملاء المتكررين.
-- الدكاترة المسجلين.
-
-الضغط على تحليل يعيد المستخدم إلى Operations Workspace بفلاتر Deep Link دقيقة.
-
-## 21. ملف الدكتور
-
-`StaffDetail` يحتفظ بالمحتوى السابق ويضيف Customer Request Points Card من الـcanonical projection:
-- الطلبات المؤهلة المسجلة.
+ملف الدكتور يقرأ من Safe points projection ويعرض:
+- الطلبات المسجلة المؤهلة.
 - الطلبات المحققة.
 - نسبة التحقيق.
 - نقاط التسجيل.
 - نقاط التحقيق.
-- إجمالي نقاط Customer Requests.
-- الفئة والدورة.
-- Deep Link لطلبات الدكتور.
+- الإجمالي.
 
-## 22. Performance / Failure Isolation
+الانتقال من ملف الدكتور إلى Customer Requests يتم بـ`staff.id`، وليس باسم قد يتكرر أو يتغير.
 
-- List وSummary يحملان مستقلين.
-- فشل Summary لا يوقف التشغيل.
-- Timeline والنقاط تحمل عند فتح Drawer فقط.
-- Analytics/Quality/Warehouse لا تحمل أثناء Inbox إلا عند فتح تبويبها.
-- نتائج الاستعلامات القديمة لا تستبدل نتيجة أحدث داخل Workspace.
+## 17. Legacy Data Quality
 
-## 23. Rollout على البرانش
+تم تنفيذ Backfill حتمي فقط:
+- Customer Code من العلاقة الموجودة بالعميل.
+- Product link فقط عند Exact unique catalog match.
+- لا Doctor ID من الاسم تلقائيًا.
 
-- `/customer-requests` -> V2 على برانش إعادة الهيكلة.
-- `/customer-requests?legacy=1` -> النسخة القديمة للمقارنة والفallback.
-- لا يتم حذف Legacy قبل اكتمال الاختبارات والمراجعة.
-- لا يتم Merge إلى `main` أثناء مرحلة البناء الحالية.
+طلبات البيانات القديمة غير المؤكدة تظل في Data Quality حتى المراجعة.
 
-## 24. قواعد غير قابلة للتفاوض
+## 18. قواعد غير قابلة للتفاوض
 
 - لا نقاط بالاسم فقط.
+- لا `doctor_id` من Account ID.
 - لا نقاط لطلب غير مربوط بعميل وكود وصنف وكود.
-- لا Double Credit لنفس الحدث.
-- لا تعريف مختلف لـfulfillment بين الصفحة والحوافز.
-- لا mapping فروع جديد داخل كل صفحة.
-- لا إعادة حساب مستقلة للنقاط داخل UI.
-- `employee_transactions` هو Ledger النقاط النهائي.
-- الـPolicy Versioned وقابلة للتدقيق.
-- Direct sensitive point projections لا تُفتح للـanon.
-- `main` يظل بدون دمج حتى انتهاء المراجعة واعتماد المستخدم.
+- لا نقاط مكررة لنفس الحدث.
+- لا إنشاء طلب جديد متعدد الخطوات يترك سجلًا جزئيًا.
+- لا انتقالات حالة عشوائية.
+- لا إعادة حساب نقاط في الواجهة.
+- `employee_transactions` هو Ledger النهائي.
+- `not_available` يظل قابلًا لمراجعة البديل حتى إغلاقه صراحة.
+- Legacy route يبقى fallback حتى اكتمال parity والتحقق النهائي.
