@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BarChart3, Boxes, DatabaseZap, ListChecks, PackageSearch, ShieldAlert, ShoppingCart, UsersRound } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import CustomerRequestInsightsPanel from '@/components/customer-requests/CustomerRequestInsightsPanel';
 import CustomerRequestQualityCenter from '@/components/customer-requests/CustomerRequestQualityCenter';
 import CustomerRequestCriticalToday from '@/components/customer-requests/CustomerRequestCriticalToday';
@@ -11,13 +11,37 @@ import { CustomerRequestsWorkspace } from '@/features/customer-requests';
 
 type Tab = 'operations' | 'sourcing' | 'analytics' | 'quality';
 
-function openOperations(params: URLSearchParams) {
-  window.location.href = `/customer-requests${params.toString() ? `?${params.toString()}` : ''}`;
+function tabFromParams(params: URLSearchParams): Tab {
+  const value = params.get('workspace');
+  return value === 'sourcing' || value === 'analytics' || value === 'quality' ? value : 'operations';
 }
 
 export default function CustomerRequestsV2() {
-  const [tab, setTab] = useState<Tab>('operations');
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(() => tabFromParams(searchParams));
   const [analyticsBranch, setAnalyticsBranch] = useState('all');
+
+  useEffect(() => {
+    setTab(tabFromParams(searchParams));
+  }, [searchParams]);
+
+  const selectTab = (nextTab: Tab) => {
+    setTab(nextTab);
+    if (nextTab === 'operations') {
+      navigate('/customer-requests', { replace: false });
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set('workspace', nextTab);
+    navigate(`/customer-requests?${params.toString()}`, { replace: false });
+  };
+
+  const openOperations = (params: URLSearchParams) => {
+    setTab('operations');
+    params.delete('workspace');
+    navigate(`/customer-requests${params.toString() ? `?${params.toString()}` : ''}`);
+  };
 
   const openRequest = (request: CustomerRequest) => {
     const params = new URLSearchParams();
@@ -31,10 +55,10 @@ export default function CustomerRequestsV2() {
       <section className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 shadow-sm">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <nav className="grid flex-1 grid-cols-2 gap-2 lg:grid-cols-4">
-            <WorkspaceTab active={tab === 'operations'} onClick={() => setTab('operations')} icon={ListChecks} title="التنفيذ" description="التسجيل والمتابعة والتسليم" />
-            <WorkspaceTab active={tab === 'sourcing'} onClick={() => setTab('sourcing')} icon={PackageSearch} title="التوفير" description="النواقص والمخازن ودورة التوفير" />
-            <WorkspaceTab active={tab === 'analytics'} onClick={() => setTab('analytics')} icon={BarChart3} title="التحليلات" description="معدلات التوفير والأصناف والفروع" />
-            <WorkspaceTab active={tab === 'quality'} onClick={() => setTab('quality')} icon={ShieldAlert} title="جودة البيانات" description="العملاء والأكواد وهوية الموظفين" />
+            <WorkspaceTab active={tab === 'operations'} onClick={() => selectTab('operations')} icon={ListChecks} title="التنفيذ" description="التسجيل والمتابعة والتسليم" />
+            <WorkspaceTab active={tab === 'sourcing'} onClick={() => selectTab('sourcing')} icon={PackageSearch} title="التوفير" description="النواقص والمخازن ودورة التوفير" />
+            <WorkspaceTab active={tab === 'analytics'} onClick={() => selectTab('analytics')} icon={BarChart3} title="التحليلات" description="معدلات التوفير والأصناف والفروع" />
+            <WorkspaceTab active={tab === 'quality'} onClick={() => selectTab('quality')} icon={ShieldAlert} title="جودة البيانات" description="العملاء والأكواد وهوية الموظفين" />
           </nav>
 
           <div className="flex flex-wrap gap-2 text-xs font-black">
