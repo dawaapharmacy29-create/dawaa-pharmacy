@@ -34,6 +34,26 @@ export async function startCustomerRequestSearch(request: CustomerRequest, actor
   });
 }
 
+export async function reopenCustomerRequestSearch(
+  request: CustomerRequest,
+  reason: string,
+  actor?: CustomerRequestCommandActor | null
+) {
+  const normalizedReason = reason.trim();
+  if (!normalizedReason) throw new Error('سجل سبب إعادة البحث أو البديل قبل المتابعة');
+  if (normalizeCustomerRequestStatus(request.status) !== 'not_available') {
+    throw new Error('إعادة فتح البحث متاحة للطلب غير المتوفر فقط');
+  }
+  assertCustomerRequestTransition(request.status, 'searching_suppliers');
+  return updateCustomerRequestStatus(request, {
+    status: 'searching_suppliers',
+    notes: `إعادة فتح البحث: ${normalizedReason}`,
+    purchasing_notes: normalizedReason,
+    purchasing_assignee: actor?.name || request.purchasing_assignee || null,
+    ...actorInput(actor),
+  });
+}
+
 export async function recordCustomerRequestSourcing(
   request: CustomerRequest,
   input: {
