@@ -1,5 +1,5 @@
-import { supabase } from '@/lib/supabase';
-import { appendFollowupEvent, updateDailyQueueItem } from '@/lib/customerServiceDailyExecution';
+import { updateDailyQueueItem } from '@/lib/customerServiceDailyExecution';
+import { executeFollowupCommand } from '@/lib/customerService/followupCommandService';
 
 export type ContactAttemptType =
   | 'call_no_answer'
@@ -28,7 +28,6 @@ const ATTEMPT_LABELS: Record<ContactAttemptType, string> = {
 };
 
 const text = (value: unknown) => String(value ?? '').trim();
-const missingColumn = (message: string) => /column .* does not exist|schema cache/i.test(message);
 
 export function contactAttemptLabel(type: ContactAttemptType) {
   return ATTEMPT_LABELS[type];
@@ -37,49 +36,9 @@ export function contactAttemptLabel(type: ContactAttemptType) {
 export async function recordContactAttempt(input: ContactAttemptInput) {
   if (!text(input.followupId)) throw new Error('معرف المتابعة غير متاح');
 
-  const now = new Date().toISOString();
-  const current = await supabase
-    .from('daily_followups')
-    .select('attempt_count,first_attempt_at')
-    .eq('id', input.followupId)
-    .maybeSingle();
-
-  const attemptCount = Math.max(0, Number(current.data?.attempt_count || 0)) + 1;
-  const payload: Record<string, unknown> = {
-    attempt_count: attemptCount,
-    last_attempt_at: now,
-    updated_at: now,
-  };
-  if (!current.data?.first_attempt_at) payload.first_attempt_at = now;
-
-  const updated = await supabase.from('daily_followups').update(payload).eq('id', input.followupId);
-  if (updated.error && !missingColumn(updated.error.message))
-    throw new Error(updated.error.message);
-
-  await Promise.allSettled([
-    appendFollowupEvent({
-      followupId: input.followupId,
-      queueItemId: input.queueItemId || null,
-      eventType: 'contact_attempt',
-      status: input.attemptType,
-      actorStaffId: input.actorStaffId || null,
-      actorName: input.actorName || null,
-      notes: input.notes || ATTEMPT_LABELS[input.attemptType],
-      metadata: {
-        attempt_type: input.attemptType,
-        attempt_label: ATTEMPT_LABELS[input.attemptType],
-        attempt_number: attemptCount,
-      },
-    }),
-    input.queueItemId
-      ? updateDailyQueueItem(input.queueItemId, {
-          status: input.attemptType === 'connected' ? 'in_progress' : 'attempted',
-          started: true,
-        })
-      : Promise.resolve(),
-  ]);
-
-  return { attemptCount, attemptedAt: now, label: ATTEMPT_LABELS[input.attemptType] };
+  const updated = await executeFollowupCommand({ followupId: input.followupId, command: 'record_attempt', attemptType: input.attemptType, note: input.notes || ATTEMPT_LABELS[input.attemptType] });
+  if (input.queueItemId) await updateDailyQueueItem(input.queueItemId, { status: input.attemptType === 'connected' ? 'in_progress' : 'attempted', started: true });
+  return { attemptCount: Number(updated?.attempt_count || 0), attemptedAt: String(updated?.last_attempt_at || new Date().toISOString()), label: ATTEMPT_LABELS[input.attemptType] };
 }
 
 export type SlaState = 'safe' | 'warning' | 'overdue' | 'completed';

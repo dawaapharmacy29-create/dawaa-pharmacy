@@ -9,7 +9,12 @@ export type FollowupCommand =
   | 'approve'
   | 'return_for_completion'
   | 'escalate'
-  | 'assign_self';
+  | 'assign_self'
+  | 'continue'
+  | 'edit_result'
+  | 'reopen'
+  | 'assign_branch'
+  | 'record_attempt';
 
 export type ExecuteFollowupCommandInput = {
   followupId: string;
@@ -19,6 +24,11 @@ export type ExecuteFollowupCommandInput = {
   contactChannel?: string | null;
   outcome?: string | null;
   purchaseValue?: number | null;
+  targetBranch?: string | null;
+  attemptType?: string | null;
+  needsNextFollowup?: boolean | null;
+  result?: string | null;
+  followupNotes?: string | null;
 };
 
 export async function executeFollowupCommand(input: ExecuteFollowupCommandInput) {
@@ -30,6 +40,11 @@ export async function executeFollowupCommand(input: ExecuteFollowupCommandInput)
     p_contact_channel: input.contactChannel ?? null,
     p_outcome: input.outcome ?? null,
     p_purchase_value: input.purchaseValue ?? null,
+    p_target_branch: input.targetBranch ?? null,
+    p_attempt_type: input.attemptType ?? null,
+    p_needs_next_followup: input.needsNextFollowup ?? null,
+    p_result: input.result ?? null,
+    p_followup_notes: input.followupNotes ?? null,
   });
   if (error) throw error;
   return data;

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Search, Store } from 'lucide-react';
 import { toast } from 'sonner';
-import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
+import { executeFollowupCommand } from '@/lib/customerService/followupCommandService';
 import { supabase } from '@/lib/supabase';
 
 const VALID_BRANCHES = ['فرع الشامي', 'فرع شكري'] as const;
@@ -27,7 +27,6 @@ const displayPhone = (row: ReviewRow) => text(row.customer_phone || row.phone ||
 const requiresReview = (row: ReviewRow) => !VALID_BRANCHES.includes(normalizeBranchName(row.branch || '') as BranchName);
 
 export default function CustomerFollowupBranchReviewPanel() {
-  const { user } = useAuth();
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
@@ -76,23 +75,7 @@ export default function CustomerFollowupBranchReviewPanel() {
 
     setSavingId(row.id);
     try {
-      const oldBranch = text(row.branch) || 'غير محدد';
-      const { error: updateError } = await supabase
-        .from('daily_followups')
-        .update({ branch: newBranch, updated_by: user?.id || null })
-        .eq('id', row.id);
-      if (updateError) throw updateError;
-
-      const { error: auditError } = await supabase.from('customer_followup_audit_log').insert({
-        followup_id: row.id,
-        customer_id: null,
-        action: 'branch_review_assigned',
-        actor_staff_id: user?.staffId || user?.id || null,
-        actor_name: user?.name || null,
-        branch: newBranch,
-        metadata: { old_branch: oldBranch, new_branch: newBranch, source: 'manual_branch_review' },
-      });
-      if (auditError) throw auditError;
+      await executeFollowupCommand({ followupId: row.id, command: 'assign_branch', targetBranch: newBranch, note: 'مراجعة وتعيين الفرع يدويًا' });
 
       toast.success(`تم إسناد المتابعة إلى ${newBranch}`);
       setRows((current) => current.filter((item) => item.id !== row.id));

@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { formatFollowupDetailText } from '@/lib/followupFormat';
+import { executeFollowupCommand } from '@/lib/customerService/followupCommandService';
 import { Drawer, DrawerFieldGrid, SectionEmptyState, SectionSkeleton } from '@/components/customerService/SectionBoundary';
 
 const PAGE_SIZE = 25;
@@ -202,22 +203,7 @@ export default function CustomerFollowupRecordsAndPerformance({ mode }: { mode: 
     if (!editState.result.trim()) return toast.error('اكتب نتيجة المتابعة أولًا');
     setSaving(true);
     try {
-      const now = new Date().toISOString();
-      const payload: Record<string, unknown> = {
-        followup_result: editState.result.trim(),
-        followup_summary: editState.result.trim(),
-        notes: editState.notes.trim() || null,
-        needs_next_followup: editState.needsNext,
-        next_followup_date: editState.needsNext ? (editState.nextDate || todayKey()) : null,
-        updated_at: now,
-      };
-      if (editState.needsNext) {
-        Object.assign(payload, { completed_at: null, closed_at: null, status: 'متابعة مفتوحة', followup_status: 'متابعة مفتوحة', contact_status: 'متابعة مطلوبة', response_status: 'pending' });
-      } else {
-        Object.assign(payload, { completed_at: editing.completed_at || now, closed_at: editing.closed_at || now, status: 'مكتمل', followup_status: 'مكتمل', contact_status: 'تم الرد', response_status: 'replied' });
-      }
-      const { error } = await supabase.from('daily_followups').update(payload).eq('id', editing.id);
-      if (error) throw error;
+      await executeFollowupCommand({ followupId: editing.id, command: 'edit_result', note: editState.result.trim(), result: editState.result.trim(), followupNotes: editState.notes.trim() || null, needsNextFollowup: editState.needsNext, nextFollowupDate: editState.needsNext ? (editState.nextDate || todayKey()) : null });
       toast.success(editState.needsNext ? 'تم تسجيل المحاولة وتحديد متابعة أخرى' : 'تم إكمال المتابعة وحفظ النتيجة');
       setEditing(null); setSelected(null); await load();
       window.dispatchEvent(new CustomEvent('dataChanged'));
@@ -230,21 +216,8 @@ export default function CustomerFollowupRecordsAndPerformance({ mode }: { mode: 
     if (!window.confirm(`إعادة فتح متابعة ${customer(row)} وإظهارها في قائمة المتابعات؟`)) return;
     setSaving(true);
     try {
-      const now = new Date().toISOString();
       const oldNotes = text(row.notes || row.followup_summary);
-      const { error } = await supabase.from('daily_followups').update({
-        completed_at: null,
-        closed_at: null,
-        status: 'متابعة مفتوحة',
-        followup_status: 'متابعة مفتوحة',
-        contact_status: 'متابعة مطلوبة',
-        response_status: 'pending',
-        needs_next_followup: true,
-        next_followup_date: todayKey(),
-        notes: [oldNotes, `أعيد فتح المتابعة بواسطة ${user?.name || 'المستخدم'} في ${new Date().toLocaleString('ar-EG')}`].filter(Boolean).join(' — '),
-        updated_at: now,
-      }).eq('id', row.id);
-      if (error) throw error;
+      await executeFollowupCommand({ followupId: row.id, command: 'reopen', note: [oldNotes, `أعيد فتح المتابعة بواسطة ${user?.name || 'المستخدم'}`].filter(Boolean).join(' — '), nextFollowupDate: todayKey() });
       toast.success('تمت إعادة المتابعة وستظهر في القائمة المفتوحة');
       setSelected(null); await load();
     } catch (error) {
