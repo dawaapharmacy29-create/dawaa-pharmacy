@@ -1,75 +1,65 @@
-# Customer Requests Architecture v2
+# Customer Requests Architecture v3
 
 ## الهدف
 
-تحويل `Customer Requests` من صفحة تراكمية كبيرة إلى وحدة تشغيل مستقلة ومتكاملة تربط بين العميل والصنف والفرع والدكتور والتوفير والمتابعة والحوافز، مع مصدر واحد للحقيقة وعدم تكرار قواعد الحالات أو الفروع أو النقاط داخل الواجهة.
+تحويل `Customer Requests` من صفحة تراكمية كبيرة إلى وحدة تشغيل مستقلة تربط العميل والصنف والفرع والدكتور والتوفير والمتابعة والتحليلات والحوافز من مصادر حقيقة واحدة، مع الحفاظ على النسخة القديمة كـfallback مؤقت على برانش إعادة الهيكلة فقط.
 
 ## 1. حدود الوحدة
 
-الوحدة مسؤولة عن دورة طلب العميل فقط:
+دورة الطلب التشغيلية:
 
-`تسجيل الطلب -> البحث/التوفير -> تحقق التوفير -> التواصل -> التسليم/الإغلاق`
+`تسجيل -> مراجعة/بحث -> توفير -> تواصل -> تسليم/إغلاق`
 
-ولا تتحول إلى نسخة من صفحات العملاء أو النواقص أو المشتريات أو الحوافز. كل مسار يحتفظ بمسؤوليته ويُربط بالطلب بمفاتيح ثابتة.
+الوحدة لا تعيد بناء صفحات العملاء أو النواقص أو المشتريات أو النقاط بداخلها؛ بل تربط إليها بمفاتيح ومسارات ثابتة.
 
 ## 2. مصادر الحقيقة
 
-### الطلب الحالي
-`customer_requests`
+### `customer_requests`
+الحالة الحالية للطلب والهوية التشغيلية:
+- `customer_id` + `customer_code`
+- `product_id` + `product_code` + `medicine_name`
+- `branch`
+- `doctor_id`
+- الحالة، الأولوية، الموعد، المسئول، بيانات التوفير
 
-يحمل الحالة الحالية والروابط الثابتة:
-- `customer_id` + `customer_code` + اسم العميل والهاتف كلقطات عرض.
-- `product_id` + `product_code` + `medicine_name`.
-- `branch` بعد التطبيع.
-- `doctor_id` كهوية الموظف/الدكتور صاحب تسجيل الطلب.
-- حالة الطلب، وقت التسجيل، الموعد المستهدف، الإسناد، بيانات التوفير.
+### `customer_request_events`
+Timeline للأحداث التشغيلية المنفذة بالفعل.
 
-### التاريخ
-`customer_request_events`
+### `customer_request_incentive_events`
+Audit ledger وسيط يثبت حدث نقاط طلب العميل وربطه بمعاملة النقاط النهائية.
 
-سجل زمني للأحداث التشغيلية. لا يستخدم كبديل للحالة الحالية.
-
-### حوافز طلبات العملاء
-`customer_request_incentive_events`
-
-سجل Audit مستقل يثبت أن حدثًا مؤهلًا تم احتسابه مرة واحدة فقط، ويربطه بمعاملة النقاط في `employee_transactions`.
-
-### سجل النقاط المركزي
-`employee_transactions`
-
-هو المصدر النهائي المعتمد لكل النقاط التي تدخل ملف الدكتور وحساب الحافز الشهري. طلبات العملاء لا تحتفظ بإجمالي نقاط مستقل قابل للتضارب.
+### `employee_transactions`
+المصدر النهائي المعتمد لنقاط الموظف. لا يوجد رصيد Customer Requests مستقل قابل للاختلاف عنه.
 
 ## 3. هوية العميل
 
-الترتيب الإجباري:
-1. `customer_id` هو العلاقة الأساسية.
-2. `customer_code` مطلوب لاستحقاق نقاط تسجيل/تحقيق الطلب.
-3. الاسم والهاتف بيانات عرض ومساعدة في المطابقة وليسا المفتاح الأساسي.
-
-الطلبات غير المربوطة تدخل Data Quality Queue ولا تحصل على نقاط حتى يتم إصلاح الهوية.
+- `customer_id` هو المفتاح الأساسي.
+- `customer_code` مطلوب لاستحقاق نقاط التسجيل والتحقيق.
+- الاسم والهاتف snapshots للعرض والبحث، وليسا بديلًا للهوية.
+- الطلب غير المربوط يدخل Data Quality ولا يحصل على نقاط حتى يتم إصلاحه.
 
 ## 4. هوية الصنف
 
-الترتيب الإجباري:
-1. `product_id` عند توفره.
-2. `product_code` مطلوب لاستحقاق النقاط.
-3. `medicine_name` مطلوب للعرض والتقارير.
-
-ربط الصنف بعد إنشاء الطلب مسموح، والنظام يعيد محاولة احتساب نقطة التسجيل آليًا بعد اكتمال الهوية بدون تكرار.
+- `product_id` هو رابط الكتالوج عند توفره.
+- `product_code` مطلوب لاستحقاق النقاط وللتحليلات ومعدل التوفير.
+- `medicine_name` مطلوب للعرض.
+- ربط الصنف بعد الإنشاء يعيد محاولة تسوية نقطة التسجيل Idempotently.
 
 ## 5. الفروع
 
-القيم التشغيلية المعيارية:
+الهوية الدلالية داخل الـDomain:
 - `shokry`
 - `elshamy`
 
-أسماء مثل `دواء شكري` و`فرع شكري` و`شكري` تُحوّل عند حدود الإدخال إلى نفس الهوية. نفس القاعدة تنطبق على الشامي.
+وعند حدود البيانات يتم دعم aliases مثل:
+- `فرع شكري` / `دواء شكري` / `شكري`
+- `فرع الشامي` / `دواء الشامي` / `الشامي`
 
-لا يسمح بإنشاء mapping جديد للفروع داخل صفحة React أو تقرير منفصل.
+الاستعلامات الخارجية تستخدم Source Branch المعياري حتى لا تتكرر مشكلة اختلاف أسماء الفروع بين التطبيق وBase44.
 
-## 6. دورة الحالات
+## 6. الحالات والـPrimary Action
 
-المسار المعتمد:
+الحالات المعتمدة:
 - `new`
 - `purchasing_review`
 - `searching_suppliers`
@@ -81,223 +71,258 @@
 - `customer_contacted`
 - `delivered`
 - `closed`
-- الاستثناءات: `cancelled`, `not_available`
+- `cancelled`
+- `not_available`
 
-لكل حالة Primary Action واحد فقط في شاشة التنفيذ.
+كل حالة لها Primary Action واحد في Operations Workspace، بينما الإجراءات الاستثنائية تظهر كخيارات ثانوية.
 
-## 7. تعريف "تحقيق الطلب"
+## 7. تعريف تحقيق الطلب
 
-لأغراض التشغيل والنقاط، يعتبر الطلب محققًا عند أول دخول إلى مجموعة الحالات التي يستخدمها النظام أصلًا في `fulfillment_rate`:
+`request_achieved` يتحقق مرة واحدة عند أول دخول إلى إحدى حالات fulfillment المعتمدة أصلًا في تحليلات النظام:
 
 `available`, `arrived`, `customer_contacted`, `delivered`, `closed`
 
-يتم احتساب حدث `request_achieved` مرة واحدة فقط حتى لو انتقل الطلب بعد ذلك بين الحالات المذكورة.
+`cancelled` و`not_available` لا يحصلان على نقاط تحقيق.
 
-الإلغاء أو `not_available` لا يحصلان على نقاط تحقيق.
+## 8. سياسة نقاط الدكاترة
 
-## 8. سياسة نقاط الدكاترة المعتمدة
+Policy key: `customer_requests_doctor_points`
 
 Policy version: `2026-08-24-v1`
+
 Effective from: `2026-08-24 00:00 Africa/Cairo`
 
-الفئات الحالية مرتبطة بجدول `staff_incentive_tiers`:
+| الفئة | `staff_incentive_tiers.tier_key` | تسجيل طلب صالح | تحقيق الطلب | إجمالي الطلب المحقق |
+|---|---|---:|---:|---:|
+| الأولى | `senior_doctor` | +2 | +4 | 6 |
+| الثانية | `mid_doctor` | +1 | +2 | 3 |
+| الثالثة | `assistant` | +0.5 | +1 | 1.5 |
 
-| الفئة التشغيلية | tier_key الحالي | تسجيل طلب صالح | تحقيق الطلب |
-|---|---|---:|---:|
-| الفئة الأولى | `senior_doctor` | +2 | +4 |
-| الفئة الثانية | `mid_doctor` | +1 | +2 |
-| الفئة الثالثة | `assistant` | +0.5 | +1 |
-
-هذه القيم لا تستنتج من `point_rate_egp`. جدول `staff_incentive_tiers` يحدد الفئة الحالية للدكتور، وسياسة طلبات العملاء تحدد عدد النقاط لكل حدث.
+هذه Performance Points وليست جنيهات، ولا تُشتق من `point_rate_egp`.
 
 ## 9. صاحب النقاط
 
-نقاط التسجيل ونقاط التحقيق تُنسب إلى الدكتور صاحب الطلب المسجل، باستخدام الهوية المعيارية `staff.id`.
+نقاط التسجيل والتحقيق تخص الدكتور صاحب الطلب المسجل، بالهوية المعيارية `staff.id`.
 
-الترتيب:
+ترتيب حل الهوية أثناء الترحيل:
 1. `customer_requests.doctor_id` إذا كان Staff ID صالحًا.
-2. توافق `created_by` مع `staff.id` أثناء الترحيل.
-3. توافق `created_by` مع `staff_accounts.id -> staff_id` أثناء الترحيل.
-4. لا يتم احتساب نقاط اعتمادًا على الاسم فقط.
+2. `created_by` إذا كان مطابقًا لـ`staff.id`.
+3. `created_by -> staff_accounts.staff_id` للبيانات القديمة.
+4. لا توجد تسوية جديدة بالاسم فقط.
 
-هذا يمنع انتقال النقاط إلى شخص آخر بسبب تشابه الأسماء أو تغيّر اسم العرض.
+بعد التسوية يتم قفل صاحب الحدث منطقيًا: يوجد Event إيجابي واحد فقط لكل `request_id + event_key + policy_version` حتى لو تغير `doctor_id` لاحقًا، لمنع Double Credit بين دكتورين.
 
 ## 10. شروط استحقاق النقاط
 
-لا يسجل أي حدث نقاط إذا كان أي مما يلي موجودًا:
-- العميل غير مربوط.
-- كود العميل غير موجود.
-- اسم الصنف غير موجود.
-- كود الصنف غير موجود.
-- الدكتور غير مربوط بهوية Staff معيارية.
-- الدكتور لا يملك فئة معتمدة في `staff_incentive_tiers`.
-- `sync_conflict = true`.
-- الطلب مكرر أو مسجل بالخطأ.
+لا تتم التسوية إذا كان أي مما يلي غير صالح:
+- `customer_id`
+- `customer_code`
+- `medicine_name`
+- `product_code`
+- الدكتور/`staff.id`
+- فئة الدكتور
+- وجود `sync_conflict`
+- وجود علامة Duplicate / مكرر / مسجل بالخطأ
 
-عند إصلاح هوية الطلب لاحقًا، يعيد Trigger محاولة التسوية بشكل Idempotent.
+إصلاح الهوية يعيد محاولة التسوية تلقائيًا من غير تكرار.
 
 ## 11. منع التكرار
 
-كل Event Points له مفتاح فريد:
+الحماية متعددة المستويات:
 
-`request_id + event_key + staff_id + policy_version`
+1. قبل إنشاء الطلب: Duplicate check لنفس العميل + كود الصنف + الفرع ضمن نافذة 24 ساعة للطلبات المفتوحة.
+2. Event Ledger: Unique logical event على `request_id + event_key + policy_version`.
+3. Employee transaction: Unique source/source-id لحركة Customer Request incentive.
+4. Trigger retries آمنة بعد ربط العميل/الصنف/الدكتور.
+
+## 12. دورة النقاط 26 -> 25
+
+الـ`month_cycle` يتبع الاتفاق المعياري للتطبيق: **اسم دورة الشهر هو شهر انتهائها**.
+
+أمثلة:
+- 26 يوليو -> 25 أغسطس = `2026-08`
+- 26 أغسطس -> 25 سبتمبر = `2026-09`
 
 وبالتالي:
-- تحديث الحالة عدة مرات لا يكرر نقاط التحقيق.
-- ربط الصنف بعد الإنشاء لا يكرر نقاط التسجيل.
-- إعادة تشغيل Backfill أو Migration آمنة.
-- معاملة `employee_transactions` مرتبطة بسجل event مستقل ومميز.
+- حدث يوم 1-25 يأخذ نفس شهر التاريخ.
+- حدث يوم 26 أو بعده يأخذ الشهر التالي.
 
-## 12. دورة الشهر
-
-النقاط تسجل داخل دورة صيدليات دواء 26 -> 25.
-
-`month_cycle` يحدد بشهر بداية الدورة:
-- حدث يوم 26 أو بعده -> دورة نفس الشهر.
-- حدث يوم 1-25 -> دورة الشهر السابق.
+هذا متوافق مع الـcanonical staff points snapshot ولا ينشئ رصيدًا خارج الدورة الحالية.
 
 ## 13. فصل النقاط عن المال
 
-Customer Request points هي Performance Points فقط:
-- `points_delta` يحمل 2/1/0.5 أو 4/2/1.
+في `employee_transactions`:
+- `points_delta` = قيمة الحدث المعتمدة.
+- `points` = نفس قيمة الحدث.
 - `amount = 0`.
-- التحويل المالي النهائي يتم فقط بواسطة منظومة الحوافز المركزية.
+- `category = customer_requests`.
+- `source = customer_request_incentive`.
 
-لا يجوز لصفحة طلبات العملاء حساب الراتب أو قيمة الحافز النقدي مباشرة.
+تحويل النقاط إلى حافز مالي يظل مسؤولية منظومة الحوافز/الرواتب المركزية.
 
-## 14. الهيكل البرمجي
+## 14. حدود القراءة والأمان
+
+لأن التطبيق يستخدم Custom Staff Auth فوق Supabase anon role:
+- جداول policy/events والـprojection الداخلية ليست مفتوحة مباشرة للـanon.
+- القراءة تتم عبر SECURITY DEFINER RPCs محدودة البيانات.
+- RPCs تتحقق من `auth.uid()` أو `x-dawaa-user-id` المرتبط بحساب Staff نشط قابل للدخول.
+- Direct client SELECT على doctor-points projection غير مطلوب.
+
+RPCs الأساسية:
+- `get_customer_request_doctor_incentive_preview`
+- `get_customer_request_doctor_points_summary`
+- `get_customer_request_doctor_points_leaderboard`
+- `get_customer_request_incentive_events`
+
+## 15. الهيكل البرمجي
 
 `src/features/customer-requests/domain`
 - branch normalization
 - workflow/status
 - SLA/urgency/overdue
 - identity quality
-- queue membership
-- doctor request point policy + eligibility
+- operational queues
+- incentive policy/eligibility
 
 `src/features/customer-requests/data`
-- request list repository
-- summary repository
-- exact deep-link filters
-- enrichment
+- repository
+- paging/summary/deep links
+- doctor points read model
+- request incentive events
+
+`src/features/customer-requests/commands`
+- start search
+- record sourcing result
+- confirm customer
+- record contact result/follow-up
+- deliver
+- cancel
+- send to shortages
+
+`src/features/customer-requests/create`
+- canonical request creation
+- duplicate guard
+- doctor incentive preview
 
 `src/features/customer-requests/hooks`
-- workspace filters
-- paging
-- independent summary/list loading
-- stale request protection
+- workspace orchestration
+- separate list/summary loading
+- stale response protection
+- selected request state
 
 `src/features/customer-requests/workspace`
-- operational inbox
-- compact queues
-- execution table
-- details drawer
+- Operations Workspace
+- Queue Strip
+- table-first execution view
+- Create Dialog
+- Details Drawer
+- Doctor Points Card
 
-`supabase`
-- incentive policy truth
-- idempotent event ledger
-- settlement functions/triggers
-- employee transaction integration
+## 16. Operations Workspace
 
-## 15. تصميم الواجهة المستهدف
+الواجهة الافتراضية ليست Dashboard ثقيلًا، بل Inbox للتنفيذ:
+- بحث بالعميل/الكود/الهاتف/الصنف/كود الصنف.
+- اختيار الفرع.
+- طلب جديد.
+- تحديث مستقل.
+- Pagination.
 
-الصفحة الافتراضية تكون Operations Inbox وليست Dashboard تحليلي كبير.
+Queues:
+- يحتاج إجراء
+- عاجل
+- متأخر
+- جاهز للتواصل
+- متابعة مستحقة
+- بدون مسئول
 
-الأعلى:
-- بحث.
-- فرع.
-- زر طلب جديد.
+الجدول يركز على:
+`الصنف/الكود | العميل/الكود | التصنيف | الفرع | الدكتور | الموعد | معدل التوفير | الحالة | العمر | الإجراء التالي`
 
-Queues مختصرة:
-- يحتاج إجراء.
-- عاجل.
-- متأخر.
-- جاهز للتواصل.
-- متابعة مستحقة.
-- بدون مسئول.
+## 17. Drawer التنفيذ
 
-الجدول:
-`الصنف/الكود | العميل/الكود | الفرع | المرحلة | الدكتور | العمر | الموعد | الإجراء التالي`
+عند فتح الطلب:
+- العميل + كوده + الهاتف + رابط ملف العميل.
+- الصنف + الكود + الكمية.
+- المسجل والمسئول الحالي.
+- الحالة والإجراء المطلوب الآن.
+- البحث/التوفير.
+- التواصل وموعد المتابعة.
+- التسليم/الإغلاق.
+- الربط بالنواقص.
+- Timeline.
+- Events النقاط وقيم التسجيل/التحقيق.
 
-التفاصيل تفتح Drawer وليس صفحة مزدحمة مستقلة.
+## 18. تسجيل الطلب الجديد
 
-## 16. تسجيل الطلب الجديد
+المسار:
+1. اختيار عميل حقيقي من Customer Search.
+2. اختيار صنف حقيقي من Product Catalog.
+3. تثبيت الدكتور المسجل والفرع.
+4. تحديد الكمية والتصنيف والأولوية والقناة والموعد والملاحظات.
+5. عرض Preview لنقاط فئة الدكتور من Policy DB.
+6. Duplicate guard.
+7. إنشاء الطلب وربط الصنف فورًا.
+8. Trigger يسوي `request_registered` إذا أصبحت الهوية مكتملة.
 
-التدفق النهائي:
-1. اختيار العميل من السجل الحقيقي.
-2. اختيار الصنف من الكتالوج الحقيقي.
-3. مراجعة الفرع، الكمية، التصنيف، الأولوية، الموعد والقناة.
-4. حفظ الطلب بهويات `customer_id`, `customer_code`, `product_id`, `product_code`, `doctor_id`.
+## 19. التوفير والمخازن
 
-بعد الحفظ:
-- Trigger يحاول تسوية `request_registered`.
-- إذا الهوية غير مكتملة لا توجد نقاط.
-- عند إصلاح الهوية يعاد المحاولة تلقائيًا.
+V2 يفصل مساحة التوفير عن Inbox اليومي:
+- أعلى طلبات تحتاج تدخل.
+- دورة المخازن للأصناف غير المتوفرة.
+- روابط مباشرة إلى `/shortages`, `/purchases`, `/supplier-performance`.
 
-## 17. الربط بالنواقص والمشتريات
+الطلب يظل الأصل المرتبط بالعميل؛ مسار النواقص/المشتريات لا يصبح نسخة أخرى من الطلب.
 
-الطلب يظل الأصل المرتبط بالعميل.
+## 20. التحليلات
 
-`customer_request -> shortage_item_id / sourcing reference`
-
-لا ننشئ نسخة منفصلة من بيانات العميل أو الصنف داخل النواقص كمصدر حقيقة جديد.
-
-## 18. الربط بالتحليلات
-
-التحليلات تستخدم نفس تعريف fulfillment ونفس الفلاتر المعيارية.
-
-المؤشرات الأساسية:
+التحليلات تستخدم نفس تعريف fulfillment والفروع المعيارية، وتعرض:
 - عدد الطلبات.
+- المفتوح والمتأخر.
 - نسبة التوفير.
-- متوسط زمن التوفير.
-- الطلبات حسب الفرع.
-- معدل تحقيق الأصناف.
-- أكثر الأصناف طلبًا.
-- طلبات كل دكتور.
+- متوسط زمن الإغلاق/التوفير.
+- الأصناف الأكثر طلبًا ومعدل توفيرها.
+- أداء الفروع والمسئولين.
+- العملاء المتكررين.
+- الدكاترة المسجلين.
+
+الضغط على تحليل يعيد المستخدم إلى Operations Workspace بفلاتر Deep Link دقيقة.
+
+## 21. ملف الدكتور
+
+`StaffDetail` يحتفظ بالمحتوى السابق ويضيف Customer Request Points Card من الـcanonical projection:
+- الطلبات المؤهلة المسجلة.
+- الطلبات المحققة.
+- نسبة التحقيق.
 - نقاط التسجيل.
 - نقاط التحقيق.
-- نسبة الطلبات المحققة لكل دكتور.
+- إجمالي نقاط Customer Requests.
+- الفئة والدورة.
+- Deep Link لطلبات الدكتور.
 
-## 19. مراحل التنفيذ
+## 22. Performance / Failure Isolation
 
-### المرحلة A — تنظيف Domain
-✅ توحيد الفروع والحالات والـSLA والهوية.
+- List وSummary يحملان مستقلين.
+- فشل Summary لا يوقف التشغيل.
+- Timeline والنقاط تحمل عند فتح Drawer فقط.
+- Analytics/Quality/Warehouse لا تحمل أثناء Inbox إلا عند فتح تبويبها.
+- نتائج الاستعلامات القديمة لا تستبدل نتيجة أحدث داخل Workspace.
 
-### المرحلة B — فصل البيانات والـWorkspace
-✅ Repository مستقل.
-✅ Workspace hook.
-✅ Table/Drawer building blocks.
+## 23. Rollout على البرانش
 
-### المرحلة C — سياسة النقاط
-✅ تثبيت 2/1/0.5 للتسجيل.
-✅ تثبيت 4/2/1 للتحقيق.
-✅ ربط الفئات الحالية `senior_doctor/mid_doctor/assistant`.
-✅ إنشاء Policy versioned في قاعدة البيانات.
-✅ إنشاء event ledger مستقل.
-✅ ربط `employee_transactions`.
-✅ Idempotency وretry بعد إصلاح الهوية.
+- `/customer-requests` -> V2 على برانش إعادة الهيكلة.
+- `/customer-requests?legacy=1` -> النسخة القديمة للمقارنة والفallback.
+- لا يتم حذف Legacy قبل اكتمال الاختبارات والمراجعة.
+- لا يتم Merge إلى `main` أثناء مرحلة البناء الحالية.
 
-### المرحلة D — نموذج التسجيل الجديد
-التالي: نقل إنشاء الطلب إلى feature command مستقل وربط العميل والصنف والدكتور قبل الحفظ.
-
-### المرحلة E — استبدال الواجهة القديمة
-التالي: جعل table-first workspace هو route الإنتاج بعد parity كامل للأوامر اليومية.
-
-### المرحلة F — تقارير الدكتور
-التالي: إضافة projection واضح داخل ملف الدكتور يوضح:
-- عدد الطلبات المسجلة.
-- عدد الطلبات المحققة.
-- Registration points.
-- Achievement points.
-- إجمالي Customer Request points.
-
-## 20. قواعد غير قابلة للتفاوض
+## 24. قواعد غير قابلة للتفاوض
 
 - لا نقاط بالاسم فقط.
 - لا نقاط لطلب غير مربوط بعميل وكود وصنف وكود.
-- لا نقاط مكررة لنفس الحدث.
-- لا إعادة حساب يدوي مختلفة داخل UI.
+- لا Double Credit لنفس الحدث.
+- لا تعريف مختلف لـfulfillment بين الصفحة والحوافز.
+- لا mapping فروع جديد داخل كل صفحة.
+- لا إعادة حساب مستقلة للنقاط داخل UI.
 - `employee_transactions` هو Ledger النقاط النهائي.
-- قيمة السياسة يجب أن تكون Versioned وقابلة للتدقيق.
-- فشل Summary لا يوقف قائمة التنفيذ.
-- لا نزيل Legacy path قبل اكتمال parity والتحقق من الإنتاج.
+- الـPolicy Versioned وقابلة للتدقيق.
+- Direct sensitive point projections لا تُفتح للـanon.
+- `main` يظل بدون دمج حتى انتهاء المراجعة واعتماد المستخدم.
