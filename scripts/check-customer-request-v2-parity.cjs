@@ -95,6 +95,20 @@ requireTokens('supabase/migrations/20260824153500_customer_request_next_action_a
   'idx_customer_requests_next_action_at_open',
 ]);
 
+requireTokens('supabase/migrations/20260824172000_customer_request_product_metrics_v2.sql', [
+  'get_customer_request_product_metrics_v2',
+  'p_product_codes text[]',
+  "dawaa_can_access_customer_request_branch('view_customer_requests'",
+  'fulfilled_count',
+  'fulfillment_rate',
+]);
+
+requireTokens('src/features/customer-requests/data/customerRequestProductMetrics.ts', [
+  'get_customer_request_product_metrics_v2',
+  'new Set',
+  'slice(0, 100)',
+]);
+
 requireTokens('supabase/migrations/20260824171000_customer_request_details_command_v2.sql', [
   'update_customer_request_details_v2',
   'for update',
@@ -201,6 +215,25 @@ const pointSettlementMigration = read('supabase/migrations/20260824162000_custom
 if (!pointSettlementMigration.includes('drop trigger if exists request_self_log_settlement') ||
     !pointSettlementMigration.includes('drop trigger if exists trg_set_customer_request_points_tier')) {
   failures.push('legacy Customer Request point writers must remain retired so the versioned incentive ledger is the only active point source');
+}
+
+const requestRepository = read('src/features/customer-requests/data/customerRequestsRepository.ts');
+if (!requestRepository.includes('CUSTOMER_REQUEST_OPERATIONAL_SELECT')) {
+  failures.push('operations list must use an explicit lean select instead of loading the full customer_requests row');
+}
+if (/\.select\(\s*['"]\*['"]\s*,\s*\{\s*count:\s*['"]exact['"]/.test(requestRepository)) {
+  failures.push('operations list must not select source_payload and other full-row baggage on every page');
+}
+if (!requestRepository.includes('customerSegmentCache')) {
+  failures.push('canonical customer segment enrichment should be cached across request pages');
+}
+
+const requestWorkspace = read('src/features/customer-requests/workspace/CustomerRequestsWorkspace.tsx');
+if (requestWorkspace.includes('getCustomerRequestOperationalInsights')) {
+  failures.push('operations workspace must not load the full analytics payload just to show visible product fulfillment rates');
+}
+if (!requestWorkspace.includes('getCustomerRequestProductMetrics')) {
+  failures.push('operations workspace must request focused fulfillment metrics for visible products');
 }
 
 const commands = read('src/features/customer-requests/commands/customerRequestCommands.ts');
