@@ -30,6 +30,8 @@ import {
 } from '@/lib/medicinePerformance';
 import { triggerCelebration } from '@/lib/celebration';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { normalizeBranchName } from '@/lib/branch';
 
 interface IncentiveMedicine {
   id: string;
@@ -422,13 +424,11 @@ export default function IncentiveMedicines() {
       if (updateError) throw updateError;
 
       // Find staff member by name to get employeeId
-      const { data: staffData } = await supabase
-        .from('staff')
-        .select('id')
-        .ilike('name', doctorName)
-        .eq('branch', user?.branch || '')
-        .maybeSingle();
-
+      const directory = medicine.doctor_id ? [] : await readStaffDirectory();
+      const staffData = directory.find(
+        (row) => row.active && row.name?.localeCompare(doctorName, 'ar', { sensitivity: 'base' }) === 0
+          && normalizeBranchName(row.branch || '') === normalizeBranchName(user?.branch || '')
+      );
       const employeeId = medicine.doctor_id || staffData?.id;
       if (!employeeId) {
         toast.warning(`تم تحديث الكمية المباعة، لكن لم يتم العثور على الدكتور في جدول الموظفين`);

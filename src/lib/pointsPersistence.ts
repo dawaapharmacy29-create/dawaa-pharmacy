@@ -5,7 +5,10 @@ import type { EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
 import type { OperationKind, PointsTxnStatus } from '@/lib/pointsWorkflow';
 import { formatApproverList } from '@/lib/approverRoles';
 import { monthCycleFromDate } from '@/lib/conversationReviews';
-import { createEmployeeTransaction } from '@/services/employeeTransactionService';
+import {
+  createEmployeeTransaction,
+  updateEmployeeTransaction,
+} from '@/services/employeeTransactionService';
 import { TABLES } from '@/lib/supabaseTables';
 import { logSupabaseError } from '@/lib/supabaseError';
 import { sameEventDeductionGuard } from '@/lib/incentives/incentiveRulesEngine';
@@ -74,10 +77,6 @@ function buildManagerNote(input: PersistPointsInput, ruleCode: string | null): s
   return parts.join('\n').replace(/^\n+/, '').trim();
 }
 
-export function shouldApplyToBalance(status: PointsTxnStatus): boolean {
-  return status === 'approved';
-}
-
 function isConversationSource(source: string, sourceType: string) {
   return (
     ['conversation_evaluation', 'conversation_review', 'conversation_sales_reviews'].includes(
@@ -87,32 +86,6 @@ function isConversationSource(source: string, sourceType: string) {
       sourceType
     )
   );
-}
-
-async function insertPointRecordWithFallback(payloads: Array<Record<string, unknown>>) {
-  let lastError: string | null = null;
-  for (const payload of payloads) {
-    const { data, error } = await supabase
-      .from(TABLES.employeeTransactions)
-      .insert(payload)
-      .select('id')
-      .single();
-    if (!error) return { error: null, id: data?.id as string | undefined };
-    lastError = error.message;
-    if (!isColumnProblem(error.message)) return { error: error.message };
-  }
-  return { error: lastError || 'تعذر حفظ سجل النقاط.' };
-}
-
-async function updatePointRecordWithFallback(id: string, payloads: Array<Record<string, unknown>>) {
-  let lastError: string | null = null;
-  for (const payload of payloads) {
-    const { error } = await supabase.from(TABLES.employeeTransactions).update(payload).eq('id', id);
-    if (!error) return { error: null, id };
-    lastError = error.message;
-    if (!isColumnProblem(error.message)) return { error: error.message };
-  }
-  return { error: lastError || 'تعذر تحديث سجل النقاط.', id };
 }
 
 export async function persistPointsTransaction(
@@ -196,10 +169,7 @@ export async function persistPointsTransaction(
 
     const existingRow = (existingRows || []).filter(Boolean)[0];
     if (!existingError && existingRow?.id) {
-      const { error } = await supabase
-        .from(TABLES.employeeTransactions)
-        .update({ ...transactionPayload, updated_at: new Date().toISOString() })
-        .eq('id', existingRow.id as string);
+      const { error } = await updateEmployeeTransaction(existingRow.id as string, transactionPayload);
       if (error) {
         console.error('Employee transactions error:', {
           message: error.message,
@@ -229,32 +199,4 @@ export async function persistPointsTransaction(
 export function approverHintFromRule(rule: EvaluationRuleDef | null): string | undefined {
   if (!rule?.allowed_approver_roles?.length) return undefined;
   return formatApproverList(rule.allowed_approver_roles);
-}
-
-export async function applyStaffDelta(
-  staffId: string,
-  currentPoints: number,
-  maxPoints: number,
-  delta: number,
-  employeeName?: string,
-  branch?: string
-): Promise<{ error: string | null }> {
-  const cap = maxPoints > 0 ? maxPoints : 500;
-  const base = Number.isFinite(currentPoints) && currentPoints > 0 ? currentPoints : cap;
-  const next = Math.max(0, Math.min(cap, Math.round(base + delta)));
-
-  if (staffId && !staffId.startsWith('fallback-')) {
-    const { error } = await supabase.from('staff').update({ points: next }).eq('id', staffId);
-    if (!error) return { error: null };
-    if (!isIgnorableSchemaIssue(error.message)) return { error: error.message };
-  }
-
-  if (employeeName) {
-    let query = supabase.from('staff').update({ points: next }).eq('name', employeeName);
-    if (branch) query = query.eq('branch', branch);
-    const { error } = await query;
-    if (error && !isIgnorableSchemaIssue(error.message)) return { error: error.message };
-  }
-
-  return { error: null };
 }

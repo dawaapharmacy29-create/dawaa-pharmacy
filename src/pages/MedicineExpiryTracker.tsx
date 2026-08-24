@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataScope';
 import { exportMedicineExpiryToExcel } from '@/lib/exportExcel';
 import { Skeleton } from '@/components/ui/skeleton';
+import { createNotification } from '@/lib/notificationService';
 
 const AUTO_REFRESH_SEC = 300;
 
@@ -130,12 +131,11 @@ async function createUrgentNotification(urgentMedicines: (Medicine & { days: num
       .slice(0, 3)
       .map((m) => m.medicine_name || m.product_name || 'دواء')
       .join('، ');
-    await supabase.from('notifications').insert({
+    await createNotification({
       title: `⚠️ ${urgentMedicines.length} دواء قرب انتهاء صلاحيته`,
       message: names + (urgentMedicines.length > 3 ? ` وآخرون...` : ''),
       type: 'expiry_alert',
       priority: 'high',
-      status: 'new',
       target_route: '/medicine-expiry',
     });
   } catch {

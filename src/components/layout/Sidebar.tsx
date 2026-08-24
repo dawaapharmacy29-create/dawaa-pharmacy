@@ -48,7 +48,7 @@ const GROUPS: NavGroup[] = [
     { path: '/attendance-report', icon: ClipboardCheck, label: 'تسجيل/تقرير الحضور', permission: ['view_attendance_leaves','record_attendance'] },
     { path: '/time-off', icon: Calendar, label: 'الأذونات والإجازات', permission: 'view_attendance_leaves' },
     { path: '/shift-performance', icon: ClipboardList, label: 'تقييمات الشيفتات', permission: 'view_shift_performance' },
-    { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system.view' },
+    { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system_view' },
   ]},
   { title: 'العملاء وخدمة العملاء', icon: HeadphonesIcon, items: [
     { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة العملاء', permission: 'view_customer_service' },
@@ -62,7 +62,7 @@ const GROUPS: NavGroup[] = [
     { path: '/customer-requests', icon: PackageSearch, label: 'طلبات العملاء', permission: 'view_customer_requests' },
     { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
-    { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages.view' },
+    { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
   ]},
   { title: 'المبيعات والتحليل', icon: BarChart3, items: [
     { path: '/analytics', icon: BarChart3, label: 'التحليلات والمبيعات', permission: 'view_analytics' },
@@ -85,7 +85,7 @@ const GROUPS: NavGroup[] = [
   ]},
   { title: 'الدليفري', icon: Truck, items: [{ path: '/delivery', icon: Truck, label: 'لوحة الدليفري', permission: 'view_delivery' }] },
   { title: 'الحوافز والرواتب', icon: Star, items: [
-    { path: '/incentive-governance', icon: ShieldCheck, label: 'اعتماد الحوافز', permission: 'manage_payroll' },
+    { path: '/incentive-governance', icon: ShieldCheck, label: 'اعتماد الحوافز', permission: 'manage_incentives' },
     { path: '/points', icon: Star, label: 'النقاط', permission: 'view_points' },
     { path: '/performance-pillars', icon: BarChart3, label: 'الدرجة المركّبة للأداء', excludeRoles: ['customer_service_manager'] },
     { path: '/penalty-incentive', icon: AlertTriangle, label: 'جزاءات ومكافآت الفرع', permission: 'view_penalty_management' },
@@ -115,7 +115,7 @@ const PHARMACIST_GROUPS: NavGroup[] = [{
     { path: '/doctor-dashboard?tab=notifications', icon: BellRing, label: 'إشعاراتي', permission: 'view_doctor_dashboard' },
     { path: '/doctor-dashboard?tab=activity', icon: Activity, label: 'سجل نشاطي', permission: 'view_doctor_dashboard' },
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
-    { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages.view' },
+    { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
     { path: '/stagnant-medicines', icon: Package, label: 'الرواكد', permission: 'view_stagnant_medicines' },
     { path: '/incentive-medicines', icon: Sparkles, label: 'اللستة', permission: 'view_incentive_medicines' },
     { path: '/schedule', icon: Calendar, label: 'الجدول', permission: 'view_schedule' },

@@ -86,6 +86,10 @@ Canonical pipeline:
 - pending records are visible but not payable;
 - new records must use canonical `staff_id` and stable source metadata;
 - UI must not rebuild final totals directly from the raw table.
+- client mutations pass through `employeeTransactionService` only;
+- canonical lifecycle states are `pending`, `active`, and `cancelled`;
+- corrections are auditable cancellations/reversals, not physical deletes;
+- `staff.points` is a database-owned compatibility snapshot, never a UI write target.
 
 ### Evaluations
 

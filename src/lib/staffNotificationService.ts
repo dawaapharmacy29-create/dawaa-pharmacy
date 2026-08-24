@@ -36,7 +36,6 @@ export type CreateStaffNotificationInput = {
   metadata?: Record<string, unknown>;
   dedupeKey?: string;
   stateKey?: string;
-  createdByStaffId?: string;
 };
 
 function text(value: unknown): string { return String(value ?? '').trim(); }
@@ -84,7 +83,7 @@ export async function createStaffNotification(input: CreateStaffNotificationInpu
 
   // Canonical path: the DB RPC owns dedupe/upsert semantics. This keeps duplicate
   // protection at write time instead of relying on UI-side filtering after rows exist.
-  const { data: rpcId, error: rpcError } = await supabase.rpc('create_staff_notification', {
+  const { data: rpcId, error: rpcError } = await supabase.rpc('create_staff_notification_client_v1', {
     p_recipient_staff_id: recipientStaffId,
     p_notification_type: canonicalType,
     p_title: title,
@@ -95,7 +94,6 @@ export async function createStaffNotification(input: CreateStaffNotificationInpu
     p_priority: notifPriority,
     p_metadata: metadata,
     p_dedupe_key: dedupeKey || null,
-    p_created_by_staff_id: text(input.createdByStaffId) || null,
   });
 
   if (!rpcError && rpcId) {
@@ -108,43 +106,7 @@ export async function createStaffNotification(input: CreateStaffNotificationInpu
       actionUrl, metadata, isRead: false, createdAt: new Date().toISOString(),
     };
   }
-
-  // Compatibility fallback for deployments where the RPC signature has not landed yet.
-  // It still writes the canonical fields and dedupe key so the data remains migratable.
-  const payload = {
-    recipient_staff_id: recipientStaffId,
-    notification_type: canonicalType,
-    title,
-    message: text(input.message),
-    priority: notifPriority,
-    entity_type: text(input.entityType) || null,
-    entity_id: text(input.entityId) || null,
-    action_url: actionUrl,
-    target_route: actionUrl,
-    route: actionUrl,
-    metadata,
-    dedupe_key: dedupeKey || null,
-    requires_action: notificationRequiresAction(canonicalType, notifPriority),
-    action_status: 'new',
-    status: 'new',
-    is_read: false,
-    read: false,
-  };
-
-  let query = supabase.from('notifications').select('*').eq('recipient_staff_id', recipientStaffId);
-  if (dedupeKey) query = query.eq('dedupe_key', dedupeKey);
-  else {
-    query = query.eq('notification_type', canonicalType);
-    if (input.entityType) query = query.eq('entity_type', input.entityType);
-    if (input.entityId) query = query.eq('entity_id', input.entityId);
-  }
-  const existing = await query.order('created_at', { ascending: false }).limit(1);
-  const duplicate = (existing.data || [])[0] as RawRow | undefined;
-  if (duplicate && (dedupeKey || input.entityId)) return mapRow(duplicate);
-
-  const { data, error } = await supabase.from('notifications').insert(payload).select('*').single();
-  if (error) throw rpcError || error;
-  return data ? mapRow(data as RawRow) : null;
+  throw rpcError || new Error('تعذر إنشاء إشعار الموظف.');
 }
 
 export async function notifyBranchDoctors(

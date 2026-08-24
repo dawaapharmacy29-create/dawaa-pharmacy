@@ -15,54 +15,13 @@ const APPROVED_INVOICE_BOUNDARIES = new Set([
   'src/lib/invoices/invoiceManagementService.ts',
 ]);
 
-const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
-  'src/pages/IncentiveMedicines.tsx',
-  'src/pages/EmployeeOperatingSystem.tsx',
-  'src/pages/ExecutiveDashboard2027.tsx',
-  'src/components/reviews/ReviewsInsightsHub.tsx',
-  'src/components/staff/StaffPerformanceDashboard.tsx',
-]);
+const LEGACY_DIRECT_STAFF_UI_READERS = new Set();
 
-const LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS = new Set([
-  'src/pages/ReportsCenter.tsx',
-]);
+const LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS = new Set();
 
-const LEGACY_DIRECT_ATTENDANCE_UI_READERS = new Set([
-  'src/pages/StaffMonthlyEvaluation.tsx',
-]);
+const LEGACY_DIRECT_ATTENDANCE_UI_READERS = new Set();
 
-const LEGACY_DOT_PERMISSION_KEYS = new Set([
-  'customer_welcome_messages.view',
-  'customer_welcome_messages.create',
-  'customer_welcome_messages.update',
-  'employee_operating_system.view',
-  'employee_operating_system.manage',
-  'dashboard.view',
-  'customers.view',
-  'customers.create',
-  'customers.edit',
-  'customers.delete',
-  'team.view',
-  'team.create',
-  'team.edit',
-  'team.delete',
-  'shifts.view',
-  'shifts.create',
-  'shifts.edit',
-  'leaves.view',
-  'leaves.create',
-  'leaves.manage',
-  'permissions.view',
-  'permissions.edit',
-  'points.view',
-  'points.manage',
-  'evaluations.view',
-  'evaluations.create',
-  'reports.view',
-  'reports.export',
-  'settings.view',
-  'settings.edit',
-]);
+const LEGACY_DOT_PERMISSION_KEYS = new Set();
 
 function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

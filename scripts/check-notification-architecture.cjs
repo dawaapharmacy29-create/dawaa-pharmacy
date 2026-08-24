@@ -6,17 +6,8 @@ const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
 const ALLOWED_DIRECT_WRITERS = new Set([
   'src/lib/notificationService.ts',
-  'src/lib/staffNotificationService.ts',
-  // Transitional direct writers. This list may only shrink in count; paths may move during consolidation.
-  'src/lib/api/shiftPerformanceReviewService.ts',
-  'src/pages/MedicineExpiryTracker.tsx',
-  'src/pages/StaffMonthlyEvaluation.tsx',
 ]);
-const TRANSITIONAL_DIRECT_WRITERS = new Set([
-  'src/lib/api/shiftPerformanceReviewService.ts',
-  'src/pages/MedicineExpiryTracker.tsx',
-  'src/pages/StaffMonthlyEvaluation.tsx',
-]);
+const TRANSITIONAL_DIRECT_WRITERS = new Set();
 
 function walk(dir) {
   const out = [];

@@ -1,8 +1,9 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
-import { applyStaffDelta, persistPointsTransaction } from '@/lib/pointsPersistence';
+import { persistPointsTransaction } from '@/lib/pointsPersistence';
 import { MAX_DEDUCTION_PER_EVENT, MAX_REPEAT_MULTIPLIER } from '@/lib/pointsWorkflow';
 import { TABLES } from '@/lib/supabaseTables';
+import { createNotification } from '@/lib/notificationService';
 import {
   shiftDeductionRule,
   type NegligenceStatus,
@@ -111,15 +112,15 @@ async function logShiftReviewNotification(
   reviewId: string,
   message: string
 ) {
-  await supabase.from('notifications').insert({
+  await createNotification({
     title: 'تقييم أداء شيفت',
     message,
     type: 'shift_review',
     branch: input.branch_name,
-    read: false,
-    source_record_id: reviewId,
-    created_at: new Date().toISOString(),
-  } as Record<string, unknown>);
+    target_type: 'shift_review',
+    target_id: reviewId,
+    target_route: '/shift-performance',
+  });
 }
 
 async function logShiftActivity(input: SaveShiftReviewInput, reviewId: string, details: string) {
@@ -266,17 +267,6 @@ export async function saveShiftPerformanceReview(
 
       if (result.error) return { id: review.id, error: result.error };
 
-      const isFallback = member.staff_id.startsWith('fallback-');
-      if (input.status === 'approved' && !isFallback && result.id) {
-        await applyStaffDelta(
-          member.staff_id,
-          500,
-          500,
-          -finalPoints,
-          member.staff_name,
-          member.branch || input.branch_name
-        );
-      }
     }
   }
 

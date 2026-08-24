@@ -24,7 +24,8 @@ import { BRANCHES, POINT_REASONS } from '@/lib/constants';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices } from '@/lib/staffFallback';
-import { persistPointsTransaction, applyStaffDelta } from '@/lib/pointsPersistence';
+import { persistPointsTransaction } from '@/lib/pointsPersistence';
+import { transitionEmployeeTransaction } from '@/services/employeeTransactionService';
 import {
   formatTransactionExecutor,
   formatTransactionSource,
@@ -35,9 +36,7 @@ import {
   normalizeTransactionType,
   pointRecordDelta,
   pointRecordStatus,
-  type PointLedgerRecord,
 } from '@/lib/pointsLedger';
-import { calculateStaffCycleIncentiveFromRows } from '@/lib/staffIncentiveService';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -381,23 +380,6 @@ export default function PenaltyIncentiveManagement() {
         return;
       }
 
-      if (finalStatus === 'approved') {
-        const approvedRows = cycleRecords.filter(isApprovedPointRecord) as PointLedgerRecord[];
-        const currentIncentive = calculateStaffCycleIncentiveFromRows({
-          staff: selectedStaff,
-          records: approvedRows,
-          cycle,
-        });
-        await applyStaffDelta(
-          selectedStaff.id,
-          currentIncentive.finalPoints,
-          currentIncentive.startingPoints,
-          form.type === 'مكافأة' ? form.points : -form.points,
-          selectedStaff.name,
-          selectedStaff.branch
-        );
-      }
-
       await logActivity({
         action: form.type === 'مكافأة' ? 'إضافة مكافأة' : 'إضافة خصم',
         module: 'الجزاءات والحوافز',
@@ -453,36 +435,13 @@ export default function PenaltyIncentiveManagement() {
   const handleApprove = async (row: PointRecord, approve: boolean) => {
     if (!canManage) return;
     const nextStatus: RecordStatus = approve ? 'approved' : 'rejected';
-    const { error } = await supabase
-      .from(TABLES.employeeTransactions)
-      .update({ status: nextStatus })
-      .eq('id', row.id);
+    const { error } = await transitionEmployeeTransaction(
+      row.id,
+      approve ? 'active' : 'cancelled'
+    );
     if (error) {
       toast.error(error.message);
       return;
-    }
-
-    if (approve) {
-      const staff = staffChoices.find(
-        (s) => s.id === row.employee_id || s.name === row.employee_name
-      );
-      if (staff) {
-        const delta = isBonus(row) ? absPoints(row) : -absPoints(row);
-        const approvedRows = cycleRecords.filter(isApprovedPointRecord) as PointLedgerRecord[];
-        const currentIncentive = calculateStaffCycleIncentiveFromRows({
-          staff,
-          records: approvedRows,
-          cycle,
-        });
-        await applyStaffDelta(
-          staff.id,
-          currentIncentive.finalPoints,
-          currentIncentive.startingPoints,
-          delta,
-          staff.name,
-          staff.branch
-        );
-      }
     }
 
     try {
@@ -532,10 +491,7 @@ export default function PenaltyIncentiveManagement() {
 
   const handleSetPending = async (row: PointRecord) => {
     if (!canManage) return;
-    const { error } = await supabase
-      .from(TABLES.employeeTransactions)
-      .update({ status: 'pending' })
-      .eq('id', row.id);
+    const { error } = await transitionEmployeeTransaction(row.id, 'pending');
 
     if (error) {
       toast.error(error.message);
@@ -569,10 +525,10 @@ export default function PenaltyIncentiveManagement() {
 
   const handleDeleteRecord = async (row: PointRecord) => {
     if (!canManage) return;
-    const ok = window.confirm(`هل تريد مسح سجل "${pointRecordNote(row)}"؟`);
+    const ok = window.confirm(`هل تريد إلغاء سجل "${pointRecordNote(row)}"؟ سيظل محفوظًا للمراجعة.`);
     if (!ok) return;
 
-    const { error } = await supabase.from(TABLES.employeeTransactions).delete().eq('id', row.id);
+    const { error } = await transitionEmployeeTransaction(row.id, 'cancelled');
 
     if (error) {
       toast.error(error.message);
@@ -599,7 +555,7 @@ export default function PenaltyIncentiveManagement() {
       // log failure is non-critical
     }
 
-    toast.success('تم مسح السجل');
+    toast.success('تم إلغاء السجل مع الاحتفاظ به في سجل المراجعة');
     refetchRecords();
     refetchStaff();
   };

@@ -33,11 +33,21 @@ Required rules for new records:
 - canonical `staff_id`;
 - explicit `source` / `source_type`;
 - stable `source_id` when the event originates from another entity;
-- explicit lifecycle status (`pending`, `approved`, `rejected`, or equivalent canonical state);
+- canonical lifecycle status: `pending`, `active`, or `cancelled`; legacy
+  `approved`/`rejected` values are read-compatible only;
 - cycle/date metadata derived from one pharmacy-cycle implementation;
 - money (`amount`) and performance points (`points_delta`) are distinct dimensions.
 
 The ledger is append/audit oriented. Derived totals belong in projections/services, not duplicated snapshot columns across pages.
+
+Browser code does not mutate the table directly. All current client mutations go
+through `employeeTransactionService`; database policies remain the authorization
+boundary. Physical deletion is not part of the lifecycle: invalidated records
+move to `cancelled`, and financial corrections must be appended as reversals.
+
+`staff.points` is a compatibility snapshot only. It is refreshed by the database
+from active ledger rows for the current pharmacy cycle; pages must never update
+it after writing a transaction.
 
 ## 3. Monthly points projection
 
@@ -189,6 +199,9 @@ During migration CI should progressively enforce:
 - legacy UI direct-reader registers can only shrink;
 - no new employee-domain relationship based only on employee name when a canonical `staff_id` is available;
 - no new financial final-value calculation in pages/components;
+- exactly one client-side employee-ledger writer boundary;
+- no new `staff.points` writer or `applyStaffDelta` caller;
+- employee ledger records are cancelled/reversed, never physically deleted;
 - compatibility RPC/version chains must be isolated behind one domain boundary.
 
 ## 12. Migration order

@@ -39,6 +39,8 @@ export interface EmployeeTransactionInput {
   status?: string | null;
 }
 
+export type EmployeeTransactionLifecycleStatus = 'pending' | 'active' | 'cancelled';
+
 export function transactionDelta(row: Pick<EmployeeTransaction, 'type' | 'points_delta'>) {
   const value = Number(row.points_delta || 0);
   if (value !== 0) return value;
@@ -110,6 +112,63 @@ export async function createEmployeeTransaction(input: EmployeeTransactionInput)
 
   logEmployeeTransactionsError(result.error);
   logSupabaseError('create employee transaction', result.error);
+  return result;
+}
+
+export async function createEmployeeTransactions(inputs: EmployeeTransactionInput[]) {
+  if (!inputs.length) return { data: [], error: null };
+  const payloads = inputs.map((input) => ({
+    ...input,
+    points: input.points ?? Math.abs(Number(input.points_delta ?? 0)),
+  }));
+  const result = await supabase
+    .from(TABLES.employeeTransactions)
+    .insert(payloads)
+    .select('id');
+  if (result.error) {
+    logEmployeeTransactionsError(result.error);
+    logSupabaseError('create employee transactions', result.error);
+    return result;
+  }
+  inputs.forEach((input, index) => {
+    if (input.staff_id) void notifyTransaction(input, result.data?.[index]?.id as string | undefined);
+  });
+  return result;
+}
+
+export async function transitionEmployeeTransaction(
+  id: string,
+  status: EmployeeTransactionLifecycleStatus,
+  description?: string | null
+) {
+  const payload: { status: EmployeeTransactionLifecycleStatus; description?: string | null; updated_at: string } = {
+    status,
+    updated_at: new Date().toISOString(),
+  };
+  if (description !== undefined) payload.description = description;
+  const result = await supabase
+    .from(TABLES.employeeTransactions)
+    .update(payload)
+    .eq('id', id);
+  if (result.error) {
+    logEmployeeTransactionsError(result.error);
+    logSupabaseError('transition employee transaction', result.error);
+  }
+  return result;
+}
+
+export async function updateEmployeeTransaction(
+  id: string,
+  changes: Partial<EmployeeTransactionInput>
+) {
+  const result = await supabase
+    .from(TABLES.employeeTransactions)
+    .update({ ...changes, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (result.error) {
+    logEmployeeTransactionsError(result.error);
+    logSupabaseError('update employee transaction', result.error);
+  }
   return result;
 }
 

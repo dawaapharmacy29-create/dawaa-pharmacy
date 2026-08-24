@@ -6,6 +6,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import { canViewAllBranches, isDoctorRole } from '@/lib/security/userDataScope';
+import { createStaffNotification } from '@/lib/staffNotificationService';
+import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 
 type StaffRow = { id: string; name: string; role?: string | null; job_title?: string | null; branch?: string | null; status?: string | null; user_id?: string | null };
 type Section = { key: string; title: string; description: string; weight: number; score: number; notes: string };
@@ -116,11 +118,17 @@ export default function StaffMonthlyEvaluation() {
           supabase.rpc('get_staff_monthly_evaluation_safe', { p_actor_id: user.id, p_staff_id: selectedId, p_month: monthStart(month) }),
           supabase.from('conversation_sales_reviews').select('total_score,final_score,doctor_points_impact,point_impact,created_at').eq('staff_id', selectedId).gte('created_at', monthStart(month)).lt('created_at', endDate).limit(500),
           supabase.from('daily_followups').select('status,followup_status,completed_at,created_at,assigned_staff_id,requested_by_staff_id').or(`assigned_staff_id.eq.${selectedId},requested_by_staff_id.eq.${selectedId}`).gte('created_at', monthStart(month)).lt('created_at', endDate).limit(1000),
-          supabase.from('attendance').select('status,check_in,check_out,date,staff_id').eq('staff_id', selectedId).gte('date', monthStart(month)).lt('date', endDate).limit(100),
+          readAttendanceRange({
+            staffId: selectedId,
+            startDate: monthStart(month),
+            endDateExclusive: endDate,
+            limit: 100,
+          }),
         ]);
         const reviewRows = reviewResult.data || [];
         const followupRows = followupResult.data || [];
-        const attendanceRows = attendanceResult.data || [];
+        if (attendanceResult.status === 'unavailable') throw new Error(attendanceResult.error);
+        const attendanceRows = attendanceResult.rows;
         const reviewAverage = reviewRows.length ? reviewRows.reduce((s: number, r: any) => s + safeNumber(r.final_score || r.total_score), 0) / reviewRows.length : 0;
         const completedFollowups = followupRows.filter((r: any) => r.completed_at || /completed|مكتمل|تم/.test(String(r.status || r.followup_status || ''))).length;
         const reviewImpacts = reviewRows.map((r: any) => safeNumber(r.doctor_points_impact ?? r.point_impact));
@@ -167,7 +175,15 @@ export default function StaffMonthlyEvaluation() {
       if (error) throw error;
       setEvaluationId(String(data)); setStatus(nextStatus);
       if (nextStatus === 'sent') {
-        await supabase.from('notifications').insert({ staff_id: selected.id, title: 'تم إرسال تقييمك الشهري', message: `تقييم شهر ${month}: ${overallScore}/100 - ${grade}`, type: 'staff_monthly_evaluation', is_read: false }).then(() => undefined);
+        await createStaffNotification({
+          recipientStaffId: selected.id,
+          title: 'تم إرسال تقييمك الشهري',
+          message: `تقييم شهر ${month}: ${overallScore}/100 - ${grade}`,
+          type: 'staff_monthly_evaluation',
+          entityType: 'staff_monthly_evaluation',
+          entityId: String(data),
+          actionUrl: '/staff-dashboard',
+        }).catch(() => null);
       }
       toast.success(nextStatus === 'sent' ? 'تم إرسال التقييم للموظف' : 'تم حفظ التقييم');
     } catch (error) { toast.error(error instanceof Error ? error.message : 'فشل حفظ التقييم'); }

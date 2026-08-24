@@ -100,9 +100,9 @@ function normalizePermissionInput(extra: unknown): Record<string, boolean> {
 type SupabaseRpcResult<T> = { data: T | null; error: { message?: string } | null };
 
 const EXPLICIT_OVERRIDABLE_PERMISSIONS = new Set([
-  'customer_welcome_messages.view',
-  'customer_welcome_messages.create',
-  'customer_welcome_messages.update',
+  'customer_welcome_messages_view',
+  'customer_welcome_messages_create',
+  'customer_welcome_messages_update',
 ]);
 
 function capPermissionsToRole(role: unknown, extra?: unknown): Record<string, boolean> {
