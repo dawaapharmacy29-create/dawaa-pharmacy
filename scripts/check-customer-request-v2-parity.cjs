@@ -26,9 +26,12 @@ function requireTokens(relativePath, tokens) {
 
 requireTokens('src/pages/CustomerRequests.tsx', [
   'CustomerRequestsV2',
-  'CustomerRequestsLegacy',
-  "searchParams.get('legacy') === '1'",
+  'return <CustomerRequestsV2 />',
 ]);
+
+if (fs.existsSync(path.join(ROOT, 'src/pages/CustomerRequestsLegacy.tsx'))) {
+  failures.push('retired CustomerRequestsLegacy.tsx must not return as a second routed write surface');
+}
 
 requireTokens('src/pages/CustomerRequestsV2.tsx', [
   'useNavigate',
@@ -103,6 +106,14 @@ requireTokens('supabase/migrations/20260824174000_customer_request_search_indexe
   'medicine_name',
   'doctor_name',
   'product_code',
+]);
+
+requireTokens('supabase/migrations/20260824182000_customer_request_transition_matrix_complete_v2.sql', [
+  'advance_customer_request_v2',
+  "'start_sourcing'",
+  "'mark_arrived'",
+  "'close'",
+  "'customer_request_transition_invalid'",
 ]);
 
 requireTokens('supabase/migrations/20260824181000_customer_request_shortage_alignment_v2.sql', [
@@ -322,4 +333,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[customer-request-v2-parity] PASS: V2 preserves branch-scoped SPA navigation, canonical create, atomic exact follow-up timing, operational filters, edit/contact/sourcing/cancel/reopen/shortage actions, legacy fallback, and approved doctor point schedule.');
+console.log('[customer-request-v2-parity] PASS: V2 is the single routed Customer Requests surface with branch-scoped SPA navigation, canonical create, atomic lifecycle commands, exact follow-up timing, operational filters, sourcing/contact/shortage actions, and approved doctor point schedule.');
