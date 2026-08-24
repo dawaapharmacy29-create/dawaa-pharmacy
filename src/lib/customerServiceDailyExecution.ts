@@ -39,8 +39,6 @@ const digits = (value: unknown) =>
   text(value)
     .replace(/\D/g, '')
     .replace(/^20(?=1\d{9}$)/, '');
-const missingRelation = (message: string) =>
-  /does not exist|schema cache|relation .* not found/i.test(message);
 const sameBranch = (a: unknown, b: unknown) => normalizeBranchName(a) === normalizeBranchName(b);
 
 function normalizedCustomerName(value: unknown) {
@@ -134,10 +132,7 @@ async function recentCustomerKeys(branch: string, days = 7) {
     .gte('queue_date', startKey)
     .lt('queue_date', todayKey())
     .limit(3000);
-  if (error) {
-    if (missingRelation(error.message)) return new Set<string>();
-    throw error;
-  }
+  if (error) throw error;
   const today = todayKey();
   return new Set(
     (data || [])
@@ -156,7 +151,7 @@ async function recentCustomerKeys(branch: string, days = 7) {
 export async function loadOrCreateDailyQueue(
   branch: string,
   candidates: DailyQueueCandidate[],
-  actor?: { id?: string | null; name?: string | null }
+  _actor?: { id?: string | null; name?: string | null }
 ): Promise<{ items: DailyQueueItem[]; persistent: boolean }> {
   const queueDate = todayKey();
   const targetBranch = normalizeBranchName(branch);
@@ -169,21 +164,7 @@ export async function loadOrCreateDailyQueue(
     .eq('queue_date', queueDate)
     .order('created_at', { ascending: true })
     .limit(1000);
-  if (current.error) {
-    if (missingRelation(current.error.message))
-      return {
-        items: dedupeCandidates(scopedCandidates)
-          .slice(0, 30)
-          .map((item, index) => ({
-            ...item,
-            id: `fallback-${index}`,
-            queueDate,
-            status: 'not_started',
-          })),
-        persistent: false,
-      };
-    throw current.error;
-  }
+  if (current.error) throw current.error;
 
   const currentAll = (current.data || []).map((row) => mapRow(row as Record<string, unknown>));
   const currentScoped = currentAll.filter(
@@ -221,8 +202,6 @@ export async function loadOrCreateDailyQueue(
       status: 'not_started',
       linked_followup_id: item.linkedFollowupId || null,
       next_followup_date: item.nextFollowupDate ? item.nextFollowupDate.slice(0, 10) : null,
-      created_by: actor?.id || null,
-      created_by_name: actor?.name || null,
       metadata: {
         ...(item.metadata || {}),
         queueVersion: QUEUE_VERSION,
@@ -233,21 +212,16 @@ export async function loadOrCreateDailyQueue(
         addedAfterQueueCreation: true,
       },
     }));
-    const inserted = await supabase
-      .from('customer_service_daily_queue_items')
-      .upsert(additions, { onConflict: 'queue_date,branch,customer_key' })
-      .select('*');
+    const inserted = await supabase.rpc('dawaa_replace_customer_service_daily_queue_v1', {
+      p_branch: targetBranch,
+      p_queue_date: queueDate,
+      p_items: additions,
+      p_replace: false,
+    });
     if (inserted.error) throw inserted.error;
     const insertedRows = (inserted.data || []).map((row) => mapRow(row as Record<string, unknown>));
     return { items: dedupeRows([...currentScoped, ...insertedRows]), persistent: true };
   }
-
-  const idsToRebuild = currentAll
-    .filter((row) => sameBranch(row.branch, targetBranch))
-    .map((row) => row.id)
-    .filter(Boolean);
-  if (idsToRebuild.length)
-    await supabase.from('customer_service_daily_queue_items').delete().in('id', idsToRebuild);
 
   const recent = await recentCustomerKeys(targetBranch);
   const ranked = dedupeCandidates(scopedCandidates).sort(
@@ -279,8 +253,6 @@ export async function loadOrCreateDailyQueue(
     status: 'not_started',
     linked_followup_id: item.linkedFollowupId || null,
     next_followup_date: item.nextFollowupDate ? item.nextFollowupDate.slice(0, 10) : null,
-    created_by: actor?.id || null,
-    created_by_name: actor?.name || null,
     metadata: {
       ...(item.metadata || {}),
       queueVersion: QUEUE_VERSION,
@@ -290,10 +262,12 @@ export async function loadOrCreateDailyQueue(
       customerMasterSource: 'dawaa_customer_metrics_app_view_v2',
     },
   }));
-  const inserted = await supabase
-    .from('customer_service_daily_queue_items')
-    .upsert(payload, { onConflict: 'queue_date,branch,customer_key' })
-    .select('*');
+  const inserted = await supabase.rpc('dawaa_replace_customer_service_daily_queue_v1', {
+    p_branch: targetBranch,
+    p_queue_date: queueDate,
+    p_items: payload,
+    p_replace: true,
+  });
   if (inserted.error) throw inserted.error;
   return {
     items: dedupeRows(
@@ -339,22 +313,18 @@ export async function updateDailyQueueItem(
     started?: boolean;
   }
 ) {
-  if (!id || id.startsWith('fallback-')) return;
-  const now = new Date().toISOString();
-  const payload: Record<string, unknown> = { last_action_at: now };
-  if (patch.status) payload.status = patch.status;
-  if (patch.linkedFollowupId !== undefined) payload.linked_followup_id = patch.linkedFollowupId;
-  if (patch.nextFollowupDate !== undefined)
-    payload.next_followup_date = patch.nextFollowupDate
-      ? patch.nextFollowupDate.slice(0, 10)
-      : null;
-  if (patch.started) payload.started_at = now;
-  if (patch.completed) payload.completed_at = now;
-  const { error } = await supabase
-    .from('customer_service_daily_queue_items')
-    .update(payload)
-    .eq('id', id);
-  if (error && !missingRelation(error.message)) throw error;
+  if (!id) return;
+  const { error } = await supabase.rpc('dawaa_update_customer_service_queue_item_v1', {
+    p_id: id,
+    p_status: patch.status || null,
+    p_linked_followup_id: patch.linkedFollowupId ?? null,
+    p_set_linked: patch.linkedFollowupId !== undefined,
+    p_next_followup_date: patch.nextFollowupDate ? patch.nextFollowupDate.slice(0, 10) : null,
+    p_set_next: patch.nextFollowupDate !== undefined,
+    p_started: Boolean(patch.started),
+    p_completed: Boolean(patch.completed),
+  });
+  if (error) throw error;
 }
 
 export async function appendFollowupEvent(input: {
@@ -367,17 +337,15 @@ export async function appendFollowupEvent(input: {
   notes?: string | null;
   metadata?: Record<string, unknown>;
 }) {
-  const { error } = await supabase.from('customer_service_followup_events').insert({
-    followup_id: input.followupId || null,
-    queue_item_id: input.queueItemId || null,
-    event_type: input.eventType,
-    event_status: input.status || null,
-    actor_staff_id: input.actorStaffId || null,
-    actor_name: input.actorName || null,
-    notes: input.notes || null,
-    metadata: input.metadata || {},
+  const { error } = await supabase.rpc('dawaa_append_customer_service_followup_event_v1', {
+    p_followup_id: input.followupId || null,
+    p_queue_item_id: input.queueItemId || null,
+    p_event_type: input.eventType,
+    p_event_status: input.status || null,
+    p_notes: input.notes || null,
+    p_metadata: input.metadata || {},
   });
-  if (error && !missingRelation(error.message)) throw error;
+  if (error) throw error;
 }
 
 export async function notifyIncompleteDailyQueue(input: {
