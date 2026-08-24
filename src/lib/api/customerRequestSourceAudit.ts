@@ -7,6 +7,11 @@ export type CustomerRequestSourceAuditSummary = {
   missing_channel: number;
   missing_phone: number;
   missing_customer_code: number;
+  unlinked_product: number;
+  unlinked_registrar: number;
+  source_missing_customer_code: number;
+  source_missing_product_code: number;
+  source_missing_recorded_staff_id: number;
   sync_conflicts: number;
   branch_mismatch: number;
   request_time_mismatch: number;
@@ -41,12 +46,13 @@ export type CustomerRequestSourceAudit = {
   generated_at: string;
   source_system: string;
   source_entity: string;
+  source_contract_version?: string;
   summary: CustomerRequestSourceAuditSummary;
   unresolved: CustomerRequestSourceAuditRow[];
 };
 
 export async function getCustomerRequestSourceAudit(branch = 'all') {
-  const { data, error } = await supabase.rpc('get_customer_request_source_audit_v4', {
+  const { data, error } = await supabase.rpc('get_customer_request_source_audit_v5', {
     p_branch: branch === 'all' ? null : branch,
   });
   if (error) throw new Error(error.message);
