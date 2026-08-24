@@ -166,6 +166,15 @@ export default function CustomerRequestDetailsDrawer({
     }
   };
 
+  const customerFollowupHref = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set('quickFollowup', '1');
+    if (request.customer_code) params.set('code', request.customer_code);
+    if (request.customer_name) params.set('name', request.customer_name);
+    if (request.customer_phone) params.set('phone', request.customer_phone);
+    return `/customer-service?${params.toString()}`;
+  }, [request.customer_code, request.customer_name, request.customer_phone]);
+
   const totalPoints = pointsEvents.reduce((sum, event) => sum + Number(event.points || 0), 0);
 
   return (
@@ -208,7 +217,7 @@ export default function CustomerRequestDetailsDrawer({
             <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><UsersRound size={17} className="text-[var(--dawaa-theme-primary)]" /> العميل</div>
               <div className="mt-3 space-y-2 text-sm"><div><span className="text-[var(--dawaa-theme-muted)]">الاسم: </span><strong>{view.customer.name || 'غير مربوط'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">الكود: </span><strong>{view.customer.code || '—'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">الهاتف: </span><strong>{displayEgyptianPhone(request.customer_phone || '') || '—'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">الفرع: </span><strong>{request.branch || '—'}</strong></div></div>
-              <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={openWhatsApp} className="btn-secondary flex items-center gap-2 text-xs"><MessageCircle size={14} /> واتساب</button>{request.customer_phone ? <a href={`tel:${request.customer_phone}`} className="btn-secondary flex items-center gap-2 text-xs"><Phone size={14} /> اتصال</a> : null}{request.customer_phone ? <button type="button" onClick={() => void copyPhone()} className="btn-secondary flex items-center gap-2 text-xs"><Copy size={14} /> نسخ الرقم</button> : null}{request.customer_id ? <Link to={`/customers/${request.customer_id}`} className="btn-secondary text-xs">ملف العميل</Link> : null}</div>
+              <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={openWhatsApp} className="btn-secondary flex items-center gap-2 text-xs"><MessageCircle size={14} /> واتساب</button>{request.customer_phone ? <a href={`tel:${request.customer_phone}`} className="btn-secondary flex items-center gap-2 text-xs"><Phone size={14} /> اتصال</a> : null}{request.customer_phone ? <button type="button" onClick={() => void copyPhone()} className="btn-secondary flex items-center gap-2 text-xs"><Copy size={14} /> نسخ الرقم</button> : null}{request.customer_id ? <Link to={`/customers/${request.customer_id}`} className="btn-secondary text-xs">ملف العميل</Link> : null}<Link to={customerFollowupHref} className="btn-secondary text-xs">متابعة العميل</Link></div>
             </div>
             <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><PackageCheck size={17} className="text-[var(--dawaa-status-success-text)]" /> الطلب والتوفير</div>
