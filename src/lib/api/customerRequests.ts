@@ -1,5 +1,4 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { matchesOrderedSegments } from '@/lib/utils';
 
 export type CustomerRequestStatus =
   | 'new'
@@ -199,34 +198,30 @@ export async function getCustomerRequests(
   options: { status?: string; branch?: string; search?: string } = {}
 ) {
   requireSupabaseConfig();
-
-  let query = supabase
-    .from('customer_requests')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(500);
-
-  if (options.status && options.status !== 'all') query = query.eq('status', options.status);
-  if (options.branch && options.branch !== 'all') query = query.eq('branch', options.branch);
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-
-  const rows = (data ?? []) as CustomerRequest[];
-  const q = (options.search || '').trim();
-  if (!q) return rows;
-  return rows.filter((row) =>
-    [
-      row.customer_name,
-      row.customer_code,
-      row.customer_phone,
-      row.medicine_name,
-      row.doctor_name,
-      row.supplier_hint,
-    ]
-      .filter(Boolean)
-      .some((value) => matchesOrderedSegments(String(value), q))
+  const { getCustomerRequestsPage } = await import(
+    '@/features/customer-requests/data/customerRequestsRepository'
   );
+
+  const rows: CustomerRequest[] = [];
+  let page = 1;
+  let total = 0;
+  do {
+    const result = await getCustomerRequestsPage({
+      status: options.status || 'all',
+      branch: options.branch || 'all',
+      search: options.search || '',
+      quickFilter: 'all',
+      page,
+      pageSize: 100,
+      includeCount: page === 1,
+    });
+    if (page === 1) total = result.count;
+    rows.push(...result.rows);
+    if (!result.rows.length || rows.length >= 500) break;
+    page += 1;
+  } while (rows.length < Math.min(total || 500, 500));
+
+  return rows.slice(0, 500);
 }
 
 export async function getCustomerRequestEvents(requestId: string) {
