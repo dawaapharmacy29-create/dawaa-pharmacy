@@ -172,6 +172,14 @@ requireTokens('src/lib/api/customerRequestDataQuality.ts', [
   'p_keep_request_branch',
 ]);
 
+requireTokens('supabase/migrations/20260824190000_doctor_incentive_customer_request_alignment_v1.sql', [
+  'calculate_staff_incentive_egp',
+  'get_doctor_pillar_breakdown',
+  'dawaa_current_points_cycle_label_v1',
+  "'customer_request_incentive','طلبات العملاء'",
+  "et.status in ('active','approved')",
+]);
+
 requireTokens('supabase/migrations/20260824185500_shortage_manage_permission_v1.sql', [
   'dawaa_shortage_permission_allowed_v1',
   "'manage_shortages'",
