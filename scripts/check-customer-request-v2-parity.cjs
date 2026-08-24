@@ -97,6 +97,21 @@ requireTokens('supabase/migrations/20260824153500_customer_request_next_action_a
   'idx_customer_requests_next_action_at_open',
 ]);
 
+requireTokens('supabase/migrations/20260824174000_customer_request_search_indexes_v2.sql', [
+  'gin_trgm_ops',
+  'customer_name',
+  'medicine_name',
+  'doctor_name',
+  'product_code',
+]);
+
+requireTokens('supabase/migrations/20260824175000_customer_request_operational_indexes_v2.sql', [
+  'requested_at desc',
+  'branch, requested_at desc',
+  'doctor_id, requested_at desc',
+  'status, requested_at desc',
+]);
+
 requireTokens('supabase/migrations/20260824173000_customer_request_summary_v2.sql', [
   'get_customer_requests_command_center_summary_v2',
   'get_customer_requests_command_center_summary',
