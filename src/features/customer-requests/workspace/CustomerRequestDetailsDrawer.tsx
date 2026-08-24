@@ -66,6 +66,8 @@ export default function CustomerRequestDetailsDrawer({
   const { user } = useAuth();
   const [events, setEvents] = useState<CustomerRequestEvent[]>([]);
   const [pointsEvents, setPointsEvents] = useState<CustomerRequestIncentiveEventRow[]>([]);
+  const [historyError, setHistoryError] = useState('');
+  const [pointsError, setPointsError] = useState('');
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState('');
@@ -97,13 +99,25 @@ export default function CustomerRequestDetailsDrawer({
 
   const reloadDetails = async () => {
     setLoadingDetails(true);
+    setHistoryError('');
+    setPointsError('');
     try {
-      const [history, points] = await Promise.all([
+      const [historyResult, pointsResult] = await Promise.allSettled([
         getCustomerRequestEvents(request.id),
-        getCustomerRequestIncentiveEvents(request.id).catch(() => []),
+        getCustomerRequestIncentiveEvents(request.id),
       ]);
-      setEvents(history);
-      setPointsEvents(points);
+
+      if (historyResult.status === 'fulfilled') {
+        setEvents(historyResult.value);
+      } else {
+        setHistoryError(historyResult.reason instanceof Error ? historyResult.reason.message : 'تعذر تحميل سجل التنفيذ');
+      }
+
+      if (pointsResult.status === 'fulfilled') {
+        setPointsEvents(pointsResult.value);
+      } else {
+        setPointsError(pointsResult.reason instanceof Error ? pointsResult.reason.message : 'تعذر تحميل نقاط الطلب');
+      }
     } finally {
       setLoadingDetails(false);
     }
@@ -247,12 +261,12 @@ export default function CustomerRequestDetailsDrawer({
 
           <section className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><CheckCircle2 size={17} className="text-[var(--dawaa-status-success-text)]" /> نقاط طلب العميل</div><div className="flex items-center gap-2"><strong className="text-lg text-[var(--dawaa-theme-primary)]">{totalPoints.toLocaleString('ar-EG')} نقطة</strong>{request.doctor_id ? <Link to={`/staff/${request.doctor_id}`} className="btn-secondary text-[10px]">ملف الدكتور</Link> : null}</div></div>
-            {pointsEvents.length ? <div className="mt-3 space-y-2">{pointsEvents.map((event) => <div key={event.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><div><strong>{eventLabel(event)}</strong><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{formatDateTime(event.event_at)} · {event.policy_version}</div></div><span className="font-black text-[var(--dawaa-status-success-text)]">+{event.points}</span></div>)}</div> : <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد نقاط معتمدة على هذا الطلب حتى الآن. إذا كانت الهوية ناقصة ستظل النقاط غير مسوّاة حتى يتم إصلاح الربط.</div>}
+            {pointsError ? <div className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">تعذر تحميل نقاط الطلب: {pointsError}</div> : pointsEvents.length ? <div className="mt-3 space-y-2">{pointsEvents.map((event) => <div key={event.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><div><strong>{eventLabel(event)}</strong><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{formatDateTime(event.event_at)} · {event.policy_version}</div></div><span className="font-black text-[var(--dawaa-status-success-text)]">+{event.points}</span></div>)}</div> : <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد نقاط معتمدة على هذا الطلب حتى الآن. إذا كانت الهوية ناقصة ستظل النقاط غير مسوّاة حتى يتم إصلاح الربط.</div>}
           </section>
 
           <section className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
             <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><History size={17} /> سجل التنفيذ</div>{loadingDetails ? <Loader2 size={15} className="animate-spin text-[var(--dawaa-theme-muted)]" /> : null}</div>
-            <div className="mt-3 space-y-2">{events.length ? events.map((event) => <div key={event.id} className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><div className="flex items-center justify-between gap-2"><strong>{event.action || 'تحديث'}</strong><span className="text-[10px] text-[var(--dawaa-theme-muted)]">{formatDateTime(event.created_at)}</span></div><div className="mt-1 leading-5 text-[var(--dawaa-theme-text)]">{event.notes || 'بدون ملاحظات'}</div><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{event.created_by_name || 'النظام'}</div></div>) : <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد أحداث مسجلة بعد.</div>}</div>
+            <div className="mt-3 space-y-2">{historyError ? <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">تعذر تحميل سجل التنفيذ: {historyError}</div> : events.length ? events.map((event) => <div key={event.id} className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><div className="flex items-center justify-between gap-2"><strong>{event.action || 'تحديث'}</strong><span className="text-[10px] text-[var(--dawaa-theme-muted)]">{formatDateTime(event.created_at)}</span></div><div className="mt-1 leading-5 text-[var(--dawaa-theme-text)]">{event.notes || 'بدون ملاحظات'}</div><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{event.created_by_name || 'النظام'}</div></div>) : <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد أحداث مسجلة بعد.</div>}</div>
           </section>
         </div>
       </aside>
