@@ -77,6 +77,8 @@ for (const file of walk('src')) {
     )
   )
     failures.push(`Legacy customer-service queue contract is forbidden: ${file}`);
+  if (/customer_service_manager_cases|customerServiceManagerCases|ManagerCasesPanel/.test(source))
+    failures.push(`Orphan customer-service manager-case contract is forbidden: ${file}`);
   if (
     /\.from\(['"](?:customer_service_daily_queue_items|customer_service_followup_events)['"]\)[\s\S]{0,500}?\.(?:insert|update|upsert|delete)\s*\(/.test(
       source
