@@ -105,6 +105,18 @@ requireTokens('supabase/migrations/20260824174000_customer_request_search_indexe
   'product_code',
 ]);
 
+requireTokens('supabase/migrations/20260824180000_customer_request_summary_alignment_v2.sql', [
+  "'attention'",
+  "'ready'",
+  'dawaa_customer_request_sla_hours',
+  "'followup_due'",
+  "'fulfillment_rate'",
+]);
+
+requireTokens('src/features/customer-requests/workspace/CustomerRequestQueueStrip.tsx', [
+  'summary.attention',
+]);
+
 requireTokens('supabase/migrations/20260824175000_customer_request_operational_indexes_v2.sql', [
   'requested_at desc',
   'branch, requested_at desc',
@@ -247,6 +259,12 @@ const pointSettlementMigration = read('supabase/migrations/20260824162000_custom
 if (!pointSettlementMigration.includes('drop trigger if exists request_self_log_settlement') ||
     !pointSettlementMigration.includes('drop trigger if exists trg_set_customer_request_points_tier')) {
   failures.push('legacy Customer Request point writers must remain retired so the versioned incentive ledger is the only active point source');
+}
+
+const queueRepository = read('src/features/customer-requests/data/customerRequestsRepository.ts');
+if (!/quick === 'urgent'[\s\S]{0,220}not\('status', 'in'/.test(queueRepository) ||
+    !/quick === 'unassigned'[\s\S]{0,220}not\('status', 'in'/.test(queueRepository)) {
+  failures.push('urgent and unassigned queues should exclude final statuses to match their summary counters');
 }
 
 const requestRepository = read('src/features/customer-requests/data/customerRequestsRepository.ts');
