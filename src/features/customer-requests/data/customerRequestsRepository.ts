@@ -151,6 +151,12 @@ function safeSearch(value: string) {
   return value.trim().replace(/[,%()]/g, ' ');
 }
 
+function followupDueOrFilter() {
+  const now = new Date().toISOString();
+  const today = cairoTodayDateText();
+  return `next_action_at.lte.${now},and(next_action_at.is.null,due_date.lte.${today})`;
+}
+
 export async function getCustomerRequestsCommandSummary(branch = 'all') {
   const { data, error } = await supabase.rpc('get_customer_requests_command_center_summary', {
     p_branch: branch === 'all' ? null : branch,
@@ -162,11 +168,11 @@ export async function getCustomerRequestsCommandSummary(branch = 'all') {
     .from('customer_requests')
     .select('id', { count: 'exact', head: true })
     .not('status', 'in', `(${CLOSED.join(',')})`)
-    .not('due_date', 'is', null)
-    .lte('due_date', new Date().toISOString());
+    .or(followupDueOrFilter());
   if (branchAliases.length === 1) followupQuery = followupQuery.eq('branch', branchAliases[0]);
   if (branchAliases.length > 1) followupQuery = followupQuery.in('branch', branchAliases);
-  const { count: followupCount } = await followupQuery;
+  const { count: followupCount, error: followupError } = await followupQuery;
+  if (followupError) throw new Error(followupError.message);
 
   return { ...((data || {}) as CustomerRequestCommandSummary), followup_due: Number(followupCount || 0) };
 }
@@ -192,9 +198,15 @@ export async function getCustomerRequestsPage(
 
   let query = supabase.from('customer_requests').select('*', { count: 'exact' });
   if ((options.quickFilter || 'all') === 'followup_due') {
-    query = query.order('due_date', { ascending: true, nullsFirst: false }).order('is_urgent', { ascending: false });
+    query = query
+      .order('next_action_at', { ascending: true, nullsFirst: false })
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('is_urgent', { ascending: false });
   } else {
-    query = query.order('is_urgent', { ascending: false }).order('updated_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false, nullsFirst: false });
+    query = query
+      .order('is_urgent', { ascending: false })
+      .order('updated_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false, nullsFirst: false });
   }
 
   if (options.requestId) query = query.eq('id', options.requestId);
@@ -235,7 +247,7 @@ export async function getCustomerRequestsPage(
   const quick = options.quickFilter || 'all';
   if (quick === 'today') query = query.gte('requested_at', startOfTodayIso());
   if (quick === 'recent') query = query.gte('requested_at', daysAgoIso(7));
-  if (quick === 'followup_due') query = query.not('status', 'in', `(${CLOSED.join(',')})`).not('due_date', 'is', null).lte('due_date', new Date().toISOString());
+  if (quick === 'followup_due') query = query.not('status', 'in', `(${CLOSED.join(',')})`).or(followupDueOrFilter());
   if (quick === 'ready') query = query.in('status', ['available', 'arrived']);
   if (quick === 'urgent') query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
   if (quick === 'unlinked') query = query.is('customer_id', null);
