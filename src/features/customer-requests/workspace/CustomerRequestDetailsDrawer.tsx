@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, History, Loader2, MessageCircle, PackageCheck, Phone, ShoppingCart, Truck, UsersRound, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, Copy, History, Loader2, MessageCircle, PackageCheck, Phone, ShoppingCart, Truck, UsersRound, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -7,16 +7,24 @@ import { displayEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
 import { getCustomerRequestEvents, type CustomerRequest, type CustomerRequestEvent } from '@/lib/api/customerRequests';
 import {
   cancelCustomerRequest,
-  confirmCustomerRequest,
   contactCustomerForRequest,
-  deliverCustomerRequest,
   executeCustomerRequestPrimaryAction,
   recordCustomerRequestSourcing,
+  reopenCustomerRequestSearch,
   sendCustomerRequestToShortages,
 } from '../commands';
 import { getCustomerRequestIncentiveEvents, type CustomerRequestIncentiveEventRow } from '../data';
 import { customerRequestOperationalView } from '../domain/request';
-import { customerRequestIsClosedStatus, customerRequestPrimaryAction, customerRequestStatusLabel } from '../domain/status';
+import { customerRequestIsClosedStatus, customerRequestPrimaryAction, customerRequestStatusLabel, normalizeCustomerRequestStatus } from '../domain/status';
+
+const STAGE_RAIL = [
+  { label: 'تسجيل', statuses: ['new'] },
+  { label: 'مراجعة', statuses: ['purchasing_review'] },
+  { label: 'بحث وتوفير', statuses: ['searching_suppliers', 'needs_customer_confirmation', 'customer_confirmed', 'sourcing'] },
+  { label: 'جاهز', statuses: ['available', 'arrived'] },
+  { label: 'تواصل', statuses: ['customer_contacted'] },
+  { label: 'تسليم', statuses: ['delivered', 'closed'] },
+] as const;
 
 function formatDateTime(value?: string | null) {
   if (!value) return '—';
@@ -36,6 +44,11 @@ function eventLabel(event: CustomerRequestIncentiveEventRow) {
   return event.event_key === 'request_registered' ? 'نقاط تسجيل الطلب' : 'نقاط تحقيق الطلب';
 }
 
+function stageIndex(status?: string | null) {
+  const normalized = normalizeCustomerRequestStatus(status);
+  return STAGE_RAIL.findIndex((stage) => (stage.statuses as readonly string[]).includes(normalized));
+}
+
 export default function CustomerRequestDetailsDrawer({
   request,
   onClose,
@@ -52,10 +65,12 @@ export default function CustomerRequestDetailsDrawer({
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState('');
   const [followupAt, setFollowupAt] = useState('');
+  const [sourcingExpectedArrival, setSourcingExpectedArrival] = useState('');
   const [sourcingOutcome, setSourcingOutcome] = useState<'available' | 'needs_customer_confirmation' | 'not_available'>('available');
 
   const view = useMemo(() => customerRequestOperationalView(request), [request]);
   const primary = customerRequestPrimaryAction(request.status);
+  const currentStageIndex = stageIndex(request.status);
   const actor = { id: user?.id || null, name: user?.name || null };
 
   const reloadDetails = async () => {
@@ -106,6 +121,17 @@ export default function CustomerRequestDetailsDrawer({
     );
   };
 
+  const copyPhone = async () => {
+    const phone = displayEgyptianPhone(request.customer_phone || '') || request.customer_phone || '';
+    if (!phone) return toast.error('لا يوجد رقم هاتف للعميل');
+    try {
+      await navigator.clipboard.writeText(phone);
+      toast.success('تم نسخ رقم العميل');
+    } catch {
+      toast.error('تعذر نسخ رقم العميل تلقائيًا');
+    }
+  };
+
   const totalPoints = pointsEvents.reduce((sum, event) => sum + Number(event.points || 0), 0);
 
   return (
@@ -123,6 +149,17 @@ export default function CustomerRequestDetailsDrawer({
         </header>
 
         <div className="space-y-4 p-4 md:p-5">
+          <section className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+              {STAGE_RAIL.map((stage, index) => {
+                const active = currentStageIndex === index;
+                const done = currentStageIndex > index || ['delivered', 'closed'].includes(normalizeCustomerRequestStatus(request.status));
+                return <div key={stage.label} className={`rounded-xl border px-2 py-2 text-center text-[10px] font-black ${active ? 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]' : done ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]'}`}>{done && !active ? '✓ ' : ''}{stage.label}</div>;
+              })}
+            </div>
+            {normalizeCustomerRequestStatus(request.status) === 'not_available' ? <div className="mt-2 rounded-lg bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">غير متوفر حاليًا — يمكن إعادة فتح البحث عن بديل بسبب موثق أو إلغاء الطلب.</div> : null}
+          </section>
+
           <section className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)]/40 p-4">
             <div className="text-[11px] font-black text-[var(--dawaa-theme-muted)]">المطلوب الآن</div>
             <div className="mt-1 text-lg font-black text-[var(--dawaa-theme-primary)]">{primary.label}</div>
@@ -137,7 +174,7 @@ export default function CustomerRequestDetailsDrawer({
             <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><UsersRound size={17} className="text-[var(--dawaa-theme-primary)]" /> العميل</div>
               <div className="mt-3 space-y-2 text-sm"><div><span className="text-[var(--dawaa-theme-muted)]">الاسم: </span><strong>{view.customer.name || 'غير مربوط'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">الكود: </span><strong>{view.customer.code || '—'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">الهاتف: </span><strong>{displayEgyptianPhone(request.customer_phone || '') || '—'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">الفرع: </span><strong>{request.branch || '—'}</strong></div></div>
-              <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={openWhatsApp} className="btn-secondary flex items-center gap-2 text-xs"><MessageCircle size={14} /> واتساب</button>{request.customer_phone ? <a href={`tel:${request.customer_phone}`} className="btn-secondary flex items-center gap-2 text-xs"><Phone size={14} /> اتصال</a> : null}{request.customer_id ? <Link to={`/customers/${request.customer_id}`} className="btn-secondary text-xs">ملف العميل</Link> : null}</div>
+              <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={openWhatsApp} className="btn-secondary flex items-center gap-2 text-xs"><MessageCircle size={14} /> واتساب</button>{request.customer_phone ? <a href={`tel:${request.customer_phone}`} className="btn-secondary flex items-center gap-2 text-xs"><Phone size={14} /> اتصال</a> : null}{request.customer_phone ? <button type="button" onClick={() => void copyPhone()} className="btn-secondary flex items-center gap-2 text-xs"><Copy size={14} /> نسخ الرقم</button> : null}{request.customer_id ? <Link to={`/customers/${request.customer_id}`} className="btn-secondary text-xs">ملف العميل</Link> : null}</div>
             </div>
             <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><PackageCheck size={17} className="text-[var(--dawaa-status-success-text)]" /> الطلب والتوفير</div>
@@ -154,11 +191,11 @@ export default function CustomerRequestDetailsDrawer({
 
             {(primary.action === 'start_search' || primary.action === 'confirm_customer' || primary.action === 'confirm_delivery') ? <button type="button" disabled={saving} onClick={() => void primaryAction()} className="btn-primary mt-3 flex w-full items-center justify-center gap-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}{primary.label}</button> : null}
 
-            {primary.action === 'record_sourcing' ? <div className="mt-3 grid gap-2"><select className="input-dark" value={sourcingOutcome} onChange={(event) => setSourcingOutcome(event.target.value as typeof sourcingOutcome)}><option value="available">تم التوفير</option><option value="needs_customer_confirmation">يحتاج تأكيد العميل</option><option value="not_available">غير متوفر</option></select><button type="button" disabled={saving || !notes.trim()} onClick={() => void run(() => recordCustomerRequestSourcing(request, { outcome: sourcingOutcome, notes, actor }), sourcingOutcome === 'available' ? 'تم تسجيل توفير الصنف' : 'تم تسجيل نتيجة البحث')} className="btn-primary flex items-center justify-center gap-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Truck size={16} />}حفظ نتيجة التوفير</button></div> : null}
+            {primary.action === 'record_sourcing' ? <div className="mt-3 grid gap-2"><select className="input-dark" value={sourcingOutcome} onChange={(event) => setSourcingOutcome(event.target.value as typeof sourcingOutcome)}><option value="available">تم التوفير</option><option value="needs_customer_confirmation">يحتاج تأكيد العميل</option><option value="not_available">غير متوفر</option></select>{sourcingOutcome === 'available' ? <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">موعد الوصول المتوقع للصيدلية<input type="date" className="input-dark mt-1" value={sourcingExpectedArrival} onChange={(event) => setSourcingExpectedArrival(event.target.value)} /></label> : null}<button type="button" disabled={saving || !notes.trim()} onClick={() => void run(() => recordCustomerRequestSourcing(request, { outcome: sourcingOutcome, notes, expectedArrivalDate: sourcingOutcome === 'available' ? sourcingExpectedArrival || null : null, actor }), sourcingOutcome === 'available' ? 'تم تسجيل توفير الصنف' : 'تم تسجيل نتيجة البحث')} className="btn-primary flex items-center justify-center gap-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Truck size={16} />}حفظ نتيجة التوفير</button></div> : null}
 
             {primary.action === 'contact_customer' ? <div className="mt-3 space-y-2"><div className="grid grid-cols-3 gap-2"><button type="button" disabled={saving} onClick={() => void run(() => contactCustomerForRequest(request, { outcome: 'answered', notes, actor }), 'تم تسجيل تواصل العميل')} className="btn-primary">تم الرد</button><button type="button" disabled={saving} onClick={() => void run(() => contactCustomerForRequest(request, { outcome: 'no_answer', notes, actor }), 'تم تسجيل عدم الرد')} className="btn-secondary">لم يرد</button><button type="button" disabled={saving || !followupAt} onClick={() => void run(() => contactCustomerForRequest(request, { outcome: 'later', notes, followupAt: new Date(followupAt).toISOString(), actor }), 'تم تحديد المتابعة القادمة')} className="btn-secondary">لاحقًا</button></div><label className="block text-xs font-black text-[var(--dawaa-theme-muted)]">موعد المتابعة القادمة<input type="datetime-local" className="input-dark mt-1" value={followupAt} onChange={(event) => setFollowupAt(event.target.value)} /></label></div> : null}
 
-            {primary.action === 'review_exception' ? <button type="button" disabled={saving || !notes.trim()} onClick={() => void run(() => cancelCustomerRequest(request, notes, actor), 'تم إغلاق الطلب بالسبب المسجل')} className="mt-3 w-full rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-4 py-3 text-sm font-black text-[var(--dawaa-status-danger-text)]">إلغاء الطلب بسبب موثق</button> : null}
+            {primary.action === 'review_exception' ? <div className="mt-3 grid gap-2 sm:grid-cols-2"><button type="button" disabled={saving || !notes.trim()} onClick={() => void run(() => reopenCustomerRequestSearch(request, notes, actor), 'تم إعادة فتح البحث عن الصنف أو البديل')} className="btn-primary flex items-center justify-center gap-2"><Truck size={15} /> إعادة البحث / بديل</button><button type="button" disabled={saving || !notes.trim()} onClick={() => void run(() => cancelCustomerRequest(request, notes, actor), 'تم إلغاء الطلب بالسبب المسجل')} className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-4 py-3 text-sm font-black text-[var(--dawaa-status-danger-text)]">إلغاء الطلب بسبب موثق</button></div> : null}
           </section> : null}
 
           <section className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
