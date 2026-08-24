@@ -175,7 +175,8 @@ Effective from: `2026-08-24 00:00 Africa/Cairo`
 
 التطبيق يستخدم Custom Staff Auth فوق anon role، لذلك:
 - Policy/events/projections الحساسة ليست مفتوحة Direct SELECT للـanon.
-- القراءة تتم عبر SECURITY DEFINER RPCs تتحقق من `x-dawaa-user-id` أو Supabase Auth.
+- القراءة تتم عبر RLS scoped reads أو SECURITY DEFINER RPCs حسب نوع الـprojection، وكلها تتحقق من Staff Context ونطاق الفرع.
+- الكتابة المباشرة على `customer_requests` و`customer_request_events` مسحوبة من `anon/authenticated`؛ كل mutation تشغيلي يمر عبر RPC/Command Boundary فقط.
 - Staff attribution apply مسموح فقط للأدوار الإدارية المحددة.
 - المستخدم العادي لا يستطيع إنشاء طلب منسوب لدكتور آخر.
 

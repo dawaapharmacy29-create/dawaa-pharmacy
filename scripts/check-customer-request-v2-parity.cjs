@@ -372,6 +372,14 @@ requireTokens('supabase/migrations/20260824182500_customer_request_atomic_transi
   'cancel',
 ]);
 
+requireTokens('supabase/migrations/20260824201000_customer_request_command_boundary_v2.sql', [
+  'drop policy if exists customer_requests_scoped_insert',
+  'drop policy if exists customer_requests_scoped_update',
+  'revoke insert, update, delete on table public.customer_requests from anon, authenticated',
+  'drop policy if exists customer_request_events_scoped_insert',
+  'revoke insert, update, delete on table public.customer_request_events from anon, authenticated',
+]);
+
 requireTokens('supabase/migrations/20260824164500_create_customer_request_canonical_v2.sql', [
   'create_customer_request_canonical_v2',
   'create_customer_request_canonical_v1',
