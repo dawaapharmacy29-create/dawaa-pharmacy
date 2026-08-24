@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { recordBelongsToStaff, type PointLedgerRecord, type StaffLedgerTarget } from '@/lib/pointsLedger';
+import {
+  formatTransactionSource,
+  recordBelongsToStaff,
+  type PointLedgerRecord,
+  type StaffLedgerTarget,
+} from '@/lib/pointsLedger';
 
 const staff: StaffLedgerTarget = {
   id: 'staff-a',
@@ -27,5 +32,10 @@ describe('points ledger canonical staff identity', () => {
   it('uses name compatibility only when the historical record has no id', () => {
     const row: PointLedgerRecord = { employee_name: 'أحمد' };
     expect(recordBelongsToStaff(row, staff)).toBe(true);
+  });
+
+  it('labels canonical Customer Request incentive rows as Customer Requests, not list dispensing', () => {
+    const row: PointLedgerRecord = { source: 'customer_request_incentive' };
+    expect(formatTransactionSource(row)).toBe('طلبات العملاء');
   });
 });
