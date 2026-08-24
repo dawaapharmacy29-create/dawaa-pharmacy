@@ -41,25 +41,59 @@ export default function DoctorIncentiveSummaryCard({
   const [data, setData] = useState<IncentiveTotal | null>(null);
   const [pillars, setPillars] = useState<PillarRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
-    if (!staffId) return;
+    if (!staffId) {
+      setLoading(false);
+      setData(null);
+      setPillars([]);
+      setError('حساب الدكتور غير مربوط بسجل موظف معتمد، لذلك لا يمكن حساب الحافز حاليًا.');
+      return;
+    }
+
     setLoading(true);
-    void Promise.all([
+    setError('');
+    void Promise.allSettled([
       supabase.rpc('calculate_staff_incentive_egp', { p_staff_id: staffId }),
       supabase.rpc('get_doctor_pillar_breakdown', { p_staff_id: staffId }),
-    ])
-      .then(([incentiveRes, pillarRes]) => {
-        if (cancelled) return;
-        const row = Array.isArray(incentiveRes.data) ? incentiveRes.data[0] : incentiveRes.data;
+    ]).then(([incentiveResult, pillarResult]) => {
+      if (cancelled) return;
+
+      const issues: string[] = [];
+      if (incentiveResult.status === 'fulfilled' && !incentiveResult.value.error) {
+        const row = Array.isArray(incentiveResult.value.data)
+          ? incentiveResult.value.data[0]
+          : incentiveResult.value.data;
         setData((row as IncentiveTotal) || null);
-        setPillars((pillarRes.data as PillarRow[]) || []);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
+        if (!row) {
+          issues.push('لا توجد فئة حافز نشطة مرتبطة بهذا الدكتور، لذلك لا يمكن احتساب القيمة بالجنيه بعد');
+        }
+      } else {
+        setData(null);
+        const message =
+          incentiveResult.status === 'rejected'
+            ? String(incentiveResult.reason || '')
+            : incentiveResult.value.error?.message || '';
+        issues.push(`تعذر تحميل إجمالي الحافز${message ? `: ${message}` : ''}`);
+      }
+
+      if (pillarResult.status === 'fulfilled' && !pillarResult.value.error) {
+        setPillars((pillarResult.value.data as PillarRow[]) || []);
+      } else {
+        setPillars([]);
+        const message =
+          pillarResult.status === 'rejected'
+            ? String(pillarResult.reason || '')
+            : pillarResult.value.error?.message || '';
+        issues.push(`تعذر تحميل توزيع بنود النقاط${message ? `: ${message}` : ''}`);
+      }
+
+      setError(issues.join(' — '));
+      setLoading(false);
+    });
+
     return () => {
       cancelled = true;
     };
@@ -73,7 +107,26 @@ export default function DoctorIncentiveSummaryCard({
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <div className="dawaa-card w-full p-5 text-right">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="dawaa-icon-tile h-9 w-9"><Wallet size={18} /></div>
+            <span className="dawaa-title">حافزك المتوقع هذا الشهر</span>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <span className="dawaa-title text-4xl">—</span>
+          <span className="dawaa-title mb-1 text-lg">جنيه</span>
+        </div>
+        <div className="dawaa-alert dawaa-alert--warning mt-3 p-3 text-sm font-bold">
+          <AlertTriangle size={17} />
+          <span>{error || 'تعذر حساب الحافز حاليًا. راجع ربط الموظف وفئة الحافز.'}</span>
+        </div>
+      </div>
+    );
+  }
 
   const progressPct = Math.min(100, Math.round(data.progress_pct));
 
@@ -107,6 +160,13 @@ export default function DoctorIncentiveSummaryCard({
         {data.total_points} من {data.target_points} نقطة ({progressPct}%) — نقاط = {data.points_incentive_egp.toLocaleString('ar-EG')} ج
         {data.competition_bonus_egp > 0 ? ` + ${data.competition_bonus_egp.toLocaleString('ar-EG')} ج مسابقة` : ''}
       </p>
+
+      {error ? (
+        <div className="dawaa-alert dawaa-alert--warning mt-3 p-2.5 text-xs font-bold">
+          <AlertTriangle size={15} />
+          <span>{error}</span>
+        </div>
+      ) : null}
 
       {data.competition_bonus_egp > 0 ? (
         <div className="dawaa-alert dawaa-alert--warning mt-3 p-2.5 text-xs font-black">

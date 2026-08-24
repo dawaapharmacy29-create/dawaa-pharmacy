@@ -52,14 +52,19 @@ export default function CustomerRequestSourceAuditPanel({ branch }: { branch: st
   }
   if (!audit) return null;
   const s = audit.summary;
+  const sourceContractGaps =
+    s.source_missing_customer_code +
+    s.source_missing_product_code +
+    s.source_missing_recorded_staff_id;
   const exact = exactMismatch === 0;
+  const healthy = exact && sourceContractGaps === 0;
 
   return (
-    <section className={`rounded-3xl border p-4 ${exact ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]/[0.045]' : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.05]'}`}>
+    <section className={`rounded-3xl border p-4 ${healthy ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]/[0.045]' : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.05]'}`}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]">
-            {exact ? <ShieldCheck size={20} className="text-[var(--dawaa-status-success-text)]" /> : <AlertTriangle size={20} className="text-[var(--dawaa-status-warning-text)]" />}
+            {healthy ? <ShieldCheck size={20} className="text-[var(--dawaa-status-success-text)]" /> : <AlertTriangle size={20} className="text-[var(--dawaa-status-warning-text)]" />}
             تدقيق Base44 ↔ تطبيق الإدارة
           </div>
           <p className="mt-1 text-xs leading-6 text-[var(--dawaa-theme-muted)]">
@@ -74,10 +79,25 @@ export default function CustomerRequestSourceAuditPanel({ branch }: { branch: st
       <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
         <Metric icon={<Database size={15} />} label="طلبات المصدر" value={s.total} tone="cyan" />
         <Metric icon={<CheckCircle2 size={15} />} label="اختلافات المصدر" value={exactMismatch} tone={exact ? 'green' : 'amber'} />
-        <Metric icon={<AlertTriangle size={15} />} label="بدون فرع" value={s.no_branch} tone={s.no_branch ? 'amber' : 'green'} />
         <Metric icon={<Link2Off size={15} />} label="عميل غير مربوط" value={s.unlinked_customer} tone={s.unlinked_customer ? 'amber' : 'green'} />
-        <Metric icon={<AlertTriangle size={15} />} label="تعارض مزامنة" value={s.sync_conflicts} tone={s.sync_conflicts ? 'red' : 'green'} />
+        <Metric icon={<Link2Off size={15} />} label="صنف غير مربوط" value={s.unlinked_product} tone={s.unlinked_product ? 'amber' : 'green'} />
+        <Metric icon={<AlertTriangle size={15} />} label="مسجل غير مربوط" value={s.unlinked_registrar} tone={s.unlinked_registrar ? 'amber' : 'green'} />
         <Metric icon={<Clock3 size={15} />} label="آخر وصول" valueText={fmt(s.last_seen)} tone="slate" />
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs font-black text-[var(--dawaa-theme-heading)]">عقد الهوية القادم من Base44</div>
+          <span className={`rounded-lg px-2 py-1 text-[10px] font-black ${sourceContractGaps ? 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]' : 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'}`}>
+            {sourceContractGaps ? `${sourceContractGaps.toLocaleString('ar-EG')} فجوة هوية` : 'العقد مكتمل'}
+          </span>
+        </div>
+        <p className="mt-1 text-[10px] font-bold leading-5 text-[var(--dawaa-theme-muted)]">الأفضل أن يصل كل طلب بـ customer_code + product_code + recorded_staff_id. الاسم وحده لا يمنح نقاطًا ولا يربط صنفًا تلقائيًا.</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <Detail label="بدون customer_code ثابت بالمصدر" value={s.source_missing_customer_code} />
+          <Detail label="بدون product_code ثابت بالمصدر" value={s.source_missing_product_code} />
+          <Detail label="بدون recorded_staff_id ثابت بالمصدر" value={s.source_missing_recorded_staff_id} />
+        </div>
       </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
@@ -88,6 +108,8 @@ export default function CustomerRequestSourceAuditPanel({ branch }: { branch: st
         <Detail label="قناة الطلب" value={s.channel_mismatch} />
         <Detail label="الفرع مقابل المصدر" value={s.branch_mismatch} />
         <Detail label="مسجل الطلب" value={s.recorded_by_mismatch} />
+        <Detail label="تعارض مزامنة" value={s.sync_conflicts} />
+        <Detail label="بدون فرع" value={s.no_branch} />
         <Detail label="المصدر متقدم عن الإدارة" value={s.source_status_ahead} />
       </div>
 

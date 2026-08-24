@@ -680,6 +680,8 @@ const SHIFT_SUPERVISOR_BASE = [
   'view_customer_details',
   'view_customer_360',
   'view_customer_service',
+  'view_customer_requests',
+  'manage_customer_requests',
   'create_followup',
   'edit_followup',
   'whatsapp_customer',

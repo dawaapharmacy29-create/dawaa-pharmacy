@@ -11,7 +11,7 @@ import {
   Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
+import { useAuth, getSafeCurrentUserId, userHasPermission } from '@/hooks/useAuth';
 import { logActivity, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { BRANCHES } from '@/lib/constants';
@@ -698,6 +698,8 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   const config = configs[module];
   const { user } = useAuth();
   const canManageModule = isManagerRole(user) || user?.permissions?.[managePermissionForModule(module)] === true;
+  const canReturnCustomerRequest =
+    canManageModule && userHasPermission(user, 'manage_customer_requests');
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
   const [storyRows, setStoryRows] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(true);
@@ -871,47 +873,32 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   };
 
   const returnShortageToCustomerRequest = async (row: Record<string, unknown>) => {
-    const requestId = String(row.source_customer_request_id || '');
-    if (!requestId) {
+    if (!canReturnCustomerRequest) {
+      toast.error('إعادة الصنف لطلبات العملاء تحتاج صلاحية إدارة النواقص وطلبات العملاء معًا.');
+      return;
+    }
+    if (!row.source_customer_request_id) {
       toast.error('هذا الصنف غير مرتبط بطلب عميل.');
       return;
     }
-    const now = new Date().toISOString();
-    const { error: requestError } = await supabase
-      .from('customer_requests')
-      .update({
-        status: 'available',
-        moved_to_shortage_at: null,
-        updated_at: now,
-      })
-      .eq('id', requestId);
-    if (requestError) {
-      toast.error(`تعذر إعادة الطلب: ${requestError.message}`);
-      return;
-    }
-    const { error: shortageError } = await supabase
-      .from('shortage_items')
-      .update({
-        status: 'resolved',
-        returned_to_customer_request_at: now,
-        updated_at: now,
-      })
-      .eq('id', row.id);
-    if (shortageError) {
-      toast.error(`تم تحديث الطلب لكن تعذر تحديث النواقص: ${shortageError.message}`);
-      return;
-    }
-    await supabase.from('customer_request_events').insert({
-      request_id: requestId,
-      old_status: 'not_available',
-      new_status: 'available',
-      action: 'إعادة الطلب من النواقص',
-      notes: `تمت إعادة متابعة الصنف من النواقص: ${String(row.item_name || row.title || '')}`,
-      created_by: getSafeCurrentUserId(),
-      created_by_name: user?.name || 'النظام',
-      created_at: now,
+
+    const { data, error } = await supabase.rpc('return_shortage_to_customer_request_v2', {
+      p_shortage_item_id: String(row.id || ''),
+      p_notes: `تم توفير الصنف من النواقص: ${String(row.item_name || row.title || 'الصنف')}`,
     });
-    toast.success('تمت إعادة الطلب إلى طلبات العملاء');
+    if (error) {
+      const message =
+        error.message.includes('customer_request_search_not_started')
+          ? 'ابدأ مراجعة/بحث طلب العميل أولًا قبل تسجيل الصنف كمتوفر.'
+          : error.message.includes('customer_request_confirmation_required')
+            ? 'الطلب ما زال يحتاج تأكيد العميل قبل اعتماد التوفير.'
+            : error.message;
+      toast.error(`تعذر إعادة الطلب: ${message}`);
+      return;
+    }
+
+    const result = (data || {}) as Record<string, unknown>;
+    toast.success(result.changed === false ? 'الطلب كان بالفعل في مرحلة متقدمة وتم توحيد حالة النواقص.' : 'تم توفير الصنف وإعادته لطلبات العملاء.');
     await loadRows();
   };
 
@@ -1109,7 +1096,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
                         ) : (
                           <span className="text-xs font-bold text-slate-400">مشاهدة فقط</span>
                         )}
-                        {canManageModule && module === 'shortages' && row.source_customer_request_id && (
+                        {canReturnCustomerRequest && module === 'shortages' && row.source_customer_request_id && (
                           <button
                             type="button"
                             onClick={() => returnShortageToCustomerRequest(row)}

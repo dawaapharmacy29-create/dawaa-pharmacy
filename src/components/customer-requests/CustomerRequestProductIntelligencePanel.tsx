@@ -59,6 +59,13 @@ function pick(row: Record<string, unknown>, aliases: string[]) {
   return found?.[1];
 }
 
+function isReviewableCandidate(candidate: Candidate | undefined, scoreGap: number) {
+  if (!candidate || candidate.blocked_reason) return false;
+  return n(candidate.match_score) >= 78
+    && n(candidate.name_similarity) >= 65
+    && n(scoreGap) >= 8;
+}
+
 function movementDate(value: unknown) {
   if (value === null || value === undefined || value === '') return new Date().toISOString().slice(0, 10);
   const text = String(value).trim();
@@ -102,10 +109,16 @@ export default function CustomerRequestProductIntelligencePanel({ branch, onChan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branch]);
 
-  const strongReview = useMemo(() => queue.rows.filter((row) => n(row.best_score) >= 78 && row.candidates[0]?.blocked_reason === null), [queue.rows]);
+  const strongReview = useMemo(
+    () => queue.rows.filter((row) => isReviewableCandidate(row.candidates[0], row.score_gap)),
+    [queue.rows]
+  );
 
-  const applyCandidate = async (requestId: string, candidate: Candidate) => {
+  const applyCandidate = async (requestId: string, candidate: Candidate, scoreGap: number) => {
     if (candidate.blocked_reason) return toast.error(candidate.blocked_reason);
+    if (!isReviewableCandidate(candidate, scoreGap)) {
+      return toast.error('درجة المطابقة أو الفارق عن البديل غير كافيين للربط المباشر. استخدم مراجعة الصنف اليدوية بدل التخمين.');
+    }
     setBusyId(requestId);
     try {
       await linkCustomerRequestProduct(requestId, candidate.product_id);
@@ -212,6 +225,7 @@ export default function CustomerRequestProductIntelligencePanel({ branch, onChan
         <div className="mt-4 space-y-2">
           {queue.rows.slice(0, 40).map((row) => {
             const best = row.candidates[0];
+            const reviewable = isReviewableCandidate(best, row.score_gap);
             return (
               <div key={row.id} className="rounded-2xl border border-slate-700 bg-slate-950/45 p-3">
                 <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
@@ -233,9 +247,11 @@ export default function CustomerRequestProductIntelligencePanel({ branch, onChan
                       </div>
                     ) : <div className="mt-2 text-xs font-bold text-amber-200">لا يوجد مرشح قوي من الكتالوج الحالي.</div>}
                   </div>
-                  {best && !best.blocked_reason && (
-                    <button type="button" onClick={() => void applyCandidate(row.id, best)} disabled={busyId === row.id} className="h-10 shrink-0 rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-4 text-xs font-black text-cyan-100 hover:bg-cyan-500/20">{busyId === row.id ? 'جاري الربط…' : `اعتماد #${best.product_code}`}</button>
-                  )}
+                  {best && reviewable ? (
+                    <button type="button" onClick={() => void applyCandidate(row.id, best, row.score_gap)} disabled={busyId === row.id} className="h-10 shrink-0 rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-4 text-xs font-black text-cyan-100 hover:bg-cyan-500/20">{busyId === row.id ? 'جاري الربط…' : `اعتماد #${best.product_code}`}</button>
+                  ) : best ? (
+                    <div className="shrink-0 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-[11px] font-black text-[var(--dawaa-status-warning-text)]">مطابقة غير كافية — يحتاج بحث يدوي</div>
+                  ) : null}
                 </div>
               </div>
             );

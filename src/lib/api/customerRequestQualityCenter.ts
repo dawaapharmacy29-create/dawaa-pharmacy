@@ -10,6 +10,7 @@ export type QualityIssueType =
   | 'branch'
   | 'product_link'
   | 'product_code'
+  | 'registrar'
   | 'sync_conflict';
 
 export type QualityCenterRequest = CustomerRequest & {
@@ -37,6 +38,7 @@ const ISSUE_WEIGHTS: Record<QualityIssueKey, number> = {
   branch: 10,
   product_link: 28,
   product_code: 14,
+  registrar: 24,
   sync_conflict: 22,
 };
 
@@ -63,6 +65,7 @@ export function requestQualityIssueKeys(request: QualityCenterRequest): QualityI
   if (!String(request.branch || '').trim()) issues.push('branch');
   if (!request.product_id) issues.push('product_link');
   if (!String(request.product_code || '').trim()) issues.push('product_code');
+  if (!request.doctor_id) issues.push('registrar');
   if (request.sync_conflict) issues.push('sync_conflict');
   return issues;
 }
@@ -75,6 +78,7 @@ export function qualityIssueLabel(issue: QualityIssueKey) {
     branch: 'فرع غير محدد',
     product_link: 'صنف غير مربوط',
     product_code: 'كود صنف مفقود',
+    registrar: 'مسجل الطلب غير مربوط',
     sync_conflict: 'تعارض مزامنة',
   };
   return labels[issue];
@@ -169,6 +173,7 @@ export async function getCustomerRequestQualityCenter(options: {
     branch: 0,
     product_link: 0,
     product_code: 0,
+    registrar: 0,
     sync_conflict: 0,
   } as Record<QualityIssueType, number>;
 
@@ -184,7 +189,7 @@ export async function getCustomerRequestQualityCenter(options: {
     .filter(({ priorityBand }) => options.priority && options.priority !== 'all' ? priorityBand === options.priority : true)
     .filter(({ request }) => {
       if (!search) return true;
-      return [request.customer_name, request.customer_code, request.customer_phone, request.medicine_name, request.product_code, request.branch]
+      return [request.customer_name, request.customer_code, request.customer_phone, request.medicine_name, request.product_code, request.branch, request.doctor_name, request.created_by_name, request.source_assigned_employee]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(search));
     })

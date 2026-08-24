@@ -31,10 +31,19 @@ export interface CanonicalCustomerRequestIncentivePreview {
   blockedReason: string | null;
 }
 
+export interface CanonicalCustomerRequestRegistrationCredit {
+  settled: boolean;
+  points: number | null;
+  tierKey: string | null;
+  policyVersion: string | null;
+  eventId: string | null;
+}
+
 export interface CanonicalCustomerRequestCreateResult {
   request: CustomerRequest;
   duplicateRequest: CustomerRequest | null;
   incentive: CanonicalCustomerRequestIncentivePreview;
+  registrationCredit: CanonicalCustomerRequestRegistrationCredit;
 }
 
 function required(value: unknown, label: string) {
@@ -94,7 +103,7 @@ export async function createCanonicalCustomerRequest(
     throw new Error('الدكتور المختار غير مربوط بموظف معتمد');
   }
 
-  const { data, error } = await supabase.rpc('create_customer_request_canonical_v1', {
+  const { data, error } = await supabase.rpc('create_customer_request_canonical_v2', {
     p_customer_id: customerId,
     p_product_id: productId,
     p_doctor_id: doctorId,
@@ -117,9 +126,19 @@ export async function createCanonicalCustomerRequest(
   if (!request?.id) throw new Error('تمت العملية بدون إرجاع الطلب المسجل');
   const duplicate = Boolean(result.duplicate);
 
+  const creditRow = (result.registration_credit || {}) as Record<string, unknown>;
+  const registrationCredit: CanonicalCustomerRequestRegistrationCredit = {
+    settled: Boolean(creditRow.settled),
+    points: numeric(creditRow.points),
+    tierKey: creditRow.tier_key ? String(creditRow.tier_key) : null,
+    policyVersion: creditRow.policy_version ? String(creditRow.policy_version) : null,
+    eventId: creditRow.event_id ? String(creditRow.event_id) : null,
+  };
+
   return {
     request,
     duplicateRequest: duplicate ? request : null,
     incentive,
+    registrationCredit,
   };
 }

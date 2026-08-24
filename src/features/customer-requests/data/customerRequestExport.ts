@@ -23,14 +23,7 @@ function cairoDateTime(value?: string | null) {
 }
 
 function customerClass(request: CustomerRequest) {
-  const payload = request.source_payload || {};
-  const value = String(
-    request.customer_segment ||
-      payload.customer_segment ||
-      payload.segment ||
-      payload.customer_type ||
-      ''
-  ).toLowerCase();
+  const value = String(request.customer_segment || '').toLowerCase();
   if (/vip|very|مهم جدا/.test(value)) return 'مهم جدًا';
   if (/important|high|مهم/.test(value)) return 'مهم';
   return 'عادي';
@@ -82,8 +75,13 @@ export async function getCustomerRequestsForExport(
   let total = 0;
 
   do {
-    const result = await getCustomerRequestsPage({ ...filters, page, pageSize: EXPORT_PAGE_SIZE });
-    total = result.count;
+    const result = await getCustomerRequestsPage({
+      ...filters,
+      page,
+      pageSize: EXPORT_PAGE_SIZE,
+      includeCount: page === 1,
+    });
+    if (page === 1) total = result.count;
     rows.push(...result.rows);
     page += 1;
     if (!result.rows.length) break;

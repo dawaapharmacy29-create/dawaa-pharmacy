@@ -112,9 +112,11 @@ export default function CanonicalCreateRequestDialog({
       });
 
       if (result.duplicateRequest) {
-        toast.warning('يوجد طلب مفتوح لنفس العميل والصنف خلال آخر 24 ساعة — تم فتح الطلب الموجود بدل إنشاء نسخة مكررة');
+        toast.warning('يوجد طلب مفتوح لنفس العميل والصنف خلال آخر 24 ساعة — تم فتح الطلب الموجود بدل إنشاء نسخة مكررة ولم تُحتسب نقاط تسجيل جديدة');
+      } else if (result.registrationCredit.settled && result.registrationCredit.points !== null) {
+        toast.success(`تم تسجيل الطلب وربطه بالبيانات المعتمدة · تم اعتماد نقاط التسجيل +${result.registrationCredit.points}`);
       } else if (result.incentive.pointsEligible) {
-        toast.success(`تم تسجيل الطلب وربطه بالبيانات المعتمدة · نقاط التسجيل +${result.incentive.registrationPoints}`);
+        toast.warning('تم تسجيل الطلب بنجاح، لكن لم تُعتمد نقاط التسجيل بعد؛ سيظل الطلب ظاهرًا للمراجعة بدون ادعاء نقاط غير مسجلة');
       } else {
         toast.success('تم تسجيل الطلب وربطه بالبيانات المعتمدة، والنقاط ستظل معلقة حتى اكتمال فئة الدكتور');
       }

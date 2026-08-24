@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Link2, Loader2, PackageSearch, RefreshCw, ShieldCheck, UserRound, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
 import CustomerSmartSearch from '@/components/CustomerSmartSearch';
 import ProductSmartSearch from '@/components/ProductSmartSearch';
 import type { CustomerSearchResult } from '@/lib/customerSearch';
@@ -54,7 +55,11 @@ export default function CustomerRequestDataQualityPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request.id, request.updated_at, request.customer_id, request.customer_code, request.customer_phone, request.product_id, request.product_code]);
 
-  const totalIssues = (quality?.customerIssues.length || 0) + (quality?.productIssues.length || 0);
+  const registrarMissing = !request.doctor_id;
+  const totalIssues =
+    (quality?.customerIssues.length || 0) +
+    (quality?.productIssues.length || 0) +
+    (registrarMissing ? 1 : 0);
   const healthy = !loading && totalIssues === 0;
   const customerHealthy = !quality?.customerIssues.length;
   const productHealthy = !quality?.productIssues.length;
@@ -104,6 +109,7 @@ export default function CustomerRequestDataQualityPanel({
       Boolean(request.product_id),
       Boolean(String(request.product_code || '').trim()),
       Boolean(String(request.medicine_name || '').trim()),
+      Boolean(request.doctor_id),
     ];
     return Math.round((checks.filter(Boolean).length / checks.length) * 100);
   }, [loading, request]);
@@ -176,6 +182,24 @@ export default function CustomerRequestDataQualityPanel({
             )}
             {!productHealthy && <button type="button" onClick={() => setShowProductFix((v) => !v)} className="mt-3 text-[11px] font-black text-[var(--dawaa-status-info-text)] hover:text-[var(--dawaa-status-info-text)]">{showProductFix ? 'إخفاء البحث اليدوي' : 'اختيار الصنف الصحيح يدويًا'}</button>}
             {showProductFix && <div className="mt-3"><ProductSmartSearch value={manualProduct} onSelect={setManualProduct} disabled={saving} />{manualProduct && <button type="button" disabled={saving} onClick={() => void repairProduct(manualProduct)} className="btn-primary mt-2 w-full text-xs">تأكيد ربط الصنف المختار</button>}</div>}
+          </div>
+          <div className={`rounded-xl border p-3 ${registrarMissing ? 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]/[0.05]' : 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]/[0.05]'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><UserRound size={16} className="text-[var(--dawaa-theme-primary)]" /> هوية مسجل الطلب</div>
+              {registrarMissing ? <span className="inline-flex items-center gap-1 text-[11px] font-black text-[var(--dawaa-status-warning-text)]"><AlertTriangle size={13} /> غير مربوط</span> : <span className="inline-flex items-center gap-1 text-[11px] font-black text-[var(--dawaa-status-success-text)]"><CheckCircle2 size={13} /> مربوط</span>}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+              <Info label="المسجل" value={request.doctor_name || request.created_by_name || '—'} />
+              <Info label="Staff ID" value={request.doctor_id ? 'هوية معيارية موجودة' : 'غير موجود'} />
+            </div>
+            {registrarMissing ? (
+              <div className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-2.5 text-[11px] font-bold leading-5 text-[var(--dawaa-status-warning-text)]">
+                الاسم وحده لا يمنح نقاطًا. ربط مسجل الطلب يتم من مراجعة جودة البيانات بصلاحية إدارية، ولا يتم استخدام مسئول التوفير كبديل.
+                <div className="mt-2">
+                  <Link to="/customer-requests?workspace=quality" className="font-black underline underline-offset-2">فتح مراجعة هوية مسجل الطلب</Link>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       )}

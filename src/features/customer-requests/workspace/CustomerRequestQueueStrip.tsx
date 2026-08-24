@@ -18,7 +18,7 @@ export default function CustomerRequestQueueStrip({
   onSelect: (filter: CustomerRequestQuickFilter) => void;
 }) {
   const items: QueueItem[] = [
-    { key: 'attention', label: 'يحتاج إجراء', hint: 'المفتوح حديثًا', count: summary.open, filter: 'attention' },
+    { key: 'attention', label: 'يحتاج إجراء', hint: 'المفتوح حديثًا', count: summary.attention, filter: 'attention' },
     { key: 'urgent', label: 'عاجل', hint: 'أولوية قصوى', count: summary.urgent, filter: 'urgent' },
     { key: 'overdue', label: 'متأخر', hint: 'تجاوز SLA', count: summary.overdue, filter: 'overdue' },
     { key: 'ready', label: 'جاهز للتواصل', hint: 'الصنف متوفر', count: summary.ready, filter: 'ready' },

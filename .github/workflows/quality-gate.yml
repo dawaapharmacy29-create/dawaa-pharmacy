@@ -70,6 +70,9 @@ jobs:
       - name: Customer Requests V2 parity boundary
         run: node scripts/check-customer-request-v2-parity.cjs
 
+      - name: Customer Request create authorization boundary
+        run: node scripts/check-customer-request-create-authorization.cjs
+
       - name: Customer follow-up atomic command boundary
         run: node scripts/check-customer-followup-command-boundary.cjs
 

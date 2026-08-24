@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { normalizePhone, searchCustomers, type CustomerSearchResult } from '@/lib/customerSearch';
 import { searchProductsCatalogSmart, type CatalogProduct } from '@/lib/api/productsCatalog';
 import { confidentUniqueProductMatch, normalizeProductCode, normalizeProductName, scoreProductCandidate } from '@/lib/productMatching';
+import { normalizeBranchName } from '@/lib/branch';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 
 export type RequestDataQuality = {
@@ -45,7 +46,11 @@ export async function inspectCustomerRequestDataQuality(request: CustomerRequest
   if (customerCandidate && request.customer_phone && customerCandidate.phone && normalizePhone(customerCandidate.phone) !== normalizePhone(request.customer_phone)) {
     customerIssues.push('هاتف العميل في الطلب مختلف عن سجل العميل');
   }
-  const branchConflict = Boolean(customerCandidate?.branch && request.branch && customerCandidate.branch !== request.branch);
+  const branchConflict = Boolean(
+    customerCandidate?.branch &&
+    request.branch &&
+    normalizeBranchName(customerCandidate.branch) !== normalizeBranchName(request.branch)
+  );
   if (branchConflict) customerIssues.push(`فرع الطلب (${request.branch}) مختلف عن فرع العميل (${customerCandidate?.branch})`);
 
   const requestWithProduct = request as CustomerRequest & { product_id?: string | null; product_code?: string | null };
@@ -96,16 +101,17 @@ export async function inspectCustomerRequestDataQuality(request: CustomerRequest
   return { customerCandidate, productCandidate, productMatchScore, productMatchLabel, customerIssues, productIssues, branchConflict };
 }
 
-export async function repairCustomerRequestCustomer(requestId: string, customer: CustomerSearchResult, keepRequestBranch = true) {
-  const payload: Record<string, unknown> = {
-    customer_id: customer.id || null,
-    customer_code: customer.code || null,
-    customer_name: customer.name || null,
-    customer_phone: customer.phone || null,
-    updated_at: new Date().toISOString(),
-  };
-  if (!keepRequestBranch && customer.branch) payload.branch = customer.branch;
-  const { data, error } = await supabase.from('customer_requests').update(payload).eq('id', requestId).select('*').single();
+export async function repairCustomerRequestCustomer(
+  requestId: string,
+  customer: CustomerSearchResult,
+  keepRequestBranch = true
+) {
+  if (!customer.id) throw new Error('اختر سجل عميل معياري قبل تنفيذ الإصلاح');
+  const { data, error } = await supabase.rpc('repair_customer_request_customer_v2', {
+    p_request_id: requestId,
+    p_customer_id: customer.id,
+    p_keep_request_branch: keepRequestBranch,
+  });
   if (error) throw new Error(error.message);
   return data as CustomerRequest;
 }

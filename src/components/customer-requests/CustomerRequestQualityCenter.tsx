@@ -25,6 +25,7 @@ const ISSUE_TABS: Array<{ id: QualityIssueType; label: string }> = [
   { id: 'branch', label: 'الفرع' },
   { id: 'product_link', label: 'ربط الصنف' },
   { id: 'product_code', label: 'كود الصنف' },
+  { id: 'registrar', label: 'مسجل الطلب' },
   { id: 'sync_conflict', label: 'المزامنة' },
 ];
 
@@ -57,6 +58,7 @@ export default function CustomerRequestQualityCenter({
     branch: 0,
     product_link: 0,
     product_code: 0,
+    registrar: 0,
     sync_conflict: 0,
   });
   const [priorityCounts, setPriorityCounts] = useState<Record<QualityPriorityBand, number>>({ critical: 0, high: 0, medium: 0, low: 0 });
@@ -83,14 +85,16 @@ export default function CustomerRequestQualityCenter({
 
   const customerProblems = counts.customer_link + counts.customer_code + counts.phone + counts.branch;
   const productProblems = counts.product_link + counts.product_code;
+  const registrarProblems = counts.registrar;
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard icon={<ShieldAlert size={18} />} label="طلبات تحتاج مراجعة" value={counts.all} tone="amber" />
         <SummaryCard icon={<Flame size={18} />} label="حرج — ابدأ بها" value={priorityCounts.critical} tone="red" />
         <SummaryCard icon={<UserRound size={18} />} label="مشاكل بيانات العميل" value={customerProblems} tone="cyan" />
         <SummaryCard icon={<PackageSearch size={18} />} label="مشاكل ربط الأصناف" value={productProblems} tone="violet" />
+        <SummaryCard icon={<UserRound size={18} />} label="مسجل الطلب غير مربوط" value={registrarProblems} tone="amber" />
       </div>
 
       <CustomerRequestSourceAuditPanel branch={branch} />
@@ -175,6 +179,7 @@ export default function CustomerRequestQualityCenter({
                     <span className="text-xs font-bold text-[var(--dawaa-theme-muted)]">#{request.product_code || 'بدون كود'}</span>
                   </div>
                   <div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{request.customer_name || 'عميل غير محدد'} · كود {request.customer_code || '—'} · {request.customer_phone || 'بدون هاتف'} · {request.branch || 'بدون فرع'}</div>
+                  <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">مسجل الطلب: {request.doctor_name || request.created_by_name || 'غير مربوط'}</div>
                   {!!priorityReasons.length && <div className="mt-2 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">سبب الأولوية: {priorityReasons.join(' · ')}</div>}
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {issues.map((problem) => <IssuePill key={problem} issue={problem} />)}

@@ -13,6 +13,10 @@ import { getStaffCycleInvoices } from '@/lib/staffSalesService';
 import { getStaffInvoiceTruth, type StaffInvoiceTruth } from '@/lib/staffInvoiceTruthService';
 import { resolveCanonicalStaffIdentifier } from '@/lib/staff/staffIdentityResolver';
 import {
+  getCustomerRequestDoctorPointsSummary,
+  type CustomerRequestDoctorPointsSummary,
+} from '@/lib/staff/customerRequestPointsService';
+import {
   generateStaffRecommendations as generateRecommendations,
   type StaffRecommendation,
 } from './staffPerformanceRecommendations';
@@ -271,6 +275,7 @@ export interface StaffPerformanceProfile {
   identity: StaffIdentity;
   dataHealth: StaffDataHealth;
   monthlyIncentive: StaffCycleIncentive | null;
+  customerRequestPoints: CustomerRequestDoctorPointsSummary | null;
   cashRewards: number;
   quarterlyIncentive: StaffQuarterlyMetrics | null;
   sales: StaffSalesMetrics | null;
@@ -385,19 +390,41 @@ export async function loadStaffPerformanceProfile(
   // Resolve staff identity
   const identity = await resolveStaffIdentity(staff);
 
-  // Load monthly incentive
+  // Load independent employee incentive projections in parallel so adding
+  // Customer Request points does not extend the Staff Detail critical path.
   let monthlyIncentive: StaffCycleIncentive | null = null;
-  try {
-    monthlyIncentive = await getStaffCycleIncentive({
+  let customerRequestPoints: CustomerRequestDoctorPointsSummary | null = null;
+  const monthCycle = cycleEnd.slice(0, 7);
+
+  const [monthlyIncentiveResult, customerRequestPointsResult] = await Promise.allSettled([
+    getStaffCycleIncentive({
       staffId: effectiveStaffId,
       staffName: staff.name,
       branch: staff.branch,
       cycleStart,
       cycleEnd,
-    });
+    }),
+    getCustomerRequestDoctorPointsSummary(effectiveStaffId, monthCycle),
+  ]);
+
+  if (monthlyIncentiveResult.status === 'fulfilled') {
+    monthlyIncentive = monthlyIncentiveResult.value;
     sources.push('employee_transactions');
-  } catch (error) {
-    errorsBySection.incentive = error instanceof Error ? error.message : String(error);
+  } else {
+    errorsBySection.incentive =
+      monthlyIncentiveResult.reason instanceof Error
+        ? monthlyIncentiveResult.reason.message
+        : String(monthlyIncentiveResult.reason);
+  }
+
+  if (customerRequestPointsResult.status === 'fulfilled') {
+    customerRequestPoints = customerRequestPointsResult.value[0] || null;
+    sources.push('customer_request_incentive_events');
+  } else {
+    errorsBySection.customer_request_points =
+      customerRequestPointsResult.reason instanceof Error
+        ? customerRequestPointsResult.reason.message
+        : String(customerRequestPointsResult.reason);
   }
 
   let invoiceTruth: StaffInvoiceTruth | null = null;
@@ -568,6 +595,7 @@ export async function loadStaffPerformanceProfile(
     identity,
     dataHealth,
     monthlyIncentive,
+    customerRequestPoints,
     cashRewards: monthlyIncentive?.quarterlyCashRewards || 0,
     quarterlyIncentive,
     sales,

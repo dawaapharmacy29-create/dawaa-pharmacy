@@ -27,6 +27,7 @@ export interface CustomerRequestCommandSummary {
   total: number;
   today: number;
   open: number;
+  attention: number;
   urgent: number;
   overdue: number;
   searching: number;
@@ -68,6 +69,7 @@ export interface CustomerRequestPageOptions {
   medicineName?: string;
   registrar?: string;
   registrarId?: string;
+  includeCount?: boolean;
 }
 
 export interface CustomerRequestPageResult {
@@ -82,6 +84,28 @@ export interface CustomerRequestsRepository {
   getSummary(branch?: string): Promise<CustomerRequestCommandSummary>;
   getPage(options?: CustomerRequestPageOptions): Promise<CustomerRequestPageResult>;
 }
+
+const CUSTOMER_REQUEST_OPERATIONAL_SELECT = [
+  'id','customer_id','customer_code','customer_name','customer_phone','branch',
+  'medicine_name','medicine_image_url','item_image_url','item_image_path','quantity',
+  'urgency','status','request_type','needs_customer_confirmation','is_expensive_or_special',
+  'doctor_id','doctor_name','purchasing_assignee','doctor_notes','supplier_hint','supplier_notes',
+  'purchasing_notes','customer_confirmation_status','contact_summary','expected_arrival_date',
+  'closed_at','created_by','created_by_name','created_at','updated_at','current_stage',
+  'expected_price','assigned_to','due_date','next_action_at','last_action_at','priority','is_urgent',
+  'needed_by_date','expected_fulfillment_days','potential_source_id','potential_source_name',
+  'requested_at','potential_source_text','purchasing_received_by_name','searching_by_name',
+  'provided_by_name','customer_contacted_by_name','delivered_by_name','unavailable_since',
+  'shortage_item_id','moved_to_shortage_at','source_system','source_entity','source_record_id',
+  'source_order_number','source_status','source_updated_at','source_last_seen_at',
+  'source_request_channel','source_assigned_employee','source_notes','source_selling_price',
+  'sync_conflict','sync_conflict_reason','product_id','product_code','product_price',
+  'primary_responsible_id','primary_responsible_name','primary_responsible_role',
+  'source_assigned_staff_id','source_recorded_staff_id'
+].join(',');
+
+const CUSTOMER_SEGMENT_CACHE_TTL_MS = 5 * 60_000;
+const customerSegmentCache = new Map<string, { segment: string | null; expiresAt: number }>();
 
 const CLOSED = ['closed', 'delivered', 'cancelled'];
 const CAIRO_TZ = 'Africa/Cairo';
@@ -151,24 +175,18 @@ function safeSearch(value: string) {
   return value.trim().replace(/[,%()]/g, ' ');
 }
 
+function followupDueOrFilter() {
+  const now = new Date().toISOString();
+  const today = cairoTodayDateText();
+  return `next_action_at.lte.${now},and(next_action_at.is.null,due_date.lte.${today})`;
+}
+
 export async function getCustomerRequestsCommandSummary(branch = 'all') {
-  const { data, error } = await supabase.rpc('get_customer_requests_command_center_summary', {
+  const { data, error } = await supabase.rpc('get_customer_requests_command_center_summary_v2', {
     p_branch: branch === 'all' ? null : branch,
   });
   if (error) throw new Error(error.message);
-
-  const branchAliases = customerRequestBranchAliases(branch);
-  let followupQuery = supabase
-    .from('customer_requests')
-    .select('id', { count: 'exact', head: true })
-    .not('status', 'in', `(${CLOSED.join(',')})`)
-    .not('due_date', 'is', null)
-    .lte('due_date', new Date().toISOString());
-  if (branchAliases.length === 1) followupQuery = followupQuery.eq('branch', branchAliases[0]);
-  if (branchAliases.length > 1) followupQuery = followupQuery.in('branch', branchAliases);
-  const { count: followupCount } = await followupQuery;
-
-  return { ...((data || {}) as CustomerRequestCommandSummary), followup_due: Number(followupCount || 0) };
+  return (data || {}) as CustomerRequestCommandSummary;
 }
 
 export async function getCustomerRequestsPage(
@@ -190,11 +208,19 @@ export async function getCustomerRequestsPage(
     if (overdueIds.length === 0) return { rows: [], count: 0, page: 1, pageSize, pages: 1 };
   }
 
-  let query = supabase.from('customer_requests').select('*', { count: 'exact' });
+  let query = options.includeCount === false
+    ? supabase.from('customer_requests').select(CUSTOMER_REQUEST_OPERATIONAL_SELECT)
+    : supabase.from('customer_requests').select(CUSTOMER_REQUEST_OPERATIONAL_SELECT, { count: 'exact' });
   if ((options.quickFilter || 'all') === 'followup_due') {
-    query = query.order('due_date', { ascending: true, nullsFirst: false }).order('is_urgent', { ascending: false });
+    query = query
+      .order('next_action_at', { ascending: true, nullsFirst: false })
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('is_urgent', { ascending: false });
   } else {
-    query = query.order('is_urgent', { ascending: false }).order('updated_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false, nullsFirst: false });
+    query = query
+      .order('is_urgent', { ascending: false })
+      .order('updated_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false, nullsFirst: false });
   }
 
   if (options.requestId) query = query.eq('id', options.requestId);
@@ -235,11 +261,16 @@ export async function getCustomerRequestsPage(
   const quick = options.quickFilter || 'all';
   if (quick === 'today') query = query.gte('requested_at', startOfTodayIso());
   if (quick === 'recent') query = query.gte('requested_at', daysAgoIso(7));
-  if (quick === 'followup_due') query = query.not('status', 'in', `(${CLOSED.join(',')})`).not('due_date', 'is', null).lte('due_date', new Date().toISOString());
+  if (quick === 'followup_due') query = query.not('status', 'in', `(${CLOSED.join(',')})`).or(followupDueOrFilter());
   if (quick === 'ready') query = query.in('status', ['available', 'arrived']);
-  if (quick === 'urgent') query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
+  if (quick === 'urgent') query = query
+    .not('status', 'in', `(${CLOSED.join(',')})`)
+    .or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
   if (quick === 'unlinked') query = query.is('customer_id', null);
-  if (quick === 'unassigned') query = query.is('purchasing_assignee', null).is('source_assigned_employee', null);
+  if (quick === 'unassigned') query = query
+    .not('status', 'in', `(${CLOSED.join(',')})`)
+    .is('purchasing_assignee', null)
+    .is('source_assigned_employee', null);
   if (quick === 'sync_review') query = query.eq('sync_conflict', true).eq('sync_conflict_reason', 'branch_unresolved_after_customer_match');
   if (quick === 'backlog') query = query.not('status', 'in', `(${CLOSED.join(',')})`).lt('requested_at', daysAgoIso(7));
   if (quick === 'attention') query = query.not('status', 'in', `(${CLOSED.join(',')})`).gte('requested_at', daysAgoIso(7));
@@ -265,17 +296,39 @@ export async function getCustomerRequestsPage(
 
   const rows = (data || []) as CustomerRequest[];
   const customerIds = Array.from(new Set(rows.map((row) => row.customer_id).filter(Boolean))) as string[];
-  const segmentById = new Map<string, string>();
-  if (customerIds.length) {
-    const { data: customers } = await supabase.from('customers').select('id,segment').in('id', customerIds);
+  const nowMs = Date.now();
+  const missingCustomerIds = customerIds.filter((id) => {
+    const cached = customerSegmentCache.get(id);
+    return !cached || cached.expiresAt <= nowMs;
+  });
+  if (missingCustomerIds.length) {
+    const { data: customers } = await supabase
+      .from('customers')
+      .select('id,segment')
+      .in('id', missingCustomerIds);
+    const returned = new Set<string>();
     for (const customer of customers || []) {
-      if (customer.id && customer.segment) segmentById.set(String(customer.id), String(customer.segment));
+      const id = String(customer.id || '');
+      if (!id) continue;
+      returned.add(id);
+      customerSegmentCache.set(id, {
+        segment: customer.segment ? String(customer.segment) : null,
+        expiresAt: nowMs + CUSTOMER_SEGMENT_CACHE_TTL_MS,
+      });
+    }
+    for (const id of missingCustomerIds) {
+      if (!returned.has(id)) {
+        customerSegmentCache.set(id, {
+          segment: null,
+          expiresAt: nowMs + CUSTOMER_SEGMENT_CACHE_TTL_MS,
+        });
+      }
     }
   }
 
-  const exactCount = count || 0;
+  const exactCount = options.includeCount === false ? 0 : count || 0;
   return {
-    rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? segmentById.get(row.customer_id) || null : null })),
+    rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? customerSegmentCache.get(row.customer_id)?.segment || null : null })),
     count: exactCount,
     page,
     pageSize,

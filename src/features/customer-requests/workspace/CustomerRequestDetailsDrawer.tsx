@@ -4,9 +4,9 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { displayEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
+import CustomerRequestDataQualityPanel from '@/components/customer-requests/CustomerRequestDataQualityPanel';
 import {
   getCustomerRequestEvents,
-  updateCustomerRequestDetails,
   type CustomerRequest,
   type CustomerRequestEvent,
 } from '@/lib/api/customerRequests';
@@ -17,6 +17,7 @@ import {
   recordCustomerRequestSourcing,
   reopenCustomerRequestSearch,
   sendCustomerRequestToShortages,
+  updateCustomerRequestDetailsV2,
 } from '../commands';
 import { getCustomerRequestIncentiveEvents, type CustomerRequestIncentiveEventRow } from '../data';
 import { customerRequestOperationalView } from '../domain/request';
@@ -66,6 +67,8 @@ export default function CustomerRequestDetailsDrawer({
   const { user } = useAuth();
   const [events, setEvents] = useState<CustomerRequestEvent[]>([]);
   const [pointsEvents, setPointsEvents] = useState<CustomerRequestIncentiveEventRow[]>([]);
+  const [historyError, setHistoryError] = useState('');
+  const [pointsError, setPointsError] = useState('');
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState('');
@@ -97,13 +100,25 @@ export default function CustomerRequestDetailsDrawer({
 
   const reloadDetails = async () => {
     setLoadingDetails(true);
+    setHistoryError('');
+    setPointsError('');
     try {
-      const [history, points] = await Promise.all([
+      const [historyResult, pointsResult] = await Promise.allSettled([
         getCustomerRequestEvents(request.id),
-        getCustomerRequestIncentiveEvents(request.id).catch(() => []),
+        getCustomerRequestIncentiveEvents(request.id),
       ]);
-      setEvents(history);
-      setPointsEvents(points);
+
+      if (historyResult.status === 'fulfilled') {
+        setEvents(historyResult.value);
+      } else {
+        setHistoryError(historyResult.reason instanceof Error ? historyResult.reason.message : 'تعذر تحميل سجل التنفيذ');
+      }
+
+      if (pointsResult.status === 'fulfilled') {
+        setPointsEvents(pointsResult.value);
+      } else {
+        setPointsError(pointsResult.reason instanceof Error ? pointsResult.reason.message : 'تعذر تحميل نقاط الطلب');
+      }
     } finally {
       setLoadingDetails(false);
     }
@@ -133,16 +148,13 @@ export default function CustomerRequestDetailsDrawer({
 
   const saveDetails = async () => {
     await run(
-      () => updateCustomerRequestDetails(request, {
-        medicine_name: request.medicine_name,
+      () => updateCustomerRequestDetailsV2(request, {
         quantity: editQuantity,
         urgency: editUrgency,
-        request_type: editRequestType,
-        source_request_channel: editChannel,
-        customer_phone: editPhone,
-        doctor_notes: editDoctorNotes,
-        user_id: user?.id || null,
-        user_name: user?.name || null,
+        requestType: editRequestType,
+        channel: editChannel,
+        customerPhone: editPhone,
+        doctorNotes: editDoctorNotes,
       }),
       'تم تحديث بيانات الطلب'
     );
@@ -168,6 +180,15 @@ export default function CustomerRequestDetailsDrawer({
       toast.error('تعذر نسخ رقم العميل تلقائيًا');
     }
   };
+
+  const customerFollowupHref = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set('quickFollowup', '1');
+    if (request.customer_code) params.set('code', request.customer_code);
+    if (request.customer_name) params.set('name', request.customer_name);
+    if (request.customer_phone) params.set('phone', request.customer_phone);
+    return `/customer-service?${params.toString()}`;
+  }, [request.customer_code, request.customer_name, request.customer_phone]);
 
   const totalPoints = pointsEvents.reduce((sum, event) => sum + Number(event.points || 0), 0);
 
@@ -211,7 +232,7 @@ export default function CustomerRequestDetailsDrawer({
             <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><UsersRound size={17} className="text-[var(--dawaa-theme-primary)]" /> العميل</div>
               <div className="mt-3 space-y-2 text-sm"><div><span className="text-[var(--dawaa-theme-muted)]">الاسم: </span><strong>{view.customer.name || 'غير مربوط'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">الكود: </span><strong>{view.customer.code || '—'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">الهاتف: </span><strong>{displayEgyptianPhone(request.customer_phone || '') || '—'}</strong></div><div><span className="text-[var(--dawaa-theme-muted)]">الفرع: </span><strong>{request.branch || '—'}</strong></div></div>
-              <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={openWhatsApp} className="btn-secondary flex items-center gap-2 text-xs"><MessageCircle size={14} /> واتساب</button>{request.customer_phone ? <a href={`tel:${request.customer_phone}`} className="btn-secondary flex items-center gap-2 text-xs"><Phone size={14} /> اتصال</a> : null}{request.customer_phone ? <button type="button" onClick={() => void copyPhone()} className="btn-secondary flex items-center gap-2 text-xs"><Copy size={14} /> نسخ الرقم</button> : null}{request.customer_id ? <Link to={`/customers/${request.customer_id}`} className="btn-secondary text-xs">ملف العميل</Link> : null}</div>
+              <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={openWhatsApp} className="btn-secondary flex items-center gap-2 text-xs"><MessageCircle size={14} /> واتساب</button>{request.customer_phone ? <a href={`tel:${request.customer_phone}`} className="btn-secondary flex items-center gap-2 text-xs"><Phone size={14} /> اتصال</a> : null}{request.customer_phone ? <button type="button" onClick={() => void copyPhone()} className="btn-secondary flex items-center gap-2 text-xs"><Copy size={14} /> نسخ الرقم</button> : null}{request.customer_id ? <Link to={`/customers/${request.customer_id}`} className="btn-secondary text-xs">ملف العميل</Link> : null}<Link to={customerFollowupHref} className="btn-secondary text-xs">متابعة العميل</Link></div>
             </div>
             <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><PackageCheck size={17} className="text-[var(--dawaa-status-success-text)]" /> الطلب والتوفير</div>
@@ -221,6 +242,14 @@ export default function CustomerRequestDetailsDrawer({
           </section>
 
           {editing ? <section className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface-2)] p-4"><div className="font-black text-[var(--dawaa-theme-heading)]">تعديل تفاصيل التنفيذ</div><p className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">هوية العميل والصنف والكود لا تتغير من هنا حتى لا ينفصل الطلب عن البيانات المعيارية.</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الكمية<input type="number" min={1} className="input-dark mt-1" value={editQuantity} onChange={(event) => setEditQuantity(Number(event.target.value || 1))} /></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الأولوية<select className="input-dark mt-1" value={editUrgency} onChange={(event) => setEditUrgency(event.target.value)}><option value="normal">عادي</option><option value="high">مهم</option><option value="urgent">عاجل</option></select></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">التصنيف<select className="input-dark mt-1" value={editRequestType} onChange={(event) => setEditRequestType(event.target.value)}><option value="missing_medicine">صنف ناقص</option><option value="normal_request">طلب عادي</option><option value="urgent_request">طلب عاجل</option><option value="inquiry">استفسار</option></select></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">قناة الطلب<select className="input-dark mt-1" value={editChannel} onChange={(event) => setEditChannel(event.target.value)}><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">هاتف التواصل<input className="input-dark mt-1" value={editPhone} onChange={(event) => setEditPhone(event.target.value)} /></label><label className="text-xs font-black text-[var(--dawaa-theme-muted)]">ملاحظات الدكتور<input className="input-dark mt-1" value={editDoctorNotes} onChange={(event) => setEditDoctorNotes(event.target.value)} /></label></div><div className="mt-3 flex gap-2"><button type="button" disabled={saving} onClick={() => void saveDetails()} className="btn-primary">حفظ التعديلات</button><button type="button" disabled={saving} onClick={() => setEditing(false)} className="btn-secondary">إلغاء التعديل</button></div></section> : null}
+
+          <CustomerRequestDataQualityPanel
+            request={request}
+            onUpdated={(updated) => {
+              void onUpdated(updated);
+              void reloadDetails();
+            }}
+          />
 
           {view.identityIssues.length ? <section className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4"><div className="flex items-center gap-2 font-black text-[var(--dawaa-status-warning-text)]"><AlertTriangle size={16} /> بيانات تمنع الاعتماد الكامل</div><div className="mt-2 text-xs font-bold leading-6">{view.identityIssues.join(' · ')}</div></section> : null}
 
@@ -240,13 +269,13 @@ export default function CustomerRequestDetailsDrawer({
           </section> : null}
 
           <section className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
-            <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><CheckCircle2 size={17} className="text-[var(--dawaa-status-success-text)]" /> نقاط طلب العميل</div><strong className="text-lg text-[var(--dawaa-theme-primary)]">{totalPoints.toLocaleString('ar-EG')} نقطة</strong></div>
-            {pointsEvents.length ? <div className="mt-3 space-y-2">{pointsEvents.map((event) => <div key={event.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><div><strong>{eventLabel(event)}</strong><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{formatDateTime(event.event_at)} · {event.policy_version}</div></div><span className="font-black text-[var(--dawaa-status-success-text)]">+{event.points}</span></div>)}</div> : <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد نقاط معتمدة على هذا الطلب حتى الآن. إذا كانت الهوية ناقصة ستظل النقاط غير مسوّاة حتى يتم إصلاح الربط.</div>}
+            <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><CheckCircle2 size={17} className="text-[var(--dawaa-status-success-text)]" /> نقاط طلب العميل</div><div className="flex items-center gap-2"><strong className="text-lg text-[var(--dawaa-theme-primary)]">{totalPoints.toLocaleString('ar-EG')} نقطة</strong>{request.doctor_id ? <Link to={`/staff/${request.doctor_id}`} className="btn-secondary text-[10px]">ملف الدكتور</Link> : null}</div></div>
+            {pointsError ? <div className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">تعذر تحميل نقاط الطلب: {pointsError}</div> : pointsEvents.length ? <div className="mt-3 space-y-2">{pointsEvents.map((event) => <div key={event.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><div><strong>{eventLabel(event)}</strong><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{formatDateTime(event.event_at)} · {event.policy_version}</div></div><span className="font-black text-[var(--dawaa-status-success-text)]">+{event.points}</span></div>)}</div> : <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد نقاط معتمدة على هذا الطلب حتى الآن. إذا كانت الهوية ناقصة ستظل النقاط غير مسوّاة حتى يتم إصلاح الربط.</div>}
           </section>
 
           <section className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
             <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><History size={17} /> سجل التنفيذ</div>{loadingDetails ? <Loader2 size={15} className="animate-spin text-[var(--dawaa-theme-muted)]" /> : null}</div>
-            <div className="mt-3 space-y-2">{events.length ? events.map((event) => <div key={event.id} className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><div className="flex items-center justify-between gap-2"><strong>{event.action || 'تحديث'}</strong><span className="text-[10px] text-[var(--dawaa-theme-muted)]">{formatDateTime(event.created_at)}</span></div><div className="mt-1 leading-5 text-[var(--dawaa-theme-text)]">{event.notes || 'بدون ملاحظات'}</div><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{event.created_by_name || 'النظام'}</div></div>) : <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد أحداث مسجلة بعد.</div>}</div>
+            <div className="mt-3 space-y-2">{historyError ? <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">تعذر تحميل سجل التنفيذ: {historyError}</div> : events.length ? events.map((event) => <div key={event.id} className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><div className="flex items-center justify-between gap-2"><strong>{event.action || 'تحديث'}</strong><span className="text-[10px] text-[var(--dawaa-theme-muted)]">{formatDateTime(event.created_at)}</span></div><div className="mt-1 leading-5 text-[var(--dawaa-theme-text)]">{event.notes || 'بدون ملاحظات'}</div><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{event.created_by_name || 'النظام'}</div></div>) : <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد أحداث مسجلة بعد.</div>}</div>
           </section>
         </div>
       </aside>

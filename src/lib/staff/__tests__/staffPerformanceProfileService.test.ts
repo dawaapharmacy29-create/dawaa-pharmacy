@@ -93,6 +93,24 @@ describe('Staff Performance Profile Service - Validation', () => {
     }
   });
 
+  it('should expose Customer Request points as a separate staff projection', async () => {
+    if (!isSupabaseConfigured || !testStaffId) {
+      return;
+    }
+
+    const profile = await loadStaffPerformanceProfile({
+      staffId: testStaffId,
+    });
+
+    expect(profile).toHaveProperty('customerRequestPoints');
+    if (profile.customerRequestPoints) {
+      expect(typeof profile.customerRequestPoints.total_points).toBe('number');
+      expect(typeof profile.customerRequestPoints.registration_points).toBe('number');
+      expect(typeof profile.customerRequestPoints.achievement_points).toBe('number');
+      expect(typeof profile.customerRequestPoints.achievement_rate).toBe('number');
+    }
+  });
+
   it('should load sales metrics', async () => {
     if (!isSupabaseConfigured || !testStaffId) {
       return;

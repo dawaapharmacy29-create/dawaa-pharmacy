@@ -3,7 +3,12 @@ import { AlertTriangle, CheckCircle2, Clock3, Loader2, MessageCircle, RefreshCw,
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
-import { requestStatusLabel, updateCustomerRequestStatus, type CustomerRequest } from '@/lib/api/customerRequests';
+import { requestStatusLabel, type CustomerRequest } from '@/lib/api/customerRequests';
+import {
+  contactCustomerForRequest,
+  deliverCustomerRequest,
+  startCustomerRequestSearch,
+} from '@/features/customer-requests/commands';
 import {
   getCustomerRequestActionQueue,
   type CustomerRequestActionQueueItem,
@@ -56,11 +61,12 @@ function stageIndex(status?: string | null) {
   return 0;
 }
 
-function nextStatus(request: CustomerRequestActionQueueItem) {
+function nextAction(request: CustomerRequestActionQueueItem) {
   const status = String(request.status || 'new');
-  if (['new', 'purchasing_review'].includes(status)) return { status: 'searching_suppliers', label: 'بدء البحث', icon: Search };
-  if (['available', 'arrived'].includes(status)) return { status: 'customer_contacted', label: 'تم التواصل', icon: MessageCircle };
-  if (status === 'customer_contacted') return { status: 'delivered', label: 'تم التسليم', icon: CheckCircle2 };
+  if (status === 'new') return { action: 'start_search' as const, label: 'استلام للمراجعة', icon: Search };
+  if (status === 'purchasing_review') return { action: 'start_search' as const, label: 'بدء البحث', icon: Search };
+  if (['available', 'arrived'].includes(status)) return { action: 'contact' as const, label: 'تم التواصل', icon: MessageCircle };
+  if (status === 'customer_contacted') return { action: 'deliver' as const, label: 'تم التسليم', icon: CheckCircle2 };
   return null;
 }
 
@@ -94,15 +100,22 @@ export default function CustomerRequestActionQueue({
   useEffect(() => { void load(); }, [branch, refreshKey]);
 
   const advance = async (item: CustomerRequestActionQueueItem) => {
-    const action = nextStatus(item);
+    const action = nextAction(item);
     if (!action) return;
     setSavingId(item.id);
+    const actor = { id: user?.id || null, name: user?.name || null };
     try {
-      await updateCustomerRequestStatus(item, {
-        status: action.status,
-        user_id: user?.id,
-        user_name: user?.name,
-      });
+      if (action.action === 'start_search') {
+        await startCustomerRequestSearch(item, actor);
+      } else if (action.action === 'contact') {
+        await contactCustomerForRequest(item, {
+          outcome: 'answered',
+          notes: 'تم تسجيل التواصل من قائمة التدخل الذكية',
+          actor,
+        });
+      } else {
+        await deliverCustomerRequest(item, 'تم تأكيد التسليم من قائمة التدخل الذكية', actor);
+      }
       toast.success(`تم: ${action.label}`);
       await load();
     } catch (err) {
@@ -139,7 +152,7 @@ export default function CustomerRequestActionQueue({
       ) : (
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
           {items.map((item, index) => {
-            const action = nextStatus(item);
+            const action = nextAction(item);
             const currentStage = stageIndex(item.status);
             const ActionIcon = action?.icon;
             return (
