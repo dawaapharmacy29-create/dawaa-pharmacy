@@ -6,8 +6,6 @@ import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import { useAuth } from '@/hooks/useAuth';
 import { isManagerRole } from '@/lib/security/userDataScope';
-import { applyStaffDelta } from '@/lib/pointsPersistence';
-import { canonicalMaxPoints, canonicalSnapshotPoints } from '@/lib/pointsLedger';
 import { POINT_APPEAL_WINDOW_DAYS } from '@/lib/incentives/incentiveRulesEngine';
 
 interface PointAppeal {
@@ -141,36 +139,11 @@ export default function PointAppeals() {
   const reviewAppeal = async (appeal: PointAppeal, decision: 'upheld' | 'overturned') => {
     setReviewingId(appeal.id);
     try {
-      if (decision === 'overturned' && appeal.original_points_delta) {
-        const { data: staffRow, error: staffError } = await supabase
-          .from(TABLES.staff)
-          .select('id, points, max_points, name, branch')
-          .eq('id', appeal.subject_staff_id)
-          .maybeSingle();
-        if (staffError) throw new Error(staffError.message);
-        if (staffRow) {
-          const reversalAmount = Math.abs(appeal.original_points_delta);
-          const applyResult = await applyStaffDelta(
-            staffRow.id,
-            canonicalSnapshotPoints(staffRow),
-            canonicalMaxPoints(staffRow),
-            reversalAmount,
-            staffRow.name,
-            staffRow.branch
-          );
-          if (applyResult.error) throw new Error(applyResult.error);
-        }
-      }
-      const { error } = await supabase
-        .from(TABLES.pointAppeals)
-        .update({
-          status: decision,
-          review_note: reviewNote.trim() || null,
-          reviewed_by_staff_id: user?.staffId || user?.id || null,
-          reviewed_by_name: user?.name || null,
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq('id', appeal.id);
+      const { error } = await supabase.rpc('review_point_appeal_v1', {
+        p_appeal_id: appeal.id,
+        p_decision: decision,
+        p_review_note: reviewNote.trim() || null,
+      });
       if (error) throw new Error(error.message);
       toast.success(decision === 'overturned' ? 'تم إلغاء الخصم ورد النقاط' : 'تم تأكيد الخصم');
       setReviewNote('');

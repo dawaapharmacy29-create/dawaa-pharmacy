@@ -37,8 +37,7 @@ import { normalizeRole } from '@/lib/core/permissionSystem';
 import { canViewAllBranches, getReviewAllowedBranches, isDoctorRole, normalizeArabicName, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
-import { persistPointsTransaction, applyStaffDelta } from '@/lib/pointsPersistence';
-import { canonicalMaxPoints, canonicalSnapshotPoints } from '@/lib/pointsLedger';
+import { persistPointsTransaction } from '@/lib/pointsPersistence';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import type { Customer } from '@/types/database';
 import type { CustomerMetric } from '@/lib/api/customers';
@@ -321,13 +320,8 @@ function rowReviewItems(row: ConversationReviewHistoryRow) {
   return [];
 }
 
-function isGeneralManager(user: any) {
-  const role = String(user?.role || '').toLowerCase();
-  return ['general_manager', 'branches_manager', 'executive_manager', 'admin'].includes(role);
-}
-
 export default function Reviews() {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const newOnlyMode = searchParams.get('mode') === 'new';
@@ -413,7 +407,7 @@ export default function Reviews() {
   const reviewAllowedBranches = useMemo(() => getReviewAllowedBranches(user), [user]);
   const canPickTargetBranch = reviewAllowedBranches.length > 1;
   const [targetBranch, setTargetBranch] = useState<string>(() => normalizeBranchName(user?.branch || '') || reviewAllowedBranches[0] || '');
-  const canManageCoverage = isGeneralManager(user) || ['customer_service_manager', 'branch_manager', 'branches_manager'].includes(normalizeRole(user?.role));
+  const canManageCoverage = checkPermission('approve_reviews');
   const [showCoveragePanel, setShowCoveragePanel] = useState(false);
   const [coverageList, setCoverageList] = useState<any[]>([]);
   const [coverageForm, setCoverageForm] = useState({ staffId: '', endDate: '' });
@@ -499,7 +493,8 @@ export default function Reviews() {
     return choices;
   }, [staff, user]);
 
-  const canManageReviews = isGeneralManager(user);
+  const canEditReviews = checkPermission('edit_reviews');
+  const canApproveReviews = checkPermission('approve_reviews');
   const selectedStaff = staffOptions.find((s) => s.id === form.staffId) || null;
   const selectedReviewer = reviewers.find((s) => s.id === form.reviewerId) || reviewers[0] || null;
   const responseMinutes = useMemo(
@@ -955,17 +950,6 @@ export default function Reviews() {
 
         if (pointsResult.error) {
           toast.warning(`تم حفظ التقييم، لكن لم يتم حفظ تأثير النقاط: ${pointsResult.error}`);
-        } else if (result.impactStatus === 'approved') {
-          await applyStaffDelta(
-            selectedStaff.id,
-            canonicalSnapshotPoints(selectedStaff),
-            canonicalMaxPoints(selectedStaff),
-            repeatedDoctorImpact > 0
-              ? Math.abs(repeatedDoctorImpact)
-              : -Math.abs(repeatedDoctorImpact),
-            selectedStaff.name,
-            selectedStaff.branch
-          );
         }
       }
 
@@ -1097,8 +1081,8 @@ export default function Reviews() {
 
   const saveEdit = async (): Promise<boolean> => {
     if (!editingReview?.id) return false;
-    if (!canManageReviews) {
-      toast.error('التعديل متاح للمدير العام فقط');
+    if (!canEditReviews) {
+      toast.error('لا توجد صلاحية لتعديل التقييم');
       return false;
     }
     setSaving(true);
@@ -1149,8 +1133,8 @@ export default function Reviews() {
 
   const saveManagerReview = async (): Promise<boolean> => {
     if (!managerReviewTarget) return true;
-    if (!canManageReviews) {
-      toast.error('تقييم مسئول خدمة العملاء متاح للمدير العام فقط');
+    if (!canApproveReviews) {
+      toast.error('لا توجد صلاحية لاعتماد تقييم المراجع');
       return false;
     }
     setManagerSaving(true);
@@ -1396,7 +1380,7 @@ export default function Reviews() {
                   <Info label="حالة المراجع" value={row.manager_review_score ? `${row.manager_review_score}/100` : 'لم يقيم'} />
                   <Info label="الفاتورة" value={row.invoice_number || '-'} />
                 </div>
-                <ReviewActions row={row} canManage={canManageReviews} onDetails={setSelectedReview} onEdit={openEdit} onManagerReview={openManagerReview} />
+                <ReviewActions row={row} canEdit={canEditReviews} canApprove={canApproveReviews} onDetails={setSelectedReview} onEdit={openEdit} onManagerReview={openManagerReview} />
               </article>
             );
           })}
@@ -1475,7 +1459,7 @@ export default function Reviews() {
                       )}
                     </td>
                     <td className="sticky left-0 z-10 w-[140px] border-r border-slate-700 bg-[#0b1728] p-2 shadow-[8px_0_18px_rgba(2,6,23,0.4)] transition-colors group-hover:bg-[#0d2630] min-[1500px]:p-3">
-                      <ReviewActions row={row} canManage={canManageReviews} onDetails={setSelectedReview} onEdit={openEdit} onManagerReview={openManagerReview} />
+                      <ReviewActions row={row} canEdit={canEditReviews} canApprove={canApproveReviews} onDetails={setSelectedReview} onEdit={openEdit} onManagerReview={openManagerReview} />
                     </td>
                   </tr>
                 );
@@ -1585,7 +1569,7 @@ export default function Reviews() {
         <div className="section-title text-sm">بيانات المحادثة</div>
         <div className="grid md:grid-cols-3 gap-3">
           <Field label="من يقيم؟">
-            {canManageReviews ? (
+            {canEditReviews ? (
               <select
                 className="input-dark"
                 value={form.reviewerId}
@@ -2037,7 +2021,8 @@ export default function Reviews() {
             openManagerReview(selectedReview);
             closeSelectedReview();
           }}
-          canManage={canManageReviews}
+          canEdit={canEditReviews}
+          canApprove={canApproveReviews}
         />
       )}
 
@@ -2193,13 +2178,15 @@ function ReviewDetailsModal({
   onClose,
   onEdit,
   onManagerReview,
-  canManage,
+  canEdit,
+  canApprove,
 }: {
   row: ConversationReviewHistoryRow;
   onClose: () => void;
   onEdit: () => void;
   onManagerReview: () => void;
-  canManage: boolean;
+  canEdit: boolean;
+  canApprove: boolean;
 }) {
   const items = rowReviewItems(row);
   return (
@@ -2239,8 +2226,9 @@ function ReviewDetailsModal({
         )}
       </div>
       <ReviewItemsTable items={items} />
-      {canManage && (
+      {canEdit || canApprove ? (
         <div className="grid md:grid-cols-2 gap-2">
+          {canEdit ? (
           <button
             type="button"
             onClick={onEdit}
@@ -2249,6 +2237,8 @@ function ReviewDetailsModal({
             <Pencil size={16} />
             تعديل تقييم المحادثة
           </button>
+          ) : null}
+          {canApprove ? (
           <button
             type="button"
             onClick={onManagerReview}
@@ -2257,8 +2247,9 @@ function ReviewDetailsModal({
             <UserCheck size={16} />
             تقييم المراجع
           </button>
+          ) : null}
         </div>
-      )}
+      ) : null}
     </Modal>
   );
 }
@@ -2372,13 +2363,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function ReviewActions({
   row,
-  canManage,
+  canEdit,
+  canApprove,
   onDetails,
   onEdit,
   onManagerReview,
 }: {
   row: ConversationReviewHistoryRow;
-  canManage: boolean;
+  canEdit: boolean;
+  canApprove: boolean;
   onDetails: (row: ConversationReviewHistoryRow) => void;
   onEdit: (row: ConversationReviewHistoryRow) => void;
   onManagerReview: (row: ConversationReviewHistoryRow) => void;
@@ -2388,14 +2381,18 @@ function ReviewActions({
       <button type="button" className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2 py-1.5 text-[11px] font-black text-cyan-100 hover:bg-cyan-500/20" onClick={() => onDetails(row)}>
         <Eye size={13} /> التفاصيل
       </button>
-      {canManage ? (
+      {canEdit || canApprove ? (
         <div className="grid grid-cols-2 gap-1">
+          {canEdit ? (
           <button type="button" title="تعديل التقييم" className="inline-flex items-center justify-center gap-1 rounded-lg border border-violet-400/25 bg-violet-500/10 px-1.5 py-1.5 text-[10px] font-black text-violet-100 hover:bg-violet-500/20" onClick={() => onEdit(row)}>
             <Pencil size={12} /> تعديل
           </button>
+          ) : null}
+          {canApprove ? (
           <button type="button" title="تقييم المراجع" className="inline-flex items-center justify-center gap-1 rounded-lg border border-amber-400/25 bg-amber-500/10 px-1.5 py-1.5 text-[10px] font-black text-amber-100 hover:bg-amber-500/20" onClick={() => onManagerReview(row)}>
             <UserCheck size={12} /> المراجع
           </button>
+          ) : null}
         </div>
       ) : null}
     </div>

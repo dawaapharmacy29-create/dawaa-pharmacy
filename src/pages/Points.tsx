@@ -22,7 +22,8 @@ import {
   MAX_BASE_INCENTIVE,
   POINT_VALUE_EGP,
 } from '@/lib/points';
-import { approverHintFromRule, applyStaffDelta } from '@/lib/pointsPersistence';
+import { approverHintFromRule } from '@/lib/pointsPersistence';
+import { transitionEmployeeTransaction } from '@/services/employeeTransactionService';
 import {
   formatTransactionExecutor,
   getTransactionShortReason,
@@ -465,39 +466,14 @@ export default function Points() {
       : `${note}\nحالة:${nextStatus}`;
     const nextNote = approve ? `${updatedNote}\nمعتمد:${user?.name} (${user?.role})` : updatedNote;
 
-    const { error } = await supabase
-      .from(TABLES.employeeTransactions)
-      .update({ description: nextNote, status: nextStatus === 'approved' ? 'active' : 'cancelled' })
-      .eq('id', row.id);
+    const { error } = await transitionEmployeeTransaction(
+      row.id,
+      nextStatus === 'approved' ? 'active' : 'cancelled',
+      nextNote
+    );
     if (error) {
       toast.error(error.message);
       return;
-    }
-
-    if (approve && isDeductionRecord(row)) {
-      const rowEmployeeName = normalizeStaffLookupKey(String(row.employee_name || ''));
-      const employee = staffChoices.find(
-        (staff) =>
-          staff.id === row.employee_id ||
-          normalizeStaffLookupKey(staff.name) === rowEmployeeName ||
-          normalizeStaffLookupKey(staff.original_name || '') === rowEmployeeName ||
-          normalizeStaffLookupKey(staff.display_name || '') === rowEmployeeName
-      );
-      if (employee) {
-        const currentIncentive = calculateStaffCycleIncentiveFromRows({
-          staff: employee,
-          records: approvedCycleRecords,
-          cycle,
-        });
-        await applyStaffDelta(
-          employee.id,
-          currentIncentive.finalPoints,
-          currentIncentive.startingPoints,
-          -recordPoints(row),
-          employee.original_name || employee.name,
-          employee.branch
-        );
-      }
     }
 
     const currentUserProfile = getCurrentUserProfile();

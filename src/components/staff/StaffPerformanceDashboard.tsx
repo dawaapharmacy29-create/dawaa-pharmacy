@@ -10,12 +10,12 @@ import {
   Calendar,
   ArrowRight,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatNumber } from '@/lib/utils';
 import { formatMoney } from '@/lib/dawaa2027';
 import { loadStaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
 import type { StaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 
 interface StaffSummary {
   id: string;
@@ -41,11 +41,9 @@ export default function StaffPerformanceDashboard() {
       setLoading(true);
       try {
         // Get all active staff
-        const { data: staff } = await supabase
-          .from('staff')
-          .select('id,name,role,branch')
-          .eq('is_active', true)
-          .limit(50);
+        const staff = (await readStaffDirectory())
+          .filter((row) => row.active && row.id)
+          .slice(0, 50);
 
         if (!staff || staff.length === 0) {
           setStaffSummaries([]);

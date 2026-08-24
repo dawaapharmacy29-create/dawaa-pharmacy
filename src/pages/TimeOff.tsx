@@ -5,12 +5,11 @@ import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
-import { applyStaffDelta, persistPointsTransaction } from '@/lib/pointsPersistence';
+import { persistPointsTransaction } from '@/lib/pointsPersistence';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
 import type { EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
 import { getSafeCurrentUserId, useAuth } from '@/hooks/useAuth';
-import { canonicalMaxPoints, canonicalSnapshotPoints } from '@/lib/pointsLedger';
 
 const TYPES = ['إذن تأخير', 'إذن ساعة', 'إذن ساعتين', 'إذن خروج وعودة', 'إذن انصراف مبكر', 'إجازة مرضية', 'إجازة عارضة', 'غياب', 'تبديل شيفت'];
 const STATUSES = ['pending', 'approved', 'rejected'];
@@ -220,9 +219,6 @@ export default function TimeOff() {
         reasonLabel: `${form.type} - خصم محدد من المدير`,
       });
       if (result.error) toast.warning('تم حفظ الإذن، لكن لم يتم تسجيل الخصم في النقاط: ' + result.error);
-      else if (status === 'approved' && !selectedStaff.id.startsWith('fallback-')) {
-        await applyStaffDelta(selectedStaff.id, canonicalSnapshotPoints(selectedStaff), canonicalMaxPoints(selectedStaff), -deductionPoints, selectedStaff.name, selectedStaff.branch);
-      }
     }
 
     setSaving(false);
