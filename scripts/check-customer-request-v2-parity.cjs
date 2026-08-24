@@ -89,7 +89,7 @@ requireTokens('src/features/customer-requests/data/customerRequestsRepository.ts
   'due_date.lte',
 ]);
 
-requireTokens('supabase/migrations/20260824153000_customer_request_next_action_at_v1.sql', [
+requireTokens('supabase/migrations/20260824153500_customer_request_next_action_at_v1.sql', [
   'next_action_at timestamptz',
   'idx_customer_requests_next_action_at_open',
 ]);
@@ -139,7 +139,7 @@ requireTokens('supabase/migrations/20260824162000_customer_request_single_points
   "employee_transactions(source='customer_request_incentive')",
 ]);
 
-requireTokens('supabase/migrations/20260824154000_record_customer_request_contact_v2.sql', [
+requireTokens('supabase/migrations/20260824154500_record_customer_request_contact_v2.sql', [
   'record_customer_request_contact_v2',
   'security definer',
   "dawaa_can_access_customer_request_branch('manage_customer_requests'",
@@ -183,7 +183,7 @@ if (/medicine_name:\s*edit/i.test(drawer)) {
   failures.push('V2 edit flow must not mutate medicine_name independently from canonical product identity');
 }
 
-const contactMigration = read('supabase/migrations/20260824154000_record_customer_request_contact_v2.sql');
+const contactMigration = read('supabase/migrations/20260824154500_record_customer_request_contact_v2.sql');
 if (/p_(?:actor|user|staff|created_by)(?:_id|_name)?\s+/i.test(contactMigration)) {
   failures.push('atomic contact command must derive actor identity from the app staff context');
 }
