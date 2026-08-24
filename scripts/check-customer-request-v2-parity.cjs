@@ -158,6 +158,35 @@ requireTokens('supabase/migrations/20260824175000_customer_request_operational_i
   'status, requested_at desc',
 ]);
 
+requireTokens('supabase/migrations/20260824184000_customer_request_customer_repair_v2.sql', [
+  'repair_customer_request_customer_v2',
+  'for update',
+  "dawaa_can_access_customer_request_branch('manage_customer_requests'",
+  'customer_identity_not_canonical',
+  'customer_request_events',
+]);
+
+requireTokens('src/lib/api/customerRequestDataQuality.ts', [
+  'repair_customer_request_customer_v2',
+  'p_customer_id',
+  'p_keep_request_branch',
+]);
+
+requireTokens('supabase/migrations/20260824184500_customer_request_shortage_return_v2.sql', [
+  'return_shortage_to_customer_request_v2',
+  "user_has_permission(v_account_id,'manage_shortages')",
+  "dawaa_can_access_customer_request_branch('manage_customer_requests'",
+  "'available'",
+  'returned_to_customer_request_at',
+  'customer_request_events',
+]);
+
+requireTokens('src/pages/OperationalModule.tsx', [
+  'return_shortage_to_customer_request_v2',
+  'canReturnCustomerRequest',
+  "userHasPermission(user, 'manage_customer_requests')",
+]);
+
 requireTokens('supabase/migrations/20260824183500_customer_request_events_read_v2.sql', [
   'get_customer_request_events_v2',
   "dawaa_can_access_customer_request_branch('view_customer_requests'",
