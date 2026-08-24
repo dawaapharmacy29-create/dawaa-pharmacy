@@ -68,6 +68,7 @@ export interface CustomerRequestPageOptions {
   medicineName?: string;
   registrar?: string;
   registrarId?: string;
+  includeCount?: boolean;
 }
 
 export interface CustomerRequestPageResult {
@@ -217,7 +218,9 @@ export async function getCustomerRequestsPage(
     if (overdueIds.length === 0) return { rows: [], count: 0, page: 1, pageSize, pages: 1 };
   }
 
-  let query = supabase.from('customer_requests').select(CUSTOMER_REQUEST_OPERATIONAL_SELECT, { count: 'exact' });
+  let query = options.includeCount === false
+    ? supabase.from('customer_requests').select(CUSTOMER_REQUEST_OPERATIONAL_SELECT)
+    : supabase.from('customer_requests').select(CUSTOMER_REQUEST_OPERATIONAL_SELECT, { count: 'exact' });
   if ((options.quickFilter || 'all') === 'followup_due') {
     query = query
       .order('next_action_at', { ascending: true, nullsFirst: false })
@@ -316,7 +319,7 @@ export async function getCustomerRequestsPage(
     }
   }
 
-  const exactCount = count || 0;
+  const exactCount = options.includeCount === false ? 0 : count || 0;
   return {
     rows: rows.map((row) => ({ ...row, customer_segment: row.customer_id ? customerSegmentCache.get(row.customer_id) || null : null })),
     count: exactCount,
