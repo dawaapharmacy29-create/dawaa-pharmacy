@@ -231,7 +231,7 @@ export async function getCustomerRequestEvents(requestId: string) {
     .select('*')
     .eq('request_id', requestId)
     .order('created_at', { ascending: false });
-  if (error) return [];
+  if (error) throw new Error(error.message);
   return (data ?? []) as CustomerRequestEvent[];
 }
 
