@@ -38,7 +38,7 @@ export async function findOrCreateOpenCustomerFollowup(
   if (!String(input.customerName || '').trim()) throw new Error('اسم العميل مطلوب');
   if (!String(input.branch || '').trim()) throw new Error('فرع العميل مطلوب');
 
-  const { data, error } = await supabase.rpc('find_or_create_open_customer_followup', {
+  const { data, error } = await supabase.rpc('dawaa_create_or_link_customer_followup_v1', {
     p_customer_id: input.customerId || null,
     p_customer_code: input.customerCode || null,
     p_customer_name: input.customerName.trim(),
@@ -49,8 +49,6 @@ export async function findOrCreateOpenCustomerFollowup(
     p_followup_reason: input.followupReason || null,
     p_priority: input.priority || 'متوسطة',
     p_next_followup_date: input.nextFollowupDate || null,
-    p_actor_staff_id: actorStaffId,
-    p_actor_name: String(input.actorName || '').trim() || actorStaffId,
     p_client_request_id: input.clientRequestId || createFollowupClientRequestId(),
     p_source: input.source || 'manual',
   });
