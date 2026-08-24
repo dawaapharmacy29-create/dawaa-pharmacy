@@ -183,7 +183,7 @@ requireTokens('supabase/migrations/20260824193000_customer_request_registrar_att
   'Never derives doctor_id from source_assigned_employee',
 ]);
 
-requireTokens('supabase/migrations/20260824200000_customer_request_source_contract_audit_v5.sql', [
+requireTokens('supabase/migrations/20260824200500_customer_request_source_contract_audit_v5.sql', [
   'get_customer_request_source_audit_v5',
   'source_missing_product_code',
   'source_missing_recorded_staff_id',
