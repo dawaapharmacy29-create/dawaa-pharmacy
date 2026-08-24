@@ -49,6 +49,8 @@ const DOCTOR_WORKSPACE_PERMISSIONS = [
   'view_customer_details',
   'view_customer_360',
   'view_customer_service',
+  'view_customer_requests',
+  'manage_customer_requests',
   'create_followup',
   'whatsapp_customer',
   'view_schedule',
