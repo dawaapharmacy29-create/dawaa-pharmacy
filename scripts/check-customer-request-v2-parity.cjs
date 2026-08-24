@@ -151,7 +151,7 @@ requireTokens('supabase/migrations/20260824175000_customer_request_operational_i
   'status, requested_at desc',
 ]);
 
-requireTokens('supabase/migrations/20260824173000_customer_request_summary_v2.sql', [
+requireTokens('supabase/migrations/20260824183000_customer_request_summary_v2.sql', [
   'get_customer_requests_command_center_summary_v2',
   'get_customer_requests_command_center_summary',
   'followup_due',
@@ -180,7 +180,7 @@ requireTokens('supabase/migrations/20260824171000_customer_request_details_comma
   'canonical request identity remains immutable',
 ]);
 
-requireTokens('supabase/migrations/20260824170000_customer_request_atomic_transition_v2.sql', [
+requireTokens('supabase/migrations/20260824182500_customer_request_atomic_transition_v2.sql', [
   'advance_customer_request_v2',
   'for update',
   "dawaa_can_access_customer_request_branch('manage_customer_requests'",
