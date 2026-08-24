@@ -74,8 +74,8 @@ requireTokens('src/features/customer-requests/workspace/CustomerRequestDetailsDr
   'تعديل تفاصيل التنفيذ',
   'customerFollowupHref',
   "params.set('quickFollowup', '1')",
-  "'/customer-service?'",
-  "'/staff/'",
+  'customer-service?',
+  '/staff/',
 ]);
 
 requireTokens('src/features/customer-requests/commands/customerRequestCommands.ts', [
