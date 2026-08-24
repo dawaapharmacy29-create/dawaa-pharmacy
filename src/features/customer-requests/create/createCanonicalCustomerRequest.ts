@@ -56,68 +56,25 @@ function required(value: unknown, label: string) {
 }
 
 function numeric(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
 
 async function resolveDoctorIncentivePreview(doctorId: string): Promise<CanonicalCustomerRequestIncentivePreview> {
-  const { data: staff, error: staffError } = await supabase
-    .from('staff')
-    .select('id,name,role,branch')
-    .eq('id', doctorId)
-    .maybeSingle();
-  if (staffError) throw new Error(staffError.message);
-  if (!staff) {
-    return {
-      tierKey: null,
-      registrationPoints: null,
-      achievementPoints: null,
-      policyVersion: null,
-      pointsEligible: false,
-      blockedReason: 'doctor_not_linked_to_staff',
-    };
-  }
+  const { data, error } = await supabase.rpc('get_customer_request_doctor_incentive_preview', {
+    p_staff_id: doctorId,
+  });
+  if (error) throw new Error(error.message);
 
-  const { data: tier, error: tierError } = await supabase
-    .from('staff_incentive_tiers')
-    .select('tier_key')
-    .eq('staff_id', doctorId)
-    .in('tier_key', ['senior_doctor', 'mid_doctor', 'assistant'])
-    .order('updated_at', { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
-  if (tierError) throw new Error(tierError.message);
-  if (!tier?.tier_key) {
-    return {
-      tierKey: null,
-      registrationPoints: null,
-      achievementPoints: null,
-      policyVersion: null,
-      pointsEligible: false,
-      blockedReason: 'doctor_tier_missing',
-    };
-  }
-
-  const { data: policy, error: policyError } = await supabase
-    .from('customer_request_incentive_policy')
-    .select('policy_version,registration_points,achievement_points,effective_from')
-    .eq('tier_key', tier.tier_key)
-    .eq('active', true)
-    .lte('effective_from', new Date().toISOString())
-    .order('effective_from', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (policyError) throw new Error(policyError.message);
-
-  const registrationPoints = numeric(policy?.registration_points);
-  const achievementPoints = numeric(policy?.achievement_points);
+  const row = (data || {}) as Record<string, unknown>;
   return {
-    tierKey: tier.tier_key,
-    registrationPoints,
-    achievementPoints,
-    policyVersion: policy?.policy_version || null,
-    pointsEligible: registrationPoints !== null && achievementPoints !== null,
-    blockedReason: policy ? null : 'incentive_policy_missing',
+    tierKey: row.tier_key ? String(row.tier_key) : null,
+    registrationPoints: numeric(row.registration_points),
+    achievementPoints: numeric(row.achievement_points),
+    policyVersion: row.policy_version ? String(row.policy_version) : null,
+    pointsEligible: Boolean(row.points_eligible),
+    blockedReason: row.blocked_reason ? String(row.blocked_reason) : null,
   };
 }
 
