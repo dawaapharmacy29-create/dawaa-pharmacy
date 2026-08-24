@@ -67,6 +67,7 @@ export interface CustomerRequestPageOptions {
   productCode?: string;
   medicineName?: string;
   registrar?: string;
+  registrarId?: string;
 }
 
 export interface CustomerRequestPageResult {
@@ -82,7 +83,7 @@ export interface CustomerRequestsRepository {
   getPage(options?: CustomerRequestPageOptions): Promise<CustomerRequestPageResult>;
 }
 
-const CLOSED = ['closed', 'delivered', 'cancelled', 'not_available'];
+const CLOSED = ['closed', 'delivered', 'cancelled'];
 const CAIRO_TZ = 'Africa/Cairo';
 
 function timeZoneOffsetMs(date: Date, timeZone: string) {
@@ -202,7 +203,9 @@ export async function getCustomerRequestsPage(
   if (options.customerPhone) query = query.eq('customer_phone', options.customerPhone);
   if (options.productCode) query = query.eq('product_code', options.productCode);
   if (options.medicineName && !options.productCode) query = query.ilike('medicine_name', options.medicineName);
-  if (options.registrar) {
+  if (options.registrarId) {
+    query = query.eq('doctor_id', options.registrarId);
+  } else if (options.registrar) {
     const registrar = safeSearch(options.registrar);
     query = query.or(`doctor_name.ilike.${registrar},created_by_name.ilike.${registrar},source_assigned_employee.ilike.${registrar}`);
   }
