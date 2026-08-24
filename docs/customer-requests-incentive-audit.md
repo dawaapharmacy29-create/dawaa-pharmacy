@@ -1,14 +1,6 @@
 # Customer Requests Incentive Audit — Approved Policy
 
-## Verified architecture
-
-- Canonical employee identity is `staff.id`.
-- `staff_incentive_tiers` is the current source of doctor tier assignment.
-- Current tier keys used by the system are `senior_doctor`, `mid_doctor`, and `assistant`.
-- `employee_transactions` is the canonical approved employee points ledger.
-- Customer Request points are performance points only; `amount` remains zero and cash settlement stays in the central incentive/payroll domain.
-
-## Approved Customer Request point schedule
+## Canonical policy
 
 Policy: `customer_requests_doctor_points`
 Version: `2026-08-24-v1`
@@ -19,66 +11,61 @@ Version: `2026-08-24-v1`
 | Second category | `mid_doctor` | 1 | 2 |
 | Third category | `assistant` | 0.5 | 1 |
 
-These are event points, not Egyptian-pound conversion rates. They must not be derived from `point_rate_egp`.
+These are Performance Points, not Egyptian-pound conversion rates.
 
-## Canonical point events
+## Canonical identities
 
-Only two Customer Request events award this policy:
+- employee identity: `staff.id`
+- doctor tier: `staff_incentive_tiers`
+- final point ledger: `employee_transactions`
+- request event audit: `customer_request_incentive_events`
 
-- `request_registered`: a valid request has been registered by the doctor.
-- `request_achieved`: the request first reaches a fulfilled state.
+`staff_accounts.id` is never accepted as `customer_requests.doctor_id` for new V2 requests.
 
-A request is considered achieved when it first enters one of the states already used by the Customer Requests fulfillment KPI:
+## Registration event
 
+`request_registered` is settleable only after the request has canonical customer, customer code, product/product code and canonical doctor/staff identity, with no unresolved sync conflict or duplicate/invalid marker.
+
+New V2 requests enter through `create_customer_request_canonical_v1`, which validates and inserts customer/product/staff identity in one DB transaction. This removes the temporary state where a request could exist before product linkage completed.
+
+## Achievement event
+
+`request_achieved` is awarded once on first entry into:
 - `available`
 - `arrived`
 - `customer_contacted`
 - `delivered`
 - `closed`
 
-The achievement event is paid once only. `cancelled` and `not_available` do not qualify for achievement points.
+`cancelled` and `not_available` do not qualify for achievement points.
 
-## Attribution
+`not_available` remains operationally actionable for alternative/re-search review, but that does not turn it into an achieved request.
 
-Both registration and achievement points belong to the canonical doctor who owns the registered request. Attribution requires a real `staff.id`; name-only matching is not allowed for new settlements.
+## Anti-duplication
 
-Migration compatibility may resolve `created_by` through `staff_accounts.staff_id`, but the resulting settlement still stores the canonical staff id.
+Protection exists at multiple layers:
+- 24-hour open-request duplicate guard on customer + product + operational branch.
+- unique request incentive event identity.
+- unique linked employee transaction source/source-id.
+- single-owner guard prevents the same request event being re-attributed to another doctor later.
+- retry settlement after identity repair remains idempotent.
 
-## Eligibility gates
+## Historical staff attribution
 
-No points are settled until the request has:
+Historical source employee names are not converted automatically to `doctor_id`.
 
-- canonical customer id;
-- customer code;
-- product name;
-- product code;
-- canonical doctor/staff id;
-- a valid current tier in `staff_incentive_tiers`;
-- no unresolved sync conflict;
-- no duplicate/invalid marker.
+The review workflow is explicitly two-step:
+1. review and record an approved source-label -> canonical Staff mapping with a written reason;
+2. preview how many requests would change, then explicitly apply the approved mapping.
 
-If product/customer/doctor identity is repaired after creation, settlement retries automatically and idempotently.
+Ambiguous or unmatched labels cannot be auto-applied. Applying a Staff mapping still does not guarantee points: each request remains subject to identity completeness, doctor tier, policy effective date and duplicate/sync guards.
 
-## Anti-duplication contract
+## Operational transition safety
 
-The event ledger uses the unique identity:
+V2 commands use one transition matrix. Invalid shortcuts such as `new -> delivered` and reopening an already delivered request are rejected before mutation. `not_available -> searching_suppliers` is intentionally allowed to support a documented alternative-search attempt.
 
-`request_id + event_key + staff_id + policy_version`
+## Reporting
 
-The linked `employee_transactions` entry also has a unique source/source-id guard for Customer Request incentive events. Repeated status changes, migration reruns, or later identity repairs therefore cannot double-credit the same event.
+Doctor profiles read the canonical points projection through safe RPCs and deep-link back to requests using `registrarId=staff.id`, not the display name.
 
-## Production implementation
-
-The production database now contains:
-
-- `customer_request_incentive_policy`
-- `customer_request_incentive_events`
-- idempotent registration/achievement settlement functions and trigger
-- retry settlement when canonical identity fields are repaired
-- `customer_request_doctor_points_summary_v1` for doctor/cycle reporting
-
-The policy is effective from 2026-08-24 00:00 Africa/Cairo. Requests before the effective policy are not silently back-awarded by this migration.
-
-## UI/read-model rule
-
-Pages do not recalculate these values independently. Doctor profiles, monthly performance views, and Customer Requests analytics should consume the canonical event/transaction projection so registration points, achievement points, and totals stay identical everywhere.
+No Customer Requests UI owns an independent total-point calculation.
