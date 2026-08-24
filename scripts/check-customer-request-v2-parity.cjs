@@ -30,6 +30,15 @@ requireTokens('src/pages/CustomerRequests.tsx', [
   "searchParams.get('legacy') === '1'",
 ]);
 
+requireTokens('src/pages/CustomerRequestsV2.tsx', [
+  'useNavigate',
+  "params.get('workspace')",
+  "selectTab('operations')",
+  "selectTab('sourcing')",
+  "selectTab('analytics')",
+  "selectTab('quality')",
+]);
+
 requireTokens('src/features/customer-requests/workspace/CustomerRequestsWorkspace.tsx', [
   'CanonicalCreateRequestDialog',
   'CustomerRequestDetailsDrawer',
@@ -97,6 +106,11 @@ requireTokens('src/features/customer-requests/domain/__tests__/customerRequestsD
   "customerRequestTierPoints('tier_3', 'request_achieved')).toBe(1)",
 ]);
 
+const v2Page = read('src/pages/CustomerRequestsV2.tsx');
+if (/window\.location\.(?:href|assign|replace)/i.test(v2Page)) {
+  failures.push('Customer Requests V2 workspace navigation must stay inside React Router and avoid full-page reloads');
+}
+
 const drawer = read('src/features/customer-requests/workspace/CustomerRequestDetailsDrawer.tsx');
 if (/medicine_name:\s*edit/i.test(drawer)) {
   failures.push('V2 edit flow must not mutate medicine_name independently from canonical product identity');
@@ -118,4 +132,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[customer-request-v2-parity] PASS: V2 preserves canonical create, atomic exact follow-up timing, operational filters, edit/contact/sourcing/cancel/reopen/shortage actions, legacy fallback, and approved doctor point schedule.');
+console.log('[customer-request-v2-parity] PASS: V2 preserves SPA navigation, canonical create, atomic exact follow-up timing, operational filters, edit/contact/sourcing/cancel/reopen/shortage actions, legacy fallback, and approved doctor point schedule.');
