@@ -83,6 +83,25 @@ export interface CustomerRequestsRepository {
   getPage(options?: CustomerRequestPageOptions): Promise<CustomerRequestPageResult>;
 }
 
+const CUSTOMER_REQUEST_OPERATIONAL_SELECT = [
+  'id','customer_id','customer_code','customer_name','customer_phone','branch',
+  'medicine_name','medicine_image_url','item_image_url','item_image_path','quantity',
+  'urgency','status','request_type','needs_customer_confirmation','is_expensive_or_special',
+  'doctor_id','doctor_name','purchasing_assignee','doctor_notes','supplier_hint','supplier_notes',
+  'purchasing_notes','customer_confirmation_status','contact_summary','expected_arrival_date',
+  'closed_at','created_by','created_by_name','created_at','updated_at','current_stage',
+  'expected_price','assigned_to','due_date','next_action_at','last_action_at','priority','is_urgent',
+  'needed_by_date','expected_fulfillment_days','potential_source_id','potential_source_name',
+  'requested_at','potential_source_text','purchasing_received_by_name','searching_by_name',
+  'provided_by_name','customer_contacted_by_name','delivered_by_name','unavailable_since',
+  'shortage_item_id','moved_to_shortage_at','source_system','source_entity','source_record_id',
+  'source_order_number','source_status','source_updated_at','source_last_seen_at',
+  'source_request_channel','source_assigned_employee','source_notes','source_selling_price',
+  'sync_conflict','sync_conflict_reason','product_id','product_code','product_price',
+  'primary_responsible_id','primary_responsible_name','primary_responsible_role',
+  'source_assigned_staff_id','source_recorded_staff_id'
+].join(',');
+
 const CLOSED = ['closed', 'delivered', 'cancelled'];
 const CAIRO_TZ = 'Africa/Cairo';
 
@@ -196,7 +215,7 @@ export async function getCustomerRequestsPage(
     if (overdueIds.length === 0) return { rows: [], count: 0, page: 1, pageSize, pages: 1 };
   }
 
-  let query = supabase.from('customer_requests').select('*', { count: 'exact' });
+  let query = supabase.from('customer_requests').select(CUSTOMER_REQUEST_OPERATIONAL_SELECT, { count: 'exact' });
   if ((options.quickFilter || 'all') === 'followup_due') {
     query = query
       .order('next_action_at', { ascending: true, nullsFirst: false })
