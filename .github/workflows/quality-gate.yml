@@ -64,6 +64,9 @@ jobs:
       - name: Database authorization architecture boundary
         run: node scripts/check-db-authorization-architecture.cjs
 
+      - name: Customer Request shortage command boundary
+        run: node scripts/check-customer-request-shortage-command.cjs
+
       - name: Payroll architecture boundary
         run: node scripts/check-payroll-architecture.cjs
 
