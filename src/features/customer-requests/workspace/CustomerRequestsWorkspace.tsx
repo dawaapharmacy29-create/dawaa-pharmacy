@@ -5,7 +5,8 @@ import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { getCustomerRequestOperationalInsights } from '@/lib/api/customerRequestInsights';
 import { useAuth, userHasPermission } from '@/hooks/useAuth';
-import { customerRequestSourceBranch } from '../domain/branch';
+import { canSeeAllBranches, getUserBranch } from '@/lib/core/branchScope';
+import { customerRequestBranchKey, customerRequestSourceBranch } from '../domain/branch';
 import { exportCustomerRequestsWorkspace } from '../data';
 import { useCustomerRequestsWorkspace, type CustomerRequestsWorkspaceFilters } from '../hooks';
 import CustomerRequestQueueStrip from './CustomerRequestQueueStrip';
@@ -40,6 +41,8 @@ function filtersFromSearchParams(params: URLSearchParams): CustomerRequestsWorks
 export default function CustomerRequestsWorkspace() {
   const { user } = useAuth();
   const canManageRequests = userHasPermission(user, 'manage_customer_requests');
+  const canAccessAllBranches = canSeeAllBranches(user?.role);
+  const scopedBranchKey = customerRequestBranchKey(getUserBranch(user));
   const [searchParams, setSearchParams] = useSearchParams();
   const [initialFilters] = useState<CustomerRequestsWorkspaceFilters>(() => filtersFromSearchParams(searchParams));
   const workspace = useCustomerRequestsWorkspace({ initialFilters });
@@ -55,6 +58,11 @@ export default function CustomerRequestsWorkspace() {
     initialFilters.sourceChannel !== 'all'
   ));
   const [productMetrics, setProductMetrics] = useState<Record<string, CustomerRequestProductMetric>>({});
+
+  useEffect(() => {
+    if (canAccessAllBranches || !scopedBranchKey) return;
+    if (workspace.filters.branch !== scopedBranchKey) workspace.updateFilters({ branch: scopedBranchKey });
+  }, [canAccessAllBranches, scopedBranchKey, workspace.filters.branch, workspace.updateFilters]);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -160,12 +168,14 @@ export default function CustomerRequestsWorkspace() {
     workspace.selectRequest(request.id);
   };
 
+  const selectedBranchValue = canAccessAllBranches ? workspace.filters.branch || 'all' : scopedBranchKey || workspace.filters.branch || 'all';
+
   return (
     <section className="space-y-4" dir="rtl">
       <header className="rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-lg md:p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">طلبات العملاء</h1><span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-success-text)]">Operations Workspace</span>{!canManageRequests ? <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">عرض فقط</span> : null}</div>
+            <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">طلبات العملاء</h1><span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-success-text)]">Operations Workspace</span>{!canManageRequests ? <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">عرض فقط</span> : null}{!canAccessAllBranches && scopedBranchKey ? <span className="rounded-full border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-theme-muted)]">نطاق الفرع فقط</span> : null}</div>
             <p className="mt-1 max-w-3xl text-sm font-bold leading-7 text-[var(--dawaa-theme-muted)]">العميل والكود والصنف والكود والمرحلة والموعد والدكتور ومعدل التوفير والإجراء التالي في شاشة تنفيذ واحدة مرتبطة بنظام النقاط المركزي.</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -176,7 +186,7 @@ export default function CustomerRequestsWorkspace() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_190px_170px_auto]"><input className="input-dark" value={workspace.filters.search || ''} onChange={(event) => workspace.updateFilters({ search: event.target.value, ...clearEntityFilters })} placeholder="بحث بالعميل، كود العميل، الهاتف، اسم الصنف أو كود الصنف" /><select className="input-dark" value={workspace.filters.branch || 'all'} onChange={(event) => workspace.updateFilters({ branch: event.target.value })}><option value="all">كل الفروع</option><option value="shokry">دواء شكري</option><option value="elshamy">دواء الشامي</option></select><select className="input-dark" value={workspace.pageSize} onChange={(event) => workspace.setPageSize(Number(event.target.value))}><option value={20}>20 طلب / صفحة</option><option value={30}>30 طلب / صفحة</option><option value={50}>50 طلب / صفحة</option></select><button type="button" className="btn-secondary flex items-center justify-center gap-2" onClick={() => setShowAdvancedFilters((value) => !value)}><Filter size={15} /> فلاتر</button></div>
+        <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_190px_170px_auto]"><input className="input-dark" value={workspace.filters.search || ''} onChange={(event) => workspace.updateFilters({ search: event.target.value, ...clearEntityFilters })} placeholder="بحث بالعميل، كود العميل، الهاتف، اسم الصنف أو كود الصنف" /><select className="input-dark" value={selectedBranchValue} disabled={!canAccessAllBranches} onChange={(event) => workspace.updateFilters({ branch: event.target.value })}>{canAccessAllBranches ? <option value="all">كل الفروع</option> : null}{canAccessAllBranches || scopedBranchKey === 'shokry' ? <option value="shokry">دواء شكري</option> : null}{canAccessAllBranches || scopedBranchKey === 'elshamy' ? <option value="elshamy">دواء الشامي</option> : null}</select><select className="input-dark" value={workspace.pageSize} onChange={(event) => workspace.setPageSize(Number(event.target.value))}><option value={20}>20 طلب / صفحة</option><option value={30}>30 طلب / صفحة</option><option value={50}>50 طلب / صفحة</option></select><button type="button" className="btn-secondary flex items-center justify-center gap-2" onClick={() => setShowAdvancedFilters((value) => !value)}><Filter size={15} /> فلاتر</button></div>
 
         {showAdvancedFilters ? <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3"><div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4"><select className="input-dark" value={workspace.filters.status || 'all'} onChange={(event) => workspace.updateFilters({ status: event.target.value, quickFilter: 'all' })}><option value="all">كل الحالات</option><option value="new">تسجيل الطلب</option><option value="purchasing_review">استلام المشتريات</option><option value="searching_suppliers">البحث والتوفير</option><option value="needs_customer_confirmation">يحتاج تأكيد العميل</option><option value="customer_confirmed">تم تأكيد العميل</option><option value="sourcing">جاري التوفير</option><option value="available">تم التوفير</option><option value="arrived">وصل للصيدلية</option><option value="customer_contacted">تم التواصل</option><option value="delivered">تم التسليم</option><option value="not_available">غير متوفر</option><option value="cancelled">ملغي</option></select><select className="input-dark" value={workspace.filters.urgency || 'all'} onChange={(event) => workspace.updateFilters({ urgency: event.target.value })}><option value="all">كل الأولويات</option><option value="urgent">عاجل</option><option value="high">مهم</option><option value="normal">عادي</option></select><input className="input-dark" value={workspace.filters.assignee === 'all' ? '' : workspace.filters.assignee || ''} onChange={(event) => workspace.updateFilters({ assignee: event.target.value.trim() ? event.target.value : 'all' })} placeholder="المسئول الحالي" /><select className="input-dark" value={workspace.filters.sourceChannel || 'all'} onChange={(event) => workspace.updateFilters({ sourceChannel: event.target.value })}><option value="all">كل قنوات الطلب</option><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select><label className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">من تاريخ<input type="date" className="input-dark mt-1" value={workspace.filters.dateFrom || ''} onChange={(event) => workspace.updateFilters({ dateFrom: event.target.value })} /></label><label className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">إلى تاريخ<input type="date" className="input-dark mt-1" value={workspace.filters.dateTo || ''} onChange={(event) => workspace.updateFilters({ dateTo: event.target.value })} /></label><select className="input-dark self-end" value={workspace.filters.sourceSystem || 'all'} onChange={(event) => workspace.updateFilters({ sourceSystem: event.target.value })}><option value="all">كل مصادر البيانات</option><option value="manual">تسجيل التطبيق</option><option value="dawaawael">DawaaWael / Base44</option></select><button type="button" className="btn-secondary self-end flex items-center justify-center gap-2" onClick={resetAdvancedFilters}><RotateCcw size={14} /> مسح الفلاتر المتقدمة</button></div></div> : null}
       </header>
