@@ -37,6 +37,9 @@ requireTokens('src/pages/CustomerRequestsV2.tsx', [
   "selectTab('sourcing')",
   "selectTab('analytics')",
   "selectTab('quality')",
+  'canSeeAllBranches',
+  'getUserBranch',
+  'effectiveAnalyticsBranch',
 ]);
 
 requireTokens('src/features/customer-requests/workspace/CustomerRequestsWorkspace.tsx', [
@@ -49,6 +52,9 @@ requireTokens('src/features/customer-requests/workspace/CustomerRequestsWorkspac
   'sourceChannel',
   'urgency',
   'assignee',
+  'canSeeAllBranches',
+  'getUserBranch',
+  'scopedBranchKey',
 ]);
 
 requireTokens('src/features/customer-requests/workspace/CustomerRequestDetailsDrawer.tsx', [
@@ -132,4 +138,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[customer-request-v2-parity] PASS: V2 preserves SPA navigation, canonical create, atomic exact follow-up timing, operational filters, edit/contact/sourcing/cancel/reopen/shortage actions, legacy fallback, and approved doctor point schedule.');
+console.log('[customer-request-v2-parity] PASS: V2 preserves branch-scoped SPA navigation, canonical create, atomic exact follow-up timing, operational filters, edit/contact/sourcing/cancel/reopen/shortage actions, legacy fallback, and approved doctor point schedule.');
