@@ -1,3 +1,4 @@
+import { supabase } from '@/lib/supabase';
 import {
   recordCustomerRequestContactAttempt,
   updateCustomerRequestStatus,
@@ -17,6 +18,32 @@ export type CustomerRequestContactOutcome = 'answered' | 'no_answer' | 'later';
 
 function actorInput(actor?: CustomerRequestCommandActor | null) {
   return { user_id: actor?.id || null, user_name: actor?.name || null };
+}
+
+function cairoDateText(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error('موعد المتابعة غير صحيح');
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+async function persistExactNextAction(requestId: string, followupAt?: string | null) {
+  const nextActionAt = followupAt || null;
+  const dueDate = nextActionAt ? cairoDateText(nextActionAt) : null;
+  const { data, error } = await supabase
+    .from('customer_requests')
+    .update({ next_action_at: nextActionAt, due_date: dueDate })
+    .eq('id', requestId)
+    .select('*')
+    .single();
+  if (error) throw new Error(`تم تسجيل نتيجة التواصل لكن تعذر تثبيت موعد المتابعة الدقيق: ${error.message}`);
+  return data as CustomerRequest;
 }
 
 export async function startCustomerRequestSearch(request: CustomerRequest, actor?: CustomerRequestCommandActor | null) {
@@ -113,12 +140,13 @@ export async function contactCustomerForRequest(
 ) {
   if (input.outcome === 'later' && !input.followupAt) throw new Error('حدد موعد المتابعة القادمة');
   if (input.outcome === 'answered') assertCustomerRequestTransition(request.status, 'customer_contacted');
-  return recordCustomerRequestContactAttempt(request, {
+  const updated = await recordCustomerRequestContactAttempt(request, {
     outcome: input.outcome,
     notes: input.notes || null,
     followup_at: input.followupAt || null,
     ...actorInput(input.actor),
   });
+  return persistExactNextAction(updated.id, input.outcome === 'later' ? input.followupAt : null);
 }
 
 export async function deliverCustomerRequest(request: CustomerRequest, notes: string, actor?: CustomerRequestCommandActor | null) {
