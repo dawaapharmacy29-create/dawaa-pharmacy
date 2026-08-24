@@ -83,6 +83,7 @@ const EMPTY_SUMMARY: CustomerRequestCommandSummary = {
   total: 0,
   today: 0,
   open: 0,
+  attention: 0,
   urgent: 0,
   overdue: 0,
   searching: 0,
