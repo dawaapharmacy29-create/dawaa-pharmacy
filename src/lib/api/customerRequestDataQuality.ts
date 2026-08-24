@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { normalizePhone, searchCustomers, type CustomerSearchResult } from '@/lib/customerSearch';
 import { searchProductsCatalogSmart, type CatalogProduct } from '@/lib/api/productsCatalog';
 import { confidentUniqueProductMatch, normalizeProductCode, normalizeProductName, scoreProductCandidate } from '@/lib/productMatching';
+import { normalizeBranchName } from '@/lib/branch';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 
 export type RequestDataQuality = {
@@ -45,7 +46,11 @@ export async function inspectCustomerRequestDataQuality(request: CustomerRequest
   if (customerCandidate && request.customer_phone && customerCandidate.phone && normalizePhone(customerCandidate.phone) !== normalizePhone(request.customer_phone)) {
     customerIssues.push('هاتف العميل في الطلب مختلف عن سجل العميل');
   }
-  const branchConflict = Boolean(customerCandidate?.branch && request.branch && customerCandidate.branch !== request.branch);
+  const branchConflict = Boolean(
+    customerCandidate?.branch &&
+    request.branch &&
+    normalizeBranchName(customerCandidate.branch) !== normalizeBranchName(request.branch)
+  );
   if (branchConflict) customerIssues.push(`فرع الطلب (${request.branch}) مختلف عن فرع العميل (${customerCandidate?.branch})`);
 
   const requestWithProduct = request as CustomerRequest & { product_id?: string | null; product_code?: string | null };
