@@ -4,11 +4,13 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const CONTRACT = path.join(ROOT, 'src/lib/tasks/taskEvidence.ts');
+const EVALUATION_METRICS = path.join(ROOT, 'src/lib/evaluations/evaluationMetrics.ts');
 const DOC = path.join(ROOT, 'docs/TASK_EVIDENCE_ARCHITECTURE.md');
 const failures = [];
 
 if (!fs.existsSync(CONTRACT)) failures.push('missing canonical task evidence contract');
 if (!fs.existsSync(DOC)) failures.push('missing task evidence architecture document');
+if (!fs.existsSync(EVALUATION_METRICS)) failures.push('missing neutral evaluation metrics projection');
 
 if (fs.existsSync(CONTRACT)) {
   const source = fs.readFileSync(CONTRACT, 'utf8');
@@ -45,6 +47,43 @@ if (fs.existsSync(CONTRACT)) {
   }
 }
 
+if (fs.existsSync(EVALUATION_METRICS)) {
+  const source = fs.readFileSync(EVALUATION_METRICS, 'utf8');
+  for (const token of [
+    'taskCompletionRate:',
+    'taskOnTimeCompletionRate:',
+    'sourceCoverageRate:',
+    'dataConfidence:',
+    'isTaskEvidenceReady:',
+    'expectedSourceTypes:',
+  ]) {
+    if (!source.includes(token)) failures.push(`evaluation metrics projection missing ${token}`);
+  }
+
+  if (/\bisEvaluationReady\s*:/.test(source)) {
+    failures.push('task metrics must not claim final employee evaluation readiness');
+  }
+
+  const forbiddenSettlementFields = [
+    /\bevaluationScore\s*:/,
+    /\bperformanceScore\s*:/,
+    /\bpointsDelta\s*:/,
+    /\bpoints_delta\s*:/,
+    /\bincentiveAmount\s*:/,
+    /\bpayrollAmount\s*:/,
+    /\bsettlementAmount\s*:/,
+  ];
+  for (const pattern of forbiddenSettlementFields) {
+    if (pattern.test(source)) {
+      failures.push(`evaluation metrics contains forbidden settlement field: ${pattern}`);
+    }
+  }
+
+  if (!source.includes('Source applicability must be supplied explicitly')) {
+    failures.push('evaluation metrics must fail closed on source applicability');
+  }
+}
+
 if (fs.existsSync(DOC)) {
   const doc = fs.readFileSync(DOC, 'utf8');
   const requiredPrinciples = [
@@ -64,4 +103,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[task-evidence-architecture] PASS: canonical evidence identity/lifecycle exists and financial settlement stays outside the task contract.');
+console.log('[task-evidence-architecture] PASS: task evidence and task metrics stay canonical, applicability-aware, non-financial, and separate from final evaluation settlement.');
