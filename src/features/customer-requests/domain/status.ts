@@ -1,4 +1,4 @@
-export const CUSTOMER_REQUEST_CLOSED_STATUSES = ['closed', 'delivered', 'cancelled', 'not_available'] as const;
+export const CUSTOMER_REQUEST_CLOSED_STATUSES = ['closed', 'delivered', 'cancelled'] as const;
 
 export const CUSTOMER_REQUEST_WORKFLOW = [
   'new',
