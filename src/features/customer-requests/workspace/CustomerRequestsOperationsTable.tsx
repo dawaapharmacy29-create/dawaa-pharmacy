@@ -31,8 +31,7 @@ function requestType(request: CustomerRequest) {
 }
 
 function customerClass(request: CustomerRequest) {
-  const payload = request.source_payload || {};
-  const value = String(request.customer_segment || payload.customer_segment || payload.segment || payload.customer_type || '').toLowerCase();
+  const value = String(request.customer_segment || '').toLowerCase();
   if (/vip|very|مهم جدا/.test(value)) return 'مهم جدًا';
   if (/important|high|مهم/.test(value)) return 'مهم';
   return 'عادي';
