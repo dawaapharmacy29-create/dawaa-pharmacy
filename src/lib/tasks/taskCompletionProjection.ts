@@ -35,6 +35,7 @@ export interface StaffTaskCompletionProjection {
   completionRate: number | null;
   onTimeCompleted: number;
   lateCompleted: number;
+  /** Full source-health inventory. Consumers must apply role/staff applicability explicitly. */
   sources: TaskSourceCoverage[];
   availableSourceCount: number;
   partialSourceCount: number;
@@ -90,7 +91,8 @@ function projectionKey(subjectStaffId: string, branch: string) {
  * - expected/assigned/accepted are active work, never failures;
  * - cancelled work is excluded from the denominator;
  * - unavailable sources contribute no zeroes/misses and stay visible as coverage gaps;
- * - partial sources include only the evidence they actually resolved; missing identity/data is not inferred.
+ * - partial sources include only the evidence they actually resolved; missing identity/data is not inferred;
+ * - source applicability is intentionally NOT inferred here. Evaluation consumers must provide it explicitly.
  */
 export function buildTaskCompletionProjection(
   batches: TaskEvidenceSourceBatch[]
@@ -123,10 +125,6 @@ export function buildTaskCompletionProjection(
     const completionRate = resolved > 0 ? Math.round((completed / resolved) * 10_000) / 100 : null;
     const onTimeCompleted = evidenceRows.filter((row) => completedOnTime(row) === true).length;
     const lateCompleted = evidenceRows.filter((row) => completedOnTime(row) === false).length;
-    const sourceTypes = new Set(evidenceRows.map((row) => row.sourceType));
-    const relevantSources = coverage.filter((row) =>
-      sourceTypes.has(row.sourceType) || row.availability === 'unavailable'
-    );
 
     projections.push({
       subjectStaffId,
@@ -139,7 +137,7 @@ export function buildTaskCompletionProjection(
       completionRate,
       onTimeCompleted,
       lateCompleted,
-      sources: relevantSources,
+      sources: coverage,
       availableSourceCount: coverage.filter((row) => row.availability === 'available').length,
       partialSourceCount: coverage.filter((row) => row.availability === 'partial').length,
       unavailableSourceCount: coverage.filter((row) => row.availability === 'unavailable').length,
