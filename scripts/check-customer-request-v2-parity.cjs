@@ -94,6 +94,37 @@ requireTokens('supabase/migrations/20260824153000_customer_request_next_action_a
   'idx_customer_requests_next_action_at_open',
 ]);
 
+requireTokens('supabase/migrations/20260824170000_customer_request_atomic_transition_v2.sql', [
+  'advance_customer_request_v2',
+  'for update',
+  "dawaa_can_access_customer_request_branch('manage_customer_requests'",
+  'customer_request_transition_invalid',
+  'customer_request_events',
+  'sourcing_available',
+  'deliver',
+  'cancel',
+]);
+
+requireTokens('supabase/migrations/20260824164500_create_customer_request_canonical_v2.sql', [
+  'create_customer_request_canonical_v2',
+  'create_customer_request_canonical_v1',
+  'registration_credit',
+  'request_registered',
+  'settled',
+]);
+
+requireTokens('src/features/customer-requests/create/createCanonicalCustomerRequest.ts', [
+  'create_customer_request_canonical_v2',
+  'registrationCredit',
+  'creditRow.settled',
+]);
+
+requireTokens('src/features/customer-requests/workspace/CanonicalCreateRequestDialog.tsx', [
+  'result.registrationCredit.settled',
+  'تم اعتماد نقاط التسجيل',
+  'لم تُحتسب نقاط تسجيل جديدة',
+]);
+
 requireTokens('supabase/migrations/20260824163000_retire_customer_request_legacy_refresh_v1.sql', [
   'revoke all on function public.settle_doctor_self_logged_request',
   'create or replace function public.refresh_doctor_customer_request_points',
