@@ -64,6 +64,7 @@ requireTokens('src/features/customer-requests/workspace/CustomerRequestsWorkspac
 
 requireTokens('src/features/customer-requests/workspace/CustomerRequestDetailsDrawer.tsx', [
   'updateCustomerRequestDetails',
+  'CustomerRequestDataQualityPanel',
   'recordCustomerRequestSourcing',
   'contactCustomerForRequest',
   'reopenCustomerRequestSearch',
