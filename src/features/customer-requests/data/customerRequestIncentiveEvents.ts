@@ -13,14 +13,12 @@ export interface CustomerRequestIncentiveEventRow {
 }
 
 export async function getCustomerRequestIncentiveEvents(requestId: string) {
-  const { data, error } = await supabase
-    .from('customer_request_incentive_events')
-    .select('id,request_id,event_key,staff_id,tier_key,points,policy_version,event_at,employee_transaction_id')
-    .eq('request_id', requestId)
-    .order('event_at', { ascending: true });
+  const { data, error } = await supabase.rpc('get_customer_request_incentive_events', {
+    p_request_id: requestId,
+  });
   if (error) throw new Error(error.message);
-  return (data || []).map((row) => ({
+  return (Array.isArray(data) ? data : []).map((row) => ({
     ...row,
-    points: Number(row.points || 0),
+    points: Number((row as { points?: unknown }).points || 0),
   })) as CustomerRequestIncentiveEventRow[];
 }
