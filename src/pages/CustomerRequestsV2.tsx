@@ -75,7 +75,7 @@ export default function CustomerRequestsV2() {
               if (action.search) params.set('search', action.search);
               if (action.customerCode) params.set('customerCode', action.customerCode);
               if (action.customerPhone) params.set('customerPhone', action.customerPhone);
-              if (action.customerName) params.set('customerName', action.customerName);
+              if (action.customerName && !action.search) params.set('search', action.customerName);
               if (action.productCode) params.set('productCode', action.productCode);
               if (action.medicineName) params.set('medicineName', action.medicineName);
               openOperations(params);
