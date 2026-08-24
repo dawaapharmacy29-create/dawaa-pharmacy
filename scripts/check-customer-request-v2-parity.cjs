@@ -72,6 +72,9 @@ requireTokens('src/features/customer-requests/workspace/CustomerRequestDetailsDr
   'expectedArrivalDate',
   'datetime-local',
   'تعديل تفاصيل التنفيذ',
+  'customerFollowupHref',
+  "params.set('quickFollowup', '1')",
+  "'/customer-service?'",
 ]);
 
 requireTokens('src/features/customer-requests/commands/customerRequestCommands.ts', [
