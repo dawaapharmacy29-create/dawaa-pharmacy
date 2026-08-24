@@ -7,6 +7,8 @@ import CustomerRequestCriticalToday from '@/components/customer-requests/Custome
 import CustomerRequestWarehousePanel from '@/components/customer-requests/CustomerRequestWarehousePanel';
 import CustomerRequestStaffAttributionPanel from '@/components/customer-requests/CustomerRequestStaffAttributionPanel';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
+import { useAuth } from '@/hooks/useAuth';
+import { canSeeAllBranches, getUserBranch } from '@/lib/core/branchScope';
 import { CustomerRequestsWorkspace } from '@/features/customer-requests';
 
 type Tab = 'operations' | 'sourcing' | 'analytics' | 'quality';
@@ -17,14 +19,22 @@ function tabFromParams(params: URLSearchParams): Tab {
 }
 
 export default function CustomerRequestsV2() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => tabFromParams(searchParams));
   const [analyticsBranch, setAnalyticsBranch] = useState('all');
+  const canAccessAllBranches = canSeeAllBranches(user?.role);
+  const userBranch = getUserBranch(user);
+  const effectiveAnalyticsBranch = canAccessAllBranches ? analyticsBranch : userBranch || 'all';
 
   useEffect(() => {
     setTab(tabFromParams(searchParams));
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!canAccessAllBranches && userBranch && analyticsBranch !== userBranch) setAnalyticsBranch(userBranch);
+  }, [analyticsBranch, canAccessAllBranches, userBranch]);
 
   const selectTab = (nextTab: Tab) => {
     setTab(nextTab);
@@ -74,9 +84,9 @@ export default function CustomerRequestsV2() {
 
       {tab === 'sourcing' ? (
         <div className="space-y-4">
-          <ScopeBranch value={analyticsBranch} onChange={setAnalyticsBranch} />
-          <CustomerRequestCriticalToday branch={analyticsBranch} onOpenRequest={openRequest} />
-          <CustomerRequestWarehousePanel branch={analyticsBranch} />
+          <ScopeBranch value={effectiveAnalyticsBranch} onChange={setAnalyticsBranch} canAccessAll={canAccessAllBranches} ownBranch={userBranch} />
+          <CustomerRequestCriticalToday branch={effectiveAnalyticsBranch} onOpenRequest={openRequest} />
+          <CustomerRequestWarehousePanel branch={effectiveAnalyticsBranch} />
           <section className="grid gap-3 md:grid-cols-3">
             <RouteCard to="/shortages" title="النواقص" description="فتح قائمة النواقص المرتبطة بالتوفير ومراجعة الأصناف غير المتاحة." />
             <RouteCard to="/purchases" title="المشتريات" description="متابعة مسار الشراء والموردين بدون تكرار بيانات طلب العميل." />
@@ -87,9 +97,9 @@ export default function CustomerRequestsV2() {
 
       {tab === 'analytics' ? (
         <div className="space-y-3">
-          <ScopeBranch value={analyticsBranch} onChange={setAnalyticsBranch} />
+          <ScopeBranch value={effectiveAnalyticsBranch} onChange={setAnalyticsBranch} canAccessAll={canAccessAllBranches} ownBranch={userBranch} />
           <CustomerRequestInsightsPanel
-            branch={analyticsBranch}
+            branch={effectiveAnalyticsBranch}
             onAction={(action) => {
               const params = new URLSearchParams();
               if (action.branch) params.set('branch', action.branch);
@@ -110,9 +120,9 @@ export default function CustomerRequestsV2() {
 
       {tab === 'quality' ? (
         <div className="space-y-3">
-          <ScopeBranch value={analyticsBranch} onChange={setAnalyticsBranch} />
-          <CustomerRequestStaffAttributionPanel branch={analyticsBranch} />
-          <CustomerRequestQualityCenter branch={analyticsBranch} onOpenRequest={openRequest} />
+          <ScopeBranch value={effectiveAnalyticsBranch} onChange={setAnalyticsBranch} canAccessAll={canAccessAllBranches} ownBranch={userBranch} />
+          <CustomerRequestStaffAttributionPanel branch={effectiveAnalyticsBranch} />
+          <CustomerRequestQualityCenter branch={effectiveAnalyticsBranch} onOpenRequest={openRequest} />
         </div>
       ) : null}
     </div>
@@ -123,8 +133,8 @@ function WorkspaceTab({ active, onClick, icon: Icon, title, description }: { act
   return <button type="button" onClick={onClick} className={`rounded-2xl border px-4 py-3 text-right transition ${active ? 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]' : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-text)] hover:border-[var(--dawaa-theme-accent-border)]'}`}><span className="flex items-center gap-2 text-sm font-black"><Icon size={17} /> {title}</span><small className="mt-1 block text-[10px] font-bold opacity-70">{description}</small></button>;
 }
 
-function ScopeBranch({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <div className="flex justify-end"><select className="input-dark w-auto min-w-44" value={value} onChange={(event) => onChange(event.target.value)}><option value="all">كل الفروع</option><option value="فرع شكري">دواء شكري</option><option value="فرع الشامي">دواء الشامي</option></select></div>;
+function ScopeBranch({ value, onChange, canAccessAll, ownBranch }: { value: string; onChange: (value: string) => void; canAccessAll: boolean; ownBranch: string }) {
+  return <div className="flex justify-end"><select className="input-dark w-auto min-w-44" value={value} disabled={!canAccessAll} onChange={(event) => onChange(event.target.value)}>{canAccessAll ? <option value="all">كل الفروع</option> : null}{canAccessAll || ownBranch === 'فرع شكري' ? <option value="فرع شكري">دواء شكري</option> : null}{canAccessAll || ownBranch === 'فرع الشامي' ? <option value="فرع الشامي">دواء الشامي</option> : null}</select></div>;
 }
 
 function RouteCard({ to, title, description }: { to: string; title: string; description: string }) {
