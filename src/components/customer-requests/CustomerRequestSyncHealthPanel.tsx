@@ -31,7 +31,7 @@ type SyncHealth = {
   latest: LatestRow[];
 };
 
-const SYNC_HEALTH_ROLES = new Set(['general_manager', 'executive_manager', 'branches_manager', 'customer_service_manager', 'admin']);
+const SYNC_HEALTH_ROLES = new Set(['general_manager', 'executive_manager', 'branches_manager', 'admin']);
 
 function cairoDateTime(value?: string | null) {
   if (!value) return 'لم يصل سجل بعد';
