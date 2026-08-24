@@ -112,6 +112,22 @@ requireTokens('src/features/customer-requests/domain/__tests__/customerRequestsD
   "customerRequestTierPoints('tier_3', 'request_achieved')).toBe(1)",
 ]);
 
+const permissionSystem = read('src/lib/core/permissionSystem.ts');
+const shiftSupervisorBlock = permissionSystem.match(/const SHIFT_SUPERVISOR_BASE = \[([\s\S]*?)\];/)?.[1] || '';
+for (const requiredPermission of ['view_customer_requests', 'manage_customer_requests']) {
+  if (!shiftSupervisorBlock.includes(requiredPermission)) {
+    failures.push(`shift supervisors must retain ${requiredPermission} because they are doctor-role request operators`);
+  }
+}
+
+const authSource = read('src/hooks/useAuth.ts');
+const doctorWorkspaceBlock = authSource.match(/const DOCTOR_WORKSPACE_PERMISSIONS = \[([\s\S]*?)\];/)?.[1] || '';
+for (const requiredPermission of ['view_customer_requests', 'manage_customer_requests']) {
+  if (!doctorWorkspaceBlock.includes(requiredPermission)) {
+    failures.push(`doctor workspace permission cap must preserve ${requiredPermission}`);
+  }
+}
+
 const v2Page = read('src/pages/CustomerRequestsV2.tsx');
 if (/window\.location\.(?:href|assign|replace)/i.test(v2Page)) {
   failures.push('Customer Requests V2 workspace navigation must stay inside React Router and avoid full-page reloads');
