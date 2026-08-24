@@ -173,6 +173,48 @@ requireTokens('src/lib/api/customerRequestDataQuality.ts', [
   'p_keep_request_branch',
 ]);
 
+requireTokens('supabase/migrations/20260824193000_customer_request_registrar_attribution_v2.sql', [
+  "source_payload->>'recorded_by'",
+  'source_recorded_staff_id',
+  'apply_customer_request_staff_attribution_v1',
+  'get_customer_request_staff_attribution_apply_preview_v1',
+  'get_customer_request_staff_attribution_review_core_v1',
+  'Never derives doctor_id from source_assigned_employee',
+]);
+
+requireTokens('supabase/migrations/20260824194000_customer_request_canonical_source_identity_v2.sql', [
+  'customer_request_canonical_source_identity_v2',
+  "source_payload->>'product_code'",
+  "source_payload->>'recorded_staff_id'",
+  'source_recorded_staff_id',
+  'Never attributes doctor points from names or assigned_employee',
+]);
+
+requireTokens('supabase/migrations/20260824195000_preserve_stable_source_staff_identity_v2.sql', [
+  'customer_request_enrich_product_staff_v1',
+  'if new.source_recorded_staff_id is null',
+  'if new.source_assigned_staff_id is null',
+]);
+
+requireTokens('src/components/customer-requests/CustomerRequestStaffAttributionPanel.tsx', [
+  'مسجل الطلب',
+  'لا يغيّر الموظف المسئول عن التوفير',
+]);
+
+requireTokens('src/components/customer-requests/CustomerRequestProductIntelligencePanel.tsx', [
+  'isReviewableCandidate',
+  'name_similarity',
+  'scoreGap',
+  'مطابقة غير كافية — يحتاج بحث يدوي',
+]);
+
+requireTokens('docs/customer-requests-architecture.md', [
+  'Base44 / DawaaWael Source Contract',
+  'recorded_staff_id',
+  'assigned_employee',
+  'create_customer_request_canonical_v2',
+]);
+
 requireTokens('supabase/migrations/20260824192000_doctor_incentive_customer_request_alignment_v1.sql', [
   'calculate_staff_incentive_egp',
   'get_doctor_pillar_breakdown',
