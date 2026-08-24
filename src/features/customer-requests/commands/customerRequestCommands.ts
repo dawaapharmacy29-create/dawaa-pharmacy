@@ -5,6 +5,7 @@ import {
   type CustomerRequest,
 } from '@/lib/api/customerRequests';
 import { customerRequestPrimaryAction, normalizeCustomerRequestStatus } from '../domain/status';
+import { assertCustomerRequestTransition } from '../domain/transitions';
 
 export interface CustomerRequestCommandActor {
   id?: string | null;
@@ -20,10 +21,14 @@ function actorInput(actor?: CustomerRequestCommandActor | null) {
 
 export async function startCustomerRequestSearch(request: CustomerRequest, actor?: CustomerRequestCommandActor | null) {
   const status = normalizeCustomerRequestStatus(request.status);
+  if (!['new', 'purchasing_review', 'not_available'].includes(status)) {
+    throw new Error('لا يمكن بدء البحث من المرحلة الحالية');
+  }
   const next = status === 'new' ? 'purchasing_review' : 'searching_suppliers';
+  assertCustomerRequestTransition(status, next);
   return updateCustomerRequestStatus(request, {
     status: next,
-    notes: next === 'purchasing_review' ? 'تم استلام طلب العميل للمراجعة' : 'بدأ البحث عن الصنف',
+    notes: next === 'purchasing_review' ? 'تم استلام طلب العميل للمراجعة' : status === 'not_available' ? 'إعادة فتح البحث عن الصنف أو البديل' : 'بدأ البحث عن الصنف',
     purchasing_assignee: actor?.name || request.purchasing_assignee || null,
     ...actorInput(actor),
   });
@@ -40,6 +45,7 @@ export async function recordCustomerRequestSourcing(
 ) {
   const notes = input.notes.trim();
   if (!notes) throw new Error('سجل نتيجة البحث أو التوفير قبل الحفظ');
+  assertCustomerRequestTransition(request.status, input.outcome);
   if (input.outcome === 'not_available') {
     return updateCustomerRequestStatus(request, {
       status: 'not_available',
@@ -67,6 +73,7 @@ export async function recordCustomerRequestSourcing(
 }
 
 export async function confirmCustomerRequest(request: CustomerRequest, notes: string, actor?: CustomerRequestCommandActor | null) {
+  assertCustomerRequestTransition(request.status, 'customer_confirmed');
   return updateCustomerRequestStatus(request, {
     status: 'customer_confirmed',
     notes: notes.trim() || 'تم تأكيد احتياج العميل للطلب',
@@ -85,6 +92,7 @@ export async function contactCustomerForRequest(
   }
 ) {
   if (input.outcome === 'later' && !input.followupAt) throw new Error('حدد موعد المتابعة القادمة');
+  if (input.outcome === 'answered') assertCustomerRequestTransition(request.status, 'customer_contacted');
   return recordCustomerRequestContactAttempt(request, {
     outcome: input.outcome,
     notes: input.notes || null,
@@ -94,6 +102,7 @@ export async function contactCustomerForRequest(
 }
 
 export async function deliverCustomerRequest(request: CustomerRequest, notes: string, actor?: CustomerRequestCommandActor | null) {
+  assertCustomerRequestTransition(request.status, 'delivered');
   return updateCustomerRequestStatus(request, {
     status: 'delivered',
     notes: notes.trim() || 'تم تسليم الصنف للعميل / إتمام البيع',
@@ -105,6 +114,7 @@ export async function deliverCustomerRequest(request: CustomerRequest, notes: st
 export async function cancelCustomerRequest(request: CustomerRequest, reason: string, actor?: CustomerRequestCommandActor | null) {
   const normalizedReason = reason.trim();
   if (!normalizedReason) throw new Error('سبب إلغاء الطلب مطلوب');
+  assertCustomerRequestTransition(request.status, 'cancelled');
   return updateCustomerRequestStatus(request, {
     status: 'cancelled',
     notes: normalizedReason,
