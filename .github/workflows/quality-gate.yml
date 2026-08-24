@@ -67,6 +67,9 @@ jobs:
       - name: Customer Request shortage command boundary
         run: node scripts/check-customer-request-shortage-command.cjs
 
+      - name: Customer Requests V2 parity boundary
+        run: node scripts/check-customer-request-v2-parity.cjs
+
       - name: Payroll architecture boundary
         run: node scripts/check-payroll-architecture.cjs
 
