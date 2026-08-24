@@ -96,16 +96,17 @@ export async function inspectCustomerRequestDataQuality(request: CustomerRequest
   return { customerCandidate, productCandidate, productMatchScore, productMatchLabel, customerIssues, productIssues, branchConflict };
 }
 
-export async function repairCustomerRequestCustomer(requestId: string, customer: CustomerSearchResult, keepRequestBranch = true) {
-  const payload: Record<string, unknown> = {
-    customer_id: customer.id || null,
-    customer_code: customer.code || null,
-    customer_name: customer.name || null,
-    customer_phone: customer.phone || null,
-    updated_at: new Date().toISOString(),
-  };
-  if (!keepRequestBranch && customer.branch) payload.branch = customer.branch;
-  const { data, error } = await supabase.from('customer_requests').update(payload).eq('id', requestId).select('*').single();
+export async function repairCustomerRequestCustomer(
+  requestId: string,
+  customer: CustomerSearchResult,
+  keepRequestBranch = true
+) {
+  if (!customer.id) throw new Error('اختر سجل عميل معياري قبل تنفيذ الإصلاح');
+  const { data, error } = await supabase.rpc('repair_customer_request_customer_v2', {
+    p_request_id: requestId,
+    p_customer_id: customer.id,
+    p_keep_request_branch: keepRequestBranch,
+  });
   if (error) throw new Error(error.message);
   return data as CustomerRequest;
 }
