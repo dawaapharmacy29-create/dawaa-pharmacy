@@ -105,6 +105,19 @@ requireTokens('supabase/migrations/20260824174000_customer_request_search_indexe
   'product_code',
 ]);
 
+requireTokens('supabase/migrations/20260824181000_customer_request_shortage_alignment_v2.sql', [
+  'move_customer_request_to_shortage_v1',
+  "'purchasing_review'",
+  "'searching_suppliers'",
+  "'request',to_jsonb(v_updated)",
+  'source_customer_request_id',
+]);
+
+requireTokens('src/features/customer-requests/commands/moveCustomerRequestToShortageSecure.ts', [
+  'payload.request',
+  'الطلب المحدث من العملية الذرية',
+]);
+
 requireTokens('supabase/migrations/20260824180000_customer_request_summary_alignment_v2.sql', [
   "'attention'",
   "'ready'",
