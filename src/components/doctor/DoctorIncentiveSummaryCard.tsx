@@ -49,6 +49,7 @@ export default function DoctorIncentiveSummaryCard({
       setLoading(false);
       setData(null);
       setPillars([]);
+      setError('حساب الدكتور غير مربوط بسجل موظف معتمد، لذلك لا يمكن حساب الحافز حاليًا.');
       return;
     }
 
@@ -66,6 +67,9 @@ export default function DoctorIncentiveSummaryCard({
           ? incentiveResult.value.data[0]
           : incentiveResult.value.data;
         setData((row as IncentiveTotal) || null);
+        if (!row) {
+          issues.push('لا توجد فئة حافز نشطة مرتبطة بهذا الدكتور، لذلك لا يمكن احتساب القيمة بالجنيه بعد');
+        }
       } else {
         setData(null);
         const message =
@@ -104,12 +108,24 @@ export default function DoctorIncentiveSummaryCard({
   }
 
   if (!data) {
-    return error ? (
-      <div className="dawaa-alert dawaa-alert--warning p-4 text-sm font-bold">
-        <AlertTriangle size={17} />
-        <span>{error}</span>
+    return (
+      <div className="dawaa-card w-full p-5 text-right">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="dawaa-icon-tile h-9 w-9"><Wallet size={18} /></div>
+            <span className="dawaa-title">حافزك المتوقع هذا الشهر</span>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <span className="dawaa-title text-4xl">—</span>
+          <span className="dawaa-title mb-1 text-lg">جنيه</span>
+        </div>
+        <div className="dawaa-alert dawaa-alert--warning mt-3 p-3 text-sm font-bold">
+          <AlertTriangle size={17} />
+          <span>{error || 'تعذر حساب الحافز حاليًا. راجع ربط الموظف وفئة الحافز.'}</span>
+        </div>
       </div>
-    ) : null;
+    );
   }
 
   const progressPct = Math.min(100, Math.round(data.progress_pct));
