@@ -1,6 +1,9 @@
 begin;
 
 -- Customer Requests V2 command boundary.
+-- ROLLOUT ORDER: deploy the V2 application first, confirm canonical RPC writes are
+-- healthy, then apply this migration. Applying this revoke while the legacy main
+-- client is still active will intentionally break its direct table writes.
 -- The app may use anon/authenticated as transport roles, but those roles must
 -- never bypass audited SECURITY DEFINER commands with raw table mutations.
 
