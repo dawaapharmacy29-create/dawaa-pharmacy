@@ -196,6 +196,12 @@ requireTokens('supabase/migrations/20260824184500_customer_request_shortage_retu
   'customer_request_events',
 ]);
 
+requireTokens('src/lib/pointsLedger.ts', [
+  'formatTransactionSource',
+  "source.includes('customer_request')",
+  "'طلبات العملاء'",
+]);
+
 requireTokens('src/lib/staff/customerRequestPointsService.ts', [
   'get_customer_request_doctor_points_summary',
   'get_customer_request_doctor_points_leaderboard',
