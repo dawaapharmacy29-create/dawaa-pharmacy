@@ -180,23 +180,11 @@ function followupDueOrFilter() {
 }
 
 export async function getCustomerRequestsCommandSummary(branch = 'all') {
-  const { data, error } = await supabase.rpc('get_customer_requests_command_center_summary', {
+  const { data, error } = await supabase.rpc('get_customer_requests_command_center_summary_v2', {
     p_branch: branch === 'all' ? null : branch,
   });
   if (error) throw new Error(error.message);
-
-  const branchAliases = customerRequestBranchAliases(branch);
-  let followupQuery = supabase
-    .from('customer_requests')
-    .select('id', { count: 'exact', head: true })
-    .not('status', 'in', `(${CLOSED.join(',')})`)
-    .or(followupDueOrFilter());
-  if (branchAliases.length === 1) followupQuery = followupQuery.eq('branch', branchAliases[0]);
-  if (branchAliases.length > 1) followupQuery = followupQuery.in('branch', branchAliases);
-  const { count: followupCount, error: followupError } = await followupQuery;
-  if (followupError) throw new Error(followupError.message);
-
-  return { ...((data || {}) as CustomerRequestCommandSummary), followup_due: Number(followupCount || 0) };
+  return (data || {}) as CustomerRequestCommandSummary;
 }
 
 export async function getCustomerRequestsPage(
