@@ -3,11 +3,10 @@ import { BarChart3, Download, Filter, Plus, RefreshCw, RotateCcw, ShieldCheck } 
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
-import { getCustomerRequestOperationalInsights } from '@/lib/api/customerRequestInsights';
 import { useAuth, userHasPermission } from '@/hooks/useAuth';
 import { canSeeAllBranches, getUserBranch } from '@/lib/core/branchScope';
 import { customerRequestBranchKey, customerRequestSourceBranch } from '../domain/branch';
-import { exportCustomerRequestsWorkspace } from '../data';
+import { exportCustomerRequestsWorkspace, getCustomerRequestProductMetrics } from '../data';
 import { useCustomerRequestsWorkspace, type CustomerRequestsWorkspaceFilters } from '../hooks';
 import CustomerRequestQueueStrip from './CustomerRequestQueueStrip';
 import CustomerRequestsOperationsTable, { type CustomerRequestProductMetric } from './CustomerRequestsOperationsTable';
@@ -100,24 +99,32 @@ export default function CustomerRequestsWorkspace() {
 
   useEffect(() => {
     let cancelled = false;
-    const branch = customerRequestSourceBranch(workspace.filters.branch) || 'all';
-    void getCustomerRequestOperationalInsights(branch, 90)
-      .then((data) => {
+    const productCodes = Array.from(
+      new Set(workspace.rows.map((row) => String(row.product_code || '').trim()).filter(Boolean))
+    );
+    if (!productCodes.length) {
+      setProductMetrics({});
+      return () => { cancelled = true; };
+    }
+
+    void getCustomerRequestProductMetrics(productCodes, workspace.filters.branch || 'all', 90)
+      .then((rows) => {
         if (cancelled) return;
         const next: Record<string, CustomerRequestProductMetric> = {};
-        for (const product of data.top_products || []) {
+        for (const product of rows) {
           if (!product.product_code) continue;
-          next[String(product.product_code)] = {
-            requestsCount: Number(product.requests_count || 0),
-            fulfilledCount: Number(product.fulfilled_count || 0),
-            fulfillmentRate: product.fulfillment_rate === null ? null : Number(product.fulfillment_rate || 0),
+          next[product.product_code] = {
+            requestsCount: product.requests_count,
+            fulfilledCount: product.fulfilled_count,
+            fulfillmentRate: product.fulfillment_rate,
           };
         }
         setProductMetrics(next);
       })
       .catch(() => { if (!cancelled) setProductMetrics({}); });
+
     return () => { cancelled = true; };
-  }, [workspace.filters.branch]);
+  }, [workspace.rows, workspace.filters.branch]);
 
   const fulfillmentContext = useMemo(() => {
     const values = Object.values(productMetrics).filter((item) => item.requestsCount > 0 && item.fulfillmentRate !== null);
@@ -198,7 +205,7 @@ export default function CustomerRequestsWorkspace() {
       <CustomerRequestQueueStrip summary={workspace.summary} activeFilter={workspace.filters.quickFilter} onSelect={(quickFilter) => workspace.updateFilters({ quickFilter, status: 'all', ...clearEntityFilters })} />
 
       <section className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 shadow-lg md:p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><BarChart3 size={17} className="text-[var(--dawaa-theme-primary)]" /> قائمة التنفيذ</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{workspace.count.toLocaleString('ar-EG')} طلب مطابق · معدل توفير الصنف مبني على آخر 90 يومًا عندما تتوفر عينة للصنف.</div></div>{workspace.listLoading ? <span className="text-xs font-bold text-[var(--dawaa-theme-primary)]">جاري تحديث القائمة...</span> : null}</div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><BarChart3 size={17} className="text-[var(--dawaa-theme-primary)]" /> قائمة التنفيذ</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{workspace.count.toLocaleString('ar-EG')} طلب مطابق · معدل توفير الصنف مبني على آخر 90 يومًا للأصناف الظاهرة فقط، لتقليل تحميل الصفحة.</div></div>{workspace.listLoading ? <span className="text-xs font-bold text-[var(--dawaa-theme-primary)]">جاري تحديث القائمة...</span> : null}</div>
         {workspace.listError ? <div className="mb-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-3 py-2 text-sm font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل القائمة: {workspace.listError}</div> : null}
         <CustomerRequestsOperationsTable rows={workspace.rows} selectedId={workspace.selectedRequestId} onSelect={selectRequest} productMetrics={productMetrics} />
         <div className="mt-3 flex items-center justify-between gap-3 text-sm font-bold text-[var(--dawaa-theme-muted)]"><span>صفحة {workspace.page} من {workspace.pages}</span><div className="flex gap-2"><button type="button" className="btn-secondary" disabled={workspace.page <= 1 || workspace.listLoading} onClick={() => workspace.setPage(Math.max(1, workspace.page - 1))}>السابق</button><button type="button" className="btn-secondary" disabled={workspace.page >= workspace.pages || workspace.listLoading} onClick={() => workspace.setPage(Math.min(workspace.pages, workspace.page + 1))}>التالي</button></div></div>
