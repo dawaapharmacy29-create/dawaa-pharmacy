@@ -47,7 +47,7 @@ export default function CustomerRequestDoctorPointsCard({ staffId }: { staffId: 
           <Metric icon={CheckCircle2} label="نقاط التسجيل" value={current.registration_points} />
           <Metric icon={Award} label="إجمالي النقاط" value={current.total_points} highlight />
         </div>
-        <div className="mt-3 grid gap-2 md:grid-cols-2"><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><span className="font-bold text-[var(--dawaa-theme-muted)]">نقاط تحقيق الطلبات</span><strong className="mt-1 block text-lg text-[var(--dawaa-status-success-text)]">{current.achievement_points.toLocaleString('ar-EG')} نقطة</strong></div><Link to={`/customer-requests?registrar=${encodeURIComponent(current.staff_name || '')}&quick=all`} className="flex items-center justify-center rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3 text-xs font-black text-[var(--dawaa-theme-primary)]">فتح طلبات الدكتور وتفاصيلها</Link></div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2"><div className="rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3 text-xs"><span className="font-bold text-[var(--dawaa-theme-muted)]">نقاط تحقيق الطلبات</span><strong className="mt-1 block text-lg text-[var(--dawaa-status-success-text)]">{current.achievement_points.toLocaleString('ar-EG')} نقطة</strong></div><Link to={`/customer-requests?registrarId=${encodeURIComponent(staffId)}&quick=all`} className="flex items-center justify-center rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3 text-xs font-black text-[var(--dawaa-theme-primary)]">فتح طلبات الدكتور وتفاصيلها</Link></div>
       </> : null}
     </section>
   );
