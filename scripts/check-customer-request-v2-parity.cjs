@@ -188,6 +188,34 @@ requireTokens('supabase/migrations/20260824184500_customer_request_shortage_retu
   'customer_request_events',
 ]);
 
+requireTokens('src/lib/staff/customerRequestPointsService.ts', [
+  'get_customer_request_doctor_points_summary',
+  'get_customer_request_doctor_points_leaderboard',
+  'CustomerRequestDoctorPointsSummary',
+]);
+
+requireTokens('src/lib/staff/staffPerformanceProfileService.ts', [
+  'customerRequestPointsService',
+  'customerRequestPoints: CustomerRequestDoctorPointsSummary | null',
+  'customer_request_points',
+  'customer_request_incentive_events',
+]);
+
+requireTokens('src/features/customer-requests/data/customerRequestDoctorPoints.ts', [
+  "from '@/lib/staff/customerRequestPointsService'",
+]);
+
+requireTokens('src/pages/StaffDetailLegacy.tsx', [
+  'profile.customerRequestPoints',
+  'طلبات العملاء',
+  'إجمالي نقاط الطلبات',
+  '/customer-requests?registrarId=',
+]);
+
+if (fs.existsSync(path.join(ROOT, 'src/features/customer-requests/workspace/CustomerRequestDoctorPointsCard.tsx'))) {
+  failures.push('Customer Request points must render from the canonical StaffPerformanceProfile, not a duplicate independent Staff Detail loader');
+}
+
 requireTokens('src/pages/OperationalModule.tsx', [
   'return_shortage_to_customer_request_v2',
   'canReturnCustomerRequest',
