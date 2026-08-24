@@ -306,57 +306,10 @@ export default function BranchInspection() {
         created_at: new Date().toISOString(),
       };
       if (isSupabaseConfigured) {
-        const { data: reportRows, error } = await supabase
-          .from('branch_inspections')
-          .insert(payload)
-          .select('id')
-          .limit(1);
+        const { error } = await supabase.rpc('save_branch_inspection_v1', {
+          p_payload: payload,
+        });
         if (error) throw error;
-        const reportId = (reportRows?.[0] as any)?.id || null;
-
-        if (reportId && form.staff_evals.length) {
-          await supabase
-            .from('branch_visit_staff_reviews')
-            .insert(
-              form.staff_evals.map((ev) => ({
-                report_id: reportId,
-                staff_id: ev.staff_id || null,
-                staff_name: ev.name,
-                role: ev.role || null,
-                branch: ev.branch || form.branch,
-                shift_start: ev.shift_start || null,
-                shift_end: ev.shift_end || null,
-                rating: ev.rating,
-                note: ev.note || null,
-                action_type: ev.action_type || 'none',
-                points_delta: ev.points_delta || 0,
-                money_amount: ev.money_amount || 0,
-                created_by_name: form.inspector_name || user?.name || null,
-              }))
-            )
-            .then(() => undefined);
-
-          const pointRows = form.staff_evals
-            .filter((ev) => ev.staff_id && Number(ev.points_delta || 0) !== 0)
-            .map((ev) => ({
-              staff_id: ev.staff_id,
-              employee_name: ev.name,
-              branch: ev.branch || form.branch,
-              points_delta: ev.points_delta || 0,
-              points: ev.points_delta || 0,
-              type: Number(ev.points_delta || 0) > 0 ? 'reward' : 'deduction',
-              reason: `مرور مدير الفروع - ${actionImpact(ev.action_type).label}`,
-              description: ev.note || form.overall_notes || 'تقييم مرور مدير الفروع',
-              source: 'branch_visit',
-              source_id: reportId,
-              status: 'approved',
-              created_by_name: form.inspector_name || user?.name || null,
-            }));
-          if (pointRows.length) {
-            const { error: pointsError } = await supabase.from('employee_transactions').insert(pointRows);
-            if (pointsError) toast.error(`تم حفظ نموذج المرور، لكن تعذر تسجيل نقاط الموظفين: ${pointsError.message}`);
-          }
-        }
       }
       setSaved(true);
       toast.success('تم حفظ نموذج المرور بنجاح ✅');

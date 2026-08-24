@@ -603,12 +603,10 @@ async function fetchReportRows(
   }
 
   if (type === 'points_incentives') {
-    const { data, error } = await supabase
-      .from('employee_transactions')
-      .select('*')
-      .gte('created_at', `${startDate}T00:00:00`)
-      .lte('created_at', `${endDate}T23:59:59`)
-      .limit(3000);
+    const { data, error } = await supabase.rpc('get_employee_transactions_for_cycle_v1', {
+      p_start: startDate,
+      p_end: endDate,
+    });
     if (error) throw new Error(error.message);
     return (data || [])
       .filter((row) => !scopedBranch || normalizeBranchName(String(row.branch || '')) === scopedBranch)

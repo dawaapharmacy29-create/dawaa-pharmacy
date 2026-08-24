@@ -7,6 +7,7 @@ const SRC = path.join(ROOT, 'src');
 const LEGACY_PERMISSION_FILE = 'src/lib/staffPermissions.ts';
 const CORE_PERMISSION_FILE = 'src/lib/core/permissionSystem.ts';
 const SIDEBAR_FILE = 'src/components/layout/Sidebar.tsx';
+const PERMISSION_KEY_MIGRATION = 'supabase/migrations/20260824154000_migrate_active_dot_permission_keys_v1.sql';
 const failures = [];
 
 function walk(dir) {
@@ -61,6 +62,23 @@ for (const [rel, pattern] of requiredCoreConsumers) {
 
 const coreSource = fs.readFileSync(path.join(ROOT, CORE_PERMISSION_FILE), 'utf8');
 const sidebarSource = fs.readFileSync(path.join(ROOT, SIDEBAR_FILE), 'utf8');
+
+const permissionMigrationPath = path.join(ROOT, PERMISSION_KEY_MIGRATION);
+if (!fs.existsSync(permissionMigrationPath)) {
+  failures.push(`Missing canonical permission-key migration: ${PERMISSION_KEY_MIGRATION}`);
+} else {
+  const migration = fs.readFileSync(permissionMigrationPath, 'utf8');
+  for (const key of [
+    'customer_welcome_messages_view',
+    'customer_welcome_messages_create',
+    'customer_welcome_messages_update',
+    'employee_operating_system_view',
+    'employee_operating_system_manage',
+  ]) {
+    if (!migration.includes(key)) failures.push(`Permission-key migration missing ${key}`);
+    if (!coreSource.includes(key)) failures.push(`Canonical permission system missing ${key}`);
+  }
+}
 const routeMapBlock = coreSource.match(/export const ROUTE_PERMISSION_MAP[\s\S]*?\n};/s)?.[0] || '';
 const mappedRoutes = new Set([...routeMapBlock.matchAll(/['\"](\/[^'\"]*)['\"]\s*:/g)].map((match) => match[1]));
 const sidebarRoutes = new Set([...sidebarSource.matchAll(/\bpath\s*:\s*['\"](\/[^'\"]*)['\"]/g)].map((match) => match[1].split('?')[0]));

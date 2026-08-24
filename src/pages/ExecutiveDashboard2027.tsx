@@ -53,6 +53,7 @@ import {
   type DashboardSalesReconciliation,
 } from '@/lib/dashboard/dashboardTruthService';
 import { resolveStaffLink, getStaffNavigationTarget, staffProfilePath } from '@/lib/staff/staffIdentityResolver';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 import {
   avgReview,
   getDoctorCompetitionMetrics,
@@ -1620,13 +1621,18 @@ export default function ExecutiveDashboard2027() {
             data: StaffDirectoryRow[] | null;
             error: { message?: string } | null;
           }>(
-            supabase
-              .from('staff')
-              .select('id,name,role,branch,status,active,is_active')
-              .limit(700) as PromiseLike<{
-                data: StaffDirectoryRow[] | null;
-                error: { message?: string } | null;
-              }>,
+            readStaffDirectory().then((rows) => ({
+              data: rows.slice(0, 700).map((row) => ({
+                id: row.id,
+                name: row.name,
+                role: row.role,
+                branch: row.branch,
+                status: row.status,
+                active: row.active,
+                is_active: row.active,
+              })) as StaffDirectoryRow[],
+              error: null,
+            })),
             7000,
             'staff-directory'
           ),

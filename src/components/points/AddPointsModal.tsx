@@ -11,18 +11,8 @@ import {
   evidenceRequiredForSubmission,
   type OperationKind,
 } from '@/lib/pointsWorkflow';
-import {
-  approverHintFromRule,
-  applyStaffDelta,
-  persistPointsTransaction,
-  shouldApplyToBalance,
-} from '@/lib/pointsPersistence';
+import { approverHintFromRule, persistPointsTransaction } from '@/lib/pointsPersistence';
 import { logActivity } from '@/hooks/useSupabaseQuery';
-import {
-  canonicalMaxPoints,
-  effectiveCyclePoints,
-  type PointLedgerRecord,
-} from '@/lib/pointsLedger';
 
 export interface StaffPickerRow {
   id: string;
@@ -244,6 +234,12 @@ export function AddPointsModal({
     }
 
     const status = 'approved' as const;
+    const signedPoints =
+      operation === 'admin_adjustment'
+        ? Number(adminDelta)
+        : operation === 'bonus'
+          ? pointsVal
+          : -pointsVal;
 
     setSaving(true);
     const { error } = await persistPointsTransaction({
@@ -278,31 +274,6 @@ export function AddPointsModal({
       return;
     }
 
-    const deltaBalance =
-      operation === 'admin_adjustment'
-        ? Number(adminDelta)
-        : operation === 'bonus'
-          ? pointsVal
-          : shouldApplyToBalance(status)
-            ? -pointsVal
-            : 0;
-
-    if (shouldApplyToBalance(status) && deltaBalance !== 0) {
-      const currentPoints = effectiveCyclePoints(
-        selectedStaff,
-        records as PointLedgerRecord[],
-        cycle
-      );
-      await applyStaffDelta(
-        staffId,
-        currentPoints,
-        canonicalMaxPoints(selectedStaff),
-        deltaBalance,
-        selectedStaff.name,
-        selectedStaff.branch
-      );
-    }
-
     await logActivity(
       user.id,
       user.name,
@@ -312,7 +283,7 @@ export function AddPointsModal({
           ? 'إضافة خصم'
           : 'تعديل إداري نقاط',
       'النقاط',
-      `${OPERATION_LABELS[operation]} ${Math.abs(deltaBalance || pointsVal)} نقطة على ${selectedStaff.name}`,
+      `${OPERATION_LABELS[operation]} ${Math.abs(signedPoints)} نقطة على ${selectedStaff.name}`,
       selectedStaff.branch,
       {
         user_role: user.role,
@@ -322,7 +293,7 @@ export function AddPointsModal({
         staff_role: selectedStaff.role,
         branch_id: selectedStaff.branch_id ?? null,
         operation,
-        points: deltaBalance,
+        points: signedPoints,
         rule_code: selectedRule?.code ?? null,
         reason: selectedRule?.title ?? note,
         applied_by_id: selectedApplier?.id || user.id,

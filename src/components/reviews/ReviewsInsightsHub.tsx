@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 
 type ReviewRow = Record<string, any>;
 type FollowupRow = Record<string, any>;
@@ -163,11 +164,17 @@ export default function ReviewsInsightsHub() {
           .select('*')
           .order('created_at', { ascending: false })
           .limit(3000),
-        supabase.from('staff').select('id,name,branch,active,is_active'),
+        readStaffDirectory(),
       ]);
       if (reviewResult.error) throw reviewResult.error;
       setReviews((reviewResult.data || []) as ReviewRow[]);
-      if (!staffResult.error) setStaffRows((staffResult.data || []) as StaffRow[]);
+      setStaffRows(staffResult.map((row) => ({
+        id: row.id,
+        name: row.name,
+        branch: row.branch,
+        active: row.active,
+        is_active: row.active,
+      })) as StaffRow[]);
 
       if (showService) {
         // 'customer_followups' و'customer_service_followups' مش موجودين في السكيمة

@@ -5,6 +5,21 @@ const path = require('node:path');
 const ROOT = process.cwd();
 const failures = [];
 
+const migrationNames = fs.readdirSync(path.join(ROOT, 'supabase/migrations'));
+const modernMigrationVersions = new Map();
+for (const name of migrationNames) {
+  const match = name.match(/^(\d{14})_/);
+  if (!match || match[1] < '20260824150000') continue;
+  const names = modernMigrationVersions.get(match[1]) || [];
+  names.push(name);
+  modernMigrationVersions.set(match[1], names);
+}
+for (const [version, names] of modernMigrationVersions) {
+  if (names.length > 1) {
+    failures.push(`Duplicate modern migration version ${version}: ${names.join(', ')}`);
+  }
+}
+
 const editorPath = path.join(ROOT, 'src/components/dashboard/BranchTargetEditor.tsx');
 const editor = fs.readFileSync(editorPath, 'utf8');
 if (!/\.rpc\(['"]set_branch_sales_target['"]/.test(editor)) {
@@ -20,12 +35,25 @@ const activeWorkflowRlsPath = path.join(ROOT, 'supabase/migrations/2026082319150
 const reviewCeilingPath = path.join(ROOT, 'supabase/migrations/20260823191800_align_db_review_permission_ceiling_v1.sql');
 const managerReviewRlsPath = path.join(ROOT, 'supabase/migrations/20260823192200_harden_customer_service_manager_reviews_rls_v1.sql');
 const branchInspectionRlsPath = path.join(ROOT, 'supabase/migrations/20260823194000_harden_branch_inspection_authorization_v1.sql');
+const branchInspectionCommandPath = path.join(ROOT, 'supabase/migrations/20260824152000_save_branch_inspection_atomic_v1.sql');
 const employeeTransactionRlsPath = path.join(ROOT, 'supabase/migrations/20260823195000_harden_employee_transactions_active_actor_v1.sql');
 const pointsCeilingPath = path.join(ROOT, 'supabase/migrations/20260823200000_align_db_points_permission_ceiling_v1.sql');
 const activityLogRlsPath = path.join(ROOT, 'supabase/migrations/20260823213000_harden_activity_logs_append_only_v1.sql');
 const coachingNotesRlsPath = path.join(ROOT, 'supabase/migrations/20260823231500_harden_staff_coaching_notes_rls_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, employeeTransactionRlsPath, pointsCeilingPath, activityLogRlsPath, coachingNotesRlsPath]) {
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, branchInspectionCommandPath, employeeTransactionRlsPath, pointsCeilingPath, activityLogRlsPath, coachingNotesRlsPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
+}
+
+if (fs.existsSync(branchInspectionCommandPath)) {
+  const source = fs.readFileSync(branchInspectionCommandPath, 'utf8');
+  for (const token of ['save_branch_inspection_v1', 'dawaa_can_branch_inspection(true)', 'branch_inspections', 'branch_visit_staff_reviews', 'employee_transactions']) {
+    if (!source.includes(token)) failures.push(`Atomic branch inspection command must include ${token}.`);
+  }
+  const page = fs.readFileSync(path.join(ROOT, 'src/pages/BranchInspection.tsx'), 'utf8');
+  if (!/\.rpc\(\s*['"]save_branch_inspection_v1['"]/.test(page)) failures.push('BranchInspection UI must use the atomic save command.');
+  if (/\.from\(\s*['"](?:branch_inspections|branch_visit_staff_reviews|employee_transactions)['"]\s*\)[\s\S]{0,350}\.(?:insert|update|upsert|delete)\s*\(/.test(page)) {
+    failures.push('BranchInspection UI must not write any part of the aggregate directly.');
+  }
 }
 
 if (fs.existsSync(authMigrationPath)) {

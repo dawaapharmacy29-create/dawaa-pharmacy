@@ -17,6 +17,7 @@ import {
 } from '@/lib/employeeDailyTasks';
 import { EMPLOYEE_OPERATING_ROLE_KEYS, getEmployeeRoleOperatingProfile } from '@/lib/employeeRoleOperatingProfiles';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 
 const ALL = 'all';
 const PAGE_SIZE = 50;
@@ -157,7 +158,7 @@ export default function EmployeeOperatingSystem() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const debouncedSearch = useDebounce(search, 350);
-  const canManage = checkPermission('employee_operating_system.manage');
+  const canManage = checkPermission('employee_operating_system_manage');
 
   const scopedBranch = !canSeeAllBranches(user?.role) && user?.branch ? normalizeBranchName(user.branch) : branch;
 
@@ -205,18 +206,11 @@ export default function EmployeeOperatingSystem() {
 
   async function loadStaffForGeneration() {
     if (!isSupabaseConfigured) return [] as StaffRow[];
-    let query = supabase
-      .from('staff')
-      .select('id,name,role,branch,status,active,is_active')
-      .limit(200);
-    if (scopedBranch && scopedBranch !== ALL) query = query.eq('branch', scopedBranch);
-    if (role && role !== ALL) query = query.eq('role', role);
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data || []).filter((row: Record<string, unknown>) => {
-      const active = row.active ?? row.is_active ?? row.status;
-      return active === true || String(active || '').includes('نشط') || String(active || '').toLowerCase() === 'active';
-    }) as StaffRow[];
+    return (await readStaffDirectory())
+      .filter((row) => row.active)
+      .filter((row) => !scopedBranch || scopedBranch === ALL || normalizeBranchName(row.branch || '') === normalizeBranchName(scopedBranch))
+      .filter((row) => !role || role === ALL || row.role === role)
+      .slice(0, 200) as StaffRow[];
   }
 
   const generateToday = async () => {

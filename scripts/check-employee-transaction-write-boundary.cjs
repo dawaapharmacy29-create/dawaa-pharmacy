@@ -4,26 +4,25 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
+const APPEAL_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20260824151100_point_appeal_atomic_reversal_v1.sql'
+);
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
 // writers move behind a canonical authorization-aware service/RPC. New direct
 // writers are forbidden.
 const BASELINED_DIRECT_WRITERS = new Set([
-  'src/lib/pointsPersistence.ts',
   'src/services/employeeTransactionService.ts',
-  'src/pages/BranchInspection.tsx',
-  'src/pages/Points.tsx',
-  'src/pages/PenaltyIncentiveManagement.tsx',
-  'src/lib/api/shiftPerformanceReviewService.ts',
 ]);
 
 // `staff.points` is a transitional mutable snapshot, not the canonical ledger.
 // Keep the current compatibility writer isolated while the balance projection is
 // migrated to ledger-derived/server-side truth. Any new direct writer is a hard
 // architecture regression.
-const BASELINED_STAFF_POINTS_WRITERS = new Set([
-  'src/lib/pointsPersistence.ts',
-]);
+const BASELINED_STAFF_POINTS_WRITERS = new Set();
+
+const BASELINED_STAFF_DELTA_CALLERS = new Set();
 
 function walk(dir) {
   const out = [];
@@ -43,7 +42,8 @@ function hasDirectWrite(source) {
   ];
   for (const pattern of starts) {
     for (const match of source.matchAll(pattern)) {
-      const tail = source.slice(match.index, match.index + 900);
+      const candidate = source.slice(match.index, match.index + 900);
+      const tail = candidate.slice(0, candidate.indexOf(';') >= 0 ? candidate.indexOf(';') : candidate.length);
       if (/\.(?:insert|update|upsert|delete)\s*\(/.test(tail)) return true;
     }
   }
@@ -67,15 +67,20 @@ function hasDirectStaffPointsWrite(source) {
 
 const directWriters = [];
 const staffPointsWriters = [];
+const staffDeltaCallers = [];
 for (const file of walk(SRC)) {
   const source = fs.readFileSync(file, 'utf8');
   const relative = path.relative(ROOT, file).replace(/\\/g, '/');
   if (hasDirectWrite(source)) directWriters.push(relative);
   if (hasDirectStaffPointsWrite(source)) staffPointsWriters.push(relative);
+  if (relative !== 'src/lib/pointsPersistence.ts' && /\bapplyStaffDelta\s*\(/.test(source)) {
+    staffDeltaCallers.push(relative);
+  }
 }
 
 directWriters.sort();
 staffPointsWriters.sort();
+staffDeltaCallers.sort();
 const unexpected = directWriters.filter((file) => !BASELINED_DIRECT_WRITERS.has(file));
 const staleBaseline = [...BASELINED_DIRECT_WRITERS].filter((file) => !directWriters.includes(file));
 const unexpectedStaffPointsWriters = staffPointsWriters.filter(
@@ -84,11 +89,19 @@ const unexpectedStaffPointsWriters = staffPointsWriters.filter(
 const staleStaffPointsBaseline = [...BASELINED_STAFF_POINTS_WRITERS].filter(
   (file) => !staffPointsWriters.includes(file)
 );
+const unexpectedStaffDeltaCallers = staffDeltaCallers.filter(
+  (file) => !BASELINED_STAFF_DELTA_CALLERS.has(file)
+);
+const staleStaffDeltaBaseline = [...BASELINED_STAFF_DELTA_CALLERS].filter(
+  (file) => !staffDeltaCallers.includes(file)
+);
 
 console.log(`[employee-transaction-write-boundary] direct writers: ${directWriters.length}`);
 for (const file of directWriters) console.log(`- ${file}`);
 console.log(`[employee-transaction-write-boundary] direct staff.points writers: ${staffPointsWriters.length}`);
 for (const file of staffPointsWriters) console.log(`- ${file}`);
+console.log(`[employee-transaction-write-boundary] direct staff delta callers: ${staffDeltaCallers.length}`);
+for (const file of staffDeltaCallers) console.log(`- ${file}`);
 
 if (staleBaseline.length) {
   console.error('\nEmployee transaction write boundary failed:');
@@ -120,6 +133,41 @@ if (unexpectedStaffPointsWriters.length) {
   for (const file of unexpectedStaffPointsWriters) {
     console.error(`- ${file} writes staff.points directly outside the approved compatibility boundary`);
   }
+  process.exit(1);
+}
+
+if (staleStaffDeltaBaseline.length || unexpectedStaffDeltaCallers.length) {
+  console.error('\nEmployee points snapshot caller boundary failed:');
+  for (const file of staleStaffDeltaBaseline) {
+    console.error(`- ${file} no longer calls applyStaffDelta; remove it from the transitional baseline`);
+  }
+  for (const file of unexpectedStaffDeltaCallers) {
+    console.error(`- ${file} calls retired applyStaffDelta instead of writing an auditable ledger event`);
+  }
+  process.exit(1);
+}
+
+if (!fs.existsSync(APPEAL_MIGRATION)) {
+  console.error('\nEmployee points appeal boundary failed: canonical reversal migration is missing.');
+  process.exit(1);
+}
+const appealMigration = fs.readFileSync(APPEAL_MIGRATION, 'utf8');
+for (const token of [
+  'review_point_appeal_v1',
+  'point_appeal_reversal',
+  'for update',
+  'uq_employee_transactions_point_appeal_reversal_v1',
+  "p_decision not in ('upheld','overturned')",
+]) {
+  if (!appealMigration.toLowerCase().includes(token.toLowerCase())) {
+    console.error(`\nEmployee points appeal boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+
+const appealPage = fs.readFileSync(path.join(SRC, 'pages/PointAppeals.tsx'), 'utf8');
+if (!/\.rpc\(\s*['"]review_point_appeal_v1['"]/.test(appealPage)) {
+  console.error('\nEmployee points appeal boundary failed: UI must use the atomic review RPC.');
   process.exit(1);
 }
 
