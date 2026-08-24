@@ -82,7 +82,7 @@ describe('evaluation metrics projection', () => {
     expect(metrics.sourceCoverageRate).toBe(100);
     expect(metrics.sourceUnavailableCount).toBe(0);
     expect(metrics.dataConfidence).toBe('high');
-    expect(metrics.isEvaluationReady).toBe(true);
+    expect(metrics.isTaskEvidenceReady).toBe(true);
   });
 
   it('keeps applicable partial/unavailable evidence visible without turning it into misses', () => {
@@ -138,11 +138,11 @@ describe('evaluation metrics projection', () => {
     expect(metrics.taskCompletionRate).toBe(80);
     expect(metrics.sourceCoverageRate).toBe(50);
     expect(metrics.dataConfidence).toBe('low');
-    expect(metrics.isEvaluationReady).toBe(false);
+    expect(metrics.isTaskEvidenceReady).toBe(false);
     expect(metrics.confidenceReasons.join(' ')).toMatch(/unavailable/);
   });
 
-  it('does not mark unresolved work as evaluation-ready even with healthy applicable sources', () => {
+  it('does not mark unresolved work as task-evidence-ready even with healthy sources', () => {
     const [metrics] = buildEvaluationMetrics([
       projection({
         completed: 0,
@@ -158,7 +158,7 @@ describe('evaluation metrics projection', () => {
 
     expect(metrics.taskCompletionRate).toBeNull();
     expect(metrics.dataConfidence).toBe('high');
-    expect(metrics.isEvaluationReady).toBe(false);
+    expect(metrics.isTaskEvidenceReady).toBe(false);
     expect(metrics.confidenceReasons).toContain('No resolved task outcomes are available yet.');
   });
 
@@ -167,7 +167,7 @@ describe('evaluation metrics projection', () => {
 
     expect(metrics.sourceCoverageRate).toBeNull();
     expect(metrics.dataConfidence).toBe('unavailable');
-    expect(metrics.isEvaluationReady).toBe(false);
+    expect(metrics.isTaskEvidenceReady).toBe(false);
     expect(metrics.confidenceReasons.join(' ')).toMatch(/applicability/);
   });
 });
