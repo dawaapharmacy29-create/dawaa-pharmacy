@@ -64,8 +64,7 @@ requireTokens('src/features/customer-requests/commands/customerRequestCommands.t
   'cancelCustomerRequest',
   'reopenCustomerRequestSearch',
   'sendCustomerRequestToShortages',
-  'persistExactNextAction',
-  'next_action_at',
+  'record_customer_request_contact_v2',
 ]);
 
 requireTokens('src/features/customer-requests/data/customerRequestsRepository.ts', [
@@ -78,6 +77,15 @@ requireTokens('src/features/customer-requests/data/customerRequestsRepository.ts
 requireTokens('supabase/migrations/20260824153000_customer_request_next_action_at_v1.sql', [
   'next_action_at timestamptz',
   'idx_customer_requests_next_action_at_open',
+]);
+
+requireTokens('supabase/migrations/20260824154000_record_customer_request_contact_v2.sql', [
+  'record_customer_request_contact_v2',
+  'security definer',
+  "dawaa_can_access_customer_request_branch('manage_customer_requests'",
+  'next_action_at',
+  'customer_request_events',
+  'customer_request_followup_must_be_future',
 ]);
 
 requireTokens('src/features/customer-requests/domain/__tests__/customerRequestsDomain.test.ts', [
@@ -94,6 +102,11 @@ if (/medicine_name:\s*edit/i.test(drawer)) {
   failures.push('V2 edit flow must not mutate medicine_name independently from canonical product identity');
 }
 
+const contactMigration = read('supabase/migrations/20260824154000_record_customer_request_contact_v2.sql');
+if (/p_(?:actor|user|staff|created_by)(?:_id|_name)?\s+/i.test(contactMigration)) {
+  failures.push('atomic contact command must derive actor identity from the app staff context');
+}
+
 const commands = read('src/features/customer-requests/commands/customerRequestCommands.ts');
 if (/status:\s*['"]delivered['"][\s\S]{0,300}without/i.test(commands)) {
   failures.push('delivery transition appears to bypass the canonical transition guard');
@@ -105,4 +118,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[customer-request-v2-parity] PASS: V2 preserves canonical create, exact follow-up timing, operational filters, edit/contact/sourcing/cancel/reopen/shortage actions, legacy fallback, and approved doctor point schedule.');
+console.log('[customer-request-v2-parity] PASS: V2 preserves canonical create, atomic exact follow-up timing, operational filters, edit/contact/sourcing/cancel/reopen/shortage actions, legacy fallback, and approved doctor point schedule.');
