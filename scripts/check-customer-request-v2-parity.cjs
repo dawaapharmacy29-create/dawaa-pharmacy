@@ -182,7 +182,6 @@ requireTokens('supabase/migrations/20260824185500_shortage_manage_permission_v1.
 
 requireTokens('supabase/migrations/20260824184500_customer_request_shortage_return_v2.sql', [
   'return_shortage_to_customer_request_v2',
-  "dawaa_shortage_permission_allowed_v1(v_account_id,'manage_shortages')",
   "dawaa_can_access_customer_request_branch('manage_customer_requests'",
   "'available'",
   'returned_to_customer_request_at',
