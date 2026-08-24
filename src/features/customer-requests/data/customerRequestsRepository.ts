@@ -27,6 +27,7 @@ export interface CustomerRequestCommandSummary {
   total: number;
   today: number;
   open: number;
+  attention: number;
   urgent: number;
   overdue: number;
   searching: number;
@@ -261,9 +262,14 @@ export async function getCustomerRequestsPage(
   if (quick === 'recent') query = query.gte('requested_at', daysAgoIso(7));
   if (quick === 'followup_due') query = query.not('status', 'in', `(${CLOSED.join(',')})`).or(followupDueOrFilter());
   if (quick === 'ready') query = query.in('status', ['available', 'arrived']);
-  if (quick === 'urgent') query = query.or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
+  if (quick === 'urgent') query = query
+    .not('status', 'in', `(${CLOSED.join(',')})`)
+    .or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
   if (quick === 'unlinked') query = query.is('customer_id', null);
-  if (quick === 'unassigned') query = query.is('purchasing_assignee', null).is('source_assigned_employee', null);
+  if (quick === 'unassigned') query = query
+    .not('status', 'in', `(${CLOSED.join(',')})`)
+    .is('purchasing_assignee', null)
+    .is('source_assigned_employee', null);
   if (quick === 'sync_review') query = query.eq('sync_conflict', true).eq('sync_conflict_reason', 'branch_unresolved_after_customer_match');
   if (quick === 'backlog') query = query.not('status', 'in', `(${CLOSED.join(',')})`).lt('requested_at', daysAgoIso(7));
   if (quick === 'attention') query = query.not('status', 'in', `(${CLOSED.join(',')})`).gte('requested_at', daysAgoIso(7));
