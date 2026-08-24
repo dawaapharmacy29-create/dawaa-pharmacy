@@ -80,6 +80,7 @@ requireTokens('src/features/customer-requests/commands/customerRequestCommands.t
   'reopenCustomerRequestSearch',
   'sendCustomerRequestToShortages',
   'record_customer_request_contact_v2',
+  'updateCustomerRequestDetailsV2',
 ]);
 
 requireTokens('src/features/customer-requests/data/customerRequestsRepository.ts', [
@@ -92,6 +93,14 @@ requireTokens('src/features/customer-requests/data/customerRequestsRepository.ts
 requireTokens('supabase/migrations/20260824153500_customer_request_next_action_at_v1.sql', [
   'next_action_at timestamptz',
   'idx_customer_requests_next_action_at_open',
+]);
+
+requireTokens('supabase/migrations/20260824171000_customer_request_details_command_v2.sql', [
+  'update_customer_request_details_v2',
+  'for update',
+  "dawaa_can_access_customer_request_branch('manage_customer_requests'",
+  'customer_request_events',
+  'canonical request identity remains immutable',
 ]);
 
 requireTokens('supabase/migrations/20260824170000_customer_request_atomic_transition_v2.sql', [
