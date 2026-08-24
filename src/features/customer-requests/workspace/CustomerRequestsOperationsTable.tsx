@@ -71,7 +71,7 @@ export default function CustomerRequestsOperationsTable({
             {rows.map((request) => {
               const view = customerRequestOperationalView(request);
               const selected = selectedId === request.id;
-              const metric = request.product_code ? productMetrics[String(request.product_code)] : undefined;
+              const metric = view.product.code ? productMetrics[String(view.product.code)] : undefined;
               return (
                 <tr
                   key={request.id}
