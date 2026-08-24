@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 /**
  * Validation Tests for Staff Performance Profile Service
  *
@@ -420,10 +419,8 @@ describe('Build Validation', () => {
   });
 
   it('should export all required functions', () => {
-    // Validate that the service exports the main function
-    const service = require('../staffPerformanceProfileService');
-    expect(service.loadStaffPerformanceProfile).toBeDefined();
-    expect(typeof service.loadStaffPerformanceProfile).toBe('function');
+    expect(loadStaffPerformanceProfile).toBeDefined();
+    expect(typeof loadStaffPerformanceProfile).toBe('function');
   });
 
   it('should have proper TypeScript interfaces', () => {

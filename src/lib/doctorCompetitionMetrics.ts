@@ -116,7 +116,7 @@ export type DoctorCompetitionMetrics = {
 
 export const MINIMUM_INVOICES_FOR_LEADERBOARD = 1;
 export const MINIMUM_SALES_FOR_LEADERBOARD = 0;
-export const MIN_AVG_INVOICE_THRESHOLD = 1;
+export const MIN_AVG_INVOICE_THRESHOLD = 2;
 export const ALL_BRANCHES = 'كل الفروع';
 
 const PARTICIPATING_ROLES = new Set([
@@ -217,7 +217,7 @@ export function pickInvoiceAmount(row: Row) {
 
 function invoiceIdentityKey(row: Row) {
   const branch = invoiceBranch(row);
-  const number = text(row.invoice_no || row.invoice_number);
+  const number = getInvoiceId(row);
   const day = invoiceDate(row);
   if (number) return `${branch}|${number}|${day}`;
   return getInvoiceId(row) || text(row.id);
@@ -374,20 +374,27 @@ function calculateScores(rows: Array<Omit<DoctorCompetitionScore, 'overallScore'
 }
 
 function buildWinners(rows: DoctorCompetitionScore[]): DoctorCompetitionWinners {
-  const sales = [...rows].sort((a, b) => b.totalSales - a.totalSales)[0] || null;
+  const sales = [...rows].filter((row) => row.totalSales > 0).sort((a, b) => b.totalSales - a.totalSales)[0] || null;
   const averageInvoice = [...rows].filter((row) => row.avgInvoiceEligible).sort((a, b) => b.avgInvoice - a.avgInvoice)[0] || null;
-  const incentive = [...rows].sort((a, b) => b.incentiveValue - a.incentiveValue)[0] || null;
+  const incentive = [...rows]
+    .filter((row) => row.incentiveValue > 0 || row.listItems > 0 || row.stagnantItems > 0)
+    .sort((a, b) => b.incentiveValue - a.incentiveValue)[0] || null;
+  const stagnant = [...rows]
+    .filter((row) => row.stagnantStatus === 'available' && row.stagnantItems > 0)
+    .sort((a, b) => b.stagnantItems - a.stagnantItems || b.incentiveValue - a.incentiveValue)[0] || null;
   const reviews = [...rows].filter((row) => row.reviewCount).sort((a, b) => avgReview(b) - avgReview(a))[0] || null;
-  const service = [...rows].sort((a, b) => b.completedFollowups + b.recoveredCustomers - (a.completedFollowups + a.recoveredCustomers))[0] || null;
-  const overall = [...rows].sort((a, b) => b.competitionPoints - a.competitionPoints)[0] || null;
-  return { sales, averageInvoice, avgInvoice: averageInvoice, incentive, stagnant: incentive, reviews, conversation: reviews, service, customerService: service, overall };
+  const service = [...rows]
+    .filter((row) => row.completedFollowups > 0 || row.recoveredCustomers > 0)
+    .sort((a, b) => b.completedFollowups + b.recoveredCustomers - (a.completedFollowups + a.recoveredCustomers))[0] || null;
+  const overall = [...rows].filter((row) => row.competitionPoints > 0).sort((a, b) => b.competitionPoints - a.competitionPoints)[0] || null;
+  return { sales, averageInvoice, avgInvoice: averageInvoice, incentive, stagnant, reviews, conversation: reviews, service, customerService: service, overall };
 }
 
 export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParams = {}): Promise<DoctorCompetitionMetrics> {
   const range = rangeForDoctorCompetition(params.period, params.customStart, params.customEnd);
   const previous = previousRange(range);
   const selectedBranch = params.branch && params.branch !== ALL_BRANCHES ? normalizeBranchName(params.branch) : '';
-  const userBranch = normalizeBranchName(params.userBranch || '');
+  const userBranch = params.userBranch ? normalizeBranchName(params.userBranch) : '';
   const canSeeAll = params.canSeeAllBranches === true;
   const errors: Record<string, string> = {};
   const sourceHealth: Record<string, 'ready' | 'empty' | 'unavailable'> = {};
@@ -624,10 +631,12 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   });
 
   const rows = calculateScores(rawRows)
-    .filter((row) => row.leaderboardEligible)
+    .filter((row) => row.leaderboardEligible && row.totalSales > MINIMUM_SALES_FOR_LEADERBOARD)
     .sort((a, b) => b.competitionPoints - a.competitionPoints || b.totalSales - a.totalSales);
   const eligibleRows = rows;
-  const reviewRows: DoctorCompetitionScore[] = [];
+  const reviewRows = rows.filter(
+    (row) => !row.avgInvoiceEligible || row.reviewIssues.length > 0 || row.ineligibleReasons.length > 0
+  );
   const warnings = Object.entries(errors)
     .filter(([key]) => key !== 'sales_aggregate' || salesSource !== 'invoice_fallback')
     .map(([, message]) => message);

@@ -6,10 +6,10 @@
  */
 
 export function debounce<T extends (...args: any[]) => void>(fn: T, delay = 300) {
-  let timer: number | undefined;
+  let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
   return (...args: Parameters<T>) => {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(() => fn(...args), delay);
+    if (timer !== undefined) globalThis.clearTimeout(timer);
+    timer = globalThis.setTimeout(() => fn(...args), delay);
   };
 }
 
@@ -18,14 +18,14 @@ export async function withTimeout<T>(
   ms = 20000,
   message = 'انتهى وقت العملية'
 ) {
-  let timer: number | undefined;
+  let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = window.setTimeout(() => reject(new Error(message)), ms);
+    timer = globalThis.setTimeout(() => reject(new Error(message)), ms);
   });
   try {
     return await Promise.race([promise, timeout]);
   } finally {
-    window.clearTimeout(timer);
+    if (timer !== undefined) globalThis.clearTimeout(timer);
   }
 }
 
