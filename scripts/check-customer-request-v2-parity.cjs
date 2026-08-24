@@ -239,6 +239,17 @@ requireTokens('supabase/migrations/20260824184500_customer_request_shortage_retu
   'customer_request_events',
 ]);
 
+requireTokens('src/lib/api/customerRequestQualityCenter.ts', [
+  "'registrar'",
+  "issues.push('registrar')",
+  'مسجل الطلب غير مربوط',
+]);
+
+requireTokens('src/components/customer-requests/CustomerRequestQualityCenter.tsx', [
+  "id: 'registrar'",
+  'مسجل الطلب غير مربوط',
+]);
+
 requireTokens('src/lib/pointsLedger.ts', [
   'formatTransactionSource',
   "source.includes('customer_request')",
