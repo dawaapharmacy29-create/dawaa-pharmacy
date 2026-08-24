@@ -16,44 +16,133 @@ function projection(
     completionRate: 80,
     onTimeCompleted: 6,
     lateCompleted: 2,
-    sources: [],
-    availableSourceCount: 4,
+    sources: [
+      {
+        sourceType: 'manager_checklist',
+        availability: 'available',
+        evidenceCount: 10,
+        resolvedCount: 10,
+        completedCount: 8,
+        missedCount: 2,
+        activeCount: 0,
+        cancelledCount: 0,
+        reason: null,
+        observedAt: null,
+      },
+      {
+        sourceType: 'customer_followup',
+        availability: 'available',
+        evidenceCount: 5,
+        resolvedCount: 4,
+        completedCount: 4,
+        missedCount: 0,
+        activeCount: 1,
+        cancelledCount: 0,
+        reason: null,
+        observedAt: null,
+      },
+      {
+        sourceType: 'cleaning_task',
+        availability: 'unavailable',
+        evidenceCount: 0,
+        resolvedCount: 0,
+        completedCount: 0,
+        missedCount: 0,
+        activeCount: 0,
+        cancelledCount: 0,
+        reason: 'not loaded',
+        observedAt: null,
+      },
+    ],
+    availableSourceCount: 2,
     partialSourceCount: 0,
-    unavailableSourceCount: 0,
-    hasUnavailableSources: false,
+    unavailableSourceCount: 1,
+    hasUnavailableSources: true,
     ...overrides,
   };
 }
 
+const managerApplicability = [
+  {
+    subjectStaffId: 'staff-1',
+    branch: 'فرع شكري',
+    expectedSourceTypes: ['manager_checklist'] as const,
+  },
+];
+
 describe('evaluation metrics projection', () => {
-  it('keeps metrics neutral and marks complete evidence as high confidence', () => {
-    const [metrics] = buildEvaluationMetrics([projection()]);
+  it('ignores unrelated source outages when applicability is explicit', () => {
+    const [metrics] = buildEvaluationMetrics([projection()], managerApplicability.map((entry) => ({
+      ...entry,
+      expectedSourceTypes: [...entry.expectedSourceTypes],
+    })));
 
     expect(metrics.taskCompletionRate).toBe(80);
     expect(metrics.taskOnTimeCompletionRate).toBe(75);
     expect(metrics.sourceCoverageRate).toBe(100);
+    expect(metrics.sourceUnavailableCount).toBe(0);
     expect(metrics.dataConfidence).toBe('high');
     expect(metrics.isEvaluationReady).toBe(true);
   });
 
-  it('keeps partial evidence visible instead of treating missing sources as misses', () => {
-    const [metrics] = buildEvaluationMetrics([
-      projection({
-        availableSourceCount: 3,
-        partialSourceCount: 1,
-        unavailableSourceCount: 1,
-        hasUnavailableSources: true,
-      }),
+  it('keeps applicable partial/unavailable evidence visible without turning it into misses', () => {
+    const partialProjection = projection({
+      sources: [
+        {
+          sourceType: 'manager_checklist',
+          availability: 'available',
+          evidenceCount: 10,
+          resolvedCount: 10,
+          completedCount: 8,
+          missedCount: 2,
+          activeCount: 0,
+          cancelledCount: 0,
+          reason: null,
+          observedAt: null,
+        },
+        {
+          sourceType: 'customer_followup',
+          availability: 'partial',
+          evidenceCount: 2,
+          resolvedCount: 1,
+          completedCount: 1,
+          missedCount: 0,
+          activeCount: 1,
+          cancelledCount: 0,
+          reason: 'identity repair incomplete',
+          observedAt: null,
+        },
+        {
+          sourceType: 'shift_note',
+          availability: 'unavailable',
+          evidenceCount: 0,
+          resolvedCount: 0,
+          completedCount: 0,
+          missedCount: 0,
+          activeCount: 0,
+          cancelledCount: 0,
+          reason: 'source unavailable',
+          observedAt: null,
+        },
+      ],
+    });
+
+    const [metrics] = buildEvaluationMetrics([partialProjection], [
+      {
+        subjectStaffId: 'staff-1',
+        branch: 'فرع شكري',
+        expectedSourceTypes: ['manager_checklist', 'customer_followup', 'shift_note'],
+      },
     ]);
 
     expect(metrics.taskCompletionRate).toBe(80);
-    expect(metrics.sourceCoverageRate).toBe(70);
+    expect(metrics.sourceCoverageRate).toBe(50);
     expect(metrics.dataConfidence).toBe('low');
     expect(metrics.isEvaluationReady).toBe(false);
     expect(metrics.confidenceReasons.join(' ')).toMatch(/unavailable/);
   });
 
-  it('does not mark unresolved work as evaluation-ready', () => {
+  it('does not mark unresolved work as evaluation-ready even with healthy applicable sources', () => {
     const [metrics] = buildEvaluationMetrics([
       projection({
         completed: 0,
@@ -62,7 +151,10 @@ describe('evaluation metrics projection', () => {
         completionRate: null,
         active: 5,
       }),
-    ]);
+    ], managerApplicability.map((entry) => ({
+      ...entry,
+      expectedSourceTypes: [...entry.expectedSourceTypes],
+    })));
 
     expect(metrics.taskCompletionRate).toBeNull();
     expect(metrics.dataConfidence).toBe('high');
@@ -70,19 +162,12 @@ describe('evaluation metrics projection', () => {
     expect(metrics.confidenceReasons).toContain('No resolved task outcomes are available yet.');
   });
 
-  it('reports unavailable confidence when no evidence source was observed', () => {
-    const [metrics] = buildEvaluationMetrics([
-      projection({
-        availableSourceCount: 0,
-        partialSourceCount: 0,
-        unavailableSourceCount: 0,
-        resolved: 0,
-        completionRate: null,
-      }),
-    ]);
+  it('fails closed when staff/source applicability is not configured', () => {
+    const [metrics] = buildEvaluationMetrics([projection()]);
 
     expect(metrics.sourceCoverageRate).toBeNull();
     expect(metrics.dataConfidence).toBe('unavailable');
     expect(metrics.isEvaluationReady).toBe(false);
+    expect(metrics.confidenceReasons.join(' ')).toMatch(/applicability/);
   });
 });
