@@ -64,6 +64,20 @@ requireTokens('src/features/customer-requests/commands/customerRequestCommands.t
   'cancelCustomerRequest',
   'reopenCustomerRequestSearch',
   'sendCustomerRequestToShortages',
+  'persistExactNextAction',
+  'next_action_at',
+]);
+
+requireTokens('src/features/customer-requests/data/customerRequestsRepository.ts', [
+  'followupDueOrFilter',
+  'next_action_at.lte',
+  'next_action_at.is.null',
+  'due_date.lte',
+]);
+
+requireTokens('supabase/migrations/20260824153000_customer_request_next_action_at_v1.sql', [
+  'next_action_at timestamptz',
+  'idx_customer_requests_next_action_at_open',
 ]);
 
 requireTokens('src/features/customer-requests/domain/__tests__/customerRequestsDomain.test.ts', [
@@ -91,4 +105,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[customer-request-v2-parity] PASS: V2 preserves canonical create, operational filters, edit/contact/sourcing/cancel/reopen/shortage actions, legacy fallback, and approved doctor point schedule.');
+console.log('[customer-request-v2-parity] PASS: V2 preserves canonical create, exact follow-up timing, operational filters, edit/contact/sourcing/cancel/reopen/shortage actions, legacy fallback, and approved doctor point schedule.');
