@@ -13,6 +13,10 @@ import { getStaffCycleInvoices } from '@/lib/staffSalesService';
 import { getStaffInvoiceTruth, type StaffInvoiceTruth } from '@/lib/staffInvoiceTruthService';
 import { resolveCanonicalStaffIdentifier } from '@/lib/staff/staffIdentityResolver';
 import {
+  getCustomerRequestDoctorPointsSummary,
+  type CustomerRequestDoctorPointsSummary,
+} from '@/lib/staff/customerRequestPointsService';
+import {
   generateStaffRecommendations as generateRecommendations,
   type StaffRecommendation,
 } from './staffPerformanceRecommendations';
@@ -271,6 +275,7 @@ export interface StaffPerformanceProfile {
   identity: StaffIdentity;
   dataHealth: StaffDataHealth;
   monthlyIncentive: StaffCycleIncentive | null;
+  customerRequestPoints: CustomerRequestDoctorPointsSummary | null;
   cashRewards: number;
   quarterlyIncentive: StaffQuarterlyMetrics | null;
   sales: StaffSalesMetrics | null;
@@ -398,6 +403,22 @@ export async function loadStaffPerformanceProfile(
     sources.push('employee_transactions');
   } catch (error) {
     errorsBySection.incentive = error instanceof Error ? error.message : String(error);
+  }
+
+  // Customer Request points are a staff-domain projection over the canonical
+  // request incentive ledger. They are not recalculated from request rows in the UI.
+  let customerRequestPoints: CustomerRequestDoctorPointsSummary | null = null;
+  try {
+    const monthCycle = cycleEnd.slice(0, 7);
+    const requestPointRows = await getCustomerRequestDoctorPointsSummary(
+      effectiveStaffId,
+      monthCycle
+    );
+    customerRequestPoints = requestPointRows[0] || null;
+    sources.push('customer_request_incentive_events');
+  } catch (error) {
+    errorsBySection.customer_request_points =
+      error instanceof Error ? error.message : String(error);
   }
 
   let invoiceTruth: StaffInvoiceTruth | null = null;
@@ -568,6 +589,7 @@ export async function loadStaffPerformanceProfile(
     identity,
     dataHealth,
     monthlyIncentive,
+    customerRequestPoints,
     cashRewards: monthlyIncentive?.quarterlyCashRewards || 0,
     quarterlyIncentive,
     sales,
