@@ -1,5 +1,3 @@
-import * as XLSX from 'xlsx';
-
 type CellValue = string | number | boolean | null | undefined;
 type Row = Record<string, CellValue>;
 
