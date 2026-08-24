@@ -184,6 +184,7 @@ export function formatTransactionSource(row: PointLedgerRecord) {
       ''
   ).toLowerCase();
   if (source.includes('manual') || source.includes('penalty_incentive')) return 'إدخال يدوي';
+  if (source.includes('customer_request')) return 'طلبات العملاء';
   if (source.includes('stagnant')) return 'صرف راكد';
   if (source.includes('incentive')) return 'صرف لستة';
   if (source.includes('conversation') || source.includes('whatsapp')) return 'تقييم محادثة';
