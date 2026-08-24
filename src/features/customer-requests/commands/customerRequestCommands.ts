@@ -105,9 +105,36 @@ export async function contactCustomerForRequest(
   return data as CustomerRequest;
 }
 
+export async function startCustomerRequestSourcing(
+  request: CustomerRequest,
+  notes = '',
+  _actor?: CustomerRequestCommandActor | null
+) {
+  assertCustomerRequestTransition(request.status, 'sourcing');
+  return runAtomicTransition(request, 'start_sourcing', notes.trim() || null);
+}
+
+export async function markCustomerRequestArrived(
+  request: CustomerRequest,
+  notes = '',
+  _actor?: CustomerRequestCommandActor | null
+) {
+  assertCustomerRequestTransition(request.status, 'arrived');
+  return runAtomicTransition(request, 'mark_arrived', notes.trim() || null);
+}
+
 export async function deliverCustomerRequest(request: CustomerRequest, notes: string, _actor?: CustomerRequestCommandActor | null) {
   assertCustomerRequestTransition(request.status, 'delivered');
   return runAtomicTransition(request, 'deliver', notes.trim() || null);
+}
+
+export async function closeCustomerRequest(
+  request: CustomerRequest,
+  notes = '',
+  _actor?: CustomerRequestCommandActor | null
+) {
+  assertCustomerRequestTransition(request.status, 'closed');
+  return runAtomicTransition(request, 'close', notes.trim() || null);
 }
 
 export async function cancelCustomerRequest(request: CustomerRequest, reason: string, _actor?: CustomerRequestCommandActor | null) {
