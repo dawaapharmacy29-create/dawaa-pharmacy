@@ -104,6 +104,13 @@ export default function CustomerRequestsWorkspace() {
     [workspace.rows]
   );
   const visibleProductCodesKey = visibleProductCodes.join('|');
+  const visibleProductStateKey = useMemo(
+    () => workspace.rows
+      .map((row) => `${row.id}:${row.status || 'new'}:${row.product_code || ''}`)
+      .sort()
+      .join('|'),
+    [workspace.rows]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +136,7 @@ export default function CustomerRequestsWorkspace() {
       .catch(() => { if (!cancelled) setProductMetrics({}); });
 
     return () => { cancelled = true; };
-  }, [visibleProductCodesKey, workspace.filters.branch]);
+  }, [visibleProductCodesKey, visibleProductStateKey, workspace.filters.branch]);
 
   const onCreated = async (request: CustomerRequest) => {
     workspace.updateSelectedRequest(request);
