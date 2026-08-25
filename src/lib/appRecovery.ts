@@ -2,6 +2,8 @@ export const LAST_RUNTIME_ERROR_KEY = 'dawA_last_runtime_error';
 export const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
 
 const APP_STORAGE_PREFIXES = ['dawA', 'dawaA', 'dawaa', 'supabase', 'sb-'];
+const STALE_CHUNK_RECOVERY_KEY = 'dawaa_stale_chunk_reload_at';
+const STALE_CHUNK_RECOVERY_COOLDOWN_MS = 60_000;
 
 function recordRuntimeError(source: string, error: unknown) {
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error || 'unknown error');
@@ -16,6 +18,38 @@ function recordRuntimeError(source: string, error: unknown) {
 export function logRuntimeError(source: string, error: unknown) {
   console.error(`[Dawaa ${source}]`, error);
   if (typeof window !== 'undefined') recordRuntimeError(source, error);
+}
+
+export function isStaleChunkImportError(error: unknown) {
+  const message = String((error as Error)?.message || error || '');
+  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
+}
+
+export async function recoverFromStaleChunkOnce() {
+  if (typeof window === 'undefined') return false;
+
+  try {
+    const last = Number(window.sessionStorage.getItem(STALE_CHUNK_RECOVERY_KEY) || 0);
+    if (Date.now() - last <= STALE_CHUNK_RECOVERY_COOLDOWN_MS) return false;
+    window.sessionStorage.setItem(STALE_CHUNK_RECOVERY_KEY, String(Date.now()));
+  } catch {
+    // If sessionStorage is unavailable, still attempt one cache-clean reload for this execution.
+  }
+
+  await startRecoveryCleanup();
+  const url = new URL(window.location.href);
+  url.searchParams.set('_r', Date.now().toString());
+  window.location.replace(url.toString());
+  return true;
+}
+
+export function clearStaleChunkRecoveryMarker() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(STALE_CHUNK_RECOVERY_KEY);
+  } catch {
+    // Ignore storage failures; recovery remains bounded by the current execution.
+  }
 }
 
 export function clearRecoveredRuntimeError() {
