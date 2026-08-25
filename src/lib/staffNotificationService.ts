@@ -139,13 +139,13 @@ export async function listStaffNotifications(staffId: string, limit = 100): Prom
 
 export async function markStaffNotificationRead(notificationId: string): Promise<void> {
   if (!notificationId) return;
-  const { error } = await supabase.from('notifications').update({ is_read: true, read: true, status: 'read', read_at: new Date().toISOString() }).eq('id', notificationId);
+  const { error } = await supabase.rpc('mark_my_notification_read_v1', { p_notification_id: notificationId });
   if (error) throw error;
 }
 
 export async function markAllStaffNotificationsRead(staffId: string): Promise<void> {
   if (!staffId) return;
-  const { error } = await supabase.from('notifications').update({ is_read: true, read: true, status: 'read', read_at: new Date().toISOString() }).eq('recipient_staff_id', staffId).eq('is_read', false);
+  const { error } = await supabase.rpc('mark_all_my_notifications_read_v1');
   if (error) throw error;
 }
 
