@@ -93,6 +93,13 @@ const SCRIPT_TEMPLATES = [
   },
 ];
 
+function localDateOnly(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function quarterBounds(date = new Date()) {
   const month = date.getMonth() + 1;
   const year = date.getFullYear();
@@ -115,7 +122,10 @@ function quarterBounds(date = new Date()) {
     start = new Date(year, 7, 1);
     end = new Date(year, 9, 31);
   }
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+  // Date-only values must stay in the pharmacy's local calendar. Converting a
+  // local midnight to UTC with toISOString() shifts Egypt (+03:00) to the
+  // previous UTC day and made 2026-07-31 appear as 2026-07-30.
+  return { start: localDateOnly(start), end: localDateOnly(end) };
 }
 
 function previousQuarterBounds() {
