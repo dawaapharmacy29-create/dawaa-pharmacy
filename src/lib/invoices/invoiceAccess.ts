@@ -1,45 +1,21 @@
-import { normalizeArabicName } from '@/lib/security/userDataScope';
+import { hasAnyPermission, hasPermission } from '@/lib/core/permissionSystem';
+import { canViewAllBranches } from '@/lib/security/userDataScope';
 
-type InvoiceUser = { username?: string | null; name?: string | null; role?: string | null } | null | undefined;
-
-const INVOICE_IMPORT_KEYS = [
-  'amira',
-  'alyaa',
-  'aliaa',
-  'moaz',
-  'moaaz',
-  'maaz',
-  'ola',
-  'ala',
-  'اميره',
-  'اميرة',
-  'علياء',
-  'معاذ',
-  'علا',
-];
-
-const INVOICE_DELETE_KEYS = ['moaz', 'moaaz', 'maaz', 'ola', 'ala', 'معاذ', 'علا'];
-
-function userKeys(user: InvoiceUser) {
-  return [normalizeArabicName(user?.username), normalizeArabicName(user?.name)].filter(Boolean);
-}
-
-function matchesKeys(user: InvoiceUser, keys: string[]) {
-  const normalizedKeys = keys.map((item) => normalizeArabicName(item)).filter(Boolean);
-  const values = userKeys(user);
-  return values.some((value) =>
-    normalizedKeys.some((key) => value === key || value.includes(key) || key.includes(value))
-  );
-}
+type InvoiceUser = {
+  username?: string | null;
+  name?: string | null;
+  role?: string | null;
+  permissions?: Record<string, boolean> | null;
+} | null | undefined;
 
 export function canAccessInvoiceImportPage(user: InvoiceUser) {
-  return matchesKeys(user, INVOICE_IMPORT_KEYS);
+  return hasAnyPermission(user, ['view_invoice_import', 'import_sales_invoices']);
 }
 
 export function canDeleteInvoiceImportBatch(user: InvoiceUser) {
-  return matchesKeys(user, INVOICE_DELETE_KEYS);
+  return canViewAllBranches(user) && hasPermission(user, 'import_sales_invoices');
 }
 
 export function canManageInvoiceImportBatches(user: InvoiceUser) {
-  return canAccessInvoiceImportPage(user);
+  return hasPermission(user, 'import_sales_invoices');
 }
