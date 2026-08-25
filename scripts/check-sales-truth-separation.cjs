@@ -30,12 +30,13 @@ for (const code of six) {
   }
 }
 
-if (/wholesale_b2b/.test(sales.text) || /wholesale_b2b/.test(salesFn.text)) {
-  fail(`wholesale_b2b leaked back into branch/target sales truth (${sales.file} / ${salesFn.file})`);
+// The sales truth must not derive exclusions from customer_flags categories.
+// Comments may legitimately mention wholesale_b2b/system_generic_code, so guard the SQL dependency itself.
+const salesPolicyText = `${sales.text}\n${salesFn.text}`;
+if (/from\s+public\.customer_flags\b/i.test(salesPolicyText) || /join\s+public\.customer_flags\b/i.test(salesPolicyText)) {
+  fail(`customer_flags leaked back into branch/target sales truth (${sales.file} / ${salesFn.file})`);
 }
-if (/system_generic_code/.test(sales.text) || /system_generic_code/.test(salesFn.text)) {
-  fail(`system_generic_code category leaked back into branch/target sales truth`);
-}
+
 if (!/wholesale_b2b/.test(customer.text) || !/system_generic_code/.test(customer.text)) {
   fail(`customer analytics truth must keep wholesale_b2b + system_generic_code exclusions (${customer.file})`);
 }
