@@ -49,18 +49,15 @@ function isMissingTimeOffTable(message?: string | null) {
 }
 
 /**
- * خدمة إدارة سياسة الإذنات (3 إذنات مجانية لكل دورة)
+ * خدمة سياسة الأذونات: إذنان معتمدان كحد شهري، وكل إذن يحتاج موافقة صريحة.
+ * الطلبات الإضافية لا تتحول تلقائيًا إلى خصم نقاط؛ تذهب لمراجعة المدير.
  */
 export class PermissionPolicyService {
-  /**
-   * حساب حالة سياسة الإذنات لموظف
-   */
   static async getPermissionPolicyStatus(
     staffId: string,
     cycleStart: string,
     cycleEnd: string
   ): Promise<PermissionPolicyStatus> {
-    // الحصول على جميع الإذنات للموظف في الدورة الحالية
     const { data: permissions, error } = await supabase
       .from('time_off')
       .select('id, staff_id, staff_name, start_date, end_date, reason, approved_by, created_at')
@@ -76,11 +73,8 @@ export class PermissionPolicyService {
 
     const approvedPermissions = (permissions || []).filter((p) => p.approved_by);
     const approvedCount = approvedPermissions.length;
-
-    // استخدام دالة calculatePermissionPolicy من incentiveRulesEngine
     const policy = calculatePermissionPolicy(approvedCount);
 
-    // تحويل الإذنات إلى تنسيق PermissionRecord
     const currentCyclePermissions: PermissionRecord[] = approvedPermissions.map((p) => ({
       id: p.id,
       staff_id: p.staff_id,
@@ -92,7 +86,6 @@ export class PermissionPolicyService {
       cycle_end: cycleEnd,
     }));
 
-    // الحصول على اسم الموظف
     const { data: staff } = await supabase
       .from('staff')
       .select('name')
@@ -111,14 +104,10 @@ export class PermissionPolicyService {
     };
   }
 
-  /**
-   * الحصول على ملخص سياسة الإذنات لجميع الموظفين في دورة معينة
-   */
   static async getPermissionPolicySummary(
     cycleStart: string,
     cycleEnd: string
   ): Promise<PermissionPolicyStatus[]> {
-    // الحصول على جميع الموظفين النشطين
     const { data: staff, error: staffError } = await supabase
       .from('staff')
       .select('id, name')
@@ -127,19 +116,14 @@ export class PermissionPolicyService {
     if (staffError) throw new Error(staffError.message);
 
     const summaries: PermissionPolicyStatus[] = [];
-
     for (const employee of staff || []) {
       const status = await this.getPermissionPolicyStatus(employee.id, cycleStart, cycleEnd);
       summaries.push(status);
     }
 
-    // ترتيب حسب عدد الإذنات المعاقبة (الأكثر استخداماً أولاً)
     return summaries.sort((a, b) => b.penalized_permission_number - a.penalized_permission_number);
   }
 
-  /**
-   * التحقق من ما إذا كان الموظف يستطيع أخذ إذن بدون عقوبة
-   */
   static async canTakeFreePermission(
     staffId: string,
     cycleStart: string,
@@ -155,28 +139,22 @@ export class PermissionPolicyService {
       return {
         canTake: true,
         remainingFree: status.remaining_free_permissions,
-        message: `يمكنك أخذ إذن بدون عقوبة. لديك ${status.remaining_free_permissions} إذن مجاني متبقي.`,
-      };
-    } else {
-      return {
-        canTake: false,
-        remainingFree: 0,
-        message: `لقد استنزفت جميع الإذنات المجانية (${FREE_PERMISSIONS_PER_CYCLE}). أي إذن إضافي سيؤدي إلى خصم نقاط.`,
+        message: `يمكنك طلب إذن معتمد. لديك ${status.remaining_free_permissions} إذن متبقي في الدورة، والتنفيذ مشروط بموافقة مدير الفرع.`,
       };
     }
+
+    return {
+      canTake: false,
+      remainingFree: 0,
+      message: `استخدمت الحد الشهري المعتمد (${FREE_PERMISSIONS_PER_CYCLE}). أي طلب إضافي يحتاج مراجعة وموافقة إدارية قبل التنفيذ ولا يُخصم كنقاط تلقائيًا.`,
+    };
   }
 
-  /**
-   * حساب الخصم النقطي لإذن معين
-   */
   static calculateDeductionForPermission(currentApprovedCount: number): number {
     const policy = calculatePermissionPolicy(currentApprovedCount + 1);
     return policy.deductionPoints;
   }
 
-  /**
-   * الحصول على الموظفين الذين تجاوزوا حد الإذنات المجانية
-   */
   static async getStaffExceedingFreeAllowance(
     cycleStart: string,
     cycleEnd: string
@@ -185,9 +163,6 @@ export class PermissionPolicyService {
     return summary.filter((s) => s.penalized_permission_number > 0);
   }
 
-  /**
-   * الحصول على الموظفين الذين يحتاجون مراجعة المدير
-   */
   static async getStaffRequiringManagerReview(
     cycleStart: string,
     cycleEnd: string

@@ -6,7 +6,7 @@ export const MONTHLY_MAX_INCENTIVE_EGP = 1500;
 export const QUARTERLY_BASE_BONUS_EGP = 2000;
 export const QUARTERLY_MIN_INCENTIVE_EGP = 500;
 export const QUARTERLY_MAX_INCENTIVE_EGP = 2600;
-export const FREE_PERMISSIONS_PER_CYCLE = 3;
+export const FREE_PERMISSIONS_PER_CYCLE = 2;
 
 /**
  * مضاعف أهمية العميل — يُطبَّق على أي حدث نقاط (مكافأة أو خصم) مرتبط بعميل،
@@ -90,42 +90,38 @@ export type QuarterlyIncentiveCalculation = {
   quarterlyFinalValue: number;
 };
 
+/**
+ * المصدر الحسابي المعتمد لنقاط الدورة.
+ * كل موظف يبدأ برصيد افتتاحي مرتبط ببروفايل التعويض (500 افتراضيًا)، ثم تضاف
+ * المكافآت المعتمدة وتُخصم المخالفات المعتمدة. الزيادة فوق الرصيد الافتتاحي
+ * تظهر كنقاط تميز ولا ترفع الحافز الأساسي فوق سقفه المالي.
+ */
 export function calculateMonthlyIncentive(args: {
   startingPoints?: number;
   approvedDeductionPoints?: number;
   approvedExceptionalRewardPoints?: number;
   pendingDeductionPoints?: number;
   pendingRewardPoints?: number;
-  /**
-   * سقف الحافز الشهري بالجنيه — يُفترض إنه جاي من بروفايل الموظف
-   * (employee_compensation_profiles.monthly_incentive_base) عشان الفئات
-   * المختلفة (جدد / أساسيين / متميزين) تاخد سقف مختلف بدل الرقم الثابت
-   * للجميع. لو الموظف مالوش بروفايل، بيرجع للقيمة الافتراضية العامة.
-   */
   maxIncentiveEgp?: number;
 }): MonthlyIncentiveCalculation {
-  // startingPoints هنا هدف الدورة (target) مش رصيد افتتاحي — كل موظف يبدأ الدورة من صفر
-  // نقاط فعلية، ويجمع نقاطه بالمكافآت، وتُخصم منه نقاط المخالفات. الوصول للهدف
-  // (500 نقطة للفئات العادية، 1000 للفئة المتميزة) هو اللي بيدّي الحافز الأقصى،
-  // مش نقطة بداية مجانية.
-  const targetPoints = args.startingPoints ?? MONTHLY_STARTING_POINTS;
-  const maxIncentiveEgp = args.maxIncentiveEgp ?? MONTHLY_MAX_INCENTIVE_EGP;
+  const startingPoints = Math.max(1, args.startingPoints ?? MONTHLY_STARTING_POINTS);
+  const maxIncentiveEgp = Math.max(0, args.maxIncentiveEgp ?? MONTHLY_MAX_INCENTIVE_EGP);
   const approvedDeductionPoints = Math.max(0, args.approvedDeductionPoints ?? 0);
   const approvedExceptionalRewardPoints = Math.max(0, args.approvedExceptionalRewardPoints ?? 0);
   const pendingDeductionPoints = Math.max(0, args.pendingDeductionPoints ?? 0);
   const pendingRewardPoints = Math.max(0, args.pendingRewardPoints ?? 0);
   const finalPoints = Math.max(
     0,
-    approvedExceptionalRewardPoints - approvedDeductionPoints
+    startingPoints + approvedExceptionalRewardPoints - approvedDeductionPoints
   );
-  const paidPoints = Math.min(finalPoints, targetPoints);
+  const paidPoints = Math.min(finalPoints, startingPoints);
   const monthlyIncentiveValue = Math.min(
     maxIncentiveEgp,
-    (paidPoints / targetPoints) * maxIncentiveEgp
+    (paidPoints / startingPoints) * maxIncentiveEgp
   );
-  const distinctionPointsAbove500 = Math.max(0, finalPoints - targetPoints);
+  const distinctionPointsAbove500 = Math.max(0, finalPoints - startingPoints);
   return {
-    startingPoints: targetPoints,
+    startingPoints,
     approvedDeductionPoints,
     approvedExceptionalRewardPoints,
     pendingDeductionPoints,
@@ -133,14 +129,13 @@ export function calculateMonthlyIncentive(args: {
     finalPoints,
     monthlyIncentiveValue,
     distinctionPointsAbove500,
-    progressPercent: Math.min(100, (finalPoints / targetPoints) * 100),
+    progressPercent: Math.min(100, (finalPoints / startingPoints) * 100),
   };
 }
 
 /**
- * يحوّل بروفايل تعويض الموظف (employee_compensation_profiles) لمدخلات جاهزة
- * لـ calculateMonthlyIncentive — targetPoints = monthly_incentive_base / point_value.
- * لو الموظف مالوش بروفايل، بيرجع القيم الافتراضية العامة (500 نقطة / 1500 جنيه).
+ * يحوّل بروفايل تعويض الموظف لمدخلات جاهزة للحساب. مثال:
+ * 1500 جنيه / 3 جنيه للنقطة = 500 نقطة افتتاحية، و1000 / 10 = 100 نقطة للمساعد.
  */
 export function monthlyIncentiveInputsFromProfile(profile?: {
   monthly_incentive_base?: number | null;
@@ -151,7 +146,7 @@ export function monthlyIncentiveInputsFromProfile(profile?: {
     ? profile.monthly_incentive_base
     : MONTHLY_MAX_INCENTIVE_EGP;
   if (!pointValue) return { targetPoints: MONTHLY_STARTING_POINTS, maxIncentiveEgp: base };
-  return { targetPoints: Math.round(base / pointValue), maxIncentiveEgp: base };
+  return { targetPoints: Math.max(1, Math.round(base / pointValue)), maxIncentiveEgp: base };
 }
 
 export function calculateQuarterlyIncentive(args: {
@@ -202,28 +197,31 @@ export function conversationScoreDeductionRule(score: number) {
   return null;
 }
 
-/**
- * مقابل conversationScoreDeductionRule لكن للمكافآت — بتغطي المنطقة اللي كانت
- * فاضية تمامًا قبل كده (70-100 كان مفيهاش أي مكافأة على مستوى المحادثة نفسها،
- * بس خصومات تحت 70). 70-84 منطقة محايدة (أداء عادي، لا خصم ولا مكافأة).
- */
+/** 90-99 مكافأة المحادثة الممتازة، و100/100 مكافأة الاستثنائي. */
 export function conversationScoreRewardRule(score: number) {
-  if (score >= 95) return 'CHAT-REW-002';
-  if (score >= 85) return 'CHAT-REW-001';
+  if (score >= 100) return 'CHAT-REW-002';
+  if (score >= 90) return 'CHAT-REW-001';
   return null;
 }
 
+/**
+ * تكرار المخالفة العادية يتدرج 1× ثم 2× ثم 4× (مثال 20 → 40 → 80).
+ * المخالفات الحرجة لا تتضاعف آليًا؛ من التكرار الثاني تنتقل لمراجعة الإدارة.
+ */
 export function calculateRepeatDeduction(args: {
   basePoints: number;
   previousOccurrences: number;
   severe?: boolean;
 }) {
-  // سياسة موحّدة في كل التطبيق: ×2 حد أقصى للضرب، و-30 نقطة حد أقصى لأي خصم
-  // من حدث واحد — عشان خطأ واحد (حتى لو تكرر) ميكسرش حافز شهر كامل لوحده.
-  const MAX_REPEAT_MULTIPLIER = 2;
-  const MAX_SINGLE_EVENT_DEDUCTION = 30;
+  const MAX_SINGLE_EVENT_DEDUCTION = 80;
   const occurrenceNumber = Math.max(1, args.previousOccurrences + 1);
-  const multiplier = args.severe ? 1 : Math.min(MAX_REPEAT_MULTIPLIER, occurrenceNumber);
+  const multiplier = args.severe
+    ? 1
+    : occurrenceNumber <= 1
+      ? 1
+      : occurrenceNumber === 2
+        ? 2
+        : 4;
   return {
     occurrenceNumber,
     multiplier,
@@ -232,6 +230,11 @@ export function calculateRepeatDeduction(args: {
   };
 }
 
+/**
+ * الإذن المعتمد لا يتحول تلقائيًا لخصم نقاط. المسموح إذنان في الدورة؛ أي طلب
+ * إضافي يحتاج قرار مدير قبل التنفيذ. الخروج/التأخير بدون اعتماد له مسار مخالفة
+ * مستقل ولا يُخلط هنا مع الإذن المعتمد.
+ */
 export function calculatePermissionPolicy(approvedPermissionsInCycle: number) {
   const count = Math.max(0, approvedPermissionsInCycle);
   if (count <= FREE_PERMISSIONS_PER_CYCLE) {
@@ -243,15 +246,12 @@ export function calculatePermissionPolicy(approvedPermissionsInCycle: number) {
       requiresManagerReview: false,
     };
   }
-  const penalizedPermissionNumber = count - FREE_PERMISSIONS_PER_CYCLE;
-  const deductionPoints =
-    penalizedPermissionNumber === 1 ? 10 : penalizedPermissionNumber === 2 ? 20 : 30;
   return {
     freeAllowanceUsed: FREE_PERMISSIONS_PER_CYCLE,
     remainingFreePermissions: 0,
-    penalizedPermissionNumber,
-    deductionPoints,
-    requiresManagerReview: penalizedPermissionNumber >= 3,
+    penalizedPermissionNumber: count - FREE_PERMISSIONS_PER_CYCLE,
+    deductionPoints: 0,
+    requiresManagerReview: true,
   };
 }
 
@@ -261,9 +261,6 @@ export type ApprovalRole = 'shift_supervisor' | 'branch_manager' | 'branches_man
  * مصفوفة اعتماد الصلاحيات حسب خطورة الحدث — كل قاعدة نقاط عندها severity
  * محسوبة تلقائيًا في ruleDefinitions.ts (حسب حجم النقاط)، والدالة دي بتحدد
  * مين لازم يعتمد الحدث فعليًا قبل ما يتفعّل، ومين ينفع يضيفه من الأساس.
- *
- * فصل الأدوار (separation of duties): في low/medium الاعتماد تلقائي أو خلال
- * مهلة، وفي high/critical لازم اعتماد صريح من دور أعلى من اللي أضاف الحدث.
  */
 export function approvalAuthorityFor(severity: IncentiveSeverity): {
   addedBy: ApprovalRole;
@@ -292,14 +289,8 @@ export const EXCEPTIONAL_FOLLOWUP_FULL_REWARD_PER_CYCLE = 15;
 export const EXCEPTIONAL_FOLLOWUP_REDUCED_REWARD_PER_CYCLE = 5;
 
 /**
- * سياسة نقاط "طلب متابعة استثنائية" — نفس منطق calculatePermissionPolicy
- * (مكافأة كاملة لحد سقف معقول في الدورة، وبعدها تناقص، مش صفر فجأة ولا
- * استمرار مفتوح) عشان نمنع إغراء الدكتور إنه يسجل طلبات وهمية كتير علشان
- * يجمع نقاط. الرقم النهائي هنا هو الأساس (base) قبل ما يتضرب في مضاعف
- * أهمية العميل — applyCustomerWeight بيتطبق بعد الدالة دي مش بدالها.
- *
- * countInCycleSoFar = عدد الطلبات الاستثنائية الموثّقة (مش المرفوضة) اللي
- * سجّلها نفس الدكتور في نفس الدورة الشهرية، قبل الطلب الحالي.
+ * سياسة نقاط "طلب متابعة استثنائية" — مكافأة كاملة لحد سقف معقول في الدورة،
+ * وبعدها تناقص، عشان نمنع تسجيل طلبات شكلية فقط لتجميع النقاط.
  */
 export function exceptionalFollowupPointsPolicy(countInCycleSoFar: number): {
   requestNumber: number;
