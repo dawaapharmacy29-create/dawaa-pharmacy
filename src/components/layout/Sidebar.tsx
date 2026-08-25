@@ -107,6 +107,7 @@ const PHARMACIST_GROUPS: NavGroup[] = [{
     { path: '/doctor-dashboard', icon: LayoutDashboard, label: 'لوحة الدكتور', permission: 'view_doctor_dashboard' },
     { path: '/doctor-dashboard?tab=followups', icon: HeadphonesIcon, label: 'متابعاتي المطلوبة', permission: 'view_doctor_dashboard' },
     { path: '/customers', icon: Users, label: 'بحث العملاء', permission: 'view_customers' },
+    { path: '/customer-points-ledger', icon: Star, label: 'نقاط العملاء', permission: 'view_customers' },
     { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
     { path: '/doctor-dashboard?tab=reviews', icon: ClipboardCheck, label: 'تقييماتي الشخصية', permission: 'view_doctor_dashboard' },
     { path: '/points', icon: Star, label: 'النقاط والحافز', permission: 'view_points' },
