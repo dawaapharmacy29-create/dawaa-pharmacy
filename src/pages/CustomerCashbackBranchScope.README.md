@@ -1,1 +1,0 @@
-Temporary branch-scope adapter note. This branch will replace CustomerCashback.tsx with the scoped wrapper and preserve the original implementation as CustomerCashbackBase.tsx before merge.
