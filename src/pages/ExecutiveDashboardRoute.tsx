@@ -8,6 +8,7 @@ import {
 } from '@/lib/appRecovery';
 
 const DASHBOARD_IMPORT_TIMEOUT_MS = 15000;
+const DASHBOARD_RECOVERY_SCOPE = 'executive-dashboard';
 
 type DashboardState =
   | { status: 'safe'; message: string }
@@ -107,14 +108,14 @@ export default function ExecutiveDashboardRoute() {
           DASHBOARD_IMPORT_TIMEOUT_MS,
           'ExecutiveDashboard2027 import'
         );
-        clearStaleChunkRecoveryMarker();
+        clearStaleChunkRecoveryMarker(DASHBOARD_RECOVERY_SCOPE);
         if (!cancelled) setState({ status: 'ready-advanced', Component: module.default });
       } catch (error) {
         logRuntimeError('executive dashboard advanced fallback', error);
         console.warn('[ExecutiveDashboardRoute] advanced dashboard import failed', error);
 
         if (isStaleChunkImportError(error)) {
-          const recovering = await recoverFromStaleChunkOnce();
+          const recovering = await recoverFromStaleChunkOnce(DASHBOARD_RECOVERY_SCOPE);
           if (recovering) return;
         }
 
