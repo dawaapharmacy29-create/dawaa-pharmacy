@@ -105,25 +105,15 @@ export default function StaffDailyChecklist() {
           setUploadingKey(null);
           return;
         }
-        const { data, error } = await supabase
-          .from('staff_daily_checklist_submissions')
-          .upsert(
-            {
-              staff_id: staffId,
-              item_id: item.id,
-              submission_date: today,
-              branch,
-              completed: true,
-              photo_url: photoUrl,
-              submitted_at: new Date().toISOString(),
-              review_status: 'pending',
-            },
-            { onConflict: 'staff_id,item_id,submission_date' }
-          )
-          .select('id, item_id, completed, photo_url, review_status, reviewer_note')
-          .single();
+        const { data, error } = await supabase.rpc('submit_my_staff_daily_checklist_v1', {
+          p_item_id: item.id,
+          p_photo_url: photoUrl,
+          p_staff_note: null,
+        });
         if (error) throw error;
-        setSubmissions((prev) => ({ ...prev, [item.id]: data as Submission }));
+        const saved = (Array.isArray(data) ? data[0] : data) as Submission | null;
+        if (!saved?.id) throw new Error('لم يرجع سجل التشيك ليست بعد الحفظ');
+        setSubmissions((prev) => ({ ...prev, [item.id]: saved }));
         toast.success('اتسجل، وهيتراجع من مدير الفرع.');
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'حصل خطأ في الحفظ');
@@ -131,7 +121,7 @@ export default function StaffDailyChecklist() {
         setUploadingKey(null);
       }
     },
-    [branch, staffId, today]
+    [branch, staffId]
   );
 
   if (!staffRole) {

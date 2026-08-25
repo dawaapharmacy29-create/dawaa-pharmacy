@@ -57,24 +57,20 @@ export default function BranchChecklistReview() {
 
   const review = useCallback(
     async (row: Row, status: 'approved' | 'rejected') => {
-      const { error } = await supabase
-        .from('staff_daily_checklist_submissions')
-        .update({
-          review_status: status,
-          reviewed_by: user?.staffId || user?.id || null,
-          reviewed_by_name: user?.name || null,
-          reviewer_note: status === 'rejected' ? noteDraft[row.id] || null : null,
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq('id', row.id);
+      const { data, error } = await supabase.rpc('review_staff_daily_checklist_v1', {
+        p_submission_id: row.id,
+        p_status: status,
+        p_reviewer_note: status === 'rejected' ? noteDraft[row.id] || null : null,
+      });
       if (error) {
         toast.error(error.message);
         return;
       }
       toast.success(status === 'approved' ? 'تم الاعتماد' : 'تم الرفض وتسجيل الإجراء');
-      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, review_status: status } : r)));
+      const saved = Array.isArray(data) ? data[0] : data;
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, review_status: saved?.review_status || status } : r)));
     },
-    [noteDraft, user]
+    [noteDraft]
   );
 
   const pending = rows.filter((r) => r.review_status === 'pending');

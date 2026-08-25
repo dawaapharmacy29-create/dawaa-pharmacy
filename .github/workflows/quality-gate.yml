@@ -55,6 +55,9 @@ jobs:
       - name: Notification architecture boundary
         run: node scripts/check-notification-architecture.cjs
 
+      - name: Production exposure closure boundary
+        run: node scripts/check-production-exposure-closure.cjs
+
       - name: Permission architecture boundary
         run: node scripts/check-permission-architecture.cjs
 
