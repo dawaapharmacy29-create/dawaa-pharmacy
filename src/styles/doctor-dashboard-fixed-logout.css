@@ -36,6 +36,11 @@
   background: color-mix(in srgb, var(--dawaa-status-danger-bg) 45%, var(--dawaa-theme-bg-soft)) !important;
 }
 
+.doctor-dashboard-theme button[aria-label='تسجيل الخروج']:focus-visible {
+  outline: 2px solid var(--dawaa-status-danger-text);
+  outline-offset: -3px;
+}
+
 @media (max-width: 640px) {
   .doctor-dashboard-theme button[aria-label='تسجيل الخروج'] {
     width: 5rem;
