@@ -132,6 +132,7 @@ const testFiles = [
   'src/lib/__tests__/attendanceReadNormalization.test.ts',
   'src/lib/security/__tests__/publicViewInvokerBoundaryMigration.test.ts',
   'src/lib/security/__tests__/securityDefinerPublicExecuteMigration.test.ts',
+  'src/lib/security/__tests__/internalTriggerFunctionSurfaceMigration.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);
