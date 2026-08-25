@@ -29,6 +29,7 @@ import {
 } from '@/lib/appRecovery';
 
 const APP_IMPORT_TIMEOUT_MS = 25000;
+const BOOTSTRAP_RECOVERY_SCOPE = 'bootstrap';
 
 declare global {
   interface Window {
@@ -89,13 +90,13 @@ const SafeApp = lazy(async () => {
     console.info('[Dawaa bootstrap] App imported');
     window.__DAWAA_REACT_BOOTSTRAPPED = true;
     clearRecoveredRuntimeError();
-    clearStaleChunkRecoveryMarker();
+    clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
     return normalizeDefault(module);
   } catch (error) {
     console.error('[Dawaa bootstrap] App import failed', error);
     logRuntimeError('bootstrap App import failed', error);
     if (isStaleChunkImportError(error)) {
-      const recovering = await recoverFromStaleChunkOnce();
+      const recovering = await recoverFromStaleChunkOnce(BOOTSTRAP_RECOVERY_SCOPE);
       if (recovering) return { default: BootstrapShell };
     }
     const rescueRoute = await loadRescueRoute().catch((rescueError) => {
