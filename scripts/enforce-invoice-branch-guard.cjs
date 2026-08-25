@@ -15,7 +15,9 @@ ensurePattern(
   'Invoice branch protection is missing or not in the valid source form.'
 );
 
-const cashbackPath = 'src/pages/CustomerCashback.tsx';
+const cashbackPath = fs.existsSync('src/pages/CustomerCashbackBase.tsx')
+  ? 'src/pages/CustomerCashbackBase.tsx'
+  : 'src/pages/CustomerCashback.tsx';
 ensurePattern(
   cashbackPath,
   (source) => source.includes('setQuickFilter(')
