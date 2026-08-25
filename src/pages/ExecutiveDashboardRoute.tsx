@@ -1,6 +1,11 @@
 import { Component, useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import ExecutiveDashboardSafe from '@/pages/ExecutiveDashboardSafe';
-import { logRuntimeError } from '@/lib/appRecovery';
+import {
+  clearStaleChunkRecoveryMarker,
+  isStaleChunkImportError,
+  logRuntimeError,
+  recoverFromStaleChunkOnce,
+} from '@/lib/appRecovery';
 
 const DASHBOARD_IMPORT_TIMEOUT_MS = 15000;
 
@@ -102,10 +107,17 @@ export default function ExecutiveDashboardRoute() {
           DASHBOARD_IMPORT_TIMEOUT_MS,
           'ExecutiveDashboard2027 import'
         );
+        clearStaleChunkRecoveryMarker();
         if (!cancelled) setState({ status: 'ready-advanced', Component: module.default });
       } catch (error) {
         logRuntimeError('executive dashboard advanced fallback', error);
-        console.warn('[ExecutiveDashboardRoute] switched to safe dashboard', error);
+        console.warn('[ExecutiveDashboardRoute] advanced dashboard import failed', error);
+
+        if (isStaleChunkImportError(error)) {
+          const recovering = await recoverFromStaleChunkOnce();
+          if (recovering) return;
+        }
+
         if (!cancelled) {
           setState({
             status: 'safe',
