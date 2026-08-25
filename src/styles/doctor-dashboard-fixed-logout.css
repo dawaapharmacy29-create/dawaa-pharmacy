@@ -1,0 +1,43 @@
+/* Doctor dashboard logout placement.
+ * Keep the existing single logout action, but move it from the hero card to the
+ * fixed bottom-right slot requested for the doctor workspace.
+ */
+.doctor-dashboard-theme button[aria-label='تسجيل الخروج'] {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  display: flex;
+  width: 6rem;
+  min-height: 3.75rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 0;
+  border-left: 1px solid var(--dawaa-theme-border);
+  border-top: 1px solid var(--dawaa-theme-border);
+  border-radius: 0;
+  padding: 0.5rem 0.35rem calc(0.5rem + env(safe-area-inset-bottom));
+  background: var(--dawaa-theme-bg-soft) !important;
+  color: var(--dawaa-status-danger-text) !important;
+  box-shadow: none;
+}
+
+.doctor-dashboard-theme button[aria-label='تسجيل الخروج']::after {
+  content: 'تسجيل الخروج';
+  font-size: 0.6875rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.doctor-dashboard-theme button[aria-label='تسجيل الخروج']:hover {
+  background: color-mix(in srgb, var(--dawaa-status-danger-bg) 45%, var(--dawaa-theme-bg-soft)) !important;
+}
+
+@media (max-width: 640px) {
+  .doctor-dashboard-theme button[aria-label='تسجيل الخروج'] {
+    width: 5rem;
+  }
+}
