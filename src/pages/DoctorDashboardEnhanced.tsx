@@ -7,6 +7,7 @@ import DoctorIncentiveSummaryCard from '@/components/doctor/DoctorIncentiveSumma
 import DoctorDetailedActivityCard from '@/components/doctor/DoctorDetailedActivityCard';
 import { canAccessFullConversationReviewWorkspace } from '@/lib/reviewWorkspaceAccess';
 import '@/styles/dashboard-theme-scopes.css';
+import '@/styles/doctor-dashboard-fixed-logout.css';
 
 export default function DoctorDashboardEnhanced() {
   const { user, checkPermission } = useAuth();
