@@ -2,6 +2,8 @@ export const LAST_RUNTIME_ERROR_KEY = 'dawA_last_runtime_error';
 export const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
 
 const APP_STORAGE_PREFIXES = ['dawA', 'dawaA', 'dawaa', 'supabase', 'sb-'];
+const STALE_CHUNK_RECOVERY_KEY_PREFIX = 'dawaa_stale_chunk_reload_at';
+const STALE_CHUNK_RECOVERY_COOLDOWN_MS = 60_000;
 
 function recordRuntimeError(source: string, error: unknown) {
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error || 'unknown error');
@@ -13,9 +15,47 @@ function recordRuntimeError(source: string, error: unknown) {
   }
 }
 
+function staleChunkRecoveryKey(scope: string) {
+  const safeScope = scope.replace(/[^a-z0-9_-]+/gi, '_').toLowerCase();
+  return `${STALE_CHUNK_RECOVERY_KEY_PREFIX}:${safeScope || 'global'}`;
+}
+
 export function logRuntimeError(source: string, error: unknown) {
   console.error(`[Dawaa ${source}]`, error);
   if (typeof window !== 'undefined') recordRuntimeError(source, error);
+}
+
+export function isStaleChunkImportError(error: unknown) {
+  const message = String((error as Error)?.message || error || '');
+  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
+}
+
+export async function recoverFromStaleChunkOnce(scope = 'global') {
+  if (typeof window === 'undefined') return false;
+  const recoveryKey = staleChunkRecoveryKey(scope);
+
+  try {
+    const last = Number(window.sessionStorage.getItem(recoveryKey) || 0);
+    if (Date.now() - last <= STALE_CHUNK_RECOVERY_COOLDOWN_MS) return false;
+    window.sessionStorage.setItem(recoveryKey, String(Date.now()));
+  } catch {
+    // If sessionStorage is unavailable, still attempt one cache-clean reload for this execution.
+  }
+
+  await startRecoveryCleanup();
+  const url = new URL(window.location.href);
+  url.searchParams.set('_r', Date.now().toString());
+  window.location.replace(url.toString());
+  return true;
+}
+
+export function clearStaleChunkRecoveryMarker(scope = 'global') {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(staleChunkRecoveryKey(scope));
+  } catch {
+    // Ignore storage failures; recovery remains bounded by the current execution.
+  }
 }
 
 export function clearRecoveredRuntimeError() {

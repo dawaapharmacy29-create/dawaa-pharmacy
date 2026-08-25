@@ -20,11 +20,16 @@ import './styles/dawaa-theme-components.css';
 import './styles/dawaa-theme-shell.css';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
 import { ThemeProvider } from '@/contexts/ThemeContext';
-import { clearRecoveredRuntimeError, logRuntimeError, startRecoveryCleanup } from '@/lib/appRecovery';
+import {
+  clearRecoveredRuntimeError,
+  clearStaleChunkRecoveryMarker,
+  isStaleChunkImportError,
+  logRuntimeError,
+  recoverFromStaleChunkOnce,
+} from '@/lib/appRecovery';
 
 const APP_IMPORT_TIMEOUT_MS = 25000;
-const STALE_CHUNK_RECOVERY_KEY = 'dawaa_stale_chunk_reload_at';
-const STALE_CHUNK_RECOVERY_COOLDOWN_MS = 60_000;
+const BOOTSTRAP_RECOVERY_SCOPE = 'bootstrap';
 
 declare global {
   interface Window {
@@ -78,27 +83,6 @@ async function loadRescueRoute() {
   return null;
 }
 
-function isStaleChunkImportError(error: unknown) {
-  const message = String((error as Error)?.message || '');
-  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
-}
-
-async function recoverFromStaleChunkOnce() {
-  try {
-    const last = Number(sessionStorage.getItem(STALE_CHUNK_RECOVERY_KEY) || 0);
-    if (Date.now() - last <= STALE_CHUNK_RECOVERY_COOLDOWN_MS) return false;
-    sessionStorage.setItem(STALE_CHUNK_RECOVERY_KEY, String(Date.now()));
-  } catch {
-    // If sessionStorage is unavailable, still attempt one cache-clean reload for this execution.
-  }
-
-  await startRecoveryCleanup();
-  const url = new URL(window.location.href);
-  url.searchParams.set('_r', Date.now().toString());
-  window.location.replace(url.toString());
-  return true;
-}
-
 const SafeApp = lazy(async () => {
   console.info('[Dawaa bootstrap] start');
   try {
@@ -106,13 +90,13 @@ const SafeApp = lazy(async () => {
     console.info('[Dawaa bootstrap] App imported');
     window.__DAWAA_REACT_BOOTSTRAPPED = true;
     clearRecoveredRuntimeError();
-    try { sessionStorage.removeItem(STALE_CHUNK_RECOVERY_KEY); } catch { /* ignore storage failures */ }
+    clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
     return normalizeDefault(module);
   } catch (error) {
     console.error('[Dawaa bootstrap] App import failed', error);
     logRuntimeError('bootstrap App import failed', error);
     if (isStaleChunkImportError(error)) {
-      const recovering = await recoverFromStaleChunkOnce();
+      const recovering = await recoverFromStaleChunkOnce(BOOTSTRAP_RECOVERY_SCOPE);
       if (recovering) return { default: BootstrapShell };
     }
     const rescueRoute = await loadRescueRoute().catch((rescueError) => {
