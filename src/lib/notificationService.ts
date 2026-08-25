@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { logActivity } from '@/lib/activityLog';
+import { buildNotificationDedupeKey, canonicalNotificationRoute, canonicalNotificationType } from '@/lib/notifications/notificationDomain';
 
 export type NotificationType =
   | 'task'
@@ -94,38 +95,6 @@ export interface NotificationFilters {
   page?: number;
 }
 
-const COLUMN_ALIASES: Record<string, string> = {
-  recipient_user_id: 'user_id',
-  is_read: 'read',
-  message: 'body',
-  target_route: 'route',
-};
-
-function missingColumn(message: string) {
-  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || '';
-}
-
-function compactPayload(payload: Record<string, unknown>) {
-  return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
-}
-
-function toLegacyType(type: string) {
-  const map: Record<string, string> = {
-    reward: 'مكافأة',
-    deduction: 'خصم',
-    task: 'مهمة',
-    followup: 'متابعة',
-    conversation_review: 'تقييم محادثة',
-    customer_alert: 'تنبيه عميل',
-    inventory: 'مخزون',
-    stagnant_item: 'رواكد',
-    list_item: 'لستة',
-    delivery: 'توصيل',
-    manager_alert: 'تنبيه مدير',
-    system: 'عام',
-  };
-  return map[type] || type || 'عام';
-}
 
 export function normalizeNotification(row: Record<string, unknown>): AppNotification {
   const details =
@@ -170,103 +139,35 @@ export function normalizeNotification(row: Record<string, unknown>): AppNotifica
   };
 }
 
-async function insertNotificationWithFallback(payload: Record<string, unknown>) {
-  const next = compactPayload(payload);
-  const removed = new Set<string>();
-
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const { data, error } = await supabase.from('notifications').insert(next).select().single();
-    if (!error) return { data: data as Record<string, unknown>, error: null };
-
-    const column = missingColumn(error.message);
-    if (!column || removed.has(column)) return { data: null, error };
-
-    removed.add(column);
-    if (COLUMN_ALIASES[column] && column in next && !(COLUMN_ALIASES[column] in next)) {
-      next[COLUMN_ALIASES[column]] = next[column];
-    }
-    delete next[column];
-  }
-
-  return { data: null, error: new Error('notification insert fallback exceeded') };
-}
-
-async function updateNotificationWithFallback(id: string, payload: Record<string, unknown>) {
-  const next = compactPayload(payload);
-  const removed = new Set<string>();
-
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const { error } = await supabase.from('notifications').update(next).eq('id', id);
-    if (!error) return true;
-
-    const column = missingColumn(error.message);
-    if (!column || removed.has(column)) return false;
-    removed.add(column);
-    if (COLUMN_ALIASES[column] && column in next && !(COLUMN_ALIASES[column] in next)) {
-      next[COLUMN_ALIASES[column]] = next[column];
-    }
-    delete next[column];
-  }
-
-  return false;
-}
-
 export async function createNotification(payload: NotificationPayload) {
   if (!isSupabaseConfigured) return null;
 
   try {
-    const now = new Date().toISOString();
-    const route =
-      typeof payload.target_route === 'string'
-        ? payload.target_route
-        : typeof payload.route === 'string'
-          ? payload.route
-          : typeof payload.metadata?.route === 'string'
-            ? payload.metadata.route
-            : null;
-    const message = payload.message || payload.body || '';
-    const type = payload.type || 'system';
-    const priority = payload.priority || 'normal';
-    const record: Record<string, unknown> = {
-      title: payload.title,
-      message,
-      body: message,
-      description: message,
+    const type = canonicalNotificationType(payload.type || 'system');
+    const route = canonicalNotificationRoute({
       type,
-      priority,
-      recipient_staff_id: payload.recipient_staff_id || null,
-      recipient_user_id: payload.recipient_user_id || payload.user_id || null,
-      user_id: payload.user_id || payload.recipient_user_id || null,
-      recipient_role: payload.recipient_role || null,
-      branch: payload.branch || null,
-      target_type: payload.target_type || null,
-      target_id: payload.target_id || null,
-      target_route: route,
-      route,
-      status: payload.status || 'new',
-      is_read: payload.is_read ?? payload.read ?? false,
-      read: payload.read ?? payload.is_read ?? false,
-      requires_action: payload.requires_action ?? ['high', 'urgent', 'critical'].includes(priority),
-      action_status: payload.action_status || 'new',
-      sound_enabled: payload.sound_enabled ?? ['urgent', 'critical'].includes(priority),
-      created_by: payload.created_by || null,
-      created_by_name: payload.created_by_name || null,
-      created_at: now,
-      metadata: {
-        ...(payload.metadata || {}),
-        priority,
-        route,
-        legacy_type: toLegacyType(String(type)),
-      },
-      details: {
-        ...(payload.metadata || {}),
-        priority,
-        route,
-      },
-    };
-
-    const { data, error } = await insertNotificationWithFallback(record);
-    if (error || !data) {
+      entityId: payload.target_id || undefined,
+      explicitRoute: payload.target_route || payload.route || (typeof payload.metadata?.route === 'string' ? payload.metadata.route : undefined),
+      recipientStaffId: payload.recipient_staff_id || undefined,
+    });
+    const message = payload.message || payload.body || '';
+    const priority = payload.priority || 'normal';
+    const dedupeKey = buildNotificationDedupeKey({ type, recipientStaffId: payload.recipient_staff_id || payload.recipient_role || undefined, entityType: payload.target_type || undefined, entityId: payload.target_id || undefined });
+    const { data: id, error } = await supabase.rpc('create_notification_audience_v1', {
+      p_recipient_staff_id: payload.recipient_staff_id || null,
+      p_recipient_role: payload.recipient_role || null,
+      p_branch: payload.branch || null,
+      p_notification_type: type,
+      p_title: payload.title,
+      p_message: message,
+      p_entity_type: payload.target_type || null,
+      p_entity_id: payload.target_id || null,
+      p_action_url: route || null,
+      p_priority: priority,
+      p_metadata: { ...(payload.metadata || {}), requiresAction: payload.requires_action ?? ['high','urgent','critical'].includes(priority), soundEnabled: payload.sound_enabled ?? ['urgent','critical'].includes(priority), createdByName: payload.created_by_name || null },
+      p_dedupe_key: dedupeKey || null,
+    });
+    if (error || !id) {
       console.warn('Notification insert failed', error);
       return null;
     }
@@ -275,7 +176,7 @@ export async function createNotification(payload: NotificationPayload) {
       action: 'notification_created',
       module: 'notifications',
       target_type: payload.target_type || 'notification',
-      target_id: String(data.id || payload.target_id || ''),
+      target_id: String(id || payload.target_id || ''),
       user_id: payload.created_by || null,
       user_name: payload.created_by_name || 'النظام',
       branch_name: payload.branch || null,
@@ -289,7 +190,8 @@ export async function createNotification(payload: NotificationPayload) {
       },
     }).catch(() => undefined);
 
-    return normalizeNotification(data);
+    const { data } = await supabase.from('notifications').select('*').eq('id', String(id)).maybeSingle();
+    return data ? normalizeNotification(data as Record<string, unknown>) : null;
   } catch (error) {
     console.warn('Notification creation skipped', error);
     return null;
@@ -303,49 +205,32 @@ export async function createBulkNotifications(payloads: NotificationPayload[]) {
 
 export async function markNotificationRead(id: string) {
   if (!isSupabaseConfigured || !id) return false;
-  const ok = await updateNotificationWithFallback(id, {
-    is_read: true,
-    read: true,
-    status: 'read',
-    read_at: new Date().toISOString(),
-  });
+  const { data: ok, error } = await supabase.rpc('mark_my_notification_read_v1', { p_notification_id: id });
+  if (error) return false;
   if (ok) await logNotificationAction('notification_read', id);
   return ok;
 }
 
 export async function markNotificationCompleted(id: string) {
   if (!isSupabaseConfigured || !id) return false;
-  const ok = await updateNotificationWithFallback(id, {
-    status: 'completed',
-    action_status: 'completed',
-    completed_at: new Date().toISOString(),
-    is_read: true,
-    read: true,
-  });
+  const { data: ok, error } = await supabase.rpc('transition_staff_notification_action', { p_notification_id: id, p_next_state: 'completed' });
+  if (error) return false;
   if (ok) await logNotificationAction('notification_completed', id);
   return ok;
 }
 
 export async function dismissNotification(id: string) {
   if (!isSupabaseConfigured || !id) return false;
-  const ok = await updateNotificationWithFallback(id, {
-    status: 'dismissed',
-    action_status: 'dismissed',
-    is_read: true,
-    read: true,
-    read_at: new Date().toISOString(),
-  });
+  const { data: ok, error } = await supabase.rpc('transition_staff_notification_action', { p_notification_id: id, p_next_state: 'dismissed' });
+  if (error) return false;
   if (ok) await logNotificationAction('notification_dismissed', id);
   return ok;
 }
 
 export async function escalateNotification(id: string) {
   if (!isSupabaseConfigured || !id) return false;
-  const ok = await updateNotificationWithFallback(id, {
-    status: 'escalated',
-    action_status: 'escalated',
-    priority: 'urgent',
-  });
+  const { data: ok, error } = await supabase.rpc('transition_staff_notification_action', { p_notification_id: id, p_next_state: 'escalated' });
+  if (error) return false;
   if (ok) await logNotificationAction('notification_escalated', id);
   return ok;
 }
@@ -362,15 +247,7 @@ async function logNotificationAction(action: string, id: string) {
 
 export async function markAllNotificationsRead(filters: NotificationFilters = {}) {
   if (!isSupabaseConfigured) return false;
-  let query = supabase.from('notifications').update({
-    is_read: true,
-    read: true,
-    status: 'read',
-    read_at: new Date().toISOString(),
-  } as Record<string, unknown>);
-  if (filters.userId) query = query.eq('user_id', filters.userId);
-  if (filters.staffId) query = query.eq('recipient_staff_id', filters.staffId);
-  const { error } = await query;
+  const { error } = await supabase.rpc('mark_all_my_notifications_read_v1');
   if (error) {
     console.warn('Mark all notifications read failed', error);
     return false;
@@ -449,18 +326,14 @@ export function notifyCustomerServiceResponsible(
   payload: NotificationPayload & { branch?: string | null }
 ) {
   const branch = payload.branch || '';
-  const responsibleName = branch.includes('الشامي')
-    ? 'د ضحى'
-    : branch.includes('شكري')
-      ? 'د دنيا'
-      : null;
   return createNotification({
     ...payload,
     type: payload.type || 'followup',
-    recipient_role: responsibleName || payload.recipient_role || 'customer_service',
+    recipient_role: payload.recipient_role || 'customer_service_manager',
+    branch,
     metadata: {
       ...(payload.metadata || {}),
-      responsible_name: responsibleName,
+      audience: 'branch_customer_service_manager',
     },
   });
 }

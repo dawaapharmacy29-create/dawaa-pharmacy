@@ -13,32 +13,8 @@ export async function transitionNotificationAction(
     p_notification_id: notificationId,
     p_next_state: nextState,
   });
-  if (!error) return Boolean(data);
-
-  // Compatibility fallback until the lifecycle RPC is deployed everywhere.
-  const now = new Date().toISOString();
-  const patch: Record<string, unknown> = {
-    action_status: nextState,
-    is_read: true,
-    read: true,
-    read_at: now,
-  };
-  if (nextState === 'completed') {
-    patch.status = 'completed';
-    patch.completed_at = now;
-  } else if (nextState === 'dismissed') {
-    patch.status = 'dismissed';
-  } else if (nextState === 'escalated') {
-    patch.status = 'escalated';
-    patch.priority = 'urgent';
-  } else {
-    // Reading and acting are separate. in_progress means the doctor opened the
-    // operational path and acknowledged ownership, not that the work is done.
-    patch.status = 'read';
-  }
-
-  const result = await supabase.from('notifications').update(patch).eq('id', notificationId);
-  return !result.error;
+  if (error) throw error;
+  return Boolean(data);
 }
 
 export const startNotificationAction = (id: string) => transitionNotificationAction(id, 'in_progress');

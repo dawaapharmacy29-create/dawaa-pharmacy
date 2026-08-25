@@ -40,8 +40,42 @@ const employeeTransactionRlsPath = path.join(ROOT, 'supabase/migrations/20260823
 const pointsCeilingPath = path.join(ROOT, 'supabase/migrations/20260823200000_align_db_points_permission_ceiling_v1.sql');
 const activityLogRlsPath = path.join(ROOT, 'supabase/migrations/20260823213000_harden_activity_logs_append_only_v1.sql');
 const coachingNotesRlsPath = path.join(ROOT, 'supabase/migrations/20260823231500_harden_staff_coaching_notes_rls_v1.sql');
-for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, branchInspectionCommandPath, employeeTransactionRlsPath, pointsCeilingPath, activityLogRlsPath, coachingNotesRlsPath]) {
+const notificationBoundaryPath = path.join(ROOT, 'supabase/migrations/20260826023000_unify_notification_command_boundary_v1.sql');
+const notificationTextRecipientsPath = path.join(ROOT, 'supabase/migrations/20260826024500_support_text_notification_recipients_v2.sql');
+for (const file of [authMigrationPath, targetMigrationPath, activeWorkflowRlsPath, reviewCeilingPath, managerReviewRlsPath, branchInspectionRlsPath, branchInspectionCommandPath, employeeTransactionRlsPath, pointsCeilingPath, activityLogRlsPath, coachingNotesRlsPath, notificationBoundaryPath, notificationTextRecipientsPath]) {
   if (!fs.existsSync(file)) failures.push(`Missing authorization migration: ${path.basename(file)}`);
+}
+
+if (fs.existsSync(notificationBoundaryPath) && fs.existsSync(notificationTextRecipientsPath)) {
+  const boundary = fs.readFileSync(notificationBoundaryPath, 'utf8');
+  const textRecipients = fs.readFileSync(notificationTextRecipientsPath, 'utf8');
+  for (const token of ['create_notification_audience_v1', 'mark_my_notification_read_v1', 'mark_all_my_notifications_read_v1', 'transition_staff_notification_action']) {
+    if (!boundary.includes(token)) failures.push(`Notification command boundary must include ${token}.`);
+  }
+  if (!boundary.includes('revoke insert, update, delete, truncate on public.notifications from anon, authenticated')) {
+    failures.push('Notification base table must remain read-only to browser roles.');
+  }
+  if (!textRecipients.includes("trim(p_dedupe_key)||':'||v_recipient.staff_id")) {
+    failures.push('Notification role fan-out must keep per-recipient dedupe identity.');
+  }
+  const sourceFiles = [];
+  const walk = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.[jt]sx?$/.test(entry.name) && !/\.test\.|__tests__/.test(full)) sourceFiles.push(full);
+    }
+  };
+  walk(path.join(ROOT, 'src'));
+  for (const file of sourceFiles) {
+    const source = fs.readFileSync(file, 'utf8');
+    if (/\.from\(\s*['"]notifications['"]\s*\)[\s\S]{0,180}\.(?:insert|update|upsert|delete)\s*\(/.test(source)) {
+      failures.push(`Notification writes must use commands, not direct table mutation: ${path.relative(ROOT, file)}`);
+    }
+    if (/\.rpc\(\s*['"]get_my_notifications['"]/.test(source)) {
+      failures.push(`Notification reads must not trust caller-supplied identity: ${path.relative(ROOT, file)}`);
+    }
+  }
 }
 
 if (fs.existsSync(branchInspectionCommandPath)) {
@@ -179,4 +213,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[db-authorization-architecture] PASS: protected writes, active workflow RLS, review/points role ceilings, branch inspection authorization, employee transaction authorization, append-only activity/coaching streams and boolean permission truth remain centralized.');
+console.log('[db-authorization-architecture] PASS: protected writes, notification commands, active workflow RLS, review/points role ceilings, branch inspection authorization, employee transaction authorization, append-only activity/coaching streams and boolean permission truth remain centralized.');

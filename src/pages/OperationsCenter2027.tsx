@@ -50,14 +50,12 @@ export default function OperationsCenter2027() {
 
   const refetchNotifications = useCallback(() => {
     void supabase
-      .rpc('get_my_notifications', {
-        p_staff_id: user?.staffId || null,
-        p_role: user?.role || null,
-        p_branch: user?.branch || null,
-        p_limit: 250,
-      })
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(250)
       .then(({ data }) => setRawNotifications((data as Record<string, unknown>[]) || []));
-  }, [user?.staffId, user?.role, user?.branch]);
+  }, []);
 
   useEffect(() => {
     refetchNotifications();

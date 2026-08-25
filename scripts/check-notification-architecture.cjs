@@ -4,9 +4,7 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
-const ALLOWED_DIRECT_WRITERS = new Set([
-  'src/lib/notificationService.ts',
-]);
+const ALLOWED_DIRECT_WRITERS = new Set();
 const TRANSITIONAL_DIRECT_WRITERS = new Set();
 
 function walk(dir) {
@@ -66,4 +64,4 @@ if (failures.length) {
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[notification-architecture] PASS: direct writers did not expand and transitional writers declare a notification type.');
+console.log('[notification-architecture] PASS: notification writes are command-only; no direct table writers remain.');
