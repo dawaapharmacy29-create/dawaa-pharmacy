@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Camera, Check, Clock, Loader2 } from 'lucide-react';
+import { Award, Camera, Check, Clock, Loader2, Star } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { uploadImageToStorage } from '@/lib/storageUpload';
@@ -25,6 +25,22 @@ type Submission = {
   reviewer_note: string | null;
 };
 
+type CleaningDailyRating = {
+  stars: number;
+  score_pct: number;
+  points_delta: number;
+  manager_note: string | null;
+};
+
+type CleaningCycleSummary = {
+  rated_days: number;
+  five_star_days: number;
+  avg_stars: number;
+  avg_score_pct: number;
+  total_star_points: number;
+  performance_band: string;
+};
+
 const TIME_SLOT_ORDER: Record<string, number> = { 'فتح': 0, 'أثناء اليوم': 1, 'قفل': 2 };
 
 const STATUS_LABEL: Record<Submission['review_status'], { label: string; className: string }> = {
@@ -38,7 +54,8 @@ export default function StaffDailyChecklist() {
   const staffId = user?.staffId || user?.id || '';
   const branch = user?.branch || '';
   const canonicalRole = canonicalStaffRole(user?.role);
-  const staffRole = canonicalRole === 'cleaning'
+  const isCleaning = canonicalRole === 'cleaning';
+  const staffRole = isCleaning
     ? 'مسؤولة النظافة'
     : canonicalRole === 'assistant'
       ? 'مساعد صيدلي'
@@ -46,6 +63,8 @@ export default function StaffDailyChecklist() {
 
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [submissions, setSubmissions] = useState<Record<string, Submission>>({});
+  const [dailyRating, setDailyRating] = useState<CleaningDailyRating | null>(null);
+  const [cycleSummary, setCycleSummary] = useState<CleaningCycleSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const today = new Date().toISOString().slice(0, 10);
@@ -56,29 +75,63 @@ export default function StaffDailyChecklist() {
       return;
     }
     setLoading(true);
-    const [itemsRes, subsRes] = await Promise.all([
-      supabase
-        .from('staff_daily_checklist_items')
-        .select('id, item_key, title, description, time_slot, sort_order, requires_photo')
-        .eq('role', staffRole)
-        .eq('active', true)
-        .order('sort_order', { ascending: true }),
-      staffId
+    const checklistItemsQuery = supabase
+      .from('staff_daily_checklist_items')
+      .select('id, item_key, title, description, time_slot, sort_order, requires_photo')
+      .eq('role', staffRole)
+      .eq('active', true)
+      .order('sort_order', { ascending: true });
+    const submissionsQuery = staffId
+      ? supabase
+          .from('staff_daily_checklist_submissions')
+          .select('id, item_id, completed, photo_url, review_status, reviewer_note')
+          .eq('staff_id', staffId)
+          .eq('submission_date', today)
+      : Promise.resolve({ data: [] as Submission[] });
+
+    const [itemsRes, subsRes, ratingRes, summaryRes] = await Promise.all([
+      checklistItemsQuery,
+      submissionsQuery,
+      isCleaning && staffId
         ? supabase
-            .from('staff_daily_checklist_submissions')
-            .select('id, item_id, completed, photo_url, review_status, reviewer_note')
+            .from('cleaning_daily_ratings')
+            .select('stars, score_pct, points_delta, manager_note')
             .eq('staff_id', staffId)
-            .eq('submission_date', today)
-        : Promise.resolve({ data: [] as Submission[] }),
+            .eq('rating_date', today)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      isCleaning && staffId
+        ? supabase.rpc('get_cleaning_cycle_rating_summary_v1', { p_staff_id: staffId, p_month_cycle: null })
+        : Promise.resolve({ data: [] }),
     ]);
+
     setItems((itemsRes.data || []) as ChecklistItem[]);
     const map: Record<string, Submission> = {};
     ((subsRes.data || []) as Submission[]).forEach((s) => {
       map[s.item_id] = s;
     });
     setSubmissions(map);
+
+    const rating = ratingRes.data as Record<string, unknown> | null;
+    setDailyRating(rating ? {
+      stars: Number(rating.stars || 0),
+      score_pct: Number(rating.score_pct || 0),
+      points_delta: Number(rating.points_delta || 0),
+      manager_note: rating.manager_note ? String(rating.manager_note) : null,
+    } : null);
+
+    const summaryRow = Array.isArray(summaryRes.data) ? summaryRes.data[0] : summaryRes.data;
+    const summary = summaryRow as Record<string, unknown> | null;
+    setCycleSummary(summary ? {
+      rated_days: Number(summary.rated_days || 0),
+      five_star_days: Number(summary.five_star_days || 0),
+      avg_stars: Number(summary.avg_stars || 0),
+      avg_score_pct: Number(summary.avg_score_pct || 0),
+      total_star_points: Number(summary.total_star_points || 0),
+      performance_band: String(summary.performance_band || '—'),
+    } : null);
     setLoading(false);
-  }, [staffId, staffRole, today]);
+  }, [isCleaning, staffId, staffRole, today]);
 
   useEffect(() => {
     void load();
@@ -141,6 +194,41 @@ export default function StaffDailyChecklist() {
         <h1 className="text-xl font-black text-white">التشيك ليست اليومي — {new Date().toLocaleDateString('ar-EG')}</h1>
         <p className="mt-1 text-sm text-slate-400">علّم كل بند وارفع صورة كدليل. مدير الفرع هيراجعها النهاردة.</p>
       </div>
+
+      {isCleaning && !loading ? (
+        <section className="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4">
+          <div className="flex items-center gap-2">
+            <Award size={18} className="text-amber-300" />
+            <h2 className="font-black text-white">تقييم النظافة والتحفيز</h2>
+          </div>
+          {dailyRating ? (
+            <>
+              <div className="mt-3 flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <Star key={value} size={24} className={value <= dailyRating.stars ? 'fill-amber-400 text-amber-400' : 'text-slate-600'} />
+                ))}
+                <span className="mr-2 text-sm font-black text-white">{dailyRating.stars}/5 — {dailyRating.score_pct}%</span>
+              </div>
+              <p className="mt-2 text-xs font-bold text-slate-300">
+                أثر اليوم على النقاط: {dailyRating.points_delta > 0 ? '+' : ''}{dailyRating.points_delta}
+              </p>
+              {dailyRating.manager_note ? <p className="mt-2 text-xs text-slate-400">ملاحظة المدير: {dailyRating.manager_note}</p> : null}
+            </>
+          ) : (
+            <p className="mt-3 text-sm font-semibold text-slate-400">تقييم اليوم لم يُعتمد بعد.</p>
+          )}
+
+          {cycleSummary ? (
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="rounded-xl bg-white/5 p-2 text-center"><div className="font-black text-white">{cycleSummary.avg_stars.toFixed(2)}★</div><div className="text-[10px] text-slate-400">متوسط الدورة</div></div>
+              <div className="rounded-xl bg-white/5 p-2 text-center"><div className="font-black text-white">{cycleSummary.avg_score_pct}%</div><div className="text-[10px] text-slate-400">متوسط الدرجة</div></div>
+              <div className="rounded-xl bg-white/5 p-2 text-center"><div className="font-black text-white">{cycleSummary.five_star_days}</div><div className="text-[10px] text-slate-400">أيام 5 نجوم</div></div>
+              <div className="rounded-xl bg-white/5 p-2 text-center"><div className="font-black text-white">{cycleSummary.total_star_points > 0 ? '+' : ''}{cycleSummary.total_star_points}</div><div className="text-[10px] text-slate-400">نقاط النجوم</div></div>
+            </div>
+          ) : null}
+          {cycleSummary ? <p className="mt-3 text-xs font-black text-amber-200">المستوى الحالي: {cycleSummary.performance_band} • {cycleSummary.rated_days} يوم مُقيّم</p> : null}
+        </section>
+      ) : null}
 
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-400" /></div>
