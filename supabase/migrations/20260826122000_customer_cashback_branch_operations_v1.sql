@@ -1,5 +1,10 @@
 -- Branch-level operational metrics for customer cashback / points cycles.
 -- Read-only reporting RPC; respects the same customer-points branch access guard.
+-- Retire the historical 30-Jul header so it can never be selected as a previous official cycle.
+
+update public.customer_cashback_periods
+set period_type='legacy', updated_at=now()
+where period_end=date '2026-07-30' and period_type='official';
 
 create or replace function public.dawaa_customer_cashback_branch_operations_v1(
   p_branch text,
