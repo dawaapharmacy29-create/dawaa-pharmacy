@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, DatabaseZap, RefreshCw, ShieldAlert } from
 import { loadAppDataHealthSummary, summarizeDataHealth, type DataHealthIssue } from '@/lib/dataHealth/appDataHealthService';
 import { formatNumber } from '@/lib/dawaa2027';
 import OperationalReadinessPanel from '@/components/system/OperationalReadinessPanel';
+import PointsArchitectureHealthPanel from '@/components/system/PointsArchitectureHealthPanel';
 
 const severityText = { danger: 'حرج', warning: 'يحتاج مراجعة', info: 'معلومة' } as const;
 const severityBadge = {
@@ -82,6 +83,7 @@ export default function DataHealthCenter() {
       </section>
 
       <OperationalReadinessPanel />
+      <PointsArchitectureHealthPanel />
 
       {error ? <div className="dawaa-alert dawaa-alert--danger text-sm">{error}</div> : null}
 
