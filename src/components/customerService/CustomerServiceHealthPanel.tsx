@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
@@ -22,6 +22,29 @@ type HealthPayload = {
   generated_at: string;
 };
 
+type HealthIssueRow = {
+  id: string;
+  customer_name: string;
+  customer_code: string | null;
+  customer_phone: string | null;
+  branch: string | null;
+  request_type: string | null;
+  followup_reason: string | null;
+  responsible_name: string | null;
+  status: string | null;
+  next_followup_date: string | null;
+  created_at: string | null;
+};
+
+type HealthIssuesPayload = {
+  issue: string;
+  scope_branch: string;
+  count: number;
+  rows: HealthIssueRow[];
+  limit: number;
+  generated_at: string;
+};
+
 const emptyHealth: HealthPayload = {
   status: 'healthy',
   scope_branch: '',
@@ -33,6 +56,15 @@ const emptyHealth: HealthPayload = {
   invalid_branch_rows: 0,
   completed_without_summary: 0,
   orphan_events: 0,
+  generated_at: '',
+};
+
+const emptyIssues: HealthIssuesPayload = {
+  issue: 'unscheduled',
+  scope_branch: '',
+  count: 0,
+  rows: [],
+  limit: 50,
   generated_at: '',
 };
 
@@ -51,6 +83,10 @@ export default function CustomerServiceHealthPanel() {
   const [health, setHealth] = useState<HealthPayload>(emptyHealth);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [issuesOpen, setIssuesOpen] = useState(false);
+  const [issues, setIssues] = useState<HealthIssuesPayload>(emptyIssues);
+  const [issuesLoading, setIssuesLoading] = useState(false);
+  const [issuesError, setIssuesError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,7 +105,37 @@ export default function CustomerServiceHealthPanel() {
     }
   }, [branch]);
 
+  const loadUnscheduled = useCallback(async () => {
+    setIssuesLoading(true);
+    setIssuesError('');
+    try {
+      const { data, error: rpcError } = await (supabase as any).rpc('dawaa_customer_service_health_issues_v1', {
+        p_branch: branch === ALL ? null : branch,
+        p_issue: 'unscheduled',
+        p_limit: 50,
+      });
+      if (rpcError) throw rpcError;
+      setIssues({ ...emptyIssues, ...((data || {}) as HealthIssuesPayload), rows: Array.isArray((data as any)?.rows) ? (data as any).rows : [] });
+    } catch (loadError) {
+      console.error('[CustomerServiceHealthPanel] unscheduled list failed', loadError);
+      setIssuesError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setIssuesLoading(false);
+    }
+  }, [branch]);
+
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    setIssuesOpen(false);
+    setIssues(emptyIssues);
+    setIssuesError('');
+  }, [branch]);
+
+  const toggleIssues = () => {
+    const next = !issuesOpen;
+    setIssuesOpen(next);
+    if (next) void loadUnscheduled();
+  };
 
   const statusMeta = useMemo(() => {
     if (health.status === 'critical') return { label: 'يحتاج تدخل', className: 'border-rose-400/35 bg-rose-500/10 text-rose-200', Icon: AlertTriangle };
@@ -100,6 +166,26 @@ export default function CustomerServiceHealthPanel() {
         <Metric label="فرع غير محدد" value={health.invalid_branch_rows} warning />
         <Metric label="أحداث يتيمة" value={health.orphan_events} warning />
       </div>
+
+      {health.open_without_schedule > 0 ? <div className="mt-3">
+        <button type="button" className="btn-secondary flex items-center gap-2 text-xs" onClick={toggleIssues} disabled={issuesLoading}>
+          {issuesLoading ? <RefreshCw size={14} className="animate-spin" /> : issuesOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {issuesOpen ? 'إخفاء' : 'عرض'} المتابعات المفتوحة بدون موعد ({Number(health.open_without_schedule).toLocaleString('ar-EG')})
+        </button>
+
+        {issuesOpen ? <div className="mt-3 overflow-hidden rounded-2xl border border-amber-400/20 bg-black/10">
+          {issuesError ? <div className="p-4 text-xs font-bold text-amber-200">تعذر تحميل الحالات: {issuesError}</div> : issuesLoading && !issues.rows.length ? <div className="p-4 text-xs font-bold text-[var(--dawaa-theme-muted)]">جارٍ تحميل الحالات…</div> : issues.rows.length ? <div className="divide-y divide-white/5">
+            {issues.rows.map((row) => <div key={row.id} className="grid gap-2 p-3 text-xs md:grid-cols-[1.2fr_.7fr_1.4fr_.8fr] md:items-center">
+              <div><div className="font-black text-white">{row.customer_name}</div><div className="mt-0.5 text-[11px] text-[var(--dawaa-theme-muted)]">{row.customer_code || 'بدون كود'}{row.customer_phone ? ` · ${row.customer_phone}` : ''}</div></div>
+              <div><div className="font-bold text-teal-200">{row.branch || 'غير محدد'}</div><div className="mt-0.5 text-[11px] text-[var(--dawaa-theme-muted)]">{row.responsible_name || 'غير معيّن'}</div></div>
+              <div><div className="font-bold text-white">{row.request_type || 'متابعة'}</div><div className="mt-0.5 line-clamp-2 text-[11px] text-[var(--dawaa-theme-muted)]">{row.followup_reason || 'لا يوجد سبب مسجل'}</div></div>
+              <div className="text-[11px] text-[var(--dawaa-theme-muted)]">أُنشئت: {row.created_at ? new Date(row.created_at).toLocaleDateString('ar-EG') : '—'}<div className="mt-1 font-bold text-amber-200">تحتاج تحديد موعد</div></div>
+            </div>)}
+          </div> : <div className="p-4 text-xs font-bold text-emerald-200">لا توجد حالات بدون موعد الآن.</div>}
+          {issues.count > issues.rows.length ? <div className="border-t border-white/5 p-2 text-center text-[11px] font-bold text-[var(--dawaa-theme-muted)]">عرض أول {issues.rows.length} من {issues.count} حالة.</div> : null}
+        </div> : null}
+      </div> : null}
+
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-semibold text-[var(--dawaa-theme-muted)]">
         <span>النطاق: {health.scope_branch || branch}</span>
         <span>سجلات تاريخية مكتملة بملخص قديم ناقص: {Number(health.completed_without_summary || 0).toLocaleString('ar-EG')}</span>
