@@ -2,8 +2,9 @@ export const LOGO_URL =
   'https://cdn-ai.onspace.ai/onspace/files/bJpq2SmLcxwsabN49gg2cM/icon-512.png';
 export const FULL_LOGO_URL = '/dawaa-logo-full.jpeg';
 
-export const BRANCHES = ['فرع شكري', 'فرع الشامي'] as const;
-export type Branch = (typeof BRANCHES)[number];
+const BRANCH_VALUES = ['فرع شكري', 'فرع الشامي'] as const;
+export type Branch = (typeof BRANCH_VALUES)[number];
+export const BRANCHES: readonly string[] = BRANCH_VALUES;
 
 /** Pharmacists by branch — also maintained via Supabase migration. */
 export const SHOKRY_BRANCH_PHARMACISTS = ['د ندي', 'د/ سارة'] as const;
