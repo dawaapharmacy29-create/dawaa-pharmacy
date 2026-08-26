@@ -4,24 +4,22 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
+const POINTS_PERSISTENCE = path.join(SRC, 'lib/pointsPersistence.ts');
 const APPEAL_MIGRATION = path.join(
   ROOT,
   'supabase/migrations/20260824151100_point_appeal_atomic_reversal_v1.sql'
 );
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
-// writers move behind a canonical authorization-aware service/RPC. New direct
+// lifecycle mutations move behind canonical authorization-aware RPCs. New direct
 // writers are forbidden.
 const BASELINED_DIRECT_WRITERS = new Set([
   'src/services/employeeTransactionService.ts',
 ]);
 
 // `staff.points` is a transitional mutable snapshot, not the canonical ledger.
-// Keep the current compatibility writer isolated while the balance projection is
-// migrated to ledger-derived/server-side truth. Any new direct writer is a hard
-// architecture regression.
+// Any new direct writer is a hard architecture regression.
 const BASELINED_STAFF_POINTS_WRITERS = new Set();
-
 const BASELINED_STAFF_DELTA_CALLERS = new Set();
 
 function walk(dir) {
@@ -147,6 +145,25 @@ if (staleStaffDeltaBaseline.length || unexpectedStaffDeltaCallers.length) {
   process.exit(1);
 }
 
+// V3 is now deployed and merged. The application must fail closed when the canonical
+// command is unavailable instead of silently writing through an older client path.
+const pointsPersistence = fs.readFileSync(POINTS_PERSISTENCE, 'utf8');
+if (!/\.rpc\(\s*['"]record_employee_points_transaction_v3['"]/.test(pointsPersistence)) {
+  console.error('\nEmployee points command boundary failed: pointsPersistence must use record_employee_points_transaction_v3.');
+  process.exit(1);
+}
+for (const forbidden of [
+  /createEmployeeTransaction\s*\(/,
+  /updateEmployeeTransaction\s*\(/,
+  /temporary legacy persistence fallback/i,
+  /V3 command unavailable; using/i,
+]) {
+  if (forbidden.test(pointsPersistence)) {
+    console.error('\nEmployee points command boundary failed: legacy client persistence fallback returned.');
+    process.exit(1);
+  }
+}
+
 if (!fs.existsSync(APPEAL_MIGRATION)) {
   console.error('\nEmployee points appeal boundary failed: canonical reversal migration is missing.');
   process.exit(1);
@@ -171,4 +188,4 @@ if (!/\.rpc\(\s*['"]review_point_appeal_v1['"]/.test(appealPage)) {
   process.exit(1);
 }
 
-console.log('[employee-transaction-write-boundary] PASS: direct ledger writers and staff.points snapshot writers match the exact transitional baselines.');
+console.log('[employee-transaction-write-boundary] PASS: canonical V3 command is fail-closed and direct ledger/snapshot writers match the exact transitional baselines.');
