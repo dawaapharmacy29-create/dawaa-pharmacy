@@ -71,6 +71,8 @@ type FastPayload = { rows: CashbackRow[]; summary: Summary; totals: Totals; limi
 
 type Props = { forcedBranch?: string };
 
+type CashbackAction = 'notify' | 'bconnect' | 'redeem';
+
 const EMPTY_SUMMARY: Summary = {
   total: 0,
   available: 0,
@@ -170,6 +172,7 @@ export default function CustomerCashbackFast({ forcedBranch = '' }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const requestSeq = useRef(0);
 
   useEffect(() => {
@@ -230,20 +233,24 @@ export default function CustomerCashbackFast({ forcedBranch = '' }: Props) {
     await load(true);
   }, [load]);
 
-  const updateRow = async (row: CashbackRow, patch: Record<string, unknown>, eventType: string, amount?: number) => {
+  const runAction = async (row: CashbackRow, action: CashbackAction, amount?: number) => {
+    if (savingRowId === row.id) return;
+    setSavingRowId(row.id);
     try {
-      const { error } = await supabase.from('customer_cashback_cycles').update(patch).eq('id', row.id);
-      if (error) throw error;
-      const { error: eventError } = await supabase.from('customer_cashback_events').insert({
-        cycle_id: row.id,
-        customer_code: row.customer_code,
-        event_type: eventType,
-        amount: amount ?? null,
+      const { error } = await (supabase as any).rpc('dawaa_customer_cashback_action_v1', {
+        p_cycle_id: row.id,
+        p_action: action,
+        p_amount: action === 'redeem' ? amount ?? null : null,
+        p_expected_redeemed: action === 'redeem' ? Number(row.redeemed_value || 0) : null,
+        p_note: null,
       });
-      if (eventError) console.warn('[cashback-fast] event log failed', eventError);
+      if (error) throw error;
       await invalidateAndReload();
     } catch (error) {
       toast.error(friendlySupabaseError(error as any) || 'تعذر حفظ التعديل');
+      await invalidateAndReload();
+    } finally {
+      setSavingRowId((current) => current === row.id ? null : current);
     }
   };
 
@@ -421,6 +428,7 @@ export default function CustomerCashbackFast({ forcedBranch = '' }: Props) {
                 Array.from({ length: 8 }).map((_, index) => <tr key={index}><td colSpan={9} className="p-3"><div className="h-9 animate-pulse rounded-xl bg-slate-700/20" /></td></tr>)
               ) : payload.rows.length ? payload.rows.map((row) => {
                 const wa = row.customer_phone ? generateWhatsAppLink(cleanEgyptianPhone(row.customer_phone), `أهلاً أ/ ${row.customer_name || 'حضرتك'} 🌷\nمع حضرتك خدمة عملاء صيدليات دواء. ليك نقاط/كاش باك بقيمة ${formatCurrency(row.cashback_value || 0)}.`) : '';
+                const rowSaving = savingRowId === row.id;
                 return (
                   <tr key={row.id} className={`border-t ${statusTone(row.status)}`} style={{ contentVisibility: 'auto', containIntrinsicSize: '54px' }}>
                     <td className="p-3"><div className="font-black">{row.customer_name || 'عميل بدون اسم'}</div><div className="text-xs text-[var(--theme-muted)]">{row.customer_code || '-'} · {row.customer_phone || '-'}</div></td>
@@ -433,17 +441,15 @@ export default function CustomerCashbackFast({ forcedBranch = '' }: Props) {
                     <td className="p-3"><span className="rounded-full border border-teal-400/30 bg-teal-500/10 px-2 py-1 text-xs font-bold">{cashbackStatusLabel(row.status)}</span></td>
                     <td className="p-3"><div className="flex flex-wrap gap-1.5">
                       {wa ? <a href={wa} target="_blank" rel="noreferrer" className="btn-secondary !px-2 !py-1 text-xs"><MessageSquare className="h-3.5 w-3.5" /> واتساب</a> : null}
-                      <button className="btn-secondary !px-2 !py-1 text-xs" onClick={() => void updateRow(row, { status: 'notified', notified_at: new Date().toISOString() }, 'notified')}><Send className="h-3.5 w-3.5" /> تبليغ</button>
-                      <button className="btn-secondary !px-2 !py-1 text-xs" onClick={() => void updateRow(row, { status: 'bconnect_updated', bconnect_updated_at: new Date().toISOString() }, 'bconnect_updated')}><Smartphone className="h-3.5 w-3.5" /> بي كونكت</button>
-                      <button className="btn-secondary !px-2 !py-1 text-xs" onClick={() => {
+                      <button disabled={rowSaving} className="btn-secondary !px-2 !py-1 text-xs disabled:opacity-50" onClick={() => void runAction(row, 'notify')}><Send className="h-3.5 w-3.5" /> تبليغ</button>
+                      <button disabled={rowSaving} className="btn-secondary !px-2 !py-1 text-xs disabled:opacity-50" onClick={() => void runAction(row, 'bconnect')}><Smartphone className="h-3.5 w-3.5" /> بي كونكت</button>
+                      <button disabled={rowSaving || rowRemaining(row) <= 0} className="btn-secondary !px-2 !py-1 text-xs disabled:opacity-50" onClick={() => {
                         const raw = window.prompt(`المتبقي ${formatCurrency(rowRemaining(row))}\nاكتب قيمة السحب:`);
                         if (!raw) return;
                         const amount = Number(raw);
                         if (!Number.isFinite(amount) || amount <= 0 || amount > rowRemaining(row)) { toast.error('قيمة السحب غير صحيحة'); return; }
-                        const redeemed = Number(row.redeemed_value || 0) + amount;
-                        const settled = redeemed >= Number(row.cashback_value || 0);
-                        void updateRow(row, { redeemed_value: redeemed, status: settled ? 'settled' : 'partially_redeemed', ...(settled ? { settled_at: new Date().toISOString() } : {}) }, settled ? 'settled' : 'partially_redeemed', amount);
-                      }}><WalletCards className="h-3.5 w-3.5" /> سحب</button>
+                        void runAction(row, 'redeem', amount);
+                      }}><WalletCards className="h-3.5 w-3.5" /> {rowSaving ? 'جارٍ الحفظ…' : 'سحب'}</button>
                     </div></td>
                   </tr>
                 );
