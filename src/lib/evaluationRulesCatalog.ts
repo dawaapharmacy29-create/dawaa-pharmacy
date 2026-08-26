@@ -72,7 +72,8 @@ function mapIncentiveRoleScopes(scope: string): RoleScope[] {
   const parts = rawParts.length ? rawParts : [scope];
   const mapped = parts.map(mapSingleRoleScope).filter((value): value is RoleScope => Boolean(value));
   const specific = mapped.filter((value) => value !== 'all');
-  return [...new Set(specific.length ? specific : mapped.length ? mapped : ['all'])];
+  const resolved: RoleScope[] = specific.length ? specific : mapped.length ? mapped : ['all'];
+  return [...new Set<RoleScope>(resolved)];
 }
 
 function mapIncentiveRoleScope(scope: string): RoleScope {
