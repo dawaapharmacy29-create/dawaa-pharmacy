@@ -2,20 +2,29 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, MessageCircle, Package, ShieldCheck, Trophy, UserRound, Wallet } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
-type IncentiveTotal = {
-  staff_name: string;
-  tier_key: string;
-  total_points: number;
-  target_points: number;
-  point_rate_egp: number;
-  base_incentive_egp: number;
-  points_incentive_egp: number;
-  competition_bonus_egp: number;
-  final_incentive_egp: number;
-  progress_pct: number;
-};
-
 type PillarRow = { pillar_key: string; points: number; has_competition_win: boolean };
+
+type DoctorIncentiveDashboard = {
+  engine_version: number;
+  staff_name: string;
+  tier_key: string | null;
+  final_points: number;
+  target_points: number;
+  point_rate_egp: number | null;
+  points_incentive_egp: number | null;
+  competition_bonus_egp: number;
+  target_bonus_egp: number;
+  followup_bonus_egp: number;
+  request_bonus_egp: number;
+  star_bonus_egp: number;
+  total_expected_egp: number | null;
+  progress_pct: number;
+  pending_reward_points: number;
+  pending_deduction_points: number;
+  profile_configured: boolean;
+  pillars: PillarRow[];
+  error?: string;
+};
 
 const PILLAR_META: Record<string, { label: string; icon: typeof MessageCircle }> = {
   محادثات: { label: 'المحادثات', icon: MessageCircle },
@@ -38,8 +47,7 @@ export default function DoctorIncentiveSummaryCard({
   staffId: string;
   onNavigate?: () => void;
 }) {
-  const [data, setData] = useState<IncentiveTotal | null>(null);
-  const [pillars, setPillars] = useState<PillarRow[]>([]);
+  const [data, setData] = useState<DoctorIncentiveDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -48,49 +56,44 @@ export default function DoctorIncentiveSummaryCard({
     if (!staffId) {
       setLoading(false);
       setData(null);
-      setPillars([]);
       setError('حساب الدكتور غير مربوط بسجل موظف معتمد، لذلك لا يمكن حساب الحافز حاليًا.');
       return;
     }
 
     setLoading(true);
     setError('');
-    void Promise.allSettled([
-      supabase.rpc('calculate_staff_incentive_egp', { p_staff_id: staffId }),
-      supabase.rpc('get_doctor_pillar_breakdown', { p_staff_id: staffId }),
-    ]).then(([incentiveResult, pillarResult]) => {
+    void supabase.rpc('get_doctor_incentive_dashboard_v3', { p_doctor_id: staffId }).then((result) => {
       if (cancelled) return;
-
-      const issues: string[] = [];
-      if (incentiveResult.status === 'fulfilled' && !incentiveResult.value.error) {
-        const row = Array.isArray(incentiveResult.value.data)
-          ? incentiveResult.value.data[0]
-          : incentiveResult.value.data;
-        setData((row as IncentiveTotal) || null);
-        if (!row) {
-          issues.push('لا توجد فئة حافز نشطة مرتبطة بهذا الدكتور، لذلك لا يمكن احتساب القيمة بالجنيه بعد');
-        }
-      } else {
+      if (result.error) {
         setData(null);
-        const message =
-          incentiveResult.status === 'rejected'
-            ? String(incentiveResult.reason || '')
-            : incentiveResult.value.error?.message || '';
-        issues.push(`تعذر تحميل إجمالي الحافز${message ? `: ${message}` : ''}`);
+        setError(`تعذر تحميل إجمالي الحافز: ${result.error.message}`);
+        setLoading(false);
+        return;
       }
-
-      if (pillarResult.status === 'fulfilled' && !pillarResult.value.error) {
-        setPillars((pillarResult.value.data as PillarRow[]) || []);
-      } else {
-        setPillars([]);
-        const message =
-          pillarResult.status === 'rejected'
-            ? String(pillarResult.reason || '')
-            : pillarResult.value.error?.message || '';
-        issues.push(`تعذر تحميل توزيع بنود النقاط${message ? `: ${message}` : ''}`);
+      const payload = (result.data || null) as DoctorIncentiveDashboard | null;
+      if (!payload || payload.error) {
+        setData(null);
+        setError(payload?.error || 'تعذر حساب الحافز حاليًا.');
+        setLoading(false);
+        return;
       }
-
-      setError(issues.join(' — '));
+      setData({
+        ...payload,
+        final_points: Number(payload.final_points || 0),
+        target_points: Number(payload.target_points || 0),
+        point_rate_egp: payload.point_rate_egp == null ? null : Number(payload.point_rate_egp),
+        points_incentive_egp: payload.points_incentive_egp == null ? null : Number(payload.points_incentive_egp),
+        competition_bonus_egp: Number(payload.competition_bonus_egp || 0),
+        target_bonus_egp: Number(payload.target_bonus_egp || 0),
+        followup_bonus_egp: Number(payload.followup_bonus_egp || 0),
+        request_bonus_egp: Number(payload.request_bonus_egp || 0),
+        star_bonus_egp: Number(payload.star_bonus_egp || 0),
+        total_expected_egp: payload.total_expected_egp == null ? null : Number(payload.total_expected_egp),
+        progress_pct: Number(payload.progress_pct || 0),
+        pending_reward_points: Number(payload.pending_reward_points || 0),
+        pending_deduction_points: Number(payload.pending_deduction_points || 0),
+        pillars: Array.isArray(payload.pillars) ? payload.pillars : [],
+      });
       setLoading(false);
     });
 
@@ -129,6 +132,8 @@ export default function DoctorIncentiveSummaryCard({
   }
 
   const progressPct = Math.min(100, Math.round(data.progress_pct));
+  const totalExpected = data.total_expected_egp;
+  const pillars = data.pillars || [];
 
   return (
     <button
@@ -139,16 +144,25 @@ export default function DoctorIncentiveSummaryCard({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <div className="dawaa-icon-tile h-9 w-9"><Wallet size={18} /></div>
-          <span className="dawaa-title">حافزك المتوقع هذا الشهر</span>
+          <span className="dawaa-title">إجمالي حافزك المتوقع هذا الشهر</span>
         </div>
         <span className="dawaa-caption text-xs font-bold">اضغط لمزيد من التفاصيل ←</span>
       </div>
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
-        <span className="dawaa-title text-4xl">{data.final_incentive_egp.toLocaleString('ar-EG')}</span>
+        <span className="dawaa-title text-4xl">{totalExpected == null ? '—' : totalExpected.toLocaleString('ar-EG')}</span>
         <span className="dawaa-title mb-1 text-lg">جنيه</span>
-        <span className="dawaa-caption mb-1.5 text-xs font-bold">(نقطتك = {data.point_rate_egp} ج)</span>
+        {data.point_rate_egp != null ? (
+          <span className="dawaa-caption mb-1.5 text-xs font-bold">(نقطتك = {data.point_rate_egp} ج)</span>
+        ) : null}
       </div>
+
+      {!data.profile_configured ? (
+        <div className="dawaa-alert dawaa-alert--warning mt-3 p-2.5 text-xs font-bold">
+          <AlertTriangle size={15} />
+          <span>النقاط محسوبة، لكن بروفايل التعويض غير مكتمل لذلك لا يتم عرض مبلغ مالي افتراضي.</span>
+        </div>
+      ) : null}
 
       <div className="dawaa-surface-soft mt-3 h-2.5 w-full overflow-hidden rounded-full">
         <div
@@ -157,21 +171,39 @@ export default function DoctorIncentiveSummaryCard({
         />
       </div>
       <p className="dawaa-caption mt-1.5 text-xs font-bold">
-        {data.total_points} من {data.target_points} نقطة ({progressPct}%) — نقاط = {data.points_incentive_egp.toLocaleString('ar-EG')} ج
-        {data.competition_bonus_egp > 0 ? ` + ${data.competition_bonus_egp.toLocaleString('ar-EG')} ج مسابقة` : ''}
+        {data.final_points} من {data.target_points} نقطة ({progressPct}%)
+        {data.points_incentive_egp != null ? ` — حافز الأداء = ${data.points_incentive_egp.toLocaleString('ar-EG')} ج` : ''}
       </p>
 
-      {error ? (
-        <div className="dawaa-alert dawaa-alert--warning mt-3 p-2.5 text-xs font-bold">
-          <AlertTriangle size={15} />
-          <span>{error}</span>
-        </div>
+      {data.pending_reward_points > 0 || data.pending_deduction_points > 0 ? (
+        <p className="dawaa-caption mt-1 text-[11px] font-bold">
+          قيد الاعتماد: +{data.pending_reward_points} / -{data.pending_deduction_points} نقطة
+        </p>
       ) : null}
 
-      {data.competition_bonus_egp > 0 ? (
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="dawaa-card dawaa-card--soft p-2 text-center">
+          <p className="dawaa-title text-sm">{data.target_bonus_egp.toLocaleString('ar-EG')} ج</p>
+          <p className="dawaa-caption text-[9px] font-bold">حافز التارجت</p>
+        </div>
+        <div className="dawaa-card dawaa-card--soft p-2 text-center">
+          <p className="dawaa-title text-sm">{data.followup_bonus_egp.toLocaleString('ar-EG')} ج</p>
+          <p className="dawaa-caption text-[9px] font-bold">حافز المتابعات</p>
+        </div>
+        <div className="dawaa-card dawaa-card--soft p-2 text-center">
+          <p className="dawaa-title text-sm">{data.request_bonus_egp.toLocaleString('ar-EG')} ج</p>
+          <p className="dawaa-caption text-[9px] font-bold">حافز طلبات العملاء</p>
+        </div>
+        <div className="dawaa-card dawaa-card--soft p-2 text-center">
+          <p className="dawaa-title text-sm">{(data.star_bonus_egp + data.competition_bonus_egp).toLocaleString('ar-EG')} ج</p>
+          <p className="dawaa-caption text-[9px] font-bold">نجمة ومسابقات</p>
+        </div>
+      </div>
+
+      {(data.star_bonus_egp > 0 || data.competition_bonus_egp > 0) ? (
         <div className="dawaa-alert dawaa-alert--warning mt-3 p-2.5 text-xs font-black">
           <Trophy size={16} />
-          <span>فايز في مسابقة بند هذا الشهر — {data.competition_bonus_egp} ج إضافية 🎉</span>
+          <span>عندك مكافأة تميز إضافية هذا الشهر 🎉</span>
         </div>
       ) : null}
 
@@ -182,7 +214,7 @@ export default function DoctorIncentiveSummaryCard({
           return (
             <div key={pillar.pillar_key} className="dawaa-card dawaa-card--soft p-2 text-center">
               <Icon size={14} className="dawaa-muted mx-auto" />
-              <p className="dawaa-title mt-1 text-sm">{pillar.points}</p>
+              <p className="dawaa-title mt-1 text-sm">{Number(pillar.points || 0)}</p>
               <p className="dawaa-caption text-[9px] font-bold leading-tight">{meta.label}</p>
               {pillar.has_competition_win ? (
                 <span className="dawaa-badge dawaa-badge--warning mt-2 text-[9px]">فائز</span>
