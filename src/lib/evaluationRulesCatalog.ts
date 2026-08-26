@@ -2,6 +2,7 @@ import type { ApproverRoleKey } from '@/lib/approverRoles';
 import { ALL_INCENTIVE_RULES } from '@/lib/incentives/ruleDefinitions';
 import { ROLE_OPERATIONAL_RULES_V2 } from '@/lib/incentives/roleOperationalRulesV2';
 import type { IncentiveRuleDefinition } from '@/lib/incentives/incentiveRulesEngine';
+import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 
 export type RuleType = 'deduction' | 'bonus';
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
@@ -24,6 +25,7 @@ export interface EvaluationRuleDef {
   type: RuleType;
   severity: Severity;
   role_scope: RoleScope;
+  role_scopes?: RoleScope[];
   requires_approval: boolean;
   evidence_required: boolean;
   allowed_approver_roles: ApproverRoleKey[];
@@ -44,27 +46,37 @@ function normalizeRoleText(value: unknown) {
     .replace(/\s+/g, ' ');
 }
 
-function mapIncentiveRoleScope(scope: string): RoleScope {
+function mapSingleRoleScope(scope: string): RoleScope | null {
   const value = normalizeRoleText(scope);
-  if (
-    ['pharmacist', 'doctor', 'صيدلاني', 'صيدلي', 'دكتور'].includes(value)
-  ) return 'doctor';
-  if (
-    ['assistant', 'مساعد', 'مساعد صيدلي', 'pharmacy_assistant'].includes(value)
-  ) return 'assistant';
-  if (
-    ['delivery', 'rider', 'توصيل', 'دليفري'].includes(value)
-  ) return 'delivery';
-  if (
-    ['cleaning', 'cleaner', 'cleaning_supervisor', 'مسؤول النظافة', 'مسؤولة النظافة', 'نظافة'].includes(value)
-  ) return 'cleaning';
-  if (
-    ['customer_service', 'customer service', 'خدمة عملاء', 'مسؤولة خدمة العملاء', 'مسؤول خدمة العملاء'].includes(value)
-  ) return 'customer_service';
-  if (
-    ['manager', 'branch_manager', 'general_manager', 'branches_manager', 'مدير فرع', 'مديرة فرع', 'مدير الفروع', 'مديرة الفروع', 'مدير عام'].includes(value)
-  ) return 'manager';
-  return 'all';
+  if (!value || value === 'all' || value === 'الكل') return 'all';
+  const canonical = canonicalStaffRole(scope);
+  if (canonical === 'doctor') return 'doctor';
+  if (canonical === 'assistant' || canonical === 'inventory_assistant') return 'assistant';
+  if (canonical === 'delivery') return 'delivery';
+  if (canonical === 'cleaning') return 'cleaning';
+  if (canonical === 'customer_service' || canonical === 'customer_service_manager') return 'customer_service';
+  if (['shift_supervisor', 'branch_manager', 'branches_manager', 'executive', 'admin'].includes(canonical)) return 'manager';
+
+  // Backward-compatible aliases used by older rule rows.
+  if (['assistant', 'مساعد', 'pharmacy_assistant'].includes(value)) return 'assistant';
+  if (['customer_service', 'customer service'].includes(value)) return 'customer_service';
+  if (['manager', 'branch_manager', 'general_manager', 'branches_manager'].includes(value)) return 'manager';
+  return null;
+}
+
+function mapIncentiveRoleScopes(scope: string): RoleScope[] {
+  const rawParts = String(scope || '')
+    .split(/[,;|]/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const parts = rawParts.length ? rawParts : [scope];
+  const mapped = parts.map(mapSingleRoleScope).filter((value): value is RoleScope => Boolean(value));
+  const specific = mapped.filter((value) => value !== 'all');
+  return [...new Set(specific.length ? specific : mapped.length ? mapped : ['all'])];
+}
+
+function mapIncentiveRoleScope(scope: string): RoleScope {
+  return mapIncentiveRoleScopes(scope)[0] || 'all';
 }
 
 function mapIncentiveSeverity(severity: IncentiveRuleDefinition['severity']): Severity {
@@ -82,6 +94,7 @@ export function incentiveRulesToEvaluationDefs(): EvaluationRuleDef[] {
     .map((rule) => {
       const points = Math.abs(rule.points_delta);
       const isReward = rule.points_delta > 0;
+      const roleScopes = mapIncentiveRoleScopes(rule.role_scope);
       return {
         code: rule.rule_code,
         category: rule.category,
@@ -90,7 +103,8 @@ export function incentiveRulesToEvaluationDefs(): EvaluationRuleDef[] {
         default_points: points,
         type: isReward ? 'bonus' : 'deduction',
         severity: mapIncentiveSeverity(rule.severity),
-        role_scope: mapIncentiveRoleScope(rule.role_scope),
+        role_scope: roleScopes[0] || 'all',
+        role_scopes: roleScopes,
         requires_approval: rule.approval_required,
         evidence_required: rule.approval_required,
         allowed_approver_roles: rule.approval_required ? BM_GM : BM,
@@ -102,27 +116,30 @@ export function incentiveRulesToEvaluationDefs(): EvaluationRuleDef[] {
     });
 }
 
-const ROLE_MAP: Record<RoleScope, string[]> = {
-  doctor: ['صيدلاني', 'صيدلي', 'doctor', 'pharmacist', 'دكتور'],
-  assistant: ['مساعد', 'مساعد صيدلي', 'assistant', 'pharmacy_assistant'],
-  delivery: ['توصيل', 'دليفري', 'delivery', 'rider'],
-  cleaning: ['مسؤول النظافة', 'مسؤولة النظافة', 'نظافة', 'cleaning', 'cleaner', 'cleaning_supervisor'],
-  customer_service: ['خدمة عملاء', 'مسؤولة خدمة العملاء', 'مسؤول خدمة العملاء', 'customer_service'],
-  manager: ['مدير فرع', 'مديرة فرع', 'مدير الفروع', 'مديرة الفروع', 'مدير عام', 'branch_manager', 'branches_manager', 'general_manager', 'أدمن'],
-  all: [],
-};
-
-export function ruleAppliesToStaff(scope: RoleScope, staffRole: string): boolean {
+function scopeMatchesCanonicalRole(scope: RoleScope, staffRole: string): boolean {
   if (scope === 'all') return true;
-  const normalized = normalizeRoleText(staffRole);
-  return ROLE_MAP[scope].some((role) => normalizeRoleText(role) === normalized);
+  const canonical = canonicalStaffRole(staffRole);
+  if (scope === 'doctor') return canonical === 'doctor';
+  if (scope === 'assistant') return canonical === 'assistant' || canonical === 'inventory_assistant';
+  if (scope === 'delivery') return canonical === 'delivery';
+  if (scope === 'cleaning') return canonical === 'cleaning';
+  if (scope === 'customer_service') return canonical === 'customer_service' || canonical === 'customer_service_manager';
+  if (scope === 'manager') {
+    return ['customer_service_manager', 'shift_supervisor', 'branch_manager', 'branches_manager', 'executive', 'admin'].includes(canonical);
+  }
+  return false;
+}
+
+export function ruleAppliesToStaff(scope: RoleScope, staffRole: string, roleScopes?: RoleScope[]): boolean {
+  const scopes = roleScopes?.length ? roleScopes : [scope];
+  return scopes.some((item) => scopeMatchesCanonicalRole(item, staffRole));
 }
 
 export const CANONICAL_EVALUATION_RULES = incentiveRulesToEvaluationDefs();
 export const FULL_EVALUATION_RULES = CANONICAL_EVALUATION_RULES;
 
 export function rulesForStaffRole(staffRole: string): EvaluationRuleDef[] {
-  return CANONICAL_EVALUATION_RULES.filter((r) => ruleAppliesToStaff(r.role_scope, staffRole));
+  return CANONICAL_EVALUATION_RULES.filter((r) => ruleAppliesToStaff(r.role_scope, staffRole, r.role_scopes));
 }
 
 function explicitRuleType(row: Record<string, unknown>, rawPoints: number): RuleType {
@@ -147,6 +164,8 @@ function rowToEvaluationDef(row: Record<string, unknown>): EvaluationRuleDef | n
   if (!code) return null;
   const rawPoints = Number(row.points ?? row.default_points ?? row.base_points ?? 0);
   const type = explicitRuleType(row, rawPoints);
+  const rawScope = String(row.target_role ?? row.role_scope ?? row.applies_to_role ?? row.role ?? 'all');
+  const roleScopes = mapIncentiveRoleScopes(rawScope);
   return {
     code,
     category: String(row.category ?? 'تشغيل'),
@@ -155,9 +174,8 @@ function rowToEvaluationDef(row: Record<string, unknown>): EvaluationRuleDef | n
     default_points: Math.abs(rawPoints),
     type,
     severity: (String(row.severity ?? 'medium') as Severity) || 'medium',
-    role_scope: mapIncentiveRoleScope(
-      String(row.target_role ?? row.role_scope ?? row.applies_to_role ?? row.role ?? 'all')
-    ),
+    role_scope: mapIncentiveRoleScope(rawScope),
+    role_scopes: roleScopes,
     requires_approval: Boolean(row.requires_approval ?? true),
     evidence_required: Boolean(row.requires_approval ?? true),
     allowed_approver_roles: row.requires_approval ? BM_GM : BM,
