@@ -80,7 +80,7 @@ const GROUPS: NavGroup[] = [
     { path: '/shelf-organization', icon: ClipboardList, label: 'تنظيم الأرفف وCheckpoint', permission: ['view_inventory','view_operations'] },
     { path: '/supplies', icon: PackageSearch, label: 'Checkpoint المستلزمات', permission: ['view_supplies','view_inventory'] },
     { path: '/accessories', icon: Package, label: 'Checkpoint الإكسسوارات', permission: ['view_operations','view_inventory'] },
-    { path: '/branch-checklist-review', icon: ClipboardCheck, label: 'مراجعة تشيك ليست النظافة والمساعدين', excludeRoles: ['pharmacist', 'assistant'] },
+    { path: '/branch-checklist-review', icon: ClipboardCheck, label: 'مراجعة تشيك ليست النظافة والمساعدين', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
     { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
   ]},
   { title: 'الدليفري', icon: Truck, items: [{ path: '/delivery', icon: Truck, label: 'لوحة الدليفري', permission: 'view_delivery' }] },
@@ -98,7 +98,8 @@ const GROUPS: NavGroup[] = [
     { path: '/weekly-evaluation/branch_manager', icon: ClipboardCheck, label: 'تقييم مدير الفرع', excludeRoles: ['branch_manager', 'customer_service_manager'] },
     { path: '/weekly-evaluation/branches_manager', icon: ClipboardCheck, label: 'تقييم مدير الفروع', excludeRoles: ['branch_manager', 'customer_service_manager'] },
     { path: '/weekly-evaluation/customer_service', icon: ClipboardCheck, label: 'تقييم خدمة العملاء الأسبوعي', excludeRoles: ['branch_manager', 'customer_service_manager'] },
-    { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري (دكاترة وخدمة عملاء)', permission: 'view_shift_performance' },
+    { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري (دكاترة وخدمة عملاء)', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
+    { path: '/staff-monthly-evaluation', icon: Star, label: 'تقييم خدمة العملاء للدكاترة', permission: 'view_shift_performance', allowedRoles: ['customer_service_manager'] },
   ]},
 ];
 
