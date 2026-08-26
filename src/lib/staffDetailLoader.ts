@@ -2,6 +2,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { normalizeStaffName } from '@/lib/staffIdentityService';
 import { staffRowIsActive } from '@/lib/staffActiveFilter';
 import { getStaffCycleIncentive, type StaffCycleIncentive } from '@/lib/staffIncentiveService';
+import { getStaffPointsDashboardV3 } from '@/lib/staff/staffPointsDashboardService';
 import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
 import {
   getStaffSalesSummaryForPeriod,
@@ -162,13 +163,50 @@ export async function loadStaffCycleIncentiveSafe(args: {
   staffName: string;
   branch: string;
 }): Promise<StaffCycleIncentive | null> {
-  const result = await runStaffDetailSection('incentive', () =>
-    getStaffCycleIncentive({
-      staffId: args.staffId,
-      staffName: args.staffName,
-      branch: args.branch,
-    })
-  );
+  const result = await runStaffDetailSection('incentive', async () => {
+    const [ledgerResult, truthResult] = await Promise.allSettled([
+      getStaffCycleIncentive({
+        staffId: args.staffId,
+        staffName: args.staffName,
+        branch: args.branch,
+      }),
+      getStaffPointsDashboardV3(args.staffId),
+    ]);
+
+    if (ledgerResult.status === 'rejected') throw ledgerResult.reason;
+    const ledger = ledgerResult.value;
+    if (truthResult.status === 'rejected') {
+      ledger.warnings = [...ledger.warnings, 'تعذر تحميل Points Truth V3؛ تم عرض تفاصيل الـLedger الحالية مؤقتًا.'];
+      return ledger;
+    }
+
+    const truth = truthResult.value;
+    const warnings = [...ledger.warnings];
+    if (!truth.profile_configured) {
+      warnings.push('بروفايل التعويض غير مكتمل؛ النقاط صحيحة لكن القيمة المالية لا تعتمد حتى يتم ضبط البروفايل.');
+    }
+
+    return {
+      ...ledger,
+      startingPoints: truth.starting_points,
+      approvedRewardPoints: truth.reward_points,
+      approvedDeductionPoints: truth.deduction_points,
+      pendingRewardPoints: truth.pending_reward_points,
+      pendingDeductionPoints: truth.pending_deduction_points,
+      finalPoints: truth.final_points,
+      expectedFinalPoints: truth.final_points,
+      distinctionPointsAbove500: truth.distinction_points,
+      incentiveValue: truth.points_incentive_egp ?? 0,
+      maxIncentiveValue: truth.max_incentive_egp ?? 0,
+      progressPercent: truth.progress_pct,
+      sourceBreakdown: truth.source_breakdown.map((row) => ({
+        source: row.source,
+        points: row.points,
+        count: row.events,
+      })),
+      warnings,
+    };
+  });
   if (result.ok) return result.data;
   return null;
 }
