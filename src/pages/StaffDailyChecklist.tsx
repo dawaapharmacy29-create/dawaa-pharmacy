@@ -3,7 +3,7 @@ import { Camera, Check, Clock, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { uploadImageToStorage } from '@/lib/storageUpload';
-import { normalizeRole } from '@/lib/core/permissionSystem';
+import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { toast } from 'sonner';
 
 type ChecklistItem = {
@@ -37,9 +37,12 @@ export default function StaffDailyChecklist() {
   const { user } = useAuth();
   const staffId = user?.staffId || user?.id || '';
   const branch = user?.branch || '';
-  const role = normalizeRole(user?.role) === 'assistant' ? 'مساعد صيدلي' : null;
-  const isCleaner = /نظاف/.test(String(user?.role || ''));
-  const staffRole = isCleaner ? 'مسؤولة النظافة' : role;
+  const canonicalRole = canonicalStaffRole(user?.role);
+  const staffRole = canonicalRole === 'cleaning'
+    ? 'مسؤولة النظافة'
+    : canonicalRole === 'assistant'
+      ? 'مساعد صيدلي'
+      : null;
 
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [submissions, setSubmissions] = useState<Record<string, Submission>>({});
