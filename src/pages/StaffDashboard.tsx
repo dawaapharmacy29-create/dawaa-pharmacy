@@ -230,10 +230,10 @@ export default function StaffDashboard() {
     try {
       const { data, error: rpcError } = await supabase.rpc('get_employee_workspace_dashboard_v3', {
         p_staff_id: staffId,
-        p_user_id: String(user.id || ''),
-        p_staff_name: String(user.name || ''),
-        p_role: String(user.role || ''),
-        p_branch: String(user.branch || ''),
+        p_user_id: null,
+        p_staff_name: null,
+        p_role: null,
+        p_branch: null,
         p_month_cycle: null,
       });
       if (rpcError) throw rpcError;
