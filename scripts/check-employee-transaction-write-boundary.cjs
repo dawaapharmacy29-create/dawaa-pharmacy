@@ -5,9 +5,14 @@ const path = require('node:path');
 const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
 const POINTS_PERSISTENCE = path.join(SRC, 'lib/pointsPersistence.ts');
+const EMPLOYEE_TRANSACTION_SERVICE = path.join(SRC, 'services/employeeTransactionService.ts');
 const APPEAL_MIGRATION = path.join(
   ROOT,
   'supabase/migrations/20260824151100_point_appeal_atomic_reversal_v1.sql'
+);
+const TRANSITION_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20260827011500_retire_legacy_rules_and_guard_point_transitions_v4.sql'
 );
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
@@ -164,6 +169,36 @@ for (const forbidden of [
   }
 }
 
+// Lifecycle status changes are also authorization-sensitive and must stay behind the
+// server-side V4 transition command. This protects branch scope and row locking.
+if (!fs.existsSync(TRANSITION_MIGRATION)) {
+  console.error('\nEmployee points transition boundary failed: guarded transition migration is missing.');
+  process.exit(1);
+}
+const transactionService = fs.readFileSync(EMPLOYEE_TRANSACTION_SERVICE, 'utf8');
+const transitionFunction = transactionService.match(/export async function transitionEmployeeTransaction[\s\S]*?\n}\n/)?.[0] || '';
+if (!/\.rpc\(\s*['"]transition_employee_points_transaction_v4['"]/.test(transitionFunction)) {
+  console.error('\nEmployee points transition boundary failed: lifecycle transition must use transition_employee_points_transaction_v4.');
+  process.exit(1);
+}
+if (/\.from\(\s*(?:TABLES\.employeeTransactions|['"]employee_transactions['"])\s*\)[\s\S]*?\.update\s*\(/.test(transitionFunction)) {
+  console.error('\nEmployee points transition boundary failed: direct lifecycle UPDATE returned.');
+  process.exit(1);
+}
+const transitionMigration = fs.readFileSync(TRANSITION_MIGRATION, 'utf8');
+for (const token of [
+  'transition_employee_points_transaction_v4',
+  'employee_operating_can_manage()',
+  'for update',
+  "p_status not in ('pending', 'active', 'cancelled')",
+  'revoke all on function public.transition_employee_points_transaction_v4',
+]) {
+  if (!transitionMigration.toLowerCase().includes(token.toLowerCase())) {
+    console.error(`\nEmployee points transition boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+
 if (!fs.existsSync(APPEAL_MIGRATION)) {
   console.error('\nEmployee points appeal boundary failed: canonical reversal migration is missing.');
   process.exit(1);
@@ -188,4 +223,4 @@ if (!/\.rpc\(\s*['"]review_point_appeal_v1['"]/.test(appealPage)) {
   process.exit(1);
 }
 
-console.log('[employee-transaction-write-boundary] PASS: canonical V3 command is fail-closed and direct ledger/snapshot writers match the exact transitional baselines.');
+console.log('[employee-transaction-write-boundary] PASS: canonical V3 write and V4 lifecycle commands are fail-closed; direct ledger/snapshot writers match the exact transitional baselines.');

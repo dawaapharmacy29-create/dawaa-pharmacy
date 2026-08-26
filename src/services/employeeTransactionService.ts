@@ -141,15 +141,11 @@ export async function transitionEmployeeTransaction(
   status: EmployeeTransactionLifecycleStatus,
   description?: string | null
 ) {
-  const payload: { status: EmployeeTransactionLifecycleStatus; description?: string | null; updated_at: string } = {
-    status,
-    updated_at: new Date().toISOString(),
-  };
-  if (description !== undefined) payload.description = description;
-  const result = await supabase
-    .from(TABLES.employeeTransactions)
-    .update(payload)
-    .eq('id', id);
+  const result = await supabase.rpc('transition_employee_points_transaction_v4', {
+    p_transaction_id: id,
+    p_status: status,
+    p_description: description ?? null,
+  });
   if (result.error) {
     logEmployeeTransactionsError(result.error);
     logSupabaseError('transition employee transaction', result.error);

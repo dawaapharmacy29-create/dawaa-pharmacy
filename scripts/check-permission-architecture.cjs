@@ -6,7 +6,8 @@ const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
 const LEGACY_PERMISSION_FILE = 'src/lib/staffPermissions.ts';
 const CORE_PERMISSION_FILE = 'src/lib/core/permissionSystem.ts';
-const SIDEBAR_FILE = 'src/components/layout/Sidebar.tsx';
+const SIDEBAR_ENTRY_FILE = 'src/components/layout/Sidebar.tsx';
+const SIDEBAR_IMPLEMENTATION_FILE = 'src/components/layout/SidebarBase.tsx';
 const PERMISSION_KEY_MIGRATION = 'supabase/migrations/20260824154000_migrate_active_dot_permission_keys_v1.sql';
 const failures = [];
 
@@ -44,7 +45,7 @@ for (const file of walk(SRC)) {
 
 const requiredCoreConsumers = [
   ['src/App.tsx', /getRoutePermissions/],
-  [SIDEBAR_FILE, /getRoutePermissions/],
+  [SIDEBAR_IMPLEMENTATION_FILE, /getRoutePermissions/],
   ['src/hooks/useAuth.ts', /@\/lib\/core\/permissionSystem/],
   ['src/lib/permissionMatrix.ts', /@\/lib\/core\/permissionSystem/],
   ['src/lib/rolePermissionPresets.ts', /@\/lib\/core\/permissionSystem/],
@@ -60,8 +61,18 @@ for (const [rel, pattern] of requiredCoreConsumers) {
   if (!pattern.test(source)) failures.push(`${rel} is not wired to the canonical permission system`);
 }
 
+const sidebarEntryPath = path.join(ROOT, SIDEBAR_ENTRY_FILE);
+if (!fs.existsSync(sidebarEntryPath)) {
+  failures.push(`Missing sidebar entry point: ${SIDEBAR_ENTRY_FILE}`);
+} else {
+  const sidebarEntry = fs.readFileSync(sidebarEntryPath, 'utf8');
+  if (!sidebarEntry.includes("@/components/layout/SidebarBase")) {
+    failures.push(`${SIDEBAR_ENTRY_FILE} must delegate to the canonical SidebarBase implementation`);
+  }
+}
+
 const coreSource = fs.readFileSync(path.join(ROOT, CORE_PERMISSION_FILE), 'utf8');
-const sidebarSource = fs.readFileSync(path.join(ROOT, SIDEBAR_FILE), 'utf8');
+const sidebarSource = fs.readFileSync(path.join(ROOT, SIDEBAR_IMPLEMENTATION_FILE), 'utf8');
 
 const permissionMigrationPath = path.join(ROOT, PERMISSION_KEY_MIGRATION);
 if (!fs.existsSync(permissionMigrationPath)) {

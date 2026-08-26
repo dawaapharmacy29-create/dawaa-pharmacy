@@ -3,7 +3,7 @@ const fs = require('node:fs');
 
 const migrationPath = 'supabase/migrations/20260824010000_align_incentive_governance_permission_contract_v1.sql';
 const permissionPath = 'src/lib/core/permissionSystem.ts';
-const sidebarPath = 'src/components/layout/Sidebar.tsx';
+const sidebarPath = 'src/components/layout/SidebarBase.tsx';
 const failures = [];
 const warnings = [];
 
@@ -60,7 +60,7 @@ const sidebarIsKnownLegacy = /path:\s*['"]\/incentive-governance['"][\s\S]{0,180
 if (!sidebarIsCanonical && !sidebarIsKnownLegacy) {
   failures.push('Sidebar incentive governance permission changed outside the known/canonical contract.');
 } else if (sidebarIsKnownLegacy) {
-  warnings.push('src/components/layout/Sidebar.tsx: incentive governance item still uses manage_payroll; migrate to manage_incentives with a safe patch.');
+  warnings.push(`${sidebarPath}: incentive governance item still uses manage_payroll; migrate to manage_incentives with a safe patch.`);
 }
 
 if (warnings.length) {
