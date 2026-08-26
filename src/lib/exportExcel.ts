@@ -1,22 +1,82 @@
 type CellValue = string | number | boolean | null | undefined;
 type Row = Record<string, CellValue>;
 
-export async function exportToExcel(rows: Row[], filename: string, sheetName = 'بيانات') {
-  const XLSX = await import('xlsx');
-  const ws = XLSX.utils.json_to_sheet(rows);
+const COLORS = {
+  navy: '0F172A',
+  teal: '0F766E',
+  tealLight: 'CCFBF1',
+  white: 'FFFFFF',
+  slate: '475569',
+  line: 'CBD5E1',
+  alt: 'F8FAFC',
+  green: '166534',
+  greenLight: 'DCFCE7',
+  red: '991B1B',
+  redLight: 'FEE2E2',
+};
 
-  const colWidths = Object.keys(rows[0] ?? {}).map((key) => {
-    const maxLen = Math.max(
-      key.length,
-      ...rows.slice(0, 100).map((r) => String(r[key] ?? '').length)
-    );
-    return { wch: Math.min(maxLen + 4, 50) };
+async function saveWorkbook(workbook: any, filename: string) {
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-  ws['!cols'] = colWidths;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  XLSX.writeFile(wb, `${filename}.xlsx`);
+function styleWorksheet(ws: any, rows: Row[], headers: string[]) {
+  ws.views = [{ state: 'frozen', ySplit: 1, rightToLeft: true }];
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+  ws.getRow(1).height = 28;
+
+  headers.forEach((header, index) => {
+    const cell = ws.getCell(1, index + 1);
+    cell.font = { bold: true, color: { argb: COLORS.white }, size: 11 };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.teal } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = { bottom: { style: 'thin', color: { argb: COLORS.navy } } };
+
+    const values = rows.slice(0, 300).map((row) => row[header]);
+    const maxLen = Math.max(header.length, ...values.map((value) => String(value ?? '').length));
+    ws.getColumn(index + 1).width = Math.max(11, Math.min(maxLen + 3, 34));
+  });
+
+  for (let rowIndex = 2; rowIndex <= rows.length + 1; rowIndex += 1) {
+    const row = ws.getRow(rowIndex);
+    row.height = 22;
+    row.alignment = { vertical: 'middle', horizontal: 'right' };
+    if (rowIndex % 2 === 0) {
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.alt } };
+    }
+    row.eachCell((cell: any, colNumber: number) => {
+      cell.border = { bottom: { style: 'hair', color: { argb: COLORS.line } } };
+      const header = headers[colNumber - 1] || '';
+      if (typeof cell.value === 'number') {
+        cell.numFmt = header.includes('%') || header.includes('نسبة') || header.includes('معدل')
+          ? '0.00'
+          : '#,##0.00';
+      }
+    });
+  }
+}
+
+export async function exportToExcel(rows: Row[], filename: string, sheetName = 'بيانات') {
+  const { Workbook } = await import('exceljs');
+  const workbook = new Workbook();
+  workbook.creator = 'Dawaa Pharmacy 2027';
+  workbook.created = new Date();
+  const ws = workbook.addWorksheet(sheetName, { properties: { defaultRowHeight: 20 } });
+  const headers = Object.keys(rows[0] ?? {});
+  ws.addRow(headers);
+  rows.forEach((row) => ws.addRow(headers.map((header) => row[header] ?? '')));
+  styleWorksheet(ws, rows, headers);
+  await saveWorkbook(workbook, filename);
 }
 
 export async function exportAttendanceToExcel(
