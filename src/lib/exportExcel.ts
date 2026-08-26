@@ -30,6 +30,14 @@ async function saveWorkbook(workbook: any, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+async function exportWithXlsxFallback(rows: Row[], filename: string, sheetName: string) {
+  const XLSX = await import('xlsx');
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  XLSX.writeFile(workbook, `${filename}.xlsx`);
+}
+
 function styleWorksheet(ws: any, rows: Row[], headers: string[]) {
   ws.views = [{ state: 'frozen', ySplit: 1, rightToLeft: true }];
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
@@ -67,16 +75,20 @@ function styleWorksheet(ws: any, rows: Row[], headers: string[]) {
 }
 
 export async function exportToExcel(rows: Row[], filename: string, sheetName = 'بيانات') {
-  const { Workbook } = await import('exceljs');
-  const workbook = new Workbook();
-  workbook.creator = 'Dawaa Pharmacy 2027';
-  workbook.created = new Date();
-  const ws = workbook.addWorksheet(sheetName, { properties: { defaultRowHeight: 20 } });
-  const headers = Object.keys(rows[0] ?? {});
-  ws.addRow(headers);
-  rows.forEach((row) => ws.addRow(headers.map((header) => row[header] ?? '')));
-  styleWorksheet(ws, rows, headers);
-  await saveWorkbook(workbook, filename);
+  try {
+    const { Workbook } = await import('exceljs');
+    const workbook = new Workbook();
+    workbook.creator = 'Dawaa Pharmacy 2027';
+    workbook.created = new Date();
+    const ws = workbook.addWorksheet(sheetName, { properties: { defaultRowHeight: 20 } });
+    const headers = Object.keys(rows[0] ?? {});
+    ws.addRow(headers);
+    rows.forEach((row) => ws.addRow(headers.map((header) => row[header] ?? '')));
+    styleWorksheet(ws, rows, headers);
+    await saveWorkbook(workbook, filename);
+  } catch {
+    await exportWithXlsxFallback(rows, filename, sheetName);
+  }
 }
 
 export async function exportAttendanceToExcel(
