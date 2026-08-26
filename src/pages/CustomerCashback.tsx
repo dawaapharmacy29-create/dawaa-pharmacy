@@ -2,6 +2,7 @@ import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from 'reac
 import { Gauge, GitCompareArrows, SlidersHorizontal } from 'lucide-react';
 import CustomerCashbackFast from '@/pages/CustomerCashbackFast';
 import CustomerCashbackComparison from '@/pages/CustomerCashbackComparison';
+import CustomerCashbackExecutiveExportButtons from '@/components/customers/CustomerCashbackExecutiveExportButtons';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
 import { normalizeBranchName } from '@/lib/branch';
@@ -62,6 +63,26 @@ export default function CustomerCashback() {
     return () => observer.disconnect();
   }, [mode, scopedBranch]);
 
+  // The old fast-page Excel button used the legacy one-sheet exporter. Keep the
+  // fast page focused on operations and expose only the canonical executive export above it.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || mode !== 'fast') return;
+    const hideLegacyExcel = () => {
+      root.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+        if (button.textContent?.trim() === 'Excel') {
+          button.style.display = 'none';
+          button.dataset.legacyCashbackExport = 'hidden';
+          button.setAttribute('aria-hidden', 'true');
+        }
+      });
+    };
+    hideLegacyExcel();
+    const observer = new MutationObserver(hideLegacyExcel);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [mode]);
+
   return (
     <div ref={rootRef}>
       <div dir="rtl" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-teal-400/20 bg-teal-500/5 px-4 py-3">
@@ -80,6 +101,8 @@ export default function CustomerCashback() {
           </button>
         </div>
       </div>
+
+      {mode === 'fast' ? <CustomerCashbackExecutiveExportButtons forcedBranch={scopedBranch} /> : null}
 
       {mode === 'advanced' ? (
         <Suspense fallback={<div dir="rtl" className="dawaa-panel p-8 text-center font-bold">جارٍ تحميل أدوات Excel والإدارة المتقدمة…</div>}>
