@@ -57,6 +57,14 @@ function isIgnorableSchemaIssue(message?: string | null) {
   return isColumnProblem(message) || text.includes('relation') || text.includes('does not exist');
 }
 
+function isMissingV3Command(message?: string | null) {
+  const text = String(message || '').toLowerCase();
+  return (
+    text.includes('record_employee_points_transaction_v3') &&
+    (text.includes('schema cache') || text.includes('could not find') || text.includes('does not exist'))
+  );
+}
+
 function buildManagerNote(input: PersistPointsInput, ruleCode: string | null): string {
   const parts: string[] = [];
   if (ruleCode) parts.push(embedRuleCodeInNote(ruleCode, ''));
@@ -118,36 +126,40 @@ export async function persistPointsTransaction(
     (input.status === 'approved' ? input.createdById || input.createdByName || null : null);
   const type =
     input.operation === 'bonus' ? 'reward' : input.operation === 'deduction' ? 'penalty' : 'reward';
+  const dbStatus =
+    input.status === 'rejected' ? 'cancelled' : input.status === 'pending' ? 'pending' : 'active';
+  const fullDescription = [description, manager_note].filter(Boolean).join('\n') || null;
   const transactionPayload = {
     staff_id: input.employeeId,
     type,
     points: Math.abs(signedDelta),
     points_delta: signedDelta,
     reason,
-    description: [description, manager_note].filter(Boolean).join('\n') || null,
+    description: fullDescription,
     source,
     source_id: input.sourceRecordId ?? null,
     created_by: input.createdById || null,
     month_cycle,
     branch: input.branch,
-    status:
-      input.status === 'rejected' ? 'cancelled' : input.status === 'pending' ? 'pending' : 'active',
+    status: dbStatus,
   } as const;
 
-  // New records only: prevent overlapping penalty rules for one source event without touching history.
+  // Prevent overlapping penalty rules for one source event before reaching either write path.
   if (type === 'penalty' && input.sourceRecordId && ruleCode) {
     const { data: relatedRows, error: relatedError } = await supabase
       .from(TABLES.employeeTransactions)
-      .select('id, description, reason')
+      .select('id, description, reason, metadata')
       .eq('staff_id', input.employeeId)
       .eq('source_id', input.sourceRecordId)
       .eq('month_cycle', month_cycle)
       .eq('type', 'penalty')
       .limit(20);
     if (!relatedError) {
-      const existingRuleCodes = (relatedRows || []).filter(Boolean).flatMap((row) =>
-        String(row.description || row.reason || '').match(/[A-Z]+(?:-[A-Z]+)*-\d+[A-Z]?/g) || []
-      );
+      const existingRuleCodes = (relatedRows || []).filter(Boolean).flatMap((row) => {
+        const metadataCode = String((row.metadata as Record<string, unknown> | null)?.rule_code || '').trim();
+        const embedded = String(row.description || row.reason || '').match(/__RULE__:([A-Za-z0-9_-]+)/)?.[1] || '';
+        return [metadataCode || embedded].filter(Boolean);
+      });
       const guard = sameEventDeductionGuard({ incomingRuleCode: ruleCode, existingRuleCodes });
       if (!guard.allowed && !existingRuleCodes.includes(ruleCode)) {
         console.warn('[points] overlapping deduction blocked', { ruleCode, conflicts: guard.conflictingRuleCodes, sourceRecordId: input.sourceRecordId });
@@ -157,6 +169,48 @@ export async function persistPointsTransaction(
       logSupabaseError('same event deduction guard', relatedError);
     }
   }
+
+  // Preferred V3 write path: server validates branch/actor scope and performs semantic idempotency
+  // using staff + cycle + source + source_id + rule_code. Keep the legacy write only as a
+  // temporary deployment fallback while the migration propagates.
+  const { data: commandData, error: commandError } = await supabase.rpc(
+    'record_employee_points_transaction_v3',
+    {
+      p_staff_id: input.employeeId,
+      p_signed_points: signedDelta,
+      p_reason: reason,
+      p_description: fullDescription,
+      p_source: source,
+      p_source_id: input.sourceRecordId ?? null,
+      p_rule_code: ruleCode,
+      p_month_cycle: month_cycle,
+      p_branch: input.branch,
+      p_status: dbStatus,
+      p_category: input.rule?.category || null,
+      p_metadata: {
+        engine_version: 3,
+        operation: input.operation,
+        base_points: input.basePoints ?? null,
+        repeat_count: input.repeatCount ?? null,
+        multiplier: input.multiplier ?? null,
+        requested_final_points: input.finalPoints ?? null,
+        created_by_role: input.createdByRole,
+        approved_by: approvedBy,
+      },
+    }
+  );
+
+  if (!commandError) {
+    const row = (commandData || {}) as Record<string, unknown>;
+    return { error: null, id: row.id ? String(row.id) : undefined };
+  }
+
+  if (!isMissingV3Command(commandError.message)) {
+    logSupabaseError('record_employee_points_transaction_v3', commandError);
+    return { error: commandError.message };
+  }
+
+  console.warn('[points] V3 command unavailable; using temporary legacy persistence fallback');
 
   if (isConversationSource(source, sourceType) && input.sourceRecordId) {
     const { data: existingRows, error: existingError } = await supabase
