@@ -3,6 +3,7 @@ import { Gauge, GitCompareArrows, SlidersHorizontal } from 'lucide-react';
 import CustomerCashbackFast from '@/pages/CustomerCashbackFast';
 import CustomerCashbackComparison from '@/pages/CustomerCashbackComparison';
 import CustomerCashbackExecutiveExportButtons from '@/components/customers/CustomerCashbackExecutiveExportButtons';
+import CustomerCashbackHealthPanel from '@/components/customers/CustomerCashbackHealthPanel';
 import { useAuth } from '@/hooks/useAuth';
 import { BRANCHES } from '@/lib/constants';
 import { normalizeBranchName } from '@/lib/branch';
@@ -63,8 +64,6 @@ export default function CustomerCashback() {
     return () => observer.disconnect();
   }, [mode, scopedBranch]);
 
-  // The old fast-page Excel button used the legacy one-sheet exporter. Keep the
-  // fast page focused on operations and expose only the canonical executive export above it.
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || mode !== 'fast') return;
@@ -102,6 +101,7 @@ export default function CustomerCashback() {
         </div>
       </div>
 
+      {mode === 'fast' ? <CustomerCashbackHealthPanel forcedBranch={scopedBranch} /> : null}
       {mode === 'fast' ? <CustomerCashbackExecutiveExportButtons forcedBranch={scopedBranch} /> : null}
 
       {mode === 'advanced' ? (
