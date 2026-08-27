@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
 import { listStaffAccountsSafe, type SafeStaffAccountRow } from '@/lib/staff/staffAccountsApi';
 import { BRANCHES } from '@/lib/constants';
@@ -16,10 +16,6 @@ interface StaffRow {
   name: string;
   role: string;
   branch: string;
-  active?: boolean | null;
-  is_active?: boolean | null;
-  deleted_at?: string | null;
-  is_deleted?: boolean | null;
 }
 
 type Account = SafeStaffAccountRow;
@@ -113,11 +109,20 @@ export default function StaffAccountsSecureAdmin() {
   const [issued, setIssued] = useState<IssuedCredential[]>([]);
   const [lastIssued, setLastIssued] = useState<IssuedCredential | null>(null);
 
-  const { data: staffList, loading: staffLoading } = useSupabaseQuery<StaffRow>({
-    table: TABLES.staff,
-    filters: [{ column: 'is_deleted', operator: 'neq', value: true }],
-    orderBy: { column: 'name', ascending: true },
-  });
+  const { data: staffDirectory = [], isLoading: staffLoading } = useStaffDirectory();
+  const staffList = useMemo<StaffRow[]>(
+    () =>
+      staffDirectory.flatMap((item) => {
+        if (item.source === 'alias' || !item.active || !item.id || !item.name) return [];
+        return [{
+          id: item.id,
+          name: item.name,
+          role: item.role || '',
+          branch: item.branch || '',
+        }];
+      }),
+    [staffDirectory]
+  );
 
   const { data: accounts = [], isLoading: accountLoading, error } = useQuery<Account[], Error>({
     queryKey: ['staff-accounts-safe'],
@@ -126,12 +131,16 @@ export default function StaffAccountsSecureAdmin() {
     staleTime: 30_000,
   });
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['staff-accounts-safe'] });
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['staff-accounts-safe'] }),
+      queryClient.invalidateQueries({ queryKey: ['staff-directory'] }),
+    ]);
+  };
 
   const rows = useMemo(() => {
-    const staff = staffList.filter((item) => item.active !== false && item.is_active !== false && !item.deleted_at && !item.is_deleted);
-    const linked = staff.map((item) => ({ staff: item, account: accounts.find((account) => account.staff_id === item.id) || null }));
-    const standalone = accounts.filter((account) => !account.staff_id || !staff.some((item) => item.id === account.staff_id)).map((account) => ({ staff: null as StaffRow | null, account }));
+    const linked = staffList.map((item) => ({ staff: item, account: accounts.find((account) => account.staff_id === item.id) || null }));
+    const standalone = accounts.filter((account) => !account.staff_id || !staffList.some((item) => item.id === account.staff_id)).map((account) => ({ staff: null as StaffRow | null, account }));
     return [...linked, ...standalone];
   }, [accounts, staffList]);
 

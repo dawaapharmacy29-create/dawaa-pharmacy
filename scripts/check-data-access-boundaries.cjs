@@ -20,7 +20,6 @@ const APPROVED_INVOICE_BOUNDARIES = new Set([
 // remove each entry in the same PR that migrates that page to useStaffDirectory/read models.
 const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
   'src/pages/RolesPermissions.tsx',
-  'src/pages/StaffAccounts.tsx',
 ]);
 
 const LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS = new Set();
