@@ -7,6 +7,13 @@ import {
   readWeeklyEvaluationMetrics,
 } from '@/lib/evaluations/evaluationMetricsGateway';
 
+export type ManagerEvaluationSubject = {
+  id: string;
+  name: string;
+  role: string;
+  branch: string;
+};
+
 export function weekBoundsOf(date: Date): { start: string; end: string } {
   // الأسبوع من السبت للجمعة (مطابق لطبيعة أسبوع العمل في مصر)
   const day = date.getDay();
@@ -30,6 +37,23 @@ export function previousWeekOf(weekStart: string): { start: string; end: string 
   return weekBoundsOf(start);
 }
 
+export async function fetchManagerEvaluationSubjects(
+  actorId: string,
+  evaluationType: EvaluationType
+): Promise<ManagerEvaluationSubject[]> {
+  const { data, error } = await supabase.rpc('list_weekly_manager_evaluation_subjects_v1', {
+    p_actor_id: actorId,
+    p_evaluation_type: evaluationType,
+  });
+  if (error) throw new Error(error.message);
+  return ((data || []) as ManagerEvaluationSubject[]).map((row) => ({
+    id: String(row.id),
+    name: String(row.name || ''),
+    role: String(row.role || ''),
+    branch: String(row.branch || ''),
+  }));
+}
+
 export async function fetchWeeklyAutoMetrics(
   evaluationType: EvaluationType,
   branch: string | null,
@@ -38,6 +62,25 @@ export async function fetchWeeklyAutoMetrics(
 ): Promise<WeeklyAutoMetrics> {
   const result = await readWeeklyEvaluationMetrics({ evaluationType, branch, weekStart, weekEnd });
   return result.data;
+}
+
+export async function fetchWeeklyAutoMetricsFast(
+  actorId: string,
+  evaluationType: EvaluationType,
+  branch: string | null,
+  weekStart: string,
+  weekEnd: string
+): Promise<WeeklyAutoMetrics> {
+  const { data, error } = await supabase.rpc('get_weekly_manager_metrics_fast_v1', {
+    p_actor_id: actorId,
+    p_evaluation_type: evaluationType,
+    p_branch: branch,
+    p_week_start: weekStart,
+    p_week_end: weekEnd,
+    p_max_age_seconds: 300,
+  });
+  if (error) throw new Error(error.message);
+  return (data || {}) as WeeklyAutoMetrics;
 }
 
 export type ManagerCycleSalesTargetSummary = {
@@ -138,7 +181,7 @@ export async function fetchEvaluationHistory(
 ) {
   let query = supabase
     .from(TABLES.managerWeeklyEvaluations)
-    .select('*')
+    .select('week_start,total_score,status')
     .eq('evaluation_type', evaluationType)
     .eq('subject_staff_id', subjectStaffId);
   if (branch) query = query.eq('branch', branch);
