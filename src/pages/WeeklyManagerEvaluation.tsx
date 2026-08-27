@@ -219,6 +219,7 @@ export default function WeeklyManagerEvaluation() {
   const [saving, setSaving] = useState(false);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [validationIssues, setValidationIssues] = useState<string[]>([]);
   const [history, setHistory] = useState<ManagerEvaluationHistoryRecord[]>([]);
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
 
@@ -232,6 +233,7 @@ export default function WeeklyManagerEvaluation() {
   useEffect(() => {
     setManualScores({});
     setNote('');
+    setValidationIssues([]);
   }, [subjectStaffId, periodStart, evaluationType, branchForMetrics]);
 
   useEffect(() => {
@@ -297,8 +299,18 @@ export default function WeeklyManagerEvaluation() {
     ? computeWeightedCriterionScores(evaluationType, currentMetrics, previousMetrics, {}, checklistRates)
     : [], [evaluationType, currentMetrics, previousMetrics, checklistRates]);
 
-  const manualCompletedCount = criteria.filter((criterion) => Number.isFinite(manualScores[criterion.key])).length;
-  const managerJudgmentComplete = !allowManagerJudgment || manualCompletedCount === criteria.length;
+  const missingManualCriteria = useMemo(
+    () => allowManagerJudgment
+      ? criteria.filter((criterion) => !Number.isFinite(manualScores[criterion.key]))
+      : [],
+    [allowManagerJudgment, criteria, manualScores]
+  );
+  const missingSystemCriteria = useMemo(
+    () => weightedCriteria.filter((row) => !row.included).map((row) => row.criterion),
+    [weightedCriteria]
+  );
+  const manualCompletedCount = criteria.length - missingManualCriteria.length;
+  const managerJudgmentComplete = !allowManagerJudgment || missingManualCriteria.length === 0;
   const managerJudgmentScore = useMemo(() => {
     if (!allowManagerJudgment || !criteria.length) return 0;
     const scored = criteria.filter((criterion) => Number.isFinite(manualScores[criterion.key]));
@@ -317,6 +329,7 @@ export default function WeeklyManagerEvaluation() {
   }, [allowManagerJudgment, managerJudgmentComplete, objectiveScore, managerJudgmentScore]);
 
   const handleManualScore = (criterionKey: string, value: string) => {
+    setValidationIssues([]);
     if (value === '') {
       setManualScores((current) => {
         const next = { ...current };
@@ -330,16 +343,38 @@ export default function WeeklyManagerEvaluation() {
     setManualScores((current) => ({ ...current, [criterionKey]: clampManagerScore(parsed) }));
   };
 
+  const collectValidationIssues = (status: 'draft' | 'submitted') => {
+    const issues: string[] = [];
+    if (!subjectStaffId) issues.push('لم يتم اختيار الشخص المطلوب تقييمه.');
+    if (!branchForMetrics) issues.push('الفرع غير محدد لهذا التقييم.');
+    if (!currentMetrics) issues.push('بيانات أداء التطبيق لم تكتمل بعد؛ انتظر اكتمال التحميل ثم حاول مرة أخرى.');
+    if (status === 'submitted' && allowManagerJudgment) {
+      missingManualCriteria.forEach((criterion) => {
+        issues.push(`تقييم مدير الفروع ناقص في بند: ${criterion.label}.`);
+      });
+    }
+    missingSystemCriteria.forEach((criterion) => {
+      issues.push(`مصدر بيانات النظام غير مكتمل لبند: ${criterion.label}.`);
+    });
+    return issues;
+  };
+
   const handleSave = async (status: 'draft' | 'submitted') => {
-    if (!subjectStaffId || !currentMetrics) return;
+    const issues = collectValidationIssues(status);
+    setValidationIssues(issues);
+
+    if (!subjectStaffId || !currentMetrics || !branchForMetrics) {
+      setError('لا يمكن إنشاء سجل قبل اكتمال بيانات الموظف والفرع وبيانات الأداء. راجع قائمة النواقص الظاهرة.');
+      return;
+    }
     if (!canEvaluate || String(subjectStaffId) === evaluatorStaffId) {
       setError('لا يمكن اعتماد هذا التقييم: يجب أن يكون المُقيِّم مديرًا أعلى ومختلفًا عن الشخص المُقيَّم.');
       return;
     }
-    if (status === 'submitted' && allowManagerJudgment && !managerJudgmentComplete) {
-      setError(`أكمل تقييم مدير الفروع لكل البنود قبل الاعتماد النهائي (${manualCompletedCount}/${criteria.length}).`);
-      return;
-    }
+
+    const effectiveStatus: 'draft' | 'submitted' =
+      status === 'submitted' && missingManualCriteria.length > 0 ? 'draft' : status;
+
     setSaving(true);
     setError('');
     try {
@@ -360,7 +395,13 @@ export default function WeeklyManagerEvaluation() {
         __checklist_rates: checklistRates,
         __criterion_system_scores: criterionSystemScores,
         __criterion_combined_scores: criterionCombinedScores,
+        __validation_issues: issues,
       } as WeeklyAutoMetrics & Record<string, unknown>;
+
+      const automaticMissingNote = issues.length
+        ? `ملاحظات اكتمال التقييم:\n- ${issues.join('\n- ')}`
+        : '';
+      const combinedNote = [note.trim(), automaticMissingNote].filter(Boolean).join('\n\n');
 
       const payload: ManagerWeeklyEvaluation = {
         evaluation_type: evaluationType,
@@ -373,9 +414,9 @@ export default function WeeklyManagerEvaluation() {
         week_end: periodEnd,
         auto_metrics: enrichedMetrics,
         manual_scores: manualScores,
-        manual_note: note.trim() || null,
+        manual_note: combinedNote || null,
         total_score: totalScore,
-        status,
+        status: effectiveStatus,
       };
       const saved = await saveWeeklyEvaluation(payload);
       const hist = await fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics);
@@ -383,14 +424,17 @@ export default function WeeklyManagerEvaluation() {
       if (saved?.id) setExpandedRecordId(saved.id);
       window.dispatchEvent(new CustomEvent('toast', {
         detail: {
-          type: 'success',
-          message: status === 'submitted'
+          type: effectiveStatus === 'submitted' ? 'success' : 'info',
+          message: effectiveStatus === 'submitted'
             ? 'تم حفظ واعتماد تقييم الدورة وإضافته إلى سجل التقييمات'
-            : 'تم حفظ مسودة التقييم في السجل',
+            : status === 'submitted'
+              ? 'تم حفظ التقييم كمسودة لأن هناك بنودًا ناقصة؛ راجع الملاحظات ثم اعتمد مرة أخرى'
+              : 'تم حفظ مسودة التقييم في السجل',
         },
       }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر الحفظ');
+      const message = err instanceof Error ? err.message : 'تعذر الحفظ';
+      setError(`تعذر حفظ التقييم: ${message}`);
     } finally {
       setSaving(false);
     }
@@ -455,6 +499,13 @@ export default function WeeklyManagerEvaluation() {
       {!subjectsLoading && subjectChoices.length === 0 && <p className="text-sm text-amber-300">لا يوجد موظف نشط وصالح للتقييم في هذا المسار.</p>}
       {loading && <p className="text-sm text-slate-400">جارٍ تحميل بيانات التقييم...</p>}
       {error && <p className="rounded-xl border border-red-500/20 bg-red-950/20 p-3 text-sm text-red-300">{error}</p>}
+      {validationIssues.length > 0 && <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 p-4">
+        <div className="mb-2 text-sm font-black text-amber-200">معلومات ناقصة أو تحتاج مراجعة قبل الاعتماد النهائي</div>
+        <ul className="list-disc space-y-1 pr-5 text-sm text-amber-100">
+          {validationIssues.map((issue, index) => <li key={`${issue}-${index}`}>{issue}</li>)}
+        </ul>
+        <div className="mt-2 text-xs text-amber-300">لو ضغطت اعتماد مع نقص في تقييم مدير الفروع، يتم حفظ الشغل تلقائيًا كمسودة في سجل التقييمات بدل فقدانه.</div>
+      </div>}
 
       {currentMetrics && !loading && (
         <>
@@ -510,13 +561,15 @@ export default function WeeklyManagerEvaluation() {
             <button type="button" disabled={saving} onClick={() => handleSave('submitted')} className="flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-2 font-black text-slate-950 disabled:opacity-50"><Send className="h-4 w-4" /> {saving ? 'جارٍ الحفظ...' : isMonthlyIncentiveEvaluation ? 'حفظ واعتماد تقييم الدورة' : 'حفظ واعتماد التقييم'}</button>
           </div>
 
-          {history.length > 0 && <div className="stat-card space-y-3">
+          <div className="stat-card space-y-3">
             <div><div className="text-base font-black text-white">سجل التقييمات</div><div className="text-xs text-slate-500">كل دورة محفوظة ببياناتها ودرجاتها وملاحظاتها، ويمكن تصديرها أو مشاركتها كـ PDF.</div></div>
+            {history.length === 0 && <div className="rounded-xl border border-dashed border-white/10 p-4 text-sm text-slate-400">لا توجد تقييمات محفوظة لهذا الموظف حتى الآن. أول حفظ كمسودة أو اعتماد سيظهر هنا مباشرة.</div>}
             {history.map((record) => {
               const expanded = expandedRecordId === record.id;
               const recMetrics = (record.auto_metrics || {}) as Record<string, unknown>;
               const objective = Number(recMetrics.__objective_score ?? record.total_score ?? 0);
               const manager = Number(recMetrics.__manager_judgment_score ?? 0);
+              const savedIssues = Array.isArray(recMetrics.__validation_issues) ? recMetrics.__validation_issues.map(String) : [];
               return <div key={record.id} className="rounded-xl border border-white/10 bg-black/10">
                 <button type="button" onClick={() => setExpandedRecordId(expanded ? null : record.id)} className="flex w-full items-center gap-3 p-3 text-right">
                   <div className="min-w-0 flex-1"><div className="font-bold text-white">{record.week_start} إلى {record.week_end}</div><div className="text-xs text-slate-500">{record.status === 'submitted' ? 'معتمد' : 'مسودة'} • {record.evaluator_name || '—'}</div></div>
@@ -524,6 +577,7 @@ export default function WeeklyManagerEvaluation() {
                 </button>
                 {expanded && <div className="space-y-3 border-t border-white/5 p-3">
                   <div className="grid gap-2 text-sm md:grid-cols-3"><div>أداء النظام: <b>{objective.toFixed(1)}/100</b></div><div>تقييم مدير الفروع: <b>{manager.toFixed(1)}/100</b></div><div>النهائي: <b>{Number(record.total_score || 0).toFixed(1)}/100</b></div></div>
+                  {savedIssues.length > 0 && <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 p-3"><div className="mb-1 text-xs font-bold text-amber-300">نواقص مسجلة وقت الحفظ</div><ul className="list-disc pr-5 text-xs text-amber-100">{savedIssues.map((issue, index) => <li key={`${record.id}-issue-${index}`}>{issue}</li>)}</ul></div>}
                   <div className="rounded-lg border border-white/5 p-3"><div className="mb-1 text-xs font-bold text-slate-400">الملاحظة</div><div className="whitespace-pre-wrap text-sm text-white">{record.manual_note || 'لا توجد ملاحظات.'}</div></div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" disabled={exportingId === record.id} onClick={() => void handlePdf(record, false)} className="flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-xs font-bold text-white"><FileDown className="h-4 w-4" /> تصدير PDF</button>
@@ -532,7 +586,7 @@ export default function WeeklyManagerEvaluation() {
                 </div>}
               </div>;
             })}
-          </div>}
+          </div>
         </>
       )}
     </div>
