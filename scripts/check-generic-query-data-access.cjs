@@ -21,8 +21,8 @@ const LEGACY_LITERAL_STAFF_UI_READERS = new Set([
 // Pre-existing generic-query invoice readers. These must move to an approved
 // invoice read model/service rather than scanning sales_invoices from UI pages.
 const LEGACY_GENERIC_INVOICE_UI_READERS = new Set([
+  // Intentional external-integration exception: operational delivery truth lives in the separate external delivery application.
   'src/pages/Delivery.tsx',
-  'src/pages/StagnantMedicines.tsx',
 ]);
 
 // These are pre-existing generic-query employee ledger readers. They must migrate

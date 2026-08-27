@@ -21,6 +21,7 @@ import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataSc
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { toast } from 'sonner';
 import { getCustomers } from '@/lib/api/customers';
+import { readCustomerInvoices } from '@/lib/readModels/customerInvoiceReadModel';
 import { phoneSearchTokens } from '@/lib/phone';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
@@ -383,12 +384,6 @@ export default function StagnantMedicines() {
     limit: 10000,
     realtimeEnabled: false,
   });
-  const { data: invoiceCustomers } = useSupabaseQuery<CustomerOption>({
-    table: 'sales_invoices',
-    orderBy: { column: 'invoice_date', ascending: false },
-    limit: 10000,
-    realtimeEnabled: false,
-  });
   const { data: activityLogs } = useSupabaseQuery<ActivityLogRecord>({
     table: 'activity_log',
     orderBy: { column: 'created_at', ascending: false },
@@ -426,7 +421,7 @@ export default function StagnantMedicines() {
 
   const customerOptions = useMemo(() => {
     const byKey = new Map<string, CustomerOption>();
-    for (const customer of [...(invoiceCustomers || []), ...(customers || [])]) {
+    for (const customer of customers || []) {
       const name = customer.customer_name || customer.name || '';
       const code = cleanCustomerCode(customer.customer_code || customer.code);
       const phone = customer.customer_phone || customer.phone || '';
@@ -442,7 +437,7 @@ export default function StagnantMedicines() {
         'ar'
       )
     );
-  }, [customers, invoiceCustomers, user?.branch]);
+  }, [customers, user?.branch]);
 
   const filteredCustomerOptions = useMemo(() => {
     const query = customerSearchSubmitted.trim();
@@ -564,7 +559,12 @@ export default function StagnantMedicines() {
           )
         );
         await searchTable('customers', term);
-        await searchTable('sales_invoices', term);
+        const invoiceResult = await readCustomerInvoices({
+          customerCode: term,
+          customerPhone: term,
+          customerName: term,
+        });
+        results.push(...invoiceResult.rows.map(mapRecord));
       }
 
       const unique = new Map<string, CustomerOption>();
