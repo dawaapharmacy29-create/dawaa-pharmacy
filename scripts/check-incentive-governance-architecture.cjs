@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 
 const migrationPath = 'supabase/migrations/20260824010000_align_incentive_governance_permission_contract_v1.sql';
+const ruleBoundaryMigrationPath = 'supabase/migrations/20260827020500_harden_incentive_rule_boundaries_v10.sql';
 const permissionPath = 'src/lib/core/permissionSystem.ts';
 const sidebarPath = 'src/components/layout/SidebarBase.tsx';
 const compositeScorePath = 'src/lib/incentives/compositeScoreService.ts';
@@ -39,6 +40,38 @@ if (!fs.existsSync(migrationPath)) {
   }
   if (helperMatch.includes('manage_payroll') || /a\.permissions\s*->>/i.test(helperMatch)) {
     failures.push('Incentive governance must not depend on manage_payroll or raw account permission JSON.');
+  }
+}
+
+if (!fs.existsSync(ruleBoundaryMigrationPath)) {
+  failures.push(`Missing incentive rule boundary migration: ${ruleBoundaryMigrationPath}`);
+} else {
+  const rulesSql = fs.readFileSync(ruleBoundaryMigrationPath, 'utf8').toLowerCase();
+  const requiredTokens = [
+    'revoke all privileges on table public.archive_points_log_2026 from anon, authenticated',
+    'drop policy if exists archive_points_log_2026_insert_app',
+    'drop policy if exists archive_points_log_2026_select_app',
+    'drop policy if exists archive_points_log_2026_update_app',
+    'drop policy if exists deduction_rules_insert_app',
+    'drop policy if exists deduction_rules_select_app',
+    'drop policy if exists deduction_rules_update_app',
+    'drop policy if exists reward_rules_insert_app',
+    'drop policy if exists reward_rules_select_app',
+    'drop policy if exists reward_rules_update_app',
+    'using (public.dawaa_current_staff_id_v1() is not null)',
+    'with check (public.dawaa_can_manage_incentives())',
+  ];
+  for (const token of requiredTokens) {
+    if (!rulesSql.includes(token)) failures.push(`Incentive rule boundary missing: ${token}`);
+  }
+  if ((rulesSql.match(/using \(public\.dawaa_current_staff_id_v1\(\) is not null\)/g) || []).length < 2) {
+    failures.push('Both incentive rule tables must require a valid application actor for reads.');
+  }
+  if ((rulesSql.match(/with check \(public\.dawaa_can_manage_incentives\(\)\)/g) || []).length < 4) {
+    failures.push('Insert/update writes for both incentive rule tables must require manage_incentives.');
+  }
+  if (/\busing\s*\(\s*true\s*\)|\bwith\s+check\s*\(\s*true\s*\)/i.test(rulesSql)) {
+    failures.push('Incentive rule boundary must not reintroduce always-true RLS policies.');
   }
 }
 
@@ -88,4 +121,4 @@ if (failures.length) {
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[incentive-governance] PASS: DB governance uses canonical incentive permissions and V3 is the only active performance-weight source.');
+console.log('[incentive-governance] PASS: DB governance uses canonical incentive permissions, rule-table RLS is actor/manager scoped, and V3 is the only active performance-weight source.');
