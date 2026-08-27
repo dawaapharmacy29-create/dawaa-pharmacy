@@ -463,6 +463,7 @@ export default function PenaltyIncentiveManagement() {
         },
       });
     } catch {
+      // log failure is non-critical
     }
 
     toast.success(approve ? 'تم الاعتماد' : 'تم الرفض');
@@ -496,6 +497,7 @@ export default function PenaltyIncentiveManagement() {
         },
       });
     } catch {
+      // log failure is non-critical
     }
 
     toast.success('تم تحويل السجل إلى قيد المراجعة');
@@ -531,6 +533,7 @@ export default function PenaltyIncentiveManagement() {
         },
       });
     } catch {
+      // log failure is non-critical
     }
 
     toast.success('تم إلغاء السجل مع الاحتفاظ به في سجل المراجعة');
