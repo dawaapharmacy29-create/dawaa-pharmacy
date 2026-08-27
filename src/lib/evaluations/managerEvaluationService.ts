@@ -63,6 +63,11 @@ export async function fetchWeeklyAutoMetrics(
   return result.data;
 }
 
+function isStatementTimeoutError(error: { code?: string | null; message?: string | null }) {
+  const message = String(error.message || '').toLowerCase();
+  return error.code === '57014' || message.includes('statement timeout') || message.includes('canceling statement');
+}
+
 export async function fetchWeeklyAutoMetricsFast(
   actorId: string,
   evaluationType: EvaluationType,
@@ -85,8 +90,25 @@ export async function fetchWeeklyAutoMetricsFast(
     p_week_end: weekEnd,
     p_max_age_seconds: maxAgeSeconds,
   });
-  if (error) throw new Error(error.message);
-  return (data || {}) as WeeklyAutoMetrics;
+
+  if (!error) return (data || {}) as WeeklyAutoMetrics;
+  if (!isStatementTimeoutError(error)) throw new Error(error.message);
+
+  // If a heavy refresh times out, keep the page usable from the latest authorized
+  // snapshot. The fallback RPC is read-only and never starts another aggregation.
+  const { data: cachedData, error: cachedError } = await supabase.rpc(
+    'get_weekly_manager_metrics_cached_v1',
+    {
+      p_actor_id: actorId,
+      p_evaluation_type: evaluationType,
+      p_branch: branch,
+      p_week_start: weekStart,
+      p_week_end: weekEnd,
+    }
+  );
+
+  if (!cachedError && cachedData) return cachedData as WeeklyAutoMetrics;
+  throw new Error(error.message);
 }
 
 export type ManagerCycleSalesTargetSummary = {
