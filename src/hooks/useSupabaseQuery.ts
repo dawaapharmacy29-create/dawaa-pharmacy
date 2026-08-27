@@ -63,13 +63,27 @@ const FRESHNESS_POLICIES: Record<DataFreshness, FreshnessPolicy> = {
   },
 };
 
-const HIGH_VOLUME_LOOKUP_TABLES = new Set(['customers', 'sales_invoices']);
+const HIGH_VOLUME_LOOKUP_TABLES = new Set([
+  'customers',
+  'sales_invoices',
+  'employee_transactions',
+]);
 const DISALLOWED_UNFILTERED_BULK_LIMIT = 10_000;
+const SAFE_UNFILTERED_DEFAULT_LIMITS: Record<string, number> = {
+  employee_transactions: 2500,
+};
+
+function effectiveQueryLimit(options: QueryOptions) {
+  if (options.limit) return options.limit;
+  if (options.filters?.length) return undefined;
+  return SAFE_UNFILTERED_DEFAULT_LIMITS[options.table];
+}
 
 function isDisallowedUnfilteredBulkRead(options: QueryOptions) {
+  const limit = effectiveQueryLimit(options) ?? 0;
   return (
     HIGH_VOLUME_LOOKUP_TABLES.has(options.table) &&
-    (options.limit ?? 0) >= DISALLOWED_UNFILTERED_BULK_LIMIT &&
+    limit >= DISALLOWED_UNFILTERED_BULK_LIMIT &&
     (!options.filters || options.filters.length === 0)
   );
 }
@@ -106,6 +120,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   const queryClient = useQueryClient();
   const freshness = options.freshness ?? 'standard';
   const policy = FRESHNESS_POLICIES[freshness];
+  const queryLimit = effectiveQueryLimit(options);
   const blockedBulkRead = isDisallowedUnfilteredBulkRead(options);
 
   const buildQuery = () => {
@@ -128,8 +143,8 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
       });
     }
 
-    if (options.limit) {
-      query = query.limit(options.limit);
+    if (queryLimit) {
+      query = query.limit(queryLimit);
     }
 
     return query;
@@ -141,7 +156,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     options.select ?? '*',
     stableKeyValue(options.filters ?? null),
     stableKeyValue(options.orderBy ?? null),
-    String(options.limit ?? 'all'),
+    String(queryLimit ?? 'all'),
     blockedBulkRead ? 'blocked-bulk-read' : 'allowed-read',
   ] as const;
 
@@ -149,7 +164,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     if (blockedBulkRead) {
       if (import.meta.env.DEV) {
         console.warn(
-          `[useSupabaseQuery] blocked unfiltered ${options.limit}-row read from ${options.table}; use server search/read model instead.`
+          `[useSupabaseQuery] blocked unfiltered ${queryLimit}-row read from ${options.table}; use server search/read model instead.`
         );
       }
       return [] as T[];
