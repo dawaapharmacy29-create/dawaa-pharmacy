@@ -20,7 +20,6 @@ import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataSc
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
 import { persistPointsTransaction } from '@/lib/pointsPersistence';
-import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
 import {
   groupDoctorTotals,
@@ -31,6 +30,7 @@ import {
 import { triggerCelebration } from '@/lib/celebration';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { normalizeBranchName } from '@/lib/branch';
 
 interface IncentiveMedicine {
@@ -167,12 +167,21 @@ export default function IncentiveMedicines() {
     orderBy: { column: 'sale_date', ascending: false },
     realtimeEnabled: true,
   });
-  const { data: staffOptions } = useSupabaseQuery<DoctorOption>({
-    table: 'staff',
-    filters: isActiveStaffFilter(),
-    orderBy: { column: 'name', ascending: true },
-    realtimeEnabled: false,
-  });
+  const { data: staffDirectory = [] } = useStaffDirectory();
+  const staffOptions = useMemo<DoctorOption[]>(
+    () =>
+      staffDirectory
+        .filter((item) => item.source !== 'alias' && item.active && item.id && item.name)
+        .map((item) => ({
+          id: item.id as string,
+          name: item.name as string,
+          role: item.role,
+          branch: item.branch,
+          branch_name: item.branch,
+          active: item.active,
+        })),
+    [staffDirectory]
+  );
   const cycle = getCurrentCycle();
 
   const doctorOptions = useMemo(() => {
