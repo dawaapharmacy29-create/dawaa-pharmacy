@@ -1,0 +1,56 @@
+name: Temporary WhatsApp employee read migration
+
+on:
+  push:
+    branches:
+      - arch/whatsapp-employee-read-v1
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: arch/whatsapp-employee-read-v1
+          fetch-depth: 0
+      - name: Apply targeted migration
+        shell: python
+        run: |
+          from pathlib import Path
+
+          page = Path('src/pages/WhatsappAnalytics.tsx')
+          text = page.read_text(encoding='utf-8')
+
+          anchor = "import { useAuth } from '@/hooks/useAuth';\n"
+          addition = anchor + "import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';\n"
+          if "useEmployeeTransactions" not in text:
+              if anchor not in text:
+                  raise SystemExit('Expected useAuth import anchor not found')
+              text = text.replace(anchor, addition, 1)
+
+          old = """  const { data: transactions, loading: txLoading, error: txError } = useSupabaseQuery<Row>({\n    table: 'employee_transactions',\n    limit: 2000,\n    realtimeEnabled: true,\n  });"""
+          new = """  const { data: transactions, loading: txLoading, error: txError } = useEmployeeTransactions<Row>({\n    startDate,\n    endDate,\n    limit: 2000,\n    realtimeEnabled: true,\n  });"""
+          if old not in text:
+              raise SystemExit('Expected WhatsApp employee transaction reader not found')
+          text = text.replace(old, new, 1)
+          page.write_text(text, encoding='utf-8')
+
+          gate = Path('scripts/check-generic-query-data-access.cjs')
+          gate_text = gate.read_text(encoding='utf-8')
+          old_block = """const LEGACY_GENERIC_EMPLOYEE_TRANSACTION_UI_READERS = new Set([\n  'src/pages/Delivery.tsx',\n  'src/pages/Points.tsx',\n  'src/pages/WhatsappAnalytics.tsx',\n]);"""
+          new_block = """const LEGACY_GENERIC_EMPLOYEE_TRANSACTION_UI_READERS = new Set([\n  'src/pages/Delivery.tsx',\n  'src/pages/Points.tsx',\n]);"""
+          if old_block not in gate_text:
+              raise SystemExit('Expected employee transaction debt block not found')
+          gate.write_text(gate_text.replace(old_block, new_block, 1), encoding='utf-8')
+
+          Path('.github/workflows/tmp-whatsapp-employee-read.yml').unlink()
+      - name: Commit migration
+        run: |
+          git config user.name "dawaa-architecture-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/pages/WhatsappAnalytics.tsx scripts/check-generic-query-data-access.cjs .github/workflows/tmp-whatsapp-employee-read.yml
+          git commit -m "refactor: use canonical employee transaction reads in WhatsApp analytics"
+          git push origin HEAD:arch/whatsapp-employee-read-v1
