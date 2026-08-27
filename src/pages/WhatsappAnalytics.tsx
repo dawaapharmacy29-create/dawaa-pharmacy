@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, MessageCircle, Star, TrendingUp, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { formatCurrency } from '@/lib/utils';
 import { getInvoiceKey } from '@/lib/dawaa2027';
-import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import {
   buildStaffIdentityMap,
   resolvePrimaryStaffForDoctor,
@@ -99,14 +99,16 @@ export default function WhatsappAnalytics() {
     limit: 2000,
     realtimeEnabled: true,
   });
-  const { data: staffRows } = useSupabaseQuery<StaffDirectoryRow>({
-    table: 'staff',
-    filters: isActiveStaffFilter(),
-    limit: 800,
-    realtimeEnabled: false,
-  });
+  const { data: staffDirectory = [] } = useStaffDirectory();
+  const staffRows = useMemo(
+    () =>
+      staffDirectory.filter(
+        (staff) => staff.source !== 'alias' && staff.active && Boolean(staff.id) && Boolean(staff.name)
+      ) as StaffDirectoryRow[],
+    [staffDirectory]
+  );
 
-  const identityMap = useMemo(() => buildStaffIdentityMap(staffRows || []), [staffRows]);
+  const identityMap = useMemo(() => buildStaffIdentityMap(staffRows), [staffRows]);
 
   const scopeFilteredReviews = useMemo(() => {
     return (reviews || []).filter((row) => {
@@ -118,7 +120,7 @@ export default function WhatsappAnalytics() {
       }
       if (!canViewBranchData(user, rowBr)) return false;
       if (isDoctorRole(user)) {
-        const resolved = resolvePrimaryStaffForDoctor(row, staffRows || [], identityMap);
+        const resolved = resolvePrimaryStaffForDoctor(row, staffRows, identityMap);
         if (resolved?.staffId && user?.staffId && resolved.staffId === user.staffId) return true;
         return rowMatchesCurrentDoctor(user, row);
       }
@@ -146,7 +148,7 @@ export default function WhatsappAnalytics() {
       if (date && (date < startDate || date > endDate)) return false;
       if (branch !== ALL_BRANCHES && rowBranch(row) !== normalizeBranchName(branch)) return false;
       if (doctor !== 'الكل') {
-        const resolved = resolvePrimaryStaffForDoctor(row, staffRows || [], identityMap);
+        const resolved = resolvePrimaryStaffForDoctor(row, staffRows, identityMap);
         if (resolved?.staffId !== doctor) return false;
       }
       return true;
@@ -156,7 +158,7 @@ export default function WhatsappAnalytics() {
   const perDoctor = useMemo(() => {
     const map = new Map<string, DoctorAggregate>();
     for (const row of filtered) {
-      const resolved = resolvePrimaryStaffForDoctor(row, staffRows || [], identityMap);
+      const resolved = resolvePrimaryStaffForDoctor(row, staffRows, identityMap);
       const staffId = resolved?.staffId || `unresolved:${text(row, ['doctor_name', 'staff_name', 'employee_name'])}`;
       const name = resolved?.displayName || text(row, ['doctor_name', 'staff_name', 'employee_name'], 'غير محدد');
       const branchName = resolved?.branch || rowBranch(row) || 'غير محدد';

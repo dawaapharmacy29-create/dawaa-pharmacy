@@ -16,7 +16,6 @@ const LEGACY_LITERAL_STAFF_UI_READERS = new Set([
   'src/pages/ShiftPerformance.tsx',
   'src/pages/StagnantMedicines.tsx',
   'src/pages/Stories.tsx',
-  'src/pages/WhatsappAnalytics.tsx',
 ]);
 
 // Pre-existing generic-query invoice readers. These must move to an approved
