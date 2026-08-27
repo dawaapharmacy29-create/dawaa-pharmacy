@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ClipboardList, TrendingUp, TrendingDown, Save, Send, ExternalLink } from 'lucide-react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
-import { TABLES } from '@/lib/supabaseTables';
-import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
-import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
@@ -18,22 +14,18 @@ import {
   type WeeklyAutoMetrics,
 } from '@/lib/evaluations/managerEvaluationCriteria';
 import {
-  fetchWeeklyAutoMetrics,
+  fetchManagerEvaluationSubjects,
+  fetchWeeklyAutoMetricsFast,
   weekBoundsOf,
   previousWeekOf,
   saveWeeklyEvaluation,
   fetchEvaluationHistory,
   fetchWeeklyChecklistCompletion,
   type ManagerWeeklyEvaluation,
+  type ManagerEvaluationSubject,
 } from '@/lib/evaluations/managerEvaluationService';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 import { ManagerMonthlyPerformanceReport } from '@/components/evaluations/ManagerMonthlyPerformanceReport';
-
-const SUBJECT_ROLE_BY_TYPE: Record<EvaluationType, string[]> = {
-  branch_manager: ['branch_manager'],
-  branches_manager: ['branches_manager'],
-  customer_service: ['customer_service_manager'],
-};
 
 const EVALUATOR_ROLES_BY_TYPE: Record<EvaluationType, string[]> = {
   branch_manager: ['general_manager', 'executive_manager', 'branches_manager'],
@@ -55,28 +47,12 @@ export default function WeeklyManagerEvaluation() {
   const canEvaluate = EVALUATOR_ROLES_BY_TYPE[evaluationType].includes(evaluatorRole);
   const evaluatorStaffId = String(user?.staffId || user?.id || '');
 
-  const { data: staff = [] } = useSupabaseQuery<StaffChoice & { role?: string; branch?: string }>({
-    table: TABLES.staff,
-    filters: isActiveStaffFilter(),
-    realtimeEnabled: false,
-  });
-  const { data: staffAccounts = [] } = useSupabaseQuery<{ staff_id: string; role: string }>({
-    table: TABLES.staffAccounts,
-    realtimeEnabled: false,
-  });
-
-  const eligibleRoles = SUBJECT_ROLE_BY_TYPE[evaluationType];
-  const subjectChoices = useMemo(() => {
-    const roleByStaffId = new Map(staffAccounts.map((sa) => [sa.staff_id, normalizeRole(sa.role)]));
-    return mergeStaffChoices(staff).filter(
-      (s) => eligibleRoles.includes(roleByStaffId.get(s.id) || '') && String(s.id) !== evaluatorStaffId
-    );
-  }, [staff, staffAccounts, eligibleRoles, evaluatorStaffId]);
-
+  const [subjectChoices, setSubjectChoices] = useState<ManagerEvaluationSubject[]>([]);
   const [subjectStaffId, setSubjectStaffId] = useState('');
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
   const subject = useMemo(
-    () => (staff as (StaffChoice & { branch?: string })[]).find((s) => s.id === subjectStaffId),
-    [staff, subjectStaffId]
+    () => subjectChoices.find((item) => item.id === subjectStaffId) || null,
+    [subjectChoices, subjectStaffId]
   );
 
   const [weekStart, setWeekStart] = useState(() => weekBoundsOf(new Date()).start);
@@ -95,30 +71,61 @@ export default function WeeklyManagerEvaluation() {
   const branchForMetrics = evaluationType === 'branches_manager' ? selectedBranch : subject?.branch || null;
 
   useEffect(() => {
-    if (!subjectStaffId) return;
+    if (!canEvaluate || !user?.id) return;
+    let cancelled = false;
+    setSubjectsLoading(true);
+    setError('');
+    fetchManagerEvaluationSubjects(String(user.id), evaluationType)
+      .then((rows) => {
+        if (cancelled) return;
+        setSubjectChoices(rows);
+        setSubjectStaffId((current) => {
+          if (current && rows.some((row) => row.id === current)) return current;
+          return rows[0]?.id || '';
+        });
+      })
+      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : 'تعذر تحميل قائمة التقييم'))
+      .finally(() => !cancelled && setSubjectsLoading(false));
+    return () => { cancelled = true; };
+  }, [canEvaluate, evaluationType, user?.id]);
+
+  useEffect(() => {
+    if (!subjectStaffId || !user?.id || !branchForMetrics) return;
     let cancelled = false;
     setLoading(true);
     setError('');
+    setCurrentMetrics(null);
+    setPreviousMetrics(null);
     const prev = previousWeekOf(weekStart);
+
     Promise.all([
-      fetchWeeklyAutoMetrics(evaluationType, branchForMetrics, weekStart, weekEnd),
-      fetchWeeklyAutoMetrics(evaluationType, branchForMetrics, prev.start, prev.end),
-      fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics),
+      fetchWeeklyAutoMetricsFast(String(user.id), evaluationType, branchForMetrics, weekStart, weekEnd),
+      fetchWeeklyAutoMetricsFast(String(user.id), evaluationType, branchForMetrics, prev.start, prev.end),
       fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd, branchForMetrics),
     ])
-      .then(([cur, prevMetrics, hist, checklist]) => {
+      .then(([cur, prevMetrics, checklist]) => {
         if (cancelled) return;
         setCurrentMetrics(cur);
         setPreviousMetrics(prevMetrics);
-        setHistory(hist as Array<{ week_start: string; total_score: number; status: string }>);
         setChecklistRates(checklist);
+        setLoading(false);
+        void fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics)
+          .then((hist) => {
+            if (!cancelled) setHistory(hist as Array<{ week_start: string; total_score: number; status: string }>);
+          })
+          .catch(() => {
+            if (!cancelled) setHistory([]);
+          });
       })
-      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : 'تعذر تحميل البيانات'))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [subjectStaffId, weekStart, weekEnd, evaluationType, branchForMetrics]);
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'تعذر تحميل البيانات');
+          setLoading(false);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [subjectStaffId, weekStart, weekEnd, evaluationType, branchForMetrics, user?.id]);
 
   const criteria = EVALUATION_CRITERIA[evaluationType];
   const totalScore = useMemo(() => {
@@ -189,12 +196,10 @@ export default function WeeklyManagerEvaluation() {
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <select className="input-dark" value={subjectStaffId} onChange={(e) => setSubjectStaffId(e.target.value)}>
-          <option value="">اختر الشخص المُقيَّم</option>
+        <select className="input-dark" value={subjectStaffId} onChange={(e) => setSubjectStaffId(e.target.value)} disabled={subjectsLoading}>
+          <option value="">{subjectsLoading ? 'جارٍ تحميل الأشخاص...' : 'اختر الشخص المُقيَّم'}</option>
           {subjectChoices.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
+            <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
         {evaluationType === 'branches_manager' && (
@@ -207,8 +212,8 @@ export default function WeeklyManagerEvaluation() {
         <span className="flex items-center text-xs text-slate-400">الأسبوع: {weekStart} إلى {weekEnd}</span>
       </div>
 
-      {!subjectStaffId && <p className="text-sm text-slate-400">اختار الشخص المُقيَّم للأسبوع الأول.</p>}
-      {loading && <p className="text-sm text-slate-400">جارٍ تحميل البيانات...</p>}
+      {!subjectsLoading && subjectChoices.length === 0 && <p className="text-sm text-amber-300">لا يوجد مدير نشط وصالح للتقييم في هذا المسار.</p>}
+      {loading && <p className="text-sm text-slate-400">جارٍ تحميل التقييم السريع...</p>}
       {error && <p className="text-sm text-red-300">{error}</p>}
 
       {currentMetrics && !loading && (
@@ -224,31 +229,20 @@ export default function WeeklyManagerEvaluation() {
             <span className={availableCriteriaPercent >= 80 ? 'text-xs text-emerald-300' : 'text-xs text-amber-300'}>{availableCriteriaPercent}% من أوزان البنود لها بيانات موثقة</span>
           </div>
 
-          <ManagerLiveIncentiveCard
-            evaluationType={evaluationType}
-            staffId={subjectStaffId}
-            branch={branchForMetrics}
-          />
-
-          <ManagerMonthlyPerformanceReport
-            evaluationType={evaluationType}
-            staffId={subjectStaffId}
-            branch={branchForMetrics}
-          />
+          <ManagerLiveIncentiveCard evaluationType={evaluationType} staffId={subjectStaffId} branch={branchForMetrics} />
+          <ManagerMonthlyPerformanceReport evaluationType={evaluationType} staffId={subjectStaffId} branch={branchForMetrics} />
 
           <div className="grid gap-3 md:grid-cols-2">
             {criteria.map((criterion) => {
               const hasData = criterionHasData(criterion, currentMetrics, checklistRates);
               const weighted = weightedCriteria.find((row) => row.criterion.key === criterion.key);
-              const autoScore =
-                criterion.mode === 'auto' && criterion.autoScore
-                  ? criterion.autoScore(currentMetrics, previousMetrics)
-                  : null;
+              const autoScore = criterion.mode === 'auto' && criterion.autoScore
+                ? criterion.autoScore(currentMetrics, previousMetrics)
+                : null;
               const checklistKeys = criterionChecklistKeys(criterion);
-              const checklistScore =
-                criterion.mode === 'checklist' && checklistKeys.length
-                  ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length / 10
-                  : null;
+              const checklistScore = criterion.mode === 'checklist' && checklistKeys.length
+                ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length / 10
+                : null;
               return (
                 <div key={criterion.key} className="stat-card space-y-2">
                   <div className="flex items-center justify-between">
@@ -264,32 +258,19 @@ export default function WeeklyManagerEvaluation() {
                   {criterion.mode === 'auto' && (
                     <div className="flex items-center gap-2">
                       {!hasData ? <span className="rounded-full border border-amber-500/20 bg-amber-950/20 px-2 py-1 text-xs font-bold text-amber-300">مستبعد لعدم اكتمال المصدر — لا صفر ولا درجة افتراضية</span> : <>
-                      <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>
-                        {(autoScore || 0).toFixed(1)} / 10
-                      </span>
-                      {previousMetrics && (
-                        <span className="flex items-center gap-1 text-xs text-slate-400">
-                          {(autoScore || 0) >= 5 ? (
-                            <TrendingUp className="h-3 w-3 text-emerald-400" />
-                          ) : (
-                            <TrendingDown className="h-3 w-3 text-red-400" />
-                          )}
-                        </span>
-                      )}
+                        <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>{(autoScore || 0).toFixed(1)} / 10</span>
+                        {previousMetrics && (
+                          <span className="flex items-center gap-1 text-xs text-slate-400">
+                            {(autoScore || 0) >= 5 ? <TrendingUp className="h-3 w-3 text-emerald-400" /> : <TrendingDown className="h-3 w-3 text-red-400" />}
+                          </span>
+                        )}
                       </>}
                     </div>
                   )}
                   {criterion.mode === 'checklist' && (
                     <div className="flex items-center gap-2">
-                      <span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>
-                        {(checklistScore || 0).toFixed(1)} / 10
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        ({(checklistKeys.length
-                          ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length
-                          : 0
-                        ).toFixed(0)}% من أيام الأسبوع مسجّلة كمكتملة في المهام اليومية)
-                      </span>
+                      <span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>{(checklistScore || 0).toFixed(1)} / 10</span>
+                      <span className="text-xs text-slate-500">({(checklistKeys.length ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length : 0).toFixed(0)}% من أيام الأسبوع مسجّلة كمكتملة في المهام اليومية)</span>
                     </div>
                   )}
                 </div>
@@ -314,29 +295,14 @@ export default function WeeklyManagerEvaluation() {
 
           <div className="stat-card space-y-2">
             <label className="text-sm font-bold text-white">ملاحظة إدارية (للتوثيق فقط — لا تغيّر الدرجة أو الحافز)</label>
-            <textarea
-              className="input-dark w-full min-h-[100px]"
-              placeholder="اكتب سياقًا أو إجراءً تصحيحيًا؛ الدرجة تظل محسوبة تلقائيًا..."
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
+            <textarea className="input-dark w-full min-h-[100px]" placeholder="اكتب سياقًا أو إجراءً تصحيحيًا؛ الدرجة تظل محسوبة تلقائيًا..." value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
 
           <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => handleSave('draft')}
-              className="flex items-center gap-2 rounded-xl border border-white/15 px-5 py-2 font-black text-white disabled:opacity-50"
-            >
+            <button type="button" disabled={saving} onClick={() => handleSave('draft')} className="flex items-center gap-2 rounded-xl border border-white/15 px-5 py-2 font-black text-white disabled:opacity-50">
               <Save className="h-4 w-4" /> حفظ كمسودة
             </button>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => handleSave('submitted')}
-              className="flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-2 font-black text-slate-950 disabled:opacity-50"
-            >
+            <button type="button" disabled={saving} onClick={() => handleSave('submitted')} className="flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-2 font-black text-slate-950 disabled:opacity-50">
               <Send className="h-4 w-4" /> اعتماد التقييم
             </button>
           </div>
