@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { logActivity } from '@/lib/activityLog';
 import { notifyEmployee } from '@/lib/notificationService';
@@ -22,7 +23,6 @@ import { TABLES } from '@/lib/supabaseTables';
 import { formatDateTime, toNumber } from '@/lib/utils';
 import { BRANCHES, POINT_REASONS } from '@/lib/constants';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
-import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices } from '@/lib/staffFallback';
 import { persistPointsTransaction } from '@/lib/pointsPersistence';
 import { transitionEmployeeTransaction } from '@/services/employeeTransactionService';
@@ -38,17 +38,6 @@ import {
   pointRecordStatus,
 } from '@/lib/pointsLedger';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
-
-interface StaffMember {
-  id: string;
-  name: string;
-  role: string;
-  branch: string;
-  points: number | null;
-  max_points: number | null;
-}
 
 interface PointRecord {
   id: string;
@@ -170,8 +159,6 @@ const EMPTY_FORM = {
   status: 'approved' as RecordStatus,
 };
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
 function recordStatus(r: PointRecord): RecordStatus {
   const status = pointRecordStatus(r);
   if (status === 'pending') return 'pending';
@@ -203,14 +190,11 @@ function statusMeta(s: RecordStatus): { label: string; cls: string } {
   return { label: 'مرفوض', cls: 'badge-danger' };
 }
 
-// ─── Component ─────────────────────────────────────────────────────────────
-
 export default function PenaltyIncentiveManagement() {
   const { user, canManage } = useAuth();
   const navigate = useNavigate();
   const cycle = getCurrentCycle();
 
-  // ── UI state ──
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [branchFilter, setBranchFilter] = useState('الكل');
@@ -222,13 +206,7 @@ export default function PenaltyIncentiveManagement() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [selectedRecord, setSelectedRecord] = useState<PointRecord | null>(null);
 
-  // ── Data queries ──
-  const { data: staffList, refetch: refetchStaff } = useSupabaseQuery<StaffMember>({
-    table: TABLES.staff,
-    filters: isActiveStaffFilter(),
-    orderBy: { column: 'name', ascending: true },
-    realtimeEnabled: false,
-  });
+  const { data: staffDirectory = [] } = useStaffDirectory();
 
   const {
     data: records,
@@ -241,8 +219,15 @@ export default function PenaltyIncentiveManagement() {
     realtimeEnabled: true,
   });
 
-  // ── Derived data ──
-  const staffChoices = useMemo(() => mergeStaffChoices(staffList), [staffList]);
+  const staffChoices = useMemo(
+    () =>
+      mergeStaffChoices(
+        staffDirectory.filter(
+          (staff) => staff.source !== 'alias' && staff.active && Boolean(staff.id) && Boolean(staff.name)
+        )
+      ),
+    [staffDirectory]
+  );
 
   const canonicalRecords = useMemo(
     () =>
@@ -319,7 +304,6 @@ export default function PenaltyIncentiveManagement() {
     }));
   };
 
-  // ── Save handler ──
   const handleSave = async () => {
     if (!form.employeeId || !selectedStaff) {
       toast.error('اختر موظفاً أولًا');
@@ -425,13 +409,11 @@ export default function PenaltyIncentiveManagement() {
       setShowModal(false);
       setForm({ ...EMPTY_FORM });
       refetchRecords();
-      refetchStaff();
     } finally {
       setSaving(false);
     }
   };
 
-  // ── Approve / reject ──
   const handleApprove = async (row: PointRecord, approve: boolean) => {
     if (!canManage) return;
     const nextStatus: RecordStatus = approve ? 'approved' : 'rejected';
@@ -486,7 +468,6 @@ export default function PenaltyIncentiveManagement() {
 
     toast.success(approve ? 'تم الاعتماد' : 'تم الرفض');
     refetchRecords();
-    refetchStaff();
   };
 
   const handleSetPending = async (row: PointRecord) => {
@@ -557,14 +538,10 @@ export default function PenaltyIncentiveManagement() {
 
     toast.success('تم إلغاء السجل مع الاحتفاظ به في سجل المراجعة');
     refetchRecords();
-    refetchStaff();
   };
-
-  // ── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-5 animate-fade-in">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center gap-3">
         <div className="flex-1">
           <h1 className="section-title text-xl">إدارة الجزاءات والحوافز</h1>
@@ -588,7 +565,6 @@ export default function PenaltyIncentiveManagement() {
         )}
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="stat-card text-center">
           <TrendingUp className="mx-auto text-teal-400 mb-1" size={22} />
@@ -612,7 +588,6 @@ export default function PenaltyIncentiveManagement() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-2">
         <select
           value={branchFilter}
@@ -655,7 +630,6 @@ export default function PenaltyIncentiveManagement() {
         />
       </div>
 
-      {/* Table */}
       {recLoading ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
@@ -828,7 +802,6 @@ export default function PenaltyIncentiveManagement() {
         />
       )}
 
-      {/* Add Modal */}
       {showModal && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
@@ -838,7 +811,6 @@ export default function PenaltyIncentiveManagement() {
             className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal header */}
             <div className="flex items-center justify-between">
               <h2 className="text-white font-bold text-lg">إضافة جزاء أو حافز</h2>
               <button
@@ -850,7 +822,6 @@ export default function PenaltyIncentiveManagement() {
               </button>
             </div>
 
-            {/* Employee */}
             <div>
               <label className="text-slate-400 text-xs mb-1 block">اختر الموظف</label>
               <select
@@ -867,7 +838,6 @@ export default function PenaltyIncentiveManagement() {
               </select>
             </div>
 
-            {/* Type toggle */}
             <div>
               <label className="text-slate-400 text-xs mb-1 block">النوع</label>
               <div className="flex gap-2">
@@ -890,7 +860,6 @@ export default function PenaltyIncentiveManagement() {
               </div>
             </div>
 
-            {/* Points */}
             <div>
               <label className="text-slate-400 text-xs mb-1 block">القيمة بالنقاط</label>
               <input
@@ -908,7 +877,6 @@ export default function PenaltyIncentiveManagement() {
               />
             </div>
 
-            {/* Reason */}
             <div className="space-y-3">
               <label className="text-slate-400 text-xs block">سبب الخصم / المكافأة</label>
               <div className="rounded-xl border border-[#2d4063] bg-white/5 p-3 space-y-3">
@@ -973,7 +941,6 @@ export default function PenaltyIncentiveManagement() {
               </div>
             </div>
 
-            {/* Notes */}
             <div>
               <label className="text-slate-400 text-xs mb-1 block">ملاحظات (اختياري)</label>
               <textarea
@@ -985,7 +952,6 @@ export default function PenaltyIncentiveManagement() {
               />
             </div>
 
-            {/* Status — managers only */}
             {canManage && (
               <div>
                 <label className="text-slate-400 text-xs mb-1 block">الحالة</label>
@@ -1006,7 +972,6 @@ export default function PenaltyIncentiveManagement() {
               </div>
             )}
 
-            {/* Actions */}
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
