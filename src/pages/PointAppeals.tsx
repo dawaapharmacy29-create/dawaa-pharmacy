@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { ShieldAlert, Send, CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import { useAuth } from '@/hooks/useAuth';
@@ -32,6 +33,8 @@ interface PointAppeal {
 interface AppealablePenalty {
   id: string;
   staff_id: string;
+  employee_id?: string | null;
+  type?: string | null;
   reason: string;
   points: number;
   points_delta?: number | null;
@@ -75,18 +78,26 @@ export default function PointAppeals() {
     realtimeEnabled: managerView,
   });
 
-  const { data: recentPenalties = [] } = useSupabaseQuery<AppealablePenalty>({
-    table: TABLES.employeeTransactions,
-    filters: staffId
-      ? [
-          { column: 'staff_id', operator: 'eq', value: staffId },
-          { column: 'type', operator: 'eq', value: 'penalty' },
-          { column: 'created_at', operator: 'gte', value: daysAgo(POINT_APPEAL_WINDOW_DAYS) },
-        ]
-      : [],
-    orderBy: { column: 'created_at', ascending: false },
+  const appealWindowStart = useMemo(() => daysAgo(POINT_APPEAL_WINDOW_DAYS), []);
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const { data: recentTransactions = [] } = useEmployeeTransactions<AppealablePenalty>({
+    startDate: appealWindowStart.slice(0, 10),
+    endDate: today,
     realtimeEnabled: false,
   });
+  const recentPenalties = useMemo(
+    () =>
+      recentTransactions.filter((row) => {
+        const rowStaffId = String(row.staff_id || row.employee_id || '');
+        return (
+          Boolean(staffId) &&
+          rowStaffId === staffId &&
+          row.type === 'penalty' &&
+          new Date(row.created_at).getTime() >= new Date(appealWindowStart).getTime()
+        );
+      }),
+    [appealWindowStart, recentTransactions, staffId]
+  );
 
   const appealedTransactionIds = useMemo(
     () => new Set(myAppeals.map((a) => a.point_record_id).filter(Boolean)),
